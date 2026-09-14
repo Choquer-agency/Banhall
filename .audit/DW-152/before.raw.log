@@ -1,0 +1,145 @@
+# BEFORE (rerun with final test bytes): HEAD=611cbcb24504acba7e3d7e3bd1799a53de9dd74b; convex/generations.ts and convex/ai/orderedGeneration.ts identical to HEAD
+# test sha256: d75cccce4a3e16f78a291f0c13eb3572d6bd731e55c600fe0a45523526877a3e  convex/ai/brief.test.ts 65f5285549b635b18477f1d663d6ab19f8398e891eebd2a7998464597b2ab9af  convex/ai/promptProgram.test.ts 
+ convex/ai/brief.test.ts         | 150 ++++++++++++++++++++++++++++++++++++++++
+ convex/ai/promptProgram.test.ts | 119 +++++++++++++++++++++++++++++++
+ 2 files changed, 269 insertions(+)
+
+ RUN  v4.1.10 /Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a
+
+ ❯ |convex| convex/ai/brief.test.ts (42 tests | 3 failed | 39 skipped) 1639ms
+     × omits a byte-heavy Brief under the row bound that exceeds the transaction read limit from both prompt readers instead of throwing (DW-152) 682ms
+     × omits a Brief past the consumer byte budget even where the transaction read limit would allow the read (DW-152) 799ms
+     × reads a large Brief just under the consumer byte budget completely in both readers (DW-152 boundary) 156ms
+stderr | convex/ai/promptProgram.test.ts > the Brief a section is drafted with and checked against > omits a byte-heavy Brief from the ordered chain under enforced transaction limits: every section drafts, none is left queued (DW-152)
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/promptProgram.test.ts > the Brief a section is drafted with and checked against > omits a byte-heavy Brief from the ordered chain under enforced transaction limits: every section drafts, none is left queued (DW-152)
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/promptProgram.test.ts > the Brief a section is drafted with and checked against > omits a byte-heavy Brief from the ordered chain under enforced transaction limits: every section drafts, none is left queued (DW-152)
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/promptProgram.test.ts > the Brief a section is drafted with and checked against > omits a byte-heavy Brief from the ordered chain under enforced transaction limits: every section drafts, none is left queued (DW-152)
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/promptProgram.test.ts > the Brief a section is drafted with and checked against > omits a byte-heavy Brief from iterative's own section and from its one-shot ghost under enforced transaction limits (DW-152)
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/promptProgram.test.ts > the Brief a section is drafted with and checked against > omits a byte-heavy Brief from iterative's own section and from its one-shot ghost under enforced transaction limits (DW-152)
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/promptProgram.test.ts > the Brief a section is drafted with and checked against > omits a byte-heavy Brief from iterative's own section and from its one-shot ghost under enforced transaction limits (DW-152)
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/promptProgram.test.ts > the Brief a section is drafted with and checked against > omits a byte-heavy Brief from iterative's own section and from its one-shot ghost under enforced transaction limits (DW-152)
+brain search failed; returning no exemplars {}
+
+ ❯ |convex| convex/ai/promptProgram.test.ts (24 tests | 2 failed | 22 skipped) 1598ms
+     × omits a byte-heavy Brief from the ordered chain under enforced transaction limits: every section drafts, none is left queued (DW-152) 1218ms
+     × omits a byte-heavy Brief from iterative's own section and from its one-shot ghost under enforced transaction limits (DW-152) 378ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 5 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |convex| convex/ai/brief.test.ts > Generation Brief read completeness and diff baseline (DW-107/DW-118) > omits a byte-heavy Brief under the row bound that exceeds the transaction read limit from both prompt readers instead of throwing (DW-152)
+Error: Read too much data in a single function execution (limit: 16777216 bytes). This is a Convex limit: https://docs.convex.dev/production/state/limits
+ ❯ performAsyncSyscall node_modules/convex/src/server/impl/syscall.ts:52:10
+ ❯ QueryImpl.next node_modules/convex/src/server/impl/query_impl.ts:264:28
+ ❯ QueryImpl.collect node_modules/convex/src/server/impl/query_impl.ts:317:21
+ ❯ readBriefEntryRowsOrOmit convex/generations.ts:1642:16
+    1640|   briefId: Id<"generationBriefs">
+    1641| ) {
+    1642|   const rows = await ctx.db
+       |                ^
+    1643|     .query("generationBriefEntries")
+    1644|     .withIndex("by_briefId", (q) => q.eq("briefId", briefId))
+ ❯ handler convex/generations.ts:2105:21
+ ❯ invokeFunction node_modules/convex/src/server/impl/registration_impl.ts:90:13
+ ❯ invokeQuery node_modules/convex/src/server/impl/registration_impl.ts:350:17
+ ❯ runQueryWithHandler node_modules/convex-test/dist/index.js:1595:31
+ ❯ Object.queryFromPath node_modules/convex-test/dist/index.js:1649:32
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/5]⎯
+
+ FAIL  |convex| convex/ai/brief.test.ts > Generation Brief read completeness and diff baseline (DW-107/DW-118) > omits a Brief past the consumer byte budget even where the transaction read limit would allow the read (DW-152)
+AssertionError: expected { renderedBytes: 8402970, …(1) } to deeply equal { renderedBytes: +0, …(1) }
+
+- Expected
++ Received
+
+  {
+-   "briefOmitted": true,
+-   "renderedBytes": 0,
++   "briefOmitted": false,
++   "renderedBytes": 8402970,
+  }
+
+ ❯ convex/ai/brief.test.ts:1902:96
+    1900|       const omitted = await readBothConsumers(t, generationId);
+    1901|       // Summarised so a failure prints sizes, not megabytes of row te…
+    1902|       expect({ renderedBytes: omitted.rendered.length, briefOmitted: o…
+       |                                                                                                ^
+    1903|         renderedBytes: 0,
+    1904|         briefOmitted: true,
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/5]⎯
+
+ FAIL  |convex| convex/ai/brief.test.ts > Generation Brief read completeness and diff baseline (DW-107/DW-118) > reads a large Brief just under the consumer byte budget completely in both readers (DW-152 boundary)
+TypeError: expected value must be number or bigint, received "undefined"
+ ❯ convex/ai/brief.test.ts:1937:46
+    1935|     // Rows plus a generous per-document overhead stay under the budge…
+    1936|     // this is the "just under" side of it.
+    1937|     expect(ROWS * (HEAVY_TEXT_BYTES + 1024)).toBeLessThan(BRIEF_CONSUM…
+       |                                              ^
+    1938|     expect(ROWS * HEAVY_TEXT_BYTES).toBeGreaterThan(BRIEF_CONSUMER_REA…
+    1939|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/5]⎯
+
+ FAIL  |convex| convex/ai/promptProgram.test.ts > the Brief a section is drafted with and checked against > omits a byte-heavy Brief from the ordered chain under enforced transaction limits: every section drafts, none is left queued (DW-152)
+Error: Read too much data in a single function execution (limit: 16777216 bytes). This is a Convex limit: https://docs.convex.dev/production/state/limits
+ ❯ performAsyncSyscall node_modules/convex/src/server/impl/syscall.ts:52:10
+ ❯ QueryImpl.next node_modules/convex/src/server/impl/query_impl.ts:264:28
+ ❯ QueryImpl.collect node_modules/convex/src/server/impl/query_impl.ts:317:21
+ ❯ readBriefEntryRowsOrOmit convex/generations.ts:1642:16
+    1640|   briefId: Id<"generationBriefs">
+    1641| ) {
+    1642|   const rows = await ctx.db
+       |                ^
+    1643|     .query("generationBriefEntries")
+    1644|     .withIndex("by_briefId", (q) => q.eq("briefId", briefId))
+ ❯ loadBriefCheck convex/generations.ts:4050:16
+ ❯ handler convex/generations.ts:4123:35
+ ❯ invokeFunction node_modules/convex/src/server/impl/registration_impl.ts:90:13
+ ❯ invokeMutation node_modules/convex/src/server/impl/registration_impl.ts:70:17
+ ❯ runMutationWithHandler node_modules/convex-test/dist/index.js:1562:31
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/5]⎯
+
+ FAIL  |convex| convex/ai/promptProgram.test.ts > the Brief a section is drafted with and checked against > omits a byte-heavy Brief from iterative's own section and from its one-shot ghost under enforced transaction limits (DW-152)
+AssertionError: expected [] to deeply equal [ '242' ]
+
+- Expected
++ Received
+
+- [
+-   "242",
+- ]
++ []
+
+ ❯ convex/ai/promptProgram.test.ts:1221:48
+    1219|     await runJob(t, sectionJob);
+    1220|     const sectionPrompts = firstDraftPrompts();
+    1221|     expect(sectionPrompts.map(draftSectionOf)).toEqual(["242"]);
+       |                                                ^
+    1222|     expect(sectionPrompts[0]).not.toContain(BRIEF_BLOCK_MARKER);
+    1223|     expect(sectionPrompts[0]).not.toContain(BYTE_HEAVY_ENTRY_TEXT);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/5]⎯
+
+
+ Test Files  2 failed (2)
+      Tests  5 failed | 61 skipped (66)
+   Start at  11:31:20
+   Duration  2.84s (transform 1.69s, setup 0ms, import 1.80s, tests 3.24s, environment 132ms)
+
+EXIT=1

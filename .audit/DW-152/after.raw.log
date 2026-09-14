@@ -1,0 +1,63 @@
+# AFTER: HEAD=611cbcb24504acba7e3d7e3bd1799a53de9dd74b + working-tree fix; generations.ts sha256 6333c627515e4bc35aab129b72f7b16bedbcce5e935981a25ad60b5be0b1b525  convex/generations.ts
+# test sha256: d75cccce4a3e16f78a291f0c13eb3572d6bd731e55c600fe0a45523526877a3e  convex/ai/brief.test.ts 65f5285549b635b18477f1d663d6ab19f8398e891eebd2a7998464597b2ab9af  convex/ai/promptProgram.test.ts 
+ convex/ai/brief.test.ts         | 150 ++++++++++++++++++++++++++++++++++++++++
+ convex/ai/promptProgram.test.ts | 119 +++++++++++++++++++++++++++++++
+ convex/generations.ts           |  52 ++++++++++++--
+ 3 files changed, 315 insertions(+), 6 deletions(-)
+
+ RUN  v4.1.10 /Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a
+
+stderr | convex/ai/promptProgram.test.ts > the Brief a section is drafted with and checked against > omits a byte-heavy Brief from the ordered chain under enforced transaction limits: every section drafts, none is left queued (DW-152)
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/promptProgram.test.ts > the Brief a section is drafted with and checked against > omits a byte-heavy Brief from the ordered chain under enforced transaction limits: every section drafts, none is left queued (DW-152)
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/promptProgram.test.ts > the Brief a section is drafted with and checked against > omits a byte-heavy Brief from the ordered chain under enforced transaction limits: every section drafts, none is left queued (DW-152)
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/promptProgram.test.ts > the Brief a section is drafted with and checked against > omits a byte-heavy Brief from the ordered chain under enforced transaction limits: every section drafts, none is left queued (DW-152)
+brain search failed; returning no exemplars {}
+
+ ✓ |convex| convex/ai/brief.test.ts > Generation Brief read completeness and diff baseline (DW-107/DW-118) > omits a byte-heavy Brief under the row bound that exceeds the transaction read limit from both prompt readers instead of throwing (DW-152) 358ms
+stderr | convex/ai/promptProgram.test.ts > the Brief a section is drafted with and checked against > omits a byte-heavy Brief from the ordered chain under enforced transaction limits: every section drafts, none is left queued (DW-152)
+Generation Brief omitted from generation 000000000000000010003generations: Brief 0000000000010017generationBriefs cannot be read completely within 4194304 bytes
+
+stderr | convex/ai/promptProgram.test.ts > the Brief a section is drafted with and checked against > omits a byte-heavy Brief from the ordered chain under enforced transaction limits: every section drafts, none is left queued (DW-152)
+Generation Brief omitted from generation 000000000000000010003generations: Brief 0000000000010017generationBriefs cannot be read completely within 4194304 bytes
+
+stderr | convex/ai/promptProgram.test.ts > the Brief a section is drafted with and checked against > omits a byte-heavy Brief from the ordered chain under enforced transaction limits: every section drafts, none is left queued (DW-152)
+Generation Brief omitted from generation 000000000000000010003generations: Brief 0000000000010017generationBriefs cannot be read completely within 4194304 bytes
+
+ ✓ |convex| convex/ai/brief.test.ts > Generation Brief read completeness and diff baseline (DW-107/DW-118) > omits a Brief past the consumer byte budget even where the transaction read limit would allow the read (DW-152) 137ms
+ ✓ |convex| convex/ai/brief.test.ts > Generation Brief read completeness and diff baseline (DW-107/DW-118) > reads a large Brief just under the consumer byte budget completely in both readers (DW-152 boundary) 117ms
+stderr | convex/ai/promptProgram.test.ts > the Brief a section is drafted with and checked against > omits a byte-heavy Brief from the ordered chain under enforced transaction limits: every section drafts, none is left queued (DW-152)
+Generation Brief omitted from generation 000000000000000010003generations: Brief 0000000000010017generationBriefs cannot be read completely within 4194304 bytes
+
+stderr | convex/ai/promptProgram.test.ts > the Brief a section is drafted with and checked against > omits a byte-heavy Brief from iterative's own section and from its one-shot ghost under enforced transaction limits (DW-152)
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/promptProgram.test.ts > the Brief a section is drafted with and checked against > omits a byte-heavy Brief from iterative's own section and from its one-shot ghost under enforced transaction limits (DW-152)
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/promptProgram.test.ts > the Brief a section is drafted with and checked against > omits a byte-heavy Brief from iterative's own section and from its one-shot ghost under enforced transaction limits (DW-152)
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/promptProgram.test.ts > the Brief a section is drafted with and checked against > omits a byte-heavy Brief from iterative's own section and from its one-shot ghost under enforced transaction limits (DW-152)
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/promptProgram.test.ts > the Brief a section is drafted with and checked against > omits a byte-heavy Brief from iterative's own section and from its one-shot ghost under enforced transaction limits (DW-152)
+Generation Brief omitted from generation 000000000000000010003generations: Brief 0000000000010021generationBriefs cannot be read completely within 4194304 bytes
+
+stderr | convex/ai/promptProgram.test.ts > the Brief a section is drafted with and checked against > omits a byte-heavy Brief from iterative's own section and from its one-shot ghost under enforced transaction limits (DW-152)
+Generation Brief omitted from generation 000000000000000010003generations: Brief 0000000000010021generationBriefs cannot be read completely within 4194304 bytes
+
+ ✓ |convex| convex/ai/promptProgram.test.ts > the Brief a section is drafted with and checked against > omits a byte-heavy Brief from the ordered chain under enforced transaction limits: every section drafts, none is left queued (DW-152) 491ms
+ ✓ |convex| convex/ai/promptProgram.test.ts > the Brief a section is drafted with and checked against > omits a byte-heavy Brief from iterative's own section and from its one-shot ghost under enforced transaction limits (DW-152) 223ms
+
+ Test Files  2 passed (2)
+      Tests  5 passed | 61 skipped (66)
+   Start at  11:34:51
+   Duration  1.99s (transform 1.43s, setup 0ms, import 1.81s, tests 1.33s, environment 178ms)
+
+EXIT=0

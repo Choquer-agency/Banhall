@@ -1,0 +1,1774 @@
+# FOCUSED: HEAD=611cbcb24504acba7e3d7e3bd1799a53de9dd74b + working-tree fix; generations.ts sha256 6333c627515e4bc35aab129b72f7b16bedbcce5e935981a25ad60b5be0b1b525  convex/generations.ts
+
+ RUN  v4.1.10 /Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a
+
+stderr | convex/briefs.test.ts > briefs reads (story 4) > returns null to an outsider
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/selfCheck.test.ts > Self-check before display (CAP-9) > an excluded claim triggers exactly one repair and the row records repaired: true
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/selfCheck.test.ts > Self-check before display (CAP-9) > an excluded claim triggers exactly one repair and the row records repaired: true
+brain search failed; returning no exemplars {}
+
+stderr | convex/briefs.test.ts > briefs reads (story 4) > returns null to an outsider
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/selfCheck.test.ts > Self-check before display (CAP-9) > an excluded claim triggers exactly one repair and the row records repaired: true
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/selfCheck.test.ts > Self-check before display (CAP-9) > an excluded claim triggers exactly one repair and the row records repaired: true
+brain search failed; returning no exemplars {}
+
+stderr | convex/briefs.test.ts > briefs reads (story 4) > returns null to an outsider
+brain search failed; returning no exemplars {}
+
+stderr | convex/briefs.test.ts > briefs reads (story 4) > returns null to an outsider
+brain search failed; returning no exemplars {}
+
+stderr | convex/briefs.test.ts > briefs reads (story 4) > answers a Brief that does not exist exactly as it answers an outsider
+brain search failed; returning no exemplars {}
+
+stderr | convex/briefs.test.ts > briefs reads (story 4) > answers a Brief that does not exist exactly as it answers an outsider
+brain search failed; returning no exemplars {}
+
+stderr | convex/briefs.test.ts > briefs reads (story 4) > answers a Brief that does not exist exactly as it answers an outsider
+brain search failed; returning no exemplars {}
+
+stderr | convex/briefs.test.ts > briefs reads (story 4) > answers a Brief that does not exist exactly as it answers an outsider
+brain search failed; returning no exemplars {}
+
+stderr | convex/briefs.test.ts > briefs reads (story 4) > returns the generation's own version, with sources joined and canEdit
+brain search failed; returning no exemplars {}
+
+stderr | convex/briefs.test.ts > briefs reads (story 4) > returns the generation's own version, with sources joined and canEdit
+brain search failed; returning no exemplars {}
+
+stderr | convex/briefs.test.ts > briefs reads (story 4) > returns the generation's own version, with sources joined and canEdit
+brain search failed; returning no exemplars {}
+
+stderr | convex/briefs.test.ts > briefs reads (story 4) > returns the generation's own version, with sources joined and canEdit
+brain search failed; returning no exemplars {}
+
+stderr | convex/briefs.test.ts > briefs reads (story 4) > canEdit is false for a user lacking report.editProse on the project
+brain search failed; returning no exemplars {}
+
+stderr | convex/briefs.test.ts > briefs reads (story 4) > canEdit is false for a user lacking report.editProse on the project
+brain search failed; returning no exemplars {}
+
+stderr | convex/briefs.test.ts > briefs reads (story 4) > canEdit is false for a user lacking report.editProse on the project
+brain search failed; returning no exemplars {}
+
+stderr | convex/briefs.test.ts > briefs reads (story 4) > canEdit is false for a user lacking report.editProse on the project
+brain search failed; returning no exemplars {}
+
+stderr | convex/briefs.test.ts > briefs.saveEntryEdit (story 4) > edits the Storyline verbatim as a new version, and getBrief then shows that version
+brain search failed; returning no exemplars {}
+
+stderr | convex/briefs.test.ts > briefs.saveEntryEdit (story 4) > edits the Storyline verbatim as a new version, and getBrief then shows that version
+brain search failed; returning no exemplars {}
+
+stderr | convex/briefs.test.ts > briefs.saveEntryEdit (story 4) > edits the Storyline verbatim as a new version, and getBrief then shows that version
+brain search failed; returning no exemplars {}
+
+stderr | convex/briefs.test.ts > briefs.saveEntryEdit (story 4) > edits the Storyline verbatim as a new version, and getBrief then shows that version
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/selfCheck.test.ts > Self-check before display (CAP-9) > an off-glossary synonym is repaired to the Glossary Term
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/selfCheck.test.ts > Self-check before display (CAP-9) > an off-glossary synonym is repaired to the Glossary Term
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/selfCheck.test.ts > Self-check before display (CAP-9) > an off-glossary synonym is repaired to the Glossary Term
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/selfCheck.test.ts > Self-check before display (CAP-9) > an off-glossary synonym is repaired to the Glossary Term
+brain search failed; returning no exemplars {}
+
+ ✓ |convex| convex/briefs.test.ts > briefs reads (story 4) > returns null to an outsider 602ms
+ ✓ |convex| convex/briefs.test.ts > briefs reads (story 4) > answers a Brief that does not exist exactly as it answers an outsider 16ms
+ ✓ |convex| convex/briefs.test.ts > briefs reads (story 4) > returns the generation's own version, with sources joined and canEdit 21ms
+ ✓ |convex| convex/briefs.test.ts > briefs reads (story 4) > canEdit is false for a user lacking report.editProse on the project 35ms
+stderr | convex/briefs.test.ts > briefs.saveEntryEdit (story 4) > supplying a Storyline into an empty one records origin writer; empty text is rejected
+brain search failed; returning no exemplars {}
+
+stderr | convex/briefs.test.ts > briefs.saveEntryEdit (story 4) > supplying a Storyline into an empty one records origin writer; empty text is rejected
+brain search failed; returning no exemplars {}
+
+stderr | convex/briefs.test.ts > briefs.saveEntryEdit (story 4) > supplying a Storyline into an empty one records origin writer; empty text is rejected
+brain search failed; returning no exemplars {}
+
+stderr | convex/briefs.test.ts > briefs.saveEntryEdit (story 4) > supplying a Storyline into an empty one records origin writer; empty text is rejected
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/selfCheck.test.ts > Self-check before display (CAP-9) > a whole-section verdict (paragraph 0) is not confused with a paragraph-1 verdict
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/selfCheck.test.ts > Self-check before display (CAP-9) > a whole-section verdict (paragraph 0) is not confused with a paragraph-1 verdict
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/selfCheck.test.ts > Self-check before display (CAP-9) > a whole-section verdict (paragraph 0) is not confused with a paragraph-1 verdict
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/selfCheck.test.ts > Self-check before display (CAP-9) > a whole-section verdict (paragraph 0) is not confused with a paragraph-1 verdict
+brain search failed; returning no exemplars {}
+
+stderr | convex/briefs.test.ts > briefs.saveEntryEdit (story 4) > editing a claim copies it with edited: true and leaves storylineText and the reason chip
+brain search failed; returning no exemplars {}
+
+stderr | convex/briefs.test.ts > briefs.saveEntryEdit (story 4) > editing a claim copies it with edited: true and leaves storylineText and the reason chip
+brain search failed; returning no exemplars {}
+
+stderr | convex/briefs.test.ts > briefs.saveEntryEdit (story 4) > editing a claim copies it with edited: true and leaves storylineText and the reason chip
+brain search failed; returning no exemplars {}
+
+stderr | convex/briefs.test.ts > briefs.saveEntryEdit (story 4) > editing a claim copies it with edited: true and leaves storylineText and the reason chip
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/selfCheck.test.ts > Self-check before display (CAP-9) > an s242 cap breach gets one repair; a repair that still breaches is recorded not_applied with the word count
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/selfCheck.test.ts > Self-check before display (CAP-9) > an s242 cap breach gets one repair; a repair that still breaches is recorded not_applied with the word count
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/selfCheck.test.ts > Self-check before display (CAP-9) > an s242 cap breach gets one repair; a repair that still breaches is recorded not_applied with the word count
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/selfCheck.test.ts > Self-check before display (CAP-9) > an s242 cap breach gets one repair; a repair that still breaches is recorded not_applied with the word count
+brain search failed; returning no exemplars {}
+
+stderr | convex/briefs.test.ts > briefs.saveEntryEdit (story 4) > editing a claim copies it with edited: true and leaves storylineText and the reason chip
+submit_qa_scorecard: tool output failed validation [{"expected":"number","code":"invalid_type","path":["overall_score"],"message":"Invalid input: expected number, received undefined"}]
+
+stderr | convex/briefs.test.ts > briefs.saveEntryEdit (story 4) > editing a claim copies it with edited: true and leaves storylineText and the reason chip
+submit_qa_scorecard: tool output failed validation [{"expected":"number","code":"invalid_type","path":["overall_score"],"message":"Invalid input: expected number, received undefined"}]
+
+stderr | convex/briefs.test.ts > briefs.saveEntryEdit (story 4) > editing a claim copies it with edited: true and leaves storylineText and the reason chip
+QA scorecard failed; continuing without it Error: submit_qa_scorecard: model returned an unexpected shape — overall_score: Invalid input: expected number, received undefined
+    at generateStructured (/Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/convex/ai/structured.ts:167:11)
+    at runNextTicks (node:internal/process/task_queues:64:5)
+    at listOnTimeout (node:internal/timers:547:9)
+    at processTimers (node:internal/timers:521:7)
+    at runQAAgent (/Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/convex/ai/qaAgent.ts:121:10)
+    at async Promise.allSettled (index 0)
+    at handler (/Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/convex/ai/orderedGeneration.ts:466:46)
+    at invokeFunction (file:///Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/node_modules/convex/dist/esm/server/impl/registration_impl.js:56:14)
+    at invokeAction (file:///Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/node_modules/convex/dist/esm/server/impl/registration_impl.js:202:18)
+    at file:///Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/node_modules/convex-test/dist/index.js:1631:35
+
+stderr | convex/briefs.test.ts > briefs.saveEntryEdit (story 4) > editing a claim copies it with edited: true and leaves storylineText and the reason chip
+submit_qa_scorecard: tool output failed validation [{"expected":"number","code":"invalid_type","path":["overall_score"],"message":"Invalid input: expected number, received undefined"}]
+
+stderr | convex/briefs.test.ts > briefs.saveEntryEdit (story 4) > editing a claim copies it with edited: true and leaves storylineText and the reason chip
+submit_qa_scorecard: tool output failed validation [{"expected":"number","code":"invalid_type","path":["overall_score"],"message":"Invalid input: expected number, received undefined"}]
+
+stderr | convex/briefs.test.ts > briefs.saveEntryEdit (story 4) > editing a claim copies it with edited: true and leaves storylineText and the reason chip
+QA scorecard failed; continuing without it Error: submit_qa_scorecard: model returned an unexpected shape — overall_score: Invalid input: expected number, received undefined
+    at generateStructured (/Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/convex/ai/structured.ts:167:11)
+    at runNextTicks (node:internal/process/task_queues:64:5)
+    at listOnTimeout (node:internal/timers:547:9)
+    at processTimers (node:internal/timers:521:7)
+    at runQAAgent (/Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/convex/ai/qaAgent.ts:121:10)
+    at async Promise.allSettled (index 0)
+    at handler (/Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/convex/ai/orderedGeneration.ts:466:46)
+    at invokeFunction (file:///Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/node_modules/convex/dist/esm/server/impl/registration_impl.js:56:14)
+    at invokeAction (file:///Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/node_modules/convex/dist/esm/server/impl/registration_impl.js:202:18)
+    at file:///Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/node_modules/convex-test/dist/index.js:1631:35
+
+ ✓ |convex| convex/ai/selfCheck.test.ts > Self-check before display (CAP-9) > an excluded claim triggers exactly one repair and the row records repaired: true 556ms
+ ✓ |convex| convex/ai/selfCheck.test.ts > Self-check before display (CAP-9) > an off-glossary synonym is repaired to the Glossary Term 47ms
+ ✓ |convex| convex/ai/selfCheck.test.ts > Self-check before display (CAP-9) > a whole-section verdict (paragraph 0) is not confused with a paragraph-1 verdict 40ms
+stderr | convex/briefs.test.ts > briefs.saveEntryEdit (story 4) > use_evidence sets storylineText to the question's alternative and resolves it
+brain search failed; returning no exemplars {}
+
+stderr | convex/briefs.test.ts > briefs.saveEntryEdit (story 4) > use_evidence sets storylineText to the question's alternative and resolves it
+brain search failed; returning no exemplars {}
+
+stderr | convex/briefs.test.ts > briefs.saveEntryEdit (story 4) > use_evidence sets storylineText to the question's alternative and resolves it
+brain search failed; returning no exemplars {}
+
+stderr | convex/briefs.test.ts > briefs.saveEntryEdit (story 4) > use_evidence sets storylineText to the question's alternative and resolves it
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/selfCheck.test.ts > Self-check before display (CAP-9) > an unreliable fact stated flat: flat fails as missing_fact and the repair hedges it
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/selfCheck.test.ts > Self-check before display (CAP-9) > an unreliable fact stated flat: flat fails as missing_fact and the repair hedges it
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/selfCheck.test.ts > Self-check before display (CAP-9) > an unreliable fact stated flat: flat fails as missing_fact and the repair hedges it
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/selfCheck.test.ts > Self-check before display (CAP-9) > an unreliable fact stated flat: flat fails as missing_fact and the repair hedges it
+brain search failed; returning no exemplars {}
+
+stderr | convex/briefs.test.ts > briefs.saveEntryEdit (story 4) > use_evidence sets storylineText to the question's alternative and resolves it
+submit_qa_scorecard: tool output failed validation [{"expected":"number","code":"invalid_type","path":["overall_score"],"message":"Invalid input: expected number, received undefined"}]
+
+stderr | convex/briefs.test.ts > briefs.saveEntryEdit (story 4) > use_evidence sets storylineText to the question's alternative and resolves it
+submit_qa_scorecard: tool output failed validation [{"expected":"number","code":"invalid_type","path":["overall_score"],"message":"Invalid input: expected number, received undefined"}]
+
+stderr | convex/briefs.test.ts > briefs.saveEntryEdit (story 4) > use_evidence sets storylineText to the question's alternative and resolves it
+QA scorecard failed; continuing without it Error: submit_qa_scorecard: model returned an unexpected shape — overall_score: Invalid input: expected number, received undefined
+    at generateStructured (/Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/convex/ai/structured.ts:167:11)
+    at runNextTicks (node:internal/process/task_queues:64:5)
+    at listOnTimeout (node:internal/timers:547:9)
+    at processTimers (node:internal/timers:521:7)
+    at runQAAgent (/Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/convex/ai/qaAgent.ts:121:10)
+    at async Promise.allSettled (index 0)
+    at handler (/Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/convex/ai/orderedGeneration.ts:466:46)
+    at invokeFunction (file:///Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/node_modules/convex/dist/esm/server/impl/registration_impl.js:56:14)
+    at invokeAction (file:///Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/node_modules/convex/dist/esm/server/impl/registration_impl.js:202:18)
+    at file:///Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/node_modules/convex-test/dist/index.js:1631:35
+
+ ✓ |convex| convex/briefs.test.ts > briefs.saveEntryEdit (story 4) > edits the Storyline verbatim as a new version, and getBrief then shows that version 47ms
+ ✓ |convex| convex/briefs.test.ts > briefs.saveEntryEdit (story 4) > supplying a Storyline into an empty one records origin writer; empty text is rejected 46ms
+ ✓ |convex| convex/briefs.test.ts > briefs.saveEntryEdit (story 4) > editing a claim copies it with edited: true and leaves storylineText and the reason chip 44ms
+stderr | convex/briefs.test.ts > briefs.saveEntryEdit (story 4) > use_evidence into an empty Storyline is edited, never the writer's own
+brain search failed; returning no exemplars {}
+
+stderr | convex/briefs.test.ts > briefs.saveEntryEdit (story 4) > use_evidence into an empty Storyline is edited, never the writer's own
+brain search failed; returning no exemplars {}
+
+stderr | convex/briefs.test.ts > briefs.saveEntryEdit (story 4) > use_evidence into an empty Storyline is edited, never the writer's own
+brain search failed; returning no exemplars {}
+
+stderr | convex/briefs.test.ts > briefs.saveEntryEdit (story 4) > use_evidence into an empty Storyline is edited, never the writer's own
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/selfCheck.test.ts > Self-check before display (CAP-9) > an unreliable fact stated hedged: flat fails as missing_fact and the repair hedges it
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/selfCheck.test.ts > Self-check before display (CAP-9) > an unreliable fact stated hedged: flat fails as missing_fact and the repair hedges it
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/selfCheck.test.ts > Self-check before display (CAP-9) > an unreliable fact stated hedged: flat fails as missing_fact and the repair hedges it
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/selfCheck.test.ts > Self-check before display (CAP-9) > an unreliable fact stated hedged: flat fails as missing_fact and the repair hedges it
+brain search failed; returning no exemplars {}
+
+stderr | convex/briefs.test.ts > briefs.saveEntryEdit (story 4) > use_evidence into an empty Storyline is edited, never the writer's own
+submit_qa_scorecard: tool output failed validation [{"expected":"number","code":"invalid_type","path":["overall_score"],"message":"Invalid input: expected number, received undefined"}]
+
+stderr | convex/briefs.test.ts > briefs.saveEntryEdit (story 4) > use_evidence into an empty Storyline is edited, never the writer's own
+submit_qa_scorecard: tool output failed validation [{"expected":"number","code":"invalid_type","path":["overall_score"],"message":"Invalid input: expected number, received undefined"}]
+
+stderr | convex/briefs.test.ts > briefs.saveEntryEdit (story 4) > use_evidence into an empty Storyline is edited, never the writer's own
+QA scorecard failed; continuing without it Error: submit_qa_scorecard: model returned an unexpected shape — overall_score: Invalid input: expected number, received undefined
+    at generateStructured (/Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/convex/ai/structured.ts:167:11)
+    at runNextTicks (node:internal/process/task_queues:64:5)
+    at listOnTimeout (node:internal/timers:547:9)
+    at processTimers (node:internal/timers:521:7)
+    at runQAAgent (/Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/convex/ai/qaAgent.ts:121:10)
+    at async Promise.allSettled (index 0)
+    at handler (/Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/convex/ai/orderedGeneration.ts:466:46)
+    at invokeFunction (file:///Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/node_modules/convex/dist/esm/server/impl/registration_impl.js:56:14)
+    at invokeAction (file:///Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/node_modules/convex/dist/esm/server/impl/registration_impl.js:202:18)
+    at file:///Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/node_modules/convex-test/dist/index.js:1631:35
+
+stderr | convex/briefs.test.ts > briefs.saveEntryEdit (story 4) > keep_storyline resolves the question and leaves the Storyline
+brain search failed; returning no exemplars {}
+
+stderr | convex/briefs.test.ts > briefs.saveEntryEdit (story 4) > keep_storyline resolves the question and leaves the Storyline
+brain search failed; returning no exemplars {}
+
+stderr | convex/briefs.test.ts > briefs.saveEntryEdit (story 4) > keep_storyline resolves the question and leaves the Storyline
+brain search failed; returning no exemplars {}
+
+stderr | convex/briefs.test.ts > briefs.saveEntryEdit (story 4) > keep_storyline resolves the question and leaves the Storyline
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/selfCheck.test.ts > Self-check before display (CAP-9) > a failed repair leaves the paragraph-scoped row with its paragraphIndex and never repairs twice
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/selfCheck.test.ts > Self-check before display (CAP-9) > a failed repair leaves the paragraph-scoped row with its paragraphIndex and never repairs twice
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/selfCheck.test.ts > Self-check before display (CAP-9) > a failed repair leaves the paragraph-scoped row with its paragraphIndex and never repairs twice
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/selfCheck.test.ts > Self-check before display (CAP-9) > a failed repair leaves the paragraph-scoped row with its paragraphIndex and never repairs twice
+brain search failed; returning no exemplars {}
+
+stderr | convex/briefs.test.ts > briefs.saveEntryEdit (story 4) > keep_storyline resolves the question and leaves the Storyline
+submit_qa_scorecard: tool output failed validation [{"expected":"number","code":"invalid_type","path":["overall_score"],"message":"Invalid input: expected number, received undefined"}]
+
+stderr | convex/briefs.test.ts > briefs.saveEntryEdit (story 4) > keep_storyline resolves the question and leaves the Storyline
+submit_qa_scorecard: tool output failed validation [{"expected":"number","code":"invalid_type","path":["overall_score"],"message":"Invalid input: expected number, received undefined"}]
+
+stderr | convex/briefs.test.ts > briefs.saveEntryEdit (story 4) > keep_storyline resolves the question and leaves the Storyline
+QA scorecard failed; continuing without it Error: submit_qa_scorecard: model returned an unexpected shape — overall_score: Invalid input: expected number, received undefined
+    at generateStructured (/Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/convex/ai/structured.ts:167:11)
+    at runNextTicks (node:internal/process/task_queues:64:5)
+    at listOnTimeout (node:internal/timers:547:9)
+    at processTimers (node:internal/timers:521:7)
+    at runQAAgent (/Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/convex/ai/qaAgent.ts:121:10)
+    at async Promise.allSettled (index 0)
+    at handler (/Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/convex/ai/orderedGeneration.ts:466:46)
+    at invokeFunction (file:///Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/node_modules/convex/dist/esm/server/impl/registration_impl.js:56:14)
+    at invokeAction (file:///Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/node_modules/convex/dist/esm/server/impl/registration_impl.js:202:18)
+    at file:///Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/node_modules/convex-test/dist/index.js:1631:35
+
+stderr | convex/briefs.test.ts > briefs.saveEntryEdit (story 4) > an unchanged save inserts nothing and returns the current briefId
+brain search failed; returning no exemplars {}
+
+stderr | convex/briefs.test.ts > briefs.saveEntryEdit (story 4) > an unchanged save inserts nothing and returns the current briefId
+brain search failed; returning no exemplars {}
+
+stderr | convex/briefs.test.ts > briefs.saveEntryEdit (story 4) > an unchanged save inserts nothing and returns the current briefId
+brain search failed; returning no exemplars {}
+
+stderr | convex/briefs.test.ts > briefs.saveEntryEdit (story 4) > an unchanged save inserts nothing and returns the current briefId
+brain search failed; returning no exemplars {}
+
+ ✓ |convex| convex/ai/selfCheck.test.ts > Self-check before display (CAP-9) > an s242 cap breach gets one repair; a repair that still breaches is recorded not_applied with the word count 44ms
+ ✓ |convex| convex/ai/selfCheck.test.ts > Self-check before display (CAP-9) > an unreliable fact stated flat: flat fails as missing_fact and the repair hedges it 36ms
+ ✓ |convex| convex/ai/selfCheck.test.ts > Self-check before display (CAP-9) > an unreliable fact stated hedged: flat fails as missing_fact and the repair hedges it 34ms
+stderr | convex/ai/selfCheck.test.ts > Self-check before display (CAP-9) > a Storyline contradiction with stronger evidence raises one storylineQuestion and is never repaired
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/selfCheck.test.ts > Self-check before display (CAP-9) > a Storyline contradiction with stronger evidence raises one storylineQuestion and is never repaired
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/selfCheck.test.ts > Self-check before display (CAP-9) > a Storyline contradiction with stronger evidence raises one storylineQuestion and is never repaired
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/selfCheck.test.ts > Self-check before display (CAP-9) > a Storyline contradiction with stronger evidence raises one storylineQuestion and is never repaired
+brain search failed; returning no exemplars {}
+
+stderr | convex/briefs.test.ts > briefs.saveEntryEdit (story 4) > an unchanged save inserts nothing and returns the current briefId
+submit_qa_scorecard: tool output failed validation [{"expected":"number","code":"invalid_type","path":["overall_score"],"message":"Invalid input: expected number, received undefined"}]
+
+stderr | convex/briefs.test.ts > briefs.saveEntryEdit (story 4) > an unchanged save inserts nothing and returns the current briefId
+submit_qa_scorecard: tool output failed validation [{"expected":"number","code":"invalid_type","path":["overall_score"],"message":"Invalid input: expected number, received undefined"}]
+
+stderr | convex/briefs.test.ts > briefs.saveEntryEdit (story 4) > an unchanged save inserts nothing and returns the current briefId
+QA scorecard failed; continuing without it Error: submit_qa_scorecard: model returned an unexpected shape — overall_score: Invalid input: expected number, received undefined
+    at generateStructured (/Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/convex/ai/structured.ts:167:11)
+    at runNextTicks (node:internal/process/task_queues:64:5)
+    at listOnTimeout (node:internal/timers:547:9)
+    at processTimers (node:internal/timers:521:7)
+    at runQAAgent (/Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/convex/ai/qaAgent.ts:121:10)
+    at async Promise.allSettled (index 0)
+    at handler (/Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/convex/ai/orderedGeneration.ts:466:46)
+    at invokeFunction (file:///Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/node_modules/convex/dist/esm/server/impl/registration_impl.js:56:14)
+    at invokeAction (file:///Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/node_modules/convex/dist/esm/server/impl/registration_impl.js:202:18)
+    at file:///Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/node_modules/convex-test/dist/index.js:1631:35
+
+stderr | convex/briefs.test.ts > briefs.saveEntryEdit (story 4) > rejects empty entry text
+brain search failed; returning no exemplars {}
+
+stderr | convex/briefs.test.ts > briefs.saveEntryEdit (story 4) > rejects empty entry text
+brain search failed; returning no exemplars {}
+
+stderr | convex/briefs.test.ts > briefs.saveEntryEdit (story 4) > rejects empty entry text
+brain search failed; returning no exemplars {}
+
+stderr | convex/briefs.test.ts > briefs.saveEntryEdit (story 4) > rejects empty entry text
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/selfCheck.test.ts > Self-check before display (CAP-9) > every section failing its repair still completes the generation with all three sections flagged
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/selfCheck.test.ts > Self-check before display (CAP-9) > every section failing its repair still completes the generation with all three sections flagged
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/selfCheck.test.ts > Self-check before display (CAP-9) > every section failing its repair still completes the generation with all three sections flagged
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/selfCheck.test.ts > Self-check before display (CAP-9) > every section failing its repair still completes the generation with all three sections flagged
+brain search failed; returning no exemplars {}
+
+stderr | convex/briefs.test.ts > briefs.saveEntryEdit (story 4) > rejects empty entry text
+submit_qa_scorecard: tool output failed validation [{"expected":"number","code":"invalid_type","path":["overall_score"],"message":"Invalid input: expected number, received undefined"}]
+
+stderr | convex/briefs.test.ts > briefs.saveEntryEdit (story 4) > rejects empty entry text
+submit_qa_scorecard: tool output failed validation [{"expected":"number","code":"invalid_type","path":["overall_score"],"message":"Invalid input: expected number, received undefined"}]
+
+stderr | convex/briefs.test.ts > briefs.saveEntryEdit (story 4) > rejects empty entry text
+QA scorecard failed; continuing without it Error: submit_qa_scorecard: model returned an unexpected shape — overall_score: Invalid input: expected number, received undefined
+    at generateStructured (/Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/convex/ai/structured.ts:167:11)
+    at runNextTicks (node:internal/process/task_queues:64:5)
+    at listOnTimeout (node:internal/timers:547:9)
+    at processTimers (node:internal/timers:521:7)
+    at runQAAgent (/Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/convex/ai/qaAgent.ts:121:10)
+    at async Promise.allSettled (index 0)
+    at handler (/Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/convex/ai/orderedGeneration.ts:466:46)
+    at invokeFunction (file:///Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/node_modules/convex/dist/esm/server/impl/registration_impl.js:56:14)
+    at invokeAction (file:///Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/node_modules/convex/dist/esm/server/impl/registration_impl.js:202:18)
+    at file:///Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/node_modules/convex-test/dist/index.js:1631:35
+
+ ✓ |convex| convex/briefs.test.ts > briefs.saveEntryEdit (story 4) > use_evidence sets storylineText to the question's alternative and resolves it 37ms
+ ✓ |convex| convex/briefs.test.ts > briefs.saveEntryEdit (story 4) > use_evidence into an empty Storyline is edited, never the writer's own 34ms
+ ✓ |convex| convex/briefs.test.ts > briefs.saveEntryEdit (story 4) > keep_storyline resolves the question and leaves the Storyline 32ms
+ ✓ |convex| convex/briefs.test.ts > briefs.saveEntryEdit (story 4) > an unchanged save inserts nothing and returns the current briefId 32ms
+stderr | convex/briefs.test.ts > briefs.saveEntryEdit (story 4) > the next generation with the same inputsHash reuses the edited version, rendered verbatim
+brain search failed; returning no exemplars {}
+
+stderr | convex/briefs.test.ts > briefs.saveEntryEdit (story 4) > the next generation with the same inputsHash reuses the edited version, rendered verbatim
+brain search failed; returning no exemplars {}
+
+stderr | convex/briefs.test.ts > briefs.saveEntryEdit (story 4) > the next generation with the same inputsHash reuses the edited version, rendered verbatim
+brain search failed; returning no exemplars {}
+
+stderr | convex/briefs.test.ts > briefs.saveEntryEdit (story 4) > the next generation with the same inputsHash reuses the edited version, rendered verbatim
+brain search failed; returning no exemplars {}
+
+stderr | convex/briefs.test.ts > briefs.saveEntryEdit (story 4) > the next generation with the same inputsHash reuses the edited version, rendered verbatim
+submit_qa_scorecard: tool output failed validation [{"expected":"number","code":"invalid_type","path":["overall_score"],"message":"Invalid input: expected number, received undefined"}]
+
+stderr | convex/briefs.test.ts > briefs.saveEntryEdit (story 4) > the next generation with the same inputsHash reuses the edited version, rendered verbatim
+submit_qa_scorecard: tool output failed validation [{"expected":"number","code":"invalid_type","path":["overall_score"],"message":"Invalid input: expected number, received undefined"}]
+
+ ✓ |convex| convex/ai/selfCheck.test.ts > Self-check before display (CAP-9) > a failed repair leaves the paragraph-scoped row with its paragraphIndex and never repairs twice 33ms
+ ✓ |convex| convex/ai/selfCheck.test.ts > Self-check before display (CAP-9) > a Storyline contradiction with stronger evidence raises one storylineQuestion and is never repaired 32ms
+ ✓ |convex| convex/ai/selfCheck.test.ts > Self-check before display (CAP-9) > every section failing its repair still completes the generation with all three sections flagged 38ms
+ ✓ |convex| convex/ai/selfCheck.test.ts > deterministic Self-check rules > applies a profile cap above the Locked cap up to the cap and reports tier conflict with the actual values 1ms
+ ✓ |convex| convex/ai/selfCheck.test.ts > deterministic Self-check rules > a paragraph rule is paragraph-scoped, and a rule tighter than the Locked cap needs repair when exceeded 1ms
+ ✓ |convex| convex/ai/selfCheck.test.ts > deterministic Self-check rules > skips an empty Claim Exclusion instead of matching every draft 0ms
+ ✓ |convex| convex/ai/selfCheck.test.ts > deterministic Self-check rules > puts the Build Order row on the first section only, unless the order fell back 0ms
+ ✓ |convex| convex/ai/selfCheck.test.ts > deterministic Self-check rules > words the Storyline row by whether the question actually reached the Brief 0ms
+stderr | convex/briefs.test.ts > briefs.saveEntryEdit (story 4) > the next generation with the same inputsHash reuses the edited version, rendered verbatim
+QA scorecard failed; continuing without it Error: submit_qa_scorecard: model returned an unexpected shape — overall_score: Invalid input: expected number, received undefined
+    at generateStructured (/Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/convex/ai/structured.ts:167:11)
+    at runNextTicks (node:internal/process/task_queues:64:5)
+    at listOnTimeout (node:internal/timers:547:9)
+    at processTimers (node:internal/timers:521:7)
+    at runQAAgent (/Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/convex/ai/qaAgent.ts:121:10)
+    at async Promise.allSettled (index 0)
+    at handler (/Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/convex/ai/orderedGeneration.ts:466:46)
+    at invokeFunction (file:///Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/node_modules/convex/dist/esm/server/impl/registration_impl.js:56:14)
+    at invokeAction (file:///Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/node_modules/convex/dist/esm/server/impl/registration_impl.js:202:18)
+    at file:///Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/node_modules/convex-test/dist/index.js:1631:35
+
+stderr | convex/briefs.test.ts > briefs.saveEntryEdit (story 4) > the next generation with the same inputsHash reuses the edited version, rendered verbatim
+brain search failed; returning no exemplars {}
+
+stderr | convex/briefs.test.ts > briefs.saveEntryEdit (story 4) > the next generation with the same inputsHash reuses the edited version, rendered verbatim
+brain search failed; returning no exemplars {}
+
+stderr | convex/briefs.test.ts > briefs.saveEntryEdit (story 4) > the next generation with the same inputsHash reuses the edited version, rendered verbatim
+brain search failed; returning no exemplars {}
+
+stderr | convex/briefs.test.ts > briefs.saveEntryEdit (story 4) > the next generation with the same inputsHash reuses the edited version, rendered verbatim
+brain search failed; returning no exemplars {}
+
+stderr | convex/briefs.test.ts > briefs.saveEntryEdit (story 4) > the next generation with the same inputsHash reuses the edited version, rendered verbatim
+submit_qa_scorecard: tool output failed validation [{"expected":"number","code":"invalid_type","path":["overall_score"],"message":"Invalid input: expected number, received undefined"}]
+
+stderr | convex/briefs.test.ts > briefs.saveEntryEdit (story 4) > the next generation with the same inputsHash reuses the edited version, rendered verbatim
+submit_qa_scorecard: tool output failed validation [{"expected":"number","code":"invalid_type","path":["overall_score"],"message":"Invalid input: expected number, received undefined"}]
+
+stderr | convex/briefs.test.ts > briefs.saveEntryEdit (story 4) > the next generation with the same inputsHash reuses the edited version, rendered verbatim
+QA scorecard failed; continuing without it Error: submit_qa_scorecard: model returned an unexpected shape — overall_score: Invalid input: expected number, received undefined
+    at generateStructured (/Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/convex/ai/structured.ts:167:11)
+    at runNextTicks (node:internal/process/task_queues:64:5)
+    at listOnTimeout (node:internal/timers:547:9)
+    at processTimers (node:internal/timers:521:7)
+    at runQAAgent (/Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/convex/ai/qaAgent.ts:121:10)
+    at async Promise.allSettled (index 0)
+    at handler (/Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/convex/ai/orderedGeneration.ts:466:46)
+    at invokeFunction (file:///Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/node_modules/convex/dist/esm/server/impl/registration_impl.js:56:14)
+    at invokeAction (file:///Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/node_modules/convex/dist/esm/server/impl/registration_impl.js:202:18)
+    at file:///Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/node_modules/convex-test/dist/index.js:1631:35
+
+ ✓ |convex| convex/briefs.test.ts > briefs.saveEntryEdit (story 4) > rejects empty entry text 34ms
+ ✓ |convex| convex/briefs.test.ts > briefs.saveEntryEdit (story 4) > the next generation with the same inputsHash reuses the edited version, rendered verbatim 77ms
+stderr | convex/ai/writerSettings.test.ts > three supply paths, one Writer Profile (CAP-8) > the same settings as an enabled profile, internal Writer's Notes and an internal attachment produce identical Compliance Note rows
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/writerSettings.test.ts > three supply paths, one Writer Profile (CAP-8) > the same settings as an enabled profile, internal Writer's Notes and an internal attachment produce identical Compliance Note rows
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/writerSettings.test.ts > three supply paths, one Writer Profile (CAP-8) > the same settings as an enabled profile, internal Writer's Notes and an internal attachment produce identical Compliance Note rows
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/writerSettings.test.ts > three supply paths, one Writer Profile (CAP-8) > the same settings as an enabled profile, internal Writer's Notes and an internal attachment produce identical Compliance Note rows
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/promptProgram.test.ts > ordered, ungated generation (single) > drafts 242 → 244 → 246 as separate scheduled actions, each with exactly the prior drafted sections, with no gate
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/promptProgram.test.ts > ordered, ungated generation (single) > drafts 242 → 244 → 246 as separate scheduled actions, each with exactly the prior drafted sections, with no gate
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/promptProgram.test.ts > ordered, ungated generation (single) > drafts 242 → 244 → 246 as separate scheduled actions, each with exactly the prior drafted sections, with no gate
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/promptProgram.test.ts > ordered, ungated generation (single) > drafts 242 → 244 → 246 as separate scheduled actions, each with exactly the prior drafted sections, with no gate
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/writerSettings.test.ts > three supply paths, one Writer Profile (CAP-8) > the same settings as an enabled profile, internal Writer's Notes and an internal attachment produce identical Compliance Note rows
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/writerSettings.test.ts > three supply paths, one Writer Profile (CAP-8) > the same settings as an enabled profile, internal Writer's Notes and an internal attachment produce identical Compliance Note rows
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/writerSettings.test.ts > three supply paths, one Writer Profile (CAP-8) > the same settings as an enabled profile, internal Writer's Notes and an internal attachment produce identical Compliance Note rows
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/writerSettings.test.ts > three supply paths, one Writer Profile (CAP-8) > the same settings as an enabled profile, internal Writer's Notes and an internal attachment produce identical Compliance Note rows
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/promptProgram.test.ts > ordered, ungated generation (single) > runs an enabled Writer Profile's custom Build Order 246 → 242 → 244
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/promptProgram.test.ts > ordered, ungated generation (single) > runs an enabled Writer Profile's custom Build Order 246 → 242 → 244
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/promptProgram.test.ts > ordered, ungated generation (single) > runs an enabled Writer Profile's custom Build Order 246 → 242 → 244
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/promptProgram.test.ts > ordered, ungated generation (single) > runs an enabled Writer Profile's custom Build Order 246 → 242 → 244
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/writerSettings.test.ts > three supply paths, one Writer Profile (CAP-8) > the same settings as an enabled profile, internal Writer's Notes and an internal attachment produce identical Compliance Note rows
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/writerSettings.test.ts > three supply paths, one Writer Profile (CAP-8) > the same settings as an enabled profile, internal Writer's Notes and an internal attachment produce identical Compliance Note rows
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/writerSettings.test.ts > three supply paths, one Writer Profile (CAP-8) > the same settings as an enabled profile, internal Writer's Notes and an internal attachment produce identical Compliance Note rows
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/writerSettings.test.ts > three supply paths, one Writer Profile (CAP-8) > the same settings as an enabled profile, internal Writer's Notes and an internal attachment produce identical Compliance Note rows
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/promptProgram.test.ts > ordered, ungated generation (single) > a disabled Writer Profile drafts 242 → 244 → 246 and every section's note says no Writer Profile applied
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/promptProgram.test.ts > ordered, ungated generation (single) > a disabled Writer Profile drafts 242 → 244 → 246 and every section's note says no Writer Profile applied
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/promptProgram.test.ts > ordered, ungated generation (single) > a disabled Writer Profile drafts 242 → 244 → 246 and every section's note says no Writer Profile applied
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/promptProgram.test.ts > ordered, ungated generation (single) > a disabled Writer Profile drafts 242 → 244 → 246 and every section's note says no Writer Profile applied
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/writerSettings.test.ts > classifier caching (AD-27) > records exactly one generation:settings call, then none for a second generation with the same document
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/writerSettings.test.ts > classifier caching (AD-27) > records exactly one generation:settings call, then none for a second generation with the same document
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/writerSettings.test.ts > classifier caching (AD-27) > records exactly one generation:settings call, then none for a second generation with the same document
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/writerSettings.test.ts > classifier caching (AD-27) > records exactly one generation:settings call, then none for a second generation with the same document
+brain search failed; returning no exemplars {}
+
+ ✓ |convex| convex/ai/promptProgram.test.ts > ordered, ungated generation (single) > drafts 242 → 244 → 246 as separate scheduled actions, each with exactly the prior drafted sections, with no gate 140ms
+ ✓ |convex| convex/ai/promptProgram.test.ts > ordered, ungated generation (single) > runs an enabled Writer Profile's custom Build Order 246 → 242 → 244 47ms
+stderr | convex/ai/promptProgram.test.ts > ordered, ungated generation (single) > a missing Writer Profile drafts 242 → 244 → 246 and every section's note says no Writer Profile applied
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/promptProgram.test.ts > ordered, ungated generation (single) > a missing Writer Profile drafts 242 → 244 → 246 and every section's note says no Writer Profile applied
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/promptProgram.test.ts > ordered, ungated generation (single) > a missing Writer Profile drafts 242 → 244 → 246 and every section's note says no Writer Profile applied
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/promptProgram.test.ts > ordered, ungated generation (single) > a missing Writer Profile drafts 242 → 244 → 246 and every section's note says no Writer Profile applied
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/writerSettings.test.ts > classifier caching (AD-27) > records exactly one generation:settings call, then none for a second generation with the same document
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/writerSettings.test.ts > classifier caching (AD-27) > records exactly one generation:settings call, then none for a second generation with the same document
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/writerSettings.test.ts > classifier caching (AD-27) > records exactly one generation:settings call, then none for a second generation with the same document
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/writerSettings.test.ts > classifier caching (AD-27) > records exactly one generation:settings call, then none for a second generation with the same document
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/promptProgram.test.ts > ordered, ungated generation (single) > an invalid Build Order falls back to 242 → 244 → 246 with the reason on every section
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/promptProgram.test.ts > ordered, ungated generation (single) > an invalid Build Order falls back to 242 → 244 → 246 with the reason on every section
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/promptProgram.test.ts > ordered, ungated generation (single) > an invalid Build Order falls back to 242 → 244 → 246 with the reason on every section
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/promptProgram.test.ts > ordered, ungated generation (single) > an invalid Build Order falls back to 242 → 244 → 246 with the reason on every section
+brain search failed; returning no exemplars {}
+
+ ✓ |convex| convex/ai/writerSettings.test.ts > three supply paths, one Writer Profile (CAP-8) > the same settings as an enabled profile, internal Writer's Notes and an internal attachment produce identical Compliance Note rows 341ms
+ ✓ |convex| convex/ai/writerSettings.test.ts > classifier caching (AD-27) > records exactly one generation:settings call, then none for a second generation with the same document 99ms
+stderr | convex/ai/promptProgram.test.ts > ordered, ungated generation (compare) > runs the chain once per candidate, scopes every row by candidateRunId, and the report inherits the selected candidate's notes
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/promptProgram.test.ts > ordered, ungated generation (compare) > runs the chain once per candidate, scopes every row by candidateRunId, and the report inherits the selected candidate's notes
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/promptProgram.test.ts > ordered, ungated generation (compare) > runs the chain once per candidate, scopes every row by candidateRunId, and the report inherits the selected candidate's notes
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/promptProgram.test.ts > ordered, ungated generation (compare) > runs the chain once per candidate, scopes every row by candidateRunId, and the report inherits the selected candidate's notes
+brain search failed; returning no exemplars {}
+
+ ✓ |convex| convex/ai/promptProgram.test.ts > ordered, ungated generation (single) > a disabled Writer Profile drafts 242 → 244 → 246 and every section's note says no Writer Profile applied 36ms
+ ✓ |convex| convex/ai/promptProgram.test.ts > ordered, ungated generation (single) > a missing Writer Profile drafts 242 → 244 → 246 and every section's note says no Writer Profile applied 43ms
+ ✓ |convex| convex/ai/promptProgram.test.ts > ordered, ungated generation (single) > an invalid Build Order falls back to 242 → 244 → 246 with the reason on every section 42ms
+stderr | convex/ai/writerSettings.test.ts > trust floor and the no-profile line > a client-uploaded settings document is never applied: no profile is reported, with no classifier call
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/writerSettings.test.ts > trust floor and the no-profile line > a client-uploaded settings document is never applied: no profile is reported, with no classifier call
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/writerSettings.test.ts > trust floor and the no-profile line > a client-uploaded settings document is never applied: no profile is reported, with no classifier call
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/writerSettings.test.ts > trust floor and the no-profile line > a client-uploaded settings document is never applied: no profile is reported, with no classifier call
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/promptProgram.test.ts > iterative mode is unchanged > still stops at awaiting_input after its first section, and its ghost still runs the one-shot pipeline
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/promptProgram.test.ts > iterative mode is unchanged > still stops at awaiting_input after its first section, and its ghost still runs the one-shot pipeline
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/promptProgram.test.ts > iterative mode is unchanged > still stops at awaiting_input after its first section, and its ghost still runs the one-shot pipeline
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/promptProgram.test.ts > iterative mode is unchanged > still stops at awaiting_input after its first section, and its ghost still runs the one-shot pipeline
+brain search failed; returning no exemplars {}
+
+ ✓ |convex| convex/ai/writerSettings.test.ts > classifier caching (AD-27) > settingsClassifierVersion moves with every classifier input, and the constant is it applied to the real inputs 4ms
+ ✓ |convex| convex/ai/writerSettings.test.ts > classifier caching (AD-27) > a repairable classifier failure (no tool call) is not re-prompted: one call, one generation:settings row 53ms
+ ✓ |convex| convex/ai/writerSettings.test.ts > classifier caching (AD-27) > a classifier failure still completes: the text applies with no waivers and every section says why 36ms
+stderr | convex/ai/promptProgram.test.ts > stopOrderedGeneration > after the first section, no further section is drafted and the generation completes with [NOT GENERATED] bodies
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/promptProgram.test.ts > stopOrderedGeneration > after the first section, no further section is drafted and the generation completes with [NOT GENERATED] bodies
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/promptProgram.test.ts > stopOrderedGeneration > after the first section, no further section is drafted and the generation completes with [NOT GENERATED] bodies
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/promptProgram.test.ts > stopOrderedGeneration > after the first section, no further section is drafted and the generation completes with [NOT GENERATED] bodies
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/writerSettings.test.ts > trust floor and the no-profile line > a client-uploaded settings document beside an enabled saved profile: the saved profile rules as before, with no classifier call
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/writerSettings.test.ts > trust floor and the no-profile line > a client-uploaded settings document beside an enabled saved profile: the saved profile rules as before, with no classifier call
+brain search failed; returning no exemplars {}
+
+ ✓ |convex| convex/ai/promptProgram.test.ts > ordered, ungated generation (compare) > runs the chain once per candidate, scopes every row by candidateRunId, and the report inherits the selected candidate's notes 67ms
+ ✓ |convex| convex/ai/promptProgram.test.ts > iterative mode is unchanged > still stops at awaiting_input after its first section, and its ghost still runs the one-shot pipeline 63ms
+stderr | convex/ai/writerSettings.test.ts > trust floor and the no-profile line > a client-uploaded settings document beside an enabled saved profile: the saved profile rules as before, with no classifier call
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/writerSettings.test.ts > trust floor and the no-profile line > a client-uploaded settings document beside an enabled saved profile: the saved profile rules as before, with no classifier call
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/promptProgram.test.ts > assembled-draft consistency pass (CAP-10) > records a cross-section contradiction as model rows naming the sections and paragraph, and still shows the section
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/promptProgram.test.ts > assembled-draft consistency pass (CAP-10) > records a cross-section contradiction as model rows naming the sections and paragraph, and still shows the section
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/promptProgram.test.ts > assembled-draft consistency pass (CAP-10) > records a cross-section contradiction as model rows naming the sections and paragraph, and still shows the section
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/promptProgram.test.ts > assembled-draft consistency pass (CAP-10) > records a cross-section contradiction as model rows naming the sections and paragraph, and still shows the section
+brain search failed; returning no exemplars {}
+
+ ✓ |convex| convex/ai/writerSettings.test.ts > trust floor and the no-profile line > a client-uploaded settings document is never applied: no profile is reported, with no classifier call 92ms
+stderr | convex/ai/writerSettings.test.ts > trust floor and the no-profile line > a disabled profile with no document is reported disabled on every section
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/writerSettings.test.ts > trust floor and the no-profile line > a disabled profile with no document is reported disabled on every section
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/writerSettings.test.ts > trust floor and the no-profile line > a disabled profile with no document is reported disabled on every section
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/writerSettings.test.ts > trust floor and the no-profile line > a disabled profile with no document is reported disabled on every section
+brain search failed; returning no exemplars {}
+
+ ✓ |convex| convex/ai/promptProgram.test.ts > stopOrderedGeneration > after the first section, no further section is drafted and the generation completes with [NOT GENERATED] bodies 66ms
+ ✓ |convex| convex/ai/promptProgram.test.ts > stopOrderedGeneration > is refused for an iterative generation, which is cancelled instead 4ms
+stderr | convex/ai/promptProgram.test.ts > chain failure paths never strand a candidate > a section whose draft call fails fails its candidate, marks the later sections undrafted and ends a single generation
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/promptProgram.test.ts > chain failure paths never strand a candidate > a section whose draft call fails fails its candidate, marks the later sections undrafted and ends a single generation
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/promptProgram.test.ts > chain failure paths never strand a candidate > a section whose draft call fails fails its candidate, marks the later sections undrafted and ends a single generation
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/promptProgram.test.ts > chain failure paths never strand a candidate > a section whose draft call fails fails its candidate, marks the later sections undrafted and ends a single generation
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/promptProgram.test.ts > chain failure paths never strand a candidate > a section draft the banned-word scrub empties fails the section instead of persisting an empty body
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/promptProgram.test.ts > chain failure paths never strand a candidate > a section draft the banned-word scrub empties fails the section instead of persisting an empty body
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/promptProgram.test.ts > chain failure paths never strand a candidate > a section draft the banned-word scrub empties fails the section instead of persisting an empty body
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/promptProgram.test.ts > chain failure paths never strand a candidate > a section draft the banned-word scrub empties fails the section instead of persisting an empty body
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/writerSettings.test.ts > trust floor and the no-profile line > a document that differs from the enabled profile supersedes it and offers itself for saving
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/writerSettings.test.ts > trust floor and the no-profile line > a document that differs from the enabled profile supersedes it and offers itself for saving
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/writerSettings.test.ts > trust floor and the no-profile line > a document that differs from the enabled profile supersedes it and offers itself for saving
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/writerSettings.test.ts > trust floor and the no-profile line > a document that differs from the enabled profile supersedes it and offers itself for saving
+brain search failed; returning no exemplars {}
+
+ ✓ |convex| convex/ai/writerSettings.test.ts > trust floor and the no-profile line > a client-uploaded settings document beside an enabled saved profile: the saved profile rules as before, with no classifier call 96ms
+ ✓ |convex| convex/ai/writerSettings.test.ts > trust floor and the no-profile line > a disabled profile with no document is reported disabled on every section 86ms
+ ✓ |convex| convex/ai/promptProgram.test.ts > assembled-draft consistency pass (CAP-10) > records a cross-section contradiction as model rows naming the sections and paragraph, and still shows the section 94ms
+ ✓ |convex| convex/ai/promptProgram.test.ts > chain failure paths never strand a candidate > a section whose draft call fails fails its candidate, marks the later sections undrafted and ends a single generation 48ms
+stderr | convex/ai/promptProgram.test.ts > chain failure paths never strand a candidate > a compression pass the banned-word scrub empties fails the section instead of persisting an empty body
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/promptProgram.test.ts > chain failure paths never strand a candidate > a compression pass the banned-word scrub empties fails the section instead of persisting an empty body
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/promptProgram.test.ts > chain failure paths never strand a candidate > a compression pass the banned-word scrub empties fails the section instead of persisting an empty body
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/promptProgram.test.ts > chain failure paths never strand a candidate > a compression pass the banned-word scrub empties fails the section instead of persisting an empty body
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/promptProgram.test.ts > chain failure paths never strand a candidate > a failed model Self-check call never blocks a section: deterministic checks only, recorded per section
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/promptProgram.test.ts > chain failure paths never strand a candidate > a failed model Self-check call never blocks a section: deterministic checks only, recorded per section
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/promptProgram.test.ts > chain failure paths never strand a candidate > a failed model Self-check call never blocks a section: deterministic checks only, recorded per section
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/promptProgram.test.ts > chain failure paths never strand a candidate > a failed model Self-check call never blocks a section: deterministic checks only, recorded per section
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/writerSettings.test.ts > iterative uses the same resolver > freezes the settings document's instructions and waivers into the iterative artifacts
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/writerSettings.test.ts > iterative uses the same resolver > freezes the settings document's instructions and waivers into the iterative artifacts
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/writerSettings.test.ts > iterative uses the same resolver > freezes the settings document's instructions and waivers into the iterative artifacts
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/writerSettings.test.ts > iterative uses the same resolver > freezes the settings document's instructions and waivers into the iterative artifacts
+brain search failed; returning no exemplars {}
+
+ ✓ |convex| convex/ai/writerSettings.test.ts > trust floor and the no-profile line > a document that differs from the enabled profile supersedes it and offers itself for saving 136ms
+ ✓ |convex| convex/ai/promptProgram.test.ts > chain failure paths never strand a candidate > a section draft the banned-word scrub empties fails the section instead of persisting an empty body 58ms
+ ✓ |convex| convex/ai/promptProgram.test.ts > chain failure paths never strand a candidate > a compression pass the banned-word scrub empties fails the section instead of persisting an empty body 45ms
+stderr | convex/ai/promptProgram.test.ts > chain failure paths never strand a candidate > a failed consistency call is recorded as advisory, still releases the last section and completes
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/promptProgram.test.ts > chain failure paths never strand a candidate > a failed consistency call is recorded as advisory, still releases the last section and completes
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/promptProgram.test.ts > chain failure paths never strand a candidate > a failed consistency call is recorded as advisory, still releases the last section and completes
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/writerSettings.test.ts > four-tier precedence through a generation run (AC 2) > a profile waiving all six categories, one of them enforced: frozen styleOverrides, category rows and the waiver row
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/promptProgram.test.ts > chain failure paths never strand a candidate > a failed consistency call is recorded as advisory, still releases the last section and completes
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/writerSettings.test.ts > four-tier precedence through a generation run (AC 2) > a profile waiving all six categories, one of them enforced: frozen styleOverrides, category rows and the waiver row
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/writerSettings.test.ts > four-tier precedence through a generation run (AC 2) > a profile waiving all six categories, one of them enforced: frozen styleOverrides, category rows and the waiver row
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/writerSettings.test.ts > four-tier precedence through a generation run (AC 2) > a profile waiving all six categories, one of them enforced: frozen styleOverrides, category rows and the waiver row
+brain search failed; returning no exemplars {}
+
+ ✓ |convex| convex/ai/writerSettings.test.ts > iterative uses the same resolver > freezes the settings document's instructions and waivers into the iterative artifacts 32ms
+ ✓ |convex| convex/ai/writerSettings.test.ts > the resolver's match, truncation and cache-write cases > a document equal to the enabled profile: the profile applies, no classifier call, no cache row, no offer 11ms
+ ✓ |convex| convex/ai/writerSettings.test.ts > the resolver's match, truncation and cache-write cases > an over-length document applies its first MAX_INSTRUCTIONS_CHARS, records truncated and logs it 11ms
+ ✓ |convex| convex/ai/writerSettings.test.ts > the resolver's match, truncation and cache-write cases > recordSettingsAnalysis throwing still applies the classified document's flavor and waivers 7ms
+stderr | convex/ai/promptProgram.test.ts > chain failure paths never strand a candidate > QA and chronology failing at the same time are both advisory: the candidate still completes with neither recorded
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/promptProgram.test.ts > chain failure paths never strand a candidate > QA and chronology failing at the same time are both advisory: the candidate still completes with neither recorded
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/promptProgram.test.ts > chain failure paths never strand a candidate > QA and chronology failing at the same time are both advisory: the candidate still completes with neither recorded
+brain search failed; returning no exemplars {}
+
+ ✓ |convex| convex/ai/writerSettings.test.ts > four-tier precedence through a generation run (AC 2) > a profile waiving all six categories, one of them enforced: frozen styleOverrides, category rows and the waiver row 79ms
+ ✓ |convex| convex/ai/writerSettings.test.ts > a resolver failure never fails generation > degrades to the saved-profile read and logs the reason 2ms
+stderr | convex/ai/promptProgram.test.ts > chain failure paths never strand a candidate > QA and chronology failing at the same time are both advisory: the candidate still completes with neither recorded
+brain search failed; returning no exemplars {}
+
+ ✓ |convex| convex/ai/promptProgram.test.ts > chain failure paths never strand a candidate > a failed model Self-check call never blocks a section: deterministic checks only, recorded per section 101ms
+ ✓ |convex| convex/ai/promptProgram.test.ts > chain failure paths never strand a candidate > a failed consistency call is recorded as advisory, still releases the last section and completes 77ms
+stderr | convex/ai/promptProgram.test.ts > chain failure paths never strand a candidate > QA and chronology failing at the same time are both advisory: the candidate still completes with neither recorded
+QA scorecard failed; continuing without it Error: submit_qa_scorecard unavailable
+    at Object.<anonymous> (/Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/convex/ai/promptProgram.test.ts:1014:15)
+    at Object.Mock [as create] (file:///Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/node_modules/@vitest/spy/dist/index.js:332:34)
+    at Proxy.<anonymous> (/Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/convex/ai/instrument.ts:314:49)
+    at Object.create (/Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/convex/ai/orderedGeneration.ts:104:16)
+    at generateStructured (/Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/convex/ai/structured.ts:101:13)
+    at runQAAgent (/Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/convex/ai/qaAgent.ts:121:10)
+    at async Promise.allSettled (index 0)
+    at handler (/Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/convex/ai/orderedGeneration.ts:466:46)
+    at invokeFunction (file:///Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/node_modules/convex/dist/esm/server/impl/registration_impl.js:56:14)
+    at invokeAction (file:///Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/node_modules/convex/dist/esm/server/impl/registration_impl.js:202:18)
+Chronology failed; continuing without it Error: submit_chronology_table unavailable
+    at Object.<anonymous> (/Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/convex/ai/promptProgram.test.ts:1014:15)
+    at Object.Mock [as create] (file:///Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/node_modules/@vitest/spy/dist/index.js:332:34)
+    at Proxy.<anonymous> (/Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/convex/ai/instrument.ts:314:49)
+    at Object.create (/Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/convex/ai/orderedGeneration.ts:104:16)
+    at generateStructured (/Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/convex/ai/structured.ts:101:13)
+    at runChronologyAgent (/Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/convex/ai/chronologyAgent.ts:99:15)
+    at async Promise.allSettled (index 1)
+    at handler (/Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/convex/ai/orderedGeneration.ts:466:46)
+    at invokeFunction (file:///Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/node_modules/convex/dist/esm/server/impl/registration_impl.js:56:14)
+    at invokeAction (file:///Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/node_modules/convex/dist/esm/server/impl/registration_impl.js:202:18)
+
+stderr | convex/ai/promptProgram.test.ts > the Brief a section is drafted with and checked against > enforces live Claim Exclusions only; an empty repair keeps the draft and flags Self-check repair failed
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/promptProgram.test.ts > the Brief a section is drafted with and checked against > enforces live Claim Exclusions only; an empty repair keeps the draft and flags Self-check repair failed
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/promptProgram.test.ts > the Brief a section is drafted with and checked against > enforces live Claim Exclusions only; an empty repair keeps the draft and flags Self-check repair failed
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/promptProgram.test.ts > the Brief a section is drafted with and checked against > enforces live Claim Exclusions only; an empty repair keeps the draft and flags Self-check repair failed
+brain search failed; returning no exemplars {}
+
+ ✓ |convex| convex/ai/promptProgram.test.ts > chain failure paths never strand a candidate > QA and chronology failing at the same time are both advisory: the candidate still completes with neither recorded 78ms
+ ✓ |convex| convex/ai/promptProgram.test.ts > chain failure paths never strand a candidate > an unreadable Writer Profile degrades to the House Rules order with the reason instead of failing 1ms
+stderr | convex/ai/promptProgram.test.ts > the Brief a section is drafted with and checked against > iterative's one-shot ghost still drafts every section with the stored Brief block (story 1 wiring)
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/promptProgram.test.ts > the Brief a section is drafted with and checked against > iterative's one-shot ghost still drafts every section with the stored Brief block (story 1 wiring)
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/promptProgram.test.ts > the Brief a section is drafted with and checked against > iterative's one-shot ghost still drafts every section with the stored Brief block (story 1 wiring)
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/promptProgram.test.ts > the Brief a section is drafted with and checked against > iterative's one-shot ghost still drafts every section with the stored Brief block (story 1 wiring)
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/promptProgram.test.ts > the Brief a section is drafted with and checked against > omits an over-bound Brief from the ordered chain: every section drafts, none is left queued
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/promptProgram.test.ts > the Brief a section is drafted with and checked against > omits an over-bound Brief from the ordered chain: every section drafts, none is left queued
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/promptProgram.test.ts > the Brief a section is drafted with and checked against > omits an over-bound Brief from the ordered chain: every section drafts, none is left queued
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/promptProgram.test.ts > the Brief a section is drafted with and checked against > omits an over-bound Brief from the ordered chain: every section drafts, none is left queued
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/promptProgram.test.ts > the Brief a section is drafted with and checked against > omits an over-bound Brief from the ordered chain: every section drafts, none is left queued
+Generation Brief omitted from generation 000000000000000010003generations: Brief 0000000000010017generationBriefs has more than 500 entries and cannot be read completely
+
+stderr | convex/ai/promptProgram.test.ts > the Brief a section is drafted with and checked against > omits an over-bound Brief from the ordered chain: every section drafts, none is left queued
+Generation Brief omitted from generation 000000000000000010003generations: Brief 0000000000010017generationBriefs has more than 500 entries and cannot be read completely
+
+stderr | convex/ai/promptProgram.test.ts > the Brief a section is drafted with and checked against > omits an over-bound Brief from the ordered chain: every section drafts, none is left queued
+Generation Brief omitted from generation 000000000000000010003generations: Brief 0000000000010017generationBriefs has more than 500 entries and cannot be read completely
+
+stderr | convex/ai/promptProgram.test.ts > the Brief a section is drafted with and checked against > omits an over-bound Brief from the ordered chain: every section drafts, none is left queued
+Generation Brief omitted from generation 000000000000000010003generations: Brief 0000000000010017generationBriefs has more than 500 entries and cannot be read completely
+
+ ✓ |convex| convex/ai/promptProgram.test.ts > the Brief a section is drafted with and checked against > enforces live Claim Exclusions only; an empty repair keeps the draft and flags Self-check repair failed 66ms
+ ✓ |convex| convex/ai/promptProgram.test.ts > the Brief a section is drafted with and checked against > iterative's one-shot ghost still drafts every section with the stored Brief block (story 1 wiring) 43ms
+stderr | convex/ai/promptProgram.test.ts > the Brief a section is drafted with and checked against > omits an over-bound Brief from iterative's own section and from its one-shot ghost
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/promptProgram.test.ts > the Brief a section is drafted with and checked against > omits an over-bound Brief from iterative's own section and from its one-shot ghost
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/promptProgram.test.ts > the Brief a section is drafted with and checked against > omits an over-bound Brief from iterative's own section and from its one-shot ghost
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/promptProgram.test.ts > the Brief a section is drafted with and checked against > omits an over-bound Brief from iterative's own section and from its one-shot ghost
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/promptProgram.test.ts > the Brief a section is drafted with and checked against > omits an over-bound Brief from iterative's own section and from its one-shot ghost
+Generation Brief omitted from generation 000000000000000010003generations: Brief 0000000000010021generationBriefs has more than 500 entries and cannot be read completely
+
+stderr | convex/ai/promptProgram.test.ts > the Brief a section is drafted with and checked against > omits an over-bound Brief from iterative's own section and from its one-shot ghost
+Generation Brief omitted from generation 000000000000000010003generations: Brief 0000000000010021generationBriefs has more than 500 entries and cannot be read completely
+
+stderr | convex/ai/promptProgram.test.ts > the Brief a section is drafted with and checked against > omits a byte-heavy Brief from the ordered chain under enforced transaction limits: every section drafts, none is left queued (DW-152)
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/promptProgram.test.ts > the Brief a section is drafted with and checked against > omits a byte-heavy Brief from the ordered chain under enforced transaction limits: every section drafts, none is left queued (DW-152)
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/promptProgram.test.ts > the Brief a section is drafted with and checked against > omits a byte-heavy Brief from the ordered chain under enforced transaction limits: every section drafts, none is left queued (DW-152)
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/promptProgram.test.ts > the Brief a section is drafted with and checked against > omits a byte-heavy Brief from the ordered chain under enforced transaction limits: every section drafts, none is left queued (DW-152)
+brain search failed; returning no exemplars {}
+
+ ✓ |convex| convex/ai/promptProgram.test.ts > the Brief a section is drafted with and checked against > omits an over-bound Brief from the ordered chain: every section drafts, none is left queued 156ms
+stderr | convex/ai/promptProgram.test.ts > the Brief a section is drafted with and checked against > omits a byte-heavy Brief from the ordered chain under enforced transaction limits: every section drafts, none is left queued (DW-152)
+Generation Brief omitted from generation 000000000000000010003generations: Brief 0000000000010017generationBriefs cannot be read completely within 4194304 bytes
+
+stderr | convex/ai/promptProgram.test.ts > the Brief a section is drafted with and checked against > omits a byte-heavy Brief from the ordered chain under enforced transaction limits: every section drafts, none is left queued (DW-152)
+Generation Brief omitted from generation 000000000000000010003generations: Brief 0000000000010017generationBriefs cannot be read completely within 4194304 bytes
+
+stderr | convex/ai/promptProgram.test.ts > the Brief a section is drafted with and checked against > omits a byte-heavy Brief from the ordered chain under enforced transaction limits: every section drafts, none is left queued (DW-152)
+Generation Brief omitted from generation 000000000000000010003generations: Brief 0000000000010017generationBriefs cannot be read completely within 4194304 bytes
+
+stderr | convex/ai/promptProgram.test.ts > the Brief a section is drafted with and checked against > omits a byte-heavy Brief from the ordered chain under enforced transaction limits: every section drafts, none is left queued (DW-152)
+Generation Brief omitted from generation 000000000000000010003generations: Brief 0000000000010017generationBriefs cannot be read completely within 4194304 bytes
+
+ ✓ |convex| convex/ai/promptProgram.test.ts > the Brief a section is drafted with and checked against > omits an over-bound Brief from iterative's own section and from its one-shot ghost 94ms
+stderr | convex/ai/promptProgram.test.ts > the Brief a section is drafted with and checked against > omits a byte-heavy Brief from iterative's own section and from its one-shot ghost under enforced transaction limits (DW-152)
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/promptProgram.test.ts > the Brief a section is drafted with and checked against > omits a byte-heavy Brief from iterative's own section and from its one-shot ghost under enforced transaction limits (DW-152)
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/promptProgram.test.ts > the Brief a section is drafted with and checked against > omits a byte-heavy Brief from iterative's own section and from its one-shot ghost under enforced transaction limits (DW-152)
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/promptProgram.test.ts > the Brief a section is drafted with and checked against > omits a byte-heavy Brief from iterative's own section and from its one-shot ghost under enforced transaction limits (DW-152)
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/promptProgram.test.ts > the Brief a section is drafted with and checked against > omits a byte-heavy Brief from iterative's own section and from its one-shot ghost under enforced transaction limits (DW-152)
+Generation Brief omitted from generation 000000000000000010003generations: Brief 0000000000010021generationBriefs cannot be read completely within 4194304 bytes
+
+stderr | convex/ai/promptProgram.test.ts > the Brief a section is drafted with and checked against > omits a byte-heavy Brief from iterative's own section and from its one-shot ghost under enforced transaction limits (DW-152)
+Generation Brief omitted from generation 000000000000000010003generations: Brief 0000000000010021generationBriefs cannot be read completely within 4194304 bytes
+
+ ✓ |convex| convex/ai/promptProgram.test.ts > the Brief a section is drafted with and checked against > omits a byte-heavy Brief from the ordered chain under enforced transaction limits: every section drafts, none is left queued (DW-152) 521ms
+stderr | convex/ai/promptProgram.test.ts > stopOrderedGeneration in compare > candidates stop independently and the generation takes the selected candidate's stop
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/promptProgram.test.ts > stopOrderedGeneration in compare > candidates stop independently and the generation takes the selected candidate's stop
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/promptProgram.test.ts > stopOrderedGeneration in compare > candidates stop independently and the generation takes the selected candidate's stop
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/promptProgram.test.ts > stopOrderedGeneration in compare > candidates stop independently and the generation takes the selected candidate's stop
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/brief.test.ts > Generation Brief derivation (story 1, CAP-1/2/4) > derives Storyline, Claim Exclusions, Confidence Map and Glossary Terms, each citing a frozen source
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/brief.test.ts > Generation Brief derivation (story 1, CAP-1/2/4) > derives Storyline, Claim Exclusions, Confidence Map and Glossary Terms, each citing a frozen source
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/brief.test.ts > Generation Brief derivation (story 1, CAP-1/2/4) > derives Storyline, Claim Exclusions, Confidence Map and Glossary Terms, each citing a frozen source
+brain search failed; returning no exemplars {}
+
+ ✓ |convex| convex/ai/promptProgram.test.ts > the Brief a section is drafted with and checked against > omits a byte-heavy Brief from iterative's own section and from its one-shot ghost under enforced transaction limits (DW-152) 352ms
+ ✓ |convex| convex/ai/promptProgram.test.ts > stopOrderedGeneration in compare > candidates stop independently and the generation takes the selected candidate's stop 85ms
+stderr | convex/ai/brief.test.ts > Generation Brief derivation (story 1, CAP-1/2/4) > derives Storyline, Claim Exclusions, Confidence Map and Glossary Terms, each citing a frozen source
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/brief.test.ts > Generation Brief derivation (story 1, CAP-1/2/4) > classifies a flagged glossary candidate via the same call's own quote — no second model call
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/brief.test.ts > Generation Brief derivation (story 1, CAP-1/2/4) > classifies a flagged glossary candidate via the same call's own quote — no second model call
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/brief.test.ts > Generation Brief derivation (story 1, CAP-1/2/4) > classifies a flagged glossary candidate via the same call's own quote — no second model call
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/brief.test.ts > Generation Brief derivation (story 1, CAP-1/2/4) > classifies a flagged glossary candidate via the same call's own quote — no second model call
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/brief.test.ts > Generation Brief derivation (story 1, CAP-1/2/4) > dedupes two flagged glossary candidates that share a canonical term (case-insensitive)
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/brief.test.ts > Generation Brief derivation (story 1, CAP-1/2/4) > dedupes two flagged glossary candidates that share a canonical term (case-insensitive)
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/brief.test.ts > Generation Brief derivation (story 1, CAP-1/2/4) > dedupes two flagged glossary candidates that share a canonical term (case-insensitive)
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/brief.test.ts > Generation Brief derivation (story 1, CAP-1/2/4) > dedupes two flagged glossary candidates that share a canonical term (case-insensitive)
+brain search failed; returning no exemplars {}
+
+ ✓ |convex| convex/ai/brief.test.ts > Generation Brief derivation (story 1, CAP-1/2/4) > derives Storyline, Claim Exclusions, Confidence Map and Glossary Terms, each citing a frozen source 360ms
+ ✓ |convex| convex/ai/brief.test.ts > Generation Brief derivation (story 1, CAP-1/2/4) > classifies a flagged glossary candidate via the same call's own quote — no second model call 49ms
+stderr | convex/ai/brief.test.ts > Generation Brief derivation (story 1, CAP-1/2/4) > drops an entry whose citation fails byte-match and counts the drop on the Brief
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/brief.test.ts > Generation Brief derivation (story 1, CAP-1/2/4) > drops an entry whose citation fails byte-match and counts the drop on the Brief
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/brief.test.ts > Generation Brief derivation (story 1, CAP-1/2/4) > drops an entry whose citation fails byte-match and counts the drop on the Brief
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/brief.test.ts > Generation Brief derivation (story 1, CAP-1/2/4) > drops an entry whose citation fails byte-match and counts the drop on the Brief
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/brief.test.ts > Generation Brief derivation (story 1, CAP-1/2/4) > reuses the stored Brief for identical inputs — no second derivation call
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/brief.test.ts > Generation Brief derivation (story 1, CAP-1/2/4) > reuses the stored Brief for identical inputs — no second derivation call
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/brief.test.ts > Generation Brief derivation (story 1, CAP-1/2/4) > reuses the stored Brief for identical inputs — no second derivation call
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/brief.test.ts > Generation Brief derivation (story 1, CAP-1/2/4) > reuses the stored Brief for identical inputs — no second derivation call
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/brief.test.ts > Generation Brief derivation (story 1, CAP-1/2/4) > reuses the stored Brief for identical inputs — no second derivation call
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/brief.test.ts > Generation Brief derivation (story 1, CAP-1/2/4) > reuses the stored Brief for identical inputs — no second derivation call
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/brief.test.ts > Generation Brief derivation (story 1, CAP-1/2/4) > reuses the stored Brief for identical inputs — no second derivation call
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/brief.test.ts > Generation Brief derivation (story 1, CAP-1/2/4) > reuses the stored Brief for identical inputs — no second derivation call
+brain search failed; returning no exemplars {}
+
+ ✓ |convex| convex/ai/brief.test.ts > Generation Brief derivation (story 1, CAP-1/2/4) > dedupes two flagged glossary candidates that share a canonical term (case-insensitive) 87ms
+ ✓ |convex| convex/ai/brief.test.ts > Generation Brief derivation (story 1, CAP-1/2/4) > drops an entry whose citation fails byte-match and counts the drop on the Brief 30ms
+stderr | convex/ai/brief.test.ts > Generation Brief derivation (story 1, CAP-1/2/4) > re-derives on changed inputs and stamps change: added | unchanged | removed
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/brief.test.ts > Generation Brief derivation (story 1, CAP-1/2/4) > re-derives on changed inputs and stamps change: added | unchanged | removed
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/brief.test.ts > Generation Brief derivation (story 1, CAP-1/2/4) > re-derives on changed inputs and stamps change: added | unchanged | removed
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/brief.test.ts > Generation Brief derivation (story 1, CAP-1/2/4) > re-derives on changed inputs and stamps change: added | unchanged | removed
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/brief.test.ts > Generation Brief derivation (story 1, CAP-1/2/4) > re-derives on changed inputs and stamps change: added | unchanged | removed
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/brief.test.ts > Generation Brief derivation (story 1, CAP-1/2/4) > re-derives on changed inputs and stamps change: added | unchanged | removed
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/brief.test.ts > Generation Brief derivation (story 1, CAP-1/2/4) > re-derives on changed inputs and stamps change: added | unchanged | removed
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/brief.test.ts > Generation Brief derivation (story 1, CAP-1/2/4) > re-derives on changed inputs and stamps change: added | unchanged | removed
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/brief.test.ts > Generation Brief derivation (story 1, CAP-1/2/4) > re-derives on changed inputs and stamps change: added | unchanged | removed
+submit_qa_scorecard: tool output failed validation [{"expected":"number","code":"invalid_type","path":["overall_score"],"message":"Invalid input: expected number, received undefined"}]
+
+stderr | convex/ai/brief.test.ts > Generation Brief derivation (story 1, CAP-1/2/4) > re-derives on changed inputs and stamps change: added | unchanged | removed
+submit_qa_scorecard: tool output failed validation [{"expected":"number","code":"invalid_type","path":["overall_score"],"message":"Invalid input: expected number, received undefined"}]
+
+stderr | convex/ai/brief.test.ts > Generation Brief derivation (story 1, CAP-1/2/4) > re-derives on changed inputs and stamps change: added | unchanged | removed
+QA scorecard failed; continuing without it Error: submit_qa_scorecard: model returned an unexpected shape — overall_score: Invalid input: expected number, received undefined
+    at generateStructured (/Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/convex/ai/structured.ts:167:11)
+    at runNextTicks (node:internal/process/task_queues:64:5)
+    at listOnTimeout (node:internal/timers:547:9)
+    at processTimers (node:internal/timers:521:7)
+    at runQAAgent (/Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/convex/ai/qaAgent.ts:121:10)
+    at async Promise.allSettled (index 0)
+    at handler (/Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/convex/ai/orderedGeneration.ts:466:46)
+    at invokeFunction (file:///Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/node_modules/convex/dist/esm/server/impl/registration_impl.js:56:14)
+    at invokeAction (file:///Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/node_modules/convex/dist/esm/server/impl/registration_impl.js:202:18)
+    at file:///Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/node_modules/convex-test/dist/index.js:1631:35
+
+stderr | convex/ai/brief.test.ts > Generation Brief derivation (story 1, CAP-1/2/4) > re-derives on changed inputs and stamps change: added | unchanged | removed
+submit_qa_scorecard: tool output failed validation [{"expected":"number","code":"invalid_type","path":["overall_score"],"message":"Invalid input: expected number, received undefined"}]
+
+stderr | convex/ai/brief.test.ts > Generation Brief derivation (story 1, CAP-1/2/4) > re-derives on changed inputs and stamps change: added | unchanged | removed
+submit_qa_scorecard: tool output failed validation [{"expected":"number","code":"invalid_type","path":["overall_score"],"message":"Invalid input: expected number, received undefined"}]
+
+stderr | convex/ai/brief.test.ts > Generation Brief derivation (story 1, CAP-1/2/4) > re-derives on changed inputs and stamps change: added | unchanged | removed
+QA scorecard failed; continuing without it Error: submit_qa_scorecard: model returned an unexpected shape — overall_score: Invalid input: expected number, received undefined
+    at generateStructured (/Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/convex/ai/structured.ts:167:11)
+    at runNextTicks (node:internal/process/task_queues:64:5)
+    at listOnTimeout (node:internal/timers:547:9)
+    at processTimers (node:internal/timers:521:7)
+    at runQAAgent (/Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/convex/ai/qaAgent.ts:121:10)
+    at async Promise.allSettled (index 0)
+    at handler (/Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/convex/ai/orderedGeneration.ts:466:46)
+    at invokeFunction (file:///Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/node_modules/convex/dist/esm/server/impl/registration_impl.js:56:14)
+    at invokeAction (file:///Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/node_modules/convex/dist/esm/server/impl/registration_impl.js:202:18)
+    at file:///Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/node_modules/convex-test/dist/index.js:1631:35
+
+stderr | convex/ai/brief.test.ts > Generation Brief derivation (story 1, CAP-1/2/4) > re-derives on changed inputs and stamps change: added | unchanged | removed
+submit_qa_scorecard: tool output failed validation [{"expected":"number","code":"invalid_type","path":["overall_score"],"message":"Invalid input: expected number, received undefined"}]
+
+stderr | convex/ai/brief.test.ts > Generation Brief derivation (story 1, CAP-1/2/4) > re-derives on changed inputs and stamps change: added | unchanged | removed
+submit_qa_scorecard: tool output failed validation [{"expected":"number","code":"invalid_type","path":["overall_score"],"message":"Invalid input: expected number, received undefined"}]
+
+stderr | convex/ai/brief.test.ts > Generation Brief derivation (story 1, CAP-1/2/4) > re-derives on changed inputs and stamps change: added | unchanged | removed
+QA scorecard failed; continuing without it Error: submit_qa_scorecard: model returned an unexpected shape — overall_score: Invalid input: expected number, received undefined
+    at generateStructured (/Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/convex/ai/structured.ts:167:11)
+    at runNextTicks (node:internal/process/task_queues:64:5)
+    at listOnTimeout (node:internal/timers:547:9)
+    at processTimers (node:internal/timers:521:7)
+    at runQAAgent (/Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/convex/ai/qaAgent.ts:121:10)
+    at async Promise.allSettled (index 0)
+    at handler (/Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/convex/ai/orderedGeneration.ts:466:46)
+    at invokeFunction (file:///Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/node_modules/convex/dist/esm/server/impl/registration_impl.js:56:14)
+    at invokeAction (file:///Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/node_modules/convex/dist/esm/server/impl/registration_impl.js:202:18)
+    at file:///Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/node_modules/convex-test/dist/index.js:1631:35
+
+ ✓ |convex| convex/ai/brief.test.ts > Generation Brief derivation (story 1, CAP-1/2/4) > reuses the stored Brief for identical inputs — no second derivation call 148ms
+stderr | convex/ai/brief.test.ts > Generation Brief derivation (story 1, CAP-1/2/4) > stores a writer-supplied Storyline verbatim with origin=writer; other groups still derive
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/brief.test.ts > Generation Brief derivation (story 1, CAP-1/2/4) > stores a writer-supplied Storyline verbatim with origin=writer; other groups still derive
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/brief.test.ts > Generation Brief derivation (story 1, CAP-1/2/4) > stores a writer-supplied Storyline verbatim with origin=writer; other groups still derive
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/brief.test.ts > Generation Brief derivation (story 1, CAP-1/2/4) > stores a writer-supplied Storyline verbatim with origin=writer; other groups still derive
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/brief.test.ts > Generation Brief derivation (story 1, CAP-1/2/4) > stores a writer-supplied Storyline verbatim with origin=writer; other groups still derive
+submit_qa_scorecard: tool output failed validation [{"expected":"number","code":"invalid_type","path":["overall_score"],"message":"Invalid input: expected number, received undefined"}]
+
+stderr | convex/ai/brief.test.ts > Generation Brief derivation (story 1, CAP-1/2/4) > stores a writer-supplied Storyline verbatim with origin=writer; other groups still derive
+submit_qa_scorecard: tool output failed validation [{"expected":"number","code":"invalid_type","path":["overall_score"],"message":"Invalid input: expected number, received undefined"}]
+
+stderr | convex/ai/brief.test.ts > Generation Brief derivation (story 1, CAP-1/2/4) > stores a writer-supplied Storyline verbatim with origin=writer; other groups still derive
+QA scorecard failed; continuing without it Error: submit_qa_scorecard: model returned an unexpected shape — overall_score: Invalid input: expected number, received undefined
+    at generateStructured (/Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/convex/ai/structured.ts:167:11)
+    at runNextTicks (node:internal/process/task_queues:64:5)
+    at listOnTimeout (node:internal/timers:547:9)
+    at processTimers (node:internal/timers:521:7)
+    at runQAAgent (/Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/convex/ai/qaAgent.ts:121:10)
+    at async Promise.allSettled (index 0)
+    at handler (/Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/convex/ai/orderedGeneration.ts:466:46)
+    at invokeFunction (file:///Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/node_modules/convex/dist/esm/server/impl/registration_impl.js:56:14)
+    at invokeAction (file:///Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/node_modules/convex/dist/esm/server/impl/registration_impl.js:202:18)
+    at file:///Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/node_modules/convex-test/dist/index.js:1631:35
+
+stderr | convex/ai/brief.test.ts > Generation Brief editing and questions (briefs.ts, story 1 shape / story 4 writer) > saveEntryEdit creates version N+1 with origin=edited and editMagnitude
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/brief.test.ts > Generation Brief editing and questions (briefs.ts, story 1 shape / story 4 writer) > saveEntryEdit creates version N+1 with origin=edited and editMagnitude
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/brief.test.ts > Generation Brief editing and questions (briefs.ts, story 1 shape / story 4 writer) > saveEntryEdit creates version N+1 with origin=edited and editMagnitude
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/brief.test.ts > Generation Brief editing and questions (briefs.ts, story 1 shape / story 4 writer) > saveEntryEdit creates version N+1 with origin=edited and editMagnitude
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/brief.test.ts > Generation Brief editing and questions (briefs.ts, story 1 shape / story 4 writer) > saveEntryEdit creates version N+1 with origin=edited and editMagnitude
+submit_qa_scorecard: tool output failed validation [{"expected":"number","code":"invalid_type","path":["overall_score"],"message":"Invalid input: expected number, received undefined"}]
+
+stderr | convex/ai/brief.test.ts > Generation Brief editing and questions (briefs.ts, story 1 shape / story 4 writer) > saveEntryEdit creates version N+1 with origin=edited and editMagnitude
+submit_qa_scorecard: tool output failed validation [{"expected":"number","code":"invalid_type","path":["overall_score"],"message":"Invalid input: expected number, received undefined"}]
+
+stderr | convex/ai/brief.test.ts > Generation Brief editing and questions (briefs.ts, story 1 shape / story 4 writer) > saveEntryEdit creates version N+1 with origin=edited and editMagnitude
+QA scorecard failed; continuing without it Error: submit_qa_scorecard: model returned an unexpected shape — overall_score: Invalid input: expected number, received undefined
+    at generateStructured (/Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/convex/ai/structured.ts:167:11)
+    at runNextTicks (node:internal/process/task_queues:64:5)
+    at listOnTimeout (node:internal/timers:547:9)
+    at processTimers (node:internal/timers:521:7)
+    at runQAAgent (/Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/convex/ai/qaAgent.ts:121:10)
+    at async Promise.allSettled (index 0)
+    at handler (/Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/convex/ai/orderedGeneration.ts:466:46)
+    at invokeFunction (file:///Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/node_modules/convex/dist/esm/server/impl/registration_impl.js:56:14)
+    at invokeAction (file:///Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/node_modules/convex/dist/esm/server/impl/registration_impl.js:202:18)
+    at file:///Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/node_modules/convex-test/dist/index.js:1631:35
+
+ ✓ |convex| convex/ai/brief.test.ts > Generation Brief derivation (story 1, CAP-1/2/4) > re-derives on changed inputs and stamps change: added | unchanged | removed 161ms
+ ✓ |convex| convex/ai/brief.test.ts > Generation Brief derivation (story 1, CAP-1/2/4) > stores a writer-supplied Storyline verbatim with origin=writer; other groups still derive 59ms
+ ✓ |convex| convex/ai/brief.test.ts > Generation Brief derivation (story 1, CAP-1/2/4) > persistDerivedBrief drops a candidate entry whose source belongs to a different project/generation 5ms
+ ✓ |convex| convex/ai/brief.test.ts > Generation Brief derivation (story 1, CAP-1/2/4) > persistDerivedBrief drops a candidate entry whose source belongs to a different generation in the same project 6ms
+stderr | convex/ai/brief.test.ts > Generation Brief editing and questions (briefs.ts, story 1 shape / story 4 writer) > storylineQuestion entries round-trip and saveEntryEdit resolves them
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/brief.test.ts > Generation Brief editing and questions (briefs.ts, story 1 shape / story 4 writer) > storylineQuestion entries round-trip and saveEntryEdit resolves them
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/brief.test.ts > Generation Brief editing and questions (briefs.ts, story 1 shape / story 4 writer) > storylineQuestion entries round-trip and saveEntryEdit resolves them
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/brief.test.ts > Generation Brief editing and questions (briefs.ts, story 1 shape / story 4 writer) > storylineQuestion entries round-trip and saveEntryEdit resolves them
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/brief.test.ts > Generation Brief editing and questions (briefs.ts, story 1 shape / story 4 writer) > getBrief and listBriefEntries read the stored Brief for the UI panel
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/brief.test.ts > Generation Brief editing and questions (briefs.ts, story 1 shape / story 4 writer) > getBrief and listBriefEntries read the stored Brief for the UI panel
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/brief.test.ts > Generation Brief editing and questions (briefs.ts, story 1 shape / story 4 writer) > getBrief and listBriefEntries read the stored Brief for the UI panel
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/brief.test.ts > Generation Brief editing and questions (briefs.ts, story 1 shape / story 4 writer) > getBrief and listBriefEntries read the stored Brief for the UI panel
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/brief.test.ts > Generation Brief editing and questions (briefs.ts, story 1 shape / story 4 writer) > getBrief and listBriefEntries read the stored Brief for the UI panel
+submit_qa_scorecard: tool output failed validation [{"expected":"number","code":"invalid_type","path":["overall_score"],"message":"Invalid input: expected number, received undefined"}]
+
+stderr | convex/ai/brief.test.ts > Generation Brief editing and questions (briefs.ts, story 1 shape / story 4 writer) > getBrief and listBriefEntries read the stored Brief for the UI panel
+submit_qa_scorecard: tool output failed validation [{"expected":"number","code":"invalid_type","path":["overall_score"],"message":"Invalid input: expected number, received undefined"}]
+
+stderr | convex/ai/brief.test.ts > Generation Brief editing and questions (briefs.ts, story 1 shape / story 4 writer) > getBrief and listBriefEntries read the stored Brief for the UI panel
+QA scorecard failed; continuing without it Error: submit_qa_scorecard: model returned an unexpected shape — overall_score: Invalid input: expected number, received undefined
+    at generateStructured (/Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/convex/ai/structured.ts:167:11)
+    at runNextTicks (node:internal/process/task_queues:64:5)
+    at listOnTimeout (node:internal/timers:547:9)
+    at processTimers (node:internal/timers:521:7)
+    at runQAAgent (/Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/convex/ai/qaAgent.ts:121:10)
+    at async Promise.allSettled (index 0)
+    at handler (/Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/convex/ai/orderedGeneration.ts:466:46)
+    at invokeFunction (file:///Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/node_modules/convex/dist/esm/server/impl/registration_impl.js:56:14)
+    at invokeAction (file:///Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/node_modules/convex/dist/esm/server/impl/registration_impl.js:202:18)
+    at file:///Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/node_modules/convex-test/dist/index.js:1631:35
+
+ ✓ |convex| convex/ai/brief.test.ts > Generation Brief editing and questions (briefs.ts, story 1 shape / story 4 writer) > saveEntryEdit creates version N+1 with origin=edited and editMagnitude 106ms
+ ✓ |convex| convex/ai/brief.test.ts > Generation Brief editing and questions (briefs.ts, story 1 shape / story 4 writer) > storylineQuestion entries round-trip and saveEntryEdit resolves them 52ms
+ ✓ |convex| convex/ai/brief.test.ts > Generation Brief editing and questions (briefs.ts, story 1 shape / story 4 writer) > getBrief and listBriefEntries read the stored Brief for the UI panel 108ms
+ ✓ |convex| convex/ai/brief.test.ts > Generation Brief publication idempotency (DW-112) > publishes one first version when two same-key derivations reach persistence together 28ms
+ ✓ |convex| convex/ai/brief.test.ts > Generation Brief publication idempotency (DW-112) > adopts the first publication when it becomes the current baseline before the second baseline read 16ms
+ ✓ |convex| convex/ai/brief.test.ts > Generation Brief publication idempotency (DW-112) > adopts the latest same-key Brief before a stale project fence or candidate processing 11ms
+ ✓ |convex| convex/ai/brief.test.ts > Generation Brief read completeness and diff baseline (DW-107/DW-118) > does not re-insert a removed marker across repeated derivations, and stamps a returning entry as added 38ms
+stderr | convex/ai/brief.test.ts > Generation Brief read completeness and diff baseline (DW-107/DW-118) > refuses a source read above MAX_BRIEF_SOURCE_ROWS; the generation completes with no Brief
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/brief.test.ts > Generation Brief read completeness and diff baseline (DW-107/DW-118) > refuses a source read above MAX_BRIEF_SOURCE_ROWS; the generation completes with no Brief
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/brief.test.ts > Generation Brief read completeness and diff baseline (DW-107/DW-118) > refuses a source read above MAX_BRIEF_SOURCE_ROWS; the generation completes with no Brief
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/brief.test.ts > Generation Brief read completeness and diff baseline (DW-107/DW-118) > refuses a source read above MAX_BRIEF_SOURCE_ROWS; the generation completes with no Brief
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/brief.test.ts > Generation Brief read completeness and diff baseline (DW-107/DW-118) > refuses a source read above MAX_BRIEF_SOURCE_ROWS; the generation completes with no Brief
+Generation Brief derivation failed; continuing without a Brief 000000000000000010003generations ConvexError: {"code":"INVALID_STATE","message":"This generation has more than 200 frozen sources and cannot be read completely for a Generation Brief"}
+    at domainError (/Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/convex/lib/contracts.ts:42:9)
+    at readBriefSourceRows (/Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/convex/generations.ts:1623:12)
+    at handler (/Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/convex/generations.ts:1699:12)
+    at invokeFunction (file:///Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/node_modules/convex/dist/esm/server/impl/registration_impl.js:56:14)
+    at invokeQuery (file:///Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/node_modules/convex/dist/esm/server/impl/registration_impl.js:163:18)
+    at runQueryWithHandler (file:///Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/node_modules/convex-test/dist/index.js:1595:31)
+    at Object.queryFromPath (file:///Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/node_modules/convex-test/dist/index.js:1649:32)
+    at Object.runQuery (file:///Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/node_modules/convex-test/dist/index.js:1712:20)
+    at deriveOrReuseBrief (/Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/convex/ai/brief.ts:450:19)
+    at runGenerationBriefStage (/Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/convex/ai/brief.ts:704:21) {
+  data: {
+    code: 'INVALID_STATE',
+    message: 'This generation has more than 200 frozen sources and cannot be read completely for a Generation Brief'
+  },
+  ConvexErrorSymbol: Symbol(ConvexError),
+  [Symbol(ConvexError)]: true
+}
+
+stderr | convex/ai/brief.test.ts > Generation Brief read completeness and diff baseline (DW-107/DW-118) > refuses a source read above MAX_BRIEF_SOURCE_ROWS; the generation completes with no Brief
+submit_qa_scorecard: tool output failed validation [{"expected":"number","code":"invalid_type","path":["overall_score"],"message":"Invalid input: expected number, received undefined"}]
+
+stderr | convex/ai/brief.test.ts > Generation Brief read completeness and diff baseline (DW-107/DW-118) > refuses a source read above MAX_BRIEF_SOURCE_ROWS; the generation completes with no Brief
+submit_qa_scorecard: tool output failed validation [{"expected":"number","code":"invalid_type","path":["overall_score"],"message":"Invalid input: expected number, received undefined"}]
+
+stderr | convex/ai/brief.test.ts > Generation Brief read completeness and diff baseline (DW-107/DW-118) > refuses a source read above MAX_BRIEF_SOURCE_ROWS; the generation completes with no Brief
+QA scorecard failed; continuing without it Error: submit_qa_scorecard: model returned an unexpected shape — overall_score: Invalid input: expected number, received undefined
+    at generateStructured (/Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/convex/ai/structured.ts:167:11)
+    at runQAAgent (/Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/convex/ai/qaAgent.ts:121:10)
+    at async Promise.allSettled (index 0)
+    at handler (/Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/convex/ai/orderedGeneration.ts:466:46)
+    at invokeFunction (file:///Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/node_modules/convex/dist/esm/server/impl/registration_impl.js:56:14)
+    at invokeAction (file:///Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/node_modules/convex/dist/esm/server/impl/registration_impl.js:202:18)
+    at file:///Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/node_modules/convex-test/dist/index.js:1631:35
+    at runActionWithHandler (file:///Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/node_modules/convex-test/dist/index.js:1628:16)
+    at Object.actionFromPath (file:///Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/node_modules/convex-test/dist/index.js:1706:28)
+    at action (file:///Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/node_modules/convex-test/dist/index.js:1746:20)
+
+stderr | convex/ai/brief.test.ts > Generation Brief read completeness and diff baseline (DW-107/DW-118) > refuses a source read above MAX_BRIEF_SOURCE_ROWS; the generation completes with no Brief
+submit_qa_scorecard: tool output failed validation [{"expected":"number","code":"invalid_type","path":["overall_score"],"message":"Invalid input: expected number, received undefined"}]
+
+stderr | convex/ai/brief.test.ts > Generation Brief read completeness and diff baseline (DW-107/DW-118) > refuses a source read above MAX_BRIEF_SOURCE_ROWS; the generation completes with no Brief
+submit_qa_scorecard: tool output failed validation [{"expected":"number","code":"invalid_type","path":["overall_score"],"message":"Invalid input: expected number, received undefined"}]
+
+stderr | convex/ai/brief.test.ts > Generation Brief read completeness and diff baseline (DW-107/DW-118) > refuses a source read above MAX_BRIEF_SOURCE_ROWS; the generation completes with no Brief
+QA scorecard failed; continuing without it Error: submit_qa_scorecard: model returned an unexpected shape — overall_score: Invalid input: expected number, received undefined
+    at generateStructured (/Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/convex/ai/structured.ts:167:11)
+    at runNextTicks (node:internal/process/task_queues:64:5)
+    at listOnTimeout (node:internal/timers:547:9)
+    at processTimers (node:internal/timers:521:7)
+    at runQAAgent (/Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/convex/ai/qaAgent.ts:121:10)
+    at async Promise.allSettled (index 0)
+    at handler (/Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/convex/ai/orderedGeneration.ts:466:46)
+    at invokeFunction (file:///Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/node_modules/convex/dist/esm/server/impl/registration_impl.js:56:14)
+    at invokeAction (file:///Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/node_modules/convex/dist/esm/server/impl/registration_impl.js:202:18)
+    at file:///Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/node_modules/convex-test/dist/index.js:1631:35
+
+ ✓ |convex| convex/ai/brief.test.ts > Generation Brief read completeness and diff baseline (DW-107/DW-118) > never carries the previous version's storylineQuestion rows forward, as evidence or as a marker 18ms
+ ✓ |convex| convex/ai/brief.test.ts > Generation Brief read completeness and diff baseline (DW-107/DW-118) > renders only live evidence, byte-identically to the Brief the ordered chain checks against 9ms
+stderr | convex/ai/brief.test.ts > Generation Brief read completeness and diff baseline (DW-107/DW-118) > refuses a source read above MAX_BRIEF_SOURCE_ROWS; the generation completes with no Brief
+submit_qa_scorecard: tool output failed validation [{"expected":"number","code":"invalid_type","path":["overall_score"],"message":"Invalid input: expected number, received undefined"}]
+
+stderr | convex/ai/brief.test.ts > Generation Brief read completeness and diff baseline (DW-107/DW-118) > refuses a source read above MAX_BRIEF_SOURCE_ROWS; the generation completes with no Brief
+submit_qa_scorecard: tool output failed validation [{"expected":"number","code":"invalid_type","path":["overall_score"],"message":"Invalid input: expected number, received undefined"}]
+
+stderr | convex/ai/brief.test.ts > Generation Brief read completeness and diff baseline (DW-107/DW-118) > refuses a source read above MAX_BRIEF_SOURCE_ROWS; the generation completes with no Brief
+QA scorecard failed; continuing without it Error: submit_qa_scorecard: model returned an unexpected shape — overall_score: Invalid input: expected number, received undefined
+    at generateStructured (/Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/convex/ai/structured.ts:167:11)
+    at runNextTicks (node:internal/process/task_queues:64:5)
+    at listOnTimeout (node:internal/timers:547:9)
+    at processTimers (node:internal/timers:521:7)
+    at runQAAgent (/Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/convex/ai/qaAgent.ts:121:10)
+    at async Promise.allSettled (index 0)
+    at handler (/Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/convex/ai/orderedGeneration.ts:466:46)
+    at invokeFunction (file:///Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/node_modules/convex/dist/esm/server/impl/registration_impl.js:56:14)
+    at invokeAction (file:///Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/node_modules/convex/dist/esm/server/impl/registration_impl.js:202:18)
+    at file:///Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/node_modules/convex-test/dist/index.js:1631:35
+
+stderr | convex/ai/pipeline.compare.test.ts > shared generation analysis > analyzes once before fanout and shares persisted validated analysis (claude-opus-4-8, claude-haiku-4-5-20251001)
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/pipeline.compare.test.ts > shared generation analysis > analyzes once before fanout and shares persisted validated analysis (claude-opus-4-8, claude-haiku-4-5-20251001)
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/pipeline.compare.test.ts > shared generation analysis > analyzes once before fanout and shares persisted validated analysis (claude-opus-4-8, claude-haiku-4-5-20251001)
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/pipeline.compare.test.ts > shared generation analysis > analyzes once before fanout and shares persisted validated analysis (claude-opus-4-8, claude-haiku-4-5-20251001)
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/brief.test.ts > Generation Brief read completeness and diff baseline (DW-107/DW-118) > refuses a source read above MAX_BRIEF_SOURCE_ROWS; the generation completes with no Brief
+submit_qa_scorecard: tool output failed validation [{"expected":"number","code":"invalid_type","path":["overall_score"],"message":"Invalid input: expected number, received undefined"}]
+
+stderr | convex/ai/brief.test.ts > Generation Brief read completeness and diff baseline (DW-107/DW-118) > refuses a source read above MAX_BRIEF_SOURCE_ROWS; the generation completes with no Brief
+submit_qa_scorecard: tool output failed validation [{"expected":"number","code":"invalid_type","path":["overall_score"],"message":"Invalid input: expected number, received undefined"}]
+
+stderr | convex/ai/brief.test.ts > Generation Brief read completeness and diff baseline (DW-107/DW-118) > refuses a source read above MAX_BRIEF_SOURCE_ROWS; the generation completes with no Brief
+QA scorecard failed; continuing without it Error: submit_qa_scorecard: model returned an unexpected shape — overall_score: Invalid input: expected number, received undefined
+    at generateStructured (/Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/convex/ai/structured.ts:167:11)
+    at runNextTicks (node:internal/process/task_queues:64:5)
+    at listOnTimeout (node:internal/timers:547:9)
+    at processTimers (node:internal/timers:521:7)
+    at runQAAgent (/Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/convex/ai/qaAgent.ts:121:10)
+    at async Promise.allSettled (index 0)
+    at handler (/Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/convex/ai/orderedGeneration.ts:466:46)
+    at invokeFunction (file:///Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/node_modules/convex/dist/esm/server/impl/registration_impl.js:56:14)
+    at invokeAction (file:///Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/node_modules/convex/dist/esm/server/impl/registration_impl.js:202:18)
+    at file:///Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/node_modules/convex-test/dist/index.js:1631:35
+
+stderr | convex/ai/brief.test.ts > Generation Brief read completeness and diff baseline (DW-107/DW-118) > refuses a source read above MAX_BRIEF_SOURCE_ROWS; the generation completes with no Brief
+submit_qa_scorecard: tool output failed validation [{"expected":"number","code":"invalid_type","path":["overall_score"],"message":"Invalid input: expected number, received undefined"}]
+
+stderr | convex/ai/brief.test.ts > Generation Brief read completeness and diff baseline (DW-107/DW-118) > refuses a source read above MAX_BRIEF_SOURCE_ROWS; the generation completes with no Brief
+submit_qa_scorecard: tool output failed validation [{"expected":"number","code":"invalid_type","path":["overall_score"],"message":"Invalid input: expected number, received undefined"}]
+
+stderr | convex/ai/brief.test.ts > Generation Brief read completeness and diff baseline (DW-107/DW-118) > refuses a source read above MAX_BRIEF_SOURCE_ROWS; the generation completes with no Brief
+QA scorecard failed; continuing without it Error: submit_qa_scorecard: model returned an unexpected shape — overall_score: Invalid input: expected number, received undefined
+    at generateStructured (/Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/convex/ai/structured.ts:167:11)
+    at runQAAgent (/Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/convex/ai/qaAgent.ts:121:10)
+    at async Promise.allSettled (index 0)
+    at handler (/Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/convex/ai/orderedGeneration.ts:466:46)
+    at invokeFunction (file:///Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/node_modules/convex/dist/esm/server/impl/registration_impl.js:56:14)
+    at invokeAction (file:///Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/node_modules/convex/dist/esm/server/impl/registration_impl.js:202:18)
+    at file:///Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/node_modules/convex-test/dist/index.js:1631:35
+    at runActionWithHandler (file:///Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/node_modules/convex-test/dist/index.js:1628:16)
+    at Object.actionFromPath (file:///Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/node_modules/convex-test/dist/index.js:1706:28)
+    at Object.fun (file:///Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/node_modules/convex-test/dist/index.js:1792:24)
+
+stderr | convex/ai/pipeline.compare.test.ts > shared generation analysis > analyzes once before fanout and shares persisted validated analysis (claude-haiku-4-5-20251001, claude-opus-4-8)
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/pipeline.compare.test.ts > shared generation analysis > analyzes once before fanout and shares persisted validated analysis (claude-haiku-4-5-20251001, claude-opus-4-8)
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/pipeline.compare.test.ts > shared generation analysis > analyzes once before fanout and shares persisted validated analysis (claude-haiku-4-5-20251001, claude-opus-4-8)
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/pipeline.compare.test.ts > shared generation analysis > analyzes once before fanout and shares persisted validated analysis (claude-haiku-4-5-20251001, claude-opus-4-8)
+brain search failed; returning no exemplars {}
+
+ ✓ |convex| convex/ai/pipeline.compare.test.ts > shared generation analysis > analyzes once before fanout and shares persisted validated analysis (claude-opus-4-8, claude-haiku-4-5-20251001) 395ms
+stderr | convex/ai/pipeline.compare.test.ts > shared analysis failure and compatibility > keeps the selected iterative analyzer model
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/pipeline.compare.test.ts > shared analysis failure and compatibility > keeps the selected iterative analyzer model
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/pipeline.compare.test.ts > shared analysis failure and compatibility > keeps the selected iterative analyzer model
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/pipeline.compare.test.ts > shared analysis failure and compatibility > keeps the selected iterative analyzer model
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/pipeline.compare.test.ts > shared analysis failure and compatibility > keeps the selected single-mode analyzer model
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/pipeline.compare.test.ts > shared analysis failure and compatibility > keeps the selected single-mode analyzer model
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/pipeline.compare.test.ts > shared analysis failure and compatibility > keeps the selected single-mode analyzer model
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/pipeline.compare.test.ts > shared analysis failure and compatibility > keeps the selected single-mode analyzer model
+brain search failed; returning no exemplars {}
+
+ ✓ |convex| convex/ai/brief.test.ts > Generation Brief read completeness and diff baseline (DW-107/DW-118) > refuses a source read above MAX_BRIEF_SOURCE_ROWS; the generation completes with no Brief 652ms
+ ✓ |convex| convex/ai/pipeline.compare.test.ts > shared generation analysis > analyzes once before fanout and shares persisted validated analysis (claude-haiku-4-5-20251001, claude-opus-4-8) 125ms
+ ✓ |convex| convex/ai/pipeline.compare.test.ts > shared analysis failure and compatibility > keeps the selected iterative analyzer model 24ms
+stderr | convex/ai/pipeline.compare.test.ts > shared analysis failure and compatibility > fails generation without scheduling candidates when shared analysis rejects
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/pipeline.compare.test.ts > shared analysis failure and compatibility > fails generation without scheduling candidates when shared analysis rejects
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/pipeline.compare.test.ts > shared analysis failure and compatibility > fails generation without scheduling candidates when shared analysis rejects
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/pipeline.compare.test.ts > shared analysis failure and compatibility > fails generation without scheduling candidates when shared analysis rejects
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/pipeline.compare.test.ts > shared analysis failure and compatibility > fails invalid shared analysis { before any provider request
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/pipeline.compare.test.ts > shared analysis failure and compatibility > fails invalid shared analysis { before any provider request
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/pipeline.compare.test.ts > shared analysis failure and compatibility > fails invalid shared analysis { before any provider request
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/pipeline.compare.test.ts > shared analysis failure and compatibility > fails invalid shared analysis { before any provider request
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/pipeline.compare.test.ts > shared analysis failure and compatibility > fails invalid shared analysis {} before any provider request
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/pipeline.compare.test.ts > shared analysis failure and compatibility > fails invalid shared analysis {} before any provider request
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/pipeline.compare.test.ts > shared analysis failure and compatibility > fails invalid shared analysis {} before any provider request
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/pipeline.compare.test.ts > shared analysis failure and compatibility > fails invalid shared analysis {} before any provider request
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/pipeline.compare.test.ts > shared analysis failure and compatibility > fails invalid shared analysis null before any provider request
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/pipeline.compare.test.ts > shared analysis failure and compatibility > fails invalid shared analysis null before any provider request
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/pipeline.compare.test.ts > shared analysis failure and compatibility > fails invalid shared analysis null before any provider request
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/pipeline.compare.test.ts > shared analysis failure and compatibility > fails invalid shared analysis null before any provider request
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/pipeline.compare.test.ts > shared analysis failure and compatibility > fails invalid shared analysis {"company_context":"Test company","project_goal":"Resolve the control uncertainty","business_problem":"Existing control fails","scientific_technical_problem":"Response under load is unknown","technological_objective":"A repeatable control","work_performed":{"experiments_iterations":[{"results":42}]},"project_status":"completed"} before any provider request
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/pipeline.compare.test.ts > shared analysis failure and compatibility > fails invalid shared analysis {"company_context":"Test company","project_goal":"Resolve the control uncertainty","business_problem":"Existing control fails","scientific_technical_problem":"Response under load is unknown","technological_objective":"A repeatable control","work_performed":{"experiments_iterations":[{"results":42}]},"project_status":"completed"} before any provider request
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/pipeline.compare.test.ts > shared analysis failure and compatibility > fails invalid shared analysis {"company_context":"Test company","project_goal":"Resolve the control uncertainty","business_problem":"Existing control fails","scientific_technical_problem":"Response under load is unknown","technological_objective":"A repeatable control","work_performed":{"experiments_iterations":[{"results":42}]},"project_status":"completed"} before any provider request
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/pipeline.compare.test.ts > shared analysis failure and compatibility > fails invalid shared analysis {"company_context":"Test company","project_goal":"Resolve the control uncertainty","business_problem":"Existing control fails","scientific_technical_problem":"Response under load is unknown","technological_objective":"A repeatable control","work_performed":{"experiments_iterations":[{"results":42}]},"project_status":"completed"} before any provider request
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/pipeline.compare.test.ts > shared analysis failure and compatibility > runs the existing analyzer fallback for queued candidate 0 with no analysis
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/pipeline.compare.test.ts > shared analysis failure and compatibility > runs the existing analyzer fallback for queued candidate 0 with no analysis
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/pipeline.compare.test.ts > shared analysis failure and compatibility > runs the existing analyzer fallback for queued candidate 0 with no analysis
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/pipeline.compare.test.ts > shared analysis failure and compatibility > runs the existing analyzer fallback for queued candidate 0 with no analysis
+brain search failed; returning no exemplars {}
+
+ ✓ |convex| convex/ai/pipeline.compare.test.ts > shared analysis failure and compatibility > keeps the selected single-mode analyzer model 66ms
+ ✓ |convex| convex/ai/pipeline.compare.test.ts > shared analysis failure and compatibility > fails generation without scheduling candidates when shared analysis rejects 17ms
+ ✓ |convex| convex/ai/pipeline.compare.test.ts > shared analysis failure and compatibility > fails invalid shared analysis { before any provider request 16ms
+ ✓ |convex| convex/ai/pipeline.compare.test.ts > shared analysis failure and compatibility > fails invalid shared analysis {} before any provider request 15ms
+ ✓ |convex| convex/ai/pipeline.compare.test.ts > shared analysis failure and compatibility > fails invalid shared analysis null before any provider request 15ms
+ ✓ |convex| convex/ai/pipeline.compare.test.ts > shared analysis failure and compatibility > fails invalid shared analysis {"company_context":"Test company","project_goal":"Resolve the control uncertainty","business_problem":"Existing control fails","scientific_technical_problem":"Response under load is unknown","technological_objective":"A repeatable control","work_performed":{"experiments_iterations":[{"results":42}]},"project_status":"completed"} before any provider request 16ms
+stderr | convex/ai/pipeline.compare.test.ts > shared analysis failure and compatibility > runs the existing analyzer fallback for queued candidate 1 with no analysis
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/pipeline.compare.test.ts > shared analysis failure and compatibility > runs the existing analyzer fallback for queued candidate 1 with no analysis
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/pipeline.compare.test.ts > shared analysis failure and compatibility > runs the existing analyzer fallback for queued candidate 1 with no analysis
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/pipeline.compare.test.ts > shared analysis failure and compatibility > runs the existing analyzer fallback for queued candidate 1 with no analysis
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/pipeline.compare.test.ts > shares one analysis across Anthropic and OpenRouter candidates without changing gateway message strings
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/pipeline.compare.test.ts > shares one analysis across Anthropic and OpenRouter candidates without changing gateway message strings
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/pipeline.compare.test.ts > shares one analysis across Anthropic and OpenRouter candidates without changing gateway message strings
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/pipeline.compare.test.ts > shares one analysis across Anthropic and OpenRouter candidates without changing gateway message strings
+brain search failed; returning no exemplars {}
+
+ ✓ |convex| convex/ai/pipeline.compare.test.ts > shared analysis failure and compatibility > runs the existing analyzer fallback for queued candidate 0 with no analysis 52ms
+ ✓ |convex| convex/ai/pipeline.compare.test.ts > shared analysis failure and compatibility > runs the existing analyzer fallback for queued candidate 1 with no analysis 38ms
+ ✓ |convex| convex/ai/pipeline.compare.test.ts > shares one analysis across Anthropic and OpenRouter candidates without changing gateway message strings 73ms
+ ✓ |convex| convex/ai/brief.test.ts > Generation Brief read completeness and diff baseline (DW-107/DW-118) > diffs against every live row of an over-bound baseline, and a stale fence writes nothing 357ms
+ ✓ |convex| convex/ai/brief.test.ts > Generation Brief read completeness and diff baseline (DW-107/DW-118) > omits an over-bound Brief from both prompt readers instead of throwing 68ms
+ ✓ |convex| convex/ai/brief.test.ts > Generation Brief read completeness and diff baseline (DW-107/DW-118) > omits a byte-heavy Brief under the row bound that exceeds the transaction read limit from both prompt readers instead of throwing (DW-152) 354ms
+ ✓ |convex| convex/ai/brief.test.ts > Generation Brief read completeness and diff baseline (DW-107/DW-118) > omits a Brief past the consumer byte budget even where the transaction read limit would allow the read (DW-152) 131ms
+stderr | convex/ai/brief.test.ts > Generation Brief read completeness and diff baseline (DW-107/DW-118) > reuses an already-over-bound Brief onto a new generation, and both readers omit it
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/brief.test.ts > Generation Brief read completeness and diff baseline (DW-107/DW-118) > reuses an already-over-bound Brief onto a new generation, and both readers omit it
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/brief.test.ts > Generation Brief read completeness and diff baseline (DW-107/DW-118) > reuses an already-over-bound Brief onto a new generation, and both readers omit it
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/brief.test.ts > Generation Brief read completeness and diff baseline (DW-107/DW-118) > reuses an already-over-bound Brief onto a new generation, and both readers omit it
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/brief.test.ts > Generation Brief read completeness and diff baseline (DW-107/DW-118) > reuses an already-over-bound Brief onto a new generation, and both readers omit it
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/brief.test.ts > Generation Brief read completeness and diff baseline (DW-107/DW-118) > reuses an already-over-bound Brief onto a new generation, and both readers omit it
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/brief.test.ts > Generation Brief read completeness and diff baseline (DW-107/DW-118) > reuses an already-over-bound Brief onto a new generation, and both readers omit it
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/brief.test.ts > Generation Brief read completeness and diff baseline (DW-107/DW-118) > reuses an already-over-bound Brief onto a new generation, and both readers omit it
+brain search failed; returning no exemplars {}
+
+ ✓ |convex| convex/ai/brief.test.ts > Generation Brief read completeness and diff baseline (DW-107/DW-118) > reads a large Brief just under the consumer byte budget completely in both readers (DW-152 boundary) 138ms
+stderr | convex/ai/brief.test.ts > Generation Brief read completeness and diff baseline (DW-107/DW-118) > reuses an already-over-bound Brief onto a new generation, and both readers omit it
+Generation Brief omitted from generation 000000000000000010521generations: Brief 0000000000010016generationBriefs has more than 500 entries and cannot be read completely
+
+stderr | convex/ai/brief.test.ts > Generation Brief read completeness and diff baseline (DW-107/DW-118) > reuses an already-over-bound Brief onto a new generation, and both readers omit it
+Generation Brief omitted from generation 000000000000000010521generations: Brief 0000000000010016generationBriefs has more than 500 entries and cannot be read completely
+
+stderr | convex/ai/briefPipelineWiring.test.ts > Generation Brief reaches the drafting pipeline (story 1 wiring) > renders the derived Brief into every section-agent prompt
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/briefPipelineWiring.test.ts > Generation Brief reaches the drafting pipeline (story 1 wiring) > renders the derived Brief into every section-agent prompt
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/briefPipelineWiring.test.ts > Generation Brief reaches the drafting pipeline (story 1 wiring) > renders the derived Brief into every section-agent prompt
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/briefPipelineWiring.test.ts > Generation Brief reaches the drafting pipeline (story 1 wiring) > renders the derived Brief into every section-agent prompt
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/brief.test.ts > Generation Brief read completeness and diff baseline (DW-107/DW-118) > persists an oversized derivation in full, then omits it from both readers
+Generation Brief omitted from generation 000000000000000010003generations: Brief 0000000000010306generationBriefs has more than 500 entries and cannot be read completely
+
+stderr | convex/ai/brief.test.ts > Generation Brief read completeness and diff baseline (DW-107/DW-118) > persists an oversized derivation in full, then omits it from both readers
+Generation Brief omitted from generation 000000000000000010003generations: Brief 0000000000010306generationBriefs has more than 500 entries and cannot be read completely
+
+ ✓ |convex| convex/ai/brief.test.ts > Generation Brief read completeness and diff baseline (DW-107/DW-118) > reuses an already-over-bound Brief onto a new generation, and both readers omit it 136ms
+stderr | convex/ai/briefPipelineWiring.test.ts > Generation Brief reaches the drafting pipeline (story 1 wiring) > never fails the generation when Brief derivation fails — completes with no Brief and no rendered block
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/briefPipelineWiring.test.ts > Generation Brief reaches the drafting pipeline (story 1 wiring) > never fails the generation when Brief derivation fails — completes with no Brief and no rendered block
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/briefPipelineWiring.test.ts > Generation Brief reaches the drafting pipeline (story 1 wiring) > never fails the generation when Brief derivation fails — completes with no Brief and no rendered block
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/briefPipelineWiring.test.ts > Generation Brief reaches the drafting pipeline (story 1 wiring) > never fails the generation when Brief derivation fails — completes with no Brief and no rendered block
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/briefPipelineWiring.test.ts > Generation Brief reaches the drafting pipeline (story 1 wiring) > never fails the generation when Brief derivation fails — completes with no Brief and no rendered block
+submit_generation_brief: tool output failed validation [{"code":"invalid_value","values":["business_risk","routine_engineering","outside_claim_period","not_technological"],"path":["claimExclusions",0,"reason"],"message":"Invalid option: expected one of \"business_risk\"|\"routine_engineering\"|\"outside_claim_period\"|\"not_technological\""}]
+
+stderr | convex/ai/briefPipelineWiring.test.ts > Generation Brief reaches the drafting pipeline (story 1 wiring) > never fails the generation when Brief derivation fails — completes with no Brief and no rendered block
+submit_generation_brief: tool output failed validation [{"code":"invalid_value","values":["business_risk","routine_engineering","outside_claim_period","not_technological"],"path":["claimExclusions",0,"reason"],"message":"Invalid option: expected one of \"business_risk\"|\"routine_engineering\"|\"outside_claim_period\"|\"not_technological\""}]
+
+stderr | convex/ai/briefPipelineWiring.test.ts > Generation Brief reaches the drafting pipeline (story 1 wiring) > never fails the generation when Brief derivation fails — completes with no Brief and no rendered block
+Generation Brief derivation failed; continuing without a Brief 000000000000000010003generations Error: submit_generation_brief: model returned an unexpected shape — claimExclusions.0.reason: Invalid option: expected one of "business_risk"|"routine_engineering"|"outside_claim_period"|"not_technological"
+    at generateStructured (/Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/convex/ai/structured.ts:167:11)
+    at runBriefAgent (/Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/convex/ai/brief.ts:245:10)
+    at deriveOrReuseBrief (/Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/convex/ai/brief.ts:475:18)
+    at runGenerationBriefStage (/Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/convex/ai/brief.ts:704:21)
+    at handler (/Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/convex/ai/pipeline.ts:798:7)
+    at invokeFunction (file:///Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/node_modules/convex/dist/esm/server/impl/registration_impl.js:56:14)
+    at invokeAction (file:///Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/node_modules/convex/dist/esm/server/impl/registration_impl.js:202:18)
+    at file:///Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/node_modules/convex-test/dist/index.js:1631:35
+    at runActionWithHandler (file:///Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/node_modules/convex-test/dist/index.js:1628:16)
+    at Object.actionFromPath (file:///Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/node_modules/convex-test/dist/index.js:1706:28)
+
+stderr | convex/ai/briefPipelineWiring.test.ts > Generation Brief attempt outcomes (DW-109/DW-120) > reused: identical frozen inputs stamp the same Brief with no second call, record { kind: reused } and narrate it once
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/briefPipelineWiring.test.ts > Generation Brief attempt outcomes (DW-109/DW-120) > reused: identical frozen inputs stamp the same Brief with no second call, record { kind: reused } and narrate it once
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/briefPipelineWiring.test.ts > Generation Brief attempt outcomes (DW-109/DW-120) > reused: identical frozen inputs stamp the same Brief with no second call, record { kind: reused } and narrate it once
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/briefPipelineWiring.test.ts > Generation Brief attempt outcomes (DW-109/DW-120) > reused: identical frozen inputs stamp the same Brief with no second call, record { kind: reused } and narrate it once
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/briefPipelineWiring.test.ts > Generation Brief attempt outcomes (DW-109/DW-120) > reused: identical frozen inputs stamp the same Brief with no second call, record { kind: reused } and narrate it once
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/briefPipelineWiring.test.ts > Generation Brief attempt outcomes (DW-109/DW-120) > reused: identical frozen inputs stamp the same Brief with no second call, record { kind: reused } and narrate it once
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/briefPipelineWiring.test.ts > Generation Brief attempt outcomes (DW-109/DW-120) > reused: identical frozen inputs stamp the same Brief with no second call, record { kind: reused } and narrate it once
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/briefPipelineWiring.test.ts > Generation Brief attempt outcomes (DW-109/DW-120) > reused: identical frozen inputs stamp the same Brief with no second call, record { kind: reused } and narrate it once
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/briefPipelineWiring.test.ts > Generation Brief attempt outcomes (DW-109/DW-120) > no evidence: zero frozen sources make no Brief call, stamp no Brief, record { kind: no_evidence } and narrate it once
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/briefPipelineWiring.test.ts > Generation Brief attempt outcomes (DW-109/DW-120) > no evidence: zero frozen sources make no Brief call, stamp no Brief, record { kind: no_evidence } and narrate it once
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/briefPipelineWiring.test.ts > Generation Brief attempt outcomes (DW-109/DW-120) > no evidence: zero frozen sources make no Brief call, stamp no Brief, record { kind: no_evidence } and narrate it once
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/briefPipelineWiring.test.ts > Generation Brief attempt outcomes (DW-109/DW-120) > no evidence: zero frozen sources make no Brief call, stamp no Brief, record { kind: no_evidence } and narrate it once
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/briefPipelineWiring.test.ts > Generation Brief attempt outcomes (DW-109/DW-120) > iterative: a failed derivation records the same failed outcome, still schedules s242, and narrates verbatim through getIterativeState
+brain search failed; returning no exemplars {}
+
+ ✓ |convex| convex/ai/brief.test.ts > Generation Brief read completeness and diff baseline (DW-107/DW-118) > persists an oversized derivation in full, then omits it from both readers 202ms
+stderr | convex/ai/briefPipelineWiring.test.ts > Generation Brief attempt outcomes (DW-109/DW-120) > iterative: a failed derivation records the same failed outcome, still schedules s242, and narrates verbatim through getIterativeState
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/briefPipelineWiring.test.ts > Generation Brief attempt outcomes (DW-109/DW-120) > iterative: a failed derivation records the same failed outcome, still schedules s242, and narrates verbatim through getIterativeState
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/briefPipelineWiring.test.ts > Generation Brief attempt outcomes (DW-109/DW-120) > iterative: a failed derivation records the same failed outcome, still schedules s242, and narrates verbatim through getIterativeState
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/briefPipelineWiring.test.ts > Generation Brief attempt outcomes (DW-109/DW-120) > iterative: a failed derivation records the same failed outcome, still schedules s242, and narrates verbatim through getIterativeState
+submit_generation_brief: tool output failed validation [{"code":"invalid_value","values":["business_risk","routine_engineering","outside_claim_period","not_technological"],"path":["claimExclusions",0,"reason"],"message":"Invalid option: expected one of \"business_risk\"|\"routine_engineering\"|\"outside_claim_period\"|\"not_technological\""}]
+
+stderr | convex/ai/briefPipelineWiring.test.ts > Generation Brief attempt outcomes (DW-109/DW-120) > iterative: a failed derivation records the same failed outcome, still schedules s242, and narrates verbatim through getIterativeState
+submit_generation_brief: tool output failed validation [{"code":"invalid_value","values":["business_risk","routine_engineering","outside_claim_period","not_technological"],"path":["claimExclusions",0,"reason"],"message":"Invalid option: expected one of \"business_risk\"|\"routine_engineering\"|\"outside_claim_period\"|\"not_technological\""}]
+
+stderr | convex/ai/briefPipelineWiring.test.ts > Generation Brief attempt outcomes (DW-109/DW-120) > iterative: a failed derivation records the same failed outcome, still schedules s242, and narrates verbatim through getIterativeState
+Generation Brief derivation failed; continuing without a Brief 000000000000000010003generations Error: submit_generation_brief: model returned an unexpected shape — claimExclusions.0.reason: Invalid option: expected one of "business_risk"|"routine_engineering"|"outside_claim_period"|"not_technological"
+    at generateStructured (/Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/convex/ai/structured.ts:167:11)
+    at runBriefAgent (/Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/convex/ai/brief.ts:245:10)
+    at deriveOrReuseBrief (/Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/convex/ai/brief.ts:475:18)
+    at runGenerationBriefStage (/Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/convex/ai/brief.ts:704:21)
+    at handler (/Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/convex/ai/iterative.ts:263:7)
+    at invokeFunction (file:///Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/node_modules/convex/dist/esm/server/impl/registration_impl.js:56:14)
+    at invokeAction (file:///Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/node_modules/convex/dist/esm/server/impl/registration_impl.js:202:18)
+    at file:///Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/node_modules/convex-test/dist/index.js:1631:35
+    at runActionWithHandler (file:///Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/node_modules/convex-test/dist/index.js:1628:16)
+    at Object.actionFromPath (file:///Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/node_modules/convex-test/dist/index.js:1706:28)
+
+ ✓ |convex| convex/ai/briefPipelineWiring.test.ts > Generation Brief reaches the drafting pipeline (story 1 wiring) > renders the derived Brief into every section-agent prompt 349ms
+ ✓ |convex| convex/ai/briefPipelineWiring.test.ts > Generation Brief reaches the drafting pipeline (story 1 wiring) > never fails the generation when Brief derivation fails — completes with no Brief and no rendered block 62ms
+ ✓ |convex| convex/ai/briefPipelineWiring.test.ts > Generation Brief attempt outcomes (DW-109/DW-120) > reused: identical frozen inputs stamp the same Brief with no second call, record { kind: reused } and narrate it once 26ms
+ ✓ |convex| convex/ai/briefPipelineWiring.test.ts > Generation Brief attempt outcomes (DW-109/DW-120) > no evidence: zero frozen sources make no Brief call, stamp no Brief, record { kind: no_evidence } and narrate it once 10ms
+ ✓ |convex| convex/ai/briefPipelineWiring.test.ts > Generation Brief attempt outcomes (DW-109/DW-120) > iterative: a failed derivation records the same failed outcome, still schedules s242, and narrates verbatim through getIterativeState 21ms
+ ✓ |convex| convex/ai/briefPipelineWiring.test.ts > recordBriefOutcome mutation boundary (DW-109/DW-120) > returns null without recreating a missing generation 2ms
+ ✓ |convex| convex/ai/briefPipelineWiring.test.ts > runGenerationBriefStage never throws (DW-109) > bounds a 1,000-character stage error to BRIEF_OUTCOME_DETAIL_CHARS and still logs the original error 1ms
+ ✓ |convex| convex/ai/briefPipelineWiring.test.ts > runGenerationBriefStage never throws (DW-109) > resolves when recording the outcome rejects, logging that failure 1ms
+ ✓ |convex| convex/ai/briefPipelineWiring.test.ts > runGenerationBriefStage never throws (DW-109) > resolves and records an unknown failure when the thrown value defeats stringification and provider normalization 2ms
+ ✓ |convex| convex/ai/briefPipelineWiring.test.ts > runGenerationBriefStage never throws (DW-109) > resolves when both derivation and recording error logging throw 1ms
+ ✓ |convex| convex/ai/briefPipelineWiring.test.ts > runGenerationBriefStage never throws (DW-109) > classifies with the provider code, keeps non-Error text, and never cuts a surrogate pair in half 2ms
+stderr | convex/ai/brief.test.ts > Generation Brief read completeness and diff baseline (DW-107/DW-118) > omits a Brief whose live rows alone are under the bound but whose markers push it over
+Generation Brief omitted from generation 000000000000000010003generations: Brief 0000000000010005generationBriefs has more than 500 entries and cannot be read completely
+
+stderr | convex/ai/brief.test.ts > Generation Brief read completeness and diff baseline (DW-107/DW-118) > omits a Brief whose live rows alone are under the bound but whose markers push it over
+Generation Brief omitted from generation 000000000000000010003generations: Brief 0000000000010005generationBriefs has more than 500 entries and cannot be read completely
+
+ ✓ |convex| convex/ai/brief.test.ts > Generation Brief read completeness and diff baseline (DW-107/DW-118) > reads a Brief of exactly MAX_BRIEF_ENTRY_ROWS completely, in both consumers and as a diff baseline 190ms
+ ✓ |convex| convex/ai/brief.test.ts > Generation Brief read completeness and diff baseline (DW-107/DW-118) > reads exactly MAX_BRIEF_SOURCE_ROWS frozen sources completely, without refusing 16ms
+ ✓ |convex| convex/ai/brief.test.ts > Generation Brief read completeness and diff baseline (DW-107/DW-118) > stamps a returning key `added` against a baseline that still carries its removed marker 5ms
+ ✓ |convex| convex/ai/brief.test.ts > Generation Brief read completeness and diff baseline (DW-107/DW-118) > treats a previous version whose rows are all filtered out as a previous version that exists 18ms
+ ✓ |convex| convex/ai/brief.test.ts > Generation Brief read completeness and diff baseline (DW-107/DW-118) > omits a Brief whose live rows alone are under the bound but whose markers push it over 146ms
+ ✓ |convex| convex/ai/brief.test.ts > Generation Brief read completeness and diff baseline (DW-107/DW-118) > re-reads and re-publishes when a writer edit lands between pin and publish 20ms
+ ✓ |convex| convex/ai/brief.test.ts > Generation Brief read completeness and diff baseline (DW-107/DW-118) > gives up after BRIEF_PUBLISH_ATTEMPTS lost fences, leaving no version from the derivation 51ms
+ ✓ |convex| convex/ai/brief.test.ts > Generation Brief read completeness and diff baseline (DW-107/DW-118) > writes nothing when a baseline page read fails part-way, and the next derivation publishes normally 295ms
+ ✓ |convex| convex/ai/brief.test.ts > Generation Brief read completeness and diff baseline (DW-107/DW-118) > marks a retained baseline row removed when every candidate sharing its key fails re-validation 5ms
+ ✓ |convex| convex/ai/brief.test.ts > Generation Brief read completeness and diff baseline (DW-107/DW-118) > aborts the whole publish with INVALID_STATE when a retained reference is not what it claims 5ms
+ ✓ |convex| convex/ai/brief.test.ts > Generation Brief read completeness and diff baseline (DW-107/DW-118) > keeps the last baseline row for a diff key duplicated across pages, when the key is dropped and when its candidates all fail re-validation 289ms
+ ✓ |convex| convex/ai/brief.test.ts > Generation Brief read completeness and diff baseline (DW-107/DW-118) > stamps the first validated duplicate candidate unchanged and later ones added, even when an earlier candidate sharing the key fails re-validation 3ms
+ ✓ |convex| convex/ai/brief.test.ts > Generation Brief read completeness and diff baseline (DW-107/DW-118) > stops without publishing when a one-row page still needs a split or an accepted page makes no progress 2ms
+ ✓ |convex| convex/ai/brief.test.ts > Generation Brief read completeness and diff baseline (DW-107/DW-118) > re-reads a byte-heavy baseline page smaller after SplitRequired and diffs every live row 324ms
+stderr | convex/ai/brief.test.ts > Generation Brief read completeness and diff baseline (DW-107/DW-118) > recovers an over-bound newest Brief on the next changed-input derivation
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/brief.test.ts > Generation Brief read completeness and diff baseline (DW-107/DW-118) > recovers an over-bound newest Brief on the next changed-input derivation
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/brief.test.ts > Generation Brief read completeness and diff baseline (DW-107/DW-118) > recovers an over-bound newest Brief on the next changed-input derivation
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/brief.test.ts > Generation Brief read completeness and diff baseline (DW-107/DW-118) > recovers an over-bound newest Brief on the next changed-input derivation
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/brief.test.ts > Generation Brief read completeness and diff baseline (DW-107/DW-118) > recovers an over-bound newest Brief on the next changed-input derivation
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/brief.test.ts > Generation Brief read completeness and diff baseline (DW-107/DW-118) > recovers an over-bound newest Brief on the next changed-input derivation
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/brief.test.ts > Generation Brief read completeness and diff baseline (DW-107/DW-118) > recovers an over-bound newest Brief on the next changed-input derivation
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/brief.test.ts > Generation Brief read completeness and diff baseline (DW-107/DW-118) > recovers an over-bound newest Brief on the next changed-input derivation
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/brief.test.ts > Generation Brief read completeness and diff baseline (DW-107/DW-118) > recovers an over-bound newest Brief on the next changed-input derivation
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/brief.test.ts > Generation Brief read completeness and diff baseline (DW-107/DW-118) > recovers an over-bound newest Brief on the next changed-input derivation
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/brief.test.ts > Generation Brief read completeness and diff baseline (DW-107/DW-118) > recovers an over-bound newest Brief on the next changed-input derivation
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/brief.test.ts > Generation Brief read completeness and diff baseline (DW-107/DW-118) > recovers an over-bound newest Brief on the next changed-input derivation
+brain search failed; returning no exemplars {}
+
+ ✓ |convex| convex/ai/brief.test.ts > Generation Brief read completeness and diff baseline (DW-107/DW-118) > sends no retained baseline text, so a large retained baseline publishes under the argument limit 1084ms
+stderr | convex/ai/brief.test.ts > Generation Brief read completeness and diff baseline (DW-107/DW-118) > recovers an over-bound newest Brief on the next changed-input derivation
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/brief.test.ts > Generation Brief read completeness and diff baseline (DW-107/DW-118) > recovers an over-bound newest Brief on the next changed-input derivation
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/brief.test.ts > Generation Brief read completeness and diff baseline (DW-107/DW-118) > recovers an over-bound newest Brief on the next changed-input derivation
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/brief.test.ts > Generation Brief read completeness and diff baseline (DW-107/DW-118) > recovers an over-bound newest Brief on the next changed-input derivation
+brain search failed; returning no exemplars {}
+
+ ✓ |convex| convex/ai/brief.test.ts > Generation Brief read completeness and diff baseline (DW-107/DW-118) > recovers an over-bound newest Brief on the next changed-input derivation 508ms
+
+ Test Files  7 passed (7)
+      Tests  131 passed (131)
+   Start at  11:34:54
+   Duration  10.59s (transform 1.99s, setup 0ms, import 3.22s, tests 12.98s, environment 573ms)
+
+EXIT=0
