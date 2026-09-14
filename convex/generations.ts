@@ -9,6 +9,7 @@ import {
   type QueryCtx,
 } from "./_generated/server";
 import { internal } from "./_generated/api";
+import { getFunctionName } from "convex/server";
 import { v, type Infer } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import {
@@ -2683,6 +2684,23 @@ export const setGenerationEstimate = internalMutation({
  * `pageSize`. */
 export const STALE_GENERATION_SCAN_PAGE_SIZE = 100;
 
+/** How many of the newest `_scheduled_functions` rows the overlap check
+ * reads. A continuation page is scheduled with no delay by the page before
+ * it, so a live scan's pending page is always among the newest jobs; the
+ * system table has only its creation-time index, so this is the bound on
+ * that read. */
+export const STALE_SCAN_JOB_LOOKBACK = 200;
+
+/** Whether a `_scheduled_functions` row is this module's failStaleGenerations.
+ * The backend records the bundled module path ("generations.js:…"); convex-test
+ * records the reference name ("generations:…"). Compare without the extension. */
+function isStaleScanJobName(name: string): boolean {
+  return (
+    name.replace(/\.(js|ts)(?=:)/, "") ===
+    getFunctionName(internal.generations.failStaleGenerations)
+  );
+}
+
 /**
  * Ops utility: mark generations stranded in "running"/"pending" (e.g. by the
  * pre-fanout 10-minute action death) as failed and free their projects.
@@ -2695,6 +2713,12 @@ export const STALE_GENERATION_SCAN_PAGE_SIZE = 100;
  * continuation cursor and the same cutoff — the same single recovery owner,
  * never a parallel reaper. Reserved rows, the orphaned-run sweep and the
  * project sweep run once, on the first page only.
+ *
+ * Single owner across cron ticks: a cursorless (cron or manual) invocation
+ * first looks for a pending or in-progress continuation page of this same
+ * function in `_scheduled_functions` and, finding one, returns
+ * `skipped: "scan_in_progress"` without starting a second chain. A page that
+ * failed leaves no pending row, so the next tick simply starts over.
  */
 export const failStaleGenerations = internalMutation({
   args: {
@@ -2714,14 +2738,37 @@ export const failStaleGenerations = internalMutation({
     scanned: v.number(),
     isDone: v.boolean(),
     projectSweepJobId: v.optional(v.id("_scheduled_functions")),
+    skipped: v.optional(v.literal("scan_in_progress")),
   }),
   handler: async (ctx, args) => {
     const cutoff =
       args.cutoff ?? Date.now() - (args.olderThanMinutes ?? 30) * 60 * 1000;
     const firstPage = args.cursor === undefined;
-    const pageSize = Math.max(
-      1,
-      Math.floor(args.pageSize ?? STALE_GENERATION_SCAN_PAGE_SIZE)
+    if (firstPage) {
+      const recentJobs = await ctx.db.system
+        .query("_scheduled_functions")
+        .order("desc")
+        .take(STALE_SCAN_JOB_LOOKBACK);
+      const liveScan = recentJobs.some(
+        (job) =>
+          (job.state.kind === "pending" || job.state.kind === "inProgress") &&
+          isStaleScanJobName(job.name) &&
+          typeof job.args[0]?.cursor === "string"
+      );
+      if (liveScan) {
+        return {
+          failed: 0,
+          orphanedRuns: 0,
+          scanned: 0,
+          isDone: false,
+          skipped: "scan_in_progress" as const,
+        };
+      }
+    }
+    // A caller may shrink the page (tests) but never grow it past the bound.
+    const pageSize = Math.min(
+      Math.max(1, Math.floor(args.pageSize ?? STALE_GENERATION_SCAN_PAGE_SIZE)),
+      STALE_GENERATION_SCAN_PAGE_SIZE
     );
     // Reserved rows never stamp progress, so every one selected here is
     // failed below and leaves the range: one page per cron run drains them.
@@ -2854,7 +2901,7 @@ export const failStaleGenerations = internalMutation({
       await ctx.scheduler.runAfter(0, internal.generations.failStaleGenerations, {
         cutoff,
         cursor: runningPage.continueCursor,
-        ...(args.pageSize !== undefined ? { pageSize: args.pageSize } : {}),
+        ...(args.pageSize !== undefined ? { pageSize } : {}),
       });
     }
     const scanned = runningPage.page.length;

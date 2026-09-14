@@ -254,3 +254,74 @@ Unmutated source: `8 passed (8)`.
 - Merge-up note from the review: the later stack's claim-read budget comment should count the
   extra generation patch in `claimOrderedSectionRun` (its conservative estimate becomes 15 MiB,
   still under the documented 16 MiB). To be applied in the stack merge, not here.
+
+## Astra follow-up review of 3bfa743 (gpt-6-astra, medium) — ACCEPT_WITH_FIXES, applied
+
+Review record: `astra-review-2/`. Both earlier fixes confirmed resolved by the reviewer
+(position-101 regression; per-stamp mutation runs). Logs for this round: `review-fix-2/`.
+
+### Fix 1 (Medium) — overlapping cron ticks started duplicate continuation chains
+
+Problem: a cursorless invocation (the 10-minute cron in `crons.ts`, or a manual run) that
+arrived while scan A's continuation pages were still scheduled unconditionally started scan B,
+so two chains walked the same range.
+
+Fix (`convex/generations.ts`), proportionate and without a new table: on a cursorless
+invocation only, read the newest `STALE_SCAN_JOB_LOOKBACK = 200` rows of
+`ctx.db.system.query("_scheduled_functions").order("desc")` (the system table has only its
+creation-time index; that `take` is the bound) and look for a row that is this same function
+(`isStaleScanJobName`: the backend records the bundled path `generations.js:failStaleGenerations`,
+convex-test records `generations:failStaleGenerations` — compared with the extension stripped,
+against `getFunctionName(internal.generations.failStaleGenerations)`), in state `pending` or
+`inProgress`, whose `args[0].cursor` is a string (i.e. a continuation page, never the cron's own
+cursorless row). Finding one, the invocation returns the additive
+`skipped: "scan_in_progress"` (`failed: 0, scanned: 0, isDone: false`) without scheduling
+anything — no second chain, no duplicate project or orphan-run sweeps. Recovery: a page that
+fails leaves no pending/in-progress row, so the next tick starts a fresh scan; nothing to release.
+Fields verified against `node_modules/convex/dist/esm-types/server/schema.d.ts` (`_systemSchema`:
+`name`, `args: any[]`, `scheduledTime`, `completedTime?`, `state.kind`) and convex-test's
+scheduler (`name: functionPath.udfPath`, `args: [parsedArgs]`, `state: { kind: "pending" }` →
+`inProgress` → `success`). The system-table check is reliable in convex-test, so no persisted
+fence was needed.
+
+Why the bound is safe: a continuation page is scheduled with no delay by the page before it, so a
+live scan's pending page is among the newest jobs; only >200 other jobs scheduled between that
+page and the tick could hide it, and the failure mode then is the previous behaviour (a second
+chain), never a missed reap.
+
+### Fix 2 (Nit) — `pageSize` capped
+
+`pageSize = Math.min(Math.max(1, floor(args.pageSize ?? 100)), STALE_GENERATION_SCAN_PAGE_SIZE)`;
+continuation pages carry the capped value.
+
+### Tests (`convex/orderedChainRecovery.test.ts`, describe "DW-119 review: the running scan pages past live chains")
+
+- "a cron tick that lands while a scan's pages are still scheduled starts no second chain": the
+  100+1 seed; tick A at T0+61 (`isDone: false`, one continuation job); tick B at T0+71 before
+  draining → still exactly one continuation job, `skipped: "scan_in_progress"`, `failed: 0`,
+  `scanned: 0`, no `projectSweepJobId`; `finishAllScheduledFunctions` → the stalled row is reaped
+  once, the 100 live rows stay running, the single continuation job is `success`; tick C at T0+81
+  owns a fresh scan (`skipped` undefined, `isDone: true`).
+- "caps a requested pageSize at the production page": `pageSize: 1000` over 101 rows in range →
+  `scanned: 100`, `isDone: false`, and draining still reaps only the stalled row.
+
+Before (`review-fix-2/overlap-before.raw.log`, HEAD `3bfa743` source):
+```
+ × a cron tick that lands while a scan's pages are still scheduled starts no second chain
+     AssertionError: expected [ { …(6) }, { …(6) } ] to have a length of 1 but got 2
+ × caps a requested pageSize at the production page
+     AssertionError: expected 101 to be 100
+ Tests  2 failed | 8 passed (10)
+```
+After (`review-fix-2/overlap-after.raw.log`; new file + generationRecovery, generationReaper,
+reaperIntegration):
+```
+ Test Files  4 passed (4)
+ Tests  31 passed (31)
+```
+
+### Gates after this round (final tree)
+
+- `npx tsc -p convex/tsconfig.json --noEmit` → exit 0 (`review-fix-2/tsc-convex.raw.log`).
+- `npx vitest run` → 171 files, 2223 tests passed (`review-fix-2/vitest-full.raw.log`).
+- `npm run check` → 5931 files, 0 errors, 0 warnings (`review-fix-2/npm-check.raw.log`).

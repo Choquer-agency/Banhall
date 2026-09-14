@@ -145,11 +145,24 @@ function chainOf(
   };
 }
 
-async function reapAt(t: T, atMs: number) {
+async function reapAt(t: T, atMs: number, extra: { pageSize?: number } = {}) {
   vi.setSystemTime(atMs);
   return await t.mutation(internal.generations.failStaleGenerations, {
     olderThanMinutes: 30,
+    ...extra,
   });
+}
+
+/** Scheduled continuation pages of the stale scan (cursor-carrying
+ * failStaleGenerations jobs), whatever state they are in. */
+async function scanContinuationJobs(t: T) {
+  return await t.run(async (ctx) =>
+    (await ctx.db.system.query("_scheduled_functions").collect()).filter(
+      (job) =>
+        job.name.includes("failStaleGenerations") &&
+        typeof job.args[0]?.cursor === "string"
+    )
+  );
 }
 
 async function stateOf(t: T, ids: Seeded) {
@@ -357,8 +370,9 @@ describe("DW-119: failStaleGenerations is progress-aware for ordered chains", ()
 });
 
 describe("DW-119 review: the running scan pages past live chains", () => {
-  it("fails a stalled generation behind a full page of older, still-progressing ones", async () => {
-    const t = convexTest(schema, modules);
+  /** 100 progressing generations older than one stalled chain: the live
+   * rows fill exactly one production-sized page ahead of the stalled row. */
+  async function seedFullPageAndStalled(t: T) {
     const { projectId, transcriptId } = await seedProject(t);
     const stalled = await seedOrderedGeneration(t, "single", { startedAt: T0 - 60 * MINUTES });
     // 100 generations older than the stalled one (index order is startedAt
@@ -384,16 +398,68 @@ describe("DW-119 review: the running scan pages past live chains", () => {
     const chain = chainOf(t, stalled.generationId, stalled.candidateRunId);
     expect(await chain.create()).toBe(true);
     expect(await chain.claim("242")).not.toBeNull();
+    return { stalled, liveIds };
+  }
 
-    const first = await reapAt(t, T0 + 61 * MINUTES);
-    // The cron's single call plus whatever it scheduled for itself.
-    await t.finishAllScheduledFunctions(vi.runAllTimers);
-
+  async function expectOnlyStalledReaped(t: T, stalled: Seeded, liveIds: Id<"generations">[]) {
     await expectWholeFailed(t, stalled);
     const live = await t.run(async (ctx) =>
       await Promise.all(liveIds.map((id) => ctx.db.get(id)))
     );
     for (const generation of live) expect(generation?.status).toBe("running");
+  }
+
+  it("a cron tick that lands while a scan's pages are still scheduled starts no second chain", async () => {
+    const t = convexTest(schema, modules);
+    const { stalled, liveIds } = await seedFullPageAndStalled(t);
+
+    // Tick A reads its first page and schedules the continuation ...
+    const tickA = await reapAt(t, T0 + 61 * MINUTES);
+    expect(tickA.isDone).toBe(false);
+    expect(await scanContinuationJobs(t)).toHaveLength(1);
+
+    // ... and the next 10-minute tick arrives before that page has run.
+    const tickB = await reapAt(t, T0 + 71 * MINUTES);
+    // Still exactly one continuation chain: tick B started nothing.
+    expect(await scanContinuationJobs(t)).toHaveLength(1);
+    expect(tickB.skipped).toBe("scan_in_progress");
+    expect(tickB.failed).toBe(0);
+    expect(tickB.scanned).toBe(0);
+    expect(tickB.projectSweepJobId).toBeUndefined();
+
+    // Draining scan A's pages still reaps the stalled row once.
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
+    await expectOnlyStalledReaped(t, stalled, liveIds);
+    const jobs = await scanContinuationJobs(t);
+    expect(jobs).toHaveLength(1);
+    expect(jobs[0].state.kind).toBe("success");
+
+    // With scan A finished, the next tick owns a fresh scan again.
+    const tickC = await reapAt(t, T0 + 81 * MINUTES);
+    expect(tickC.skipped).toBeUndefined();
+    expect(tickC.isDone).toBe(true);
+  });
+
+  it("caps a requested pageSize at the production page", async () => {
+    const t = convexTest(schema, modules);
+    const { stalled, liveIds } = await seedFullPageAndStalled(t);
+    const first = await reapAt(t, T0 + 61 * MINUTES, { pageSize: 1000 });
+    // 101 rows are in range; an oversized request still reads one page.
+    expect(first.scanned).toBe(SCAN_PAGE_SIZE);
+    expect(first.isDone).toBe(false);
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
+    await expectOnlyStalledReaped(t, stalled, liveIds);
+  });
+
+  it("fails a stalled generation behind a full page of older, still-progressing ones", async () => {
+    const t = convexTest(schema, modules);
+    const { stalled, liveIds } = await seedFullPageAndStalled(t);
+
+    const first = await reapAt(t, T0 + 61 * MINUTES);
+    // The cron's single call plus whatever it scheduled for itself.
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
+
+    await expectOnlyStalledReaped(t, stalled, liveIds);
     // One bounded page per transaction; the rest was handed off, not dropped.
     expect(first.scanned).toBe(SCAN_PAGE_SIZE);
     expect(first.isDone).toBe(false);
