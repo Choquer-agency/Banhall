@@ -40,6 +40,7 @@ import {
   assembleContextInclusion,
   type UnfrozenDocument,
 } from "./lib/contextInclusion";
+import { collectBounded } from "./lib/boundedRead";
 import { buildTiptapDocument } from "./lib/tiptapReport";
 import { sectionMetrics } from "./lib/lineLimits";
 import { deidentify } from "./lib/deidentify";
@@ -981,6 +982,14 @@ export const recordContextBudget = internalMutation({
   },
 });
 
+// DW-133: bounds on the project-document walk in getContextInclusion. A
+// projectDocuments row carries its full extracted `content` (up to the 1 MiB
+// document limit), and the same query already reads up to ~60 frozen source
+// rows of ≤200k characters, so the document side keeps a conservative share of
+// the transaction read limit and reports `documentsTruncated` past it.
+const INCLUSION_DOCUMENT_ROWS = 1000;
+const INCLUSION_DOCUMENT_BYTES = 6 * (1 << 20);
+
 /**
  * Story 4 (CAP-11, AD-30): the Brief's Inputs band — one inclusion row per
  * frozen Transcript and Supporting Document, plus the project documents the
@@ -1004,10 +1013,16 @@ export const getContextInclusion = query({
     const frozenDocumentIds = new Set(
       sources.flatMap((row) => (row.projectDocumentId ? [row.projectDocumentId] : []))
     );
-    const documents = await ctx.db
-      .query("projectDocuments")
-      .withIndex("by_projectId", (q) => q.eq("projectId", generation.projectId))
-      .take(100);
+    // DW-133: a project's lifetime document count is unbounded (uploadDocument
+    // has no cap), so the listing walks the whole index range under a row cap
+    // and a byte budget instead of a flat take(100), and reports when it had
+    // to stop rather than letting the totals silently undercount.
+    const { rows: documents, complete } = await collectBounded(
+      ctx.db
+        .query("projectDocuments")
+        .withIndex("by_projectId", (q) => q.eq("projectId", generation.projectId)),
+      { maxRows: INCLUSION_DOCUMENT_ROWS, maxBytes: INCLUSION_DOCUMENT_BYTES }
+    );
     // CAP-17: every document attached before the reservation is listed. The
     // reasons mirror reserveGeneration's skip rule (archived, no readable
     // text); a readable one it never captured — the reservation freezes a
@@ -1035,6 +1050,7 @@ export const getContextInclusion = query({
       })),
       unfrozenDocuments,
       fallbackCap: budget.maxDocuments,
+      documentsTruncated: !complete,
     });
   },
 });

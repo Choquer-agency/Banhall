@@ -109,6 +109,25 @@ describe("BriefRail", () => {
     }
   });
 
+  it("qualifies the header and adds a note when the document listing was cut short (DW-133)", async () => {
+    const { container } = await render(
+      BriefRail,
+      props({ inclusion: { ...inclusion40(), documentsTruncated: true } })
+    );
+    expect(container.textContent).toContain("12 of 40+ documents in context · cap 12");
+    const note = container.querySelector("[data-inclusion-truncated]");
+    expect(note?.textContent?.trim()).toBe(
+      "Not every document could be listed. The counts are a lower bound."
+    );
+
+    // A complete listing carries neither the qualifier nor the note.
+    document.body.innerHTML = "";
+    const complete = await render(BriefRail, props());
+    expect(complete.container.textContent).toContain("12 of 40 documents in context · cap 12");
+    expect(complete.container.textContent).not.toContain("40+");
+    expect(complete.container.querySelector("[data-inclusion-truncated]")).toBeNull();
+  });
+
   it("saves an edit with Ctrl+Enter, reverts on Esc and calls nothing when unchanged", async () => {
     const rail = props();
     await render(BriefRail, rail);

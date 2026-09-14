@@ -8,6 +8,7 @@
   import {
     CONFIDENCE_WORDS,
     ELIGIBILITY_REASON_WORDS,
+    INCLUSION_TRUNCATED_NOTE,
     changeSummary,
     entryOrigin,
     groupBrief,
@@ -39,6 +40,8 @@
     cap: number;
     documentsInContext: number;
     documentsTotal: number;
+    /** DW-133: the document listing stopped at its read budget; counts are a lower bound. */
+    documentsTruncated?: boolean;
     rows: InclusionRow[];
   };
   type WriterSettingsView = {
@@ -225,6 +228,11 @@
         </li>
       {/each}
     </ul>
+  {/if}
+  {#if inclusion?.documentsTruncated}
+    <p data-inclusion-truncated class="border-b border-line-soft px-4 py-2.5 text-body text-ink-muted">
+      {INCLUSION_TRUNCATED_NOTE}
+    </p>
   {/if}
   {#if writerSettings?.noProfileLine}
     <p class="border-b border-line-soft px-4 py-2.5 text-body">{writerSettings.noProfileLine}</p>

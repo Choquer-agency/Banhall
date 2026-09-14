@@ -62,6 +62,12 @@ export type ContextInclusion = {
   cap: number;
   documentsInContext: number;
   documentsTotal: number;
+  /**
+   * DW-133: true when the project-document read stopped at its row or byte
+   * budget, so `documentsTotal` and the not-captured rows are a lower bound
+   * rather than the whole attachment list. Never silently undercounts.
+   */
+  documentsTruncated: boolean;
   rows: ContextInclusionRow[];
 };
 
@@ -74,6 +80,8 @@ export function assembleContextInclusion(input: {
   sources: InclusionSourceRow[];
   unfrozenDocuments: UnfrozenDocument[];
   fallbackCap: number;
+  /** Whether the project-document read behind `unfrozenDocuments` was cut short. */
+  documentsTruncated?: boolean;
 }): ContextInclusion {
   const digestByTranscript = new Map<string, InclusionSourceRow>();
   for (const row of input.sources) {
@@ -138,6 +146,7 @@ export function assembleContextInclusion(input: {
       (row) => row.inclusion === "included" || row.inclusion === "condensed"
     ).length,
     documentsTotal: documentRows.length,
+    documentsTruncated: input.documentsTruncated ?? false,
     rows: [...transcriptRows, ...documentRows],
   };
 }

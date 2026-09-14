@@ -157,6 +157,74 @@ describe("getContextInclusion (story 4)", () => {
     expect(uncaptured[0]).toMatchObject({ label: "attachment-50.txt", inclusion: "not_included" });
   });
 
+  it("101 documents: every attached document is counted, past the old 100-row fetch bound (DW-133)", async () => {
+    const { t, authed, projectId, userId } = await setup();
+    await t.run(async (ctx) => {
+      const now = Date.now() - 1_000;
+      for (let index = 0; index < 101; index += 1) {
+        await ctx.db.insert("projectDocuments", {
+          projectId,
+          fileName: `attachment-${index}.txt`,
+          fileType: "txt",
+          content: `Readable internal document number ${index}.`,
+          source: "upload",
+          uploadedBy: userId,
+          createdAt: now + index,
+        });
+      }
+    });
+    const generationId = await authed.mutation(api.generations.requestGeneration, { projectId });
+    await recordFromRealReport(t, generationId);
+
+    const inclusion = await authed.query(api.generations.getContextInclusion, { generationId });
+    expect(inclusion!.documentsTotal).toBe(101);
+    expect(inclusion!.documentsTruncated).toBe(false);
+    const documentRows = inclusion!.rows.filter((row) => row.kind === "document");
+    expect(documentRows).toHaveLength(101);
+    // The reservation froze 50; the other 51 are listed as not captured, the
+    // last of them included — nothing past row 100 vanishes.
+    expect(documentRows.filter((row) => row.reason === "not_captured")).toHaveLength(51);
+    expect(documentRows.at(-1)).toMatchObject({
+      label: "attachment-100.txt",
+      inclusion: "not_included",
+      reason: "not_captured",
+    });
+  });
+
+  it("says so when the document read budget stops the listing short (DW-133)", async () => {
+    const { t, authed, projectId, userId } = await setup();
+    // Ten archived documents of ~700 KiB each: the reservation skips them
+    // (no frozen copies), and together they exceed the query's document byte
+    // budget, so the band cannot list them all inside one transaction.
+    await t.run(async (ctx) => {
+      const now = Date.now() - 1_000;
+      const body = "x".repeat(700 * 1024);
+      for (let index = 0; index < 10; index += 1) {
+        await ctx.db.insert("projectDocuments", {
+          projectId,
+          fileName: `large-${index}.txt`,
+          fileType: "txt",
+          content: body,
+          source: "upload",
+          uploadedBy: userId,
+          archived: true,
+          createdAt: now + index,
+        });
+      }
+    });
+    const generationId = await authed.mutation(api.generations.requestGeneration, { projectId });
+    await recordFromRealReport(t, generationId);
+
+    const inclusion = await authed.query(api.generations.getContextInclusion, { generationId });
+    expect(inclusion!.documentsTruncated).toBe(true);
+    expect(inclusion!.documentsTotal).toBeGreaterThan(0);
+    expect(inclusion!.documentsTotal).toBeLessThan(10);
+    // The rows that were read are still listed with their real reason.
+    expect(inclusion!.rows.filter((row) => row.reason === "archived")).toHaveLength(
+      inclusion!.documentsTotal
+    );
+  });
+
   it("returns null to an outsider", async () => {
     const { t, authed, projectId } = await setup();
     const generationId = await authed.mutation(api.generations.requestGeneration, { projectId });

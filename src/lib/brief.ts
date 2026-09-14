@@ -56,14 +56,24 @@ export type InclusionRow = {
   reason?: InclusionReason;
 };
 
-/** "12 of 40 documents in context · cap 12" */
+/**
+ * "12 of 40 documents in context · cap 12". A truncated listing (DW-133) reads
+ * "12 of 40+ documents…": the `+` is the app's bounded-count qualifier, so the
+ * total is never presented as the whole attachment list when it is not.
+ */
 export function inclusionHeader(input: {
   documentsInContext: number;
   documentsTotal: number;
   cap: number;
+  documentsTruncated?: boolean;
 }): string {
-  return `${input.documentsInContext} of ${input.documentsTotal} documents in context · cap ${input.cap}`;
+  const total = input.documentsTruncated ? `${input.documentsTotal}+` : `${input.documentsTotal}`;
+  return `${input.documentsInContext} of ${total} documents in context · cap ${input.cap}`;
 }
+
+/** Shown under a truncated Inputs listing; absent otherwise. */
+export const INCLUSION_TRUNCATED_NOTE =
+  "Not every document could be listed. The counts are a lower bound.";
 
 /** The row's status text: "included", "not included · archived", or "" when unrecorded. */
 export function inclusionStatusText(row: Pick<InclusionRow, "inclusion" | "reason">): string {
