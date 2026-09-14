@@ -160,6 +160,20 @@ describe("normalizeTurnParts — tools", () => {
         findings: [{ id: "r-242-1-1" }, { id: "c-242-2-1" }],
       })
     ).toBe("Suggested one revision covering 2 items");
+    // DW-135: a zero-edit call recorded findings and produced no suggestion, so
+    // the done label must not promise one.
+    expect(
+      toolLabel("proposeBulkEdits", "output-available", {
+        edits: [],
+        findings: [{ id: "c-242-1-1" }, { id: "x-242-2-1" }],
+      })
+    ).toBe("Recorded 2 findings, nothing to apply");
+    expect(
+      toolLabel("proposeBulkEdits", "output-available", {
+        edits: [],
+        findings: [{ id: "c-242-1-1" }],
+      })
+    ).toBe("Recorded 1 finding, nothing to apply");
     expect(toolLabel("deviationInventory", "input-available")).toBe(
       "Checking every paragraph…"
     );

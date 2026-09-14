@@ -127,6 +127,19 @@ describe("zero-edit proposal card (DW-135)", () => {
     expect(alert?.textContent?.trim()).toBe("Couldn't load the findings. Try reloading the page.");
   });
 
+  it("names the card by its heading and says when no findings were recorded", async () => {
+    __setQueryData("chatV2:listProposalItems", []);
+    const { container } = await render(ProposalCard, { proposal: zeroEditProposal });
+    // The section takes its accessible name from the visible heading, once.
+    await expect.element(page.getByRole("region", { name: "Nothing to apply" })).toBeVisible();
+    expect(container.querySelectorAll('[aria-label="Nothing to apply"]')).toHaveLength(0);
+    expect(container.textContent).toContain("No findings were recorded.");
+    expect(container.textContent).not.toContain("Loading findings");
+    for (const name of ACTION_NAMES) {
+      expect(page.getByRole("button", { name, exact: true }).elements(), name).toHaveLength(0);
+    }
+  });
+
   it("leaves an ordinary coordinated revision with edits on the apply card", async () => {
     __setQueryData("chatV2:listProposalItems", items);
     await render(ProposalCard, {

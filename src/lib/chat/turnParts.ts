@@ -183,6 +183,11 @@ function detailedDoneLabel(toolName: string, input: unknown, fallback: string): 
   // item count of their own list, not the edit count.
   if (toolName === "proposeBulkEdits" && Array.isArray(record.findings)) {
     const count = record.findings.length;
+    // DW-135: a zero-edit call recorded findings and suggested nothing; the
+    // label must match the "Nothing to apply" card below it.
+    if (count && Array.isArray(record.edits) && record.edits.length === 0) {
+      return `Recorded ${count} ${count === 1 ? "finding" : "findings"}, nothing to apply`;
+    }
     if (count) {
       return `Suggested one revision covering ${count} ${count === 1 ? "item" : "items"}`;
     }

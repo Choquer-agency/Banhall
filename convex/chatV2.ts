@@ -335,7 +335,9 @@ export const sendMessage = mutation({
         !refineProposal ||
         refineProposal.reportId !== report._id ||
         refineProposal.projectId !== report.projectId ||
-        refineProposal.kind === "references"
+        refineProposal.kind === "references" ||
+        // DW-135: a record-only revision has no wording to refine.
+        isRecordOnlyProposal(refineProposal)
       ) {
         throw new Error("Suggestion not found");
       }
@@ -632,18 +634,27 @@ export const markProposalApplied = mutation({
     if (!report || report.projectId !== proposal.projectId) {
       domainError("NOT_FOUND", "Report not found");
     }
+    // Kind guards run before the already-applied short-circuit: a highlight or
+    // a record-only revision (DW-135) is stored `applied` from creation, and
+    // must be refused as nothing to apply, never reported as applied prose.
+    if (proposal.kind === "references") {
+      domainError("INVALID_INPUT", "Highlights have nothing to apply.");
+    }
+    if (isRecordOnlyProposal(proposal)) {
+      domainError(
+        "INVALID_INPUT",
+        "This revision has nothing to apply. Its findings need a writer's decision."
+      );
+    }
+    if (proposal.requireUniqueTargets) {
+      domainError("INVALID_INPUT", "Apply this coordinated revision from its suggestion card so every passage can be checked together.");
+    }
     if (proposal.state === "applied") {
       return {
         applied: true as const,
         alreadyApplied: true as const,
         revisionNumber: report.revisionNumber ?? 0,
       };
-    }
-    if (proposal.kind === "references") {
-      domainError("INVALID_INPUT", "Highlights have nothing to apply.");
-    }
-    if (proposal.requireUniqueTargets) {
-      domainError("INVALID_INPUT", "Apply this coordinated revision from its suggestion card so every passage can be checked together.");
     }
     if (proposal.state !== "pending") {
       domainError(
@@ -696,6 +707,9 @@ export const updateProposalWording = mutation({
     const proposal = await ctx.db.get(args.proposalId);
     if (!proposal) domainError("NOT_FOUND", "Suggestion not found");
     const { user } = await requireInternalProjectAccess(ctx, proposal.projectId);
+    if (isRecordOnlyProposal(proposal)) {
+      domainError("INVALID_INPUT", "This record has nothing to reword.");
+    }
     if (proposal.state !== "pending") {
       domainError("INVALID_INPUT", "Only a pending suggestion can be edited.");
     }
@@ -767,6 +781,9 @@ export const rejectProposal = mutation({
     const proposal = await ctx.db.get(args.proposalId);
     if (!proposal) throw new Error("Proposal not found");
     await requireInternalProjectAccess(ctx, proposal.projectId);
+    if (isRecordOnlyProposal(proposal)) {
+      domainError("INVALID_INPUT", "This record has nothing to reject.");
+    }
     if (proposal.state === "applied") {
       domainError("INVALID_INPUT", "An applied suggestion cannot be rejected.");
     }
@@ -990,6 +1007,14 @@ export const saveProposal = internalMutation({
     // rows because this mutation is the only writer of both tables.
     const recordOnly = isRecordOnlyProposal(args);
     if (recordOnly) {
+      // The predicate ignores blank `find` entries; the stored row must not.
+      // A record-only proposal is stored as exactly `replacements: []`.
+      if ((args.replacements ?? []).length !== 0) {
+        return {
+          ok: false as const,
+          reason: "Each passage must identify exactly one current report location and make a change.",
+        };
+      }
       const issue = zeroEditIssue(0, items);
       if (issue) return { ok: false as const, reason: issue };
     } else if (args.requireUniqueTargets) {
@@ -1595,7 +1620,10 @@ export const getChatContextV2 = internalQuery({
           q.eq("agentThreadId", args.agentThreadId)
         )
         .order("desc")
-        .take(12)
+        // Twice the old window (12): highlights and record-only revisions are
+        // filtered out below, and a run of them must not push the last real
+        // edit decision out of the model's memory. Still bounded and charged.
+        .take(24)
     );
     const decisions = proposals
       // Highlights and record-only revisions (DW-135) carry no edit the writer

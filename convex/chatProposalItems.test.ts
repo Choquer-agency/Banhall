@@ -1,7 +1,7 @@
 /// <reference types="vite/client" />
 import agentTest from "@convex-dev/agent/test";
 import { convexTest } from "convex-test";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { api, internal } from "./_generated/api";
 import schema from "./schema";
 import {
@@ -132,9 +132,29 @@ async function setup() {
       title: "Chat",
       createdAt: now,
     });
+    // A mapped auth record with no internal role: signed in, not authorized.
+    await ctx.db.insert("users", { authId: "cpi-roleless" });
     return { projectId, reportId, ownerId };
   });
-  return { t, ...ids, owner: t.withIdentity({ subject: "cpi-owner" }) };
+  return {
+    t,
+    ...ids,
+    owner: t.withIdentity({ subject: "cpi-owner" }),
+    roleless: t.withIdentity({ subject: "cpi-roleless" }),
+  };
+}
+
+async function errorCode(call: () => Promise<unknown>): Promise<string> {
+  try {
+    await call();
+  } catch (error) {
+    const data = (error as { data?: unknown }).data;
+    if (data && typeof data === "object" && "code" in data) {
+      return String((data as { code: unknown }).code);
+    }
+    return `UNTYPED: ${(error as Error).message}`;
+  }
+  return "NO_ERROR";
 }
 
 type Fixture = Awaited<ReturnType<typeof setup>>;
@@ -429,7 +449,7 @@ describe("a zero-edit Coordinated Revision (DW-135)", () => {
     expect(snapshots).toEqual([]);
   });
 
-  it("cannot be rejected or reworded: the record is terminal", async () => {
+  it("cannot be rejected or reworded: the record is terminal, and says so", async () => {
     const f = await setup();
     const saved = await save(f, {
       edits: [],
@@ -439,14 +459,123 @@ describe("a zero-edit Coordinated Revision (DW-135)", () => {
     if (!saved.ok) throw new Error("setup proposal was refused");
     await expect(
       f.owner.mutation(api.chatV2.rejectProposal, { proposalId: saved.proposalId })
-    ).rejects.toThrow();
+    ).rejects.toThrow("This record has nothing to reject.");
     await expect(
       f.owner.mutation(api.chatV2.updateProposalWording, {
         proposalId: saved.proposalId,
         replacements: [],
       })
-    ).rejects.toThrow();
+    ).rejects.toThrow("This record has nothing to reword.");
     expect((await rows(f)).proposals[0]?.state).toBe("applied");
+  });
+
+  it("is refused by the one-by-one stepper as nothing to apply, never reported applied", async () => {
+    const f = await setup();
+    const saved = await save(f, {
+      edits: [],
+      items: completionReportItems(allBlocked()),
+      toolCallId: "call-all-blocked",
+    });
+    if (!saved.ok) throw new Error("setup proposal was refused");
+    await expect(
+      f.owner.mutation(api.chatV2.markProposalApplied, {
+        proposalId: saved.proposalId,
+        content: REPORT_DOC,
+        expectedRevisionNumber: 0,
+      })
+    ).rejects.toThrow(/nothing to apply/i);
+    // A highlight in its terminal state is refused the same way, not
+    // short-circuited as "already applied".
+    const highlight = await f.t.mutation(internal.chatV2.saveProposal, {
+      agentThreadId: "cpi-thread",
+      toolCallId: "call-highlight",
+      kind: "references",
+      references: ["s244 paragraph 1 body s2441."],
+    });
+    if (!highlight.ok) throw new Error("setup highlight was refused");
+    await expect(
+      f.owner.mutation(api.chatV2.markProposalApplied, {
+        proposalId: highlight.proposalId,
+        content: REPORT_DOC,
+        expectedRevisionNumber: 0,
+      })
+    ).rejects.toThrow("Highlights have nothing to apply.");
+    const report = await f.t.run((ctx) => ctx.db.get(f.reportId));
+    expect(report?.revisionNumber).toBe(0);
+  });
+
+  describe("as a refinement target", () => {
+    afterEach(() => vi.unstubAllEnvs());
+
+    it("is refused by sendMessage like a highlight: there is no wording to refine", async () => {
+      vi.stubEnv("ANTHROPIC_API_KEY", "test-anthropic-key");
+      const f = await setup();
+      const saved = await save(f, {
+        edits: [],
+        items: completionReportItems(allBlocked()),
+        toolCallId: "call-all-blocked",
+      });
+      if (!saved.ok) throw new Error("setup proposal was refused");
+      await expect(
+        f.owner.mutation(api.chatV2.sendMessage, {
+          reportId: f.reportId,
+          content: "Refine this.",
+          refineProposalId: saved.proposalId,
+        })
+      ).rejects.toThrow("Suggestion not found");
+      const turns = await f.t.run((ctx) => ctx.db.query("chatTurns").collect());
+      expect(turns).toEqual([]);
+    });
+  });
+
+  it("refuses a replacement list that is non-empty but yields no passage, so the stored shape is always []", async () => {
+    const f = await setup();
+    const result = await f.t.mutation(internal.chatV2.saveProposal, {
+      agentThreadId: "cpi-thread",
+      toolCallId: "call-blank-find",
+      kind: "replacements",
+      requireUniqueTargets: true,
+      // A blank `find` is filtered out of the pairs, which would otherwise
+      // read as a zero-edit revision while storing a non-empty list.
+      replacements: [{ find: "", replaceWith: "orphan wording" }],
+      items: completionReportItems(allBlocked()),
+    });
+    expect(result).toMatchObject({ ok: false });
+    const state = await rows(f);
+    expect(state.proposals).toEqual([]);
+    expect(state.items).toEqual([]);
+  });
+
+  it("does not push a real edit decision out of the model's memory window", async () => {
+    const f = await setup();
+    const single = await f.t.mutation(internal.chatV2.saveProposal, {
+      agentThreadId: "cpi-thread",
+      toolCallId: "call-single-first",
+      kind: "edit",
+      targetText: "s244 paragraph 1 body s2441.",
+      newText: "s244 paragraph 1 revised s2441.",
+    });
+    expect(single).toMatchObject({ ok: true });
+    // Twelve newer record-only rows: more than the 12-row read window alone.
+    for (let i = 0; i < 12; i += 1) {
+      const saved = await save(f, {
+        edits: [],
+        items: completionReportItems(allBlocked()),
+        toolCallId: `call-all-blocked-${i}`,
+      });
+      expect(saved).toMatchObject({ ok: true });
+    }
+    const context = await f.t.query(internal.chatV2.getChatContextV2, {
+      reportId: f.reportId,
+      agentThreadId: "cpi-thread",
+    });
+    expect(context.decisions).toEqual([
+      {
+        state: "pending",
+        target: "s244 paragraph 1 body s2441.",
+        candidate: "s244 paragraph 1 revised s2441.",
+      },
+    ]);
   });
 
   it("is not handed to the model as a prior edit decision", async () => {
@@ -502,10 +631,19 @@ describe("a zero-edit Coordinated Revision (DW-135)", () => {
       lockedRule: "Line 246 line cap of 50.",
       alternative: "Fold the fifth advancement into paragraph 4 inside the cap.",
     });
-    // Unauthenticated readers get the same typed refusal listProposals gives.
-    await expect(
-      f.t.query(api.chatV2.listProposalItems, { proposalId: saved.proposalId })
-    ).rejects.toThrow();
+    // The same gate as listProposals: an absent identity is NOT_AUTHENTICATED
+    // and a signed-in record with no internal role is NOT_AUTHORIZED. Any
+    // active internal role reads any project, as everywhere else in chat.
+    expect(
+      await errorCode(() =>
+        f.t.query(api.chatV2.listProposalItems, { proposalId: saved.proposalId })
+      )
+    ).toBe("NOT_AUTHENTICATED");
+    expect(
+      await errorCode(() =>
+        f.roleless.query(api.chatV2.listProposalItems, { proposalId: saved.proposalId })
+      )
+    ).toBe("NOT_AUTHORIZED");
   });
 });
 

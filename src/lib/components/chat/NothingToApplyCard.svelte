@@ -15,6 +15,8 @@
 
   let { proposalId }: Props = $props();
 
+  const componentId = $props.id();
+  const headingId = `${componentId}-heading`;
   const itemsQ = useQuery(api.chatV2.listProposalItems, () => ({ proposalId }));
   const items = $derived((itemsQ.data ?? []) as Doc<"chatProposalItems">[]);
 
@@ -25,10 +27,10 @@
   };
 </script>
 
-<section class="mt-2 overflow-hidden rounded-lg border border-line bg-white" aria-label="Nothing to apply">
+<section class="mt-2 overflow-hidden rounded-lg border border-line bg-white" aria-labelledby={headingId}>
   <div class="flex items-center gap-2 border-b border-line-soft px-3 py-2">
     <span class="h-1.5 w-1.5 rounded-full bg-gray-400" aria-hidden="true"></span>
-    <p class="text-xs font-medium text-ink-secondary">Nothing to apply</p>
+    <p id={headingId} class="text-xs font-medium text-ink-secondary">Nothing to apply</p>
   </div>
 
   <div class="max-h-72 overflow-y-auto px-3 py-2.5">
@@ -40,6 +42,8 @@
       <p role="alert" class="mt-2 text-xs text-red-600">Couldn't load the findings. Try reloading the page.</p>
     {:else if itemsQ.isLoading}
       <p class="mt-2 text-xs text-ink-muted">Loading findings…</p>
+    {:else if items.length === 0}
+      <p class="mt-2 text-xs text-ink-muted">No findings were recorded.</p>
     {:else}
       <ul class="mt-2.5 flex flex-col gap-2.5" aria-label="Findings">
         {#each items as item (item._id)}
