@@ -1,0 +1,116 @@
+
+ RUN  v4.1.10 /Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a
+
+stderr | convex/ai/brief.test.ts > Generation Brief editing and questions (briefs.ts, story 1 shape / story 4 writer) > getBrief and listBriefEntries return null to an unauthenticated caller and to a non-internal user
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/brief.test.ts > Generation Brief editing and questions (briefs.ts, story 1 shape / story 4 writer) > getBrief and listBriefEntries return null to an unauthenticated caller and to a non-internal user
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/brief.test.ts > Generation Brief editing and questions (briefs.ts, story 1 shape / story 4 writer) > getBrief and listBriefEntries return null to an unauthenticated caller and to a non-internal user
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/brief.test.ts > Generation Brief editing and questions (briefs.ts, story 1 shape / story 4 writer) > getBrief and listBriefEntries return null to an unauthenticated caller and to a non-internal user
+brain search failed; returning no exemplars {}
+
+ ❯ |convex| convex/ai/brief.test.ts (13 tests | 1 failed | 11 skipped) 648ms
+     × getBrief and listBriefEntries return null to an unauthenticated caller and to a non-internal user 14ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |convex| convex/ai/brief.test.ts > Generation Brief editing and questions (briefs.ts, story 1 shape / story 4 writer) > getBrief and listBriefEntries return null to an unauthenticated caller and to a non-internal user
+AssertionError: expected { …(11) } to be null
+
+- Expected:
+null
+
++ Received:
+{
+  "_creationTime": 1789414840096.001,
+  "_id": "0000000000010016generationBriefs",
+  "createdAt": 1789414840096,
+  "droppedEntryCount": 0,
+  "entries": [
+    {
+      "_creationTime": 1789414840096.002,
+      "_id": "0000010017generationBriefEntries",
+      "briefId": "0000000000010016generationBriefs",
+      "createdAt": 1789414840096,
+      "endOffset": 57,
+      "exactExcerpt": "The team built a custom control loop to stabilize output.",
+      "group": "storyline",
+      "projectId": "000000000000000000010001projects",
+      "sourceContentHash": "edit-hash",
+      "sourceId": "000000000010004generationSources",
+      "startOffset": 0,
+      "text": "The team pursued a custom control loop.",
+    },
+    {
+      "_creationTime": 1789414840096.003,
+      "_id": "0000010018generationBriefEntries",
+      "briefId": "0000000000010016generationBriefs",
+      "createdAt": 1789414840096,
+      "endOffset": 96,
+      "exactExcerpt": "Marketing decided to redesign the logo",
+      "group": "claimExclusion",
+      "projectId": "000000000000000000010001projects",
+      "reason": "business_risk",
+      "sourceContentHash": "edit-hash",
+      "sourceId": "000000000010004generationSources",
+      "startOffset": 58,
+      "text": "Logo redesign is out of scope.",
+    },
+    {
+      "_creationTime": 1789414840097,
+      "_id": "0000010019generationBriefEntries",
+      "briefId": "0000000000010016generationBriefs",
+      "confidence": "unresolved",
+      "createdAt": 1789414840097,
+      "endOffset": 175,
+      "exactExcerpt": "Response time under load was not measured.",
+      "group": "confidenceMap",
+      "projectId": "000000000000000000010001projects",
+      "sourceContentHash": "edit-hash",
+      "sourceId": "000000000010004generationSources",
+      "startOffset": 133,
+      "text": "Response time under load is unresolved.",
+    },
+    {
+      "_creationTime": 1789414840097.001,
+      "_id": "0000010020generationBriefEntries",
+      "briefId": "0000000000010016generationBriefs",
+      "createdAt": 1789414840097,
+      "endOffset": 36,
+      "exactExcerpt": "control loop",
+      "group": "glossaryTerm",
+      "projectId": "000000000000000000010001projects",
+      "sourceContentHash": "edit-hash",
+      "sourceId": "000000000010004generationSources",
+      "startOffset": 24,
+      "text": "control loop",
+    },
+  ],
+  "generationId": "000000000000000010003generations",
+  "inputsHash": "9c6b30c4ce4b298c95311779ea863ca7a0b39d27b7bdab60f611b931be82ecba",
+  "origin": "derived",
+  "projectId": "000000000000000000010001projects",
+  "storylineText": "The team pursued a custom control loop to stabilize output.",
+  "version": 1,
+}
+
+ ❯ convex/ai/brief.test.ts:773:69
+    771|
+    772|     // Unauthenticated: a valid id alone must not read project content.
+    773|     expect(await t.query(anyApi.briefs.getBrief, { generationId })).to…
+       |                                                                     ^
+    774|     expect(await t.query(anyApi.briefs.listBriefEntries, { briefId }))…
+    775|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 1 passed | 11 skipped (13)
+   Start at  12:40:38
+   Duration  1.42s (transform 645ms, setup 0ms, import 302ms, tests 648ms, environment 116ms)
+

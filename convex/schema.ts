@@ -770,6 +770,12 @@ export default defineSchema({
     stopRequestedAt: v.optional(v.number()),
     stoppedAfterSection: v.optional(sectionNumberValidator),
     productionOrder: v.optional(v.array(sectionNumberValidator)),
+    // DW-119: when the ordered chain last made progress (a section run
+    // created, claimed or drafted). failStaleGenerations ages a running
+    // single/compare generation from this stamp instead of startedAt, so a
+    // slow but live chain is never reaped while a chain whose action died
+    // stops stamping and is. Absent on iterative and legacy rows.
+    lastProgressAt: v.optional(v.number()),
     startedAt: v.number(),
     completedAt: v.optional(v.number()),
     error: v.optional(v.string()),

@@ -1,0 +1,50 @@
+
+ RUN  v4.1.10 /Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a
+
+ ❯ |convex| convex/ai/brief.test.ts (14 tests | 1 failed | 13 skipped) 316ms
+     × renderBriefForGeneration omits a re-derivation's change: removed entries from the section prompt 314ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |convex| convex/ai/brief.test.ts > Generation Brief derivation (story 1, CAP-1/2/4) > renderBriefForGeneration omits a re-derivation's change: removed entries from the section prompt
+AssertionError: expected '\n\n--- BEGIN [GENERATION BRIEF] ---\…' not to contain 'REMOVED'
+
+- Expected
++ Received
+
+- REMOVED
++
++
++ --- BEGIN [GENERATION BRIEF] ---
++ Storyline:
++ The team pursued a custom control loop to stabilize output.
++
++ Claim Exclusions (never claim these, however prominent):
++ - LIVE exclusion (business risk)
++ - REMOVED exclusion (business risk)
++
++ Confidence Map:
++ - [unresolved] LIVE confidence fact
++ - [unresolved] REMOVED confidence fact
++
++ Glossary Terms (use this exact wording, one name per concept):
++ - LIVE term
++ - REMOVED term
++ --- END [GENERATION BRIEF] ---
+
+ ❯ convex/ai/brief.test.ts:558:26
+    556|     expect(rendered).toContain("LIVE term");
+    557|     // Removed markers are history for the diff UI, not guidance in fo…
+    558|     expect(rendered).not.toContain("REMOVED");
+       |                          ^
+    559|   });
+    560|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 13 skipped (14)
+   Start at  12:41:48
+   Duration  861ms (transform 435ms, setup 0ms, import 286ms, tests 316ms, environment 65ms)
+

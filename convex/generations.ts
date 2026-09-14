@@ -2754,6 +2754,21 @@ export const failStaleGenerations = internalMutation({
           continue;
         }
       }
+      // DW-119 (progress-aware recovery): an ordered single/compare chain
+      // stamps lastProgressAt when a section run is created, claimed or
+      // drafted, so a slow but live chain is aged from its last progress,
+      // not from startedAt. A chain whose current action died (timeout,
+      // deploy restart) stops stamping and is failed here once the same
+      // window elapses from that last stamp — a single stuck action is still
+      // reaped. Iterative never stamps and keeps its per-section path above.
+      if (
+        generation.status === "running" &&
+        (generation.candidateMode ?? "compare") !== "iterative" &&
+        generation.lastProgressAt !== undefined &&
+        generation.lastProgressAt >= cutoff
+      ) {
+        continue;
+      }
       failed += 1;
       await ctx.db.patch(generation._id, {
         status: "failed",
@@ -3477,7 +3492,9 @@ export const getCandidateScoreSummary = query({
 // section (or finalizeOrderedCandidate) atomically with its writes. No
 // approval gate: iterative's approveSectionDraft is never in this path, and
 // iterative generations never create these rows. A chain stalled between
-// sections is recovered by the existing failStaleGenerations reaper.
+// sections is recovered by the existing failStaleGenerations reaper, which
+// ages the generation from lastProgressAt (DW-119) — stamped by the three
+// chain mutations below — rather than from startedAt.
 
 async function orderedRunsForCandidate(
   ctx: { db: QueryCtx["db"] },
@@ -3576,6 +3593,7 @@ export const createOrderedSectionRuns = internalMutation({
         ...(fence.generation.progressLog ?? []),
         `${fence.run.label}: drafting ${order.join(" → ")} in order; each section is Self-checked before it is shown.`,
       ],
+      lastProgressAt: now,
     });
     await ctx.scheduler.runAfter(0, internal.ai.orderedGeneration.generateOrderedSection, {
       generationId: args.generationId,
@@ -3655,7 +3673,10 @@ export const claimOrderedSectionRun = internalMutation({
       await ctx.db.patch(row._id, { status: "pending" });
       return { stopped: true as const };
     }
-    await ctx.db.patch(row._id, { status: "running", startedAt: Date.now() });
+    const now = Date.now();
+    await ctx.db.patch(row._id, { status: "running", startedAt: now });
+    // DW-119: the claim is chain progress — the reaper's window restarts here.
+    await ctx.db.patch(fence.generation._id, { lastProgressAt: now });
     const priorSections = (await orderedRunsForCandidate(ctx, fence.run._id))
       .filter(
         (prior) =>
@@ -3775,6 +3796,9 @@ export const completeOrderedSectionRun = internalMutation({
         ...(fence.generation.progressLog ?? []),
         `✓ ${fence.run.label}: ${ORDERED_SECTION_TITLES[args.section]} drafted (${checkLabel}).`,
       ],
+      // DW-119: a drafted section (and the next one scheduled below) is
+      // chain progress; the reaper's window restarts here.
+      lastProgressAt: now,
     });
     const next = (await orderedRunsForCandidate(ctx, fence.run._id)).find(
       (candidate) => (candidate.orderIndex ?? 0) === (row.orderIndex ?? 0) + 1
