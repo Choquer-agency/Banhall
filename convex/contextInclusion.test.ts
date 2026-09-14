@@ -313,6 +313,57 @@ describe("getContextInclusion (story 4)", () => {
     expect(inclusion!.rows.length).toBeLessThan(20);
   });
 
+  it("charges the analyzer settings rows before walking sources, so large settings cannot push the query over the limit (DW-133 review 2)", async () => {
+    const { t, authed, projectId, userId } = await setup();
+    // Four ~1,000,000-byte settings whose whitespace-padded values still
+    // parse as positive integers, plus thirteen ~1,000,000-byte frozen
+    // sources: every document is valid on its own, and together they exceed
+    // 16 MiB unless the settings are budgeted with everything else.
+    const keys = [
+      "ai.analyzerContextBudgetTokens",
+      "ai.analyzerTranscriptBudgetTokens",
+      "ai.analyzerDocumentBudgetTokens",
+      "ai.analyzerMaxContextDocuments",
+    ];
+    for (const key of keys) {
+      await t.run((ctx) =>
+        ctx.db.insert("appSettings", {
+          key,
+          value: `${" ".repeat(999_990)}12${" ".repeat(8)}`,
+          updatedBy: userId,
+          updatedAt: Date.now(),
+        })
+      );
+    }
+    const generationId = await t.run((ctx) =>
+      ctx.db.insert("generations", { projectId, status: "completed", startedAt: Date.now() })
+    );
+    for (let index = 0; index < 13; index += 1) {
+      await t.run((ctx) =>
+        ctx.db.insert("generationSources", {
+          generationId,
+          projectId,
+          kind: "transcript",
+          label: `Transcript ${index}`,
+          content: "t".repeat(1_000_000),
+          contentHash: `hash-${index}`,
+          truncated: false,
+          originalLength: 1_000_000,
+          capturedAt: Date.now(),
+          inclusion: "included",
+        })
+      );
+    }
+    const inclusion = await authed.query(api.generations.getContextInclusion, { generationId });
+    expect(inclusion).not.toBeNull();
+    // The padded settings still parse: the cap is the admin's 12.
+    expect(inclusion!.cap).toBe(12);
+    expect(inclusion!.sourcesTruncated).toBe(true);
+    expect(inclusion!.documentsTruncated).toBe(true);
+    expect(inclusion!.rows.length).toBeGreaterThan(0);
+    expect(inclusion!.rows.length).toBeLessThan(13);
+  });
+
   it("returns null to an outsider", async () => {
     const { t, authed, projectId } = await setup();
     const generationId = await authed.mutation(api.generations.requestGeneration, { projectId });

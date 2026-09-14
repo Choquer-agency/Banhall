@@ -1,0 +1,59 @@
+source tree = ded3034 for convex/ and src/lib (only tests edited): 0 changed source files
+
+ RUN  v4.1.10 /Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-sweep-validation
+
+ ✓ |src| src/lib/brief.test.ts > Brief rail helpers (story 4) > label maps use the glossary words 2ms
+ ✓ |src| src/lib/brief.test.ts > Brief rail helpers (story 4) > inclusionHeader counts documents against the cap 0ms
+ ✓ |src| src/lib/brief.test.ts > Brief rail helpers (story 4) > inclusionHeader qualifies a truncated total with the bounded-count plus (DW-133) 0ms
+ × |src| src/lib/brief.test.ts > Brief rail helpers (story 4) > inclusionHeader qualifies both counts when the frozen sources were cut short (DW-133 review 2) 4ms
+   → expected '12 of 40+ documents in context · cap …' to be '12+ of 40+ documents in context · cap…' // Object.is equality
+ ✓ |src| src/lib/brief.test.ts > Brief rail helpers (story 4) > inclusionStatusText never words an unrecorded row and appends the reason 0ms
+ ✓ |src| src/lib/brief.test.ts > Brief rail helpers (story 4) > groupBrief sorts entries into the rail groups and surfaces only open questions 1ms
+ ✓ |src| src/lib/brief.test.ts > Brief rail helpers (story 4) > changeSummary reads 'N added · N removed' only when something changed 0ms
+ ✓ |src| src/lib/brief.test.ts > Brief rail helpers (story 4) > entryOrigin is edited only for a writer-changed entry 0ms
+ ✓ |src| src/lib/brief.test.ts > Brief rail helpers (story 4) > sourceChipLabel names the source and says digest for a condensed digest 1ms
+ ✓ |src| src/lib/brief.test.ts > Brief rail helpers (story 4) > offerSentence and offerHref build the save-settings banner 0ms
+ ✓ |convex| convex/contextInclusion.test.ts > getContextInclusion (story 4) > 40 uploaded documents: all frozen, 12 in context under cap 12, inclusion stored per row 319ms
+ ✓ |convex| convex/contextInclusion.test.ts > getContextInclusion (story 4) > lists a readable document the reservation never captured, in the counts 58ms
+ ✓ |convex| convex/contextInclusion.test.ts > getContextInclusion (story 4) > 101 documents: every attached document is counted, past the old 100-row fetch bound (DW-133) 22ms
+ ✓ |convex| convex/contextInclusion.test.ts > getContextInclusion (story 4) > says so when the document read budget stops the listing short (DW-133) 286ms
+ ✓ |convex| convex/contextInclusion.test.ts > getContextInclusion (story 4) > 12 MB of frozen sources: the whole transaction stays under the read limit and the document walk says it stopped (DW-133 review) 623ms
+ ✓ |convex| convex/contextInclusion.test.ts > getContextInclusion (story 4) > bounds the frozen sources themselves when they alone would exceed the budget, and says so (DW-133 review) 206ms
+ × |convex| convex/contextInclusion.test.ts > getContextInclusion (story 4) > charges the analyzer settings rows before walking sources, so large settings cannot push the query over the limit (DW-133 review 2) 307ms
+   → Read too much data in a single function execution (limit: 16777216 bytes). This is a Convex limit: https://docs.convex.dev/production/state/limits
+ ✓ |convex| convex/contextInclusion.test.ts > getContextInclusion (story 4) > returns null to an outsider 28ms
+ ✓ |convex| convex/contextInclusion.test.ts > getContextInclusion (story 4) > lists archived and unreadable documents as not included, and a legacy row with no status 4ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |convex| convex/contextInclusion.test.ts > getContextInclusion (story 4) > charges the analyzer settings rows before walking sources, so large settings cannot push the query over the limit (DW-133 review 2)
+Error: Read too much data in a single function execution (limit: 16777216 bytes). This is a Convex limit: https://docs.convex.dev/production/state/limits
+ ❯ performAsyncSyscall node_modules/convex/src/server/impl/syscall.ts:52:10
+ ❯ QueryImpl.next node_modules/convex/src/server/impl/query_impl.ts:264:28
+ ❯ QueryImpl.collect node_modules/convex/src/server/impl/query_impl.ts:317:21
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  |src| src/lib/brief.test.ts > Brief rail helpers (story 4) > inclusionHeader qualifies both counts when the frozen sources were cut short (DW-133 review 2)
+AssertionError: expected '12 of 40+ documents in context · cap …' to be '12+ of 40+ documents in context · cap…' // Object.is equality
+
+Expected: "12+ of 40+ documents in context · cap 12"
+Received: "12 of 40+ documents in context · cap 12"
+
+ ❯ src/lib/brief.test.ts:71:7
+     69|         sourcesTruncated: true,
+     70|       })
+     71|     ).toBe("12+ of 40+ documents in context · cap 12");
+       |       ^
+     72|   });
+     73|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  2 failed (2)
+      Tests  2 failed | 17 passed (19)
+   Start at  15:14:07
+   Duration  2.34s (transform 502ms, setup 0ms, import 282ms, tests 1.86s, environment 64ms)
+
+exit=1

@@ -40,7 +40,7 @@ import {
   assembleContextInclusion,
   type UnfrozenDocument,
 } from "./lib/contextInclusion";
-import { createReadBudget, DOCUMENT_HEADROOM } from "./lib/readBudget";
+import { createReadBudget } from "./lib/readBudget";
 import { buildTiptapDocument } from "./lib/tiptapReport";
 import { sectionMetrics } from "./lib/lineLimits";
 import { deidentify } from "./lib/deidentify";
@@ -987,12 +987,14 @@ export const recordContextBudget = internalMutation({
 // transcripts of up to FROZEN_TRANSCRIPT_CHARS (500k) and documents of up to
 // 200k characters — up to 20 transcripts and 50 documents can exceed Convex's
 // 16 MiB transaction read limit on their own — and each projectDocuments row
-// carries its full extracted text (≤ 1 MiB). The budget charges the rows
-// authorization already read, reserves a maximum-size document before each
-// further read, and holds `DOCUMENT_HEADROOM` up front for the four small
-// appSettings reads at the end; whatever it could not read is reported as
-// truncated, never thrown. Worst case actually read: 14 MiB − 1 MiB reserved
-// + a few KB of settings, ~3 MiB under the limit.
+// carries its full extracted text (≤ 1 MiB). Every row read outside a list
+// walk — the generation, the authorization rows and the four analyzer
+// settings (whose `value` is an unrestricted string) — is read FIRST and
+// charged at its actual size; each list then reserves a maximum-size
+// document before every read. Whatever the budget could not read is reported
+// as truncated, never thrown. Worst case actually read: the seven up-front
+// rows (≤ 7 MiB, charged) plus list reads up to the 14 MiB total, 2 MiB
+// under the limit.
 const INCLUSION_READ_BYTES = 14 * (1 << 20);
 // The reservation freezes at most 2×20 transcript rows + 51 documents; 200
 // keeps a wide margin, so bytes are the real bound.
@@ -1012,13 +1014,14 @@ export const getContextInclusion = query({
     if (!generation) return null;
     const access = await getInternalProjectAccessOrNull(ctx, generation.projectId);
     if (!access) return null;
-    const reads = createReadBudget({
-      maxBytes: INCLUSION_READ_BYTES,
-      reservedBytes: DOCUMENT_HEADROOM,
-    });
+    const reads = createReadBudget({ maxBytes: INCLUSION_READ_BYTES });
     reads.account(generation);
     reads.account(access.user);
     reads.account(access.project);
+    // The four settings rows are read before any walk and charged as read,
+    // so a large (still parseable) setting shrinks what the walks may read
+    // instead of landing on top of them after the budget was spent.
+    const budget = await analyzerContextBudget(ctx, (row) => reads.account(row));
 
     const sourceRead = await reads.list(
       ctx.db
@@ -1064,8 +1067,6 @@ export const getContextInclusion = query({
         return [{ _id: document._id, fileName: document.fileName, reason }];
       });
     }
-    // Four small appSettings rows, covered by the budget's up-front reservation.
-    const budget = await analyzerContextBudget(ctx);
     return assembleContextInclusion({
       sources: sources.map((row) => ({
         _id: row._id,

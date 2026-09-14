@@ -57,6 +57,24 @@ Tests  3 failed | 5 passed (8)
 
 **Gates after the review fix** (`review-fix/`): `npx tsc -p convex/tsconfig.json --noEmit` exit 0; `npm run check` exit 0 (5959 files, 0 errors, 0 warnings); `npx vitest run` exit 0 (188 files, 2650 tests); `npm run test:component` exit 0 (82 files, 641 tests).
 
+## DW-133 review 2 fixes (gpt-6-astra medium, `astra-review-2/result.md`; logs in `review-fix-2/`)
+
+Astra rejected ded3034 on two Mediums: the four `appSettings` reads sat outside the proven budget (their `value` is an unrestricted string; the 1 MiB reservation covered one document, not four), and `sourcesTruncated` was not disclosed by the UI (generic "document" note, exact numerator).
+
+**Settings inside the budget.** `analyzerContextBudget(ctx, onRead?)` (and `readPositiveInt`) now hand each settings row — or `null` — to an optional callback as it is read. `getContextInclusion` creates the budget with no up-front reservation, charges the generation, user and project rows, then reads the four settings FIRST and charges each at its actual size, and only then walks sources and documents (each walk still reserves a maximum-size document before every read). Worst case actually read: seven up-front rows ≤ 7 MiB (charged) plus list reads up to the 14 MiB total — 2 MiB under the 16 MiB limit. A large-but-parseable setting therefore shrinks what the walks may read instead of landing on top of them; nothing throws.
+
+**Disclosure.** `inclusionHeader` qualifies the numerator as well when `sourcesTruncated` ("12+ of 40+ …": an unread frozen row may be an included document); the total is qualified for either flag. `inclusionTruncation()` picks the note: `data-inclusion-truncated="sources"` → "Not every transcript or document could be listed. Both counts are lower bounds."; `"documents"` → "Not every document could be listed. The total is a lower bound." (the frozen set is complete, so the numerator stays exact). Same `text-body text-ink-muted` line as before; the component test asserts every element ≤ 500 weight.
+
+**Regression (transaction limits enabled).** `convex/contextInclusion.test.ts` "charges the analyzer settings rows before walking sources…": four ~1,000,000-byte settings whose whitespace-padded values still parse as `12`, plus thirteen ~1,000,000-byte frozen sources.
+- `review-fix-2/before-query-and-header.log` (exit 1; header line records 0 changed source files against ded3034): the fixture throws `Read too much data in a single function execution (limit: 16777216 bytes)`; `inclusionHeader` returns `12 of 40+` where `12+ of 40+` is expected.
+- `review-fix-2/after-query-and-header.log` (exit 0): 74/74 across inclusion, assembler, readBudget, 31 health cases, 12 unchanged `appSettings.test.ts` cases and `brief.test.ts`; the settings fixture returns `cap 12`, `sourcesTruncated: true`, `documentsTruncated: true`, rows > 0 and < 13.
+
+**UI before/after** (`BriefRail.component.test.ts` "discloses cut-short frozen sources…", capture taken before its assertions at 480×420; the pre-fix run used the ded3034 blobs of `src/lib/brief.ts` and `BriefRail.svelte` through a checksum-verified scratch swap, printed in the log header):
+- `review-fix-2/before-component.log` (exit 1) / `before.png`: header reads `3 of 3+ documents in context · cap 12`, the note says only "Not every document could be listed…"; the reworded documents-only case also fails on the missing `data-inclusion-truncated="documents"` value.
+- `review-fix-2/after-component.log` (exit 0, 25/25) / `after.png`: header reads `3+ of 3+ documents in context · cap 12` and the note reads "Not every transcript or document could be listed. Both counts are lower bounds."; the documents-only case keeps `12 of 40+` with the `documents` note.
+
+**Gates after review 2** (`review-fix-2/`): `npx tsc -p convex/tsconfig.json --noEmit` exit 0; `npm run check` exit 0 (5959 files, 0 errors, 0 warnings); `npx vitest run` exit 0 (188 files, 2652 tests); `npm run test:component` exit 0 (82 files, 642 tests).
+
 ## DW-128 — Query failures look like absence (efd7b18)
 
 Finding: `src/lib/components/brief/BriefRailPanel.svelte` derived `available` from `.data` of the three `useQuery` calls only; an errored read left `data` undefined forever, so the panel and (via `CurrentProjectPage`'s own `briefAvailable`) the launcher vanished exactly like a legacy generation.
