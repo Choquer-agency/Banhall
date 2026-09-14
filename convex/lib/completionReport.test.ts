@@ -5,7 +5,10 @@ import {
   COMPLETION_REPORT_TARGET_ITEMS,
   MAX_BULK_EDITS,
   MAX_COMPLETION_REPORT_FINDINGS,
+  NOTHING_TO_APPLY_MESSAGE,
   bulkEditInputSchema,
+  nothingToApply,
+  zeroEditIssue,
   completionReportAnchorIssues,
   completionReportChecklist,
   completionReportItem,
@@ -230,6 +233,69 @@ describe("bulkEditInputSchema", () => {
       .join(" ");
     expect(message).toContain("map every edit to a finding");
     expect(message).toContain("kind is rule");
+  });
+});
+
+/**
+ * DW-135 (AD-28 amendment, approved 2026-09-14): a Coordinated Revision may
+ * carry zero edits when every finding is blocked or conflicting. It has
+ * nothing to apply, but the findings still persist. A resolved finding still
+ * has to claim an edit, and an empty report stays invalid.
+ */
+describe("bulkEditInputSchema with zero edits (DW-135)", () => {
+  it("accepts zero edits when every finding is blocked or conflicting", () => {
+    const parsed = bulkEditInputSchema.parse({
+      edits: [],
+      findings: [blocked, conflicting],
+    });
+    expect(parsed.edits).toEqual([]);
+    expect(parsed.findings.map((f) => f.status)).toEqual(["blocked", "conflicting"]);
+    expect(nothingToApply(parsed)).toBe(true);
+  });
+
+  it("accepts a single blocked finding with zero edits", () => {
+    expect(bulkEditInputSchema.safeParse({ edits: [], findings: [blocked] }).success).toBe(true);
+  });
+
+  it("still rejects a resolved finding that claims no edit", () => {
+    const result = bulkEditInputSchema.safeParse({
+      edits: [],
+      findings: [resolved(1, { editNumbers: [1] }), blocked],
+    });
+    expect(result.success).toBe(false);
+    const message = (result as z.ZodSafeParseError<unknown>).error.issues
+      .map((issue) => issue.message)
+      .join(" ");
+    expect(message).toContain(NOTHING_TO_APPLY_MESSAGE);
+  });
+
+  it("still rejects zero edits with zero findings", () => {
+    expect(bulkEditInputSchema.safeParse({ edits: [], findings: [] }).success).toBe(false);
+  });
+
+  it("still rejects a resolved finding whose edit numbers point past the edit list", () => {
+    expect(
+      bulkEditInputSchema.safeParse({
+        edits: [],
+        findings: [resolved(1, { editNumbers: [1] })],
+      }).success
+    ).toBe(false);
+  });
+
+  it("names the zero-edit rule for persisted items too", () => {
+    expect(zeroEditIssue(0, [{ status: "blocked" }, { status: "conflicting" }])).toBeNull();
+    expect(zeroEditIssue(0, [])).toBe(NOTHING_TO_APPLY_MESSAGE);
+    expect(zeroEditIssue(0, [{ status: "resolved" }])).toBe(NOTHING_TO_APPLY_MESSAGE);
+    // With at least one edit the ordinary coverage rule governs instead.
+    expect(zeroEditIssue(1, [{ status: "resolved" }])).toBeNull();
+  });
+
+  it("does not loosen a proposal that carries edits", () => {
+    const input = mixedSixteen();
+    expect(bulkEditInputSchema.safeParse(input).success).toBe(true);
+    expect(nothingToApply(input)).toBe(false);
+    input.edits.push({ targetText: "orphan", newText: "orphan new" });
+    expect(bulkEditInputSchema.safeParse(input).success).toBe(false);
   });
 });
 

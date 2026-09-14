@@ -17,6 +17,7 @@ import {
   bulkEditInputSchema,
   completionReportChecklist,
   completionReportItems,
+  nothingToApply,
   type BulkEditInput,
 } from "../lib/completionReport";
 import {
@@ -132,7 +133,7 @@ const makeProposeReplacements = (bannedWordsWaived: boolean) =>
 // rows cannot drift. The tool still creates ONE proposal a human applies. The
 // body is `runProposeBulkEdits` below, so the gate can drive it.
 const makeProposeBulkEdits = (bannedWordsWaived: boolean) => createTool({
-  description: "Propose a coordinated revision of different report passages in one reviewable card, plus a Completion Report accounting for EVERY item on the writer's list. Each target must be unique and passages must not overlap. Reuse the item ids the Deviation Inventory or the Reference PD comparison produced, anchor each finding to the section and 1-based paragraph it belongs to, and mark it resolved, blocked or conflicting. The writer applies the proposal.",
+  description: "Propose a coordinated revision of different report passages in one reviewable card, plus a Completion Report accounting for EVERY item on the writer's list. Each target must be unique and passages must not overlap. Reuse the item ids the Deviation Inventory or the Reference PD comparison produced, anchor each finding to the section and 1-based paragraph it belongs to, and mark it resolved, blocked or conflicting. The writer applies the proposal. If every item is blocked or conflicting, call it with an empty edits list and every finding: the report is recorded for the writer and there is nothing to apply. Never invent a dummy edit.",
   inputSchema: bulkEditInputSchema,
   execute: async (ctx, input, options): Promise<string> =>
     await runProposeBulkEdits(ctx, input, {
@@ -345,6 +346,12 @@ export async function runProposeBulkEdits(
     return result.stopped
       ? `Stop requested: ${result.reason} Do not retry.`
       : `Proposal NOT created: ${result.reason} Re-read the current report and retry.`;
+  }
+  // DW-135: every item blocked or conflicting. The findings are recorded; the
+  // report is unchanged and there is no card to apply, so the reply must not
+  // open with "Proposed".
+  if (nothingToApply(input)) {
+    return `Nothing to apply: every item is blocked or conflicting, so no revision was proposed and the report is unchanged. The findings were recorded for the writer's decision. Report this Completion Report checklist, retaining the item IDs:\n${completionReportChecklist(input.findings)}`;
   }
   return `Coordinated revision proposed for writer review, not applied. Report this Completion Report checklist, retaining the item IDs:\n${completionReportChecklist(input.findings)}`;
 }

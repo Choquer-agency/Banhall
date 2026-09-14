@@ -196,7 +196,12 @@ try {
           f.section === "242" && Number.isInteger(f.paragraph) && f.paragraph >= 1 && f.paragraph <= 16
           && (f.kind !== "rule" || !!f.rule)),
         onlyNewStatuses: [...statuses].every(status => ["resolved", "blocked", "conflicting"].includes(status)),
-        honestProposalStatus: /^(Proposed|This proposal)\b/.test(result.text) && !/\b(now uses?|I updated|I fixed|all changes applied)\b/i.test(result.text),
+        // DW-135: a zero-edit call records findings and proposes nothing, so
+        // its reply opens with "Nothing to apply" instead of "Proposed".
+        honestProposalStatus: (bulk && bulk.input.edits.length === 0
+          ? /^Nothing to apply\b/.test(result.text)
+          : /^(Proposed|This proposal)\b/.test(result.text))
+          && !/\b(now uses?|I updated|I fixed|all changes applied)\b/i.test(result.text),
       };
     } else if (fixture.name === "converge-request") {
       // CAP-14: concrete changes or the CLIENT's missing facts. Never a request

@@ -1,0 +1,39 @@
+3:56:47 p.m. [vite-plugin-svelte] no Svelte config found at /Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-dw135 - using default configuration.
+
+ RUN  v4.1.10 /Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-dw135
+
+3:56:47 p.m. [vite-plugin-svelte] no Svelte config found at /Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-dw135 - using default configuration.
+ ❯ |component (chromium)| src/lib/components/chat/NothingToApply.component.test.ts (4 tests | 1 failed) 195ms
+     × names the card by its heading and says when no findings were recorded 55ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |component (chromium)| src/lib/components/chat/NothingToApply.component.test.ts > zero-edit proposal card (DW-135) > names the card by its heading and says when no findings were recorded
+AssertionError: expected <section …(2)>…(2)</section> to have a length of +0 but got 1
+
+Failure screenshot:
+  - src/lib/components/chat/__screenshots__/NothingToApply.component.test.ts/zero-edit-proposal-card--DW-135--names-the-card-by-its-heading-and-says-when-no-findings-were-recorded-1.png
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- 0[39m
+[31m+ 1[39m
+
+ ❯ src/lib/components/chat/NothingToApply.component.test.ts:135:74
+    133|     // The section takes its accessible name from the visible heading,…
+    134|     await expect.element(page.getByRole("region", { name: "Nothing to …
+    135|     expect(container.querySelectorAll('[aria-label="Nothing to apply"]…
+       |                                                                          ^
+    136|     expect(container.textContent).toContain("No findings were recorded…
+    137|     expect(container.textContent).not.toContain("Loading findings");
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 3 passed (4)
+   Start at  15:56:47
+   Duration  2.83s (transform 0ms, setup 631ms, import 652ms, tests 195ms, environment 0ms)
+
+exit=1

@@ -1437,6 +1437,55 @@ the authority for report architecture.
 - **Approval:** product owner approved on 2026-09-01 ("Lets allow this";
   "The only rule we need is the word count for each line").
 
+### 2026-09-14 — Zero-edit Coordinated Revision (AD-28 amendment)
+
+Storage-behavior amendment to AD-28 (the Completion Report, architecture
+spine).
+
+- **Owner decision (approved 2026-09-14, option A):** a Coordinated Revision
+  proposal may carry zero edits when it has at least one finding and every
+  finding is `blocked` or `conflicting`. It has nothing to apply. A
+  `resolved` finding still has to claim an edit, and a proposal with no
+  findings and no edits stays invalid. The finding coverage rules are
+  unchanged. Agents propose, humans apply, unchanged: no code path changes
+  report prose for such a proposal.
+- **Implementation decisions (recorded, not separately approved):**
+  - `saveProposal` still makes the only `chatProposals` insert and writes
+    the `chatProposalItems` rows in the same transaction. A zero-edit
+    proposal is stored as `kind: replacements`, `replacements: []` (exactly
+    empty; a non-empty list that yields no passage is refused),
+    `requireUniqueTargets: true`, in the terminal `applied` state. This
+    reuses the state a highlight (`references`) proposal already takes at
+    creation under AD-4 ("locate/highlight only, no state machine"): there
+    is nothing for a human to apply or reject. No new status, transition or
+    permission is introduced.
+  - `applyProposal`, `markProposalApplied`, `rejectProposal`,
+    `updateProposalWording` and `sendMessage`'s `refineProposalId` refuse a
+    zero-edit proposal ("nothing to apply / reject / reword"); it is
+    excluded from the assistant's PRIOR EDIT DECISIONS memory.
+  - A new query `chatV2.listProposalItems(proposalId)` returns a proposal's
+    Completion Report rows, bounded by the tool's findings cap, for the card.
+  - The card lists the blocked and conflicting findings with their evidence
+    and offers no action at all, Refine included ("Nothing to apply. These
+    findings need a writer's decision."). The assistant's reply opens with
+    "Nothing to apply" rather than "Proposed".
+- **Affected tickets:** DW-135 (deferred-work ledger), from Greptile finding
+  "All-blocked reports cannot persist" on PR #12.
+- **Migration and compatibility:** none. No schema change. Existing rows are
+  unaffected: the zero-edit predicate requires `requireUniqueTargets: true`
+  and zero replacement pairs, a shape no earlier producer could store
+  (`saveProposal` refused empty passage sets).
+- **Authorization and test impact:** `listProposalItems` is gated by
+  `requireInternalProjectAccess`, the same gate as `listProposals` (absent
+  identity NOT_AUTHENTICATED, roleless NOT_AUTHORIZED, any active internal
+  role reads). Enforcing tests: `convex/lib/completionReport.test.ts` (zero
+  edits accepted only when every finding is blocked or conflicting),
+  `convex/chatProposalItems.test.ts` (rows persisted, every apply / reject /
+  reword / refine path refused, report untouched, decisions memory, query
+  gate), `convex/chatToolBodies.test.ts`, `convex/ai/prompts.test.ts`,
+  `src/lib/chat/turnParts.test.ts`,
+  `src/lib/components/chat/NothingToApply.component.test.ts`.
+
 ### 2026-09-11 — Four-tier style precedence, no silent tier, settings documents, and the effort ceiling
 
 Generation-behavior **and** storage amendment. It restates the PSOS-50
@@ -1973,7 +2022,7 @@ A change to vocabulary, an invariant, a transition edge, or a decision above req
 
 The approved chat hardening request preserves agents-propose/humans-apply and all existing role rights. Enabled saved writing preferences participate even when no house-style waiver is active, subject to the existing enforced-rule precedence. A profile lookup failure stops the reply rather than silently proceeding without the profile.
 
-A coordinated passage revision is one pending proposal. Every original target must remain unique and non-overlapping at creation and apply. The ordinary individual replacement stepper cannot apply that proposal. The writer may edit candidate wording in the card, then apply the whole revision after server validation.
+A coordinated passage revision is one pending proposal (except a zero-edit revision, see 2026-09-14). Every original target must remain unique and non-overlapping at creation and apply. The ordinary individual replacement stepper cannot apply that proposal. The writer may edit candidate wording in the card, then apply the whole revision after server validation.
 
 Ordinary report chat can initiate a Brain search only when the sender explicitly enables it for that message. This governs new retrieval, not previously visible conversation history or the separate Contextual Research flow. Private model reasoning and raw tool arguments/results do not belong in the browser response. The assistant may explain visible product behavior and report evidence, while declining extraction of private implementation instructions or unrelated information.
 

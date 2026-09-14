@@ -1,0 +1,140 @@
+
+ RUN  v4.1.10 /Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-dw135
+
+ ❯ |src| src/lib/chat/turnParts.test.ts (64 tests | 1 failed) 22ms
+     × speaks of suggestions, matching the card the writer acts on 8ms
+ ❯ |convex| convex/chatProposalItems.test.ts (18 tests | 5 failed) 458ms
+     × cannot be rejected or reworded: the record is terminal, and says so 8ms
+     × is refused by the one-by-one stepper as nothing to apply, never reported applied 4ms
+       × is refused by sendMessage like a highlight: there is no wording to refine 91ms
+     × refuses a replacement list that is non-empty but yields no passage, so the stored shape is always [] 3ms
+     × does not push a real edit decision out of the model's memory window 14ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 6 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |convex| convex/chatProposalItems.test.ts > a zero-edit Coordinated Revision (DW-135) > cannot be rejected or reworded: the record is terminal, and says so
+AssertionError: expected [Function] to throw error including 'This record has nothing to reject.' but got '{"code":"INVALID_INPUT","message":"An…'
+
+Expected: "This record has nothing to reject."
+Received: "{"code":"INVALID_INPUT","message":"An applied suggestion cannot be rejected."}"
+
+ ❯ convex/chatProposalItems.test.ts:462:6
+    460|     await expect(
+    461|       f.owner.mutation(api.chatV2.rejectProposal, { proposalId: saved.…
+    462|     ).rejects.toThrow("This record has nothing to reject.");
+       |      ^
+    463|     await expect(
+    464|       f.owner.mutation(api.chatV2.updateProposalWording, {
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/6]⎯
+
+ FAIL  |convex| convex/chatProposalItems.test.ts > a zero-edit Coordinated Revision (DW-135) > is refused by the one-by-one stepper as nothing to apply, never reported applied
+AssertionError: promise resolved "{ alreadyApplied: true, …(2) }" instead of rejecting
+
+- Expected
++ Received
+
+- Error {
+-   "message": "rejected promise",
++ {
++   "alreadyApplied": true,
++   "applied": true,
++   "revisionNumber": 0,
+  }
+
+ ❯ convex/chatProposalItems.test.ts:486:6
+    484|         expectedRevisionNumber: 0,
+    485|       })
+    486|     ).rejects.toThrow(/nothing to apply/i);
+       |      ^
+    487|     // A highlight in its terminal state is refused the same way, not
+    488|     // short-circuited as "already applied".
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/6]⎯
+
+ FAIL  |convex| convex/chatProposalItems.test.ts > a zero-edit Coordinated Revision (DW-135) > as a refinement target > is refused by sendMessage like a highlight: there is no wording to refine
+AssertionError: expected [Function] to throw error including 'Suggestion not found' but got 'Validator error: Expected ID for tabl…'
+
+Expected: "Suggestion not found"
+Received: "Validator error: Expected ID for table "threads", got `cpi-thread`"
+
+ ❯ convex/chatProposalItems.test.ts:525:8
+    523|           refineProposalId: saved.proposalId,
+    524|         })
+    525|       ).rejects.toThrow("Suggestion not found");
+       |        ^
+    526|       const turns = await f.t.run((ctx) => ctx.db.query("chatTurns").c…
+    527|       expect(turns).toEqual([]);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/6]⎯
+
+ FAIL  |convex| convex/chatProposalItems.test.ts > a zero-edit Coordinated Revision (DW-135) > refuses a replacement list that is non-empty but yields no passage, so the stored shape is always []
+AssertionError: expected { ok: true, …(1) } to match object { ok: false }
+(1 matching property omitted from actual)
+
+- Expected
++ Received
+
+  {
+-   "ok": false,
++   "ok": true,
+  }
+
+ ❯ convex/chatProposalItems.test.ts:543:20
+    541|       items: completionReportItems(allBlocked()),
+    542|     });
+    543|     expect(result).toMatchObject({ ok: false });
+       |                    ^
+    544|     const state = await rows(f);
+    545|     expect(state.proposals).toEqual([]);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/6]⎯
+
+ FAIL  |convex| convex/chatProposalItems.test.ts > a zero-edit Coordinated Revision (DW-135) > does not push a real edit decision out of the model's memory window
+AssertionError: expected [] to deeply equal [ { state: 'pending', …(2) } ]
+
+- Expected
++ Received
+
+- [
+-   {
+-     "candidate": "s244 paragraph 1 revised s2441.",
+-     "state": "pending",
+-     "target": "s244 paragraph 1 body s2441.",
+-   },
+- ]
++ []
+
+ ❯ convex/chatProposalItems.test.ts:572:31
+    570|       agentThreadId: "cpi-thread",
+    571|     });
+    572|     expect(context.decisions).toEqual([
+       |                               ^
+    573|       {
+    574|         state: "pending",
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/6]⎯
+
+ FAIL  |src| src/lib/chat/turnParts.test.ts > normalizeTurnParts — tools > speaks of suggestions, matching the card the writer acts on
+AssertionError: expected 'Suggested one revision covering 2 ite…' to be 'Recorded 2 findings, nothing to apply' // Object.is equality
+
+Expected: "Recorded 2 findings, nothing to apply"
+Received: "Suggested one revision covering 2 items"
+
+ ❯ src/lib/chat/turnParts.test.ts:170:7
+    168|         findings: [{ id: "c-242-1-1" }, { id: "x-242-2-1" }],
+    169|       })
+    170|     ).toBe("Recorded 2 findings, nothing to apply");
+       |       ^
+    171|     expect(
+    172|       toolLabel("proposeBulkEdits", "output-available", {
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/6]⎯
+
+
+ Test Files  2 failed (2)
+      Tests  6 failed | 76 passed (82)
+   Start at  15:56:44
+   Duration  999ms (transform 665ms, setup 0ms, import 752ms, tests 480ms, environment 65ms)
+
+exit=1
