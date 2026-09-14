@@ -2678,36 +2678,68 @@ export const setGenerationEstimate = internalMutation({
 });
 
 
+/** Page size for the running-generation scan: one page of `generations` in
+ * "running" older than the cutoff per transaction. Tests override it through
+ * `pageSize`. */
+export const STALE_GENERATION_SCAN_PAGE_SIZE = 100;
+
 /**
  * Ops utility: mark generations stranded in "running"/"pending" (e.g. by the
  * pre-fanout 10-minute action death) as failed and free their projects.
  * `npx convex run generations:failStaleGenerations '{"olderThanMinutes":30}'`
+ *
+ * The running scan is paged (DW-119 review): live ordered chains stay in the
+ * `startedAt < cutoff` range while they progress, so a fixed first page could
+ * hide a stalled generation behind them on every cron run. Each invocation
+ * reads one bounded page and, when more remain, schedules itself with the
+ * continuation cursor and the same cutoff — the same single recovery owner,
+ * never a parallel reaper. Reserved rows, the orphaned-run sweep and the
+ * project sweep run once, on the first page only.
  */
 export const failStaleGenerations = internalMutation({
-  args: { olderThanMinutes: v.optional(v.number()) },
+  args: {
+    olderThanMinutes: v.optional(v.number()),
+    // Continuation pages only: the first page's cutoff (kept stable so the
+    // cursor stays valid for the same index range) and where to resume.
+    cutoff: v.optional(v.number()),
+    cursor: v.optional(v.union(v.string(), v.null())),
+    pageSize: v.optional(v.number()),
+  },
   // Declared so the function's type never depends on handler inference: the
-  // handler schedules a sibling function from this module, and inferring the
-  // return type through that reference would be circular.
+  // handler schedules a sibling function from this module (and itself), and
+  // inferring the return type through that reference would be circular.
   returns: v.object({
     failed: v.number(),
     orphanedRuns: v.number(),
-    projectSweepJobId: v.id("_scheduled_functions"),
+    scanned: v.number(),
+    isDone: v.boolean(),
+    projectSweepJobId: v.optional(v.id("_scheduled_functions")),
   }),
   handler: async (ctx, args) => {
-    const cutoff = Date.now() - (args.olderThanMinutes ?? 30) * 60 * 1000;
-    const reserved = await ctx.db
-      .query("generations")
-      .withIndex("by_status_and_startedAt", (q) =>
-        q.eq("status", "reserved").lt("startedAt", cutoff)
-      )
-      .take(100);
-    const running = await ctx.db
+    const cutoff =
+      args.cutoff ?? Date.now() - (args.olderThanMinutes ?? 30) * 60 * 1000;
+    const firstPage = args.cursor === undefined;
+    const pageSize = Math.max(
+      1,
+      Math.floor(args.pageSize ?? STALE_GENERATION_SCAN_PAGE_SIZE)
+    );
+    // Reserved rows never stamp progress, so every one selected here is
+    // failed below and leaves the range: one page per cron run drains them.
+    const reserved = firstPage
+      ? await ctx.db
+          .query("generations")
+          .withIndex("by_status_and_startedAt", (q) =>
+            q.eq("status", "reserved").lt("startedAt", cutoff)
+          )
+          .take(100)
+      : [];
+    const runningPage = await ctx.db
       .query("generations")
       .withIndex("by_status_and_startedAt", (q) =>
         q.eq("status", "running").lt("startedAt", cutoff)
       )
-      .take(100);
-    const stale = [...reserved, ...running];
+      .paginate({ numItems: pageSize, cursor: args.cursor ?? null });
+    const stale = [...reserved, ...runningPage.page];
     let failed = 0;
     for (const generation of stale) {
       // Iterative generations in "running" mean ONE section is drafting; a
@@ -2815,6 +2847,21 @@ export const failStaleGenerations = internalMutation({
       await refreshProjectGenerationActivity(ctx, generation.projectId);
     }
 
+    if (!runningPage.isDone) {
+      // Failed rows have left the "running" range and live rows stay in it,
+      // but the cursor is an index position rather than an offset, so the
+      // next page resumes exactly after the last row read here.
+      await ctx.scheduler.runAfter(0, internal.generations.failStaleGenerations, {
+        cutoff,
+        cursor: runningPage.continueCursor,
+        ...(args.pageSize !== undefined ? { pageSize: args.pageSize } : {}),
+      });
+    }
+    const scanned = runningPage.page.length;
+    if (!firstPage) {
+      return { failed, orphanedRuns: 0, scanned, isDone: runningPage.isDone };
+    }
+
     // Also free projects orphaned in "generating" with no live generation —
     // e.g. the client dies between createProject and requestGeneration, or a
     // legacy failure predates the activeGenerationId cleanup. Without this the
@@ -2854,7 +2901,7 @@ export const failStaleGenerations = internalMutation({
       });
       orphanedRuns += 1;
     }
-    return { failed, orphanedRuns, projectSweepJobId };
+    return { failed, orphanedRuns, scanned, isDone: runningPage.isDone, projectSweepJobId };
   },
 });
 

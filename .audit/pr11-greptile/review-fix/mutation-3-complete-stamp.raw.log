@@ -1,0 +1,54 @@
+
+ RUN  v4.1.10 /Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a
+
+ ❯ |convex| convex/orderedChainRecovery.test.ts (8 tests | 2 failed) 743ms
+     × (a) never reaps a chain whose sections keep completing; each stamp site alone keeps it live in its window 402ms
+     × (b'') two compare candidates share one progress clock: a stuck candidate is protected by the other's progress, then reaped with it 8ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |convex| convex/orderedChainRecovery.test.ts > DW-119: failStaleGenerations is progress-aware for ordered chains > (a) never reaps a chain whose sections keep completing; each stamp site alone keeps it live in its window
+AssertionError: expected 1 to be +0 // Object.is equality
+
+- Expected
++ Received
+
+- 0
++ 1
+
+ ❯ convex/orderedChainRecovery.test.ts:214:57
+    212|     vi.setSystemTime(T0 + 50 * MINUTES);
+    213|     expect(await chain.complete("242")).toBe(true);
+    214|     expect((await reapAt(t, T0 + 75 * MINUTES)).failed).toBe(0);
+       |                                                         ^
+    215|     state = await expectLive(t, ids);
+    216|     expect(state.sections.map((row) => row.status)).toEqual(["drafted"…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  |convex| convex/orderedChainRecovery.test.ts > DW-119: failStaleGenerations is progress-aware for ordered chains > (b'') two compare candidates share one progress clock: a stuck candidate is protected by the other's progress, then reaped with it
+AssertionError: expected 1 to be +0 // Object.is equality
+
+- Expected
++ Received
+
+- 0
++ 1
+
+ ❯ convex/orderedChainRecovery.test.ts:298:57
+    296|     vi.setSystemTime(T0 + 30 * MINUTES);
+    297|     expect(await chainA.complete("242")).toBe(true);
+    298|     expect((await reapAt(t, T0 + 55 * MINUTES)).failed).toBe(0);
+       |                                                         ^
+    299|     await expectLive(t, ids);
+    300|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  2 failed | 6 passed (8)
+   Start at  12:56:17
+   Duration  1.17s (transform 553ms, setup 0ms, import 194ms, tests 743ms, environment 64ms)
+
+exit=1

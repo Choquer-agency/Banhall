@@ -156,9 +156,8 @@ After (`finding3-dw119-after.raw.log`; new file + `generationRecovery`, `generat
 
 ## Limitations / notes for the stack merge
 
-- `failStaleGenerations` still pages `take(100)` on `startedAt < cutoff`; a deployment with more
-  than 100 concurrently running-but-live ordered chains older than 30 minutes could push a stale
-  one past the page. Not a realistic load for this deployment; noted only.
+- ~~`failStaleGenerations` still pages `take(100)` on `startedAt < cutoff`~~ — resolved by the
+  Astra review fix below (paged scan with bounded self-continuation).
 - The reaper's whole-fail leaves the ordered `generationSectionRuns` rows as they were (running /
   queued / pending), exactly as before this change; only candidate runs are terminalized. Unchanged
   behaviour, outside this finding.
@@ -168,3 +167,90 @@ After (`finding3-dw119-after.raw.log`; new file + `generationRecovery`, `generat
   `failStaleGenerations`, and comment lines. No code was moved or reformatted.
 - The ledger (`_bmad-output/implementation-artifacts/deferred-work.md`) was not edited; DW-119's
   status is owned by the orchestrator.
+
+## Astra review (gpt-6-astra, medium) — ACCEPT_WITH_FIXES, applied
+
+Review record: `astra-review/` (prompt.md, result.md, review.raw.log, status-*.sha). Logs for
+the fixes: `review-fix/`.
+
+### Review fix 1 (Medium) — the running scan could hide a stalled generation behind live ones
+
+Problem: `failStaleGenerations` read the oldest 100 running rows (`startedAt < cutoff`,
+`take(100)`) and only then consulted `lastProgressAt`. With 100 older chains all progressing, a
+stalled generation at position 101 was never examined, and every cron run revisited the same page.
+
+Fix (`convex/generations.ts`): the running scan is paged. Each invocation reads one bounded page
+(`STALE_GENERATION_SCAN_PAGE_SIZE = 100`, overridable via `pageSize`) through the existing
+`by_status_and_startedAt` index with `.paginate({ numItems, cursor })` — the single `paginate`
+of the function — and, when `isDone` is false, schedules **itself** with `{ cutoff, cursor:
+continueCursor }` so the same recovery owner continues; no parallel reaper, one transaction per
+page. The cutoff is passed explicitly to continuation pages so the index range (and therefore the
+cursor) stays stable across pages. Reserved rows (`take(100)`, all failed on sight so the page
+drains), the orphaned-run sweep and the project sweep run once, on the first page only.
+`returns` now carries `scanned` and `isDone`; `projectSweepJobId` is optional (absent on
+continuation pages). Callers (`crons.ts`, tests) pass only `olderThanMinutes` and are unchanged;
+`generationReaper.test.ts`'s "is scheduled by failStaleGenerations" still reads
+`projectSweepJobId` from the first page.
+
+Regression test (`convex/orderedChainRecovery.test.ts`, describe "DW-119 review: the running
+scan pages past live chains"): 100 running generations older than the stalled one, every one with a
+fresh `lastProgressAt` (fills exactly one production-sized page), then one stalled single chain
+(created and claimed at T0, nothing after). Reaper at T0+61 → `finishAllScheduledFunctions` →
+stalled generation failed with its candidate run and project freed; all 100 live rows still
+`running`; the first page reports `scanned: 100, isDone: false`.
+
+Before (`review-fix/pagination-before.raw.log`, HEAD `3e8ea81` source):
+```
+ × fails a stalled generation behind a full page of older, still-progressing ones
+     AssertionError: expected 'running' to be 'failed'
+ Tests  1 failed | 7 passed (8)
+```
+After (`review-fix/pagination-after.raw.log`; new file + generationRecovery, generationReaper,
+reaperIntegration):
+```
+ Test Files  4 passed (4)
+ Tests  29 passed (29)
+```
+
+### Review fix 2 (Low) — each stamp site independently required; two candidates; cutoff equality
+
+The DW-119 tests were rewritten so creation, claim and completion happen at distinct times and
+every reaper check sits in a window where exactly one stamp is recent:
+
+- (a) `startedAt = T0-40`; create at T0, reaper at T0+5 → only the **create** stamp is recent;
+  claim at T0+20, reaper at T0+45 (cutoff T0+15) → only the **claim** stamp; complete at T0+50,
+  reaper at T0+75 (cutoff T0+45) → only the **completion** stamp; then 244/246 at T0+80/100/105
+  and a reaper at T0+130.
+- (a') claim at T0+20; reaper at exactly T0+50 (cutoff == lastProgressAt) → live; reaper at
+  T0+50 + 1 ms → failed.
+- (b) complete at T0+20, claim at T0+25, no more progress; reaper at T0+54 → live, at T0+56 →
+  failed (whole-fail copy, candidate run failed, project freed).
+- (b') stuck first action reaped 31 minutes after its claim.
+- (b'') **two compare candidates** on one generation: A and B both created at T0, claimed at
+  T0+1 / T0+2; B's action dies; A drafts 242 at T0+30. Reaper at T0+55 (cutoff T0+25) → live and B
+  untouched (protected by A's progress); no progress from anyone afterwards → reaper at T0+61
+  fails the generation and both runs.
+- (c)/(c') iterative unchanged, as before.
+
+Mutation runs (each stamp site removed from source, uncommitted, test file run, source restored
+from a sha-verified snapshot `6a686f98…`; diffs and logs in `review-fix/mutation-*`):
+
+| Mutation | Removed | Result |
+|---|---|---|
+| 1 `mutation-1-create-stamp` | `lastProgressAt: now` in `createOrderedSectionRuns` | (a) fails at the T0+5 check — `1 failed \| 7 passed` |
+| 2 `mutation-2-claim-stamp` | the generation patch in `claimOrderedSectionRun` | (a), (a'), (b) fail — `3 failed \| 5 passed` |
+| 3 `mutation-3-complete-stamp` | `lastProgressAt: now` in `completeOrderedSectionRun` | (a), (b'') fail — `2 failed \| 6 passed` |
+
+Unmutated source: `8 passed (8)`.
+
+### Gates after the review fixes (final tree)
+
+- `npx tsc -p convex/tsconfig.json --noEmit` → exit 0 (`review-fix/tsc-convex.raw.log`).
+- `npx vitest run` → 171 files, 2221 tests passed (`review-fix/vitest-full.raw.log`).
+- `npm run check` → 5931 files, 0 errors, 0 warnings (`review-fix/npm-check.raw.log`).
+
+### Review notes not requiring code changes
+
+- Merge-up note from the review: the later stack's claim-read budget comment should count the
+  extra generation patch in `claimOrderedSectionRun` (its conservative estimate becomes 15 MiB,
+  still under the documented 16 MiB). To be applied in the stack merge, not here.
