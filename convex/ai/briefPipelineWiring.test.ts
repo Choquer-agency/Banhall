@@ -417,6 +417,7 @@ describe("Generation Brief reaches the drafting pipeline (story 1 wiring)", () =
       .query(api.generations.getLatestGeneration, { projectId });
     expect(latest?.progressLog).toContain(BRIEF_FAILED_LINE);
     expect(latest?.progressLog?.some((line) => line.includes(detail))).toBe(false);
+    expect(latest).not.toHaveProperty("briefOutcome");
     expect(generation?.progressLog?.some((line) => line.includes(detail))).toBe(false);
   });
 });
@@ -479,6 +480,32 @@ describe("Generation Brief attempt outcomes (DW-109/DW-120)", () => {
       .query(api.generations.getIterativeState, { generationId });
     expect(state?.progressLog).toContain(BRIEF_FAILED_LINE);
     expect(state?.progressLog?.some((line) => line.includes(detail))).toBe(false);
+    expect(state).not.toHaveProperty("briefOutcome");
+  });
+});
+
+describe("recordBriefOutcome mutation boundary (DW-109/DW-120)", () => {
+  it("returns null without recreating a missing generation", async () => {
+    const t = convexTest(schema, modules);
+    const { userId, projectId } = await makeProject(t);
+    const generationId = await makeGeneration(
+      t,
+      projectId,
+      userId,
+      TRANSCRIPT_TEXT,
+      "missing-generation-outcome-hash"
+    );
+    await t.run((ctx) => ctx.db.delete(generationId));
+
+    await expect(
+      t.mutation(internal.generations.recordBriefOutcome, {
+        generationId,
+        outcome: { kind: "failed", code: "unknown", detail: "generation disappeared" },
+      })
+    ).resolves.toBeNull();
+
+    expect(await t.run((ctx) => ctx.db.get(generationId))).toBeNull();
+    expect(await t.run((ctx) => ctx.db.query("generations").collect())).toHaveLength(0);
   });
 });
 

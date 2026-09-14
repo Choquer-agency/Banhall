@@ -1,0 +1,73 @@
+{
+  "schema_version": 1,
+  "validation_role": {
+    "model": "gpt-5.6-sol",
+    "reasoning_effort": "high"
+  },
+  "worktree": {
+    "path": "/Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/runs/20260912-061909-feb3/worktrees/dw-brief-failure-observability",
+    "observed_revision": "ad36712404333b582e365699c69ae44724e97bdb",
+    "state_owned_path_matches": true
+  },
+  "source_binding": {
+    "path": "convex/ai/briefPipelineWiring.test.ts",
+    "sha256_observed": "0cf8070f3859c7a80dd67a898cdbc9ffbb21bb1ed75c0d48b8582b859c66f833",
+    "sha256_expected_from_supervisor": "0cf8070f3859c7a80dd67a898cdbc9ffbb21bb1ed75c0d48b8582b859c66f833",
+    "matches": true
+  },
+  "native_event": {
+    "journal_path": "/Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/runs/20260912-061909-feb3/journal.jsonl",
+    "journal_line": 212,
+    "timestamp": 1789380309.161122,
+    "kind": "verify-command-result",
+    "story_key": "dw-brief-failure-observability",
+    "command": "bash scripts/loop-verify.sh",
+    "returncode": 0,
+    "capture_error": null
+  },
+  "native_receipts": {
+    "stdout": {
+      "path": "/Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/runs/20260912-061909-feb3/verify/verify-dw-brief-failure-observability-dev-1-1-0.stdout.log",
+      "sha256": "497ae8348b0c1c5e53ed2f158f40c0373cb150d2fde025321a1e30a2b68961eb",
+      "bytes": 55185,
+      "captured_bytes": 55185,
+      "truncated": false
+    },
+    "stderr": {
+      "path": "/Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/runs/20260912-061909-feb3/verify/verify-dw-brief-failure-observability-dev-1-1-0.stderr.log",
+      "sha256": "40482b386cc6f460fc4f0c96f934dd54586b24a195a22f4dfbff3f81f3c54e13",
+      "bytes": 2446,
+      "captured_bytes": 2446,
+      "truncated": false
+    }
+  },
+  "native_gate_results": {
+    "numbered_steps_passed": 9,
+    "numbered_steps_total": 9,
+    "svelte_check_errors": 0,
+    "svelte_check_warnings": 0,
+    "unit_test_files_passed": 187,
+    "unit_tests_passed": 2674,
+    "powershell_harness_passed": 93,
+    "powershell_harness_failed": 0,
+    "bash_harness_passed": 47,
+    "bash_harness_failed": 0,
+    "new_unit_or_discovery_skips_observed": 0,
+    "known_platform_skips": [
+      "PowerShell AC4 dotfile sub-case: this platform hides dotfiles from Get-ChildItem without -Force"
+    ],
+    "warnings": [
+      "build plugin timing diagnostics",
+      "buffer browser compatibility externalization diagnostics"
+    ]
+  },
+  "followup_execution": {
+    "new_test_commands_run": false,
+    "new_typecheck_commands_run": false,
+    "new_build_commands_run": false,
+    "new_full_gate_commands_run": false,
+    "npm_ci_invoked": false,
+    "interrupted_bookkeeping_exit_code": 130,
+    "interrupted_bookkeeping_is_failure": false
+  }
+}

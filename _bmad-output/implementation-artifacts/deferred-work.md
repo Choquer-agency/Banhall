@@ -930,7 +930,9 @@ location: convex/ai/pipeline.ts, convex/ai/iterative.ts
 source_spec: `1-generation-brief-storage-and-derivation-stage.md`
 severity: low
 reason: pipeline.ts and iterative.ts catch and log any deriveOrReuseBrief rejection so the generation continues with no Brief (by design), but repeated failures across generations are invisible beyond an absent Brief in the (not-yet-built) UI — nothing on aiUsage or the QA scorecard records that a Brief was attempted and failed versus never attempted.
-status: open
+status: done 2026-09-14
+resolution: resolved by sweep bundle dw-brief-failure-observability
+resolution-undo: 2a5238735778566f0ed74129824f29b62398c18a712884d4d093b7e344770f33 2026-09-14 7374617475733a206f70656e
 
 ### DW-110: A writer-supplied Storyline has no length cap, and the derivation call still asks the model for a competing Storyline it then discards.
 origin: spec-deferred a1d0fd6f098e
@@ -1018,7 +1020,9 @@ location: convex/ai/pipeline.ts generateReport (Brief-derivation catch block)
 source_spec: `2-ordered-ungated-generation-self-check-compliance.md`
 severity: low
 reason: convex/ai/pipeline.ts generateReport's deriveOrReuseBrief catch block predates this story (introduced in c3ba3fc, story 1) and is unchanged here; every other fallback in the same function (Build Order, Writer Profile) does call the progress-log helper. Pre-existing, not caused by this story's diff.
-status: open
+status: done 2026-09-14
+resolution: resolved by sweep bundle dw-brief-failure-observability
+resolution-undo: 2a5238735778566f0ed74129824f29b62398c18a712884d4d093b7e344770f33 2026-09-14 7374617475733a206f70656e
 
 ### DW-121: getOrderedSectionDrafts takes(30) on generationSectionRuns before filtering by candidateRunId, so a generation that has accumulated more than 30 section-run rows across many regenerations could have a
 origin: spec-deferred 62d5e0fedd8d

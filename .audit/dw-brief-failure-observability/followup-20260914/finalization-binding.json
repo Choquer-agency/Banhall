@@ -1,0 +1,33 @@
+{
+  "checked_at_utc": "2026-09-14T10:25:22.385612+00:00",
+  "owning_worktree": "/Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/runs/20260912-061909-feb3/worktrees/dw-brief-failure-observability",
+  "pre_finalization_head": "ad36712404333b582e365699c69ae44724e97bdb",
+  "source_commit": "1df0f8a73e6f85bd758aa96a5ac17fcf7f3196a4",
+  "source_sha256": "0cf8070f3859c7a80dd67a898cdbc9ffbb21bb1ed75c0d48b8582b859c66f833",
+  "source_and_packages_unchanged_since_invocation": true,
+  "ledger_sha256": "56546750658069904780a1c17f2021ed07e91f6c1c4117980e7ccf56daa15e68",
+  "ledger_staged_blob": "2a52f7bd250f121ad4efbc96417b9749b0cef8d0",
+  "ledger_worktree_equals_staged_equals_invocation": true,
+  "native_binding_fields_unchanged": [
+    "story_key",
+    "baseline_commit",
+    "baseline_ledger_digest",
+    "post_engine_ledger_digest",
+    "bundle_closes_intended",
+    "accepted_dev_session_index",
+    "spec_file",
+    "commit_sha",
+    "bundle_file",
+    "worktree_path",
+    "branch"
+  ],
+  "native_state_modified": false,
+  "sprint_status_files_modified": false,
+  "spec_status": "done",
+  "followup_review_recommended": false,
+  "spec_yaml_parser": "/Users/johnnynguyen/.local/share/uv/tools/bmad-loop/bin/python: yaml.safe_load",
+  "reviewed_input_sha256": "5c045dadfcf1e860a2939220e007c7ab8cf88beb75074978fd8a85d9bf35dfdf",
+  "native_acceptance_claimed": false,
+  "push_or_deploy_performed": false,
+  "evidence_storage": "Large review inputs and CLI receipts are lossless gzip files; raw local copies and interrupted bookkeeping files remain ignored, outside the committed artifact."
+}

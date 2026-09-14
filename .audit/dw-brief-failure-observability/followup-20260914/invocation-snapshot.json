@@ -1,0 +1,17 @@
+{
+  "timestamp_utc": "2026-09-14T10:06:47.811798+00:00",
+  "head": "ad36712404333b582e365699c69ae44724e97bdb",
+  "branch": "bmad-loop/20260912-061909-feb3",
+  "snapshot_dir": "/var/folders/95/nr9fdn1d7gdf3q7qtf4_v34r0000gn/T/bmad-brief-followup-14kwaff2",
+  "paths": {
+    "_bmad-output/implementation-artifacts/deferred-work.md": {
+      "sha256": "56546750658069904780a1c17f2021ed07e91f6c1c4117980e7ccf56daa15e68",
+      "git_blob": "2a52f7bd250f121ad4efbc96417b9749b0cef8d0"
+    },
+    "_bmad-output/implementation-artifacts/spec-dw-109-dw-120-brief-failure-observability-2.md": {
+      "sha256": "e1652ee4c33c7ad5f48a15c1cf0ee2c949f2e4ff1f6facb82c0468f996402d94",
+      "git_blob": "fe230bc14d55895a1edf87aff2cb905bd34c58a0"
+    }
+  },
+  "initial_status": " M _bmad-output/implementation-artifacts/deferred-work.md\n M _bmad-output/implementation-artifacts/spec-dw-109-dw-120-brief-failure-observability-2.md\n"
+}
