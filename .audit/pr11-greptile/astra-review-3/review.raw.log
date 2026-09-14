@@ -1,0 +1,1837 @@
+OpenAI Codex v0.154.0
+--------
+workdir: /Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-review-107
+model: gpt-6-astra
+provider: openai
+approval: never
+sandbox: read-only
+reasoning effort: medium
+reasoning summaries: none
+session id: 01a0a1f2-4ec1-7a91-b85a-a29f674bff0d
+--------
+user
+You are an independent code reviewer doing a follow-up review. Work strictly read-only: do not edit, create, delete, stage or commit files, and do not install packages. You may run git, grep and read files (including node_modules/convex and node_modules/convex-test sources).
+
+Worktree: detached at 8eaf4af. Your previous follow-up (ACCEPT_WITH_FIXES on 3bfa743): .audit/pr11-greptile/astra-review-2/result.md. Change under review: `git diff 3bfa743 8eaf4af -- convex`, claiming to fix: (1) Medium overlapping cron ticks creating duplicate continuation chains in failStaleGenerations — now a cursorless invocation reads the newest 200 rows of the _scheduled_functions system table and skips if a pending/inProgress continuation of the same function exists; (2) nit pageSize cap. Evidence: .audit/pr11-greptile/evidence.md and review-fix-2/ logs.
+
+Verify: system-table query legality and field names against the installed Convex version and production semantics (not just convex-test), the function-name matching across backend vs convex-test formats, the 200-row lookback bound and its failure mode, race between two cron ticks in concurrent transactions (can both miss each other?), recovery after a failed page, and that tests exercise real scheduler behavior. Only raise findings that matter for correctness or reliability; state clearly if remaining risks are acceptable.
+
+Output Markdown findings with severity, file:line, failure scenario, suggested fix; end with one line: ACCEPT, ACCEPT_WITH_FIXES, or REJECT.
+
+warning: Skill descriptions were shortened to fit the skills context budget. Codex can still see every skill, but some descriptions are shorter. Disable unused skills or plugins to leave more room for the rest.
+hook: SessionStart
+hook: SessionStart Completed
+hook: UserPromptSubmit
+hook: UserPromptSubmit Completed
+codex
+I’ll inspect the fix, prior review, and installed Convex scheduler sources, then assess the concurrency and recovery behavior. I’ll keep everything read-only.
+
+hook: PreToolUse
+hook: PreToolUse Completed
+exec
+/bin/zsh -lc 'cat .factory/AGENTS.factory.md convex/_generated/ai/guidelines.md .audit/pr11-greptile/astra-review-2/result.md .audit/pr11-greptile/evidence.md' in /Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-review-107
+ succeeded in 0ms:
+# Factory rules (isolate → build → prove → ship)
+
+These apply to every agent session in this repo, in any CLI, in any role.
+
+## Isolate
+- Never commit to `main` or the integration branch directly. Every ticket runs in its own git worktree under `.factory/worktrees/<key>` on branch `factory/<key>`. The engine creates it; do not create a second one.
+- One worktree, one branch, one ticket per session. Never touch another worktree's files.
+- Before implementing, the engine checks open PRs for files overlapping the ticket's `touches` (`[run].on_pr_overlap`). On overlap it warns or blocks; do not work around it.
+
+## Build
+- The ticket file (`.factory/tickets/<key>.md`) is the only source of truth for scope. If it is ambiguous in a way that changes the implementation, return `status: blocked` and say why. Do not guess.
+- Reuse first: shared packages and existing services before new code. Duplicate operational logic is a defect.
+- Keep policy in the caller, mechanics in a service with explicit inputs and structured returns.
+
+## Prove
+- Deterministic gates (`[verify].commands`) run outside your session. Make them green and leave runtime evidence.
+- Keep a decision trail: `.audit/<key>/decisions.tsv`, one row per decision (ts, phase, decision, why, evidence, result). Append-only. Evidence is a pointer (sha, file:line, artifact path), never prose.
+- Write `.audit/<key>/evidence.md`: exact commit, every acceptance criterion mapped to the test or command that proves it, command output tails. Bug ticket: reproduce the failure at the baseline commit **before** fixing and record it, then record the pass.
+- Every claim in a summary is backed by a command you ran and its output, or a `file:line`. Never present scripted or synthetic output as a live result.
+- Verification of fixes shows the old failure next to the new success. A ticket with `ui: true` shows it as `*before*.png` / `*after*.png` in `.audit/<key>/`; the PR embeds them.
+
+## Ship
+- Commit inside the worktree with a message that names the ticket key. Never push, never open a PR, never deploy, never rotate secrets from an agent session. `factory ship` does push + PR + babysit (CI and review threads fixed in a loop until green), run by a human.
+- Findings you could not fix go in the ticket's `deferred:` frontmatter list, not in prose.
+- Never plain `--force`. `--force-with-lease` only, and only from ship.
+
+## Intake
+- Anything coming in (idea, bug, question, brainstorm, issue, ticket key) goes through `factory go` or the `factory-mode` skill: questions get cited answers, bugs get a reproduction and one ticket, features get a plan. Nobody implements from chat.
+
+## Roles
+Roles and their CLIs live in `.factory/roles.toml` (orchestrator, planner, implementer with per-kind tiers, reviewer, lead, QA, verifier); project gates, QA commands, sizing limits, risky domains and ship policy live in `.factory/factory.toml`.
+# Convex guidelines
+
+These guidelines target Convex `^1.41.0`.
+
+## Function guidelines
+
+### Http endpoint syntax
+
+- HTTP endpoints are defined in `convex/http.ts` and require an `httpAction` decorator. For example:
+
+```typescript
+import { httpRouter } from "convex/server";
+import { httpAction } from "./_generated/server";
+const http = httpRouter();
+http.route({
+  path: "/echo",
+  method: "POST",
+  handler: httpAction(async (ctx, req) => {
+    const body = await req.bytes();
+    return new Response(body, { status: 200 });
+  }),
+});
+```
+
+- HTTP endpoints are always registered at the exact path you specify in the `path` field. For example, if you specify `/api/someRoute`, the endpoint will be registered at `/api/someRoute`.
+
+### Validators
+
+- Below is an example of an array validator:
+
+```typescript
+import { mutation } from "./_generated/server";
+import { v } from "convex/values";
+
+export default mutation({
+  args: {
+    simpleArray: v.array(v.union(v.string(), v.number())),
+  },
+  handler: async (ctx, args) => {
+    //...
+  },
+});
+```
+
+- Below is an example of a schema with validators that codify a discriminated union type:
+
+```typescript
+import { defineSchema, defineTable } from "convex/server";
+import { v } from "convex/values";
+
+export default defineSchema({
+  results: defineTable(
+    v.union(
+      v.object({
+        kind: v.literal("error"),
+        errorMessage: v.string(),
+      }),
+      v.object({
+        kind: v.literal("success"),
+        value: v.number(),
+      }),
+    ),
+  ),
+});
+```
+
+- Here are the valid Convex types along with their respective validators:
+  Convex Type | TS/JS type | Example Usage | Validator for argument validation and schemas | Notes |
+  | ----------- | ------------| -----------------------| -----------------------------------------------| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+  | Id | string | `doc._id` | `v.id(tableName)` | |
+  | Null | null | `null` | `v.null()` | JavaScript's `undefined` is not a valid Convex value. Functions the return `undefined` or do not return will return `null` when called from a client. Use `null` instead. |
+  | Int64 | bigint | `3n` | `v.int64()` | Int64s only support BigInts between -2^63 and 2^63-1. Convex supports `bigint`s in most modern browsers. |
+  | Float64 | number | `3.1` | `v.number()` | Convex supports all IEEE-754 double-precision floating point numbers (such as NaNs). Inf and NaN are JSON serialized as strings. |
+  | Boolean | boolean | `true` | `v.boolean()` |
+  | String | string | `"abc"` | `v.string()` | Strings are stored as UTF-8 and must be valid Unicode sequences. Strings must be smaller than the 1MB total size limit when encoded as UTF-8. |
+  | Bytes | ArrayBuffer | `new ArrayBuffer(8)` | `v.bytes()` | Convex supports first class bytestrings, passed in as `ArrayBuffer`s. Bytestrings must be smaller than the 1MB total size limit for Convex types. |
+  | Array | Array | `[1, 3.2, "abc"]` | `v.array(values)` | Arrays can have at most 8192 values. |
+  | Object | Object | `{a: "abc"}` | `v.object({property: value})` | Convex only supports "plain old JavaScript objects" (objects that do not have a custom prototype). Objects can have at most 1024 entries. Field names must be nonempty and not start with "$" or "_". |
+| Record      | Record      | `{"a": "1", "b": "2"}` | `v.record(keys, values)`                       | Records are objects at runtime, but can have dynamic keys. Keys must be only ASCII characters, nonempty, and not start with "$" or "\_". |
+
+### Function registration
+
+- Use `internalQuery`, `internalMutation`, and `internalAction` to register internal functions. These functions are private and aren't part of an app's API. They can only be called by other Convex functions. These functions are always imported from `./_generated/server`.
+- Use `query`, `mutation`, and `action` to register public functions. These functions are part of the public API and are exposed to the public Internet. Do NOT use `query`, `mutation`, or `action` to register sensitive internal functions that should be kept private.
+- You CANNOT register a function through the `api` or `internal` objects.
+- ALWAYS include argument validators for all Convex functions. This includes all of `query`, `internalQuery`, `mutation`, `internalMutation`, `action`, and `internalAction`.
+
+### Function calling
+
+- Use `ctx.runQuery` to call a query from a query, mutation, or action.
+- Use `ctx.runMutation` to call a mutation from a mutation or action.
+- Use `ctx.runAction` to call an action from an action.
+- ONLY call an action from another action if you need to cross runtimes (e.g. from V8 to Node). Otherwise, pull out the shared code into a helper async function and call that directly instead.
+- Try to use as few calls from actions to queries and mutations as possible. Queries and mutations are transactions, so splitting logic up into multiple calls introduces the risk of race conditions.
+- All of these calls take in a `FunctionReference`. Do NOT try to pass the callee function directly into one of these calls.
+- When using `ctx.runQuery`, `ctx.runMutation`, or `ctx.runAction` to call a function in the same file, specify a type annotation on the return value to work around TypeScript circularity limitations. For example,
+
+```
+export const f = query({
+  args: { name: v.string() },
+  handler: async (ctx, args) => {
+    return "Hello " + args.name;
+  },
+});
+
+export const g = query({
+  args: {},
+  handler: async (ctx, args) => {
+    const result: string = await ctx.runQuery(api.example.f, { name: "Bob" });
+    return null;
+  },
+});
+```
+
+### Function references
+
+- Use the `api` object defined by the framework in `convex/_generated/api.ts` to call public functions registered with `query`, `mutation`, or `action`.
+- Use the `internal` object defined by the framework in `convex/_generated/api.ts` to call internal (or private) functions registered with `internalQuery`, `internalMutation`, or `internalAction`.
+- Convex uses file-based routing, so a public function defined in `convex/example.ts` named `f` has a function reference of `api.example.f`.
+- A private function defined in `convex/example.ts` named `g` has a function reference of `internal.example.g`.
+- Functions can also registered within directories nested within the `convex/` folder. For example, a public function `h` defined in `convex/messages/access.ts` has a function reference of `api.messages.access.h`.
+
+### Pagination
+
+- Define pagination using the following syntax:
+
+```ts
+import { v } from "convex/values";
+import { query, mutation } from "./_generated/server";
+import { paginationOptsValidator } from "convex/server";
+export const listWithExtraArg = query({
+  args: { paginationOpts: paginationOptsValidator, author: v.string() },
+  handler: async (ctx, args) => {
+    return await ctx.db
+      .query("messages")
+      .withIndex("by_author", (q) => q.eq("author", args.author))
+      .order("desc")
+      .paginate(args.paginationOpts);
+  },
+});
+```
+
+Note: `paginationOpts` is an object with the following properties:
+
+- `numItems`: the maximum number of documents to return (the validator is `v.number()`)
+- `cursor`: the cursor to use to fetch the next page of documents (the validator is `v.union(v.string(), v.null())`)
+- A query that ends in `.paginate()` returns an object that has the following properties:
+- page (contains an array of documents that you fetches)
+- isDone (a boolean that represents whether or not this is the last page of documents)
+- continueCursor (a string that represents the cursor to use to fetch the next page of documents)
+
+## Schema guidelines
+
+- Always define your schema in `convex/schema.ts`.
+- Always import the schema definition functions from `convex/server`.
+- System fields are automatically added to all documents and are prefixed with an underscore. The two system fields that are automatically added to all documents are `_creationTime` which has the validator `v.number()` and `_id` which has the validator `v.id(tableName)`.
+- Always include all index fields in the index name. For example, if an index is defined as `["field1", "field2"]`, the index name should be "by_field1_and_field2".
+- Index fields must be queried in the same order they are defined. If you want to be able to query by "field1" then "field2" and by "field2" then "field1", you must create separate indexes.
+- Do not store unbounded lists as an array field inside a document (e.g. `v.array(v.object({...}))`). As the array grows it will hit the 1MB document size limit, and every update rewrites the entire document. Instead, create a separate table for the child items with a foreign key back to the parent.
+- Separate high-churn operational data (e.g. heartbeats, online status, typing indicators) from stable profile data. Storing frequently updated fields on a shared document forces every write to contend with reads of the entire document. Instead, create a dedicated table for the high-churn data with a foreign key back to the parent record.
+
+## Authentication guidelines
+
+- Convex supports JWT-based authentication through `convex/auth.config.ts`. ALWAYS create this file when using authentication. Without it, `ctx.auth.getUserIdentity()` will always return `null`.
+- Example `convex/auth.config.ts`:
+
+```typescript
+export default {
+  providers: [
+    {
+      domain: "https://your-auth-provider.com",
+      applicationID: "convex",
+    },
+  ],
+};
+```
+
+The `domain` must be the issuer URL of the JWT provider. Convex fetches `{domain}/.well-known/openid-configuration` to discover the JWKS endpoint. The `applicationID` is checked against the JWT `aud` (audience) claim.
+
+- Use `ctx.auth.getUserIdentity()` to get the authenticated user's identity in any query, mutation, or action. This returns `null` if the user is not authenticated, or a `UserIdentity` object with fields like `subject`, `issuer`, `name`, `email`, etc. The `subject` field is the unique user identifier.
+- In Convex `UserIdentity`, `tokenIdentifier` is guaranteed and is the canonical stable identifier for the authenticated identity. For any auth-linked database lookup or ownership check, prefer `identity.tokenIdentifier` over `identity.subject`. Do NOT use `identity.subject` alone as a global identity key.
+- NEVER accept a `userId` or any user identifier as a function argument for authorization purposes. Always derive the user identity server-side via `ctx.auth.getUserIdentity()`.
+- When using an external auth provider with Convex on the client, use `ConvexProviderWithAuth` instead of `ConvexProvider`:
+
+```tsx
+import { ConvexProviderWithAuth, ConvexReactClient } from "convex/react";
+
+const convex = new ConvexReactClient(process.env.NEXT_PUBLIC_CONVEX_URL!);
+
+function App({ children }: { children: React.ReactNode }) {
+  return (
+    <ConvexProviderWithAuth client={convex} useAuth={useYourAuthHook}>
+      {children}
+    </ConvexProviderWithAuth>
+  );
+}
+```
+
+The `useAuth` prop must return `{ isLoading, isAuthenticated, fetchAccessToken }`. Do NOT use plain `ConvexProvider` when authentication is needed — it will not send tokens with requests.
+
+## Typescript guidelines
+
+- You can use the helper typescript type `Id` imported from './\_generated/dataModel' to get the type of the id for a given table. For example if there is a table called 'users' you can use `Id<'users'>` to get the type of the id for that table.
+- Use `Doc<"tableName">` from `./_generated/dataModel` to get the full document type for a table.
+- Use `QueryCtx`, `MutationCtx`, `ActionCtx` from `./_generated/server` for typing function contexts. NEVER use `any` for ctx parameters — always use the proper context type.
+- If you need to define a `Record` make sure that you correctly provide the type of the key and value in the type. For example a validator `v.record(v.id('users'), v.string())` would have the type `Record<Id<'users'>, string>`. Below is an example of using `Record` with an `Id` type in a query:
+
+```ts
+import { query } from "./_generated/server";
+import { Doc, Id } from "./_generated/dataModel";
+
+export const exampleQuery = query({
+  args: { userIds: v.array(v.id("users")) },
+  handler: async (ctx, args) => {
+    const idToUsername: Record<Id<"users">, string> = {};
+    for (const userId of args.userIds) {
+      const user = await ctx.db.get("users", userId);
+      if (user) {
+        idToUsername[user._id] = user.username;
+      }
+    }
+
+    return idToUsername;
+  },
+});
+```
+
+- Be strict with types, particularly around id's of documents. For example, if a function takes in an id for a document in the 'users' table, take in `Id<'users'>` rather than `string`.
+- For typed app environment variables, declare them in `convex/convex.config.ts` with `defineApp({ env: { MY_KEY: v.optional(v.string()) } })` and read them with `env` from `./_generated/server` instead of `process.env`.
+
+## Full text search guidelines
+
+- A query for "10 messages in channel '#general' that best match the query 'hello hi' in their body" would look like:
+
+const messages = await ctx.db
+.query("messages")
+.withSearchIndex("search_body", (q) =>
+q.search("body", "hello hi").eq("channel", "#general"),
+)
+.take(10);
+
+## Query guidelines
+
+- Do NOT use `filter` in queries. Instead, define an index in the schema and use `withIndex` instead.
+- If the user does not explicitly tell you to return all results from a query you should ALWAYS return a bounded collection instead. So that is instead of using `.collect()` you should use `.take()` or paginate on database queries. This prevents future performance issues when tables grow in an unbounded way.
+- Never use `.collect().length` to count rows. Convex has no built-in count operator, so if you need a count that stays efficient at scale, maintain a denormalized counter in a separate document and update it in your mutations.
+- Convex queries do NOT support `.delete()`. If you need to delete all documents matching a query, use `.take(n)` to read them in batches, iterate over each batch calling `ctx.db.delete("tasks", row._id)`, and repeat until no more results are returned.
+- Convex mutations are transactions with limits on the number of documents read and written. If a mutation needs to process more documents than fit in a single transaction (e.g. bulk deletion on a large table), process a batch with `.take(n)` and then call `ctx.scheduler.runAfter(0, api.myModule.myMutation, args)` to schedule itself to continue. This way each invocation stays within transaction limits.
+- Use `.unique()` to get a single document from a query. This method will throw an error if there are multiple documents that match the query.
+- When using async iteration, don't use `.collect()` or `.take(n)` on the result of a query. Instead, use the `for await (const row of query)` syntax.
+
+### Ordering
+
+- By default Convex always returns documents in ascending `_creationTime` order.
+- You can use `.order('asc')` or `.order('desc')` to pick whether a query is in ascending or descending order. If the order isn't specified, it defaults to ascending.
+- Document queries that use indexes will be ordered based on the columns in the index and can avoid slow table scans.
+
+## Mutation guidelines
+
+- Use `ctx.db.replace` to fully replace an existing document. This method will throw an error if the document does not exist. Syntax: `await ctx.db.replace("tasks", taskId, { name: "Buy milk", completed: false })`
+- Use `ctx.db.patch` to shallow merge updates into an existing document. This method will throw an error if the document does not exist. Syntax: `await ctx.db.patch("tasks", taskId, { completed: true })`
+
+## Action guidelines
+
+- Always add `"use node";` to the top of files containing actions that use Node.js built-in modules.
+- Never add `"use node";` to a file that also exports queries or mutations. Only actions can run in the Node.js runtime; queries and mutations must stay in the default Convex runtime. If you need Node.js built-ins alongside queries or mutations, put the action in a separate file.
+- `fetch()` is available in the default Convex runtime. You do NOT need `"use node";` just to use `fetch()`.
+- Never use `ctx.db` inside of an action. Actions don't have access to the database.
+- Below is an example of the syntax for an action:
+
+```ts
+import { action } from "./_generated/server";
+
+export const exampleAction = action({
+  args: {},
+  handler: async (ctx, args) => {
+    console.log("This action does not return anything");
+    return null;
+  },
+});
+```
+
+## Scheduling guidelines
+
+### Cron guidelines
+
+- Only use the `crons.interval` or `crons.cron` methods to schedule cron jobs. Do NOT use the `crons.hourly`, `crons.daily`, or `crons.weekly` helpers.
+- Both cron methods take in a FunctionReference. Do NOT try to pass the function directly into one of these methods.
+- Define crons by declaring the top-level `crons` object, calling some methods on it, and then exporting it as default. For example,
+
+```ts
+import { cronJobs } from "convex/server";
+import { internal } from "./_generated/api";
+import { internalAction } from "./_generated/server";
+
+const empty = internalAction({
+  args: {},
+  handler: async (ctx, args) => {
+    console.log("empty");
+  },
+});
+
+const crons = cronJobs();
+
+// Run `internal.crons.empty` every two hours.
+crons.interval("delete inactive users", { hours: 2 }, internal.crons.empty, {});
+
+export default crons;
+```
+
+- You can register Convex functions within `crons.ts` just like any other file.
+- If a cron calls an internal function, always import the `internal` object from '\_generated/api', even if the internal function is registered in the same file.
+
+## Testing guidelines
+
+- Use `convex-test` with `vitest` and `@edge-runtime/vm` to test Convex functions. Always install the latest versions of these packages. Configure vitest with `environment: "edge-runtime"` in `vitest.config.ts`.
+
+Test files go inside the `convex/` directory. You must pass a module map from `import.meta.glob` to `convexTest`:
+
+```typescript
+/// <reference types="vite/client" />
+import { convexTest } from "convex-test";
+import { expect, test } from "vitest";
+import { api } from "./_generated/api";
+import schema from "./schema";
+
+const modules = import.meta.glob("./**/*.ts");
+
+test("some behavior", async () => {
+  const t = convexTest(schema, modules);
+  await t.mutation(api.messages.send, { body: "Hi!", author: "Sarah" });
+  const messages = await t.query(api.messages.list);
+  expect(messages).toMatchObject([{ body: "Hi!", author: "Sarah" }]);
+});
+```
+
+The `modules` argument is required so convex-test can discover and load function files. The `/// <reference types="vite/client" />` directive is needed for TypeScript to recognize `import.meta.glob`.
+
+- Only add the `/// <reference types="vite/client" />` directive at the top of test files that call `import.meta.glob`; do NOT add it to non-test files.
+- Do NOT add a `compilerOptions.types` allowlist to `tsconfig.json` for type packages you have not installed (e.g. `"node"` without `@types/node`, or `"vite/client"` without vite). Any unresolved entry in `types` fails typechecking with TS2688. Leave `types` unset unless a package genuinely requires it and is installed.
+
+## File storage guidelines
+
+- The `ctx.storage.getUrl()` method returns a signed URL for a given file. It returns `null` if the file doesn't exist.
+- Do NOT use the deprecated `ctx.storage.getMetadata` call for loading a file's metadata.
+
+Instead, query the `_storage` system table. For example, you can use `ctx.db.system.get` to get an `Id<"_storage">`.
+
+```
+import { query } from "./_generated/server";
+import { Id } from "./_generated/dataModel";
+
+type FileMetadata = {
+    _id: Id<"_storage">;
+    _creationTime: number;
+    contentType?: string;
+    sha256: string;
+    size: number;
+}
+
+export const exampleQuery = query({
+    args: { fileId: v.id("_storage") },
+    handler: async (ctx, args) => {
+        const metadata: FileMetadata | null = await ctx.db.system.get("_storage", args.fileId);
+        console.log(metadata);
+        return null;
+    },
+});
+```
+
+- Convex storage stores items as `Blob` objects. You must convert all items to/from a `Blob` when using Convex storage.
+1. **Medium — `convex/generations.ts:2721,2854`: overlapping cron ticks create duplicate continuation chains.**  
+   **Failure scenario:** scan A schedules another page, but remains unfinished when the next ten-minute cron tick invokes the function without a cursor (`convex/crons.ts:6`). That invocation unconditionally starts scan B and schedules its own continuations. There is no persisted ownership record or fencing token. Both scans revisit progressing rows, adding duplicate reads, scheduler work and contention. Transactional status checks protect against double terminalization, but do not enforce the requested single scan owner.  
+   **Suggested fix:** atomically acquire persisted scan ownership on entry, fence continuations with a scan identifier, and release ownership on completion, with recovery for failed scans. Add a regression that invokes a second cron tick before draining the first scan’s scheduled pages and verifies only one continuation chain survives.
+
+The two original findings are otherwise resolved:
+
+- **Position-101 starvation:** the regression reproduces the original failure; the supplied after log reports 29 targeted tests passing. Pagination advances past the 100 live rows.
+- **Independent stamp coverage:** each mutation diff removes only its respective stamp. Logs show creation removal failing at test line 199, claim removal at line 206, and completion removal at line 214. These checks isolate the respective timestamps. Two-candidate protection and cutoff equality are also covered.
+
+Other checks:
+
+- Continuations preserve the cutoff and index range. Progress stamps do not move the index position; failed rows leaving the range do not introduce offset-based skipping. The scan stops at `isDone`, with one `paginate()` per invocation.
+- Reserved selection and both auxiliary sweeps execute only on the initial invocation. Reserved rows drain through failure; continuation pages return before auxiliary sweeps.
+- Default pages retain the previous bounded workload. However, `pageSize` has no upper cap, and these small-fixture logs do not establish worst-case transaction byte limits.
+- Located callers remain compatible. The cron ignores returns; tests access individual fields, and the project-sweep test reads its job ID from the first invocation. Counts now describe individual pages.
+- Reviewed source and recorded evidence only; no tests were rerun.
+
+ACCEPT_WITH_FIXES# PR #11 Greptile findings — fix evidence
+
+Branch `fix/pd1-greptile`, base `36a234d`. Worktree `.factory/worktrees/pd-validate-a`.
+Every finding was reproduced by a failing test on the unmodified source before the fix
+(`*-before.raw.log`), then shown passing (`*-after.raw.log`). Env for every run:
+`PUBLIC_CONVEX_URL=https://placeholder.convex.cloud PUBLIC_CONVEX_SITE_URL=https://placeholder.convex.site`.
+
+## Finding 1 — Brief reads lack authorization (`convex/briefs.ts`)
+
+Backport of the later stack's fix (`git show 55011ea:convex/briefs.ts`, commit ba845a8):
+`getBrief` and `listBriefEntries` call `getInternalProjectAccessOrNull(ctx, projectId)` and
+return `null` for an unauthenticated caller, a mapped user with no internal role, or a missing
+row. `listBriefEntries` now returns `null` (was `[]`) for a missing Brief so the null contract
+matches the later stack exactly and the merge is trivial. Access is checked before any entry
+read, so a probe cannot distinguish a real Brief from an invented id.
+
+Callers: no `src/` or non-test `convex/` caller of `api.briefs.getBrief` / `listBriefEntries`
+exists at this commit (grep in `finding1` step); the only consumer was the existing test,
+updated to read as the writer identity exactly as the later stack's version of that test does.
+
+Tests (`convex/ai/brief.test.ts`):
+- existing "getBrief and listBriefEntries read the stored Brief for the UI panel" — now reads
+  through `t.withIdentity({ subject: "brief-writer" })` (admin user) and asserts non-null.
+- new "getBrief and listBriefEntries return null to an unauthenticated caller and to a
+  non-internal user" — unauthenticated `t.query` and a `withIdentity` user with no `role`.
+
+Before (`finding1-before.raw.log`, unmodified `briefs.ts`): the unauthenticated `getBrief`
+returned the full Brief with entries.
+```
+ Tests  1 failed | 1 passed | 11 skipped (13)
+```
+After (`finding1-after.raw.log`, whole file):
+```
+ Tests  13 passed (13)
+```
+
+## Finding 2 — Removed entries remain active (`convex/generations.ts` renderBriefForGeneration)
+
+At `36a234d` only `renderBriefForGeneration` lacked the filter; `loadBriefCheck` (the other
+prompt reader, used by `claimOrderedSectionRun` and the Self-check) already applied
+`entry.change !== "removed"`. Ported the later stack's filter and comment
+(`git show 738331e:convex/generations.ts`, commit 90215c0) so both readers render exactly the
+same rows: `entries.filter((e) => e.group !== "storylineQuestion" && e.change !== "removed")`.
+
+Test (`convex/ai/brief.test.ts`): "renderBriefForGeneration omits a re-derivation's change:
+removed entries from the section prompt" — seeds a version-2 Brief directly with one live and one
+`change: "removed"` row in each rendered group (claimExclusion, confidenceMap, glossaryTerm),
+then queries `internal.generations.renderBriefForGeneration` and asserts every LIVE text is
+present and no REMOVED text is. (The block renders `storylineText`, not storyline claim rows, so
+those carry no assertion.)
+
+Before (`finding2-before.raw.log`): the rendered block listed `REMOVED exclusion`,
+`REMOVED confidence fact` and `REMOVED term`.
+```
+ Tests  1 failed | 13 skipped (14)
+```
+After (`finding2-after.raw.log`, `brief.test.ts` + `briefPipelineWiring.test.ts`):
+```
+ Tests  16 passed (16)
+```
+
+## Finding 3 — DW-119: Progressing chains appear stale + Section actions can time out
+
+Approved ledger decision (DW-119, 2026-09-14): "Use progress-aware recovery — Approve timeout
+semantics in the existing reaper, preserve single recovery ownership and test slow-active versus
+stalled chains." No new reaper (AD-24), the 30-minute window and the cron cadence are unchanged.
+
+### Design
+
+- `convex/schema.ts`: `generations.lastProgressAt: v.optional(v.number())` — optional, so every
+  existing row (iterative, legacy, reserved) validates unchanged and falls through to the
+  previous `startedAt` behaviour.
+- Stamped by the three ordered-chain mutations in `convex/generations.ts`, each already fenced
+  by `orderedChainFence`:
+  - `createOrderedSectionRuns` — added to the existing `progressLog` patch (no extra write);
+  - `claimOrderedSectionRun` — one new `patch(generation, { lastProgressAt })` when a section
+    action starts its work, so the window measures from the start of the current action;
+  - `completeOrderedSectionRun` — added to the existing `progressLog` patch, i.e. the moment a
+    section is drafted and the next section (or finalize) is scheduled.
+- `failStaleGenerations`: after the iterative branch and before the whole-generation fail, a
+  running non-iterative generation whose `lastProgressAt >= cutoff` is skipped (`continue`).
+  Selection still uses the `by_status_and_startedAt` index with `startedAt < cutoff`; the skip is
+  applied per row. Iterative rows never carry the stamp and the condition excludes them
+  explicitly, so their per-section path is byte-for-byte the previous one.
+- Finalize (`finalizeOrderedCandidate`) does not stamp: it is scheduled in the same transaction
+  as the last section's stamp and, being one Convex action, either completes the candidate or
+  dies within the action limit — well inside the 30-minute window measured from that stamp.
+- Compare mode: both candidates stamp the shared generation. A stuck candidate is therefore
+  reaped 30 minutes after the *other* candidate's last progress at the latest; nothing is reaped
+  while any chain of the generation is still moving.
+
+### How this bounds the "Section actions can time out" finding
+
+The finding: one `generateOrderedSection` action may run draft + two compression squeezes +
+Self-check + repair sequentially, each Anthropic call allowing two 240 s attempts, so the action
+can overrun Convex's action limit before `completeOrderedSectionRun` or `failOrderedSectionRun`
+runs; the section row stays `running` and the chain stalls. Provider timeouts were explicitly left
+untouched (the task forbids changing them; DW-70 orchestration redesign was deferred by the owner).
+
+With progress-aware recovery the damage is bounded as follows: a timed-out action is, by
+definition, an action that never reached its completion mutation, so it never stamps
+`lastProgressAt` again. The generation's last stamp is that section's claim (or the previous
+completion), so the reaper fails the generation (and, through
+`terminalizeOrphanedCandidateRuns`, its candidate runs) within 30 minutes of the overrun plus the
+10-minute cron cadence, exactly as before DW-119 — while a chain that is merely slow but still
+completing sections is no longer collateral damage. What changes for the writer is therefore only
+the false-positive case (a live chain killed at 30 minutes wall-clock); the stuck case keeps its
+existing recovery owner and latency. Anything tighter (per-section deadlines, splitting the
+section action, shortening the window for ordered chains) is an orchestration change under
+DW-70 and is not warranted by this finding alone; the `ORDERED_SECTION_ACTION_SLOTS` comment in
+`convex/ai/providers.ts` now records the recovery path so the bound is documented next to the
+slot count it qualifies.
+
+### Tests (`convex/orderedChainRecovery.test.ts`, new file)
+
+Time moves only via `vi.setSystemTime`, so convex-test's scheduled chain actions never fire; the
+chain is driven through the real fenced mutations (`createOrderedSectionRuns` →
+`claimOrderedSectionRun` → `completeOrderedSectionRun`) and then `failStaleGenerations`
+(`olderThanMinutes: 30`) is invoked as the cron does.
+
+- (a) slow but live compare chain: s242 drafted at T0+25, s244 claimed; reaper at T0+35 → not
+  failed; s244 drafted at T0+55, s246 claimed; reaper at T0+65 → still running, candidate run
+  running, project pointer intact.
+- (b) stalled single chain: s242 drafted at T0+20, s244 claimed and its action dies; reaper at
+  T0+49 (29 min after last progress) → live; reaper at T0+51 → generation failed with the existing
+  copy, candidate run failed ("Timed out before the draft completed."), project freed to `draft`.
+- (b') first-section action that never completes: reaped 31 minutes after its claim.
+- (c) iterative unchanged: stale running section run → `awaiting_input`, section `failed` with
+  the existing copy, candidate run and project pointer untouched. Passes before and after.
+- (c') a `lastProgressAt` stamp on an iterative generation never governs its recovery.
+
+Before (`finding3-dw119-before.raw.log`, unmodified source):
+```
+ × (a) never reaps a chain whose sections keep completing past 30 minutes since startedAt
+     AssertionError: expected 1 to be +0        ← live chain reaped at T0+35
+ × (b) reaps a chain with no progress for 30 minutes, including a single stuck first action
+     AssertionError: expected 1 to be +0        ← reaped at T0+49, 29 min after last progress
+ × (c') a progress stamp never governs iterative recovery
+     Error: Validator error: Unexpected field `lastProgressAt` in object   ← field did not exist
+ Tests  3 failed | 2 passed (5)                 ← (b') and (c) already held
+```
+After (`finding3-dw119-after.raw.log`; new file + `generationRecovery`, `generationReaper`,
+`reaperIntegration`, `ai/providers` suites):
+```
+ Test Files  5 passed (5)
+ Tests  35 passed (35)
+```
+
+## Full gates on the final tree
+
+- `npx tsc -p convex/tsconfig.json --noEmit` → exit 0 (`tsc-convex.raw.log`). A first run
+  flagged the new test's helpers typed as `ReturnType<typeof convexTest>` (loses the schema, so
+  `withIndex` names fail to type); fixed by typing them `TestConvex<typeof schema>`.
+- `npx vitest run` → 171 files, 2218 tests passed, exit 0 (`vitest-full.raw.log`).
+- `npm run check` → 5931 files, 0 errors, 0 warnings, exit 0 (`npm-check.raw.log`).
+
+## Limitations / notes for the stack merge
+
+- ~~`failStaleGenerations` still pages `take(100)` on `startedAt < cutoff`~~ — resolved by the
+  Astra review fix below (paged scan with bounded self-continuation).
+- The reaper's whole-fail leaves the ordered `generationSectionRuns` rows as they were (running /
+  queued / pending), exactly as before this change; only candidate runs are terminalized. Unchanged
+  behaviour, outside this finding.
+- PRs #12/#13 touch `convex/generations.ts` heavily. The edits here are confined to: the
+  `renderBriefForGeneration` filter (identical text to 738331e), one added field in two existing
+  patches, one two-line patch in `claimOrderedSectionRun`, one guarded `continue` in
+  `failStaleGenerations`, and comment lines. No code was moved or reformatted.
+- The ledger (`_bmad-output/implementation-artifacts/deferred-work.md`) was not edited; DW-119's
+  status is owned by the orchestrator.
+
+## Astra review (gpt-6-astra, medium) — ACCEPT_WITH_FIXES, applied
+
+Review record: `astra-review/` (prompt.md, result.md, review.raw.log, status-*.sha). Logs for
+the fixes: `review-fix/`.
+
+### Review fix 1 (Medium) — the running scan could hide a stalled generation behind live ones
+
+Problem: `failStaleGenerations` read the oldest 100 running rows (`startedAt < cutoff`,
+`take(100)`) and only then consulted `lastProgressAt`. With 100 older chains all progressing, a
+stalled generation at position 101 was never examined, and every cron run revisited the same page.
+
+Fix (`convex/generations.ts`): the running scan is paged. Each invocation reads one bounded page
+(`STALE_GENERATION_SCAN_PAGE_SIZE = 100`, overridable via `pageSize`) through the existing
+`by_status_and_startedAt` index with `.paginate({ numItems, cursor })` — the single `paginate`
+of the function — and, when `isDone` is false, schedules **itself** with `{ cutoff, cursor:
+continueCursor }` so the same recovery owner continues; no parallel reaper, one transaction per
+page. The cutoff is passed explicitly to continuation pages so the index range (and therefore the
+cursor) stays stable across pages. Reserved rows (`take(100)`, all failed on sight so the page
+drains), the orphaned-run sweep and the project sweep run once, on the first page only.
+`returns` now carries `scanned` and `isDone`; `projectSweepJobId` is optional (absent on
+continuation pages). Callers (`crons.ts`, tests) pass only `olderThanMinutes` and are unchanged;
+`generationReaper.test.ts`'s "is scheduled by failStaleGenerations" still reads
+`projectSweepJobId` from the first page.
+
+Regression test (`convex/orderedChainRecovery.test.ts`, describe "DW-119 review: the running
+scan pages past live chains"): 100 running generations older than the stalled one, every one with a
+fresh `lastProgressAt` (fills exactly one production-sized page), then one stalled single chain
+(created and claimed at T0, nothing after). Reaper at T0+61 → `finishAllScheduledFunctions` →
+stalled generation failed with its candidate run and project freed; all 100 live rows still
+`running`; the first page reports `scanned: 100, isDone: false`.
+
+Before (`review-fix/pagination-before.raw.log`, HEAD `3e8ea81` source):
+```
+ × fails a stalled generation behind a full page of older, still-progressing ones
+     AssertionError: expected 'running' to be 'failed'
+ Tests  1 failed | 7 passed (8)
+```
+After (`review-fix/pagination-after.raw.log`; new file + generationRecovery, generationReaper,
+reaperIntegration):
+```
+ Test Files  4 passed (4)
+ Tests  29 passed (29)
+```
+
+### Review fix 2 (Low) — each stamp site independently required; two candidates; cutoff equality
+
+The DW-119 tests were rewritten so creation, claim and completion happen at distinct times and
+every reaper check sits in a window where exactly one stamp is recent:
+
+- (a) `startedAt = T0-40`; create at T0, reaper at T0+5 → only the **create** stamp is recent;
+  claim at T0+20, reaper at T0+45 (cutoff T0+15) → only the **claim** stamp; complete at T0+50,
+  reaper at T0+75 (cutoff T0+45) → only the **completion** stamp; then 244/246 at T0+80/100/105
+  and a reaper at T0+130.
+- (a') claim at T0+20; reaper at exactly T0+50 (cutoff == lastProgressAt) → live; reaper at
+  T0+50 + 1 ms → failed.
+- (b) complete at T0+20, claim at T0+25, no more progress; reaper at T0+54 → live, at T0+56 →
+  failed (whole-fail copy, candidate run failed, project freed).
+- (b') stuck first action reaped 31 minutes after its claim.
+- (b'') **two compare candidates** on one generation: A and B both created at T0, claimed at
+  T0+1 / T0+2; B's action dies; A drafts 242 at T0+30. Reaper at T0+55 (cutoff T0+25) → live and B
+  untouched (protected by A's progress); no progress from anyone afterwards → reaper at T0+61
+  fails the generation and both runs.
+- (c)/(c') iterative unchanged, as before.
+
+Mutation runs (each stamp site removed from source, uncommitted, test file run, source restored
+from a sha-verified snapshot `6a686f98…`; diffs and logs in `review-fix/mutation-*`):
+
+| Mutation | Removed | Result |
+|---|---|---|
+| 1 `mutation-1-create-stamp` | `lastProgressAt: now` in `createOrderedSectionRuns` | (a) fails at the T0+5 check — `1 failed \| 7 passed` |
+| 2 `mutation-2-claim-stamp` | the generation patch in `claimOrderedSectionRun` | (a), (a'), (b) fail — `3 failed \| 5 passed` |
+| 3 `mutation-3-complete-stamp` | `lastProgressAt: now` in `completeOrderedSectionRun` | (a), (b'') fail — `2 failed \| 6 passed` |
+
+Unmutated source: `8 passed (8)`.
+
+### Gates after the review fixes (final tree)
+
+- `npx tsc -p convex/tsconfig.json --noEmit` → exit 0 (`review-fix/tsc-convex.raw.log`).
+- `npx vitest run` → 171 files, 2221 tests passed (`review-fix/vitest-full.raw.log`).
+- `npm run check` → 5931 files, 0 errors, 0 warnings (`review-fix/npm-check.raw.log`).
+
+### Review notes not requiring code changes
+
+- Merge-up note from the review: the later stack's claim-read budget comment should count the
+  extra generation patch in `claimOrderedSectionRun` (its conservative estimate becomes 15 MiB,
+  still under the documented 16 MiB). To be applied in the stack merge, not here.
+
+## Astra follow-up review of 3bfa743 (gpt-6-astra, medium) — ACCEPT_WITH_FIXES, applied
+
+Review record: `astra-review-2/`. Both earlier fixes confirmed resolved by the reviewer
+(position-101 regression; per-stamp mutation runs). Logs for this round: `review-fix-2/`.
+
+### Fix 1 (Medium) — overlapping cron ticks started duplicate continuation chains
+
+Problem: a cursorless invocation (the 10-minute cron in `crons.ts`, or a manual run) that
+arrived while scan A's continuation pages were still scheduled unconditionally started scan B,
+so two chains walked the same range.
+
+Fix (`convex/generations.ts`), proportionate and without a new table: on a cursorless
+invocation only, read the newest `STALE_SCAN_JOB_LOOKBACK = 200` rows of
+`ctx.db.system.query("_scheduled_functions").order("desc")` (the system table has only its
+creation-time index; that `take` is the bound) and look for a row that is this same function
+(`isStaleScanJobName`: the backend records the bundled path `generations.js:failStaleGenerations`,
+convex-test records `generations:failStaleGenerations` — compared with the extension stripped,
+against `getFunctionName(internal.generations.failStaleGenerations)`), in state `pending` or
+`inProgress`, whose `args[0].cursor` is a string (i.e. a continuation page, never the cron's own
+cursorless row). Finding one, the invocation returns the additive
+`skipped: "scan_in_progress"` (`failed: 0, scanned: 0, isDone: false`) without scheduling
+anything — no second chain, no duplicate project or orphan-run sweeps. Recovery: a page that
+fails leaves no pending/in-progress row, so the next tick starts a fresh scan; nothing to release.
+Fields verified against `node_modules/convex/dist/esm-types/server/schema.d.ts` (`_systemSchema`:
+`name`, `args: any[]`, `scheduledTime`, `completedTime?`, `state.kind`) and convex-test's
+scheduler (`name: functionPath.udfPath`, `args: [parsedArgs]`, `state: { kind: "pending" }` →
+`inProgress` → `success`). The system-table check is reliable in convex-test, so no persisted
+fence was needed.
+
+Why the bound is safe: a continuation page is scheduled with no delay by the page before it, so a
+live scan's pending page is among the newest jobs; only >200 other jobs scheduled between that
+page and the tick could hide it, and the failure mode then is the previous behaviour (a second
+chain), never a missed reap.
+
+### Fix 2 (Nit) — `pageSize` capped
+
+`pageSize = Math.min(Math.max(1, floor(args.pageSize ?? 100)), STALE_GENERATION_SCAN_PAGE_SIZE)`;
+continuation pages carry the capped value.
+
+### Tests (`convex/orderedChainRecovery.test.ts`, describe "DW-119 review: the running scan pages past live chains")
+
+- "a cron tick that lands while a scan's pages are still scheduled starts no second chain": the
+  100+1 seed; tick A at T0+61 (`isDone: false`, one continuation job); tick B at T0+71 before
+  draining → still exactly one continuation job, `skipped: "scan_in_progress"`, `failed: 0`,
+  `scanned: 0`, no `projectSweepJobId`; `finishAllScheduledFunctions` → the stalled row is reaped
+  once, the 100 live rows stay running, the single continuation job is `success`; tick C at T0+81
+  owns a fresh scan (`skipped` undefined, `isDone: true`).
+- "caps a requested pageSize at the production page": `pageSize: 1000` over 101 rows in range →
+  `scanned: 100`, `isDone: false`, and draining still reaps only the stalled row.
+
+Before (`review-fix-2/overlap-before.raw.log`, HEAD `3bfa743` source):
+```
+ × a cron tick that lands while a scan's pages are still scheduled starts no second chain
+     AssertionError: expected [ { …(6) }, { …(6) } ] to have a length of 1 but got 2
+ × caps a requested pageSize at the production page
+     AssertionError: expected 101 to be 100
+ Tests  2 failed | 8 passed (10)
+```
+After (`review-fix-2/overlap-after.raw.log`; new file + generationRecovery, generationReaper,
+reaperIntegration):
+```
+ Test Files  4 passed (4)
+ Tests  31 passed (31)
+```
+
+### Gates after this round (final tree)
+
+- `npx tsc -p convex/tsconfig.json --noEmit` → exit 0 (`review-fix-2/tsc-convex.raw.log`).
+- `npx vitest run` → 171 files, 2223 tests passed (`review-fix-2/vitest-full.raw.log`).
+- `npm run check` → 5931 files, 0 errors, 0 warnings (`review-fix-2/npm-check.raw.log`).
+
+hook: PostToolUse
+hook: PostToolUse Completed
+hook: PreToolUse
+hook: PreToolUse Completed
+exec
+/bin/zsh -lc 'git diff 3bfa743 8eaf4af -- convex' in /Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-review-107
+ succeeded in 0ms:
+git: warning: confstr() failed with code 5: couldn't get path of DARWIN_USER_TEMP_DIR; using /tmp instead
+git: error: couldn't create cache file '/tmp/xcrun_db-RShMvWWG' (errno=Operation not permitted)
+git: warning: confstr() failed with code 5: couldn't get path of DARWIN_USER_TEMP_DIR; using /tmp instead
+git: error: couldn't create cache file '/tmp/xcrun_db-CB38Alt4' (errno=Operation not permitted)
+diff --git a/convex/generations.ts b/convex/generations.ts
+index 65b10dc..295ac8a 100644
+--- a/convex/generations.ts
++++ b/convex/generations.ts
+@@ -9,6 +9,7 @@ import {
+   type QueryCtx,
+ } from "./_generated/server";
+ import { internal } from "./_generated/api";
++import { getFunctionName } from "convex/server";
+ import { v, type Infer } from "convex/values";
+ import type { Doc, Id } from "./_generated/dataModel";
+ import {
+@@ -2683,6 +2684,23 @@ export const setGenerationEstimate = internalMutation({
+  * `pageSize`. */
+ export const STALE_GENERATION_SCAN_PAGE_SIZE = 100;
+ 
++/** How many of the newest `_scheduled_functions` rows the overlap check
++ * reads. A continuation page is scheduled with no delay by the page before
++ * it, so a live scan's pending page is always among the newest jobs; the
++ * system table has only its creation-time index, so this is the bound on
++ * that read. */
++export const STALE_SCAN_JOB_LOOKBACK = 200;
++
++/** Whether a `_scheduled_functions` row is this module's failStaleGenerations.
++ * The backend records the bundled module path ("generations.js:…"); convex-test
++ * records the reference name ("generations:…"). Compare without the extension. */
++function isStaleScanJobName(name: string): boolean {
++  return (
++    name.replace(/\.(js|ts)(?=:)/, "") ===
++    getFunctionName(internal.generations.failStaleGenerations)
++  );
++}
++
+ /**
+  * Ops utility: mark generations stranded in "running"/"pending" (e.g. by the
+  * pre-fanout 10-minute action death) as failed and free their projects.
+@@ -2695,6 +2713,12 @@ export const STALE_GENERATION_SCAN_PAGE_SIZE = 100;
+  * continuation cursor and the same cutoff — the same single recovery owner,
+  * never a parallel reaper. Reserved rows, the orphaned-run sweep and the
+  * project sweep run once, on the first page only.
++ *
++ * Single owner across cron ticks: a cursorless (cron or manual) invocation
++ * first looks for a pending or in-progress continuation page of this same
++ * function in `_scheduled_functions` and, finding one, returns
++ * `skipped: "scan_in_progress"` without starting a second chain. A page that
++ * failed leaves no pending row, so the next tick simply starts over.
+  */
+ export const failStaleGenerations = internalMutation({
+   args: {
+@@ -2714,14 +2738,37 @@ export const failStaleGenerations = internalMutation({
+     scanned: v.number(),
+     isDone: v.boolean(),
+     projectSweepJobId: v.optional(v.id("_scheduled_functions")),
++    skipped: v.optional(v.literal("scan_in_progress")),
+   }),
+   handler: async (ctx, args) => {
+     const cutoff =
+       args.cutoff ?? Date.now() - (args.olderThanMinutes ?? 30) * 60 * 1000;
+     const firstPage = args.cursor === undefined;
+-    const pageSize = Math.max(
+-      1,
+-      Math.floor(args.pageSize ?? STALE_GENERATION_SCAN_PAGE_SIZE)
++    if (firstPage) {
++      const recentJobs = await ctx.db.system
++        .query("_scheduled_functions")
++        .order("desc")
++        .take(STALE_SCAN_JOB_LOOKBACK);
++      const liveScan = recentJobs.some(
++        (job) =>
++          (job.state.kind === "pending" || job.state.kind === "inProgress") &&
++          isStaleScanJobName(job.name) &&
++          typeof job.args[0]?.cursor === "string"
++      );
++      if (liveScan) {
++        return {
++          failed: 0,
++          orphanedRuns: 0,
++          scanned: 0,
++          isDone: false,
++          skipped: "scan_in_progress" as const,
++        };
++      }
++    }
++    // A caller may shrink the page (tests) but never grow it past the bound.
++    const pageSize = Math.min(
++      Math.max(1, Math.floor(args.pageSize ?? STALE_GENERATION_SCAN_PAGE_SIZE)),
++      STALE_GENERATION_SCAN_PAGE_SIZE
+     );
+     // Reserved rows never stamp progress, so every one selected here is
+     // failed below and leaves the range: one page per cron run drains them.
+@@ -2854,7 +2901,7 @@ export const failStaleGenerations = internalMutation({
+       await ctx.scheduler.runAfter(0, internal.generations.failStaleGenerations, {
+         cutoff,
+         cursor: runningPage.continueCursor,
+-        ...(args.pageSize !== undefined ? { pageSize: args.pageSize } : {}),
++        ...(args.pageSize !== undefined ? { pageSize } : {}),
+       });
+     }
+     const scanned = runningPage.page.length;
+diff --git a/convex/orderedChainRecovery.test.ts b/convex/orderedChainRecovery.test.ts
+index e9252e0..bb43a64 100644
+--- a/convex/orderedChainRecovery.test.ts
++++ b/convex/orderedChainRecovery.test.ts
+@@ -145,13 +145,26 @@ function chainOf(
+   };
+ }
+ 
+-async function reapAt(t: T, atMs: number) {
++async function reapAt(t: T, atMs: number, extra: { pageSize?: number } = {}) {
+   vi.setSystemTime(atMs);
+   return await t.mutation(internal.generations.failStaleGenerations, {
+     olderThanMinutes: 30,
++    ...extra,
+   });
+ }
+ 
++/** Scheduled continuation pages of the stale scan (cursor-carrying
++ * failStaleGenerations jobs), whatever state they are in. */
++async function scanContinuationJobs(t: T) {
++  return await t.run(async (ctx) =>
++    (await ctx.db.system.query("_scheduled_functions").collect()).filter(
++      (job) =>
++        job.name.includes("failStaleGenerations") &&
++        typeof job.args[0]?.cursor === "string"
++    )
++  );
++}
++
+ async function stateOf(t: T, ids: Seeded) {
+   return await t.run(async (ctx) => ({
+     generation: await ctx.db.get(ids.generationId),
+@@ -357,8 +370,9 @@ describe("DW-119: failStaleGenerations is progress-aware for ordered chains", ()
+ });
+ 
+ describe("DW-119 review: the running scan pages past live chains", () => {
+-  it("fails a stalled generation behind a full page of older, still-progressing ones", async () => {
+-    const t = convexTest(schema, modules);
++  /** 100 progressing generations older than one stalled chain: the live
++   * rows fill exactly one production-sized page ahead of the stalled row. */
++  async function seedFullPageAndStalled(t: T) {
+     const { projectId, transcriptId } = await seedProject(t);
+     const stalled = await seedOrderedGeneration(t, "single", { startedAt: T0 - 60 * MINUTES });
+     // 100 generations older than the stalled one (index order is startedAt
+@@ -384,16 +398,68 @@ describe("DW-119 review: the running scan pages past live chains", () => {
+     const chain = chainOf(t, stalled.generationId, stalled.candidateRunId);
+     expect(await chain.create()).toBe(true);
+     expect(await chain.claim("242")).not.toBeNull();
++    return { stalled, liveIds };
++  }
+ 
+-    const first = await reapAt(t, T0 + 61 * MINUTES);
+-    // The cron's single call plus whatever it scheduled for itself.
+-    await t.finishAllScheduledFunctions(vi.runAllTimers);
+-
++  async function expectOnlyStalledReaped(t: T, stalled: Seeded, liveIds: Id<"generations">[]) {
+     await expectWholeFailed(t, stalled);
+     const live = await t.run(async (ctx) =>
+       await Promise.all(liveIds.map((id) => ctx.db.get(id)))
+     );
+     for (const generation of live) expect(generation?.status).toBe("running");
++  }
++
++  it("a cron tick that lands while a scan's pages are still scheduled starts no second chain", async () => {
++    const t = convexTest(schema, modules);
++    const { stalled, liveIds } = await seedFullPageAndStalled(t);
++
++    // Tick A reads its first page and schedules the continuation ...
++    const tickA = await reapAt(t, T0 + 61 * MINUTES);
++    expect(tickA.isDone).toBe(false);
++    expect(await scanContinuationJobs(t)).toHaveLength(1);
++
++    // ... and the next 10-minute tick arrives before that page has run.
++    const tickB = await reapAt(t, T0 + 71 * MINUTES);
++    // Still exactly one continuation chain: tick B started nothing.
++    expect(await scanContinuationJobs(t)).toHaveLength(1);
++    expect(tickB.skipped).toBe("scan_in_progress");
++    expect(tickB.failed).toBe(0);
++    expect(tickB.scanned).toBe(0);
++    expect(tickB.projectSweepJobId).toBeUndefined();
++
++    // Draining scan A's pages still reaps the stalled row once.
++    await t.finishAllScheduledFunctions(vi.runAllTimers);
++    await expectOnlyStalledReaped(t, stalled, liveIds);
++    const jobs = await scanContinuationJobs(t);
++    expect(jobs).toHaveLength(1);
++    expect(jobs[0].state.kind).toBe("success");
++
++    // With scan A finished, the next tick owns a fresh scan again.
++    const tickC = await reapAt(t, T0 + 81 * MINUTES);
++    expect(tickC.skipped).toBeUndefined();
++    expect(tickC.isDone).toBe(true);
++  });
++
++  it("caps a requested pageSize at the production page", async () => {
++    const t = convexTest(schema, modules);
++    const { stalled, liveIds } = await seedFullPageAndStalled(t);
++    const first = await reapAt(t, T0 + 61 * MINUTES, { pageSize: 1000 });
++    // 101 rows are in range; an oversized request still reads one page.
++    expect(first.scanned).toBe(SCAN_PAGE_SIZE);
++    expect(first.isDone).toBe(false);
++    await t.finishAllScheduledFunctions(vi.runAllTimers);
++    await expectOnlyStalledReaped(t, stalled, liveIds);
++  });
++
++  it("fails a stalled generation behind a full page of older, still-progressing ones", async () => {
++    const t = convexTest(schema, modules);
++    const { stalled, liveIds } = await seedFullPageAndStalled(t);
++
++    const first = await reapAt(t, T0 + 61 * MINUTES);
++    // The cron's single call plus whatever it scheduled for itself.
++    await t.finishAllScheduledFunctions(vi.runAllTimers);
++
++    await expectOnlyStalledReaped(t, stalled, liveIds);
+     // One bounded page per transaction; the rest was handed off, not dropped.
+     expect(first.scanned).toBe(SCAN_PAGE_SIZE);
+     expect(first.isDone).toBe(false);
+
+hook: PostToolUse
+hook: PostToolUse Completed
+hook: PreToolUse
+hook: PreToolUse Completed
+exec
+/bin/zsh -lc 'cat /Users/johnnynguyen/.agents/skills/typescript-best-practices/SKILL.md' in /Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-review-107
+ succeeded in 0ms:
+---
+name: typescript-best-practices
+description: TypeScript best practices. Use when reading or editing any .ts or .tsx file.
+---
+
+# TypeScript best practices
+
+Apply the **type-system-discipline** principle skill first; this skill grounds it in TypeScript syntax.
+
+| Rule | Summary |
+|------|---------|
+| Discriminated unions | Model variants with a `kind` literal discriminant so impossible states can't be represented. No optional-field bags. |
+| Branded types | Brand primitives with `& { readonly __brand: "X" }` so they can't be mixed up. Validate once at creation. |
+| Constructive modeling | Build the shape so the illegal value can't be constructed. `[T, ...T[]]` for non-empty, `[T, T][]` for even length, `start` plus `duration` for a range. Not a runtime guard, not a wish for refinement types. |
+| Simplest total type | Keep `T[]` while every operation on it stays total. Strengthen to `NonEmpty<T>` only where the loose type forces `!`, a cast, or a "should never happen" throw. |
+| `unknown` over `any` | External data is `unknown`. `any` disables type checking everywhere it touches. |
+| No `as` casts | Every `as` is a runtime crash waiting. Cast only after validation. |
+| Narrowing hierarchy | Discriminant switch > `in` operator > `typeof`/`instanceof` > user-defined type guard > `as`. |
+| Type guards | Must verify the claim. A lying guard is worse than `as` because the bug hides behind a name that says it's safe. Name them `isX` or `hasX`. |
+| Exhaustiveness | Inline `const _exhaustive: never = x;` in default arms so the compiler errors when a new variant is added. |
+| `satisfies` over `as` | Validates the value without widening literal types. |
+| Boundary validation | Parse where data crosses in, into a named domain type. `Record<string, unknown>` (however spelled) stops at that parse. Trust types inside. See the **boundary-discipline** principle skill. |
+| Schema-derived types | Reach for `Pick`/`Omit`/`Parameters`/`ReturnType`/`Awaited`/`typeof` before declaring a new interface. |
+| Object args | Pass objects, not positional, so argument order is self-documenting. Skip on hot paths (per-frame render, tokenizers, parsers). |
+| Real tests | Don't mock what you can run. Prefer the framework's real test primitives with leak/disposable checks, and verify UI in a running build. Mock only what you can't run locally. |
+| Structured telemetry | Prefer structured logger diagnostics with enough context to debug from an id. No `console.log` in shipped code. |
+
+Examples: `references/patterns.md`.
+
+hook: PostToolUse
+hook: PostToolUse Completed
+hook: PreToolUse
+hook: PreToolUse
+hook: PreToolUse
+hook: PreToolUse Completed
+hook: PreToolUse Completed
+hook: PreToolUse Completed
+exec
+/bin/zsh -lc 'cat .audit/pr11-greptile/astra-review-2/result.md;' in /Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-review-107
+ succeeded in 0ms:
+1. **Medium — `convex/generations.ts:2721,2854`: overlapping cron ticks create duplicate continuation chains.**  
+   **Failure scenario:** scan A schedules another page, but remains unfinished when the next ten-minute cron tick invokes the function without a cursor (`convex/crons.ts:6`). That invocation unconditionally starts scan B and schedules its own continuations. There is no persisted ownership record or fencing token. Both scans revisit progressing rows, adding duplicate reads, scheduler work and contention. Transactional status checks protect against double terminalization, but do not enforce the requested single scan owner.  
+   **Suggested fix:** atomically acquire persisted scan ownership on entry, fence continuations with a scan identifier, and release ownership on completion, with recovery for failed scans. Add a regression that invokes a second cron tick before draining the first scan’s scheduled pages and verifies only one continuation chain survives.
+
+The two original findings are otherwise resolved:
+
+- **Position-101 starvation:** the regression reproduces the original failure; the supplied after log reports 29 targeted tests passing. Pagination advances past the 100 live rows.
+- **Independent stamp coverage:** each mutation diff removes only its respective stamp. Logs show creation removal failing at test line 199, claim removal at line 206, and completion removal at line 214. These checks isolate the respective timestamps. Two-candidate protection and cutoff equality are also covered.
+
+Other checks:
+
+- Continuations preserve the cutoff and index range. Progress stamps do not move the index position; failed rows leaving the range do not introduce offset-based skipping. The scan stops at `isDone`, with one `paginate()` per invocation.
+- Reserved selection and both auxiliary sweeps execute only on the initial invocation. Reserved rows drain through failure; continuation pages return before auxiliary sweeps.
+- Default pages retain the previous bounded workload. However, `pageSize` has no upper cap, and these small-fixture logs do not establish worst-case transaction byte limits.
+- Located callers remain compatible. The cron ignores returns; tests access individual fields, and the project-sweep test reads its job ID from the first invocation. Counts now describe individual pages.
+- Reviewed source and recorded evidence only; no tests were rerun.
+
+ACCEPT_WITH_FIXES
+exec
+/bin/zsh -lc "rg -n '\"version\"|_scheduled_functions|inProgress|functionPath.udfPath' node_modules/convex/package.json node_modules/convex-test/package.json node_modules/convex/src/server/schema.ts node_modules/convex/src/server/impl/database_impl.ts node_modules/convex-test/dist/index.js" in /Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-review-107
+ exited 2 in 0ms:
+rg: node_modules/convex/package.json: No such file or directory (os error 2)
+rg: node_modules/convex-test/package.json: No such file or directory (os error 2)
+rg: node_modules/convex/src/server/schema.ts: No such file or directory (os error 2)
+rg: node_modules/convex/src/server/impl/database_impl.ts: No such file or directory (os error 2)
+rg: node_modules/convex-test/dist/index.js: No such file or directory (os error 2)
+
+hook: PostToolUse
+hook: PostToolUse
+exec
+/bin/zsh -lc "sed -n '2730,2970p' convex/generations.ts
+rg --files .audit/pr11-greptile/review-fix-2 /Users/johnnynguyen/.agents/skills | rg 'review-fix-2|type-system-discipline'" in /Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-review-107
+ succeeded in 0ms:
+    pageSize: v.optional(v.number()),
+  },
+  // Declared so the function's type never depends on handler inference: the
+  // handler schedules a sibling function from this module (and itself), and
+  // inferring the return type through that reference would be circular.
+  returns: v.object({
+    failed: v.number(),
+    orphanedRuns: v.number(),
+    scanned: v.number(),
+    isDone: v.boolean(),
+    projectSweepJobId: v.optional(v.id("_scheduled_functions")),
+    skipped: v.optional(v.literal("scan_in_progress")),
+  }),
+  handler: async (ctx, args) => {
+    const cutoff =
+      args.cutoff ?? Date.now() - (args.olderThanMinutes ?? 30) * 60 * 1000;
+    const firstPage = args.cursor === undefined;
+    if (firstPage) {
+      const recentJobs = await ctx.db.system
+        .query("_scheduled_functions")
+        .order("desc")
+        .take(STALE_SCAN_JOB_LOOKBACK);
+      const liveScan = recentJobs.some(
+        (job) =>
+          (job.state.kind === "pending" || job.state.kind === "inProgress") &&
+          isStaleScanJobName(job.name) &&
+          typeof job.args[0]?.cursor === "string"
+      );
+      if (liveScan) {
+        return {
+          failed: 0,
+          orphanedRuns: 0,
+          scanned: 0,
+          isDone: false,
+          skipped: "scan_in_progress" as const,
+        };
+      }
+    }
+    // A caller may shrink the page (tests) but never grow it past the bound.
+    const pageSize = Math.min(
+      Math.max(1, Math.floor(args.pageSize ?? STALE_GENERATION_SCAN_PAGE_SIZE)),
+      STALE_GENERATION_SCAN_PAGE_SIZE
+    );
+    // Reserved rows never stamp progress, so every one selected here is
+    // failed below and leaves the range: one page per cron run drains them.
+    const reserved = firstPage
+      ? await ctx.db
+          .query("generations")
+          .withIndex("by_status_and_startedAt", (q) =>
+            q.eq("status", "reserved").lt("startedAt", cutoff)
+          )
+          .take(100)
+      : [];
+    const runningPage = await ctx.db
+      .query("generations")
+      .withIndex("by_status_and_startedAt", (q) =>
+        q.eq("status", "running").lt("startedAt", cutoff)
+      )
+      .paginate({ numItems: pageSize, cursor: args.cursor ?? null });
+    const stale = [...reserved, ...runningPage.page];
+    let failed = 0;
+    for (const generation of stale) {
+      // Iterative generations in "running" mean ONE section is drafting; a
+      // stale section run fails alone and hands control back to the writer
+      // (awaiting_input → regenerate), never killing the whole run. Note the
+      // reaper deliberately skips awaiting_input generations entirely —
+      // writer thinking time is unbounded.
+      if (
+        generation.status === "running" &&
+        (generation.candidateMode ?? "compare") === "iterative"
+      ) {
+        const sectionRuns = await ctx.db
+          .query("generationSectionRuns")
+          .withIndex("by_generationId", (q) =>
+            q.eq("generationId", generation._id)
+          )
+          .take(10);
+        // No section runs at all = the startup action died before fan-out
+        // (analyzer/brain phase); fall through to the whole-generation fail.
+        if (sectionRuns.length > 0) {
+          const staleRuns = sectionRuns.filter(
+            (run) =>
+              (run.status === "queued" || run.status === "running") &&
+              (run.startedAt ?? run.queuedAt) < cutoff
+          );
+          if (staleRuns.length === 0) continue;
+          for (const run of staleRuns) {
+            await ctx.db.patch(run._id, {
+              status: "failed",
+              error: "Timed out before the section draft completed.",
+              completedAt: Date.now(),
+            });
+          }
+          await ctx.db.patch(generation._id, {
+            status: "awaiting_input",
+            currentStep: "Section draft timed out — regenerate to retry",
+            progressLog: [
+              ...(generation.progressLog ?? []),
+              "✗ Section draft timed out. Use Regenerate to retry.",
+            ],
+          });
+          await refreshProjectGenerationActivity(ctx, generation.projectId);
+          failed += 1;
+          continue;
+        }
+      }
+      // DW-119 (progress-aware recovery): an ordered single/compare chain
+      // stamps lastProgressAt when a section run is created, claimed or
+      // drafted, so a slow but live chain is aged from its last progress,
+      // not from startedAt. A chain whose current action died (timeout,
+      // deploy restart) stops stamping and is failed here once the same
+      // window elapses from that last stamp — a single stuck action is still
+      // reaped. Iterative never stamps and keeps its per-section path above.
+      if (
+        generation.status === "running" &&
+        (generation.candidateMode ?? "compare") !== "iterative" &&
+        generation.lastProgressAt !== undefined &&
+        generation.lastProgressAt >= cutoff
+      ) {
+        continue;
+      }
+      failed += 1;
+      await ctx.db.patch(generation._id, {
+        status: "failed",
+        currentStep: "Failed",
+        error: "Timed out before generation completed.",
+        completedAt: Date.now(),
+      });
+      // In-flight candidate runs die with the generation — otherwise they
+      // read "running" forever (skewed stats, invisible to retry).
+      await terminalizeOrphanedCandidateRuns(
+        ctx,
+        generation._id,
+        "Timed out before the draft completed."
+      );
+      const project = await ctx.db.get(generation.projectId);
+      if (project?.activeGenerationId === generation._id) {
+        await ctx.db.patch(project._id, {
+          activeGenerationId: undefined,
+          status: generation.previousProjectStatus ?? "draft",
+          updatedAt: Date.now(),
+        });
+      } else if (project?.status === "generating" && !project.activeGenerationId) {
+        const [reservedActive, runningActive] = await Promise.all([
+          ctx.db
+            .query("generations")
+            .withIndex("by_projectId_and_status", (q) =>
+              q.eq("projectId", project._id).eq("status", "reserved")
+            )
+            .first(),
+          ctx.db
+            .query("generations")
+            .withIndex("by_projectId_and_status", (q) =>
+              q.eq("projectId", project._id).eq("status", "running")
+            )
+            .first(),
+        ]);
+        if (!reservedActive && !runningActive) {
+          await ctx.db.patch(project._id, {
+            status: generation.previousProjectStatus ?? "draft",
+            updatedAt: Date.now(),
+          });
+        }
+      }
+      await refreshProjectGenerationActivity(ctx, generation.projectId);
+    }
+
+    if (!runningPage.isDone) {
+      // Failed rows have left the "running" range and live rows stay in it,
+      // but the cursor is an index position rather than an offset, so the
+      // next page resumes exactly after the last row read here.
+      await ctx.scheduler.runAfter(0, internal.generations.failStaleGenerations, {
+        cutoff,
+        cursor: runningPage.continueCursor,
+        ...(args.pageSize !== undefined ? { pageSize } : {}),
+      });
+    }
+    const scanned = runningPage.page.length;
+    if (!firstPage) {
+      return { failed, orphanedRuns: 0, scanned, isDone: runningPage.isDone };
+    }
+
+    // Also free projects orphaned in "generating" with no live generation —
+    // e.g. the client dies between createProject and requestGeneration, or a
+    // legacy failure predates the activeGenerationId cleanup. Without this the
+    // project stays locked on a generation that never existed. The sweep walks
+    // the projects.by_status index one bounded page per transaction (CAP-11),
+    // so it runs as its own self-continuing job rather than inline here.
+    const projectSweepJobId: Id<"_scheduled_functions"> = await ctx.scheduler.runAfter(
+      0,
+      internal.generations.freeOrphanedGeneratingProjects,
+      { cutoff }
+    );
+
+    // Candidate runs stranded queued/running after their generation already
+    // went terminal (e.g. a hard ghost-draft death after a writer cancel, or
+    // whole-fails from before runs were terminalized in the same mutation).
+    // A run under a live generation is left alone — it may still report back.
+    let orphanedRuns = 0;
+    const queuedRuns = await ctx.db
+      .query("generationCandidateRuns")
+      .withIndex("by_status_and_startedAt", (q) => q.eq("status", "queued"))
+      .take(100);
+    const runningRuns = await ctx.db
+      .query("generationCandidateRuns")
+      .withIndex("by_status_and_startedAt", (q) =>
+        q.eq("status", "running").lt("startedAt", cutoff)
+      )
+      .take(100);
+    for (const run of [...queuedRuns, ...runningRuns]) {
+      // Queued rows carry no startedAt; age them from queuedAt instead.
+      if ((run.startedAt ?? run.queuedAt) >= cutoff) continue;
+      const generation = await ctx.db.get(run.generationId);
+      if (generation && !isTerminalGenerationStatus(generation.status)) continue;
+      await ctx.db.patch(run._id, {
+        status: "failed",
+        error: "The generation ended before this draft completed.",
+        completedAt: Date.now(),
+      });
+      orphanedRuns += 1;
+    }
+    return { failed, orphanedRuns, scanned, isDone: runningPage.isDone, projectSweepJobId };
+  },
+});
+
+/** Page size for the orphaned-project sweep: one page of `projects` in
+ * "generating" per transaction. Tests override it through `pageSize`. */
+export const STALE_PROJECT_SWEEP_PAGE_SIZE = 100;
+
+/**
+ * One page of the orphaned-project sweep (CAP-11): walk projects stuck in
+ * "generating" through the by_status index, free every one that is older than
+ * `cutoff` and has no live generation, then schedule the next page with the
+ * continuation cursor. Each invocation reads at most one page, so the sweep
+ * reaches every eligible project without a fixed cap or an unbounded
+ * transaction. Scheduled by failStaleGenerations; also runnable directly:
+ * `npx convex run generations:freeOrphanedGeneratingProjects '{"cutoff":<ms>}'`
+ */
+export const freeOrphanedGeneratingProjects = internalMutation({
+  args: {
+    cutoff: v.number(),
+.audit/pr11-greptile/review-fix-2/overlap-after.raw.log
+.audit/pr11-greptile/review-fix-2/vitest-full.raw.log
+.audit/pr11-greptile/review-fix-2/overlap-before.raw.log
+.audit/pr11-greptile/review-fix-2/npm-check.raw.log
+.audit/pr11-greptile/review-fix-2/tsc-convex.raw.log
+
+hook: PostToolUse
+hook: PostToolUse Completed
+hook: PostToolUse Completed
+hook: PostToolUse Completed
+codex
+The guard fixes the overlap case covered by the new test, but its 200-row window can miss an active continuation. I also found no `node_modules` in this checkout, so I’m checking for an existing installation elsewhere and verifying production semantics against Convex’s official sources. I’m applying the TypeScript best-practices skill for the source review.
+
+hook: PreToolUse
+hook: PreToolUse
+hook: PreToolUse Completed
+hook: PreToolUse Completed
+web search: 
+exec
+/bin/zsh -lc "pwd
+ls -d /Users/johnnynguyen/Documents/Repos/Banhall/node_modules/convex* /Users/johnnynguyen/.agents/skills/*type* 2>/dev/null
+rg -n 'node_modules/convex\"|node_modules/convex-test\"|\"version\": \"1.4' package-lock.json
+sed -n '1,40p' convex/crons.ts
+ tail -n 10 .audit/pr11-greptile/review-fix-2/overlap-after.raw.log" in /Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-review-107
+ succeeded in 0ms:
+/Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-review-107
+/Users/johnnynguyen/.agents/skills/typescript-best-practices
+/Users/johnnynguyen/Documents/Repos/Banhall/node_modules/convex
+/Users/johnnynguyen/Documents/Repos/Banhall/node_modules/convex-helpers
+/Users/johnnynguyen/Documents/Repos/Banhall/node_modules/convex-svelte
+/Users/johnnynguyen/Documents/Repos/Banhall/node_modules/convex-test
+1430:      "version": "1.43.0",
+3660:    "node_modules/convex": {
+3661:      "version": "1.42.3",
+3774:    "node_modules/convex-test": {
+4908:      "version": "1.49.0",
+5000:      "version": "1.4.0",
+5917:      "version": "1.4.0",
+6305:      "version": "1.4.1",
+6369:      "version": "1.4.4",
+6402:      "version": "1.42.1",
+import { cronJobs } from "convex/server";
+import { internal } from "./_generated/api";
+
+const crons = cronJobs();
+
+crons.interval(
+  "recover stale report generations",
+  { minutes: 10 },
+  internal.generations.failStaleGenerations,
+  { olderThanMinutes: 30 }
+);
+
+// Stuck-state reapers: a hard action death (deploy restart, timeout, OOM)
+// strands a "running" row with no catch block left to fail it, and the UI
+// spins forever behind an is-running guard. Each sweep is a cheap indexed
+// read when healthy.
+crons.interval(
+  "recover stale PD reviews",
+  { minutes: 10 },
+  internal.pdReviews.failStalePdReviews,
+  { olderThanMinutes: 15 }
+);
+crons.interval(
+  "recover stale post-QA passes",
+  { minutes: 10 },
+  internal.generations.failStalePostQa,
+  { olderThanMinutes: 15 }
+);
+crons.interval(
+  "recover stale chat turns",
+  { minutes: 10 },
+  internal.chatV2.failStaleChatTurns,
+  { olderThanMinutes: 15 }
+);
+
+// Learning loop: nightly safety nets for the feedback digests. The main
+// triggers are debounced scheduling from saveQaItemFeedback / scoreCandidate;
+// the actions no-op when there is no new feedback since the active digest.
+crons.cron(
+  "refresh QA calibration digest",
+
+ RUN  v4.1.10 /Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a
+
+
+ Test Files  4 passed (4)
+      Tests  31 passed (31)
+   Start at  13:03:56
+   Duration  7.22s (transform 7.70s, setup 0ms, import 4.98s, tests 6.11s, environment 664ms)
+
+
+hook: PostToolUse
+hook: PostToolUse Completed
+web search: https://docs.convex.dev/scheduling/scheduled-functions
+hook: PostToolUse
+hook: PostToolUse Completed
+hook: PreToolUse
+hook: PreToolUse Completed
+exec
+/bin/zsh -lc "rg -n '\"version\"' /Users/johnnynguyen/Documents/Repos/Banhall/node_modules/convex/package.json /Users/johnnynguyen/Documents/Repos/Banhall/node_modules/convex-test/package.json
+rg -n '_scheduled_functions|inProgress|functionPath.udfPath|mutex|transaction' /Users/johnnynguyen/Documents/Repos/Banhall/node_modules/convex-test/dist/index.js | head -n 65
+rg -n '_scheduled_functions|inProgress|scheduledTime|args: v.array|name: v.string' /Users/johnnynguyen/Documents/Repos/Banhall/node_modules/convex/src/server/schema.ts
+sed -n '3658,3668p' package-lock.json
+sed -n '3774,3784p' package-lock.json
+nl -ba convex/orderedChainRecovery.test.ts | sed -n '409,450p'" in /Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-review-107
+ succeeded in 0ms:
+/Users/johnnynguyen/Documents/Repos/Banhall/node_modules/convex/package.json:4:  "version": "1.42.3",
+/Users/johnnynguyen/Documents/Repos/Banhall/node_modules/convex-test/package.json:3:  "version": "0.0.54",
+/Users/johnnynguyen/Documents/Repos/Banhall/node_modules/convex-test/package.json:34:    "version": "(npm whoami || npm login) && vim -c 'normal o' -c 'normal o## '$npm_package_version CHANGELOG.md && prettier -w CHANGELOG.md && git add CHANGELOG.md",
+5:import { TransactionMetricsTracker, } from "./transactionMetrics.js";
+38:    // Pending writes for each level of transaction nesting.
+97:            throw new Error(`Write outside of transaction ${id}`);
+1042:                const { udfType, name, reference, functionHandle, args: udfArgsJson, transactionLimits, } = args;
+1050:                    return JSON.stringify(convexToJson(await withAuth().queryFromPath(functionPath, udfArgs, transactionLimits)));
+1053:                    return JSON.stringify(convexToJson(await withAuth().snapshotQueryFromPath(functionPath, udfArgs, transactionLimits)));
+1056:                    return JSON.stringify(convexToJson(await withAuth().mutationFromPath(functionPath, udfArgs, transactionLimits)));
+1082:                const jobId = db.insert("_scheduled_functions", {
+1084:                    name: functionPath.udfPath,
+1104:                                const job = db.get("_scheduled_functions", jobId);
+1113:                                db.patch("_scheduled_functions", jobId, {
+1114:                                    state: { kind: "inProgress" },
+1127:                                    db.patch("_scheduled_functions", jobId, {
+1135:                                const job = db.get("_scheduled_functions", jobId);
+1136:                                if (job.state.kind !== "inProgress") {
+1139:                                db.patch("_scheduled_functions", jobId, {
+1168:                db.patch("_scheduled_functions", id, { state: { kind: "canceled" } });
+1246:// If we're in action, wrap the write in a transaction.
+1278:    return getConvexGlobal().transactionManager;
+1380:    // transaction (null when none is in progress). Like the per-component
+1381:    // `DatabaseFake`, it owns a stack of nested transaction layers; we drive its
+1388:    async begin(isNested, transactionLimits) {
+1389:        // Take a lock only for the top-level of each transaction.
+1390:        // Nested transactions are not isolated so if you `Promise.all` on multiple
+1394:            // new transaction could start before we get woken up.
+1409:        this._metricsTracker?.startTransaction(transactionLimits);
+1416:    // The metrics tracker, or null when not inside a transaction.
+1480:        // convexTest({ schema?, modules?, transactionLimits? })
+1484:        limitsConfig = opts.transactionLimits ?? false;
+1494:        transactionManager: new TransactionManager(limitsConfig),
+1537:    const runMutationWithHandler = async (handler, args, extraCtx = {}, functionPath, isNested, transactionLimits) => {
+1548:        const transactionManager = getTransactionManager();
+1553:            udfPath: functionPath.udfPath,
+1557:        await transactionManager.begin(isNested, transactionLimits);
+1563:            transactionManager.commit(isNested);
+1567:            transactionManager.rollback(isNested);
+1571:    // Shared helper to run a query with a given handler and transaction context.
+1574:    const runQueryWithHandler = async (handler, args, functionPath, isNested, transactionLimits) => {
+1581:        const transactionManager = getTransactionManager();
+1586:            udfPath: functionPath.udfPath,
+1590:        await transactionManager.begin(isNested, transactionLimits);
+1602:            transactionManager.rollback(isNested);
+1624:            udfPath: functionPath.udfPath,
+1640:        queryFromPath: async (functionPath, args, transactionLimits) => {
+1649:                const result = await runQueryWithHandler(resolved.handler, args, resolved.functionPath, isNested, transactionLimits);
+1659:        snapshotQueryFromPath: async (functionPath, args, transactionLimits) => {
+1665:            const transactionManager = getTransactionManager();
+1666:            const stashed = transactionManager.stashWrites();
+1673:                /* isNested */ true, transactionLimits);
+1678:                transactionManager.restoreWrites(stashed);
+1684:        mutationFromPath: async (functionPath, args, transactionLimits) => {
+1693:                const result = await runMutationWithHandler(resolved.handler, args, {}, resolved.functionPath, isNested, transactionLimits);
+1885:            throw new Error(`Return value validation failed for ${functionType} "${functionPath.udfPath}":\n${e.message}`);
+1890:    return `function://${functionPath.componentPath};${functionPath.udfPath}`;
+1936:    const [modulePath, maybeExportName] = functionPath.udfPath.split(":");
+22: *      name: v.string(),
+793: *     name: v.string(),
+804: *     name: v.string(),
+882:  _scheduled_functions: defineTable({
+883:    name: v.string(),
+884:    args: v.array(v.any()),
+885:    scheduledTime: v.float64(),
+889:      v.object({ kind: v.literal("inProgress") }),
+      "license": "MIT"
+    },
+    "node_modules/convex": {
+      "version": "1.42.3",
+      "resolved": "https://registry.npmjs.org/convex/-/convex-1.42.3.tgz",
+      "integrity": "sha512-7Tz/lH6UlZdiqzLPF/zrlH6Rlo/DOp836dL+GZkUMEQ2jaGGNnBIiIDcOOiEqtfSehuQ65r/rdNMnb4LupowaA==",
+      "license": "Apache-2.0",
+      "dependencies": {
+        "esbuild": "0.27.0",
+        "prettier": "^3.0.0",
+        "ws": "8.21.0"
+    "node_modules/convex-test": {
+      "version": "0.0.54",
+      "resolved": "https://registry.npmjs.org/convex-test/-/convex-test-0.0.54.tgz",
+      "integrity": "sha512-C0v2SQcuxrELAJRNzE6fQ686XDPor7UFoC22jcoJXeCRqhLo8ZIMZ4jyUHoo1UdAL2enCb0AbiprCVpLDN8u9Q==",
+      "dev": true,
+      "license": "Apache-2.0",
+      "peerDependencies": {
+        "convex": "^1.32.0"
+      }
+    },
+    "node_modules/convex/node_modules/@esbuild/aix-ppc64": {
+   409	    for (const generation of live) expect(generation?.status).toBe("running");
+   410	  }
+   411	
+   412	  it("a cron tick that lands while a scan's pages are still scheduled starts no second chain", async () => {
+   413	    const t = convexTest(schema, modules);
+   414	    const { stalled, liveIds } = await seedFullPageAndStalled(t);
+   415	
+   416	    // Tick A reads its first page and schedules the continuation ...
+   417	    const tickA = await reapAt(t, T0 + 61 * MINUTES);
+   418	    expect(tickA.isDone).toBe(false);
+   419	    expect(await scanContinuationJobs(t)).toHaveLength(1);
+   420	
+   421	    // ... and the next 10-minute tick arrives before that page has run.
+   422	    const tickB = await reapAt(t, T0 + 71 * MINUTES);
+   423	    // Still exactly one continuation chain: tick B started nothing.
+   424	    expect(await scanContinuationJobs(t)).toHaveLength(1);
+   425	    expect(tickB.skipped).toBe("scan_in_progress");
+   426	    expect(tickB.failed).toBe(0);
+   427	    expect(tickB.scanned).toBe(0);
+   428	    expect(tickB.projectSweepJobId).toBeUndefined();
+   429	
+   430	    // Draining scan A's pages still reaps the stalled row once.
+   431	    await t.finishAllScheduledFunctions(vi.runAllTimers);
+   432	    await expectOnlyStalledReaped(t, stalled, liveIds);
+   433	    const jobs = await scanContinuationJobs(t);
+   434	    expect(jobs).toHaveLength(1);
+   435	    expect(jobs[0].state.kind).toBe("success");
+   436	
+   437	    // With scan A finished, the next tick owns a fresh scan again.
+   438	    const tickC = await reapAt(t, T0 + 81 * MINUTES);
+   439	    expect(tickC.skipped).toBeUndefined();
+   440	    expect(tickC.isDone).toBe(true);
+   441	  });
+   442	
+   443	  it("caps a requested pageSize at the production page", async () => {
+   444	    const t = convexTest(schema, modules);
+   445	    const { stalled, liveIds } = await seedFullPageAndStalled(t);
+   446	    const first = await reapAt(t, T0 + 61 * MINUTES, { pageSize: 1000 });
+   447	    // 101 rows are in range; an oversized request still reads one page.
+   448	    expect(first.scanned).toBe(SCAN_PAGE_SIZE);
+   449	    expect(first.isDone).toBe(false);
+   450	    await t.finishAllScheduledFunctions(vi.runAllTimers);
+
+hook: PostToolUse
+hook: PostToolUse Completed
+hook: PreToolUse
+hook: PreToolUse
+hook: PreToolUse Completed
+hook: PreToolUse Completed
+exec
+/bin/zsh -lc "sed -n '880,903p' /Users/johnnynguyen/Documents/Repos/Banhall/node_modules/convex/src/server/schema.ts
+sed -n '1070,1156p' /Users/johnnynguyen/Documents/Repos/Banhall/node_modules/convex-test/dist/index.js
+sed -n '1384,1414p' /Users/johnnynguyen/Documents/Repos/Banhall/node_modules/convex-test/dist/index.js
+rg -n 'system|query:' /Users/johnnynguyen/Documents/Repos/Banhall/node_modules/convex/src/server/impl/database_impl.ts
+rg -n 'getFunctionName|return functionName' /Users/johnnynguyen/Documents/Repos/Banhall/node_modules/convex/src/server/api.ts
+nl -ba convex/generations.ts | sed -n '2680,2772p'
+git rev-parse HEAD" in /Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-review-107
+exec
+/bin/zsh -lc "rg -n 'runAfter\\(|runAt\\(' convex | head -n 60
+head -n 26 .audit/pr11-greptile/review-fix-2/overlap-before.raw.log
+tail -n 6 .audit/pr11-greptile/review-fix-2/vitest-full.raw.log" in /Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-review-107
+ succeeded in 52ms:
+convex/generationAttribution.test.ts:1284:  // Usage rows are scheduled with runAfter(0); yield one macrotask so those
+convex/brain.ts:273:      await ctx.scheduler.runAfter(0, internal.brain.unlearnSource, {
+convex/brain.ts:295:        await ctx.scheduler.runAfter(0, internal.brain.unlearnSource, {
+convex/brain.ts:369:        await ctx.scheduler.runAfter(0, internal.brain.unlearnSource, {
+convex/brain.ts:385:      await ctx.scheduler.runAfter(0, internal.brain.unlearnSource, {
+convex/brain.ts:524:      await ctx.scheduler.runAfter(
+convex/brain.ts:725:        await ctx.scheduler.runAfter(
+convex/dashboardBackfill.ts:37:  await ctx.scheduler.runAfter(0, internal.dashboardBackfill.resetCompanies, {
+convex/dashboardBackfill.ts:76:      await ctx.scheduler.runAfter(0, internal.dashboardBackfill.resetCompanies, {
+convex/dashboardBackfill.ts:84:    await ctx.scheduler.runAfter(0, internal.dashboardBackfill.processBatch, {
+convex/dashboardBackfill.ts:154:      await ctx.scheduler.runAfter(0, internal.dashboardBackfill.processBatch, {
+convex/dashboardBackfill.ts:288:  await ctx.scheduler.runAfter(0, internal.dashboardBackfill.stageCountsPass0, {
+convex/dashboardBackfill.ts:333:      await ctx.scheduler.runAfter(0, internal.dashboardBackfill.stageCountsPass0, {
+convex/dashboardBackfill.ts:369:    await ctx.scheduler.runAfter(0, internal.dashboardBackfill.stageCountsPass1, {
+convex/dashboardBackfill.ts:448:      await ctx.scheduler.runAfter(0, internal.dashboardBackfill.stageCountsPass1, {
+convex/dashboardBackfill.ts:462:    await ctx.scheduler.runAfter(0, internal.dashboardBackfill.stageCountsPass2, {
+convex/dashboardBackfill.ts:523:      await ctx.scheduler.runAfter(0, internal.dashboardBackfill.stageCountsPass2, {
+convex/_generated/ai/guidelines.md:248:- Convex mutations are transactions with limits on the number of documents read and written. If a mutation needs to process more documents than fit in a single transaction (e.g. bulk deletion on a large table), process a batch with `.take(n)` and then call `ctx.scheduler.runAfter(0, api.myModule.myMutation, args)` to schedule itself to continue. This way each invocation stays within transaction limits.
+convex/projects.ts:1073:    await ctx.scheduler.runAfter(0, internal.reportEditDistance.recordAtPublish, {
+convex/projects.ts:1156:      await ctx.scheduler.runAfter(0, internal.projects.cleanupDeletedReportQaFindings, args);
+convex/projects.ts:1203:      await ctx.scheduler.runAfter(0, internal.projects.cleanupDeletedReportQaFindings, { reportId: r._id });
+convex/emailMigration.ts:153:      await ctx.scheduler.runAfter(0, internal.emailMigration.normalizeInviteEmails, {
+convex/emailMigration.ts:212:      await ctx.scheduler.runAfter(0, internal.emailMigration.normalizeUserEmails, {
+convex/aiUsage.ts:264:    await ctx.scheduler.runAfter(0, internal.aiUsage.logUsage, args);
+convex/ingestionSync.ts:400:        await ctx.scheduler.runAfter(0, internal.ingestionSync.syncOneDrive, {
+convex/ingestionSync.ts:414:      await ctx.scheduler.runAfter(
+convex/reviews.test.ts:109:// The harness runs a runAfter(0) job on the next real macrotask. Fake timers
+convex/ownerBackfill.ts:240:      await ctx.scheduler.runAfter(0, internal.ownerBackfill.backfillOwnership, {
+convex/dashboard.test.ts:47:  // The backfill is a self-rescheduling chain of runAfter(0) jobs. With real
+convex/oversight.ts:57:  await ctx.scheduler.runAfter(0, internal.oversight.reconcileProject, { rebuildId });
+convex/oversight.ts:124:        await ctx.scheduler.runAfter(0, internal.oversight.reconcileProject, { rebuildId: rebuild._id });
+convex/oversight.ts:136:        await ctx.scheduler.runAfter(attempts * 1_000, internal.oversight.reconcileProject, { rebuildId: rebuild._id });
+convex/oversight.ts:152:    await ctx.scheduler.runAfter(0, internal.oversight.reconcileProject, { rebuildId: rebuild._id });
+convex/oversight.ts:167:        await ctx.scheduler.runAfter(0, internal.oversight.reconcileProject, { rebuildId: row._id });
+convex/myWorkBackfill.ts:26:  await ctx.scheduler.runAfter(0, fn, { runKey });
+convex/ingestion.ts:394:    await ctx.scheduler.runAfter(0, internal.ingestionSync.syncOneDrive, {
+convex/ingestion.ts:627:    await ctx.scheduler.runAfter(
+convex/ai/orderedGeneration.ts:181:      await ctx.scheduler.runAfter(0, internal.ai.orderedGeneration.finalizeOrderedCandidate, {
+convex/reviews.ts:104:      await ctx.scheduler.runAfter(0, internal.brain.nominateFromReport, {
+convex/reviews.ts:239:    await ctx.scheduler.runAfter(
+convex/pdReviews.ts:74:    await ctx.scheduler.runAfter(0, internal.ai.reviewAgent.runPdReview, {
+convex/pdReviews.ts:129:    await ctx.scheduler.runAfter(0, internal.ai.reviewAgent.runPdReview, {
+convex/chatV2.ts:384:    await ctx.scheduler.runAfter(0, internal.ai.chatAgentV2.streamChatReply, {
+convex/financial.ts:117:    await ctx.scheduler.runAfter(
+convex/ai/briefPipelineWiring.test.ts:14:// schedules `generateCandidate` with `ctx.scheduler.runAfter(0, ...)`, and
+convex/generations.ts:550:  const scheduledJobId = await ctx.scheduler.runAfter(
+convex/generations.ts:2172:    await ctx.scheduler.runAfter(0, internal.ai.postQa.runReportQa, {
+convex/generations.ts:2430:      await ctx.scheduler.runAfter(0, internal.ai.iterative.generateSection, {
+convex/generations.ts:2570:    await ctx.scheduler.runAfter(0, internal.ai.postQa.runReportQa, {
+convex/generations.ts:2618:    await ctx.scheduler.runAfter(0, internal.ai.iterative.generateSection, {
+convex/generations.ts:2901:      await ctx.scheduler.runAfter(0, internal.generations.failStaleGenerations, {
+convex/generations.ts:2918:    const projectSweepJobId: Id<"_scheduled_functions"> = await ctx.scheduler.runAfter(
+convex/generations.ts:3014:      await ctx.scheduler.runAfter(
+convex/generations.ts:3478:      await ctx.scheduler.runAfter(
+convex/generations.ts:3692:    await ctx.scheduler.runAfter(0, internal.ai.orderedGeneration.generateOrderedSection, {
+convex/generations.ts:3902:      await ctx.scheduler.runAfter(0, internal.ai.orderedGeneration.generateOrderedSection, {
+convex/generations.ts:3909:      await ctx.scheduler.runAfter(0, internal.ai.orderedGeneration.finalizeOrderedCandidate, {
+convex/ai/instrument.ts:178:    await ctx.scheduler.runAfter(0, internal.aiUsage.logUsage, usage);
+convex/reviewFromProject.ts:225:    await ctx.scheduler.runAfter(0, internal.ai.reviewAgent.runPdReview, {
+convex/ai/iterative.ts:269:        const ghostJobId = await ctx.scheduler.runAfter(
+
+ RUN  v4.1.10 /Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a
+
+ ❯ |convex| convex/orderedChainRecovery.test.ts (10 tests | 2 failed) 953ms
+     × a cron tick that lands while a scan's pages are still scheduled starts no second chain 21ms
+     × caps a requested pageSize at the production page 10ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |convex| convex/orderedChainRecovery.test.ts > DW-119 review: the running scan pages past live chains > a cron tick that lands while a scan's pages are still scheduled starts no second chain
+AssertionError: expected [ { …(6) }, { …(6) } ] to have a length of 1 but got 2
+
+- Expected
++ Received
+
+- 1
++ 2
+
+ ❯ convex/orderedChainRecovery.test.ts:424:43
+    422|     const tickB = await reapAt(t, T0 + 71 * MINUTES);
+    423|     // Still exactly one continuation chain: tick B started nothing.
+    424|     expect(await scanContinuationJobs(t)).toHaveLength(1);
+       |                                           ^
+    425|     expect(tickB.skipped).toBe("scan_in_progress");
+    426|     expect(tickB.failed).toBe(0);
+
+ Test Files  171 passed (171)
+      Tests  2223 passed (2223)
+   Start at  15:00:52
+   Duration  53.72s (transform 10.75s, setup 0ms, import 20.25s, tests 41.23s, environment 9.46s)
+
+vitest exit=0
+
+hook: PostToolUse
+hook: PostToolUse Completed
+ succeeded in 97ms:
+78:export function getFunctionName(
+  2680	
+  2681	
+  2682	/** Page size for the running-generation scan: one page of `generations` in
+  2683	 * "running" older than the cutoff per transaction. Tests override it through
+  2684	 * `pageSize`. */
+  2685	export const STALE_GENERATION_SCAN_PAGE_SIZE = 100;
+  2686	
+  2687	/** How many of the newest `_scheduled_functions` rows the overlap check
+  2688	 * reads. A continuation page is scheduled with no delay by the page before
+  2689	 * it, so a live scan's pending page is always among the newest jobs; the
+  2690	 * system table has only its creation-time index, so this is the bound on
+  2691	 * that read. */
+  2692	export const STALE_SCAN_JOB_LOOKBACK = 200;
+  2693	
+  2694	/** Whether a `_scheduled_functions` row is this module's failStaleGenerations.
+  2695	 * The backend records the bundled module path ("generations.js:…"); convex-test
+  2696	 * records the reference name ("generations:…"). Compare without the extension. */
+  2697	function isStaleScanJobName(name: string): boolean {
+  2698	  return (
+  2699	    name.replace(/\.(js|ts)(?=:)/, "") ===
+  2700	    getFunctionName(internal.generations.failStaleGenerations)
+  2701	  );
+  2702	}
+  2703	
+  2704	/**
+  2705	 * Ops utility: mark generations stranded in "running"/"pending" (e.g. by the
+  2706	 * pre-fanout 10-minute action death) as failed and free their projects.
+  2707	 * `npx convex run generations:failStaleGenerations '{"olderThanMinutes":30}'`
+  2708	 *
+  2709	 * The running scan is paged (DW-119 review): live ordered chains stay in the
+  2710	 * `startedAt < cutoff` range while they progress, so a fixed first page could
+  2711	 * hide a stalled generation behind them on every cron run. Each invocation
+  2712	 * reads one bounded page and, when more remain, schedules itself with the
+  2713	 * continuation cursor and the same cutoff — the same single recovery owner,
+  2714	 * never a parallel reaper. Reserved rows, the orphaned-run sweep and the
+  2715	 * project sweep run once, on the first page only.
+  2716	 *
+  2717	 * Single owner across cron ticks: a cursorless (cron or manual) invocation
+  2718	 * first looks for a pending or in-progress continuation page of this same
+  2719	 * function in `_scheduled_functions` and, finding one, returns
+  2720	 * `skipped: "scan_in_progress"` without starting a second chain. A page that
+  2721	 * failed leaves no pending row, so the next tick simply starts over.
+  2722	 */
+  2723	export const failStaleGenerations = internalMutation({
+  2724	  args: {
+  2725	    olderThanMinutes: v.optional(v.number()),
+  2726	    // Continuation pages only: the first page's cutoff (kept stable so the
+  2727	    // cursor stays valid for the same index range) and where to resume.
+  2728	    cutoff: v.optional(v.number()),
+  2729	    cursor: v.optional(v.union(v.string(), v.null())),
+  2730	    pageSize: v.optional(v.number()),
+  2731	  },
+  2732	  // Declared so the function's type never depends on handler inference: the
+  2733	  // handler schedules a sibling function from this module (and itself), and
+  2734	  // inferring the return type through that reference would be circular.
+  2735	  returns: v.object({
+  2736	    failed: v.number(),
+  2737	    orphanedRuns: v.number(),
+  2738	    scanned: v.number(),
+  2739	    isDone: v.boolean(),
+  2740	    projectSweepJobId: v.optional(v.id("_scheduled_functions")),
+  2741	    skipped: v.optional(v.literal("scan_in_progress")),
+  2742	  }),
+  2743	  handler: async (ctx, args) => {
+  2744	    const cutoff =
+  2745	      args.cutoff ?? Date.now() - (args.olderThanMinutes ?? 30) * 60 * 1000;
+  2746	    const firstPage = args.cursor === undefined;
+  2747	    if (firstPage) {
+  2748	      const recentJobs = await ctx.db.system
+  2749	        .query("_scheduled_functions")
+  2750	        .order("desc")
+  2751	        .take(STALE_SCAN_JOB_LOOKBACK);
+  2752	      const liveScan = recentJobs.some(
+  2753	        (job) =>
+  2754	          (job.state.kind === "pending" || job.state.kind === "inProgress") &&
+  2755	          isStaleScanJobName(job.name) &&
+  2756	          typeof job.args[0]?.cursor === "string"
+  2757	      );
+  2758	      if (liveScan) {
+  2759	        return {
+  2760	          failed: 0,
+  2761	          orphanedRuns: 0,
+  2762	          scanned: 0,
+  2763	          isDone: false,
+  2764	          skipped: "scan_in_progress" as const,
+  2765	        };
+  2766	      }
+  2767	    }
+  2768	    // A caller may shrink the page (tests) but never grow it past the bound.
+  2769	    const pageSize = Math.min(
+  2770	      Math.max(1, Math.floor(args.pageSize ?? STALE_GENERATION_SCAN_PAGE_SIZE)),
+  2771	      STALE_GENERATION_SCAN_PAGE_SIZE
+  2772	    );
+git: warning: confstr() failed with code 5: couldn't get path of DARWIN_USER_TEMP_DIR; using /tmp instead
+git: error: couldn't create cache file '/tmp/xcrun_db-CqaSkOfk' (errno=Operation not permitted)
+git: warning: confstr() failed with code 5: couldn't get path of DARWIN_USER_TEMP_DIR; using /tmp instead
+git: error: couldn't create cache file '/tmp/xcrun_db-1iAKoUUv' (errno=Operation not permitted)
+8eaf4afc0e82ed673c171e3804b0dd6427d30008
+
+hook: PostToolUse
+hook: PostToolUse Completed
+codex
+1. **Medium — `convex/generations.ts:2748`: the 200-row lookback still permits duplicate continuation chains.**
+
+   **Failure scenario:** scan A’s continuation remains pending during scheduler delay or retries. At least 200 newer, unrelated scheduled-function rows are created before the next cron tick. The query excludes A, so tick B starts another scan and auxiliary sweeps. Both chains subsequently continue because cursor-bearing invocations bypass the guard.
+
+   `runAfter(0)` does not guarantee execution before newer jobs are created. Completed jobs also occupy this window. Transactional status checks prevent double terminalization, but duplicate reads, scheduling and contention recur precisely when the scheduler is struggling. **This residual risk is not acceptable as resolution of the previous single-owner finding.**
+
+   **Suggested fix:** persist a singleton scan record pointing to its current scheduled continuation, and inspect that job directly by ID. Update ownership atomically with scheduling; handle terminal failures and fence stale continuations. Add a regression with an actual scheduled continuation followed by 200 newer unrelated jobs before tick B.
+
+The other requested checks pass or have these limits:
+
+- **API legality and names:** the existing parent-repository installation matches the lockfile: Convex **1.42.3**, convex-test **0.0.54**. Its `schema.ts:882` confirms `name`, `args`, and the lowercase state discriminants. The system query is supported. Production’s `generations.js:failStaleGenerations` and convex-test’s extensionless name both match the normalization. Official documentation confirms the system-table API and bundled-name format. [Convex scheduling documentation](https://docs.convex.dev/scheduling/scheduled-functions)
+
+- **Concurrent ticks:** both transactions can initially observe no continuation, but cannot both commit that observation unchanged when one inserts a continuation into the other’s queried range. Atomic scheduling and serializable OCC require retry. There is no separate check-then-schedule race here; the bounded visibility problem above remains. [Convex OCC guarantees](https://docs.convex.dev/database/advanced/occ)
+
+- **Failed-page recovery:** a terminally failed mutation leaves no committed successor, and its failed job does not block the next tick. Internal errors are retried; developer errors terminate execution. Production scheduled mutations remain pending until completion; `inProgress` applies to actions. Checking both states is harmless. A permanently reproducible page error still requires repair, an acceptable existing limitation. [Convex scheduling semantics](https://docs.convex.dev/scheduling/scheduled-functions)
+
+- **Tests:** `convex/orderedChainRecovery.test.ts:412` uses actual application scheduling calls and drains handlers through convex-test, rather than fabricating continuation rows. However, ticks are sequential direct mutation calls. Convex-test serializes transactions (`dist/index.js:1388`) and separately transitions even mutations through `inProgress` (`:1113`), so these tests do **not** prove production OCC or scheduler state transitions. They also omit lookback overflow and failed-page recovery.
+
+- **Page-size cap:** correctly caps ordinary numeric requests at 100 and propagates the capped value.
+
+Reviewed source and supplied logs only; no files changed, packages installed, or tests rerun.
+
+ACCEPT_WITH_FIXES
+hook: Stop
+hook: Stop
+hook: Stop Completed
+hook: Stop Completed
+tokens used
+44,803
+1. **Medium — `convex/generations.ts:2748`: the 200-row lookback still permits duplicate continuation chains.**
+
+   **Failure scenario:** scan A’s continuation remains pending during scheduler delay or retries. At least 200 newer, unrelated scheduled-function rows are created before the next cron tick. The query excludes A, so tick B starts another scan and auxiliary sweeps. Both chains subsequently continue because cursor-bearing invocations bypass the guard.
+
+   `runAfter(0)` does not guarantee execution before newer jobs are created. Completed jobs also occupy this window. Transactional status checks prevent double terminalization, but duplicate reads, scheduling and contention recur precisely when the scheduler is struggling. **This residual risk is not acceptable as resolution of the previous single-owner finding.**
+
+   **Suggested fix:** persist a singleton scan record pointing to its current scheduled continuation, and inspect that job directly by ID. Update ownership atomically with scheduling; handle terminal failures and fence stale continuations. Add a regression with an actual scheduled continuation followed by 200 newer unrelated jobs before tick B.
+
+The other requested checks pass or have these limits:
+
+- **API legality and names:** the existing parent-repository installation matches the lockfile: Convex **1.42.3**, convex-test **0.0.54**. Its `schema.ts:882` confirms `name`, `args`, and the lowercase state discriminants. The system query is supported. Production’s `generations.js:failStaleGenerations` and convex-test’s extensionless name both match the normalization. Official documentation confirms the system-table API and bundled-name format. [Convex scheduling documentation](https://docs.convex.dev/scheduling/scheduled-functions)
+
+- **Concurrent ticks:** both transactions can initially observe no continuation, but cannot both commit that observation unchanged when one inserts a continuation into the other’s queried range. Atomic scheduling and serializable OCC require retry. There is no separate check-then-schedule race here; the bounded visibility problem above remains. [Convex OCC guarantees](https://docs.convex.dev/database/advanced/occ)
+
+- **Failed-page recovery:** a terminally failed mutation leaves no committed successor, and its failed job does not block the next tick. Internal errors are retried; developer errors terminate execution. Production scheduled mutations remain pending until completion; `inProgress` applies to actions. Checking both states is harmless. A permanently reproducible page error still requires repair, an acceptable existing limitation. [Convex scheduling semantics](https://docs.convex.dev/scheduling/scheduled-functions)
+
+- **Tests:** `convex/orderedChainRecovery.test.ts:412` uses actual application scheduling calls and drains handlers through convex-test, rather than fabricating continuation rows. However, ticks are sequential direct mutation calls. Convex-test serializes transactions (`dist/index.js:1388`) and separately transitions even mutations through `inProgress` (`:1113`), so these tests do **not** prove production OCC or scheduler state transitions. They also omit lookback overflow and failed-page recovery.
+
+- **Page-size cap:** correctly caps ordinary numeric requests at 100 and propagates the capped value.
+
+Reviewed source and supplied logs only; no files changed, packages installed, or tests rerun.
+
+ACCEPT_WITH_FIXES
+exit=0

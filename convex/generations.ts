@@ -1755,7 +1755,12 @@ export const renderBriefForGeneration = internalQuery({
       .take(500);
     return renderBriefBlock(
       brief.storylineText,
-      entries.filter((e) => e.group !== "storylineQuestion")
+      // The same filter `loadBriefCheck` applies, so both prompt readers
+      // render exactly the same rows: a re-derivation's change: "removed"
+      // markers are history for the diff UI, not guidance in force.
+      entries.filter(
+        (e) => e.group !== "storylineQuestion" && e.change !== "removed"
+      )
     );
   },
 });
@@ -2744,36 +2749,146 @@ export const setGenerationEstimate = internalMutation({
 });
 
 
+/** Page size for the running-generation scan: one page of `generations` in
+ * "running" older than the cutoff per transaction. Tests override it through
+ * `pageSize`. */
+export const STALE_GENERATION_SCAN_PAGE_SIZE = 100;
+
+/** The one `staleGenerationScans` row: the scan owner record. */
+const STALE_SCAN_KEY = "stale_generations";
+
+async function staleScanRecord(ctx: MutationCtx) {
+  return await ctx.db
+    .query("staleGenerationScans")
+    .withIndex("by_key", (q) => q.eq("key", STALE_SCAN_KEY))
+    .unique();
+}
+
+const staleScanResultValidator = v.object({
+  failed: v.number(),
+  orphanedRuns: v.number(),
+  scanned: v.number(),
+  isDone: v.boolean(),
+  projectSweepJobId: v.optional(v.id("_scheduled_functions")),
+  skipped: v.optional(
+    v.union(v.literal("scan_in_progress"), v.literal("stale_continuation"))
+  ),
+});
+type StaleScanResult = Infer<typeof staleScanResultValidator>;
+
 /**
  * Ops utility: mark generations stranded in "running"/"pending" (e.g. by the
  * pre-fanout 10-minute action death) as failed and free their projects.
  * `npx convex run generations:failStaleGenerations '{"olderThanMinutes":30}'`
+ *
+ * The running scan is paged (DW-119 review): live ordered chains stay in the
+ * `startedAt < cutoff` range while they progress, so a fixed first page could
+ * hide a stalled generation behind them on every cron run. Each invocation
+ * reads one bounded page and, when more remain, schedules itself with the
+ * continuation cursor and the same cutoff — the same single recovery owner,
+ * never a parallel reaper. Reserved rows, the orphaned-run sweep and the
+ * project sweep run once, on the first page only.
+ *
+ * Single owner across cron ticks: the `staleGenerationScans` singleton names
+ * the scan currently walking the range (a sequence number) and its pending
+ * continuation job. A cursorless (cron or manual) invocation inspects that
+ * job by id and, while it is pending or in progress, returns
+ * `skipped: "scan_in_progress"` without starting a second chain; otherwise
+ * (no job, or one that succeeded, failed or was canceled) it takes ownership
+ * with the next sequence number. Every page stores the job it schedules in
+ * the same transaction, and the last page clears it. A continuation page
+ * whose sequence number the singleton no longer names is stale and returns
+ * `skipped: "stale_continuation"` without reading or scheduling anything.
  */
 export const failStaleGenerations = internalMutation({
-  args: { olderThanMinutes: v.optional(v.number()) },
+  args: {
+    olderThanMinutes: v.optional(v.number()),
+    // Continuation pages only: the first page's cutoff (kept stable so the
+    // cursor stays valid for the same index range), where to resume, and the
+    // scan sequence number this page belongs to.
+    cutoff: v.optional(v.number()),
+    cursor: v.optional(v.union(v.string(), v.null())),
+    scan: v.optional(v.number()),
+    pageSize: v.optional(v.number()),
+  },
   // Declared so the function's type never depends on handler inference: the
-  // handler schedules a sibling function from this module, and inferring the
-  // return type through that reference would be circular.
-  returns: v.object({
-    failed: v.number(),
-    orphanedRuns: v.number(),
-    projectSweepJobId: v.id("_scheduled_functions"),
-  }),
-  handler: async (ctx, args) => {
-    const cutoff = Date.now() - (args.olderThanMinutes ?? 30) * 60 * 1000;
-    const reserved = await ctx.db
-      .query("generations")
-      .withIndex("by_status_and_startedAt", (q) =>
-        q.eq("status", "reserved").lt("startedAt", cutoff)
-      )
-      .take(100);
-    const running = await ctx.db
+  // handler schedules a sibling function from this module (and itself), and
+  // inferring the return type through that reference would be circular.
+  returns: staleScanResultValidator,
+  handler: async (ctx, args): Promise<StaleScanResult> => {
+    const cutoff =
+      args.cutoff ?? Date.now() - (args.olderThanMinutes ?? 30) * 60 * 1000;
+    const firstPage = args.cursor === undefined;
+    const skipped = (reason: "scan_in_progress" | "stale_continuation") => ({
+      failed: 0,
+      orphanedRuns: 0,
+      scanned: 0,
+      isDone: false,
+      skipped: reason,
+    });
+    const owner = await staleScanRecord(ctx);
+    let scan: number;
+    let ownerId: Id<"staleGenerationScans">;
+    if (firstPage) {
+      const continuation = owner?.continuationJobId
+        ? await ctx.db.system.get("_scheduled_functions", owner.continuationJobId)
+        : null;
+      if (
+        continuation &&
+        (continuation.state.kind === "pending" || continuation.state.kind === "inProgress")
+      ) {
+        return skipped("scan_in_progress");
+      }
+      // Take ownership: the next sequence number, no pending page yet.
+      scan = (owner?.scan ?? 0) + 1;
+      const now = Date.now();
+      if (owner) {
+        ownerId = owner._id;
+        await ctx.db.patch(owner._id, {
+          scan,
+          cutoff,
+          continuationJobId: undefined,
+          startedAt: now,
+          updatedAt: now,
+        });
+      } else {
+        ownerId = await ctx.db.insert("staleGenerationScans", {
+          key: STALE_SCAN_KEY,
+          scan,
+          cutoff,
+          startedAt: now,
+          updatedAt: now,
+        });
+      }
+    } else {
+      if (!owner || args.scan === undefined || owner.scan !== args.scan) {
+        return skipped("stale_continuation");
+      }
+      scan = args.scan;
+      ownerId = owner._id;
+    }
+    // A caller may shrink the page (tests) but never grow it past the bound.
+    const pageSize = Math.min(
+      Math.max(1, Math.floor(args.pageSize ?? STALE_GENERATION_SCAN_PAGE_SIZE)),
+      STALE_GENERATION_SCAN_PAGE_SIZE
+    );
+    // Reserved rows never stamp progress, so every one selected here is
+    // failed below and leaves the range: one page per cron run drains them.
+    const reserved = firstPage
+      ? await ctx.db
+          .query("generations")
+          .withIndex("by_status_and_startedAt", (q) =>
+            q.eq("status", "reserved").lt("startedAt", cutoff)
+          )
+          .take(100)
+      : [];
+    const runningPage = await ctx.db
       .query("generations")
       .withIndex("by_status_and_startedAt", (q) =>
         q.eq("status", "running").lt("startedAt", cutoff)
       )
-      .take(100);
-    const stale = [...reserved, ...running];
+      .paginate({ numItems: pageSize, cursor: args.cursor ?? null });
+    const stale = [...reserved, ...runningPage.page];
     let failed = 0;
     for (const generation of stale) {
       // Iterative generations in "running" mean ONE section is drafting; a
@@ -2819,6 +2934,21 @@ export const failStaleGenerations = internalMutation({
           failed += 1;
           continue;
         }
+      }
+      // DW-119 (progress-aware recovery): an ordered single/compare chain
+      // stamps lastProgressAt when a section run is created, claimed or
+      // drafted, so a slow but live chain is aged from its last progress,
+      // not from startedAt. A chain whose current action died (timeout,
+      // deploy restart) stops stamping and is failed here once the same
+      // window elapses from that last stamp — a single stuck action is still
+      // reaped. Iterative never stamps and keeps its per-section path above.
+      if (
+        generation.status === "running" &&
+        (generation.candidateMode ?? "compare") !== "iterative" &&
+        generation.lastProgressAt !== undefined &&
+        generation.lastProgressAt >= cutoff
+      ) {
+        continue;
       }
       failed += 1;
       await ctx.db.patch(generation._id, {
@@ -2866,6 +2996,31 @@ export const failStaleGenerations = internalMutation({
       await refreshProjectGenerationActivity(ctx, generation.projectId);
     }
 
+    if (!runningPage.isDone) {
+      // Failed rows have left the "running" range and live rows stay in it,
+      // but the cursor is an index position rather than an offset, so the
+      // next page resumes exactly after the last row read here. The owner
+      // record names the new page in the same transaction that schedules it.
+      const continuationJobId = await ctx.scheduler.runAfter(
+        0,
+        internal.generations.failStaleGenerations,
+        {
+          cutoff,
+          cursor: runningPage.continueCursor,
+          scan,
+          ...(args.pageSize !== undefined ? { pageSize } : {}),
+        }
+      );
+      await ctx.db.patch(ownerId, { continuationJobId, updatedAt: Date.now() });
+    } else {
+      // The scan's last page: release ownership.
+      await ctx.db.patch(ownerId, { continuationJobId: undefined, updatedAt: Date.now() });
+    }
+    const scanned = runningPage.page.length;
+    if (!firstPage) {
+      return { failed, orphanedRuns: 0, scanned, isDone: runningPage.isDone };
+    }
+
     // Also free projects orphaned in "generating" with no live generation —
     // e.g. the client dies between createProject and requestGeneration, or a
     // legacy failure predates the activeGenerationId cleanup. Without this the
@@ -2905,7 +3060,7 @@ export const failStaleGenerations = internalMutation({
       });
       orphanedRuns += 1;
     }
-    return { failed, orphanedRuns, projectSweepJobId };
+    return { failed, orphanedRuns, scanned, isDone: runningPage.isDone, projectSweepJobId };
   },
 });
 
@@ -3571,7 +3726,9 @@ export const getCandidateScoreSummary = query({
 // section (or finalizeOrderedCandidate) atomically with its writes. No
 // approval gate: iterative's approveSectionDraft is never in this path, and
 // iterative generations never create these rows. A chain stalled between
-// sections is recovered by the existing failStaleGenerations reaper.
+// sections is recovered by the existing failStaleGenerations reaper, which
+// ages the generation from lastProgressAt (DW-119) — stamped by the three
+// chain mutations below — rather than from startedAt.
 
 async function orderedRunsForCandidate(
   ctx: { db: QueryCtx["db"] },
@@ -3670,6 +3827,7 @@ export const createOrderedSectionRuns = internalMutation({
         ...(fence.generation.progressLog ?? []),
         `${fence.run.label}: drafting ${order.join(" → ")} in order; each section is Self-checked before it is shown.`,
       ],
+      lastProgressAt: now,
     });
     await ctx.scheduler.runAfter(0, internal.ai.orderedGeneration.generateOrderedSection, {
       generationId: args.generationId,
@@ -3749,7 +3907,10 @@ export const claimOrderedSectionRun = internalMutation({
       await ctx.db.patch(row._id, { status: "pending" });
       return { stopped: true as const };
     }
-    await ctx.db.patch(row._id, { status: "running", startedAt: Date.now() });
+    const now = Date.now();
+    await ctx.db.patch(row._id, { status: "running", startedAt: now });
+    // DW-119: the claim is chain progress — the reaper's window restarts here.
+    await ctx.db.patch(fence.generation._id, { lastProgressAt: now });
     const priorSections = (await orderedRunsForCandidate(ctx, fence.run._id))
       .filter(
         (prior) =>
@@ -3869,6 +4030,9 @@ export const completeOrderedSectionRun = internalMutation({
         ...(fence.generation.progressLog ?? []),
         `✓ ${fence.run.label}: ${ORDERED_SECTION_TITLES[args.section]} drafted (${checkLabel}).`,
       ],
+      // DW-119: a drafted section (and the next one scheduled below) is
+      // chain progress; the reaper's window restarts here.
+      lastProgressAt: now,
     });
     const next = (await orderedRunsForCandidate(ctx, fence.run._id)).find(
       (candidate) => (candidate.orderIndex ?? 0) === (row.orderIndex ?? 0) + 1

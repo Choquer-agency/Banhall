@@ -499,6 +499,65 @@ describe("Generation Brief derivation (story 1, CAP-1/2/4)", () => {
     expect(removed.some((e) => e.group === "glossaryTerm")).toBe(true);
   });
 
+  it("renderBriefForGeneration omits a re-derivation's change: removed entries from the section prompt", async () => {
+    const t = convexTest(schema, modules);
+    const { userId, projectId } = await makeProject(t);
+    const generationId = await makeGeneration(t, projectId, userId, TRANSCRIPT_TEXT, "removed-hash");
+    // A re-derived Brief (version 2) directly in storage: one live and one
+    // change: "removed" row in every group the renderer emits.
+    await t.run(async (ctx) => {
+      const now = Date.now();
+      const source = (
+        await ctx.db
+          .query("generationSources")
+          .withIndex("by_generationId", (q) => q.eq("generationId", generationId))
+          .collect()
+      )[0];
+      const briefId = await ctx.db.insert("generationBriefs", {
+        projectId,
+        generationId,
+        inputsHash: "removed-inputs-hash",
+        version: 2,
+        origin: "derived",
+        storylineText: "The team pursued a custom control loop to stabilize output.",
+        createdAt: now,
+      });
+      await ctx.db.patch(generationId, { briefId });
+      const citation = {
+        briefId,
+        projectId,
+        sourceId: source._id,
+        sourceContentHash: source.contentHash,
+        startOffset: 0,
+        endOffset: 8,
+        exactExcerpt: source.content.slice(0, 8),
+        createdAt: now,
+      };
+      // The block renders storylineText, not storyline claim rows, so the
+      // three rendered groups carry the assertions.
+      const rows = [
+        { group: "claimExclusion", text: "LIVE exclusion", reason: "business_risk", change: "added" },
+        { group: "claimExclusion", text: "REMOVED exclusion", reason: "business_risk", change: "removed" },
+        { group: "confidenceMap", text: "LIVE confidence fact", confidence: "unresolved", change: "unchanged" },
+        { group: "confidenceMap", text: "REMOVED confidence fact", confidence: "unresolved", change: "removed" },
+        { group: "glossaryTerm", text: "LIVE term", change: "unchanged" },
+        { group: "glossaryTerm", text: "REMOVED term", change: "removed" },
+      ] as const;
+      for (const row of rows) {
+        await ctx.db.insert("generationBriefEntries", { ...citation, ...row });
+      }
+    });
+
+    const rendered = (await t.query(internal.generations.renderBriefForGeneration, {
+      generationId,
+    })) as string;
+    expect(rendered).toContain("LIVE exclusion");
+    expect(rendered).toContain("LIVE confidence fact");
+    expect(rendered).toContain("LIVE term");
+    // Removed markers are history for the diff UI, not guidance in force.
+    expect(rendered).not.toContain("REMOVED");
+  });
+
   it("stores a writer-supplied Storyline verbatim with origin=writer; other groups still derive", async () => {
     const t = convexTest(schema, modules);
     const { userId, projectId } = await makeProject(t);
@@ -762,5 +821,22 @@ describe("Generation Brief editing and questions (briefs.ts, story 1 shape / sto
     const entries = await asWriter.query(anyApi.briefs.listBriefEntries, { briefId });
     expect(entries).not.toBeNull();
     expect(entries!.length).toBe(read!.entries.length);
+  });
+
+  it("getBrief and listBriefEntries return null to an unauthenticated caller and to a non-internal user", async () => {
+    const t = convexTest(schema, modules);
+    const { generationId, briefId } = await briefFixture(t);
+    // A mapped user with no internal role is not an internal actor
+    // (getInternalProjectAccessOrNull), exactly like anonymous auth.
+    await t.run((ctx) => ctx.db.insert("users", { authId: "brief-outsider" }));
+
+    // Unauthenticated: a valid id alone must not read project content.
+    expect(await t.query(anyApi.briefs.getBrief, { generationId })).toBeNull();
+    expect(await t.query(anyApi.briefs.listBriefEntries, { briefId })).toBeNull();
+
+    // Authenticated but outside the internal roster.
+    const asOutsider = t.withIdentity({ subject: "brief-outsider" });
+    expect(await asOutsider.query(anyApi.briefs.getBrief, { generationId })).toBeNull();
+    expect(await asOutsider.query(anyApi.briefs.listBriefEntries, { briefId })).toBeNull();
   });
 });
