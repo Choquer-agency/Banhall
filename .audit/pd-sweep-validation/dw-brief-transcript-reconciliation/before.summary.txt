@@ -1,0 +1,3 @@
+passed=0 failed=2 total=2 suitesFailed=1
+FAILED :: serializes stable Brief source-kind tags and excludes a writer Storyline
+FAILED :: serializes reconciliation instructions through the real Brief SDK and persists a representative reconciled response

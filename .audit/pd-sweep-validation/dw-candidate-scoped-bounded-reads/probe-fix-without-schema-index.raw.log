@@ -1,0 +1,43 @@
+# label=probe-fix-without-schema-index
+# HEAD=8b00e6a24f09f098703e379eccf319bc8bc3c83b
+# git status --short:
+ M convex/schema.ts
+# date=2026-09-14T18:10:13Z node=v22.22.3
+# env PUBLIC_CONVEX_URL=https://placeholder.convex.cloud PUBLIC_CONVEX_SITE_URL=https://placeholder.convex.site
+# cmd: npx vitest run --config vitest.config.ts --reporter=verbose --reporter=json --outputFile.json=/private/tmp/claude-501/-Users-johnnynguyen-Documents-Repos-Banhall/74c117b1-0ee2-4aa9-a3bd-3095316a1935/scratchpad/evidence/dw-candidate-scoped-bounded-reads/probe-fix-without-schema-index.json convex/candidateScopedBoundedReads.test.ts
+
+ RUN  v4.1.10 /Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-b
+
+ ✓ |convex| convex/candidateScopedBoundedReads.test.ts > candidate-scoped bounded reads > finds a requested section candidate after more than 30 older rows and rejects a cross-generation run 397ms
+ × |convex| convex/candidateScopedBoundedReads.test.ts > candidate-scoped bounded reads > finds a selected candidate after more than 10 older runs 11ms
+   → Cannot use index "by_generationId_and_candidateId" for table "generationCandidateRuns" because it is not declared in the schema.
+ × |convex| convex/candidateScopedBoundedReads.test.ts > candidate-scoped bounded reads > keeps the unscoped Compliance Notes fallback for an unresolved legacy selection 3ms
+   → Cannot use index "by_generationId_and_candidateId" for table "generationCandidateRuns" because it is not declared in the schema.
+ ✓ |convex| convex/candidateScopedBoundedReads.test.ts > candidate-scoped bounded reads > keeps the unscoped Compliance Notes fallback for a legacy selection without candidateId 2ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |convex| convex/candidateScopedBoundedReads.test.ts > candidate-scoped bounded reads > finds a selected candidate after more than 10 older runs
+ FAIL  |convex| convex/candidateScopedBoundedReads.test.ts > candidate-scoped bounded reads > keeps the unscoped Compliance Notes fallback for an unresolved legacy selection
+Error: Cannot use index "by_generationId_and_candidateId" for table "generationCandidateRuns" because it is not declared in the schema.
+ ❯ DatabaseFake._resolveQuerySource node_modules/convex-test/dist/index.js:443:31
+ ❯ DatabaseFake._evaluateQuery node_modules/convex-test/dist/index.js:494:54
+ ❯ DatabaseFake.startQuery node_modules/convex-test/dist/index.js:243:30
+ ❯ Object.<anonymous> node_modules/convex-test/dist/index.js:887:36
+ ❯ performSyscall node_modules/convex/src/server/impl/syscall.ts:24:27
+ ❯ QueryImpl.startQuery node_modules/convex/src/server/impl/query_impl.ts:197:24
+ ❯ QueryImpl.[Symbol.asyncIterator] node_modules/convex/src/server/impl/query_impl.ts:251:9
+ ❯ QueryImpl.collect node_modules/convex/src/server/impl/query_impl.ts:317:29
+ ❯ QueryImpl.take node_modules/convex/src/server/impl/query_impl.ts:326:25
+ ❯ QueryImpl.first node_modules/convex/src/server/impl/query_impl.ts:330:35
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  2 failed | 2 passed (4)
+   Start at  11:10:14
+   Duration  979ms (transform 501ms, setup 0ms, import 276ms, tests 415ms, environment 67ms)
+
+JSON report written to /private/tmp/claude-501/-Users-johnnynguyen-Documents-Repos-Banhall/74c117b1-0ee2-4aa9-a3bd-3095316a1935/scratchpad/evidence/dw-candidate-scoped-bounded-reads/probe-fix-without-schema-index.json
+# exit=1

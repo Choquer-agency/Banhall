@@ -1,0 +1,4 @@
+passed=1 failed=0 total=4 suitesFailed=0
+SKIPPED :: candidate-scoped bounded reads finds a selected candidate after more than 10 older runs
+SKIPPED :: candidate-scoped bounded reads keeps the unscoped Compliance Notes fallback for an unresolved legacy selection
+SKIPPED :: candidate-scoped bounded reads keeps the unscoped Compliance Notes fallback for a legacy selection without candidateId
