@@ -41,6 +41,7 @@ import type { Id } from "../_generated/dataModel";
 // `convex/generations.ts`, so the overflow tests below cannot drift from it.
 import {
   BRIEF_BASELINE_PAGE_BYTES,
+  BRIEF_CONSUMER_READ_BYTES,
   MAX_BRIEF_ENTRY_ROWS,
   MAX_BRIEF_SOURCE_ROWS,
 } from "../generations";
@@ -2007,6 +2008,155 @@ describe("Generation Brief read completeness and diff baseline (DW-107/DW-118)",
     } finally {
       logged.mockRestore();
     }
+  });
+
+  // DW-152: the row bound alone does not bound bytes. Writer edits
+  // (briefs.saveEntryEdit) accept any non-empty text, so a Brief at or under
+  // MAX_BRIEF_ENTRY_ROWS can still exceed Convex's 16 MiB transaction read
+  // limit. These cases run with convex-test's `transactionLimits: true`, which
+  // enforces that limit (and the document-count limits) per transaction.
+  /** Convex's per-transaction read limit, as convex-test enforces it. */
+  const TRANSACTION_READ_LIMIT_BYTES = 16 * 1024 * 1024;
+  /** Text per byte-heavy row: far under the 1 MiB document limit. */
+  const HEAVY_TEXT_BYTES = 42_000;
+  const heavyTerm = (i: number) => `heavy-${String(i).padStart(4, "0")}-${"x".repeat(HEAVY_TEXT_BYTES)}`;
+
+  /** A Brief of `count` byte-heavy rows stamped on `generationId`. Seeded in
+   * batches of 100 (about 4 MiB each) so no seeding transaction itself trips
+   * the enforced write limit. */
+  async function seedHeavyBrief(
+    t: TestApp,
+    args: {
+      projectId: Id<"projects">;
+      generationId: Id<"generations">;
+      source: { _id: Id<"generationSources">; content: string; contentHash: string };
+      count: number;
+    }
+  ) {
+    const briefId = await t.run((ctx) =>
+      ctx.db.insert("generationBriefs", {
+        projectId: args.projectId,
+        generationId: args.generationId,
+        inputsHash: "byte-heavy-hash",
+        version: 1,
+        origin: "writer",
+        storylineText: "A byte-heavy current version.",
+        createdAt: Date.now(),
+      })
+    );
+    for (let from = 0; from < args.count; from += 100) {
+      await t.run(async (ctx) => {
+        const now = Date.now();
+        for (let i = from; i < Math.min(args.count, from + 100); i += 1) {
+          await ctx.db.insert("generationBriefEntries", {
+            briefId,
+            projectId: args.projectId,
+            group: "glossaryTerm",
+            text: heavyTerm(i),
+            sourceId: args.source._id,
+            sourceContentHash: args.source.contentHash,
+            startOffset: i,
+            endOffset: i + 1,
+            exactExcerpt: args.source.content.slice(i, i + 1),
+            createdAt: now,
+          });
+        }
+      });
+    }
+    await t.run((ctx) => ctx.db.patch(args.generationId, { briefId }));
+    return briefId;
+  }
+
+  it("omits a byte-heavy Brief under the row bound that exceeds the transaction read limit from both prompt readers instead of throwing (DW-152)", async () => {
+    const t = convexTest({ schema, modules, transactionLimits: true });
+    const { projectId, generationId, source } = await derivationFixture(t, "byte-heavy-hash", LONG_CONTENT);
+    const ROWS = 450;
+    expect(ROWS).toBeLessThanOrEqual(MAX_BRIEF_ENTRY_ROWS);
+    expect(ROWS * HEAVY_TEXT_BYTES).toBeGreaterThan(TRANSACTION_READ_LIMIT_BYTES);
+    const briefId = await seedHeavyBrief(t, { projectId, generationId, source, count: ROWS });
+
+    // The fixture really is past the enforced limit: the row-bounded probe
+    // shape (`take(MAX_BRIEF_ENTRY_ROWS + 1)`) throws on its own.
+    await expect(
+      t.query((ctx) =>
+        ctx.db
+          .query("generationBriefEntries")
+          .withIndex("by_briefId", (q) => q.eq("briefId", briefId))
+          .take(MAX_BRIEF_ENTRY_ROWS + 1)
+      )
+    ).rejects.toThrow("Read too much data");
+
+    // Fail open, exactly like the row-count overflow above: no throw (which
+    // would roll back claimOrderedSectionRun's CAS claim outside
+    // orderedGeneration.ts's try), and the whole Brief omitted, never a prefix.
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const omitted = await readBothConsumers(t, generationId);
+      // Summarised so a failure prints sizes, not megabytes of row text.
+      expect({ renderedBytes: omitted.rendered.length, briefOmitted: omitted.brief === null }).toEqual({
+        renderedBytes: 0,
+        briefOmitted: true,
+      });
+      const lines = logged.mock.calls.map((call) => call.join(" ").slice(0, 400));
+      expect(lines).toHaveLength(2);
+      for (const line of lines) {
+        expect(line).toContain(generationId);
+        expect(line).toContain(briefId);
+        expect(line).toContain(String(BRIEF_CONSUMER_READ_BYTES));
+        expect(line).not.toContain("heavy-");
+      }
+    } finally {
+      logged.mockRestore();
+    }
+  });
+
+  it("omits a Brief past the consumer byte budget even where the transaction read limit would allow the read (DW-152)", async () => {
+    const t = convexTest({ schema, modules, transactionLimits: true });
+    const { projectId, generationId, source } = await derivationFixture(t, "over-budget-hash", LONG_CONTENT);
+    const ROWS = 200;
+    const briefId = await seedHeavyBrief(t, { projectId, generationId, source, count: ROWS });
+
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const omitted = await readBothConsumers(t, generationId);
+      // Summarised so a failure prints sizes, not megabytes of row text.
+      expect({ renderedBytes: omitted.rendered.length, briefOmitted: omitted.brief === null }).toEqual({
+        renderedBytes: 0,
+        briefOmitted: true,
+      });
+      const lines = logged.mock.calls.map((call) => call.join(" ").slice(0, 400));
+      expect(lines).toHaveLength(2);
+      for (const line of lines) {
+        expect(line).toContain(generationId);
+        expect(line).toContain(briefId);
+        expect(line).toContain(String(BRIEF_CONSUMER_READ_BYTES));
+      }
+    } finally {
+      logged.mockRestore();
+    }
+    // Between the budget and the limit (with a budget's worth of headroom
+    // left): the budget, not the platform limit, decided this omission.
+    expect(ROWS * HEAVY_TEXT_BYTES).toBeGreaterThan(BRIEF_CONSUMER_READ_BYTES);
+    expect(ROWS * HEAVY_TEXT_BYTES).toBeLessThan(TRANSACTION_READ_LIMIT_BYTES - BRIEF_CONSUMER_READ_BYTES);
+  });
+
+  it("reads a large Brief just under the consumer byte budget completely in both readers (DW-152 boundary)", async () => {
+    // The boundary-success half of the byte budget: a budget check that is
+    // too tight, or that treats a complete single page as incomplete, fails
+    // here while both omission cases above still pass.
+    const t = convexTest({ schema, modules, transactionLimits: true });
+    const { projectId, generationId, source } = await derivationFixture(t, "under-budget-hash", LONG_CONTENT);
+    const ROWS = 80;
+    await seedHeavyBrief(t, { projectId, generationId, source, count: ROWS });
+
+    const read = await readBothConsumers(t, generationId);
+    expect(read.brief?.glossaryTerms.length).toBe(ROWS);
+    expect(read.brief?.glossaryTerms.at(-1) === heavyTerm(ROWS - 1)).toBe(true);
+    expect(read.rendered.includes(heavyTerm(ROWS - 1))).toBe(true);
+    // Rows plus a generous per-document overhead stay under the budget, so
+    // this is the "just under" side of it.
+    expect(ROWS * (HEAVY_TEXT_BYTES + 1024)).toBeLessThan(BRIEF_CONSUMER_READ_BYTES);
+    expect(ROWS * HEAVY_TEXT_BYTES).toBeGreaterThan(BRIEF_CONSUMER_READ_BYTES * 0.75);
   });
 
   it("reuses an already-over-bound Brief onto a new generation, and both readers omit it", async () => {

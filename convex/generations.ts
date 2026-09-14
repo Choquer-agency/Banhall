@@ -1578,6 +1578,29 @@ export const MAX_BRIEF_ENTRY_ROWS = 500;
 export const BRIEF_BASELINE_PAGE_BYTES = 4 * 1024 * 1024;
 
 /**
+ * Bytes a generation consumer's Brief read may take (`maximumBytesRead` in
+ * `readBriefEntryRowsOrOmit`). DW-152: the row bound alone does not bound
+ * bytes, because writer edits (`briefs.saveEntryEdit`) accept any non-empty
+ * text, so `MAX_BRIEF_ENTRY_ROWS` rows can exceed Convex's 16 MiB
+ * per-transaction read limit and throw.
+ *
+ * 4 MiB (the same size as a diff-baseline page) leaves real headroom in the
+ * heaviest caller, `claimOrderedSectionRun`, where the read shares one
+ * transaction with the claimed section row, the fence's candidate run,
+ * generation and project, the claim's `ctx.db.patch` of the section row
+ * (a patch reads the row it merges into, so it is counted as a read; convex-test
+ * charges it the same way), the candidate's three section rows (prior
+ * drafts) and the Brief parent: 9 other document reads of at most 1 MiB each.
+ * Convex checks the byte budget after a row is read, so the Brief read can
+ * overshoot by at most one row (1 MiB): 9 + 4 + 1 = 14 MiB worst case, under
+ * 16 MiB. `getOrderedCandidateDrafts` (6 other documents, 6 + 4 + 1 = 11 MiB)
+ * and `renderBriefForGeneration` (2) have more headroom. A realistic Brief (short
+ * derived entries and excerpts) is a small fraction of this; one that exceeds
+ * it is omitted whole, like an over-bound one.
+ */
+export const BRIEF_CONSUMER_READ_BYTES = 4 * 1024 * 1024;
+
+/**
  * Every frozen source a Brief derivation reads, or a refusal. Reads one past
  * the bound rather than returning a silent prefix: a derivation treats what
  * it reads as the complete evidence set, so a prefix would quietly become
@@ -1611,7 +1634,8 @@ async function readBriefSourceRows(
  * A generation consumer's read of a Brief's entry rows: every row, or `null`
  * — "omit the whole Brief, exactly as if this generation had no briefId" —
  * plus one `console.error` so the omission is diagnosable. The single
- * `take(bound + 1)` probe; nothing else reads a Brief's rows for a prompt.
+ * bounded probe (`bound + 1` rows, `BRIEF_CONSUMER_READ_BYTES` bytes);
+ * nothing else reads a Brief's rows for a prompt.
  *
  * An over-bound Brief is reachable in production, not only from seeded data:
  * `ai/brief.ts:289-305` reuses a Brief by parent row alone (it never reads
@@ -1621,9 +1645,16 @@ async function readBriefSourceRows(
  * (`getBriefDiffBaselinePage`), so an over-bound newest Brief never blocks a
  * later derivation.
  *
- * Scope: this handles row-count overflow only — it never returns a prefix and
- * never raises for an over-bound Brief. It is not general exception safety; a
- * database read failure or a transaction resource limit still propagates.
+ * Scope: this handles row-count and byte overflow (DW-152) — it never returns
+ * a prefix and never raises for an over-bound or byte-heavy Brief. The read
+ * is one `.paginate()` with `maximumBytesRead`, so a byte-heavy Brief stops
+ * at the budget instead of reaching the transaction read limit. The Brief is
+ * complete only when that single page holds at most `MAX_BRIEF_ENTRY_ROWS`
+ * rows, reports `isDone` and is not `SplitRequired`; anything else (including
+ * a short page Convex ends early) is omitted whole. Callers must not run
+ * another `.paginate()` in the same function (Convex allows one). It is not
+ * general exception safety; a database read failure or a transaction limit
+ * reached by the caller's own other reads still propagates.
  *
  * Overflow must not raise because `claimOrderedSectionRun` is awaited at
  * `ai/orderedGeneration.ts:173-178` and `getOrderedCandidateDrafts` at
@@ -1639,13 +1670,24 @@ async function readBriefEntryRowsOrOmit(
   generationId: Id<"generations">,
   briefId: Id<"generationBriefs">
 ) {
-  const rows = await ctx.db
+  const result = await ctx.db
     .query("generationBriefEntries")
     .withIndex("by_briefId", (q) => q.eq("briefId", briefId))
-    .take(MAX_BRIEF_ENTRY_ROWS + 1);
+    .paginate({
+      cursor: null,
+      numItems: MAX_BRIEF_ENTRY_ROWS + 1,
+      maximumBytesRead: BRIEF_CONSUMER_READ_BYTES,
+    });
+  const rows = result.page;
   if (rows.length > MAX_BRIEF_ENTRY_ROWS) {
     console.error(
       `Generation Brief omitted from generation ${generationId}: Brief ${briefId} has more than ${MAX_BRIEF_ENTRY_ROWS} entries and cannot be read completely`
+    );
+    return null;
+  }
+  if (!result.isDone || result.pageStatus === "SplitRequired") {
+    console.error(
+      `Generation Brief omitted from generation ${generationId}: Brief ${briefId} cannot be read completely within ${BRIEF_CONSUMER_READ_BYTES} bytes`
     );
     return null;
   }
