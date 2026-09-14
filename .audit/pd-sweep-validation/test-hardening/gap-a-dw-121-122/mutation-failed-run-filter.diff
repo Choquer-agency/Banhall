@@ -1,0 +1,13 @@
+diff --git a/convex/generations.ts b/convex/generations.ts
+index 9b74d5a..82c63b7 100644
+--- a/convex/generations.ts
++++ b/convex/generations.ts
+@@ -4463,7 +4463,7 @@ export const getOrderedSectionDrafts = query({
+         const key = row.candidateRunId as string;
+         // A failed candidate's earlier drafted sections are not a valid
+         // draft to show: the run never reached completion.
+-        return runStatus.get(key) !== "failed";
++        return key !== "" || runStatus.get(key) !== "failed"; // mutation: failed filter neutralized
+       })
+       .filter((row) => {
+         const key = row.candidateRunId as string;

@@ -408,3 +408,238 @@ describe("candidate-scoped bounded reads", () => {
     ]);
   });
 });
+
+// Validation hardening (DW-121/DW-122 gap): every fixture below keeps its
+// section rows within reach of the candidate-scoped index read
+// (`by_candidateRunId_and_section`, 3 rows under the 30-row bound), so each
+// expectation depends on the guard it names rather than on the row limit.
+describe("candidate-scoped bounded reads: guards within scoped reach", () => {
+  async function scopedRowCount(
+    t: ReturnType<typeof convexTest>,
+    candidateRunId: Id<"generationCandidateRuns">
+  ) {
+    return await t.run(
+      async (ctx) =>
+        (
+          await ctx.db
+            .query("generationSectionRuns")
+            .collect()
+        ).filter((row) => row.candidateRunId === candidateRunId).length
+    );
+  }
+
+  async function otherGeneration(
+    t: ReturnType<typeof convexTest>,
+    projectId: Id<"projects">,
+    transcriptId: Id<"transcripts">
+  ) {
+    return await t.run((ctx) =>
+      ctx.db.insert("generations", {
+        projectId,
+        transcriptId,
+        status: "completed",
+        candidateMode: "compare",
+        startedAt: Date.now(),
+      })
+    );
+  }
+
+  test("returns no rows for a checked candidate run and its drafts that both belong to another generation", async () => {
+    const t = convexTest(schema, modules);
+    const { generationId, projectId, transcriptId, asWriter } = await seedGeneration(t);
+    const own = await insertCandidateRun(t, { generationId, projectId, ordinal: 0 });
+    await insertDraftedSections(t, {
+      generationId,
+      projectId,
+      candidateRunId: own.candidateRunId,
+      ordinal: 0,
+    });
+    const otherGenerationId = await otherGeneration(t, projectId, transcriptId);
+    const foreign = await insertCandidateRun(t, {
+      generationId: otherGenerationId,
+      projectId,
+      ordinal: 1,
+    });
+    await insertDraftedSections(t, {
+      generationId: otherGenerationId,
+      projectId,
+      candidateRunId: foreign.candidateRunId,
+      ordinal: 1,
+    });
+    expect(await scopedRowCount(t, foreign.candidateRunId)).toBe(3);
+
+    // Control: the requested generation's own candidate is fully readable.
+    const ownDrafts = await asWriter.query(api.generations.getOrderedSectionDrafts, {
+      generationId,
+      candidateRunId: own.candidateRunId,
+    });
+    expect(ownDrafts?.map((row) => row.section)).toEqual(["242", "244", "246"]);
+
+    expect(
+      await asWriter.query(api.generations.getOrderedSectionDrafts, {
+        generationId,
+        candidateRunId: foreign.candidateRunId,
+      })
+    ).toEqual([]);
+  });
+
+  test("rejects a candidate run owned by another generation even when its section rows name the requested generation", async () => {
+    const t = convexTest(schema, modules);
+    const { generationId, projectId, transcriptId, asWriter } = await seedGeneration(t);
+    const otherGenerationId = await otherGeneration(t, projectId, transcriptId);
+    const foreign = await insertCandidateRun(t, {
+      generationId: otherGenerationId,
+      projectId,
+      ordinal: 0,
+    });
+    // Inconsistent rows: generationId is the requested generation, but the
+    // parent run belongs elsewhere. Only the parent-run ownership check can
+    // reject them.
+    await insertDraftedSections(t, {
+      generationId,
+      projectId,
+      candidateRunId: foreign.candidateRunId,
+      ordinal: 0,
+    });
+    expect(await scopedRowCount(t, foreign.candidateRunId)).toBe(3);
+
+    expect(
+      await asWriter.query(api.generations.getOrderedSectionDrafts, {
+        generationId,
+        candidateRunId: foreign.candidateRunId,
+      })
+    ).toEqual([]);
+  });
+
+  test("drops section rows owned by another generation even when the requested candidate run belongs to this generation", async () => {
+    const t = convexTest(schema, modules);
+    const { generationId, projectId, transcriptId, asWriter } = await seedGeneration(t);
+    const otherGenerationId = await otherGeneration(t, projectId, transcriptId);
+    const own = await insertCandidateRun(t, { generationId, projectId, ordinal: 0 });
+    // Inconsistent rows: the parent run is this generation's, but the rows
+    // are owned by another generation. Only the row ownership filter can
+    // reject them.
+    await insertDraftedSections(t, {
+      generationId: otherGenerationId,
+      projectId,
+      candidateRunId: own.candidateRunId,
+      ordinal: 0,
+    });
+    expect(await scopedRowCount(t, own.candidateRunId)).toBe(3);
+
+    expect(
+      await asWriter.query(api.generations.getOrderedSectionDrafts, {
+        generationId,
+        candidateRunId: own.candidateRunId,
+      })
+    ).toEqual([]);
+  });
+
+  test("returns no rows for an explicit candidate whose parent run is missing, although its drafts are within reach", async () => {
+    const t = convexTest(schema, modules);
+    const { generationId, projectId, asWriter } = await seedGeneration(t);
+    const orphan = await insertCandidateRun(t, { generationId, projectId, ordinal: 0 });
+    await insertDraftedSections(t, {
+      generationId,
+      projectId,
+      candidateRunId: orphan.candidateRunId,
+      ordinal: 0,
+    });
+    await t.run((ctx) => ctx.db.delete(orphan.candidateRunId));
+    expect(await scopedRowCount(t, orphan.candidateRunId)).toBe(3);
+
+    expect(
+      await asWriter.query(api.generations.getOrderedSectionDrafts, {
+        generationId,
+        candidateRunId: orphan.candidateRunId,
+      })
+    ).toEqual([]);
+  });
+
+  test("returns no rows for an explicit failed candidate run whose checked drafts are within reach", async () => {
+    const t = convexTest(schema, modules);
+    const { generationId, projectId, asWriter } = await seedGeneration(t);
+    const failed = await insertCandidateRun(t, { generationId, projectId, ordinal: 0 });
+    await insertDraftedSections(t, {
+      generationId,
+      projectId,
+      candidateRunId: failed.candidateRunId,
+      ordinal: 0,
+    });
+
+    // Control: while the run is not failed, every checked draft is returned.
+    const beforeFailure = await asWriter.query(api.generations.getOrderedSectionDrafts, {
+      generationId,
+      candidateRunId: failed.candidateRunId,
+    });
+    expect(beforeFailure?.map((row) => row.section)).toEqual(["242", "244", "246"]);
+
+    await t.run((ctx) => ctx.db.patch(failed.candidateRunId, { status: "failed" }));
+    expect(
+      await asWriter.query(api.generations.getOrderedSectionDrafts, {
+        generationId,
+        candidateRunId: failed.candidateRunId,
+      })
+    ).toEqual([]);
+  });
+
+  test("scopes Compliance Notes to the first candidate run when two runs share the selected candidateId", async () => {
+    const t = convexTest(schema, modules);
+    const { generationId, projectId, asWriter } = await seedGeneration(t);
+    const first = await insertCandidateRun(t, {
+      generationId,
+      projectId,
+      ordinal: 0,
+      withCandidate: true,
+    });
+    if (first.candidateId === undefined) throw new Error("candidate fixture missing");
+    const sharedCandidateId = first.candidateId;
+    const duplicateRunId = await t.run((ctx) =>
+      ctx.db.insert("generationCandidateRuns", {
+        generationId,
+        projectId,
+        model: "model-duplicate",
+        label: "Duplicate candidate run",
+        status: "succeeded",
+        candidateId: sharedCandidateId,
+        queuedAt: 1,
+        consistencyCheckedAt: 1,
+      })
+    );
+    const unrelated = await insertCandidateRun(t, { generationId, projectId, ordinal: 2 });
+    await t.run((ctx) =>
+      ctx.db.insert("modelSelections", {
+        projectId,
+        generationId,
+        userId: "writer-1",
+        candidateId: sharedCandidateId,
+        model: "model-0",
+        label: "Candidate 0",
+        createdAt: Date.now(),
+      })
+    );
+    await insertNote(t, {
+      generationId,
+      projectId,
+      candidateRunId: first.candidateRunId,
+      instruction: "First duplicate-run note",
+    });
+    await insertNote(t, {
+      generationId,
+      projectId,
+      candidateRunId: duplicateRunId,
+      instruction: "Second duplicate-run note",
+    });
+    await insertNote(t, {
+      generationId,
+      projectId,
+      candidateRunId: unrelated.candidateRunId,
+      instruction: "Unrelated run note",
+    });
+
+    const notes = await asWriter.query(api.complianceNotes.listForGeneration, { generationId });
+    expect(notes.map((note) => [note.candidateRunId, note.instruction])).toEqual([
+      [first.candidateRunId, "First duplicate-run note"],
+    ]);
+  });
+});

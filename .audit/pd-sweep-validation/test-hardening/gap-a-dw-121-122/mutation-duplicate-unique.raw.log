@@ -1,0 +1,55 @@
+# gap=gap-a-dw-121-122 run=duplicate-unique date=2026-09-14T18:22:36Z
+# HEAD=2b6e59d6237303a7f940ee04051c1431048f9cd0 node=v22.22.3
+# PUBLIC_CONVEX_URL=https://placeholder.convex.cloud PUBLIC_CONVEX_SITE_URL=https://placeholder.convex.site
+# sha256 cc9b02e3fc8d02d13f7024f24423aac04bc648643eb5d226cd22d0567288be9f  convex/candidateScopedBoundedReads.test.ts
+# source diff (mutation) stat:
+ convex/complianceNotes.ts | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+# cmd: npx vitest run --config vitest.config.ts --reporter=verbose convex/candidateScopedBoundedReads.test.ts
+
+ RUN  v4.1.10 /Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-b
+
+ ✓ |convex| convex/candidateScopedBoundedReads.test.ts > candidate-scoped bounded reads > finds a requested section candidate after more than 30 older rows and rejects a cross-generation run 286ms
+ ✓ |convex| convex/candidateScopedBoundedReads.test.ts > candidate-scoped bounded reads > finds a selected candidate after more than 10 older runs 8ms
+ ✓ |convex| convex/candidateScopedBoundedReads.test.ts > candidate-scoped bounded reads > keeps the unscoped Compliance Notes fallback for an unresolved legacy selection 2ms
+ ✓ |convex| convex/candidateScopedBoundedReads.test.ts > candidate-scoped bounded reads > keeps the unscoped Compliance Notes fallback for a legacy selection without candidateId 2ms
+ ✓ |convex| convex/candidateScopedBoundedReads.test.ts > candidate-scoped bounded reads: guards within scoped reach > returns no rows for a checked candidate run and its drafts that both belong to another generation 3ms
+ ✓ |convex| convex/candidateScopedBoundedReads.test.ts > candidate-scoped bounded reads: guards within scoped reach > rejects a candidate run owned by another generation even when its section rows name the requested generation 4ms
+ ✓ |convex| convex/candidateScopedBoundedReads.test.ts > candidate-scoped bounded reads: guards within scoped reach > drops section rows owned by another generation even when the requested candidate run belongs to this generation 2ms
+ ✓ |convex| convex/candidateScopedBoundedReads.test.ts > candidate-scoped bounded reads: guards within scoped reach > returns no rows for an explicit candidate whose parent run is missing, although its drafts are within reach 2ms
+ ✓ |convex| convex/candidateScopedBoundedReads.test.ts > candidate-scoped bounded reads: guards within scoped reach > returns no rows for an explicit failed candidate run whose checked drafts are within reach 2ms
+ × |convex| convex/candidateScopedBoundedReads.test.ts > candidate-scoped bounded reads: guards within scoped reach > scopes Compliance Notes to the first candidate run when two runs share the selected candidateId 6ms
+   → unique() query returned more than one result from table generationCandidateRuns:
+ [000010005generationCandidateRuns, 000010006generationCandidateRuns, ...]
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |convex| convex/candidateScopedBoundedReads.test.ts > candidate-scoped bounded reads: guards within scoped reach > scopes Compliance Notes to the first candidate run when two runs share the selected candidateId
+Error: unique() query returned more than one result from table generationCandidateRuns:
+ [000010005generationCandidateRuns, 000010006generationCandidateRuns, ...]
+ ❯ QueryImpl.unique node_modules/convex/src/server/impl/query_impl.ts:340:12
+ ❯ selectedCandidateRunId convex/complianceNotes.ts:27:15
+     25|     .first();
+     26|   if (!selection?.candidateId) return undefined;
+     27|   const run = await ctx.db
+       |               ^
+     28|     .query("generationCandidateRuns")
+     29|     .withIndex("by_generationId_and_candidateId", (q) =>
+ ❯ handler convex/complianceNotes.ts:62:24
+ ❯ invokeFunction node_modules/convex/src/server/impl/registration_impl.ts:90:13
+ ❯ invokeQuery node_modules/convex/src/server/impl/registration_impl.ts:350:17
+ ❯ runQueryWithHandler node_modules/convex-test/dist/index.js:1595:31
+ ❯ Object.queryFromPath node_modules/convex-test/dist/index.js:1649:32
+ ❯ query node_modules/convex-test/dist/index.js:1730:20
+ ❯ convex/candidateScopedBoundedReads.test.ts:640:19
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 9 passed (10)
+   Start at  11:22:37
+   Duration  729ms (transform 339ms, setup 0ms, import 185ms, tests 319ms, environment 56ms)
+
+EXIT_CODE=1
+# restored source diff empty: yes

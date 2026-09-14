@@ -1,0 +1,13 @@
+diff --git a/convex/complianceNotes.ts b/convex/complianceNotes.ts
+index 45f352a..9825f25 100644
+--- a/convex/complianceNotes.ts
++++ b/convex/complianceNotes.ts
+@@ -29,7 +29,7 @@ export async function selectedCandidateRunId(
+     .withIndex("by_generationId_and_candidateId", (q) =>
+       q.eq("generationId", generation._id).eq("candidateId", selection.candidateId)
+     )
+-    .first();
++    .unique();
+   return run?._id;
+ }
+ 

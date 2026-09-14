@@ -1,0 +1,13 @@
+diff --git a/convex/generations.ts b/convex/generations.ts
+index 9b74d5a..4ffdf0a 100644
+--- a/convex/generations.ts
++++ b/convex/generations.ts
+@@ -1949,6 +1949,8 @@ export const persistDerivedBrief = internalMutation({
+   },
+   returns: v.union(v.id("generationBriefs"), v.null()),
+   handler: async (ctx, args) => {
++    const earlyNewest = await newestProjectBrief(ctx, args.projectId);
++    if ((earlyNewest?._id ?? null) !== args.baselineBriefId) return null;
+     const reusable = await latestBriefForInputs(
+       ctx,
+       args.projectId,

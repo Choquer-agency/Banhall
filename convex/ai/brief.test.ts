@@ -1269,6 +1269,227 @@ describe("Generation Brief publication idempotency (DW-112)", () => {
       }))
     ).toEqual(before);
   });
+
+  // Validation hardening: DW-112 moved the DW-107 writer-edit and
+  // retry-exhaustion races onto changed-input keys. The cases below pin the
+  // spec's same-key outcome for those races: persistence adopts and stamps the
+  // latest stored same-key Brief (a writer edit included) before the project
+  // fence, so a same-key version never costs a retry or creates a version.
+  async function allBriefRows(t: TestApp) {
+    return await t.run(async (ctx) => ({
+      briefs: await ctx.db.query("generationBriefs").collect(),
+      entries: await ctx.db.query("generationBriefEntries").collect(),
+    }));
+  }
+
+  it("adopts a same-key writer edit that lands between baseline pin and publish, without a retry or a new version", async () => {
+    const t = convexTest(schema, modules);
+    const { userId, projectId } = await makeProject(t);
+    const inputsHash = "same-key-writer-edit-race";
+    const firstGenerationId = await makeGeneration(
+      t,
+      projectId,
+      userId,
+      TRANSCRIPT_TEXT,
+      "same-key-edit-first-source"
+    );
+    const secondGenerationId = await makeGeneration(
+      t,
+      projectId,
+      userId,
+      TRANSCRIPT_TEXT,
+      "same-key-edit-second-source"
+    );
+    const firstSource = await briefSourceOf(t, firstGenerationId);
+    const secondSource = await briefSourceOf(t, secondGenerationId);
+
+    // Both derivations missed reuse before any Brief existed for the key.
+    expect(
+      await t.query(internal.generations.findReusableBrief, { projectId, inputsHash })
+    ).toBeNull();
+    const v1 = await publishDerivedBrief(briefPublishCtx(t).ctx, {
+      projectId,
+      generationId: firstGenerationId,
+      inputsHash,
+      origin: "derived",
+      storylineText: "The first publisher's storyline.",
+      entries: [candidateEntry(firstSource, "glossaryTerm", "control loop")],
+    });
+
+    const asWriter = t.withIdentity({ subject: "brief-writer" });
+    const observed: {
+      editedId?: Id<"generationBriefs">;
+      afterEdit?: Awaited<ReturnType<typeof allBriefRows>>;
+    } = {};
+    const { ctx, calls } = briefPublishCtx(t, async (call, all) => {
+      if (call.name !== PERSIST_MUTATION) return;
+      if (all.filter((c) => c.name === PERSIST_MUTATION).length !== 1) return;
+      // The second derivation already pinned v1; the writer edits it now.
+      observed.editedId = (await asWriter.mutation(anyApi.briefs.saveEntryEdit, {
+        projectId,
+        briefId: v1,
+        expectedBriefVersion: 1,
+        editedStorylineText: "The writer's same-key storyline edit.",
+      })) as Id<"generationBriefs">;
+      observed.afterEdit = await allBriefRows(t);
+    });
+
+    const result = await publishDerivedBrief(ctx, {
+      projectId,
+      generationId: secondGenerationId,
+      inputsHash,
+      origin: "derived",
+      storylineText: "The second publisher's storyline must not be stored.",
+      entries: [candidateEntry(secondSource, "claimExclusion", "redesign the logo")],
+    });
+
+    const { editedId, afterEdit } = observed;
+    expect(editedId).toBeDefined();
+    expect(await t.run((ctx) => ctx.db.get(editedId!))).toMatchObject({
+      inputsHash,
+      version: 2,
+      origin: "edited",
+    });
+    const persisted = calls.filter((call) => call.name === PERSIST_MUTATION);
+    expect(persisted).toHaveLength(1);
+    expect(persisted[0]).toMatchObject({
+      args: { baselineBriefId: v1 },
+      result: editedId,
+    });
+    expect(result).toBe(editedId);
+    expect(await allBriefRows(t)).toEqual(afterEdit);
+    expect((await t.run((ctx) => ctx.db.get(secondGenerationId)))?.briefId).toBe(editedId);
+    expect((await t.run((ctx) => ctx.db.get(firstGenerationId)))?.briefId).toBe(v1);
+  });
+
+  it("never exhausts publish attempts when every attempt races a same-key writer edit", async () => {
+    const t = convexTest(schema, modules);
+    const { userId, projectId } = await makeProject(t);
+    const inputsHash = "same-key-moving-edits";
+    const generationId = await makeGeneration(
+      t,
+      projectId,
+      userId,
+      TRANSCRIPT_TEXT,
+      "same-key-moving-source"
+    );
+    const source = await briefSourceOf(t, generationId);
+    const entries = [candidateEntry(source, "claimExclusion", "redesign the logo")];
+    const v1 = await publishDerivedBrief(briefPublishCtx(t).ctx, {
+      projectId,
+      generationId,
+      inputsHash,
+      origin: "derived",
+      storylineText: "Stored same-key storyline.",
+      entries,
+    });
+
+    // Before every publish attempt, the writer saves another same-key edit.
+    const asWriter = t.withIdentity({ subject: "brief-writer" });
+    const editIds: Id<"generationBriefs">[] = [];
+    const { ctx, calls } = briefPublishCtx(t, async (call) => {
+      if (call.name !== PERSIST_MUTATION) return;
+      const latest = await t.query(internal.generations.findReusableBrief, {
+        projectId,
+        inputsHash,
+      });
+      editIds.push(
+        (await asWriter.mutation(anyApi.briefs.saveEntryEdit, {
+          projectId,
+          briefId: latest!._id,
+          expectedBriefVersion: latest!.version,
+          editedStorylineText: `Same-key writer edit ${editIds.length + 1}.`,
+        })) as Id<"generationBriefs">
+      );
+    });
+
+    const result = await publishDerivedBrief(ctx, {
+      projectId,
+      generationId,
+      inputsHash,
+      origin: "derived",
+      storylineText: "A same-key re-publication must not be stored.",
+      entries,
+    });
+
+    const persisted = calls.filter((call) => call.name === PERSIST_MUTATION);
+    expect(persisted.map((call) => call.result)).toEqual([editIds[0]]);
+    expect(editIds).toHaveLength(1);
+    expect(result).toBe(editIds[0]);
+    const { briefs } = await allBriefRows(t);
+    expect(briefs.map((row) => [row._id, row.origin, row.version])).toEqual([
+      [v1, "derived", 1],
+      [editIds[0], "edited", 2],
+    ]);
+    expect((await t.run((ctx) => ctx.db.get(generationId)))?.briefId).toBe(editIds[0]);
+  });
+
+  it("adopts a same-key version that appears on the last attempt after different-key versions moved the fence", async () => {
+    const t = convexTest(schema, modules);
+    const { userId, projectId } = await makeProject(t);
+    const inputsHash = "same-key-on-last-attempt";
+    const targetGenerationId = await makeGeneration(
+      t,
+      projectId,
+      userId,
+      TRANSCRIPT_TEXT,
+      "last-attempt-target-source"
+    );
+    const racingGenerationId = await makeGeneration(
+      t,
+      projectId,
+      userId,
+      TRANSCRIPT_TEXT,
+      "last-attempt-racing-source"
+    );
+    const targetSource = await briefSourceOf(t, targetGenerationId);
+    const racingSource = await briefSourceOf(t, racingGenerationId);
+
+    // Before attempts 1..N-1 a different-key derivation publishes (a lost
+    // fence); before attempt N a same-key derivation publishes first.
+    const racingIds: Id<"generationBriefs">[] = [];
+    const { ctx, calls } = briefPublishCtx(t, async (call, all) => {
+      if (call.name !== PERSIST_MUTATION) return;
+      const attempt = all.filter((c) => c.name === PERSIST_MUTATION).length;
+      racingIds.push(
+        await publishDerivedBrief(briefPublishCtx(t).ctx, {
+          projectId,
+          generationId: racingGenerationId,
+          inputsHash:
+            attempt < BRIEF_PUBLISH_ATTEMPTS ? `different-key-${attempt}` : inputsHash,
+          origin: "derived",
+          storylineText: `Racing publication ${attempt}.`,
+          entries: [candidateEntry(racingSource, "glossaryTerm", "control loop")],
+        })
+      );
+    });
+
+    const result = await publishDerivedBrief(ctx, {
+      projectId,
+      generationId: targetGenerationId,
+      inputsHash,
+      origin: "derived",
+      storylineText: "The target's storyline must not be stored.",
+      entries: [candidateEntry(targetSource, "claimExclusion", "redesign the logo")],
+    });
+
+    expect(racingIds).toHaveLength(BRIEF_PUBLISH_ATTEMPTS);
+    const sameKeyId = racingIds[BRIEF_PUBLISH_ATTEMPTS - 1];
+    const persisted = calls.filter((call) => call.name === PERSIST_MUTATION);
+    expect(persisted.map((call) => call.result)).toEqual([
+      ...Array.from({ length: BRIEF_PUBLISH_ATTEMPTS - 1 }, () => null),
+      sameKeyId,
+    ]);
+    expect(result).toBe(sameKeyId);
+    const { briefs } = await allBriefRows(t);
+    expect(briefs.filter((row) => row.inputsHash === inputsHash).map((row) => row._id)).toEqual([
+      sameKeyId,
+    ]);
+    expect(briefs.map((row) => row.storylineText)).not.toContain(
+      "The target's storyline must not be stored."
+    );
+    expect((await t.run((ctx) => ctx.db.get(targetGenerationId)))?.briefId).toBe(sameKeyId);
+  });
 });
 
 describe("Generation Brief read completeness and diff baseline (DW-107/DW-118)", () => {

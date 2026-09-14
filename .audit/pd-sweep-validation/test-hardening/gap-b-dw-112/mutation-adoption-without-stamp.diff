@@ -1,0 +1,12 @@
+diff --git a/convex/generations.ts b/convex/generations.ts
+index 9b74d5a..0e6cbce 100644
+--- a/convex/generations.ts
++++ b/convex/generations.ts
+@@ -1955,7 +1955,6 @@ export const persistDerivedBrief = internalMutation({
+       args.inputsHash
+     );
+     if (reusable) {
+-      await ctx.db.patch(args.generationId, { briefId: reusable._id });
+       return reusable._id;
+     }
+ 
