@@ -164,10 +164,39 @@ const editSchema = z.object({
 export const COVERAGE_RULE_MESSAGE =
   "Use unique finding IDs, map every edit to a finding using its one-based edit number, and name the rule on every finding whose kind is rule.";
 
+/**
+ * DW-135 (AD-28 amendment, approved by the owner 2026-09-14): a Coordinated
+ * Revision may carry zero edits when every finding is blocked or conflicting.
+ * It has nothing to apply; the findings persist so the writer's decision has
+ * a record. This is the one rule that decides it, checked by the tool's zod
+ * schema (over findings) and again by `saveProposal` (over the item rows), so
+ * the two cannot drift.
+ */
+export const NOTHING_TO_APPLY_MESSAGE =
+  "A revision with no edits must carry at least one finding, and every finding must be blocked or conflicting; a resolved finding needs the edit that resolves it.";
+
+export function zeroEditIssue(
+  editCount: number,
+  findings: ReadonlyArray<{ status: string }>
+): string | null {
+  if (editCount > 0) return null;
+  if (findings.length === 0 || findings.some((f) => f.status === "resolved")) {
+    return NOTHING_TO_APPLY_MESSAGE;
+  }
+  return null;
+}
+
+/** True for the all-blocked/conflicting case: the proposal has nothing to apply. */
+export function nothingToApply(input: { edits: ReadonlyArray<unknown> }): boolean {
+  return input.edits.length === 0;
+}
+
 export function coverageIssue(input: {
   edits: Array<{ targetText: string; newText: string }>;
   findings: CompletionReportFinding[];
 }): string | null {
+  const zeroEdit = zeroEditIssue(input.edits.length, input.findings);
+  if (zeroEdit) return zeroEdit;
   const ids = new Set(input.findings.map((f) => f.id));
   const covered = new Set(
     input.findings.flatMap((f) => (f.status === "resolved" ? f.editNumbers : []))
@@ -186,10 +215,14 @@ export function coverageIssue(input: {
   return null;
 }
 
-/** `proposeBulkEdits`'s whole input: the coordinated revision plus its report. */
+/**
+ * `proposeBulkEdits`'s whole input: the coordinated revision plus its report.
+ * `edits` has no lower bound (DW-135): `coverageIssue` refuses an empty list
+ * unless every finding is blocked or conflicting.
+ */
 export const bulkEditInputSchema = z
   .object({
-    edits: z.array(editSchema).min(1).max(MAX_BULK_EDITS),
+    edits: z.array(editSchema).max(MAX_BULK_EDITS),
     findings: z
       .array(completionReportFindingSchema)
       .min(1)

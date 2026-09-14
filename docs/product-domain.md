@@ -1437,6 +1437,35 @@ the authority for report architecture.
 - **Approval:** product owner approved on 2026-09-01 ("Lets allow this";
   "The only rule we need is the word count for each line").
 
+### 2026-09-14 — Zero-edit Coordinated Revision (AD-28 amendment)
+
+Storage-behavior amendment to AD-28 (the Completion Report, architecture
+spine). Approved by the product owner on 2026-09-14 (option A, DW-135).
+
+- **Rule:** a Coordinated Revision proposal may carry zero edits when it has
+  at least one finding and every finding is `blocked` or `conflicting`. It
+  has nothing to apply. A `resolved` finding still has to claim an edit, and
+  a proposal with no findings and no edits stays invalid. The finding
+  coverage rules are unchanged.
+- **Storage:** `saveProposal` still makes the only `chatProposals` insert and
+  writes the `chatProposalItems` rows in the same transaction. A zero-edit
+  proposal is saved as `kind: replacements`, `replacements: []`,
+  `requireUniqueTargets: true`, in the terminal `applied` state, the state a
+  highlight (`references`) proposal already uses for "no state machine,
+  nothing for a human to apply". No new status, transition or permission is
+  introduced. `applyProposal`, `rejectProposal` and `updateProposalWording`
+  refuse it; no code path changes report prose for it. Agents propose,
+  humans apply, unchanged.
+- **Presentation:** the card shows the blocked and conflicting findings with
+  their evidence and offers no apply action ("Nothing to apply. These
+  findings need a writer's decision."). The assistant's reply opens with
+  "Nothing to apply" rather than "Proposed".
+- **Enforcing tests:** `convex/lib/completionReport.test.ts` (zero edits
+  accepted only when every finding is blocked or conflicting),
+  `convex/chatProposalItems.test.ts` (rows persisted, apply refused, report
+  untouched), `convex/chatToolBodies.test.ts`, `convex/ai/prompts.test.ts`,
+  `src/lib/components/chat/NothingToApply.component.test.ts`.
+
 ### 2026-09-11 — Four-tier style precedence, no silent tier, settings documents, and the effort ceiling
 
 Generation-behavior **and** storage amendment. It restates the PSOS-50
