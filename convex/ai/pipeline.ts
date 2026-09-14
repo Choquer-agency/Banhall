@@ -8,7 +8,7 @@ import { instrumentedAnthropic } from "./instrument";
 import { clientForModel } from "./providers";
 import type { GenerationClient } from "./openrouterCore";
 import { runAnalyzerAgent, parseTranscriptAnalysis, type TranscriptAnalysis } from "./analyzerAgent";
-import { deriveOrReuseBrief } from "./brief";
+import { runGenerationBriefStage } from "./brief";
 import {
   buildTrustedContext,
   DEFAULT_CONTEXT_BUDGET,
@@ -789,20 +789,18 @@ export const generateReport = internalAction({
 
       // Story 1 (CAP-1/2/4): derive or reuse the Generation Brief once,
       // shared across every candidate below (same shape as shared analysis).
-      // Brief is read-only guidance, never required — a failure here is
-      // logged and the generation continues with no Brief rather than
-      // failing outright (Block-If: "a Brief with fewer entries beats a
-      // failed generation" extends to the stage itself).
-      try {
-        await deriveOrReuseBrief(ctx, clientForModel(ctx, analysisModel, {
-          callSite: "generation:brief",
-          projectId,
-          ...(input.requestedBy ? { userId: input.requestedBy } : {}),
-          attribution: { generationId: genId },
-        }), { projectId, generationId: genId, model: analysisModel });
-      } catch (error) {
-        console.error("Generation Brief derivation failed; continuing without a Brief", error);
-      }
+      // Brief is read-only guidance, never required — the stage runner never
+      // throws: a failure is logged and the generation continues with no
+      // Brief rather than failing outright (Block-If: "a Brief with fewer
+      // entries beats a failed generation" extends to the stage itself).
+      // DW-109/DW-120: every attempt is recorded on generations.briefOutcome
+      // and narrated with one authored progress line.
+      await runGenerationBriefStage(ctx, clientForModel(ctx, analysisModel, {
+        callSite: "generation:brief",
+        projectId,
+        ...(input.requestedBy ? { userId: input.requestedBy } : {}),
+        attribution: { generationId: genId },
+      }), { projectId, generationId: genId, model: analysisModel });
 
       const candidateLabel =
         candidateModels.length === 1 ? "candidate draft" : "candidate drafts";

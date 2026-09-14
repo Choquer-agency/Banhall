@@ -8,9 +8,9 @@ import {
   requireReportEditAccess,
 } from "./lib/roleCapabilities";
 import { computeEditDistance } from "./lib/editDistance";
-
-/** Entries per Brief version (the derivation writes far fewer). */
-const MAX_BRIEF_ENTRIES = 500;
+// One definition per bound: the generation-side reader owns it. `generations.ts`
+// imports nothing from this file, so this direction introduces no cycle.
+import { MAX_BRIEF_ENTRY_ROWS } from "./generations";
 
 const eligibilityReasonValidator = v.union(
   v.literal("business_risk"),
@@ -47,7 +47,7 @@ async function briefEntries(ctx: QueryCtx, briefId: Id<"generationBriefs">) {
   return await ctx.db
     .query("generationBriefEntries")
     .withIndex("by_briefId", (q) => q.eq("briefId", briefId))
-    .take(MAX_BRIEF_ENTRIES);
+    .take(MAX_BRIEF_ENTRY_ROWS);
 }
 
 /**
@@ -62,11 +62,11 @@ async function briefEntriesToCopy(
   const entries = await ctx.db
     .query("generationBriefEntries")
     .withIndex("by_briefId", (q) => q.eq("briefId", briefId))
-    .take(MAX_BRIEF_ENTRIES + 1);
-  if (entries.length > MAX_BRIEF_ENTRIES) {
+    .take(MAX_BRIEF_ENTRY_ROWS + 1);
+  if (entries.length > MAX_BRIEF_ENTRY_ROWS) {
     domainError(
       "INVALID_STATE",
-      `This Brief has more than ${MAX_BRIEF_ENTRIES} entries and cannot be edited`
+      `This Brief has more than ${MAX_BRIEF_ENTRY_ROWS} entries and cannot be edited`
     );
   }
   return entries;

@@ -13,6 +13,9 @@ import type { FunctionArgs } from "convex/server";
 import { api, internal } from "../_generated/api";
 import type { Doc, Id } from "../_generated/dataModel";
 import schema from "../schema";
+// DW-107: the one definition of the Brief entry-row bound, so the over-bound
+// fixture below cannot drift from the reader that enforces it.
+import { MAX_BRIEF_ENTRY_ROWS } from "../generations";
 import type { GenerationMessageParams } from "./openrouterCore";
 import { SECTION_242_REQUEST } from "./section242Agent";
 import { SECTION_244_REQUEST } from "./section244Agent";
@@ -734,6 +737,117 @@ async function seedBrief(
   });
 }
 
+/** The delimiter `lib/briefRender.ts` wraps a rendered Brief in. */
+const BRIEF_BLOCK_MARKER = "--- BEGIN [GENERATION BRIEF] ---";
+/** Shared prefix of every row `seedOverBoundBrief` writes, so a test can
+ * assert no individual row leaked, not merely that the block is absent. */
+const OVER_BOUND_ENTRY_TEXT = "over-bound exclusion";
+
+/**
+ * A stored Brief that is over the entry-row bound and therefore unreadable.
+ * Reachable in production two ways (neither passes through the derivation's
+ * fail-open catch): `ai/brief.ts:289-305` reuses a Brief by parent row alone,
+ * and `persistDerivedBrief`'s `entries` argument is uncapped. Every
+ * generation consumer must omit it whole and keep drafting — a throw from
+ * `loadBriefCheck` would roll the section's CAS claim back and strand the row
+ * `queued` (`orderedGeneration.ts:173-178` sits outside its `try` at `:200`).
+ */
+async function seedOverBoundBrief(
+  t: ReturnType<typeof convexTest>,
+  ids: { projectId: Id<"projects">; generationId: Id<"generations"> }
+) {
+  await t.run(async (ctx) => {
+    const source = (await ctx.db.query("generationSources").collect()).find(
+      (row) => row.generationId === ids.generationId
+    );
+    if (!source) throw new Error("frozen source missing");
+    const now = Date.now();
+    const briefId = await ctx.db.insert("generationBriefs", {
+      projectId: ids.projectId,
+      generationId: ids.generationId,
+      inputsHash: "over-bound-brief",
+      version: 1,
+      origin: "derived",
+      storylineText: "A Storyline no prompt may ever see in part.",
+      createdAt: now,
+    });
+    for (let i = 0; i <= MAX_BRIEF_ENTRY_ROWS; i += 1) {
+      await ctx.db.insert("generationBriefEntries", {
+        briefId,
+        projectId: ids.projectId,
+        group: "claimExclusion",
+        text: `${OVER_BOUND_ENTRY_TEXT} ${i}`,
+        reason: "business_risk",
+        sourceId: source._id,
+        sourceContentHash: source.contentHash,
+        startOffset: 0,
+        endOffset: 1,
+        exactExcerpt: source.content.slice(0, 1),
+        createdAt: now,
+      });
+    }
+    await ctx.db.patch(ids.generationId, { briefId });
+  });
+}
+
+/** Shared prefix of every row `seedByteHeavyBrief` writes. */
+const BYTE_HEAVY_ENTRY_TEXT = "byte-heavy exclusion";
+
+/**
+ * DW-152: a stored Brief under the entry-row bound whose rows together exceed
+ * Convex's 16 MiB transaction read limit (450 rows of about 42 KB). Writer
+ * edits (`briefs.saveEntryEdit`) accept any non-empty text, so this is
+ * reachable without passing the row bound. Seeded in batches of 100 so no
+ * seeding transaction trips the enforced write limit; use it with
+ * `convexTest({ ..., transactionLimits: true })`.
+ */
+async function seedByteHeavyBrief(
+  t: ReturnType<typeof convexTest>,
+  ids: { projectId: Id<"projects">; generationId: Id<"generations"> }
+) {
+  const ROWS = 450;
+  const TEXT_BYTES = 42_000;
+  expect(ROWS).toBeLessThanOrEqual(MAX_BRIEF_ENTRY_ROWS);
+  expect(ROWS * TEXT_BYTES).toBeGreaterThan(16 * 1024 * 1024);
+  const { briefId, source } = await t.run(async (ctx) => {
+    const source = (await ctx.db.query("generationSources").collect()).find(
+      (row) => row.generationId === ids.generationId
+    );
+    if (!source) throw new Error("frozen source missing");
+    const briefId = await ctx.db.insert("generationBriefs", {
+      projectId: ids.projectId,
+      generationId: ids.generationId,
+      inputsHash: "byte-heavy-brief",
+      version: 1,
+      origin: "writer",
+      storylineText: "A Storyline no prompt may ever see in part.",
+      createdAt: Date.now(),
+    });
+    return { briefId, source };
+  });
+  for (let from = 0; from < ROWS; from += 100) {
+    await t.run(async (ctx) => {
+      const now = Date.now();
+      for (let i = from; i < Math.min(ROWS, from + 100); i += 1) {
+        await ctx.db.insert("generationBriefEntries", {
+          briefId,
+          projectId: ids.projectId,
+          group: "claimExclusion",
+          text: `${BYTE_HEAVY_ENTRY_TEXT} ${i} ${"x".repeat(TEXT_BYTES)}`,
+          reason: "business_risk",
+          sourceId: source._id,
+          sourceContentHash: source.contentHash,
+          startOffset: 0,
+          endOffset: 1,
+          exactExcerpt: source.content.slice(0, 1),
+          createdAt: now,
+        });
+      }
+    });
+  }
+  await t.run((ctx) => ctx.db.patch(ids.generationId, { briefId }));
+}
+
 /** This generation's section rows, in insertion (production) order. */
 async function sectionRowsOf(t: ReturnType<typeof convexTest>, generationId: Id<"generations">) {
   const rows = await t.run((ctx) => ctx.db.query("generationSectionRuns").collect());
@@ -985,7 +1099,13 @@ describe("the Brief a section is drafted with and checked against", () => {
     await t.action(internal.ai.iterative.startIterativeGeneration, { generationId });
     const [sectionJob] = await pending(t, [ITERATIVE_SECTION_JOB]);
     await runJob(t, sectionJob);
-    await seedBrief(t, { projectId, generationId }, [{ text: "three prototype controllers" }]);
+    // A live exclusion plus one a re-derivation dropped: the ghost family
+    // reads through renderBriefForGeneration, so its `removed` filtering needs
+    // proving here too (the ordered 242 case above only covers loadBriefCheck).
+    await seedBrief(t, { projectId, generationId }, [
+      { text: "three prototype controllers" },
+      { text: "controller response under load", change: "removed" },
+    ]);
 
     const [ghostJob] = await pending(t, [CANDIDATE_JOB]);
     network.create.mockClear();
@@ -995,7 +1115,132 @@ describe("the Brief a section is drafted with and checked against", () => {
     for (const prompt of ghostPrompts) {
       expect(prompt).toContain("--- BEGIN [GENERATION BRIEF] ---");
       expect(prompt).toContain("- three prototype controllers (business risk)");
+      expect(prompt).not.toContain("controller response under load");
     }
+  });
+
+  it("omits an over-bound Brief from the ordered chain: every section drafts, none is left queued", async () => {
+    const t = convexTest(schema, modules);
+    const { generationId, projectId } = await fixture(t, { mode: "single" });
+    await t.action(internal.ai.pipeline.generateReport, { generationId });
+    await seedOverBoundBrief(t, { projectId, generationId });
+
+    // Scope the prompt assertions below to this chain's own calls.
+    network.create.mockClear();
+    await runCandidates(t);
+    expect(await drainChain(t)).toEqual(["242", "244", "246", "finalize"]);
+
+    const prompts = firstDraftPrompts();
+    expect(prompts.map(draftSectionOf)).toEqual(["242", "244", "246"]);
+    for (const prompt of prompts) expect(prompt).not.toContain(BRIEF_BLOCK_MARKER);
+    // Not one of the 501 rows leaked either: omission is whole, not a prefix.
+    for (const prompt of prompts) expect(prompt).not.toContain(OVER_BOUND_ENTRY_TEXT);
+
+    const rows = await sectionRowsOf(t, generationId);
+    expect(rows.map((row) => row.status)).toEqual(["drafted", "drafted", "drafted"]);
+    expect((await generationOf(t, generationId)).status).toBe("completed");
+  });
+
+  it("omits an over-bound Brief from iterative's own section and from its one-shot ghost", async () => {
+    const t = convexTest(schema, modules);
+    const { generationId, projectId } = await fixture(t, { mode: "iterative" });
+    await t.action(internal.ai.iterative.startIterativeGeneration, { generationId });
+    await seedOverBoundBrief(t, { projectId, generationId });
+
+    // iterative.ts:406-410 reads the Brief for its own gated section; a throw
+    // there fails the section outright.
+    const [sectionJob] = await pending(t, [ITERATIVE_SECTION_JOB]);
+    network.create.mockClear();
+    await runJob(t, sectionJob);
+    const sectionPrompts = firstDraftPrompts();
+    expect(sectionPrompts.map(draftSectionOf)).toEqual(["242"]);
+    expect(sectionPrompts[0]).not.toContain(BRIEF_BLOCK_MARKER);
+    // Omission is whole: not one of the 501 rows leaks in either.
+    expect(sectionPrompts[0]).not.toContain(OVER_BOUND_ENTRY_TEXT);
+    // 242 reviewed, 244/246 not yet reachable — the iterative gate, unchanged.
+    expect((await sectionRowsOf(t, generationId)).map((row) => row.status)).toEqual([
+      "awaiting_review",
+      "pending",
+      "pending",
+    ]);
+    expect((await generationOf(t, generationId)).status).toBe("awaiting_input");
+
+    // pipeline.ts:957-961 reads it for the ghost one-shot candidate.
+    const [ghostJob] = await pending(t, [CANDIDATE_JOB]);
+    network.create.mockClear();
+    await runJob(t, ghostJob);
+    const ghostPrompts = firstDraftPrompts();
+    expect(ghostPrompts.map(draftSectionOf).sort()).toEqual(["242", "244", "246"]);
+    for (const prompt of ghostPrompts) {
+      expect(prompt).not.toContain(BRIEF_BLOCK_MARKER);
+      expect(prompt).not.toContain(OVER_BOUND_ENTRY_TEXT);
+    }
+    const ghostRun = (await t.run((ctx) => ctx.db.query("generationCandidateRuns").collect())).find(
+      (run) => run.ghost
+    );
+    expect(ghostRun?.status).toBe("succeeded");
+    expect((await generationOf(t, generationId)).status).toBe("awaiting_input");
+  });
+
+  it("omits a byte-heavy Brief from the ordered chain under enforced transaction limits: every section drafts, none is left queued (DW-152)", async () => {
+    // transactionLimits: true makes convex-test enforce Convex's 16 MiB read
+    // limit, so a byte-unbounded Brief read throws inside
+    // claimOrderedSectionRun (awaited at orderedGeneration.ts:174, outside
+    // the try at :200) and getOrderedCandidateDrafts (:374, outside :410).
+    const t = convexTest({ schema, modules, transactionLimits: true });
+    const { generationId, projectId } = await fixture(t, { mode: "single" });
+    await t.action(internal.ai.pipeline.generateReport, { generationId });
+    await seedByteHeavyBrief(t, { projectId, generationId });
+
+    network.create.mockClear();
+    await runCandidates(t);
+    expect(await drainChain(t)).toEqual(["242", "244", "246", "finalize"]);
+
+    const prompts = firstDraftPrompts();
+    expect(prompts.map(draftSectionOf)).toEqual(["242", "244", "246"]);
+    for (const prompt of prompts) {
+      expect(prompt).not.toContain(BRIEF_BLOCK_MARKER);
+      expect(prompt).not.toContain(BYTE_HEAVY_ENTRY_TEXT);
+    }
+    const rows = await sectionRowsOf(t, generationId);
+    expect(rows.map((row) => row.status)).toEqual(["drafted", "drafted", "drafted"]);
+    expect((await generationOf(t, generationId)).status).toBe("completed");
+  });
+
+  it("omits a byte-heavy Brief from iterative's own section and from its one-shot ghost under enforced transaction limits (DW-152)", async () => {
+    const t = convexTest({ schema, modules, transactionLimits: true });
+    const { generationId, projectId } = await fixture(t, { mode: "iterative" });
+    await t.action(internal.ai.iterative.startIterativeGeneration, { generationId });
+    await seedByteHeavyBrief(t, { projectId, generationId });
+
+    // renderBriefForGeneration via iterative.ts:406-410.
+    const [sectionJob] = await pending(t, [ITERATIVE_SECTION_JOB]);
+    network.create.mockClear();
+    await runJob(t, sectionJob);
+    const sectionPrompts = firstDraftPrompts();
+    expect(sectionPrompts.map(draftSectionOf)).toEqual(["242"]);
+    expect(sectionPrompts[0]).not.toContain(BRIEF_BLOCK_MARKER);
+    expect(sectionPrompts[0]).not.toContain(BYTE_HEAVY_ENTRY_TEXT);
+    expect((await sectionRowsOf(t, generationId)).map((row) => row.status)).toEqual([
+      "awaiting_review",
+      "pending",
+      "pending",
+    ]);
+
+    // renderBriefForGeneration via pipeline.ts:957-961 for the ghost one-shot.
+    const [ghostJob] = await pending(t, [CANDIDATE_JOB]);
+    network.create.mockClear();
+    await runJob(t, ghostJob);
+    const ghostPrompts = firstDraftPrompts();
+    expect(ghostPrompts.map(draftSectionOf).sort()).toEqual(["242", "244", "246"]);
+    for (const prompt of ghostPrompts) {
+      expect(prompt).not.toContain(BRIEF_BLOCK_MARKER);
+      expect(prompt).not.toContain(BYTE_HEAVY_ENTRY_TEXT);
+    }
+    const ghostRun = (await t.run((ctx) => ctx.db.query("generationCandidateRuns").collect())).find(
+      (run) => run.ghost
+    );
+    expect(ghostRun?.status).toBe("succeeded");
   });
 });
 

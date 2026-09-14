@@ -56,7 +56,11 @@ import {
   TRANSCRIPT_BUDGET_CHARS,
 } from "./lib/transcripts";
 import { validateCitation } from "./lib/citations";
-import { renderBriefBlock } from "./lib/briefRender";
+import {
+  briefOutcomeValidator,
+  describeBriefOutcome,
+  renderBriefBlock,
+} from "./lib/briefRender";
 import {
   complianceNoteDraftValidator,
   complianceNoteRow,
@@ -1593,16 +1597,171 @@ export const saveIterativeArtifacts = internalMutation({
 // typecheck. `deriveOrReuseBrief` and `briefs.saveEntryEdit` are the only two
 // writers of `generationBriefs`/`generationBriefEntries` (AD-23).
 
+/**
+ * Frozen `generationSources` rows one Brief derivation may read. The
+ * structural maximum is 92 (`2 * MAX_TRANSCRIPTS_PER_PROJECT + 52`, see
+ * `convex/writerProfiles.ts:585-587`), so this is slack rather than a real
+ * ceiling — it exists only so the read is bounded and provably complete.
+ */
+export const MAX_BRIEF_SOURCE_ROWS = 200;
+
+/**
+ * Entries per Brief version a generation consumer may read in one
+ * transaction — the same bound `convex/briefs.ts` applies to the
+ * writer-facing copy path, so no Brief that path can write is unreadable
+ * here. Also the most rows one diff-baseline page may return
+ * (`getBriefDiffBaselinePage`); the baseline itself has no ceiling.
+ */
+export const MAX_BRIEF_ENTRY_ROWS = 500;
+
+/**
+ * Bytes one diff-baseline page may read (`maximumBytesRead`), well inside
+ * Convex's 16 MiB per-transaction read limit. A page that reaches it reports
+ * `SplitRequired` and is re-read smaller by
+ * `ai/brief.ts:readCompleteBriefDiffBaseline`.
+ */
+export const BRIEF_BASELINE_PAGE_BYTES = 4 * 1024 * 1024;
+
+/**
+ * Bytes a generation consumer's Brief read may take (`maximumBytesRead` in
+ * `readBriefEntryRowsOrOmit`). DW-152: the row bound alone does not bound
+ * bytes, because writer edits (`briefs.saveEntryEdit`) accept any non-empty
+ * text, so `MAX_BRIEF_ENTRY_ROWS` rows can exceed Convex's 16 MiB
+ * per-transaction read limit and throw.
+ *
+ * 4 MiB (the same size as a diff-baseline page) leaves real headroom in the
+ * heaviest caller, `claimOrderedSectionRun`, where the read shares one
+ * transaction with the claimed section row, the fence's candidate run,
+ * generation and project, the claim's `ctx.db.patch` of the section row
+ * (a patch reads the row it merges into, so it is counted as a read; convex-test
+ * charges it the same way), the DW-119 `lastProgressAt` patch of the
+ * generation (another merge read), the candidate's three section rows (prior
+ * drafts) and the Brief parent: 10 other document reads of at most 1 MiB each.
+ * Convex checks the byte budget after a row is read, so the Brief read can
+ * overshoot by at most one row (1 MiB): 10 + 4 + 1 = 15 MiB worst case, under
+ * 16 MiB. `getOrderedCandidateDrafts` (6 other documents, 6 + 4 + 1 = 11 MiB)
+ * and `renderBriefForGeneration` (2) have more headroom. A realistic Brief (short
+ * derived entries and excerpts) is a small fraction of this; one that exceeds
+ * it is omitted whole, like an over-bound one.
+ */
+export const BRIEF_CONSUMER_READ_BYTES = 4 * 1024 * 1024;
+
+/**
+ * Every frozen source a Brief derivation reads, or a refusal. Reads one past
+ * the bound rather than returning a silent prefix: a derivation treats what
+ * it reads as the complete evidence set, so a prefix would quietly become
+ * authoritative (the same rule `convex/briefs.ts:briefEntriesToCopy` applies
+ * on the writer side).
+ *
+ * Write path only, so refusing is safe: its one caller
+ * (`ai/brief.ts:deriveOrReuseBrief`) runs under the fail-open stage runner
+ * `ai/brief.ts:runGenerationBriefStage`, which means "record a failed outcome
+ * and continue with no Brief". The structural maximum is far below the bound
+ * (see above), so unlike the diff baseline this read needs no paging.
+ */
+async function readBriefSourceRows(
+  ctx: { db: QueryCtx["db"] },
+  generationId: Id<"generations">
+) {
+  const rows = await ctx.db
+    .query("generationSources")
+    .withIndex("by_generationId", (q) => q.eq("generationId", generationId))
+    .take(MAX_BRIEF_SOURCE_ROWS + 1);
+  if (rows.length > MAX_BRIEF_SOURCE_ROWS) {
+    return domainError(
+      "INVALID_STATE",
+      `This generation has more than ${MAX_BRIEF_SOURCE_ROWS} frozen sources and cannot be read completely for a Generation Brief`
+    );
+  }
+  return rows;
+}
+
+/**
+ * A generation consumer's read of a Brief's entry rows: every row, or `null`
+ * — "omit the whole Brief, exactly as if this generation had no briefId" —
+ * plus one `console.error` so the omission is diagnosable. The single
+ * bounded probe (`bound + 1` rows, `BRIEF_CONSUMER_READ_BYTES` bytes);
+ * nothing else reads a Brief's rows for a prompt.
+ *
+ * An over-bound Brief is reachable in production, not only from seeded data:
+ * `ai/brief.ts:289-305` reuses a Brief by parent row alone (it never reads
+ * children), and `persistDerivedBrief` publishes a derivation's validated
+ * entries plus removal markers in full, however many that is. The diff
+ * baseline does not use this read: it enumerates every row in pages
+ * (`getBriefDiffBaselinePage`), so an over-bound newest Brief never blocks a
+ * later derivation.
+ *
+ * Scope: this handles row-count and byte overflow (DW-152) — it never returns
+ * a prefix and never raises for an over-bound or byte-heavy Brief. The read
+ * is one `.paginate()` with `maximumBytesRead`, so a byte-heavy Brief stops
+ * at the budget instead of reaching the transaction read limit. The Brief is
+ * complete only when that single page holds at most `MAX_BRIEF_ENTRY_ROWS`
+ * rows, reports `isDone` and is not `SplitRequired`; anything else (including
+ * a short page Convex ends early) is omitted whole. Callers must not run
+ * another `.paginate()` in the same function (Convex allows one). It is not
+ * general exception safety; a database read failure or a transaction limit
+ * reached by the caller's own other reads still propagates.
+ *
+ * Overflow must not raise because `claimOrderedSectionRun` is awaited at
+ * `ai/orderedGeneration.ts:173-178` and `getOrderedCandidateDrafts` at
+ * `:373-376`, both *outside* that action's own `try` (`:200`, `:410`), so a
+ * throw here would roll the CAS claim back and strand the section `queued`
+ * until stale-generation recovery — `failOrderedSectionRun:345` never sees
+ * it. `iterative.ts:406-410` and `pipeline.ts:957-961` would fail the
+ * section/candidate outright. Brief guidance is optional by contract, so its
+ * unreadability must not fail or stall a generation.
+ */
+async function readBriefEntryRowsOrOmit(
+  ctx: { db: QueryCtx["db"] },
+  generationId: Id<"generations">,
+  briefId: Id<"generationBriefs">
+) {
+  const result = await ctx.db
+    .query("generationBriefEntries")
+    .withIndex("by_briefId", (q) => q.eq("briefId", briefId))
+    .paginate({
+      cursor: null,
+      numItems: MAX_BRIEF_ENTRY_ROWS + 1,
+      maximumBytesRead: BRIEF_CONSUMER_READ_BYTES,
+    });
+  const rows = result.page;
+  if (rows.length > MAX_BRIEF_ENTRY_ROWS) {
+    console.error(
+      `Generation Brief omitted from generation ${generationId}: Brief ${briefId} has more than ${MAX_BRIEF_ENTRY_ROWS} entries and cannot be read completely`
+    );
+    return null;
+  }
+  if (!result.isDone || result.pageStatus === "SplitRequired") {
+    console.error(
+      `Generation Brief omitted from generation ${generationId}: Brief ${briefId} cannot be read completely within ${BRIEF_CONSUMER_READ_BYTES} bytes`
+    );
+    return null;
+  }
+  return rows;
+}
+
 /** The frozen `generationSources` rows a Brief derivation reads. */
 export const getGenerationSourcesForBrief = internalQuery({
   args: { generationId: v.id("generations") },
   handler: async (ctx, args) => {
-    return await ctx.db
-      .query("generationSources")
-      .withIndex("by_generationId", (q) => q.eq("generationId", args.generationId))
-      .take(200);
+    return await readBriefSourceRows(ctx, args.generationId);
   },
 });
+
+/** Latest stored Brief for one reusable input key, regardless of origin. */
+async function latestBriefForInputs(
+  ctx: { db: QueryCtx["db"] },
+  projectId: Id<"projects">,
+  inputsHash: string
+) {
+  return await ctx.db
+    .query("generationBriefs")
+    .withIndex("by_projectId_and_inputsHash", (q) =>
+      q.eq("projectId", projectId).eq("inputsHash", inputsHash)
+    )
+    .order("desc")
+    .first();
+}
 
 /** MAX(version) Brief for (projectId, inputsHash), regardless of origin — a
  * writer-edited version is reused too (CAP-4: "the next generation with the
@@ -1610,13 +1769,7 @@ export const getGenerationSourcesForBrief = internalQuery({
 export const findReusableBrief = internalQuery({
   args: { projectId: v.id("projects"), inputsHash: v.string() },
   handler: async (ctx, args) => {
-    return await ctx.db
-      .query("generationBriefs")
-      .withIndex("by_projectId_and_inputsHash", (q) =>
-        q.eq("projectId", args.projectId).eq("inputsHash", args.inputsHash)
-      )
-      .order("desc")
-      .first();
+    return await latestBriefForInputs(ctx, args.projectId, args.inputsHash);
   },
 });
 
@@ -1626,6 +1779,30 @@ export const stampGenerationBriefId = internalMutation({
   args: { generationId: v.id("generations"), briefId: v.id("generationBriefs") },
   handler: async (ctx, args) => {
     await ctx.db.patch(args.generationId, { briefId: args.briefId });
+  },
+});
+
+/**
+ * DW-109/DW-120: record what this generation's Brief stage attempt did. The
+ * only writer of `generations.briefOutcome`; called once per stage by
+ * `ai/brief.ts:runGenerationBriefStage`. The outcome and its authored progress
+ * line commit in one patch, so telemetry and narration never disagree. Never
+ * touches `briefId`.
+ */
+export const recordBriefOutcome = internalMutation({
+  args: { generationId: v.id("generations"), outcome: briefOutcomeValidator },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const generation = await ctx.db.get(args.generationId);
+    if (!generation) return null;
+    await ctx.db.patch(args.generationId, {
+      briefOutcome: args.outcome,
+      progressLog: [
+        ...(generation.progressLog ?? []),
+        describeBriefOutcome(args.outcome),
+      ],
+    });
+    return null;
   },
 });
 
@@ -1658,16 +1835,178 @@ const briefCandidateEntryValidator = v.object({
   endOffset: v.number(),
   exactExcerpt: v.string(),
 });
+type BriefCandidateEntry = Infer<typeof briefCandidateEntryValidator>;
 
 /**
- * New-derivation path: re-validates every candidate entry's citation against
- * the live frozen source (defense in depth — the caller already validated
- * against the same in-memory sources), drops failures and counts them,
- * inserts the new `generationBriefs` version, diffs against the project's
- * previous Brief (any inputsHash) by `(group, sourceContentHash,
- * startOffset, endOffset)` and stamps `change` on every entry — including a
- * "removed" marker row for anything the previous version had that this one
- * doesn't — then stamps `briefId` on the generation.
+ * The one diff key between a Brief version and the next derivation:
+ * `(group, sourceContentHash, startOffset, endOffset)`. Shared by
+ * `ai/brief.ts:readCompleteBriefDiffBaseline`, which partitions the baseline
+ * against the candidates, and `persistDerivedBrief`, which stamps against that
+ * partition, so the two can never disagree about which rows match.
+ */
+export function briefDiffKey(entry: {
+  group: string;
+  sourceContentHash: string;
+  startOffset: number;
+  endOffset: number;
+}) {
+  return `${entry.group}|${entry.sourceContentHash}|${entry.startOffset}|${entry.endOffset}`;
+}
+
+/**
+ * A stored row as diff-baseline evidence: exactly the fields a removal marker
+ * copies, or `null` for a row that is not live derived evidence. A
+ * `change: "removed"` row is a version's own history — diffing against it
+ * would re-insert the same marker on every later version, forever. A
+ * `storylineQuestion` row is a Self-check artifact owned by
+ * `briefs.saveEntryEdit`, not derived evidence: carrying it forward would
+ * re-emit it as a bogus "removed" marker (DW-118).
+ */
+function liveBaselinePayload(
+  row: Doc<"generationBriefEntries">
+): BriefCandidateEntry | null {
+  if (row.change === "removed" || row.group === "storylineQuestion") return null;
+  return {
+    group: row.group,
+    text: row.text,
+    ...(row.reason !== undefined ? { reason: row.reason } : {}),
+    ...(row.confidence !== undefined ? { confidence: row.confidence } : {}),
+    sourceId: row.sourceId,
+    sourceContentHash: row.sourceContentHash,
+    startOffset: row.startOffset,
+    endOffset: row.endOffset,
+    exactExcerpt: row.exactExcerpt,
+  };
+}
+
+/** The project's newest Brief, whatever its inputsHash or origin: the one
+ * version a new derivation diffs against and fences on. A single-row select,
+ * so it cannot return a prefix. */
+async function newestProjectBrief(
+  ctx: { db: QueryCtx["db"] },
+  projectId: Id<"projects">
+) {
+  return await ctx.db
+    .query("generationBriefs")
+    .withIndex("by_projectId", (q) => q.eq("projectId", projectId))
+    .order("desc")
+    .first();
+}
+
+/** Pin step of the diff baseline: the project's newest Brief id, or `null`
+ * when the project has no Brief yet. */
+export const getBriefDiffBaselineId = internalQuery({
+  args: { projectId: v.id("projects") },
+  returns: v.union(v.id("generationBriefs"), v.null()),
+  handler: async (ctx, args) => {
+    return (await newestProjectBrief(ctx, args.projectId))?._id ?? null;
+  },
+});
+
+/**
+ * One page of a pinned Brief's diff baseline, in its own transaction: a
+ * single `.paginate()` over `by_briefId`, at most `MAX_BRIEF_ENTRY_ROWS` rows
+ * and `BRIEF_BASELINE_PAGE_BYTES` bytes read.
+ *
+ * Returns only live derived evidence (`liveBaselinePayload`), each row with
+ * its `entryId` so the caller can send a compact reference instead of its
+ * text when a candidate reuses its key.
+ *
+ * `readCount` is every row the page read before filtering. The caller must
+ * discard a `SplitRequired` page (its rows may be incomplete) and re-read
+ * from the same cursor with fewer rows; the baseline is complete only once
+ * an accepted page reports `isDone`. Pages from separate transactions
+ * enumerate one consistent live set because a published version's live rows
+ * never change: both writers insert a whole version at once, nothing patches
+ * or deletes entry rows, and the only later insert
+ * (`completeOrderedSectionRun`'s `storylineQuestion`) is filtered out here.
+ */
+export const getBriefDiffBaselinePage = internalQuery({
+  args: {
+    briefId: v.id("generationBriefs"),
+    cursor: v.union(v.string(), v.null()),
+    numItems: v.number(),
+  },
+  returns: v.object({
+    entries: v.array(
+      v.object({
+        entryId: v.id("generationBriefEntries"),
+        ...briefCandidateEntryValidator.fields,
+      })
+    ),
+    readCount: v.number(),
+    isDone: v.boolean(),
+    continueCursor: v.string(),
+    pageStatus: v.union(
+      v.literal("SplitRecommended"),
+      v.literal("SplitRequired"),
+      v.null()
+    ),
+  }),
+  handler: async (ctx, args) => {
+    const numItems = Number.isFinite(args.numItems)
+      ? Math.min(MAX_BRIEF_ENTRY_ROWS, Math.max(1, Math.floor(args.numItems)))
+      : MAX_BRIEF_ENTRY_ROWS;
+    const result = await ctx.db
+      .query("generationBriefEntries")
+      .withIndex("by_briefId", (q) => q.eq("briefId", args.briefId))
+      .paginate({
+        cursor: args.cursor,
+        numItems,
+        maximumBytesRead: BRIEF_BASELINE_PAGE_BYTES,
+      });
+    const entries: Array<BriefCandidateEntry & { entryId: Id<"generationBriefEntries"> }> = [];
+    for (const row of result.page) {
+      const payload = liveBaselinePayload(row);
+      if (payload !== null) entries.push({ entryId: row._id, ...payload });
+    }
+    return {
+      entries,
+      readCount: result.page.length,
+      isDone: result.isDone,
+      continueCursor: result.continueCursor,
+      pageStatus: result.pageStatus ?? null,
+    };
+  },
+});
+
+/**
+ * New-derivation path, and the only place a derived version is published —
+ * atomically, in this one mutation. Called only through
+ * `ai/brief.ts:publishDerivedBrief`, which read the complete diff baseline
+ * page by page and already compared it with `entries` by `briefDiffKey`.
+ *
+ * 1. Reuse, before the project-wide fence or any candidate processing: if a
+ *    same-key Brief now exists, stamp its latest stored version on this
+ *    generation and return it. This transaction's indexed read serializes
+ *    concurrent first publishers; only the first publishes version 1.
+ * 2. Fence: `baselineBriefId` (or `null` for a project with no Brief) must
+ *    still be the project's newest Brief. If a different-key version was
+ *    published after the baseline was pinned, return `null` having written
+ *    nothing; the caller re-reads and retries.
+ * 3. Re-validate every candidate entry's citation against the live frozen
+ *    source (defense in depth — the caller already validated against the
+ *    same in-memory sources); drop failures and count them.
+ * 4. Diff against that version's live rows, supplied in two parts so old text
+ *    for a key the candidates reuse never travels: `baselineRetained` (a
+ *    reference per live key some candidate shares) and `baselineRemoved` (the
+ *    full payload of each live key no candidate shares). A validated entry
+ *    whose key is in either part is `unchanged` (each baseline key matches
+ *    once), otherwise `added`. Every unmatched `baselineRemoved` row becomes a
+ *    "removed" marker. An unmatched retained reference — every candidate with
+ *    its key failed re-validation — is read back and copied as a marker, but
+ *    only if the row belongs to `baselineBriefId`, is live and has the
+ *    referenced candidate's key; otherwise, like an out-of-range
+ *    `candidateIndex`, the whole mutation aborts with INVALID_STATE.
+ * 5. Insert the new `generationBriefs` version, its entries and markers, then
+ *    stamp `briefId` on the generation.
+ *
+ * The argument therefore carries at most what this version writes, plus
+ * candidates re-validation drops, plus one small reference per retained key.
+ *
+ * Never capped or truncated: a version whose entries plus markers exceed
+ * `MAX_BRIEF_ENTRY_ROWS` is published in full, and generation consumers omit
+ * it (`readBriefEntryRowsOrOmit`).
  */
 export const persistDerivedBrief = internalMutation({
   args: {
@@ -1683,14 +2022,46 @@ export const persistDerivedBrief = internalMutation({
     // `droppedEntryCount` reflects every entry the model proposed that never
     // made it into the Brief.
     upstreamDroppedEntryCount: v.optional(v.number()),
+    // The project's newest Brief when the baseline was pinned (`null`: none).
+    baselineBriefId: v.union(v.id("generationBriefs"), v.null()),
+    // One reference per live key of that Brief that `entries[candidateIndex]`
+    // shares — no text.
+    baselineRetained: v.array(
+      v.object({
+        entryId: v.id("generationBriefEntries"),
+        candidateIndex: v.number(),
+      })
+    ),
+    // The full payload of each live key of that Brief no candidate shares.
+    baselineRemoved: v.array(briefCandidateEntryValidator),
   },
+  returns: v.union(v.id("generationBriefs"), v.null()),
   handler: async (ctx, args) => {
+    const reusable = await latestBriefForInputs(
+      ctx,
+      args.projectId,
+      args.inputsHash
+    );
+    if (reusable) {
+      await ctx.db.patch(args.generationId, { briefId: reusable._id });
+      return reusable._id;
+    }
+
+    const newest = await newestProjectBrief(ctx, args.projectId);
+    if ((newest?._id ?? null) !== args.baselineBriefId) return null;
+
     let droppedEntryCount = args.upstreamDroppedEntryCount ?? 0;
     const validatedEntries: Array<
       (typeof args.entries)[number]
     > = [];
+    // One read per distinct cited source, however many entries cite it.
+    const sources = new Map<Id<"generationSources">, Doc<"generationSources"> | null>();
     for (const entry of args.entries) {
-      const source = await ctx.db.get(entry.sourceId);
+      let source = sources.get(entry.sourceId);
+      if (source === undefined) {
+        source = await ctx.db.get(entry.sourceId);
+        sources.set(entry.sourceId, source);
+      }
       // Tenant-scoping parity with reports.createProvenance (convex/reports.ts:108-118):
       // a citation must resolve to a source belonging to this project and generation,
       // not just pass the byte-match check.
@@ -1706,25 +2077,58 @@ export const persistDerivedBrief = internalMutation({
       validatedEntries.push(entry);
     }
 
-    // The project's previous Brief (any inputsHash) — the diff baseline.
-    const previousBrief = await ctx.db
-      .query("generationBriefs")
-      .withIndex("by_projectId", (q) => q.eq("projectId", args.projectId))
-      .order("desc")
-      .first();
-    const previousEntries = previousBrief
-      ? await ctx.db
-          .query("generationBriefEntries")
-          .withIndex("by_briefId", (q) => q.eq("briefId", previousBrief._id))
-          .take(500)
-      : [];
-    const diffKey = (e: {
-      group: string;
-      sourceContentHash: string;
-      startOffset: number;
-      endOffset: number;
-    }) => `${e.group}|${e.sourceContentHash}|${e.startOffset}|${e.endOffset}`;
-    const previousByKey = new Map(previousEntries.map((e) => [diffKey(e), e]));
+    const hasPreviousBrief = args.baselineBriefId !== null;
+    type BaselineKey =
+      | { retained: (typeof args.baselineRetained)[number] }
+      | { removed: BriefCandidateEntry };
+    const baselineByKey = new Map<string, BaselineKey>();
+    for (const reference of args.baselineRetained) {
+      const candidate = Number.isInteger(reference.candidateIndex)
+        ? args.entries[reference.candidateIndex]
+        : undefined;
+      if (candidate === undefined) {
+        return domainError(
+          "INVALID_STATE",
+          `Generation Brief diff baseline reference ${reference.entryId} names candidate ${reference.candidateIndex} of ${args.entries.length}`
+        );
+      }
+      baselineByKey.set(briefDiffKey(candidate), { retained: reference });
+    }
+    for (const row of args.baselineRemoved) {
+      baselineByKey.set(briefDiffKey(row), { removed: row });
+    }
+
+    // Stamp every validated entry; each baseline key matches at most once.
+    const stampedEntries = validatedEntries.map((entry) => {
+      const matched = baselineByKey.delete(briefDiffKey(entry));
+      const change = !hasPreviousBrief
+        ? undefined
+        : matched
+          ? ("unchanged" as const)
+          : ("added" as const);
+      return { entry, change };
+    });
+
+    // Whatever's left existed before and doesn't now.
+    const markers: BriefCandidateEntry[] = [];
+    for (const [key, unmatched] of baselineByKey) {
+      if ("removed" in unmatched) {
+        markers.push(unmatched.removed);
+        continue;
+      }
+      // Every candidate sharing this key failed re-validation: the old row is
+      // a truthful marker, but only if it is what the reference claims.
+      const row = await ctx.db.get(unmatched.retained.entryId);
+      const payload =
+        row && row.briefId === args.baselineBriefId ? liveBaselinePayload(row) : null;
+      if (payload === null || briefDiffKey(payload) !== key) {
+        return domainError(
+          "INVALID_STATE",
+          `Generation Brief diff baseline reference ${unmatched.retained.entryId} is not a live row of Brief ${args.baselineBriefId} with its candidate's key`
+        );
+      }
+      markers.push(payload);
+    }
 
     const briefId = await ctx.db.insert("generationBriefs", {
       projectId: args.projectId,
@@ -1737,14 +2141,7 @@ export const persistDerivedBrief = internalMutation({
       createdAt: Date.now(),
     });
 
-    for (const entry of validatedEntries) {
-      const key = diffKey(entry);
-      const change = !previousBrief
-        ? undefined
-        : previousByKey.has(key)
-          ? ("unchanged" as const)
-          : ("added" as const);
-      previousByKey.delete(key);
+    for (const { entry, change } of stampedEntries) {
       await ctx.db.insert("generationBriefEntries", {
         briefId,
         projectId: args.projectId,
@@ -1761,8 +2158,7 @@ export const persistDerivedBrief = internalMutation({
         createdAt: Date.now(),
       });
     }
-    // Whatever's left in previousByKey existed before and doesn't now.
-    for (const removed of previousByKey.values()) {
+    for (const removed of markers) {
       await ctx.db.insert("generationBriefEntries", {
         briefId,
         projectId: args.projectId,
@@ -1794,10 +2190,10 @@ export const renderBriefForGeneration = internalQuery({
     if (!generation?.briefId) return "";
     const brief = await ctx.db.get(generation.briefId);
     if (!brief) return "";
-    const entries = await ctx.db
-      .query("generationBriefEntries")
-      .withIndex("by_briefId", (q) => q.eq("briefId", brief._id))
-      .take(500);
+    const entries = await readBriefEntryRowsOrOmit(ctx, args.generationId, brief._id);
+    // Fail open: an unreadable Brief is omitted whole, exactly as a
+    // generation with no briefId renders "" above. Never a prefix.
+    if (entries === null) return "";
     return renderBriefBlock(
       brief.storylineText,
       // The same filter `loadBriefCheck` applies, so both prompt readers
@@ -3892,12 +4288,12 @@ async function loadBriefCheck(
 ) {
   const briefDoc = generation.briefId ? await ctx.db.get(generation.briefId) : null;
   if (!briefDoc) return { briefBlock: "", brief: null };
-  const entries = (
-    await ctx.db
-      .query("generationBriefEntries")
-      .withIndex("by_briefId", (q) => q.eq("briefId", briefDoc._id))
-      .take(500)
-  ).filter(
+  const rows = await readBriefEntryRowsOrOmit(ctx, generation._id, briefDoc._id);
+  // Fail open, identically to renderBriefForGeneration: an unreadable Brief
+  // is omitted whole, never rendered as a prefix. A throw here would strand
+  // the section this claim just CAS-claimed (see readBriefEntryRowsOrOmit).
+  if (rows === null) return { briefBlock: "", brief: null };
+  const entries = rows.filter(
     // A re-derivation carries the previous version's dropped entries as
     // change: "removed" markers for the diff; they are no longer in force.
     (entry) => entry.group !== "storylineQuestion" && entry.change !== "removed"
@@ -4268,15 +4664,30 @@ export const getOrderedSectionDrafts = query({
       return null;
     }
     if ((generation.candidateMode ?? "compare") === "iterative") return [];
+    const candidateRunId = args.candidateRunId;
+    let explicitCandidateRun: Doc<"generationCandidateRuns"> | undefined;
+    if (candidateRunId !== undefined) {
+      const candidateRun = await ctx.db.get(candidateRunId);
+      if (!candidateRun || candidateRun.generationId !== generation._id) return [];
+      explicitCandidateRun = candidateRun;
+    }
     const rows = (
-      await ctx.db
-        .query("generationSectionRuns")
-        .withIndex("by_generationId", (q) => q.eq("generationId", generation._id))
-        .take(30)
+      candidateRunId === undefined
+        ? await ctx.db
+            .query("generationSectionRuns")
+            .withIndex("by_generationId", (q) => q.eq("generationId", generation._id))
+            .take(30)
+        : await ctx.db
+            .query("generationSectionRuns")
+            .withIndex("by_candidateRunId_and_section", (q) =>
+              q.eq("candidateRunId", candidateRunId)
+            )
+            .take(30)
     ).filter(
       (row) =>
+        row.generationId === generation._id &&
         row.candidateRunId !== undefined &&
-        (args.candidateRunId === undefined || row.candidateRunId === args.candidateRunId)
+        (candidateRunId === undefined || row.candidateRunId === candidateRunId)
     );
     const lastIndex = new Map<string, number>();
     for (const row of rows) {
@@ -4286,7 +4697,10 @@ export const getOrderedSectionDrafts = query({
     const checkedAt = new Map<string, number | undefined>();
     const runStatus = new Map<string, string | undefined>();
     for (const key of lastIndex.keys()) {
-      const run = await ctx.db.get(key as Id<"generationCandidateRuns">);
+      const run =
+        explicitCandidateRun?._id === key
+          ? explicitCandidateRun
+          : await ctx.db.get(key as Id<"generationCandidateRuns">);
       checkedAt.set(key, run?.consistencyCheckedAt);
       runStatus.set(key, run?.status);
     }

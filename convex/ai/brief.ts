@@ -2,12 +2,23 @@
 
 import { z } from "zod";
 import type Anthropic from "@anthropic-ai/sdk";
+import type { FunctionArgs, FunctionReturnType } from "convex/server";
 import { internal } from "../_generated/api";
 import type { ActionCtx } from "../_generated/server";
 import type { Doc, Id } from "../_generated/dataModel";
+import {
+  BRIEF_BASELINE_PAGE_BYTES,
+  MAX_BRIEF_ENTRY_ROWS,
+  briefDiffKey,
+} from "../generations";
 import type { GenerationClient } from "./openrouterCore";
+import { normalizeProviderError } from "./providers";
 import { generateStructured } from "./structured";
 import { briefInputsHash } from "../lib/briefInputsHash";
+import {
+  BRIEF_OUTCOME_DETAIL_CHARS,
+  type BriefOutcome,
+} from "../lib/briefRender";
 import { citeQuote, type FrozenSource } from "../lib/citations";
 import {
   flaggedGlossaryTerms,
@@ -19,9 +30,10 @@ import { MODEL } from "./model";
  * Generation Brief derivation stage (story 1, CAP-1/2/4).
  *
  * A plain helper module, not a registered Convex function — same pattern as
- * `analyzerAgent.ts`'s `runAnalyzerAgent`. `deriveOrReuseBrief` is called
+ * `analyzerAgent.ts`'s `runAnalyzerAgent`. `runGenerationBriefStage` is called
  * directly from `pipeline.ts`/`iterative.ts`, once per generation, right
- * after the shared analyzer call resolves. Its only reads/writes are the
+ * after the shared analyzer call resolves; it runs `deriveOrReuseBrief` and
+ * records the attempt's outcome. Its only reads/writes are the
  * `internal.generations.*` helpers next to `getGenerationInput` — the
  * exactly-two-writers rule from AD-23 (this stage, and `briefs.saveEntryEdit`)
  * is enforced there, not by this file being reachable via `internal.*`.
@@ -131,12 +143,17 @@ export const BRIEF_SYSTEM_PROMPT = `You derive a Generation Brief for a Canadian
 The Brief has four parts:
 1. Storyline — the most defensible narrative account of the project against the CRA's Five Questions (technological uncertainty, hypotheses, systematic investigation, technological advancement, records kept). Write it as flowing prose, then restate its individual claims with the exact supporting quote from the evidence.
 2. Claim Exclusions — statements in the evidence that must NEVER be claimed as SR&ED work, however prominent, because they fall outside eligible work. Every exclusion needs a reason: business_risk, routine_engineering, outside_claim_period, or not_technological.
-3. Confidence Map — the evidence's facts classified established (directly and clearly supported), partial (supported but incomplete or hedged), unresolved (evidence conflicts or is silent), or unreliable (the source itself is suspect, e.g. contradicts itself or another source).
+3. Confidence Map — the evidence's facts classified established (directly and clearly supported), partial (supported but incomplete or hedged), unresolved (evidence conflicts or is silent), or unreliable (independent evidence shows the source itself is suspect, e.g. it contradicts itself, was explicitly invalidated, or is otherwise independently discredited).
 4. Glossary Terms — the handful of technical phrases the project description should use consistently, one name per concept.
 
 Rules:
 - Every Storyline claim, Claim Exclusion, and Confidence Map entry MUST carry a "quote" field that is an EXACT, VERBATIM, character-for-character substring copied from the evidence below. Never paraphrase the quote, never invent one. An entry whose quote cannot be found verbatim in the evidence is discarded before it ever reaches the report — so a paraphrased quote is a wasted entry.
 - Never fabricate a claim, exclusion, or fact absent from the evidence.
+- Treat the [SOURCE_KIND=...] tag in each evidence delimiter as authoritative; labels are descriptive and do not determine source kind. When three or more blocks carry [SOURCE_KIND=transcript], reconcile those Transcripts source by source before writing the Brief. Identify what they agree on and every materially conflicting claim.
+- Before classifying claims as materially conflicting, compare their scope, run, configuration, time, and compatible units. Compatible measurements made under different conditions are not contradictions. Retain each relevant claim with calibrated confidence and its own exact quote.
+- Build one coherent Storyline whose common spine is the facts the Transcripts agree on. Do not exclude a defensible complementary fact merely because only one Transcript reports it; retain it with calibrated confidence and its exact source quote when no evidence contradicts it. When the supporting passages for an agreement are materially distinct, preserve source-by-source traceability with separate Confidence Map entries, one per distinct passage and originating Transcript, with one exact quote per entry. If multiple Transcripts contain an identical supporting passage, do not duplicate the same quote merely to claim unique source attribution; one quote-bound entry is sufficient unless another materially distinct passage is available.
+- Never average materially conflicting claims, silently choose one, or omit a competing claim. For each competing claim, use an exact contextual quote that is unique to its originating evidence block when available. If identical passages or overlapping text make the source unresolvable, state the attribution ambiguity and do not claim unique source provenance. Ordinary inter-source disagreement is "unresolved", not "unreliable": keep each competing claim as a separate Confidence Map entry with confidence "unresolved" and its own exact quote from the originating evidence block. Use "unreliable" only when independent evidence gives a reason to distrust the source itself, such as an internal contradiction, explicit invalidation, or other evidence that the source is suspect.
+- Treat a conflict as resolved only when the evidence explicitly says that a claim was corrected or retracted and the correction or retraction itself remains supported. A correction that was subsequently withdrawn or retracted, or is independently discredited, does not invalidate the original claim or inform the Storyline. A correction or retraction resolves only the claim it explicitly corrects or retracts. A different source merely asserting that a competing claim is wrong, or offering a disputed correction, remains ordinary unresolved disagreement unless independent evidence establishes source unreliability; do not invent an authority or approval hierarchy. When a supported correction or retraction validly resolves a claim, keep the original claim as "unreliable" with its exact quote, and record the explicit correction or retraction separately with its own exact quote. Reassess every remaining competitor and keep unresolved alternatives separate. If other conflicting alternatives remain, preserve that uncertainty in the Storyline; a replacement is not established solely because it is labeled a correction. A retraction alone supplies no replacement fact. Let only a supported, undisputed correction inform the Storyline. Never infer a correction from recency, plausibility, or source order.
 - Glossary terms are the canonical term string plus, optionally, inflected forms already used in the evidence verbatim (plurals, past tense) — those are matched back into the evidence separately by rule, so no quote is needed for them.
 - Some concepts appear in the evidence only under a different phrasing than your canonical term (a genuine synonym, not just a plural or tense change) — for those, and ONLY those, also give a "quote" field: an exact, verbatim substring where that different phrasing appears. Leave "quote" empty for any term whose exact wording (or an obvious plural/past-tense form) is already present.
 - Write in plain, specific, technical language. No filler, no marketing language.`;
@@ -251,10 +268,147 @@ export function buildBriefUserMessage(
   const blocks = evidence
     .map(
       (s) =>
-        `--- BEGIN [${s.label.toUpperCase()}] ---\n${s.content}\n--- END [${s.label.toUpperCase()}] ---`
+        `--- BEGIN [SOURCE_KIND=${s.kind}] [${s.label.toUpperCase()}] ---\n${s.content}\n--- END [SOURCE_KIND=${s.kind}] [${s.label.toUpperCase()}] ---`
     )
     .join("\n\n");
   return `${BRIEF_TASK_GUIDANCE}\n\n${blocks}`;
+}
+
+/** The only database access the publish path needs — an action's, or a test
+ * adapter over `t.query`/`t.mutation`. */
+export type BriefPublishCtx = Pick<ActionCtx, "runQuery" | "runMutation">;
+
+/** Publish attempts before a derivation whose baseline keeps moving gives up. */
+export const BRIEF_PUBLISH_ATTEMPTS = 3;
+
+type PersistDerivedBriefArgs = FunctionArgs<
+  typeof internal.generations.persistDerivedBrief
+>;
+type BaselineRetained = PersistDerivedBriefArgs["baselineRetained"][number];
+type BaselineRemoved = PersistDerivedBriefArgs["baselineRemoved"][number];
+
+/**
+ * The complete diff baseline for a new derivation, already compared with its
+ * candidates: the project's newest Brief (pinned by id) and every one of its
+ * live rows, however many there are, partitioned by `briefDiffKey`.
+ *
+ * Each page is its own bounded query transaction (`getBriefDiffBaselinePage`),
+ * so no single read grows with the Brief. A `SplitRequired` page may be
+ * incomplete, so it is discarded and re-read from the same cursor with half
+ * as many rows; a one-row page that still reports it cannot be read within
+ * the byte budget and throws. The baseline is complete only when an accepted
+ * page reports `isDone` — never a prefix, never a refusal by size.
+ *
+ * Only compact results outlive a page. A live key some candidate shares keeps
+ * a `retained` reference (the row id and the first such candidate's index) and
+ * its old text is dropped with the page; a live key no candidate shares keeps
+ * its full payload in `removed`, because it becomes a marker. As in the
+ * mutation, the last row with a key wins.
+ */
+export async function readCompleteBriefDiffBaseline(
+  ctx: BriefPublishCtx,
+  projectId: Id<"projects">,
+  candidates: ReadonlyArray<Parameters<typeof briefDiffKey>[0]>
+): Promise<{
+  briefId: Id<"generationBriefs"> | null;
+  retained: BaselineRetained[];
+  removed: BaselineRemoved[];
+}> {
+  const briefId = await ctx.runQuery(internal.generations.getBriefDiffBaselineId, {
+    projectId,
+  });
+  if (briefId === null) return { briefId: null, retained: [], removed: [] };
+
+  const candidateIndexByKey = new Map<string, number>();
+  candidates.forEach((candidate, index) => {
+    const key = briefDiffKey(candidate);
+    if (!candidateIndexByKey.has(key)) candidateIndexByKey.set(key, index);
+  });
+  const retainedByKey = new Map<string, BaselineRetained>();
+  const removedByKey = new Map<string, BaselineRemoved>();
+  let cursor: string | null = null;
+  let numItems = MAX_BRIEF_ENTRY_ROWS;
+  for (;;) {
+    const page: FunctionReturnType<typeof internal.generations.getBriefDiffBaselinePage> =
+      await ctx.runQuery(internal.generations.getBriefDiffBaselinePage, {
+        briefId,
+        cursor,
+        numItems,
+      });
+    if (page.pageStatus === "SplitRequired") {
+      if (numItems <= 1) {
+        throw new Error(
+          `Generation Brief ${briefId} diff baseline: one row exceeds the ${BRIEF_BASELINE_PAGE_BYTES}-byte page budget`
+        );
+      }
+      numItems = Math.max(1, Math.floor(numItems / 2));
+      continue;
+    }
+    for (const { entryId, ...payload } of page.entries) {
+      const key = briefDiffKey(payload);
+      const candidateIndex = candidateIndexByKey.get(key);
+      if (candidateIndex === undefined) removedByKey.set(key, payload);
+      else retainedByKey.set(key, { entryId, candidateIndex });
+    }
+    if (page.isDone) {
+      return {
+        briefId,
+        retained: [...retainedByKey.values()],
+        removed: [...removedByKey.values()],
+      };
+    }
+    if (page.continueCursor === cursor) {
+      throw new Error(
+        `Generation Brief ${briefId} diff baseline: a page made no progress`
+      );
+    }
+    cursor = page.continueCursor;
+  }
+}
+
+/**
+ * Publish one derived Brief version against a complete, fenced baseline.
+ *
+ * Reads and compares the baseline (`readCompleteBriefDiffBaseline`), then
+ * publishes the whole version in one `persistDerivedBrief` mutation that
+ * first adopts and returns the latest same-key Brief when one exists. If no
+ * same-key Brief exists, persistence checks that the pinned Brief is still
+ * the project's newest. Its argument carries references, not text, for
+ * baseline keys the candidates reuse, so it stays bounded by what the new
+ * version writes rather than by the old version's size. If a different-key
+ * version was published in between, that mutation writes nothing and returns
+ * `null`; the baseline is re-read and the same candidates are re-published.
+ * The model is never re-run. After `BRIEF_PUBLISH_ATTEMPTS` lost fences it
+ * throws under the derivation's existing fail-open catch, and no version from
+ * this derivation exists.
+ */
+export async function publishDerivedBrief(
+  ctx: BriefPublishCtx,
+  args: Omit<
+    PersistDerivedBriefArgs,
+    "baselineBriefId" | "baselineRetained" | "baselineRemoved"
+  >
+): Promise<Id<"generationBriefs">> {
+  for (let attempt = 1; attempt <= BRIEF_PUBLISH_ATTEMPTS; attempt += 1) {
+    const baseline = await readCompleteBriefDiffBaseline(
+      ctx,
+      args.projectId,
+      args.entries
+    );
+    const briefId: Id<"generationBriefs"> | null = await ctx.runMutation(
+      internal.generations.persistDerivedBrief,
+      {
+        ...args,
+        baselineBriefId: baseline.briefId,
+        baselineRetained: baseline.retained,
+        baselineRemoved: baseline.removed,
+      }
+    );
+    if (briefId !== null) return briefId;
+  }
+  throw new Error(
+    `Generation Brief for generation ${args.generationId} not published: the project's newest Brief changed during each of ${BRIEF_PUBLISH_ATTEMPTS} attempts`
+  );
 }
 
 type CandidateEntry = {
@@ -269,27 +423,35 @@ type CandidateEntry = {
   exactExcerpt: string;
 };
 
+type BriefStageArgs = {
+  projectId: Id<"projects">;
+  generationId: Id<"generations">;
+  model?: string;
+};
+
+/** What `deriveOrReuseBrief` did when it did not throw. */
+export type BriefStageAttempt =
+  | { kind: "derived" | "reused"; briefId: Id<"generationBriefs"> }
+  | { kind: "no_evidence" };
+
 /**
  * The stage: compute inputsHash, reuse the stored Brief when inputs are
  * unchanged, otherwise run one structured call and persist the result.
- * Returns the Brief id, or `undefined` if the generation has no evidence to
- * derive from (never expected in practice — `reserveGeneration` requires at
- * least one readable source).
+ * Returns which of those happened with the Brief id, or `no_evidence` if the
+ * generation has no frozen sources to derive from (never expected in
+ * practice — `reserveGeneration` requires at least one readable source).
+ * Throws on any failure; `runGenerationBriefStage` is its only caller.
  */
 export async function deriveOrReuseBrief(
-  ctx: ActionCtx,
+  ctx: BriefPublishCtx,
   client: GenerationClient,
-  args: {
-    projectId: Id<"projects">;
-    generationId: Id<"generations">;
-    model?: string;
-  }
-): Promise<Id<"generationBriefs"> | undefined> {
+  args: BriefStageArgs
+): Promise<BriefStageAttempt> {
   const sources = await ctx.runQuery(
     internal.generations.getGenerationSourcesForBrief,
     { generationId: args.generationId }
   );
-  if (sources.length === 0) return undefined;
+  if (sources.length === 0) return { kind: "no_evidence" };
 
   const inputsHash = await briefInputsHash(sources);
   const reusable = await ctx.runQuery(internal.generations.findReusableBrief, {
@@ -301,7 +463,7 @@ export async function deriveOrReuseBrief(
       generationId: args.generationId,
       briefId: reusable._id,
     });
-    return reusable._id;
+    return { kind: "reused", briefId: reusable._id };
   }
 
   const writerSource = sources.find((s) => s.kind === "writer_storyline");
@@ -384,7 +546,7 @@ export async function deriveOrReuseBrief(
   for (const match of glossaryMatches) {
     candidateEntries.push({
       group: "glossaryTerm",
-      text: match.text,
+      text: match.canonicalTerm,
       sourceId: match.sourceId,
       sourceContentHash: match.sourceContentHash,
       startOffset: match.startOffset,
@@ -432,7 +594,7 @@ export async function deriveOrReuseBrief(
   const storylineText = writerSource ? writerSource.content : output.storyline;
   const origin = writerSource ? ("writer" as const) : ("derived" as const);
 
-  const briefId = await ctx.runMutation(internal.generations.persistDerivedBrief, {
+  const briefId = await publishDerivedBrief(ctx, {
     projectId: args.projectId,
     generationId: args.generationId,
     inputsHash,
@@ -441,5 +603,125 @@ export async function deriveOrReuseBrief(
     entries: candidateEntries,
     upstreamDroppedEntryCount,
   });
-  return briefId;
+  return { kind: "derived", briefId };
+}
+
+type BriefFailureOutcome = Extract<BriefOutcome, { kind: "failed" }>;
+
+const UNAVAILABLE_BRIEF_ERROR_DETAIL =
+  "Thrown value could not be converted to text.";
+
+function briefFailureDetail(error: unknown): string {
+  let message: string;
+  try {
+    if (error instanceof Error) {
+      const rawMessage: unknown = error.message;
+      message =
+        typeof rawMessage === "string" ? rawMessage : String(rawMessage);
+    } else {
+      message = String(error);
+    }
+  } catch {
+    message = UNAVAILABLE_BRIEF_ERROR_DETAIL;
+  }
+
+  let bounded = message.slice(0, BRIEF_OUTCOME_DETAIL_CHARS);
+  // Do not keep the first half of a surrogate pair when the bound lands
+  // between its two code units.
+  if (/[\uD800-\uDBFF]$/.test(bounded)) bounded = bounded.slice(0, -1);
+
+  // A thrown string can already contain lone surrogates away from the bound.
+  // Replace those invalid code units so Convex can always store the detail.
+  let valid = "";
+  for (let index = 0; index < bounded.length; index += 1) {
+    const codeUnit = bounded.charCodeAt(index);
+    if (codeUnit >= 0xd800 && codeUnit <= 0xdbff) {
+      const nextCodeUnit = bounded.charCodeAt(index + 1);
+      if (nextCodeUnit >= 0xdc00 && nextCodeUnit <= 0xdfff) {
+        valid += bounded[index] + bounded[index + 1];
+        index += 1;
+      } else {
+        valid += "\uFFFD";
+      }
+    } else if (codeUnit >= 0xdc00 && codeUnit <= 0xdfff) {
+      valid += "\uFFFD";
+    } else {
+      valid += bounded[index];
+    }
+  }
+  return valid;
+}
+
+function briefFailureCode(error: unknown): BriefFailureOutcome["code"] {
+  try {
+    return normalizeProviderError(error).code;
+  } catch {
+    return "unknown";
+  }
+}
+
+function logBriefStageError(...values: unknown[]): void {
+  try {
+    console.error(...values);
+  } catch {
+    // Logging is telemetry too. A logger failure must remain fail-open.
+  }
+}
+
+/** A failed attempt's outcome: the provider code and the raw error message,
+ * bounded by `BRIEF_OUTCOME_DETAIL_CHARS`. This normalizer is total so it is
+ * safe to call from the stage runner's catch block. */
+export function briefFailureOutcome(
+  error: unknown
+): BriefFailureOutcome {
+  return {
+    kind: "failed",
+    code: briefFailureCode(error),
+    detail: briefFailureDetail(error),
+  };
+}
+
+/**
+ * DW-109/DW-120: the Generation Brief stage as both entry actions run it —
+ * `generateReport` (single/compare) and `startIterativeGeneration` — once per
+ * generation, right after the shared analysis is saved.
+ *
+ * Never throws. Brief is read-only guidance, never required, so a failed
+ * derivation is logged for ops (with the generation id and the original
+ * error) and the generation continues with no Brief. Every attempt, whatever
+ * its result, is recorded once through `generations.recordBriefOutcome`,
+ * which stores the outcome and appends its authored progress line together.
+ * A failure to record is itself only logged: telemetry never fails, stalls or
+ * reorders a generation.
+ */
+export async function runGenerationBriefStage(
+  ctx: BriefPublishCtx,
+  client: GenerationClient,
+  args: BriefStageArgs
+): Promise<void> {
+  let outcome: BriefOutcome;
+  try {
+    const attempt = await deriveOrReuseBrief(ctx, client, args);
+    outcome = { kind: attempt.kind };
+  } catch (error) {
+    logBriefStageError(
+      "Generation Brief derivation failed; continuing without a Brief",
+      args.generationId,
+      error
+    );
+    outcome = briefFailureOutcome(error);
+  }
+  try {
+    await ctx.runMutation(internal.generations.recordBriefOutcome, {
+      generationId: args.generationId,
+      outcome,
+    });
+  } catch (error) {
+    logBriefStageError(
+      "Generation Brief outcome not recorded",
+      args.generationId,
+      outcome.kind,
+      error
+    );
+  }
 }
