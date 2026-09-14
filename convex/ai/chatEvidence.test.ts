@@ -647,6 +647,57 @@ describe("open questions block", () => {
     );
   });
 
+  it("opens the block with the omitted count when the query's cap cut the list (DW-138)", () => {
+    const { message } = buildChatEvidence({
+      reportText: "Report prose.",
+      analysisText: "{}",
+      openQuestions: questions,
+      openQuestionsOmitted: { count: 6, exact: true },
+    });
+    const body = blockBody(message, `${EVIDENCE_LABELS.openQuestions}]`);
+    expect(body.split("\n")[0]).toBe(
+      "Listing 2 of 8 open questions; 6 more are not shown."
+    );
+    expect(body).toContain("[1: UNRESOLVED] The number of fatigue cycles was never measured.");
+
+    // A cut scan can only bound the count from below, and the line says so.
+    const inexact = buildChatEvidence({
+      reportText: "Report prose.",
+      analysisText: "{}",
+      openQuestions: questions,
+      openQuestionsOmitted: { count: 6, exact: false },
+    });
+    expect(
+      blockBody(inexact.message, `${EVIDENCE_LABELS.openQuestions}]`).split("\n")[0]
+    ).toBe("Listing 2 open questions; at least 6 more are not shown.");
+
+    // Nothing omitted: the block is exactly the list, as before.
+    const complete = buildChatEvidence({
+      reportText: "Report prose.",
+      analysisText: "{}",
+      openQuestions: questions,
+      openQuestionsOmitted: { count: 0, exact: true },
+    });
+    expect(
+      blockBody(complete.message, `${EVIDENCE_LABELS.openQuestions}]`).startsWith("[1: ")
+    ).toBe(true);
+  });
+
+  it("carries the omitted count from the context row into the message", () => {
+    const context: ChatTurnContext = {
+      reportContent: null,
+      agentOutputs: null,
+      documents: [],
+      decisions: [],
+      openQuestions: questions,
+      openQuestionsOmitted: { count: 3, exact: true },
+    };
+    const turn = buildChatTurnRequest({ context });
+    expect(String(turn.messages[0]?.content)).toContain(
+      "Listing 2 of 5 open questions; 3 more are not shown."
+    );
+  });
+
   it("keeps the system string byte-identical with and without it (AD-11a)", () => {
     const base: ChatTurnContext = {
       reportContent: JSON.stringify({

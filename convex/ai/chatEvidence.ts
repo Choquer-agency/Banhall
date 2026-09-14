@@ -135,12 +135,23 @@ export interface ChatOpenQuestion {
   sourceLabel: string | null;
 }
 
+/**
+ * How many open questions the query's cap left out of `openQuestions` (DW-138).
+ * `exact` is false when the query's scan bound cut the count short, making it
+ * a lower bound.
+ */
+export interface ChatOpenQuestionsOmitted {
+  count: number;
+  exact: boolean;
+}
+
 export interface ChatEvidenceInput {
   reportText: string;
   analysisText: string;
   documents?: ChatEvidenceDoc[];
   decisions?: ChatEvidenceDecision[];
   openQuestions?: ChatOpenQuestion[];
+  openQuestionsOmitted?: ChatOpenQuestionsOmitted;
   budget?: ChatEvidenceBudget;
 }
 
@@ -152,6 +163,7 @@ export interface ChatTurnContext {
   decisions: ChatEvidenceDecision[];
   /** Absent on every turn whose generation has no Brief. */
   openQuestions?: ChatOpenQuestion[];
+  openQuestionsOmitted?: ChatOpenQuestionsOmitted;
   evidenceBudget?: ChatEvidenceBudget;
 }
 
@@ -225,17 +237,28 @@ export function decisionsTextFrom(decisions: ChatEvidenceDecision[]): string {
 
 /**
  * The open questions as one line each. Confidence first because it is what
- * makes the entry a question rather than a fact.
+ * makes the entry a question rather than a fact. When the query's cap left
+ * some out, the block OPENS with the count (DW-138): first, so the budget's
+ * tail cut can never remove the one line that says the list is a subset.
  */
-export function openQuestionsTextFrom(questions: ChatOpenQuestion[]): string {
-  return questions
-    .map(
-      (question, index) =>
-        `[${index + 1}: ${question.confidence.toUpperCase()}] ${question.text}${
-          question.sourceLabel ? ` (source: ${question.sourceLabel})` : ""
-        }`
-    )
-    .join("\n");
+export function openQuestionsTextFrom(
+  questions: ChatOpenQuestion[],
+  omitted?: ChatOpenQuestionsOmitted
+): string {
+  const lines = questions.map(
+    (question, index) =>
+      `[${index + 1}: ${question.confidence.toUpperCase()}] ${question.text}${
+        question.sourceLabel ? ` (source: ${question.sourceLabel})` : ""
+      }`
+  );
+  if (omitted && omitted.count > 0) {
+    lines.unshift(
+      omitted.exact
+        ? `Listing ${questions.length} of ${questions.length + omitted.count} open questions; ${omitted.count} more are not shown.`
+        : `Listing ${questions.length} open questions; at least ${omitted.count} more are not shown.`
+    );
+  }
+  return lines.join("\n");
 }
 
 /**
@@ -429,7 +452,7 @@ export function buildChatEvidence(input: ChatEvidenceInput): {
           // provenance of the TRANSCRIPT ANALYSIS block. Not the writer's own
           // direction, so not `internal`.
           "client",
-          openQuestionsTextFrom(openQuestions),
+          openQuestionsTextFrom(openQuestions, input.openQuestionsOmitted),
           Math.min(chars(budget.openQuestionsTokens), totalChars),
           remaining
         )
@@ -571,7 +594,12 @@ export function buildChatTurnRequest(args: {
     documents: args.context.documents,
     decisions: args.context.decisions,
     ...(args.context.openQuestions?.length
-      ? { openQuestions: args.context.openQuestions }
+      ? {
+          openQuestions: args.context.openQuestions,
+          ...(args.context.openQuestionsOmitted
+            ? { openQuestionsOmitted: args.context.openQuestionsOmitted }
+            : {}),
+        }
       : {}),
     ...(budget ? { budget } : {}),
   });

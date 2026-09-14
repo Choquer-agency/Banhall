@@ -51,7 +51,10 @@ import { domainError, sha256 } from "./lib/contracts";
 import { normalizeCraScienceCode } from "../shared/craScienceCodes";
 import { proposalPairs } from "../shared/chatProposals";
 import { chatAdmissionLimits, chatEvidenceBudget } from "./appSettings";
-import type { ChatOpenQuestion } from "./ai/chatEvidence";
+import type {
+  ChatOpenQuestion,
+  ChatOpenQuestionsOmitted,
+} from "./ai/chatEvidence";
 import { projectRollingCostUsdUnits, usdDecimalUnits } from "./aiUsage";
 import type { Doc, Id } from "./_generated/dataModel";
 
@@ -1075,7 +1078,13 @@ export const getThreadBrainContext = internalQuery({
 });
 
 const MAX_INVENTORY_NOTES = 1000;
-const MAX_PROJECT_DOCUMENT_ROWS = 200;
+/**
+ * DW-138: the Reference PD lookup walks the project's documents and keeps the
+ * `previous_pd` rows, so the bound is on rows SCANNED, not rows taken before
+ * the filter (which lost any Reference PD uploaded after 200 attachments).
+ * Hitting it is reported as `documentScanTruncated`, never as "none attached".
+ */
+export const MAX_PROJECT_DOCUMENT_SCAN = 1000;
 
 /** Why rule Deviations are or are not in the inventory. Three distinguishable
  * states, because "no linked generation" and "a generation that found nothing"
@@ -1158,6 +1167,12 @@ export const getDeviationInventoryContext = internalQuery({
     unreadableReferenceFileNames: string[];
     /** The row the tool tried to use, named so its copy can say which file. */
     selectedReferenceFileName: string | null;
+    /**
+     * True when the project holds more than `MAX_PROJECT_DOCUMENT_SCAN`
+     * documents, so a Reference PD past the bound was not seen. The tool says
+     * so instead of reporting the PD absent.
+     */
+    documentScanTruncated: boolean;
   }> => {
     const empty: InventorySections = { s242: "", s244: "", s246: "" };
     const thread = await threadRow(ctx, args.agentThreadId);
@@ -1173,6 +1188,7 @@ export const getDeviationInventoryContext = internalQuery({
         referenceFileNames: [],
         unreadableReferenceFileNames: [],
         selectedReferenceFileName: null,
+        documentScanTruncated: false,
       };
     }
     const report = await ctx.db.get(thread.reportId);
@@ -1225,14 +1241,23 @@ export const getDeviationInventoryContext = internalQuery({
         : "available";
 
     // The Reference PD is a `previous_pd` document of THIS project. Archived
-    // rows are already out of AI context, so they are out of here too.
-    const documents = await ctx.db
+    // rows are already out of AI context, so they are out of here too. The
+    // filter runs INSIDE the bounded walk (DW-138): `projectDocuments` has no
+    // category index, and taking a prefix first dropped any Reference PD that
+    // sat behind the project's other attachments.
+    const attached: Doc<"projectDocuments">[] = [];
+    let documentScanTruncated = false;
+    let scannedDocuments = 0;
+    for await (const row of ctx.db
       .query("projectDocuments")
-      .withIndex("by_projectId", (q) => q.eq("projectId", thread.projectId))
-      .take(MAX_PROJECT_DOCUMENT_ROWS);
-    const attached = documents.filter(
-      (row) => row.category === "previous_pd" && !row.archived
-    );
+      .withIndex("by_projectId", (q) => q.eq("projectId", thread.projectId))) {
+      if (scannedDocuments >= MAX_PROJECT_DOCUMENT_SCAN) {
+        documentScanTruncated = true;
+        break;
+      }
+      scannedDocuments += 1;
+      if (row.category === "previous_pd" && !row.archived) attached.push(row);
+    }
     // A row whose extraction produced nothing carries no text to compare. It is
     // NOT offered as a choice, because a blank Reference PD parses to three
     // empty sections and would make every draft paragraph look like a
@@ -1285,12 +1310,19 @@ export const getDeviationInventoryContext = internalQuery({
       unreadableReferenceFileNames: unreadable.map((row) => row.fileName),
       selectedReferenceFileName:
         selected?.fileName ?? args.referenceFileName ?? null,
+      documentScanTruncated,
     };
   },
 });
 
-/** Brief entries read per version; the derivation writes far fewer. */
-const MAX_BRIEF_ENTRY_ROWS = 500;
+/**
+ * Brief entry rows walked per turn. The derivation writes far fewer, and a
+ * Brief past `briefs.ts`'s 500-entry edit bound is still readable here; the
+ * walk filters as it goes (DW-138), so open questions behind hundreds of
+ * glossary or exclusion rows are found, and the bound is reported as an
+ * inexact omitted count rather than silently cutting the list.
+ */
+const MAX_BRIEF_ENTRY_SCAN = 2000;
 /** CAP-14's evidence block is a prompt for the writer's next client call, not
  * a dump of the Confidence Map. */
 export const MAX_OPEN_QUESTIONS = 20;
@@ -1301,24 +1333,40 @@ export const MAX_OPEN_QUESTIONS = 20;
  * are not open questions and never appear. Empty for a generation with no
  * Brief, which keeps the byte-stability contract for legacy projects intact
  * (the evidence block is omitted entirely for an empty list).
+ *
+ * `omitted` counts the open questions past `MAX_OPEN_QUESTIONS` so the evidence
+ * block can say the list is a subset (DW-138); `exact` is false only when the
+ * scan bound cut the walk, in which case the count is a lower bound.
  */
 async function openQuestionsFor(
   ctx: QueryCtx,
   generation: Doc<"generations"> | null
-): Promise<ChatOpenQuestion[]> {
-  if (!generation?.briefId) return [];
-  const entries = await ctx.db
-    .query("generationBriefEntries")
-    .withIndex("by_briefId", (q) => q.eq("briefId", generation.briefId!))
-    .take(MAX_BRIEF_ENTRY_ROWS);
+): Promise<{
+  questions: ChatOpenQuestion[];
+  omitted: ChatOpenQuestionsOmitted;
+}> {
   const open: ChatOpenQuestion[] = [];
+  let omitted = 0;
+  let exact = true;
+  if (!generation?.briefId) return { questions: open, omitted: { count: 0, exact } };
   const labels = new Map<Id<"generationSources">, string>();
-  for (const entry of entries) {
-    if (open.length >= MAX_OPEN_QUESTIONS) break;
+  let scanned = 0;
+  for await (const entry of ctx.db
+    .query("generationBriefEntries")
+    .withIndex("by_briefId", (q) => q.eq("briefId", generation.briefId!))) {
+    if (scanned >= MAX_BRIEF_ENTRY_SCAN) {
+      exact = false;
+      break;
+    }
+    scanned += 1;
     if (entry.group !== "confidenceMap") continue;
     // Narrowed, not defaulted: a Brief confidence value this block has no
     // wording for must be left out rather than relabelled as unresolved.
     if (entry.confidence !== "unresolved" && entry.confidence !== "unreliable") {
+      continue;
+    }
+    if (open.length >= MAX_OPEN_QUESTIONS) {
+      omitted += 1;
       continue;
     }
     if (!labels.has(entry.sourceId)) {
@@ -1331,7 +1379,7 @@ async function openQuestionsFor(
       sourceLabel: labels.get(entry.sourceId) ?? null,
     });
   }
-  return open;
+  return { questions: open, omitted: { count: omitted, exact } };
 }
 
 /** Grounding context for streamChatReply — thread history stays componentside. */
@@ -1390,6 +1438,8 @@ export const getChatContextV2 = internalQuery({
           (p.replacements ? p.replacements.map((r) => r.replaceWith).join(" | ") : ""),
       }));
 
+    const openQuestions = await openQuestionsFor(ctx, ownGeneration);
+
     return {
       reportContent: report.content ?? null,
       agentOutputs: generation?.agentOutputs ?? null,
@@ -1412,7 +1462,10 @@ export const getChatContextV2 = internalQuery({
       // never the analysis fallback: a report with no `generationId` (a copied
       // project's report) would otherwise be handed another draft's open
       // questions as its own.
-      openQuestions: await openQuestionsFor(ctx, ownGeneration),
+      openQuestions: openQuestions.questions,
+      // DW-138: how many open questions the 20 cap left out, so the block can
+      // say it is a subset instead of looking complete.
+      openQuestionsOmitted: openQuestions.omitted,
       // Resolved in the query, exactly as `getGenerationInput` resolves the
       // analyzer's: the action sends context, it does not decide policy.
       evidenceBudget: await chatEvidenceBudget(ctx),

@@ -11,6 +11,7 @@ import {
   type ChatToolCtx,
 } from "./ai/chatAgentV2";
 import type { BulkEditInput } from "./lib/completionReport";
+import { MAX_PROJECT_DOCUMENT_SCAN } from "./chatV2";
 
 const modules = import.meta.glob("./**/*.ts");
 
@@ -358,6 +359,25 @@ describe("runCompareReferencePd", () => {
     expect(reply).toContain('No readable previous-year report named "pd-2099.docx"');
     expect(reply).toContain('"pd-2024.docx"');
     expect(reply).toContain('"pd-2025.docx"');
+  });
+
+  test("tells the model the document scan was cut instead of claiming none is attached (DW-138)", async () => {
+    const f = await setup({
+      documents: [
+        ...Array.from({ length: MAX_PROJECT_DOCUMENT_SCAN }, (_, i) => ({
+          fileName: `attachment-${i + 1}.docx`,
+          content: `Attachment ${i + 1}.`,
+          category: "background" as const,
+        })),
+        { fileName: "beyond-the-bound.docx", content: REFERENCE },
+      ],
+    });
+    const reply = await runCompareReferencePd(f.ctx, {});
+    expect(reply).toContain(
+      `only the first ${MAX_PROJECT_DOCUMENT_SCAN} documents of this project were scanned`
+    );
+    expect(reply).not.toContain("no Reference PD attached");
+    expect(reply).toContain("propose nothing");
   });
 
   test("asks which one when more than one readable file is attached", async () => {

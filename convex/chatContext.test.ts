@@ -400,6 +400,61 @@ describe("getChatContextV2 open questions", () => {
     expect(context.openQuestions[0]?.text).toBe("Open fact 1.");
   });
 
+  test("reports how many open questions the 20 cap left out (DW-138)", async () => {
+    const t = convexTest(schema, modules);
+    const { reportId } = await seedBrief(
+      t,
+      Array.from({ length: 26 }, (_, i) => ({
+        text: `Open fact ${i + 1}.`,
+        confidence: i % 2 === 0 ? "unresolved" : "unreliable",
+      }))
+    );
+    const context = await t.query(internal.chatV2.getChatContextV2, {
+      reportId,
+      agentThreadId: "thread-open-questions-omitted",
+    });
+    expect(context.openQuestions).toHaveLength(20);
+    expect(context.openQuestionsOmitted).toEqual({ count: 6, exact: true });
+  });
+
+  test("reports nothing omitted when every open question fits", async () => {
+    const t = convexTest(schema, modules);
+    const { reportId } = await seedBrief(t, [
+      { text: "Open fact.", confidence: "unresolved" },
+      { text: "Settled fact.", confidence: "established" },
+    ]);
+    const context = await t.query(internal.chatV2.getChatContextV2, {
+      reportId,
+      agentThreadId: "thread-open-questions-fit",
+    });
+    expect(context.openQuestions).toHaveLength(1);
+    expect(context.openQuestionsOmitted).toEqual({ count: 0, exact: true });
+  });
+
+  test("still finds open questions behind more than 500 entries of other groups (DW-138)", async () => {
+    // The read used to take 500 rows and THEN filter, so a Brief whose
+    // Confidence Map sat after 500 glossary or exclusion rows returned no open
+    // question while the prompt read the absent block as "no Brief".
+    const t = convexTest(schema, modules);
+    const { reportId } = await seedBrief(t, [
+      ...Array.from({ length: 501 }, (_, i) => ({
+        text: `Excluded activity ${i + 1}.`,
+        group: "claimExclusion",
+      })),
+      { text: "The cycle count was never measured.", confidence: "unresolved" },
+      { text: "The vendor datasheet contradicts the log.", confidence: "unreliable" },
+    ]);
+    const context = await t.query(internal.chatV2.getChatContextV2, {
+      reportId,
+      agentThreadId: "thread-open-questions-deep",
+    });
+    expect(context.openQuestions.map((q) => q.text)).toEqual([
+      "The cycle count was never measured.",
+      "The vendor datasheet contradicts the log.",
+    ]);
+    expect(context.openQuestionsOmitted).toEqual({ count: 0, exact: true });
+  });
+
   test("returns an empty list for a generation with no Brief", async () => {
     const t = convexTest(schema, modules);
     const { projectId, transcriptId } = await seedProject(t);
