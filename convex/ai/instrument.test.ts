@@ -15,6 +15,7 @@ vi.mock("./providers", () => ({
 import { instrumentedAnthropic } from "./instrument";
 import {
   GENERATION_CALL_SLOTS,
+  GENERATION_SLOT_ALLOWANCES,
   assertGenerationCallSite,
   mergeSlotCounts,
   summarizeSlotUsage,
@@ -528,6 +529,47 @@ describe("AD-27 generation call slots", () => {
     });
     expect(summary.overrun).toEqual(["brief", "compression:246", "selfCheck:242"]);
     expect(summarizeSlotUsage({ "section:244": 1, "selfCheck:244": 1, consistency: 1 }).overrun).toEqual([]);
+  });
+
+  it("declares the settings-document classifier slot with an allowance of one, recorded not enforced (story 3)", () => {
+    expect(GENERATION_CALL_SLOTS).toContain("settings");
+    expect(() => assertGenerationCallSite("generation:settings")).not.toThrow();
+    expect(emittedGenerationLabels()).toContain("generation:settings");
+    expect(GENERATION_SLOT_ALLOWANCES.settings).toBe(1);
+    expect(summarizeSlotUsage({ "generation:settings": 1 })).toEqual({
+      counts: { settings: 1 },
+      overrun: [],
+    });
+    expect(summarizeSlotUsage({ "generation:settings": 2, settings: 1 })).toEqual({
+      counts: { settings: 3 },
+      overrun: ["settings"],
+    });
+  });
+
+  it("a generation:settings call after a recorded overrun still goes to the provider and is recorded (never refused)", async () => {
+    const generationId = testId<"generations">("generation-settings-overrun");
+    // The generation's usage already shows the settings slot over its allowance.
+    expect(summarizeSlotUsage({ "generation:settings": 2 }).overrun).toEqual(["settings"]);
+    const providerCreate = vi.fn(async () => textResponse({ input_tokens: 7, output_tokens: 3 }));
+    providerMocks.createAnthropicClient.mockReturnValue({
+      messages: { create: providerCreate },
+    });
+    const { ctx, runAfter } = fakeCtx();
+    const client = instrumentedAnthropic(ctx, {
+      callSite: "generation:settings",
+      attribution: { generationId },
+    });
+    await expect(client.messages.create(request)).resolves.toMatchObject({
+      content: [{ type: "text", text: "provider response" }],
+    });
+    expect(providerCreate).toHaveBeenCalledTimes(1);
+    expect(runAfter).toHaveBeenCalledTimes(1);
+    expect(runAfter.mock.calls[0][2]).toMatchObject({
+      generationId,
+      callSite: "generation:settings",
+      inputTokens: 7,
+      outputTokens: 3,
+    });
   });
 
   it("sums the section rows' counts with the finalize action's own", () => {

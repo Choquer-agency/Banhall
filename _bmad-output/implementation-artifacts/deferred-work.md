@@ -1035,3 +1035,195 @@ source_spec: `2-ordered-ungated-generation-self-check-compliance.md`
 severity: low
 reason: The follow-up-review damping cap (limits.max_followup_reviews = 1) was spent with the story finalized (status: done, verify green) while the review pass still recommended an independent follow-up. The work was committed by bmad-loop run 20260910-135728-7834; this entry preserves the lingering recommendation for a deliberate later review.
 status: open
+
+### DW-125: Story 4 surfaces for the settings record: the Brief rail's "No Writer Profile applied" line, the save banner, and a link to /settings/writing?fromGeneration=<id>.
+origin: spec-deferred 0a7305c0522d
+location: convex/writerProfiles.ts getGenerationWriterSettings; src/routes/settings/writing/+page.svelte
+source_spec: `3-precedence-and-writer-profile-fidelity.md`
+severity: medium
+reason: getGenerationWriterSettings and the page prefill exist, but nothing in src/ renders noProfileLine or links to the offer (final review pass). The intent defers story 4's Brief rail and save banner.
+status: open
+
+### DW-126: Chat apply, research saves and the proposal-apply scrub still resolve only the saved Writer Profile, so a settings document's waivers stop at generation.
+origin: spec-deferred f7cd23499cb2
+location: convex/chatV2.ts:477; convex/research.ts:716
+source_spec: `3-precedence-and-writer-profile-fidelity.md`
+severity: medium
+reason: convex/chatV2.ts:477 and convex/research.ts:716 call getEffectiveWriterStyle without a settings document (final review pass). The intent defers changing chat's profile resolution.
+status: open
+
+### DW-127: A structured Build Order and Self-check editor on the settings page; extraction from profile text is the only way to populate either today.
+origin: spec-deferred 7770a5a46c95
+location: src/routes/settings/writing/+page.svelte
+source_spec: `3-precedence-and-writer-profile-fidelity.md`
+severity: low
+reason: Listed under the spec's Design Notes "Deferred on purpose", still open at the final review.
+status: open
+
+### DW-128: A failed Brief read renders exactly like a legacy generation: the rail and its launcher simply disappear, with no error surfaced.
+origin: spec-deferred 35aadf42fd0c
+location: src/lib/components/brief/BriefRailPanel.svelte
+source_spec: `4-brief-panel-and-context-inclusion-visibility.md`
+severity: medium
+reason: BriefRailPanel.svelte reads only briefQ.data / inclusionQ.data / writerQ.data; `.error` and `.isLoading` are never consulted, and `available` is false while any of them is undefined. A writer cannot tell a broken read from a project that has no Brief. Fixing it needs an error state and its copy, not a one-line change.
+status: open
+
+### DW-129: A Storyline question raised while the writer is in chat or QA is never announced and leaves no trace on the Brief launcher.
+origin: spec-deferred 50e48de70c67
+location: src/lib/components/brief/BriefRail.svelte; src/lib/components/brief/BriefLauncher.svelte
+source_spec: `4-brief-panel-and-context-inclusion-visibility.md`
+severity: medium
+reason: The aria-live region lives inside BriefRail, which is mounted only while railView === "brief" and sits inside a container carrying inert={!open}. EXPERIENCE.md's count pill ("Brief · 1", its own [ASSUMPTION: toggle badge]) is not implemented, so there is no out-of-rail signal at all.
+status: open
+
+### DW-130: In compare and iterative modes every candidate re-records the context budget over the same generationSources rows, last writer wins, and no test covers it.
+origin: spec-deferred f35f1060d93b
+location: convex/generations.ts recordContextBudget
+source_spec: `4-brief-panel-and-context-inclusion-visibility.md`
+severity: medium
+reason: recordContextBudget runs once per candidate (convex/ai/pipeline.ts, iterative.ts), each pass patching `inclusion` on the same rows. getGenerationInput's own comment notes an admin retune mid-generation can disagree with what was already recorded. The Brief presents one authoritative inclusion set with no candidate attribution; both inclusion suites exercise a single recording pass only.
+status: open
+
+### DW-131: Inclusion rows are inert: EXPERIENCE.md specifies that clicking a document opens it in FilesPanel.
+origin: spec-deferred 98201954e508
+location: src/lib/components/brief/BriefRail.svelte
+source_spec: `4-brief-panel-and-context-inclusion-visibility.md`
+severity: low
+reason: EXPERIENCE.md Component Patterns > inclusion-row says "Clicking a document opens it in FilesPanel behaviour (existing)". BriefRail renders each row as a plain <li> with a label span and a status span, so a writer cannot get from "not included - could not read" to the file that caused it.
+status: open
+
+### DW-132: BriefRailPanel and BriefLauncher are imported eagerly, while every other rail occupant loads through LazyModule.
+origin: spec-deferred c8fb51a92a72
+location: src/lib/components/project/CurrentProjectPage.svelte
+source_spec: `4-brief-panel-and-context-inclusion-visibility.md`
+severity: low
+reason: CurrentProjectPage.svelte statically imports both, whereas QARailPanel and AgentChatPanel go through LazyModule. The Brief subtree, including the bits-ui Popover pulled in by BriefSourceChip, now loads on every visit to the report route, including legacy projects where the rail never appears. Bundle weight only; no behavioural effect.
+status: open
+
+### DW-133: A project with more than 100 total documents can silently undercount the Brief's Inputs band: attached documents past the fetch bound vanish from documentsTotal and the not-captured reasons list.
+origin: spec-deferred 7e746ba6d58c
+location: convex/generations.ts getContextInclusion
+source_spec: `4-brief-panel-and-context-inclusion-visibility.md`
+severity: medium
+reason: getContextInclusion reads projectDocuments with a flat `.take(100)` (no pagination), while documents.uploadDocument has no count limit — the Code Map notes this directly. The reservation itself is bounded at 50 documents per generation, so the frozen-source side is safe, but a project's cumulative document count is unbounded across its lifetime. No test exercises a project anywhere near 100 total documents; the largest covers 51.
+status: open
+
+### DW-134: BriefEditableText gives no visual feedback while a save is in flight.
+origin: spec-deferred a7710ae92858
+location: src/lib/components/brief/BriefEditableText.svelte
+source_spec: `4-brief-panel-and-context-inclusion-visibility.md`
+severity: low
+reason: `busy` is a plain (non-reactive) local variable checked only inside `commit()`'s early-return guard; the template never reads it, so the textarea stays fully editable and unstyled during the awaited `onSave` call. A slow save leaves the writer with no "saving" indication.
+status: open
+
+### DW-135: An all-blocked Coordinated Revision cannot be submitted, so the one case the Completion Report exists to record writes no rows.
+origin: spec-deferred eaa33df2112d
+location: convex/lib/completionReport.ts bulkEditInputSchema
+source_spec: `5-one-pass-convergence-and-reference-pd-comparison.md`
+severity: medium
+reason: `bulkEditInputSchema` requires `edits.min(1)` and the coverage check requires every edit to be claimed by a `resolved` finding, and the prompt correctly forbids inventing a dummy edit. A revision where every item is blocked or conflicting therefore has no proposal, and AD-28 ties `chatProposalItems` to a `proposalId`, so the findings live only in the reply text. Closing it means either zero-edit proposals or a parentless item row; both are AD-28 amendments.
+status: open
+
+### DW-136: Item ids renumber between turns and the persisted rows carry no revision or inventory pin, so a stored itemId cannot be resolved back to what it meant.
+origin: spec-deferred bce859747c6a
+location: convex/lib/deviationInventory.ts itemId; convex/schema.ts chatProposalItems
+source_spec: `5-one-pass-convergence-and-reference-pd-comparison.md`
+severity: medium
+reason: Ids are positional (`r-<section>-<paragraph>-<n>`), so resolving one deviation, a note flipping to `applied`, or an inserted paragraph renumbers the survivors, while the prompt tells the model never to renumber and `chatProposalItems.itemId` stores them as durable. Pinning needs a content hash or `(reportId, revisionNumber)` on the row, which is a schema and AD-28 change.
+status: open
+
+### DW-137: Reference PD counterpart pairing is positional with no alignment step, so one inserted paragraph shifts every later pair.
+origin: spec-deferred 7cfe7fae0516
+location: convex/lib/deviationInventory.ts referenceTexts
+source_spec: `5-one-pass-convergence-and-reference-pd-comparison.md`
+severity: medium
+reason: `assembleDeviationInventory` pairs draft paragraph k with reference paragraph k. The model is then asked to name wording and terminology differences from a counterpart that may belong to a different part of the narrative. Real alignment (structural or similarity-based) is a design addition, not a patch.
+status: open
+
+### DW-138: Every bounded read behind the inventory and the open questions truncates silently, with no signal to the model, and Brief entries are taken before they are filtered.
+origin: spec-deferred 8fa40a85b2ab
+location: convex/chatV2.ts getDeviationInventoryContext, openQuestionsFor
+source_spec: `5-one-pass-convergence-and-reference-pd-comparison.md`
+severity: medium
+reason: `MAX_INVENTORY_NOTES` (1000), `MAX_PROJECT_DOCUMENT_ROWS` (200) and `MAX_BRIEF_ENTRY_ROWS` (500) all cut before filtering. A Brief with more than 500 entries of other groups can return zero open questions while the prompt asserts that an absent block means no Brief. Nothing is reported as truncated and no test covers an over-limit read.
+status: open
+
+### DW-139: The evidence budget's spend order can starve the open-questions block on exactly the large reports where converging matters.
+origin: spec-deferred fca2bd18492f
+location: convex/ai/chatEvidence.ts buildChatEvidence
+source_spec: `5-one-pass-convergence-and-reference-pd-comparison.md`
+severity: medium
+reason: Defaults are `totalTokens: 60_000` against `report 40_000 + analysis 15_000 + decisions 10_000`, and open questions are spent after the decisions. On a full-length report the remaining total is already exhausted, so the block renders as a bare omission notice while the prompt instructs the model to quote from it. Reordering the spend is a budget-policy decision.
+status: open
+
+### DW-140: No reader exists for chatProposalItems: the rows have one writer and no consumer.
+origin: spec-deferred 8d5a9f63843a
+location: convex/schema.ts chatProposalItems
+source_spec: `5-one-pass-convergence-and-reference-pd-comparison.md`
+severity: medium
+reason: The spec defers the ProposalCard surface, and the diff adds no audit query either, so the persisted Completion Report is observable only from tests. A writer-facing card and an internal audit read are both still owed.
+status: open
+
+### DW-141: A Coordinated Revision's replacement prose gets no server-side line or word cap check, so the CAP-15 Locked-cap guarantee rests on the model plus one never-run live fixture.
+origin: spec-deferred dee2f1a8f8be
+location: convex/chatV2.ts saveProposal
+source_spec: `5-one-pass-convergence-and-reference-pd-comparison.md`
+severity: medium
+reason: `newText` passes only through `scrubBannedWordsUnlessWaived`. `sectionMetrics` and the Locked caps are already available (`convex/lib/lineLimits.ts`, used by the generation Self-check), but nothing applies them to a proposal, and no test asserts that a cap-breaching proposal is refused or reported `conflicting`.
+status: open
+
+### DW-142: docs/product-domain.md and docs/system-map.md were not updated for the new table, the two new chat tools and the new evidence block.
+origin: spec-deferred 2d51ea870fcd
+location: docs/product-domain.md; docs/system-map.md
+source_spec: `5-one-pass-convergence-and-reference-pd-comparison.md`
+severity: low
+reason: Story 3 recorded `settingsDocumentAnalyses` and its AD-19 scoping in `docs/product-domain.md`. This story adds `chatProposalItems`, `deviationInventory`, `compareReferencePd` and the OPEN QUESTIONS block with no corresponding entry, and `docs/system-map.md` still reads "8 of 49 tables".
+status: open
+
+### DW-143: The prompt states a 30-item ceiling for one card while the schema accepts 80, and nothing tells the model what to do with a longer list.
+origin: spec-deferred f3e0c7faa2d0
+location: convex/ai/prompts.ts buildChatSystemPromptV2; convex/lib/completionReport.ts
+source_spec: `5-one-pass-convergence-and-reference-pd-comparison.md`
+severity: low
+reason: `COMPLETION_REPORT_TARGET_ITEMS` is the spec's N <= 30 bound inside the tool's own 40-edit / 80-finding caps. A 35-item writer list has no sanctioned behaviour, and the most likely reading (two cards) breaks the one-proposal guarantee the harness fixture asserts.
+status: open
+
+### DW-144: The harness's mixedProvenance check can pass without the model ever forwarding the writer's content Deviations, because the stubbed inventory ignores its input.
+origin: spec-deferred 72382eeb1a34
+location: scripts/chat-behavior-eval.mjs stubbedInventory
+source_spec: `5-one-pass-convergence-and-reference-pd-comparison.md`
+severity: low
+reason: `stubbedInventory()` in `scripts/chat-behavior-eval.mjs` always renders the six content items, whatever the model passed as `contentDeviations`, so the c- ids are in the tool result either way and the InventoryAnchorError retry path is never exercised live. The stub also hardcodes copies of the production refusal strings rather than importing them.
+status: open
+
+### DW-145: The harness records the two read-only tool calls as rejected proposals.
+origin: spec-deferred b2f0e53fd342
+location: scripts/chat-behavior-eval.mjs tool stub executor
+source_spec: `5-one-pass-convergence-and-reference-pd-comparison.md`
+severity: low
+reason: The stub computes `pairs = []` for `deviationInventory` and `compareReferencePd`, so `validation.ok` is false and each call is captured with `accepted: false`. No current check reads that field for these tools, but any future check on acceptance counts would score a successful inventory call as a failure.
+status: open
+
+### DW-146: The live chat-behaviour re-run for Open Question 7 is outstanding; no live-model verdict exists for any of the three fixtures.
+origin: spec-deferred b617a442f492
+location: scripts/chat-behavior-eval.mjs; docs/oq7-rev-g-bulk-edit-replay-2026-09-11.md
+source_spec: `5-one-pass-convergence-and-reference-pd-comparison.md`
+severity: high
+reason: `ANTHROPIC_API_KEY` is unset in this worktree and the harness is opt-in and billable, so the 16/16 bar (CAP-13), the converge guard (CAP-14) and the Reference PD comparison (CAP-15) are proven only deterministically. The exact commands, the before/after `--baseline 6c4f50b` comparison and the pass criteria are recorded in `docs/oq7-rev-g-bulk-edit-replay-2026-09-11.md`; owner is the key holder.
+status: open
+
+### DW-147: Follow-up review still recommended for 5 after the damping cap was spent
+origin: review-budget-followup
+location: n/a
+source_spec: `5-one-pass-convergence-and-reference-pd-comparison.md`
+severity: low
+reason: The follow-up-review damping cap (limits.max_followup_reviews = 1) was spent with the story finalized (status: done, verify green) while the review pass still recommended an independent follow-up. The work was committed by bmad-loop run 20260911-120649-26de; this entry preserves the lingering recommendation for a deliberate later review.
+status: open
+
+### DW-148: Follow-up review still recommended for 6 after the damping cap was spent
+origin: review-budget-followup
+location: n/a
+source_spec: `6-paired-comparison-records-and-success-metric-computation.md`
+severity: low
+reason: The follow-up-review damping cap (limits.max_followup_reviews = 1) was spent with the story finalized (status: done, verify green) while the review pass still recommended an independent follow-up. The work was committed by bmad-loop run 20260911-120649-26de; this entry preserves the lingering recommendation for a deliberate later review.
+status: open

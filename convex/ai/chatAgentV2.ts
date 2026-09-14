@@ -1,4 +1,4 @@
-import { internalAction } from "../_generated/server";
+import { internalAction, type ActionCtx } from "../_generated/server";
 import { components, internal } from "../_generated/api";
 import { v } from "convex/values";
 import { z } from "zod";
@@ -14,12 +14,28 @@ import { anthropic } from "@ai-sdk/anthropic";
 import { MODEL } from "./model";
 import { buildChatSystemPromptV2 } from "./prompts";
 import {
+  bulkEditInputSchema,
+  completionReportChecklist,
+  completionReportItems,
+  nothingToApply,
+  type BulkEditInput,
+} from "../lib/completionReport";
+import {
+  InventoryAnchorError,
+  assembleDeviationInventory,
+  renderInventory,
+  type InventoryNote,
+  type InventorySections,
+  type RulesStatus,
+} from "../lib/deviationInventory";
+import {
   NO_STYLE_OVERRIDES,
   normalizeStyleOverrides,
   type StyleOverrides,
 } from "../../shared/styleOverrides";
 import { scrubBannedWordsUnlessWaived } from "../lib/reportEdits";
 import { buildChatTurnRequest, type ChatTurnContext } from "./chatEvidence";
+import { MAX_PROJECT_DOCUMENT_SCAN } from "../chatV2";
 import { describeContextCuts } from "./trustedContext";
 import { preserveReasoningSignature } from "./reasoningSignature";
 import { searchBrainExemplars, formatBrainExemplars } from "./brain/retrieve";
@@ -111,47 +127,258 @@ const makeProposeReplacements = (bannedWordsWaived: boolean) =>
     },
   });
 
+// CAP-13 / AD-28: the coordinated revision and its Completion Report. The input
+// schema, the row projection and the checklist text all live in
+// `convex/lib/completionReport.ts`, so the prompt, the tool and the persisted
+// rows cannot drift. The tool still creates ONE proposal a human applies. The
+// body is `runProposeBulkEdits` below, so the gate can drive it.
 const makeProposeBulkEdits = (bannedWordsWaived: boolean) => createTool({
-  description: "Propose a coordinated revision of different report passages in one reviewable card. Account for EVERY previously identified finding. Each target must be unique and passages must not overlap. The writer applies the proposal.",
-  inputSchema: z.object({
-    edits: z.array(z.object({
-      targetText: z.string().min(1),
-      newText: z.string().min(1),
-    })).min(1).max(40),
-    findings: z.array(z.discriminatedUnion("status", [
-      z.object({ id: z.string().min(1), status: z.literal("proposed"), editNumbers: z.array(z.number().int().min(1)).min(1) }),
-      z.object({ id: z.string().min(1), status: z.literal("gap"), reason: z.string().min(1) }),
-      z.object({ id: z.string().min(1), status: z.literal("conflict"), reason: z.string().min(1) }),
-    ])).min(1).max(80),
-  }).superRefine((input, ctx) => {
-    const ids = new Set(input.findings.map(f => f.id));
-    const covered = new Set(input.findings.flatMap(f => f.status === "proposed" ? f.editNumbers : []));
-    if (ids.size !== input.findings.length ||
-        [...covered].some(n => n > input.edits.length) ||
-        input.edits.some((_, i) => !covered.has(i + 1))) {
-      ctx.addIssue({ code: "custom", message: "Use unique finding IDs and map every edit to a finding using its one-based edit number." });
-    }
-  }),
-  execute: async (ctx, input, options): Promise<string> => {
-    if (!ctx.threadId) throw new Error("No thread in tool context");
-    const result = await ctx.runMutation(internal.chatV2.saveProposal, {
-      agentThreadId: ctx.threadId,
+  description: "Propose a coordinated revision of different report passages in one reviewable card, plus a Completion Report accounting for EVERY item on the writer's list. Each target must be unique and passages must not overlap. Reuse the item ids the Deviation Inventory or the Reference PD comparison produced, anchor each finding to the section and 1-based paragraph it belongs to, and mark it resolved, blocked or conflicting. The writer applies the proposal. If every item is blocked or conflicting, call it with an empty edits list and every finding: the report is recorded for the writer and there is nothing to apply. Never invent a dummy edit.",
+  inputSchema: bulkEditInputSchema,
+  execute: async (ctx, input, options): Promise<string> =>
+    await runProposeBulkEdits(ctx, input, {
       toolCallId: options.toolCallId,
-      promptMessageId: ctx.messageId,
-      kind: "replacements",
-      requireUniqueTargets: true,
-      replacements: input.edits.map(edit => ({
-        find: edit.targetText,
-        replaceWith: scrubBannedWordsUnlessWaived(edit.newText, bannedWordsWaived),
-      })),
-    });
-    if (!result.ok) return result.stopped
+      bannedWordsWaived,
+    }),
+});
+
+/**
+ * Story 5 (CAP-12 to CAP-15): the tool BODIES, exported and independent of the
+ * agent SDK.
+ *
+ * `createTool`'s `execute` closures are unreachable from any test in the gate:
+ * `convexTest` can call `saveProposal` directly and the live harness replaces
+ * every `execute` with its own stub, so the hand-offs that make these tools work
+ * (`items` on the bulk proposal, `referenceSections` on the comparison, the
+ * writer's `contentDeviations` on both) would be deletable with the whole suite
+ * still green. Each `execute` below is a one-line delegation to one of these
+ * functions, and `convex/chatToolBodies.test.ts` drives them against a real
+ * database.
+ */
+export interface ChatToolCtx {
+  threadId?: string | undefined;
+  messageId?: string | undefined;
+  runQuery: ActionCtx["runQuery"];
+  runMutation: ActionCtx["runMutation"];
+}
+
+export interface InventoryContext {
+  found: boolean;
+  sections: InventorySections;
+  notes: InventoryNote[];
+  rulesStatus: RulesStatus;
+  rulesAvailable: boolean;
+  reference: { fileName: string; sections: InventorySections } | null;
+  referenceStatus:
+    | "none"
+    | "resolved"
+    | "unknown_name"
+    | "unreadable"
+    | "unparsed"
+    | "ambiguous";
+  referenceFileNames: string[];
+  unreadableReferenceFileNames: string[];
+  selectedReferenceFileName: string | null;
+  /** DW-138: the project's document walk hit its bound; a PD past it was not seen. */
+  documentScanTruncated: boolean;
+}
+
+export type ChatContentDeviation = {
+  section: "242" | "244" | "246";
+  paragraph: number;
+  instruction: string;
+};
+
+const contentDeviationsSchema = z
+  .array(
+    z.object({
+      section: z.enum(["242", "244", "246"]),
+      paragraph: z
+        .number()
+        .int()
+        .min(1)
+        .describe("1-based paragraph within that section of the CURRENT report."),
+      instruction: z
+        .string()
+        .min(1)
+        .describe("The writer's own correction for that paragraph, verbatim."),
+    })
+  )
+  .max(40)
+  .optional()
+  .describe(
+    "Content Deviations the writer named. They join the same list with c- ids."
+  );
+
+async function inventoryContext(
+  ctx: ChatToolCtx,
+  referenceFileName?: string
+): Promise<InventoryContext> {
+  if (!ctx.threadId) throw new Error("No thread in tool context");
+  return await ctx.runQuery(internal.chatV2.getDeviationInventoryContext, {
+    agentThreadId: ctx.threadId,
+    ...(referenceFileName ? { referenceFileName } : {}),
+  });
+}
+
+function renderOrExplain(args: {
+  context: InventoryContext;
+  contentDeviations?: ChatContentDeviation[];
+  referenceSections?: InventorySections | null;
+}): string {
+  try {
+    return renderInventory(
+      assembleDeviationInventory({
+        sections: args.context.sections,
+        notes: args.context.notes,
+        ...(args.contentDeviations ? { contentDeviations: args.contentDeviations } : {}),
+        ...(args.referenceSections ? { referenceSections: args.referenceSections } : {}),
+        rulesStatus: args.context.rulesStatus,
+      })
+    );
+  } catch (error) {
+    // A writer-named paragraph outside the report: hand back the valid range so
+    // the model can re-anchor rather than guess. Never throw out of a tool: an
+    // `output-error` part tells the writer a step failed and tells the model
+    // nothing it can act on.
+    if (error instanceof InventoryAnchorError) {
+      return `Inventory NOT built: ${error.message}`;
+    }
+    throw error;
+  }
+}
+
+/** CAP-12's tool body. Read only: it creates no proposal. */
+export async function runDeviationInventory(
+  ctx: ChatToolCtx,
+  input: { contentDeviations?: ChatContentDeviation[] }
+): Promise<string> {
+  const context = await inventoryContext(ctx);
+  if (!context.found) {
+    return "The current report could not be loaded, so there is no paragraph list to build.";
+  }
+  return renderOrExplain({
+    context,
+    ...(input.contentDeviations ? { contentDeviations: input.contentDeviations } : {}),
+  });
+}
+
+/** CAP-15's tool body. Read only: it creates no proposal. */
+export async function runCompareReferencePd(
+  ctx: ChatToolCtx,
+  input: { fileName?: string; contentDeviations?: ChatContentDeviation[] }
+): Promise<string> {
+  const context = await inventoryContext(ctx, input.fileName);
+  if (!context.found) {
+    return "The current report could not be loaded, so there is nothing to compare.";
+  }
+  const quoted = (names: string[]) => names.map((name) => `"${name}"`).join(", ");
+  const named = context.selectedReferenceFileName;
+  // DW-138: a bounded walk that stopped short is a limit to STATE on every
+  // outcome, not an absence to report. "None attached" and "the only one"
+  // are claims an incomplete walk cannot make.
+  const truncated = context.documentScanTruncated;
+  const scanNote = truncated
+    ? ` Note: this project's documents were only partly scanned (the walk stops at ${MAX_PROJECT_DOCUMENT_SCAN} documents or at its read budget), so a previous-year report beyond that point was not seen; tell the writer this limit applies.`
+    : "";
+  const scanned = truncated ? "the documents scanned" : "this project's documents";
+  switch (context.referenceStatus) {
+    case "none":
+      return truncated
+        ? `No Reference PD was found among the documents scanned.${scanNote} Tell the writer that a comparison needs last year's PD uploaded to this project as a previous-year report document, and propose nothing.`
+        : "This project has no Reference PD attached. Tell the writer that a comparison needs last year's PD uploaded to this project as a previous-year report document, and propose nothing.";
+    case "unreadable":
+      // Attached, but intake extracted no text from it (an image-only PDF, a
+      // reference-only file, an empty body). Saying "not attached" would be
+      // wrong and saying nothing would invite a fabricated comparison.
+      return `${named ? `"${named}"` : "The attached previous-year report"} is attached to this project, but no text could be read from it, so there is nothing to compare. Tell the writer the file is attached and unreadable, suggest re-uploading a text-bearing copy, and propose nothing.${
+        context.referenceFileNames.length
+          ? ` Readable Reference PD file names: ${quoted(context.referenceFileNames)}.`
+          : ""
+      }${scanNote}`;
+    case "unparsed":
+      // Readable, but its text carries no Line 242/244/246 skeleton, so nothing
+      // in it can be anchored to a paragraph of this draft.
+      return `${named ? `"${named}"` : "The attached previous-year report"} could not be read into Line 242, Line 244 and Line 246 sections, so NO comparison was made. Tell the writer the file is attached but its text carries no recognizable section structure, and propose nothing from it.${scanNote}`;
+    case "unknown_name":
+      return `No readable previous-year report named ${named ? `"${named}"` : "that"} was found among ${scanned}. The available Reference PD file names are: ${quoted(context.referenceFileNames)}.${scanNote} Ask the writer which one, or call the tool again with one of those names.`;
+    case "ambiguous":
+      return truncated
+        ? `The document scan was incomplete, so the comparison cannot establish which previous-year report to use. Readable Reference PD file names among the documents scanned: ${quoted(context.referenceFileNames)}.${scanNote} Ask the writer which one to compare against, then call the tool again with that name.`
+        : `This project has more than one previous-year report. The available Reference PD file names are: ${quoted(context.referenceFileNames)}. Ask the writer which one to compare against.`;
+    case "resolved":
+      break;
+  }
+  if (!context.reference) {
+    return `The Reference PD could not be resolved, so no comparison was made. Tell the writer and propose nothing.${scanNote}`;
+  }
+  const rendered = renderOrExplain({
+    context,
+    ...(input.contentDeviations ? { contentDeviations: input.contentDeviations } : {}),
+    referenceSections: context.reference.sections,
+  });
+  return truncated ? `${rendered}\n\n${scanNote.trim()}` : rendered;
+}
+
+/** CAP-13's tool body: one proposal, one Completion Report, human apply. */
+export async function runProposeBulkEdits(
+  ctx: ChatToolCtx,
+  input: BulkEditInput,
+  options: { toolCallId: string; bannedWordsWaived: boolean }
+): Promise<string> {
+  if (!ctx.threadId) throw new Error("No thread in tool context");
+  const result = await ctx.runMutation(internal.chatV2.saveProposal, {
+    agentThreadId: ctx.threadId,
+    toolCallId: options.toolCallId,
+    ...(ctx.messageId ? { promptMessageId: ctx.messageId } : {}),
+    kind: "replacements",
+    requireUniqueTargets: true,
+    replacements: input.edits.map((edit) => ({
+      find: edit.targetText,
+      replaceWith: scrubBannedWordsUnlessWaived(
+        edit.newText,
+        options.bannedWordsWaived
+      ),
+    })),
+    items: completionReportItems(input.findings),
+  });
+  if (!result.ok) {
+    return result.stopped
       ? `Stop requested: ${result.reason} Do not retry.`
       : `Proposal NOT created: ${result.reason} Re-read the current report and retry.`;
-    return `Coordinated revision proposed for writer review, not applied. Report this coverage checklist, retaining the finding IDs:\n${input.findings.map(f => f.status === "proposed"
-      ? `${f.id}: proposed in edit(s) ${f.editNumbers.join(", ")}`
-      : `${f.id}: ${f.status}: ${f.reason}`).join("\n")}`;
-  },
+  }
+  // DW-135: every item blocked or conflicting. The findings are recorded; the
+  // report is unchanged and there is no card to apply, so the reply must not
+  // open with "Proposed".
+  if (nothingToApply(input)) {
+    return `Nothing to apply: every item is blocked or conflicting, so no revision was proposed and the report is unchanged. The findings were recorded for the writer's decision. Report this Completion Report checklist, retaining the item IDs:\n${completionReportChecklist(input.findings)}`;
+  }
+  return `Coordinated revision proposed for writer review, not applied. Report this Completion Report checklist, retaining the item IDs:\n${completionReportChecklist(input.findings)}`;
+}
+
+const deviationInventory = createTool({
+  description:
+    "List every paragraph of the current report exactly once, in build order 242, 244, 246, with its rule Deviations from the stored Compliance Notes and any content Deviations the writer named. READ ONLY: it changes nothing and creates no proposal. Use it when the writer asks for the deviation list or inventory, or before a coordinated revision over a list of items, so every item has a stable id.",
+  inputSchema: z.object({ contentDeviations: contentDeviationsSchema }),
+  execute: async (ctx, input): Promise<string> =>
+    await runDeviationInventory(ctx, input),
+});
+
+const compareReferencePd = createTool({
+  description:
+    "Compare the current report against a Reference PD attached to THIS project as a previous-year report, paragraph by paragraph. READ ONLY: it changes nothing and creates no proposal. Returns every paragraph once with its Reference PD counterpart, so differences can be reported per paragraph as x- items and offered as one coordinated revision. Never answer such a request with a similarity score.",
+  inputSchema: z.object({
+    fileName: z
+      .string()
+      .min(1)
+      .optional()
+      .describe(
+        "The Reference PD's file name, exactly as the project lists it. Omit when the project has only one."
+      ),
+    contentDeviations: contentDeviationsSchema,
+  }),
+  execute: async (ctx, input): Promise<string> =>
+    await runCompareReferencePd(ctx, input),
 });
 
 const highlightPassages = createTool({
@@ -268,6 +495,8 @@ export const buildChatTools = (bannedWordsWaived: boolean, allowBrain = false) =
   proposeEdit: makeProposeEdit(bannedWordsWaived),
   proposeReplacements: makeProposeReplacements(bannedWordsWaived),
   proposeBulkEdits: makeProposeBulkEdits(bannedWordsWaived),
+  deviationInventory,
+  compareReferencePd,
   highlightPassages,
   ...(allowBrain ? { searchBrain } : {}),
 });

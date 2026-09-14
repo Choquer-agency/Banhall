@@ -291,6 +291,91 @@ describe("chat skeleton + system prompt", () => {
   });
 });
 
+/**
+ * Story 5 (CAP-12 to CAP-15): the chat prompt is half of every contract the
+ * tools enforce. If the prompt and `convex/lib/completionReport.ts` disagree on
+ * the status names, or the prompt forgets a tool, the writer sees the drift as a
+ * dropped item.
+ */
+describe("chat prompt: tools, Completion Report and the converge guard", () => {
+  const prompt = buildChatSystemPromptV2();
+
+  it("names every chat tool the agent registers", () => {
+    for (const tool of [
+      "proposeEdit",
+      "proposeReplacements",
+      "proposeBulkEdits",
+      "deviationInventory",
+      "compareReferencePd",
+      "highlightPassages",
+      "searchBrain",
+    ]) {
+      expect(prompt, tool).toContain(tool);
+    }
+    // Both new tools are read only and say so.
+    expect(prompt).toContain("call the matching read-only tool FIRST");
+  });
+
+  it("carries the three Completion Report statuses and no old status word", () => {
+    for (const status of ["resolved", "blocked", "conflicting"]) {
+      expect(prompt, status).toContain(status);
+    }
+    expect(prompt).toContain(
+      "The Completion Report has exactly three statuses per item, resolved, blocked and conflicting"
+    );
+    // The PR #8 vocabulary is gone as a STATUS. "Proposed" survives only as the
+    // reply's opening word, and "propose" as the verb.
+    for (const phrase of [
+      'label covered findings "proposed"',
+      "gap/conflict statuses",
+      "the gaps/conflicts",
+      "evidence gap or enforced-rule conflict",
+      'status "gap"',
+      'status "conflict"',
+    ]) {
+      expect(prompt, phrase).not.toContain(phrase);
+    }
+  });
+
+  it("tells the model to record an all-blocked report with zero edits instead of a dummy edit (DW-135)", () => {
+    expect(prompt).toContain("empty edits list");
+    expect(prompt).toContain("never invent a dummy edit");
+    // The zero-edit reply must not open with "Proposed": nothing was proposed.
+    expect(prompt).toContain('begin the reply with "Nothing to apply"');
+  });
+
+  it("carries the CAP-14 no-writer-artifact guard and points at the open questions", () => {
+    expect(prompt).toContain("## When the writer asks how to converge");
+    expect(prompt).toContain("OPEN QUESTIONS FOR THE CLIENT");
+    expect(prompt).toContain(
+      "NEVER ask the writer to author or supply a settings document, a storyline, a claim exclusion list, a glossary, a confidence map or any other new artifact"
+    );
+    expect(prompt).toContain("maximum input converging may require");
+  });
+
+  it("carries the CAP-15 rule: paragraphs, never a score, and Locked breaches conflicting", () => {
+    expect(prompt).toContain("Report differences per paragraph as x- items");
+    expect(prompt).toContain("NEVER answer with a similarity score, a percentage or a grade");
+    expect(prompt).toContain("is reported conflicting with the rule named and an alternative offered, never applied");
+  });
+
+  it("states that the read-only branch beats the plain-question branch", () => {
+    // Without this, "how does this draft differ from last year's PD?" is a
+    // question, (a) says call no tool, and the comparison never runs.
+    expect(prompt).toContain("Precedence when two of these fit: (d) beats (a).");
+    expect(prompt).toContain("call the read-only tool named in (d) first");
+    expect(prompt).toContain("(a) is for every OTHER question");
+    // And a change request still routes to an edit tool.
+    expect(prompt).toContain("(b) still wins over (d)");
+  });
+
+  it("tells the model to reuse the inventory ids verbatim", () => {
+    expect(prompt).toContain("Use its ids verbatim as the finding ids");
+    expect(prompt).toContain("never renumber them");
+    expect(prompt).toContain("with every item's original ID and its status");
+  });
+});
+
 describe("prompt dash hygiene", () => {
   // The prompts ban em dashes; they must not model the banned form themselves.
   // The only permitted hits are the labelled examples inside RULES_HUMAN_PROSE.

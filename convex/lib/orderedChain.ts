@@ -93,6 +93,12 @@ export const categoryOutcomeValidator = v.object({
   /** true = the House Rule is waived for this generation. */
   effective: v.boolean(),
   tier: v.union(v.literal("org_enforced"), v.literal("none")),
+  /**
+   * Story 3: the applied Writer Profile asked to waive this House Rule.
+   * `requested && !effective` is a waiver an org `enforced` mode ignored.
+   * Optional so already-scheduled chain payloads still validate.
+   */
+  requested: v.optional(v.boolean()),
 });
 export type CategoryOutcome = Infer<typeof categoryOutcomeValidator>;
 
@@ -103,8 +109,74 @@ export const orderedProfileContextValidator = v.object({
   buildOrder: v.array(sectionNumberValidator),
   buildOrderFallbackReason: v.optional(v.string()),
   selfCheckRules: v.array(selfCheckRuleValidator),
+  /** Story 3: the Writer Profile row's reason when a profile applied. */
+  profileReason: v.optional(v.string()),
+  /** Story 3: a settings document applied, but its waivers were not analysed. */
+  waiverAnalysisFailed: v.optional(v.boolean()),
 });
 export type OrderedProfileContext = Infer<typeof orderedProfileContextValidator>;
+
+/** Exactly the ordered-profile fields of a wider effective-style result. */
+export function pickOrderedProfileContext(
+  style: OrderedProfileContext
+): OrderedProfileContext {
+  return {
+    profileState: style.profileState,
+    categoryOutcomes: style.categoryOutcomes,
+    buildOrder: style.buildOrder,
+    ...(style.buildOrderFallbackReason
+      ? { buildOrderFallbackReason: style.buildOrderFallbackReason }
+      : {}),
+    selfCheckRules: style.selfCheckRules,
+    ...(style.profileReason ? { profileReason: style.profileReason } : {}),
+    ...(style.waiverAnalysisFailed ? { waiverAnalysisFailed: true } : {}),
+  };
+}
+
+// ─── Story 3 (CAP-8, AD-26): the writer settings a generation ran under ─────
+
+export const settingsSupplyPathValidator = v.union(
+  v.literal("writer_notes"),
+  v.literal("attachment")
+);
+
+export const writerSettingsSourceValidator = v.union(
+  v.literal("profile"),
+  v.literal("writer_notes"),
+  v.literal("attachment"),
+  v.literal("none")
+);
+export type WriterSettingsSource = Infer<typeof writerSettingsSourceValidator>;
+
+export const waiverAnalysisValidator = v.union(
+  v.literal("profile"),
+  v.literal("cached"),
+  v.literal("analyzed"),
+  v.literal("failed"),
+  v.literal("none")
+);
+export type WaiverAnalysis = Infer<typeof waiverAnalysisValidator>;
+
+/** `generations.writerSettings`: written only by generations.recordWriterSettings. */
+export const writerSettingsValidator = v.object({
+  profileState: profileStateValidator,
+  source: writerSettingsSourceValidator,
+  generationSourceId: v.optional(v.id("generationSources")),
+  projectDocumentId: v.optional(v.id("projectDocuments")),
+  fileName: v.optional(v.string()),
+  matchesProfile: v.boolean(),
+  savedProfileSuperseded: v.boolean(),
+  waiverAnalysis: waiverAnalysisValidator,
+  truncated: v.boolean(),
+  /**
+   * The House Rule categories the applied settings document legislates, as
+   * the classifier found them when this generation resolved (analysed or
+   * cached). Absent when no document applied or its analysis failed. The
+   * save offer's only source; at most one entry per category (six).
+   */
+  addressedCategories: v.optional(v.array(styleCategoryValidator)),
+});
+export type WriterSettingsRecord = Infer<typeof writerSettingsValidator>;
 
 // ─── Build Order read-validation ────────────────────────────────────────────
 

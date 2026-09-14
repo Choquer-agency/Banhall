@@ -22,16 +22,18 @@ model = "opus"
 effort = "high"
 fallback = [{ cli = "claude", model = "claude-fable-5-1", effort = "high" }, { cli = "codex", model = "gpt-5.6-sol", reasoning = "high" }, { cli = "claude", model = "sonnet", effort = "high" }]
 
-[reviewer]                    # reviews diffs and validates plans. Read-only. Use a different model family than the implementer.
-cli = "claude"
-model = "claude-fable-5-1"
-effort = "high"
-fallback = [{ cli = "codex", model = "gpt-5.6-sol", reasoning = "high" }, { cli = "claude", model = "sonnet", effort = "high" }]
+[reviewer]                    # reviews diffs and validates plans; Johnny's requested primary and availability fallback.
+cli = "codex"
+model = "gpt-6-astra"
+reasoning = "medium"
+fallback = [{ cli = "codex", model = "gpt-5.6-sol", reasoning = "high" }]
 
 
-# [lead]                      # lead judgment over the panel (Act on / Consider / Noted / Dismissed). Read-only. Defaults to [planner].
-# cli = "claude"
-# model = "opus"
+[lead]                        # review judgment over the panel; same explicit reviewer preference.
+cli = "codex"
+model = "gpt-6-astra"
+reasoning = "medium"
+fallback = [{ cli = "codex", model = "gpt-5.6-sol", reasoning = "high" }]
 
 # [verifier]                  # `factory verify-skill`: generates + proves .factory/verify/. Full permissions. Defaults to [implementer].
 

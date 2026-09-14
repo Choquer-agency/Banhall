@@ -7,6 +7,7 @@ import {
   documentTrust,
   estimateTokens,
   sanitizeFileName,
+  sourceInclusion,
   type ContextBudget,
   type ContextDoc,
 } from "./trustedContext";
@@ -258,6 +259,34 @@ describe("trusted context assembly", () => {
       expect(source).toMatchObject({ included: false, includedLength: 0 });
     }
     expect(userMessage).not.toContain("doc-12.txt");
+  });
+
+  it("story 4: 40 documents under the default budget give 12 included and 28 not included", () => {
+    const documents = Array.from({ length: 40 }, (_, index) =>
+      doc("other", `attachment-${index}.txt`, `Attachment body ${index}`)
+    );
+    const { report } = buildTrustedContext({
+      transcriptParts: [{ label: "Interview", content: "Interview body" }],
+      documents,
+    });
+    expect(report.budget).toEqual(DEFAULT_CONTEXT_BUDGET);
+    const documentSources = report.sources.filter((source) => source.kind === "document");
+    expect(documentSources).toHaveLength(40);
+    const outcomes = documentSources.map(sourceInclusion);
+    expect(outcomes.filter((outcome) => outcome === "included")).toHaveLength(12);
+    expect(outcomes.filter((outcome) => outcome === "not_included")).toHaveLength(28);
+    expect(outcomes).not.toContain("condensed");
+    const transcript = report.sources.find((source) => source.kind === "transcript");
+    expect(sourceInclusion(transcript!)).toBe("included");
+  });
+
+  it("story 4: sourceInclusion covers included, condensed, not included and a zero-length inclusion", () => {
+    expect(sourceInclusion({ included: true, includedLength: 40, truncated: false })).toBe("included");
+    expect(sourceInclusion({ included: true, includedLength: 10, truncated: true })).toBe("condensed");
+    expect(sourceInclusion({ included: false, includedLength: 0, truncated: false })).toBe("not_included");
+    // Entered the context with zero characters: never "included".
+    expect(sourceInclusion({ included: true, includedLength: 0, truncated: false })).toBe("not_included");
+    expect(sourceInclusion({ included: true, includedLength: 0, truncated: true })).toBe("not_included");
   });
 
   it("budgets transcript parts in frozen order, cutting the tail", () => {

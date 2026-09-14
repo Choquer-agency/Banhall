@@ -1,0 +1,12 @@
+3:58:47 p.m. [vite-plugin-svelte] no Svelte config found at /Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-dw135 - using default configuration.
+
+ RUN  v4.1.10 /Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-dw135
+
+3:58:47 p.m. [vite-plugin-svelte] no Svelte config found at /Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-dw135 - using default configuration.
+
+ Test Files  1 passed (1)
+      Tests  4 passed (4)
+   Start at  15:58:47
+   Duration  4.17s (transform 0ms, setup 1.42s, import 1.04s, tests 256ms, environment 0ms)
+
+exit=0

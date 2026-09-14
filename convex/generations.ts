@@ -35,6 +35,12 @@ import {
 import { randomComparePair, resolveCompareModels } from "./ai/model";
 import { findActiveGeneration } from "./lib/activeGeneration";
 import { analyzerContextBudget, defaultModelId } from "./appSettings";
+import { sourceInclusion } from "./ai/trustedContext";
+import {
+  assembleContextInclusion,
+  type UnfrozenDocument,
+} from "./lib/contextInclusion";
+import { createReadBudget } from "./lib/readBudget";
 import { buildTiptapDocument } from "./lib/tiptapReport";
 import { sectionMetrics } from "./lib/lineLimits";
 import { deidentify } from "./lib/deidentify";
@@ -60,6 +66,7 @@ import {
   orderedPayloadValidator,
   sectionKeyOf,
   sectionNumberValidator,
+  writerSettingsValidator,
   type SectionNumber,
 } from "./lib/orderedChain";
 import { ORDERED_SECTION_TITLES } from "./ai/promptDefinitions";
@@ -939,6 +946,8 @@ export const recordContextBudget = internalMutation({
   args: {
     generationId: v.id("generations"),
     budgetTokens: v.number(),
+    // Story 4: the document cap the report ran under ("cap N" in the Brief).
+    maxDocuments: v.optional(v.number()),
     applied: v.array(
       v.object({
         sourceId: v.id("generationSources"),
@@ -961,10 +970,117 @@ export const recordContextBudget = internalMutation({
           included: entry.included,
           includedLength: entry.includedLength,
           truncated: entry.truncated,
+          ...(args.maxDocuments !== undefined
+            ? { maxDocuments: args.maxDocuments }
+            : {}),
         },
+        // Story 4 (AD-30): the only writer of `inclusion`.
+        inclusion: sourceInclusion(entry),
       });
     }
     return null;
+  },
+});
+
+// DW-133: getContextInclusion runs every read under ONE budget, because no
+// single population is small enough to ignore. Frozen generationSources hold
+// transcripts of up to FROZEN_TRANSCRIPT_CHARS (500k) and documents of up to
+// 200k characters — up to 20 transcripts and 50 documents can exceed Convex's
+// 16 MiB transaction read limit on their own — and each projectDocuments row
+// carries its full extracted text (≤ 1 MiB). Every row read outside a list
+// walk — the generation, the authorization rows and the four analyzer
+// settings (whose `value` is an unrestricted string) — is read FIRST and
+// charged at its actual size; each list then reserves a maximum-size
+// document before every read. Whatever the budget could not read is reported
+// as truncated, never thrown. Worst case actually read: the seven up-front
+// rows (≤ 7 MiB, charged) plus list reads up to the 14 MiB total, 2 MiB
+// under the limit.
+const INCLUSION_READ_BYTES = 14 * (1 << 20);
+// The reservation freezes at most 2×20 transcript rows + 51 documents; 200
+// keeps a wide margin, so bytes are the real bound.
+const INCLUSION_SOURCE_ROWS = 200;
+const INCLUSION_DOCUMENT_ROWS = 1000;
+
+/**
+ * Story 4 (CAP-11, AD-30): the Brief's Inputs band — one inclusion row per
+ * frozen Transcript and Supporting Document, plus the project documents the
+ * reservation skipped (archived or unreadable at the time), with the cap.
+ * The one inclusion read. Null for an outsider or a missing generation.
+ */
+export const getContextInclusion = query({
+  args: { generationId: v.id("generations") },
+  handler: async (ctx, args) => {
+    const generation = await ctx.db.get(args.generationId);
+    if (!generation) return null;
+    const access = await getInternalProjectAccessOrNull(ctx, generation.projectId);
+    if (!access) return null;
+    const reads = createReadBudget({ maxBytes: INCLUSION_READ_BYTES });
+    reads.account(generation);
+    reads.account(access.user);
+    reads.account(access.project);
+    // The four settings rows are read before any walk and charged as read,
+    // so a large (still parseable) setting shrinks what the walks may read
+    // instead of landing on top of them after the budget was spent.
+    const budget = await analyzerContextBudget(ctx, (row) => reads.account(row));
+
+    const sourceRead = await reads.list(
+      ctx.db
+        .query("generationSources")
+        .withIndex("by_generationId", (q) => q.eq("generationId", generation._id)),
+      INCLUSION_SOURCE_ROWS
+    );
+    const sources = sourceRead.rows;
+    const sourcesTruncated = !sourceRead.complete;
+    const frozenDocumentIds = new Set(
+      sources.flatMap((row) => (row.projectDocumentId ? [row.projectDocumentId] : []))
+    );
+    // DW-133: a project's lifetime document count is unbounded (uploadDocument
+    // has no cap), so the listing walks the whole index range under the
+    // shared budget instead of a flat take(100), and reports when it had to
+    // stop rather than letting the totals silently undercount. With a partial
+    // source set an unread frozen row is indistinguishable from an unfrozen
+    // document, so the walk is skipped and reported as truncated instead of
+    // mislabelling frozen documents as never captured.
+    let unfrozenDocuments: UnfrozenDocument[] = [];
+    let documentsTruncated = true;
+    if (!sourcesTruncated) {
+      const documentRead = await reads.list(
+        ctx.db
+          .query("projectDocuments")
+          .withIndex("by_projectId", (q) => q.eq("projectId", generation.projectId)),
+        INCLUSION_DOCUMENT_ROWS
+      );
+      documentsTruncated = !documentRead.complete;
+      // CAP-17: every document attached before the reservation is listed. The
+      // reasons mirror reserveGeneration's skip rule (archived, no readable
+      // text); a readable one it never captured — the reservation freezes a
+      // bounded number of documents — is listed as not captured rather than
+      // silently dropped from the band and its counts.
+      unfrozenDocuments = documentRead.rows.flatMap((document): UnfrozenDocument[] => {
+        if (document.createdAt > generation.startedAt) return [];
+        if (frozenDocumentIds.has(document._id)) return [];
+        const reason = document.archived
+          ? ("archived" as const)
+          : !document.content.trim()
+            ? ("unreadable" as const)
+            : ("not_captured" as const);
+        return [{ _id: document._id, fileName: document.fileName, reason }];
+      });
+    }
+    return assembleContextInclusion({
+      sources: sources.map((row) => ({
+        _id: row._id,
+        kind: row.kind,
+        label: row.label,
+        ...(row.transcriptId ? { transcriptId: row.transcriptId } : {}),
+        ...(row.inclusion ? { inclusion: row.inclusion } : {}),
+        ...(row.contextBudget ? { contextBudget: row.contextBudget } : {}),
+      })),
+      unfrozenDocuments,
+      fallbackCap: budget.maxDocuments,
+      documentsTruncated,
+      sourcesTruncated,
+    });
   },
 });
 
@@ -3142,6 +3258,34 @@ export const appendProgress = internalMutation({
     await ctx.db.patch(args.generationId, {
       progressLog: [...(gen.progressLog ?? []), args.line],
     });
+  },
+});
+
+/**
+ * Story 3 (CAP-8, AD-26): record the Writer Profile a generation ran under.
+ * The only writer of `generations.writerSettings`; patches the generation
+ * row only, never `projects` (AD-2).
+ */
+export const recordWriterSettings = internalMutation({
+  args: {
+    generationId: v.id("generations"),
+    writerSettings: writerSettingsValidator,
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const generation = await ctx.db.get(args.generationId);
+    if (!generation) return null;
+    // The validator admits only the six categories; dedupe bounds the list.
+    const { addressedCategories, ...record } = args.writerSettings;
+    await ctx.db.patch(args.generationId, {
+      writerSettings: {
+        ...record,
+        ...(addressedCategories
+          ? { addressedCategories: [...new Set(addressedCategories)] }
+          : {}),
+      },
+    });
+    return null;
   },
 });
 

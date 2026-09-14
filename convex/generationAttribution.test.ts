@@ -2344,12 +2344,14 @@ describe("the analyzer context budget is recorded by the entry actions", () => {
         included: true,
         includedLength: transcriptRow.content.length,
         truncated: false,
+        maxDocuments: 12,
       });
       expect(documentRow.contextBudget).toEqual({
         budgetTokens: 100,
         included: true,
         includedLength: 4,
         truncated: true,
+        maxDocuments: 12,
       });
       // The frozen capture facts are untouched by the recording.
       expect(documentRow.content).toBe(CANDIDATE_DOCUMENT_BODY);
@@ -2476,6 +2478,7 @@ describe("the analyzer context budget is recorded by the entry actions", () => {
         included: true,
         includedLength: DIGEST_TEXT.length,
         truncated: false,
+        maxDocuments: DEFAULT_CONTEXT_BUDGET.maxDocuments,
       });
       expect(documentRow.contextBudget?.included).toBe(true);
 

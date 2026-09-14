@@ -748,7 +748,9 @@ describe("Generation Brief editing and questions (briefs.ts, story 1 shape / sto
     const edited = await t.run((ctx) => ctx.db.get(editedBriefId));
     expect(edited).toMatchObject({ origin: "edited", version: 2 });
     expect(edited?.editMagnitude?.changedEntriesCount).toBe(1);
-    expect(edited?.storylineText).toBe("The writer's corrected Storyline claim.");
+    // Story 4: editing a Storyline *claim* changes that claim only; the
+    // Brief-level Storyline (`storylineText`) is untouched.
+    expect(edited?.storylineText).toBe(briefOutput().storyline);
 
     // Stale-version edit is refused.
     await expect(

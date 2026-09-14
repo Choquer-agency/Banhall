@@ -147,6 +147,55 @@ describe("normalizeTurnParts — tools", () => {
       "Looking through the report…"
     );
     expect(toolLabel("highlightPassages", "output-available")).toBe("Found passages");
+    // Story 5: the three tools that used to fall through to "Working…".
+    expect(toolLabel("proposeBulkEdits", "input-available")).toBe(
+      "Writing a coordinated suggestion…"
+    );
+    expect(toolLabel("proposeBulkEdits", "output-available")).toBe(
+      "Suggested a coordinated revision"
+    );
+    expect(
+      toolLabel("proposeBulkEdits", "output-available", {
+        edits: [{ targetText: "a", newText: "b" }],
+        findings: [{ id: "r-242-1-1" }, { id: "c-242-2-1" }],
+      })
+    ).toBe("Suggested one revision covering 2 items");
+    // DW-135: a zero-edit call recorded findings and produced no suggestion, so
+    // the done label must not promise one.
+    expect(
+      toolLabel("proposeBulkEdits", "output-available", {
+        edits: [],
+        findings: [{ id: "c-242-1-1" }, { id: "x-242-2-1" }],
+      })
+    ).toBe("Recorded 2 findings, nothing to apply");
+    expect(
+      toolLabel("proposeBulkEdits", "output-available", {
+        edits: [],
+        findings: [{ id: "c-242-1-1" }],
+      })
+    ).toBe("Recorded 1 finding, nothing to apply");
+    expect(toolLabel("deviationInventory", "input-available")).toBe(
+      "Checking every paragraph…"
+    );
+    expect(toolLabel("deviationInventory", "output-available")).toBe(
+      "Listed the deviations"
+    );
+    expect(toolLabel("compareReferencePd", "input-available")).toBe(
+      "Comparing with the reference PD…"
+    );
+    expect(
+      toolLabel("compareReferencePd", "output-available", {
+        fileName: "last-year-pd.docx",
+      })
+    ).toBe("Compared with “last-year-pd.docx”");
+    // None of them reads as "Working…" or "Finished a step" any more.
+    for (const name of ["proposeBulkEdits", "deviationInventory", "compareReferencePd"]) {
+      for (const state of ["input-available", "output-available", "output-error"] as const) {
+        expect(toolLabel(name, state)).not.toBe("Working…");
+        expect(toolLabel(name, state)).not.toBe("Finished a step");
+        expect(toolLabel(name, state)).not.toBe("A step didn’t finish");
+      }
+    }
     expect(toolLabel("searchBrain", "input-available")).toBe("Searching The Brain…");
     expect(toolLabel("searchBrain", "output-available")).toBe("Searched The Brain");
     expect(toolLabel("searchBrain", "output-error")).toBe("Couldn’t reach The Brain");
@@ -584,6 +633,24 @@ describe("formatTurnSummary", () => {
     );
     expect(formatTurnSummary(two, timing({ stepCount: 2 }), "success", 0)).toBe(
       "Worked for 12s · 2 suggestions"
+    );
+  });
+
+  it("reports a zero-edit revision as recorded findings, not a suggestion (DW-135)", () => {
+    const recorded = normalizeTurnParts(
+      assistant([toolPart({ type: "tool-proposeBulkEdits", toolCallId: "b1" })]),
+      [
+        proposal({
+          kind: "replacements",
+          replacements: [],
+          requireUniqueTargets: true,
+          state: "applied",
+          toolCallId: "b1",
+        }),
+      ]
+    );
+    expect(formatTurnSummary(recorded, timing({ stepCount: 1 }), "success", 0)).toBe(
+      "Worked for 12s · findings recorded"
     );
   });
 

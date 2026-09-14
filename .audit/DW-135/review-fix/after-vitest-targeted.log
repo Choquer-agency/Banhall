@@ -1,0 +1,10 @@
+
+ RUN  v4.1.10 /Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-dw135
+
+
+ Test Files  2 passed (2)
+      Tests  82 passed (82)
+   Start at  15:58:30
+   Duration  1.01s (transform 615ms, setup 0ms, import 808ms, tests 421ms, environment 85ms)
+
+exit=0

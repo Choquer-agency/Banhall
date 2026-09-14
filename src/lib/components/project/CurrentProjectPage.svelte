@@ -33,6 +33,8 @@
   } from "$lib/components/editor/types";
   import QAScorePanel from "$lib/components/editor/QAScorePanel.svelte";
   import QALauncher from "$lib/components/qa/QALauncher.svelte";
+  import BriefLauncher from "$lib/components/brief/BriefLauncher.svelte";
+  import BriefRailPanel from "$lib/components/brief/BriefRailPanel.svelte";
   import Tooltip from "$lib/components/ui/Tooltip.svelte";
   import ChronologyTable from "$lib/components/editor/ChronologyTable.svelte";
   import ModelTestSummary from "$lib/components/editor/ModelTestSummary.svelte";
@@ -439,6 +441,7 @@
   function handleAskAI(selection: { from: number; to: number; text: string }) {
     chatOpen = true;
     qaOpen = false;
+    briefOpen = false;
     railView = "chat";
     pendingChatHighlight = selection;
   }
@@ -446,6 +449,7 @@
   function handleResearch(selection: ResearchSelection) {
     chatOpen = true;
     qaOpen = false;
+    briefOpen = false;
     railView = "chat";
     pendingChatHighlight = null;
     pendingResearch = selection;
@@ -464,12 +468,13 @@
   // BNH-47: QA rail panel — independent toggle; opening either closes the
   // other so the right rail hosts one passive-review surface at a time.
   let qaOpen = $state(false);
-  // Which card occupies the rail (also while both are closed, for the sink
+  // Story 4: the Brief rail view — a third exclusive occupant of the rail.
+  let briefOpen = $state(false);
+  // Which card occupies the rail (also while all are closed, for the sink
   // animation and so exactly one card is in flow at a time).
-  let railView = $state<"chat" | "qa">("chat");
+  let railView = $state<"chat" | "qa" | "brief">("chat");
   let workspaceEl: HTMLDivElement | null = $state(null);
   let dragging = $state(false);
-
   // Send any upload failures this user queued while offline. Page-level rather
   // than inside FilesPanel so it runs in every state of the page, including the
   // ones that render no files panel at all.
@@ -491,9 +496,12 @@
     const r = localStorage.getItem("banhall_chat_ratio");
     if (r) chatRatio = Math.min(CHAT_MAX, Math.max(CHAT_MIN, parseFloat(r)));
     const savedQa = localStorage.getItem("banhall_qa_open") === "1";
-    chatOpen = !savedQa && localStorage.getItem("banhall_chat_open") !== "0";
+    const savedBrief = !savedQa && localStorage.getItem("banhall_brief_open") === "1";
+    chatOpen = !savedQa && !savedBrief && localStorage.getItem("banhall_chat_open") !== "0";
     qaOpen = savedQa;
+    briefOpen = savedBrief;
     if (savedQa) railView = "qa";
+    else if (savedBrief) railView = "brief";
     workspaceMaximized = localStorage.getItem("banhall_project_editor_maximized") === "1";
     candidateMaximized = localStorage.getItem("banhall_candidate_editor_maximized") === "1";
     chatPreferencesReady = true;
@@ -502,6 +510,7 @@
     localStorage.setItem("banhall_chat_ratio", String(chatRatio));
     localStorage.setItem("banhall_chat_open", chatOpen ? "1" : "0");
     localStorage.setItem("banhall_qa_open", qaOpen ? "1" : "0");
+    localStorage.setItem("banhall_brief_open", briefOpen ? "1" : "0");
     localStorage.setItem("banhall_project_editor_maximized", workspaceMaximized ? "1" : "0");
     localStorage.setItem("banhall_candidate_editor_maximized", candidateMaximized ? "1" : "0");
   });
@@ -925,6 +934,46 @@
   const showFailedGeneration = $derived(
     generation?.status === "failed" && !report && project?.mode !== "review"
   );
+
+  // Story 4: the Brief's three reads. ONE generation id feeds every Brief
+  // surface — while a generation runs it is that generation (the Brief fills
+  // in as it derives), otherwise the report's own generation — so the rail
+  // and the progress-card panel can never describe two different
+  // generations at once. The page subscribes to the same queries the panel
+  // uses, so the Convex client shares one subscription each.
+  const briefGenerationId = $derived(
+    (isGenerating || showIterativeStepper ? generation?._id : undefined) ??
+      reportQ.data?.generationId ??
+      generationQ.data?._id ??
+      null
+  );
+  const briefQ = useQuery(api.briefs.getBrief, () =>
+    auth.isAuthenticated && briefGenerationId ? { generationId: briefGenerationId } : "skip"
+  );
+  const briefInclusionQ = useQuery(api.generations.getContextInclusion, () =>
+    auth.isAuthenticated && briefGenerationId ? { generationId: briefGenerationId } : "skip"
+  );
+  const briefWriterSettingsQ = useQuery(api.writerProfiles.getGenerationWriterSettings, () =>
+    auth.isAuthenticated && briefGenerationId ? { generationId: briefGenerationId } : "skip"
+  );
+  // DW-128: a failed Brief read keeps the launcher and the rail view, which
+  // then shows BriefRailPanel's error line — a broken read must never look
+  // like a legacy generation.
+  const briefLoadFailed = $derived(
+    !!briefQ.error || !!briefInclusionQ.error || !!briefWriterSettingsQ.error
+  );
+  // A legacy generation recorded no Brief, no budget outcome and no writer
+  // settings: the rail view and its launcher are absent, not empty. Rows
+  // synthesized for documents the reservation skipped never count.
+  const briefAvailable = $derived(
+    briefLoadFailed ||
+      !!briefQ.data ||
+      !!briefWriterSettingsQ.data ||
+      briefInclusionQ.data?.recorded === true
+  );
+  // The Brief view only occupies the rail when there is a Brief to show.
+  const briefShown = $derived(briefOpen && briefAvailable);
+  const railOpen = $derived(chatOpen || qaOpen || briefShown);
 </script>
 
 <svelte:window
@@ -1218,6 +1267,14 @@
       <div class="flex min-h-0 flex-1 overflow-y-auto">
         <div class="mx-auto my-auto w-full max-w-3xl px-6 py-8">
           <GenerationProgress generationId={generation._id} />
+          {#if isGenerating && briefGenerationId}
+            <!-- Story 4: the Brief fills in beside the progress card — its
+                 Inputs band is readable before any report exists. The same
+                 id feeds the rail, so both always describe one generation. -->
+            <div class="mt-6">
+              <BriefRailPanel generationId={briefGenerationId} {projectId} />
+            </div>
+          {/if}
           {#if !report}
             <!-- Uploads that failed on the way in have no other home while a
                  generation is running or has failed — the editor (and its files
@@ -1263,7 +1320,7 @@
     {#if !awaitingSelection && !showIterativeStepper && report}
       <div bind:this={workspaceEl} class={`mx-auto flex min-h-0 w-full flex-1 overflow-hidden transition-[max-width] duration-[325ms] ease-out motion-reduce:transition-none ${workspaceMaximized ? "max-w-full" : "max-w-[var(--container-shell)]"}`}>
         <div class="min-h-0 flex-1 overflow-y-auto">
-            <div class={`mx-auto transition-[max-width,padding] duration-[325ms] ease-out motion-reduce:transition-none ${workspaceMaximized ? "max-w-full px-7 py-6" : chatOpen || qaOpen ? "max-w-report px-10 py-10" : "max-w-[var(--container-shell)] px-10 py-10"}`}>
+            <div class={`mx-auto transition-[max-width,padding] duration-[325ms] ease-out motion-reduce:transition-none ${workspaceMaximized ? "max-w-full px-7 py-6" : railOpen ? "max-w-report px-10 py-10" : "max-w-[var(--container-shell)] px-10 py-10"}`}>
               <!-- Project info header -->
               {@render projectMetadata()}
 
@@ -1315,7 +1372,7 @@
           </div>
 
         <!-- Draggable divider -->
-        {#if report && user && (chatOpen || qaOpen)}
+        {#if report && user && railOpen}
           <button
             type="button"
             onmousedown={startDrag}
@@ -1346,11 +1403,23 @@
              panel stays mounted so chat state survives close/reopen. -->
         {#if report && user}
           <aside
-            class={`relative flex min-h-0 flex-none flex-col overflow-hidden bg-canvas py-6 ${chatOpen || qaOpen ? (workspaceMaximized ? "pl-1 pr-7" : "pl-1 pr-6") : ""} ${dragging ? "" : "transition-all duration-[325ms] ease-out"}`}
-            style={`width: ${chatOpen || qaOpen ? `${chatRatio * 100}%` : "0%"}`}
+            class={`relative flex min-h-0 flex-none flex-col overflow-hidden bg-canvas py-6 ${railOpen ? (workspaceMaximized ? "pl-1 pr-7" : "pl-1 pr-6") : ""} ${dragging ? "" : "transition-all duration-[325ms] ease-out"}`}
+            style={`width: ${railOpen ? `${chatRatio * 100}%` : "0%"}`}
           >
+            <!-- Story 4: the Brief rail view (in flow only while railView
+                 names it, so exactly one card occupies the rail) -->
+            {#if railView === "brief" && briefAvailable && briefGenerationId}
+              <BriefRailPanel
+                mode="rail"
+                generationId={briefGenerationId}
+                {projectId}
+                open={briefOpen}
+                onClose={() => (briefOpen = false)}
+                onRegenerate={handleRegenerate}
+              />
+            {/if}
             <!-- BNH-47: QA review — shared rail card (in flow; exactly one
-                 of chat/QA is in flow at a time via railView) -->
+                 of chat/QA/Brief is in flow at a time via railView) -->
             {#if railView === "qa"}
               <LazyModule load={() => import("$lib/components/qa/QARailPanel.svelte")} label="QA review">
                 {#snippet children(QARailPanel)}
@@ -1422,6 +1491,7 @@
                 out:scale={{ duration: 150, start: 0.6 }}
                 onclick={() => {
                   qaOpen = false;
+                  briefOpen = false;
                   chatOpen = true;
                   railView = "chat";
                 }}
@@ -1438,8 +1508,20 @@
             right={chatOpen ? "1.5rem" : "5rem"}
             onOpen={() => {
               chatOpen = false;
+              briefOpen = false;
               qaOpen = true;
               railView = "qa";
+            }}
+          />
+        {/if}
+        {#if report && user && briefAvailable && !briefOpen}
+          <BriefLauncher
+            right={`${1.5 + (chatOpen ? 0 : 3.5) + (qaOpen ? 0 : 3.5)}rem`}
+            onOpen={() => {
+              chatOpen = false;
+              qaOpen = false;
+              briefOpen = true;
+              railView = "brief";
             }}
           />
         {/if}

@@ -16,6 +16,23 @@ export function proposalPairs(proposal: ProposalShape) {
   return [];
 }
 
+/**
+ * DW-135 (AD-28 amendment, 2026-09-14): a Coordinated Revision saved with
+ * zero edits because every finding was blocked or conflicting. It is a record
+ * of the findings, not a suggestion: nothing to apply, reject or reword. Used
+ * by `applyProposal`, `saveProposal` and the proposal card alike so the three
+ * agree on what a record-only proposal is.
+ */
+export function isRecordOnlyProposal(
+  proposal: ProposalShape & { requireUniqueTargets?: boolean }
+) {
+  return (
+    proposal.kind === "replacements" &&
+    proposal.requireUniqueTargets === true &&
+    proposalPairs(proposal).length === 0
+  );
+}
+
 export function proposalReferences(proposal: ProposalShape) {
   if (proposal.kind === "references") {
     return (proposal.references ?? []).filter(Boolean);

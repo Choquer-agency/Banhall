@@ -1,0 +1,90 @@
+convex source files swapped to their e63b4d0 blobs for this run (test file is the final review-fix version):
+  convex/generations.ts 625ace7137f8ff6d504ff85a0a97e02aef215948 == 625ace7137f8ff6d504ff85a0a97e02aef215948
+  convex/lib/contextInclusion.ts e09e3870577570d436b1799994d5f0e3abc262ca == e09e3870577570d436b1799994d5f0e3abc262ca
+  convex/lib/learningHealthReads.ts 2a4b9670551c0b256e7ec6681997698cc0f1a912 == 2a4b9670551c0b256e7ec6681997698cc0f1a912
+  convex/lib/boundedRead.ts abc840183371b5114051a1e30dba140bd3856dce == abc840183371b5114051a1e30dba140bd3856dce
+
+ RUN  v4.1.10 /Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-sweep-validation
+
+ ✓ |convex| convex/contextInclusion.test.ts > getContextInclusion (story 4) > 40 uploaded documents: all frozen, 12 in context under cap 12, inclusion stored per row 618ms
+ ✓ |convex| convex/contextInclusion.test.ts > getContextInclusion (story 4) > lists a readable document the reservation never captured, in the counts 141ms
+ ✓ |convex| convex/contextInclusion.test.ts > getContextInclusion (story 4) > 101 documents: every attached document is counted, past the old 100-row fetch bound (DW-133) 30ms
+ × |convex| convex/contextInclusion.test.ts > getContextInclusion (story 4) > says so when the document read budget stops the listing short (DW-133) 303ms
+   → expected undefined to be false // Object.is equality
+ × |convex| convex/contextInclusion.test.ts > getContextInclusion (story 4) > 12 MB of frozen sources: the whole transaction stays under the read limit and the document walk says it stopped (DW-133 review) 986ms
+   → Read too much data in a single function execution (limit: 16777216 bytes). This is a Convex limit: https://docs.convex.dev/production/state/limits
+ × |convex| convex/contextInclusion.test.ts > getContextInclusion (story 4) > bounds the frozen sources themselves when they alone would exceed the budget, and says so (DW-133 review) 337ms
+   → Read too much data in a single function execution (limit: 16777216 bytes). This is a Convex limit: https://docs.convex.dev/production/state/limits
+ ✓ |convex| convex/contextInclusion.test.ts > getContextInclusion (story 4) > returns null to an outsider 105ms
+ ✓ |convex| convex/contextInclusion.test.ts > getContextInclusion (story 4) > lists archived and unreadable documents as not included, and a legacy row with no status 7ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 3 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |convex| convex/contextInclusion.test.ts > getContextInclusion (story 4) > says so when the document read budget stops the listing short (DW-133)
+AssertionError: expected undefined to be false // Object.is equality
+
+- Expected:
+false
+
++ Received:
+undefined
+
+ ❯ convex/contextInclusion.test.ts:222:41
+    220|
+    221|     const inclusion = await authed.query(api.generations.getContextInc…
+    222|     expect(inclusion!.sourcesTruncated).toBe(false);
+       |                                         ^
+    223|     expect(inclusion!.documentsTruncated).toBe(true);
+    224|     expect(inclusion!.documentsTotal).toBeGreaterThan(0);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/3]⎯
+
+ FAIL  |convex| convex/contextInclusion.test.ts > getContextInclusion (story 4) > 12 MB of frozen sources: the whole transaction stays under the read limit and the document walk says it stopped (DW-133 review)
+Error: Read too much data in a single function execution (limit: 16777216 bytes). This is a Convex limit: https://docs.convex.dev/production/state/limits
+ ❯ performAsyncSyscall node_modules/convex/src/server/impl/syscall.ts:52:10
+ ❯ QueryImpl.next node_modules/convex/src/server/impl/query_impl.ts:264:28
+ ❯ collectBounded convex/lib/boundedRead.ts:28:20
+     26|   try {
+     27|     while (used + DOCUMENT_HEADROOM <= limits.maxBytes) {
+     28|       const next = await iterator.next();
+       |                    ^
+     29|       if (next.done) return { rows, complete: true };
+     30|       used += getConvexSize(next.value) + DOCUMENT_OVERHEAD;
+ ❯ handler convex/generations.ts:1020:43
+ ❯ invokeFunction node_modules/convex/src/server/impl/registration_impl.ts:90:13
+ ❯ invokeQuery node_modules/convex/src/server/impl/registration_impl.ts:350:17
+ ❯ runQueryWithHandler node_modules/convex-test/dist/index.js:1595:31
+ ❯ Object.queryFromPath node_modules/convex-test/dist/index.js:1649:32
+ ❯ query node_modules/convex-test/dist/index.js:1730:20
+ ❯ convex/contextInclusion.test.ts:271:23
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/3]⎯
+
+ FAIL  |convex| convex/contextInclusion.test.ts > getContextInclusion (story 4) > bounds the frozen sources themselves when they alone would exceed the budget, and says so (DW-133 review)
+Error: Read too much data in a single function execution (limit: 16777216 bytes). This is a Convex limit: https://docs.convex.dev/production/state/limits
+ ❯ performAsyncSyscall node_modules/convex/src/server/impl/syscall.ts:52:10
+ ❯ QueryImpl.next node_modules/convex/src/server/impl/query_impl.ts:264:28
+ ❯ QueryImpl.collect node_modules/convex/src/server/impl/query_impl.ts:317:21
+ ❯ handler convex/generations.ts:1009:21
+    1007|       return null;
+    1008|     }
+    1009|     const sources = await ctx.db
+       |                     ^
+    1010|       .query("generationSources")
+    1011|       .withIndex("by_generationId", (q) => q.eq("generationId", genera…
+ ❯ invokeFunction node_modules/convex/src/server/impl/registration_impl.ts:90:13
+ ❯ invokeQuery node_modules/convex/src/server/impl/registration_impl.ts:350:17
+ ❯ runQueryWithHandler node_modules/convex-test/dist/index.js:1595:31
+ ❯ Object.queryFromPath node_modules/convex-test/dist/index.js:1649:32
+ ❯ query node_modules/convex-test/dist/index.js:1730:20
+ ❯ convex/contextInclusion.test.ts:305:23
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/3]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  3 failed | 5 passed (8)
+   Start at  13:03:22
+   Duration  3.38s (transform 1.05s, setup 0ms, import 548ms, tests 2.53s, environment 66ms)
+
+exit=1

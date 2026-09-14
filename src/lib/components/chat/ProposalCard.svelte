@@ -2,7 +2,12 @@
   import { useMutation } from "convex-svelte";
   import { api } from "../../../../convex/_generated/api";
   import type { Doc } from "../../../../convex/_generated/dataModel";
-  import { proposalPairs, proposalReferences } from "../../../../shared/chatProposals";
+  import {
+    isRecordOnlyProposal,
+    proposalPairs,
+    proposalReferences,
+  } from "../../../../shared/chatProposals";
+  import NothingToApplyCard from "./NothingToApplyCard.svelte";
   import ProposedEditCard from "./ProposedEditCard.svelte";
 
   type Proposal = Doc<"chatProposals">;
@@ -38,8 +43,14 @@
   const updateProposalWording = useMutation(api.chatV2.updateProposalWording);
   const pairs = $derived(proposalPairs(proposal));
   const references = $derived(proposalReferences(proposal));
+  // DW-135: an all-blocked/conflicting revision has no edits and no action;
+  // it renders as a record of its findings, never as a suggestion card.
+  const recordOnly = $derived(isRecordOnlyProposal(proposal));
 </script>
 
+{#if recordOnly}
+<NothingToApplyCard proposalId={proposal._id} />
+{:else}
 <ProposedEditCard
   newText={proposal.newText}
   targetText={proposal.targetText}
@@ -84,3 +95,4 @@
     : undefined}
   {reviewing}
 />
+{/if}

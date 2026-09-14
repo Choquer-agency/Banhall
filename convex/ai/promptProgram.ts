@@ -39,6 +39,11 @@ import {
   ANALYZER_REQUEST,
 } from "./analyzerAgent";
 import { BRIEF_SYSTEM_PROMPT, BRIEF_REQUEST, BRIEF_SCHEMA } from "./brief";
+import {
+  ANALYSIS_TOOL_SCHEMA,
+  STYLE_ANALYSIS_REQUEST,
+  STYLE_ANALYSIS_SYSTEM_PROMPT,
+} from "./styleAnalysis";
 import { DEFAULT_CONTEXT_BUDGET } from "./trustedContext";
 import {
   CONDENSE_CONCURRENCY,
@@ -360,6 +365,23 @@ export const generationPromptProgram = {
       structuredPolicy: "two-attempt-repair",
       // Slot label for aiUsage tracking (AD-27)
       callSite: "generation:brief",
+    },
+    // Story 3 (CAP-8, AD-26/27): the PSOS-50 style classifier run on a
+    // settings document supplied as Writer's Notes or an attachment, reused
+    // verbatim, cached per (projectId, contentHash, classifierVersion) so a
+    // document costs one call the first time a classifier version sees it
+    // and none after. One attempt, not the repair pass: generateReport waits
+    // on it inside its 600 s action.
+    settingsAnalysis: {
+      kind: "structured",
+      systemTemplate: STYLE_ANALYSIS_SYSTEM_PROMPT,
+      request: STYLE_ANALYSIS_REQUEST,
+      schema: ANALYSIS_TOOL_SCHEMA,
+      model: { kind: "fixed", modelId: MODEL },
+      thinking: { kind: "omitted" },
+      structuredPolicy: "single-attempt",
+      callSite: "generation:settings",
+      cache: "per-projectId-and-contentHash-and-classifierVersion",
     },
     section242: {
       kind: "text",

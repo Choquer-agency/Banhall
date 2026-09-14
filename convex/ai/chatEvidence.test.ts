@@ -8,6 +8,7 @@ import {
   buildChatTurnRequest,
   type ChatEvidenceBudget,
   type ChatEvidenceDoc,
+  type ChatOpenQuestion,
   type ChatTurnContext,
 } from "./chatEvidence";
 import { CHAT_EVIDENCE_GUIDANCE, buildChatSystemPromptV2 } from "./prompts";
@@ -549,5 +550,233 @@ describe("chat turn request", () => {
     });
     expect(turn.report.budget.maxDocuments).toBe(0);
     expect(String(turn.messages[0]?.content)).not.toContain("a.txt] ---");
+  });
+});
+
+
+/**
+ * Story 5 (CAP-14): the open questions are evidence, not a tool result, because
+ * the converge question must be answered without a tool call. The block is
+ * delimited and labelled like every other block, and it is OMITTED entirely
+ * when there is nothing open, so a project with no Brief sends the same message
+ * shape it sent before the block existed.
+ */
+describe("open questions block", () => {
+  const questions: ChatOpenQuestion[] = [
+    {
+      text: "The number of fatigue cycles was never measured.",
+      confidence: "unresolved",
+      sourceLabel: "March interview",
+    },
+    {
+      text: "The vendor datasheet contradicts the run log.",
+      confidence: "unreliable",
+      sourceLabel: null,
+    },
+  ];
+
+  it("is delimited, labelled and rendered after the prior decisions", () => {
+    const { message, report } = buildChatEvidence({
+      reportText: "Report prose.",
+      analysisText: "{}",
+      decisions: [{ state: "applied", target: "t", candidate: "c" }],
+      openQuestions: questions,
+    });
+    expect(message).toContain(begin(EVIDENCE_LABELS.openQuestions));
+    expect(message).toContain(end(EVIDENCE_LABELS.openQuestions));
+    const body = blockBody(message, `${EVIDENCE_LABELS.openQuestions}]`);
+    expect(body).toBe(
+      "[1: UNRESOLVED] The number of fatigue cycles was never measured. (source: March interview)\n" +
+        "[2: UNRELIABLE] The vendor datasheet contradicts the run log."
+    );
+    expect(message.indexOf(begin(EVIDENCE_LABELS.openQuestions))).toBeGreaterThan(
+      message.indexOf(begin(EVIDENCE_LABELS.decisions))
+    );
+    // Budgeted and truncation-accounted like every other block.
+    expect(report.sources.map((source) => source.kind)).toEqual([
+      "report",
+      "analysis",
+      "decisions",
+      "openQuestions",
+    ]);
+    expect(report.sources.at(-1)).toMatchObject({
+      kind: "openQuestions",
+      label: EVIDENCE_LABELS.openQuestions,
+      // Analyzer-written prose about the CLIENT's transcript, the same
+      // provenance as TRANSCRIPT ANALYSIS. Not the writer's own direction.
+      trust: "client",
+      included: true,
+      truncated: false,
+    });
+    const analysisTrust = report.sources.find((s) => s.kind === "analysis")?.trust;
+    expect(report.sources.at(-1)?.trust).toBe(analysisTrust);
+  });
+
+  it("is absent, and unreported, when the list is empty", () => {
+    for (const openQuestions of [undefined, []]) {
+      const { message, report } = buildChatEvidence({
+        reportText: "Report prose.",
+        analysisText: "{}",
+        ...(openQuestions ? { openQuestions } : {}),
+      });
+      expect(message).not.toContain(begin(EVIDENCE_LABELS.openQuestions));
+      expect(report.sources.map((source) => source.kind)).toEqual(["report", "analysis"]);
+      expect(describeContextCuts(report)).toBeNull();
+    }
+  });
+
+  it("records the block as shortened when the budget cuts it", () => {
+    const { message, report } = buildChatEvidence({
+      reportText: "R",
+      analysisText: "A",
+      openQuestions: [
+        { text: "z".repeat(400), confidence: "unresolved", sourceLabel: null },
+      ],
+      budget: budget({ openQuestionsTokens: 10 }),
+    });
+    expect(blockBody(message, `${EVIDENCE_LABELS.openQuestions}]`)).toContain(
+      "[TRUNCATED:"
+    );
+    expect(report.sources.at(-1)).toMatchObject({
+      kind: "openQuestions",
+      included: true,
+      truncated: true,
+    });
+    expect(describeContextCuts(report)).toContain(
+      `shortened ${EVIDENCE_LABELS.openQuestions}`
+    );
+  });
+
+  it("opens the block with the omitted count when the query's cap cut the list (DW-138)", () => {
+    const { message } = buildChatEvidence({
+      reportText: "Report prose.",
+      analysisText: "{}",
+      openQuestions: questions,
+      openQuestionsOmitted: { count: 6, exact: true },
+    });
+    const body = blockBody(message, `${EVIDENCE_LABELS.openQuestions}]`);
+    expect(body.split("\n")[0]).toBe(
+      "Listing 2 of 8 open questions; 6 more are not shown."
+    );
+    expect(body).toContain("[1: UNRESOLVED] The number of fatigue cycles was never measured.");
+
+    // A cut scan can only bound the count from below, and the line says so.
+    const inexact = buildChatEvidence({
+      reportText: "Report prose.",
+      analysisText: "{}",
+      openQuestions: questions,
+      openQuestionsOmitted: { count: 6, exact: false },
+    });
+    expect(
+      blockBody(inexact.message, `${EVIDENCE_LABELS.openQuestions}]`).split("\n")[0]
+    ).toBe("Listing 2 open questions; at least 6 more are not shown.");
+
+    // Nothing omitted: the block is exactly the list, as before.
+    const complete = buildChatEvidence({
+      reportText: "Report prose.",
+      analysisText: "{}",
+      openQuestions: questions,
+      openQuestionsOmitted: { count: 0, exact: true },
+    });
+    expect(
+      blockBody(complete.message, `${EVIDENCE_LABELS.openQuestions}]`).startsWith("[1: ")
+    ).toBe(true);
+  });
+
+  it("says the scan was incomplete even with nothing listed or no known omission", () => {
+    // Empty list, inexact: the block must still appear, or the prompt reads
+    // its absence as "no Brief".
+    const empty = buildChatEvidence({
+      reportText: "Report prose.",
+      analysisText: "{}",
+      openQuestions: [],
+      openQuestionsOmitted: { count: 0, exact: false },
+    });
+    expect(empty.message).toContain(begin(EVIDENCE_LABELS.openQuestions));
+    expect(blockBody(empty.message, `${EVIDENCE_LABELS.openQuestions}]`)).toBe(
+      "No open question was read before the Brief scan stopped; this list is incomplete, not empty."
+    );
+    expect(empty.report.sources.map((source) => source.kind)).toContain("openQuestions");
+
+    // Some listed, none known omitted, inexact: the list may still be short.
+    const partial = buildChatEvidence({
+      reportText: "Report prose.",
+      analysisText: "{}",
+      openQuestions: questions,
+      openQuestionsOmitted: { count: 0, exact: false },
+    });
+    expect(
+      blockBody(partial.message, `${EVIDENCE_LABELS.openQuestions}]`).split("\n")[0]
+    ).toBe("Listing 2 open questions; the Brief was not fully read, so more may exist.");
+
+    // The context row with an empty list but an inexact scan is not dropped.
+    const turn = buildChatTurnRequest({
+      context: {
+        reportContent: null,
+        agentOutputs: null,
+        documents: [],
+        decisions: [],
+        openQuestions: [],
+        openQuestionsOmitted: { count: 0, exact: false },
+      },
+    });
+    expect(String(turn.messages[0]?.content)).toContain(
+      "this list is incomplete, not empty"
+    );
+    // And an exact empty scan still renders nothing (byte-stability).
+    const exactEmpty = buildChatTurnRequest({
+      context: {
+        reportContent: null,
+        agentOutputs: null,
+        documents: [],
+        decisions: [],
+        openQuestions: [],
+        openQuestionsOmitted: { count: 0, exact: true },
+      },
+    });
+    expect(String(exactEmpty.messages[0]?.content)).not.toContain(
+      begin(EVIDENCE_LABELS.openQuestions)
+    );
+  });
+
+  it("carries the omitted count from the context row into the message", () => {
+    const context: ChatTurnContext = {
+      reportContent: null,
+      agentOutputs: null,
+      documents: [],
+      decisions: [],
+      openQuestions: questions,
+      openQuestionsOmitted: { count: 3, exact: true },
+    };
+    const turn = buildChatTurnRequest({ context });
+    expect(String(turn.messages[0]?.content)).toContain(
+      "Listing 2 of 5 open questions; 3 more are not shown."
+    );
+  });
+
+  it("keeps the system string byte-identical with and without it (AD-11a)", () => {
+    const base: ChatTurnContext = {
+      reportContent: JSON.stringify({
+        type: "doc",
+        content: [
+          { type: "paragraph", content: [{ type: "text", text: "The report body." }] },
+        ],
+      }),
+      agentOutputs: null,
+      documents: [],
+      decisions: [],
+    };
+    const without = buildChatTurnRequest({ context: base });
+    const with_ = buildChatTurnRequest({
+      context: { ...base, openQuestions: questions },
+    });
+    expect(with_.system).toBe(without.system);
+    // And the facts travel only in the user-role message.
+    expect(with_.system).not.toContain("fatigue cycles");
+    expect(String(with_.messages[0]?.content)).toContain("fatigue cycles");
+    // An empty list from the query leaves the message byte-identical too.
+    expect(
+      buildChatTurnRequest({ context: { ...base, openQuestions: [] } }).messages[0]
+    ).toEqual(without.messages[0]);
   });
 });

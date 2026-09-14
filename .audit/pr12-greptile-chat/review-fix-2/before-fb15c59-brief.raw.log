@@ -1,0 +1,34 @@
+
+ RUN  v4.1.10 /Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-b
+
+ ❯ |convex| convex/chatContext.test.ts (16 tests | 1 failed | 15 skipped) 632ms
+     × stops at its byte budget instead of exceeding the transaction read limit 631ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |convex| convex/chatContext.test.ts > getChatContextV2 open questions > stops at its byte budget instead of exceeding the transaction read limit
+Error: Read too much data in a single function execution (limit: 16777216 bytes). This is a Convex limit: https://docs.convex.dev/production/state/limits
+ ❯ performAsyncSyscall node_modules/convex/src/server/impl/syscall.ts:52:10
+ ❯ QueryImpl.next node_modules/convex/src/server/impl/query_impl.ts:264:28
+ ❯ openQuestionsFor convex/chatV2.ts:1354:20
+    1352|   const labels = new Map<Id<"generationSources">, string>();
+    1353|   let scanned = 0;
+    1354|   for await (const entry of ctx.db
+       |                    ^
+    1355|     .query("generationBriefEntries")
+    1356|     .withIndex("by_briefId", (q) => q.eq("briefId", generation.briefId…
+ ❯ handler convex/chatV2.ts:1441:27
+ ❯ invokeFunction node_modules/convex/src/server/impl/registration_impl.ts:90:13
+ ❯ invokeQuery node_modules/convex/src/server/impl/registration_impl.ts:350:17
+ ❯ runQueryWithHandler node_modules/convex-test/dist/index.js:1595:31
+ ❯ Object.queryFromPath node_modules/convex-test/dist/index.js:1649:32
+ ❯ query node_modules/convex-test/dist/index.js:1730:20
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 15 skipped (16)
+   Start at  15:07:49
+   Duration  1.28s (transform 386ms, setup 0ms, import 320ms, tests 632ms, environment 86ms)
+

@@ -8,7 +8,7 @@ import {
   type MutationCtx,
 } from "./_generated/server";
 import { components, internal } from "./_generated/api";
-import { v } from "convex/values";
+import { getConvexSize, v, type Value } from "convex/values";
 import { paginationOptsValidator } from "convex/server";
 import {
   abortStream,
@@ -31,15 +31,35 @@ import {
   type PMNode,
 } from "./lib/reportEdits";
 import { getEffectiveWriterStyle } from "./writerProfiles";
+import { selectedCandidateRunId } from "./complianceNotes";
 import { applyPassageEdits } from "./lib/passageEdits";
+import {
+  MAX_COMPLETION_REPORT_FINDINGS,
+  completionReportAnchorIssues,
+  completionReportItemValidator,
+  completionReportRows,
+  paragraphCounts,
+  paragraphCountsSentence,
+  zeroEditIssue,
+} from "./lib/completionReport";
+import { extractReportSections, sectionParagraphs } from "./lib/tiptapReport";
+import type {
+  InventoryNote,
+  InventorySections,
+} from "./lib/deviationInventory";
 import { publicChatDelta, publicChatMessage } from "./lib/chatPublicOutput";
 import { safeErrorDetails } from "./lib/safeErrorDetails";
 import { domainError, sha256 } from "./lib/contracts";
 import { normalizeCraScienceCode } from "../shared/craScienceCodes";
-import { proposalPairs } from "../shared/chatProposals";
+import { isRecordOnlyProposal, proposalPairs } from "../shared/chatProposals";
 import { chatAdmissionLimits, chatEvidenceBudget } from "./appSettings";
+import {
+  DEFAULT_CHAT_EVIDENCE_BUDGET,
+  type ChatOpenQuestion,
+  type ChatOpenQuestionsOmitted,
+} from "./ai/chatEvidence";
 import { projectRollingCostUsdUnits, usdDecimalUnits } from "./aiUsage";
-import type { Id } from "./_generated/dataModel";
+import type { Doc, Id } from "./_generated/dataModel";
 
 // ─── Agent-based chat plumbing (BNH-10 P2; sole pipeline since Jul 22) ───────
 // The @convex-dev/agent component owns threads/messages/stream deltas.
@@ -315,7 +335,9 @@ export const sendMessage = mutation({
         !refineProposal ||
         refineProposal.reportId !== report._id ||
         refineProposal.projectId !== report.projectId ||
-        refineProposal.kind === "references"
+        refineProposal.kind === "references" ||
+        // DW-135: a record-only revision has no wording to refine.
+        isRecordOnlyProposal(refineProposal)
       ) {
         throw new Error("Suggestion not found");
       }
@@ -441,6 +463,15 @@ export const applyProposal = mutation({
     if (!proposal) domainError("NOT_FOUND", "Proposal not found");
     if (proposal.kind === "references") {
       domainError("INVALID_INPUT", "Highlights have nothing to apply.");
+    }
+    // DW-135 (AD-28 amendment): an all-blocked/conflicting revision was saved
+    // with zero edits. It is a record of findings, never a prose change, so it
+    // is refused here exactly like a highlight, before any report read.
+    if (isRecordOnlyProposal(proposal)) {
+      domainError(
+        "INVALID_INPUT",
+        "This revision has nothing to apply. Its findings need a writer's decision."
+      );
     }
     // report.editProse: applying a proposal writes report prose.
     const { user: applier } = await requireReportEditAccess(
@@ -603,18 +634,27 @@ export const markProposalApplied = mutation({
     if (!report || report.projectId !== proposal.projectId) {
       domainError("NOT_FOUND", "Report not found");
     }
+    // Kind guards run before the already-applied short-circuit: a highlight or
+    // a record-only revision (DW-135) is stored `applied` from creation, and
+    // must be refused as nothing to apply, never reported as applied prose.
+    if (proposal.kind === "references") {
+      domainError("INVALID_INPUT", "Highlights have nothing to apply.");
+    }
+    if (isRecordOnlyProposal(proposal)) {
+      domainError(
+        "INVALID_INPUT",
+        "This revision has nothing to apply. Its findings need a writer's decision."
+      );
+    }
+    if (proposal.requireUniqueTargets) {
+      domainError("INVALID_INPUT", "Apply this coordinated revision from its suggestion card so every passage can be checked together.");
+    }
     if (proposal.state === "applied") {
       return {
         applied: true as const,
         alreadyApplied: true as const,
         revisionNumber: report.revisionNumber ?? 0,
       };
-    }
-    if (proposal.kind === "references") {
-      domainError("INVALID_INPUT", "Highlights have nothing to apply.");
-    }
-    if (proposal.requireUniqueTargets) {
-      domainError("INVALID_INPUT", "Apply this coordinated revision from its suggestion card so every passage can be checked together.");
     }
     if (proposal.state !== "pending") {
       domainError(
@@ -667,6 +707,9 @@ export const updateProposalWording = mutation({
     const proposal = await ctx.db.get(args.proposalId);
     if (!proposal) domainError("NOT_FOUND", "Suggestion not found");
     const { user } = await requireInternalProjectAccess(ctx, proposal.projectId);
+    if (isRecordOnlyProposal(proposal)) {
+      domainError("INVALID_INPUT", "This record has nothing to reword.");
+    }
     if (proposal.state !== "pending") {
       domainError("INVALID_INPUT", "Only a pending suggestion can be edited.");
     }
@@ -738,6 +781,9 @@ export const rejectProposal = mutation({
     const proposal = await ctx.db.get(args.proposalId);
     if (!proposal) throw new Error("Proposal not found");
     await requireInternalProjectAccess(ctx, proposal.projectId);
+    if (isRecordOnlyProposal(proposal)) {
+      domainError("INVALID_INPUT", "This record has nothing to reject.");
+    }
     if (proposal.state === "applied") {
       domainError("INVALID_INPUT", "An applied suggestion cannot be rejected.");
     }
@@ -900,6 +946,10 @@ export const saveProposal = internalMutation({
     ),
     references: v.optional(v.array(v.string())),
     requireUniqueTargets: v.optional(v.boolean()),
+    // Story 5 (CAP-13, AD-28): the Coordinated Revision's Completion Report.
+    // One `chatProposalItems` child row per item, written in this transaction
+    // and nowhere else. Absent for every other proposal producer.
+    items: v.optional(v.array(completionReportItemValidator)),
   },
   handler: async (ctx, args) => {
     const thread = await threadRow(ctx, args.agentThreadId);
@@ -950,12 +1000,31 @@ export const saveProposal = internalMutation({
     }
 
     const pairs = proposalPairs(args);
-    if (args.requireUniqueTargets) {
+    const items = args.items ?? [];
+    // DW-135 (AD-28 amendment, approved 2026-09-14): a Coordinated Revision may
+    // carry zero edits when every finding is blocked or conflicting. The rule
+    // is the same one the tool's schema applies, re-checked here over the item
+    // rows because this mutation is the only writer of both tables.
+    const recordOnly = isRecordOnlyProposal(args);
+    if (recordOnly) {
+      // The predicate ignores blank `find` entries; the stored row must not.
+      // A record-only proposal is stored as exactly `replacements: []`.
+      if ((args.replacements ?? []).length !== 0) {
+        return {
+          ok: false as const,
+          reason: "Each passage must identify exactly one current report location and make a change.",
+        };
+      }
+      const issue = zeroEditIssue(0, items);
+      if (issue) return { ok: false as const, reason: issue };
+    } else if (args.requireUniqueTargets) {
       if (args.kind !== "replacements") return { ok: false as const, reason: "A passage set must use replacements." };
       const result = applyPassageEdits(parsed as PMNode, pairs);
       if (!result.ok) return { ok: false as const, reason: result.reason };
     }
-    if (args.kind !== "references") {
+    if (recordOnly) {
+      // Nothing to match against the report: no pairs, so no target checks.
+    } else if (args.kind !== "references") {
       if (pairs.length === 0) {
         return { ok: false as const, reason: "The suggestion did not include text to replace." };
       }
@@ -991,6 +1060,24 @@ export const saveProposal = internalMutation({
       args.references = references;
     }
 
+    // CAP-12/CAP-13: every Completion Report item must name a paragraph the
+    // CURRENT report actually has. Checked before the parent insert, so a bad
+    // anchor writes neither the proposal nor a single item row, and the reason
+    // hands the model the real counts to retry against.
+    if (items.length) {
+      const counts = paragraphCounts(extractReportSections(report.content));
+      const issues = completionReportAnchorIssues(items, counts);
+      if (issues.length) {
+        // Written to be EMBEDDED, like every other `saveProposal` reason: the
+        // tool result adds the "Proposal NOT created" prefix and its own retry
+        // instruction, so neither belongs here.
+        return {
+          ok: false as const,
+          reason: `${issues.join(" ")} In the current report, ${paragraphCountsSentence(counts)}.`,
+        };
+      }
+    }
+
     const proposalId = await ctx.db.insert("chatProposals", {
       agentThreadId: args.agentThreadId,
       toolCallId: args.toolCallId,
@@ -1005,10 +1092,41 @@ export const saveProposal = internalMutation({
       references: args.references,
       requireUniqueTarget: args.kind === "edit" ? true : undefined,
       requireUniqueTargets: args.requireUniqueTargets,
-      state: args.kind === "references" ? "applied" : "pending",
+      // Highlights and record-only revisions have no state machine: nothing
+      // for a human to apply or reject, so they are terminal on creation.
+      state: args.kind === "references" || recordOnly ? "applied" : "pending",
       createdAt: Date.now(),
     });
+    // AD-28: the findings persist as child rows, one per item, in input order.
+    // `saveProposal` is the only writer of this table, and the `toolCallId`
+    // short-circuit above returns before here, so a retried tool call cannot
+    // double-write them.
+    for (const row of completionReportRows(items, {
+      proposalId,
+      projectId: thread.projectId,
+      createdAt: Date.now(),
+    })) {
+      await ctx.db.insert("chatProposalItems", row);
+    }
     return { ok: true as const, proposalId };
+  },
+});
+
+/**
+ * The Completion Report rows of one proposal, for the card (DW-135). Same
+ * access rule as `listProposals`; bounded by the tool's own findings cap, so
+ * the read can never exceed what `saveProposal` could have written.
+ */
+export const listProposalItems = query({
+  args: { proposalId: v.id("chatProposals") },
+  handler: async (ctx, args) => {
+    const proposal = await ctx.db.get(args.proposalId);
+    if (!proposal) return [];
+    await requireInternalProjectAccess(ctx, proposal.projectId);
+    return await ctx.db
+      .query("chatProposalItems")
+      .withIndex("by_proposalId", (q) => q.eq("proposalId", args.proposalId))
+      .take(MAX_COMPLETION_REPORT_FINDINGS);
   },
 });
 
@@ -1026,12 +1144,442 @@ export const getThreadBrainContext = internalQuery({
   },
 });
 
+const MAX_INVENTORY_NOTES = 1000;
+/**
+ * DW-138: the Reference PD lookup walks the project's documents and keeps the
+ * `previous_pd` rows, so the bound is on rows SCANNED, not rows taken before
+ * the filter (which lost any Reference PD uploaded after 200 attachments).
+ * Hitting it, or the read budget below, is reported as
+ * `documentScanTruncated`, never as "none attached".
+ */
+export const MAX_PROJECT_DOCUMENT_SCAN = 1000;
+
+// ── Per-transaction read budget (Astra review of DW-138) ────────────────────
+//
+// A row bound alone does not keep a walk under Convex's 16 MiB per-transaction
+// read limit: 400 attachments of 50 KiB blow it before row 1000, and the query
+// then throws instead of reporting a cut. Every row a query reads is charged
+// here BEFORE the next read is started, and a walk stops, reporting itself
+// incomplete, once one maximum-size document no longer fits.
+//
+// This is a local twin of `convex/lib/learningHealthReads.ts` (same numbers,
+// same reserve-then-account shape). A shared `convex/lib/boundedRead.ts`
+// primitive is being extracted from that module on another branch; this block
+// is shaped so the switch is a one-line import: `account` for point reads,
+// `list` for a capped index walk returning `{ rows, complete }`.
+const MIB = 1 << 20;
+/** Half the platform limit, so everything else the transaction reads fits. */
+export const CHAT_READ_BYTES = 8 * MIB;
+/** Room for one maximum-size document before each read. */
+const CHAT_DOCUMENT_HEADROOM = MIB + 4096;
+const CHAT_DOCUMENT_OVERHEAD = 256;
+
+function chatReadBudget() {
+  let used = 0;
+  let exhausted = false;
+  function reserve(): boolean {
+    if (used + CHAT_DOCUMENT_HEADROOM <= CHAT_READ_BYTES) return true;
+    exhausted = true;
+    return false;
+  }
+  function account(value: Value): void {
+    used += getConvexSize(value) + CHAT_DOCUMENT_OVERHEAD;
+  }
+  return {
+    /** Charge a point read (`ctx.db.get`, a `.take`) that already happened. */
+    charge<T extends Value | null | undefined>(value: T): T {
+      if (Array.isArray(value)) value.forEach((row) => account(row));
+      else if (value !== null && value !== undefined) account(value);
+      return value;
+    },
+    /**
+     * Reserve BEFORE a read, then perform and charge it. `{ ok: false }` means
+     * the read was not started: the caller degrades (an unavailable label, a
+     * default) instead of the transaction throwing. `extraBytes` covers rows
+     * a helper reads that its return value does not carry (a selection row,
+     * a settings row); the return value itself is charged when it is a Value.
+     */
+    async read<T>(
+      fn: () => Promise<T>,
+      extraBytes = 0
+    ): Promise<{ ok: true; value: T } | { ok: false }> {
+      if (!reserve()) return { ok: false };
+      const value = await fn();
+      used += extraBytes;
+      if (value !== null && value !== undefined && typeof value === "object") {
+        account(value as Value);
+      }
+      return { ok: true, value };
+    },
+    /**
+     * Walk an index range, keeping the rows `keep` accepts, up to `cap` rows
+     * scanned and within the byte budget. `complete` is false when either
+     * bound stopped the walk before the range ended.
+     */
+    async list<T extends Value>(
+      source: AsyncIterable<T>,
+      cap: number,
+      keep: (row: T) => boolean = () => true
+    ): Promise<{ rows: T[]; complete: boolean }> {
+      const rows: T[] = [];
+      let scanned = 0;
+      if (!reserve()) return { rows, complete: false };
+      const iterator = source[Symbol.asyncIterator]();
+      try {
+        while (reserve()) {
+          if (scanned >= cap) return { rows, complete: false };
+          const next = await iterator.next();
+          if (next.done) return { rows, complete: true };
+          account(next.value);
+          scanned += 1;
+          if (keep(next.value)) rows.push(next.value);
+        }
+        return { rows, complete: false };
+      } finally {
+        await iterator.return?.();
+      }
+    },
+    get exhausted() {
+      return exhausted;
+    },
+  };
+}
+
+/** Why rule Deviations are or are not in the inventory. Three distinguishable
+ * states, because "no linked generation" and "a generation that found nothing"
+ * need different sentences and only one of them is a clean bill. */
+type RulesStatus = "available" | "no_generation" | "no_notes" | "unread";
+
+/**
+ * What happened when the tool tried to resolve a Reference PD. Every non
+ * `resolved` value is something the assistant must SAY, not work around.
+ */
+type ReferenceStatus =
+  | "none"
+  | "resolved"
+  | "unknown_name"
+  | "unreadable"
+  | "unparsed"
+  | "ambiguous";
+
+/**
+ * A `previous_pd` row is comparable only when its text was actually extracted.
+ * `could_not_read` and `reference_only` are the two intake outcomes that store a
+ * row with no usable body (an image-only PDF, a file kept for reference), and a
+ * blank `content` fails closed the same way whatever its status says.
+ */
+function isComparableReference(row: Doc<"projectDocuments">): boolean {
+  if (
+    row.processingStatus === "could_not_read" ||
+    row.processingStatus === "reference_only"
+  ) {
+    return false;
+  }
+  return (row.content ?? "").trim().length > 0;
+}
+
+/**
+ * Did the Reference PD's text actually parse into the 242/244/246 skeleton?
+ *
+ * All three, not "at least one paragraph somewhere": `extractReportSections`
+ * treats leading prose with no recognizable heading as Line 242, so a plain docx
+ * or PDF extract of last year's PD parses to one fat 242 and two empty sections.
+ * Comparing against that attaches "the Reference PD's Line 244 has 0
+ * paragraph(s), so this paragraph has no counterpart" to every 244 and 246
+ * paragraph of the draft: invented differences, offered as a Coordinated
+ * Revision. A PD that can be compared has all three Locked sections.
+ */
+function parsedIntoSections(sections: InventorySections): boolean {
+  return (
+    sectionParagraphs(sections.s242).length > 0 &&
+    sectionParagraphs(sections.s244).length > 0 &&
+    sectionParagraphs(sections.s246).length > 0
+  );
+}
+
+/**
+ * Story 5 (CAP-12/CAP-15): everything the `deviationInventory` and
+ * `compareReferencePd` tools read, resolved server-side from the thread. The
+ * tools take no project, report or generation argument, so neither can be
+ * steered at another project. Bounded reads only.
+ */
+export const getDeviationInventoryContext = internalQuery({
+  args: {
+    agentThreadId: v.string(),
+    /** A `previous_pd` document of THIS project, by file name. */
+    referenceFileName: v.optional(v.string()),
+  },
+  handler: async (
+    ctx,
+    args
+  ): Promise<{
+    found: boolean;
+    sections: InventorySections;
+    notes: InventoryNote[];
+    rulesStatus: RulesStatus;
+    rulesAvailable: boolean;
+    reference: { fileName: string; sections: InventorySections } | null;
+    referenceStatus: ReferenceStatus;
+    /** Non-archived `previous_pd` rows whose text can actually be compared. */
+    referenceFileNames: string[];
+    /** Attached `previous_pd` rows whose text could not be extracted at upload. */
+    unreadableReferenceFileNames: string[];
+    /** The row the tool tried to use, named so its copy can say which file. */
+    selectedReferenceFileName: string | null;
+    /**
+     * True when the project holds more than `MAX_PROJECT_DOCUMENT_SCAN`
+     * documents, so a Reference PD past the bound was not seen. The tool says
+     * so instead of reporting the PD absent.
+     */
+    documentScanTruncated: boolean;
+  }> => {
+    const empty: InventorySections = { s242: "", s244: "", s246: "" };
+    const thread = await threadRow(ctx, args.agentThreadId);
+    if (!thread) {
+      return {
+        found: false,
+        sections: empty,
+        notes: [],
+        rulesStatus: "no_generation",
+        rulesAvailable: false,
+        reference: null,
+        referenceStatus: "none",
+        referenceFileNames: [],
+        unreadableReferenceFileNames: [],
+        selectedReferenceFileName: null,
+        documentScanTruncated: false,
+      };
+    }
+    // One budget for everything this transaction reads, charged in read
+    // order, so the document walk at the end stops with headroom to spare.
+    const budget = chatReadBudget();
+    budget.charge(thread);
+    const report = budget.charge(await ctx.db.get(thread.reportId));
+    const sections = report ? extractReportSections(report.content) : empty;
+
+    // ONLY the report's own generation. There is deliberately no fallback to
+    // the project's newest generation: `complianceNotes.paragraphIndex` is an
+    // index into the paragraphs of the draft that generation produced, so
+    // anchoring another generation's rows onto this report's paragraphs would
+    // present another draft's rule Deviations as this one's. No linked
+    // generation means rule Deviations are UNAVAILABLE, never fabricated.
+    const generation = report?.generationId
+      ? budget.charge(await ctx.db.get(report.generationId))
+      : null;
+
+    let notes: InventoryNote[] = [];
+    // The selection lookup reads one modelSelections row and up to ten small
+    // candidate-run rows; reserved before it starts and charged as a flat
+    // estimate on top of its (id) return value. Without it a compare
+    // generation would be read through the unfiltered index and present
+    // every candidate's notes as this report's, so a failed reservation
+    // marks the rules UNREAD rather than falling through.
+    let notesUnread = false;
+    if (generation) {
+      const selection = await budget.read(
+        () => selectedCandidateRunId(ctx, generation),
+        11 * 2048
+      );
+      if (!selection.ok) {
+        notesUnread = true;
+      }
+      const candidateRunId = selection.ok ? selection.value : undefined;
+      const { rows } = notesUnread
+        ? { rows: [] as Doc<"complianceNotes">[] }
+        : await budget.list(
+        candidateRunId !== undefined
+          ? ctx.db
+              .query("complianceNotes")
+              .withIndex("by_generationId_and_candidateRunId_and_section", (q) =>
+                q
+                  .eq("generationId", generation._id)
+                  .eq("candidateRunId", candidateRunId)
+              )
+          : ctx.db
+              .query("complianceNotes")
+              .withIndex("by_generationId_and_section", (q) =>
+                q.eq("generationId", generation._id)
+              ),
+        MAX_INVENTORY_NOTES
+      );
+      notes = rows.map((row) => ({
+        section: row.section,
+        ...(row.paragraphIndex !== undefined
+          ? { paragraphIndex: row.paragraphIndex }
+          : {}),
+        instruction: row.instruction,
+        outcome: row.outcome,
+        tier: row.tier,
+        reason: row.reason,
+      }));
+    }
+    const rulesStatus: RulesStatus = !generation
+      ? "no_generation"
+      : notesUnread
+        ? "unread"
+        : notes.length === 0
+          ? "no_notes"
+          : "available";
+
+    // The Reference PD is a `previous_pd` document of THIS project. Archived
+    // rows are already out of AI context, so they are out of here too. The
+    // filter runs INSIDE the bounded walk (DW-138): `projectDocuments` has no
+    // category index, and taking a prefix first dropped any Reference PD that
+    // sat behind the project's other attachments.
+    const { rows: attached, complete } = await budget.list(
+      ctx.db
+        .query("projectDocuments")
+        .withIndex("by_projectId", (q) => q.eq("projectId", thread.projectId)),
+      MAX_PROJECT_DOCUMENT_SCAN,
+      (row) => row.category === "previous_pd" && !row.archived
+    );
+    const documentScanTruncated = !complete;
+    // A row whose extraction produced nothing carries no text to compare. It is
+    // NOT offered as a choice, because a blank Reference PD parses to three
+    // empty sections and would make every draft paragraph look like a
+    // difference from it.
+    const readable = attached.filter((row) => isComparableReference(row));
+    const unreadable = attached.filter((row) => !isComparableReference(row));
+
+    let selected: (typeof attached)[number] | null = null;
+    let referenceStatus: ReferenceStatus;
+    if (attached.length === 0) {
+      referenceStatus = "none";
+    } else if (args.referenceFileName !== undefined) {
+      selected = readable.find((row) => row.fileName === args.referenceFileName) ?? null;
+      referenceStatus = selected
+        ? "resolved"
+        : unreadable.some((row) => row.fileName === args.referenceFileName)
+          ? "unreadable"
+          : "unknown_name";
+    } else if (readable.length === 1 && readable[0] && complete) {
+      // "The only one" is a claim about the whole project. An incomplete walk
+      // cannot make it, so the writer must name the file (below: ambiguous).
+      selected = readable[0];
+      referenceStatus = "resolved";
+    } else if (readable.length === 0) {
+      referenceStatus = "unreadable";
+    } else {
+      referenceStatus = "ambiguous";
+    }
+
+    let reference: { fileName: string; sections: InventorySections } | null = null;
+    if (selected) {
+      const parsed = extractReportSections(selected.content ?? "");
+      // Text that carries no `Line 242/244/246` skeleton has nothing this
+      // comparison can anchor. Saying so beats inventing a difference per
+      // paragraph against an empty section.
+      if (!parsedIntoSections(parsed)) {
+        referenceStatus = "unparsed";
+      } else {
+        reference = { fileName: selected.fileName, sections: parsed };
+      }
+    }
+
+    return {
+      found: report !== null,
+      sections,
+      notes,
+      rulesStatus,
+      rulesAvailable: rulesStatus === "available",
+      reference,
+      referenceStatus,
+      referenceFileNames: readable.map((row) => row.fileName),
+      unreadableReferenceFileNames: unreadable.map((row) => row.fileName),
+      selectedReferenceFileName:
+        selected?.fileName ?? args.referenceFileName ?? null,
+      documentScanTruncated,
+    };
+  },
+});
+
+/**
+ * Brief entry rows walked per turn. The derivation writes far fewer, and a
+ * Brief past `briefs.ts`'s 500-entry edit bound is still readable here; the
+ * walk filters as it goes (DW-138), so open questions behind hundreds of
+ * glossary or exclusion rows are found, and the bound (rows or the read
+ * budget) is reported as an inexact omitted count rather than silently
+ * cutting the list.
+ */
+const MAX_BRIEF_ENTRY_SCAN = 2000;
+/** CAP-14's evidence block is a prompt for the writer's next client call, not
+ * a dump of the Confidence Map. */
+export const MAX_OPEN_QUESTIONS = 20;
+
+/**
+ * Story 5 (CAP-14): the Confidence Map entries that are still open, from the
+ * Brief the generation actually used (`briefId`). `established` and `partial`
+ * are not open questions and never appear. Empty for a generation with no
+ * Brief, which keeps the byte-stability contract for legacy projects intact
+ * (the evidence block is omitted entirely for an empty list).
+ *
+ * `omitted` counts the open questions past `MAX_OPEN_QUESTIONS` so the evidence
+ * block can say the list is a subset (DW-138); `exact` is false only when the
+ * scan bound cut the walk, in which case the count is a lower bound.
+ */
+async function openQuestionsFor(
+  ctx: QueryCtx,
+  generation: Doc<"generations"> | null,
+  budget: ReturnType<typeof chatReadBudget>
+): Promise<{
+  questions: ChatOpenQuestion[];
+  omitted: ChatOpenQuestionsOmitted;
+}> {
+  const open: ChatOpenQuestion[] = [];
+  let omitted = 0;
+  if (!generation?.briefId) return { questions: open, omitted: { count: 0, exact: true } };
+  const isOpen = (entry: Doc<"generationBriefEntries">) =>
+    entry.group === "confidenceMap" &&
+    // Narrowed, not defaulted: a Brief confidence value this block has no
+    // wording for must be left out rather than relabelled as unresolved.
+    (entry.confidence === "unresolved" || entry.confidence === "unreliable");
+  const { rows, complete } = await budget.list(
+    ctx.db
+      .query("generationBriefEntries")
+      .withIndex("by_briefId", (q) => q.eq("briefId", generation.briefId!)),
+    MAX_BRIEF_ENTRY_SCAN,
+    isOpen
+  );
+  const labels = new Map<Id<"generationSources">, string>();
+  for (const entry of rows) {
+    if (open.length >= MAX_OPEN_QUESTIONS) {
+      omitted += 1;
+      continue;
+    }
+    if (entry.confidence !== "unresolved" && entry.confidence !== "unreliable") continue;
+    // Source rows carry full content. Each lookup is reserved BEFORE it is
+    // started; when the budget is spent the question is kept with an
+    // unavailable label rather than read (Astra review 2 of DW-138).
+    if (!labels.has(entry.sourceId)) {
+      const source = await budget.read(() => ctx.db.get(entry.sourceId));
+      if (source.ok && source.value) labels.set(entry.sourceId, source.value.label);
+    }
+    open.push({
+      text: entry.text,
+      confidence: entry.confidence,
+      sourceLabel: labels.get(entry.sourceId) ?? null,
+    });
+  }
+  return { questions: open, omitted: { count: omitted, exact: complete } };
+}
+
 /** Grounding context for streamChatReply — thread history stays componentside. */
 export const getChatContextV2 = internalQuery({
   args: { reportId: v.id("reports"), agentThreadId: v.string() },
   handler: async (ctx, args) => {
-    const report = await ctx.db.get(args.reportId);
+    // Charged in read order so the Brief walk at the end stops with headroom.
+    // The document `.collect()` predates this budget and is charged, not
+    // bounded: which documents reach the chat is evidence policy, not read
+    // policy, and is out of this query's DW-138 scope.
+    const budget = chatReadBudget();
+    const report = budget.charge(await ctx.db.get(args.reportId));
     if (!report) throw new Error("Report not found");
+    // Three small settings rows, reserved before they are read and charged as
+    // a flat estimate; the defaults stand in if the reservation ever fails.
+    const evidenceBudgetRead = await budget.read(() => chatEvidenceBudget(ctx), 3 * 1024);
+    const evidenceBudget = evidenceBudgetRead.ok
+      ? evidenceBudgetRead.value
+      : DEFAULT_CHAT_EVIDENCE_BUDGET;
 
     // Ground on the generation that actually produced THIS report — the
     // latest project generation can belong to a newer report (or a failed
@@ -1040,35 +1588,48 @@ export const getChatContextV2 = internalQuery({
     // generation stored no agentOutputs, and then only to a completed
     // generation that has agentOutputs to offer — a best-effort grounding
     // that can still describe an older draft of this project.
-    let generation = report.generationId
-      ? await ctx.db.get(report.generationId)
+    const ownGeneration = report.generationId
+      ? budget.charge(await ctx.db.get(report.generationId))
       : null;
+    let generation = ownGeneration;
     if (!generation?.agentOutputs) {
-      const completed = await ctx.db
-        .query("generations")
-        .withIndex("by_projectId_and_status", (q) =>
-          q.eq("projectId", report.projectId).eq("status", "completed")
-        )
-        .order("desc")
-        .take(10);
+      const completed = budget.charge(
+        await ctx.db
+          .query("generations")
+          .withIndex("by_projectId_and_status", (q) =>
+            q.eq("projectId", report.projectId).eq("status", "completed")
+          )
+          .order("desc")
+          .take(10)
+      );
       generation = completed.find((row) => row.agentOutputs) ?? null;
     }
 
-    const documents = await ctx.db
-      .query("projectDocuments")
-      .withIndex("by_projectId", (q) => q.eq("projectId", report.projectId))
-      .collect();
+    const documents = budget.charge(
+      await ctx.db
+        .query("projectDocuments")
+        .withIndex("by_projectId", (q) => q.eq("projectId", report.projectId))
+        .collect()
+    );
 
     // Recent edit decisions = the assistant's iteration memory (mirrors v1).
-    const proposals = await ctx.db
-      .query("chatProposals")
-      .withIndex("by_agentThreadId", (q) =>
-        q.eq("agentThreadId", args.agentThreadId)
-      )
-      .order("desc")
-      .take(12);
+    const proposals = budget.charge(
+      await ctx.db
+        .query("chatProposals")
+        .withIndex("by_agentThreadId", (q) =>
+          q.eq("agentThreadId", args.agentThreadId)
+        )
+        .order("desc")
+        // Twice the old window (12): highlights and record-only revisions are
+        // filtered out below, and a run of them must not push the last real
+        // edit decision out of the model's memory. Still bounded and charged.
+        .take(24)
+    );
     const decisions = proposals
-      .filter((p) => p.kind !== "references")
+      // Highlights and record-only revisions (DW-135) carry no edit the writer
+      // decided on; listing one as "[Edit N: APPLIED]" with an empty target
+      // would hand the model a decision nobody made.
+      .filter((p) => p.kind !== "references" && !isRecordOnlyProposal(p))
       .slice(0, 6)
       .reverse()
       .map((p) => ({
@@ -1080,6 +1641,8 @@ export const getChatContextV2 = internalQuery({
           p.newText ??
           (p.replacements ? p.replacements.map((r) => r.replaceWith).join(" | ") : ""),
       }));
+
+    const openQuestions = await openQuestionsFor(ctx, ownGeneration, budget);
 
     return {
       reportContent: report.content ?? null,
@@ -1096,9 +1659,20 @@ export const getChatContextV2 = internalQuery({
           ...(d.uploaderRole ? { uploaderRole: d.uploaderRole } : {}),
         })),
       decisions,
+      // CAP-14: the unresolved and unreliable Confidence Map facts of THIS
+      // report's Brief. The trigger is a question, so under the prompt's own
+      // routing the assistant must answer without calling a tool; the facts
+      // therefore have to be in the turn already, as evidence. `ownGeneration`,
+      // never the analysis fallback: a report with no `generationId` (a copied
+      // project's report) would otherwise be handed another draft's open
+      // questions as its own.
+      openQuestions: openQuestions.questions,
+      // DW-138: how many open questions the 20 cap left out, so the block can
+      // say it is a subset instead of looking complete.
+      openQuestionsOmitted: openQuestions.omitted,
       // Resolved in the query, exactly as `getGenerationInput` resolves the
       // analyzer's: the action sends context, it does not decide policy.
-      evidenceBudget: await chatEvidenceBudget(ctx),
+      evidenceBudget,
     };
   },
 });
