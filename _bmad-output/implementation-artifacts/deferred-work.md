@@ -23,7 +23,9 @@ location: convex/ai/pipeline.ts, convex/ai/iterative.ts, convex/ai/instrument.ts
 source_spec: `10-generations-record-prompt-version-hash-and-learning-digest-ids.md`
 severity: low
 reason: The approved design stamps promptVersion atomically at beginGeneration and intentionally does not re-verify it at later provider handoffs, so a mid-flight generation may finish under mixed deployed code while retaining its start-time hash.
-status: open
+status: done 2026-09-14
+resolution: closed by human decision: Accept the documented start-time hash and mixed-deployment limitation.
+decision: 2026-09-14 Preserve start-time semantics — Accept the documented start-time hash and mixed-deployment limitation.
 
 ### DW-4: Generation-owned Voyage query-embedding and rerank usage remains outside Story 10 attribution.
 origin: spec-deferred 441c1cd5bc10
