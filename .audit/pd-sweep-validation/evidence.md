@@ -36,3 +36,7 @@ That bundle merged without an accepted review (review session stalled). Reviewer
 3. DW-114: only the prompt-text assertions discriminate; the persistence half passes at baseline with the canned response. The `system` equality compares the constant with itself.
 4. DW-107/118: AC3 (attempt-1 lockout red) is not reproducible, and 19 of 29 discriminating tests are API-shape only. The spec's `.audit/dw-brief-read-and-diff-integrity/` directory is absent from the tree.
 5. DW-109/120: final review ran at `xhigh`, not the policy's `medium`. The cited hostile-error red log is absent from the tree.
+
+## Review of test hardening
+
+`gpt-6-astra` medium, read-only, default Codex home, on `a9b3068`: ACCEPT, no findings. Worktree status and index hashes unchanged (`test-hardening/astra-review/`).
