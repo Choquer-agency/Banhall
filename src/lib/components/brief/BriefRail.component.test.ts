@@ -109,6 +109,75 @@ describe("BriefRail", () => {
     }
   });
 
+  it("qualifies the header and adds a note when the document listing was cut short (DW-133)", async () => {
+    const { container } = await render(
+      BriefRail,
+      props({ inclusion: { ...inclusion40(), documentsTruncated: true } })
+    );
+    expect(container.textContent).toContain("12 of 40+ documents in context · cap 12");
+    const note = container.querySelector("[data-inclusion-truncated]");
+    expect(note?.getAttribute("data-inclusion-truncated")).toBe("documents");
+    expect(note?.textContent?.trim()).toBe(
+      "Not every document could be listed. The total is a lower bound."
+    );
+
+    // A complete listing carries neither the qualifier nor the note.
+    document.body.innerHTML = "";
+    const complete = await render(BriefRail, props());
+    expect(complete.container.textContent).toContain("12 of 40 documents in context · cap 12");
+    expect(complete.container.textContent).not.toContain("40+");
+    expect(complete.container.querySelector("[data-inclusion-truncated]")).toBeNull();
+  });
+
+  it("discloses cut-short frozen sources: both counts qualified and the note names transcripts (DW-133 review 2)", async () => {
+    await page.viewport(480, 420);
+    // One transcript listed of several frozen, three included documents of an
+    // unknown frozen total: neither count is exact. Short on purpose so the
+    // note sits inside the capture.
+    const partial = {
+      cap: 12,
+      documentsInContext: 3,
+      documentsTotal: 3,
+      documentsTruncated: true,
+      sourcesTruncated: true,
+      rows: [
+        { key: "source:t1", kind: "transcript" as const, label: "Interview transcript", inclusion: "included" as const },
+        ...Array.from({ length: 3 }, (_, index) => ({
+          key: `source:d${index}`,
+          kind: "document" as const,
+          label: `attachment-${index}.txt`,
+          inclusion: "included" as const,
+        })),
+      ],
+    };
+    const { container } = await render(BriefRail, props({ inclusion: partial }));
+    // Captured before the assertions so the pre-fix run records the old band.
+    await page.screenshot({
+      path: "../../../../.vitest-attachments/DW-133-review-2/brief-rail-sources-truncated.png",
+    });
+    expect(container.textContent).toContain("3+ of 3+ documents in context · cap 12");
+    const note = container.querySelector("[data-inclusion-truncated]");
+    expect(note?.getAttribute("data-inclusion-truncated")).toBe("sources");
+    expect(note?.textContent?.trim()).toBe(
+      "Not every transcript or document could be listed. Both counts are lower bounds."
+    );
+    for (const element of container.querySelectorAll("*")) {
+      expect(Number.parseInt(getComputedStyle(element).fontWeight, 10)).toBeLessThanOrEqual(500);
+    }
+
+    // A cut-short document walk with a complete frozen set keeps the exact
+    // numerator: every included document is a frozen source that was read.
+    document.body.innerHTML = "";
+    const documentsOnly = await render(
+      BriefRail,
+      props({ inclusion: { ...inclusion40(), documentsTruncated: true } })
+    );
+    expect(documentsOnly.container.textContent).toContain("12 of 40+ documents in context · cap 12");
+    expect(
+      documentsOnly.container.querySelector("[data-inclusion-truncated]")?.getAttribute("data-inclusion-truncated")
+    ).toBe("documents");
+  });
+
   it("saves an edit with Ctrl+Enter, reverts on Esc and calls nothing when unchanged", async () => {
     const rail = props();
     await render(BriefRail, rail);

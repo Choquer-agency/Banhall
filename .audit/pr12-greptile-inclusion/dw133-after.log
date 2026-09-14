@@ -1,0 +1,38 @@
+
+ RUN  v4.1.10 /Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-sweep-validation
+
+ ✓ |convex| convex/lib/boundedRead.test.ts > collectBounded (DW-133) > reads an exhausted range completely 2ms
+ ✓ |convex| convex/lib/boundedRead.test.ts > collectBounded (DW-133) > reports incomplete only when a row past the cap actually exists 1ms
+ ✓ |convex| convex/lib/boundedRead.test.ts > collectBounded (DW-133) > stops before the byte budget could be crossed by one more document 5ms
+ ✓ |convex| convex/lib/boundedRead.test.ts > collectBounded (DW-133) > closes the source iterator when it stops early 0ms
+ ✓ |convex| convex/lib/contextInclusion.test.ts > assembleContextInclusion (story 4, CAP-11) > lists transcripts first, reads a digest-read transcript as condensed and skips digest/storyline rows 2ms
+ ✓ |convex| convex/lib/contextInclusion.test.ts > assembleContextInclusion (story 4, CAP-11) > reads an excluded digest as not included and an unrecorded digest as no status 1ms
+ ✓ |convex| convex/lib/contextInclusion.test.ts > assembleContextInclusion (story 4, CAP-11) > lists archived and unreadable documents as not included with their reason 1ms
+ ✓ |convex| convex/lib/contextInclusion.test.ts > assembleContextInclusion (story 4, CAP-11) > reports recorded only when a frozen row carries a budget outcome 0ms
+ ✓ |convex| convex/lib/contextInclusion.test.ts > assembleContextInclusion (story 4, CAP-11) > lists a readable document the reservation never captured 0ms
+ ✓ |convex| convex/lib/contextInclusion.test.ts > assembleContextInclusion (story 4, CAP-11) > gives a legacy row (no inclusion, no budget) a null status, never included 1ms
+ ✓ |convex| convex/lib/contextInclusion.test.ts > assembleContextInclusion (story 4, CAP-11) > derives a status from a recorded budget when the inclusion field is absent 2ms
+ ✓ |convex| convex/lib/contextInclusion.test.ts > assembleContextInclusion (story 4, CAP-11) > takes the largest recorded cap, or the fallback when none is recorded 0ms
+ ✓ |convex| convex/lib/contextInclusion.test.ts > assembleContextInclusion (story 4, CAP-11) > excludes transcripts from both counts 3ms
+ ✓ |convex| convex/lib/contextInclusion.test.ts > assembleContextInclusion (story 4, CAP-11) > carries the truncation flag through, defaulting to a complete listing (DW-133) 0ms
+ ✓ |src| src/lib/brief.test.ts > Brief rail helpers (story 4) > label maps use the glossary words 4ms
+ ✓ |src| src/lib/brief.test.ts > Brief rail helpers (story 4) > inclusionHeader counts documents against the cap 0ms
+ ✓ |src| src/lib/brief.test.ts > Brief rail helpers (story 4) > inclusionHeader qualifies a truncated total with the bounded-count plus (DW-133) 0ms
+ ✓ |src| src/lib/brief.test.ts > Brief rail helpers (story 4) > inclusionStatusText never words an unrecorded row and appends the reason 0ms
+ ✓ |src| src/lib/brief.test.ts > Brief rail helpers (story 4) > groupBrief sorts entries into the rail groups and surfaces only open questions 1ms
+ ✓ |src| src/lib/brief.test.ts > Brief rail helpers (story 4) > changeSummary reads 'N added · N removed' only when something changed 0ms
+ ✓ |src| src/lib/brief.test.ts > Brief rail helpers (story 4) > entryOrigin is edited only for a writer-changed entry 0ms
+ ✓ |src| src/lib/brief.test.ts > Brief rail helpers (story 4) > sourceChipLabel names the source and says digest for a condensed digest 0ms
+ ✓ |src| src/lib/brief.test.ts > Brief rail helpers (story 4) > offerSentence and offerHref build the save-settings banner 0ms
+ ✓ |convex| convex/contextInclusion.test.ts > getContextInclusion (story 4) > 40 uploaded documents: all frozen, 12 in context under cap 12, inclusion stored per row 649ms
+ ✓ |convex| convex/contextInclusion.test.ts > getContextInclusion (story 4) > lists a readable document the reservation never captured, in the counts 61ms
+ ✓ |convex| convex/contextInclusion.test.ts > getContextInclusion (story 4) > 101 documents: every attached document is counted, past the old 100-row fetch bound (DW-133) 22ms
+ ✓ |convex| convex/contextInclusion.test.ts > getContextInclusion (story 4) > says so when the document read budget stops the listing short (DW-133) 130ms
+ ✓ |convex| convex/contextInclusion.test.ts > getContextInclusion (story 4) > returns null to an outsider 5ms
+ ✓ |convex| convex/contextInclusion.test.ts > getContextInclusion (story 4) > lists archived and unreadable documents as not included, and a legacy row with no status 38ms
+
+ Test Files  4 passed (4)
+      Tests  29 passed (29)
+   Start at  12:43:50
+   Duration  1.56s (transform 890ms, setup 0ms, import 644ms, tests 937ms, environment 217ms)
+

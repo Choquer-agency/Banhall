@@ -1,0 +1,53 @@
+
+ RUN  v4.1.10 /Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-sweep-validation
+
+ ❯ |convex| convex/contextInclusion.test.ts (6 tests | 2 failed) 591ms
+     × 101 documents: every attached document is counted, past the old 100-row fetch bound (DW-133) 25ms
+     × says so when the document read budget stops the listing short (DW-133) 127ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |convex| convex/contextInclusion.test.ts > getContextInclusion (story 4) > 101 documents: every attached document is counted, past the old 100-row fetch bound (DW-133)
+AssertionError: expected 100 to be 101 // Object.is equality
+
+- Expected
++ Received
+
+- 101
++ 100
+
+ ❯ convex/contextInclusion.test.ts:180:39
+    178|
+    179|     const inclusion = await authed.query(api.generations.getContextInc…
+    180|     expect(inclusion!.documentsTotal).toBe(101);
+       |                                       ^
+    181|     expect(inclusion!.documentsTruncated).toBe(false);
+    182|     const documentRows = inclusion!.rows.filter((row) => row.kind === …
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  |convex| convex/contextInclusion.test.ts > getContextInclusion (story 4) > says so when the document read budget stops the listing short (DW-133)
+AssertionError: expected undefined to be true // Object.is equality
+
+- Expected:
+true
+
++ Received:
+undefined
+
+ ❯ convex/contextInclusion.test.ts:219:43
+    217|
+    218|     const inclusion = await authed.query(api.generations.getContextInc…
+    219|     expect(inclusion!.documentsTruncated).toBe(true);
+       |                                           ^
+    220|     expect(inclusion!.documentsTotal).toBeGreaterThan(0);
+    221|     expect(inclusion!.documentsTotal).toBeLessThan(10);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  2 failed | 4 passed (6)
+   Start at  12:41:30
+   Duration  1.08s (transform 414ms, setup 0ms, import 257ms, tests 591ms, environment 63ms)
+
