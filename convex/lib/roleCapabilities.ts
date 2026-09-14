@@ -1,4 +1,4 @@
-import type { Id } from "../_generated/dataModel";
+import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
 import {
   CAPABILITIES,
@@ -79,28 +79,53 @@ export async function requireCapability(
  * consulted: the creator is the initial Owner by amendment, and ownership
  * transfers move the right with `ownerId`.
  */
-export async function requireReportEditAccess(
+async function reportEditLevelAllows(
   ctx: CapabilityCtx,
-  projectId: Id<"projects">
-) {
-  const access = await requireInternalProjectAccess(ctx, projectId);
+  access: { project: Doc<"projects">; user: Doc<"users"> }
+): Promise<boolean> {
   const { project, user } = access;
   const level = getEffectiveCapabilityLevel(user.role, "report.editProse");
-  if (level === "all") return access;
+  if (level === "all") return true;
   if (level === "own") {
-    if (project.ownerId === user._id) return access;
+    if (project.ownerId === user._id) return true;
     const openItems = await ctx.db
       .query("workItems")
       .withIndex("by_projectId_and_status", (q) =>
         q.eq("projectId", project._id).eq("status", "open")
       )
       .take(100);
-    if (openItems.some((item) => item.assigneeId === user._id)) return access;
+    if (openItems.some((item) => item.assigneeId === user._id)) return true;
   }
+  return false;
+}
+
+/**
+ * Nullable twin of `requireReportEditAccess` (story 4: the Brief's `canEdit`).
+ * The same decision, but an outsider or a caller without `report.editProse`
+ * on this project gets `null` instead of an error.
+ */
+export async function getReportEditAccessOrNull(
+  ctx: CapabilityCtx,
+  projectId: Id<"projects">
+) {
+  const access = await getInternalProjectAccessOrNull(ctx, projectId);
+  if (!access) return null;
+  return (await reportEditLevelAllows(ctx, access)) ? access : null;
+}
+
+export async function requireReportEditAccess(
+  ctx: CapabilityCtx,
+  projectId: Id<"projects">
+) {
+  const access = await requireInternalProjectAccess(ctx, projectId);
+  if (await reportEditLevelAllows(ctx, access)) return access;
   domainError(
     "NOT_AUTHORIZED",
     "Only the project owner, an assigned collaborator, a manager, or an administrator can edit this report",
-    { capability: "report.editProse", effectiveLevel: level }
+    {
+      capability: "report.editProse",
+      effectiveLevel: getEffectiveCapabilityLevel(access.user.role, "report.editProse"),
+    }
   );
 }
 

@@ -3,6 +3,8 @@ import { complianceNoteDraftValidator } from "./lib/complianceNote";
 import {
   sectionNumberValidator,
   selfCheckRuleValidator,
+  styleCategoryValidator,
+  writerSettingsValidator,
 } from "./lib/orderedChain";
 import { v } from "convex/values";
 import {
@@ -770,6 +772,11 @@ export default defineSchema({
     stopRequestedAt: v.optional(v.number()),
     stoppedAfterSection: v.optional(sectionNumberValidator),
     productionOrder: v.optional(v.array(sectionNumberValidator)),
+    // Story 3 (CAP-8, AD-26): the Writer Profile this generation ran under —
+    // saved profile, or a settings document supplied as Writer's Notes or an
+    // attachment — and the save offer. Written only by
+    // generations.recordWriterSettings; absent on legacy rows.
+    writerSettings: v.optional(writerSettingsValidator),
     startedAt: v.number(),
     completedAt: v.optional(v.number()),
     error: v.optional(v.string()),
@@ -960,6 +967,54 @@ export default defineSchema({
       "promptMessageId",
     ])
     .index("by_agentThreadId_and_toolCallId", ["agentThreadId", "toolCallId"]),
+
+  // Story 5 (CAP-13, AD-28): the Completion Report. One child row per item of a
+  // Coordinated Revision, written ONLY by internal.chatV2.saveProposal in the
+  // same transaction as its `chatProposals` parent, and never mutated after.
+  // Carries projectId directly (AD-19).
+  //
+  // The first block is the AD-28 row shape verbatim. `section`,
+  // `paragraphNumber`, `kind` and `rule` are the CAP-12 paragraph anchor, added
+  // as optional fields (AD-10 widen), never a rename of an AD-28 field. The
+  // shape is authored once in `convex/lib/completionReport.ts`
+  // (`completionReportItemValidator`), which `saveProposal` validates against;
+  // it is spelled out here rather than imported so the schema module stays free
+  // of the tool's zod dependency.
+  chatProposalItems: defineTable({
+    proposalId: v.id("chatProposals"),
+    projectId: v.id("projects"),
+    // The id the Deviation Inventory (or the Reference PD comparison) produced,
+    // preserved verbatim so the writer's list and the rows use one numbering.
+    itemId: v.string(),
+    status: v.union(
+      v.literal("resolved"),
+      v.literal("blocked"),
+      v.literal("conflicting")
+    ),
+    reason: v.string(),
+    // `blocked` carries both; `conflicting` carries the locked rule and an
+    // alternative. The tool schema refuses a status without its evidence.
+    missingFact: v.optional(v.string()),
+    missingFactSource: v.optional(v.string()),
+    lockedRule: v.optional(v.string()),
+    alternative: v.optional(v.string()),
+    section: v.optional(sectionNumberValidator),
+    // 1-BASED paragraph within the section: the number the writer sees and the
+    // number the checklist line echoes. Named `paragraphNumber`, not
+    // `paragraphIndex`, precisely so it can never be joined against the 0-based
+    // `complianceNotes.paragraphIndex` by name; the inventory converts once,
+    // where the notes are read.
+    paragraphNumber: v.optional(v.number()),
+    kind: v.optional(
+      v.union(v.literal("rule"), v.literal("content"), v.literal("reference"))
+    ),
+    rule: v.optional(v.string()),
+    createdAt: v.number(),
+  })
+    .index("by_proposalId", ["proposalId"])
+    // Enumerating a project's items without a table scan: the AD-19 cascade
+    // when it lands, and any later reader of the Completion Report.
+    .index("by_projectId", ["projectId"]),
 
   chatMessages: defineTable({
     threadId: v.id("chatThreads"),
@@ -1530,7 +1585,21 @@ export default defineSchema({
         included: v.boolean(),
         includedLength: v.number(),
         truncated: v.boolean(),
+        // Story 4 (CAP-11): the document cap the budget ran under, so the
+        // Brief's Inputs band can show "cap N". Absent on pre-feature rows.
+        maxDocuments: v.optional(v.number()),
       })
+    ),
+    // Story 4 (CAP-11, AD-30): the one per-row inclusion outcome the Brief
+    // reads. Written only by generations.recordContextBudget (from
+    // `sourceInclusion` in convex/ai/trustedContext.ts); absent on legacy rows
+    // and on any row the analyzer never read. Never backfilled.
+    inclusion: v.optional(
+      v.union(
+        v.literal("included"),
+        v.literal("condensed"),
+        v.literal("not_included")
+      )
     ),
   })
     .index("by_generationId", ["generationId"])
@@ -1632,6 +1701,50 @@ export default defineSchema({
     .index("by_reportId", ["reportId"])
     .index("by_user_report", ["userId", "reportId"])
     .index("by_projectId", ["projectId"]),
+
+  // ─── AD-29 (story 6, CAP-16): Paired Comparison records ────────────────────
+  // The Success signal's only durable home. Every judgement field is entered by
+  // a human judge; nothing here is ever derived from tool output
+  // (`chatProposalItems`, `complianceNotes`, `generations.qa`, `writerReviews`).
+  // Pinned to the exact report revision the judge read, exactly like
+  // `writerReviews` and `reviewDecisions`. A recorded row is never patched or
+  // deleted: the only correction path is a new row whose `voidsComparisonId`
+  // names the row it replaces. `generationId` is optional because a
+  // hand-written report has none. Carries `projectId` directly (AD-19).
+  comparisons: defineTable({
+    projectId: v.id("projects"),
+    reportId: v.id("reports"),
+    revisionNumber: v.number(),
+    contentHash: v.string(),
+    generationId: v.optional(v.id("generations")),
+    banhallModel: v.string(),
+    baselineProduct: v.string(),
+    baselineModel: v.string(),
+    // Q15 is unresolved; the model-equivalence caveat is stored per record.
+    modelCaveat: v.string(),
+    judgeUserId: v.id("users"),
+    preference: v.union(
+      v.literal("banhall"),
+      v.literal("baseline"),
+      v.literal("tie")
+    ),
+    deviationsBanhall: v.number(),
+    deviationsBaseline: v.number(),
+    countingMethod: v.string(),
+    correctionsBanhall: v.number(),
+    correctionsBaseline: v.number(),
+    usedInDevelopment: v.boolean(),
+    recordedAt: v.number(),
+    voidsComparisonId: v.optional(v.id("comparisons")),
+    // The stripped plain texts the judge actually read.
+    banhallDraftText: v.string(),
+    baselineDraftText: v.string(),
+    // Evidence, never a gate: a false is stored and surfaced, and the record
+    // still lands.
+    draftTextMatches: v.boolean(),
+  })
+    .index("by_projectId", ["projectId"])
+    .index("by_recordedAt", ["recordedAt"]),
 
   // ─── Reviewer decision recorded when a project leaves internal review ──────
   // Required (fail-closed, typed REVIEW_DECISION_REQUIRED) on the two
@@ -2131,6 +2244,12 @@ export default defineSchema({
     // on the Brief, the generation continues). Absent on a writer-edited
     // version, where no re-derivation ran.
     droppedEntryCount: v.optional(v.number()),
+    // Story 4: who last shaped `storylineText` — `writer` when typed into an
+    // empty Storyline, `edited` after any other Storyline change, otherwise
+    // carried over. Absent on pre-story-4 rows, where `origin` stands in.
+    storylineOrigin: v.optional(
+      v.union(v.literal("writer"), v.literal("derived"), v.literal("edited"))
+    ),
     createdAt: v.number(),
   })
     .index("by_projectId_and_inputsHash", ["projectId", "inputsHash"])
@@ -2209,6 +2328,9 @@ export default defineSchema({
         alternativeText: v.optional(v.string()),
       })
     ),
+    // Story 4: true on the copy of an entry a writer changed through
+    // briefs.saveEntryEdit (the *edited* origin chip). Absent = derived.
+    edited: v.optional(v.boolean()),
     createdAt: v.number(),
   })
     .index("by_briefId", ["briefId"]),
@@ -2229,6 +2351,24 @@ export default defineSchema({
       "candidateRunId",
       "section",
     ]),
+
+  // Story 3 (CAP-8, AD-26/27): the House Rule categories a settings document
+  // legislates, from the PSOS-50 style classifier, cached so a document costs
+  // one `generation:settings` call per (projectId, contentHash) for a given
+  // classifier version and none after. A row with a different
+  // `classifierVersion` is never served. Written only by
+  // writerProfiles.recordSettingsAnalysis. Carries projectId directly (AD-19).
+  settingsDocumentAnalyses: defineTable({
+    projectId: v.id("projects"),
+    contentHash: v.string(),
+    classifierVersion: v.string(),
+    addressedCategories: v.array(styleCategoryValidator),
+    analyzedAt: v.number(),
+  }).index("by_projectId_and_contentHash_and_classifierVersion", [
+    "projectId",
+    "contentHash",
+    "classifierVersion",
+  ]),
 
   // Admin-tunable app settings, one row per key. Currently: "defaultModel" —
   // the generation model used when a writer doesn't pick one explicitly.

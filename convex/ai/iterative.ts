@@ -47,7 +47,7 @@ import {
   NO_STYLE_OVERRIDES,
   normalizeStyleOverrides,
 } from "../../shared/styleOverrides";
-import { fetchWriterStyle } from "./writerStyle";
+import { resolveGenerationWriterSettings } from "./writerSettings";
 import type { Id } from "../_generated/dataModel";
 import {
   ITERATIVE_PROMPT_SCAFFOLDS,
@@ -176,9 +176,24 @@ export const startIterativeGeneration = internalAction({
       // All wrapped so learning/flavor can NEVER break generation.
       // qaCalibration only feeds the ghost draft's QA agent — section drafts
       // use deterministic checks (the writer is the QA).
-      // Shared per-writer style policy (PSOS-49/50, writerStyle.ts) — started
-      // in parallel with the digest fetch; it swallows its own errors.
-      const writerStylePromise = fetchWriterStyle(ctx, input.requestedBy, log);
+      // Shared writer-settings resolver (story 3, writerSettings.ts): saved
+      // profile or settings document — started in parallel with the digest
+      // fetch; it degrades instead of throwing. Iterative keeps its gate and
+      // reads only the flavor and waivers.
+      const writerStylePromise = resolveGenerationWriterSettings(ctx, {
+        generationId: genId,
+        projectId,
+        requestedBy: input.requestedBy,
+        clientFor: (callSite) =>
+          instrumentedAnthropic(ctx, {
+            callSite,
+            capability: "generation",
+            projectId,
+            ...(input.requestedBy ? { userId: input.requestedBy } : {}),
+            attribution: { generationId: genId },
+          }),
+        log,
+      });
       let draftStyle: string | undefined;
       let qaCalibration: string | undefined;
       let draftStyleDigestId: Id<"learningDigests"> | undefined;

@@ -1,7 +1,7 @@
 /**
  * PSOS-50: save-time analysis of a writer's custom instructions.
  *
- * Classifies the free-text "Writing preferences" document against the five
+ * Classifies the free-text "Writing preferences" document against the six
  * waivable house-style categories (which does the document state its own
  * rules for → suggest that waiver) and quotes any parts that conflict with
  * the locked CRA tier (which can never apply). The settings page uses the
@@ -51,6 +51,20 @@ export const styleAnalysisSchema: z.ZodType<StyleAnalysis> = z.object({
   lockedConflicts: z.array(z.object({ excerpt: z.string(), rule: z.string() })),
 });
 
+/**
+ * The classifier's system text. Story 3 (CAP-8): the generation-time
+ * settings-document classifier (convex/ai/writerSettings.ts) reuses this,
+ * the prompt builder and the schema verbatim, and the prompt program
+ * declares them (`calls.settingsAnalysis`) so a change moves promptVersion.
+ */
+export const STYLE_ANALYSIS_SYSTEM_PROMPT = `You classify a technical writer's personal style instructions for an SR&ED report-writing tool.
+
+The tool has six WAIVABLE house-style categories and a LOCKED CRA-compliance tier. For each category, decide whether the writer's document states its own rules in that area — rules that would replace or conflict with the default house rule (addressed=true), or merely compatible additions/nothing on that topic (addressed=false). When addressed=true, quote the shortest decisive phrase from the document as evidence (verbatim substring); otherwise evidence is null.
+
+Separately, list any parts of the document that conflict with the LOCKED tier — instructions the tool can never follow (e.g. a different section structure, skipping the hypothesis, allowing fabricated details, exceeding form length limits). For each, quote the conflicting excerpt verbatim and name the locked rule it collides with. Do not list waivable-category matter here.
+
+Be conservative: only mark addressed=true when the document genuinely legislates that area; only report a locked conflict when the instruction cannot be honored at all.`;
+
 /** Pure prompt builder — unit-tested without an LLM call. */
 export function buildStyleAnalysisPrompt(instructions: string): {
   system: string;
@@ -64,18 +78,21 @@ export function buildStyleAnalysisPrompt(instructions: string): {
     (rule) => `- ${rule.title}: ${rule.summary}`
   ).join("\n");
   return {
-    system: `You classify a technical writer's personal style instructions for an SR&ED report-writing tool.
-
-The tool has five WAIVABLE house-style categories and a LOCKED CRA-compliance tier. For each category, decide whether the writer's document states its own rules in that area — rules that would replace or conflict with the default house rule (addressed=true), or merely compatible additions/nothing on that topic (addressed=false). When addressed=true, quote the shortest decisive phrase from the document as evidence (verbatim substring); otherwise evidence is null.
-
-Separately, list any parts of the document that conflict with the LOCKED tier — instructions the tool can never follow (e.g. a different section structure, skipping the hypothesis, allowing fabricated details, exceeding form length limits). For each, quote the conflicting excerpt verbatim and name the locked rule it collides with. Do not list waivable-category matter here.
-
-Be conservative: only mark addressed=true when the document genuinely legislates that area; only report a locked conflict when the instruction cannot be honored at all.`,
+    system: STYLE_ANALYSIS_SYSTEM_PROMPT,
     user: `## Waivable categories and their default house rules\n\n${categoryCatalog}\n\n## Locked CRA tier (never overridable)\n${lockedCatalog}\n\n## The writer's instruction document\n\n${instructions.slice(0, MAX_INPUT_CHARS)}`,
   };
 }
 
-const ANALYSIS_TOOL_SCHEMA = {
+/** The forced tool and its request shape, shared by both classifier callers. */
+export const STYLE_ANALYSIS_REQUEST = {
+  toolName: "submit_style_analysis",
+  description: "Submit the classification of the writer's style instructions.",
+  maxTokens: 2048,
+  inputCharLimit: MAX_INPUT_CHARS,
+  userTemplate: buildStyleAnalysisPrompt("{{runtime.instructions}}").user,
+} as const;
+
+export const ANALYSIS_TOOL_SCHEMA = {
   type: "object" as const,
   properties: {
     categories: {
@@ -136,11 +153,10 @@ export const analyzeMyInstructions = action({
     return await generateStructured<StyleAnalysis>(anthropic, {
       system,
       user,
-      toolName: "submit_style_analysis",
-      description:
-        "Submit the classification of the writer's style instructions.",
+      toolName: STYLE_ANALYSIS_REQUEST.toolName,
+      description: STYLE_ANALYSIS_REQUEST.description,
       schema: ANALYSIS_TOOL_SCHEMA,
-      maxTokens: 2048,
+      maxTokens: STYLE_ANALYSIS_REQUEST.maxTokens,
       model: MODEL,
       validate: styleAnalysisSchema,
     });

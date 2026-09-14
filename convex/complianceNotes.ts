@@ -1,7 +1,35 @@
-import { query } from "./_generated/server";
+import { query, type QueryCtx } from "./_generated/server";
 import { v } from "convex/values";
-import type { Id } from "./_generated/dataModel";
+import type { Doc, Id } from "./_generated/dataModel";
 import { getInternalProjectAccessOrNull } from "./lib/auth";
+
+/**
+ * The one selected-candidate scoping rule for Compliance Notes. A `compare`
+ * generation whose candidate has been selected owns exactly that candidate's
+ * rows (candidate rows are deleted on selection; the run keeps its
+ * `candidateId`), so the QA rail, the Editor's section-end line and the chat
+ * Deviation Inventory all scope the same way. Exported because
+ * `convex/chatV2.ts:getDeviationInventoryContext` reads the same rows for the
+ * chat tools: two copies of this would agree only until one of them changed.
+ */
+export async function selectedCandidateRunId(
+  ctx: QueryCtx,
+  generation: Doc<"generations">
+): Promise<Id<"generationCandidateRuns"> | undefined> {
+  if ((generation.candidateMode ?? "compare") !== "compare") return undefined;
+  const selection = await ctx.db
+    .query("modelSelections")
+    .withIndex("by_projectId_and_generationId", (q) =>
+      q.eq("projectId", generation.projectId).eq("generationId", generation._id)
+    )
+    .first();
+  if (!selection) return undefined;
+  const runs = await ctx.db
+    .query("generationCandidateRuns")
+    .withIndex("by_generationId", (q) => q.eq("generationId", generation._id))
+    .take(10);
+  return runs.find((run) => run.candidateId === selection.candidateId)?._id;
+}
 
 /**
  * Story 2 (CAP-7, AD-25): the one read of Compliance Notes. The QA rail, the
@@ -28,26 +56,8 @@ export const listForGeneration = query({
     }
     let candidateRunId: Id<"generationCandidateRuns"> | undefined =
       args.candidateRunId;
-    if (
-      candidateRunId === undefined &&
-      (generation.candidateMode ?? "compare") === "compare"
-    ) {
-      const selection = await ctx.db
-        .query("modelSelections")
-        .withIndex("by_projectId_and_generationId", (q) =>
-          q.eq("projectId", generation.projectId).eq("generationId", generation._id)
-        )
-        .first();
-      if (selection) {
-        // The run that produced the selected candidate (candidate rows are
-        // deleted on selection; the run keeps its candidateId).
-        const runs = await ctx.db
-          .query("generationCandidateRuns")
-          .withIndex("by_generationId", (q) => q.eq("generationId", generation._id))
-          .take(10);
-        const selectedRun = runs.find((run) => run.candidateId === selection.candidateId);
-        if (selectedRun) candidateRunId = selectedRun._id;
-      }
+    if (candidateRunId === undefined) {
+      candidateRunId = await selectedCandidateRunId(ctx, generation);
     }
     if (candidateRunId !== undefined) {
       const scoped = candidateRunId;

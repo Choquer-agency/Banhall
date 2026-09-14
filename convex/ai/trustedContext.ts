@@ -191,7 +191,13 @@ export interface TrustedContextSource {
    * only ever produces `transcript` and `document`; the chat evidence builder
    * (`convex/ai/chatEvidence.ts`) reuses this row shape for its own slots.
    */
-  kind: "transcript" | "document" | "report" | "analysis" | "decisions";
+  kind:
+    | "transcript"
+    | "document"
+    | "report"
+    | "analysis"
+    | "decisions"
+    | "openQuestions";
   sourceId?: Id<"generationSources">;
   label: string;
   trust: TrustLevel;
@@ -200,6 +206,24 @@ export interface TrustedContextSource {
   includedLength: number;
   included: boolean;
   truncated: boolean;
+}
+
+/** What the analyzer's context budget did with one frozen source row. */
+export type SourceInclusion = "included" | "condensed" | "not_included";
+
+/**
+ * Story 4 (CAP-11): the one inclusion decision. A source counts as
+ * `included` only when at least one of its characters entered the analyzer's
+ * context; a cut source is `condensed`. Pure — no DB access.
+ */
+export function sourceInclusion(outcome: {
+  included: boolean;
+  includedLength: number;
+  truncated: boolean;
+}): SourceInclusion {
+  if (!outcome.included || outcome.includedLength === 0) return "not_included";
+  if (outcome.truncated) return "condensed";
+  return "included";
 }
 
 /**

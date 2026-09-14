@@ -2,6 +2,13 @@ import { describe, expect, it } from "vitest";
 import { buildTrustedContext, DEFAULT_CONTEXT_BUDGET } from "./trustedContext";
 import { CONDENSE_SCHEMA, CONDENSE_SYSTEM_PROMPT } from "./condenseAgent";
 import { BRIEF_REQUEST, BRIEF_SCHEMA, BRIEF_SYSTEM_PROMPT } from "./brief";
+import {
+  ANALYSIS_TOOL_SCHEMA,
+  STYLE_ANALYSIS_REQUEST,
+  STYLE_ANALYSIS_SYSTEM_PROMPT,
+  buildStyleAnalysisPrompt,
+} from "./styleAnalysis";
+import { HOUSE_RULE_TEXTS } from "../../shared/houseRules";
 import { generationPromptProgram, hashPromptProgram } from "./promptProgram";
 import {
   CONDENSE_VERSION,
@@ -212,6 +219,47 @@ describe("the condense call belongs to the prompt program (AC5)", () => {
       structuredPolicy: "two-attempt-repair",
       callSite: "generation:brief",
     });
+  });
+
+  it("declares the settings-document classifier with the PSOS-50 prompt, request and schema verbatim (story 3, AD-27)", async () => {
+    expect(generationPromptProgram.calls.settingsAnalysis).toEqual({
+      kind: "structured",
+      systemTemplate: STYLE_ANALYSIS_SYSTEM_PROMPT,
+      request: STYLE_ANALYSIS_REQUEST,
+      schema: ANALYSIS_TOOL_SCHEMA,
+      model: {
+        kind: "fixed",
+        modelId: generationPromptProgram.configuration.models.defaultModelId,
+      },
+      thinking: { kind: "omitted" },
+      structuredPolicy: "single-attempt",
+      callSite: "generation:settings",
+      cache: "per-projectId-and-contentHash-and-classifierVersion",
+    });
+    // The declared system text and user template are exactly what the
+    // classifier sends (the settings page and the generation path share them).
+    const built = buildStyleAnalysisPrompt("{{runtime.instructions}}");
+    expect(built.system).toBe(STYLE_ANALYSIS_SYSTEM_PROMPT);
+    expect(STYLE_ANALYSIS_REQUEST.userTemplate).toBe(built.user);
+    expect(STYLE_ANALYSIS_REQUEST.userTemplate).toContain(HOUSE_RULE_TEXTS.reportSkeleton);
+    expect(STYLE_ANALYSIS_REQUEST.toolName).toBe("submit_style_analysis");
+  });
+
+  it("editing the classifier system text changes the computed promptVersion (story 3)", async () => {
+    const current = await hashPromptProgram(generationPromptProgram);
+    const edited = await hashPromptProgram({
+      ...generationPromptProgram,
+      calls: {
+        ...generationPromptProgram.calls,
+        settingsAnalysis: {
+          ...generationPromptProgram.calls.settingsAnalysis,
+          systemTemplate: `${STYLE_ANALYSIS_SYSTEM_PROMPT}\nAlso mark addressed=true for any mention of tone.`,
+        },
+      },
+    });
+    expect(edited).not.toBe(current);
+    // The unedited program hashes stably.
+    expect(await hashPromptProgram({ ...generationPromptProgram })).toBe(current);
   });
 
   it("moves promptVersion, so no generation reports a stale contract", async () => {

@@ -1437,6 +1437,191 @@ the authority for report architecture.
 - **Approval:** product owner approved on 2026-09-01 ("Lets allow this";
   "The only rule we need is the word count for each line").
 
+### 2026-09-11 — Four-tier style precedence, no silent tier, settings documents, and the effort ceiling
+
+Generation-behavior **and** storage amendment. It restates the PSOS-50
+precedence sentence ("locked CRA tier > org mode > writer toggle > house
+default", 2026-08-24 above) as four named tiers. It adds the rule that no tier
+applies silently, and it makes a customized-settings document supplied per
+project behave exactly like a saved Writer Profile.
+
+- **Affected ticket/scope:** SPEC-pd-generation story 3 (Precedence and Writer
+  Profile fidelity), CAP-6 and CAP-8, building on PSOS-49/50 and the
+  2026-09-01 `reportSkeleton` amendment. Origin: writers keep a "PD Writing
+  Customized Settings" document and supply it as Writer's Notes or an
+  attachment. Until now only a saved profile reached drafting, so House Rules
+  silently won over the document.
+- **Tier table:**
+
+  | Tier | Rules | Beats |
+  |---|---|---|
+  | 1. Locked Rules | 242/244/246 skeleton; caps s242 50 lines/350 words, s244 100/700, s246 50/350 (`convex/lib/lineLimits.ts`); no fabrication | everything |
+  | 2. Enforced Org Mode | a House Rule category an admin set to `enforced` | Writer Profile, House Rules |
+  | 3. Writer Profile | the saved profile, or a settings document applied as the profile for that generation | House Rules in a category it waives under `writer_choice` |
+  | 4. House Rules | the six waivable categories at their defaults | — |
+  | Org Mode `off` | a House Rule category an admin set to `off` | waived for everyone: no tier applies it, with or without a Writer Profile |
+
+  `off` is not a fifth tier: it removes the category's House Rule for every
+  writer, so tiers 2 to 4 have nothing to decide. Because the organization
+  decided it, an `off` category's Compliance Note rows carry
+  `tier: org_enforced`. The tier is computed in one place,
+  `getEffectiveWriterStyle` (`categoryOutcomes[].tier`). The Self-check
+  (`convex/lib/selfCheckRules.ts`) copies it and never recomputes it.
+- **No silent tier:** every section's Compliance Note keeps a Writer Profile
+  row, which reads "no Writer Profile applied (disabled|missing)" when none
+  applies. When an `enforced` mode overrides a waiver the profile asked for,
+  that waiver gets its own row: `Writer Profile waiver: <category>`,
+  `not_applied`, `org_enforced`. Every cap rule, stored or extracted, is
+  measured, clipped to the Locked caps and reported (`tier: conflict`). Each
+  generation records the settings it ran under on `generations.writerSettings`
+  (profile state, source, save offer). `writerProfiles.getGenerationWriterSettings`
+  reads it for the Brief's "No Writer Profile applied — House Rules in full."
+  line.
+- **Settings documents and the trust floor:** a document qualifies only when
+  it is a frozen `project_document` source row, carries an `uploaderRole`, and
+  its file name (extension stripped, `_`/`-` read as spaces) or first
+  non-empty line (up to 200 characters) is a settings title. A candidate is
+  read with a typographic apostrophe as a straight one, lowercased, and with
+  leading heading marks, bullets and list numbering stripped. The rule is
+  title-only, and both parts must hold: the candidate names writing settings
+  ("customized (PD) (writing) settings", "PD writing (customized) settings",
+  "writing settings", "writing preferences", "writer's settings", "writer's
+  profile", "writer's preferences", "writing style settings", "writing style
+  guide"), and with that phrase removed at most one other word remains
+  beyond filler (PD, SR&ED or SRED, my, our, the, a, for, of, and, document,
+  doc, file, final, draft, copy, version, updated, latest, rev, a version
+  number such as "v3", digits and dates including month names, and a
+  possessive such as "Larry's"). So "PD Writing Customized
+  Settings", "Larry's PD Writing Customized Settings", "Customised settings",
+  "Writer's settings" and "Writing preferences - Tracy (final)" match. A bare
+  "PD settings" (a proportional-derivative controller's gains, common in
+  SR&ED control projects), "PD controller settings", "Style settings v3" and
+  a note that merely mentions writing preferences ("Remember the client's
+  writing preferences are formal") never do. `uploaderRole` holds only
+  internal roles, so an absent role is client trust and never qualifies. A
+  client-uploaded document never becomes instructions. At most one document
+  applies: Writer's Notes before other attachments, then frozen row order.
+  Its frozen text, trimmed and sliced to `MAX_INSTRUCTIONS_CHARS`, is applied
+  as the Writer Profile for that generation, and truncation is recorded.
+- **Supersede versus match:** when the document's whitespace-normalized text
+  equals an enabled saved profile's instructions (`matchesProfile`), the saved
+  profile applies unchanged and nothing is offered. A document that differs
+  replaces the saved profile for that generation; the two are never merged.
+  The Writer Profile row then says the saved profile was superseded. The
+  document is never saved to a profile automatically. The offer only prefills
+  `/settings/writing?fromGeneration=<id>`, and the writer decides whether to
+  save. The offer carries the document text, whether it was truncated, and
+  the categories the classifier found it legislates. Those categories are
+  recorded on `generations.writerSettings.addressedCategories` when the
+  generation resolves and are the offer's only source; the analysis cache is
+  never re-read for the offer, so a failed cache write or a later classifier
+  version cannot drop the waivers the generation applied. The page pre-ticks
+  those waivers where the org mode is `writer_choice` (the Analyze flow's
+  rule, never turning a waiver off), so saving the prefill keeps the
+  document's waivers. Unsaved edits on the page are kept, never overwritten.
+- **Classifier caching and the `generation:settings` slot:** a document's
+  House Rule waivers come from the PSOS-50 style classifier
+  (`convex/ai/styleAnalysis.ts`), reused verbatim and declared in the prompt
+  program as `calls.settingsAnalysis`. It runs at most once per
+  `(projectId, contentHash)` for a given classifier version, and the result is
+  cached in `settingsDocumentAnalyses` keyed by `classifierVersion`. That
+  version is a stable hash of every input that decides the classifier's
+  answer: its system text, its user template (which carries the House Rule
+  and Locked catalogs), its tool schema, tool name, tool description, output
+  token limit and input character limit, and its model id. A row from another
+  version is never served, so a classifier change re-analyses instead of
+  serving stale waivers. The call carries the AD-27 slot
+  `generation:settings`, whose allowance of 1 is recorded, never enforced. It
+  makes one attempt (no repair pass), which keeps the worst case inside
+  `generateReport`'s 600 s action. A cache hit makes no call. If the
+  classifier fails, nothing is cached (the next generation retries), the text
+  still applies with no Writer Profile waivers (a category an admin set to
+  `off` stays waived for everyone), and the category rows and the progress
+  log say the document could not be analysed for waivers.
+- **Extraction and Locked clipping:** a deterministic extractor
+  (`convex/lib/settingsExtraction.ts`) reads the Build Order and line/word cap
+  rules from the effective instruction text, whether a profile or a document,
+  in the same way. It fills only what the source does not hold structurally,
+  and an explicitly stored empty list stays empty. It is conservative,
+  because a false cap shortens a section through repair while a missed one
+  costs nothing. A number is a maximum only when an upper-bound cue sits
+  directly before it ("at most", "no more than", "max", "up to", "under",
+  "within", with only "a total of" or "of" between), a trailing cue sits
+  directly after its unit ("maximum", "or less"), or it continues a list of
+  maxima ("max 40 lines and 300 words"). A lower bound, before the number
+  ("at least 200 words") or after its unit ("300 words minimum", "300 words
+  at least", "300 words or more"), and a negated cue ("not under 200 words")
+  are ignored, never continue a list of maxima, and never shorten a section.
+  A cap binds a whole section, so a statement about any part of one gives no
+  cap at all, wherever in the statement that part is named: a per-item limit
+  ("100 words each", "each paragraph, no more than 100 words", "100 words
+  per paragraph"), a sub-unit ("keep sentences under 25 words", "bullets of
+  no more than 20 words") or a part of the section ("at most 100 words in
+  the first paragraph", "opening under 50 words"). Missing a real cap is the
+  accepted cost. A unit followed by "of" ("40
+  lines of code") is prose, not a cap. A comma thousands separator ("1,500
+  words") reads as one number; an ambiguous number, a decimal ("2.5 lines")
+  or a period- or space-grouped run ("1.500 words", "1 500 words"), is never
+  a cap. A Build Order is the bounded run of at most three
+  section numbers directly after a build-order cue, so a cap stated on the
+  same line is never read into it. A partial run, even a single section
+  ("Build order: 246 first."), is never dropped silently: the default order
+  applies and the progress log gives the fallback reason. A stored Build
+  Order or stored Self-check rules win over extraction field by field, so a
+  profile storing only one still gets the other from its text. This applies to legacy saved profiles
+  too. A cap above a Locked cap is clipped and reported. Open Question 1
+  (whether the Section 246 complaint is a disagreement with the cap) is
+  recorded: the Section 246 caps stay Locked. A request for more is applied
+  up to the cap and reported, never honoured beyond it.
+- **Effort ceiling:** the Dump is the maximum required input. No capability
+  requires a writer to author an artifact. A saved profile, a settings
+  document and a Storyline are all optional, and generation completes with
+  none of them.
+- **Behavior on failure:** if the resolver fails, generation continues on the
+  saved-profile read and the reason is logged to the generation progress log.
+  Iterative mode's gate, `applyProposal`, report prose paths and chat's
+  profile resolution are unchanged.
+- **Migration and compatibility:** widen only. New optional fields are
+  `generations.writerSettings` (with its optional `addressedCategories`, at
+  most one entry per category), `categoryOutcomes[].requested`, and
+  `profileReason`/`waiverAnalysisFailed` on the ordered profile context. There
+  is one new table, `settingsDocumentAnalyses`
+  (`by_projectId_and_contentHash_and_classifierVersion`), which carries
+  `projectId` (AD-19). Nothing is backfilled: a legacy generation has no
+  record, and the query returns null for it. Already-scheduled chain payloads
+  still validate.
+- **Authorization:** no capability cell changes. `getGenerationWriterSettings`
+  uses the Compliance Note read gate (internal project access; outsiders get
+  null). Each new record has exactly one database writer, and both are
+  internal mutations that no client can call:
+  `generations.recordWriterSettings` writes `generations.writerSettings`, and
+  `writerProfiles.recordSettingsAnalysis` writes `settingsDocumentAnalyses`.
+- **Tests:** `convex/writerProfiles.test.ts` (six categories × `writer_choice`
+  / `enforced`, waiver rows, cap clipping from profile text, mixed stored
+  fields (a stored Build Order or stored Self-check rules win and extraction
+  fills the other), match and supersede, trust floor, a stale
+  `classifierVersion` never served, query auth, no-profile line, and the
+  offer's truncation and categories),
+  `convex/ai/writerSettings.test.ts` (identical Compliance Notes across the
+  three supply paths, one `generation:settings` call then none on rerun,
+  classifier failure still completes after one attempt, a document equal to
+  the profile makes no call, truncation recorded, a failed cache write still
+  applies the waivers, a client-uploaded document beside an enabled saved
+  profile leaves the profile ruling, the classifier version moves with each
+  of its inputs, the writer-facing progress-log lines for applied style,
+  waivers, supersede and classifier failure, resolver degrade),
+  `convex/lib/settingsDocument.test.ts`, `convex/lib/settingsExtraction.test.ts`,
+  `convex/ai/instrument.test.ts` (slot and allowance),
+  `convex/ai/promptScaffolds.test.ts` and `tests/aiUsage.test.ts` (manifest),
+  `src/lib/settingsPrefill.test.ts`, and
+  `src/routes/settings/writing/settingsPrefill.component.test.ts` (the page
+  prefill from `?fromGeneration`, run by `npm run test:component`).
+- **Approval:** approved by reference to the SPEC-pd-generation Constraints
+  (the four tiers restate what PSOS-49/50 put in production; Locked Rules are
+  unchanged; the Dump is the maximum required input; every prose change stays
+  a human-applied Proposal). No Locked Rule changes, so no `Ask First`
+  amendment is required.
+
 ### 2026-09-01 (second) — `superseded` generation state and capability enforcement at the mutation boundary
 
 Technical-state amendment plus enforcement of cells the matrix already

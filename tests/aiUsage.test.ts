@@ -261,6 +261,8 @@ describe("generation prompt program", () => {
       "section244",
       "section246",
       "selfCheck",
+      // Story 3 (CAP-8): the settings-document style classifier.
+      "settingsAnalysis",
     ]);
     expect(Object.keys(generationPromptProgram.topology.modes).sort()).toEqual([
       "compare",

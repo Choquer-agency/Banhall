@@ -8,6 +8,7 @@ import {
   buildChatTurnRequest,
   type ChatEvidenceBudget,
   type ChatEvidenceDoc,
+  type ChatOpenQuestion,
   type ChatTurnContext,
 } from "./chatEvidence";
 import { CHAT_EVIDENCE_GUIDANCE, buildChatSystemPromptV2 } from "./prompts";
@@ -549,5 +550,126 @@ describe("chat turn request", () => {
     });
     expect(turn.report.budget.maxDocuments).toBe(0);
     expect(String(turn.messages[0]?.content)).not.toContain("a.txt] ---");
+  });
+});
+
+
+/**
+ * Story 5 (CAP-14): the open questions are evidence, not a tool result, because
+ * the converge question must be answered without a tool call. The block is
+ * delimited and labelled like every other block, and it is OMITTED entirely
+ * when there is nothing open, so a project with no Brief sends the same message
+ * shape it sent before the block existed.
+ */
+describe("open questions block", () => {
+  const questions: ChatOpenQuestion[] = [
+    {
+      text: "The number of fatigue cycles was never measured.",
+      confidence: "unresolved",
+      sourceLabel: "March interview",
+    },
+    {
+      text: "The vendor datasheet contradicts the run log.",
+      confidence: "unreliable",
+      sourceLabel: null,
+    },
+  ];
+
+  it("is delimited, labelled and rendered after the prior decisions", () => {
+    const { message, report } = buildChatEvidence({
+      reportText: "Report prose.",
+      analysisText: "{}",
+      decisions: [{ state: "applied", target: "t", candidate: "c" }],
+      openQuestions: questions,
+    });
+    expect(message).toContain(begin(EVIDENCE_LABELS.openQuestions));
+    expect(message).toContain(end(EVIDENCE_LABELS.openQuestions));
+    const body = blockBody(message, `${EVIDENCE_LABELS.openQuestions}]`);
+    expect(body).toBe(
+      "[1: UNRESOLVED] The number of fatigue cycles was never measured. (source: March interview)\n" +
+        "[2: UNRELIABLE] The vendor datasheet contradicts the run log."
+    );
+    expect(message.indexOf(begin(EVIDENCE_LABELS.openQuestions))).toBeGreaterThan(
+      message.indexOf(begin(EVIDENCE_LABELS.decisions))
+    );
+    // Budgeted and truncation-accounted like every other block.
+    expect(report.sources.map((source) => source.kind)).toEqual([
+      "report",
+      "analysis",
+      "decisions",
+      "openQuestions",
+    ]);
+    expect(report.sources.at(-1)).toMatchObject({
+      kind: "openQuestions",
+      label: EVIDENCE_LABELS.openQuestions,
+      // Analyzer-written prose about the CLIENT's transcript, the same
+      // provenance as TRANSCRIPT ANALYSIS. Not the writer's own direction.
+      trust: "client",
+      included: true,
+      truncated: false,
+    });
+    const analysisTrust = report.sources.find((s) => s.kind === "analysis")?.trust;
+    expect(report.sources.at(-1)?.trust).toBe(analysisTrust);
+  });
+
+  it("is absent, and unreported, when the list is empty", () => {
+    for (const openQuestions of [undefined, []]) {
+      const { message, report } = buildChatEvidence({
+        reportText: "Report prose.",
+        analysisText: "{}",
+        ...(openQuestions ? { openQuestions } : {}),
+      });
+      expect(message).not.toContain(begin(EVIDENCE_LABELS.openQuestions));
+      expect(report.sources.map((source) => source.kind)).toEqual(["report", "analysis"]);
+      expect(describeContextCuts(report)).toBeNull();
+    }
+  });
+
+  it("records the block as shortened when the budget cuts it", () => {
+    const { message, report } = buildChatEvidence({
+      reportText: "R",
+      analysisText: "A",
+      openQuestions: [
+        { text: "z".repeat(400), confidence: "unresolved", sourceLabel: null },
+      ],
+      budget: budget({ openQuestionsTokens: 10 }),
+    });
+    expect(blockBody(message, `${EVIDENCE_LABELS.openQuestions}]`)).toContain(
+      "[TRUNCATED:"
+    );
+    expect(report.sources.at(-1)).toMatchObject({
+      kind: "openQuestions",
+      included: true,
+      truncated: true,
+    });
+    expect(describeContextCuts(report)).toContain(
+      `shortened ${EVIDENCE_LABELS.openQuestions}`
+    );
+  });
+
+  it("keeps the system string byte-identical with and without it (AD-11a)", () => {
+    const base: ChatTurnContext = {
+      reportContent: JSON.stringify({
+        type: "doc",
+        content: [
+          { type: "paragraph", content: [{ type: "text", text: "The report body." }] },
+        ],
+      }),
+      agentOutputs: null,
+      documents: [],
+      decisions: [],
+    };
+    const without = buildChatTurnRequest({ context: base });
+    const with_ = buildChatTurnRequest({
+      context: { ...base, openQuestions: questions },
+    });
+    expect(with_.system).toBe(without.system);
+    // And the facts travel only in the user-role message.
+    expect(with_.system).not.toContain("fatigue cycles");
+    expect(String(with_.messages[0]?.content)).toContain("fatigue cycles");
+    // An empty list from the query leaves the message byte-identical too.
+    expect(
+      buildChatTurnRequest({ context: { ...base, openQuestions: [] } }).messages[0]
+    ).toEqual(without.messages[0]);
   });
 });

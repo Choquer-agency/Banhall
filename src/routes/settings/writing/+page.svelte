@@ -8,9 +8,12 @@
   import { useAuth } from "@mmailaender/convex-better-auth-svelte/svelte";
   import { LockSimpleIcon, ArrowsOutSimpleIcon } from "phosphor-svelte";
   import { Dialog } from "bits-ui";
+  import { page } from "$app/state";
   import { overlayFade, modalPop } from "$lib/motion";
+  import { settingsPrefillDecision } from "$lib/settingsPrefill";
   import type { FunctionReturnType } from "convex/server";
   import { api } from "../../../../convex/_generated/api";
+  import type { Id } from "../../../../convex/_generated/dataModel";
   import { MAX_INSTRUCTIONS_CHARS } from "../../../../shared/writerProfileLimits";
   import {
     STYLE_OVERRIDE_KEYS,
@@ -90,8 +93,43 @@
   );
   const modes = $derived(modesQ.data ?? DEFAULT_HOUSE_RULE_MODES);
 
+  // Story 3 (CAP-8): ?fromGeneration=<id> accepts that generation's save
+  // offer as a prefill; nothing is saved until the writer saves. The
+  // decision lives in the pure settingsPrefillDecision; this effect only
+  // feeds it and applies its result, once per fromGeneration value.
+  const fromGeneration = $derived(page.url.searchParams.get("fromGeneration"));
+  const writerSettingsQ = useQuery(api.writerProfiles.getGenerationWriterSettings, () =>
+    auth.isAuthenticated && fromGeneration
+      ? { generationId: fromGeneration as Id<"generations"> }
+      : "skip"
+  );
+  let prefilledFor = $state<string | null>(null);
+  let prefillNotice = $state("");
+  $effect(() => {
+    const decision = settingsPrefillDecision({
+      fromGeneration,
+      prefilledFor,
+      seeded: prefSeed !== null,
+      modesLoaded: modesQ.data !== undefined,
+      profileError: profileQ.error,
+      modesError: modesQ.error,
+      query: { data: writerSettingsQ.data, error: writerSettingsQ.error },
+      userEdited: dirty,
+      currentText: customInstructions,
+      currentOverrides: overrides,
+      modes,
+    });
+    if (decision.kind === "idle" || decision.kind === "wait") return;
+    prefilledFor = fromGeneration;
+    if (decision.kind === "apply") {
+      customInstructions = decision.text;
+      overrides = decision.overrides;
+    }
+    prefillNotice = decision.kind === "unchanged" ? "" : decision.notice;
+  });
+
   // "Analyze my instructions": classify the free-text preferences against
-  // the five categories, pre-tick the writer-choice waivers it addresses,
+  // the six categories, pre-tick the writer-choice waivers it addresses,
   // and report what will/won't apply. Transient page state, not persisted.
   type StyleAnalysis = FunctionReturnType<
     typeof api.ai.styleAnalysis.analyzeMyInstructions
@@ -191,6 +229,9 @@
         >
           {customInstructions.length.toLocaleString()} / {MAX_INSTRUCTIONS_CHARS.toLocaleString()} characters
         </span>
+        {#if prefillNotice}
+          <p role="status" class="mt-2 text-body text-ink-secondary">{prefillNotice}</p>
+        {/if}
       </div>
 
       <div class="mt-5">
