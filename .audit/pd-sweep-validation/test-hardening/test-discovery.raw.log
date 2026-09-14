@@ -1,0 +1,7 @@
+# HEAD=2b6e59d6237303a7f940ee04051c1431048f9cd0 date=2026-09-14T18:23:55Z
+# cmd: node scripts/check-test-discovery.mjs
+archive: .audit/integration-code-review-9da55be/qa-structural-boundary-input/convex/ai/qaChecks.test.ts
+archive: .audit/integration-code-review-9da55be/qa-structural-boundary-input/convex/lib/tiptapReport.test.ts
+archive: .audit/integration-code-review-9da55be/qa-structural-boundary-input/convex/qaBlocking.test.ts
+discovered 270 executable test files; accounted for 3 historical archives
+EXIT_CODE=0

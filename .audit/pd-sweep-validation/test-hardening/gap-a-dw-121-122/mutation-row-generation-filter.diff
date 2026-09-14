@@ -1,0 +1,12 @@
+diff --git a/convex/generations.ts b/convex/generations.ts
+index 9b74d5a..10af7b5 100644
+--- a/convex/generations.ts
++++ b/convex/generations.ts
+@@ -4438,7 +4438,6 @@ export const getOrderedSectionDrafts = query({
+             .take(30)
+     ).filter(
+       (row) =>
+-        row.generationId === generation._id &&
+         row.candidateRunId !== undefined &&
+         (candidateRunId === undefined || row.candidateRunId === candidateRunId)
+     );

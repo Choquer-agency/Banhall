@@ -1,0 +1,14 @@
+diff --git a/convex/generations.ts b/convex/generations.ts
+index 9b74d5a..0e59aca 100644
+--- a/convex/generations.ts
++++ b/convex/generations.ts
+@@ -4421,7 +4421,8 @@ export const getOrderedSectionDrafts = query({
+     let explicitCandidateRun: Doc<"generationCandidateRuns"> | undefined;
+     if (candidateRunId !== undefined) {
+       const candidateRun = await ctx.db.get(candidateRunId);
+-      if (!candidateRun || candidateRun.generationId !== generation._id) return [];
++      if (candidateRun && candidateRun.generationId !== generation._id) return [];
++      if (candidateRun)
+       explicitCandidateRun = candidateRun;
+     }
+     const rows = (
