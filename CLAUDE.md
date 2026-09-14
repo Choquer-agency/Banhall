@@ -13,5 +13,3 @@ Convex agent skills for common tasks can be installed by running
 `npx convex ai-files install`.
 
 <!-- convex-ai-end -->
-
-Read `.factory/AGENTS.factory.md` for the isolate → build → prove → ship rules.
