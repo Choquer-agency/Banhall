@@ -976,7 +976,9 @@ location: convex/ai/brief.ts (BRIEF_SYSTEM_PROMPT)
 source_spec: `1-generation-brief-storage-and-derivation-stage.md`
 severity: low
 reason: BRIEF_SYSTEM_PROMPT gives generic established/partial/unresolved/ unreliable classification guidance with no instruction to reconcile disagreements across 3+ transcripts specifically. Plausible under the general instruction, but unverified by any prompt text or test.
-status: open
+status: done 2026-09-14
+resolution: resolved by sweep bundle dw-brief-transcript-reconciliation
+resolution-undo: bf562b7b6937f5ebc19a1e2d65b2445260a241bf9309de5fad185baee9b2251b 2026-09-14 7374617475733a206f70656e
 
 ### DW-115: UI surfaces for this story's backend: rendering drafted sections as they complete, a Stop button calling generations.stopOrderedGeneration, and the Compliance line/QA rail reading complianceNotes.list
 origin: spec-deferred f87855653e9d
@@ -1294,4 +1296,28 @@ location: convex/briefs.ts briefEntries (getBrief, listBriefEntries)
 source_spec: `spec-dw-107-dw-118-brief-read-and-diff-integrity.md`
 severity: medium
 reason: convex/briefs.ts briefEntries (:46-51) takes MAX_BRIEF_ENTRY_ROWS rows with no overflow probe; the same prefix read existed at 7b0723b (convex/briefs.ts:50 with its local 500). Already tracked as DW-128; recorded here because the attempt 2 review lead triaged it defer, not as a new repair owner.
+status: open
+
+### DW-156: Frozen-source truncation metadata does not reach the Brief request; reconcile this completeness signal with pending allocation work before assigning a separate residual.
+origin: spec-deferred 43a749e18ac7
+location: convex/ai/brief.ts:264
+source_spec: `spec-dw-114-brief-transcript-reconciliation.md`
+severity: medium
+reason: At the implementation baseline and current source, generationSources carries truncated/originalLength, but convex/ai/brief.ts buildBriefUserMessage accepts and emits label, content, and kind only. Capture truncation is set in convex/generations.ts:472-532. Acceptance queue commit 09b2403c93dcc36967f71e534a12b6db841f98cd finding 1/story 8 owns bounded allocation, truthful inclusion, and frozen-offset preservation. That action is related but not identical to emitting capture-truncation metadata, so exact ownership of this narrower signal is unproven. Reconcile the same claim and required action before treating it as separate work. The queue is integrated only after this sweep; no queue or ledger entry was changed here. Evidence: .audit/DW-114/followup-convergence-20260914/residual-ownership.json.
+status: open
+
+### DW-157: Brief evidence can forge raw request delimiters; repair remains owned by existing acceptance story 8/finding 2.
+origin: spec-deferred f25ceeb03ae6
+location: convex/ai/brief.ts:271
+source_spec: `spec-dw-114-brief-transcript-reconciliation.md`
+severity: high
+reason: Acceptance queue commit 09b2403c93dcc36967f71e534a12b6db841f98cd triage finding 2 and stories.yaml story 8 specify the same claim and required action: reuse established label sanitization and evidence-marker neutralization while retaining quote offsets against frozen originals. Root revalidation .audit/complete-local-20260914/queue-revalidation-bb4908f.md confirms this remains pending. DW-114 retains the existing raw evidence assembly and does not discharge that acceptance work. This is an existing-owner reference, not a new ledger entry or ownership assignment. Evidence: .audit/DW-114/followup-convergence-20260914/residual-ownership.json.
+status: open
+
+### DW-158: Follow-up review still recommended for dw-brief-transcript-reconciliation after the damping cap was spent
+origin: review-budget-followup
+location: n/a
+source_spec: `spec-dw-114-brief-transcript-reconciliation.md`
+severity: low
+reason: The follow-up-review damping cap (limits.max_followup_reviews = 1) was spent with the story finalized (status: done, verify green) while the review pass still recommended an independent follow-up. The work was committed by bmad-loop run 20260912-061909-feb3; this entry preserves the lingering recommendation for a deliberate later review.
 status: open
