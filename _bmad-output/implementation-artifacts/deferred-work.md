@@ -135,6 +135,7 @@ source_spec: `12-confirmed-unlearn-with-failure-evidence-and-retry-free-embeds.m
 severity: low
 reason: ingestOnComplete's orphan branch schedules unlearnSource without a sourceId, and both bookkeeping mutations early-return in that case, so a capped-out orphan erasure is invisible. Mitigated at serve time by the new status join (a hit whose sourceId maps to no row is dropped). brainAuditLog.sourceId is optional, so a sourceId-less row is representable if evidence is later wanted.
 status: open
+decision: 2026-09-14 Audit orphan erasure failures — Approve optional-source erasure failure records retaining remote identity and exhaustion, without resurrecting sources.
 
 ### DW-17: Repeated revokeSource clicks start concurrent, undeduplicated remediation ladders.
 origin: spec-deferred b1ee08c62c36
@@ -151,6 +152,7 @@ source_spec: `12-confirmed-unlearn-with-failure-evidence-and-retry-free-embeds.m
 severity: low
 reason: recordUnlearnFailure patches the id back only `if (!s.ragEntryId)` (as the spec task specifies). If a re-ingest wrote E2 while the compensation for E1 was failing, the un-erased E1 survives only in the unlearn_failed reason string, and re-revoke remediation then retries against E2.
 status: open
+decision: 2026-09-14 Track failed entries independently — Define per-entry remediation ownership so older failed erasures stay retryable without replacing newer pointers.
 
 ### DW-19: No unlearn_failed row is written if the source row is deleted or re-approved between the throw and the bookkeeping.
 origin: spec-deferred e0dbef9e0f88
@@ -159,6 +161,7 @@ source_spec: `12-confirmed-unlearn-with-failure-evidence-and-retry-free-embeds.m
 severity: low
 reason: recordUnlearnFailure's insert sits inside `if (s && s.status !== "approved")`, while the action still rethrows and still reschedules. The guard exists to avoid contradicting a re-approval, so the fix is a policy choice rather than a bug.
 status: open
+decision: 2026-09-14 Separate attempt history from status — Approve historical attempt auditing independent of current source status, ensuring records cannot imply re-approved sources are revoked.
 
 ### DW-20: A failure of the new governance join degrades retrieval to zero exemplars rather than erroring.
 origin: spec-deferred 553bb6411cf5
@@ -260,6 +263,7 @@ source_spec: `3-document-trust-from-uploader-role.md`
 severity: medium
 reason: Every projectDocuments writer (documents.ts, ingestionPort.ts, projects.ts, reviewFromProject.ts) is behind requireInternalProjectAccess or an admin check, and users.role has no client member. So a "client-uploaded file tagged writer_notes" is not a producible runtime state; the demotion only ever fires on rows predating the field. The open case is an internal writer uploading a client-supplied file and tagging it writer_notes, which uploader role cannot distinguish. Closing it needs a different signal (document origin or intake channel), which is an epic-level decision.
 status: open
+decision: 2026-09-14 Design origin policy — Approve an origin/intake trust contract and implement storage, upload classification and prompt treatment without inferring origin from role alone.
 
 ### DW-32: getChatContextV2 has no `returns` validator, so the query's shape is kept in sync with its only caller by a hand-written type annotation in the action.
 origin: spec-deferred 9a25b2e58895
@@ -713,6 +717,7 @@ source_spec: `2-de-identification-before-firm-wide-knowledge.md`
 severity: medium
 reason: Scrubbing for those two tables happens at the write site (convex/generations.ts:1985, convex/brain.ts:234), so convex/learning.ts getSectionEditsForDigest returns whatever is stored and every pre-deploy row in the 500-row digest window is raw. CAP-1's success clause is write-scoped ("writes pass through it") and the epic SPEC's open question defaults re-processing existing Brain sources to "no", so a backfill or a read-side filter is deliberately out of this story.
 status: open
+decision: 2026-09-14 Add controlled reprocessing — Approve administrator-controlled historical Brain reprocessing with source/index consistency and review provenance.
 
 ### DW-86: Three other free-text streams cross the same firm-wide boundary without de-identification.
 origin: spec-deferred 8260a959468e
@@ -721,6 +726,7 @@ source_spec: `2-de-identification-before-firm-wide-knowledge.md`
 severity: medium
 reason: qaItemFeedback.itemText (convex/learning.ts getFeedbackForDigest), candidateScores.comment (getCandidateFeedbackForDigest) and brainFeedbackQueue body/suggestedRule (getApprovedBrainFeedbackForDigest, plus the writer_feedback importSource at convex/brain.ts:675) all feed the same two digest prompts or the Brain, and all carry a projectId. CAP-1 enumerates only nominateFromReport, sectionEditEvents and proposalWordingEditEvents, so these are outside this story's intent.
 status: open
+decision: 2026-09-14 Scrub feedback nominations — Approve this Brain crossing and de-identify title/content before importSource, retaining project attribution and approval semantics.
 
 ### DW-87: convex/ingestion.ts builds a Brain source title from clientName, so curated imports carry the client name into drafting prompts.
 origin: spec-deferred 30023b719473
@@ -747,6 +753,7 @@ source_spec: `2-de-identification-before-firm-wide-knowledge.md`
 severity: low
 reason: convex/learning.ts getProposalWordingEditsForDigest loads the live project document and scrubs against it. A project renamed after an edit event was written no longer supplies the string that appears in the stored prose. Inherent to the read-side approach the story mandated (chatV2.ts is off-limits), not to any choice made inside it.
 status: open
+decision: 2026-09-14 Scrub at event creation — Approve proposal-event write-time scrubbing, preserve metrics and attribution, and separately define historical-event handling.
 
 ### DW-90: A section edit whose only change was a client name now stores an identical draft/approved pair while keeping its pre-scrub editRatio.
 origin: spec-deferred 27886a9e0f20
@@ -812,6 +819,7 @@ origin: migrated from legacy ledger ("Deferred from: code review of SPEC-ai-engi
 location: convex/reports.ts:30-35,64-72; convex/projects.ts:1047
 reason: Live sharing and mutable report identity predate this branch. The approved QA change gates readiness and publish mutations; pinning shared copies or adding an egress/edit gate changes the domain workflow. Preserve as a separate existing sharing concern, not an unapproved expansion of CAP-8. Evidence: convex/reports.ts:30-35,64-72; convex/projects.ts:1047. Source review: .audit/integration-code-review-9da55be/review.md.
 status: open
+decision: 2026-09-14 Pin published revision — Record an approved publication-domain amendment and implement an immutable published-content reference with explicit republish behavior. Preserve internal editing and prove that subsequent edits cannot change an existing client publication.
 
 ### DW-150: Because detector accepts a substring
 
@@ -819,6 +827,7 @@ origin: migrated from legacy ledger ("Deferred from: code review of SPEC-ai-engi
 location: convex/ai/qaChecks.ts:101-104
 reason: The existing sentence-level /because/i detector predates the change and is deliberately retained by the frozen QA contract. This specific substring limitation is distinct from the multi-uncertainty case in DW-71; changing the detector requires focused work under its own intent. Evidence: convex/ai/qaChecks.ts:101-104. Source review: .audit/integration-code-review-9da55be/review.md.
 status: open
+decision: 2026-09-14 Require standalone because — Tighten only the because token boundary while preserving uncertainty recognition and sentence-level counting. Add regressions for embedded substrings and valid standalone because clauses, and document the approved gate change.
 
 ### DW-96: Follow-up review still recommended for 4 after the damping cap was spent
 origin: review-budget-followup
@@ -1017,6 +1026,7 @@ source_spec: `2-ordered-ungated-generation-self-check-compliance.md`
 severity: low
 reason: Both fields are accepted by saveMyProfile/saveProfileForUser and read by generation here; story 3 (profile lane) owns profile fidelity and the settings-document path that populates them.
 status: open
+decision: 2026-09-14 Keep controls deferred
 
 ### DW-118: A Brief re-derivation re-inserts the previous version's "removed" and storylineQuestion rows as fresh change: "removed" markers, and renderBriefForGeneration (iterative sections and the one-shot ghost
 origin: spec-deferred 0243750d9cb3
@@ -1099,6 +1109,7 @@ source_spec: `3-precedence-and-writer-profile-fidelity.md`
 severity: medium
 reason: convex/chatV2.ts:477 and convex/research.ts:716 call getEffectiveWriterStyle without a settings document (final review pass). The intent defers changing chat's profile resolution.
 status: open
+decision: 2026-09-14 Extend settings fidelity — Approve settings policy for chat/research and resolve frozen generation settings through one service with consistent precedence at proposal/save boundaries.
 
 ### DW-127: A structured Build Order and Self-check editor on the settings page; extraction from profile text is the only way to populate either today.
 origin: spec-deferred 7770a5a46c95
@@ -1107,6 +1118,7 @@ source_spec: `3-precedence-and-writer-profile-fidelity.md`
 severity: low
 reason: Listed under the spec's Design Notes "Deferred on purpose", still open at the final review.
 status: open
+decision: 2026-09-14 Keep controls deferred
 
 ### DW-128: A failed Brief read renders exactly like a legacy generation: the rail and its launcher simply disappear, with no error surfaced.
 origin: spec-deferred 35aadf42fd0c
