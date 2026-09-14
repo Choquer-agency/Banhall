@@ -11,7 +11,8 @@
    * (`briefs.saveEntryEdit`, always with the version fence), and the offer's
    * per-project dismissal. In `rail` mode it wears the QA rail's card chrome;
    * in `inline` mode it sits under the generation progress card. It renders
-   * nothing until at least one of the three reads has something to show.
+   * nothing until at least one of the three reads has something to show, or
+   * one of them fails — then a plain error line, never silence (DW-128).
    */
   let {
     generationId,
@@ -34,6 +35,7 @@
   } = $props();
 
   const STALE_MESSAGE = "The Brief changed while you were editing. Your edit was not saved.";
+  const LOAD_ERROR_MESSAGE = "Couldn't load the Generation Brief. Try reloading the page.";
 
   const briefQ = useQuery(api.briefs.getBrief, () => ({ generationId }));
   const inclusionQ = useQuery(api.generations.getContextInclusion, () => ({ generationId }));
@@ -74,9 +76,16 @@
   const brief = $derived(briefQ.data);
   const inclusion = $derived(inclusionQ.data);
   const writerSettings = $derived(writerQ.data);
+  // DW-128: a failed read is not a legacy generation. Without this, an error
+  // on any of the three reads left `data` undefined forever and the panel
+  // vanished exactly as it does for a generation with no Brief. Loading
+  // (no data, no error) still renders nothing.
+  const loadFailed = $derived(!!briefQ.error || !!inclusionQ.error || !!writerQ.error);
   // A legacy generation recorded no budget outcome: the Brief is absent,
   // not empty. Rows synthesized for unfrozen documents never count.
-  const available = $derived(!!brief || !!writerSettings || inclusion?.recorded === true);
+  const available = $derived(
+    loadFailed || !!brief || !!writerSettings || inclusion?.recorded === true
+  );
 
   // A newer version replaces whatever a failed save was complaining about.
   let lastVersion: number | null = null;
@@ -129,6 +138,12 @@
   }
 </script>
 
+{#snippet loadError()}
+  <!-- The same quiet alert line FilingReadinessPanel uses for a failed read:
+       muted body text, no chrome of its own, role="alert" for AT. -->
+  <p role="alert" class="px-4 py-3 text-body text-ink-muted">{LOAD_ERROR_MESSAGE}</p>
+{/snippet}
+
 {#snippet rail(showHeading: boolean)}
   <BriefRail
     {brief}
@@ -171,8 +186,19 @@
         {/if}
       </div>
       <div class="min-h-0 flex-1 overflow-y-auto">
-        {@render rail(false)}
+        {#if loadFailed}
+          {@render loadError()}
+        {:else}
+          {@render rail(false)}
+        {/if}
       </div>
+    </div>
+  {:else if loadFailed}
+    <div class="card overflow-hidden">
+      <header class="px-4 pt-4 pb-2">
+        <h2 class="text-title">Brief</h2>
+      </header>
+      {@render loadError()}
     </div>
   {:else}
     <div class="card overflow-hidden">

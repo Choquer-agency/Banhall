@@ -8,6 +8,7 @@ import {
   __resetConvexStub,
   __setMutationError,
   __setQueryData,
+  __setQueryError,
 } from "$lib/test/convex-svelte-stub.svelte";
 
 /**
@@ -251,6 +252,56 @@ describe("BriefRailPanel", () => {
         target.textContent?.trim() || target.getAttribute("aria-label") || ""
       ).toBeGreaterThanOrEqual(44);
     }
+  });
+
+  describe("read failures (DW-128)", () => {
+    const LOAD_ERROR = "Couldn't load the Generation Brief. Try reloading the page.";
+
+    it("shows a plain error line in the rail instead of disappearing when a Brief read fails", async () => {
+      await page.viewport(480, 360);
+      __setQueryData("writerProfiles:getGenerationWriterSettings", null);
+      __setQueryData("generations:getContextInclusion", null);
+      __setQueryError("briefs:getBrief", new Error("Server Error"));
+      const { container } = await render(BriefRailPanel, {
+        generationId,
+        projectId,
+        mode: "rail",
+        open: true,
+        onClose: vi.fn(),
+      });
+      // Captured before the assertion so the pre-fix run records the empty rail.
+      await page.screenshot({ path: "../../../../.vitest-attachments/DW-128/brief-rail-error.png" });
+
+      const alert = container.querySelector('[role="alert"]');
+      expect(alert?.textContent?.trim()).toBe(LOAD_ERROR);
+      // The rail card chrome stays, so the writer can still close it.
+      expect(page.getByRole("button", { name: "Close Brief" }).elements()).toHaveLength(1);
+      // Design-system: no weight above 500 on the error state either.
+      for (const element of container.querySelectorAll("*")) {
+        expect(Number.parseInt(getComputedStyle(element).fontWeight, 10)).toBeLessThanOrEqual(500);
+      }
+    });
+
+    it("shows the error line for the inline placement, whichever read failed", async () => {
+      __setQueryData("briefs:getBrief", null);
+      __setQueryData("writerProfiles:getGenerationWriterSettings", null);
+      __setQueryError("generations:getContextInclusion", new Error("Server Error"));
+      const { container } = await render(BriefRailPanel, { generationId, projectId });
+      expect(container.querySelector('[role="alert"]')?.textContent?.trim()).toBe(LOAD_ERROR);
+      expect(container.querySelector("aside")).toBeNull();
+    });
+
+    it("stays hidden while the reads are still loading, and renders once data lands", async () => {
+      const { container } = await render(BriefRailPanel, { generationId, projectId });
+      expect(container.textContent?.trim()).toBe("");
+      expect(container.querySelector('[role="alert"]')).toBeNull();
+
+      __setQueryData("briefs:getBrief", storedBrief());
+      __setQueryData("writerProfiles:getGenerationWriterSettings", null);
+      __setQueryData("generations:getContextInclusion", recordedInclusion);
+      await expect.poll(() => container.querySelector("aside")?.getAttribute("aria-label")).toBe("Brief");
+      expect(container.querySelector('[role="alert"]')).toBeNull();
+    });
   });
 
   it("wears the rail card chrome with a close button in rail mode", async () => {

@@ -10,6 +10,7 @@ import {
   __resetConvexStub,
   __setPaginatedRows,
   __setQueryData,
+  __setQueryError,
 } from "$lib/test/convex-svelte-stub.svelte";
 
 /**
@@ -174,6 +175,24 @@ it("is absent for a legacy generation that recorded nothing", async () => {
   await expect.element(page.getByText("Evidence from thermal trials.", { exact: true })).toBeVisible();
   expect(briefPill().elements()).toHaveLength(0);
   expect(page.getByRole("heading", { name: "Brief", exact: true }).elements()).toHaveLength(0);
+});
+
+it("keeps the launcher when a Brief read fails, and the rail says so (DW-128)", async () => {
+  await page.viewport(1440, 1000);
+  // A failed read is not a legacy generation: data never arrives, an error does.
+  __setQueryData("briefs:getBrief", undefined);
+  __setQueryError("briefs:getBrief", new Error("Server Error"));
+  __setQueryData("writerProfiles:getGenerationWriterSettings", null);
+  __setQueryData("generations:getContextInclusion", null);
+  await render(CurrentProjectPage);
+  await expect.element(page.getByText("Evidence from thermal trials.", { exact: true })).toBeVisible();
+
+  await expect.element(briefPill()).toBeVisible();
+  await briefPill().click();
+  await expect.element(closeBrief()).toBeVisible();
+  await expect
+    .element(page.getByRole("alert").filter({ hasText: "Couldn't load the Generation Brief. Try reloading the page." }))
+    .toBeVisible();
 });
 
 it("shows the Brief under the progress card while generating, for the running generation only", async () => {
