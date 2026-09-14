@@ -51,6 +51,7 @@ import {
   type BriefPublishCtx,
 } from "./brief";
 import type { GenerationMessageParams } from "./openrouterCore";
+import { describeBriefOutcome } from "../lib/briefRender";
 
 const network = vi.hoisted(() => ({ create: vi.fn() }));
 vi.mock("@anthropic-ai/sdk", () => ({
@@ -1179,7 +1180,7 @@ describe("Generation Brief read completeness and diff baseline (DW-107/DW-118)",
     expect(failure.code).toBe("INVALID_STATE");
     expect(failure.message).toContain(String(MAX_BRIEF_SOURCE_ROWS));
 
-    // pipeline.ts's existing try/catch keeps the refusal non-fatal: no Brief,
+    // The Brief stage runner (runGenerationBriefStage) keeps the refusal non-fatal: no Brief,
     // no Brief block in any prompt, generation still completes.
     network.create.mockClear();
     await t.action(internal.ai.pipeline.generateReport, { generationId });
@@ -1188,6 +1189,15 @@ describe("Generation Brief read completeness and diff baseline (DW-107/DW-118)",
     expect(generation?.status).toBe("completed");
     expect(generation?.briefId).toBeUndefined();
     expect(briefCalls()).toHaveLength(0);
+    // DW-109/DW-120: a non-provider refusal is still a recorded, narrated
+    // failed attempt — classified `unknown`, never silent.
+    expect(generation?.briefOutcome).toEqual({
+      kind: "failed",
+      code: "unknown",
+      detail: expect.any(String),
+    });
+    const failedLine = describeBriefOutcome({ kind: "failed", code: "unknown", detail: "" });
+    expect(generation?.progressLog?.filter((line) => line === failedLine)).toHaveLength(1);
 
     // The only two ways a [GENERATION BRIEF] block can reach a prompt are
     // renderBriefForGeneration (one-shot/iterative) and loadBriefCheck (the

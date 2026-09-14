@@ -12,8 +12,13 @@ import {
   briefDiffKey,
 } from "../generations";
 import type { GenerationClient } from "./openrouterCore";
+import { normalizeProviderError } from "./providers";
 import { generateStructured } from "./structured";
 import { briefInputsHash } from "../lib/briefInputsHash";
+import {
+  BRIEF_OUTCOME_DETAIL_CHARS,
+  type BriefOutcome,
+} from "../lib/briefRender";
 import { citeQuote, type FrozenSource } from "../lib/citations";
 import {
   flaggedGlossaryTerms,
@@ -25,9 +30,10 @@ import { MODEL } from "./model";
  * Generation Brief derivation stage (story 1, CAP-1/2/4).
  *
  * A plain helper module, not a registered Convex function — same pattern as
- * `analyzerAgent.ts`'s `runAnalyzerAgent`. `deriveOrReuseBrief` is called
+ * `analyzerAgent.ts`'s `runAnalyzerAgent`. `runGenerationBriefStage` is called
  * directly from `pipeline.ts`/`iterative.ts`, once per generation, right
- * after the shared analyzer call resolves. Its only reads/writes are the
+ * after the shared analyzer call resolves; it runs `deriveOrReuseBrief` and
+ * records the attempt's outcome. Its only reads/writes are the
  * `internal.generations.*` helpers next to `getGenerationInput` — the
  * exactly-two-writers rule from AD-23 (this stage, and `briefs.saveEntryEdit`)
  * is enforced there, not by this file being reachable via `internal.*`.
@@ -411,27 +417,35 @@ type CandidateEntry = {
   exactExcerpt: string;
 };
 
+type BriefStageArgs = {
+  projectId: Id<"projects">;
+  generationId: Id<"generations">;
+  model?: string;
+};
+
+/** What `deriveOrReuseBrief` did when it did not throw. */
+export type BriefStageAttempt =
+  | { kind: "derived" | "reused"; briefId: Id<"generationBriefs"> }
+  | { kind: "no_evidence" };
+
 /**
  * The stage: compute inputsHash, reuse the stored Brief when inputs are
  * unchanged, otherwise run one structured call and persist the result.
- * Returns the Brief id, or `undefined` if the generation has no evidence to
- * derive from (never expected in practice — `reserveGeneration` requires at
- * least one readable source).
+ * Returns which of those happened with the Brief id, or `no_evidence` if the
+ * generation has no frozen sources to derive from (never expected in
+ * practice — `reserveGeneration` requires at least one readable source).
+ * Throws on any failure; `runGenerationBriefStage` is its only caller.
  */
 export async function deriveOrReuseBrief(
-  ctx: ActionCtx,
+  ctx: BriefPublishCtx,
   client: GenerationClient,
-  args: {
-    projectId: Id<"projects">;
-    generationId: Id<"generations">;
-    model?: string;
-  }
-): Promise<Id<"generationBriefs"> | undefined> {
+  args: BriefStageArgs
+): Promise<BriefStageAttempt> {
   const sources = await ctx.runQuery(
     internal.generations.getGenerationSourcesForBrief,
     { generationId: args.generationId }
   );
-  if (sources.length === 0) return undefined;
+  if (sources.length === 0) return { kind: "no_evidence" };
 
   const inputsHash = await briefInputsHash(sources);
   const reusable = await ctx.runQuery(internal.generations.findReusableBrief, {
@@ -443,7 +457,7 @@ export async function deriveOrReuseBrief(
       generationId: args.generationId,
       briefId: reusable._id,
     });
-    return reusable._id;
+    return { kind: "reused", briefId: reusable._id };
   }
 
   const writerSource = sources.find((s) => s.kind === "writer_storyline");
@@ -574,7 +588,7 @@ export async function deriveOrReuseBrief(
   const storylineText = writerSource ? writerSource.content : output.storyline;
   const origin = writerSource ? ("writer" as const) : ("derived" as const);
 
-  return await publishDerivedBrief(ctx, {
+  const briefId = await publishDerivedBrief(ctx, {
     projectId: args.projectId,
     generationId: args.generationId,
     inputsHash,
@@ -583,4 +597,125 @@ export async function deriveOrReuseBrief(
     entries: candidateEntries,
     upstreamDroppedEntryCount,
   });
+  return { kind: "derived", briefId };
+}
+
+type BriefFailureOutcome = Extract<BriefOutcome, { kind: "failed" }>;
+
+const UNAVAILABLE_BRIEF_ERROR_DETAIL =
+  "Thrown value could not be converted to text.";
+
+function briefFailureDetail(error: unknown): string {
+  let message: string;
+  try {
+    if (error instanceof Error) {
+      const rawMessage: unknown = error.message;
+      message =
+        typeof rawMessage === "string" ? rawMessage : String(rawMessage);
+    } else {
+      message = String(error);
+    }
+  } catch {
+    message = UNAVAILABLE_BRIEF_ERROR_DETAIL;
+  }
+
+  let bounded = message.slice(0, BRIEF_OUTCOME_DETAIL_CHARS);
+  // Do not keep the first half of a surrogate pair when the bound lands
+  // between its two code units.
+  if (/[\uD800-\uDBFF]$/.test(bounded)) bounded = bounded.slice(0, -1);
+
+  // A thrown string can already contain lone surrogates away from the bound.
+  // Replace those invalid code units so Convex can always store the detail.
+  let valid = "";
+  for (let index = 0; index < bounded.length; index += 1) {
+    const codeUnit = bounded.charCodeAt(index);
+    if (codeUnit >= 0xd800 && codeUnit <= 0xdbff) {
+      const nextCodeUnit = bounded.charCodeAt(index + 1);
+      if (nextCodeUnit >= 0xdc00 && nextCodeUnit <= 0xdfff) {
+        valid += bounded[index] + bounded[index + 1];
+        index += 1;
+      } else {
+        valid += "\uFFFD";
+      }
+    } else if (codeUnit >= 0xdc00 && codeUnit <= 0xdfff) {
+      valid += "\uFFFD";
+    } else {
+      valid += bounded[index];
+    }
+  }
+  return valid;
+}
+
+function briefFailureCode(error: unknown): BriefFailureOutcome["code"] {
+  try {
+    return normalizeProviderError(error).code;
+  } catch {
+    return "unknown";
+  }
+}
+
+function logBriefStageError(...values: unknown[]): void {
+  try {
+    console.error(...values);
+  } catch {
+    // Logging is telemetry too. A logger failure must remain fail-open.
+  }
+}
+
+/** A failed attempt's outcome: the provider code and the raw error message,
+ * bounded by `BRIEF_OUTCOME_DETAIL_CHARS`. This normalizer is total so it is
+ * safe to call from the stage runner's catch block. */
+export function briefFailureOutcome(
+  error: unknown
+): BriefFailureOutcome {
+  return {
+    kind: "failed",
+    code: briefFailureCode(error),
+    detail: briefFailureDetail(error),
+  };
+}
+
+/**
+ * DW-109/DW-120: the Generation Brief stage as both entry actions run it —
+ * `generateReport` (single/compare) and `startIterativeGeneration` — once per
+ * generation, right after the shared analysis is saved.
+ *
+ * Never throws. Brief is read-only guidance, never required, so a failed
+ * derivation is logged for ops (with the generation id and the original
+ * error) and the generation continues with no Brief. Every attempt, whatever
+ * its result, is recorded once through `generations.recordBriefOutcome`,
+ * which stores the outcome and appends its authored progress line together.
+ * A failure to record is itself only logged: telemetry never fails, stalls or
+ * reorders a generation.
+ */
+export async function runGenerationBriefStage(
+  ctx: BriefPublishCtx,
+  client: GenerationClient,
+  args: BriefStageArgs
+): Promise<void> {
+  let outcome: BriefOutcome;
+  try {
+    const attempt = await deriveOrReuseBrief(ctx, client, args);
+    outcome = { kind: attempt.kind };
+  } catch (error) {
+    logBriefStageError(
+      "Generation Brief derivation failed; continuing without a Brief",
+      args.generationId,
+      error
+    );
+    outcome = briefFailureOutcome(error);
+  }
+  try {
+    await ctx.runMutation(internal.generations.recordBriefOutcome, {
+      generationId: args.generationId,
+      outcome,
+    });
+  } catch (error) {
+    logBriefStageError(
+      "Generation Brief outcome not recorded",
+      args.generationId,
+      outcome.kind,
+      error
+    );
+  }
 }

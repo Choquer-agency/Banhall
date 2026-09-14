@@ -55,7 +55,11 @@ import {
   TRANSCRIPT_BUDGET_CHARS,
 } from "./lib/transcripts";
 import { validateCitation } from "./lib/citations";
-import { renderBriefBlock } from "./lib/briefRender";
+import {
+  briefOutcomeValidator,
+  describeBriefOutcome,
+  renderBriefBlock,
+} from "./lib/briefRender";
 import {
   complianceNoteDraftValidator,
   complianceNoteRow,
@@ -1581,10 +1585,10 @@ export const BRIEF_BASELINE_PAGE_BYTES = 4 * 1024 * 1024;
  * on the writer side).
  *
  * Write path only, so refusing is safe: its one caller
- * (`ai/brief.ts:deriveOrReuseBrief`) runs under the fail-open catch in
- * `ai/pipeline.ts:796-805` / `ai/iterative.ts:261-269`, which means "continue
- * with no Brief". The structural maximum is far below the bound (see above),
- * so unlike the diff baseline this read needs no paging.
+ * (`ai/brief.ts:deriveOrReuseBrief`) runs under the fail-open stage runner
+ * `ai/brief.ts:runGenerationBriefStage`, which means "record a failed outcome
+ * and continue with no Brief". The structural maximum is far below the bound
+ * (see above), so unlike the diff baseline this read needs no paging.
  */
 async function readBriefSourceRows(
   ctx: { db: QueryCtx["db"] },
@@ -1678,6 +1682,30 @@ export const stampGenerationBriefId = internalMutation({
   args: { generationId: v.id("generations"), briefId: v.id("generationBriefs") },
   handler: async (ctx, args) => {
     await ctx.db.patch(args.generationId, { briefId: args.briefId });
+  },
+});
+
+/**
+ * DW-109/DW-120: record what this generation's Brief stage attempt did. The
+ * only writer of `generations.briefOutcome`; called once per stage by
+ * `ai/brief.ts:runGenerationBriefStage`. The outcome and its authored progress
+ * line commit in one patch, so telemetry and narration never disagree. Never
+ * touches `briefId`.
+ */
+export const recordBriefOutcome = internalMutation({
+  args: { generationId: v.id("generations"), outcome: briefOutcomeValidator },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const generation = await ctx.db.get(args.generationId);
+    if (!generation) return null;
+    await ctx.db.patch(args.generationId, {
+      briefOutcome: args.outcome,
+      progressLog: [
+        ...(generation.progressLog ?? []),
+        describeBriefOutcome(args.outcome),
+      ],
+    });
+    return null;
   },
 });
 
