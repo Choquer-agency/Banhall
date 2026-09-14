@@ -1,0 +1,12 @@
+# Preserve verbatim diff, entry snapshot, and reviewer output bytes.
+*.prompt -whitespace
+*.diff -whitespace
+*.raw.log -whitespace
+entry-spec.md -whitespace
+blind.md -whitespace
+edge.md -whitespace
+verification.md -whitespace
+intent.md -whitespace
+lead.md -whitespace
+patch-*.log -whitespace
+*.header.txt -whitespace

@@ -1,0 +1,13 @@
+diff --git a/convex/lib/briefRender.ts b/convex/lib/briefRender.ts
+index e7ae422..ff27cf7 100644
+--- a/convex/lib/briefRender.ts
++++ b/convex/lib/briefRender.ts
+@@ -48,7 +48,7 @@ export type BriefOutcome = Infer<typeof briefOutcomeValidator>;
+ export function describeBriefOutcome(outcome: BriefOutcome): string {
+   switch (outcome.kind) {
+     case "derived":
+-      return "Generation Brief ready for drafting.";
++      return "Generation Brief stage completed.";
+     case "reused":
+       return "Reusing the stored Generation Brief — its inputs are unchanged.";
+     case "no_evidence":

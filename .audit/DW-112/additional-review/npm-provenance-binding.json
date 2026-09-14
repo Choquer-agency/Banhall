@@ -1,0 +1,39 @@
+{
+  "provided_source": "/Users/johnnynguyen/Documents/Repos/Banhall/.audit/complete-local-20260914/native-dw112-dev-accepted/npm-bootstrap-provenance.json",
+  "source_sha256": "17c652f7bf2befa067b49b114956bf6defde25a13744fb460b437e6ec0dcf2cb",
+  "preserved_copy_sha256": "17c652f7bf2befa067b49b114956bf6defde25a13744fb460b437e6ec0dcf2cb",
+  "plugin_path": ".bmad-loop/plugins/npm-bootstrap/plugin.toml",
+  "plugin_sha256": "20fb58d4717b0377b3cc47ee3fc7f5074b48e3f6943472dd39c7d521972c687a",
+  "dependency_bindings": [
+    {
+      "path": "package.json",
+      "expected_sha256": "4ecfc408dfb48e141b7d25c43201135a8707c671ee1491c780d00ec4b58a15e6",
+      "actual_sha256": {
+        "working": "4ecfc408dfb48e141b7d25c43201135a8707c671ee1491c780d00ec4b58a15e6",
+        "d73df4bb9277886ca97e7b8e59caea618baf051d": "4ecfc408dfb48e141b7d25c43201135a8707c671ee1491c780d00ec4b58a15e6",
+        "0b34a249bac1a7c7e618308ee0416c4826214ccd": "4ecfc408dfb48e141b7d25c43201135a8707c671ee1491c780d00ec4b58a15e6"
+      },
+      "all_match": true
+    },
+    {
+      "path": "package-lock.json",
+      "expected_sha256": "787b73fb54942d099fa96a6b93770c2a630a163b7f6dcee5b480bed911e91dc4",
+      "actual_sha256": {
+        "working": "787b73fb54942d099fa96a6b93770c2a630a163b7f6dcee5b480bed911e91dc4",
+        "d73df4bb9277886ca97e7b8e59caea618baf051d": "787b73fb54942d099fa96a6b93770c2a630a163b7f6dcee5b480bed911e91dc4",
+        "0b34a249bac1a7c7e618308ee0416c4826214ccd": "787b73fb54942d099fa96a6b93770c2a630a163b7f6dcee5b480bed911e91dc4"
+      },
+      "all_match": true
+    }
+  ],
+  "worktree_hook_dev_sequence_matches": true,
+  "scope": "Successful blocking hook provenance, not recovered raw npm ci stdout. Post-repair gate remains the verification authority.",
+  "frozen_journal": {
+    "path": "/Users/johnnynguyen/Documents/Repos/Banhall/.audit/complete-local-20260914/native-dw112-dev-accepted/journal.jsonl",
+    "sha256": "09df7cbeb0c4e8e9b78e04a47088437037493f82b860a141faea2749822e90ec",
+    "first_line": 273,
+    "last_line": 280,
+    "excerpt_matches_receipt": true,
+    "excerpt_sha256": "adadde150a21ec1a08b571a032f1c3f6ac280301fb20b47cc1f67097f6f862f5"
+  }
+}

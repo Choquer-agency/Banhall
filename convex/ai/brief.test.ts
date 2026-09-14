@@ -955,6 +955,290 @@ function briefPublishCtx(
 const PAGE_QUERY = "generations:getBriefDiffBaselinePage";
 const PERSIST_MUTATION = "generations:persistDerivedBrief";
 
+describe("Generation Brief publication idempotency (DW-112)", () => {
+  it("publishes one first version when two same-key derivations reach persistence together", async () => {
+    const t = convexTest(schema, modules);
+    const { userId, projectId } = await makeProject(t);
+    const inputsHash = "concurrent-first-publication";
+    const firstGenerationId = await makeGeneration(
+      t,
+      projectId,
+      userId,
+      TRANSCRIPT_TEXT,
+      "shared-source-hash"
+    );
+    const secondGenerationId = await makeGeneration(
+      t,
+      projectId,
+      userId,
+      TRANSCRIPT_TEXT,
+      "shared-source-hash"
+    );
+    const firstSource = await briefSourceOf(t, firstGenerationId);
+    const secondSource = await briefSourceOf(t, secondGenerationId);
+
+    const observed = await Promise.all([
+      t.query(internal.generations.findReusableBrief, { projectId, inputsHash }),
+      t.query(internal.generations.findReusableBrief, { projectId, inputsHash }),
+    ]);
+    expect(observed).toEqual([null, null]);
+
+    let releasePersistence: () => void = () => {};
+    const bothAtPersistence = new Promise<void>((resolve) => {
+      releasePersistence = resolve;
+    });
+    let publishersAtPersistence = 0;
+    const synchronizePersistence = async (call: BriefStageCall) => {
+      if (call.name !== PERSIST_MUTATION) return;
+      publishersAtPersistence += 1;
+      if (publishersAtPersistence === 2) releasePersistence();
+      await bothAtPersistence;
+    };
+    const firstCtx = briefPublishCtx(t, synchronizePersistence).ctx;
+    const secondCtx = briefPublishCtx(t, synchronizePersistence).ctx;
+    const publish = (
+      ctx: BriefPublishCtx,
+      generationId: Id<"generations">,
+      source: Awaited<ReturnType<typeof briefSourceOf>>
+    ) =>
+      publishDerivedBrief(ctx, {
+        projectId,
+        generationId,
+        inputsHash,
+        origin: "derived",
+        storylineText: `Storyline proposed by ${generationId}.`,
+        entries: [candidateEntry(source, "glossaryTerm", "control loop")],
+      });
+
+    const [firstResult, secondResult] = await Promise.all([
+      publish(firstCtx, firstGenerationId, firstSource),
+      publish(secondCtx, secondGenerationId, secondSource),
+    ]);
+
+    expect(secondResult).toBe(firstResult);
+    const stored = await t.run((ctx) =>
+      ctx.db
+        .query("generationBriefs")
+        .withIndex("by_projectId_and_inputsHash", (q) =>
+          q.eq("projectId", projectId).eq("inputsHash", inputsHash)
+        )
+        .collect()
+    );
+    expect(stored).toHaveLength(1);
+    expect(stored[0]).toMatchObject({ _id: firstResult, version: 1 });
+    expect(await entriesOf(t, firstResult)).toHaveLength(1);
+    const generations = await Promise.all([
+      t.run((ctx) => ctx.db.get(firstGenerationId)),
+      t.run((ctx) => ctx.db.get(secondGenerationId)),
+    ]);
+    expect(generations.map((generation) => generation?.briefId)).toEqual([
+      firstResult,
+      firstResult,
+    ]);
+  });
+
+  it("adopts the first publication when it becomes the current baseline before the second baseline read", async () => {
+    const t = convexTest(schema, modules);
+    const { userId, projectId } = await makeProject(t);
+    const inputsHash = "current-same-key-baseline";
+    const firstGenerationId = await makeGeneration(
+      t,
+      projectId,
+      userId,
+      TRANSCRIPT_TEXT,
+      "first-current-baseline-source"
+    );
+    const secondGenerationId = await makeGeneration(
+      t,
+      projectId,
+      userId,
+      TRANSCRIPT_TEXT,
+      "second-current-baseline-source"
+    );
+    const firstSource = await briefSourceOf(t, firstGenerationId);
+    const secondSource = await briefSourceOf(t, secondGenerationId);
+
+    const reuseMisses = await Promise.all([
+      t.query(internal.generations.findReusableBrief, { projectId, inputsHash }),
+      t.query(internal.generations.findReusableBrief, { projectId, inputsHash }),
+    ]);
+    expect(reuseMisses).toEqual([null, null]);
+
+    const firstPublish = {
+      projectId,
+      generationId: firstGenerationId,
+      inputsHash,
+      origin: "derived" as const,
+      storylineText: "The first publisher's authoritative storyline.",
+      entries: [candidateEntry(firstSource, "glossaryTerm", "control loop")],
+    };
+    const secondPublish = {
+      projectId,
+      generationId: secondGenerationId,
+      inputsHash,
+      origin: "derived" as const,
+      storylineText: "The second publisher's losing storyline.",
+      entries: [candidateEntry(secondSource, "claimExclusion", "redesign the logo")],
+    };
+
+    const firstAdapter = briefPublishCtx(t);
+    const firstResult = await publishDerivedBrief(firstAdapter.ctx, firstPublish);
+    const authoritativeSnapshot = await t.run(async (ctx) => ({
+      briefs: await ctx.db.query("generationBriefs").collect(),
+      entries: await ctx.db.query("generationBriefEntries").collect(),
+    }));
+    expect(authoritativeSnapshot.briefs).toHaveLength(1);
+    expect(authoritativeSnapshot.entries).toHaveLength(1);
+
+    const secondAdapter = briefPublishCtx(t);
+    const secondResult = await publishDerivedBrief(secondAdapter.ctx, secondPublish);
+    const secondPersistence = secondAdapter.calls.filter(
+      (call) => call.name === PERSIST_MUTATION
+    );
+    expect(secondPersistence).toHaveLength(1);
+    expect(secondPersistence[0]).toMatchObject({
+      args: { baselineBriefId: firstResult },
+      result: firstResult,
+    });
+    expect(secondResult).toBe(firstResult);
+    expect(
+      await t.run(async (ctx) => ({
+        briefs: await ctx.db.query("generationBriefs").collect(),
+        entries: await ctx.db.query("generationBriefEntries").collect(),
+      }))
+    ).toEqual(authoritativeSnapshot);
+
+    const generationsAfterAdoption = await Promise.all([
+      t.run((ctx) => ctx.db.get(firstGenerationId)),
+      t.run((ctx) => ctx.db.get(secondGenerationId)),
+    ]);
+    expect(generationsAfterAdoption.map((generation) => generation?.briefId)).toEqual([
+      firstResult,
+      firstResult,
+    ]);
+
+    const replayAdapter = briefPublishCtx(t);
+    const replayResult = await publishDerivedBrief(replayAdapter.ctx, secondPublish);
+    const replayPersistence = replayAdapter.calls.filter(
+      (call) => call.name === PERSIST_MUTATION
+    );
+    expect(replayPersistence).toHaveLength(1);
+    expect(replayPersistence[0]).toMatchObject({
+      args: { baselineBriefId: firstResult },
+      result: firstResult,
+    });
+    expect(replayResult).toBe(firstResult);
+    expect(
+      await t.run(async (ctx) => ({
+        briefs: await ctx.db.query("generationBriefs").collect(),
+        entries: await ctx.db.query("generationBriefEntries").collect(),
+      }))
+    ).toEqual(authoritativeSnapshot);
+    expect((await t.run((ctx) => ctx.db.get(secondGenerationId)))?.briefId).toBe(
+      firstResult
+    );
+  });
+
+  it("adopts the latest same-key Brief before a stale project fence or candidate processing", async () => {
+    const t = convexTest(schema, modules);
+    const { userId, projectId } = await makeProject(t);
+    const inputsHash = "already-published-key";
+    const priorGenerationId = await makeGeneration(
+      t,
+      projectId,
+      userId,
+      TRANSCRIPT_TEXT,
+      "prior-source-hash"
+    );
+    const targetGenerationId = await makeGeneration(
+      t,
+      projectId,
+      userId,
+      TRANSCRIPT_TEXT,
+      "target-source-hash"
+    );
+    const priorSource = await briefSourceOf(t, priorGenerationId);
+    const targetSource = await briefSourceOf(t, targetGenerationId);
+    const { firstSameKeyId, latestSameKeyId, retainedEntryId } = await t.run(
+      async (ctx) => {
+        const now = Date.now();
+        const firstSameKeyId = await ctx.db.insert("generationBriefs", {
+          projectId,
+          generationId: priorGenerationId,
+          inputsHash,
+          version: 1,
+          origin: "derived",
+          storylineText: "First stored version.",
+          createdAt: now,
+        });
+        const latestSameKeyId = await ctx.db.insert("generationBriefs", {
+          projectId,
+          generationId: priorGenerationId,
+          inputsHash,
+          version: 2,
+          origin: "edited",
+          storylineText: "Latest stored version.",
+          createdAt: now + 1,
+        });
+        const retainedEntryId = await ctx.db.insert("generationBriefEntries", {
+          briefId: latestSameKeyId,
+          projectId,
+          group: "glossaryTerm",
+          text: "control loop",
+          sourceId: priorSource._id,
+          sourceContentHash: priorSource.contentHash,
+          startOffset: priorSource.content.indexOf("control loop"),
+          endOffset: priorSource.content.indexOf("control loop") + "control loop".length,
+          exactExcerpt: "control loop",
+          createdAt: now + 1,
+        });
+        await ctx.db.insert("generationBriefs", {
+          projectId,
+          generationId: priorGenerationId,
+          inputsHash: "newer-different-key",
+          version: 1,
+          origin: "derived",
+          storylineText: "Project-wide newest Brief.",
+          createdAt: now + 2,
+        });
+        return { firstSameKeyId, latestSameKeyId, retainedEntryId };
+      }
+    );
+    const before = await t.run(async (ctx) => ({
+      briefs: await ctx.db.query("generationBriefs").collect(),
+      entries: await ctx.db.query("generationBriefEntries").collect(),
+    }));
+
+    const result = await t.mutation(internal.generations.persistDerivedBrief, {
+      projectId,
+      generationId: targetGenerationId,
+      inputsHash,
+      origin: "derived",
+      storylineText: "This candidate must not be published.",
+      entries: [
+        {
+          ...candidateEntry(targetSource, "glossaryTerm", "control loop"),
+          exactExcerpt: "not the cited bytes",
+        },
+      ],
+      baselineBriefId: firstSameKeyId,
+      baselineRetained: [{ entryId: retainedEntryId, candidateIndex: 99 }],
+      baselineRemoved: [],
+    });
+
+    expect(result).toBe(latestSameKeyId);
+    expect((await t.run((ctx) => ctx.db.get(targetGenerationId)))?.briefId).toBe(
+      latestSameKeyId
+    );
+    expect(
+      await t.run(async (ctx) => ({
+        briefs: await ctx.db.query("generationBriefs").collect(),
+        entries: await ctx.db.query("generationBriefEntries").collect(),
+      }))
+    ).toEqual(before);
+  });
+});
+
 describe("Generation Brief read completeness and diff baseline (DW-107/DW-118)", () => {
   const KEPT_QUOTE = "Marketing decided to redesign the logo";
   const DROPPED_QUOTE = "control loop";
@@ -970,15 +1254,20 @@ describe("Generation Brief read completeness and diff baseline (DW-107/DW-118)",
     const { userId, projectId } = await makeProject(t);
     const generationId = await makeGeneration(t, projectId, userId, content, inputsHash);
     const source = await briefSourceOf(t, generationId);
-    const derive = (entries: ReturnType<typeof candidateEntry>[], ctx = briefPublishCtx(t).ctx) =>
-      publishDerivedBrief(ctx, {
+    let derivationNumber = 0;
+    const derive = (entries: ReturnType<typeof candidateEntry>[], ctx = briefPublishCtx(t).ctx) => {
+      derivationNumber += 1;
+      return publishDerivedBrief(ctx, {
         projectId,
         generationId,
-        inputsHash,
+        // Every call models a changed-input derivation. Same-key publication
+        // now adopts the already-stored Brief instead of creating a version.
+        inputsHash: `${inputsHash}:derivation-${derivationNumber}`,
         origin: "derived" as const,
         storylineText: "A storyline for the repeated derivation.",
         entries,
       });
+    };
     return { userId, projectId, generationId, source, derive };
   }
 
@@ -1590,8 +1879,9 @@ describe("Generation Brief read completeness and diff baseline (DW-107/DW-118)",
     expect(read.brief?.glossaryTerms).toHaveLength(MAX_BRIEF_ENTRY_ROWS);
     expect(read.brief?.glossaryTerms).toContain(lastTerm);
 
-    // And the write path accepts it as a diff baseline: re-deriving the same
-    // 500 citations stamps every one `unchanged` — no refusal, no marker.
+    // And the changed-input write path accepts it as a diff baseline:
+    // re-deriving the same 500 citations stamps every one `unchanged`, with
+    // no refusal or marker.
     const identicalCandidates = Array.from({ length: MAX_BRIEF_ENTRY_ROWS }, (_unused, i) => ({
       group: "glossaryTerm" as const,
       text: `term-${i}`,
@@ -1604,7 +1894,7 @@ describe("Generation Brief read completeness and diff baseline (DW-107/DW-118)",
     const nextBriefId = await publishDerivedBrief(briefPublishCtx(t).ctx, {
       projectId,
       generationId,
-      inputsHash: "at-bound-hash",
+      inputsHash: "at-bound-next-hash",
       origin: "derived",
       storylineText: "Exactly at the bound, re-derived.",
       entries: identicalCandidates,

@@ -1,0 +1,90 @@
+COMMAND=git diff --cached --check
+.audit/DW-112/local-completion-20260914T112245Z-git-diff-check.log:6: new blank line at EOF.
+.audit/DW-112/local-completion/blind.prompt:111: trailing whitespace.
++ 
+.audit/DW-112/local-completion/blind.prompt:320: trailing whitespace.
++ 
+.audit/DW-112/local-completion/blind.prompt:324: trailing whitespace.
++ 
+.audit/DW-112/local-completion/blind.prompt:349: trailing whitespace.
++ 
+.audit/DW-112/local-completion/blind.prompt:381: trailing whitespace.
++ 
+.audit/DW-112/local-completion/blind.prompt:432: trailing whitespace.
++ 
+.audit/DW-112/local-completion/core-review.diff:99: trailing whitespace.
++ 
+.audit/DW-112/local-completion/core-review.diff:308: trailing whitespace.
++ 
+.audit/DW-112/local-completion/core-review.diff:312: trailing whitespace.
++ 
+.audit/DW-112/local-completion/core-review.diff:337: trailing whitespace.
++ 
+.audit/DW-112/local-completion/core-review.diff:369: trailing whitespace.
++ 
+.audit/DW-112/local-completion/core-review.diff:420: trailing whitespace.
++ 
+.audit/DW-112/local-completion/core-review.diff:420: new blank line at EOF.
+.audit/DW-112/local-completion/edge.prompt:106: trailing whitespace.
++ 
+.audit/DW-112/local-completion/edge.prompt:315: trailing whitespace.
++ 
+.audit/DW-112/local-completion/edge.prompt:319: trailing whitespace.
++ 
+.audit/DW-112/local-completion/edge.prompt:344: trailing whitespace.
++ 
+.audit/DW-112/local-completion/edge.prompt:376: trailing whitespace.
++ 
+.audit/DW-112/local-completion/edge.prompt:427: trailing whitespace.
++ 
+.audit/DW-112/local-completion/followup.prompt:11: trailing whitespace.
++ 
+.audit/DW-112/local-completion/intent.prompt:134: trailing whitespace.
++ 
+.audit/DW-112/local-completion/intent.prompt:343: trailing whitespace.
++ 
+.audit/DW-112/local-completion/intent.prompt:347: trailing whitespace.
++ 
+.audit/DW-112/local-completion/intent.prompt:372: trailing whitespace.
++ 
+.audit/DW-112/local-completion/intent.prompt:404: trailing whitespace.
++ 
+.audit/DW-112/local-completion/intent.prompt:455: trailing whitespace.
++ 
+.audit/DW-112/local-completion/native-gate.stderr.log:25: new blank line at EOF.
+.audit/DW-112/local-completion/patch-focused-20260914T1130Z.log:20: new blank line at EOF.
+.audit/DW-112/local-completion/patch-review.diff:8: trailing whitespace.
++ 
+.audit/DW-112/local-completion/triage.md:16: trailing whitespace.
++1. **Patch, low: misleading publication narration.** Origin: **blind 1**; related observation: **intent 3**.  
+.audit/DW-112/local-completion/triage.md:19: trailing whitespace.
++2. **Patch, low: publication-helper documentation contradicts the changed behavior.** Origin: **blind 2**.  
+.audit/DW-112/local-completion/triage.md:22: trailing whitespace.
++3. **Reject, low: numeric maximum versus newest stored row requires historical-data policy.** Origin: **blind 3**; related observation: **intent 4**.  
+.audit/DW-112/local-completion/triage.md:25: trailing whitespace.
++4. **Reject, low: writer-edit interleaving makes the shared-ID guarantee ambiguous.** Origin: **blind 4**.  
+.audit/DW-112/local-completion/triage.md:28: trailing whitespace.
++5. **Reject, low: require concurrent execution of the entire derivation/stage pipeline.** Origin: **blind 5**; related observation: **intent 3**.  
+.audit/DW-112/local-completion/triage.md:31: trailing whitespace.
++6. **Patch, medium: adoption with an already-current same-key baseline is unverified.** Origins: **blind 6 + verification 1**.  
+.audit/DW-112/local-completion/triage.md:34: trailing whitespace.
++7. **Reject, low: require two projects sharing an input hash.** Origin: **blind 7**.  
+.audit/DW-112/local-completion/triage.md:37: trailing whitespace.
++8. **Reject, low: instrument citation reads to prove candidate processing was skipped.** Origin: **blind 8**.  
+.audit/DW-112/local-completion/triage.md:40: trailing whitespace.
++9. **Reject, low: the race test does not prove winning-payload consistency.** Origin: **blind 9**.  
+.audit/DW-112/local-completion/triage.md:43: trailing whitespace.
++10. **Reject, low: require different-key retries followed by final-attempt same-key adoption.** Origin: **blind 10**.  
+.audit/DW-112/local-completion/verification.prompt:106: trailing whitespace.
++ 
+.audit/DW-112/local-completion/verification.prompt:315: trailing whitespace.
++ 
+.audit/DW-112/local-completion/verification.prompt:319: trailing whitespace.
++ 
+.audit/DW-112/local-completion/verification.prompt:344: trailing whitespace.
++ 
+.audit/DW-112/local-completion/verification.prompt:376: trailing whitespace.
++ 
+.audit/DW-112/local-completion/verification.prompt:427: trailing whitespace.
++ 
+ACTUAL_EXIT_CODE=2

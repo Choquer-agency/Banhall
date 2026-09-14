@@ -956,7 +956,9 @@ location: convex/generations.ts (findReusableBrief, persistDerivedBrief)
 source_spec: `1-generation-brief-storage-and-derivation-stage.md`
 severity: medium
 reason: persistDerivedBrief unconditionally inserts a new generationBriefs row without re-checking for an existing row inside its own transaction; the reuse check (findReusableBrief) runs earlier, in a separate action call. Two concurrent first-time derivations for the same key could each pass that check before either persists, leaving MAX(version) reuse and saveEntryEdit's staleness check ambiguous between the two rows.
-status: open
+status: done 2026-09-14
+resolution: resolved by sweep bundle dw-brief-derivation-concurrency
+resolution-undo: acf53716b3dc1a1f5f2e7021b73dc7466f43aaad3802094fac1207c3b290dfbd 2026-09-14 7374617475733a206f70656e
 
 ### DW-113: A glossary entry's stored text is the canonical term on the model-classified path but the raw matched surface form (e.g. an inflection) on the rule-matched path.
 origin: spec-deferred af6d193c1a41

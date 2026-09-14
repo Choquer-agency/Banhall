@@ -1660,19 +1660,28 @@ export const getGenerationSourcesForBrief = internalQuery({
   },
 });
 
+/** Latest stored Brief for one reusable input key, regardless of origin. */
+async function latestBriefForInputs(
+  ctx: { db: QueryCtx["db"] },
+  projectId: Id<"projects">,
+  inputsHash: string
+) {
+  return await ctx.db
+    .query("generationBriefs")
+    .withIndex("by_projectId_and_inputsHash", (q) =>
+      q.eq("projectId", projectId).eq("inputsHash", inputsHash)
+    )
+    .order("desc")
+    .first();
+}
+
 /** MAX(version) Brief for (projectId, inputsHash), regardless of origin — a
  * writer-edited version is reused too (CAP-4: "the next generation with the
  * same inputsHash reuses that version"). */
 export const findReusableBrief = internalQuery({
   args: { projectId: v.id("projects"), inputsHash: v.string() },
   handler: async (ctx, args) => {
-    return await ctx.db
-      .query("generationBriefs")
-      .withIndex("by_projectId_and_inputsHash", (q) =>
-        q.eq("projectId", args.projectId).eq("inputsHash", args.inputsHash)
-      )
-      .order("desc")
-      .first();
+    return await latestBriefForInputs(ctx, args.projectId, args.inputsHash);
   },
 });
 
@@ -1879,14 +1888,18 @@ export const getBriefDiffBaselinePage = internalQuery({
  * `ai/brief.ts:publishDerivedBrief`, which read the complete diff baseline
  * page by page and already compared it with `entries` by `briefDiffKey`.
  *
- * 1. Fence, before any other read or write: `baselineBriefId` (or `null` for
- *    a project with no Brief) must still be the project's newest Brief. If a
- *    newer version was published after the baseline was pinned, return
- *    `null` having written nothing; the caller re-reads and retries.
- * 2. Re-validate every candidate entry's citation against the live frozen
+ * 1. Reuse, before the project-wide fence or any candidate processing: if a
+ *    same-key Brief now exists, stamp its latest stored version on this
+ *    generation and return it. This transaction's indexed read serializes
+ *    concurrent first publishers; only the first publishes version 1.
+ * 2. Fence: `baselineBriefId` (or `null` for a project with no Brief) must
+ *    still be the project's newest Brief. If a different-key version was
+ *    published after the baseline was pinned, return `null` having written
+ *    nothing; the caller re-reads and retries.
+ * 3. Re-validate every candidate entry's citation against the live frozen
  *    source (defense in depth — the caller already validated against the
  *    same in-memory sources); drop failures and count them.
- * 3. Diff against that version's live rows, supplied in two parts so old text
+ * 4. Diff against that version's live rows, supplied in two parts so old text
  *    for a key the candidates reuse never travels: `baselineRetained` (a
  *    reference per live key some candidate shares) and `baselineRemoved` (the
  *    full payload of each live key no candidate shares). A validated entry
@@ -1897,7 +1910,7 @@ export const getBriefDiffBaselinePage = internalQuery({
  *    only if the row belongs to `baselineBriefId`, is live and has the
  *    referenced candidate's key; otherwise, like an out-of-range
  *    `candidateIndex`, the whole mutation aborts with INVALID_STATE.
- * 4. Insert the new `generationBriefs` version, its entries and markers, then
+ * 5. Insert the new `generationBriefs` version, its entries and markers, then
  *    stamp `briefId` on the generation.
  *
  * The argument therefore carries at most what this version writes, plus
@@ -1936,6 +1949,16 @@ export const persistDerivedBrief = internalMutation({
   },
   returns: v.union(v.id("generationBriefs"), v.null()),
   handler: async (ctx, args) => {
+    const reusable = await latestBriefForInputs(
+      ctx,
+      args.projectId,
+      args.inputsHash
+    );
+    if (reusable) {
+      await ctx.db.patch(args.generationId, { briefId: reusable._id });
+      return reusable._id;
+    }
+
     const newest = await newestProjectBrief(ctx, args.projectId);
     if ((newest?._id ?? null) !== args.baselineBriefId) return null;
 
