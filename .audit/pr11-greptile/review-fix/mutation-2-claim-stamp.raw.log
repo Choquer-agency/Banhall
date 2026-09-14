@@ -1,0 +1,74 @@
+
+ RUN  v4.1.10 /Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a
+
+ ❯ |convex| convex/orderedChainRecovery.test.ts (8 tests | 3 failed) 605ms
+     × (a) never reaps a chain whose sections keep completing; each stamp site alone keeps it live in its window 278ms
+     × (a') a stamp exactly at the cutoff is still progress; one millisecond past it is not 5ms
+     × (b) reaps a chain with no progress for 30 minutes after its last drafted section 6ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 3 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |convex| convex/orderedChainRecovery.test.ts > DW-119: failStaleGenerations is progress-aware for ordered chains > (a) never reaps a chain whose sections keep completing; each stamp site alone keeps it live in its window
+AssertionError: expected 1 to be +0 // Object.is equality
+
+- Expected
++ Received
+
+- 0
++ 1
+
+ ❯ convex/orderedChainRecovery.test.ts:206:57
+    204|     vi.setSystemTime(T0 + 20 * MINUTES);
+    205|     expect(await chain.claim("242")).not.toBeNull();
+    206|     expect((await reapAt(t, T0 + 45 * MINUTES)).failed).toBe(0);
+       |                                                         ^
+    207|     let state = await expectLive(t, ids);
+    208|     expect(state.sections.map((row) => row.status)).toEqual(["running"…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/3]⎯
+
+ FAIL  |convex| convex/orderedChainRecovery.test.ts > DW-119: failStaleGenerations is progress-aware for ordered chains > (a') a stamp exactly at the cutoff is still progress; one millisecond past it is not
+AssertionError: expected 1 to be +0 // Object.is equality
+
+- Expected
++ Received
+
+- 0
++ 1
+
+ ❯ convex/orderedChainRecovery.test.ts:239:57
+    237|
+    238|     // cutoff === lastProgressAt: live.
+    239|     expect((await reapAt(t, T0 + 50 * MINUTES)).failed).toBe(0);
+       |                                                         ^
+    240|     await expectLive(t, ids);
+    241|     // cutoff === lastProgressAt + 1 ms: stale.
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/3]⎯
+
+ FAIL  |convex| convex/orderedChainRecovery.test.ts > DW-119: failStaleGenerations is progress-aware for ordered chains > (b) reaps a chain with no progress for 30 minutes after its last drafted section
+AssertionError: expected 1 to be +0 // Object.is equality
+
+- Expected
++ Received
+
+- 0
++ 1
+
+ ❯ convex/orderedChainRecovery.test.ts:260:57
+    258|     vi.setSystemTime(T0 + 25 * MINUTES);
+    259|     expect(await chain.claim("244")).not.toBeNull();
+    260|     expect((await reapAt(t, T0 + 54 * MINUTES)).failed).toBe(0);
+       |                                                         ^
+    261|     await expectLive(t, ids);
+    262|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/3]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  3 failed | 5 passed (8)
+   Start at  12:56:05
+   Duration  1.08s (transform 518ms, setup 0ms, import 243ms, tests 605ms, environment 64ms)
+
+exit=1

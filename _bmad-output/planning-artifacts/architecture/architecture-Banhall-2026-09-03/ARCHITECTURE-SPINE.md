@@ -7,8 +7,8 @@ paradigm: 'event-sourced workflow core + pipes-and-filters AI engine + governed-
 scope: 'whole system: SvelteKit client, Convex backend, AI generation/review/chat/Brain engine, ingestion, client uploader'
 status: final
 created: '2026-09-03'
-updated: '2026-09-04'
-binds: []
+updated: '2026-09-09'
+binds: [SPEC-pd-generation CAP-1..17]
 sources:
   - docs/product-domain.md
   - docs/ai-architecture-plan.md
@@ -23,7 +23,12 @@ sources:
   - sweeps/04-frontend-ops-tests.md
   - _bmad-output/specs/spec-ai-engine-sprint-2-boundary/SPEC.md
   - _bmad-output/specs/spec-ai-engine-sprint-2-learn-chat/SPEC.md
-companions: []
+  - _bmad-output/specs/spec-pd-generation/SPEC.md
+  - _bmad-output/planning-artifacts/prds/prd-Banhall-2026-09-09/prd.md
+companions:
+  - _bmad-output/specs/spec-pd-generation/touchpoints.md
+  - _bmad-output/planning-artifacts/ux-designs/ux-Banhall-2026-09-09/DESIGN.md
+  - _bmad-output/planning-artifacts/ux-designs/ux-Banhall-2026-09-09/EXPERIENCE.md
 ---
 
 # Architecture Spine: Banhall
@@ -31,6 +36,8 @@ companions: []
 Brownfield ratification at `5a5f61c`, 2026-09-03; line citations are against that commit. HEAD advanced to `005f115` during review (factory merges transcripts-3/4, uploader-3: `createProject` takes an ordered transcript list, generation no longer takes a transcript id) with no AD impact; `deleteProject` now starts at `projects.ts:1103`. The code exists; this spine names the invariants that keep independently built units consistent. `[ADOPTED]` means reality already settled it. `[TARGET]` means the rule is agreed but not yet enforced in code.
 
 Reviewer gate 2026-09-03: rubric, adversary, currency, security lenses applied; fixes folded in below, judgment calls recorded as Open Questions Q9 to Q14.
+
+Update 2026-09-09 at `c55014f`: binds `spec-pd-generation` (PD generation better than the dump: Generation Brief, Writer Profile fidelity, self-checked ordered drafting, one-pass convergence, Paired Comparison) and its adopted UX spines. AD-1 to AD-22 unchanged in id and intent; AD-4, AD-5, AD-9, AD-11 and AD-16 gain one dated pointer each; AD-23 to AD-30 are new and all `[TARGET]`. Open Questions Q15 to Q17 added.
 
 ## Design Paradigm
 
@@ -177,6 +184,8 @@ stateDiagram-v2
   stale --> [*]
 ```
 
+  - 2026-09-09: the Coordinated Revision's per-item Completion Report is the bulk-edit tool's findings persisted as `chatProposalItems` and echoed in the reply (AD-28); `saveProposal` and `applyProposal` are unchanged.
+
 ### AD-5 [ADOPTED] Frozen inputs, stamped provenance, one active generation
 
 - **Binds:** generation, transcripts, documents, aiUsage
@@ -215,6 +224,8 @@ flowchart TD
   X[cancelIterativeGeneration] --> F
   GR -->|catch then failGeneration| F
 ```
+
+  - 2026-09-09: the Generation Brief is a frozen input too — `generationBriefs` / `generationBriefEntries` cite frozen `generationSources` rows byte-for-byte, and a writer-supplied Storyline is frozen as a `writer_storyline` source row (AD-23).
 
 ### AD-6 [ADOPTED] Knowledge is governed: Brain sources and learning digests are candidates until an admin acts
 
@@ -297,6 +308,7 @@ flowchart LR
 - **Binds:** generation, chat, research, Brain, aux agents
 - **Prevents:** a new agent adding an unmetered or unbudgeted call; a timeout-times-retries product exceeding the Convex Node-runtime action limit of 10 min (all `convex/ai/**` actions are `"use node"`); a new agent with no spend ceiling.
 - **Rule:** `clientForModel` (`convex/ai/providers.ts:97-107`) is the only routing point: Anthropic ids go direct, `openai/*` and `google/*` go through OpenRouter (`shared/generationModels.ts:gatewayForModel`); aux call sites stay on `instrumentedAnthropic`. Exception recorded as divergence #42: the research reviewer `anthropic/claude-sonnet-5` goes through `callOpenRouterResearch` (`convex/ai/research/core.ts:15`, `actions.ts:57,237`), bypassing `clientForModel`. Anthropic budget is `maxRetries=1`, timeout 240 s, so (1+1) x 240 + 60 < 600 (`providers.ts:33-56`, tested in `providers.test.ts`); OpenRouter is 180 s per attempt, one retry on 429/5xx. Every call passes through `convex/ai/instrument.ts` and lands in `aiUsage` with `generationId`, `candidateRunId`, `durationMs`, and cost. Brain retrievals during generation run sequentially (Voyage rate limit); the embed workpool is `maxParallelism 1`.
+  - 2026-09-09: every call carries a slot label and the per-generation slot allowance is AD-27; ordered generation splits into per-section actions so the five-slot per-action arithmetic still holds (AD-24).
   - [TARGET] Every action that calls a model declares a per-call input budget in tokens (AD-11) and reads a per-project daily spend alert threshold from `appSettings`; `instrument.ts` never refuses a call on spend (decided 2026-09-04, Q12: alert only, no cap); crossing the threshold writes an `alerts` row surfaced at `/alerts`. The token budget in AD-11 remains the only hard input cap. Today metering exists and no alert does (divergence #17).
 
 ### AD-10 [ADOPTED] Schema rollout is widen, backfill, migrate consumers, then narrow
@@ -311,6 +323,8 @@ flowchart LR
 - **Prevents:** the analyzer, chat, and each new agent inventing its own context assembly; client content steering the model from inside the system prompt; unbounded input.
 - **Rule:** All client-sourced text (transcripts, documents, report body, analyzer JSON, prior decisions) enters the model as delimited data blocks in user-role messages, each with a class label and provenance header, under a per-source and total token budget with truncation recorded; this token budget is the only input cap, and spend is observed from `aiUsage` (AD-9), so there are not two budgets in two units. The system prompt is policy plus the `styleOverrides` projection only (AD-16) and is byte-stable per `(writerId, styleOverridesHash)`; a writer's `customInstructions` are a `writer_style` data block with internal trust, not system text. Trust class derives from the uploader's role at upload time, never from the client-settable `category` field: `projectDocuments` widens with `uploadedByUserId: v.optional(v.id("users"))` and `uploaderTrust: v.optional("internal" | "client")` stamped at insert by one `insertProjectDocument` helper, because `uploadedBy: v.string()` holds a user id in `documents.ts:146` and a display label in `projects.ts:867`, `reviewFromProject.ts:190`, `ingestionPort.ts:233`, and a late join to current `users.role` would silently demote three writers' notes to client trust. Injection fixtures land inside data blocks at every model call site that reads client content: analyzer, section agents, chat, research brief, PD review. Built by `spec-ai-engine-sprint-2-boundary` CAP-2 (`convex/ai/trustedContext.ts`), CAP-3 (uploader trust), CAP-4 (chat evidence message), CAP-5 (injection tests). Current state: documents fenced in the analyzer user turn (`convex/ai/analyzerAgent.ts:37-56`), transcript unfenced (`:172-174`), chat grounding concatenated into `system` (`convex/ai/chatAgentV2.ts:410`), trust by category (`convex/documents.ts:247`, `pipeline.ts:186-200`).
 - **AD-11a interim, required before the next document-bearing feature ships:** (1) the transcript is wrapped in the same `--- BEGIN/END ---` delimiters as documents; (2) `CONTEXT_INPUTS_GUIDANCE` (`convex/ai/prompts.ts:839-845`) states that no attached material, writer's notes included, may issue instructions; writer's notes rank highest for facts and framing only, and the clause "and the writer's notes ... govern how you work" is removed; (3) chat grounding is sent as the first user-role message of the turn, `system` is `buildChatSystemPromptV2(styleOverrides)` alone; (4) `convex/ai/injection.test.ts` runs one fixture through the analyzer and chat prompt builders and asserts it lands inside a fenced block and that the system prompt is byte-identical with and without it. Tolerable today only because AD-4 gates prose and uploaders are staff; the `writer_notes` instruction grant on a client-settable category is a first-class injection channel (resolves Q7).
+
+- 2026-09-09: per-source inclusion (`included | condensed | not_included`) is written onto `generationSources` and surfaced to the writer; the cap stays at 12 (AD-30).
 
 ### AD-12 [TARGET, not yet enforced] Learning must be measurable
 
@@ -343,6 +357,8 @@ flowchart LR
 - **Prevents:** a writer waiver loosening CRA form limits or fabrication rules; house-style rules hard-coded into agents without a waiver path.
 - **Rule:** Locked (never overridable): CRA line/word limits (`convex/lib/lineLimits.ts` and the compression pass), no-fabrication and `[GAP]` evidence tracing, human-prose dash scan, voice consistency. Waivable per writer per category, subject to org mode in `houseStyle.modes`: the six categories in `shared/styleOverrides.ts` (`bannedWords`, `paragraphDensity`, `sentenceConstruction`, `repetitionCaps`, `openingClauses`, `reportSkeleton`). Waived rule text is omitted from the system prompt, not de-emphasised; waiving `bannedWords` also disables the mechanical scrub (`convex/ai/pipeline.ts:165-167, 284-286`); `styleOverrides` are frozen into `agentOutputs` so post-QA reruns score identically. Enforcing tests: `convex/ai/prompts.test.ts`, `qaChecks.test.ts`, `shared/styleOverrides.test.ts`.
 
+  - 2026-09-09: precedence is four tiers — Locked Rules > enforced Org Mode > Writer Profile > House Rules — and no tier applies silently: per-category outcomes and `profileState` come back from `getEffectiveWriterStyle` and land in Compliance Notes (AD-25, AD-26).
+
 ### AD-17 [ADOPTED] Never hand-edit `convex/_generated/`; Convex guidelines override training data
 
 - **Binds:** all Convex work
@@ -361,6 +377,8 @@ flowchart LR
 - **Prevents:** a new project-scoped table silently escaping deletion; frozen client text and original files surviving a delete; a retention window that nobody set.
 - **Rule:** `convex/lib/projectScopedTables.ts` lists every table with `projectId` and one of `delete | detach | keep`; `deleteProject` schedules a `purgeProject` internalMutation that iterates the list in pages, deletes every `_storage` id referenced by deleted rows, deletes agent component threads by `agentChatThreads.threadId`, and revokes-and-tombstones every `brainSources` row with `sourceProjectId === projectId` (AD-6). `convex/projectErasure.test.ts` fails when `schema.ts` gains a `projectId` field not in the list. An `erasureLog` row records counts per table and the actor (the project row is gone, so `projectEvents` cannot hold it). Digests distilled from the project keep their de-identified content and record the erased id in `learningDigests.erasedInputProjectIds`. Retention: `generationSources` for terminal generations, `errorReports`, agent threads, and `chatTurns` get windows (Q9); `aiUsage` is kept as the billing record. Current state: `deleteProject` (`projects.ts:1103-1175` at HEAD) deletes `transcripts`, `reports`, `comments`, `generations`, `commenters`, `pdReviews`, `pdReviewEvents`, then the project: 8 of 49 `projectId` tables, no blobs (divergence #43).
 
+- 2026-09-09: every new project-scoped table — `generationBriefs`, `generationBriefEntries`, `complianceNotes`, `chatProposalItems`, `comparisons` — carries `projectId` directly, whatever its parent, so the cascade and the schema-diff check see it without a join (AD-23, AD-25, AD-28, AD-29).
+
 ### AD-20 [ADOPTED as policy, TARGET in code] Every egress of client text is registered and class-gated
 
 - **Binds:** generation, chat, research, Brain, ingestion, any outbound `fetch` or SDK client
@@ -372,6 +390,54 @@ flowchart LR
 - **Binds:** all tables, logging, `errorReports`, query helpers
 - **Prevents:** treating a firm-internal row and a client transcript the same way; client text in logs or client-side breadcrumbs; firm-wide read with no trace.
 - **Rule:** Four classes. **C1 client-confidential:** `transcripts`, `transcriptDigests`, `projectDocuments` and their `_storage`, `generationSources`, `reports`, `reportSnapshots`, `reportCandidates`, `chatProposals`, agent threads, `researchSessions/Sources/Claims`, `financialUploads`, `timesheetEntries`, `projectIdentityEvidence`, `brainSources.content`, `ingestionItems` text. **C2 derived-from-client:** analyzer JSON in `generations.agentOutputs`, `sectionEditEvents`, `proposalWordingEditEvents`, `qaItemFeedback.itemText`, `learningDigests`, `errorReports.breadcrumbs`. **C3 firm-internal:** `users`, `invites`, `workItems`, `projectEvents`, `aiUsage`. **C4 public:** `changelog`. C1 leaves the deployment only to registered processors (AD-20). C1 and C2 never appear in `console.*` output or in `errorReports`; a lint-style test asserts `console.*` sites under `convex/ai/**` pass only `Error.message`, ids, and counts. C1 reads by an internal actor on a project they do not own append a `projectAccessLog` row (projectId, userId, table, at) from the query helpers, sampled at most once per user per project per hour. Current state: no classification, no read audit; `errorReports.reportError` is unauthenticated and captures client-side `console.error` (divergence #45).
+
+### AD-23 [TARGET] The Generation Brief is a frozen, versioned, provenance-validated stage
+
+- **Binds:** CAP-1 to CAP-4, CAP-9, CAP-11 of `spec-pd-generation` (stories 1, 2, 4); generation, chat readers of the Brief
+- **Prevents:** the Brief living as free text inside a prompt or as a blob on the generation row; entries that cite nothing; a writer edit silently replacing a derived Brief; Brief text drifting between runs; Brief content reaching the Brain or another project.
+- **Rule:** A `brief` stage is declared in every `topology.modes.*` array of `convex/ai/promptProgram.ts` between `analyzer` and the first section, as a `calls.brief` structured call with `two-attempt-repair`. Its output is stored, never inlined: `generationBriefs` `{projectId, generationId, inputsHash, version, origin: writer | derived | edited, storylineText, editMagnitude}` indexed `by_projectId_and_inputsHash` and `by_generationId`, with child rows `generationBriefEntries` `{briefId, projectId, group: storyline | claimExclusion | confidenceMap | glossaryTerm | storylineQuestion, text, reason?, confidence?, sourceId, sourceContentHash, startOffset, endOffset, exactExcerpt, change?: added | removed | unchanged, question?: {sectionEvidenceEntryId, storylineBasisEntryIds, resolvedBy: use_evidence | keep_storyline | null}}` (child rows, not an array — Convex guideline). `generationBriefs` has exactly two writers: `internal.ai.brief.deriveOrReuse` (the stage, story 1) and `briefs.saveEntryEdit` (a writer edit, story 4); no other unit inserts. `inputsHash` is computed by one helper, `convex/lib/briefInputsHash.ts`, over the `contentHash` of every frozen `generationSources` row except `writer_storyline` and `transcript_digest`; a Storyline edit therefore never changes `inputsHash` and never re-derives the other groups. Reuse selects `MAX(version)` for `(projectId, inputsHash)`; a request that reuses a Brief stamps `briefId` on the generation explicitly. A re-derivation (new `inputsHash`) compares its entry set with the previous version's by `(group, sourceContentHash, startOffset, endOffset)` and stamps `change` on every entry so the rail's "N added · N removed" is read, not computed client-side. Glossary Term entries are derived by `convex/lib/glossaryMatcher.ts` (rule-based exact and inflected matching, model classification only on flagged candidates), the same matcher AD-25's Self-check reuses. Every entry's citation is validated the way `createProvenance` (`convex/reports.ts:77-139`) validates a claim: `sourceContentHash` equals the frozen row's hash and the slice equals `exactExcerpt`. A writer-supplied Storyline is frozen by `reserveGeneration` as a `generationSources` row of kind `writer_storyline` before the stage runs. The same `inputsHash` reuses the stored Brief; a writer edit inserts a new version and never mutates an old one; a Self-check contradiction with stronger section evidence raises a Storyline question and does not repair the section: the section chain inserts one `storylineQuestion` entry on the current Brief version (the one write outside its own `complianceNotes`, named in AD-25), and only `briefs.saveEntryEdit` resolves it. A Reference PD is marked by `projectDocuments.isReferencePd: v.optional(v.boolean())`, at most one true per project, set by the existing document mutations. `generationBriefs` and their entries are project-scoped rows (AD-19), excluded from every `brainSources` nomination path and from the Brain retriever. A generation with no stored Brief (every generation before this stage ships) renders the Brief rail and the Compliance line as absent — not as empty, loading or an error — and is never backfilled by the UI. Claim Exclusion `reason` is one of the eligibility categories; retention is Q17. Enforcing tests: `convex/ai/brief.test.ts` (derivation, contradiction → Storyline question, three-Transcript reconciliation, identical-inputs reuse, two named writers), `convex/lib/glossaryMatcher.test.ts`.
+
+### AD-24 [TARGET] Ordered generation is a chain of per-section actions, ungated in `single` and `compare`
+
+- **Binds:** CAP-5, CAP-9, CAP-10 (story 2); `convex/ai/pipeline.ts`, `iterative.ts`, `generations.ts` section runs
+- **Prevents:** three sequential sections plus their checks crammed into one 600 s action (`SEQUENTIAL_CALLS_PER_GENERATE_CANDIDATE = 5` cannot hold twelve slots); a second approval gate appearing in `single`/`compare`; `iterative` losing its gate.
+- **Rule:** Sections run in the Writer Profile's Build Order, else 242 → 244 → 246, each as its own scheduled action that reads the prior *drafted* sections as context — the `claimSectionRun` chain of `iterative` without `approveSectionDraft` in the path. The writer may stop after any section through one mutation, `generations.stopOrderedGeneration` (CAS on `activeGenerationId`, same pattern as `cancelIterativeGeneration`): the current section action finishes, no further section is scheduled, and the generation completes with `generations.stoppedAfterSection: "242" | "244"` set, `buildTiptapDocument` (`convex/lib/tiptapReport.ts`) renders the drafted sections plus a `[NOT GENERATED]` placeholder body under each remaining H2 so AD-8's three-heading contract holds, and "Generate the rest" is a new generation carrying `resumesGenerationId` and the drafted sections as prior context — a generation writer (`createGeneratedReportArtifacts`), never an eighth AD-3 revision writer. In `compare`, `candidateRunId` is set on every chain action and every row it writes. After the last section one assembled-draft consistency pass runs (one structured call) before the last section is shown. Per action the AD-9 five-slot budget still holds; `generations.status` keeps its vocabulary (AD-2); `iterative` mode and its approval gate are unchanged and remain the gated path. `compare` runs the chain once per candidate. A chain stalled between sections is recovered by the existing `failStaleGenerations` reaper (AD-5); no new reaper is added. Enforcing tests: `convex/ai/promptProgram.test.ts` (order recorded, no gate in `single`/`compare`, one consistency pass), `convex/ai/providers.test.ts` (per-action slot arithmetic unchanged).
+
+### AD-25 [TARGET] Every section carries a Compliance Note produced by one Self-check call and stored as rows
+
+- **Binds:** CAP-5, CAP-7, CAP-8, CAP-9, CAP-12 (story 2 owns; stories 4 and 5 read)
+- **Prevents:** three units each inventing a compliance shape; an instruction applied or dropped silently; Self-check outcomes that live only in a progress-log sentence.
+- **Rule:** After each section draft, one structured `selfCheck` call (`two-attempt-repair`, at most one repair of the section) returns verdicts against the Storyline, Claim Exclusions, Glossary Terms (rule-based matcher first, model judgment only on flagged candidates), Confidence Map calibration, the profile's paragraph rules and Locked Rules. Verdicts land in `complianceNotes` `{projectId, generationId, candidateRunId?, section, paragraphIndex?, source: deterministic | model, instruction, outcome: applied | not_applied, tier: locked | org_enforced | conflict | missing_fact | none, reason, repaired}` indexed `by_generationId_and_section` and `by_generationId_and_candidateRunId_and_section`; `candidateRunId` is required whenever the chain runs per candidate (`compare`) and the rail scopes by the selected candidate's tab, the report inheriting the selected candidate's rows on `selectReportCandidate`. `paragraphIndex` (0-based within the section, per `src/lib/reportSections.ts`) is set whenever a verdict is paragraph-scoped — every paragraph rule and every model row — so the Deviation Inventory (AD-28) can list every paragraph once and treat a paragraph with no `not_applied` row as matching. The six style categories produce deterministic rows whose `tier` is copied verbatim from the per-category outcome `getEffectiveWriterStyle` returns (AD-26) — never recomputed from `resolveEffectiveOverrides` here; free-text instructions produce model rows that quote the instruction. A fact the Confidence Map marks unresolved or unreliable stated without hedging fails the check. Outcomes and repair counts are summarised into the QA scorecard on the generation (`generations.qa`, `postQaStatus` pattern). No unit other than the section chain writes `complianceNotes`, and the chain's only write outside them is the `storylineQuestion` entry named in AD-23; the QA rail, the Editor's section-end line and the chat Deviation Inventory read them through one query. Enforcing tests: `convex/ai/selfCheck.test.ts` (excluded claim, synonym, cap breach, unreliable fact → hedged, single repair, paragraphIndex set), `convex/writerProfiles.test.ts` (tier copied, never recomputed).
+
+### AD-26 [TARGET] Style precedence is four tiers and no tier applies silently
+
+- **Binds:** CAP-6, CAP-8 (story 3); amends AD-16
+- **Prevents:** a Writer Profile instruction beating an `enforced` org category; a disabled or missing profile silently replaced by House Rules; three call sites computing precedence three ways.
+- **Rule:** Locked Rules > enforced Org Mode > Writer Profile > House Rules. `getEffectiveWriterStyle` (`convex/writerProfiles.ts:215-237`) returns, beside `customInstructions` and `styleOverrides`, a per-category outcome `{category, mode, effective, tier}` and a `profileState: applied | disabled | missing`; it is the only place `tier` is computed — `resolveEffectiveOverrides` returns modes, not tiers — and every generation and chat call site consumes that result and nothing else. A settings document detected in Writer's Notes or an attachment is applied as the profile for that generation and the writer is offered to save it. `docs/product-domain.md` records the four tiers, the "no silent tier" rule and the effort ceiling (the Dump is the maximum required input) as one dated amendment. Enforcing tests: `convex/writerProfiles.test.ts` (six categories × `writer_choice` / `enforced`, `profileState`, same outcomes across the three supply paths).
+
+### AD-27 [TARGET] Per-generation call budget with named slots, recorded not enforced
+
+- **Binds:** CAP-5, CAP-9 (stories 1, 2); amends AD-9; `convex/ai/instrument.ts`, `aiUsage`
+- **Prevents:** an unnamed extra call per section; a repair loop; an overrun absorbed silently; a second spend mechanism beside the Q12 alert stance.
+- **Rule:** Every model call carries a slot label in the existing `aiUsage.callSite` field using the codebase's `generation:` prefix convention — `generation:brief`, `generation:section:<n>`, `generation:selfCheck:<n>`, `generation:repair:<n>`, `generation:consistency`, `generation:compression`, `generation:qa`, `generation:chronology` — enumerated as a `const` in `convex/ai/instrument.ts` whose validator rejects any other `generation:*` label; the scorecard parses the slot as the text after the first colon. Per generation: at most one `brief`; per section one generation, one `selfCheck`, at most one `repair`; one `consistency`. The generation scorecard reports counts per slot and flags `overrun` when a slot exceeds its allowance. The 2x-of-today target (SM-C2) is measured from `aiUsage` `by_generationId`; no call is refused on budget (Q12: alert only). Enforcing tests: `convex/ai/instrument.test.ts` (slot enum, unknown label rejected, per-slot counts and `overrun`).
+
+### AD-28 [TARGET] The Completion Report is the bulk-edit tool's per-item findings, persisted and echoed; Proposal apply is unchanged
+
+- **Binds:** CAP-12 to CAP-15 (story 5); extends AD-4; `convex/ai/chatAgentV2.ts`, `convex/lib/passageEdits.ts`, `chatProposals`
+- **Prevents:** a second edit path; items dropped between tool result and reply; a Deviation Inventory built from prose heuristics instead of stored notes; the "make it better" reply asking the writer for a document.
+- **Rule:** `makeProposeBulkEdits` findings become the union `resolved | blocked | conflicting` with the existing coverage `superRefine` (unique ids, full coverage; the tool's own caps are 40 edits / 80 findings today, and the Completion Report contract of N ≤ 30 items is the spec's bound within them). Findings persist as `chatProposalItems` `{proposalId, projectId, itemId, status, reason, missingFact?, missingFactSource?, lockedRule?, alternative?}` (child rows) and the reply echoes every item. `saveProposal` stays the only `chatProposals` insert; `applyProposal` is untouched. The Deviation Inventory tool reads `complianceNotes` by `generationId` (AD-25) plus the report's paragraphs through `src/lib/reportSections.ts`, lists every paragraph once, and writer-added content items join the same list; the Reference PD comparison produces the same inventory shape with group `reference`. The missing-facts reply draws its questions from `generationBriefEntries` of group `confidenceMap` marked unresolved or unreliable. Enforcing tests [TARGET]: two new live fixtures in `scripts/chat-behavior-eval.mjs` — a 16-item mixed list that must report 16/16, and a "help you converge" prompt that fails on any request for a writer-authored artifact. Current state: the file holds seven fixtures, none of these. Enforcing tests: `convex/lib/passageEdits.test.ts` (N-item coverage), `convex/chatProposalItems.test.ts` (rows echoed 1:1 with the reply).
+
+### AD-29 [TARGET] Paired Comparison records are their own table, human-entered, never derived from tool counts
+
+- **Binds:** CAP-16 (story 6); `measurement-protocol.md`
+- **Prevents:** SM-1 and SM-2 computed from the inventory the tool under test produced; development projects inflating the metric; a record edited after judging.
+- **Rule:** `comparisons` `{projectId, reportId, revisionNumber, contentHash, generationId, banhallModel, baselineProduct, baselineModel, modelCaveat, judgeUserId, preference: banhall | baseline | tie, deviationsBanhall, deviationsBaseline, countingMethod, correctionsBanhall, correctionsBaseline, usedInDevelopment, recordedAt, voidsComparisonId?}` plus the stripped plain texts the judge actually read, `banhallDraftText` and `baselineDraftText`, stored on the row; `contentHash` pins the structured revision and a server-side `sha256` of the plain-text extraction of that revision is compared with `banhallDraftText` at record time and stored as `draftTextMatches`. Pinned to a revision like `writerReviews`, indexed `by_projectId` and `by_recordedAt`; writes require an Admin until Q18 decides the capability cell; `voidsComparisonId` backs a UX assumption (re-enter, never edit) and is the only correction path. Enforcing tests: `convex/comparisons.test.ts` (record shape, `draftTextMatches`, development and voided rows excluded from SM-1/SM-2, non-admin refused). SM-1 and SM-2 queries exclude `usedInDevelopment` rows and voided rows. Deviation counts are entered by the judge, never read from `chatProposalItems` or `complianceNotes`.
+
+### AD-30 [TARGET] The context cap is unchanged; inclusion status is recorded per source and surfaced
+
+- **Binds:** CAP-11, CAP-17 (stories 2, 4); extends AD-11; `convex/ai/trustedContext.ts`, `generationSources`, `appSettings`
+- **Prevents:** a second budget; a document described as used when it was cut; the cap moving without a decision.
+- **Rule:** The `TrustedContextSource` result (`included`, `truncated`, `includedLength`) is written onto the matching `generationSources` row as `inclusion: included | condensed | not_included` and `includedLength`; one query returns them per generation and is the only source for the Brief's Inputs band and the Files panel status. Chat evidence assembly (`convex/ai/chatEvidence.ts`, its own budget) is a distinct scope: chat copy says "in this reply" and never renders a bare `included` / `condensed` / `not included`, so the two budgets can differ on one document without two truths on screen. `DEFAULT_CONTEXT_BUDGET.maxDocuments` stays 12 and only `appSettings` changes it (trigger: Q16). Attachment count is independent of the budget: a project accepts at least 40 documents; `describeContextCuts` keeps producing the progress-log sentence. Enforcing tests: `convex/ai/trustedContext.test.ts` (40 attached, 12 in context, per-row `inclusion` written and returned).
 
 ## Consistency Conventions
 
@@ -396,6 +462,7 @@ flowchart LR
 | Frontend state | component-local runes; `.svelte.ts` stores only for `stableQuery` and `chat/uiMessages`; pure functions in `src/lib/{dashboard,workspace,workflow,mywork,uploads}` |
 | Frontend queries | `useQuery` with `"skip"` until `auth.isAuthenticated`; `useStableQuery` to hold the last result across arg changes; `useMutation` then `await`; no optimistic updates |
 | UI rules (documented only) | design tokens from `src/routes/layout.css`, type roles and remapped gray ramp, no ad-hoc hex, max font weight 500, bits-ui primitives, active tab = primary fill + white text, inactive hover = primary wash, 44px touch targets |
+| Generation UI (2026-09-09, adopted `ux-Banhall-2026-09-09`) | Brief is a third `railView` of the report workspace; Compliance line under each section-end marker plus a QA-rail section; Inventory checklist and Completion rows inside the existing proposal card; no modal, no gate before the first section, no new colour tokens. Compliance-line pills read `complianceNotes.outcome` (`applied` / `not_applied`), qualified by `tier` when not applied; Inventory and Completion pills read `chatProposalItems.status` (`resolved` / `blocked` / `conflicting`) — two enums from two stories, never merged |
 | Tests | vitest projects `convex` (edge-runtime + `convex-test`), `shared`, `src`; component tests `*.component.test.ts` under `vitest.component.config.ts` (never add `sveltekit()` there). Every AD that names an enforcing test is extended in the same PR that extends its guarded list (AD-3 writers, AD-4 proposal writers, AD-7 capabilities, AD-9 call sites). New Convex mutations ship with a `convex-test` case for the authorization branch |
 
 ## Stack
@@ -413,6 +480,7 @@ Verified from `node_modules` 2026-09-03.
 | bits-ui (shadcn-svelte) | 2.18.x |
 | svelte-tiptap (Tiptap 3) | 3.0.x |
 | convex | 1.42.3 |
+| zod | 4.4.3 (discriminated unions + `superRefine` for tool findings, AD-28) |
 | convex-svelte | 0.14.x |
 | @convex-dev/agent | 0.6.4 (deep imports `dist/deltas.js`, `dist/UIMessages.js`, `dist/shared.js` pinned in `src/lib/chat/agentInternal.ts`) |
 | @convex-dev/rag | 0.7.x |
@@ -639,6 +707,7 @@ flowchart LR
 | Frontend / export shell (routes, gate, editor, design system) | `src/routes/`, `src/lib/workspace/WorkspaceGate.svelte`, `src/lib/components/`, `src/routes/layout.css` | AD-18, AD-8, AD-17, UI conventions |
 | Data lifecycle and confidentiality (erasure, egress, classes, read audit) | `convex/projects.ts:deleteProject`, `convex/lib/projectScopedTables.ts` (target), `docs/data-processing-register.md` (target), `convex/ai/openrouter.ts`, `convex/errorReports.ts` | AD-19, AD-20, AD-21 (all target) |
 | Environments and deploy | `.github/workflows/`, Vercel, Convex deployments | AD-22 (target) |
+| PD generation better than the dump (Brief, ordered self-checked drafting, Compliance Notes, one-pass convergence, Paired Comparison) | `convex/ai/promptProgram.ts`, `pipeline.ts`, `iterative.ts`, `trustedContext.ts`, `writerProfiles.ts`, `chatAgentV2.ts`, `lib/passageEdits.ts`, new `ai/brief.ts`, `lib/glossaryMatcher.ts`, `comparisons.ts`; `src/lib/components/project`, `editor`, `chat`, `generation` | AD-23 to AD-30 (all target); AD-4, AD-5, AD-9, AD-11, AD-16 |
 
 ## Deferred
 
@@ -663,6 +732,12 @@ flowchart LR
 | AI SDK v7 / `@convex-dev/agent` 0.7 migration | Pinned on the v6 line until AD-11 CAP-4 lands (Stack decision) |
 | `voyage-4-large` re-embed | Re-embeds every approved source; do it once with the same-client retrieval exclusion (AD-6) |
 | Better Auth session policy, MFA | Q14; blocked on an email or TOTP path (D6) |
+| Per-document trust-order display in the Brief Inputs band | PRD 6.2 defers to v1.1; MVP shows included / condensed / not included only (AD-30) |
+| Per-section multi-select generation and an optional per-writer Brief gate | v2 and PRD Open Question 5; the ungated chain (AD-24) and the `iterative` gate cover today's two modes |
+| Automated ChatGPT baseline for the Paired Comparison | Baseline drafts are pasted in (AD-29); automation has no owner |
+| Raising `maxDocuments` toward 40 | Q16 names the trigger; until then `appSettings` only |
+| CAD/DWG ingestion | October backlog; conversion path recorded in the PRD addendum |
+| Backfilling Briefs and Compliance Notes for pre-feature generations | No owner and no consumer; pre-feature reports render the new surfaces as absent (AD-23); a Brief appears on the next generation |
 
 ## Open Questions
 
@@ -682,6 +757,10 @@ flowchart LR
 | Q12 | Decided 2026-09-04: no spend cap, alert only (AD-9). Still open: the alert threshold number in `appSettings`. Per-call token budgets stay with AD-11. | AI engine (part closed) |
 | Q13 | Decided 2026-09-04: in-app `/alerts` only; no email, Slack, or vendor (AD-9, observability convention). | Operations (closed) |
 | Q14 | Decided 2026-09-04: neither MFA nor session timeout before launch; invite-only staff is the control. | Authorization (closed) |
+| Q15 | Is `openai/gpt-5.6-sol` via OpenRouter the same behaviour as Sol inside the ChatGPT product? Resolve, or record the caveat on every `comparisons` row, before SM-1 runs (AD-29). Owner: Johnny. | AI engine |
+| Q16 | What triggers raising `DEFAULT_CONTEXT_BUDGET.maxDocuments` toward 40 — a writer hitting the cap on a real project, or a cost decision? Until decided, `appSettings` only (AD-30). Owner: Johnny. | AI engine |
+| Q18 | Who may write `comparisons`: an Admin-only `comparisons.record` capability cell, or the project Owner too? CAP-16 names "Michael or Johnny", which is people, not a cell. Interim: Admin only (AD-29). Owner: Johnny. | Authorization |
+| Q17 | Retention and framing of stored Claim Exclusions (`generationBriefEntries`, group `claimExclusion`) under the Pre-Claim Approval regime: which AD-19 window applies, and who signs off. Owner: Michael by default. | Data lifecycle |
 
 ## Divergence register
 

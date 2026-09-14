@@ -27,8 +27,10 @@ import {
 } from "../../shared/styleOverrides";
 import {
   ANALYZER_SYSTEM_PROMPT,
+  CONSISTENCY_SYSTEM_PROMPT,
   CONTEXT_INPUTS_GUIDANCE,
   GENERATION_WRITING_PROMPT_PROGRAM,
+  SELF_CHECK_SYSTEM_PROMPT,
 } from "./prompts";
 import {
   ANALYSIS_SCHEMA,
@@ -36,6 +38,7 @@ import {
   ANALYZER_CATEGORY_ORDER,
   ANALYZER_REQUEST,
 } from "./analyzerAgent";
+import { BRIEF_SYSTEM_PROMPT, BRIEF_REQUEST, BRIEF_SCHEMA } from "./brief";
 import { DEFAULT_CONTEXT_BUDGET } from "./trustedContext";
 import {
   CONDENSE_CONCURRENCY,
@@ -62,9 +65,15 @@ import {
 import { STRUCTURED_OUTPUT_PROGRAM } from "./structured";
 import {
   COMPRESSION_REQUEST,
+  CONSISTENCY_REQUEST,
+  CONSISTENCY_SCHEMA,
   ITERATIVE_PROMPT_SCAFFOLDS,
   ITERATIVE_SECTION_TITLES,
   LENGTH_BUDGET_SCAFFOLD,
+  ORDERED_PROMPT_SCAFFOLDS,
+  ORDERED_SECTION_TITLES,
+  SELF_CHECK_REQUEST,
+  SELF_CHECK_SCHEMA,
   STYLE_GUIDANCE_SCAFFOLDS,
 } from "./promptDefinitions";
 import { CANDIDATE_MODE_ROUTING } from "./model";
@@ -236,6 +245,9 @@ export const generationPromptProgram = {
         "retrieval-brief-with-fallback-query",
         "four-sequential-brain-searches-with-optional-rerank",
         "frozen-analyzer-brain-style-artifacts",
+        // Story 1 (CAP-1/2/4): Brief stage after analyzer, before sections —
+        // same position as candidatePipeline's "brief" for single/compare.
+        "brief",
         "section-242-human-review",
         "approved-prior-section-context",
         "section-244-human-review",
@@ -248,6 +260,34 @@ export const generationPromptProgram = {
       ],
     },
     candidatePipeline: [
+      "analyzer",
+      // Story 1 (CAP-1/2/4): Brief stage after analyzer, before sections.
+      // Derives or reuses Storyline, Claim Exclusions, Confidence Map, Glossary Terms.
+      "brief",
+      // Story 2 (CAP-5/9/10, AD-24): ordered, ungated section chain in
+      // single/compare — one scheduled action per section in the Writer
+      // Profile's Build Order (default 242 → 244 → 246), each with the prior
+      // DRAFTED sections as context, Self-checked and repaired at most once;
+      // no approval gate. Then one consistency pass over the assembled draft
+      // before the last section is shown.
+      {
+        orderedSectionChain: {
+          defaultBuildOrder: ["242", "244", "246"],
+          perSection: [
+            "section",
+            "conditionalCompression",
+            "selfCheck",
+            "atMostOneRepair",
+          ],
+          gate: "none",
+        },
+      },
+      "assembled-draft-consistency-pass",
+      { allSettled: ["qa", "chronology"] },
+    ],
+    // Iterative's background ghost keeps the one-shot parallel pipeline; it
+    // never runs the ordered chain, so it creates no ordered section rows.
+    oneShotCandidatePipeline: [
       "analyzer",
       ["section242", "section244", "section246"],
       {
@@ -309,6 +349,18 @@ export const generationPromptProgram = {
       thinking: { kind: "omitted" },
       structuredPolicy: "two-attempt-repair",
     },
+    // Story 1 (CAP-1/2/4): Generation Brief stage
+    brief: {
+      kind: "structured",
+      systemTemplate: BRIEF_SYSTEM_PROMPT,
+      request: BRIEF_REQUEST,
+      schema: BRIEF_SCHEMA,
+      model: { kind: "candidate", fallbackModelId: MODEL },
+      thinking: { kind: "omitted" },
+      structuredPolicy: "two-attempt-repair",
+      // Slot label for aiUsage tracking (AD-27)
+      callSite: "generation:brief",
+    },
     section242: {
       kind: "text",
       systemTemplateSet: "writing.sectionSystemTemplates.section242",
@@ -332,6 +384,42 @@ export const generationPromptProgram = {
       systemTemplate: COMPRESSION_REQUEST.system,
       request: COMPRESSION_REQUEST,
       model: { kind: "candidate" },
+    },
+    // Story 2 (CAP-9, AD-25/27): one structured Self-check per section.
+    selfCheck: {
+      kind: "structured",
+      systemTemplate: SELF_CHECK_SYSTEM_PROMPT,
+      request: SELF_CHECK_REQUEST,
+      schema: SELF_CHECK_SCHEMA,
+      model: { kind: "candidate", fallbackModelId: MODEL },
+      thinking: { kind: "omitted" },
+      structuredPolicy: "two-attempt-repair",
+      callSite: "generation:selfCheck:<n>",
+      perSection: 1,
+    },
+    // Story 2 (CAP-9): the repair is the section agent itself, re-run once
+    // with the repair guidance appended; re-checked deterministically only.
+    repair: {
+      kind: "text",
+      reuses: "section-agent",
+      systemTemplateSet: "writing.sectionSystemTemplates.<section>",
+      scaffold: ORDERED_PROMPT_SCAFFOLDS.repairGuidance,
+      model: { kind: "candidate", fallbackModelId: MODEL },
+      callSite: "generation:repair:<n>",
+      maxPerSection: 1,
+      recheck: "deterministic-only",
+    },
+    // Story 2 (CAP-10, AD-24): one pass over the assembled draft per candidate.
+    consistency: {
+      kind: "structured",
+      systemTemplate: CONSISTENCY_SYSTEM_PROMPT,
+      request: CONSISTENCY_REQUEST,
+      schema: CONSISTENCY_SCHEMA,
+      model: { kind: "candidate", fallbackModelId: MODEL },
+      thinking: { kind: "omitted" },
+      structuredPolicy: "two-attempt-repair",
+      callSite: "generation:consistency",
+      perCandidate: 1,
     },
     qa: {
       kind: "structured",
@@ -359,6 +447,10 @@ export const generationPromptProgram = {
     iterative: {
       sectionTitles: ITERATIVE_SECTION_TITLES,
       scaffolds: ITERATIVE_PROMPT_SCAFFOLDS,
+    },
+    ordered: {
+      sectionTitles: ORDERED_SECTION_TITLES,
+      scaffolds: ORDERED_PROMPT_SCAFFOLDS,
     },
   },
   configuration: {

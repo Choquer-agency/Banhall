@@ -1,0 +1,9 @@
+{
+  "intent": "bug",
+  "confidence": 0.92,
+  "route": "plan",
+  "summary": "The current tool and settings/context contracts are plausible contributors to the reported bulk-revision failure. Confidentiality has structural safeguards but lacks demonstrated live-model adversarial proof. Prepare scoped behavioral and privacy evaluation work before claiming the incident or extraction risks are resolved.",
+  "answer_file": ".factory/intake/20260908-chat-behavior-and-privacy/answer.md",
+  "verifiedSource": "662efab77a3079955d85fcd9bcd7db02054916a8",
+  "matches": []
+}

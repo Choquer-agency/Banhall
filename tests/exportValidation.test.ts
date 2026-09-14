@@ -7,6 +7,8 @@ import {
 } from "../src/lib/exportValidation";
 import { exportToTemplateDocx } from "../src/lib/exportTemplateDocx";
 import type { SectionKey } from "../convex/lib/lineLimits";
+import { NOT_GENERATED_PLACEHOLDER, buildTiptapDocument } from "../convex/lib/tiptapReport";
+import { parseCanonicalReport } from "../src/lib/reportSections";
 
 const headings: Record<SectionKey, string> = {
   s242: "Line 242 — Scientific/Technological Uncertainty",
@@ -426,4 +428,28 @@ describe("validateExport", () => {
       });
     }
   );
+});
+
+// Story 2 (CAP-10, AD-24): the export path consumes exactly the paragraphs the
+// ordered chain assembled, a stopped generation's [NOT GENERATED] bodies
+// included, and those bodies keep every section present for validation.
+describe("ordered chain export parity", () => {
+  test.each([
+    ["complete", "A technological uncertainty remained.", "A controlled experiment was performed.\n\nA second trial followed.", "The experiment produced new knowledge."],
+    ["stopped", "A technological uncertainty remained.", null, null],
+  ] as const)("the %s chain document reaches export with the editor's headings and paragraphs", (_label, s242, s244, s246) => {
+    const content = JSON.stringify(buildTiptapDocument("Control system research", s242, s244, s246));
+    const report = canonicalizeExportPreflight(preflightInput({ content }));
+    const editor = parseCanonicalReport(content);
+    for (const key of ["s242", "s244", "s246"] as const) {
+      expect(report.body.sections[key].blocks).toEqual(editor.sections[key].blocks);
+      expect(report.body.sections[key].blocks.length).toBeGreaterThan(0);
+    }
+    if (s244 === null) {
+      expect(report.body.sections.s244.plainText).toBe(NOT_GENERATED_PLACEHOLDER);
+      expect(report.body.sections.s246.plainText).toBe(NOT_GENERATED_PLACEHOLDER);
+    }
+    expect(report.body.diagnostics).toEqual([]);
+    expect(validateExport(report).errors).toEqual([]);
+  });
 });

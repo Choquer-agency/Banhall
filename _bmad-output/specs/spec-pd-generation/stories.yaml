@@ -1,0 +1,90 @@
+- id: "1"
+  lane: schema
+  title: Generation Brief storage and derivation stage
+  description: >-
+    CAP-1, CAP-2, CAP-4. generationBriefs keyed by inputs; derivation call
+    producing Storyline (or accepting a writer-supplied one), Claim Exclusions,
+    Confidence Map, Glossary Terms with source citations; reuse on identical inputs.
+  spec_checkpoint: false
+  invoke_dev_with: >-
+    Read touchpoints.md rows CAP-1/2/4 and ARCHITECTURE-SPINE AD-23. A partial
+    implementation already exists on this branch (commit fefeb82: generationBriefs,
+    generationBriefEntries, convex/ai/brief.ts deriveOrReuseBrief, convex/briefs.ts,
+    convex/lib/briefInputsHash.ts, convex/lib/glossaryMatcher.ts) and its story
+    spec is in stories/1-*.md (human-corrected). Complete it to the acceptance
+    criteria rather than restarting. The brief.test.ts suite is currently
+    test.skip / expect(true) stubs: replace every stub with a real convex-test
+    case; the gate now fails on any skipped or vacuous test. The Storyline
+    back-check (contradiction raises a storylineQuestion entry, never a forced
+    repair) is the riskiest design point; prove it with the contradiction fixture.
+    Citations validate against frozen generationSources rows like createProvenance.
+- id: "2"
+  lane: pipeline
+  title: Ordered, ungated generation with Self-check and Compliance Notes
+  description: >-
+    CAP-5, CAP-7, CAP-9, CAP-10. Build Order with drafted prior-section context
+    in single/compare, no approval gate, one repair per section, assembled-draft
+    consistency pass, hedging of unresolved facts, Compliance Note per section,
+    editor/export parity.
+  spec_checkpoint: false
+  invoke_dev_with: >-
+    Read touchpoints.md rows CAP-5 and CAP-9/10 and ARCHITECTURE-SPINE AD-24, AD-25,
+    AD-27. Partial work exists on this branch (commits 1ce273b, 76c8e2f:
+    convex/ai/selfCheck.ts, convex/lib/complianceNote.ts, writerProfiles changes)
+    with its story spec in stories/2-*.md; complete it, do not restart. Two
+    corrections are required: complianceNotes must be rows in a complianceNotes
+    table (projectId, generationId, candidateRunId?, section, paragraphIndex?,
+    source, instruction, outcome, tier, reason, repaired; indexes per AD-25), not
+    the optional string field the partial work put on generations; and ordered
+    generation must run as a chain of per-section scheduled actions (AD-24), not
+    inside one action. Decided: ungated by default; iterative keeps its gate
+    untouched. Stay inside the call budget and label every call
+    generation:<slot>. Never test.skip a failing test.
+- id: "3"
+  lane: profile
+  title: Precedence and Writer Profile fidelity
+  description: >-
+    CAP-6, CAP-8. Four-tier precedence with no silent tier reported per
+    instruction; settings document detected in Writer's Notes or attachments and
+    applied as the profile; missing or disabled profile reported; product-domain
+    amendment for precedence and the effort ceiling.
+  done_checkpoint: false
+  invoke_dev_with: >-
+    Read touchpoints.md row CAP-6/7/8. Open Question 1 (Larry's settings document,
+    Section 246) may land mid-way; Locked Rules stay locked regardless.
+- id: "4"
+  lane: ui
+  title: Brief panel and context-inclusion visibility
+  description: >-
+    CAP-3, CAP-11, CAP-17. Brief shown beside the draft, editable and optional
+    with edit magnitude stored; per-document included/condensed/not included
+    list with the configured cap shown; 40 attachments accepted; "no Writer
+    Profile applied" line.
+  invoke_dev_with: >-
+    Read touchpoints.md row CAP-3/11/17. Design-system rules apply (bits-ui
+    primitives, max font weight 500, gray ramp tokens). Browser component test
+    under vitest.component.config.ts; run test:component locally.
+- id: "5"
+  lane: chat
+  title: One-pass convergence and Reference PD comparison
+  description: >-
+    CAP-12, CAP-13, CAP-14, CAP-15. Deviation Inventory with writer-added
+    content Deviations; Coordinated Revision with per-item Completion Report;
+    "make it better" guard; Reference PD diff offered as a Coordinated Revision.
+  spec_checkpoint: false
+  invoke_dev_with: >-
+    Read touchpoints.md row CAP-12..15. First re-run Larry's Rev G 16-item list
+    against the PR #8 bulk-edit tool and record what already passes (Open
+    Question 7). Proposals only; applyProposal is untouched. Live-model fixtures
+    go in scripts/chat-behavior-eval.mjs.
+- id: "6"
+  lane: eval
+  title: Paired Comparison records and success-metric computation
+  description: >-
+    CAP-16. comparisons table and functions to record blind preference,
+    per-draft Deviation counts and Corrections-to-acceptable, model caveat and
+    development-project flag; SM-1/SM-2 computed excluding development projects.
+  done_checkpoint: false
+  invoke_dev_with: >-
+    Read measurement-protocol.md. Baseline drafts are pasted in; no automation.
+    Judging starts after 2026-09-15.

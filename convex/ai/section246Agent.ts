@@ -30,7 +30,9 @@ export async function runSection246Agent(
   brainExemplars: string = "",
   lengthBudget: string = "",
   styleGuidance: string = "",
-  styleOverrides?: StyleOverrides
+  styleOverrides?: StyleOverrides,
+  // Story 1 (CAP-1/2/4): the stored Brief, rendered as an AD-11 data block.
+  briefBlock: string = ""
 ): Promise<string> {
   const response = await client.messages.create({
     model,
@@ -40,7 +42,7 @@ export async function runSection246Agent(
     messages: [
       {
         role: "user",
-        content: `${SECTION_246_REQUEST.userPrefix}${JSON.stringify(analysis, null, SECTION_246_REQUEST.jsonIndentation)}${brainExemplars}${lengthBudget}${styleGuidance}`,
+        content: `${SECTION_246_REQUEST.userPrefix}${JSON.stringify(analysis, null, SECTION_246_REQUEST.jsonIndentation)}${brainExemplars}${lengthBudget}${styleGuidance}${briefBlock}`,
       },
     ],
   });

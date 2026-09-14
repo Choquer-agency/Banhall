@@ -1,0 +1,68 @@
+
+ RUN  v4.1.10 /Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a
+
+ ❯ |convex| convex/orderedChainRecovery.test.ts (5 tests | 3 failed) 667ms
+     × (a) never reaps a chain whose sections keep completing past 30 minutes since startedAt 648ms
+     × (b) reaps a chain with no progress for 30 minutes, including a single stuck first action 7ms
+     × (c') a progress stamp never governs iterative recovery, which keys on the section run's own clock 3ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 3 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |convex| convex/orderedChainRecovery.test.ts > DW-119: failStaleGenerations is progress-aware for ordered chains > (a) never reaps a chain whose sections keep completing past 30 minutes since startedAt
+AssertionError: expected 1 to be +0 // Object.is equality
+
+- Expected
++ Received
+
+- 0
++ 1
+
+ ❯ convex/orderedChainRecovery.test.ts:157:36
+    155|     // 35 minutes after startedAt, with 244 in flight for 10 minutes: …
+    156|     vi.setSystemTime(T0 + 35 * MINUTES);
+    157|     expect((await reap(t)).failed).toBe(0);
+       |                                    ^
+    158|     let state = await stateOf(t, ids);
+    159|     expect(state.generation?.status).toBe("running");
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/3]⎯
+
+ FAIL  |convex| convex/orderedChainRecovery.test.ts > DW-119: failStaleGenerations is progress-aware for ordered chains > (b) reaps a chain with no progress for 30 minutes, including a single stuck first action
+AssertionError: expected 1 to be +0 // Object.is equality
+
+- Expected
++ Received
+
+- 0
++ 1
+
+ ❯ convex/orderedChainRecovery.test.ts:192:36
+    190|     expect(await claimSection(t, ids, "244")).not.toBeNull();
+    191|     vi.setSystemTime(T0 + 49 * MINUTES);
+    192|     expect((await reap(t)).failed).toBe(0);
+       |                                    ^
+    193|     expect((await stateOf(t, ids)).generation?.status).toBe("running");
+    194|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/3]⎯
+
+ FAIL  |convex| convex/orderedChainRecovery.test.ts > DW-119: failStaleGenerations is progress-aware for ordered chains > (c') a progress stamp never governs iterative recovery, which keys on the section run's own clock
+Error: Validator error: Unexpected field `lastProgressAt` in object
+ ❯ performAsyncSyscall node_modules/convex/src/server/impl/syscall.ts:52:10
+ ❯ patch node_modules/convex/src/server/impl/database_impl.ts:113:2
+ ❯ Object.patch node_modules/convex/src/server/impl/database_impl.ts:152:10
+ ❯ invokeFunction node_modules/convex/src/server/impl/registration_impl.ts:90:13
+ ❯ invokeMutation node_modules/convex/src/server/impl/registration_impl.ts:70:17
+ ❯ runMutationWithHandler node_modules/convex-test/dist/index.js:1562:31
+ ❯ handler node_modules/convex-test/dist/index.js:1753:24
+ ❯ invokeFunction node_modules/convex/src/server/impl/registration_impl.ts:90:13
+ ❯ invokeAction node_modules/convex/src/server/impl/registration_impl.ts:513:17
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/3]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  3 failed | 2 passed (5)
+   Start at  12:43:50
+   Duration  1.27s (transform 645ms, setup 0ms, import 287ms, tests 667ms, environment 81ms)
+

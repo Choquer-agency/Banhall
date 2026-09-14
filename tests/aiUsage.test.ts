@@ -245,16 +245,22 @@ describe("generation prompt program", () => {
   test("manifest is complete, JSON-compatible, and names runtime slots", () => {
     expect(Object.keys(generationPromptProgram.calls).sort()).toEqual([
       "analyzer",
+      "brief",
       "chronology",
       "compression",
       // transcripts-7-condense-digests: over-budget transcript sets are
       // condensed by their own structured call before drafting begins.
       "condense",
+      // Story 2 (CAP-9/10): per-section Self-check, the section agent's one
+      // repair, and the assembled-draft consistency pass.
+      "consistency",
       "qa",
+      "repair",
       "retrievalBrief",
       "section242",
       "section244",
       "section246",
+      "selfCheck",
     ]);
     expect(Object.keys(generationPromptProgram.topology.modes).sort()).toEqual([
       "compare",

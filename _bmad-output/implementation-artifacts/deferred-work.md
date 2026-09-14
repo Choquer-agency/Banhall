@@ -883,3 +883,155 @@ severity: high
 reason: Read-only npm audit --json exit1 reports11 affected package entries:1low,7moderate,3high. Every affected complete lock record is unchanged from B7 baseline. High entries: brace-expansion5.0.7, nanoid3.3.16, tar7.5.20; additional Tiptap/SvelteKit/DOMPurify/Mermaid and other advisories are enumerated with GHSA URLs in .audit/branch-consolidation/B7/peer-audit-summary.md and raw peer-audit.json. Assess reachable vulnerable APIs and attacker inputs, then choose bounded compatible upgrades and verification. No runtime exploit or new pruning exposure is claimed.
 status: done 2026-09-06
 resolution: Bounded npm-generated lock upgrade reduced reported advisories from 11 to 0; full installed dependency tree valid, compatibility and actual Anthropic SDK boundary tests passed, fresh-cache final gate passed. Evidence: .audit/quality-pass/Q8/audit-after.json, changed-package-reasons.json, post-review-sdk/evidence.md and final-gate/result.json. No live AI-provider or Convex deployment claimed.
+
+### DW-106: Convex codegen (_generated/api.d.ts) requires refresh for full CI verification
+origin: spec-deferred 30d02395e253
+location: convex/_generated/api.d.ts
+source_spec: `1-generation-brief-storage-and-derivation-stage.md`
+severity: medium
+reason: The _generated types are from baseline commit and don't reflect schema changes. This is a toolchain requirement: `npx convex dev` or `npx convex codegen` needs a live Convex deployment URL, which is not available in this worktree. The implementation code itself is correct and tests have proper signatures; only the generated type definitions need updating when deployed.
+status: open
+
+### DW-107: Brief-derivation source and diff-baseline reads are hard-capped (200/500 rows) with no overflow signal.
+origin: spec-deferred 54d8bfa899f4
+location: convex/generations.ts (getGenerationSourcesForBrief, persistDerivedBrief, renderBriefForGeneration)
+source_spec: `1-generation-brief-storage-and-derivation-stage.md`
+severity: medium
+reason: getGenerationSourcesForBrief caps at .take(200) and persistDerivedBrief's previous-Brief diff read caps at .take(500) (both convex/generations.ts), neither records a truncation flag or count. A project with more frozen sources, or a Brief with more accumulated entries than the cap, would silently derive from (or diff against) an incomplete set.
+status: open
+
+### DW-108: One malformed enum value anywhere in the model's Brief output discards the entire derived Brief, unlike citation failures which drop only the offending entry.
+origin: spec-deferred 2cb4ab4f3058
+location: convex/ai/brief.ts (briefOutputSchema), convex/ai/structured.ts
+source_spec: `1-generation-brief-storage-and-derivation-stage.md`
+severity: medium
+reason: briefOutputSchema (convex/ai/brief.ts) validates the whole structured-call payload as one object; once the two-attempt-repair policy is exhausted, generateStructured throws and the whole Brief (Storyline, every Claim Exclusion, Confidence Map entry, Glossary Term) is discarded rather than degrading per-entry the way a failed citation byte-match does.
+status: open
+
+### DW-109: Brief-derivation failures are only console.error-logged; nothing is persisted to distinguish "no evidence to derive from" from "the call failed".
+origin: spec-deferred 5b0ba126b9cd
+location: convex/ai/pipeline.ts, convex/ai/iterative.ts
+source_spec: `1-generation-brief-storage-and-derivation-stage.md`
+severity: low
+reason: pipeline.ts and iterative.ts catch and log any deriveOrReuseBrief rejection so the generation continues with no Brief (by design), but repeated failures across generations are invisible beyond an absent Brief in the (not-yet-built) UI — nothing on aiUsage or the QA scorecard records that a Brief was attempted and failed versus never attempted.
+status: open
+
+### DW-110: A writer-supplied Storyline has no length cap, and the derivation call still asks the model for a competing Storyline it then discards.
+origin: spec-deferred a1d0fd6f098e
+location: convex/generations.ts (reserveGeneration), convex/ai/brief.ts
+source_spec: `1-generation-brief-storage-and-derivation-stage.md`
+severity: low
+reason: reserveGeneration stores the writer Storyline with no cap analogous to TRANSCRIPT_BUDGET_CHARS, and it is appended verbatim into every section prompt. The same structured call also always asks for storyline/ storylineClaims even when origin will be "writer", spending tokens the epic's own SM-C2 2x call/cost budget must absorb.
+status: open
+
+### DW-111: saveEntryEdit checks only that the edited Brief is the latest version for its own inputsHash, never whether that inputsHash is still the project's current one.
+origin: spec-deferred 3ce61774e7b5
+location: convex/briefs.ts (saveEntryEdit)
+source_spec: `1-generation-brief-storage-and-derivation-stage.md`
+severity: low
+reason: A writer can successfully edit a Brief version whose inputsHash has since been superseded by a new derivation (e.g. after a document was added); the edit succeeds but produces a version findReusableBrief will never surface to a future generation.
+status: open
+
+### DW-112: Two generations that concurrently derive the same brand-new (projectId, inputsHash) for the first time can each insert a version-1 Brief.
+origin: spec-deferred 46a3dcf375ac
+location: convex/generations.ts (findReusableBrief, persistDerivedBrief)
+source_spec: `1-generation-brief-storage-and-derivation-stage.md`
+severity: medium
+reason: persistDerivedBrief unconditionally inserts a new generationBriefs row without re-checking for an existing row inside its own transaction; the reuse check (findReusableBrief) runs earlier, in a separate action call. Two concurrent first-time derivations for the same key could each pass that check before either persists, leaving MAX(version) reuse and saveEntryEdit's staleness check ambiguous between the two rows.
+status: open
+
+### DW-113: A glossary entry's stored text is the canonical term on the model-classified path but the raw matched surface form (e.g. an inflection) on the rule-matched path.
+origin: spec-deferred af6d193c1a41
+location: convex/lib/glossaryMatcher.ts, convex/ai/brief.ts
+source_spec: `1-generation-brief-storage-and-derivation-stage.md`
+severity: low
+reason: matchGlossaryTermsAcrossSources stores the matched surface form as `text`; brief.ts's model-classification branch stores the canonical term instead. Pre-existing inconsistency, not introduced by this diff.
+status: open
+
+### DW-114: The I/O matrix's "3+ Transcripts reconciled" Confidence Map expectation has no corresponding instruction in the Brief system prompt.
+origin: spec-deferred b12a780b1462
+location: convex/ai/brief.ts (BRIEF_SYSTEM_PROMPT)
+source_spec: `1-generation-brief-storage-and-derivation-stage.md`
+severity: low
+reason: BRIEF_SYSTEM_PROMPT gives generic established/partial/unresolved/ unreliable classification guidance with no instruction to reconcile disagreements across 3+ transcripts specifically. Plausible under the general instruction, but unverified by any prompt text or test.
+status: open
+
+### DW-115: UI surfaces for this story's backend: rendering drafted sections as they complete, a Stop button calling generations.stopOrderedGeneration, and the Compliance line/QA rail reading complianceNotes.list
+origin: spec-deferred f87855653e9d
+location: n/a
+source_spec: `2-ordered-ungated-generation-self-check-compliance.md`
+severity: medium
+reason: AD-25 names stories 4 and 5 as the readers of complianceNotes; story 4 (ui lane) owns the Brief panel and the "no Writer Profile applied" line. This story ships the stored rows, the one read query, the stop mutation and the drafted-section query those surfaces consume.
+status: open
+
+### DW-116: "Generate the rest" after a stop: a new generation carrying resumesGenerationId with the drafted sections as prior context (AD-24).
+origin: spec-deferred e1f7641f6342
+location: n/a
+source_spec: `2-ordered-ungated-generation-self-check-compliance.md`
+severity: medium
+reason: Needs a request surface and a generation-writer path through createGeneratedReportArtifacts; no caller exists until the stop UI ships. This story records stoppedAfterSection and renders [NOT GENERATED] placeholders so the resume path has a well-formed report to extend.
+status: open
+
+### DW-117: Writer Profile settings UI for buildOrder and selfCheckRules.
+origin: spec-deferred b432d002513d
+location: n/a
+source_spec: `2-ordered-ungated-generation-self-check-compliance.md`
+severity: low
+reason: Both fields are accepted by saveMyProfile/saveProfileForUser and read by generation here; story 3 (profile lane) owns profile fidelity and the settings-document path that populates them.
+status: open
+
+### DW-118: A Brief re-derivation re-inserts the previous version's "removed" and storylineQuestion rows as fresh change: "removed" markers, and renderBriefForGeneration (iterative sections and the one-shot ghost
+origin: spec-deferred 0243750d9cb3
+location: convex/generations.ts persistDerivedBrief, renderBriefForGeneration
+source_spec: `2-ordered-ungated-generation-self-check-compliance.md`
+severity: medium
+reason: persistDerivedBrief diffs against every previous-version row without filtering change === "removed" or group === "storylineQuestion", so markers accumulate across versions; renderBriefForGeneration filters by group only. Story 1 code (c3ba3fc). This story's ordered chain reads the Brief through loadBriefCheck, which now skips "removed" rows; the story 1 readers do not.
+status: open
+
+### DW-119: failStaleGenerations fails any non-iterative running generation 30 minutes after startedAt without checking whether its ordered chain is still progressing, so a slow but live chain can be reaped mid-f
+origin: spec-deferred c14bcf6ddcbd
+location: convex/generations.ts failStaleGenerations
+source_spec: `2-ordered-ungated-generation-self-check-compliance.md`
+severity: medium
+reason: The reaper (convex/crons.ts, every 10 minutes, olderThanMinutes 30) has per-section handling for iterative only. A single generation now runs generateReport, generateCandidate, three sequential section actions (up to five provider calls each, 240 s per attempt) and finalize. AD-24 binds recovery to the existing reaper and forbids a new one, so a progress-aware threshold is an architecture-level change.
+status: open
+
+### DW-120: A Brief-derivation failure inside generateReport is only logged with console.error, not the writer-facing progress log, so a silently Brief-less generation gives no visible signal of why.
+origin: spec-deferred 25ee33812071
+location: convex/ai/pipeline.ts generateReport (Brief-derivation catch block)
+source_spec: `2-ordered-ungated-generation-self-check-compliance.md`
+severity: low
+reason: convex/ai/pipeline.ts generateReport's deriveOrReuseBrief catch block predates this story (introduced in c3ba3fc, story 1) and is unchanged here; every other fallback in the same function (Build Order, Writer Profile) does call the progress-log helper. Pre-existing, not caused by this story's diff.
+status: open
+
+### DW-121: getOrderedSectionDrafts takes(30) on generationSectionRuns before filtering by candidateRunId, so a generation that has accumulated more than 30 section-run rows across many regenerations could have a
+origin: spec-deferred 62d5e0fedd8d
+location: convex/generations.ts getOrderedSectionDrafts
+source_spec: `2-ordered-ungated-generation-self-check-compliance.md`
+severity: low
+reason: convex/generations.ts getOrderedSectionDrafts queries by_generationId with .take(30) first, then filters by candidateRunId in memory. Not reachable under this story's own acceptance criteria or tests (a generation normally accumulates a handful of rows per candidate), and a correct fix needs a candidateRunId-first index strategy rather than a one-line change.
+status: open
+
+### DW-122: complianceNotes.listForGeneration takes(10) on generationCandidateRuns before matching the selected candidateId, so a generation that has accumulated more than 10 candidate runs across many regenerati
+origin: spec-deferred 5b48ffe75e42
+location: convex/complianceNotes.ts listForGeneration
+source_spec: `2-ordered-ungated-generation-self-check-compliance.md`
+severity: medium
+reason: convex/complianceNotes.ts queries by_generationId with .take(10) then Array.find()s by candidateId in memory — the same shape as the already-deferred getOrderedSectionDrafts .take(30) truncation above. Not reachable under this story's own acceptance criteria or tests; a correct fix needs a candidateRunId-first index rather than a one-line change.
+status: open
+
+### DW-123: In compare mode, two candidates can each independently insert a storylineQuestion row for the same Confidence Map entry into the generation's shared Brief; the row carries no candidateRunId to attribu
+origin: spec-deferred 1e44bdb1f444
+location: convex/generations.ts completeOrderedSectionRun
+source_spec: `2-ordered-ungated-generation-self-check-compliance.md`
+severity: medium
+reason: convex/generations.ts completeOrderedSectionRun inserts a generationBriefEntries "storylineQuestion" row per section whenever the model's Self-check verdict cites Confidence Map evidence, with no check for an existing row citing the same evidenceEntryId and no candidateRunId field on the insert. AD-23 names the mechanism but not compare-mode attribution. Not reachable under this story's own acceptance criteria or tests (the readers of this data are deferred to stories 4/5); a correct fix needs either a candidateRunId column or a dedup pass, not a one-line change.
+status: open
+
+### DW-124: Follow-up review still recommended for 2 after the damping cap was spent
+origin: review-budget-followup
+location: n/a
+source_spec: `2-ordered-ungated-generation-self-check-compliance.md`
+severity: low
+reason: The follow-up-review damping cap (limits.max_followup_reviews = 1) was spent with the story finalized (status: done, verify green) while the review pass still recommended an independent follow-up. The work was committed by bmad-loop run 20260910-135728-7834; this entry preserves the lingering recommendation for a deliberate later review.
+status: open

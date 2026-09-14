@@ -9,7 +9,7 @@ import {
   type QueryCtx,
 } from "./_generated/server";
 import { internal } from "./_generated/api";
-import { v } from "convex/values";
+import { v, type Infer } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import {
   getCurrentUserOrNull,
@@ -49,6 +49,20 @@ import {
   transcriptLabel,
   TRANSCRIPT_BUDGET_CHARS,
 } from "./lib/transcripts";
+import { validateCitation } from "./lib/citations";
+import { renderBriefBlock } from "./lib/briefRender";
+import {
+  complianceNoteDraftValidator,
+  complianceNoteRow,
+} from "./lib/complianceNote";
+import {
+  isSectionNumber,
+  orderedPayloadValidator,
+  sectionKeyOf,
+  sectionNumberValidator,
+  type SectionNumber,
+} from "./lib/orderedChain";
+import { ORDERED_SECTION_TITLES } from "./ai/promptDefinitions";
 
 // ─── Generation status helpers ───────────────────────────────────────────────
 
@@ -372,7 +386,11 @@ async function reserveGeneration(
   compareModelIds?: string[],
   retryOfGenerationId?: Id<"generations">,
   retryModelIds?: string[],
-  seededCandidates = 0
+  seededCandidates = 0,
+  // Story 1 (CAP-1/2/4): frozen verbatim as a `writer_storyline`
+  // generationSources row — never validated, parsed, or rejected — and used
+  // as-is by the Brief stage (origin "writer"). Excluded from `inputsHash`.
+  writerSuppliedStoryline?: string
 ) {
   // "Default" in single/iterative modes resolves to the admin-set default
   // model (appSettings), persisted here so retries reuse the same model even
@@ -508,6 +526,20 @@ async function reserveGeneration(
       capturedAt: now,
     });
   }
+  if (writerSuppliedStoryline?.trim()) {
+    const content = writerSuppliedStoryline.trim();
+    await ctx.db.insert("generationSources", {
+      generationId,
+      projectId: project._id,
+      kind: "writer_storyline",
+      label: "Writer-supplied Storyline",
+      content,
+      contentHash: await sha256(content),
+      truncated: false,
+      originalLength: content.length,
+      capturedAt: now,
+    });
+  }
   await ctx.db.patch(project._id, {
     activeGenerationId: generationId,
     status: "generating",
@@ -533,6 +565,9 @@ export const requestGeneration = mutation({
     singleModelId: v.optional(singleModelIdValidator),
     compareModelIds: v.optional(v.array(v.string())),
     confirmRegeneration: v.optional(v.boolean()),
+    // Story 1 (CAP-1/2/4): optional writer-supplied Storyline, frozen
+    // verbatim as a `writer_storyline` source and never validated.
+    writerSuppliedStoryline: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const { project, user } = await requireInternalProjectAccess(ctx, args.projectId);
@@ -555,7 +590,11 @@ export const requestGeneration = mutation({
       args.lengthTarget ?? "standard",
       candidateMode,
       validatedSingleModelId(candidateMode, args.singleModelId),
-      validatedCompareModelIds(candidateMode, args.compareModelIds)
+      validatedCompareModelIds(candidateMode, args.compareModelIds),
+      undefined,
+      undefined,
+      0,
+      args.writerSuppliedStoryline
     );
   },
 });
@@ -998,6 +1037,8 @@ export const claimCandidateRun = internalMutation({
       projectId: run.projectId,
       model: run.model,
       label: run.label,
+      // Story 2: non-ghost runs start the ordered chain; ghosts stay one-shot.
+      ghost: run.ghost ?? false,
     };
   },
 });
@@ -1071,16 +1112,33 @@ async function createGeneratedReportArtifacts(
   return reportId;
 }
 
+const completeCandidateRunArgs = v.object({
+  candidateRunId: v.id("generationCandidateRuns"),
+  content: v.optional(v.string()),
+  agentOutputs: v.optional(v.string()),
+  qaScore: v.optional(v.number()),
+  provenanceId: v.optional(v.id("reportProvenance")),
+  error: v.optional(v.string()),
+  // Story 2 (AD-24): the Build Order the ordered chain ran, and the section
+  // it stopped after when the writer stopped before the last section.
+  productionOrder: v.optional(v.array(sectionNumberValidator)),
+  stoppedAfterSection: v.optional(sectionNumberValidator),
+});
+
 export const completeCandidateRun = internalMutation({
-  args: {
-    candidateRunId: v.id("generationCandidateRuns"),
-    content: v.optional(v.string()),
-    agentOutputs: v.optional(v.string()),
-    qaScore: v.optional(v.number()),
-    provenanceId: v.optional(v.id("reportProvenance")),
-    error: v.optional(v.string()),
-  },
+  args: completeCandidateRunArgs.fields,
   handler: async (ctx, args) => {
+    await settleCandidateRun(ctx, args);
+  },
+});
+
+/** completeCandidateRun's body, shared with the ordered chain's failure path
+ * (failOrderedSectionRun) so a failed section fails its candidate the same
+ * way a failed one-shot run does. */
+async function settleCandidateRun(
+  ctx: MutationCtx,
+  args: Infer<typeof completeCandidateRunArgs>
+) {
     const run = await ctx.db.get(args.candidateRunId);
     if (!run || run.status !== "running") return;
     const generation = await ctx.db.get(run.generationId);
@@ -1175,6 +1233,20 @@ export const completeCandidateRun = internalMutation({
       return;
     }
 
+    // Story 2 (AD-24): stamp the production order (shared by every compare
+    // candidate, one Build Order per generation) and, for a stopped single
+    // chain, the section it stopped after. Compare candidates stop
+    // independently, so there the selected candidate's value is copied on
+    // selectReportCandidate instead.
+    const stampStop =
+      args.stoppedAfterSection !== undefined && generation.candidateMode === "single";
+    if (args.productionOrder || stampStop) {
+      await ctx.db.patch(generation._id, {
+        ...(args.productionOrder ? { productionOrder: args.productionOrder } : {}),
+        ...(stampStop ? { stoppedAfterSection: args.stoppedAfterSection } : {}),
+      });
+    }
+
     const runs = await ctx.db
       .query("generationCandidateRuns")
       .withIndex("by_generationId", (q) => q.eq("generationId", run.generationId))
@@ -1261,8 +1333,7 @@ export const completeCandidateRun = internalMutation({
       updatedAt: Date.now(),
     });
     await refreshProjectGenerationActivity(ctx, generation.projectId);
-  },
-});
+}
 
 /**
  * A generation going terminal must settle its in-flight candidate runs too:
@@ -1393,6 +1464,233 @@ export const saveIterativeArtifacts = internalMutation({
         });
       }
     }
+  },
+});
+
+// ─── Story 1 (CAP-1/2/4): Generation Brief internal helpers ────────────────
+// The stage itself (`convex/ai/brief.ts:deriveOrReuseBrief`) is a plain
+// "use node" helper called directly from `pipeline.ts`/`iterative.ts` (same
+// pattern as `runAnalyzerAgent`) — not a registered Convex function, so it
+// never needs an `internal.ai.brief.*` reference. These are its only reads
+// and writes; they live here (an already-registered, non-node module) so a
+// stale `_generated/api.d.ts` never has to learn a brand-new file to
+// typecheck. `deriveOrReuseBrief` and `briefs.saveEntryEdit` are the only two
+// writers of `generationBriefs`/`generationBriefEntries` (AD-23).
+
+/** The frozen `generationSources` rows a Brief derivation reads. */
+export const getGenerationSourcesForBrief = internalQuery({
+  args: { generationId: v.id("generations") },
+  handler: async (ctx, args) => {
+    return await ctx.db
+      .query("generationSources")
+      .withIndex("by_generationId", (q) => q.eq("generationId", args.generationId))
+      .take(200);
+  },
+});
+
+/** MAX(version) Brief for (projectId, inputsHash), regardless of origin — a
+ * writer-edited version is reused too (CAP-4: "the next generation with the
+ * same inputsHash reuses that version"). */
+export const findReusableBrief = internalQuery({
+  args: { projectId: v.id("projects"), inputsHash: v.string() },
+  handler: async (ctx, args) => {
+    return await ctx.db
+      .query("generationBriefs")
+      .withIndex("by_projectId_and_inputsHash", (q) =>
+        q.eq("projectId", args.projectId).eq("inputsHash", args.inputsHash)
+      )
+      .order("desc")
+      .first();
+  },
+});
+
+/** Reuse path: stamp the reused Brief onto this generation. No new version,
+ * no model call. */
+export const stampGenerationBriefId = internalMutation({
+  args: { generationId: v.id("generations"), briefId: v.id("generationBriefs") },
+  handler: async (ctx, args) => {
+    await ctx.db.patch(args.generationId, { briefId: args.briefId });
+  },
+});
+
+const briefEntryGroupValidator = v.union(
+  v.literal("storyline"),
+  v.literal("claimExclusion"),
+  v.literal("confidenceMap"),
+  v.literal("glossaryTerm")
+);
+const briefEntryReasonValidator = v.union(
+  v.literal("business_risk"),
+  v.literal("routine_engineering"),
+  v.literal("outside_claim_period"),
+  v.literal("not_technological")
+);
+const briefEntryConfidenceValidator = v.union(
+  v.literal("established"),
+  v.literal("partial"),
+  v.literal("unresolved"),
+  v.literal("unreliable")
+);
+const briefCandidateEntryValidator = v.object({
+  group: briefEntryGroupValidator,
+  text: v.string(),
+  reason: v.optional(briefEntryReasonValidator),
+  confidence: v.optional(briefEntryConfidenceValidator),
+  sourceId: v.id("generationSources"),
+  sourceContentHash: v.string(),
+  startOffset: v.number(),
+  endOffset: v.number(),
+  exactExcerpt: v.string(),
+});
+
+/**
+ * New-derivation path: re-validates every candidate entry's citation against
+ * the live frozen source (defense in depth — the caller already validated
+ * against the same in-memory sources), drops failures and counts them,
+ * inserts the new `generationBriefs` version, diffs against the project's
+ * previous Brief (any inputsHash) by `(group, sourceContentHash,
+ * startOffset, endOffset)` and stamps `change` on every entry — including a
+ * "removed" marker row for anything the previous version had that this one
+ * doesn't — then stamps `briefId` on the generation.
+ */
+export const persistDerivedBrief = internalMutation({
+  args: {
+    projectId: v.id("projects"),
+    generationId: v.id("generations"),
+    inputsHash: v.string(),
+    origin: v.union(v.literal("writer"), v.literal("derived")),
+    storylineText: v.string(),
+    entries: v.array(briefCandidateEntryValidator),
+    // Entries the caller already dropped before reaching here (its own
+    // citeQuote pass never found a byte-match — see `brief.ts`). Added to
+    // whatever this mutation's own re-validation additionally drops, so
+    // `droppedEntryCount` reflects every entry the model proposed that never
+    // made it into the Brief.
+    upstreamDroppedEntryCount: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    let droppedEntryCount = args.upstreamDroppedEntryCount ?? 0;
+    const validatedEntries: Array<
+      (typeof args.entries)[number]
+    > = [];
+    for (const entry of args.entries) {
+      const source = await ctx.db.get(entry.sourceId);
+      // Tenant-scoping parity with reports.createProvenance (convex/reports.ts:108-118):
+      // a citation must resolve to a source belonging to this project and generation,
+      // not just pass the byte-match check.
+      if (
+        !source ||
+        source.projectId !== args.projectId ||
+        source.generationId !== args.generationId ||
+        !validateCitation(source, entry)
+      ) {
+        droppedEntryCount += 1;
+        continue;
+      }
+      validatedEntries.push(entry);
+    }
+
+    // The project's previous Brief (any inputsHash) — the diff baseline.
+    const previousBrief = await ctx.db
+      .query("generationBriefs")
+      .withIndex("by_projectId", (q) => q.eq("projectId", args.projectId))
+      .order("desc")
+      .first();
+    const previousEntries = previousBrief
+      ? await ctx.db
+          .query("generationBriefEntries")
+          .withIndex("by_briefId", (q) => q.eq("briefId", previousBrief._id))
+          .take(500)
+      : [];
+    const diffKey = (e: {
+      group: string;
+      sourceContentHash: string;
+      startOffset: number;
+      endOffset: number;
+    }) => `${e.group}|${e.sourceContentHash}|${e.startOffset}|${e.endOffset}`;
+    const previousByKey = new Map(previousEntries.map((e) => [diffKey(e), e]));
+
+    const briefId = await ctx.db.insert("generationBriefs", {
+      projectId: args.projectId,
+      generationId: args.generationId,
+      inputsHash: args.inputsHash,
+      version: 1,
+      origin: args.origin,
+      storylineText: args.storylineText,
+      droppedEntryCount,
+      createdAt: Date.now(),
+    });
+
+    for (const entry of validatedEntries) {
+      const key = diffKey(entry);
+      const change = !previousBrief
+        ? undefined
+        : previousByKey.has(key)
+          ? ("unchanged" as const)
+          : ("added" as const);
+      previousByKey.delete(key);
+      await ctx.db.insert("generationBriefEntries", {
+        briefId,
+        projectId: args.projectId,
+        group: entry.group,
+        text: entry.text,
+        reason: entry.reason,
+        confidence: entry.confidence,
+        sourceId: entry.sourceId,
+        sourceContentHash: entry.sourceContentHash,
+        startOffset: entry.startOffset,
+        endOffset: entry.endOffset,
+        exactExcerpt: entry.exactExcerpt,
+        change,
+        createdAt: Date.now(),
+      });
+    }
+    // Whatever's left in previousByKey existed before and doesn't now.
+    for (const removed of previousByKey.values()) {
+      await ctx.db.insert("generationBriefEntries", {
+        briefId,
+        projectId: args.projectId,
+        group: removed.group,
+        text: removed.text,
+        reason: removed.reason,
+        confidence: removed.confidence,
+        sourceId: removed.sourceId,
+        sourceContentHash: removed.sourceContentHash,
+        startOffset: removed.startOffset,
+        endOffset: removed.endOffset,
+        exactExcerpt: removed.exactExcerpt,
+        change: "removed",
+        createdAt: Date.now(),
+      });
+    }
+
+    await ctx.db.patch(args.generationId, { briefId });
+    return briefId;
+  },
+});
+
+/** The stored Brief rendered as an AD-11 delimited data block, ready to
+ * append to a section prompt. "" when the generation has no Brief yet. */
+export const renderBriefForGeneration = internalQuery({
+  args: { generationId: v.id("generations") },
+  handler: async (ctx, args) => {
+    const generation = await ctx.db.get(args.generationId);
+    if (!generation?.briefId) return "";
+    const brief = await ctx.db.get(generation.briefId);
+    if (!brief) return "";
+    const entries = await ctx.db
+      .query("generationBriefEntries")
+      .withIndex("by_briefId", (q) => q.eq("briefId", brief._id))
+      .take(500);
+    return renderBriefBlock(
+      brief.storylineText,
+      // The same filter `loadBriefCheck` applies, so both prompt readers
+      // render exactly the same rows: a re-derivation's change: "removed"
+      // markers are history for the diff UI, not guidance in force.
+      entries.filter(
+        (e) => e.group !== "storylineQuestion" && e.change !== "removed"
+      )
+    );
   },
 });
 
@@ -2380,36 +2678,146 @@ export const setGenerationEstimate = internalMutation({
 });
 
 
+/** Page size for the running-generation scan: one page of `generations` in
+ * "running" older than the cutoff per transaction. Tests override it through
+ * `pageSize`. */
+export const STALE_GENERATION_SCAN_PAGE_SIZE = 100;
+
+/** The one `staleGenerationScans` row: the scan owner record. */
+const STALE_SCAN_KEY = "stale_generations";
+
+async function staleScanRecord(ctx: MutationCtx) {
+  return await ctx.db
+    .query("staleGenerationScans")
+    .withIndex("by_key", (q) => q.eq("key", STALE_SCAN_KEY))
+    .unique();
+}
+
+const staleScanResultValidator = v.object({
+  failed: v.number(),
+  orphanedRuns: v.number(),
+  scanned: v.number(),
+  isDone: v.boolean(),
+  projectSweepJobId: v.optional(v.id("_scheduled_functions")),
+  skipped: v.optional(
+    v.union(v.literal("scan_in_progress"), v.literal("stale_continuation"))
+  ),
+});
+type StaleScanResult = Infer<typeof staleScanResultValidator>;
+
 /**
  * Ops utility: mark generations stranded in "running"/"pending" (e.g. by the
  * pre-fanout 10-minute action death) as failed and free their projects.
  * `npx convex run generations:failStaleGenerations '{"olderThanMinutes":30}'`
+ *
+ * The running scan is paged (DW-119 review): live ordered chains stay in the
+ * `startedAt < cutoff` range while they progress, so a fixed first page could
+ * hide a stalled generation behind them on every cron run. Each invocation
+ * reads one bounded page and, when more remain, schedules itself with the
+ * continuation cursor and the same cutoff — the same single recovery owner,
+ * never a parallel reaper. Reserved rows, the orphaned-run sweep and the
+ * project sweep run once, on the first page only.
+ *
+ * Single owner across cron ticks: the `staleGenerationScans` singleton names
+ * the scan currently walking the range (a sequence number) and its pending
+ * continuation job. A cursorless (cron or manual) invocation inspects that
+ * job by id and, while it is pending or in progress, returns
+ * `skipped: "scan_in_progress"` without starting a second chain; otherwise
+ * (no job, or one that succeeded, failed or was canceled) it takes ownership
+ * with the next sequence number. Every page stores the job it schedules in
+ * the same transaction, and the last page clears it. A continuation page
+ * whose sequence number the singleton no longer names is stale and returns
+ * `skipped: "stale_continuation"` without reading or scheduling anything.
  */
 export const failStaleGenerations = internalMutation({
-  args: { olderThanMinutes: v.optional(v.number()) },
+  args: {
+    olderThanMinutes: v.optional(v.number()),
+    // Continuation pages only: the first page's cutoff (kept stable so the
+    // cursor stays valid for the same index range), where to resume, and the
+    // scan sequence number this page belongs to.
+    cutoff: v.optional(v.number()),
+    cursor: v.optional(v.union(v.string(), v.null())),
+    scan: v.optional(v.number()),
+    pageSize: v.optional(v.number()),
+  },
   // Declared so the function's type never depends on handler inference: the
-  // handler schedules a sibling function from this module, and inferring the
-  // return type through that reference would be circular.
-  returns: v.object({
-    failed: v.number(),
-    orphanedRuns: v.number(),
-    projectSweepJobId: v.id("_scheduled_functions"),
-  }),
-  handler: async (ctx, args) => {
-    const cutoff = Date.now() - (args.olderThanMinutes ?? 30) * 60 * 1000;
-    const reserved = await ctx.db
-      .query("generations")
-      .withIndex("by_status_and_startedAt", (q) =>
-        q.eq("status", "reserved").lt("startedAt", cutoff)
-      )
-      .take(100);
-    const running = await ctx.db
+  // handler schedules a sibling function from this module (and itself), and
+  // inferring the return type through that reference would be circular.
+  returns: staleScanResultValidator,
+  handler: async (ctx, args): Promise<StaleScanResult> => {
+    const cutoff =
+      args.cutoff ?? Date.now() - (args.olderThanMinutes ?? 30) * 60 * 1000;
+    const firstPage = args.cursor === undefined;
+    const skipped = (reason: "scan_in_progress" | "stale_continuation") => ({
+      failed: 0,
+      orphanedRuns: 0,
+      scanned: 0,
+      isDone: false,
+      skipped: reason,
+    });
+    const owner = await staleScanRecord(ctx);
+    let scan: number;
+    let ownerId: Id<"staleGenerationScans">;
+    if (firstPage) {
+      const continuation = owner?.continuationJobId
+        ? await ctx.db.system.get("_scheduled_functions", owner.continuationJobId)
+        : null;
+      if (
+        continuation &&
+        (continuation.state.kind === "pending" || continuation.state.kind === "inProgress")
+      ) {
+        return skipped("scan_in_progress");
+      }
+      // Take ownership: the next sequence number, no pending page yet.
+      scan = (owner?.scan ?? 0) + 1;
+      const now = Date.now();
+      if (owner) {
+        ownerId = owner._id;
+        await ctx.db.patch(owner._id, {
+          scan,
+          cutoff,
+          continuationJobId: undefined,
+          startedAt: now,
+          updatedAt: now,
+        });
+      } else {
+        ownerId = await ctx.db.insert("staleGenerationScans", {
+          key: STALE_SCAN_KEY,
+          scan,
+          cutoff,
+          startedAt: now,
+          updatedAt: now,
+        });
+      }
+    } else {
+      if (!owner || args.scan === undefined || owner.scan !== args.scan) {
+        return skipped("stale_continuation");
+      }
+      scan = args.scan;
+      ownerId = owner._id;
+    }
+    // A caller may shrink the page (tests) but never grow it past the bound.
+    const pageSize = Math.min(
+      Math.max(1, Math.floor(args.pageSize ?? STALE_GENERATION_SCAN_PAGE_SIZE)),
+      STALE_GENERATION_SCAN_PAGE_SIZE
+    );
+    // Reserved rows never stamp progress, so every one selected here is
+    // failed below and leaves the range: one page per cron run drains them.
+    const reserved = firstPage
+      ? await ctx.db
+          .query("generations")
+          .withIndex("by_status_and_startedAt", (q) =>
+            q.eq("status", "reserved").lt("startedAt", cutoff)
+          )
+          .take(100)
+      : [];
+    const runningPage = await ctx.db
       .query("generations")
       .withIndex("by_status_and_startedAt", (q) =>
         q.eq("status", "running").lt("startedAt", cutoff)
       )
-      .take(100);
-    const stale = [...reserved, ...running];
+      .paginate({ numItems: pageSize, cursor: args.cursor ?? null });
+    const stale = [...reserved, ...runningPage.page];
     let failed = 0;
     for (const generation of stale) {
       // Iterative generations in "running" mean ONE section is drafting; a
@@ -2455,6 +2863,21 @@ export const failStaleGenerations = internalMutation({
           failed += 1;
           continue;
         }
+      }
+      // DW-119 (progress-aware recovery): an ordered single/compare chain
+      // stamps lastProgressAt when a section run is created, claimed or
+      // drafted, so a slow but live chain is aged from its last progress,
+      // not from startedAt. A chain whose current action died (timeout,
+      // deploy restart) stops stamping and is failed here once the same
+      // window elapses from that last stamp — a single stuck action is still
+      // reaped. Iterative never stamps and keeps its per-section path above.
+      if (
+        generation.status === "running" &&
+        (generation.candidateMode ?? "compare") !== "iterative" &&
+        generation.lastProgressAt !== undefined &&
+        generation.lastProgressAt >= cutoff
+      ) {
+        continue;
       }
       failed += 1;
       await ctx.db.patch(generation._id, {
@@ -2502,6 +2925,31 @@ export const failStaleGenerations = internalMutation({
       await refreshProjectGenerationActivity(ctx, generation.projectId);
     }
 
+    if (!runningPage.isDone) {
+      // Failed rows have left the "running" range and live rows stay in it,
+      // but the cursor is an index position rather than an offset, so the
+      // next page resumes exactly after the last row read here. The owner
+      // record names the new page in the same transaction that schedules it.
+      const continuationJobId = await ctx.scheduler.runAfter(
+        0,
+        internal.generations.failStaleGenerations,
+        {
+          cutoff,
+          cursor: runningPage.continueCursor,
+          scan,
+          ...(args.pageSize !== undefined ? { pageSize } : {}),
+        }
+      );
+      await ctx.db.patch(ownerId, { continuationJobId, updatedAt: Date.now() });
+    } else {
+      // The scan's last page: release ownership.
+      await ctx.db.patch(ownerId, { continuationJobId: undefined, updatedAt: Date.now() });
+    }
+    const scanned = runningPage.page.length;
+    if (!firstPage) {
+      return { failed, orphanedRuns: 0, scanned, isDone: runningPage.isDone };
+    }
+
     // Also free projects orphaned in "generating" with no live generation —
     // e.g. the client dies between createProject and requestGeneration, or a
     // legacy failure predates the activeGenerationId cleanup. Without this the
@@ -2541,7 +2989,7 @@ export const failStaleGenerations = internalMutation({
       });
       orphanedRuns += 1;
     }
-    return { failed, orphanedRuns, projectSweepJobId };
+    return { failed, orphanedRuns, scanned, isDone: runningPage.isDone, projectSweepJobId };
   },
 });
 
@@ -2853,6 +3301,17 @@ export const getCandidates = query({
   },
 });
 
+/** The section an ordered candidate stopped after, from its agentOutputs. */
+function stoppedAfterSectionOf(agentOutputs: string): SectionNumber | undefined {
+  try {
+    const value = (JSON.parse(agentOutputs) as { stoppedAfterSection?: unknown })
+      ?.stoppedAfterSection;
+    return typeof value === "string" && isSectionNumber(value) ? value : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 export const selectReportCandidate = mutation({
   args: {
     generationId: v.id("generations"),
@@ -2908,6 +3367,8 @@ export const selectReportCandidate = mutation({
       status: "completed",
       currentStep: "Complete",
       agentOutputs: candidate.agentOutputs,
+      // Story 2 (AD-24): the selected candidate's own stop, if it stopped.
+      stoppedAfterSection: stoppedAfterSectionOf(candidate.agentOutputs),
       completedAt: now,
     });
     await refreshProjectGenerationActivity(ctx, generation.projectId);
@@ -3154,5 +3615,565 @@ export const getCandidateScoreSummary = query({
           chosen: score.model === chosenModel,
         })),
     };
+  },
+});
+
+
+// ─── Story 2: ordered, ungated section chain (single/compare, AD-24) ─────────
+//
+// generateCandidate (non-ghost) → createOrderedSectionRuns → one scheduled
+// ai/orderedGeneration.generateOrderedSection per section, fenced by
+// claimOrderedSectionRun's CAS → completeOrderedSectionRun schedules the next
+// section (or finalizeOrderedCandidate) atomically with its writes. No
+// approval gate: iterative's approveSectionDraft is never in this path, and
+// iterative generations never create these rows. A chain stalled between
+// sections is recovered by the existing failStaleGenerations reaper, which
+// ages the generation from lastProgressAt (DW-119) — stamped by the three
+// chain mutations below — rather than from startedAt.
+
+async function orderedRunsForCandidate(
+  ctx: { db: QueryCtx["db"] },
+  candidateRunId: Id<"generationCandidateRuns">
+) {
+  const rows = await ctx.db
+    .query("generationSectionRuns")
+    .withIndex("by_candidateRunId_and_section", (q) =>
+      q.eq("candidateRunId", candidateRunId)
+    )
+    .take(3);
+  return rows.sort((a, b) => (a.orderIndex ?? 0) - (b.orderIndex ?? 0));
+}
+
+async function orderedRunForSection(
+  ctx: { db: QueryCtx["db"] },
+  candidateRunId: Id<"generationCandidateRuns">,
+  section: SectionNumber
+) {
+  return await ctx.db
+    .query("generationSectionRuns")
+    .withIndex("by_candidateRunId_and_section", (q) =>
+      q.eq("candidateRunId", candidateRunId).eq("section", sectionKeyOf(section))
+    )
+    .unique();
+}
+
+function sectionNumberOfRow(row: Doc<"generationSectionRuns">): SectionNumber {
+  return row.section.slice(1) as SectionNumber;
+}
+
+function selfCheckStatusOf(selfCheck: string | undefined): string | null {
+  if (!selfCheck) return null;
+  try {
+    const parsed: unknown = JSON.parse(selfCheck);
+    return parsed && typeof parsed === "object" && "status" in parsed &&
+      typeof parsed.status === "string"
+      ? parsed.status
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+/** The CAS every chain write re-checks: a live non-ghost candidate run of a
+ * running generation that still owns its project's active pointer. */
+async function orderedChainFence(
+  ctx: MutationCtx,
+  generationId: Id<"generations">,
+  candidateRunId: Id<"generationCandidateRuns">
+) {
+  const run = await ctx.db.get(candidateRunId);
+  if (!run || run.ghost || run.status !== "running" || run.generationId !== generationId) {
+    return null;
+  }
+  const generation = await ctx.db.get(generationId);
+  if (!generation || generation.status !== "running") return null;
+  const project = await ctx.db.get(generation.projectId);
+  if (!project || project.activeGenerationId !== generation._id) return null;
+  return { run, generation, project };
+}
+
+/** One row per section in Build Order (first queued, rest pending), then the
+ * first section's action, scheduled atomically with the rows. */
+export const createOrderedSectionRuns = internalMutation({
+  args: {
+    generationId: v.id("generations"),
+    candidateRunId: v.id("generationCandidateRuns"),
+    payload: orderedPayloadValidator,
+  },
+  returns: v.boolean(),
+  handler: async (ctx, args): Promise<boolean> => {
+    const fence = await orderedChainFence(ctx, args.generationId, args.candidateRunId);
+    if (!fence) return false;
+    if ((fence.generation.candidateMode ?? "compare") === "iterative") return false;
+    const order = args.payload.orderedContext.buildOrder;
+    if (order.length === 0) return false;
+    if ((await orderedRunsForCandidate(ctx, fence.run._id)).length > 0) return false;
+    const now = Date.now();
+    for (const [index, section] of order.entries()) {
+      await ctx.db.insert("generationSectionRuns", {
+        generationId: fence.generation._id,
+        projectId: fence.generation.projectId,
+        section: sectionKeyOf(section),
+        status: index === 0 ? "queued" : "pending",
+        model: fence.run.model,
+        label: fence.run.label,
+        attempt: 1,
+        candidateRunId: fence.run._id,
+        orderIndex: index,
+        queuedAt: now,
+      });
+    }
+    await ctx.db.patch(fence.generation._id, {
+      progressLog: [
+        ...(fence.generation.progressLog ?? []),
+        `${fence.run.label}: drafting ${order.join(" → ")} in order; each section is Self-checked before it is shown.`,
+      ],
+      lastProgressAt: now,
+    });
+    await ctx.scheduler.runAfter(0, internal.ai.orderedGeneration.generateOrderedSection, {
+      generationId: args.generationId,
+      candidateRunId: args.candidateRunId,
+      section: order[0],
+      payload: args.payload,
+    });
+    return true;
+  },
+});
+
+/** The Brief a section is drafted with and checked against: the same rows
+ * renderBriefForGeneration renders into the prompt. */
+async function loadBriefCheck(
+  ctx: { db: QueryCtx["db"] },
+  generation: Doc<"generations">
+) {
+  const briefDoc = generation.briefId ? await ctx.db.get(generation.briefId) : null;
+  if (!briefDoc) return { briefBlock: "", brief: null };
+  const entries = (
+    await ctx.db
+      .query("generationBriefEntries")
+      .withIndex("by_briefId", (q) => q.eq("briefId", briefDoc._id))
+      .take(500)
+  ).filter(
+    // A re-derivation carries the previous version's dropped entries as
+    // change: "removed" markers for the diff; they are no longer in force.
+    (entry) => entry.group !== "storylineQuestion" && entry.change !== "removed"
+  );
+  return {
+    briefBlock: renderBriefBlock(briefDoc.storylineText, entries),
+    brief: {
+      storylineText: briefDoc.storylineText,
+      claimExclusions: entries
+        .filter((entry) => entry.group === "claimExclusion")
+        .map((entry) => ({
+          text: entry.text,
+          exactExcerpt: entry.exactExcerpt,
+          ...(entry.reason ? { reason: entry.reason } : {}),
+        })),
+      confidenceMap: entries
+        .filter((entry) => entry.group === "confidenceMap")
+        .map((entry) => ({
+          entryId: entry._id,
+          text: entry.text,
+          ...(entry.confidence ? { confidence: entry.confidence } : {}),
+        })),
+      glossaryTerms: entries
+        .filter((entry) => entry.group === "glossaryTerm")
+        .map((entry) => entry.text),
+    },
+  };
+}
+
+/** CAS claim of one queued section (row queued, candidate run running,
+ * generation running, project pointer matching). Returns this candidate's
+ * drafted prior sections in production order and the Brief it checks
+ * against, or null when the claim is stale. */
+export const claimOrderedSectionRun = internalMutation({
+  args: {
+    generationId: v.id("generations"),
+    candidateRunId: v.id("generationCandidateRuns"),
+    section: sectionNumberValidator,
+  },
+  handler: async (ctx, args) => {
+    const row = await orderedRunForSection(ctx, args.candidateRunId, args.section);
+    if (!row || row.status !== "queued" || row.generationId !== args.generationId) {
+      return null;
+    }
+    const fence = await orderedChainFence(ctx, args.generationId, args.candidateRunId);
+    if (!fence) return null;
+    const orderIndex = row.orderIndex ?? 0;
+    // Stopped between sections (AD-24): this section is never drafted and
+    // the action finalizes what was. The first section is always drafted, so
+    // a stopped generation still has something to assemble.
+    if (fence.generation.stopRequestedAt !== undefined && orderIndex > 0) {
+      await ctx.db.patch(row._id, { status: "pending" });
+      return { stopped: true as const };
+    }
+    const now = Date.now();
+    await ctx.db.patch(row._id, { status: "running", startedAt: now });
+    // DW-119: the claim is chain progress — the reaper's window restarts here.
+    await ctx.db.patch(fence.generation._id, { lastProgressAt: now });
+    const priorSections = (await orderedRunsForCandidate(ctx, fence.run._id))
+      .filter(
+        (prior) =>
+          prior.status === "drafted" &&
+          (prior.orderIndex ?? 0) < orderIndex &&
+          prior.draftText !== undefined
+      )
+      .map((prior) => ({
+        section: sectionNumberOfRow(prior),
+        text: prior.draftText ?? "",
+      }));
+
+    const { briefBlock, brief } = await loadBriefCheck(ctx, fence.generation);
+    return {
+      projectId: fence.generation.projectId,
+      model: row.model,
+      label: row.label,
+      requestedBy: fence.generation.requestedBy,
+      lengthTarget: fence.generation.lengthTarget ?? "standard",
+      orderIndex,
+      isFirstInOrder: orderIndex === 0,
+      priorSections,
+      briefBlock,
+      brief,
+    };
+  },
+});
+
+/** Persist one finished section (draft, metrics, Self-check summary, slot
+ * counts, its Compliance Note rows, at most one Storyline question) and
+ * schedule the next section — or finalize when the order is exhausted or the
+ * writer asked to stop. */
+export const completeOrderedSectionRun = internalMutation({
+  args: {
+    generationId: v.id("generations"),
+    candidateRunId: v.id("generationCandidateRuns"),
+    section: sectionNumberValidator,
+    draftText: v.string(),
+    metrics: v.string(),
+    selfCheck: v.string(),
+    slotCounts: v.string(),
+    notes: v.array(complianceNoteDraftValidator),
+    storylineQuestion: v.optional(
+      v.object({
+        question: v.string(),
+        sectionClaim: v.string(),
+        storylineAlternative: v.string(),
+        evidenceEntryId: v.id("generationBriefEntries"),
+      })
+    ),
+    payload: orderedPayloadValidator,
+  },
+  returns: v.boolean(),
+  handler: async (ctx, args): Promise<boolean> => {
+    const row = await orderedRunForSection(ctx, args.candidateRunId, args.section);
+    if (!row || row.status !== "running" || row.generationId !== args.generationId) {
+      return false;
+    }
+    const fence = await orderedChainFence(ctx, args.generationId, args.candidateRunId);
+    if (!fence) return false;
+    const now = Date.now();
+    await ctx.db.patch(row._id, {
+      status: "drafted",
+      draftText: args.draftText,
+      metrics: args.metrics,
+      selfCheck: args.selfCheck,
+      slotCounts: args.slotCounts,
+      error: undefined,
+      completedAt: now,
+    });
+    const owner = {
+      projectId: fence.generation.projectId,
+      generationId: fence.generation._id,
+      candidateRunId: fence.run._id,
+    };
+    for (const note of args.notes) {
+      // A section's rows belong to that section only.
+      if (note.section !== args.section) continue;
+      await ctx.db.insert("complianceNotes", complianceNoteRow(note, owner));
+    }
+    // AD-23/AD-25: the chain's one write outside complianceNotes. The
+    // question cites the Confidence Map entry the section's stronger evidence
+    // rests on, so it carries a byte-validated citation like every entry.
+    if (args.storylineQuestion && fence.generation.briefId) {
+      const evidence = await ctx.db.get(args.storylineQuestion.evidenceEntryId);
+      if (
+        evidence &&
+        evidence.briefId === fence.generation.briefId &&
+        evidence.group === "confidenceMap"
+      ) {
+        await ctx.db.insert("generationBriefEntries", {
+          briefId: evidence.briefId,
+          projectId: evidence.projectId,
+          group: "storylineQuestion",
+          text: args.storylineQuestion.sectionClaim,
+          sourceId: evidence.sourceId,
+          sourceContentHash: evidence.sourceContentHash,
+          startOffset: evidence.startOffset,
+          endOffset: evidence.endOffset,
+          exactExcerpt: evidence.exactExcerpt,
+          question: {
+            questionText: args.storylineQuestion.question,
+            alternativeText: args.storylineQuestion.storylineAlternative,
+          },
+          createdAt: now,
+        });
+      }
+    }
+    const status = selfCheckStatusOf(args.selfCheck);
+    // The intent's flag wording for a repair that did not clear the check.
+    const checkLabel =
+      status === "repair_failed"
+        ? "Self-check repair failed"
+        : `Self-check: ${status?.replace(/_/g, " ") ?? "recorded"}`;
+    await ctx.db.patch(fence.generation._id, {
+      progressLog: [
+        ...(fence.generation.progressLog ?? []),
+        `✓ ${fence.run.label}: ${ORDERED_SECTION_TITLES[args.section]} drafted (${checkLabel}).`,
+      ],
+      // DW-119: a drafted section (and the next one scheduled below) is
+      // chain progress; the reaper's window restarts here.
+      lastProgressAt: now,
+    });
+    const next = (await orderedRunsForCandidate(ctx, fence.run._id)).find(
+      (candidate) => (candidate.orderIndex ?? 0) === (row.orderIndex ?? 0) + 1
+    );
+    if (next && next.status === "pending" && fence.generation.stopRequestedAt === undefined) {
+      await ctx.db.patch(next._id, { status: "queued", queuedAt: now });
+      await ctx.scheduler.runAfter(0, internal.ai.orderedGeneration.generateOrderedSection, {
+        generationId: args.generationId,
+        candidateRunId: args.candidateRunId,
+        section: sectionNumberOfRow(next),
+        payload: args.payload,
+      });
+    } else {
+      await ctx.scheduler.runAfter(0, internal.ai.orderedGeneration.finalizeOrderedCandidate, {
+        generationId: args.generationId,
+        candidateRunId: args.candidateRunId,
+        payload: args.payload,
+      });
+    }
+    return true;
+  },
+});
+
+/** A section action failed outright: fail the section, mark the sections
+ * after it undrafted, and fail the candidate through completeCandidateRun's
+ * own body. */
+export const failOrderedSectionRun = internalMutation({
+  args: {
+    generationId: v.id("generations"),
+    candidateRunId: v.id("generationCandidateRuns"),
+    section: sectionNumberValidator,
+    error: v.string(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    // Fenced like every other chain write: a stale call (the candidate run,
+    // generation or project pointer already moved on) must not overwrite
+    // rows a newer owner may be writing; the reaper covers recovery instead.
+    const fence = await orderedChainFence(ctx, args.generationId, args.candidateRunId);
+    if (!fence) return null;
+    const now = Date.now();
+    for (const row of await orderedRunsForCandidate(ctx, fence.run._id)) {
+      if (row.generationId !== args.generationId) continue;
+      if (
+        row.section === sectionKeyOf(args.section) &&
+        (row.status === "running" || row.status === "queued")
+      ) {
+        await ctx.db.patch(row._id, {
+          status: "failed",
+          error: args.error.slice(0, 500),
+          completedAt: now,
+        });
+      } else if (row.status === "pending" || row.status === "queued") {
+        await ctx.db.patch(row._id, {
+          status: "failed",
+          error: "Not drafted: an earlier section failed.",
+          completedAt: now,
+        });
+      }
+    }
+    await settleCandidateRun(ctx, {
+      candidateRunId: args.candidateRunId,
+      error: `Line ${args.section} draft failed: ${args.error}`,
+    });
+    return null;
+  },
+});
+
+/** Store the consistency pass's rows once per candidate and stamp
+ * consistencyCheckedAt, which releases the last section to the writer. */
+export const insertConsistencyNotes = internalMutation({
+  args: {
+    generationId: v.id("generations"),
+    candidateRunId: v.id("generationCandidateRuns"),
+    notes: v.array(complianceNoteDraftValidator),
+  },
+  returns: v.boolean(),
+  handler: async (ctx, args): Promise<boolean> => {
+    const fence = await orderedChainFence(ctx, args.generationId, args.candidateRunId);
+    if (!fence || fence.run.consistencyCheckedAt !== undefined) return false;
+    const owner = {
+      projectId: fence.generation.projectId,
+      generationId: fence.generation._id,
+      candidateRunId: fence.run._id,
+    };
+    for (const note of args.notes) {
+      await ctx.db.insert("complianceNotes", complianceNoteRow(note, owner));
+    }
+    const now = Date.now();
+    await ctx.db.patch(fence.run._id, { consistencyCheckedAt: now });
+    const findings = args.notes.filter((note) => note.source === "model").length;
+    await ctx.db.patch(fence.generation._id, {
+      progressLog: [
+        ...(fence.generation.progressLog ?? []),
+        `✓ ${fence.run.label}: consistency pass over the assembled draft (${findings} finding(s)).`,
+      ],
+    });
+    return true;
+  },
+});
+
+/** Finalize input: this candidate's section rows in production order. */
+export const getOrderedCandidateDrafts = internalQuery({
+  args: {
+    generationId: v.id("generations"),
+    candidateRunId: v.id("generationCandidateRuns"),
+  },
+  handler: async (ctx, args) => {
+    const generation = await ctx.db.get(args.generationId);
+    const run = await ctx.db.get(args.candidateRunId);
+    if (!generation || !run || run.generationId !== generation._id) return null;
+    const rows = await orderedRunsForCandidate(ctx, run._id);
+    const { brief } = await loadBriefCheck(ctx, generation);
+    return {
+      model: run.model,
+      label: run.label,
+      runStatus: run.status,
+      brief,
+      stopRequested: generation.stopRequestedAt !== undefined,
+      consistencyCheckedAt: run.consistencyCheckedAt ?? null,
+      sections: rows.map((row) => ({
+        section: sectionNumberOfRow(row),
+        orderIndex: row.orderIndex ?? 0,
+        status: row.status,
+        draftText: row.draftText ?? null,
+        metrics: row.metrics ?? null,
+        selfCheck: row.selfCheck ?? null,
+        slotCounts: row.slotCounts ?? null,
+      })),
+    };
+  },
+});
+
+/**
+ * The writer stops an ungated single/compare generation (AD-24). Same auth
+ * and CAS on activeGenerationId as cancelIterativeGeneration. The section in
+ * progress finishes, no further section is scheduled, and the generation
+ * completes with stoppedAfterSection and [NOT GENERATED] bodies. Idempotent.
+ */
+export const stopOrderedGeneration = mutation({
+  args: { generationId: v.id("generations") },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const generation = await ctx.db.get(args.generationId);
+    if (!generation) domainError("NOT_FOUND", "Generation not found");
+    const { project } = await requireInternalProjectAccess(ctx, generation.projectId);
+    if ((generation.candidateMode ?? "compare") === "iterative") {
+      domainError(
+        "INVALID_STATE",
+        "Section-by-section generations are cancelled, not stopped"
+      );
+    }
+    if (project.activeGenerationId !== generation._id) {
+      domainError("STALE_REVISION", "This generation is no longer active");
+    }
+    if (generation.stopRequestedAt !== undefined) return null;
+    if (generation.status !== "reserved" && generation.status !== "running") {
+      domainError("INVALID_STATE", "This generation is no longer drafting");
+    }
+    await ctx.db.patch(generation._id, {
+      stopRequestedAt: Date.now(),
+      progressLog: [
+        ...(generation.progressLog ?? []),
+        "Stop requested: the section in progress finishes, then the draft is assembled.",
+      ],
+    });
+    return null;
+  },
+});
+
+/**
+ * Drafted sections of an ungated single/compare generation, in production
+ * order, for rendering sections as they complete. The last section in a
+ * candidate's order is withheld until that candidate's consistency pass is
+ * recorded (AD-24). Iterative generations have no ordered rows.
+ */
+export const getOrderedSectionDrafts = query({
+  args: {
+    generationId: v.id("generations"),
+    candidateRunId: v.optional(v.id("generationCandidateRuns")),
+  },
+  handler: async (ctx, args) => {
+    const generation = await ctx.db.get(args.generationId);
+    if (
+      !generation ||
+      !(await getInternalProjectAccessOrNull(ctx, generation.projectId))
+    ) {
+      return null;
+    }
+    if ((generation.candidateMode ?? "compare") === "iterative") return [];
+    const rows = (
+      await ctx.db
+        .query("generationSectionRuns")
+        .withIndex("by_generationId", (q) => q.eq("generationId", generation._id))
+        .take(30)
+    ).filter(
+      (row) =>
+        row.candidateRunId !== undefined &&
+        (args.candidateRunId === undefined || row.candidateRunId === args.candidateRunId)
+    );
+    const lastIndex = new Map<string, number>();
+    for (const row of rows) {
+      const key = row.candidateRunId as string;
+      lastIndex.set(key, Math.max(lastIndex.get(key) ?? -1, row.orderIndex ?? 0));
+    }
+    const checkedAt = new Map<string, number | undefined>();
+    const runStatus = new Map<string, string | undefined>();
+    for (const key of lastIndex.keys()) {
+      const run = await ctx.db.get(key as Id<"generationCandidateRuns">);
+      checkedAt.set(key, run?.consistencyCheckedAt);
+      runStatus.set(key, run?.status);
+    }
+    return rows
+      .filter((row) => row.status === "drafted" && row.draftText !== undefined)
+      .filter((row) => {
+        const key = row.candidateRunId as string;
+        // A failed candidate's earlier drafted sections are not a valid
+        // draft to show: the run never reached completion.
+        return runStatus.get(key) !== "failed";
+      })
+      .filter((row) => {
+        const key = row.candidateRunId as string;
+        return (
+          (row.orderIndex ?? 0) !== lastIndex.get(key) ||
+          checkedAt.get(key) !== undefined
+        );
+      })
+      .sort((a, b) =>
+        a.candidateRunId === b.candidateRunId
+          ? (a.orderIndex ?? 0) - (b.orderIndex ?? 0)
+          : String(a.candidateRunId) < String(b.candidateRunId)
+            ? -1
+            : 1
+      )
+      .map((row) => ({
+        candidateRunId: row.candidateRunId as Id<"generationCandidateRuns">,
+        section: sectionNumberOfRow(row),
+        orderIndex: row.orderIndex ?? 0,
+        text: row.draftText ?? "",
+        selfCheckStatus: selfCheckStatusOf(row.selfCheck),
+      }));
   },
 });

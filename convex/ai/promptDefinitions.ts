@@ -100,3 +100,163 @@ export const ITERATIVE_PROMPT_SCAFFOLDS = {
     "{{runtime.regenerationGuidance}}",
   ],
 } as const;
+
+// ─── Story 2 (CAP-5/9/10): ordered, ungated generation ──────────────────────
+
+/** Ordered chain (single/compare) section titles, by T661 line. */
+export const ORDERED_SECTION_TITLES = {
+  "242": "Line 242 — Uncertainty",
+  "244": "Line 244 — Work performed",
+  "246": "Line 246 — Advancement",
+} as const;
+
+export const ORDERED_PROMPT_SCAFFOLDS = {
+  // Drafted, not approved: nobody has reviewed these yet (ungated), so they
+  // are context for consistency, never canonical like iterative's approved
+  // sections.
+  draftedPriorSections: {
+    prefix:
+      "\n\n## Previously drafted sections (context: drafted earlier in this generation and not yet reviewed by the writer; keep terminology, chronology, figures and claims consistent with them, and do not repeat their content)\n",
+    itemTitlePrefix: "### ",
+    itemTitleSuffix: " (DRAFTED)\n",
+    separator: "\n\n",
+  },
+  repairGuidance: {
+    prefix:
+      "\n\n## Self-check repair (high priority)\nThe draft below failed its Self-check. Rewrite it to fix every issue listed and change nothing else: keep every supported technical claim, the paragraph structure, the length budget and the evidence rules. Hedge any fact the Confidence Map marks unresolved or unreliable; never state it flatly. Return ONLY the revised section text.\n\nIssues:\n",
+    issuePrefix: "- ",
+    issueSeparator: "\n",
+    draftPrefix: "\n\nDraft to revise:\n",
+  },
+  runtimeSentinels: [
+    "{{runtime.draftedPriorSections}}",
+    "{{runtime.selfCheckIssues}}",
+    "{{runtime.sectionDraft}}",
+  ],
+} as const;
+
+export const SELF_CHECK_REQUEST = {
+  roleOrder: ["system", "user"],
+  toolName: "submit_self_check",
+  toolDescription:
+    "Submit the Self-check verdicts for one drafted SR&ED section.",
+  maxTokens: 4096,
+  maxVerdicts: 30,
+  userScaffold: {
+    prefix:
+      "Run the Self-check on the drafted section below. Paragraphs are numbered [P1], [P2], ...; name the paragraph each verdict concerns (0 for the whole section).\n\n",
+    blockSeparator: "\n\n",
+    runtimeSentinels: [
+      "{{runtime.sectionDraft}}",
+      "{{runtime.storyline}}",
+      "{{runtime.confidenceMap}}",
+      "{{runtime.glossaryCandidates}}",
+      "{{runtime.writerInstructions}}",
+    ],
+  },
+  modelSelector: "candidate-model-or-default",
+} as const;
+
+const verdictOutcome = { type: "string", enum: ["applied", "not_applied"] } as const;
+
+export const SELF_CHECK_SCHEMA = {
+  type: "object",
+  properties: {
+    verdicts: {
+      type: "array",
+      maxItems: SELF_CHECK_REQUEST.maxVerdicts,
+      items: {
+        type: "object",
+        properties: {
+          paragraph: {
+            type: "integer",
+            description: "1-based paragraph ([P1] = 1); 0 when the verdict concerns the whole section.",
+          },
+          check: {
+            type: "string",
+            enum: ["storyline", "confidence", "glossary", "instruction"],
+          },
+          instruction: {
+            type: "string",
+            description:
+              "What was checked. For check=instruction, quote the writer instruction verbatim. For check=glossary, the Glossary Term.",
+          },
+          outcome: verdictOutcome,
+          reason: { type: "string" },
+          repairGuidance: {
+            type: "string",
+            description: "For not_applied only: one concrete fix a writer could follow.",
+          },
+        },
+        required: ["paragraph", "check", "instruction", "outcome", "reason"],
+      },
+    },
+    storylineQuestion: {
+      type: "object",
+      description:
+        "Only when the section contradicts the Storyline AND the section's evidence is stronger than the Storyline's basis. Never used as a repair reason.",
+      properties: {
+        question: { type: "string" },
+        sectionClaim: { type: "string", description: "What the section says, backed by the stronger evidence." },
+        confidenceEntry: {
+          type: "integer",
+          description: "The [C#] number of the Confidence Map entry the section's evidence rests on.",
+        },
+        storylineAlternative: { type: "string", description: "The Storyline wording the evidence supports instead." },
+      },
+      required: ["question", "sectionClaim", "confidenceEntry", "storylineAlternative"],
+    },
+  },
+  required: ["verdicts"],
+} as const;
+
+export const CONSISTENCY_REQUEST = {
+  roleOrder: ["system", "user"],
+  toolName: "submit_consistency_findings",
+  toolDescription:
+    "Submit the consistency findings for the assembled SR&ED draft.",
+  maxTokens: 4096,
+  maxFindings: 20,
+  userScaffold: {
+    prefix:
+      "Run the consistency pass over the assembled draft below. Paragraphs are numbered per section [P1], [P2], ...\n\n",
+    blockSeparator: "\n\n",
+    runtimeSentinels: [
+      "{{runtime.assembledDraft}}",
+      "{{runtime.claimExclusions}}",
+      "{{runtime.glossaryTerms}}",
+    ],
+  },
+  modelSelector: "candidate-model-or-default",
+} as const;
+
+const sectionEnum = { type: "string", enum: ["242", "244", "246"] } as const;
+
+export const CONSISTENCY_SCHEMA = {
+  type: "object",
+  properties: {
+    findings: {
+      type: "array",
+      maxItems: CONSISTENCY_REQUEST.maxFindings,
+      items: {
+        type: "object",
+        properties: {
+          section: { ...sectionEnum, description: "The section where the problem appears." },
+          paragraph: { type: "integer", description: "1-based paragraph in that section." },
+          sections: {
+            type: "array",
+            items: sectionEnum,
+            description: "Every section involved (the one that contradicts and the one contradicted).",
+          },
+          kind: {
+            type: "string",
+            enum: ["contradiction", "excluded_claim", "terminology"],
+          },
+          issue: { type: "string" },
+        },
+        required: ["section", "paragraph", "sections", "kind", "issue"],
+      },
+    },
+  },
+  required: ["findings"],
+} as const;

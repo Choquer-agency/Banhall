@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vitest";
 import { buildTiptapDocument, textToParagraphs, extractReportSections } from "./tiptapReport";
+import { NOT_GENERATED_PLACEHOLDER, sectionParagraphs } from "./tiptapReport";
 
 describe("textToParagraphs", () => {
   test("splits on blank lines and drops empty paragraphs", () => {
@@ -111,4 +112,40 @@ test("nested rich-text containers preserve actual section boundaries", () => {
   const doc = buildTiptapDocument("Title", "Uncertainty.", "Work.", "Knowledge.");
   const sections = extractReportSections(JSON.stringify({ type: "doc", content: [{ type: "blockquote", content: doc.content }] }));
   expect(sections).toEqual({ s242: "Uncertainty.\n\n", s244: "Work.\n\n", s246: "Knowledge.\n\n" });
+});
+
+// ─── Story 2 (AD-24): a stopped ordered generation keeps three headings ────
+
+describe("buildTiptapDocument for a stopped ordered generation", () => {
+  test("renders [NOT GENERATED] under each undrafted heading and keeps the three H2s", () => {
+    const doc = buildTiptapDocument("T", "uncertainty text", null, undefined);
+    expect(doc.content.map((node) => node.type)).toEqual([
+      "heading",
+      "heading",
+      "paragraph",
+      "horizontalRule",
+      "heading",
+      "paragraph",
+      "horizontalRule",
+      "heading",
+      "paragraph",
+    ]);
+    const paragraphText = (node: Record<string, unknown>) =>
+      (node.content as Array<{ text: string }>).map((part) => part.text).join("");
+    const paragraphs = doc.content.filter((node) => node.type === "paragraph");
+    expect(paragraphs.map(paragraphText)).toEqual([
+      "uncertainty text",
+      NOT_GENERATED_PLACEHOLDER,
+      NOT_GENERATED_PLACEHOLDER,
+    ]);
+    // A drafted-but-empty section is not an undrafted one.
+    const empty = buildTiptapDocument("T", "", "work", "adv");
+    expect(empty.content.filter((node) => node.type === "paragraph")).toHaveLength(2);
+  });
+
+  test("sectionParagraphs is exactly the split the editor document uses", () => {
+    const text = "first para\n\n  \n\nsecond\nsoft wrap\n\n\nthird";
+    expect(sectionParagraphs(text)).toEqual(["first para", "second\nsoft wrap", "third"]);
+    expect(textToParagraphs(text)).toHaveLength(sectionParagraphs(text).length);
+  });
 });

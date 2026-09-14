@@ -13,6 +13,12 @@ vi.mock("./providers", () => ({
 }));
 
 import { instrumentedAnthropic } from "./instrument";
+import {
+  GENERATION_CALL_SLOTS,
+  assertGenerationCallSite,
+  mergeSlotCounts,
+  summarizeSlotUsage,
+} from "./instrument";
 import { generateStructured } from "./structured";
 
 type HandoffOrder = "digest-union" | "provider" | "usage-scheduled";
@@ -95,7 +101,7 @@ describe("instrumentedAnthropic generation attribution", () => {
       .mockReturnValueOnce(146);
 
     const client = instrumentedAnthropic(ctx, {
-      callSite: "generation:candidate:242",
+      callSite: "generation:section:242",
       attribution: {
         generationId,
         candidateRunId,
@@ -115,7 +121,7 @@ describe("instrumentedAnthropic generation attribution", () => {
       generationId,
       candidateRunId,
       durationMs: 45,
-      callSite: "generation:candidate:242",
+      callSite: "generation:section:242",
       model: "claude-sonnet-5",
       inputTokens: 0,
       outputTokens: 0,
@@ -136,7 +142,7 @@ describe("instrumentedAnthropic generation attribution", () => {
     });
     const { ctx, runAfter } = fakeCtx();
     const client = instrumentedAnthropic(ctx, {
-      callSite: "generation:no-usage",
+      callSite: "generation:qa",
       attribution: {
         generationId: testId<"generations">("generation-no-usage"),
       },
@@ -171,7 +177,7 @@ describe("instrumentedAnthropic generation attribution", () => {
     const candidateRunId = testId<"generationCandidateRuns">("candidate-repair");
     const digestId = testId<"learningDigests">("digest-repair");
     const client = instrumentedAnthropic(ctx, {
-      callSite: "generation:candidate:analysis",
+      callSite: "generation:analyzer",
       attribution: {
         generationId,
         candidateRunId,
@@ -196,7 +202,7 @@ describe("instrumentedAnthropic generation attribution", () => {
       expect(event).toMatchObject({
         generationId,
         candidateRunId,
-        callSite: "generation:candidate:analysis",
+        callSite: "generation:analyzer",
       });
       if (
         !event ||
@@ -225,7 +231,7 @@ describe("instrumentedAnthropic generation attribution", () => {
     const { ctx, runAfter } = fakeCtx();
     const generationId = testId<"generations">("generation-invalid-output");
     const client = instrumentedAnthropic(ctx, {
-      callSite: "generation:post-qa",
+      callSite: "generation:post_qa",
       attribution: { generationId },
     });
 
@@ -268,7 +274,7 @@ describe("instrumentedAnthropic generation attribution", () => {
     const generationId = testId<"generations">("generation-failed-transport");
     const digestId = testId<"learningDigests">("digest-failed-transport");
     const client = instrumentedAnthropic(ctx, {
-      callSite: "generation:failed-transport",
+      callSite: "generation:chronology",
       attribution: { generationId, learningDigestIds: [digestId] },
     });
 
@@ -290,7 +296,7 @@ describe("instrumentedAnthropic generation attribution", () => {
     const { ctx, runAfter, runMutation } = fakeCtx();
     runMutation.mockRejectedValueOnce(new Error("digest union unavailable"));
     const client = instrumentedAnthropic(ctx, {
-      callSite: "generation:union-failure",
+      callSite: "generation:brief",
       attribution: {
         generationId: testId<"generations">("generation-union-failure"),
         learningDigestIds: [
@@ -411,5 +417,135 @@ describe("generation prefix caching at the SDK boundary", () => {
     } satisfies Anthropic.MessageCreateParamsNonStreaming;
     await client.messages.create(params);
     expect(providerCreate.mock.calls[0][0]).toEqual(params);
+  });
+});
+
+// ─── Story 2 (AD-27): named generation call slots ───────────────────────────
+
+// Every `generation:*` label written in the AI engine's source, so the test
+// follows the code instead of a copied list. Dynamic per-section labels
+// (`${section}`, `${key.slice(1)}`, `<n>`) expand to each T661 line.
+const engineSources = import.meta.glob(["./**/*.ts", "!./**/*.test.ts", "!./__fixtures__/**"], {
+  query: "?raw",
+  import: "default",
+  eager: true,
+}) as Record<string, string>;
+
+function emittedGenerationLabels(): string[] {
+  const labels = new Set<string>();
+  const pattern = /["'`](generation:[A-Za-z_]+(?::[^"'`\s]+)?)["'`]/g;
+  for (const source of Object.values(engineSources)) {
+    for (const match of source.matchAll(pattern)) {
+      const label = match[1];
+      if (/:(\$\{[^}]*\}|<n>)$/.test(label)) {
+        for (const line of ["242", "244", "246"]) {
+          labels.add(label.replace(/:(\$\{[^}]*\}|<n>)$/, `:${line}`));
+        }
+      } else {
+        labels.add(label);
+      }
+    }
+  }
+  return [...labels].sort();
+}
+
+describe("AD-27 generation call slots", () => {
+  it("accepts every generation label the engine emits", () => {
+    const emitted = emittedGenerationLabels();
+    // The scan must actually see the ordered chain's labels, not pass empty.
+    for (const expected of [
+      "generation:analyzer",
+      "generation:brief",
+      "generation:section:242",
+      "generation:selfCheck:244",
+      "generation:repair:246",
+      "generation:compression:242",
+      "generation:consistency",
+      "generation:qa",
+      "generation:chronology",
+      "generation:post_qa",
+    ]) {
+      expect(emitted).toContain(expected);
+    }
+    for (const label of emitted) {
+      expect(() => assertGenerationCallSite(label), label).not.toThrow();
+    }
+    for (const slot of GENERATION_CALL_SLOTS) {
+      expect(() => assertGenerationCallSite(`generation:${slot}`)).not.toThrow();
+    }
+  });
+
+  it("rejects an unknown generation:* label and leaves other prefixes alone", () => {
+    for (const label of [
+      "generation:candidate:242",
+      "generation:section:245",
+      "generation:selfcheck:242",
+      "generation:",
+    ]) {
+      expect(() => assertGenerationCallSite(label), label).toThrow(
+        /Unknown generation call slot/
+      );
+    }
+    for (const label of ["chat_v2", "learning:draft-style", "pd_review", "settings:style_analysis"]) {
+      expect(() => assertGenerationCallSite(label), label).not.toThrow();
+    }
+  });
+
+  it("refuses to build an instrumented client for an unknown generation slot", () => {
+    const providerCreate = vi.fn();
+    providerMocks.createAnthropicClient.mockReturnValue({
+      messages: { create: providerCreate },
+    });
+    const { ctx } = fakeCtx();
+    expect(() =>
+      instrumentedAnthropic(ctx, { callSite: "generation:unnamed-extra-call" })
+    ).toThrow(/Unknown generation call slot/);
+    expect(providerMocks.createAnthropicClient).not.toHaveBeenCalled();
+    expect(providerCreate).not.toHaveBeenCalled();
+  });
+
+  it("reports per-slot counts and every slot over its allowance", () => {
+    const summary = summarizeSlotUsage({
+      "generation:section:242": 1,
+      "selfCheck:242": 2,
+      "generation:repair:242": 1,
+      "compression:244": 2,
+      "generation:compression:246": 3,
+      consistency: 1,
+      qa: 1,
+      "generation:brief": 2,
+      "generation:chronology": 0,
+    });
+    expect(summary.counts).toEqual({
+      "section:242": 1,
+      "selfCheck:242": 2,
+      "repair:242": 1,
+      "compression:244": 2,
+      "compression:246": 3,
+      consistency: 1,
+      qa: 1,
+      brief: 2,
+    });
+    expect(summary.overrun).toEqual(["brief", "compression:246", "selfCheck:242"]);
+    expect(summarizeSlotUsage({ "section:244": 1, "selfCheck:244": 1, consistency: 1 }).overrun).toEqual([]);
+  });
+
+  it("sums the section rows' counts with the finalize action's own", () => {
+    const merged = mergeSlotCounts(
+      { "section:242": 1, "selfCheck:242": 1 },
+      { "section:244": 1, "selfCheck:244": 1, "repair:244": 1 },
+      { consistency: 1, qa: 1, chronology: 1, "section:242": 1 }
+    );
+    expect(merged).toEqual({
+      "section:242": 2,
+      "selfCheck:242": 1,
+      "section:244": 1,
+      "selfCheck:244": 1,
+      "repair:244": 1,
+      consistency: 1,
+      qa: 1,
+      chronology: 1,
+    });
+    expect(summarizeSlotUsage(merged).overrun).toEqual(["section:242"]);
   });
 });

@@ -8,6 +8,8 @@ import {
   RESERVED_NON_REQUEST_MS,
   CONVEX_ACTION_LIMIT_MS,
 } from "./providers";
+import { ORDERED_SECTION_ACTION_SLOTS } from "./providers";
+import { COMPRESSION_REQUEST } from "./promptDefinitions";
 
 describe("normalizeProviderError", () => {
   it("keeps bounded raw text for an unclassified provider failure", () => {
@@ -84,5 +86,33 @@ describe("createAnthropicClient", () => {
     const client = createAnthropicClient("generation");
     expect(client.maxRetries).toBe(ANTHROPIC_MAX_RETRIES);
     expect(client.timeout).toBe(ANTHROPIC_TIMEOUT_MS);
+  });
+});
+
+// Story 2 (AD-24): single/compare sections run as separate scheduled actions;
+// each one's worst case must stay inside the same five-slot bound, and the
+// per-slot budget arithmetic above is unchanged by the split.
+describe("ordered section action budget (AD-24/AD-27)", () => {
+  it("worst case is one draft + the compression squeezes + one Self-check + one repair", () => {
+    expect(ORDERED_SECTION_ACTION_SLOTS).toEqual({
+      section: 1,
+      compression: COMPRESSION_REQUEST.squeezes.length,
+      selfCheck: 1,
+      repair: 1,
+    });
+    const worstCase =
+      ORDERED_SECTION_ACTION_SLOTS.section +
+      ORDERED_SECTION_ACTION_SLOTS.compression +
+      ORDERED_SECTION_ACTION_SLOTS.selfCheck +
+      ORDERED_SECTION_ACTION_SLOTS.repair;
+    expect(worstCase).toBe(1 + COMPRESSION_REQUEST.squeezes.length + 1 + 1);
+    expect(worstCase).toBe(SEQUENTIAL_CALLS_PER_GENERATE_CANDIDATE);
+  });
+
+  it("keeps the per-action slot arithmetic: one slot, every attempt plus the reserve, fits the action", () => {
+    const attempts = ANTHROPIC_MAX_RETRIES + 1;
+    expect(attempts * ANTHROPIC_TIMEOUT_MS + RESERVED_NON_REQUEST_MS).toBeLessThan(
+      CONVEX_ACTION_LIMIT_MS
+    );
   });
 });

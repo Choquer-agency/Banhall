@@ -14,12 +14,20 @@ const REPORT_BLOCK_TYPES = new Set([
   "orderedList", "table", "tableRow", "tableCell", "tableHeader", "horizontalRule",
 ]);
 
+/** Body of a section the chain never drafted (AD-24 stop): keeps AD-8's
+ * three-heading contract while making the gap explicit to editor and export. */
+export const NOT_GENERATED_PLACEHOLDER = "[NOT GENERATED]";
+
+/** The one paragraph split shared by the editor document and Self-check
+ * paragraph indices: blank-line separated, empty paragraphs dropped. */
+export function sectionParagraphs(text: string): string[] {
+  return text.split(/\n[^\S\n]*\n+/).filter((p) => p.trim());
+}
+
 /** Split section prose into Tiptap paragraph nodes, highlighting [GAP: …]
  * markers so the editor renders them as fill-me-in prompts. */
 export function textToParagraphs(text: string): Array<Record<string, unknown>> {
-  return text
-    .split(/\n[^\S\n]*\n+/)
-    .filter((p) => p.trim())
+  return sectionParagraphs(text)
     .map((p) => {
       const parts: Array<Record<string, unknown>> = [];
       let lastIndex = 0;
@@ -49,16 +57,30 @@ export function textToParagraphs(text: string): Array<Record<string, unknown>> {
     });
 }
 
+function sectionBody(text: string | null | undefined): Array<Record<string, unknown>> {
+  if (text === null || text === undefined) {
+    return [
+      {
+        type: "paragraph",
+        content: [{ type: "text", text: NOT_GENERATED_PLACEHOLDER }],
+      },
+    ];
+  }
+  return textToParagraphs(text);
+}
+
 /**
  * Build a Tiptap-compatible JSON document from the three section texts.
  * The exact heading strings are load-bearing: parseCanonicalReport
  * (src/lib/reportSections.ts) matches them to recover sections for export.
+ * A null/undefined section (never drafted — a stopped ordered generation)
+ * renders one `[NOT GENERATED]` paragraph under its heading.
  */
 export function buildTiptapDocument(
   title: string,
-  section242: string,
-  section244: string,
-  section246: string
+  section242: string | null | undefined,
+  section244: string | null | undefined,
+  section246: string | null | undefined
 ) {
   const content: Array<Record<string, unknown>> = [];
 
@@ -79,7 +101,7 @@ export function buildTiptapDocument(
       },
     ],
   });
-  content.push(...textToParagraphs(section242));
+  content.push(...sectionBody(section242));
 
   // Section 244
   content.push({ type: "horizontalRule" });
@@ -88,7 +110,7 @@ export function buildTiptapDocument(
     attrs: { level: 2 },
     content: [{ type: "text", text: "Line 244 — Work Performed" }],
   });
-  content.push(...textToParagraphs(section244));
+  content.push(...sectionBody(section244));
 
   // Section 246
   content.push({ type: "horizontalRule" });
@@ -102,7 +124,7 @@ export function buildTiptapDocument(
       },
     ],
   });
-  content.push(...textToParagraphs(section246));
+  content.push(...sectionBody(section246));
 
   return { type: "doc", content };
 }
