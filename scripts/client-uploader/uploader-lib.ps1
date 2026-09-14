@@ -70,6 +70,200 @@ function Test-UnderOneDrive([string]$root) {
     return "no"
 }
 
+# Path segments of an absolute path, separator-agnostic, without the empty
+# segments a leading "\\" or "/" produces. A drive letter ("C:") is dropped
+# only when it is the FIRST segment: a folder literally named "X:" deeper in
+# a Mac path is a folder.
+function Get-RootSegments([string]$abs) {
+    $segs = @(("$abs" -replace "\\", "/") -split "/" | Where-Object { $_ })
+    if ($segs.Count -gt 0 -and $segs[0] -match "^[A-Za-z]:$") {
+        if ($segs.Count -eq 1) { return @() }
+        $segs = @($segs[1..($segs.Count - 1)])
+    }
+    return $segs
+}
+
+# Index of the anchor segment in Get-RootSegments, or -1 when the path has
+# none. The anchor is the corpus root: any segment containing "applications"
+# (case-insensitive - clients name it "Applications", "1. Applications",
+# "Applications [2024]"). The LAST match wins, so an archive folder that
+# happens to sit above the live corpus does not steal the anchor.
+function Get-RootAnchorIndex([string]$abs) {
+    # @(): a one-segment path comes off the pipeline as a string, and indexing
+    # a string walks its characters.
+    $segs = @(Get-RootSegments $abs)
+    $last = -1
+    for ($i = 0; $i -lt $segs.Count; $i++) {
+        if ($segs[$i] -like "*applications*") { $last = $i }
+    }
+    return $last
+}
+
+# The "Client/Fiscal year/…/" prefix every relative path under $abs must carry
+# so the server reads the right first two segments, whatever folder the user
+# chose. Rebuilt from the root's own absolute path: the segments after the
+# anchor, joined with "/" and ending in "/". The Applications folder itself
+# yields "" (rels and dedupe keys unchanged for existing corpus uploads). A
+# path with no anchor also yields "": the root is treated as the corpus folder
+# itself, which is what every run did before this helper existed, so a
+# remembered corpus root not named Applications keeps its labels and dedupe
+# keys. Get-UploadRefusal is what stops the run when that assumption is wrong.
+function Get-RootPrefix([string]$abs) {
+    $segs = @(Get-RootSegments $abs)
+    $last = Get-RootAnchorIndex $abs
+    $tail = @()
+    if ($last -ge 0 -and $last -lt ($segs.Count - 1)) {
+        $tail = @($segs[($last + 1)..($segs.Count - 1)])
+    }
+    if ($tail.Count -eq 0) { return "" }
+    return (($tail -join "/") + "/")
+}
+
+# Segments of a relative path counted the way the server's sanitizeRelPath
+# counts them (convex/lib/ingestionClassify.ts): backslashes become slashes,
+# each segment is trimmed, and empty, "." and ".." segments are dropped.
+function Get-RelSegments([string]$rel) {
+    return @(("$rel" -replace "\\", "/") -split "/" | ForEach-Object { "$_".Trim() } |
+        Where-Object { $_ -and $_ -ne "." -and $_ -ne ".." })
+}
+
+# The separator a path was written with, so guidance built from it keeps the
+# shape the user typed or pasted. Not Join-Path: that validates the drive, and
+# the harness host has no "C:".
+function Get-PathSeparator([string]$path) {
+    if ("$path".Contains("\")) { return "\" }
+    return "/"
+}
+
+# How many "Labels:" rows the scan prints before collapsing the rest into one
+# "(and N more)" line: enough to confirm a pick, short enough for one screen.
+function Get-LabelRowCap { return 5 }
+
+# What the server will label each file with, tallied as {Label, Count} rows
+# over the first two rel segments ("Client / Fiscal year"), biggest first, ties
+# broken by label (Sort-Object: culture-aware, case-insensitive). $top caps the
+# rows; 0 or less keeps all of them. A rel with fewer than three segments has
+# no fiscal-year folder; it is counted under a fixed label so no document name
+# is ever printed.
+function Get-LabelSummary($rels, [int]$top = (Get-LabelRowCap)) {
+    $tally = @{}
+    foreach ($rel in @($rels)) {
+        if ($null -eq $rel) { continue }
+        $segs = Get-RelSegments $rel
+        $label = "(missing Client/Fiscal year folders)"
+        if ($segs.Count -ge 3) { $label = "$($segs[0]) / $($segs[1])" }
+        if ($tally.ContainsKey($label)) { $tally[$label] = $tally[$label] + 1 } else { $tally[$label] = 1 }
+    }
+    $ranked = @($tally.GetEnumerator() |
+        Sort-Object @{ Expression = { $_.Value }; Descending = $true }, @{ Expression = { $_.Key }; Descending = $false })
+
+    $rows = New-Object System.Collections.Generic.List[object]
+    foreach ($bucket in $ranked) {
+        if ($top -gt 0 -and $rows.Count -ge $top) { break }
+        $rows.Add([pscustomobject]@{ Label = $bucket.Key; Count = $bucket.Value })
+    }
+    return $rows.ToArray()
+}
+
+# The label payloads printed under the found count and logged as LABELS
+# records: "Client / Fiscal year (N files)" for the top Get-LabelRowCap rows,
+# then "(and N more)" when there were more.
+function Get-LabelLines($rels) {
+    $cap = Get-LabelRowCap
+    $lines = New-Object System.Collections.Generic.List[string]
+    $rows = @(Get-LabelSummary $rels 0)
+    foreach ($row in $rows) {
+        if ($lines.Count -ge $cap) { break }
+        $noun = "files"
+        if ($row.Count -eq 1) { $noun = "file" }
+        $lines.Add("$($row.Label) ($($row.Count) $noun)")
+    }
+    if ($rows.Count -gt $cap) { $lines.Add("(and $($rows.Count - $cap) more)") }
+    return $lines.ToArray()
+}
+
+# The same payloads as screen lines: "Labels: " in front of each.
+function Format-LabelSummary($rels) {
+    return @(@(Get-LabelLines $rels) | ForEach-Object { "Labels: $_" })
+}
+
+# The pre-upload check for a root with no Applications folder above it. Such a
+# root is assumed to be the corpus folder (empty prefix); this is where that
+# assumption is tested against what the scan actually found. $null when the
+# rels look right; otherwise {Reason, Guidance}: Reason is one line for the
+# log, Guidance the lines to print, and neither ever holds a document name.
+#   - A FOLDER segment of a rel that matches the anchor pattern (never the
+#     last segment, which is the file) means the root sits above the
+#     Applications folder - one level ("Production - Documents" whose child
+#     is "1. Applications") or more. Every file would be labelled with the
+#     folders in between. Guidance names each such Applications folder by
+#     its full path, built with the root's own separator.
+#   - A rel with fewer than three segments has no fiscal-year folder: the
+#     server rejects a one-segment path outright; it accepts two but
+#     classifies with no fiscal year (docKind "unknown", pair key
+#     "Client::?"), which is a mislabelled row in the review queue.
+function Get-UploadRefusal($rels, [string]$root) {
+    $short = 0
+    $total = 0
+    $sep = Get-PathSeparator $root
+    $base = "$root".TrimEnd("\", "/")
+    $children = New-Object System.Collections.Generic.List[string]
+    $firstClient = ""
+    foreach ($rel in @($rels)) {
+        if ($null -eq $rel) { continue }
+        $total++
+        $segs = Get-RelSegments $rel
+        if ($segs.Count -lt 3) { $short++ }
+        # Folder segments only: the last segment is the file name.
+        for ($i = 0; $i -lt ($segs.Count - 1); $i++) {
+            if ($segs[$i] -like "*applications*") {
+                $child = $base + $sep + (@($segs[0..$i]) -join $sep)
+                if (-not $children.Contains($child)) { $children.Add($child) }
+                if (-not $firstClient) { $firstClient = $segs[0] }
+                break
+            }
+        }
+    }
+    if ($children.Count -gt 0) {
+        $guidance = New-Object System.Collections.Generic.List[string]
+        $guidance.Add("The folder you chose sits above your Applications folder, so every file would be labelled with the client ""$firstClient"".")
+        if ($children.Count -eq 1) {
+            $guidance.Add("Choose this folder instead: $($children[0])")
+        } else {
+            $guidance.Add("Choose one of these folders instead:")
+            foreach ($child in $children) { $guidance.Add("  $child") }
+        }
+        return [pscustomobject]@{
+            Reason   = "root sits above an Applications folder: $root ($($children.Count) found)"
+            Guidance = $guidance.ToArray()
+        }
+    }
+    if ($short -gt 0) {
+        return [pscustomobject]@{
+            Reason   = "$short of $total files under $root would be sent without Client and Fiscal-year folders"
+            Guidance = @(
+                "There is no ""Applications"" folder above the folder you chose, and $short of $total documents sit less than two folders below it, so they would arrive without a client or fiscal year.",
+                "Choose your Applications folder, or one client folder inside it, instead."
+            )
+        }
+    }
+    return $null
+}
+
+# The auto-detect probe: the folder to offer under a OneDrive root, or "".
+# Walks up to three levels; a folder named exactly "Applications" wins, else
+# the first folder whose name contains "applications" (so "1. Applications"
+# is offered too), matching the anchor rule in Get-RootAnchorIndex.
+function Get-ApplicationsGuess([string]$oneDriveRoot) {
+    if (-not $oneDriveRoot -or -not (Test-Path -LiteralPath $oneDriveRoot -PathType Container)) { return "" }
+    $dirs = @(Get-ChildItem -LiteralPath $oneDriveRoot -Directory -Recurse -Depth 2 -ErrorAction SilentlyContinue)
+    $exact = @($dirs | Where-Object { $_.Name -ieq "Applications" } | Select-Object -First 1)
+    if ($exact.Count -gt 0) { return $exact[0].FullName }
+    $loose = @($dirs | Where-Object { $_.Name -like "*applications*" } | Select-Object -First 1)
+    if ($loose.Count -gt 0) { return $loose[0].FullName }
+    return ""
+}
+
 # The $top most frequent extensions as {Extension, Count}, biggest first, ties
 # broken alphabetically so two runs of the same folder print the same block.
 # $top of 0 or less keeps all of them.

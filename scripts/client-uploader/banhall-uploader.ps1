@@ -9,10 +9,12 @@
 #   - Double-click Run-Uploader.bat  → auto-detects / asks for the folder.
 #   - DRAG one or more folders onto Run-Uploader.bat → scans exactly those
 #     folders (e.g. drag a client's "PDs", "Drafts", and "Supporting
-#     Documents" folders together). Uploaded paths are rebuilt relative to
-#     the "Applications" folder in each dropped folder's own location (full
-#     path if none), so Client/Fiscal year context — and dedupe against
-#     full-folder runs — is preserved no matter which subfolder is dragged.
+#     Documents" folders together).
+#
+# In every mode the uploaded paths are rebuilt relative to the "Applications"
+# folder in the chosen folder's own location (full path if none), so
+# Client/Fiscal year context — and dedupe against full-folder runs — is
+# preserved no matter which folder under Applications is chosen or dragged.
 #
 # Runs on the PowerShell built into Windows (5.1+). No installs needed.
 # Configuration comes from uploader-config.json next to this script.
@@ -93,17 +95,14 @@ function Pick-Folder([string]$start) {
 #
 # Drag-and-drop wins: folders dropped onto Run-Uploader.bat arrive here as
 # $Paths and are scanned as-is (the choice is not persisted — a plain
-# double-click later still uses the remembered root). Their uploaded paths
-# are rebuilt with full ancestry by Get-DropPrefix below.
+# double-click later still uses the remembered root).
 #
 # Otherwise: config "root" wins. Otherwise auto-detect the synced OneDrive
 # folder, look for an "Applications" folder up to 2 levels deep, confirm the
 # guess with the user, and let them pick the real folder if the guess is
 # wrong — we can't assume every machine's layout.
 $roots = @()
-$droppedMode = $false
 if ($Paths -and $Paths.Count -gt 0) {
-    $droppedMode = $true
     foreach ($p in $Paths) {
         $dropState = Test-RootUsable $p
         if ($dropState -eq "ok") {
@@ -129,7 +128,7 @@ if ($Paths -and $Paths.Count -gt 0) {
         Write-Host "Last time you scanned:"
         Write-Host "  $root"
         $again = Read-Host "Scan this folder again? (y = yes / c = choose a different folder)"
-        if ($again -notmatch "^[Yy]") { $root = Pick-Folder $root }
+        if ("$again" -notmatch "^[Yy]") { $root = Pick-Folder $root }
     } elseif ($rememberedState -eq "is_file") {
         # A remembered path that now names a file is a broken config, not a
         # folder to guess past: stop the same way a typed one does.
@@ -151,16 +150,15 @@ if ($Paths -and $Paths.Count -gt 0) {
             ForEach-Object { $_.FullName }
         foreach ($od in ($oneDriveRoots | Select-Object -Unique)) {
             $foundOneDrive = $od
-            $hit = Get-ChildItem -Path $od -Directory -Recurse -Depth 2 -ErrorAction SilentlyContinue |
-                Where-Object { $_.Name -ieq "Applications" } | Select-Object -First 1
-            if ($hit) { $guess = $hit.FullName; break }
+            $guess = Get-ApplicationsGuess $od
+            if ($guess) { break }
         }
 
         if ($guess) {
             Write-Host "Found a likely documents folder:"
             Write-Host "  $guess"
             $pick = Read-Host "Scan this folder? (y = yes / c = choose a different folder)"
-            if ($pick -match "^[Yy]") { $root = $guess }
+            if ("$pick" -match "^[Yy]") { $root = $guess }
             else { $root = Pick-Folder $guess }
         } elseif ($foundOneDrive) {
             Write-Host "Found your OneDrive at: $foundOneDrive"
@@ -201,29 +199,6 @@ foreach ($r in $roots) {
 Write-Host "  Uploading to:         $appUrl/ingestion/upload"
 Write-Host ""
 
-# The server derives clientName/fiscalYear from the first two path segments
-# (`Client/Fiscal year/…`) and dedupes by the full relative path. A dropped
-# folder therefore can't just contribute its leaf name — that would classify
-# every file under a client called "PDs" and collide across clients. Rebuild
-# the ancestry instead: anchor at the LAST "Applications" segment of the
-# dropped folder's own absolute path (the corpus root convention); if there
-# is none, fall back to the full path so rels stay unique and stable.
-function Get-DropPrefix([string]$abs) {
-    $segs = @(($abs -replace "\\", "/") -split "/" | Where-Object { $_ -and $_ -notmatch "^[A-Za-z]:$" })
-    $last = -1
-    for ($i = 0; $i -lt $segs.Count; $i++) {
-        if ($segs[$i] -ieq "Applications") { $last = $i }
-    }
-    $tail = if ($last -ge 0 -and $last -lt ($segs.Count - 1)) {
-        @($segs[($last + 1)..($segs.Count - 1)]) -join "/"
-    } elseif ($last -ge 0) {
-        ""  # the Applications folder itself was dropped
-    } else {
-        $segs -join "/"
-    }
-    if ($tail) { return "$tail/" } else { return "" }
-}
-
 # Log incrementally (UTF-8): a crash, Ctrl-C, or closed window mid-run must
 # not lose the record of what was already sent. The previous run's log is
 # cleared by the first line this run writes, inside the same try as the write:
@@ -251,23 +226,74 @@ function Write-Log([string]$line) {
 # cloud placeholders are kept (note: PS 5.1's -Recurse can still traverse
 # directory junctions — keep the corpus free of junction loops). Duplicate rels
 # (nested/overlapping drops) are uploaded once.
+#
+# The server reads clientName from the first path segment and fiscalYear from
+# the second (`Client/Fiscal year/…`): it rejects a one-segment path; it
+# accepts two but classifies the directory part alone, so the fiscal year is
+# undefined and the item lands as docKind "unknown" (pair key "Client::?");
+# three segments are what classification needs. A rel relative to the chosen
+# folder alone is therefore only right when that folder IS the Applications
+# folder. Get-RootPrefix rebuilds the
+# ancestry from the root's own absolute path in every mode (remembered,
+# chosen, dropped): a folder below the client level still sends
+# `Client/Fiscal year/…`, and the Applications folder itself yields an empty
+# prefix, so existing uploads keep their dedupe keys. A root with no
+# Applications folder above it also gets an empty prefix (it is taken to be
+# the corpus folder, as every run did before), and Get-UploadRefusal checks
+# that assumption against what the scan found before anything is sent.
 $entries = New-Object System.Collections.Generic.List[object]
 $seenRel = New-Object 'System.Collections.Generic.HashSet[string]'
 $scans = New-Object System.Collections.Generic.List[object]
+$refusals = New-Object System.Collections.Generic.List[object]
+$unanchored = New-Object System.Collections.Generic.List[string]
 foreach ($r in $roots) {
-    $prefix = if ($droppedMode) { Get-DropPrefix $r } else { "" }
+    $prefix = Get-RootPrefix $r
     $scan = Get-UploadCandidates $r $allowedExt
     $scans.Add([pscustomobject]@{ Root = $r; Scan = $scan })
+    $rootRels = New-Object System.Collections.Generic.List[string]
     foreach ($f in $scan.Candidates) {
         $rel = $prefix + ($f.FullName.Substring($r.Length).TrimStart("\", "/") -replace "\\", "/")
+        $rootRels.Add($rel)
         if ($seenRel.Add($rel)) {
             $entries.Add([pscustomobject]@{ File = $f; Rel = $rel })
         }
+    }
+    if ((Get-RootAnchorIndex $r) -lt 0) {
+        $refusal = Get-UploadRefusal $rootRels.ToArray() $r
+        if ($refusal) { $refusals.Add($refusal) } else { $unanchored.Add($r) }
     }
 }
 $entries = $entries | Sort-Object Rel
 
 Write-Host ("Found {0} document(s) (.docx/.doc/.pdf/.txt/.vtt)." -f @($entries).Count)
+
+# Show what the server will label the files with before asking for a y: the
+# client and fiscal-year folders with a count, never a document name. The same
+# lines go to the log so a mislabelled batch can be traced to the run.
+foreach ($line in @(Get-LabelLines @(@($entries) | ForEach-Object { $_.Rel }))) {
+    Write-Host ("  Labels: " + $line)
+    Write-Log ("LABELS`t" + $line)
+}
+foreach ($r in $unanchored) {
+    $note = "No ""Applications"" folder above $r - treating it as the corpus folder (client folders directly inside it)."
+    Write-Host ("  ! " + $note) -ForegroundColor Yellow
+    Write-Log ("WARN`t" + $note)
+}
+
+# A root with no Applications folder above it whose files would arrive
+# without Client and Fiscal-year folders, or that sits above an Applications
+# folder, is a wrong pick, not a batch to send: say which folder to choose and
+# stop before the question. Reasons and guidance carry folder names only.
+if ($refusals.Count -gt 0) {
+    Write-Host ""
+    foreach ($refusal in $refusals) {
+        foreach ($line in $refusal.Guidance) { Write-Host ("  ! " + $line) -ForegroundColor Yellow }
+        Write-Log ("REFUSED`t" + $refusal.Reason)
+    }
+    Write-Host "Nothing was uploaded."
+    Read-Host "Press Enter to close"
+    exit 1
+}
 
 # Dehydrated Files On-Demand documents upload fine, but each one blocks while
 # OneDrive fetches it. Say so before the run instead of leaving the client
@@ -306,17 +332,20 @@ if (@($entries).Count -gt $testCap) {
     $mode = Read-Host ("Upload ALL {0}, or just the first {1} as a TEST batch? (a = all / t = test {1} / n = cancel)" -f @($entries).Count, $testCap)
     # Only an explicit answer proceeds — Enter, typos, and closed stdin all
     # cancel. The dangerous option (everything) must never be the default.
-    if ($mode -match "^[Tt]") {
+    # "$mode", not $mode: Read-Host returns $null on closed stdin, and
+    # `$null -notmatch` is an empty array (falsy), which would fall through to
+    # uploading everything.
+    if ("$mode" -match "^[Tt]") {
         $entries = @($entries | Select-Object -First $testCap)
         Write-Host ("Test mode: uploading the first {0} documents. Run again later and choose 'a' for the rest." -f $testCap)
-    } elseif ($mode -notmatch "^[Aa]") {
+    } elseif ("$mode" -notmatch "^[Aa]") {
         Write-Host "Cancelled. Nothing was uploaded."
         Read-Host "Press Enter to close"
         exit 0
     }
 } else {
     $answer = Read-Host "Upload them to the Banhall review queue now? (y/n)"
-    if ($answer -notmatch "^[Yy]") {
+    if ("$answer" -notmatch "^[Yy]") {
         Write-Host "Cancelled. Nothing was uploaded."
         Read-Host "Press Enter to close"
         exit 0

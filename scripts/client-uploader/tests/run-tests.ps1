@@ -275,6 +275,215 @@ Check "zero-diag AC1 no OneDrive env var at all reports unknown" {
     }
 }
 
+# --- root prefix: the Client/Fiscal year ancestry of any chosen folder -------
+# The Sept 9 bug: a folder chosen below the client level sent bare file names
+# and the server rejected all of them. The prefix now comes from the root's
+# own absolute path in every mode. Each row is one line of the spec's I/O
+# matrix; the second has the exact shape of the root in the screenshot, with
+# placeholder names (no real person or client name is committed here).
+$screenshotRoot = "C:\Users\writer\Firm Ltd\Production - Documents\1. Applications\Client Co\2025-03-31\Submitted"
+$prefixMatrix = @(
+    @{ Name = "the Applications folder itself";               Path = "C:\Users\writer\Firm Ltd\Production - Documents\1. Applications"; Prefix = "" },
+    @{ Name = "screenshot-shaped root below the client level"; Path = $screenshotRoot;                                                 Prefix = "Client Co/2025-03-31/Submitted/" },
+    @{ Name = "loose anchor '1. Applications'";               Path = "C:\Users\writer\Production - Documents\1. Applications\Client Co\2025-03-31"; Prefix = "Client Co/2025-03-31/" },
+    @{ Name = "bracketed anchor";                             Path = "C:\Users\writer\OneDrive - Firm\Applications [2024]\Client\FY2024"; Prefix = "Client/FY2024/" },
+    @{ Name = "two anchors, last wins";                       Path = "C:\Users\writer\Applications\Archive\1. Applications\Client\FY2023"; Prefix = "Client/FY2023/" },
+    @{ Name = "one-segment root";                             Path = "D:\Applications";                                                Prefix = "" },
+    @{ Name = "no anchor, root is a corpus folder";           Path = "D:\SRED Files";                                                  Prefix = "" },
+    @{ Name = "no anchor, root below the client level";       Path = "D:\Scans\Client\FY2025";                                         Prefix = "" },
+    @{ Name = "no anchor, root one level above Applications"; Path = "C:\Users\writer\Firm Ltd\Production - Documents";                Prefix = "" },
+    @{ Name = "dragged client folder";                        Path = "C:\Users\writer\Production - Documents\1. Applications\Client Co"; Prefix = "Client Co/" },
+    @{ Name = "bracketed folder with wildcard characters";    Path = "/x/Applications [2024]/Client [2]/FY2024";                       Prefix = "Client [2]/FY2024/" }
+)
+foreach ($row in $prefixMatrix) {
+    Check ("root-prefix I/O matrix: {0}" -f $row.Name) {
+        Expect "prefix" $row.Prefix (Get-RootPrefix $row.Path)
+    }
+}
+Check "root-prefix the anchor is case-insensitive and separator-agnostic" {
+    (Expect "upper-case, forward slashes" "Client/FY2024/" (Get-RootPrefix "C:/Users/writer/APPLICATIONS/Client/FY2024")),
+    (Expect "UNC path" "Client/FY2024/" (Get-RootPrefix "\\server\share\Applications\Client\FY2024")),
+    (Expect "trailing separator" "Client/" (Get-RootPrefix "C:\Applications\Client\")) |
+        Where-Object { $_ } | Select-Object -First 1
+}
+Check "root-prefix Get-RootAnchorIndex is -1 only when no segment contains 'applications'" {
+    (Expect "screenshot-shaped root" 4 (Get-RootAnchorIndex $screenshotRoot)),
+    (Expect "one-segment root" 0 (Get-RootAnchorIndex "D:\Applications")),
+    (Expect "no anchor" -1 (Get-RootAnchorIndex "D:\Scans\Client\FY2025")),
+    (Expect "empty path" -1 (Get-RootAnchorIndex "")),
+    (Expect "last of two" 4 (Get-RootAnchorIndex "C:\Users\writer\Applications\Archive\1. Applications\Client\FY2023")) |
+        Where-Object { $_ } | Select-Object -First 1
+}
+Check "root-prefix Get-RootSegments of a one-segment path is one segment, not its characters" {
+    $segs = @(Get-RootSegments "D:\Applications")
+    (Expect "count" 1 $segs.Count),
+    (Expect "segment" "Applications" $segs[0]) |
+        Where-Object { $_ } | Select-Object -First 1
+}
+Check "root-prefix a drive letter is dropped only as the first segment" {
+    (Expect "first segment dropped" "Applications|Client" ((Get-RootSegments "C:\Applications\Client") -join "|")),
+    (Expect "a folder named X: deeper in a Mac path is kept" "Volumes|X:|Applications|Client" ((Get-RootSegments "/Volumes/X:/Applications/Client") -join "|")),
+    (Expect "prefix through it" "Client/" (Get-RootPrefix "/Volumes/X:/Applications/Client")),
+    (Expect "a bare drive is no segment" 0 @(Get-RootSegments "C:").Count) |
+        Where-Object { $_ } | Select-Object -First 1
+}
+Check "root-prefix Get-RelSegments counts like the server's sanitizeRelPath" {
+    (Expect "trimmed, dot dropped" "Client|FY2025|x.docx" ((Get-RelSegments " Client / FY2025 /./x.docx") -join "|")),
+    (Expect "dot-dot dropped" 3 @(Get-RelSegments "Client/../FY/x.docx").Count),
+    (Expect "backslashes" 3 @(Get-RelSegments "Client\FY\x.docx").Count),
+    (Expect "empty" 0 @(Get-RelSegments "").Count) |
+        Where-Object { $_ } | Select-Object -First 1
+}
+Check "root-prefix an empty path yields an empty prefix rather than throwing" {
+    Expect "prefix" "" (Get-RootPrefix "")
+}
+
+# --- root prefix: the label summary printed before the y ---------------------
+Check "root-prefix Get-LabelSummary tallies Client / Fiscal year, biggest first, ties by label" {
+    $rels = @(
+        "Beta Ltd/FY2023/PDs/a.docx",
+        "Client Co/2025-03-31/Submitted/x.docx",
+        "Client Co/2025-03-31/Submitted/y.docx",
+        "Client Co/2024-03-31/z.pdf",
+        "Beta Ltd/FY2023/b.docx",
+        "Client Co/2025-03-31/w.txt"
+    )
+    $rows = @(Get-LabelSummary $rels)
+    (Expect "rows" 3 $rows.Count),
+    (Expect "first" "Client Co / 2025-03-31 (3)" ("{0} ({1})" -f $rows[0].Label, $rows[0].Count)),
+    (Expect "second" "Beta Ltd / FY2023 (2)" ("{0} ({1})" -f $rows[1].Label, $rows[1].Count)),
+    (Expect "third" "Client Co / 2024-03-31 (1)" ("{0} ({1})" -f $rows[2].Label, $rows[2].Count)) |
+        Where-Object { $_ } | Select-Object -First 1
+}
+Check "root-prefix Get-LabelSummary caps at 5 rows by default and keeps all with top 0" {
+    $rels = @(0..7 | ForEach-Object { "Client {0}/FY/file.docx" -f $_ })
+    $rels += "Client 3/FY/second.docx"
+    $rows = @(Get-LabelSummary $rels)
+    (Expect "cap" 5 $rows.Count),
+    (Expect "biggest first" "Client 3 / FY" $rows[0].Label),
+    (Expect "then alphabetical" "Client 0 / FY" $rows[1].Label),
+    (Expect "top 0 keeps all" 8 @(Get-LabelSummary $rels 0).Count) |
+        Where-Object { $_ } | Select-Object -First 1
+}
+Check "root-prefix a rel with a file name where a folder belongs never prints the file name" {
+    $rows = @(Get-LabelSummary @("secret-client-memo.docx", "Client/secret-client-memo.docx", "Client/FY2024/ok.docx"))
+    $joined = (@($rows | ForEach-Object { $_.Label }) -join " ")
+    if ($joined -match "secret-client") { return "leaked a file name: $joined" }
+    (Expect "rows" 2 $rows.Count),
+    (Expect "short rels bucket" "(missing Client/Fiscal year folders)" $rows[0].Label),
+    (Expect "short rels count" 2 $rows[0].Count) |
+        Where-Object { $_ } | Select-Object -First 1
+}
+Check "root-prefix Format-LabelSummary renders the line the client confirms against" {
+    $rels = @(1..12 | ForEach-Object { "Client Co/2025-03-31/Submitted/doc{0}.docx" -f $_ })
+    $rels += "Beta Ltd/FY2023/one.pdf"
+    $lines = @(Format-LabelSummary $rels)
+    (Expect "lines" 2 $lines.Count),
+    (Expect "plural" "Labels: Client Co / 2025-03-31 (12 files)" $lines[0]),
+    (Expect "singular" "Labels: Beta Ltd / FY2023 (1 file)" $lines[1]),
+    (Expect "nothing found prints nothing" 0 @(Format-LabelSummary @()).Count) |
+        Where-Object { $_ } | Select-Object -First 1
+}
+Check "root-prefix Format-LabelSummary prints Get-LabelRowCap rows then one 'and N more' line" {
+    $cap = Get-LabelRowCap
+    $rels = @(0..($cap + 2) | ForEach-Object { "Client {0}/FY/file.docx" -f $_ })
+    $lines = @(Format-LabelSummary $rels)
+    (Expect "cap is five" 5 $cap),
+    (Expect "lines" ($cap + 1) $lines.Count),
+    (Expect "last row" ("Labels: Client {0} / FY (1 file)" -f ($cap - 1)) $lines[$cap - 1]),
+    (Expect "tail" "Labels: (and 3 more)" $lines[$cap]),
+    (Expect "exactly cap has no tail" $cap @(Format-LabelSummary @(0..($cap - 1) | ForEach-Object { "Client {0}/FY/f.docx" -f $_ })).Count) |
+        Where-Object { $_ } | Select-Object -First 1
+}
+Check "root-prefix Get-LabelLines is the bare payload the log records carry" {
+    $lines = @(Get-LabelLines @("Client Co/2025-03-31/x.docx", "Client Co/2025-03-31/y.docx"))
+    (Expect "payload" "Client Co / 2025-03-31 (2 files)" $lines[0]),
+    (Expect "screen line" "Labels: Client Co / 2025-03-31 (2 files)" @(Format-LabelSummary @("Client Co/2025-03-31/x.docx", "Client Co/2025-03-31/y.docx"))[0]) |
+        Where-Object { $_ } | Select-Object -First 1
+}
+
+# --- root prefix: the pre-upload check for a root with no anchor -------------
+# Such a root is taken to be the corpus folder (empty prefix). The check is
+# what stops the run when the scan shows that assumption was wrong.
+Check "root-prefix Get-UploadRefusal accepts a no-anchor corpus folder whose files have Client and Fiscal-year folders" {
+    (Expect "corpus folder" $null (Get-UploadRefusal @("Client/FY2025/x.docx", "Client/FY2025/PDs/y.pdf") "D:\SRED Files")),
+    (Expect "no rels" $null (Get-UploadRefusal @() "D:\SRED Files")) |
+        Where-Object { $_ } | Select-Object -First 1
+}
+Check "root-prefix Get-UploadRefusal refuses short rels with guidance naming the Applications folder and no document name" {
+    $ref = Get-UploadRefusal @("secret-memo.docx", "Client/secret-memo.docx", "Client/FY2025/ok.docx") "D:\Scans\Client\FY2025"
+    if (-not $ref) { return "no refusal" }
+    $text = $ref.Reason + " " + ($ref.Guidance -join " ")
+    if ($text -match "secret-memo") { return "leaked a file name: $text" }
+    (Expect "reason" "2 of 3 files under D:\Scans\Client\FY2025 would be sent without Client and Fiscal-year folders" $ref.Reason),
+    (Expect "guidance lines" 2 @($ref.Guidance).Count),
+    (Expect "names the Applications folder" $true (($ref.Guidance -join " ").Contains("Choose your Applications folder"))) |
+        Where-Object { $_ } | Select-Object -First 1
+}
+Check "root-prefix Get-UploadRefusal refuses a root one level above Applications and names the child folder" {
+    $root = "C:\Users\writer\Firm Ltd\Production - Documents"
+    $ref = Get-UploadRefusal @("1. Applications/Client Co/2025-03-31/x.docx", "1. Applications/Other/FY/y.docx") $root
+    if (-not $ref) { return "no refusal" }
+    (Expect "reason" "root sits above an Applications folder: $root (1 found)" $ref.Reason),
+    (Expect "names the child" "Choose this folder instead: $root\1. Applications" $ref.Guidance[1]),
+    (Expect "child wins over short rels" $true ("$((Get-UploadRefusal @('1. Applications/x.docx') $root).Reason)".StartsWith("root sits above"))) |
+        Where-Object { $_ } | Select-Object -First 1
+}
+Check "root-prefix Get-UploadRefusal builds the child path with the root's own separator" {
+    $ref = Get-UploadRefusal @("Applications/Client/FY/x.docx") "/Users/writer/Documents/"
+    Expect "posix child, trailing slash absorbed" "Choose this folder instead: /Users/writer/Documents/Applications" $ref.Guidance[1]
+}
+# A one-segment rel whose FILE NAME contains "applications" is a short rel,
+# not a child Applications folder: the last segment is never a folder.
+Check "root-prefix a file name containing 'applications' never becomes a child folder in the guidance" {
+    $ref = Get-UploadRefusal @("SRED applications summary.docx", "Client/FY2025/ok.docx") "/Volumes/Scans"
+    if (-not $ref) { return "no refusal" }
+    $text = $ref.Reason + " " + ($ref.Guidance -join " ")
+    if ($text -match "summary\.docx") { return "leaked a file name: $text" }
+    (Expect "short-rel refusal" "1 of 2 files under /Volumes/Scans would be sent without Client and Fiscal-year folders" $ref.Reason),
+    (Expect "two-segment file name is not a child either" $true ("$((Get-UploadRefusal @('Client/applications notes.docx') '/x').Reason)".StartsWith("1 of 1 files"))) |
+        Where-Object { $_ } | Select-Object -First 1
+}
+# The check looks at every folder segment, not just the first: a root two
+# levels above Applications is a wrong pick too, and every matching folder
+# is listed.
+Check "root-prefix a root two levels above Applications is refused and every matching folder is listed" {
+    $root = "C:\Users\writer"
+    $ref = Get-UploadRefusal @(
+        "Firm Ltd/Production - Documents/1. Applications/Client Co/2025-03-31/x.docx",
+        "Firm Ltd/Archive/Applications [2023]/Old/FY/y.docx",
+        "Firm Ltd/Production - Documents/1. Applications/Other/FY/z.docx"
+    ) $root
+    if (-not $ref) { return "no refusal" }
+    (Expect "reason" "root sits above an Applications folder: $root (2 found)" $ref.Reason),
+    (Expect "client named" $true $ref.Guidance[0].Contains('client "Firm Ltd"')),
+    (Expect "list header" "Choose one of these folders instead:" $ref.Guidance[1]),
+    (Expect "first path" "  $root\Firm Ltd\Production - Documents\1. Applications" $ref.Guidance[2]),
+    (Expect "second path" "  $root\Firm Ltd\Archive\Applications [2023]" $ref.Guidance[3]),
+    (Expect "guidance lines" 4 @($ref.Guidance).Count) |
+        Where-Object { $_ } | Select-Object -First 1
+}
+
+# --- root prefix: the auto-detect probe -------------------------------------
+$probeParent = Join-Path ([IO.Path]::GetTempPath()) ("banhall-uploader-tests-" + [Guid]::NewGuid().ToString("N"))
+try {
+    $od1 = Join-Path $probeParent "od1"
+    $od2 = Join-Path $probeParent "od2"
+    New-Item -ItemType Directory -Path (Join-Path $od1 "1. Applications") -Force | Out-Null
+    New-Item -ItemType Directory -Path (Join-Path $od2 "Applications Archive") -Force | Out-Null
+    New-Item -ItemType Directory -Path (Join-Path $od2 "Applications") -Force | Out-Null
+    New-Item -ItemType Directory -Path (Join-Path (Join-Path $od2 "Documents") "Other") -Force | Out-Null
+    Check "root-prefix Get-ApplicationsGuess offers a loosely named folder and prefers an exact one" {
+        (Expect "loose only" (Join-Path $od1 "1. Applications") (Get-ApplicationsGuess $od1)),
+        (Expect "exact beats loose" (Join-Path $od2 "Applications") (Get-ApplicationsGuess $od2)),
+        (Expect "nothing there" "" (Get-ApplicationsGuess (Join-Path $probeParent "nope"))),
+        (Expect "empty root" "" (Get-ApplicationsGuess "")) |
+            Where-Object { $_ } | Select-Object -First 1
+    }
+} finally {
+    Remove-Item -LiteralPath $probeParent -Recurse -Force -ErrorAction SilentlyContinue
+}
+
 # --- AC4: Get-UploadCandidates over a real temp tree ------------------------
 $tree = Join-Path ([IO.Path]::GetTempPath()) ("banhall-uploader-tests-" + [Guid]::NewGuid().ToString("N"))
 try {
@@ -383,6 +592,159 @@ try {
     Remove-Item -LiteralPath $bracketParent -Recurse -Force -ErrorAction SilentlyContinue
 }
 
+# --- root prefix: a real tree in the screenshot's shape, scanned below the
+# client level, at the dragged-client level, from a no-anchor corpus folder,
+# from a no-anchor folder below the client level, and from one level above
+# the Applications folder. The rel is composed exactly the way the uploader
+# composes it, so a regression in either half shows here.
+$uploaderSource = Join-Path (Split-Path -Parent $PSScriptRoot) "banhall-uploader.ps1"
+$corpusParent = Join-Path ([IO.Path]::GetTempPath()) ("banhall-uploader-tests-" + [Guid]::NewGuid().ToString("N"))
+try {
+    $above = Join-Path $corpusParent "Production - Documents"
+    $appsRoot = Join-Path $above "1. Applications"
+    $clientRoot = Join-Path $appsRoot "Client Co"
+    $submitted = Join-Path (Join-Path $clientRoot "2025-03-31") "Submitted"
+    New-Item -ItemType Directory -Path $submitted -Force | Out-Null
+    Set-Content -LiteralPath (Join-Path $submitted "x.docx") -Value "x" -Encoding UTF8
+    Set-Content -LiteralPath (Join-Path $submitted "y.pdf") -Value "y" -Encoding UTF8
+    $sred = Join-Path $corpusParent "SRED Files"
+    New-Item -ItemType Directory -Path (Join-Path (Join-Path $sred "Client") "FY2025") -Force | Out-Null
+    Set-Content -LiteralPath (Join-Path (Join-Path (Join-Path $sred "Client") "FY2025") "x.docx") -Value "x" -Encoding UTF8
+    $scans = Join-Path (Join-Path (Join-Path $corpusParent "Scans") "Client") "FY2025"
+    New-Item -ItemType Directory -Path $scans -Force | Out-Null
+    Set-Content -LiteralPath (Join-Path $scans "secret-memo.docx") -Value "x" -Encoding UTF8
+
+    function Get-ComposedRels([string]$root) {
+        $prefix = Get-RootPrefix $root
+        $scan = Get-UploadCandidates $root $allowed
+        $rels = @($scan.Candidates | ForEach-Object {
+            $prefix + ($_.FullName.Substring($root.Length).TrimStart("\", "/") -replace "\\", "/")
+        } | Sort-Object)
+        # The comma keeps a one-element array an array on the way out.
+        return ,$rels
+    }
+
+    Check "root-prefix a root below the client level sends Client/Fiscal year/... rels with 3+ segments" {
+        $rels = Get-ComposedRels $submitted
+        $short = @($rels | Where-Object { @($_ -split "/").Count -lt 3 })
+        (Expect "rels" "Client Co/2025-03-31/Submitted/x.docx|Client Co/2025-03-31/Submitted/y.pdf" ($rels -join "|")),
+        (Expect "rels shorter than 3 segments" 0 $short.Count),
+        (Expect "summary" "Labels: Client Co / 2025-03-31 (2 files)" @(Format-LabelSummary $rels)[0]) |
+            Where-Object { $_ } | Select-Object -First 1
+    }
+    Check "root-prefix a dragged client folder and the Applications folder itself yield the same rels" {
+        (Expect "dragged client" "Client Co/2025-03-31/Submitted/x.docx" (Get-ComposedRels $clientRoot)[0]),
+        (Expect "Applications folder" "Client Co/2025-03-31/Submitted/x.docx" (Get-ComposedRels $appsRoot)[0]),
+        (Expect "Applications prefix stays empty" "" (Get-RootPrefix $appsRoot)) |
+            Where-Object { $_ } | Select-Object -First 1
+    }
+    Check "root-prefix a no-anchor corpus folder keeps its rels, labels and no refusal, as before this fix" {
+        $rels = Get-ComposedRels $sred
+        (Expect "anchor" -1 (Get-RootAnchorIndex $sred)),
+        (Expect "rel" "Client/FY2025/x.docx" $rels[0]),
+        (Expect "label" "Labels: Client / FY2025 (1 file)" @(Format-LabelSummary $rels)[0]),
+        (Expect "refusal" $null (Get-UploadRefusal $rels $sred)) |
+            Where-Object { $_ } | Select-Object -First 1
+    }
+    Check "root-prefix a no-anchor folder below the client level is refused without naming the document" {
+        $rels = Get-ComposedRels $scans
+        $ref = Get-UploadRefusal $rels $scans
+        if (-not $ref) { return "no refusal for rels: $($rels -join '|')" }
+        $text = $ref.Reason + " " + ($ref.Guidance -join " ")
+        if ($text -match "secret-memo") { return "leaked a file name: $text" }
+        (Expect "rel is bare" "secret-memo.docx" $rels[0]),
+        (Expect "reason" "1 of 1 files under $scans would be sent without Client and Fiscal-year folders" $ref.Reason) |
+            Where-Object { $_ } | Select-Object -First 1
+    }
+    Check "root-prefix a root one level above the Applications folder is refused and the child is named" {
+        $rels = Get-ComposedRels $above
+        $ref = Get-UploadRefusal $rels $above
+        if (-not $ref) { return "no refusal for rels: $($rels -join '|')" }
+        (Expect "first segment is the child" $true $rels[0].StartsWith("1. Applications/")),
+        (Expect "reason" "root sits above an Applications folder: $above (1 found)" $ref.Reason),
+        (Expect "child named" "Choose this folder instead: $appsRoot" $ref.Guidance[1]) |
+            Where-Object { $_ } | Select-Object -First 1
+    }
+    Check "root-prefix a root two levels above the Applications folder is refused too" {
+        $rels = Get-ComposedRels $corpusParent
+        $ref = Get-UploadRefusal $rels $corpusParent
+        if (-not $ref) { return "no refusal for rels: $($rels -join '|')" }
+        (Expect "reason" "root sits above an Applications folder: $corpusParent (1 found)" $ref.Reason),
+        (Expect "child named" "Choose this folder instead: $appsRoot" $ref.Guidance[1]) |
+            Where-Object { $_ } | Select-Object -First 1
+    }
+
+    # --- executed runs: the uploader main path in drop mode ------------------
+    # Everything above proves the helpers; this proves the wiring by running
+    # banhall-uploader.ps1 itself against a throwaway kit (copied script and
+    # lib, fake config, its own upload-log.txt) with stdin closed, so every
+    # prompt reads EOF and the run can only cancel. Drop mode needs no
+    # WinForms and no OneDrive. bash is the only way to redirect stdin here.
+    $kitTmp = Join-Path $corpusParent "kit"
+    New-Item -ItemType Directory -Path $kitTmp -Force | Out-Null
+    Copy-Item -LiteralPath $uploaderSource -Destination (Join-Path $kitTmp "banhall-uploader.ps1")
+    Copy-Item -LiteralPath (Join-Path (Split-Path -Parent $PSScriptRoot) "uploader-lib.ps1") -Destination (Join-Path $kitTmp "uploader-lib.ps1")
+    Set-Content -LiteralPath (Join-Path $kitTmp "uploader-config.json") -Encoding UTF8 -Value (
+        '{ "url": "https://example.invalid", "key": "' + ("k" * 40) + '", "root": "" }')
+    $kitLog = Join-Path $kitTmp "upload-log.txt"
+    Set-Content -LiteralPath (Join-Path $appsRoot "stray.docx") -Value "stray" -Encoding UTF8
+
+    function Invoke-UploaderDrop([string]$folder) {
+        Remove-Item -LiteralPath $kitLog -Force -ErrorAction SilentlyContinue
+        $bash = Get-Command bash -ErrorAction SilentlyContinue
+        if (-not $bash) { return $null }
+        $out = & $bash.Source -c '"$1" -NoProfile -File "$2" "$3" < /dev/null 2>&1' bash (Get-Process -Id $PID).Path (Join-Path $kitTmp "banhall-uploader.ps1") $folder
+        $log = ""
+        if (Test-Path -LiteralPath $kitLog) { $log = (Get-Content -LiteralPath $kitLog -Raw) }
+        return [pscustomobject]@{ Exit = $LASTEXITCODE; Out = ("$out" -join "`n"); Log = "$log" }
+    }
+    $prompt = "Upload them to the Banhall review queue now?"
+    if (-not (Get-Command bash -ErrorAction SilentlyContinue)) {
+        Write-Host "SKIP  executed-run cases - bash is not on PATH, so stdin cannot be redirected to /dev/null for the uploader"
+    } else {
+        Check "executed a no-anchor folder below the client level exits 1 with a REFUSED record and never reaches the prompt" {
+            $run = Invoke-UploaderDrop $scans
+            if ($run.Out -match "secret-memo" -and $run.Out -notmatch "Scanning \(read-only\)") { return "leaked a file name" }
+            (Expect "exit" 1 $run.Exit),
+            (Expect "REFUSED record" $true ($run.Log -match "(?m)^REFUSED`t1 of 1 files under ")),
+            (Expect "prompt never reached" $false $run.Out.Contains($prompt)),
+            (Expect "not cancelled, refused" $true $run.Out.Contains("Nothing was uploaded.")) |
+                Where-Object { $_ } | Select-Object -First 1
+        }
+        Check "executed a no-anchor corpus folder logs WARN, reaches the prompt and cancels on EOF" {
+            $run = Invoke-UploaderDrop $sred
+            (Expect "exit" 0 $run.Exit),
+            (Expect "LABELS payload" $true ($run.Log -match "(?m)^LABELS`tClient / FY2025 \(1 file\)$")),
+            (Expect "WARN record" $true ($run.Log -match "(?m)^WARN`tNo ""Applications"" folder above ")),
+            (Expect "no REFUSED" $false ($run.Log -match "(?m)^REFUSED`t")),
+            (Expect "prompt reached" $true $run.Out.Contains($prompt)),
+            (Expect "cancelled" $true $run.Out.Contains("Cancelled. Nothing was uploaded.")) |
+                Where-Object { $_ } | Select-Object -First 1
+        }
+        Check "executed a root above the Applications folder exits 1 with REFUSED naming the child" {
+            $run = Invoke-UploaderDrop $above
+            (Expect "exit" 1 $run.Exit),
+            (Expect "REFUSED record" $true ($run.Log -match "(?m)^REFUSED`troot sits above an Applications folder: ")),
+            (Expect "child named on screen" $true $run.Out.Contains("Choose this folder instead: $appsRoot")),
+            (Expect "prompt never reached" $false $run.Out.Contains($prompt)) |
+                Where-Object { $_ } | Select-Object -First 1
+        }
+        Check "executed an anchored root with a stray file directly inside Applications is not refused and reaches the prompt" {
+            $run = Invoke-UploaderDrop $appsRoot
+            (Expect "exit" 0 $run.Exit),
+            (Expect "no REFUSED" $false ($run.Log -match "(?m)^REFUSED`t")),
+            (Expect "no WARN" $false ($run.Log -match "(?m)^WARN`t")),
+            (Expect "stray counted without its name" $true ($run.Log -match "(?m)^LABELS`t\(missing Client/Fiscal year folders\) \(1 file\)$")),
+            (Expect "no file name in the log" $false ($run.Log -match "stray")),
+            (Expect "prompt reached" $true $run.Out.Contains($prompt)),
+            (Expect "cancelled" $true $run.Out.Contains("Cancelled. Nothing was uploaded.")) |
+                Where-Object { $_ } | Select-Object -First 1
+        }
+    }
+} finally {
+    Remove-Item -LiteralPath $corpusParent -Recurse -Force -ErrorAction SilentlyContinue
+}
+
 # --- AC6: the shipped scripts, read as source ------------------------------
 # Token and AST checks, not text searches: banhall-uploader.ps1 holds a "?" in
 # an upload URI, which a ternary regex matches and a tokenizer does not.
@@ -456,6 +818,62 @@ Check "AC6 one Get-UploadCandidates call site, inside the foreach over roots" {
     $walks = "$($loop.Condition.Extent.Text)"
     if ("$($loop.Variable.Extent.Text)" -ne '$r' -or $walks -ne '$roots') {
         return "enclosing foreach binds $($loop.Variable.Extent.Text) over $walks"
+    }
+    return $null
+}
+
+# The prefix is derived from the root in every mode: the same foreach that
+# scans each root computes it with Get-RootPrefix, with no mode switch in the
+# way, and the old drop-only helper is gone from the uploader.
+Check "root-prefix every root gets Get-RootPrefix inside the foreach over roots" {
+    $defs = @($uploaderParsed.Ast.FindAll({
+        param($node)
+        ($node -is [System.Management.Automation.Language.FunctionDefinitionAst]) -and $node.Name -eq "Get-DropPrefix"
+    }, $true))
+    if ($defs.Count -gt 0) { return "Get-DropPrefix is still defined at line $($defs[0].Extent.StartLineNumber)" }
+
+    $prefixAssignments = @($uploaderParsed.Ast.FindAll({
+        param($node)
+        ($node -is [System.Management.Automation.Language.AssignmentStatementAst]) -and
+        "$($node.Left.Extent.Text)" -eq '$prefix'
+    }, $true))
+    if ($prefixAssignments.Count -ne 1) { return "expected one prefix assignment, found $($prefixAssignments.Count)" }
+    $rhs = "$($prefixAssignments[0].Right.Extent.Text)"
+    if ($rhs -ne 'Get-RootPrefix $r') { return "prefix is assigned from '$rhs', not from Get-RootPrefix on the loop variable" }
+
+    $loop = $prefixAssignments[0].Parent
+    while ($loop -and -not ($loop -is [System.Management.Automation.Language.ForEachStatementAst])) {
+        $loop = $loop.Parent
+    }
+    if (-not $loop) { return "the prefix assignment is not inside a foreach" }
+    if ("$($loop.Condition.Extent.Text)" -ne '$roots') { return "enclosing foreach walks $($loop.Condition.Extent.Text), not roots" }
+
+    # Computing the prefix is worthless unless the rel is built from it: the
+    # one $rel assignment in that loop has to start with "$prefix +".
+    $relAssignments = @($loop.FindAll({
+        param($node)
+        ($node -is [System.Management.Automation.Language.AssignmentStatementAst]) -and
+        "$($node.Left.Extent.Text)" -eq '$rel'
+    }, $true))
+    if ($relAssignments.Count -ne 1) { return "expected one rel assignment in the roots loop, found $($relAssignments.Count)" }
+    $relRhs = "$($relAssignments[0].Right.Extent.Text)"
+    if (-not $relRhs.StartsWith('$prefix +')) { return "rel is built from '$relRhs', which does not start with '`$prefix +'" }
+
+    # The no-anchor check runs on each root's own rels, only for roots with
+    # no anchor: an anchored root's stray top-level file is the server's
+    # per-file REJECTED, not a reason to refuse the batch.
+    $refusalCalls = @($loop.FindAll({
+        param($node)
+        ($node -is [System.Management.Automation.Language.CommandAst]) -and
+        "$($node.GetCommandName())" -eq "Get-UploadRefusal"
+    }, $true))
+    if ($refusalCalls.Count -ne 1) { return "expected one Get-UploadRefusal call in the roots loop, found $($refusalCalls.Count)" }
+    $guard = $refusalCalls[0].Parent
+    while ($guard -and -not ($guard -is [System.Management.Automation.Language.IfStatementAst])) { $guard = $guard.Parent }
+    if (-not $guard) { return "Get-UploadRefusal is not guarded by an if" }
+    $guardText = "$($guard.Clauses[0].Item1.Extent.Text)"
+    if (-not ($guardText.Contains("Get-RootAnchorIndex") -and $guardText.Contains("-lt 0"))) {
+        return "Get-UploadRefusal is guarded by '$guardText', not by a missing anchor"
     }
     return $null
 }
@@ -751,6 +1169,72 @@ Check "zero-diag AC1 the zero-found branch prints the formatter's lines and neve
     foreach ($leak in @("FullName", ".Name", "Candidates")) {
         if ($body.Contains($leak)) { return "the zero-found branch touches '$leak' - it must print counts only" }
     }
+    return $null
+}
+
+# The summary, the WARN note and the refusal sit between the found count and
+# the first question, so the user sees the labels before typing y and a wrong
+# pick never reaches the question. Each of the three also lands in the log as
+# a LABELS, WARN or REFUSED record.
+Check "root-prefix the uploader prints and logs labels, warnings and refusals before asking" {
+    $summary = Get-CommandLine $uploaderParsed.Ast "Get-LabelLines" ""
+    $found = -1
+    $foundNode = Find-SmallestAstContaining $uploaderParsed.Ast "Found {0} document(s)"
+    if ($foundNode) { $found = $foundNode.Extent.StartLineNumber }
+    $ask = -1
+    $askNode = Find-SmallestAstContaining $uploaderParsed.Ast "Upload them to the Banhall review queue now?"
+    if ($askNode) { $ask = $askNode.Extent.StartLineNumber }
+    if ($summary -lt 0) { return "the uploader never calls Get-LabelLines" }
+    if ($found -lt 0) { return "the found count line is missing" }
+    if ($ask -lt 0) { return "the upload question is missing" }
+    if (-not ($found -lt $summary)) { return "the summary (line $summary) prints before the found count (line $found)" }
+    if (-not ($summary -lt $ask)) { return "the summary (line $summary) prints after the upload question (line $ask)" }
+
+    foreach ($record in @('LABELS`t', 'WARN`t', 'REFUSED`t')) {
+        $line = Get-CommandLine $uploaderParsed.Ast "Write-Log" $record
+        if ($line -lt 0) { return "nothing writes a $record record to the log" }
+        if (-not ($found -lt $line -and $line -lt $ask)) { return "the $record write (line $line) is not between the found count and the question" }
+    }
+
+    $refused = Find-SmallestAstContaining $uploaderParsed.Ast 'REFUSED`t'
+    $branch = Get-EnclosingExitingIf $refused
+    if (-not $branch) { return "the REFUSED write never reaches an exit" }
+    $condition = "$($branch.Clauses[0].Item1.Extent.Text)"
+    if (-not $condition.Contains('$refusals.Count -gt 0')) { return "the refusal branch tests '$condition', not the refusal list" }
+    $body = "$($branch.Extent.Text)"
+    if (-not $body.Contains(".Guidance")) { return "the refusal branch never prints the guidance" }
+    if (-not $body.Contains("Nothing was uploaded")) { return "the refusal branch never says nothing was uploaded" }
+    foreach ($leak in @("FullName", ".Name", "Candidates", ".Rel")) {
+        if ($body.Contains($leak)) { return "the refusal branch touches '$leak' - it must print folders only" }
+    }
+    $exit = @($branch.FindAll({ param($node) $node -is [System.Management.Automation.Language.ExitStatementAst] }, $true))[0]
+    if (-not ($exit.Extent.StartLineNumber -lt $ask)) { return "the refusal exit (line $($exit.Extent.StartLineNumber)) comes after the question" }
+
+    # The probe goes through the lib helper so the harness can prove it.
+    $probe = Get-CommandLine $uploaderParsed.Ast "Get-ApplicationsGuess" ""
+    if ($probe -lt 0) { return "the auto-detect probe does not use Get-ApplicationsGuess" }
+    return $null
+}
+
+# Read-Host returns $null on closed stdin, and `$null -notmatch` is an empty
+# array (falsy): an unquoted guard would fall through to uploading. Every
+# answer is compared as a string.
+Check "regression every Read-Host answer is compared as a string, so closed stdin cancels" {
+    $reads = @($uploaderParsed.Ast.FindAll({
+        param($node)
+        ($node -is [System.Management.Automation.Language.AssignmentStatementAst]) -and
+        "$($node.Right.Extent.Text)".StartsWith("Read-Host") -and
+        "$($node.Left.Extent.Text)" -ne '$null'
+    }, $true))
+    $answers = @($reads | ForEach-Object { "$($_.Left.Extent.Text)" } | Select-Object -Unique)
+    if ($answers.Count -lt 3) { return "expected the answer variables, found: $($answers -join ', ')" }
+    $bare = @($uploaderParsed.Ast.FindAll({
+        param($node)
+        ($node -is [System.Management.Automation.Language.BinaryExpressionAst]) -and
+        ("$($node.Operator)" -match "^(I|C)?(Not)?match$") -and
+        ($answers -contains "$($node.Left.Extent.Text)")
+    }, $true))
+    if ($bare.Count -gt 0) { return "bare answer in a -match at line $($bare[0].Extent.StartLineNumber): $($bare[0].Extent.Text)" }
     return $null
 }
 

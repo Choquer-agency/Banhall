@@ -9,11 +9,11 @@
 #
 # Folder arguments win: `bash banhall-uploader.sh <folder> [<folder>…]`
 # scans exactly those folders (drag folders into the Terminal window to paste
-# their paths). Uploaded paths are rebuilt relative to the "Applications"
-# folder in each argument folder's own location (full path if none), so
+# their paths). Without arguments it uses the remembered/auto-detected root.
+# In every mode the uploaded paths are rebuilt relative to the "Applications"
+# folder in the chosen folder's own location (full path if none), so
 # Client/Fiscal year context — and dedupe against full-folder runs — is
-# preserved no matter which subfolder is passed. Without arguments it uses
-# the remembered/auto-detected root as before.
+# preserved no matter which folder under Applications is chosen or passed.
 #
 # Uses only tools that ship with macOS: bash 3.2, find, shasum, curl, stat.
 # Configuration comes from uploader-config.json next to this script.
@@ -29,6 +29,9 @@ CONFIG="$SCRIPT_DIR/uploader-config.json"
 LOG="$SCRIPT_DIR/upload-log.txt"
 
 ALLOWED_EXT=".docx .doc .pdf .txt .vtt"
+# How many "Labels:" rows the scan prints before collapsing the rest into one
+# "(and N more)" line: enough to confirm a pick, short enough for one screen.
+LABEL_ROW_CAP=5
 MAX_BYTES=$((15 * 1024 * 1024))
 TEST_CAP=100
 
@@ -124,31 +127,188 @@ log_line() {
   LOG_WRITTEN=1
 }
 
-# The server derives clientName/fiscalYear from the first two path segments
-# (`Client/Fiscal year/…`) and dedupes by the full relative path. An argument
-# folder therefore can't just contribute its leaf name — that would classify
-# every file under a client called "PDs" and collide across clients. Rebuild
-# the ancestry instead: anchor at the LAST "Applications" segment of the
-# folder's own absolute path (the corpus root convention); if there is none,
-# fall back to the full path so rels stay unique and stable.
-drop_prefix() {
-  local abs="${1#/}" out="" seg last=-1 i=0 n=0
-  local segs=()
+# Path segments of an absolute path, one per line, separator-agnostic and
+# without the empty segments a leading "/" produces. A drive letter ("C:") is
+# dropped only when it is the FIRST segment: a folder literally named "X:"
+# deeper in a Mac path is a folder. Windows shapes are accepted so the harness
+# can prove the same fixtures the Windows lib is proved on.
+root_segments() {
+  local abs seg restore_glob="" i=0
+  abs="$(printf '%s' "$1" | tr '\\' '/')"
+  # The unquoted $abs below is split on IFS, and every piece is then
+  # glob-expanded against the working directory: a segment "Client [2]" turns
+  # into "Client 2" when such a file sits in cwd. Globbing off, restored after.
+  case $- in *f*) ;; *) set -f; restore_glob=1 ;; esac
   local IFS='/'
   for seg in $abs; do
     [ -n "$seg" ] || continue
-    segs[$n]="$seg"
-    n=$((n + 1))
+    if [ "$i" -eq 0 ]; then
+      case "$seg" in [A-Za-z]:) i=1; continue ;; esac
+    fi
+    i=$((i + 1))
+    printf '%s\n' "$seg"
   done
-  for ((i = 0; i < n; i++)); do
-    case "$(printf '%s' "${segs[$i]}" | tr '[:upper:]' '[:lower:]')" in
-      applications) last=$i ;;
+  [ -z "$restore_glob" ] || set +f
+}
+
+# Index of the anchor segment in root_segments, or -1 when the path has none.
+# The anchor is the corpus root: any segment containing "applications"
+# (case-insensitive - clients name it "Applications", "1. Applications",
+# "Applications [2024]"). The LAST match wins, so an archive folder that
+# happens to sit above the live corpus does not steal the anchor.
+root_anchor_index() {
+  local seg last=-1 i=0
+  while IFS= read -r seg; do
+    case "$(printf '%s' "$seg" | tr '[:upper:]' '[:lower:]')" in
+      *applications*) last=$i ;;
     esac
-  done
-  for ((i = last + 1; i < n; i++)); do
-    out="$out${segs[$i]}/"
-  done
+    i=$((i + 1))
+  done < <(root_segments "$1")
+  printf '%s' "$last"
+}
+
+# The "Client/Fiscal year/…/" prefix every relative path under $1 must carry
+# so the server reads the right first two segments, whatever folder the user
+# chose. Rebuilt from the root's own absolute path: the segments after the
+# anchor, joined with "/" and ending in "/". The Applications folder itself
+# yields "" (rels and dedupe keys unchanged for existing corpus uploads). A
+# path with no anchor also yields "": the root is treated as the corpus folder
+# itself, which is what every run did before this helper existed, so a
+# remembered corpus root not named Applications keeps its labels and dedupe
+# keys. upload_refusal is what stops the run when that assumption is wrong.
+root_prefix() {
+  local seg out="" last i=0
+  last="$(root_anchor_index "$1")"
+  [ "$last" -ge 0 ] || { printf ''; return 0; }
+  while IFS= read -r seg; do
+    if [ "$i" -gt "$last" ]; then out="$out$seg/"; fi
+    i=$((i + 1))
+  done < <(root_segments "$1")
   printf '%s' "$out"
+}
+
+# Segments of a rel are counted the way the server's sanitizeRelPath counts
+# them (convex/lib/ingestionClassify.ts): backslashes become slashes, each
+# segment is trimmed, and empty, "." and ".." segments are dropped. This awk
+# fragment leaves the kept segments in seg[1..n]; label_summary and
+# upload_refusal both start from it.
+REL_SEGMENTS_AWK='
+  { line = $0; gsub(/\\/, "/", line); m = split(line, raw, "/"); n = 0
+    for (i = 1; i <= m; i++) { p = raw[i]; gsub(/^[ \t]+|[ \t]+$/, "", p)
+      if (p != "" && p != "." && p != "..") seg[++n] = p } }'
+
+# What the server will label each file with: one "Client / Fiscal year (N
+# files)" payload per distinct first-two-segment pair of the rels on stdin,
+# biggest first, ties broken by label in byte order (LC_ALL=C: deterministic
+# on every Mac; the Windows lib sorts culture-aware, so mixed-case ties may
+# order differently there), the top LABEL_ROW_CAP then one "(and N more)"
+# payload so the block stays one screenful. announce_labels puts "Labels: "
+# in front on screen and "LABELS<tab>" in the log. A rel with fewer than
+# three segments has no fiscal-year folder; it is counted under a fixed label
+# so no document name is printed.
+label_summary() {
+  awk "$REL_SEGMENTS_AWK"'
+    { if (n >= 3) label = seg[1] " / " seg[2]; else label = "(missing Client/Fiscal year folders)"
+      count[label]++ }
+    END { for (label in count) printf "%d\t%s\n", count[label], label }' |
+    LC_ALL=C sort -t "$(printf '\t')" -k1,1nr -k2,2 |
+    awk -F'\t' -v cap="$LABEL_ROW_CAP" '
+      NR <= cap { printf "%s (%s %s)\n", $2, $1, ($1 == 1 ? "file" : "files") }
+      END { if (NR > cap) printf "(and %d more)\n", NR - cap }'
+}
+
+# The pre-upload check for a root with no Applications folder above it. Such a
+# root is assumed to be the corpus folder (empty prefix); this is where that
+# assumption is tested against what the scan found. Reads that root's rels on
+# stdin; prints nothing when they look right, otherwise one reason line for
+# the log followed by the guidance lines to print. No document name, ever.
+#   - A FOLDER segment of a rel that matches the anchor pattern (never the
+#     last segment, which is the file) means the root sits above the
+#     Applications folder - one level ("Production - Documents" whose child
+#     is "1. Applications") or more. Every file would be labelled with the
+#     folders in between. Guidance names each such Applications folder by
+#     its full path, built with the root's own separator.
+#   - A rel with fewer than three segments has no fiscal-year folder: the
+#     server rejects a one-segment path outright; it accepts two but
+#     classifies with no fiscal year (docKind "unknown", pair key
+#     "Client::?"), which is a mislabelled row in the review queue.
+upload_refusal() {
+  # ENVIRON, not -v: awk expands backslash escapes in -v values, and a Windows
+  # root ("D:\Scans\…") loses its separators.
+  ROOT="$1" awk "$REL_SEGMENTS_AWK"'
+    { total++
+      if (n < 3) short++
+      for (i = 1; i < n; i++) if (tolower(seg[i]) ~ /applications/) {
+        path = seg[1]; for (j = 2; j <= i; j++) path = path SUBSEP seg[j]
+        if (!(path in seen)) { seen[path] = 1; order[++k] = path }
+        if (client == "") client = seg[1]
+        break } }
+    END {
+      root = ENVIRON["ROOT"]; sep = (index(root, "\\") > 0) ? "\\" : "/"
+      base = root; sub(/[\/\\]+$/, "", base)
+      if (k > 0) {
+        printf "root sits above an Applications folder: %s (%d found)\n", root, k
+        printf "The folder you chose sits above your Applications folder, so every file would be labelled with the client \"%s\".\n", client
+        if (k == 1) { p = order[1]; gsub(SUBSEP, sep, p); printf "Choose this folder instead: %s%s%s\n", base, sep, p }
+        else {
+          printf "Choose one of these folders instead:\n"
+          for (i = 1; i <= k; i++) { p = order[i]; gsub(SUBSEP, sep, p); printf "  %s%s%s\n", base, sep, p } }
+      } else if (short > 0) {
+        printf "%d of %d files under %s would be sent without Client and Fiscal-year folders\n", short, total, root
+        printf "There is no \"Applications\" folder above the folder you chose, and %d of %d documents sit less than two folders below it, so they would arrive without a client or fiscal year.\n", short, total
+        printf "Choose your Applications folder, or one client folder inside it, instead.\n"
+      } }'
+}
+
+# The auto-detect probe: the folder to offer under a OneDrive root, or
+# nothing. Walks up to three levels; a folder named exactly "Applications"
+# wins, else the first folder whose name contains "applications" (so
+# "1. Applications" is offered too), matching the anchor rule above.
+guess_applications_root() {
+  local hit
+  [ -d "$1" ] || return 0
+  hit="$(find "$1" -maxdepth 3 -type d -iname "Applications" 2>/dev/null | head -1)"
+  [ -n "$hit" ] || hit="$(find "$1" -maxdepth 3 -type d -iname "*applications*" 2>/dev/null | head -1)"
+  printf '%s' "$hit"
+}
+
+# Print "Labels: <payload>" for the rels on stdin and log each payload as a
+# LABELS record (bare payload after the tab, like every other record). The loop
+# reads a here-string, not a pipe: a pipeline stage is a subshell, and
+# log_line's LOG_STARTED/LOG_WRITTEN would never reach this shell, so the next
+# write would truncate the log and lose these very lines.
+announce_labels() {
+  local lines line
+  lines="$(label_summary)"
+  while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    echo "  Labels: $line"
+    log_line "LABELS	$line"
+  done <<< "$lines"
+}
+
+# One yellow-style note on screen and a WARN record in the log.
+warn_line() {
+  echo "  ! $1"
+  log_line "WARN	$1"
+}
+
+# Stop the run on refusals: $1 holds one reason line per refused root, $2 the
+# guidance lines. Print the guidance, log each reason as REFUSED, exit without
+# sending anything. Here-strings, not pipes, for the same reason as above.
+refuse_upload() {
+  local line
+  echo ""
+  while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    echo "  ! $line"
+  done <<< "$2"
+  while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    log_line "REFUSED	$line"
+  done <<< "$1"
+  echo "Nothing was uploaded."
+  pause_exit 1
 }
 
 # Lowercase extension including the dot, or "(none)". Matches .NET's
@@ -383,10 +543,8 @@ fi
 # and let them pick the real folder if the guess is wrong — we can't assume
 # every machine's layout.
 ROOTS=()
-DROPPED_MODE=0
 FILE_ARG=""
 if [ "$#" -gt 0 ]; then
-  DROPPED_MODE=1
   for p in "$@"; do
     case "$(root_state "$p")" in
       ok) ROOTS+=("$(cd "$p" && pwd)") ;;
@@ -435,7 +593,7 @@ else
     for od in "$HOME/Library/CloudStorage"/OneDrive* "$HOME"/OneDrive*; do
       [ -d "$od" ] || continue
       FOUND_ONEDRIVE="$od"
-      hit="$(find "$od" -maxdepth 3 -type d -iname "Applications" 2>/dev/null | head -1)"
+      hit="$(guess_applications_root "$od")"
       if [ -n "$hit" ]; then GUESS="$hit"; break; fi
     done
 
@@ -477,10 +635,37 @@ EXTLIST="$(mktemp)"
 SCANLOG="$(mktemp)"
 SORTED="$(mktemp)"
 trap 'rm -f "$FILELIST" "$EXTLIST" "$SCANLOG" "$SORTED"' EXIT
+# The server reads clientName from the first path segment and fiscalYear from
+# the second (`Client/Fiscal year/…`): it rejects a one-segment path; it
+# accepts two but classifies the directory part alone, so the fiscal year is
+# undefined and the item lands as docKind "unknown" (pair key "Client::?");
+# three segments are what classification needs. A rel relative to the chosen
+# folder alone is therefore only right when that folder IS the Applications
+# folder. root_prefix rebuilds the
+# ancestry from the root's own absolute path in every mode (remembered,
+# chosen, argument): a folder below the client level still sends
+# `Client/Fiscal year/…`, and the Applications folder itself yields an empty
+# prefix, so existing uploads keep their dedupe keys. A root with no
+# Applications folder above it also gets an empty prefix (it is taken to be
+# the corpus folder, as every run did before), and upload_refusal checks that
+# assumption against this root's own rels before anything is sent.
+REFUSAL_REASONS=""
+REFUSAL_GUIDANCE=""
+UNANCHORED=()
 for r in "${ROOTS[@]}"; do
-  PREFIX=""
-  if [ "$DROPPED_MODE" -eq 1 ]; then PREFIX="$(drop_prefix "$r")"; fi
-  collect_candidates "$r" "$PREFIX"
+  before="$(wc -l < "$FILELIST" | tr -d ' ')"
+  collect_candidates "$r" "$(root_prefix "$r")"
+  if [ "$(root_anchor_index "$r")" -lt 0 ]; then
+    refusal="$(tail -n "+$((before + 1))" "$FILELIST" | cut -f1 | upload_refusal "$r")"
+    if [ -n "$refusal" ]; then
+      REFUSAL_REASONS="$REFUSAL_REASONS$(printf '%s\n' "$refusal" | sed -n 1p)
+"
+      REFUSAL_GUIDANCE="$REFUSAL_GUIDANCE$(printf '%s\n' "$refusal" | sed -n '2,$p')
+"
+    else
+      UNANCHORED+=("$r")
+    fi
+  fi
   # The SCAN_* globals describe one root, so the block is rendered now, while
   # they still hold this root's numbers.
   if [ "${#ROOTS[@]}" -gt 1 ]; then echo "Root: $r" >> "$SCANLOG"; fi
@@ -492,6 +677,25 @@ mv "$SORTED" "$FILELIST"
 COUNT="$(wc -l < "$FILELIST" | tr -d ' ')"
 
 echo "Found $COUNT document(s) (.docx/.doc/.pdf/.txt/.vtt)."
+
+# Show what the server will label the files with before asking for a y: the
+# client and fiscal-year folders with a count, never a document name. The same
+# lines go to the log so a mislabelled batch can be traced to the run.
+# Process substitution, not a pipe: a pipeline stage is a subshell, and
+# log_line's flags would not come back, so the next write would truncate the
+# log and lose the LABELS lines.
+announce_labels < <(cut -f1 "$FILELIST")
+for r in ${UNANCHORED[@]+"${UNANCHORED[@]}"}; do
+  warn_line "No \"Applications\" folder above $r - treating it as the corpus folder (client folders directly inside it)."
+done
+
+# A root with no Applications folder above it whose files would arrive
+# without Client and Fiscal-year folders, or that sits above an Applications
+# folder, is a wrong pick, not a batch to send: say which folder to choose and
+# stop before the question. Reasons and guidance carry folder names only.
+if [ -n "$REFUSAL_REASONS" ]; then
+  refuse_upload "$REFUSAL_REASONS" "$REFUSAL_GUIDANCE"
+fi
 
 # Zero found is the report that used to arrive with nothing to act on. Print
 # and log the breakdown: counts and extensions only, never a document name.
