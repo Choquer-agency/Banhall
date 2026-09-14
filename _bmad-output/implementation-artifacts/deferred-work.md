@@ -1,3 +1,5 @@
+# Deferred Work
+
 ### DW-1: Restore the ten pre-existing failing cases in the excluded Bun proposal test file.
 origin: spec-deferred 542cee466154
 location: tests/chatProposals.test.ts
@@ -21,7 +23,9 @@ location: convex/ai/pipeline.ts, convex/ai/iterative.ts, convex/ai/instrument.ts
 source_spec: `10-generations-record-prompt-version-hash-and-learning-digest-ids.md`
 severity: low
 reason: The approved design stamps promptVersion atomically at beginGeneration and intentionally does not re-verify it at later provider handoffs, so a mid-flight generation may finish under mixed deployed code while retaining its start-time hash.
-status: open
+status: done 2026-09-14
+resolution: closed by human decision: Accept the documented start-time hash and mixed-deployment limitation.
+decision: 2026-09-14 Preserve start-time semantics — Accept the documented start-time hash and mixed-deployment limitation.
 
 ### DW-4: Generation-owned Voyage query-embedding and rerank usage remains outside Story 10 attribution.
 origin: spec-deferred 441c1cd5bc10
@@ -38,6 +42,7 @@ source_spec: `10-generations-record-prompt-version-hash-and-learning-digest-ids.
 severity: high
 reason: The approved story design permits completed post-QA attribution, and the union mutation has no terminal fence, so late ghost calls can also extend the union.
 status: open
+decision: 2026-09-14 Keep policy pending
 
 ### DW-6: Partial candidate retries do not define ownership for copied candidate provenance and usage.
 origin: spec-deferred 7403dbc2733c
@@ -46,6 +51,7 @@ source_spec: `10-generations-record-prompt-version-hash-and-learning-digest-ids.
 severity: high
 reason: retryFailedCandidates can copy a successful candidate into a newly hashed generation while its original usage and report provenance remain keyed to the prior generation.
 status: open
+decision: 2026-09-14 Keep origin explicit — Define copied-candidate lineage, preserve original usage ownership and expose provenance without double-counting recovery cost.
 
 ### DW-7: The prompt-program manifest does not cover every stable provider-visible rule.
 origin: spec-deferred 2b000c09e95e
@@ -95,6 +101,7 @@ source_spec: `11-getgeneration-exposes-attributable-cost-with-legacy-null-semant
 severity: medium
 reason: src/lib/components/generation/GenerationProgress.svelte:19 subscribes to api.generations.getGeneration for the duration of a run, and logUsage is scheduled per provider call (tens per generation). The in-query sum is required by this story's intent ("computed inside the same query", partial sum while in flight), so it is not fixable here; a stored running total on the generation row, or a separate cost query the progress card does not subscribe to, would remove the churn.
 status: open
+decision: 2026-09-14 Separate progress and cost — Amend the query contract and move live cost to a dedicated authorized query, preserving legacy null and consumer semantics.
 
 ### DW-13: Per-generation dollar cost is now readable by any internal role while the aggregate usageReport stays admin-gated, and the widening is recorded only in this story file, not in docs/product-domain.md.
 origin: spec-deferred 17d0f20a8246
@@ -103,6 +110,7 @@ source_spec: `11-getgeneration-exposes-attributable-cost-with-legacy-null-semant
 severity: medium
 reason: getInternalProjectAccessOrNull (convex/lib/auth.ts:33-42) admits writer, manager, and admin for any project, whereas convex/aiUsage.ts gates usageReport behind usageViewerOrNull. The story forbids adding a gate, so the code is correct as specified, but the domain contract should say who may see spend at generation granularity.
 status: open
+decision: 2026-09-14 Record visibility policy — Record approved internal generation-cost visibility in the product domain, preserve aggregate restrictions and verify both boundaries.
 
 ### DW-14: No function in convex/generations.ts declares a returns validator, so the convex-lint hook warns on every edit to the file.
 origin: spec-deferred 8dea7e53e38b
@@ -127,6 +135,7 @@ source_spec: `12-confirmed-unlearn-with-failure-evidence-and-retry-free-embeds.m
 severity: low
 reason: ingestOnComplete's orphan branch schedules unlearnSource without a sourceId, and both bookkeeping mutations early-return in that case, so a capped-out orphan erasure is invisible. Mitigated at serve time by the new status join (a hit whose sourceId maps to no row is dropped). brainAuditLog.sourceId is optional, so a sourceId-less row is representable if evidence is later wanted.
 status: open
+decision: 2026-09-14 Audit orphan erasure failures — Approve optional-source erasure failure records retaining remote identity and exhaustion, without resurrecting sources.
 
 ### DW-17: Repeated revokeSource clicks start concurrent, undeduplicated remediation ladders.
 origin: spec-deferred b1ee08c62c36
@@ -143,6 +152,7 @@ source_spec: `12-confirmed-unlearn-with-failure-evidence-and-retry-free-embeds.m
 severity: low
 reason: recordUnlearnFailure patches the id back only `if (!s.ragEntryId)` (as the spec task specifies). If a re-ingest wrote E2 while the compensation for E1 was failing, the un-erased E1 survives only in the unlearn_failed reason string, and re-revoke remediation then retries against E2.
 status: open
+decision: 2026-09-14 Track failed entries independently — Define per-entry remediation ownership so older failed erasures stay retryable without replacing newer pointers.
 
 ### DW-19: No unlearn_failed row is written if the source row is deleted or re-approved between the throw and the bookkeeping.
 origin: spec-deferred e0dbef9e0f88
@@ -151,6 +161,7 @@ source_spec: `12-confirmed-unlearn-with-failure-evidence-and-retry-free-embeds.m
 severity: low
 reason: recordUnlearnFailure's insert sits inside `if (s && s.status !== "approved")`, while the action still rethrows and still reschedules. The guard exists to avoid contradicting a re-approval, so the fix is a policy choice rather than a bug.
 status: open
+decision: 2026-09-14 Separate attempt history from status — Approve historical attempt auditing independent of current source status, ensuring records cannot imply re-approved sources are revoked.
 
 ### DW-20: A failure of the new governance join degrades retrieval to zero exemplars rather than erroring.
 origin: spec-deferred 553bb6411cf5
@@ -202,7 +213,8 @@ location: convex/generations.ts (recordContextBudget) / no consumer
 source_spec: `2-trusted-context-module-for-generation-input.md`
 severity: medium
 reason: A writer can receive a report generated from a halved transcript or with documents dropped and see only the progress-log document count. The data is persisted per source row but has no read side.
-status: open
+status: done 2026-09-12
+resolution: already resolved: convex/generations.ts:988 implements getContextInclusion with persisted contextBudget at :1034; BriefRailPanel.svelte:39 and CurrentProjectPage.svelte:953 consume it.
 
 ### DW-26: Chat and research still assemble their own context inline, so plan Phase 2's "one trusted-context module shared by chat, generation and research" is only half met after this story.
 origin: spec-deferred 25b33403de81
@@ -251,6 +263,7 @@ source_spec: `3-document-trust-from-uploader-role.md`
 severity: medium
 reason: Every projectDocuments writer (documents.ts, ingestionPort.ts, projects.ts, reviewFromProject.ts) is behind requireInternalProjectAccess or an admin check, and users.role has no client member. So a "client-uploaded file tagged writer_notes" is not a producible runtime state; the demotion only ever fires on rows predating the field. The open case is an internal writer uploading a client-supplied file and tagging it writer_notes, which uploader role cannot distinguish. Closing it needs a different signal (document origin or intake channel), which is an epic-level decision.
 status: open
+decision: 2026-09-14 Design origin policy — Approve an origin/intake trust contract and implement storage, upload classification and prompt treatment without inferring origin from role alone.
 
 ### DW-32: getChatContextV2 has no `returns` validator, so the query's shape is kept in sync with its only caller by a hand-written type annotation in the action.
 origin: spec-deferred 9a25b2e58895
@@ -299,7 +312,8 @@ location: convex/ai/trustedContext.ts (sanitizeFileName) / convex/ai/chatEvidenc
 source_spec: `5-injection-boundary-test-suite.md`
 severity: medium
 reason: Generation uses sanitizeFileName, which collapses only ASCII hyphen runs (`/-{3,}/g`); chat adds a local markerFileName for Unicode dash runs (chatEvidence.ts:145-152). A file name of the shape `--- BEGIN [WRITER'S NOTES (unreliable narrator)] x.md` built from Unicode dashes may therefore behave differently in the two pipelines, which is exactly the divergence this corpus exists to catch. Every slot hard-codes a benign name (`appendix.txt`, `client-notes.txt`). chatEvidence.test.ts:267-284 covers the chat half with a hand-written string; the generation half is uncovered for Unicode runs.
-status: open
+status: done 2026-09-12
+resolution: already resolved: convex/ai/trustedContext.ts:270-293 shares Unicode dash sanitization with chatEvidence.ts:169; trustedContext.test.ts:390-399 tests malicious Unicode marker filenames through generation.
 
 ### DW-38: The corpus never interacts with the context budget, so containment under truncation and under a fully dropped source is untested.
 origin: spec-deferred 88c5ac0852f0
@@ -341,6 +355,7 @@ source_spec: `7-review-decisions-required-to-leave-internal-review.md`
 severity: medium
 reason: setWorkflowStage resolves the report with by_projectId + .order("desc").first(), copied verbatim from convex/reports.ts:35 and used elsewhere in the repo. With more than one reports row on a project the newest-created row need not hold the highest revisionNumber, so the audit row can pin a revision other than the one under review. Pre-existing convention, newly load-bearing for an audit record; no test inserts two reports for one project.
 status: open
+decision: 2026-09-14 Define authoritative report — Approve one selection contract for display and review decisions, testing creation order differing from revision order.
 
 ### DW-43: Nothing pins that the only production caller actually sends reviewDecision, so a UI regression would make leaving internal review impossible while the suite stays green.
 origin: spec-deferred 1f2999995097
@@ -348,7 +363,8 @@ location: src/lib/components/project/ProjectWorkflowMenu.svelte:288
 source_spec: `7-review-decisions-required-to-leave-internal-review.md`
 severity: medium
 reason: ProjectWorkflowMenu.svelte submitStage is the sole setWorkflowStage client. Every reviewDecision assertion lives in convex/projectWorkflow.test.ts and constructs the arguments itself. No ProjectWorkflowMenu component test exists; ProjectHighlights.component.test.ts mounts the menu with workflowStage "drafting" and never opens the dialog. Removing the conditional spread breaks review completion in the app and fails no test.
-status: open
+status: done 2026-09-12
+resolution: already resolved: 97e32b7 adds ProjectWorkflowMenu.component.test.ts:48-63, driving the production menu and asserting reviewDecision and workflow version; :71-81 covers omission on other transitions.
 
 ### DW-44: The decision is pinned to whatever revision is current at commit time, with no caller-supplied fence proving the reviewer read that revision.
 origin: spec-deferred 340ddc7b1883
@@ -357,6 +373,7 @@ source_spec: `7-review-decisions-required-to-leave-internal-review.md`
 severity: medium
 reason: setWorkflowStage already fences the stage field with expectedVersion, but the review decision takes no expected revisionNumber or contentHash. If the report is edited between the reviewer reading it and confirming the transition, the row silently attests a judgement against the newer revision. The story chose server-side resolution deliberately; closing this needs a client-supplied baseline and UI plumbing.
 status: open
+decision: 2026-09-14 Require reviewer baseline — Approve caller-supplied report revision/content baseline, reject stale decisions and provide updated-report review flow.
 
 ### DW-45: A project sitting in internal_review with no reports row cannot leave via either completion edge, and the UI gives no advance signal.
 origin: spec-deferred 0d92b63b042d
@@ -382,6 +399,7 @@ source_spec: `3-persist-post-edit-distance-at-milestones.md`
 severity: medium
 reason: convex/projects.ts:1106 enumerates the cascade; reportEditDistance is absent. seriesForWriter keys on writerUserId, not project access, so orphaned rows stay readable. Not patched because the same cascade already omits reportSnapshots, reportProvenance, writerReviews, candidateScores and modelSelections -- a house-wide retention gap -- and the intent restricts convex/projects.ts to the scheduled publish call.
 status: open
+decision: 2026-09-14 Delete linked measurements — Resolve with DW-60 and DW-67 under one approved retention policy and implement bounded cascade with writer-series deletion tests.
 
 ### DW-48: A report whose content JSON fails to parse persists a bogus ped 1 reading instead of recording nothing.
 origin: spec-deferred f8ab36ad866f
@@ -400,6 +418,7 @@ source_spec: `3-persist-post-edit-distance-at-milestones.md`
 severity: low
 reason: convex/projects.ts schedules internal.reportEditDistance.recordAtPublish with only reportId, and recordAtPublish re-reads the report at drain time. The intent (touchpoints CAP-2) mandates "add a scheduled internal mutation call only" in this file, so passing and enforcing a revision is a change to the contract, not a patch.
 status: open
+decision: 2026-09-14 Measure published revision — Resolve with DW-65 under one approved publication-time contract; freeze published content/revision/ownership in the scheduled handoff and test intervening changes.
 
 ### DW-50: The generated-baseline lookup is duplicated in two files and filters reason over the whole by_reportId range instead of using a [reportId, reason] index.
 origin: spec-deferred 1672ee0e4699
@@ -415,7 +434,9 @@ location: convex/reportEditDistance.ts
 source_spec: `3-persist-post-edit-distance-at-milestones.md`
 severity: low
 reason: recordReportEditDistance only runs at new triggers, so existing reports get their first row at the next milestone or publish. The data to seed the trend exists (snapshotIdsToDelete never prunes reason:"generated"), so a one-shot internal backfill would work; the intent explicitly excludes backfill from this story.
-status: open
+status: done 2026-09-14
+resolution: closed by human decision: Accept prospective-only history as explicitly scoped.
+decision: 2026-09-14 Keep prospective samples — Accept prospective-only history as explicitly scoped.
 
 ### DW-52: docs/system-map.md still labels reports.postEditDistance a dead end that is "never stored".
 origin: spec-deferred 6c8361a5abe1
@@ -423,7 +444,8 @@ location: docs/system-map.md:359
 source_spec: `3-persist-post-edit-distance-at-milestones.md`
 severity: low
 reason: docs/system-map.md:359 reads `PED[reports.postEditDistance query] -.->|DEAD-END: computed on read, never stored, no UI caller| NW2((no reader))`. Half of that is now false. Left for CAP-3, which adds the UI reader and makes the other half false too, so the line can be rewritten once instead of twice.
-status: open
+status: done 2026-09-12
+resolution: already resolved: docs/system-map.md:360 now connects persisted reportEditDistance milestone samples to learningHealth.getHealth; the obsolete never-stored dead-end label is gone.
 
 ### DW-53: Neither restoreSnapshot nor finalizeProject takes a reading, so a restore and every round of client-review rework are invisible to the series.
 origin: spec-deferred 02963021049d
@@ -432,6 +454,7 @@ source_spec: `3-persist-post-edit-distance-at-milestones.md`
 severity: low
 reason: The trigger union stops at client_publish. snapshots.restoreSnapshot can move content arbitrarily far from the AI draft and the next recorded reading jumps with no row explaining why; projects.finalizeProject is where the writer has actually stopped editing. CAP-2's success criterion names only the three implemented triggers, so these are extensions.
 status: open
+decision: 2026-09-14 Keep decision pending
 
 ### DW-54: Both series queries truncate silently at their caps with no cursor or truncated flag, so a long-lived report or writer shows a partial window presented as the full history.
 origin: spec-deferred ca55a403acc7
@@ -440,6 +463,7 @@ source_spec: `3-persist-post-edit-distance-at-milestones.md`
 severity: low
 reason: SERIES_FOR_REPORT_LIMIT 200 and SERIES_FOR_WRITER_LIMIT 500 keep the newest readings (tested), but neither query accepts a cursor nor reports that it dropped rows; for seriesForReport the dropped row is the ped-0 candidate_selection origin point, so a capped trend appears to start mid-flight. Paging belongs to CAP-3, which owns the dashboard.
 status: open
+decision: 2026-09-14 Expose bounded-window metadata — Resolve DW-54 and DW-68 together with rows and explicit truncation metadata, updating consumers and limit-boundary tests.
 
 ### DW-55: Only the selectReportCandidate candidate path is driven end to end; the single-candidate and iterative-approve paths are covered structurally, not by test.
 origin: spec-deferred deae0a6ac7eb
@@ -456,6 +480,7 @@ source_spec: `3-persist-post-edit-distance-at-milestones.md`
 severity: low
 reason: recordReportEditDistance resolves writerUserId from project.ownerId at insert time (correct per PSOS-07). Nothing documents or tests what a later ownership transfer does to either writer's trend, and a writer reading their own series still sees reportId/projectId for projects since reassigned away from them, with no access re-check.
 status: open
+decision: 2026-09-14 Preserve attribution and recheck access — Approve the access policy, retain sampling-time attribution and filter disclosures through current project access with transfer tests.
 
 ### DW-57: seriesForWriter hardcodes an admin/manager-or-self role check instead of going through the repo's roleCapabilities matrix.
 origin: spec-deferred b42a05a3908b
@@ -463,7 +488,9 @@ location: convex/reportEditDistance.ts:58
 source_spec: `3-persist-post-edit-distance-at-milestones.md`
 severity: medium
 reason: convex/projects.ts:27 imports requireCapability from ./lib/roleCapabilities and uses it two lines from the new scheduled call (:1028, :1053), and shared/capabilities.ts is the recorded permission surface. The new query instead reads user.role directly. The behaviour matches the intent's matrix, so it was not patched, but the permission is now invisible to the capability matrix and the /admin permission UI.
-status: open
+status: done 2026-09-14
+resolution: closed by human decision: Retain the explicitly specified query policy.
+decision: 2026-09-14 Keep dedicated policy — Retain the explicitly specified query policy.
 
 ### DW-58: reportEditDistance rows carry no formula version, so the first change to computeEditDistance silently mixes two incompatible scales on one trend.
 origin: spec-deferred e241a28dbc77
@@ -472,6 +499,7 @@ source_spec: `3-persist-post-edit-distance-at-milestones.md`
 severity: medium
 reason: convex/schema.ts:1270 stores only the ped scalar; the intent contract enumerates the exact columns, so adding a version column was out of scope here. Once rows exist, adding one requires a backfill, and no consumer can tell a v1 reading from a v2 reading.
 status: open
+decision: 2026-09-14 Version readings — Define legacy v1 interpretation and add formula-version metadata to new writes/reads, using a controlled migration only if required by approved compatibility policy.
 
 ### DW-59: reports.postEditDistance still returns PED to a client_review caller holding a share token, exposing an internal staff-quality metric.
 origin: spec-deferred 7f1a8c583f86
@@ -480,6 +508,7 @@ source_spec: `3-persist-post-edit-distance-at-milestones.md`
 severity: medium
 reason: convex/reports.ts postEditDistance accepts shareToken and returns for access.kind === "client_review"; the new seriesForReport is internal-only, which makes the asymmetry visible. Pre-existing behaviour untouched by this story, and docs/product-domain.md does not record the exposure as reviewed.
 status: open
+decision: 2026-09-14 Restrict to internal users — Approve internal-only PED and deny shared-token callers while preserving internal response behavior.
 
 ### DW-60: reportEditDistance is append-only with no pruning and no cleanup when a report (rather than a project) is deleted.
 origin: spec-deferred 85449beef801
@@ -488,6 +517,7 @@ source_spec: `3-persist-post-edit-distance-at-milestones.md`
 severity: low
 reason: Distinct from the deleteProject cascade gap above: reportSnapshots has pruneSnapshots (convex/lib/snapshots.ts:237) while the new table has no retention at all, and seriesForReport returns null once the report is gone, so orphaned rows become unreachable but permanent.
 status: open
+decision: 2026-09-14 Cascade deleted samples — Approve bounded PED cleanup alongside report/project deletion, retaining live-report samples.
 
 ### DW-61: seriesForReport caps by insertion order but presents the series ordered by computedAt, so the dropped row need not be the oldest row shown.
 origin: spec-deferred b18dbfbdc69c
@@ -503,7 +533,9 @@ location: convex/reportEditDistance.ts:80
 source_spec: `3-persist-post-edit-distance-at-milestones.md`
 severity: low
 reason: convex/reportEditDistance.ts computes `since` at execution time; a Convex query only re-runs when its reads change, so the window does not advance with wall-clock time. CAP-3 should either pass an explicit `since` or refresh deliberately.
-status: open
+status: done 2026-09-14
+resolution: closed by human decision: Accept and document execution-time windows for the unused series surface.
+decision: 2026-09-14 Keep execution-time windows — Accept and document execution-time windows for the unused series surface.
 
 ### DW-63: The candidate-selection hook re-reads the report and re-queries the snapshot it just inserted even though the reading is ped 0 by construction.
 origin: spec-deferred 7ca12cdf17a9
@@ -520,6 +552,7 @@ source_spec: `3-persist-post-edit-distance-at-milestones.md`
 severity: low
 reason: convex/lib/editDistance.ts compares (trigger, revisionNumber, ped) against by_reportId .order("desc").first(). publish then milestone then publish with no edit in between writes a third row because the newest row's trigger differs. This is the literal reading of the intent's repeat-trigger row; a per-trigger comparison would suppress it.
 status: open
+decision: 2026-09-14 Deduplicate per trigger — Amend the repeat-trigger contract and compare latest matching-trigger samples with alternating publish/milestone tests.
 
 ### DW-65: Recovery review reconfirmed that scheduled publish readings use drain-time content and ownership.
 origin: spec-deferred 62f4c7d4491a
@@ -528,6 +561,7 @@ source_spec: `3-persist-post-edit-distance-at-milestones.md`
 severity: low
 reason: convex/projects.ts schedules recordAtPublish with reportId only; convex/reportEditDistance.ts:119 loads the report when that mutation runs. The existing recovery deferral is retained for orchestrator resolution.
 status: open
+decision: 2026-09-14 Freeze publication inputs — Approve publication-time sampling and pass immutable content, revision and attribution into the scheduled recorder; test intervening edits and transfers.
 
 ### DW-66: Recovery review reconfirmed that malformed JSON is interpreted as empty text by the existing extractor.
 origin: spec-deferred 732eabc3e917
@@ -546,6 +580,7 @@ source_spec: `3-persist-post-edit-distance-at-milestones.md`
 severity: medium
 reason: convex/reportEditDistance.ts:91 reads the writer index without loading current projects; the existing deletion and ownership deferrals remain reserved for orchestrator resolution.
 status: open
+decision: 2026-09-14 Apply current access rules — Resolve with DW-56 and approved retention policy, rechecking project access without rewriting historical ownership.
 
 ### DW-68: Recovery review reconfirmed that bounded series responses do not include truncation metadata.
 origin: spec-deferred 176045d2b1ac
@@ -554,6 +589,7 @@ source_spec: `3-persist-post-edit-distance-at-milestones.md`
 severity: low
 reason: convex/reportEditDistance.ts uses take(SERIES_FOR_REPORT_LIMIT) and take(SERIES_FOR_WRITER_LIMIT) and returns arrays. The existing pagination deferral remains reserved for CAP-3.
 status: open
+decision: 2026-09-14 Expose bounded-window metadata — Resolve DW-54 and DW-68 together with rows and explicit truncation metadata, updating consumers and limit-boundary tests.
 
 
 ### DW-69: A review records server state at submission, without proving that it is the content the reviewer previously viewed.
@@ -563,6 +599,7 @@ source_spec: `9-review-artifacts-pinned-to-revision-and-content-hash.md`
 severity: medium
 reason: submitWriterReview and saveQaItemFeedback accept target IDs without an expected revision or content hash. Existing callers may submit after another actor edits the report. CAP-9 preserves these public call shapes and records the current mutation-time target; caller observation fencing remains a separate existing workflow limitation.
 status: open
+decision: 2026-09-14 Fence observed content — Approve the caller contract, send viewed revision/hash and atomically reject stale submissions while retaining provenance.
 
 
 ### DW-70: End-to-end provider chains can exceed the Convex action deadline; shared analysis now joins the entry chain, as it already does in iterative generation.
@@ -572,6 +609,7 @@ source_spec: `10-analyzer-once-per-generation-with-prompt-caching.md`
 severity: medium
 reason: convex/ai/condense.ts:124-139 reserves only non-request time after condensation. Brain retrieval and analysis then execute sequentially. convex/ai/providers.ts:32-48 explicitly documents that provider timeout bounds apply to one slot rather than a complete action; stale-generation recovery remains the fallback. Durable per-phase scheduling is a broader existing pipeline limitation.
 status: open
+decision: 2026-09-14 Defer orchestration design
 
 
 ### DW-71: The existing because detector treats multiple recognized uncertainties in one sentence as one statement.
@@ -581,6 +619,7 @@ source_spec: `8-blocking-qa-policy.md`
 severity: medium
 reason: Baseline f122b086d745acc40b4decca26b9aaafc7257f6a convex/ai/qaChecks.ts uses uncertaintyMarkers.some and one /because/i check per sentence. One because clause can therefore satisfy another uncertainty in the same sentence. The new gate reuses that existing detector rather than adding a linguistic classifier.
 status: open
+decision: 2026-09-14 Keep decision pending
 
 
 ### DW-72: restoreSnapshot has no positive-path test asserting the pre_restore checkpoint's own fields or the provenance/lineage rewrite it performs.
@@ -696,6 +735,7 @@ source_spec: `2-de-identification-before-firm-wide-knowledge.md`
 severity: medium
 reason: Scrubbing for those two tables happens at the write site (convex/generations.ts:1985, convex/brain.ts:234), so convex/learning.ts getSectionEditsForDigest returns whatever is stored and every pre-deploy row in the 500-row digest window is raw. CAP-1's success clause is write-scoped ("writes pass through it") and the epic SPEC's open question defaults re-processing existing Brain sources to "no", so a backfill or a read-side filter is deliberately out of this story.
 status: open
+decision: 2026-09-14 Add controlled reprocessing — Approve administrator-controlled historical Brain reprocessing with source/index consistency and review provenance.
 
 ### DW-86: Three other free-text streams cross the same firm-wide boundary without de-identification.
 origin: spec-deferred 8260a959468e
@@ -704,6 +744,7 @@ source_spec: `2-de-identification-before-firm-wide-knowledge.md`
 severity: medium
 reason: qaItemFeedback.itemText (convex/learning.ts getFeedbackForDigest), candidateScores.comment (getCandidateFeedbackForDigest) and brainFeedbackQueue body/suggestedRule (getApprovedBrainFeedbackForDigest, plus the writer_feedback importSource at convex/brain.ts:675) all feed the same two digest prompts or the Brain, and all carry a projectId. CAP-1 enumerates only nominateFromReport, sectionEditEvents and proposalWordingEditEvents, so these are outside this story's intent.
 status: open
+decision: 2026-09-14 Scrub feedback nominations — Approve this Brain crossing and de-identify title/content before importSource, retaining project attribution and approval semantics.
 
 ### DW-87: convex/ingestion.ts builds a Brain source title from clientName, so curated imports carry the client name into drafting prompts.
 origin: spec-deferred 30023b719473
@@ -730,6 +771,7 @@ source_spec: `2-de-identification-before-firm-wide-knowledge.md`
 severity: low
 reason: convex/learning.ts getProposalWordingEditsForDigest loads the live project document and scrubs against it. A project renamed after an edit event was written no longer supplies the string that appears in the stored prose. Inherent to the read-side approach the story mandated (chatV2.ts is off-limits), not to any choice made inside it.
 status: open
+decision: 2026-09-14 Scrub at event creation — Approve proposal-event write-time scrubbing, preserve metrics and attribution, and separately define historical-event handling.
 
 ### DW-90: A section edit whose only change was a client name now stores an identical draft/approved pair while keeping its pre-scrub editRatio.
 origin: spec-deferred 27886a9e0f20
@@ -789,10 +831,21 @@ status: done 2026-09-05
 resolution: Independent PED acceptance audit found no actionable defect; later native malformed-content repair was independently reviewed and all eight PED paths remain unchanged from reviewed e13e625. Native acceptanceb984822a8aeb70b7eb48a5d617ed18846392b1d2; .audit/integration-code-review-9da55be/ped-native-acceptance-audit.md and .audit/integration-final-20260905/final-acceptance-preflight.md. Final combined source569158a2b31ad0a7bf8ff1ba1e63a8634cc6f54c passed1970 unit and463 browser tests, both type checks, uploader suites and build; .audit/integration-final-20260905/final-gates/final-verification.json. Review-budget follow-up satisfied.
 
 
-## Deferred from: code review of SPEC-ai-engine-sprint-2-boundary (2026-09-04, integration 9da55be)
+### DW-149: Shared live report can change after publication
 
-- Shared live report can change after publication: Live sharing and mutable report identity predate this branch. The approved QA change gates readiness and publish mutations; pinning shared copies or adding an egress/edit gate changes the domain workflow. Preserve as a separate existing sharing concern, not an unapproved expansion of CAP-8. Evidence: convex/reports.ts:30-35,64-72; convex/projects.ts:1047. Source review: .audit/integration-code-review-9da55be/review.md.
-- Because detector accepts a substring: The existing sentence-level /because/i detector predates the change and is deliberately retained by the frozen QA contract. This specific substring limitation is distinct from the multi-uncertainty case in DW-71; changing the detector requires focused work under its own intent. Evidence: convex/ai/qaChecks.ts:101-104. Source review: .audit/integration-code-review-9da55be/review.md.
+origin: migrated from legacy ledger ("Deferred from: code review of SPEC-ai-engine-sprint-2-boundary (2026-09-04, integration 9da55be)"), 2026-09-12
+location: convex/reports.ts:30-35,64-72; convex/projects.ts:1047
+reason: Live sharing and mutable report identity predate this branch. The approved QA change gates readiness and publish mutations; pinning shared copies or adding an egress/edit gate changes the domain workflow. Preserve as a separate existing sharing concern, not an unapproved expansion of CAP-8. Evidence: convex/reports.ts:30-35,64-72; convex/projects.ts:1047. Source review: .audit/integration-code-review-9da55be/review.md.
+status: open
+decision: 2026-09-14 Pin published revision — Record an approved publication-domain amendment and implement an immutable published-content reference with explicit republish behavior. Preserve internal editing and prove that subsequent edits cannot change an existing client publication.
+
+### DW-150: Because detector accepts a substring
+
+origin: migrated from legacy ledger ("Deferred from: code review of SPEC-ai-engine-sprint-2-boundary (2026-09-04, integration 9da55be)"), 2026-09-12
+location: convex/ai/qaChecks.ts:101-104
+reason: The existing sentence-level /because/i detector predates the change and is deliberately retained by the frozen QA contract. This specific substring limitation is distinct from the multi-uncertainty case in DW-71; changing the detector requires focused work under its own intent. Evidence: convex/ai/qaChecks.ts:101-104. Source review: .audit/integration-code-review-9da55be/review.md.
+status: open
+decision: 2026-09-14 Require standalone because — Tighten only the because token boundary while preserving uncertainty recognition and sentence-level counting. Add regressions for embedded substrings and valid standalone because clauses, and document the approved gate change.
 
 ### DW-96: Follow-up review still recommended for 4 after the damping cap was spent
 origin: review-budget-followup
@@ -890,7 +943,8 @@ location: convex/_generated/api.d.ts
 source_spec: `1-generation-brief-storage-and-derivation-stage.md`
 severity: medium
 reason: The _generated types are from baseline commit and don't reflect schema changes. This is a toolchain requirement: `npx convex dev` or `npx convex codegen` needs a live Convex deployment URL, which is not available in this worktree. The implementation code itself is correct and tests have proper signatures; only the generated type definitions need updating when deployed.
-status: open
+status: done 2026-09-12
+resolution: already resolved: convex/_generated/api.d.ts:20,58,64,96,102 imports ai/brief, ai/writerSettings, briefs, lib/completionReport and lib/deviationInventory; generated API refresh is present in c860875.
 
 ### DW-107: Brief-derivation source and diff-baseline reads are hard-capped (200/500 rows) with no overflow signal.
 origin: spec-deferred 54d8bfa899f4
@@ -907,6 +961,7 @@ source_spec: `1-generation-brief-storage-and-derivation-stage.md`
 severity: medium
 reason: briefOutputSchema (convex/ai/brief.ts) validates the whole structured-call payload as one object; once the two-attempt-repair policy is exhausted, generateStructured throws and the whole Brief (Storyline, every Claim Exclusion, Confidence Map entry, Glossary Term) is discarded rather than degrading per-entry the way a failed citation byte-match does.
 status: open
+decision: 2026-09-14 Salvage valid entries — Preserve repair policy, validate entries independently after exhaustion, count malformed drops and expose partial telemetry.
 
 ### DW-109: Brief-derivation failures are only console.error-logged; nothing is persisted to distinguish "no evidence to derive from" from "the call failed".
 origin: spec-deferred 5b0ba126b9cd
@@ -914,7 +969,9 @@ location: convex/ai/pipeline.ts, convex/ai/iterative.ts
 source_spec: `1-generation-brief-storage-and-derivation-stage.md`
 severity: low
 reason: pipeline.ts and iterative.ts catch and log any deriveOrReuseBrief rejection so the generation continues with no Brief (by design), but repeated failures across generations are invisible beyond an absent Brief in the (not-yet-built) UI — nothing on aiUsage or the QA scorecard records that a Brief was attempted and failed versus never attempted.
-status: open
+status: done 2026-09-14
+resolution: resolved by sweep bundle dw-brief-failure-observability
+resolution-undo: 2a5238735778566f0ed74129824f29b62398c18a712884d4d093b7e344770f33 2026-09-14 7374617475733a206f70656e
 
 ### DW-110: A writer-supplied Storyline has no length cap, and the derivation call still asks the model for a competing Storyline it then discards.
 origin: spec-deferred a1d0fd6f098e
@@ -923,6 +980,7 @@ source_spec: `1-generation-brief-storage-and-derivation-stage.md`
 severity: low
 reason: reserveGeneration stores the writer Storyline with no cap analogous to TRANSCRIPT_BUDGET_CHARS, and it is appended verbatim into every section prompt. The same structured call also always asks for storyline/ storylineClaims even when origin will be "writer", spending tokens the epic's own SM-C2 2x call/cost budget must absorb.
 status: open
+decision: 2026-09-14 Preserve text, avoid derivation — Keep writer text verbatim and omit competing Storyline generation when supplied text is authoritative; measure request/token differences.
 
 ### DW-111: saveEntryEdit checks only that the edited Brief is the latest version for its own inputsHash, never whether that inputsHash is still the project's current one.
 origin: spec-deferred 3ce61774e7b5
@@ -931,6 +989,7 @@ source_spec: `1-generation-brief-storage-and-derivation-stage.md`
 severity: low
 reason: A writer can successfully edit a Brief version whose inputsHash has since been superseded by a new derivation (e.g. after a document was added); the edit succeeds but produces a version findReusableBrief will never surface to a future generation.
 status: open
+decision: 2026-09-14 Disclose historical editing — Preserve per-hash edits and disclose historical inputs and future reuse limitations.
 
 ### DW-112: Two generations that concurrently derive the same brand-new (projectId, inputsHash) for the first time can each insert a version-1 Brief.
 origin: spec-deferred 46a3dcf375ac
@@ -938,7 +997,9 @@ location: convex/generations.ts (findReusableBrief, persistDerivedBrief)
 source_spec: `1-generation-brief-storage-and-derivation-stage.md`
 severity: medium
 reason: persistDerivedBrief unconditionally inserts a new generationBriefs row without re-checking for an existing row inside its own transaction; the reuse check (findReusableBrief) runs earlier, in a separate action call. Two concurrent first-time derivations for the same key could each pass that check before either persists, leaving MAX(version) reuse and saveEntryEdit's staleness check ambiguous between the two rows.
-status: open
+status: done 2026-09-14
+resolution: resolved by sweep bundle dw-brief-derivation-concurrency
+resolution-undo: acf53716b3dc1a1f5f2e7021b73dc7466f43aaad3802094fac1207c3b290dfbd 2026-09-14 7374617475733a206f70656e
 
 ### DW-113: A glossary entry's stored text is the canonical term on the model-classified path but the raw matched surface form (e.g. an inflection) on the rule-matched path.
 origin: spec-deferred af6d193c1a41
@@ -946,7 +1007,9 @@ location: convex/lib/glossaryMatcher.ts, convex/ai/brief.ts
 source_spec: `1-generation-brief-storage-and-derivation-stage.md`
 severity: low
 reason: matchGlossaryTermsAcrossSources stores the matched surface form as `text`; brief.ts's model-classification branch stores the canonical term instead. Pre-existing inconsistency, not introduced by this diff.
-status: open
+status: done 2026-09-14
+resolution: resolved by sweep bundle dw-brief-canonical-glossary
+resolution-undo: 7c588ed81be2b0a2c59763893d5486569bf1c751335de680fa64d8a479b82c77 2026-09-14 7374617475733a206f70656e
 
 ### DW-114: The I/O matrix's "3+ Transcripts reconciled" Confidence Map expectation has no corresponding instruction in the Brief system prompt.
 origin: spec-deferred b12a780b1462
@@ -954,7 +1017,9 @@ location: convex/ai/brief.ts (BRIEF_SYSTEM_PROMPT)
 source_spec: `1-generation-brief-storage-and-derivation-stage.md`
 severity: low
 reason: BRIEF_SYSTEM_PROMPT gives generic established/partial/unresolved/ unreliable classification guidance with no instruction to reconcile disagreements across 3+ transcripts specifically. Plausible under the general instruction, but unverified by any prompt text or test.
-status: open
+status: done 2026-09-14
+resolution: resolved by sweep bundle dw-brief-transcript-reconciliation
+resolution-undo: bf562b7b6937f5ebc19a1e2d65b2445260a241bf9309de5fad185baee9b2251b 2026-09-14 7374617475733a206f70656e
 
 ### DW-115: UI surfaces for this story's backend: rendering drafted sections as they complete, a Stop button calling generations.stopOrderedGeneration, and the Compliance line/QA rail reading complianceNotes.list
 origin: spec-deferred f87855653e9d
@@ -979,6 +1044,7 @@ source_spec: `2-ordered-ungated-generation-self-check-compliance.md`
 severity: low
 reason: Both fields are accepted by saveMyProfile/saveProfileForUser and read by generation here; story 3 (profile lane) owns profile fidelity and the settings-document path that populates them.
 status: open
+decision: 2026-09-14 Keep controls deferred
 
 ### DW-118: A Brief re-derivation re-inserts the previous version's "removed" and storylineQuestion rows as fresh change: "removed" markers, and renderBriefForGeneration (iterative sections and the one-shot ghost
 origin: spec-deferred 0243750d9cb3
@@ -995,6 +1061,7 @@ source_spec: `2-ordered-ungated-generation-self-check-compliance.md`
 severity: medium
 reason: The reaper (convex/crons.ts, every 10 minutes, olderThanMinutes 30) has per-section handling for iterative only. A single generation now runs generateReport, generateCandidate, three sequential section actions (up to five provider calls each, 240 s per attempt) and finalize. AD-24 binds recovery to the existing reaper and forbids a new one, so a progress-aware threshold is an architecture-level change.
 status: open
+decision: 2026-09-14 Use progress-aware recovery — Approve timeout semantics in the existing reaper, preserve single recovery ownership and test slow-active versus stalled chains.
 
 ### DW-120: A Brief-derivation failure inside generateReport is only logged with console.error, not the writer-facing progress log, so a silently Brief-less generation gives no visible signal of why.
 origin: spec-deferred 25ee33812071
@@ -1002,7 +1069,9 @@ location: convex/ai/pipeline.ts generateReport (Brief-derivation catch block)
 source_spec: `2-ordered-ungated-generation-self-check-compliance.md`
 severity: low
 reason: convex/ai/pipeline.ts generateReport's deriveOrReuseBrief catch block predates this story (introduced in c3ba3fc, story 1) and is unchanged here; every other fallback in the same function (Build Order, Writer Profile) does call the progress-log helper. Pre-existing, not caused by this story's diff.
-status: open
+status: done 2026-09-14
+resolution: resolved by sweep bundle dw-brief-failure-observability
+resolution-undo: 2a5238735778566f0ed74129824f29b62398c18a712884d4d093b7e344770f33 2026-09-14 7374617475733a206f70656e
 
 ### DW-121: getOrderedSectionDrafts takes(30) on generationSectionRuns before filtering by candidateRunId, so a generation that has accumulated more than 30 section-run rows across many regenerations could have a
 origin: spec-deferred 62d5e0fedd8d
@@ -1010,7 +1079,9 @@ location: convex/generations.ts getOrderedSectionDrafts
 source_spec: `2-ordered-ungated-generation-self-check-compliance.md`
 severity: low
 reason: convex/generations.ts getOrderedSectionDrafts queries by_generationId with .take(30) first, then filters by candidateRunId in memory. Not reachable under this story's own acceptance criteria or tests (a generation normally accumulates a handful of rows per candidate), and a correct fix needs a candidateRunId-first index strategy rather than a one-line change.
-status: open
+status: done 2026-09-14
+resolution: resolved by sweep bundle dw-candidate-scoped-bounded-reads
+resolution-undo: f0c44e9453b7f48d31bebe8f34b2b4205ee5990e02dea47bd5be240590f6cf0b 2026-09-14 7374617475733a206f70656e
 
 ### DW-122: complianceNotes.listForGeneration takes(10) on generationCandidateRuns before matching the selected candidateId, so a generation that has accumulated more than 10 candidate runs across many regenerati
 origin: spec-deferred 5b48ffe75e42
@@ -1018,7 +1089,9 @@ location: convex/complianceNotes.ts listForGeneration
 source_spec: `2-ordered-ungated-generation-self-check-compliance.md`
 severity: medium
 reason: convex/complianceNotes.ts queries by_generationId with .take(10) then Array.find()s by candidateId in memory — the same shape as the already-deferred getOrderedSectionDrafts .take(30) truncation above. Not reachable under this story's own acceptance criteria or tests; a correct fix needs a candidateRunId-first index rather than a one-line change.
-status: open
+status: done 2026-09-14
+resolution: resolved by sweep bundle dw-candidate-scoped-bounded-reads
+resolution-undo: f0c44e9453b7f48d31bebe8f34b2b4205ee5990e02dea47bd5be240590f6cf0b 2026-09-14 7374617475733a206f70656e
 
 ### DW-123: In compare mode, two candidates can each independently insert a storylineQuestion row for the same Confidence Map entry into the generation's shared Brief; the row carries no candidateRunId to attribu
 origin: spec-deferred 1e44bdb1f444
@@ -1027,6 +1100,7 @@ source_spec: `2-ordered-ungated-generation-self-check-compliance.md`
 severity: medium
 reason: convex/generations.ts completeOrderedSectionRun inserts a generationBriefEntries "storylineQuestion" row per section whenever the model's Self-check verdict cites Confidence Map evidence, with no check for an existing row citing the same evidenceEntryId and no candidateRunId field on the insert. AD-23 names the mechanism but not compare-mode attribution. Not reachable under this story's own acceptance criteria or tests (the readers of this data are deferred to stories 4/5); a correct fix needs either a candidateRunId column or a dedup pass, not a one-line change.
 status: open
+decision: 2026-09-14 Attribute to candidates — Approve candidate ownership, widen storage and consistently scope creation/readers through selection.
 
 ### DW-124: Follow-up review still recommended for 2 after the damping cap was spent
 origin: review-budget-followup
@@ -1034,7 +1108,8 @@ location: n/a
 source_spec: `2-ordered-ungated-generation-self-check-compliance.md`
 severity: low
 reason: The follow-up-review damping cap (limits.max_followup_reviews = 1) was spent with the story finalized (status: done, verify green) while the review pass still recommended an independent follow-up. The work was committed by bmad-loop run 20260910-135728-7834; this entry preserves the lingering recommendation for a deliberate later review.
-status: open
+status: done 2026-09-12
+resolution: already resolved: .audit/resume-story6-20260912T105856Z/branch-review-a953bff/triage.json and triage-validation.json establish the complete four-layer Astra-medium review at a953bff, including unchanged story 2 code. Current source differs only in five independently reviewed comparison files; review obligation is fulfilled, findings remain open.
 
 ### DW-125: Story 4 surfaces for the settings record: the Brief rail's "No Writer Profile applied" line, the save banner, and a link to /settings/writing?fromGeneration=<id>.
 origin: spec-deferred 0a7305c0522d
@@ -1042,7 +1117,8 @@ location: convex/writerProfiles.ts getGenerationWriterSettings; src/routes/setti
 source_spec: `3-precedence-and-writer-profile-fidelity.md`
 severity: medium
 reason: getGenerationWriterSettings and the page prefill exist, but nothing in src/ renders noProfileLine or links to the offer (final review pass). The intent defers story 4's Brief rail and save banner.
-status: open
+status: done 2026-09-12
+resolution: already resolved: BriefRail.svelte:229-244 renders noProfileLine and save offer/link; BriefRail.component.test.ts:201-211 checks the line and /settings/writing?fromGeneration=gen-1 link, introduced by ba845a8.
 
 ### DW-126: Chat apply, research saves and the proposal-apply scrub still resolve only the saved Writer Profile, so a settings document's waivers stop at generation.
 origin: spec-deferred f7cd23499cb2
@@ -1051,6 +1127,7 @@ source_spec: `3-precedence-and-writer-profile-fidelity.md`
 severity: medium
 reason: convex/chatV2.ts:477 and convex/research.ts:716 call getEffectiveWriterStyle without a settings document (final review pass). The intent defers changing chat's profile resolution.
 status: open
+decision: 2026-09-14 Extend settings fidelity — Approve settings policy for chat/research and resolve frozen generation settings through one service with consistent precedence at proposal/save boundaries.
 
 ### DW-127: A structured Build Order and Self-check editor on the settings page; extraction from profile text is the only way to populate either today.
 origin: spec-deferred 7770a5a46c95
@@ -1059,6 +1136,7 @@ source_spec: `3-precedence-and-writer-profile-fidelity.md`
 severity: low
 reason: Listed under the spec's Design Notes "Deferred on purpose", still open at the final review.
 status: open
+decision: 2026-09-14 Keep controls deferred
 
 ### DW-128: A failed Brief read renders exactly like a legacy generation: the rail and its launcher simply disappear, with no error surfaced.
 origin: spec-deferred 35aadf42fd0c
@@ -1083,6 +1161,7 @@ source_spec: `4-brief-panel-and-context-inclusion-visibility.md`
 severity: medium
 reason: recordContextBudget runs once per candidate (convex/ai/pipeline.ts, iterative.ts), each pass patching `inclusion` on the same rows. getGenerationInput's own comment notes an admin retune mid-generation can disagree with what was already recorded. The Brief presents one authoritative inclusion set with no candidate attribution; both inclusion suites exercise a single recording pass only.
 status: open
+decision: 2026-09-14 Freeze generation budget — Define one frozen budget reused by all candidates/iterative consumers, idempotent telemetry and admin-retune/concurrency tests.
 
 ### DW-131: Inclusion rows are inert: EXPERIENCE.md specifies that clicking a document opens it in FilesPanel.
 origin: spec-deferred 98201954e508
@@ -1131,6 +1210,7 @@ source_spec: `5-one-pass-convergence-and-reference-pd-comparison.md`
 severity: medium
 reason: Ids are positional (`r-<section>-<paragraph>-<n>`), so resolving one deviation, a note flipping to `applied`, or an inserted paragraph renumbers the survivors, while the prompt tells the model never to renumber and `chatProposalItems.itemId` stores them as durable. Pinning needs a content hash or `(reportId, revisionNumber)` on the row, which is a schema and AD-28 change.
 status: open
+decision: 2026-09-14 Pin revision and inventory — Approve AD-28 provenance extension with report revision and deterministic inventory identity, resolving historical meanings against immutable state.
 
 ### DW-137: Reference PD counterpart pairing is positional with no alignment step, so one inserted paragraph shifts every later pair.
 origin: spec-deferred 7cfe7fae0516
@@ -1139,6 +1219,7 @@ source_spec: `5-one-pass-convergence-and-reference-pd-comparison.md`
 severity: medium
 reason: `assembleDeviationInventory` pairs draft paragraph k with reference paragraph k. The model is then asked to name wording and terminology differences from a counterpart that may belong to a different part of the narrative. Real alignment (structural or similarity-based) is a design addition, not a patch.
 status: open
+decision: 2026-09-14 Add conservative alignment — Define section-local structural/similarity alignment, retain unmatched/ambiguous paragraphs and test insertions/deletions/reordering.
 
 ### DW-138: Every bounded read behind the inventory and the open questions truncates silently, with no signal to the model, and Brief entries are taken before they are filtered.
 origin: spec-deferred 8fa40a85b2ab
@@ -1155,6 +1236,7 @@ source_spec: `5-one-pass-convergence-and-reference-pd-comparison.md`
 severity: medium
 reason: Defaults are `totalTokens: 60_000` against `report 40_000 + analysis 15_000 + decisions 10_000`, and open questions are spent after the decisions. On a full-length report the remaining total is already exhausted, so the block renders as a bare omission notice while the prompt instructs the model to quote from it. Reordering the spend is a budget-policy decision.
 status: open
+decision: 2026-09-14 Reserve question budget — Approve a bounded reservation within the unchanged total, define which earlier blocks yield and verify saturated-budget convergence.
 
 ### DW-140: No reader exists for chatProposalItems: the rows have one writer and no consumer.
 origin: spec-deferred 8d5a9f63843a
@@ -1187,6 +1269,7 @@ source_spec: `5-one-pass-convergence-and-reference-pd-comparison.md`
 severity: low
 reason: `COMPLETION_REPORT_TARGET_ITEMS` is the spec's N <= 30 bound inside the tool's own 40-edit / 80-finding caps. A 35-item writer list has no sanctioned behaviour, and the most likely reading (two cards) breaks the one-proposal guarantee the harness fixture asserts.
 status: open
+decision: 2026-09-14 Keep bound, explain overflow — Define explicit over-30 handling preserving one-proposal guarantees and identifying unprocessed items; align validation/prompt/harness.
 
 ### DW-144: The harness's mixedProvenance check can pass without the model ever forwarding the writer's content Deviations, because the stubbed inventory ignores its input.
 origin: spec-deferred 72382eeb1a34
@@ -1218,7 +1301,8 @@ location: n/a
 source_spec: `5-one-pass-convergence-and-reference-pd-comparison.md`
 severity: low
 reason: The follow-up-review damping cap (limits.max_followup_reviews = 1) was spent with the story finalized (status: done, verify green) while the review pass still recommended an independent follow-up. The work was committed by bmad-loop run 20260911-120649-26de; this entry preserves the lingering recommendation for a deliberate later review.
-status: open
+status: done 2026-09-12
+resolution: already resolved: .audit/resume-story6-20260912T105856Z/branch-review-a953bff/triage.json SHA256 c62ce6579987883aabbab2e98198798a1aa79765b28a798eebc2c05c083d5348 matches triage-validation.json: all four Astra-medium layers completed and all 40 raw findings map to 34 claims. Story 5 source is unchanged; repair findings remain separate.
 
 ### DW-148: Follow-up review still recommended for 6 after the damping cap was spent
 origin: review-budget-followup
@@ -1226,4 +1310,69 @@ location: n/a
 source_spec: `6-paired-comparison-records-and-success-metric-computation.md`
 severity: low
 reason: The follow-up-review damping cap (limits.max_followup_reviews = 1) was spent with the story finalized (status: done, verify green) while the review pass still recommended an independent follow-up. The work was committed by bmad-loop run 20260911-120649-26de; this entry preserves the lingering recommendation for a deliberate later review.
+status: done 2026-09-12
+resolution: already resolved: .audit/resume-story6-20260912T105856Z/branch-review-delta-700be59/delta-coverage.json records complete Astra-medium review of five comparison files with zero new findings; current hashes match and git diff 700be59 HEAD over convex/src/scripts/shared is empty. native-six-story-completion.json records native finalization at 5db0c183e5f7aaed0286aa719e776a1c56a12d15; epic acceptance remains separate.
+
+### DW-151: convex/ai/brief.test.ts cannot assert on model prompts, because convex-test runs leftover scheduled jobs from earlier cases against the shared module-level Anthropic mock.
+origin: spec-deferred b1a2371cd214
+location: convex/ai/brief.test.ts (fixture and scheduler lifecycle)
+source_spec: `spec-dw-107-dw-118-brief-read-and-diff-integrity.md`
+severity: low
+reason: Confirmed during implementation: 16-18 polluting network.create calls were observed while the case's own database held zero generationBriefs rows, so neither briefCalls() nor mockClear() isolates a case's prompts in that file. Pre-existing property of the file's fixtures, surfaced by this work rather than caused by it. Worked around, not fixed: that file's assertions are database-scoped, and the prompt-level proof lives in convex/ai/promptProgram.test.ts, where every scheduled job is cancelled and run explicitly with mockClear() before each scan. A future prompt-level assertion added to brief.test.ts would be silently unreliable.
+status: open
+
+### DW-152: Generation-consumer Brief reads bound rows but not bytes, so a byte-heavy Brief can exceed the transaction read limit and throw where the ordered chain awaits the read outside its try.
+origin: spec-deferred 5ec82de51ac4
+location: convex/generations.ts readBriefEntryRowsOrOmit; convex/ai/orderedGeneration.ts:174,374
+source_spec: `spec-dw-107-dw-118-brief-read-and-diff-integrity.md`
+severity: high
+reason: renderBriefForGeneration and loadBriefCheck read up to MAX_BRIEF_ENTRY_ROWS + 1 generationBriefEntries rows with no maximumBytesRead (readBriefEntryRowsOrOmit in convex/generations.ts). The same byte-unbounded .take(500) existed at 7b0723b (convex/generations.ts:1755, :3696). Writer edits (briefs.saveEntryEdit) accept any non-empty text, so 501 or fewer rows can exceed 16 MiB. A read-limit exception in claimOrderedSectionRun or getOrderedCandidateDrafts rolls the claim back outside convex/ai/orderedGeneration.ts's try, leaving the section queued until stale-generation recovery. Pre-existing; surfaced by the attempt 2 review (blind hunter), triaged defer by the gpt-6-astra medium review lead.
+status: open
+
+### DW-153: A derived Brief can still be published and stamped after its generation was cancelled or superseded, because publication fences only on the project's newest Brief, not on the generation's lifecycle.
+origin: spec-deferred f09397d72af5
+location: convex/generations.ts persistDerivedBrief
+source_spec: `spec-dw-107-dw-118-brief-read-and-diff-integrity.md`
+severity: medium
+reason: persistDerivedBrief checks the newest-Brief fence and then stamps generations.briefId without checking generation status or project.activeGenerationId. At 7b0723b the same race already spanned the structured model call and publication (convex/ai/brief.ts:313, :435); the paged baseline read adds a short window to it. Pre-existing; surfaced by the attempt 2 review (blind hunter), triaged defer by the review lead.
+status: open
+
+### DW-154: Chat's open-question evidence block still admits change "removed" confidenceMap rows from the Brief a generation used.
+origin: spec-deferred 12e2897b792b
+location: convex/chatV2.ts openQuestionsFor
+source_spec: `spec-dw-107-dw-118-brief-read-and-diff-integrity.md`
+severity: medium
+reason: convex/chatV2.ts openQuestionsFor (around :1311-1318) reads generationBriefEntries by briefId and filters by group and confidence only, identically to 7b0723b. Already owned as finding 6 / story 9 in the reviewed twelve-story intake (commit 09b2403); recorded here because the attempt 2 review lead triaged it defer, not as a new repair owner.
+status: open
+
+### DW-155: The writer-facing Brief rail reads a plain take(MAX_BRIEF_ENTRY_ROWS), so it shows a prefix of an over-bound Brief.
+origin: spec-deferred e3163bebcfb2
+location: convex/briefs.ts briefEntries (getBrief, listBriefEntries)
+source_spec: `spec-dw-107-dw-118-brief-read-and-diff-integrity.md`
+severity: medium
+reason: convex/briefs.ts briefEntries (:46-51) takes MAX_BRIEF_ENTRY_ROWS rows with no overflow probe; the same prefix read existed at 7b0723b (convex/briefs.ts:50 with its local 500). Already tracked as DW-128; recorded here because the attempt 2 review lead triaged it defer, not as a new repair owner.
+status: open
+
+### DW-156: Frozen-source truncation metadata does not reach the Brief request; reconcile this completeness signal with pending allocation work before assigning a separate residual.
+origin: spec-deferred 43a749e18ac7
+location: convex/ai/brief.ts:264
+source_spec: `spec-dw-114-brief-transcript-reconciliation.md`
+severity: medium
+reason: At the implementation baseline and current source, generationSources carries truncated/originalLength, but convex/ai/brief.ts buildBriefUserMessage accepts and emits label, content, and kind only. Capture truncation is set in convex/generations.ts:472-532. Acceptance queue commit 09b2403c93dcc36967f71e534a12b6db841f98cd finding 1/story 8 owns bounded allocation, truthful inclusion, and frozen-offset preservation. That action is related but not identical to emitting capture-truncation metadata, so exact ownership of this narrower signal is unproven. Reconcile the same claim and required action before treating it as separate work. The queue is integrated only after this sweep; no queue or ledger entry was changed here. Evidence: .audit/DW-114/followup-convergence-20260914/residual-ownership.json.
+status: open
+
+### DW-157: Brief evidence can forge raw request delimiters; repair remains owned by existing acceptance story 8/finding 2.
+origin: spec-deferred f25ceeb03ae6
+location: convex/ai/brief.ts:271
+source_spec: `spec-dw-114-brief-transcript-reconciliation.md`
+severity: high
+reason: Acceptance queue commit 09b2403c93dcc36967f71e534a12b6db841f98cd triage finding 2 and stories.yaml story 8 specify the same claim and required action: reuse established label sanitization and evidence-marker neutralization while retaining quote offsets against frozen originals. Root revalidation .audit/complete-local-20260914/queue-revalidation-bb4908f.md confirms this remains pending. DW-114 retains the existing raw evidence assembly and does not discharge that acceptance work. This is an existing-owner reference, not a new ledger entry or ownership assignment. Evidence: .audit/DW-114/followup-convergence-20260914/residual-ownership.json.
+status: open
+
+### DW-158: Follow-up review still recommended for dw-brief-transcript-reconciliation after the damping cap was spent
+origin: review-budget-followup
+location: n/a
+source_spec: `spec-dw-114-brief-transcript-reconciliation.md`
+severity: low
+reason: The follow-up-review damping cap (limits.max_followup_reviews = 1) was spent with the story finalized (status: done, verify green) while the review pass still recommended an independent follow-up. The work was committed by bmad-loop run 20260912-061909-feb3; this entry preserves the lingering recommendation for a deliberate later review.
 status: open

@@ -1,4 +1,5 @@
 import { defineSchema, defineTable } from "convex/server";
+import { briefOutcomeValidator } from "./lib/briefRender";
 import { complianceNoteDraftValidator } from "./lib/complianceNote";
 import {
   sectionNumberValidator,
@@ -765,6 +766,12 @@ export default defineSchema({
     // Confidence Map, Glossary Terms). Optional; keyed to inputs via inputsHash
     // so identical inputs reuse the same Brief.
     briefId: v.optional(v.id("generationBriefs")),
+    // DW-109/DW-120: what this generation's Brief stage attempt did (derived,
+    // reused, no_evidence, or failed with a provider code and bounded raw
+    // detail for ops). Written only by generations.recordBriefOutcome; never
+    // backfilled. Absent means no outcome was recorded (a legacy row, or the
+    // stage was never reached). Independent of briefId.
+    briefOutcome: v.optional(briefOutcomeValidator),
     // Story 2 (CAP-5, AD-24): ordered, ungated generation in single/compare.
     // The writer's stop request (stopOrderedGeneration), the section the
     // chain stopped after when fewer than all sections were drafted, and the
@@ -1488,6 +1495,7 @@ export default defineSchema({
     consistencyCheckedAt: v.optional(v.number()),
   })
     .index("by_generationId", ["generationId"])
+    .index("by_generationId_and_candidateId", ["generationId", "candidateId"])
     .index("by_generationId_and_model", ["generationId", "model"])
     .index("by_status_and_startedAt", ["status", "startedAt"]),
 

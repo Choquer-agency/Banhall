@@ -23,12 +23,14 @@ export async function selectedCandidateRunId(
       q.eq("projectId", generation.projectId).eq("generationId", generation._id)
     )
     .first();
-  if (!selection) return undefined;
-  const runs = await ctx.db
+  if (!selection?.candidateId) return undefined;
+  const run = await ctx.db
     .query("generationCandidateRuns")
-    .withIndex("by_generationId", (q) => q.eq("generationId", generation._id))
-    .take(10);
-  return runs.find((run) => run.candidateId === selection.candidateId)?._id;
+    .withIndex("by_generationId_and_candidateId", (q) =>
+      q.eq("generationId", generation._id).eq("candidateId", selection.candidateId)
+    )
+    .first();
+  return run?._id;
 }
 
 /**
