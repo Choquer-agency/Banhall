@@ -1495,6 +1495,7 @@ export default defineSchema({
     consistencyCheckedAt: v.optional(v.number()),
   })
     .index("by_generationId", ["generationId"])
+    .index("by_generationId_and_candidateId", ["generationId", "candidateId"])
     .index("by_generationId_and_model", ["generationId", "model"])
     .index("by_status_and_startedAt", ["status", "startedAt"]),
 

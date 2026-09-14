@@ -1,0 +1,19 @@
+{
+  "captured_at": "2026-09-14T17:42:51.953212+00:00",
+  "head_before_finalization": "3d51a3d457a3f98f213db80f299d4e0da8b09b97",
+  "snapshot": "invocation-snapshot.json",
+  "tracked_files_checked": 7386,
+  "changed_working_bytes_since_invocation": [
+    "_bmad-output/implementation-artifacts/spec-dw-121-dw-122-candidate-scoped-bounded-reads.md"
+  ],
+  "source_and_historical_evidence_preserved": true,
+  "sprint_status_exists": false,
+  "ledger_working_sha256": "e2a9e2589c56d9fcb6d107d76407f631c30c1e4fa8c08678db160f4aea09d18a",
+  "ledger_staged_sha256": "e2a9e2589c56d9fcb6d107d76407f631c30c1e4fa8c08678db160f4aea09d18a",
+  "ledger_invocation_sha256": "e2a9e2589c56d9fcb6d107d76407f631c30c1e4fa8c08678db160f4aea09d18a",
+  "ledger_staged_git_blob": "fec6b364457fa465cc8b4e831cf1cd567281c49a",
+  "spec_staged_git_blob": "6e31a8baf7e5ecc04b57088713002b3ea156b165",
+  "native_provenance": "native-ledger-provenance.json",
+  "ledger_authored_by_this_pass": false,
+  "native_acceptance_claimed": false
+}

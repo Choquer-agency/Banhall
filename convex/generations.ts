@@ -4417,15 +4417,30 @@ export const getOrderedSectionDrafts = query({
       return null;
     }
     if ((generation.candidateMode ?? "compare") === "iterative") return [];
+    const candidateRunId = args.candidateRunId;
+    let explicitCandidateRun: Doc<"generationCandidateRuns"> | undefined;
+    if (candidateRunId !== undefined) {
+      const candidateRun = await ctx.db.get(candidateRunId);
+      if (!candidateRun || candidateRun.generationId !== generation._id) return [];
+      explicitCandidateRun = candidateRun;
+    }
     const rows = (
-      await ctx.db
-        .query("generationSectionRuns")
-        .withIndex("by_generationId", (q) => q.eq("generationId", generation._id))
-        .take(30)
+      candidateRunId === undefined
+        ? await ctx.db
+            .query("generationSectionRuns")
+            .withIndex("by_generationId", (q) => q.eq("generationId", generation._id))
+            .take(30)
+        : await ctx.db
+            .query("generationSectionRuns")
+            .withIndex("by_candidateRunId_and_section", (q) =>
+              q.eq("candidateRunId", candidateRunId)
+            )
+            .take(30)
     ).filter(
       (row) =>
+        row.generationId === generation._id &&
         row.candidateRunId !== undefined &&
-        (args.candidateRunId === undefined || row.candidateRunId === args.candidateRunId)
+        (candidateRunId === undefined || row.candidateRunId === candidateRunId)
     );
     const lastIndex = new Map<string, number>();
     for (const row of rows) {
@@ -4435,7 +4450,10 @@ export const getOrderedSectionDrafts = query({
     const checkedAt = new Map<string, number | undefined>();
     const runStatus = new Map<string, string | undefined>();
     for (const key of lastIndex.keys()) {
-      const run = await ctx.db.get(key as Id<"generationCandidateRuns">);
+      const run =
+        explicitCandidateRun?._id === key
+          ? explicitCandidateRun
+          : await ctx.db.get(key as Id<"generationCandidateRuns">);
       checkedAt.set(key, run?.consistencyCheckedAt);
       runStatus.set(key, run?.status);
     }

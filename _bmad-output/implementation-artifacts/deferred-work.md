@@ -1036,7 +1036,9 @@ location: convex/generations.ts getOrderedSectionDrafts
 source_spec: `2-ordered-ungated-generation-self-check-compliance.md`
 severity: low
 reason: convex/generations.ts getOrderedSectionDrafts queries by_generationId with .take(30) first, then filters by candidateRunId in memory. Not reachable under this story's own acceptance criteria or tests (a generation normally accumulates a handful of rows per candidate), and a correct fix needs a candidateRunId-first index strategy rather than a one-line change.
-status: open
+status: done 2026-09-14
+resolution: resolved by sweep bundle dw-candidate-scoped-bounded-reads
+resolution-undo: f0c44e9453b7f48d31bebe8f34b2b4205ee5990e02dea47bd5be240590f6cf0b 2026-09-14 7374617475733a206f70656e
 
 ### DW-122: complianceNotes.listForGeneration takes(10) on generationCandidateRuns before matching the selected candidateId, so a generation that has accumulated more than 10 candidate runs across many regenerati
 origin: spec-deferred 5b48ffe75e42
@@ -1044,7 +1046,9 @@ location: convex/complianceNotes.ts listForGeneration
 source_spec: `2-ordered-ungated-generation-self-check-compliance.md`
 severity: medium
 reason: convex/complianceNotes.ts queries by_generationId with .take(10) then Array.find()s by candidateId in memory — the same shape as the already-deferred getOrderedSectionDrafts .take(30) truncation above. Not reachable under this story's own acceptance criteria or tests; a correct fix needs a candidateRunId-first index rather than a one-line change.
-status: open
+status: done 2026-09-14
+resolution: resolved by sweep bundle dw-candidate-scoped-bounded-reads
+resolution-undo: f0c44e9453b7f48d31bebe8f34b2b4205ee5990e02dea47bd5be240590f6cf0b 2026-09-14 7374617475733a206f70656e
 
 ### DW-123: In compare mode, two candidates can each independently insert a storylineQuestion row for the same Confidence Map entry into the generation's shared Brief; the row carries no candidateRunId to attribu
 origin: spec-deferred 1e44bdb1f444

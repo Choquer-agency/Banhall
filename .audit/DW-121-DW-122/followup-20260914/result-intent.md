@@ -1,0 +1,30 @@
+The diff implements the narrow backend-read repair. It also changes one legacy behavior beyond the two truncation fixes: a selection without `candidateId` now always triggers unscoped Compliance Notes.
+
+The defensible readings of the intent are:
+
+1. **Repair the two named query contracts.** Establish candidate identity before applying bounds, and interpret missing identity as unresolved. The I/O matrix and named indexes make this the strongest reading.
+2. **Preserve baseline behavior except for late-candidate truncation.** “Preserving all…fallback semantics” and “legacy unresolved-selection behavior” can mean observational compatibility with existing code, including schema-valid legacy records.
+3. **Guarantee the result throughout the report workflow.** “Requested section” and “selected report candidate” can describe what downstream consumers receive after generation and selection. This is broader than the explicitly named reads.
+4. **Preserve the change’s process boundaries.** “Never edit the deferred-work ledger” can mean either unchanged ledger bytes throughout the deliverable or an implementation-agent authorship restriction, with native orchestrator changes treated separately under the supplied repository instructions.
+
+The source implements reading 1:
+
+- [The section query](/Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/runs/20260912-061909-feb3/worktrees/dw-candidate-scoped-bounded-reads/convex/generations.ts:4420) validates the explicit run’s generation, uses the existing candidate index, then takes 30. The generation-scoped no-candidate branch, filtering, withholding, sorting, and return mapping remain.
+- [The selection resolver](/Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/runs/20260912-061909-feb3/worktrees/dw-candidate-scoped-bounded-reads/convex/complianceNotes.ts:19) uses generation plus candidate ID before `.first()`. The explicit Compliance Notes path and both existing 1,000-row note bounds remain.
+- The new tests call the actual public query handlers through `convex-test`, with directly inserted database fixtures. They exercise query behavior, rather than merely mocking the lookup result.
+
+The divergences and evidence boundaries are:
+
+| Expectation surface | Changes and tests exercise | Alignment or divergence |
+|---|---|---|
+| **Late-candidate query results** | Eleven earlier runs create 33 section rows; another fixture places the selected run after eleven earlier runs. Assertions cover candidate isolation, production order, consistency withholding, failed/missing/cross-generation runs, and unchanged unscoped section aggregation. | Directly aligned with reading 1. |
+| **Baseline legacy behavior** | A selection and two runs all omit `candidateId`; the new test expects both runs’ notes. | Diverges from reading 2. Baseline `find(run => run.candidateId === selection.candidateId)` matches the first run because `undefined === undefined`. The new guard instead returns unresolved, exposing both notes. The fallback branch itself is unchanged, but which records enter it changes. |
+| **Generation, selection, and downstream consumption** | Late-candidate fixtures insert runs, selections, and notes directly. | They establish the readers’ behavior once those records exist, not the complete workflow that produces or consumes them. |
+| **Duplicate-match compatibility** | The resolver retains `.first()` tolerance; the new fixtures contain no duplicate candidate-ID matches. | For a present candidate ID, the diff introduces no latest/best/unique selection rule. The evidence does not establish an existing-data audit of the conditional blocker. That is an evidence limit, not a demonstrated duplicate-choice conflict. |
+| **Ledger preservation** | The frozen diff changes DW-121 and DW-122 from open to done and adds resolution metadata. | Diverges from deliverable-wide immutability. The diff alone does not establish who authored those changes, so it does not establish a violation of the narrower agent-authorship restriction. |
+
+The legacy distinction is concrete in the [absent-ID test](/Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/runs/20260912-061909-feb3/worktrees/dw-candidate-scoped-bounded-reads/convex/candidateScopedBoundedReads.test.ts:376) and the [baseline-to-current resolver delta](/Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/runs/20260912-061909-feb3/worktrees/dw-candidate-scoped-bounded-reads/.audit/DW-121-DW-122/followup-20260914/review-input.full.diff:28753). Calling that test preservation is accurate under the intended meaning of “missing identity is unresolved,” but not under literal baseline compatibility.
+
+The broader workflow reading has partial existing coverage: [the two-candidate integration fixture](/Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/runs/20260912-061909-feb3/worktrees/dw-candidate-scoped-bounded-reads/convex/ai/promptProgram.test.ts:518) performs real selection and checks inherited and explicit notes. Also, [chat’s Deviation Inventory](/Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/runs/20260912-061909-feb3/worktrees/dw-candidate-scoped-bounded-reads/convex/chatV2.ts:1193) shares the changed resolver, so both its late-candidate fix and legacy behavior change extend there. Its existing selection test uses two runs, not the beyond-ten scenario.
+
+Finally, the [preservation receipt](/Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/runs/20260912-061909-feb3/worktrees/dw-candidate-scoped-bounded-reads/.audit/DW-121-DW-122/preservation-final.raw.log:4) records an earlier unchanged ledger state; it does not describe the ledger bytes in this frozen diff. I verified the reviewed source and ledger against the invocation snapshot. Test outcomes here refer to retained receipts; I ran no tests and inferred no verification from done/closed bookkeeping.
