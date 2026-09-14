@@ -160,6 +160,20 @@ describe("normalizeTurnParts — tools", () => {
         findings: [{ id: "r-242-1-1" }, { id: "c-242-2-1" }],
       })
     ).toBe("Suggested one revision covering 2 items");
+    // DW-135: a zero-edit call recorded findings and produced no suggestion, so
+    // the done label must not promise one.
+    expect(
+      toolLabel("proposeBulkEdits", "output-available", {
+        edits: [],
+        findings: [{ id: "c-242-1-1" }, { id: "x-242-2-1" }],
+      })
+    ).toBe("Recorded 2 findings, nothing to apply");
+    expect(
+      toolLabel("proposeBulkEdits", "output-available", {
+        edits: [],
+        findings: [{ id: "c-242-1-1" }],
+      })
+    ).toBe("Recorded 1 finding, nothing to apply");
     expect(toolLabel("deviationInventory", "input-available")).toBe(
       "Checking every paragraph…"
     );
@@ -619,6 +633,24 @@ describe("formatTurnSummary", () => {
     );
     expect(formatTurnSummary(two, timing({ stepCount: 2 }), "success", 0)).toBe(
       "Worked for 12s · 2 suggestions"
+    );
+  });
+
+  it("reports a zero-edit revision as recorded findings, not a suggestion (DW-135)", () => {
+    const recorded = normalizeTurnParts(
+      assistant([toolPart({ type: "tool-proposeBulkEdits", toolCallId: "b1" })]),
+      [
+        proposal({
+          kind: "replacements",
+          replacements: [],
+          requireUniqueTargets: true,
+          state: "applied",
+          toolCallId: "b1",
+        }),
+      ]
+    );
+    expect(formatTurnSummary(recorded, timing({ stepCount: 1 }), "success", 0)).toBe(
+      "Worked for 12s · findings recorded"
     );
   });
 

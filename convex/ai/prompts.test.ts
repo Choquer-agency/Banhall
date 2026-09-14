@@ -337,6 +337,13 @@ describe("chat prompt: tools, Completion Report and the converge guard", () => {
     }
   });
 
+  it("tells the model to record an all-blocked report with zero edits instead of a dummy edit (DW-135)", () => {
+    expect(prompt).toContain("empty edits list");
+    expect(prompt).toContain("never invent a dummy edit");
+    // The zero-edit reply must not open with "Proposed": nothing was proposed.
+    expect(prompt).toContain('begin the reply with "Nothing to apply"');
+  });
+
   it("carries the CAP-14 no-writer-artifact guard and points at the open questions", () => {
     expect(prompt).toContain("## When the writer asks how to converge");
     expect(prompt).toContain("OPEN QUESTIONS FOR THE CLIENT");

@@ -1,0 +1,127 @@
+3:39:46 p.m. [vite-plugin-svelte] no Svelte config found at /Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-dw135 - using default configuration.
+
+ RUN  v4.1.10 /Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-dw135
+
+3:39:47 p.m. [vite-plugin-svelte] no Svelte config found at /Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-dw135 - using default configuration.
+3:39:50 p.m. [vite] (client) [optimizer] bundling dependencies...
+ ❯ |component (chromium)| src/lib/components/chat/NothingToApply.component.test.ts (3 tests | 2 failed) 30058ms
+     × shows the blocked and conflicting findings and no apply action 15026ms
+     × says the findings are loading, then that they could not load, without offering an action 15001ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |component (chromium)| src/lib/components/chat/NothingToApply.component.test.ts > zero-edit proposal card (DW-135) > shows the blocked and conflicting findings and no apply action
+VitestBrowserElementError: Cannot find element with locator: getByText('Nothing to apply', { exact: true })
+
+[36m<body>[39m
+  [0m
+  
+
+[0m
+  [36m<div>[39m
+    [90m<!---->[39m
+    [36m<div[39m
+      [33mclass[39m=[32m"mt-2 flex items-center gap-1.5 py-1 text-xs text-green-600"[39m
+    [36m>[39m
+      [36m<svg[39m
+        [33maria-hidden[39m=[32m"true"[39m
+        [33mclass[39m=[32m"h-3.5 w-3.5 shrink-0"[39m
+        [33mfill[39m=[32m"none"[39m
+        [33mstroke[39m=[32m"currentColor"[39m
+        [33mstroke-width[39m=[32m"2.5"[39m
+        [33mviewBox[39m=[32m"0 0 24 24"[39m
+      [36m>[39m
+        [36m<path[39m
+          [33md[39m=[32m"M5 13l4 4L19 7"[39m
+          [33mstroke-linecap[39m=[32m"round"[39m
+          [33mstroke-linejoin[39m=[32m"round"[39m
+        [36m/>[39m
+      [36m</svg>[39m
+      [0m [0m
+      [36m<span>[39m
+        [0mReplaced in report[0m
+      [36m</span>[39m
+      [90m<!---->[39m
+    [36m</div>[39m
+    [0m[0m
+    [0m[0m
+  [36m</div>[39m
+[36m</body>[39m
+
+Failure screenshot:
+  - src/lib/components/chat/__screenshots__/NothingToApply.component.test.ts/zero-edit-proposal-card--DW-135--shows-the-blocked-and-conflicting-findings-and-no-apply-action-2.png
+
+ ❯ src/lib/components/chat/NothingToApply.component.test.ts:84:78
+     82|     await page.screenshot({ path: "../../../../.vitest-attachments/DW-…
+     83|
+     84|     await expect.element(page.getByText("Nothing to apply", { exact: t…
+       |                                                                              ^
+     85|     await expect
+     86|       .element(page.getByText("These findings need a writer's decision…
+
+Caused by: Error: Matcher did not succeed in time.
+ ❯ src/lib/components/chat/NothingToApply.component.test.ts:84:4
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  |component (chromium)| src/lib/components/chat/NothingToApply.component.test.ts > zero-edit proposal card (DW-135) > says the findings are loading, then that they could not load, without offering an action
+VitestBrowserElementError: Cannot find element with locator: getByText('Nothing to apply', { exact: true })
+
+[36m<body>[39m
+  [0m
+  
+
+[0m
+  [36m<div>[39m
+    [90m<!---->[39m
+    [36m<div[39m
+      [33mclass[39m=[32m"mt-2 flex items-center gap-1.5 py-1 text-xs text-green-600"[39m
+    [36m>[39m
+      [36m<svg[39m
+        [33maria-hidden[39m=[32m"true"[39m
+        [33mclass[39m=[32m"h-3.5 w-3.5 shrink-0"[39m
+        [33mfill[39m=[32m"none"[39m
+        [33mstroke[39m=[32m"currentColor"[39m
+        [33mstroke-width[39m=[32m"2.5"[39m
+        [33mviewBox[39m=[32m"0 0 24 24"[39m
+      [36m>[39m
+        [36m<path[39m
+          [33md[39m=[32m"M5 13l4 4L19 7"[39m
+          [33mstroke-linecap[39m=[32m"round"[39m
+          [33mstroke-linejoin[39m=[32m"round"[39m
+        [36m/>[39m
+      [36m</svg>[39m
+      [0m [0m
+      [36m<span>[39m
+        [0mReplaced in report[0m
+      [36m</span>[39m
+      [90m<!---->[39m
+    [36m</div>[39m
+    [0m[0m
+    [0m[0m
+  [36m</div>[39m
+[36m</body>[39m
+
+Failure screenshot:
+  - src/lib/components/chat/__screenshots__/NothingToApply.component.test.ts/zero-edit-proposal-card--DW-135--says-the-findings-are-loading--then-that-they-could-not-load--without-offering-an-action-1.png
+
+ ❯ src/lib/components/chat/NothingToApply.component.test.ts:117:78
+    115|   it("says the findings are loading, then that they could not load, wi…
+    116|     const { container, unmount } = await render(ProposalCard, { propos…
+    117|     await expect.element(page.getByText("Nothing to apply", { exact: t…
+       |                                                                              ^
+    118|     expect(container.textContent).toContain("Loading findings");
+    119|     for (const name of ACTION_NAMES) {
+
+Caused by: Error: Matcher did not succeed in time.
+ ❯ src/lib/components/chat/NothingToApply.component.test.ts:117:4
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  2 failed | 1 passed (3)
+   Start at  15:39:47
+   Duration  46.38s (transform 0ms, setup 645ms, import 718ms, tests 30.06s, environment 0ms)
+
+exit=1

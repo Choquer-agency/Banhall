@@ -547,6 +547,39 @@ describe("runProposeBulkEdits", () => {
     expect(state.items).toEqual([]);
   });
 
+  test("records an all-blocked report with zero edits and says there is nothing to apply (DW-135)", async () => {
+    const f = await setup();
+    const reply = await runProposeBulkEdits(
+      f.ctx,
+      {
+        edits: [],
+        findings: [
+          findings[1]!,
+          {
+            id: "x-242-3-1",
+            section: "242",
+            paragraph: 3,
+            kind: "reference",
+            status: "conflicting",
+            reason: "The Reference PD adds a fourth trial paragraph.",
+            lockedRule: "Line 242 line cap of 50.",
+            alternative: "Fold the fourth trial into paragraph 3 inside the cap.",
+          },
+        ],
+      },
+      { toolCallId: "call-all-blocked", bannedWordsWaived: false }
+    );
+    expect(reply).toMatch(/^Nothing to apply/);
+    expect(reply).not.toContain("Coordinated revision proposed");
+    expect(reply).toContain("c-242-2-1: blocked:");
+    expect(reply).toContain("x-242-3-1: conflicting:");
+
+    const state = await itemRows(f);
+    expect(state.proposals).toHaveLength(1);
+    expect(state.proposals[0]).toMatchObject({ replacements: [], state: "applied" });
+    expect(state.items.map((row) => row.itemId)).toEqual(["c-242-2-1", "x-242-3-1"]);
+  });
+
   test("tells the model not to retry a stopped turn", async () => {
     const f = await setup();
     await f.t.run(async (ctx) => {

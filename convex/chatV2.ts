@@ -34,11 +34,13 @@ import { getEffectiveWriterStyle } from "./writerProfiles";
 import { selectedCandidateRunId } from "./complianceNotes";
 import { applyPassageEdits } from "./lib/passageEdits";
 import {
+  MAX_COMPLETION_REPORT_FINDINGS,
   completionReportAnchorIssues,
   completionReportItemValidator,
   completionReportRows,
   paragraphCounts,
   paragraphCountsSentence,
+  zeroEditIssue,
 } from "./lib/completionReport";
 import { extractReportSections, sectionParagraphs } from "./lib/tiptapReport";
 import type {
@@ -49,7 +51,7 @@ import { publicChatDelta, publicChatMessage } from "./lib/chatPublicOutput";
 import { safeErrorDetails } from "./lib/safeErrorDetails";
 import { domainError, sha256 } from "./lib/contracts";
 import { normalizeCraScienceCode } from "../shared/craScienceCodes";
-import { proposalPairs } from "../shared/chatProposals";
+import { isRecordOnlyProposal, proposalPairs } from "../shared/chatProposals";
 import { chatAdmissionLimits, chatEvidenceBudget } from "./appSettings";
 import {
   DEFAULT_CHAT_EVIDENCE_BUDGET,
@@ -333,7 +335,9 @@ export const sendMessage = mutation({
         !refineProposal ||
         refineProposal.reportId !== report._id ||
         refineProposal.projectId !== report.projectId ||
-        refineProposal.kind === "references"
+        refineProposal.kind === "references" ||
+        // DW-135: a record-only revision has no wording to refine.
+        isRecordOnlyProposal(refineProposal)
       ) {
         throw new Error("Suggestion not found");
       }
@@ -459,6 +463,15 @@ export const applyProposal = mutation({
     if (!proposal) domainError("NOT_FOUND", "Proposal not found");
     if (proposal.kind === "references") {
       domainError("INVALID_INPUT", "Highlights have nothing to apply.");
+    }
+    // DW-135 (AD-28 amendment): an all-blocked/conflicting revision was saved
+    // with zero edits. It is a record of findings, never a prose change, so it
+    // is refused here exactly like a highlight, before any report read.
+    if (isRecordOnlyProposal(proposal)) {
+      domainError(
+        "INVALID_INPUT",
+        "This revision has nothing to apply. Its findings need a writer's decision."
+      );
     }
     // report.editProse: applying a proposal writes report prose.
     const { user: applier } = await requireReportEditAccess(
@@ -621,18 +634,27 @@ export const markProposalApplied = mutation({
     if (!report || report.projectId !== proposal.projectId) {
       domainError("NOT_FOUND", "Report not found");
     }
+    // Kind guards run before the already-applied short-circuit: a highlight or
+    // a record-only revision (DW-135) is stored `applied` from creation, and
+    // must be refused as nothing to apply, never reported as applied prose.
+    if (proposal.kind === "references") {
+      domainError("INVALID_INPUT", "Highlights have nothing to apply.");
+    }
+    if (isRecordOnlyProposal(proposal)) {
+      domainError(
+        "INVALID_INPUT",
+        "This revision has nothing to apply. Its findings need a writer's decision."
+      );
+    }
+    if (proposal.requireUniqueTargets) {
+      domainError("INVALID_INPUT", "Apply this coordinated revision from its suggestion card so every passage can be checked together.");
+    }
     if (proposal.state === "applied") {
       return {
         applied: true as const,
         alreadyApplied: true as const,
         revisionNumber: report.revisionNumber ?? 0,
       };
-    }
-    if (proposal.kind === "references") {
-      domainError("INVALID_INPUT", "Highlights have nothing to apply.");
-    }
-    if (proposal.requireUniqueTargets) {
-      domainError("INVALID_INPUT", "Apply this coordinated revision from its suggestion card so every passage can be checked together.");
     }
     if (proposal.state !== "pending") {
       domainError(
@@ -685,6 +707,9 @@ export const updateProposalWording = mutation({
     const proposal = await ctx.db.get(args.proposalId);
     if (!proposal) domainError("NOT_FOUND", "Suggestion not found");
     const { user } = await requireInternalProjectAccess(ctx, proposal.projectId);
+    if (isRecordOnlyProposal(proposal)) {
+      domainError("INVALID_INPUT", "This record has nothing to reword.");
+    }
     if (proposal.state !== "pending") {
       domainError("INVALID_INPUT", "Only a pending suggestion can be edited.");
     }
@@ -756,6 +781,9 @@ export const rejectProposal = mutation({
     const proposal = await ctx.db.get(args.proposalId);
     if (!proposal) throw new Error("Proposal not found");
     await requireInternalProjectAccess(ctx, proposal.projectId);
+    if (isRecordOnlyProposal(proposal)) {
+      domainError("INVALID_INPUT", "This record has nothing to reject.");
+    }
     if (proposal.state === "applied") {
       domainError("INVALID_INPUT", "An applied suggestion cannot be rejected.");
     }
@@ -972,12 +1000,31 @@ export const saveProposal = internalMutation({
     }
 
     const pairs = proposalPairs(args);
-    if (args.requireUniqueTargets) {
+    const items = args.items ?? [];
+    // DW-135 (AD-28 amendment, approved 2026-09-14): a Coordinated Revision may
+    // carry zero edits when every finding is blocked or conflicting. The rule
+    // is the same one the tool's schema applies, re-checked here over the item
+    // rows because this mutation is the only writer of both tables.
+    const recordOnly = isRecordOnlyProposal(args);
+    if (recordOnly) {
+      // The predicate ignores blank `find` entries; the stored row must not.
+      // A record-only proposal is stored as exactly `replacements: []`.
+      if ((args.replacements ?? []).length !== 0) {
+        return {
+          ok: false as const,
+          reason: "Each passage must identify exactly one current report location and make a change.",
+        };
+      }
+      const issue = zeroEditIssue(0, items);
+      if (issue) return { ok: false as const, reason: issue };
+    } else if (args.requireUniqueTargets) {
       if (args.kind !== "replacements") return { ok: false as const, reason: "A passage set must use replacements." };
       const result = applyPassageEdits(parsed as PMNode, pairs);
       if (!result.ok) return { ok: false as const, reason: result.reason };
     }
-    if (args.kind !== "references") {
+    if (recordOnly) {
+      // Nothing to match against the report: no pairs, so no target checks.
+    } else if (args.kind !== "references") {
       if (pairs.length === 0) {
         return { ok: false as const, reason: "The suggestion did not include text to replace." };
       }
@@ -1017,7 +1064,6 @@ export const saveProposal = internalMutation({
     // CURRENT report actually has. Checked before the parent insert, so a bad
     // anchor writes neither the proposal nor a single item row, and the reason
     // hands the model the real counts to retry against.
-    const items = args.items ?? [];
     if (items.length) {
       const counts = paragraphCounts(extractReportSections(report.content));
       const issues = completionReportAnchorIssues(items, counts);
@@ -1046,7 +1092,9 @@ export const saveProposal = internalMutation({
       references: args.references,
       requireUniqueTarget: args.kind === "edit" ? true : undefined,
       requireUniqueTargets: args.requireUniqueTargets,
-      state: args.kind === "references" ? "applied" : "pending",
+      // Highlights and record-only revisions have no state machine: nothing
+      // for a human to apply or reject, so they are terminal on creation.
+      state: args.kind === "references" || recordOnly ? "applied" : "pending",
       createdAt: Date.now(),
     });
     // AD-28: the findings persist as child rows, one per item, in input order.
@@ -1061,6 +1109,24 @@ export const saveProposal = internalMutation({
       await ctx.db.insert("chatProposalItems", row);
     }
     return { ok: true as const, proposalId };
+  },
+});
+
+/**
+ * The Completion Report rows of one proposal, for the card (DW-135). Same
+ * access rule as `listProposals`; bounded by the tool's own findings cap, so
+ * the read can never exceed what `saveProposal` could have written.
+ */
+export const listProposalItems = query({
+  args: { proposalId: v.id("chatProposals") },
+  handler: async (ctx, args) => {
+    const proposal = await ctx.db.get(args.proposalId);
+    if (!proposal) return [];
+    await requireInternalProjectAccess(ctx, proposal.projectId);
+    return await ctx.db
+      .query("chatProposalItems")
+      .withIndex("by_proposalId", (q) => q.eq("proposalId", args.proposalId))
+      .take(MAX_COMPLETION_REPORT_FINDINGS);
   },
 });
 
@@ -1554,10 +1620,16 @@ export const getChatContextV2 = internalQuery({
           q.eq("agentThreadId", args.agentThreadId)
         )
         .order("desc")
-        .take(12)
+        // Twice the old window (12): highlights and record-only revisions are
+        // filtered out below, and a run of them must not push the last real
+        // edit decision out of the model's memory. Still bounded and charged.
+        .take(24)
     );
     const decisions = proposals
-      .filter((p) => p.kind !== "references")
+      // Highlights and record-only revisions (DW-135) carry no edit the writer
+      // decided on; listing one as "[Edit N: APPLIED]" with an empty target
+      // would hand the model a decision nobody made.
+      .filter((p) => p.kind !== "references" && !isRecordOnlyProposal(p))
       .slice(0, 6)
       .reverse()
       .map((p) => ({
