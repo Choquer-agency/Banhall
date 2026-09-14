@@ -113,6 +113,7 @@ import type * as lib_ownerMatching from "../lib/ownerMatching.js";
 import type * as lib_passageEdits from "../lib/passageEdits.js";
 import type * as lib_providerConfig from "../lib/providerConfig.js";
 import type * as lib_qaFindings from "../lib/qaFindings.js";
+import type * as lib_readBudget from "../lib/readBudget.js";
 import type * as lib_reportEdits from "../lib/reportEdits.js";
 import type * as lib_rerankTelemetry from "../lib/rerankTelemetry.js";
 import type * as lib_roleCapabilities from "../lib/roleCapabilities.js";
@@ -272,6 +273,7 @@ declare const fullApi: ApiFromModules<{
   "lib/passageEdits": typeof lib_passageEdits;
   "lib/providerConfig": typeof lib_providerConfig;
   "lib/qaFindings": typeof lib_qaFindings;
+  "lib/readBudget": typeof lib_readBudget;
   "lib/reportEdits": typeof lib_reportEdits;
   "lib/rerankTelemetry": typeof lib_rerankTelemetry;
   "lib/roleCapabilities": typeof lib_roleCapabilities;
