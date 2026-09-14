@@ -1,0 +1,41 @@
+5:57:31 AM [vite-plugin-svelte] no Svelte config found at /Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/runs/20260911-120649-26de/worktrees/6 - using default configuration.
+
+ RUN  v4.1.10 /Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/runs/20260911-120649-26de/worktrees/6
+
+5:57:32 AM [vite-plugin-svelte] no Svelte config found at /Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/runs/20260911-120649-26de/worktrees/6 - using default configuration.
+5:57:34 AM [vite] (client) [optimizer] bundling dependencies...
+ ❯ |component (chromium)| src/routes/admin/comparisons/comparisonsRecord.component.test.ts (23 tests | 1 failed | 22 skipped) 1818ms
+     × rejects fractional count text before floating-point rounding 1817ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |component (chromium)| src/routes/admin/comparisons/comparisonsRecord.component.test.ts > /admin/comparisons record form > rejects fractional count text before floating-point rounding
+AssertionError: expected false to be true // Object.is equality
+
+Failure screenshot:
+  - src/routes/admin/comparisons/__screenshots__/comparisonsRecord.component.test.ts/-admin-comparisons-record-form-rejects-fractional-count-text-before-floating-point-rounding-1.png
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- true[39m
+[31m+ false[39m
+
+ ❯ src/routes/admin/comparisons/comparisonsRecord.component.test.ts:300:56
+    298|     for (const value of ["9007199254740991.1", "1.0000000000000001", "…
+    299|       setField("#deviations-banhall", value);
+    300|       await expect.poll(() => submitButton()?.disabled).toBe(true);
+       |                                                        ^
+    301|       expect(__mutationCalls("comparisons:record")).toHaveLength(0);
+    302|     }
+
+Caused by: Error: Matcher did not succeed in time.
+ ❯ src/routes/admin/comparisons/comparisonsRecord.component.test.ts:300:6
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 22 skipped (23)
+   Start at  05:57:32
+   Duration  21.97s (transform 0ms, setup 662ms, import 7.20s, tests 1.82s, environment 0ms)

@@ -1,0 +1,12 @@
+diff --git a/convex/schema.ts b/convex/schema.ts
+index 9f288fe..0db1194 100644
+--- a/convex/schema.ts
++++ b/convex/schema.ts
+@@ -1495,7 +1495,6 @@ export default defineSchema({
+     consistencyCheckedAt: v.optional(v.number()),
+   })
+     .index("by_generationId", ["generationId"])
+-    .index("by_generationId_and_candidateId", ["generationId", "candidateId"])
+     .index("by_generationId_and_model", ["generationId", "model"])
+     .index("by_status_and_startedAt", ["status", "startedAt"]),
+ 

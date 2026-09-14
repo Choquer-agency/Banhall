@@ -1,0 +1,200 @@
+# gap=gap-a-dw-121-122 run=ownership-both date=2026-09-14T18:22:31Z
+# HEAD=2b6e59d6237303a7f940ee04051c1431048f9cd0 node=v22.22.3
+# PUBLIC_CONVEX_URL=https://placeholder.convex.cloud PUBLIC_CONVEX_SITE_URL=https://placeholder.convex.site
+# sha256 cc9b02e3fc8d02d13f7024f24423aac04bc648643eb5d226cd22d0567288be9f  convex/candidateScopedBoundedReads.test.ts
+# source diff (mutation) stat:
+ convex/generations.ts | 3 +--
+ 1 file changed, 1 insertion(+), 2 deletions(-)
+# cmd: npx vitest run --config vitest.config.ts --reporter=verbose convex/candidateScopedBoundedReads.test.ts
+
+ RUN  v4.1.10 /Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-b
+
+ × |convex| convex/candidateScopedBoundedReads.test.ts > candidate-scoped bounded reads > finds a requested section candidate after more than 30 older rows and rejects a cross-generation run 282ms
+   → expected [ { …(5) }, { …(5) }, { …(5) } ] to deeply equal []
+ ✓ |convex| convex/candidateScopedBoundedReads.test.ts > candidate-scoped bounded reads > finds a selected candidate after more than 10 older runs 9ms
+ ✓ |convex| convex/candidateScopedBoundedReads.test.ts > candidate-scoped bounded reads > keeps the unscoped Compliance Notes fallback for an unresolved legacy selection 3ms
+ ✓ |convex| convex/candidateScopedBoundedReads.test.ts > candidate-scoped bounded reads > keeps the unscoped Compliance Notes fallback for a legacy selection without candidateId 2ms
+ × |convex| convex/candidateScopedBoundedReads.test.ts > candidate-scoped bounded reads: guards within scoped reach > returns no rows for a checked candidate run and its drafts that both belong to another generation 5ms
+   → expected [ { …(5) }, { …(5) }, { …(5) } ] to deeply equal []
+ × |convex| convex/candidateScopedBoundedReads.test.ts > candidate-scoped bounded reads: guards within scoped reach > rejects a candidate run owned by another generation even when its section rows name the requested generation 5ms
+   → expected [ { …(5) }, { …(5) }, { …(5) } ] to deeply equal []
+ × |convex| convex/candidateScopedBoundedReads.test.ts > candidate-scoped bounded reads: guards within scoped reach > drops section rows owned by another generation even when the requested candidate run belongs to this generation 3ms
+   → expected [ { …(5) }, { …(5) }, { …(5) } ] to deeply equal []
+ ✓ |convex| convex/candidateScopedBoundedReads.test.ts > candidate-scoped bounded reads: guards within scoped reach > returns no rows for an explicit candidate whose parent run is missing, although its drafts are within reach 2ms
+ ✓ |convex| convex/candidateScopedBoundedReads.test.ts > candidate-scoped bounded reads: guards within scoped reach > returns no rows for an explicit failed candidate run whose checked drafts are within reach 2ms
+ ✓ |convex| convex/candidateScopedBoundedReads.test.ts > candidate-scoped bounded reads: guards within scoped reach > scopes Compliance Notes to the first candidate run when two runs share the selected candidateId 2ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 4 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |convex| convex/candidateScopedBoundedReads.test.ts > candidate-scoped bounded reads > finds a requested section candidate after more than 30 older rows and rejects a cross-generation run
+AssertionError: expected [ { …(5) }, { …(5) }, { …(5) } ] to deeply equal []
+
+- Expected
++ Received
+
+- []
++ [
++   {
++     "candidateRunId": "000010053generationCandidateRuns",
++     "orderIndex": 0,
++     "section": "242",
++     "selfCheckStatus": null,
++     "text": "Candidate 12 s242",
++   },
++   {
++     "candidateRunId": "000010053generationCandidateRuns",
++     "orderIndex": 1,
++     "section": "244",
++     "selfCheckStatus": null,
++     "text": "Candidate 12 s244",
++   },
++   {
++     "candidateRunId": "000010053generationCandidateRuns",
++     "orderIndex": 2,
++     "section": "246",
++     "selfCheckStatus": null,
++     "text": "Candidate 12 s246",
++   },
++ ]
+
+ ❯ convex/candidateScopedBoundedReads.test.ts:232:7
+    230|         candidateRunId: other.candidateRunId,
+    231|       })
+    232|     ).toEqual([]);
+       |       ^
+    233|
+    234|     const missing = await insertCandidateRun(t, {
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/4]⎯
+
+ FAIL  |convex| convex/candidateScopedBoundedReads.test.ts > candidate-scoped bounded reads: guards within scoped reach > returns no rows for a checked candidate run and its drafts that both belong to another generation
+AssertionError: expected [ { …(5) }, { …(5) }, { …(5) } ] to deeply equal []
+
+- Expected
++ Received
+
+- []
++ [
++   {
++     "candidateRunId": "000010009generationCandidateRuns",
++     "orderIndex": 0,
++     "section": "242",
++     "selfCheckStatus": null,
++     "text": "Candidate 1 s242",
++   },
++   {
++     "candidateRunId": "000010009generationCandidateRuns",
++     "orderIndex": 1,
++     "section": "244",
++     "selfCheckStatus": null,
++     "text": "Candidate 1 s244",
++   },
++   {
++     "candidateRunId": "000010009generationCandidateRuns",
++     "orderIndex": 2,
++     "section": "246",
++     "selfCheckStatus": null,
++     "text": "Candidate 1 s246",
++   },
++ ]
+
+ ❯ convex/candidateScopedBoundedReads.test.ts:483:7
+    481|         candidateRunId: foreign.candidateRunId,
+    482|       })
+    483|     ).toEqual([]);
+       |       ^
+    484|   });
+    485|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/4]⎯
+
+ FAIL  |convex| convex/candidateScopedBoundedReads.test.ts > candidate-scoped bounded reads: guards within scoped reach > rejects a candidate run owned by another generation even when its section rows name the requested generation
+AssertionError: expected [ { …(5) }, { …(5) }, { …(5) } ] to deeply equal []
+
+- Expected
++ Received
+
+- []
++ [
++   {
++     "candidateRunId": "000010005generationCandidateRuns",
++     "orderIndex": 0,
++     "section": "242",
++     "selfCheckStatus": null,
++     "text": "Candidate 0 s242",
++   },
++   {
++     "candidateRunId": "000010005generationCandidateRuns",
++     "orderIndex": 1,
++     "section": "244",
++     "selfCheckStatus": null,
++     "text": "Candidate 0 s244",
++   },
++   {
++     "candidateRunId": "000010005generationCandidateRuns",
++     "orderIndex": 2,
++     "section": "246",
++     "selfCheckStatus": null,
++     "text": "Candidate 0 s246",
++   },
++ ]
+
+ ❯ convex/candidateScopedBoundedReads.test.ts:511:7
+    509|         candidateRunId: foreign.candidateRunId,
+    510|       })
+    511|     ).toEqual([]);
+       |       ^
+    512|   });
+    513|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/4]⎯
+
+ FAIL  |convex| convex/candidateScopedBoundedReads.test.ts > candidate-scoped bounded reads: guards within scoped reach > drops section rows owned by another generation even when the requested candidate run belongs to this generation
+AssertionError: expected [ { …(5) }, { …(5) }, { …(5) } ] to deeply equal []
+
+- Expected
++ Received
+
+- []
++ [
++   {
++     "candidateRunId": "000010005generationCandidateRuns",
++     "orderIndex": 0,
++     "section": "242",
++     "selfCheckStatus": null,
++     "text": "Candidate 0 s242",
++   },
++   {
++     "candidateRunId": "000010005generationCandidateRuns",
++     "orderIndex": 1,
++     "section": "244",
++     "selfCheckStatus": null,
++     "text": "Candidate 0 s244",
++   },
++   {
++     "candidateRunId": "000010005generationCandidateRuns",
++     "orderIndex": 2,
++     "section": "246",
++     "selfCheckStatus": null,
++     "text": "Candidate 0 s246",
++   },
++ ]
+
+ ❯ convex/candidateScopedBoundedReads.test.ts:535:7
+    533|         candidateRunId: own.candidateRunId,
+    534|       })
+    535|     ).toEqual([]);
+       |       ^
+    536|   });
+    537|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/4]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  4 failed | 6 passed (10)
+   Start at  11:22:32
+   Duration  717ms (transform 329ms, setup 0ms, import 186ms, tests 314ms, environment 56ms)
+
+EXIT_CODE=1
+# restored source diff empty: yes

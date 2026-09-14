@@ -1,0 +1,21 @@
+# label=before-persistence-probe
+# HEAD=750842f5897deacd04ba15519a6aa640a8660fce
+# git status --short:
+A  convex/ai/brief.sdk.test.ts
+?? convex/ai/brief.sdk.persistence-probe.test.ts
+# date=2026-09-14T18:09:07Z node=v22.22.3
+# env PUBLIC_CONVEX_URL=https://placeholder.convex.cloud PUBLIC_CONVEX_SITE_URL=https://placeholder.convex.site
+# cmd: npx vitest run --config vitest.config.ts --reporter=verbose --reporter=json --outputFile.json=/private/tmp/claude-501/-Users-johnnynguyen-Documents-Repos-Banhall/74c117b1-0ee2-4aa9-a3bd-3095316a1935/scratchpad/evidence/dw-brief-transcript-reconciliation/before-persistence-probe.json convex/ai/brief.sdk.persistence-probe.test.ts
+
+ RUN  v4.1.10 /Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-b
+
+ ↓ |convex| convex/ai/brief.sdk.persistence-probe.test.ts > serializes stable Brief source-kind tags and excludes a writer Storyline
+ ✓ |convex| convex/ai/brief.sdk.persistence-probe.test.ts > serializes reconciliation instructions through the real Brief SDK and persists a representative reconciled response 203ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed | 1 skipped (2)
+   Start at  11:09:09
+   Duration  2.39s (transform 1.17s, setup 0ms, import 1.58s, tests 203ms, environment 275ms)
+
+JSON report written to /private/tmp/claude-501/-Users-johnnynguyen-Documents-Repos-Banhall/74c117b1-0ee2-4aa9-a3bd-3095316a1935/scratchpad/evidence/dw-brief-transcript-reconciliation/before-persistence-probe.json
+# exit=0

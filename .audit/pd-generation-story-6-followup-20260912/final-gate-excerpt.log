@@ -1,0 +1,32 @@
+[1/10] preflight
+ok 0s
+[2/10] no skipped tests
+ok 1s
+[3/10] convex typecheck
+ok 12s
+[4/10] svelte-check
+1789217022703 COMPLETED 5926 FILES 0 ERRORS 0 WARNINGS 0 FILES_WITH_PROBLEMS
+ok 19s
+[5/10] unit tests
+ Test Files  187 passed (187)
+      Tests  2638 passed (2638)
+   Start at  05:43:43
+   Duration  27.57s (transform 5.92s, setup 0ms, import 12.57s, tests 20.23s, environment 4.37s)
+ok 28s
+[6/10] test discovery guard
+discovered 268 executable test files; accounted for 3 historical archives
+ok 2s
+[7/10] production build
+ok 30s
+[8/10] uploader harness (pwsh)
+93 passed, 0 failed
+ok 9s
+[9/10] uploader harness (bash)
+47 passed, 0 failed
+ok 6s
+[10/10] component suite
+ Test Files  82 passed (82)
+      Tests  633 passed (633)
+   Start at  05:44:58
+   Duration  115.30s (transform 0ms, setup 2.05s, import 24.62s, tests 101.29s, environment 0ms)
+ok 116s

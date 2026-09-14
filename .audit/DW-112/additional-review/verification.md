@@ -1,0 +1,9 @@
+### Progress tests cannot detect misleading narration after same-key adoption
+
+- **Changed surface:** `convex/lib/briefRender.ts:51` changes the derived-outcome message to remain truthful when persistence adopts an existing Brief.
+- **Impacted consumer or site:** `recordBriefOutcome` stores this message in `generations.progressLog` at `convex/generations.ts:1714`. Late adoption still returns `kind: "derived"` at `convex/ai/brief.ts:601`.
+- **Existing test evidence:** **Broken-verification gap.** `convex/ai/briefPipelineWiring.test.ts:331` computes its expected message by calling the same `describeBriefOutcome` helper used in production; the assertion at line 361 does likewise. The new publication tests at `convex/ai/brief.test.ts:959` verify IDs, rows, and generation stamps without running outcome narration. Repository symbol and import-reference searches found no independent expectation for the new message in executable tests.
+- **Missing verification:** An assertion that the persisted message remains truthful after late same-key adoption, with expected text independent of the production helper.
+- **Demonstration:** Restore the previous return value, `"Derived a new Generation Brief from this generation's inputs."` Both production output and the wiring tests’ expected value change together, so their assertions still pass. The publication tests also remain unaffected.
+- **Consequence:** A losing publisher can tell the writer it created a new Brief even though it discarded its candidates and adopted another publisher’s stored Brief.
+- **Suggested test shape:** Exercise late adoption through `runGenerationBriefStage` with the real mutation adapter, then assert the stored progress message against an independent expected value.

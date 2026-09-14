@@ -1,0 +1,4 @@
+passed=1 failed=3 total=4 suitesFailed=2
+FAILED :: candidate-scoped bounded reads finds a requested section candidate after more than 30 older rows and rejects a cross-generation run
+FAILED :: candidate-scoped bounded reads finds a selected candidate after more than 10 older runs
+FAILED :: candidate-scoped bounded reads keeps the unscoped Compliance Notes fallback for a legacy selection without candidateId

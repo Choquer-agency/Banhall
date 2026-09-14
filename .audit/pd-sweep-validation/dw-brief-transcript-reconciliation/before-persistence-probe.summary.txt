@@ -1,0 +1,2 @@
+passed=1 failed=0 total=2 suitesFailed=0
+SKIPPED :: serializes stable Brief source-kind tags and excludes a writer Storyline

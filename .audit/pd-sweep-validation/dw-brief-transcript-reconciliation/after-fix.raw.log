@@ -1,0 +1,19 @@
+# label=after-fix
+# HEAD=087c76b18a8ad462498653651a3fcb971e31baf4
+# git status --short:
+# date=2026-09-14T18:09:20Z node=v22.22.3
+# env PUBLIC_CONVEX_URL=https://placeholder.convex.cloud PUBLIC_CONVEX_SITE_URL=https://placeholder.convex.site
+# cmd: npx vitest run --config vitest.config.ts --reporter=verbose --reporter=json --outputFile.json=/private/tmp/claude-501/-Users-johnnynguyen-Documents-Repos-Banhall/74c117b1-0ee2-4aa9-a3bd-3095316a1935/scratchpad/evidence/dw-brief-transcript-reconciliation/after-fix.json convex/ai/brief.sdk.test.ts
+
+ RUN  v4.1.10 /Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-b
+
+ ✓ |convex| convex/ai/brief.sdk.test.ts > serializes stable Brief source-kind tags and excludes a writer Storyline 5ms
+ ✓ |convex| convex/ai/brief.sdk.test.ts > serializes reconciliation instructions through the real Brief SDK and persists a representative reconciled response 70ms
+
+ Test Files  1 passed (1)
+      Tests  2 passed (2)
+   Start at  11:09:22
+   Duration  1.81s (transform 1.00s, setup 0ms, import 1.39s, tests 76ms, environment 95ms)
+
+JSON report written to /private/tmp/claude-501/-Users-johnnynguyen-Documents-Repos-Banhall/74c117b1-0ee2-4aa9-a3bd-3095316a1935/scratchpad/evidence/dw-brief-transcript-reconciliation/after-fix.json
+# exit=0

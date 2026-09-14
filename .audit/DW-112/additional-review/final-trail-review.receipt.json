@@ -1,0 +1,20 @@
+{
+  "recorded_at": "2026-09-14T12:14:56.478398+00:00",
+  "reviewer_model": "gpt-6-astra",
+  "reviewer_effort": "xhigh",
+  "execution": "native collaboration.followup_task",
+  "task": "/root/npm_provenance_review",
+  "status": "completed",
+  "result": "No flags",
+  "report_sha256": "6dea12e443baf83abdf9ed67bd4d6243031ccfc800015812c46c1c3a73cb8cc2",
+  "checked_artifacts": {
+    "patch-review.diff": "bd088c50fcc43df3aa679025da6f3111dea627dcb4d6356c056f1b6e646bab3f",
+    "verified-source-binding.json": "a64162b6ef8ab57d4a050728ae9e6f00f95db367f25b6d481c318d05cc6bd2e7",
+    "patch-focused-20260914T120527Z.log": "d47016545938b48891293b9489931b4ca0f1b1851ad1d2f8601c94498ff7c9bd",
+    "patch-convex-tsc-20260914T120527Z.log": "de3b27b2586acdd64460d23fff7de5b727ddac82990d54f523ff75681767c96c",
+    "patch-loop-verify-20260914T120527Z.log": "df4c010823b2e9faed24c2e6366af32a403defb699f1793ed5d5ac5064a57194",
+    "evidence.md": "991460fa49e5a336c9ed5a623957c8e2850e0657be8c4d6abbcfbc3f4172ead7"
+  },
+  "spec_sha256": "99f6d557bb2856dc426a34f32ebbef145e9077415967f85df39dba48f62d9e2f",
+  "recording": "Faithful parent-recorded review result; native task response is the original delivery."
+}

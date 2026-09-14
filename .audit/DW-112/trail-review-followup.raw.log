@@ -1,0 +1,1478 @@
+OpenAI Codex v0.153.3
+--------
+workdir: /Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/runs/20260912-061909-feb3/worktrees/dw-brief-derivation-concurrency
+model: gpt-6-astra
+provider: openai
+approval: never
+sandbox: read-only
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 01a09f97-eb21-7da2-9547-a9a256fdb982
+--------
+user
+Follow up the prior DW-112 audit-trail review after its sole flag was addressed.
+
+Read these files completely:
+- `.audit/DW-112/trail-review.md`
+- `.audit/DW-112/review-triage.md`
+- `.audit/DW-112/decisions.tsv`
+- `.audit/DW-112/evidence.md`
+- `_bmad-output/implementation-artifacts/spec-dw-112-brief-derivation-concurrency.md`
+
+Spot-check the underlying reviewer results and implementation commit `09e35062ed132d65403d19f9b9af61675ffcaee6` as needed. Confirm whether the individual triage rationale makes the review disposition reconstructable without the unavailable transcript. Flag only remaining audit evidence or decision-trail risks. Return `No flags.` if none remain. Do not modify files and do not invoke any skill.
+
+warning: Skill descriptions were shortened to fit the skills context budget. Codex can still see every skill, but some descriptions are shorter. Disable unused skills or plugins to leave more room for the rest.
+hook: SessionStart
+hook: SessionStart
+hook: SessionStart Completed
+hook: SessionStart Completed
+hook: UserPromptSubmit
+hook: UserPromptSubmit Completed
+codex
+I’ll read the five files in full, then spot-check the reviewer results and implementation commit to assess whether the disposition is reconstructable from the recorded triage rationale.
+
+hook: PreToolUse
+hook: PreToolUse
+hook: PreToolUse Completed
+hook: PreToolUse Completed
+exec
+/bin/zsh -lc 'cat .factory/AGENTS.factory.md' in /Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/runs/20260912-061909-feb3/worktrees/dw-brief-derivation-concurrency
+exec
+/bin/zsh -lc 'cat .audit/DW-112/trail-review.md .audit/DW-112/review-triage.md .audit/DW-112/decisions.tsv .audit/DW-112/evidence.md _bmad-output/implementation-artifacts/spec-dw-112-brief-derivation-concurrency.md' in /Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/runs/20260912-061909-feb3/worktrees/dw-brief-derivation-concurrency
+ succeeded in 0ms:
+# Factory rules (isolate → build → prove → ship)
+
+These apply to every agent session in this repo, in any CLI, in any role.
+
+## Isolate
+- Never commit to `main` or the integration branch directly. Every ticket runs in its own git worktree under `.factory/worktrees/<key>` on branch `factory/<key>`. The engine creates it; do not create a second one.
+- One worktree, one branch, one ticket per session. Never touch another worktree's files.
+- Before implementing, the engine checks open PRs for files overlapping the ticket's `touches` (`[run].on_pr_overlap`). On overlap it warns or blocks; do not work around it.
+
+## Build
+- The ticket file (`.factory/tickets/<key>.md`) is the only source of truth for scope. If it is ambiguous in a way that changes the implementation, return `status: blocked` and say why. Do not guess.
+- Reuse first: shared packages and existing services before new code. Duplicate operational logic is a defect.
+- Keep policy in the caller, mechanics in a service with explicit inputs and structured returns.
+
+## Prove
+- Deterministic gates (`[verify].commands`) run outside your session. Make them green and leave runtime evidence.
+- Keep a decision trail: `.audit/<key>/decisions.tsv`, one row per decision (ts, phase, decision, why, evidence, result). Append-only. Evidence is a pointer (sha, file:line, artifact path), never prose.
+- Write `.audit/<key>/evidence.md`: exact commit, every acceptance criterion mapped to the test or command that proves it, command output tails. Bug ticket: reproduce the failure at the baseline commit **before** fixing and record it, then record the pass.
+- Every claim in a summary is backed by a command you ran and its output, or a `file:line`. Never present scripted or synthetic output as a live result.
+- Verification of fixes shows the old failure next to the new success. A ticket with `ui: true` shows it as `*before*.png` / `*after*.png` in `.audit/<key>/`; the PR embeds them.
+
+## Ship
+- Commit inside the worktree with a message that names the ticket key. Never push, never open a PR, never deploy, never rotate secrets from an agent session. `factory ship` does push + PR + babysit (CI and review threads fixed in a loop until green), run by a human.
+- Findings you could not fix go in the ticket's `deferred:` frontmatter list, not in prose.
+- Never plain `--force`. `--force-with-lease` only, and only from ship.
+
+## Intake
+- Anything coming in (idea, bug, question, brainstorm, issue, ticket key) goes through `factory go` or the `factory-mode` skill: questions get cited answers, bugs get a reproduction and one ticket, features get a plan. Nobody implements from chat.
+
+## Roles
+Roles and their CLIs live in `.factory/roles.toml` (orchestrator, planner, implementer with per-kind tiers, reviewer, lead, QA, verifier); project gates, QA commands, sizing limits, risky domains and ship policy live in `.factory/factory.toml`.
+
+ succeeded in 0ms:
+- **The blanket rejection of review findings is not auditable.** [Decision row 6](/Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/runs/20260912-061909-feb3/worktrees/dw-brief-derivation-concurrency/.audit/DW-112/decisions.tsv:6) declares review passed, while the [spec’s triage log](/Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/runs/20260912-061909-feb3/worktrees/dw-brief-derivation-concurrency/_bmad-output/implementation-artifacts/spec-dw-112-brief-derivation-concurrency.md:73) records eleven rejections, including four medium, without individual reasons or supporting references. The hashes verify reviewer artifacts, but not the rationale for dismissing them. With the transcripts unavailable, the claimed parent tracing cannot be reconstructed. Scrutinize those dispositions before relying on the review-pass conclusion.# DW-112 review triage rationale
+
+The four owning-workflow reviewers examined the source/test/spec diff bound by `review-input.diff`. Edge Case Hunter returned no findings, Verification Gap returned no findings, and the remaining eleven unique suggestions or surface observations were rejected for the reasons below. No deferred item was added because none was both a verified pre-existing defect and material enough for later focused work.
+
+1. **Post-model adoption is recorded as `derived`** (medium, reject). The stage did run the model and derive candidates before publication discovered the concurrent winner. `reused` remains the no-model-call branch at `convex/ai/brief.ts:450-460`; changing the outcome taxonomy is a separate observability contract outside the bundle's persistence-only intent. The persisted Brief id and uniqueness behavior remain correct.
+2. **Creation ordering versus historical duplicate version numbers** (medium, reject). `latestBriefForInputs` preserves the exact pre-existing `findReusableBrief` query at baseline. DW-112 prevents new first-version duplicates; it does not define migration or repair semantics for hypothetical historical duplicates, and no deployed duplicate fixture was established.
+3. **Generation and project mismatch on the internal mutation** (medium, reject). The mutation already accepted and patched `generationId` separately from `projectId` before this change, and its only production caller supplies both from one `BriefStageArgs`. The new branch does not create a public trust boundary or broaden caller authority.
+4. **Adoption cannot run after an arbitrary baseline-read failure** (low, reject). The bundle requires an in-transaction recheck at persistence, not recovery from unrelated database failures before persistence is reached. The fail-open stage contract intentionally permits no Brief after such a failure.
+5. **`convex-test` serializes top-level mutations** (medium, reject). This limitation is disclosed in the spec's residual risks. The regression synchronizes two callers after both reuse misses and before real registered mutations. Its baseline control produced two Brief ids, while the fixed source produced one row and two stamps. Production conflict retry is a Convex transaction guarantee, not an application branch simulated by this harness.
+6. **Winning payload consistency is not asserted field by field** (low, reject). Convex commits the parent, entries, and winning generation stamp in one mutation. The test asserts one parent id, one child row under that id, equal return ids, and both generation stamps. A mixed payload cannot be constructed by the changed branch without violating transaction atomicity.
+7. **The adopt path does not instrument source reads** (low, reject). The acceptance surface is state: it returns and stamps the latest same-key Brief while parent and child table snapshots remain byte-for-byte equal. Read-count instrumentation would test an internal performance detail; source order already places adoption before candidate processing.
+8. **No new cross-project same-hash case** (low, reject). Both the unchanged index definition and shared query constrain `projectId` before `inputsHash`; the refactor preserved those exact predicates. No changed branch omits the project component.
+9. **Writer edit interleaving can move authority to version 2** (low, reject). The bundle describes two concurrent first derivations, not a human edit interleaving. Immutable historical generation links may legitimately differ after a later edit; each transaction adopts the latest same-key row visible when it runs.
+10. **The review diff did not yet link final receipts** (low, reject). This was a review-timing observation. Workflow finalization subsequently added exact source hashes, the red control, complete parent receipts, reviewer hashes, and the implementation commit to `.audit/DW-112/evidence.md` and `## Auto Run Result`.
+11. **Changed-input diff fixtures supply hashes directly** (low, reject). These tests isolate publication and diff behavior at the mutation boundary. The separate `briefInputsHash` tests cover evidence-to-hash derivation; DW-112 changes no hash-generation code.
+
+The intent-alignment auditor's other observations deduplicate into items 5, 9, 10, and 11: higher pipeline entry, serialized transaction execution, writer-edit follow-through, workflow evidence outside the review diff, and supplied changed-input hashes. The original bundle explicitly locates the fix at `persistDerivedBrief` and asks for an in-transaction recheck, so the publication-boundary reading is selected without an unresolved intent gap.
+ts	phase	decision	why	evidence	result
+2026-09-14T00:00:00Z	plan	Keep idempotency inside persistDerivedBrief and reuse the existing keyed index lookup	The earlier action query is outside the persistence transaction, while a same-key read in the mutation participates in Convex conflict detection	convex/generations.ts:1666, convex/generations.ts:1938, convex/schema.ts:2262	ready for implementation
+2026-09-14T00:00:00Z	preservation	Treat the native deferred-work ledger as read-only	The orchestrator owns resolution and the user explicitly prohibited ledger edits	_bmad-output/implementation-artifacts/deferred-work.md, git blob 2a52f7bd250f121ad4efbc96417b9749b0cef8d0	baseline recorded
+2026-09-14T10:43:30Z	audit	Identify the first two timestamps as placeholders rather than execution times	Append-only history must be preserved and the native session began around 10:29Z	.audit/DW-112/decisions.tsv:2	correction recorded
+2026-09-14T10:57:50Z	verify	Accept the implementation after a source-bound red control and independent parent green gate	The focused suite, Convex typecheck, full nine-step gate, and integrity checks all passed on the reviewed source hashes	.audit/DW-112/evidence.md	verified
+2026-09-14T10:57:50Z	review	Triage four concurrent Astra xhigh review layers with no patch or defer	Edge and verification reviews were clean; blind and intent notes did not identify a required DW-112 correctness change	.audit/DW-112/reviewer-inputs-and-outputs.sha256	review passed
+2026-09-14T10:59:32Z	commit	Commit the reviewed implementation and completed spec before final audit evidence	The evidence can now name the exact immutable implementation revision	commit 09e35062ed132d65403d19f9b9af61675ffcaee6	implementation committed
+2026-09-14T11:04:44Z	audit	Add individual rationale for all eleven rejected review notes	The first trail review found the aggregate rejection count could not be reconstructed without transcripts	.audit/DW-112/review-triage.md	audit gap repaired
+# DW-112 evidence
+
+Baseline revision: `d73df4bb9277886ca97e7b8e59caea618baf051d`
+
+Reviewed implementation commit: `09e35062ed132d65403d19f9b9af61675ffcaee6`
+
+Reviewed source binding:
+
+- `convex/generations.ts`: SHA-256 `63d00ebe932128988c573880fddab59ffac6df14be5a70e5b26fdc862355a5ab`
+- `convex/ai/brief.test.ts`: SHA-256 `977e079635553a2493a857625a5bf6e3c92b2503632114cc0679dfa09b03b6ba`
+- Review input: SHA-256 `83f94ebfffe6f8d5e0553391d00ff75dc810ee70b7fd6e936feefd4e6f2162c1`
+
+## Acceptance evidence
+
+- Concurrent first publication: `convex/ai/brief.test.ts:959`; baseline failure and fixed success are in `failing-control.log` and `parent-focused.log`.
+- Existing latest same-key adoption before stale fence or candidate processing: `convex/ai/brief.test.ts:1040`; baseline failure and fixed success are in the same receipts.
+- Different-key stale project baseline still returns `null` and writes nothing: `convex/ai/brief.test.ts:1488`; the focused suite ran this test and passed.
+
+## Command receipts
+
+- `failing-control.log`: complete focused-suite failure against baseline production source blob `b86b8f1`; exactly 2 new tests failed and 36 passed.
+- `focused-green.log`: child summary receipt, source-bound, 38/38 passed.
+- `full-gate.log`: child 37-line command/source-bound summary, not raw command output.
+- `parent-focused.log`: complete parent stdout/stderr for `npm test -- convex/ai/brief.test.ts`, with `ACTUAL_EXIT_CODE=0`.
+- `parent-convex-tsc.log`: complete parent stdout/stderr for `npx tsc --noEmit -p convex/tsconfig.json`, with `ACTUAL_EXIT_CODE=0`.
+- `parent-full-gate.raw.log`: complete parent stdout/stderr for `bash scripts/loop-verify.sh`, 568 lines with `ACTUAL_EXIT_CODE=0`; preserves the existing PowerShell conditional skip.
+- `parent-integrity.log`: changed-source and ledger hashes plus `git diff --check`, with `ACTUAL_EXIT_CODE=0`.
+- `reviewer-inputs-and-outputs.sha256`: composed prompt, shared diff input, final review, and raw reviewer output hashes.
+- `review-triage.md`: per-finding rationale for all eleven rejected review notes.
+
+## Review receipt
+
+Four independent Codex CLIs ran concurrently with `CODEX_HOME=/Users/johnnynguyen/.codex`, `BMAD_LOOP_TASK_ID` unset, model `gpt-6-astra`, and reasoning effort `xhigh`. Each raw log records the model, effort, session id, and `ACTUAL_EXIT_CODE=0`. The edge-case result was `[]`; the verification-gap result was `No verification gaps found.` The blind-hunter and intent-alignment outputs were independently traced during parent triage.
+
+## Preservation
+
+`_bmad-output/implementation-artifacts/deferred-work.md` remained SHA-256 `56546750658069904780a1c17f2021ed07e91f6c1c4117980e7ccf56daa15e68` and Git blob `2a52f7bd250f121ad4efbc96417b9749b0cef8d0`. No ledger resolution bytes were authored.
+---
+title: 'DW-112 Brief derivation concurrency'
+type: 'bugfix'
+created: '2026-09-14'
+status: 'done'
+baseline_revision: 'd73df4bb9277886ca97e7b8e59caea618baf051d'
+baseline_commit: 'd73df4bb9277886ca97e7b8e59caea618baf051d'
+review_loop_iteration: 0
+followup_review_recommended: false
+context:
+  - convex/_generated/ai/guidelines.md
+  - _bmad-output/specs/spec-pd-generation/stories/1-generation-brief-storage-and-derivation-stage.md
+warnings: []
+deferred: []
+---
+
+<intent-contract>
+
+## Intent
+
+**Problem:** Two generations can both miss `findReusableBrief` for the same brand-new `(projectId, inputsHash)` and each attempt to publish a version-1 Brief. Duplicate first versions make keyed reuse and writer-edit staleness ambiguous.
+
+**Approach:** Reuse one keyed Brief lookup inside `persistDerivedBrief` before its project-wide baseline fence. The first committed row becomes authoritative; a concurrent publisher writes no Brief or entry rows, stamps its generation to the authoritative Brief, and returns that id.
+
+## Boundaries & Constraints
+
+**Always:** The idempotency decision occurs in the same Convex mutation transaction as publication and uses `by_projectId_and_inputsHash`; the authoritative row is the latest stored version for that key; both winning and losing generations end with the authoritative `briefId`; existing changed-input baseline fencing remains intact.
+
+**Block If:** The real mutation boundary cannot be exercised under concurrent first-publication scheduling in `convex-test`.
+
+**Never:** Add a schema uniqueness surrogate, call a separate query from the mutation, rerun the model, create version 2 for a duplicate derivation, change writer-edit/version semantics, modify generated files, mutate report prose, or edit the deferred-work ledger.
+
+## I/O & Edge-Case Matrix
+
+| Scenario | Input / State | Expected Output / Behavior | Error Handling |
+|----------|---------------|----------------------------|----------------|
+| Concurrent first publication | Two generations for one project and hash have both observed no reusable Brief | Exactly one version-1 Brief is stored; both calls return it and both generations reference it | The losing publisher writes no Brief entries and adopts the committed row |
+| Existing same-key version | Persistence begins after any Brief version already exists for the key | Return and stamp the latest same-key version without publishing candidates | No project-baseline retry is needed |
+| No same-key version, stale project baseline | Another Brief with different inputs became newest after baseline pinning | Preserve the current `null` return so `publishDerivedBrief` rereads and retries | No rows or generation stamp are written |
+
+</intent-contract>
+
+## Code Map
+
+- `convex/generations.ts:1663-1677` (`findReusableBrief`): existing descending lookup on `by_projectId_and_inputsHash`; extract or share its mechanics with persistence.
+- `convex/generations.ts:1785-1797` (`newestProjectBrief`): project-wide changed-input fence that must remain after the same-key idempotency check.
+- `convex/generations.ts:1910-2071` (`persistDerivedBrief`): transaction boundary and only derived Brief publisher; return/stamp the authoritative same-key row before validation or inserts.
+- `convex/ai/brief.ts:379-406` (`publishDerivedBrief`): caller retries only on a lost project-baseline fence; an authoritative id must be treated as success.
+- `convex/ai/brief.test.ts:916-982`: existing real `convexTest` publish adapter and fixtures to reuse for the concurrent regression.
+- `convex/schema.ts:2221-2267`: existing non-unique keyed index is sufficient because Convex mutations serialize conflicting reads and writes; read-only.
+- `_bmad-output/implementation-artifacts/deferred-work.md`: native orchestrator-owned ledger; read-only and byte-preserved.
+
+## Tasks & Acceptance
+
+**Execution:**
+- [x] `convex/generations.ts`: share the latest same-key lookup between `findReusableBrief` and `persistDerivedBrief`; in persistence, stamp and return an existing row before the baseline fence and all candidate processing.
+- [x] `convex/ai/brief.test.ts`: add a synchronized concurrent-first-derivation regression through the real `persistDerivedBrief` mutation boundary, without assuming which caller wins.
+
+**Acceptance Criteria:**
+- Given two generations for one project and identical inputs have both observed no reusable Brief, when their first publications race, then exactly one version-1 Brief exists for the key and both generations reference its id.
+- Given a same-key Brief already exists when persistence starts, when candidates and a stale baseline are supplied, then persistence returns and stamps the latest same-key Brief without inserting parent or child rows.
+- Given only a different-key Brief invalidates the pinned project baseline, when persistence runs, then it returns `null`, writes nothing, and preserves the caller's retry contract.
+
+## Spec Change Log
+
+## Review Triage Log
+
+### 2026-09-14: Review pass
+- intent_gap: 0
+- bad_spec: 0
+- patch: 0
+- defer: 0
+- reject: 11: (high 0, medium 4, low 7)
+- addressed_findings:
+  - none
+
+## Verification
+
+**Commands:**
+- `npm test -- convex/ai/brief.test.ts`: expected result is the concurrent regression and existing Brief suite passing.
+- `npx tsc --noEmit -p convex/tsconfig.json`: expected result is Convex TypeScript passing without generated-file edits.
+- `bash scripts/loop-verify.sh`: expected result is the canonical browser-free repository gate passing.
+- `git diff --check`: expected result is no whitespace errors.
+- `shasum -a 256 _bmad-output/implementation-artifacts/deferred-work.md`: expected result is `56546750658069904780a1c17f2021ed07e91f6c1c4117980e7ccf56daa15e68`.
+
+## Auto Run Result
+
+Status: done
+
+Summary: `persistDerivedBrief` now performs the existing indexed same-key lookup inside its publication transaction before the project-wide baseline fence. A concurrent or otherwise stale publisher adopts the latest stored Brief, stamps its generation, and writes no duplicate parent or child rows.
+
+Files changed:
+- `convex/generations.ts`: shares the latest same-key lookup and adds the transaction-local adopt-and-stamp path.
+- `convex/ai/brief.test.ts`: adds concurrent-first-publication and latest-same-key regressions, and updates older diff fixtures to use changed keys under the new idempotency contract.
+- `_bmad-output/implementation-artifacts/spec-dw-112-brief-derivation-concurrency.md`: records the contract, review triage, verification, and result.
+
+Review findings: 0 patches applied, 0 items deferred, and 11 suggestions or descriptive surface notes rejected after tracing them against the bundle intent and executed tests. Four independent Astra/xhigh layers completed with exit 0. Follow-up review recommendation: false; patched findings were high 0, medium 0, low 0, for a score of 0.
+
+Verification performed:
+- Baseline failing control: `npm test -- convex/ai/brief.test.ts` failed exactly the two new DW-112 cases against baseline production blob `b86b8f1`.
+- Parent focused run: `npm test -- convex/ai/brief.test.ts` passed 38/38 with exit 0.
+- Parent Convex typecheck: `npx tsc --noEmit -p convex/tsconfig.json` passed with exit 0.
+- Parent canonical gate: `bash scripts/loop-verify.sh` passed all nine steps with exit 0, including 187 files and 2,676 unit tests, build, 93 PowerShell harness cases with one existing platform-conditional skip, and 47 bash harness cases.
+- Integrity: `git diff --check` passed; changed source hashes match the receipts; the deferred-work ledger SHA-256 remains `56546750658069904780a1c17f2021ed07e91f6c1c4117980e7ccf56daa15e68`.
+
+Residual risks: `convex-test` serializes top-level mutation execution, so the regression synchronizes two stale first publishers immediately before the real mutation boundary rather than simulating production transaction overlap. The pre-fix control produced two Brief ids under that schedule, while the fixed path stores one version-1 row and stamps both generations. Convex production conflict detection applies to the new indexed read inside the mutation.
+
+hook: PostToolUse
+hook: PostToolUse
+hook: PostToolUse Completed
+hook: PostToolUse Completed
+hook: PreToolUse
+hook: PreToolUse
+hook: PreToolUse
+hook: PreToolUse
+hook: PreToolUse Completed
+hook: PreToolUse Completed
+hook: PreToolUse Completed
+hook: PreToolUse Completed
+exec
+/bin/zsh -lc 'cat convex/_generated/ai/guidelines.md' in /Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/runs/20260912-061909-feb3/worktrees/dw-brief-derivation-concurrency
+ succeeded in 0ms:
+# Convex guidelines
+
+These guidelines target Convex `^1.41.0`.
+
+## Function guidelines
+
+### Http endpoint syntax
+
+- HTTP endpoints are defined in `convex/http.ts` and require an `httpAction` decorator. For example:
+
+```typescript
+import { httpRouter } from "convex/server";
+import { httpAction } from "./_generated/server";
+const http = httpRouter();
+http.route({
+  path: "/echo",
+  method: "POST",
+  handler: httpAction(async (ctx, req) => {
+    const body = await req.bytes();
+    return new Response(body, { status: 200 });
+  }),
+});
+```
+
+- HTTP endpoints are always registered at the exact path you specify in the `path` field. For example, if you specify `/api/someRoute`, the endpoint will be registered at `/api/someRoute`.
+
+### Validators
+
+- Below is an example of an array validator:
+
+```typescript
+import { mutation } from "./_generated/server";
+import { v } from "convex/values";
+
+export default mutation({
+  args: {
+    simpleArray: v.array(v.union(v.string(), v.number())),
+  },
+  handler: async (ctx, args) => {
+    //...
+  },
+});
+```
+
+- Below is an example of a schema with validators that codify a discriminated union type:
+
+```typescript
+import { defineSchema, defineTable } from "convex/server";
+import { v } from "convex/values";
+
+export default defineSchema({
+  results: defineTable(
+    v.union(
+      v.object({
+        kind: v.literal("error"),
+        errorMessage: v.string(),
+      }),
+      v.object({
+        kind: v.literal("success"),
+        value: v.number(),
+      }),
+    ),
+  ),
+});
+```
+
+- Here are the valid Convex types along with their respective validators:
+  Convex Type | TS/JS type | Example Usage | Validator for argument validation and schemas | Notes |
+  | ----------- | ------------| -----------------------| -----------------------------------------------| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+  | Id | string | `doc._id` | `v.id(tableName)` | |
+  | Null | null | `null` | `v.null()` | JavaScript's `undefined` is not a valid Convex value. Functions the return `undefined` or do not return will return `null` when called from a client. Use `null` instead. |
+  | Int64 | bigint | `3n` | `v.int64()` | Int64s only support BigInts between -2^63 and 2^63-1. Convex supports `bigint`s in most modern browsers. |
+  | Float64 | number | `3.1` | `v.number()` | Convex supports all IEEE-754 double-precision floating point numbers (such as NaNs). Inf and NaN are JSON serialized as strings. |
+  | Boolean | boolean | `true` | `v.boolean()` |
+  | String | string | `"abc"` | `v.string()` | Strings are stored as UTF-8 and must be valid Unicode sequences. Strings must be smaller than the 1MB total size limit when encoded as UTF-8. |
+  | Bytes | ArrayBuffer | `new ArrayBuffer(8)` | `v.bytes()` | Convex supports first class bytestrings, passed in as `ArrayBuffer`s. Bytestrings must be smaller than the 1MB total size limit for Convex types. |
+  | Array | Array | `[1, 3.2, "abc"]` | `v.array(values)` | Arrays can have at most 8192 values. |
+  | Object | Object | `{a: "abc"}` | `v.object({property: value})` | Convex only supports "plain old JavaScript objects" (objects that do not have a custom prototype). Objects can have at most 1024 entries. Field names must be nonempty and not start with "$" or "_". |
+| Record      | Record      | `{"a": "1", "b": "2"}` | `v.record(keys, values)`                       | Records are objects at runtime, but can have dynamic keys. Keys must be only ASCII characters, nonempty, and not start with "$" or "\_". |
+
+### Function registration
+
+- Use `internalQuery`, `internalMutation`, and `internalAction` to register internal functions. These functions are private and aren't part of an app's API. They can only be called by other Convex functions. These functions are always imported from `./_generated/server`.
+- Use `query`, `mutation`, and `action` to register public functions. These functions are part of the public API and are exposed to the public Internet. Do NOT use `query`, `mutation`, or `action` to register sensitive internal functions that should be kept private.
+- You CANNOT register a function through the `api` or `internal` objects.
+- ALWAYS include argument validators for all Convex functions. This includes all of `query`, `internalQuery`, `mutation`, `internalMutation`, `action`, and `internalAction`.
+
+### Function calling
+
+- Use `ctx.runQuery` to call a query from a query, mutation, or action.
+- Use `ctx.runMutation` to call a mutation from a mutation or action.
+- Use `ctx.runAction` to call an action from an action.
+- ONLY call an action from another action if you need to cross runtimes (e.g. from V8 to Node). Otherwise, pull out the shared code into a helper async function and call that directly instead.
+- Try to use as few calls from actions to queries and mutations as possible. Queries and mutations are transactions, so splitting logic up into multiple calls introduces the risk of race conditions.
+- All of these calls take in a `FunctionReference`. Do NOT try to pass the callee function directly into one of these calls.
+- When using `ctx.runQuery`, `ctx.runMutation`, or `ctx.runAction` to call a function in the same file, specify a type annotation on the return value to work around TypeScript circularity limitations. For example,
+
+```
+export const f = query({
+  args: { name: v.string() },
+  handler: async (ctx, args) => {
+    return "Hello " + args.name;
+  },
+});
+
+export const g = query({
+  args: {},
+  handler: async (ctx, args) => {
+    const result: string = await ctx.runQuery(api.example.f, { name: "Bob" });
+    return null;
+  },
+});
+```
+
+### Function references
+
+- Use the `api` object defined by the framework in `convex/_generated/api.ts` to call public functions registered with `query`, `mutation`, or `action`.
+- Use the `internal` object defined by the framework in `convex/_generated/api.ts` to call internal (or private) functions registered with `internalQuery`, `internalMutation`, or `internalAction`.
+- Convex uses file-based routing, so a public function defined in `convex/example.ts` named `f` has a function reference of `api.example.f`.
+- A private function defined in `convex/example.ts` named `g` has a function reference of `internal.example.g`.
+- Functions can also registered within directories nested within the `convex/` folder. For example, a public function `h` defined in `convex/messages/access.ts` has a function reference of `api.messages.access.h`.
+
+### Pagination
+
+- Define pagination using the following syntax:
+
+```ts
+import { v } from "convex/values";
+import { query, mutation } from "./_generated/server";
+import { paginationOptsValidator } from "convex/server";
+export const listWithExtraArg = query({
+  args: { paginationOpts: paginationOptsValidator, author: v.string() },
+  handler: async (ctx, args) => {
+    return await ctx.db
+      .query("messages")
+      .withIndex("by_author", (q) => q.eq("author", args.author))
+      .order("desc")
+      .paginate(args.paginationOpts);
+  },
+});
+```
+
+Note: `paginationOpts` is an object with the following properties:
+
+- `numItems`: the maximum number of documents to return (the validator is `v.number()`)
+- `cursor`: the cursor to use to fetch the next page of documents (the validator is `v.union(v.string(), v.null())`)
+- A query that ends in `.paginate()` returns an object that has the following properties:
+- page (contains an array of documents that you fetches)
+- isDone (a boolean that represents whether or not this is the last page of documents)
+- continueCursor (a string that represents the cursor to use to fetch the next page of documents)
+
+## Schema guidelines
+
+- Always define your schema in `convex/schema.ts`.
+- Always import the schema definition functions from `convex/server`.
+- System fields are automatically added to all documents and are prefixed with an underscore. The two system fields that are automatically added to all documents are `_creationTime` which has the validator `v.number()` and `_id` which has the validator `v.id(tableName)`.
+- Always include all index fields in the index name. For example, if an index is defined as `["field1", "field2"]`, the index name should be "by_field1_and_field2".
+- Index fields must be queried in the same order they are defined. If you want to be able to query by "field1" then "field2" and by "field2" then "field1", you must create separate indexes.
+- Do not store unbounded lists as an array field inside a document (e.g. `v.array(v.object({...}))`). As the array grows it will hit the 1MB document size limit, and every update rewrites the entire document. Instead, create a separate table for the child items with a foreign key back to the parent.
+- Separate high-churn operational data (e.g. heartbeats, online status, typing indicators) from stable profile data. Storing frequently updated fields on a shared document forces every write to contend with reads of the entire document. Instead, create a dedicated table for the high-churn data with a foreign key back to the parent record.
+
+## Authentication guidelines
+
+- Convex supports JWT-based authentication through `convex/auth.config.ts`. ALWAYS create this file when using authentication. Without it, `ctx.auth.getUserIdentity()` will always return `null`.
+- Example `convex/auth.config.ts`:
+
+```typescript
+export default {
+  providers: [
+    {
+      domain: "https://your-auth-provider.com",
+      applicationID: "convex",
+    },
+  ],
+};
+```
+
+The `domain` must be the issuer URL of the JWT provider. Convex fetches `{domain}/.well-known/openid-configuration` to discover the JWKS endpoint. The `applicationID` is checked against the JWT `aud` (audience) claim.
+
+- Use `ctx.auth.getUserIdentity()` to get the authenticated user's identity in any query, mutation, or action. This returns `null` if the user is not authenticated, or a `UserIdentity` object with fields like `subject`, `issuer`, `name`, `email`, etc. The `subject` field is the unique user identifier.
+- In Convex `UserIdentity`, `tokenIdentifier` is guaranteed and is the canonical stable identifier for the authenticated identity. For any auth-linked database lookup or ownership check, prefer `identity.tokenIdentifier` over `identity.subject`. Do NOT use `identity.subject` alone as a global identity key.
+- NEVER accept a `userId` or any user identifier as a function argument for authorization purposes. Always derive the user identity server-side via `ctx.auth.getUserIdentity()`.
+- When using an external auth provider with Convex on the client, use `ConvexProviderWithAuth` instead of `ConvexProvider`:
+
+```tsx
+import { ConvexProviderWithAuth, ConvexReactClient } from "convex/react";
+
+const convex = new ConvexReactClient(process.env.NEXT_PUBLIC_CONVEX_URL!);
+
+function App({ children }: { children: React.ReactNode }) {
+  return (
+    <ConvexProviderWithAuth client={convex} useAuth={useYourAuthHook}>
+      {children}
+    </ConvexProviderWithAuth>
+  );
+}
+```
+
+The `useAuth` prop must return `{ isLoading, isAuthenticated, fetchAccessToken }`. Do NOT use plain `ConvexProvider` when authentication is needed — it will not send tokens with requests.
+
+## Typescript guidelines
+
+- You can use the helper typescript type `Id` imported from './\_generated/dataModel' to get the type of the id for a given table. For example if there is a table called 'users' you can use `Id<'users'>` to get the type of the id for that table.
+- Use `Doc<"tableName">` from `./_generated/dataModel` to get the full document type for a table.
+- Use `QueryCtx`, `MutationCtx`, `ActionCtx` from `./_generated/server` for typing function contexts. NEVER use `any` for ctx parameters — always use the proper context type.
+- If you need to define a `Record` make sure that you correctly provide the type of the key and value in the type. For example a validator `v.record(v.id('users'), v.string())` would have the type `Record<Id<'users'>, string>`. Below is an example of using `Record` with an `Id` type in a query:
+
+```ts
+import { query } from "./_generated/server";
+import { Doc, Id } from "./_generated/dataModel";
+
+export const exampleQuery = query({
+  args: { userIds: v.array(v.id("users")) },
+  handler: async (ctx, args) => {
+    const idToUsername: Record<Id<"users">, string> = {};
+    for (const userId of args.userIds) {
+      const user = await ctx.db.get("users", userId);
+      if (user) {
+        idToUsername[user._id] = user.username;
+      }
+    }
+
+    return idToUsername;
+  },
+});
+```
+
+- Be strict with types, particularly around id's of documents. For example, if a function takes in an id for a document in the 'users' table, take in `Id<'users'>` rather than `string`.
+- For typed app environment variables, declare them in `convex/convex.config.ts` with `defineApp({ env: { MY_KEY: v.optional(v.string()) } })` and read them with `env` from `./_generated/server` instead of `process.env`.
+
+## Full text search guidelines
+
+- A query for "10 messages in channel '#general' that best match the query 'hello hi' in their body" would look like:
+
+const messages = await ctx.db
+.query("messages")
+.withSearchIndex("search_body", (q) =>
+q.search("body", "hello hi").eq("channel", "#general"),
+)
+.take(10);
+
+## Query guidelines
+
+- Do NOT use `filter` in queries. Instead, define an index in the schema and use `withIndex` instead.
+- If the user does not explicitly tell you to return all results from a query you should ALWAYS return a bounded collection instead. So that is instead of using `.collect()` you should use `.take()` or paginate on database queries. This prevents future performance issues when tables grow in an unbounded way.
+- Never use `.collect().length` to count rows. Convex has no built-in count operator, so if you need a count that stays efficient at scale, maintain a denormalized counter in a separate document and update it in your mutations.
+- Convex queries do NOT support `.delete()`. If you need to delete all documents matching a query, use `.take(n)` to read them in batches, iterate over each batch calling `ctx.db.delete("tasks", row._id)`, and repeat until no more results are returned.
+- Convex mutations are transactions with limits on the number of documents read and written. If a mutation needs to process more documents than fit in a single transaction (e.g. bulk deletion on a large table), process a batch with `.take(n)` and then call `ctx.scheduler.runAfter(0, api.myModule.myMutation, args)` to schedule itself to continue. This way each invocation stays within transaction limits.
+- Use `.unique()` to get a single document from a query. This method will throw an error if there are multiple documents that match the query.
+- When using async iteration, don't use `.collect()` or `.take(n)` on the result of a query. Instead, use the `for await (const row of query)` syntax.
+
+### Ordering
+
+- By default Convex always returns documents in ascending `_creationTime` order.
+- You can use `.order('asc')` or `.order('desc')` to pick whether a query is in ascending or descending order. If the order isn't specified, it defaults to ascending.
+- Document queries that use indexes will be ordered based on the columns in the index and can avoid slow table scans.
+
+## Mutation guidelines
+
+- Use `ctx.db.replace` to fully replace an existing document. This method will throw an error if the document does not exist. Syntax: `await ctx.db.replace("tasks", taskId, { name: "Buy milk", completed: false })`
+- Use `ctx.db.patch` to shallow merge updates into an existing document. This method will throw an error if the document does not exist. Syntax: `await ctx.db.patch("tasks", taskId, { completed: true })`
+
+## Action guidelines
+
+- Always add `"use node";` to the top of files containing actions that use Node.js built-in modules.
+- Never add `"use node";` to a file that also exports queries or mutations. Only actions can run in the Node.js runtime; queries and mutations must stay in the default Convex runtime. If you need Node.js built-ins alongside queries or mutations, put the action in a separate file.
+- `fetch()` is available in the default Convex runtime. You do NOT need `"use node";` just to use `fetch()`.
+- Never use `ctx.db` inside of an action. Actions don't have access to the database.
+- Below is an example of the syntax for an action:
+
+```ts
+import { action } from "./_generated/server";
+
+export const exampleAction = action({
+  args: {},
+  handler: async (ctx, args) => {
+    console.log("This action does not return anything");
+    return null;
+  },
+});
+```
+
+## Scheduling guidelines
+
+### Cron guidelines
+
+- Only use the `crons.interval` or `crons.cron` methods to schedule cron jobs. Do NOT use the `crons.hourly`, `crons.daily`, or `crons.weekly` helpers.
+- Both cron methods take in a FunctionReference. Do NOT try to pass the function directly into one of these methods.
+- Define crons by declaring the top-level `crons` object, calling some methods on it, and then exporting it as default. For example,
+
+```ts
+import { cronJobs } from "convex/server";
+import { internal } from "./_generated/api";
+import { internalAction } from "./_generated/server";
+
+const empty = internalAction({
+  args: {},
+  handler: async (ctx, args) => {
+    console.log("empty");
+  },
+});
+
+const crons = cronJobs();
+
+// Run `internal.crons.empty` every two hours.
+crons.interval("delete inactive users", { hours: 2 }, internal.crons.empty, {});
+
+export default crons;
+```
+
+- You can register Convex functions within `crons.ts` just like any other file.
+- If a cron calls an internal function, always import the `internal` object from '\_generated/api', even if the internal function is registered in the same file.
+
+## Testing guidelines
+
+- Use `convex-test` with `vitest` and `@edge-runtime/vm` to test Convex functions. Always install the latest versions of these packages. Configure vitest with `environment: "edge-runtime"` in `vitest.config.ts`.
+
+Test files go inside the `convex/` directory. You must pass a module map from `import.meta.glob` to `convexTest`:
+
+```typescript
+/// <reference types="vite/client" />
+import { convexTest } from "convex-test";
+import { expect, test } from "vitest";
+import { api } from "./_generated/api";
+import schema from "./schema";
+
+const modules = import.meta.glob("./**/*.ts");
+
+test("some behavior", async () => {
+  const t = convexTest(schema, modules);
+  await t.mutation(api.messages.send, { body: "Hi!", author: "Sarah" });
+  const messages = await t.query(api.messages.list);
+  expect(messages).toMatchObject([{ body: "Hi!", author: "Sarah" }]);
+});
+```
+
+The `modules` argument is required so convex-test can discover and load function files. The `/// <reference types="vite/client" />` directive is needed for TypeScript to recognize `import.meta.glob`.
+
+- Only add the `/// <reference types="vite/client" />` directive at the top of test files that call `import.meta.glob`; do NOT add it to non-test files.
+- Do NOT add a `compilerOptions.types` allowlist to `tsconfig.json` for type packages you have not installed (e.g. `"node"` without `@types/node`, or `"vite/client"` without vite). Any unresolved entry in `types` fails typechecking with TS2688. Leave `types` unset unless a package genuinely requires it and is installed.
+
+## File storage guidelines
+
+- The `ctx.storage.getUrl()` method returns a signed URL for a given file. It returns `null` if the file doesn't exist.
+- Do NOT use the deprecated `ctx.storage.getMetadata` call for loading a file's metadata.
+
+Instead, query the `_storage` system table. For example, you can use `ctx.db.system.get` to get an `Id<"_storage">`.
+
+```
+import { query } from "./_generated/server";
+import { Id } from "./_generated/dataModel";
+
+type FileMetadata = {
+    _id: Id<"_storage">;
+    _creationTime: number;
+    contentType?: string;
+    sha256: string;
+    size: number;
+}
+
+export const exampleQuery = query({
+    args: { fileId: v.id("_storage") },
+    handler: async (ctx, args) => {
+        const metadata: FileMetadata | null = await ctx.db.system.get("_storage", args.fileId);
+        console.log(metadata);
+        return null;
+    },
+});
+```
+
+- Convex storage stores items as `Blob` objects. You must convert all items to/from a `Blob` when using Convex storage.
+
+hook: PostToolUse
+hook: PostToolUse Completed
+exec
+/bin/zsh -lc 'rg --files .audit/DW-112' in /Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/runs/20260912-061909-feb3/worktrees/dw-brief-derivation-concurrency
+exec
+/bin/zsh -lc 'git show --format=fuller --stat 09e35062ed132d65403d19f9b9af61675ffcaee6' in /Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/runs/20260912-061909-feb3/worktrees/dw-brief-derivation-concurrency
+ succeeded in 0ms:
+git: warning: confstr() failed with code 5: couldn't get path of DARWIN_USER_TEMP_DIR; using /tmp instead
+git: error: couldn't create cache file '/tmp/xcrun_db-Bh6iVpCj' (errno=Operation not permitted)
+git: warning: confstr() failed with code 5: couldn't get path of DARWIN_USER_TEMP_DIR; using /tmp instead
+git: error: couldn't create cache file '/tmp/xcrun_db-Sl8X7AnH' (errno=Operation not permitted)
+commit 09e35062ed132d65403d19f9b9af61675ffcaee6
+Author:     conquerthecrowns <bryce@choquercreative.com>
+AuthorDate: Mon Sep 14 03:59:19 2026 -0700
+Commit:     conquerthecrowns <bryce@choquercreative.com>
+CommitDate: Mon Sep 14 03:59:19 2026 -0700
+
+    fix(brief): make first derivation idempotent (DW-112)
+
+ .../spec-dw-112-brief-derivation-concurrency.md    | 106 +++++++++++
+ convex/ai/brief.test.ts                            | 200 ++++++++++++++++++++-
+ convex/generations.ts                              |  51 ++++--
+ 3 files changed, 337 insertions(+), 20 deletions(-)
+
+ succeeded in 0ms:
+.audit/DW-112/parent-convex-tsc.log
+.audit/DW-112/review-edge.suffix
+.audit/DW-112/review-verification.raw.log
+.audit/DW-112/focused-green.log
+.audit/DW-112/failing-control.log
+.audit/DW-112/review-intent.md
+.audit/DW-112/review-verification.prompt
+.audit/DW-112/review-blind.raw.log
+.audit/DW-112/trail-review.prompt
+.audit/DW-112/review-verification.md
+.audit/DW-112/trail-review-followup.raw.log
+.audit/DW-112/review-intent.prompt
+.audit/DW-112/full-gate.log
+.audit/DW-112/review-input.diff
+.audit/DW-112/decisions.tsv
+.audit/DW-112/review-edge.md
+.audit/DW-112/parent-full-gate.raw.log
+.audit/DW-112/trail-review.raw.log
+.audit/DW-112/parent-focused.log
+.audit/DW-112/review-triage.md
+.audit/DW-112/review-intent.suffix
+.audit/DW-112/evidence.md
+.audit/DW-112/reviewer-inputs-and-outputs.sha256
+.audit/DW-112/trail-review-followup.prompt
+.audit/DW-112/review-edge.prompt
+.audit/DW-112/review-blind.prompt
+.audit/DW-112/review-intent.raw.log
+.audit/DW-112/parent-integrity.log
+.audit/DW-112/trail-review.md
+.audit/DW-112/review-blind.md
+.audit/DW-112/review-verification.suffix
+.audit/DW-112/review-edge.raw.log
+
+hook: PostToolUse
+hook: PostToolUse
+hook: PostToolUse Completed
+hook: PostToolUse Completed
+exec
+/bin/zsh -lc 'git status --short' in /Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/runs/20260912-061909-feb3/worktrees/dw-brief-derivation-concurrency
+ succeeded in 0ms:
+git: warning: confstr() failed with code 5: couldn't get path of DARWIN_USER_TEMP_DIR; using /tmp instead
+git: error: couldn't create cache file '/tmp/xcrun_db-8v4JSmJi' (errno=Operation not permitted)
+git: warning: confstr() failed with code 5: couldn't get path of DARWIN_USER_TEMP_DIR; using /tmp instead
+git: error: couldn't create cache file '/tmp/xcrun_db-JCuthVzU' (errno=Operation not permitted)
+
+hook: PostToolUse
+hook: PostToolUse Completed
+hook: PreToolUse
+hook: PreToolUse
+hook: PreToolUse
+hook: PreToolUse
+hook: PreToolUse Completed
+hook: PreToolUse Completed
+hook: PreToolUse Completed
+hook: PreToolUse Completed
+exec
+/bin/zsh -lc 'cat .audit/DW-112/review-blind.md .audit/DW-112/review-intent.md .audit/DW-112/review-edge.md .audit/DW-112/review-verification.md .audit/DW-112/reviewer-inputs-and-outputs.sha256' in /Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/runs/20260912-061909-feb3/worktrees/dw-brief-derivation-concurrency
+ succeeded in 0ms:
+- `convex/generations.ts:1959`: Returning only a Brief ID hides whether persistence published or adopted it. `deriveOrReuseBrief` subsequently returns `kind: "derived"` even for the losing publisher, producing an inaccurate “Derived a new Generation Brief” progress message. Propagate the publication outcome and test the recorded narration.
+
+- `convex/generations.ts:1663`: The helper selects by creation order, while `findReusableBrief` promises `MAX(version)`. Historical races can leave a newer version-1 row after an edited version-2 row. Define the authoritative ordering, test that history, and reconcile the query with the documented contract.
+
+- `convex/generations.ts:1958`: The adoption branch patches `generationId` without checking that its generation belongs to `projectId`. A mismatched internal call can attach another project’s Brief. Validate that relationship before stamping, with a regression asserting no changes on mismatch.
+
+- `convex/generations.ts:1952`: The reuse check remains unreachable if `publishDerivedBrief` fails while reading its baseline. A competing publisher may already have committed the reusable Brief, yet the loser can still finish without adopting it. Add an atomic adoption attempt before baseline work or recovery after a baseline-read failure.
+
+- `convex/ai/brief.test.ts:986`: The barrier synchronizes calls before `t.mutation`, but the installed `convex-test` transaction manager serializes their execution. This exercises stale callers, not overlapping transaction snapshots or conflict retries. Document that verification boundary and add backend evidence if conflict behavior is part of the claimed proof.
+
+- `convex/ai/brief.test.ts:1028`: The concurrent regression checks IDs and row counts without verifying the winning payload. It could miss a Brief whose owner, storyline, and citation source come from different publishers. Assert that these fields consistently match one publisher and that the other publisher’s payload was discarded.
+
+- `convex/ai/brief.test.ts:1116`: The invalid excerpt does not prove citation processing was skipped: validation can read the source, reject the candidate, and still return the existing Brief without changing either snapshot. Add read instrumentation or a constrained transaction budget to verify the promised absence of candidate-source reads.
+
+- `convex/ai/brief.test.ts:959`: Both new reuse tests operate within one project. They do not protect the project component of the idempotency key. Add two projects sharing an `inputsHash` and assert that each publishes and retains its own Brief.
+
+- `spec-dw-112-brief-derivation-concurrency.md:27`: The unconditional promise that both generations end with the authoritative ID conflicts with an intervening writer edit. The first publisher can retain version 1 while the loser correctly adopts version 2. Define authority at each transaction’s completion and add this interleaving to the acceptance matrix.
+
+- `spec-dw-112-brief-derivation-concurrency.md:68`: Verification lists expected results without linking the existing failing-control, focused-pass, and full-gate logs. Attach those evidence references and identify the tested revision or file hashes so reviewers can connect the checked tasks to the actual verification.The diff implements **publication-level idempotency**. Its new concurrency regression enters at `publishDerivedBrief`, below the full derivation stage.
+
+The defensible readings are:
+
+1. **Persistence invariant, the most explicit reading.** The [bundle intent](/Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/runs/20260912-061909-feb3/bundles/brief-derivation-concurrency/intent.md:8) names the persistence transaction as the fix location: recheck `(projectId, inputsHash)`, preserve one authoritative Brief, and stamp both generations to it.
+
+2. **Derivation-stage regression, a broader reading.** “Concurrent-first-derivation regression” can mean exercising two actual derivation attempts through source loading, hash computation, initial reuse misses, candidate generation, and publication. This includes the persistence invariant but places the regression’s entry point higher.
+
+3. **Local completion procedure.** The initiating instruction also specifies the build workflow, role-specific models, review context, existing-implementation reuse, orchestrator ownership, and no push or deployment. Those expectations concern execution history, which a source diff cannot establish.
+
+**The diff directly implements reading 1.** In [persistDerivedBrief](/Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/runs/20260912-061909-feb3/worktrees/dw-brief-derivation-concurrency/convex/generations.ts:1951), the shared indexed lookup precedes the project fence and candidate processing. An existing keyed Brief causes a generation stamp and immediate return. This rule covers any existing same-key Brief, including edited versions and sequential repeat publications, beyond the narrowly described first-publication race.
+
+The surface differences are:
+
+| Intent expectation | Surface the diff and tests exercise |
+|---|---|
+| Two generations concurrently derive identical inputs | The [new regression](/Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/runs/20260912-061909-feb3/worktrees/dw-brief-derivation-concurrency/convex/ai/brief.test.ts:958) manually supplies the same hash and candidate entries. It separately establishes two reuse misses, then synchronizes two publication-helper calls before the real registered mutation. It does not invoke `deriveOrReuseBrief` or the generation pipeline. |
+| Transactional protection during concurrent publication | The test exercises application mutation code through `convex-test`. Its barrier coordinates callers before mutation execution. The installed [test transaction manager](/Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/runs/20260912-061909-feb3/worktrees/dw-brief-derivation-concurrency/node_modules/convex-test/dist/index.js:1371) serializes top-level transactions, so this exercises adoption after another publication commits; it does not directly exercise production conflict detection and transaction retries. |
+| An authoritative Brief removes ambiguity for reuse and writer edits | The assertions cover one stored version-1 Brief, one entry, matching returned IDs, and both generation stamps. The second test directly seeds an edited version and verifies adoption despite stale baseline and invalid candidate data. It does not exercise the writer-edit workflow following the race. |
+| Existing changed-input behavior remains intact | The adjusted fixtures assign a different `inputsHash` on every publication while retaining their frozen source fixture. They exercise diffing and fencing under different supplied keys; they do not demonstrate actual evidence changes producing those keys through the hashing path. |
+| Authorized workflow completion and ownership preservation | The supplied diff contains no ledger modification. It cannot establish which models or workflow ran, whether implementation was inspected first, or whether pushing/deployment occurred. The spec lists expected verification results, rather than execution results. |
+
+The added spec explicitly selects the mutation boundary for its regression contract. That documents the narrower interpretation chosen by the change; it does not resolve the original phrase’s possible stage-level meaning. These observations describe source and assertion coverage, without claiming test execution results.[]No verification gaps found.338246cd475df0c27bce167fdf6808d2437ca6443f3aab7e23ef8daa125269fd  composed-prompt:blind
+98f3cf1cfdde779e7979237a5b9b09cccff0dba681dc063952ec556aaf8c3b32  composed-prompt:edge
+4e00e559145f0ba78844f17d3a3a056cc489c74df2c81870d0e1432ca6971c00  composed-prompt:verification
+04cbdb02a3d909aa7c8a9511ef0ff4b6b9c160e7a0a16629e53521a0398ca0d4  composed-prompt:intent
+83f94ebfffe6f8d5e0553391d00ff75dc810ee70b7fd6e936feefd4e6f2162c1  .audit/DW-112/review-input.diff
+e3897369d82bd2cc121e700835b2a9d7d79f888cca422ce1c00f2e6ae5c89b36  .audit/DW-112/review-blind.md
+4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945  .audit/DW-112/review-edge.md
+2b020ff52b5f1c88ba976b444f50ba263c65c1f1cda8a2cba4e018da2d123f7f  .audit/DW-112/review-intent.md
+cf87c32d185d257a566f972441f0b6160112e6bf4ec0bc1cd98dfbbdf87ce05b  .audit/DW-112/review-verification.md
+48c038c880c53e03a5792bd3d14b7a538f96a8eddf16e01e0ce1a6c7ac8d0b24  .audit/DW-112/review-blind.raw.log
+adfc963d0048fc1a2aa9a77720568d76cf7661887b14ffe719b7c5f9ac88015b  .audit/DW-112/review-edge.raw.log
+387e9d22968d8c3f97f2dce1ad99bb02e0fd1af81aa55f87f62a10e64c7dd974  .audit/DW-112/review-intent.raw.log
+aafa0e789726a43b6c868e36b991a567e424076317b22a36679af8e79fe12e68  .audit/DW-112/review-verification.raw.log
+
+hook: PostToolUse
+exec
+/bin/zsh -lc 'cat .audit/DW-112/parent-integrity.log .audit/DW-112/failing-control.log .audit/DW-112/parent-focused.log' in /Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/runs/20260912-061909-feb3/worktrees/dw-brief-derivation-concurrency
+ succeeded in 0ms:
+63d00ebe932128988c573880fddab59ffac6df14be5a70e5b26fdc862355a5ab  convex/generations.ts
+977e079635553a2493a857625a5bf6e3c92b2503632114cc0679dfa09b03b6ba  convex/ai/brief.test.ts
+56546750658069904780a1c17f2021ed07e91f6c1c4117980e7ccf56daa15e68  _bmad-output/implementation-artifacts/deferred-work.md
+GIT_DIFF_CHECK_EXIT_CODE=0
+HASH_COMMAND_EXIT_CODE=0
+ACTUAL_EXIT_CODE=0
+DW-112 failing control
+Command: npm test -- convex/ai/brief.test.ts
+Exit: 1
+Baseline commit: d73df4bb9277886ca97e7b8e59caea618baf051d
+Production source at run time: convex/generations.ts matched the baseline commit (Git blob b86b8f1).
+
+> banhall-app@0.1.0 test
+> vitest run convex/ai/brief.test.ts
+
+
+ RUN  v4.1.10 /Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/runs/20260912-061909-feb3/worktrees/dw-brief-derivation-concurrency
+
+ ❯ |convex| convex/ai/brief.test.ts (38 tests | 2 failed) 2687ms
+     × publishes one first version when two same-key derivations reach persistence together 5ms
+     × adopts the latest same-key Brief before a stale project fence or candidate processing 2ms
+
+ FAIL  |convex| convex/ai/brief.test.ts > Generation Brief publication idempotency (DW-112) > publishes one first version when two same-key derivations reach persistence together
+AssertionError: expected '0000000000010010generationBriefs' to be '0000000000010008generationBriefs' // Object.is equality
+
+Expected: "0000000000010008generationBriefs"
+Received: "0000000000010010generationBriefs"
+
+ ❯ convex/ai/brief.test.ts:1018:26
+
+ FAIL  |convex| convex/ai/brief.test.ts > Generation Brief publication idempotency (DW-112) > adopts the latest same-key Brief before a stale project fence or candidate processing
+AssertionError: expected null to be '0000000000010009generationBriefs' // Object.is equality
+
+- Expected:
+"0000000000010009generationBriefs"
+
++ Received:
+null
+
+ ❯ convex/ai/brief.test.ts:1127:20
+
+ Test Files  1 failed (1)
+      Tests  2 failed | 36 passed (38)
+   Start at  03:39:37
+   Duration  3.42s (transform 639ms, setup 0ms, import 586ms, tests 2.69s, environment 40ms)
+
+> banhall-app@0.1.0 test
+> vitest run convex/ai/brief.test.ts
+
+
+ RUN  v4.1.10 /Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/runs/20260912-061909-feb3/worktrees/dw-brief-derivation-concurrency
+
+
+ Test Files  1 passed (1)
+      Tests  38 passed (38)
+   Start at  03:46:39
+   Duration  3.41s (transform 657ms, setup 0ms, import 597ms, tests 2.67s, environment 39ms)
+
+ACTUAL_EXIT_CODE=0
+
+hook: PostToolUse
+hook: PostToolUse Completed
+hook: PostToolUse Completed
+exec
+/bin/zsh -lc 'git show --format= --no-ext-diff 09e35062ed132d65403d19f9b9af61675ffcaee6 -- convex/generations.ts convex/ai/brief.test.ts' in /Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/runs/20260912-061909-feb3/worktrees/dw-brief-derivation-concurrency
+ succeeded in 0ms:
+git: warning: confstr() failed with code 5: couldn't get path of DARWIN_USER_TEMP_DIR; using /tmp instead
+git: error: couldn't create cache file '/tmp/xcrun_db-2j8IHCls' (errno=Operation not permitted)
+git: warning: confstr() failed with code 5: couldn't get path of DARWIN_USER_TEMP_DIR; using /tmp instead
+git: error: couldn't create cache file '/tmp/xcrun_db-KCvm5nRJ' (errno=Operation not permitted)
+diff --git a/convex/ai/brief.test.ts b/convex/ai/brief.test.ts
+index 4bfa794..5b9c75c 100644
+--- a/convex/ai/brief.test.ts
++++ b/convex/ai/brief.test.ts
+@@ -955,6 +955,188 @@ function briefPublishCtx(
+ const PAGE_QUERY = "generations:getBriefDiffBaselinePage";
+ const PERSIST_MUTATION = "generations:persistDerivedBrief";
+ 
++describe("Generation Brief publication idempotency (DW-112)", () => {
++  it("publishes one first version when two same-key derivations reach persistence together", async () => {
++    const t = convexTest(schema, modules);
++    const { userId, projectId } = await makeProject(t);
++    const inputsHash = "concurrent-first-publication";
++    const firstGenerationId = await makeGeneration(
++      t,
++      projectId,
++      userId,
++      TRANSCRIPT_TEXT,
++      "shared-source-hash"
++    );
++    const secondGenerationId = await makeGeneration(
++      t,
++      projectId,
++      userId,
++      TRANSCRIPT_TEXT,
++      "shared-source-hash"
++    );
++    const firstSource = await briefSourceOf(t, firstGenerationId);
++    const secondSource = await briefSourceOf(t, secondGenerationId);
++
++    const observed = await Promise.all([
++      t.query(internal.generations.findReusableBrief, { projectId, inputsHash }),
++      t.query(internal.generations.findReusableBrief, { projectId, inputsHash }),
++    ]);
++    expect(observed).toEqual([null, null]);
++
++    let releasePersistence: () => void = () => {};
++    const bothAtPersistence = new Promise<void>((resolve) => {
++      releasePersistence = resolve;
++    });
++    let publishersAtPersistence = 0;
++    const synchronizePersistence = async (call: BriefStageCall) => {
++      if (call.name !== PERSIST_MUTATION) return;
++      publishersAtPersistence += 1;
++      if (publishersAtPersistence === 2) releasePersistence();
++      await bothAtPersistence;
++    };
++    const firstCtx = briefPublishCtx(t, synchronizePersistence).ctx;
++    const secondCtx = briefPublishCtx(t, synchronizePersistence).ctx;
++    const publish = (
++      ctx: BriefPublishCtx,
++      generationId: Id<"generations">,
++      source: Awaited<ReturnType<typeof briefSourceOf>>
++    ) =>
++      publishDerivedBrief(ctx, {
++        projectId,
++        generationId,
++        inputsHash,
++        origin: "derived",
++        storylineText: `Storyline proposed by ${generationId}.`,
++        entries: [candidateEntry(source, "glossaryTerm", "control loop")],
++      });
++
++    const [firstResult, secondResult] = await Promise.all([
++      publish(firstCtx, firstGenerationId, firstSource),
++      publish(secondCtx, secondGenerationId, secondSource),
++    ]);
++
++    expect(secondResult).toBe(firstResult);
++    const stored = await t.run((ctx) =>
++      ctx.db
++        .query("generationBriefs")
++        .withIndex("by_projectId_and_inputsHash", (q) =>
++          q.eq("projectId", projectId).eq("inputsHash", inputsHash)
++        )
++        .collect()
++    );
++    expect(stored).toHaveLength(1);
++    expect(stored[0]).toMatchObject({ _id: firstResult, version: 1 });
++    expect(await entriesOf(t, firstResult)).toHaveLength(1);
++    const generations = await Promise.all([
++      t.run((ctx) => ctx.db.get(firstGenerationId)),
++      t.run((ctx) => ctx.db.get(secondGenerationId)),
++    ]);
++    expect(generations.map((generation) => generation?.briefId)).toEqual([
++      firstResult,
++      firstResult,
++    ]);
++  });
++
++  it("adopts the latest same-key Brief before a stale project fence or candidate processing", async () => {
++    const t = convexTest(schema, modules);
++    const { userId, projectId } = await makeProject(t);
++    const inputsHash = "already-published-key";
++    const priorGenerationId = await makeGeneration(
++      t,
++      projectId,
++      userId,
++      TRANSCRIPT_TEXT,
++      "prior-source-hash"
++    );
++    const targetGenerationId = await makeGeneration(
++      t,
++      projectId,
++      userId,
++      TRANSCRIPT_TEXT,
++      "target-source-hash"
++    );
++    const priorSource = await briefSourceOf(t, priorGenerationId);
++    const targetSource = await briefSourceOf(t, targetGenerationId);
++    const { firstSameKeyId, latestSameKeyId, retainedEntryId } = await t.run(
++      async (ctx) => {
++        const now = Date.now();
++        const firstSameKeyId = await ctx.db.insert("generationBriefs", {
++          projectId,
++          generationId: priorGenerationId,
++          inputsHash,
++          version: 1,
++          origin: "derived",
++          storylineText: "First stored version.",
++          createdAt: now,
++        });
++        const latestSameKeyId = await ctx.db.insert("generationBriefs", {
++          projectId,
++          generationId: priorGenerationId,
++          inputsHash,
++          version: 2,
++          origin: "edited",
++          storylineText: "Latest stored version.",
++          createdAt: now + 1,
++        });
++        const retainedEntryId = await ctx.db.insert("generationBriefEntries", {
++          briefId: latestSameKeyId,
++          projectId,
++          group: "glossaryTerm",
++          text: "control loop",
++          sourceId: priorSource._id,
++          sourceContentHash: priorSource.contentHash,
++          startOffset: priorSource.content.indexOf("control loop"),
++          endOffset: priorSource.content.indexOf("control loop") + "control loop".length,
++          exactExcerpt: "control loop",
++          createdAt: now + 1,
++        });
++        await ctx.db.insert("generationBriefs", {
++          projectId,
++          generationId: priorGenerationId,
++          inputsHash: "newer-different-key",
++          version: 1,
++          origin: "derived",
++          storylineText: "Project-wide newest Brief.",
++          createdAt: now + 2,
++        });
++        return { firstSameKeyId, latestSameKeyId, retainedEntryId };
++      }
++    );
++    const before = await t.run(async (ctx) => ({
++      briefs: await ctx.db.query("generationBriefs").collect(),
++      entries: await ctx.db.query("generationBriefEntries").collect(),
++    }));
++
++    const result = await t.mutation(internal.generations.persistDerivedBrief, {
++      projectId,
++      generationId: targetGenerationId,
++      inputsHash,
++      origin: "derived",
++      storylineText: "This candidate must not be published.",
++      entries: [
++        {
++          ...candidateEntry(targetSource, "glossaryTerm", "control loop"),
++          exactExcerpt: "not the cited bytes",
++        },
++      ],
++      baselineBriefId: firstSameKeyId,
++      baselineRetained: [{ entryId: retainedEntryId, candidateIndex: 99 }],
++      baselineRemoved: [],
++    });
++
++    expect(result).toBe(latestSameKeyId);
++    expect((await t.run((ctx) => ctx.db.get(targetGenerationId)))?.briefId).toBe(
++      latestSameKeyId
++    );
++    expect(
++      await t.run(async (ctx) => ({
++        briefs: await ctx.db.query("generationBriefs").collect(),
++        entries: await ctx.db.query("generationBriefEntries").collect(),
++      }))
++    ).toEqual(before);
++  });
++});
++
+ describe("Generation Brief read completeness and diff baseline (DW-107/DW-118)", () => {
+   const KEPT_QUOTE = "Marketing decided to redesign the logo";
+   const DROPPED_QUOTE = "control loop";
+@@ -970,15 +1152,20 @@ describe("Generation Brief read completeness and diff baseline (DW-107/DW-118)",
+     const { userId, projectId } = await makeProject(t);
+     const generationId = await makeGeneration(t, projectId, userId, content, inputsHash);
+     const source = await briefSourceOf(t, generationId);
+-    const derive = (entries: ReturnType<typeof candidateEntry>[], ctx = briefPublishCtx(t).ctx) =>
+-      publishDerivedBrief(ctx, {
++    let derivationNumber = 0;
++    const derive = (entries: ReturnType<typeof candidateEntry>[], ctx = briefPublishCtx(t).ctx) => {
++      derivationNumber += 1;
++      return publishDerivedBrief(ctx, {
+         projectId,
+         generationId,
+-        inputsHash,
++        // Every call models a changed-input derivation. Same-key publication
++        // now adopts the already-stored Brief instead of creating a version.
++        inputsHash: `${inputsHash}:derivation-${derivationNumber}`,
+         origin: "derived" as const,
+         storylineText: "A storyline for the repeated derivation.",
+         entries,
+       });
++    };
+     return { userId, projectId, generationId, source, derive };
+   }
+ 
+@@ -1590,8 +1777,9 @@ describe("Generation Brief read completeness and diff baseline (DW-107/DW-118)",
+     expect(read.brief?.glossaryTerms).toHaveLength(MAX_BRIEF_ENTRY_ROWS);
+     expect(read.brief?.glossaryTerms).toContain(lastTerm);
+ 
+-    // And the write path accepts it as a diff baseline: re-deriving the same
+-    // 500 citations stamps every one `unchanged` — no refusal, no marker.
++    // And the changed-input write path accepts it as a diff baseline:
++    // re-deriving the same 500 citations stamps every one `unchanged`, with
++    // no refusal or marker.
+     const identicalCandidates = Array.from({ length: MAX_BRIEF_ENTRY_ROWS }, (_unused, i) => ({
+       group: "glossaryTerm" as const,
+       text: `term-${i}`,
+@@ -1604,7 +1792,7 @@ describe("Generation Brief read completeness and diff baseline (DW-107/DW-118)",
+     const nextBriefId = await publishDerivedBrief(briefPublishCtx(t).ctx, {
+       projectId,
+       generationId,
+-      inputsHash: "at-bound-hash",
++      inputsHash: "at-bound-next-hash",
+       origin: "derived",
+       storylineText: "Exactly at the bound, re-derived.",
+       entries: identicalCandidates,
+diff --git a/convex/generations.ts b/convex/generations.ts
+index b86b8f1..282e0bb 100644
+--- a/convex/generations.ts
++++ b/convex/generations.ts
+@@ -1660,19 +1660,28 @@ export const getGenerationSourcesForBrief = internalQuery({
+   },
+ });
+ 
++/** Latest stored Brief for one reusable input key, regardless of origin. */
++async function latestBriefForInputs(
++  ctx: { db: QueryCtx["db"] },
++  projectId: Id<"projects">,
++  inputsHash: string
++) {
++  return await ctx.db
++    .query("generationBriefs")
++    .withIndex("by_projectId_and_inputsHash", (q) =>
++      q.eq("projectId", projectId).eq("inputsHash", inputsHash)
++    )
++    .order("desc")
++    .first();
++}
++
+ /** MAX(version) Brief for (projectId, inputsHash), regardless of origin — a
+  * writer-edited version is reused too (CAP-4: "the next generation with the
+  * same inputsHash reuses that version"). */
+ export const findReusableBrief = internalQuery({
+   args: { projectId: v.id("projects"), inputsHash: v.string() },
+   handler: async (ctx, args) => {
+-    return await ctx.db
+-      .query("generationBriefs")
+-      .withIndex("by_projectId_and_inputsHash", (q) =>
+-        q.eq("projectId", args.projectId).eq("inputsHash", args.inputsHash)
+-      )
+-      .order("desc")
+-      .first();
++    return await latestBriefForInputs(ctx, args.projectId, args.inputsHash);
+   },
+ });
+ 
+@@ -1879,14 +1888,18 @@ export const getBriefDiffBaselinePage = internalQuery({
+  * `ai/brief.ts:publishDerivedBrief`, which read the complete diff baseline
+  * page by page and already compared it with `entries` by `briefDiffKey`.
+  *
+- * 1. Fence, before any other read or write: `baselineBriefId` (or `null` for
+- *    a project with no Brief) must still be the project's newest Brief. If a
+- *    newer version was published after the baseline was pinned, return
+- *    `null` having written nothing; the caller re-reads and retries.
+- * 2. Re-validate every candidate entry's citation against the live frozen
++ * 1. Reuse, before the project-wide fence or any candidate processing: if a
++ *    same-key Brief now exists, stamp its latest stored version on this
++ *    generation and return it. This transaction's indexed read serializes
++ *    concurrent first publishers; only the first publishes version 1.
++ * 2. Fence: `baselineBriefId` (or `null` for a project with no Brief) must
++ *    still be the project's newest Brief. If a different-key version was
++ *    published after the baseline was pinned, return `null` having written
++ *    nothing; the caller re-reads and retries.
++ * 3. Re-validate every candidate entry's citation against the live frozen
+  *    source (defense in depth — the caller already validated against the
+  *    same in-memory sources); drop failures and count them.
+- * 3. Diff against that version's live rows, supplied in two parts so old text
++ * 4. Diff against that version's live rows, supplied in two parts so old text
+  *    for a key the candidates reuse never travels: `baselineRetained` (a
+  *    reference per live key some candidate shares) and `baselineRemoved` (the
+  *    full payload of each live key no candidate shares). A validated entry
+@@ -1897,7 +1910,7 @@ export const getBriefDiffBaselinePage = internalQuery({
+  *    only if the row belongs to `baselineBriefId`, is live and has the
+  *    referenced candidate's key; otherwise, like an out-of-range
+  *    `candidateIndex`, the whole mutation aborts with INVALID_STATE.
+- * 4. Insert the new `generationBriefs` version, its entries and markers, then
++ * 5. Insert the new `generationBriefs` version, its entries and markers, then
+  *    stamp `briefId` on the generation.
+  *
+  * The argument therefore carries at most what this version writes, plus
+@@ -1936,6 +1949,16 @@ export const persistDerivedBrief = internalMutation({
+   },
+   returns: v.union(v.id("generationBriefs"), v.null()),
+   handler: async (ctx, args) => {
++    const reusable = await latestBriefForInputs(
++      ctx,
++      args.projectId,
++      args.inputsHash
++    );
++    if (reusable) {
++      await ctx.db.patch(args.generationId, { briefId: reusable._id });
++      return reusable._id;
++    }
++
+     const newest = await newestProjectBrief(ctx, args.projectId);
+     if ((newest?._id ?? null) !== args.baselineBriefId) return null;
+ 
+
+hook: PostToolUse
+exec
+/bin/zsh -lc 'shasum -a 256 -c .audit/DW-112/reviewer-inputs-and-outputs.sha256' in /Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/runs/20260912-061909-feb3/worktrees/dw-brief-derivation-concurrency
+ exited 1 in 0ms:
+composed-prompt:blind: FAILED open or read
+shasum: composed-prompt:blind: No such file or directory
+composed-prompt:edge: FAILED open or read
+shasum: composed-prompt:edge: No such file or directory
+composed-prompt:verification: FAILED open or read
+shasum: composed-prompt:verification: No such file or directory
+shasum: composed-prompt:intent: No such file or directory
+composed-prompt:intent: FAILED open or read
+.audit/DW-112/review-input.diff: OK
+.audit/DW-112/review-blind.md: OK
+.audit/DW-112/review-edge.md: OK
+.audit/DW-112/review-intent.md: OK
+.audit/DW-112/review-verification.md: OK
+.audit/DW-112/review-blind.raw.log: OK
+.audit/DW-112/review-edge.raw.log: OK
+.audit/DW-112/review-intent.raw.log: OK
+.audit/DW-112/review-verification.raw.log: OK
+shasum: WARNING: 4 listed files could not be read
+
+hook: PostToolUse
+hook: PostToolUse Completed
+hook: PostToolUse Completed
+codex
+The eleven triage entries account for the reviewer observations, including the overlapping intent-review notes. The reviewer results match their recorded hashes. I’m checking the remaining source bindings and the stated publication scope before closing the follow-up.
+
+hook: PreToolUse
+hook: PreToolUse
+hook: PreToolUse
+hook: PreToolUse
+hook: PreToolUse Completed
+hook: PreToolUse Completed
+hook: PreToolUse Completed
+hook: PreToolUse Completed
+exec
+/bin/zsh -lc 'cat /Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/runs/20260912-061909-feb3/bundles/brief-derivation-concurrency/intent.md' in /Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/runs/20260912-061909-feb3/worktrees/dw-brief-derivation-concurrency
+hook: PostToolUse
+ succeeded in 0ms:
+# Deferred-work bundle: brief-derivation-concurrency
+
+bundle_name: brief-derivation-concurrency
+dw_ids: DW-112
+
+## Intent
+
+Make first-time Brief persistence idempotent by project and inputs hash. convex/generations.ts:1565 checks reuse in a separate query, while :1684 inserts version 1 unconditionally. Recheck inside the persistence transaction and stamp concurrent generations to the authoritative Brief, with a concurrent-first-derivation regression.
+
+## Ledger entries (verbatim)
+
+### DW-112: Two generations that concurrently derive the same brand-new (projectId, inputsHash) for the first time can each insert a version-1 Brief.
+origin: spec-deferred 46a3dcf375ac
+location: convex/generations.ts (findReusableBrief, persistDerivedBrief)
+source_spec: `1-generation-brief-storage-and-derivation-stage.md`
+severity: medium
+reason: persistDerivedBrief unconditionally inserts a new generationBriefs row without re-checking for an existing row inside its own transaction; the reuse check (findReusableBrief) runs earlier, in a separate action call. Two concurrent first-time derivations for the same key could each pass that check before either persists, leaving MAX(version) reuse and saveEntryEdit's staleness check ambiguous between the two rows.
+status: open
+
+hook: PostToolUse
+exec
+/bin/zsh -lc "sed -n '375,410p' convex/ai/brief.ts
+sed -n '430,510p' convex/ai/brief.ts" in /Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/runs/20260912-061909-feb3/worktrees/dw-brief-derivation-concurrency
+ succeeded in 0ms:
+ * model is never re-run. After `BRIEF_PUBLISH_ATTEMPTS` lost fences it
+ * throws, under the derivation's existing fail-open catch, and no version
+ * from this derivation exists.
+ */
+export async function publishDerivedBrief(
+  ctx: BriefPublishCtx,
+  args: Omit<
+    PersistDerivedBriefArgs,
+    "baselineBriefId" | "baselineRetained" | "baselineRemoved"
+  >
+): Promise<Id<"generationBriefs">> {
+  for (let attempt = 1; attempt <= BRIEF_PUBLISH_ATTEMPTS; attempt += 1) {
+    const baseline = await readCompleteBriefDiffBaseline(
+      ctx,
+      args.projectId,
+      args.entries
+    );
+    const briefId: Id<"generationBriefs"> | null = await ctx.runMutation(
+      internal.generations.persistDerivedBrief,
+      {
+        ...args,
+        baselineBriefId: baseline.briefId,
+        baselineRetained: baseline.retained,
+        baselineRemoved: baseline.removed,
+      }
+    );
+    if (briefId !== null) return briefId;
+  }
+  throw new Error(
+    `Generation Brief for generation ${args.generationId} not published: the project's newest Brief changed during each of ${BRIEF_PUBLISH_ATTEMPTS} attempts`
+  );
+}
+
+type CandidateEntry = {
+  group: "storyline" | "claimExclusion" | "confidenceMap" | "glossaryTerm";
+  text: string;
+
+/**
+ * The stage: compute inputsHash, reuse the stored Brief when inputs are
+ * unchanged, otherwise run one structured call and persist the result.
+ * Returns which of those happened with the Brief id, or `no_evidence` if the
+ * generation has no frozen sources to derive from (never expected in
+ * practice — `reserveGeneration` requires at least one readable source).
+ * Throws on any failure; `runGenerationBriefStage` is its only caller.
+ */
+export async function deriveOrReuseBrief(
+  ctx: BriefPublishCtx,
+  client: GenerationClient,
+  args: BriefStageArgs
+): Promise<BriefStageAttempt> {
+  const sources = await ctx.runQuery(
+    internal.generations.getGenerationSourcesForBrief,
+    { generationId: args.generationId }
+  );
+  if (sources.length === 0) return { kind: "no_evidence" };
+
+  const inputsHash = await briefInputsHash(sources);
+  const reusable = await ctx.runQuery(internal.generations.findReusableBrief, {
+    projectId: args.projectId,
+    inputsHash,
+  });
+  if (reusable) {
+    await ctx.runMutation(internal.generations.stampGenerationBriefId, {
+      generationId: args.generationId,
+      briefId: reusable._id,
+    });
+    return { kind: "reused", briefId: reusable._id };
+  }
+
+  const writerSource = sources.find((s) => s.kind === "writer_storyline");
+  const evidenceSources: FrozenSource[] = sources.filter(
+    (s) => s.kind !== "writer_storyline"
+  );
+
+  const model = args.model ?? MODEL;
+  const output = await runBriefAgent(
+    client,
+    buildBriefUserMessage(sources),
+    model
+  );
+
+  const candidateEntries: CandidateEntry[] = [];
+  // Block-If: "a derived entry's citation fails the byte-match — the entry
+  // is dropped and the drop counted on the Brief; the generation continues."
+  // Counted here (the quote never even resolved to a citation) and again by
+  // `persistDerivedBrief`'s own re-validation (defense in depth).
+  let upstreamDroppedEntryCount = 0;
+
+  // Writer-supplied Storyline: never validated, parsed, or turned into
+  // cited entries — stored verbatim on the Brief row itself.
+  if (!writerSource) {
+    for (const claim of output.storylineClaims) {
+      const citation = citeQuote(evidenceSources, claim.quote);
+      if (!citation) {
+        upstreamDroppedEntryCount += 1;
+        continue;
+      }
+      candidateEntries.push({
+        group: "storyline",
+        text: claim.text,
+        sourceId: citation.sourceId,
+        sourceContentHash: citation.sourceContentHash,
+        startOffset: citation.startOffset,
+        endOffset: citation.endOffset,
+        exactExcerpt: citation.exactExcerpt,
+      });
+    }
+  }
+  for (const exclusion of output.claimExclusions) {
+    const citation = citeQuote(evidenceSources, exclusion.quote);
+    if (!citation) {
+      upstreamDroppedEntryCount += 1;
+      continue;
+    }
+    candidateEntries.push({
+      group: "claimExclusion",
+      text: exclusion.text,
+
+hook: PostToolUse
+hook: PostToolUse Completed
+hook: PostToolUse Completed
+exec
+/bin/zsh -lc 'shasum -a 256 .audit/DW-112/review-blind.prompt .audit/DW-112/review-edge.prompt .audit/DW-112/review-verification.prompt .audit/DW-112/review-intent.prompt' in /Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/runs/20260912-061909-feb3/worktrees/dw-brief-derivation-concurrency
+ succeeded in 0ms:
+63bca773934bfe920110889097361fdb5dbe36c8117f33a3089b2e7322639e9e  .audit/DW-112/review-blind.prompt
+61309aa719ac395d9c0c70a17a1c95e72cae46d707d1576cffe283066cabc12a  .audit/DW-112/review-edge.prompt
+f516b815c7453159c7beb98e8d9c6fa1fc715dc23c3055d693c55ed08d3bd296  .audit/DW-112/review-verification.prompt
+bd38da752e606c54bf3637196269c07dee4a1db52b426104b2fb9e0de0364f7b  .audit/DW-112/review-intent.prompt
+
+hook: PostToolUse
+hook: PostToolUse Completed
+hook: PostToolUse Completed
+hook: PreToolUse
+hook: PreToolUse
+hook: PreToolUse Completed
+hook: PreToolUse Completed
+exec
+/bin/zsh -lc "sed -n '1,25p' .audit/DW-112/review-blind.prompt
+ tail -n 8 .audit/DW-112/review-blind.prompt
+cat .audit/DW-112/review-edge.suffix .audit/DW-112/review-verification.suffix .audit/DW-112/review-intent.suffix" in /Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/runs/20260912-061909-feb3/worktrees/dw-brief-derivation-concurrency
+ succeeded in 0ms:
+Conduct a review of CONTENT.
+Look for what's missing, not only what's wrong.
+Find at least ten issues to fix or improve.
+Output a Markdown list of findings only — no severity, priority, or ranking.
+If the content is empty, stop and say so.
+If you have zero findings, re-check and keep thinking; do not stop with an empty list.
+
+CONTENT:
+Conduct a review of CONTENT.
+Look for what's missing, not only what's wrong.
+Find at least ten issues to fix or improve.
+Output a Markdown list of findings only — no severity, priority, or ranking.
+If the content is empty, stop and say so.
+If you have zero findings, re-check and keep thinking; do not stop with an empty list.
+
+CONTENT:
+
+Do not invoke any skill. If the instruction file is unreadable, report that exact failure and stop. Return only the review result.
+
+Do not invoke any skill. If the instruction file is unreadable, report that exact failure and stop. Return only the review result.
+
+Your task is strictly descriptive — do not prescribe additional work. Report: (1) the defensible readings of the intent, enumerated; (2) which reading this diff implements; (3) where the readings and the diff diverge — specifically, which surface the intent's expectations live at versus which surface the diff's changes and its tests exercise.
+
+hook: PostToolUse
+hook: PostToolUse Completed
+exec
+/bin/zsh -lc "python3 -c 'from pathlib import Path
+import hashlib, subprocess, json
+sha=\"09e35062ed132d65403d19f9b9af61675ffcaee6\"
+base=\"d73df4bb9277886ca97e7b8e59caea618baf051d\"
+def git(*args):
+    return subprocess.check_output([\"git\",*args],stderr=subprocess.DEVNULL)
+for name in [\"convex/generations.ts\",\"convex/ai/brief.test.ts\"]:
+    committed=git(\"show\",sha+\":\"+name)
+    print(json.dumps({\"file\":name,\"committed_sha256\":hashlib.sha256(committed).hexdigest(),\"working_matches_commit\":Path(name).read_bytes()==committed}))
+review=Path(\".audit/DW-112/review-input.diff\").read_text()
+for name in [\"convex/generations.ts\",\"convex/ai/brief.test.ts\"]:
+    diff=git(\"diff\",\"--no-ext-diff\",base,sha,\"--\",name).decode()
+    start=review.find(\"diff --git a/\"+name+\" b/\"+name+\"\\n\")
+    end=review.find(\"\\ndiff --git \",start+1)
+    chunk=review[start:] if end==-1 else review[start:end+1]
+    print(json.dumps({\"review_diff_file\":name,\"matches_implementation_diff\":chunk.strip()==diff.strip()}))
+for kind in [\"blind\",\"edge\",\"verification\",\"intent\"]:
+    lines=Path(\".audit/DW-112/review-\"+kind+\".raw.log\").read_text().splitlines()
+    header=[line for line in lines[:35] if any(token in line.lower() for token in [\"model:\",\"reasoning effort:\",\"session id:\"])]
+    print(json.dumps({\"reviewer\":kind,\"header\":header,\"last_lines\":lines[-3:]}))
+'" in /Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/runs/20260912-061909-feb3/worktrees/dw-brief-derivation-concurrency
+hook: PostToolUse
+ succeeded in 47ms:
+{"file": "convex/generations.ts", "committed_sha256": "63d00ebe932128988c573880fddab59ffac6df14be5a70e5b26fdc862355a5ab", "working_matches_commit": true}
+{"file": "convex/ai/brief.test.ts", "committed_sha256": "977e079635553a2493a857625a5bf6e3c92b2503632114cc0679dfa09b03b6ba", "working_matches_commit": true}
+{"review_diff_file": "convex/generations.ts", "matches_implementation_diff": true}
+{"review_diff_file": "convex/ai/brief.test.ts", "matches_implementation_diff": true}
+{"reviewer": "blind", "header": ["model: gpt-6-astra", "reasoning effort: xhigh", "session id: 01a09f8a-e7f7-7713-895c-dba00c2ecb30"], "last_lines": ["", "- `spec-dw-112-brief-derivation-concurrency.md:68`: Verification lists expected results without linking the existing failing-control, focused-pass, and full-gate logs. Attach those evidence references and identify the tested revision or file hashes so reviewers can connect the checked tasks to the actual verification.", "ACTUAL_EXIT_CODE=0"]}
+{"reviewer": "edge", "header": ["model: gpt-6-astra", "reasoning effort: xhigh", "session id: 01a09f8a-e7f7-7592-b162-45be47ab962b"], "last_lines": ["35,154", "[]", "ACTUAL_EXIT_CODE=0"]}
+{"reviewer": "verification", "header": ["model: gpt-6-astra", "reasoning effort: xhigh", "session id: 01a09f8a-e7f6-7342-8340-d9060056ad9a"], "last_lines": ["78,128", "No verification gaps found.", "ACTUAL_EXIT_CODE=0"]}
+{"reviewer": "intent", "header": ["model: gpt-6-astra", "reasoning effort: xhigh", "session id: 01a09f8a-e7f8-7813-87d6-770a401a2abb"], "last_lines": ["", "The added spec explicitly selects the mutation boundary for its regression contract. That documents the narrower interpretation chosen by the change; it does not resolve the original phrase\u2019s possible stage-level meaning. These observations describe source and assertion coverage, without claiming test execution results.", "ACTUAL_EXIT_CODE=0"]}
+
+hook: PostToolUse Completed
+hook: PreToolUse
+hook: PreToolUse Completed
+exec
+/bin/zsh -lc "python3 -c 'from pathlib import Path
+import hashlib,json
+root=Path(\".audit/DW-112\")
+manifest={line.split(\"  \",1)[1]:line.split(\"  \",1)[0] for line in (root/\"reviewer-inputs-and-outputs.sha256\").read_text().splitlines()}
+for kind in [\"blind\",\"edge\",\"verification\",\"intent\"]:
+    prompt=(root/(\"review-\"+kind+\".prompt\")).read_bytes()
+    diff=(root/\"review-input.diff\").read_bytes()
+    suffixfile=root/(\"review-\"+kind+\".suffix\")
+    suffix=suffixfile.read_bytes() if suffixfile.exists() else b\"\"
+    candidates={\"prompt+diff+suffix\":prompt+diff+suffix,\"prompt+diff\":prompt+diff}
+    matches=[]
+    for name,data in candidates.items():
+        for variant,value in [(\"exact\",data),(\"rstrip-newline\",data.rstrip(b\"\\n\"))]:
+            if hashlib.sha256(value).hexdigest()==manifest[\"composed-prompt:\"+kind]:
+                matches.append(name+\":\"+variant)
+    lines=(root/(\"review-\"+kind+\".raw.log\")).read_text().splitlines()
+    print(json.dumps({\"reviewer\":kind,\"composed_hash_matches\":matches,\"header_excerpt\":lines[:24] if not matches else []}))
+'" in /Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/runs/20260912-061909-feb3/worktrees/dw-brief-derivation-concurrency
+ succeeded in 0ms:
+{"reviewer": "blind", "composed_hash_matches": ["prompt+diff+suffix:exact", "prompt+diff:exact"], "header_excerpt": []}
+{"reviewer": "edge", "composed_hash_matches": ["prompt+diff+suffix:exact"], "header_excerpt": []}
+{"reviewer": "verification", "composed_hash_matches": ["prompt+diff+suffix:exact"], "header_excerpt": []}
+{"reviewer": "intent", "composed_hash_matches": ["prompt+diff+suffix:exact"], "header_excerpt": []}
+
+hook: PostToolUse
+hook: PostToolUse Completed
+codex
+No flags.
+hook: Stop
+hook: Stop
+hook: Stop
+hook: Stop Completed
+hook: Stop Completed
+hook: Stop Completed
+tokens used
+39,148
+No flags.
+ACTUAL_EXIT_CODE=0

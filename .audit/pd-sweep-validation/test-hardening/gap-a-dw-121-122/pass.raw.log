@@ -1,0 +1,27 @@
+# gap=gap-a-dw-121-122 run=pass date=2026-09-14T18:22:26Z
+# HEAD=2b6e59d6237303a7f940ee04051c1431048f9cd0 node=v22.22.3
+# PUBLIC_CONVEX_URL=https://placeholder.convex.cloud PUBLIC_CONVEX_SITE_URL=https://placeholder.convex.site
+# sha256 cc9b02e3fc8d02d13f7024f24423aac04bc648643eb5d226cd22d0567288be9f  convex/candidateScopedBoundedReads.test.ts
+# source diff (mutation) stat:
+# cmd: npx vitest run --config vitest.config.ts --reporter=verbose convex/candidateScopedBoundedReads.test.ts
+
+ RUN  v4.1.10 /Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-b
+
+ ✓ |convex| convex/candidateScopedBoundedReads.test.ts > candidate-scoped bounded reads > finds a requested section candidate after more than 30 older rows and rejects a cross-generation run 302ms
+ ✓ |convex| convex/candidateScopedBoundedReads.test.ts > candidate-scoped bounded reads > finds a selected candidate after more than 10 older runs 8ms
+ ✓ |convex| convex/candidateScopedBoundedReads.test.ts > candidate-scoped bounded reads > keeps the unscoped Compliance Notes fallback for an unresolved legacy selection 3ms
+ ✓ |convex| convex/candidateScopedBoundedReads.test.ts > candidate-scoped bounded reads > keeps the unscoped Compliance Notes fallback for a legacy selection without candidateId 2ms
+ ✓ |convex| convex/candidateScopedBoundedReads.test.ts > candidate-scoped bounded reads: guards within scoped reach > returns no rows for a checked candidate run and its drafts that both belong to another generation 3ms
+ ✓ |convex| convex/candidateScopedBoundedReads.test.ts > candidate-scoped bounded reads: guards within scoped reach > rejects a candidate run owned by another generation even when its section rows name the requested generation 4ms
+ ✓ |convex| convex/candidateScopedBoundedReads.test.ts > candidate-scoped bounded reads: guards within scoped reach > drops section rows owned by another generation even when the requested candidate run belongs to this generation 3ms
+ ✓ |convex| convex/candidateScopedBoundedReads.test.ts > candidate-scoped bounded reads: guards within scoped reach > returns no rows for an explicit candidate whose parent run is missing, although its drafts are within reach 2ms
+ ✓ |convex| convex/candidateScopedBoundedReads.test.ts > candidate-scoped bounded reads: guards within scoped reach > returns no rows for an explicit failed candidate run whose checked drafts are within reach 2ms
+ ✓ |convex| convex/candidateScopedBoundedReads.test.ts > candidate-scoped bounded reads: guards within scoped reach > scopes Compliance Notes to the first candidate run when two runs share the selected candidateId 2ms
+
+ Test Files  1 passed (1)
+      Tests  10 passed (10)
+   Start at  11:22:27
+   Duration  776ms (transform 360ms, setup 0ms, import 216ms, tests 331ms, environment 63ms)
+
+EXIT_CODE=0
+# restored source diff empty: yes

@@ -1,0 +1,6 @@
+# Verbatim review inputs and command captures retain their original bytes.
+local-completion/*.prompt -whitespace
+local-completion/*.diff -whitespace
+local-completion/*.log -whitespace
+local-completion/triage.md -whitespace
+local-completion-20260914T112245Z-git-diff-check.log -whitespace

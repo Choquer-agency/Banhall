@@ -1,0 +1,7 @@
+{
+  "single_comparison_insert": true,
+  "no_record_patch_delete": true,
+  "no_tool_metric_reads": true,
+  "no_unbounded_comparison_reads": true,
+  "no_ad_hoc_ui_hex_or_bold": true
+}

@@ -1,0 +1,267 @@
+### phase=before run=1 HEAD=d73df4b test-sha=71f8aafa934541d8 cmd: npx vitest run convex/ai/brief.test.ts -t "DW-112"
+
+ RUN  v4.1.10 /Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a
+
+ ❯ |convex| convex/ai/brief.test.ts (39 tests | 3 failed | 36 skipped) 79ms
+     × publishes one first version when two same-key derivations reach persistence together 50ms
+     × adopts the first publication when it becomes the current baseline before the second baseline read 18ms
+     × adopts the latest same-key Brief before a stale project fence or candidate processing 8ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 3 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |convex| convex/ai/brief.test.ts > Generation Brief publication idempotency (DW-112) > publishes one first version when two same-key derivations reach persistence together
+AssertionError: expected '0000000000010010generationBriefs' to be '0000000000010008generationBriefs' // Object.is equality
+
+Expected: "0000000000010008generationBriefs"
+Received: "0000000000010010generationBriefs"
+
+ ❯ convex/ai/brief.test.ts:1018:26
+    1016|     ]);
+    1017|
+    1018|     expect(secondResult).toBe(firstResult);
+       |                          ^
+    1019|     const stored = await t.run((ctx) =>
+    1020|       ctx.db
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/3]⎯
+
+ FAIL  |convex| convex/ai/brief.test.ts > Generation Brief publication idempotency (DW-112) > adopts the first publication when it becomes the current baseline before the second baseline read
+AssertionError: expected { …(3) } to match object { …(2) }
+(1 matching property omitted from actual)
+
+- Expected
++ Received
+
+  {
+    "args": {
+      "baselineBriefId": "0000000000010008generationBriefs",
+    },
+-   "result": "0000000000010008generationBriefs",
++   "result": "0000000000010010generationBriefs",
+  }
+
+ ❯ convex/ai/brief.test.ts:1099:34
+    1097|     );
+    1098|     expect(secondPersistence).toHaveLength(1);
+    1099|     expect(secondPersistence[0]).toMatchObject({
+       |                                  ^
+    1100|       args: { baselineBriefId: firstResult },
+    1101|       result: firstResult,
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/3]⎯
+
+ FAIL  |convex| convex/ai/brief.test.ts > Generation Brief publication idempotency (DW-112) > adopts the latest same-key Brief before a stale project fence or candidate processing
+AssertionError: expected null to be '0000000000010009generationBriefs' // Object.is equality
+
+- Expected:
+"0000000000010009generationBriefs"
+
++ Received:
+null
+
+ ❯ convex/ai/brief.test.ts:1229:20
+    1227|     });
+    1228|
+    1229|     expect(result).toBe(latestSameKeyId);
+       |                    ^
+    1230|     expect((await t.run((ctx) => ctx.db.get(targetGenerationId)))?.bri…
+    1231|       latestSameKeyId
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/3]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  3 failed | 36 skipped (39)
+   Start at  11:12:10
+   Duration  2.16s (transform 1.36s, setup 0ms, import 1.72s, tests 79ms, environment 90ms)
+
+EXIT_CODE=1
+### phase=before run=2 HEAD=d73df4b test-sha=71f8aafa934541d8 cmd: npx vitest run convex/ai/brief.test.ts -t "DW-112"
+
+ RUN  v4.1.10 /Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a
+
+ ❯ |convex| convex/ai/brief.test.ts (39 tests | 3 failed | 36 skipped) 60ms
+     × publishes one first version when two same-key derivations reach persistence together 41ms
+     × adopts the first publication when it becomes the current baseline before the second baseline read 11ms
+     × adopts the latest same-key Brief before a stale project fence or candidate processing 5ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 3 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |convex| convex/ai/brief.test.ts > Generation Brief publication idempotency (DW-112) > publishes one first version when two same-key derivations reach persistence together
+AssertionError: expected '0000000000010010generationBriefs' to be '0000000000010008generationBriefs' // Object.is equality
+
+Expected: "0000000000010008generationBriefs"
+Received: "0000000000010010generationBriefs"
+
+ ❯ convex/ai/brief.test.ts:1018:26
+    1016|     ]);
+    1017|
+    1018|     expect(secondResult).toBe(firstResult);
+       |                          ^
+    1019|     const stored = await t.run((ctx) =>
+    1020|       ctx.db
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/3]⎯
+
+ FAIL  |convex| convex/ai/brief.test.ts > Generation Brief publication idempotency (DW-112) > adopts the first publication when it becomes the current baseline before the second baseline read
+AssertionError: expected { …(3) } to match object { …(2) }
+(1 matching property omitted from actual)
+
+- Expected
++ Received
+
+  {
+    "args": {
+      "baselineBriefId": "0000000000010008generationBriefs",
+    },
+-   "result": "0000000000010008generationBriefs",
++   "result": "0000000000010010generationBriefs",
+  }
+
+ ❯ convex/ai/brief.test.ts:1099:34
+    1097|     );
+    1098|     expect(secondPersistence).toHaveLength(1);
+    1099|     expect(secondPersistence[0]).toMatchObject({
+       |                                  ^
+    1100|       args: { baselineBriefId: firstResult },
+    1101|       result: firstResult,
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/3]⎯
+
+ FAIL  |convex| convex/ai/brief.test.ts > Generation Brief publication idempotency (DW-112) > adopts the latest same-key Brief before a stale project fence or candidate processing
+AssertionError: expected null to be '0000000000010009generationBriefs' // Object.is equality
+
+- Expected:
+"0000000000010009generationBriefs"
+
++ Received:
+null
+
+ ❯ convex/ai/brief.test.ts:1229:20
+    1227|     });
+    1228|
+    1229|     expect(result).toBe(latestSameKeyId);
+       |                    ^
+    1230|     expect((await t.run((ctx) => ctx.db.get(targetGenerationId)))?.bri…
+    1231|       latestSameKeyId
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/3]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  3 failed | 36 skipped (39)
+   Start at  11:12:13
+   Duration  1.59s (transform 982ms, setup 0ms, import 1.22s, tests 60ms, environment 76ms)
+
+EXIT_CODE=1
+### phase=before run=3 HEAD=d73df4b test-sha=71f8aafa934541d8 cmd: npx vitest run convex/ai/brief.test.ts -t "DW-112"
+
+ RUN  v4.1.10 /Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a
+
+ ❯ |convex| convex/ai/brief.test.ts (39 tests | 3 failed | 36 skipped) 89ms
+     × publishes one first version when two same-key derivations reach persistence together 40ms
+     × adopts the first publication when it becomes the current baseline before the second baseline read 34ms
+     × adopts the latest same-key Brief before a stale project fence or candidate processing 14ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 3 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |convex| convex/ai/brief.test.ts > Generation Brief publication idempotency (DW-112) > publishes one first version when two same-key derivations reach persistence together
+AssertionError: expected '0000000000010010generationBriefs' to be '0000000000010008generationBriefs' // Object.is equality
+
+Expected: "0000000000010008generationBriefs"
+Received: "0000000000010010generationBriefs"
+
+ ❯ convex/ai/brief.test.ts:1018:26
+    1016|     ]);
+    1017|
+    1018|     expect(secondResult).toBe(firstResult);
+       |                          ^
+    1019|     const stored = await t.run((ctx) =>
+    1020|       ctx.db
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/3]⎯
+
+ FAIL  |convex| convex/ai/brief.test.ts > Generation Brief publication idempotency (DW-112) > adopts the first publication when it becomes the current baseline before the second baseline read
+AssertionError: expected { …(3) } to match object { …(2) }
+(1 matching property omitted from actual)
+
+- Expected
++ Received
+
+  {
+    "args": {
+      "baselineBriefId": "0000000000010008generationBriefs",
+    },
+-   "result": "0000000000010008generationBriefs",
++   "result": "0000000000010010generationBriefs",
+  }
+
+ ❯ convex/ai/brief.test.ts:1099:34
+    1097|     );
+    1098|     expect(secondPersistence).toHaveLength(1);
+    1099|     expect(secondPersistence[0]).toMatchObject({
+       |                                  ^
+    1100|       args: { baselineBriefId: firstResult },
+    1101|       result: firstResult,
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/3]⎯
+
+ FAIL  |convex| convex/ai/brief.test.ts > Generation Brief publication idempotency (DW-112) > adopts the latest same-key Brief before a stale project fence or candidate processing
+AssertionError: expected null to be '0000000000010009generationBriefs' // Object.is equality
+
+- Expected:
+"0000000000010009generationBriefs"
+
++ Received:
+null
+
+ ❯ convex/ai/brief.test.ts:1229:20
+    1227|     });
+    1228|
+    1229|     expect(result).toBe(latestSameKeyId);
+       |                    ^
+    1230|     expect((await t.run((ctx) => ctx.db.get(targetGenerationId)))?.bri…
+    1231|       latestSameKeyId
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/3]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  3 failed | 36 skipped (39)
+   Start at  11:12:16
+   Duration  2.06s (transform 1.32s, setup 0ms, import 1.62s, tests 89ms, environment 84ms)
+
+EXIT_CODE=1
+### phase=after-fix run=1 HEAD=f5f27ae test-sha=71f8aafa934541d8 cmd: npx vitest run convex/ai/brief.test.ts -t "DW-112"
+
+ RUN  v4.1.10 /Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a
+
+
+ Test Files  1 passed (1)
+      Tests  3 passed | 36 skipped (39)
+   Start at  11:12:19
+   Duration  1.49s (transform 887ms, setup 0ms, import 1.12s, tests 53ms, environment 87ms)
+
+EXIT_CODE=0
+### phase=after-fix run=2 HEAD=f5f27ae test-sha=71f8aafa934541d8 cmd: npx vitest run convex/ai/brief.test.ts -t "DW-112"
+
+ RUN  v4.1.10 /Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a
+
+
+ Test Files  1 passed (1)
+      Tests  3 passed | 36 skipped (39)
+   Start at  11:12:22
+   Duration  1.55s (transform 944ms, setup 0ms, import 1.15s, tests 37ms, environment 101ms)
+
+EXIT_CODE=0
+### phase=after-fix run=3 HEAD=f5f27ae test-sha=71f8aafa934541d8 cmd: npx vitest run convex/ai/brief.test.ts -t "DW-112"
+
+ RUN  v4.1.10 /Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a
+
+
+ Test Files  1 passed (1)
+      Tests  3 passed | 36 skipped (39)
+   Start at  11:12:24
+   Duration  937ms (transform 543ms, setup 0ms, import 674ms, tests 39ms, environment 60ms)
+
+EXIT_CODE=0

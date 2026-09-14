@@ -1,0 +1,26 @@
+{
+  "recorded_at_utc": "2026-09-14T11:34:20.310003+00:00",
+  "lead_result_sha256": "5e1551312a997a681cb8e53b28cf3ae0686ddaf440edae3477770077ea94d712",
+  "lead_model": "gpt-6-astra",
+  "lead_effort": "xhigh",
+  "lead_exit_code": 0,
+  "deduplicated_findings": 10,
+  "patch": {
+    "high": 0,
+    "medium": 1,
+    "low": 2
+  },
+  "reject": {
+    "high": 0,
+    "medium": 0,
+    "low": 7
+  },
+  "defer": 0,
+  "bad_spec": 0,
+  "intent_gap": 0,
+  "patch_status": "delegated to Sol high, pending",
+  "score_after_patch": 5,
+  "followup_review_recommended_after_patch": true,
+  "frozen_intent_matches_implementation_commit": true,
+  "frozen_intent_sha256": "1578a91c88866f371d59a64c5837ee53e94b45c7fcf351db81e51e9cb1da40ad"
+}

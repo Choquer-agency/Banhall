@@ -1,0 +1,21 @@
+# label=after-fix
+# HEAD=8b00e6a24f09f098703e379eccf319bc8bc3c83b
+# git status --short:
+# date=2026-09-14T18:10:11Z node=v22.22.3
+# env PUBLIC_CONVEX_URL=https://placeholder.convex.cloud PUBLIC_CONVEX_SITE_URL=https://placeholder.convex.site
+# cmd: npx vitest run --config vitest.config.ts --reporter=verbose --reporter=json --outputFile.json=/private/tmp/claude-501/-Users-johnnynguyen-Documents-Repos-Banhall/74c117b1-0ee2-4aa9-a3bd-3095316a1935/scratchpad/evidence/dw-candidate-scoped-bounded-reads/after-fix.json convex/candidateScopedBoundedReads.test.ts
+
+ RUN  v4.1.10 /Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-b
+
+ ✓ |convex| convex/candidateScopedBoundedReads.test.ts > candidate-scoped bounded reads > finds a requested section candidate after more than 30 older rows and rejects a cross-generation run 353ms
+ ✓ |convex| convex/candidateScopedBoundedReads.test.ts > candidate-scoped bounded reads > finds a selected candidate after more than 10 older runs 10ms
+ ✓ |convex| convex/candidateScopedBoundedReads.test.ts > candidate-scoped bounded reads > keeps the unscoped Compliance Notes fallback for an unresolved legacy selection 2ms
+ ✓ |convex| convex/candidateScopedBoundedReads.test.ts > candidate-scoped bounded reads > keeps the unscoped Compliance Notes fallback for a legacy selection without candidateId 2ms
+
+ Test Files  1 passed (1)
+      Tests  4 passed (4)
+   Start at  11:10:12
+   Duration  877ms (transform 425ms, setup 0ms, import 263ms, tests 370ms, environment 62ms)
+
+JSON report written to /private/tmp/claude-501/-Users-johnnynguyen-Documents-Repos-Banhall/74c117b1-0ee2-4aa9-a3bd-3095316a1935/scratchpad/evidence/dw-candidate-scoped-bounded-reads/after-fix.json
+# exit=0

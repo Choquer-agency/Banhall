@@ -1,0 +1,14 @@
+
+> banhall-app@0.1.0 test:component
+> vitest run --config vitest.component.config.ts src/routes/admin/comparisons/comparisonsRecord.component.test.ts
+
+5:56:44 AM [vite-plugin-svelte] no Svelte config found at /Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/runs/20260911-120649-26de/worktrees/6 - using default configuration.
+
+ RUN  v4.1.10 /Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/runs/20260911-120649-26de/worktrees/6
+
+5:56:44 AM [vite-plugin-svelte] no Svelte config found at /Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/runs/20260911-120649-26de/worktrees/6 - using default configuration.
+
+ Test Files  1 passed (1)
+      Tests  23 passed (23)
+   Start at  05:56:44
+   Duration  17.73s (transform 0ms, setup 604ms, import 6.13s, tests 10.13s, environment 0ms)

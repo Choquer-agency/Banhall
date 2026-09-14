@@ -1,0 +1,10 @@
+^D⠙[1G[0K[?25l
+ RUN  v4.1.10 /Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/runs/20260912-061909-feb3/worktrees/dw-brief-failure-observability
+
+
+ Test Files  5 passed (5)
+      Tests  78 passed (78)
+   Start at  02:36:24
+   Duration  3.51s (transform 1.36s, setup 0ms, import 1.62s, tests 3.76s, environment 186ms)
+
+[?25h⠙[1G[0K

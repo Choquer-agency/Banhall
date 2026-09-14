@@ -1,0 +1,178 @@
+{
+  "schema_version": 1,
+  "captured_at": "2026-09-14T17:38:14Z",
+  "role": "test-execution",
+  "workdir": "/Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/runs/20260912-061909-feb3/worktrees/dw-candidate-scoped-bounded-reads",
+  "head": "3d51a3d457a3f98f213db80f299d4e0da8b09b97",
+  "comparison_head": "3d51a3d457a3f98f213db80f299d4e0da8b09b97",
+  "source_identity": {
+    "matches_passing_receipts": true,
+    "files": {
+      "convex/schema.ts": {
+        "receipt_git_blob": "9f288fef17a97eed6f94992c5558e8fcd2728f5b",
+        "current_git_blob": "9f288fef17a97eed6f94992c5558e8fcd2728f5b",
+        "sha256": "9c670145b1cb8be626a32fb3e56f48dead39ac789dea4a50b02560d349a168cd",
+        "match": true
+      },
+      "convex/generations.ts": {
+        "receipt_git_blob": "9b74d5ab8330a35ffe11ecab7f01242a2591d1cb",
+        "current_git_blob": "9b74d5ab8330a35ffe11ecab7f01242a2591d1cb",
+        "sha256": "e687669bde431574ef11a93cee8681eea76af0d4862e78593fb850fb60467ebb",
+        "match": true
+      },
+      "convex/complianceNotes.ts": {
+        "receipt_git_blob": "45f352ae4d8fd6cbf47f5ab3f6a76ed2f882306e",
+        "current_git_blob": "45f352ae4d8fd6cbf47f5ab3f6a76ed2f882306e",
+        "sha256": "a8d8ed80df408a1cc68f6fe9e5f32019d87249a40b033440bdfdf9c01d2adbc8",
+        "match": true
+      },
+      "convex/candidateScopedBoundedReads.test.ts": {
+        "receipt_git_blob": "599e980aa81ecce48cb4f50c66e3e5f37eaf1fa6",
+        "current_git_blob": "599e980aa81ecce48cb4f50c66e3e5f37eaf1fa6",
+        "sha256": "db70e69b0ab247f2c89e9a99e86b7a0671b12713b9b1fc6b613e90b03af08888",
+        "match": true
+      }
+    }
+  },
+  "focused_live": {
+    "command": "npx vitest run convex/candidateScopedBoundedReads.test.ts convex/ai/promptProgram.test.ts convex/chatDeviationInventory.test.ts",
+    "executions_by_this_verifier": 1,
+    "exit_code": 0,
+    "test_files_passed": 3,
+    "test_files_total": 3,
+    "tests_passed": 40,
+    "tests_total": 40,
+    "duration_seconds_reported_by_vitest": 1.90,
+    "raw_log": ".audit/DW-121-DW-122/followup-20260914/focused-live.raw.log",
+    "raw_log_sha256": "48ffb9921c48a40a7617eba4d4448e83ca8c8f89fedcd6e78b748922e8e9f7a9"
+  },
+  "reused_prior_verification": {
+    "focused": {
+      "reused": true,
+      "rerun_by_this_verifier": false,
+      "source_identity_match": true,
+      "raw_log": ".audit/DW-121-DW-122/post-review-focused.raw.log",
+      "raw_log_sha256": "c33cb26260cfdf1cc67ef11745f38b2ee64da2ad2ed11a44462399e1f89e9c77",
+      "exit_code": 0,
+      "test_files_passed": 3,
+      "test_files_total": 3,
+      "tests_passed": 40,
+      "tests_total": 40
+    },
+    "canonical_gate": {
+      "reused": true,
+      "rerun_by_this_verifier": false,
+      "source_identity_match": true,
+      "raw_log": ".audit/DW-121-DW-122/post-review-full-gate.raw.log",
+      "raw_log_sha256": "3a98829a74934434b4f5bfa075e7504116066918f5ac9c4eac23c2f382ee2036",
+      "command": "bash scripts/loop-verify.sh",
+      "exit_code": 0,
+      "stages_passed": 9,
+      "stages_total": 9,
+      "unit_test_files_passed": 189,
+      "unit_test_files_total": 189,
+      "unit_tests_passed": 2683,
+      "unit_tests_total": 2683,
+      "discovery_executable_test_files": 269,
+      "discovery_historical_archives": 3,
+      "pwsh_harness_passed": 93,
+      "pwsh_harness_failed": 0,
+      "bash_harness_passed": 47,
+      "bash_harness_failed": 0
+    }
+  },
+  "verification_inputs": {
+    "tracked_paths_different_from_comparison_head": [
+      "_bmad-output/implementation-artifacts/deferred-work.md",
+      "_bmad-output/implementation-artifacts/spec-dw-121-dw-122-candidate-scoped-bounded-reads.md"
+    ],
+    "allowed_difference_classes": [
+      "spec",
+      "audit",
+      "orchestrator-ledger"
+    ],
+    "unexpected_tracked_path_count": 0,
+    "all_other_tracked_inputs_match_comparison_head": true
+  },
+  "protected_file_preservation": {
+    "invocation_snapshot": ".audit/DW-121-DW-122/followup-20260914/invocation-snapshot.json",
+    "invocation_snapshot_sha256": "ded33da6175e751b3c39724aebe6e8edbaab09b41c76b137c544cbad191f2a05",
+    "snapshot_protected_files_checked": 3461,
+    "snapshot_allowed_files_excluded": 3925,
+    "snapshot_protected_mismatches": 0,
+    "generated_tracked_diff_count": 0,
+    "historical_tracked_audit_diff_count": 0,
+    "preserved": true
+  },
+  "npm_ci_transcript_check": {
+    "proven": false,
+    "transcript": "/Users/johnnynguyen/.codex/sessions/2026/09/14/rollout-2026-09-14T08-47-22-01a0a09a-0174-7a71-91e1-8d2592adbff7.jsonl",
+    "transcript_lines_at_check": 779,
+    "custom_exec_invocations_checked": 81,
+    "custom_exec_inputs_containing_npm_case_insensitive": 0,
+    "executed_npm_ci_matches": 0,
+    "output_hash": null,
+    "finding": "The bounded earlier transcript inspection did not prove that npm ci had executed in this checkout. The checkout-local installation below resolves that evidence gap."
+  },
+  "checkout_installation": {
+    "command": "npm ci",
+    "executions_by_this_verifier": 1,
+    "exit_code": 0,
+    "packages_added": 456,
+    "packages_audited": 457,
+    "reported_vulnerabilities": {
+      "moderate": 4,
+      "high": 2,
+      "total": 6
+    },
+    "package_lock_git_blob_before": "aafce46345d6f631cb4b86e345c2c786b91a6181",
+    "package_lock_git_blob_after": "aafce46345d6f631cb4b86e345c2c786b91a6181",
+    "package_lock_sha256_before": "787b73fb54942d099fa96a6b93770c2a630a163b7f6dcee5b480bed911e91dc4",
+    "package_lock_sha256_after": "787b73fb54942d099fa96a6b93770c2a630a163b7f6dcee5b480bed911e91dc4",
+    "package_lock_preserved": true,
+    "source_identity_preserved": true,
+    "unexpected_tracked_path_count_after": 0,
+    "raw_log": ".audit/DW-121-DW-122/followup-20260914/npm-ci-live.raw.log",
+    "raw_log_sha256": "8c618d8fa2e948e569411ee834fa88bf2c3d8469a4d178b948bd19288e1b5e8d"
+  },
+  "focused_after_install": {
+    "command": "npx vitest run convex/candidateScopedBoundedReads.test.ts convex/ai/promptProgram.test.ts convex/chatDeviationInventory.test.ts",
+    "executions_by_this_verifier": 1,
+    "exit_code": 0,
+    "test_files_passed": 3,
+    "test_files_total": 3,
+    "tests_passed": 40,
+    "tests_total": 40,
+    "duration_seconds_reported_by_vitest": 3.96,
+    "lock_identity_match": true,
+    "source_identity_match": true,
+    "raw_log": ".audit/DW-121-DW-122/followup-20260914/focused-after-install.raw.log",
+    "raw_log_sha256": "0b224dda366e1b628d54483eeb0accbe18a0bee14f2ee4d7bae05b0c4ac5d11c"
+  },
+  "fresh_canonical_gate": {
+    "command": "bash scripts/loop-verify.sh",
+    "executions_by_this_verifier": 1,
+    "exit_code": 0,
+    "stages_passed": 9,
+    "stages_total": 9,
+    "unit_test_files_passed": 189,
+    "unit_test_files_total": 189,
+    "unit_tests_passed": 2683,
+    "unit_tests_total": 2683,
+    "discovery_executable_test_files": 270,
+    "discovery_historical_archives": 3,
+    "pwsh_harness_passed": 93,
+    "pwsh_harness_failed": 0,
+    "bash_harness_passed": 47,
+    "bash_harness_failed": 0,
+    "lock_identity_match_after": true,
+    "source_identity_match_after": true,
+    "unexpected_tracked_path_count_after": 0,
+    "capture_complete": false,
+    "capture_omitted_tokens": 3784,
+    "capture_omission_location": "middle of stage 7 production build output",
+    "capture_note": "The retained file contains every returned output chunk and the tool return-layer truncation marker. Stage transitions, outcome totals, command exit, and final output tail are present.",
+    "raw_log": ".audit/DW-121-DW-122/followup-20260914/full-gate-live.raw.log",
+    "raw_log_sha256": "8a3f1c0e9ded55ede358bac4fe01c83f0202c31799bdfb4c1a1a10613bf714c2"
+  }
+}

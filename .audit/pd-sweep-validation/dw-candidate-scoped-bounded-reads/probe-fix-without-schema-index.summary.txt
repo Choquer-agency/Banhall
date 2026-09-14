@@ -1,0 +1,3 @@
+passed=2 failed=2 total=4 suitesFailed=2
+FAILED :: candidate-scoped bounded reads finds a selected candidate after more than 10 older runs
+FAILED :: candidate-scoped bounded reads keeps the unscoped Compliance Notes fallback for an unresolved legacy selection

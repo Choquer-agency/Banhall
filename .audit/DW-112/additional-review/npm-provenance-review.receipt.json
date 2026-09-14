@@ -1,0 +1,12 @@
+{
+  "recorded_at": "2026-09-14T12:03:01.272892+00:00",
+  "reviewer_model": "gpt-6-astra",
+  "reviewer_effort": "xhigh",
+  "execution": "native collaboration.spawn_agent",
+  "task": "/root/npm_provenance_review",
+  "status": "completed",
+  "report_sha256": "9fcb9c3a6ef22b532390693ddc08796153cb512738cb5af1308969bd0651f813",
+  "input_receipt_sha256": "17c652f7bf2befa067b49b114956bf6defde25a13744fb460b437e6ec0dcf2cb",
+  "input_blind_result_sha256": "f2f480bb3bdcde4b432aa792b0f263b8cbe60de10fc707dfd3c0cdf16a954fd4",
+  "disposition": "Installation provenance concern resolved by supplied hook evidence; no remaining blocker."
+}

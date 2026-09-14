@@ -1,0 +1,8 @@
+{
+  "one_production_comparison_insert": true,
+  "no_comparison_patch_delete": true,
+  "no_ai_judgement_sources": true,
+  "shared_components_unchanged": true,
+  "no_route_bold_or_hex": true,
+  "dependency_lock_unchanged": true
+}

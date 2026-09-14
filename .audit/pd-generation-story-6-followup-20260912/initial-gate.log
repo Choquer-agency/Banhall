@@ -1,0 +1,1213 @@
+[1/10] preflight
+  node v24.19.0 ok
+  PUBLIC_CONVEX_URL from placeholder
+  PUBLIC_CONVEX_SITE_URL from placeholder
+  Chromium headless launch ok
+ok 1s
+[2/10] no skipped tests
+ok 0s
+[3/10] convex typecheck
+ok 12s
+[4/10] svelte-check
+
+> banhall-app@0.1.0 check
+> svelte-kit sync && svelte-check --tsconfig ./tsconfig.json
+
+1789216566678 START "/Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/runs/20260911-120649-26de/worktrees/6"
+1789216566702 COMPLETED 5926 FILES 0 ERRORS 0 WARNINGS 0 FILES_WITH_PROBLEMS
+ok 19s
+[5/10] unit tests
+
+> banhall-app@0.1.0 test
+> vitest run
+
+
+ RUN  v4.1.10 /Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/runs/20260911-120649-26de/worktrees/6
+
+
+ Test Files  187 passed (187)
+      Tests  2634 passed (2634)
+   Start at  05:36:07
+   Duration  27.10s (transform 5.82s, setup 0ms, import 12.27s, tests 19.35s, environment 4.42s)
+
+ok 28s
+[6/10] test discovery guard
+archive: .audit/integration-code-review-9da55be/qa-structural-boundary-input/convex/ai/qaChecks.test.ts
+archive: .audit/integration-code-review-9da55be/qa-structural-boundary-input/convex/lib/tiptapReport.test.ts
+archive: .audit/integration-code-review-9da55be/qa-structural-boundary-input/convex/qaBlocking.test.ts
+discovered 268 executable test files; accounted for 3 historical archives
+ok 2s
+[7/10] production build
+
+> banhall-app@0.1.0 build
+> vite build
+
+vite v8.1.5 building ssr environment for production...
+[2Ktransforming...✓ 4354 modules transformed.
+rendering chunks...
+vite v8.1.5 building client environment for production...
+[2Ktransforming...[plugin rolldown:vite-resolve] Module "buffer" has been externalized for browser compatibility, imported by "/Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/runs/20260911-120649-26de/worktrees/6/node_modules/safer-buffer/safer.js". See https://vite.dev/guide/troubleshooting.html#module-externalized-for-browser-compatibility for more details.
+[plugin rolldown:vite-resolve] Module "buffer" has been externalized for browser compatibility, imported by "/Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/runs/20260911-120649-26de/worktrees/6/node_modules/safer-buffer/safer.js". See https://vite.dev/guide/troubleshooting.html#module-externalized-for-browser-compatibility for more details.
+[33m[PLUGIN_TIMINGS] [0mYour build spent significant time in plugins. Here is a breakdown:
+  - vite:css (33%)
+  - vite:css-post (27%)
+  - vite:worker (22%)
+See https://rolldown.rs/reference/InputOptions.checks#plugintimings for more details.
+
+[plugin rolldown:vite-resolve] Module "buffer" has been externalized for browser compatibility, imported by "/Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/runs/20260911-120649-26de/worktrees/6/node_modules/safe-buffer/index.js". See https://vite.dev/guide/troubleshooting.html#module-externalized-for-browser-compatibility for more details.
+[plugin rolldown:vite-resolve] Module "buffer" has been externalized for browser compatibility, imported by "/Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/runs/20260911-120649-26de/worktrees/6/node_modules/safe-buffer/index.js". See https://vite.dev/guide/troubleshooting.html#module-externalized-for-browser-compatibility for more details.
+✓ 5118 modules transformed.
+rendering chunks...
+computing gzip size...
+.svelte-kit/output/client/_app/version.json                                                           0.02 kB │ gzip:   0.04 kB
+.svelte-kit/output/client/_app/immutable/assets/geist-mono-symbols2-wght-normal.CO5SzqOn.woff2        5.81 kB
+.svelte-kit/output/client/_app/immutable/assets/geist-mono-cyrillic-ext-wght-normal.X_5orZeX.woff2    6.17 kB
+.svelte-kit/output/client/_app/immutable/assets/geist-cyrillic-ext-wght-normal.DjL33-gN.woff2         7.42 kB
+.svelte-kit/output/client/_app/immutable/assets/geist-mono-vietnamese-wght-normal.DadHysG0.woff2      7.69 kB
+.svelte-kit/output/client/_app/immutable/assets/geist-vietnamese-wght-normal.6IgcOCM7.woff2           8.00 kB
+.svelte-kit/output/client/_app/immutable/assets/geist-mono-cyrillic-wght-normal.DiZS0aHC.woff2       12.94 kB
+.svelte-kit/output/client/_app/immutable/assets/geist-mono-latin-ext-wght-normal.Bwz-egvJ.woff2      14.69 kB
+.svelte-kit/output/client/_app/immutable/assets/geist-cyrillic-wght-normal.BEAKL7Jp.woff2            15.08 kB
+.svelte-kit/output/client/_app/immutable/assets/geist-latin-ext-wght-normal.DC-KSUi6.woff2           16.51 kB
+.svelte-kit/output/client/_app/immutable/assets/geist-mono-latin-wght-normal.XN7g48iV.woff2          23.12 kB
+.svelte-kit/output/client/_app/immutable/assets/geist-latin-wght-normal.BgDaEnEv.woff2               29.40 kB
+.svelte-kit/output/client/.vite/manifest.json                                                        51.15 kB │ gzip:   5.86 kB
+.svelte-kit/output/client/_app/immutable/workers/spreadsheet.worker-bqZwLVfJ.js                     364.39 kB
+.svelte-kit/output/client/_app/immutable/assets/primitives.Ct4RgdYl.css                               0.19 kB │ gzip:   0.14 kB
+.svelte-kit/output/client/_app/immutable/assets/18.C5lQN4sL.css                                       0.26 kB │ gzip:   0.20 kB
+.svelte-kit/output/client/_app/immutable/assets/SelectInput.CV-KWLNP.css                              0.28 kB │ gzip:   0.14 kB
+.svelte-kit/output/client/_app/immutable/assets/DisclosureChevron.CBIRDe9c.css                        0.32 kB │ gzip:   0.20 kB
+.svelte-kit/output/client/_app/immutable/assets/CurrentProjectPage.Q_OP_h9Q.css                       0.33 kB │ gzip:   0.16 kB
+.svelte-kit/output/client/_app/immutable/assets/Streamdown.5qaNkm6J.css                               0.37 kB │ gzip:   0.17 kB
+.svelte-kit/output/client/_app/immutable/assets/WorkspaceDashboard.D_bPMPsk.css                       0.58 kB │ gzip:   0.25 kB
+.svelte-kit/output/client/_app/immutable/assets/PreviewProjectPage.Cg0xkMX9.css                       0.67 kB │ gzip:   0.29 kB
+.svelte-kit/output/client/_app/immutable/assets/GhostCompareDialog.DKDWeJ9k.css                       2.05 kB │ gzip:   0.75 kB
+.svelte-kit/output/client/_app/immutable/assets/WorkspaceShellControls.DzuaKkJr.css                   7.02 kB │ gzip:   1.42 kB
+.svelte-kit/output/client/_app/immutable/assets/0.CtH9FVWZ.css                                      175.56 kB │ gzip:  29.38 kB
+.svelte-kit/output/client/_app/immutable/chunks/CSAceBua.js                                           0.02 kB │ gzip:   0.04 kB
+.svelte-kit/output/client/_app/immutable/chunks/qG2rsyn7.js                                           0.02 kB │ gzip:   0.04 kB
+.svelte-kit/output/client/_app/immutable/chunks/D7Z9fPqb.js                                           0.03 kB │ gzip:   0.05 kB
+.svelte-kit/output/client/_app/immutable/chunks/xihTtKlq.js                                           0.06 kB │ gzip:   0.08 kB
+.svelte-kit/output/client/_app/immutable/entry/start.CxKpcSUT.js                                      0.08 kB │ gzip:   0.09 kB
+.svelte-kit/output/client/_app/immutable/chunks/C7ZqlHno.js                                           0.13 kB │ gzip:   0.12 kB
+.svelte-kit/output/client/_app/immutable/chunks/Cmqyf4my2.js                                          0.13 kB │ gzip:   0.13 kB
+.svelte-kit/output/client/_app/immutable/chunks/BZZQXF7q2.js                                          0.21 kB │ gzip:   0.17 kB
+.svelte-kit/output/client/_app/immutable/nodes/27.DKDeH_KT.js                                         0.23 kB │ gzip:   0.18 kB
+.svelte-kit/output/client/_app/immutable/chunks/BZvmEcDg.js                                           0.24 kB │ gzip:   0.20 kB
+.svelte-kit/output/client/_app/immutable/chunks/lX4Z5r3-2.js                                          0.26 kB │ gzip:   0.18 kB
+.svelte-kit/output/client/_app/immutable/chunks/CHG8M-E_2.js                                          0.30 kB │ gzip:   0.21 kB
+.svelte-kit/output/client/_app/immutable/chunks/DLcrBJ1e.js                                           0.30 kB │ gzip:   0.20 kB
+.svelte-kit/output/client/_app/immutable/chunks/DXJbUl9v.js                                           0.31 kB │ gzip:   0.22 kB
+.svelte-kit/output/client/_app/immutable/chunks/CPNdgLxn.js                                           0.36 kB │ gzip:   0.26 kB
+.svelte-kit/output/client/_app/immutable/chunks/C96T71cH.js                                           0.37 kB │ gzip:   0.22 kB
+.svelte-kit/output/client/_app/immutable/nodes/1.C0BL0cZV.js                                          0.38 kB │ gzip:   0.26 kB
+.svelte-kit/output/client/_app/immutable/chunks/DAUjcZud.js                                           0.39 kB │ gzip:   0.21 kB
+.svelte-kit/output/client/_app/immutable/chunks/SsTcoqmj.js                                           0.40 kB │ gzip:   0.29 kB
+.svelte-kit/output/client/_app/immutable/chunks/BS_dNoIv.js                                           0.40 kB │ gzip:   0.25 kB
+.svelte-kit/output/client/_app/immutable/chunks/Ca4RNOdj.js                                           0.41 kB │ gzip:   0.32 kB
+.svelte-kit/output/client/_app/immutable/nodes/3.BNLbenu7.js                                          0.50 kB │ gzip:   0.33 kB
+.svelte-kit/output/client/_app/immutable/nodes/19.CB61IVFE.js                                         0.52 kB │ gzip:   0.32 kB
+.svelte-kit/output/client/_app/immutable/nodes/24.BPLqAwyA.js                                         0.53 kB │ gzip:   0.32 kB
+.svelte-kit/output/client/_app/immutable/chunks/BToQCXc12.js                                          0.58 kB │ gzip:   0.31 kB
+.svelte-kit/output/client/_app/immutable/chunks/BWH-oLnU.js                                           0.63 kB │ gzip:   0.32 kB
+.svelte-kit/output/client/_app/immutable/chunks/BuFlayix.js                                           0.64 kB │ gzip:   0.38 kB
+.svelte-kit/output/client/_app/immutable/chunks/KndkSiAW.js                                           0.69 kB │ gzip:   0.43 kB
+.svelte-kit/output/client/_app/immutable/chunks/IP6dr9pq.js                                           0.71 kB │ gzip:   0.45 kB
+.svelte-kit/output/client/_app/immutable/chunks/jh3_XEwv.js                                           0.77 kB │ gzip:   0.33 kB
+.svelte-kit/output/client/_app/immutable/chunks/BarpyHzU2.js                                          0.80 kB │ gzip:   0.47 kB
+.svelte-kit/output/client/_app/immutable/chunks/CKra1_cJ2.js                                          0.86 kB │ gzip:   0.40 kB
+.svelte-kit/output/client/_app/immutable/chunks/d8bzxNnj2.js                                          0.96 kB │ gzip:   0.50 kB
+.svelte-kit/output/client/_app/immutable/chunks/C5ZObvfN.js                                           1.03 kB │ gzip:   0.55 kB
+.svelte-kit/output/client/_app/immutable/chunks/OdM6-w9p.js                                           1.11 kB │ gzip:   0.67 kB
+.svelte-kit/output/client/_app/immutable/chunks/CGi6xqML.js                                           1.12 kB │ gzip:   0.72 kB
+.svelte-kit/output/client/_app/immutable/chunks/wufPizS_.js                                           1.17 kB │ gzip:   0.64 kB
+.svelte-kit/output/client/_app/immutable/chunks/HclGiUj8.js                                           1.21 kB │ gzip:   0.67 kB
+.svelte-kit/output/client/_app/immutable/chunks/CHVYZYgl2.js                                          1.21 kB │ gzip:   0.71 kB
+.svelte-kit/output/client/_app/immutable/chunks/DAXXjFlN.js                                           1.26 kB │ gzip:   0.70 kB
+.svelte-kit/output/client/_app/immutable/chunks/Cec9KYmk2.js                                          1.36 kB │ gzip:   0.62 kB
+.svelte-kit/output/client/_app/immutable/chunks/Bjy-W4x22.js                                          1.36 kB │ gzip:   0.65 kB
+.svelte-kit/output/client/_app/immutable/chunks/73eLLbfR2.js                                          1.41 kB │ gzip:   0.66 kB
+.svelte-kit/output/client/_app/immutable/chunks/BQzozT0f2.js                                          1.46 kB │ gzip:   0.86 kB
+.svelte-kit/output/client/_app/immutable/chunks/BCj-F6H_.js                                           1.72 kB │ gzip:   0.76 kB
+.svelte-kit/output/client/_app/immutable/chunks/CYEpZWA4.js                                           1.83 kB │ gzip:   0.81 kB
+.svelte-kit/output/client/_app/immutable/chunks/Dm6r0r9s.js                                           1.88 kB │ gzip:   0.83 kB
+.svelte-kit/output/client/_app/immutable/chunks/DC2qrmFW.js                                           1.89 kB │ gzip:   0.83 kB
+.svelte-kit/output/client/_app/immutable/chunks/2Kbsn89A.js                                           1.92 kB │ gzip:   0.83 kB
+.svelte-kit/output/client/_app/immutable/chunks/CiSsr9lS.js                                           1.95 kB │ gzip:   0.96 kB
+.svelte-kit/output/client/_app/immutable/chunks/B8-XMJis.js                                           1.97 kB │ gzip:   1.04 kB
+.svelte-kit/output/client/_app/immutable/chunks/npVYKXsf2.js                                          2.18 kB │ gzip:   0.91 kB
+.svelte-kit/output/client/_app/immutable/chunks/DFSiW3Iu.js                                           2.21 kB │ gzip:   0.98 kB
+.svelte-kit/output/client/_app/immutable/chunks/CJwa00P6.js                                           2.61 kB │ gzip:   1.29 kB
+.svelte-kit/output/client/_app/immutable/chunks/Bbglbi5_.js                                           2.62 kB │ gzip:   0.92 kB
+.svelte-kit/output/client/_app/immutable/chunks/ABHK8n_N.js                                           2.67 kB │ gzip:   1.36 kB
+.svelte-kit/output/client/_app/immutable/chunks/COGvio4b2.js                                          2.68 kB │ gzip:   1.29 kB
+.svelte-kit/output/client/_app/immutable/chunks/BjtnrFDu.js                                           3.01 kB │ gzip:   1.46 kB
+.svelte-kit/output/client/_app/immutable/chunks/B2xatWyH2.js                                          3.08 kB │ gzip:   1.44 kB
+.svelte-kit/output/client/_app/immutable/chunks/v-wE_bN1.js                                           3.10 kB │ gzip:   1.18 kB
+.svelte-kit/output/client/_app/immutable/chunks/DIFrUSSK2.js                                          3.17 kB │ gzip:   1.49 kB
+.svelte-kit/output/client/_app/immutable/nodes/20.5iHdXMRf.js                                         3.31 kB │ gzip:   1.28 kB
+.svelte-kit/output/client/_app/immutable/chunks/CEqhYpaK.js                                           3.41 kB │ gzip:   1.57 kB
+.svelte-kit/output/client/_app/immutable/nodes/2.CuIed98D.js                                          3.45 kB │ gzip:   1.68 kB
+.svelte-kit/output/client/_app/immutable/nodes/25.UvtXHXar.js                                         4.09 kB │ gzip:   2.03 kB
+.svelte-kit/output/client/_app/immutable/chunks/D927bcT5.js                                           4.32 kB │ gzip:   1.76 kB
+.svelte-kit/output/client/_app/immutable/chunks/BVqayS60.js                                           4.46 kB │ gzip:   1.68 kB
+.svelte-kit/output/client/_app/immutable/nodes/18.E0W-yuXo.js                                         4.49 kB │ gzip:   2.19 kB
+.svelte-kit/output/client/_app/immutable/chunks/DYBEmhQV.js                                           4.62 kB │ gzip:   1.66 kB
+.svelte-kit/output/client/_app/immutable/chunks/CvGKEkX0.js                                           4.68 kB │ gzip:   2.01 kB
+.svelte-kit/output/client/_app/immutable/chunks/B4h0XOXY2.js                                          5.13 kB │ gzip:   2.28 kB
+.svelte-kit/output/client/_app/immutable/chunks/DRcXCTAI.js                                           5.20 kB │ gzip:   1.86 kB
+.svelte-kit/output/client/_app/immutable/chunks/CmR-BavU.js                                           5.25 kB │ gzip:   1.76 kB
+.svelte-kit/output/client/_app/immutable/chunks/CNictDWC.js                                           5.27 kB │ gzip:   1.56 kB
+.svelte-kit/output/client/_app/immutable/nodes/28.Bs8HaxxR.js                                         5.36 kB │ gzip:   2.16 kB
+.svelte-kit/output/client/_app/immutable/nodes/30.Cr6rJK2y.js                                         5.44 kB │ gzip:   2.52 kB
+.svelte-kit/output/client/_app/immutable/chunks/DAmFAY_j.js                                           5.48 kB │ gzip:   2.58 kB
+.svelte-kit/output/client/_app/immutable/chunks/CQ1veWEr.js                                           5.55 kB │ gzip:   2.40 kB
+.svelte-kit/output/client/_app/immutable/chunks/FERaS8a_.js                                           5.71 kB │ gzip:   1.42 kB
+.svelte-kit/output/client/_app/immutable/nodes/16.BCvR2I4N.js                                         6.16 kB │ gzip:   2.76 kB
+.svelte-kit/output/client/_app/immutable/chunks/DKNaJAOg2.js                                          6.48 kB │ gzip:   2.56 kB
+.svelte-kit/output/client/_app/immutable/chunks/-17M5FTJ.js                                           7.01 kB │ gzip:   2.29 kB
+.svelte-kit/output/client/_app/immutable/nodes/10.C6Kp8I5L.js                                         7.83 kB │ gzip:   3.26 kB
+.svelte-kit/output/client/_app/immutable/chunks/kk_mvFFF2.js                                          8.21 kB │ gzip:   3.24 kB
+.svelte-kit/output/client/_app/immutable/chunks/BA_3sXHq2.js                                          9.98 kB │ gzip:   3.83 kB
+.svelte-kit/output/client/_app/immutable/nodes/4.CG2nn8Cc.js                                         10.19 kB │ gzip:   3.83 kB
+.svelte-kit/output/client/_app/immutable/nodes/23.BcT_awXE.js                                        10.21 kB │ gzip:   4.19 kB
+.svelte-kit/output/client/_app/immutable/chunks/DK7jx4F2.js                                          10.52 kB │ gzip:   4.18 kB
+.svelte-kit/output/client/_app/immutable/chunks/BmHjdqxG.js                                          10.54 kB │ gzip:   3.02 kB
+.svelte-kit/output/client/_app/immutable/nodes/12.BtXRcosG.js                                        10.66 kB │ gzip:   4.29 kB
+.svelte-kit/output/client/_app/immutable/nodes/15.Bhbm2j9v.js                                        10.93 kB │ gzip:   4.39 kB
+.svelte-kit/output/client/_app/immutable/chunks/DZ0BKL4Q2.js                                         11.02 kB │ gzip:   2.83 kB
+.svelte-kit/output/client/_app/immutable/chunks/vBn_mSF1.js                                          12.16 kB │ gzip:   4.47 kB
+.svelte-kit/output/client/_app/immutable/entry/app.vJ2nnFle.js                                       12.45 kB │ gzip:   3.72 kB
+.svelte-kit/output/client/_app/immutable/nodes/5.C-yjEoXP.js                                         12.74 kB │ gzip:   4.73 kB
+.svelte-kit/output/client/_app/immutable/nodes/26.CE_gKxT4.js                                        13.21 kB │ gzip:   5.20 kB
+.svelte-kit/output/client/_app/immutable/nodes/29.De_4k5P7.js                                        13.57 kB │ gzip:   5.19 kB
+.svelte-kit/output/client/_app/immutable/chunks/bjNKVKNf2.js                                         14.12 kB │ gzip:   4.75 kB
+.svelte-kit/output/client/_app/immutable/chunks/Bq4uwxBd.js                                          15.59 kB │ gzip:   6.13 kB
+.svelte-kit/output/client/_app/immutable/nodes/7.Btulbvu4.js                                         15.73 kB │ gzip:   6.65 kB
+.svelte-kit/output/client/_app/immutable/chunks/B0EvA3eK.js                                          15.76 kB │ gzip:   5.15 kB
+.svelte-kit/output/client/_app/immutable/nodes/21.lhkFoSQb.js                                        17.35 kB │ gzip:   5.77 kB
+.svelte-kit/output/client/_app/immutable/nodes/31.DAAqlBTb.js                                        17.54 kB │ gzip:   6.18 kB
+.svelte-kit/output/client/_app/immutable/nodes/9.C7GDrjNr.js                                         17.69 kB │ gzip:   6.34 kB
+.svelte-kit/output/client/_app/immutable/chunks/DQITkrlu.js                                          18.37 kB │ gzip:   3.13 kB
+.svelte-kit/output/client/_app/immutable/nodes/11.D5fHqf0k.js                                        19.70 kB │ gzip:   5.90 kB
+.svelte-kit/output/client/_app/immutable/chunks/BrdP_HpV.js                                          20.31 kB │ gzip:   5.68 kB
+.svelte-kit/output/client/_app/immutable/chunks/Bk2N4eA92.js                                         20.42 kB │ gzip:   7.10 kB
+.svelte-kit/output/client/_app/immutable/nodes/6.CvbH9lob.js                                         21.73 kB │ gzip:   6.89 kB
+.svelte-kit/output/client/_app/immutable/chunks/Bq-jWX8u.js                                          26.72 kB │ gzip:   7.41 kB
+.svelte-kit/output/client/_app/immutable/chunks/BBQCvfxX.js                                          26.93 kB │ gzip:   8.59 kB
+.svelte-kit/output/client/_app/immutable/nodes/14.D3x66ETQ.js                                        27.67 kB │ gzip:   9.66 kB
+.svelte-kit/output/client/_app/immutable/chunks/D6du_y78.js                                          27.79 kB │ gzip:  10.45 kB
+.svelte-kit/output/client/_app/immutable/chunks/Igxt2Kt-.js                                          30.91 kB │ gzip:   9.57 kB
+.svelte-kit/output/client/_app/immutable/chunks/CqTjmbIT.js                                          34.32 kB │ gzip:  13.11 kB
+.svelte-kit/output/client/_app/immutable/nodes/0.eix6lD3N.js                                         36.26 kB │ gzip:  13.60 kB
+.svelte-kit/output/client/_app/immutable/nodes/8.HcuLpUsx.js                                         38.69 kB │ gzip:  10.22 kB
+.svelte-kit/output/client/_app/immutable/chunks/DSM2CWMl.js                                          38.80 kB │ gzip:  12.55 kB
+.svelte-kit/output/client/_app/immutable/nodes/13.7vRJAI-X.js                                        40.64 kB │ gzip:  11.90 kB
+.svelte-kit/output/client/_app/immutable/nodes/17.D1IVI7Zm.js                                        49.48 kB │ gzip:  14.90 kB
+.svelte-kit/output/client/_app/immutable/chunks/DLfQiLIG.js                                          49.79 kB │ gzip:  13.46 kB
+.svelte-kit/output/client/_app/immutable/nodes/22.BzP0KEhX.js                                        53.94 kB │ gzip:  15.95 kB
+.svelte-kit/output/client/_app/immutable/chunks/D_vh_NN9.js                                          60.88 kB │ gzip:  18.94 kB
+.svelte-kit/output/client/_app/immutable/chunks/okCka4dF.js                                          60.99 kB │ gzip:  23.23 kB
+.svelte-kit/output/client/_app/immutable/chunks/DrUVNUyz.js                                          63.91 kB │ gzip:  21.90 kB
+.svelte-kit/output/client/_app/immutable/chunks/BIi4x6TY.js                                          68.02 kB │ gzip:  21.67 kB
+.svelte-kit/output/client/_app/immutable/chunks/B-ENElhf.js                                          69.38 kB │ gzip:  19.48 kB
+.svelte-kit/output/client/_app/immutable/chunks/Dn3gMWYl.js                                          69.86 kB │ gzip:  19.91 kB
+.svelte-kit/output/client/_app/immutable/chunks/Cf0kDY4N.js                                          75.08 kB │ gzip:  19.94 kB
+.svelte-kit/output/client/_app/immutable/chunks/CTZC9pKB.js                                          90.66 kB │ gzip:  26.60 kB
+.svelte-kit/output/client/_app/immutable/chunks/BEJ9jFI52.js                                         95.86 kB │ gzip:  28.44 kB
+.svelte-kit/output/client/_app/immutable/chunks/BF5GlMzz.js                                         120.51 kB │ gzip:  35.05 kB
+.svelte-kit/output/client/_app/immutable/chunks/3pjdmKG8.js                                         120.69 kB │ gzip:  35.00 kB
+.svelte-kit/output/client/_app/immutable/chunks/C009gA2Q.js                                         149.76 kB │ gzip:  28.87 kB
+.svelte-kit/output/client/_app/immutable/chunks/DKrCZGR2.js                                         179.24 kB │ gzip:  49.36 kB
+.svelte-kit/output/client/_app/immutable/chunks/C1rQVr6R.js                                         205.26 kB │ gzip:  54.14 kB
+.svelte-kit/output/client/_app/immutable/chunks/CKZfc-p2.js                                         330.03 kB │ gzip:  97.04 kB
+.svelte-kit/output/client/_app/immutable/chunks/BrC1Uski2.js                                        331.62 kB │ gzip: 169.01 kB
+.svelte-kit/output/client/_app/immutable/chunks/BqgYq10G.js                                         363.75 kB │ gzip: 122.56 kB
+.svelte-kit/output/client/_app/immutable/chunks/Bo_O_lcU2.js                                        384.57 kB │ gzip: 121.49 kB
+.svelte-kit/output/client/_app/immutable/chunks/6lUaFoEV2.js                                        402.85 kB │ gzip:  98.06 kB
+
+[33m[PLUGIN_TIMINGS] [0mYour build spent significant time in plugins. Here is a breakdown:
+  - vite-plugin-sveltekit-guard (77%)
+  - vite-plugin-sveltekit-virtual-modules (8%)
+  - vite-plugin-svelte:load-custom (7%)
+  - vite-plugin-svelte:compile (6%)
+See https://rolldown.rs/reference/InputOptions.checks#plugintimings for more details.
+
+✓ built in 11.73s
+computing gzip size...
+.svelte-kit/output/server/_app/immutable/assets/geist-mono-symbols2-wght-normal.CO5SzqOn.woff2        5.81 kB
+.svelte-kit/output/server/_app/immutable/assets/geist-mono-cyrillic-ext-wght-normal.X_5orZeX.woff2    6.17 kB
+.svelte-kit/output/server/_app/immutable/assets/geist-cyrillic-ext-wght-normal.DjL33-gN.woff2         7.42 kB
+.svelte-kit/output/server/_app/immutable/assets/geist-mono-vietnamese-wght-normal.DadHysG0.woff2      7.69 kB
+.svelte-kit/output/server/_app/immutable/assets/geist-vietnamese-wght-normal.6IgcOCM7.woff2           8.00 kB
+.svelte-kit/output/server/_app/immutable/assets/geist-mono-cyrillic-wght-normal.DiZS0aHC.woff2       12.94 kB
+.svelte-kit/output/server/_app/immutable/assets/geist-mono-latin-ext-wght-normal.Bwz-egvJ.woff2      14.69 kB
+.svelte-kit/output/server/_app/immutable/assets/geist-cyrillic-wght-normal.BEAKL7Jp.woff2            15.08 kB
+.svelte-kit/output/server/_app/immutable/assets/geist-latin-ext-wght-normal.DC-KSUi6.woff2           16.51 kB
+.svelte-kit/output/server/_app/immutable/assets/geist-mono-latin-wght-normal.XN7g48iV.woff2          23.12 kB
+.svelte-kit/output/server/_app/immutable/assets/geist-latin-wght-normal.BgDaEnEv.woff2               29.40 kB
+.svelte-kit/output/server/.vite/manifest.json                                                        47.08 kB │ gzip:  4.81 kB
+.svelte-kit/output/server/_app/immutable/assets/primitives.Ct4RgdYl.css                               0.19 kB │ gzip:  0.14 kB
+.svelte-kit/output/server/_app/immutable/assets/_page.C5lQN4sL.css                                    0.26 kB │ gzip:  0.20 kB
+.svelte-kit/output/server/_app/immutable/assets/SelectInput.CV-KWLNP.css                              0.28 kB │ gzip:  0.14 kB
+.svelte-kit/output/server/_app/immutable/assets/DisclosureChevron.CBIRDe9c.css                        0.32 kB │ gzip:  0.20 kB
+.svelte-kit/output/server/_app/immutable/assets/CurrentProjectPage.Q_OP_h9Q.css                       0.33 kB │ gzip:  0.16 kB
+.svelte-kit/output/server/_app/immutable/assets/Streamdown.5qaNkm6J.css                               0.37 kB │ gzip:  0.17 kB
+.svelte-kit/output/server/_app/immutable/assets/WorkspaceDashboard.DeBCAiWY.css                       0.56 kB │ gzip:  0.25 kB
+.svelte-kit/output/server/_app/immutable/assets/PreviewProjectPage.Cg0xkMX9.css                       0.67 kB │ gzip:  0.29 kB
+.svelte-kit/output/server/_app/immutable/assets/GhostCompareDialog.Ddib9FyV.css                       2.00 kB │ gzip:  0.73 kB
+.svelte-kit/output/server/_app/immutable/assets/WorkspaceShellControls.DgulEo9A.css                   6.96 kB │ gzip:  1.40 kB
+.svelte-kit/output/server/_app/immutable/assets/_layout.2TFqjQso.css                                173.67 kB │ gzip: 29.27 kB
+.svelte-kit/output/server/chunks/index-server2.js                                                     0.03 kB │ gzip:  0.05 kB
+.svelte-kit/output/server/chunks/QARailPanel.js                                                       0.08 kB │ gzip:  0.08 kB
+.svelte-kit/output/server/entries/endpoints/api/auth/_...all_/_server.ts.js                           0.21 kB │ gzip:  0.16 kB
+.svelte-kit/output/server/env.js                                                                      0.22 kB │ gzip:  0.14 kB
+.svelte-kit/output/server/entries/pages/settings/_page.ts.js                                          0.24 kB │ gzip:  0.19 kB
+.svelte-kit/output/server/chunks/index-server3.js                                                     0.27 kB │ gzip:  0.18 kB
+.svelte-kit/output/server/chunks/writerProfileLimits.js                                               0.28 kB │ gzip:  0.22 kB
+.svelte-kit/output/server/chunks/env.js                                                               0.28 kB │ gzip:  0.17 kB
+.svelte-kit/output/server/entries/pages/_layout.server.ts.js                                          0.33 kB │ gzip:  0.25 kB
+.svelte-kit/output/server/chunks/utils2.js                                                            0.34 kB │ gzip:  0.25 kB
+.svelte-kit/output/server/chunks/public.js                                                            0.36 kB │ gzip:  0.19 kB
+.svelte-kit/output/server/chunks/LazyModule.js                                                        0.37 kB │ gzip:  0.24 kB
+.svelte-kit/output/server/chunks/roles.js                                                             0.40 kB │ gzip:  0.28 kB
+.svelte-kit/output/server/internal.js                                                                 0.40 kB │ gzip:  0.19 kB
+.svelte-kit/output/server/entries/fallbacks/error.svelte.js                                           0.42 kB │ gzip:  0.27 kB
+.svelte-kit/output/server/chunks/api.js                                                               0.44 kB │ gzip:  0.30 kB
+.svelte-kit/output/server/chunks/sr-only-styles.js                                                    0.47 kB │ gzip:  0.30 kB
+.svelte-kit/output/server/chunks/stableQuery.svelte.js                                                0.48 kB │ gzip:  0.26 kB
+.svelte-kit/output/server/chunks/extractionScope.svelte.js                                            0.50 kB │ gzip:  0.28 kB
+.svelte-kit/output/server/chunks/documentContent.js                                                   0.50 kB │ gzip:  0.30 kB
+.svelte-kit/output/server/entries/pages/_page.svelte.js                                               0.50 kB │ gzip:  0.28 kB
+.svelte-kit/output/server/chunks/sections.js                                                          0.60 kB │ gzip:  0.33 kB
+.svelte-kit/output/server/chunks/projectTypes.js                                                      0.63 kB │ gzip:  0.35 kB
+.svelte-kit/output/server/chunks/projectIntentHandoff.js                                              0.64 kB │ gzip:  0.33 kB
+.svelte-kit/output/server/chunks/floating-layer-anchor.js                                             0.65 kB │ gzip:  0.36 kB
+.svelte-kit/output/server/chunks/projectPagingContext.js                                              0.75 kB │ gzip:  0.36 kB
+.svelte-kit/output/server/chunks/industries.js                                                        0.80 kB │ gzip:  0.42 kB
+.svelte-kit/output/server/chunks/Spinner.js                                                           0.86 kB │ gzip:  0.52 kB
+.svelte-kit/output/server/entries/pages/my-work/_page.svelte.js                                       0.88 kB │ gzip:  0.41 kB
+.svelte-kit/output/server/entries/pages/projects/_page.svelte.js                                      0.89 kB │ gzip:  0.41 kB
+.svelte-kit/output/server/chunks/spreadsheetText.js                                                   0.90 kB │ gzip:  0.52 kB
+.svelte-kit/output/server/chunks/internal.js                                                          1.02 kB │ gzip:  0.45 kB
+.svelte-kit/output/server/chunks/hidden-input.js                                                      1.08 kB │ gzip:  0.51 kB
+.svelte-kit/output/server/chunks/ChatIcon.js                                                          1.13 kB │ gzip:  0.60 kB
+.svelte-kit/output/server/chunks/menu-separator.js                                                    1.14 kB │ gzip:  0.52 kB
+.svelte-kit/output/server/chunks/stageFilter.js                                                       1.35 kB │ gzip:  0.61 kB
+.svelte-kit/output/server/chunks/workItems.js                                                         1.38 kB │ gzip:  0.56 kB
+.svelte-kit/output/server/chunks/Input.js                                                             1.40 kB │ gzip:  0.62 kB
+.svelte-kit/output/server/chunks/DisclosureChevron.js                                                 1.46 kB │ gzip:  0.69 kB
+.svelte-kit/output/server/chunks/errors.js                                                            1.47 kB │ gzip:  0.53 kB
+.svelte-kit/output/server/entries/pages/project/_id_/_page.svelte.js                                  1.51 kB │ gzip:  0.44 kB
+.svelte-kit/output/server/chunks/Badge.js                                                             1.72 kB │ gzip:  0.67 kB
+.svelte-kit/output/server/chunks/BuildStamp.js                                                        1.80 kB │ gzip:  0.94 kB
+.svelte-kit/output/server/entries/hooks.server.js                                                     1.82 kB │ gzip:  0.76 kB
+.svelte-kit/output/server/chunks/singleton.js                                                         2.02 kB │ gzip:  0.84 kB
+.svelte-kit/output/server/chunks/CommentInput.js                                                      2.03 kB │ gzip:  0.82 kB
+.svelte-kit/output/server/chunks/Button.js                                                            2.12 kB │ gzip:  0.82 kB
+.svelte-kit/output/server/chunks/IndustrySelect.js                                                    2.20 kB │ gzip:  0.90 kB
+.svelte-kit/output/server/chunks/PageBar.js                                                           2.61 kB │ gzip:  1.16 kB
+.svelte-kit/output/server/chunks/AdminWorkspacePage.js                                                2.78 kB │ gzip:  1.12 kB
+.svelte-kit/output/server/chunks/Tooltip2.js                                                          2.84 kB │ gzip:  0.88 kB
+.svelte-kit/output/server/chunks/QARailPanel2.js                                                      2.85 kB │ gzip:  1.30 kB
+.svelte-kit/output/server/chunks/due.js                                                               2.91 kB │ gzip:  1.03 kB
+.svelte-kit/output/server/chunks/lineLimits.js                                                        2.98 kB │ gzip:  1.38 kB
+.svelte-kit/output/server/chunks/state.js                                                             3.01 kB │ gzip:  1.28 kB
+.svelte-kit/output/server/chunks/WorkspaceGate.js                                                     3.17 kB │ gzip:  1.10 kB
+.svelte-kit/output/server/chunks/generationModels.js                                                  3.32 kB │ gzip:  1.41 kB
+.svelte-kit/output/server/chunks/url.js                                                               3.54 kB │ gzip:  1.35 kB
+.svelte-kit/output/server/chunks/styleOverrides.js                                                    3.99 kB │ gzip:  1.72 kB
+.svelte-kit/output/server/chunks/ReadOnlyEditor.js                                                    4.03 kB │ gzip:  1.54 kB
+.svelte-kit/output/server/chunks/WorkspaceChrome.js                                                   4.41 kB │ gzip:  1.56 kB
+.svelte-kit/output/server/entries/pages/login/_page.svelte.js                                         4.46 kB │ gzip:  1.62 kB
+.svelte-kit/output/server/chunks/attemptOutbox.js                                                     4.65 kB │ gzip:  1.97 kB
+.svelte-kit/output/server/entries/pages/settings/_layout.svelte.js                                    5.10 kB │ gzip:  1.76 kB
+.svelte-kit/output/server/entries/pages/requests/_page.svelte.js                                      5.33 kB │ gzip:  1.93 kB
+.svelte-kit/output/server/chunks/toast-state.svelte.js                                                5.55 kB │ gzip:  1.59 kB
+.svelte-kit/output/server/chunks/Checkbox2.js                                                         5.59 kB │ gzip:  1.79 kB
+.svelte-kit/output/server/entries/pages/settings/account/_page.svelte.js                              5.63 kB │ gzip:  1.46 kB
+.svelte-kit/output/server/chunks/requestId.js                                                         5.66 kB │ gzip:  2.46 kB
+.svelte-kit/output/server/entries/pages/signup/_token_/_page.svelte.js                                5.87 kB │ gzip:  1.93 kB
+.svelte-kit/output/server/chunks/documentStatus.js                                                    5.89 kB │ gzip:  2.53 kB
+.svelte-kit/output/server/chunks/sveltekit.js                                                         6.49 kB │ gzip:  2.12 kB
+.svelte-kit/output/server/chunks/exportTemplateDocx.js                                                7.14 kB │ gzip:  2.30 kB
+.svelte-kit/output/server/chunks/menu-trigger.js                                                      7.66 kB │ gzip:  1.69 kB
+.svelte-kit/output/server/chunks/tabs-trigger.js                                                      7.94 kB │ gzip:  1.87 kB
+.svelte-kit/output/server/entries/pages/alerts/_page.svelte.js                                        8.05 kB │ gzip:  2.64 kB
+.svelte-kit/output/server/chunks/AppNav.js                                                            8.21 kB │ gzip:  2.70 kB
+.svelte-kit/output/server/chunks/checkbox.js                                                          8.25 kB │ gzip:  2.17 kB
+.svelte-kit/output/server/entries/pages/changelog/_page.svelte.js                                     8.60 kB │ gzip:  2.62 kB
+.svelte-kit/output/server/chunks/recovery.js                                                          8.62 kB │ gzip:  3.33 kB
+.svelte-kit/output/server/chunks/tooltip.js                                                           8.69 kB │ gzip:  1.97 kB
+.svelte-kit/output/server/chunks/internal2.js                                                         8.88 kB │ gzip:  2.88 kB
+.svelte-kit/output/server/chunks/ReassignWorkItemDialog.js                                            9.12 kB │ gzip:  2.21 kB
+.svelte-kit/output/server/chunks/client.svelte.js                                                     9.55 kB │ gzip:  3.43 kB
+.svelte-kit/output/server/chunks/use_paginated_query.svelte.js                                        9.63 kB │ gzip:  2.79 kB
+.svelte-kit/output/server/chunks/client2.svelte.js                                                    9.71 kB │ gzip:  2.90 kB
+.svelte-kit/output/server/entries/pages/admin/models/_page.svelte.js                                  9.89 kB │ gzip:  2.94 kB
+.svelte-kit/output/server/chunks/shared.js                                                           10.59 kB │ gzip:  3.39 kB
+.svelte-kit/output/server/chunks/parseDocument.js                                                    10.60 kB │ gzip:  3.53 kB
+.svelte-kit/output/server/chunks/StageBadge.js                                                       11.51 kB │ gzip:  3.52 kB
+.svelte-kit/output/server/entries/pages/project/questionnaire/_page.svelte.js                        11.56 kB │ gzip:  3.59 kB
+.svelte-kit/output/server/chunks/exports.js                                                          13.01 kB │ gzip:  4.16 kB
+.svelte-kit/output/server/entries/pages/admin/backfill/_page.svelte.js                               13.12 kB │ gzip:  3.57 kB
+.svelte-kit/output/server/entries/pages/admin/brain/_page.svelte.js                                  13.51 kB │ gzip:  3.68 kB
+.svelte-kit/output/server/chunks/VersionHistory.js                                                   14.19 kB │ gzip:  3.79 kB
+.svelte-kit/output/server/entries/pages/review/_shareToken_/_page.svelte.js                          14.24 kB │ gzip:  4.23 kB
+.svelte-kit/output/server/entries/pages/admin/tags/_page.svelte.js                                   14.47 kB │ gzip:  4.26 kB
+.svelte-kit/output/server/chunks/popover.js                                                          15.41 kB │ gzip:  3.31 kB
+.svelte-kit/output/server/chunks/UserMenu.js                                                         15.57 kB │ gzip:  3.49 kB
+.svelte-kit/output/server/chunks/UploadReceiptRow.js                                                 15.94 kB │ gzip:  5.25 kB
+.svelte-kit/output/server/chunks/legacy-client.js                                                    16.24 kB │ gzip:  4.90 kB
+.svelte-kit/output/server/chunks/dialog-content.js                                                   16.38 kB │ gzip:  3.02 kB
+.svelte-kit/output/server/chunks/CandidateSelection.js                                               18.75 kB │ gzip:  5.43 kB
+.svelte-kit/output/server/chunks/SingleModelPicker.js                                                18.90 kB │ gzip:  4.46 kB
+.svelte-kit/output/server/entries/pages/settings/writing/_page.svelte.js                             19.00 kB │ gzip:  4.55 kB
+.svelte-kit/output/server/chunks/IterativeStepper.js                                                 19.74 kB │ gzip:  4.64 kB
+.svelte-kit/output/server/entries/pages/admin/house-rules/_page.svelte.js                            19.81 kB │ gzip:  7.11 kB
+.svelte-kit/output/server/entries/pages/admin/learning/_page.svelte.js                               20.03 kB │ gzip:  5.47 kB
+.svelte-kit/output/server/entries/pages/project/_id_/financial/_page.svelte.js                       21.25 kB │ gzip:  5.42 kB
+.svelte-kit/output/server/chunks/craScienceCodes.js                                                  21.29 kB │ gzip:  3.36 kB
+.svelte-kit/output/server/chunks/TagPicker.js                                                        21.65 kB │ gzip:  4.30 kB
+.svelte-kit/output/server/entries/pages/admin/reviews/_page.svelte.js                                21.92 kB │ gzip:  4.73 kB
+.svelte-kit/output/server/chunks/authClient.js                                                       24.33 kB │ gzip:  7.04 kB
+.svelte-kit/output/server/chunks/popper-layer-force-mount.js                                         25.39 kB │ gzip:  5.72 kB
+.svelte-kit/output/server/entries/pages/styleguide/_page.svelte.js                                   25.56 kB │ gzip:  6.10 kB
+.svelte-kit/output/server/chunks/primitives.js                                                       31.56 kB │ gzip:  8.09 kB
+.svelte-kit/output/server/chunks/utils.js                                                            31.75 kB │ gzip:  9.34 kB
+.svelte-kit/output/server/entries/pages/admin/comparisons/_page.svelte.js                            32.20 kB │ gzip:  6.95 kB
+.svelte-kit/output/server/chunks/tooltip-provider.js                                                 35.55 kB │ gzip:  7.09 kB
+.svelte-kit/output/server/entries/pages/_layout.svelte.js                                            38.47 kB │ gzip: 10.37 kB
+.svelte-kit/output/server/entries/pages/admin/users/_page.svelte.js                                  38.77 kB │ gzip:  8.79 kB
+.svelte-kit/output/server/chunks/SelectInput.js                                                      43.40 kB │ gzip:  8.80 kB
+.svelte-kit/output/server/chunks/QAScorePanel.js                                                     49.75 kB │ gzip: 10.55 kB
+.svelte-kit/output/server/chunks/client.js                                                           52.65 kB │ gzip: 15.51 kB
+.svelte-kit/output/server/entries/pages/project/new/_page.svelte.js                                  52.74 kB │ gzip: 12.42 kB
+.svelte-kit/output/server/remote-entry.js                                                            54.47 kB │ gzip: 12.01 kB
+.svelte-kit/output/server/chunks/calendar-prev-button.js                                             61.02 kB │ gzip: 12.04 kB
+.svelte-kit/output/server/entries/pages/admin/ingestion/_page.svelte.js                              61.96 kB │ gzip:  9.75 kB
+.svelte-kit/output/server/entries/pages/admin/usage/_page.svelte.js                                  64.96 kB │ gzip: 13.04 kB
+.svelte-kit/output/server/entries/pages/dashboard/_page.svelte.js                                    65.81 kB │ gzip: 13.68 kB
+.svelte-kit/output/server/chunks/PreviewProjectPage.js                                               80.20 kB │ gzip: 16.40 kB
+.svelte-kit/output/server/chunks/CurrentProjectPage.js                                               91.77 kB │ gzip: 20.33 kB
+.svelte-kit/output/server/chunks/scroll-lock.js                                                     120.10 kB │ gzip: 28.92 kB
+.svelte-kit/output/server/index.js                                                                  123.88 kB │ gzip: 31.44 kB
+.svelte-kit/output/server/chunks/Streamdown.js                                                      131.10 kB │ gzip: 27.16 kB
+.svelte-kit/output/server/chunks/index-server.js                                                    137.25 kB │ gzip: 35.99 kB
+.svelte-kit/output/server/chunks/WorkspaceDashboard.js                                              148.18 kB │ gzip: 29.57 kB
+.svelte-kit/output/server/chunks/AgentChatPanel.js                                                  150.77 kB │ gzip: 33.76 kB
+.svelte-kit/output/server/chunks/WorkspaceShellControls.js                                          170.03 kB │ gzip: 35.67 kB
+.svelte-kit/output/server/chunks/GhostCompareDialog.js                                              180.34 kB │ gzip: 33.93 kB
+.svelte-kit/output/server/chunks/lib.js                                                             181.17 kB │ gzip: 26.95 kB
+
+[33m[PLUGIN_TIMINGS] [0mYour build spent significant time in plugins. Here is a breakdown:
+  - vite-plugin-sveltekit-guard (67%)
+  - vite-plugin-svelte:load-custom (11%)
+  - vite-plugin-sveltekit-virtual-modules (11%)
+  - vite-plugin-svelte:compile (8%)
+See https://rolldown.rs/reference/InputOptions.checks#plugintimings for more details.
+
+✓ built in 24.34s
+
+Run npm run preview to preview your production build locally.
+
+> Using @sveltejs/adapter-vercel
+  ✔ done
+ok 30s
+[8/10] uploader harness (pwsh)
+ok    AC1 cloud placeholder (ReparsePoint attribute, empty LinkType) is a candidate
+ok    AC2 symlink is skipped as link
+ok    AC2 junction is skipped as link
+ok    AC2 Test-RealLink is false for a placeholder and true for a symlink
+ok    AC3 Word temp file is skipped as temp
+ok    AC3 dotfile is skipped as dotfile
+ok    AC3 disallowed extension is skipped as extension
+ok    AC3 allowed plain file is a candidate
+ok    AC3 extension match is case-insensitive
+ok    edge link is checked before temp
+ok    edge object without a LinkType property is not a link
+ok    edge empty allowed list skips everything as extension
+ok    edge missing or unset Attributes does not throw
+ok    zero-diag AC3 Offline attribute is cloud-only
+ok    zero-diag AC3 RecallOnDataAccess bit is cloud-only
+ok    zero-diag AC3 a hydrated local file is not cloud-only
+ok    zero-diag edge Test-CloudOnly tolerates a missing or unset Attributes
+ok    zero-diag AC1 histogram counts by extension, most frequent first
+ok    zero-diag edge histogram caps at top N and labels extensionless files
+ok    zero-diag edge histogram of nothing is empty
+ok    zero-diag AC1/AC5 formatter renders every required line for a zero-candidate scan
+ok    zero-diag edge formatter prints an all-zero block for an empty folder
+ok    zero-diag AC1 formatter never prints a file name
+ok    zero-diag AC1 root under a sync root reports yes, case- and separator-insensitively
+ok    zero-diag AC1 root outside every sync root reports no
+ok    zero-diag AC1 no OneDrive env var at all reports unknown
+ok    root-prefix I/O matrix: the Applications folder itself
+ok    root-prefix I/O matrix: screenshot-shaped root below the client level
+ok    root-prefix I/O matrix: loose anchor '1. Applications'
+ok    root-prefix I/O matrix: bracketed anchor
+ok    root-prefix I/O matrix: two anchors, last wins
+ok    root-prefix I/O matrix: one-segment root
+ok    root-prefix I/O matrix: no anchor, root is a corpus folder
+ok    root-prefix I/O matrix: no anchor, root below the client level
+ok    root-prefix I/O matrix: no anchor, root one level above Applications
+ok    root-prefix I/O matrix: dragged client folder
+ok    root-prefix I/O matrix: bracketed folder with wildcard characters
+ok    root-prefix the anchor is case-insensitive and separator-agnostic
+ok    root-prefix Get-RootAnchorIndex is -1 only when no segment contains 'applications'
+ok    root-prefix Get-RootSegments of a one-segment path is one segment, not its characters
+ok    root-prefix a drive letter is dropped only as the first segment
+ok    root-prefix Get-RelSegments counts like the server's sanitizeRelPath
+ok    root-prefix an empty path yields an empty prefix rather than throwing
+ok    root-prefix Get-LabelSummary tallies Client / Fiscal year, biggest first, ties by label
+ok    root-prefix Get-LabelSummary caps at 5 rows by default and keeps all with top 0
+ok    root-prefix a rel with a file name where a folder belongs never prints the file name
+ok    root-prefix Format-LabelSummary renders the line the client confirms against
+ok    root-prefix Format-LabelSummary prints Get-LabelRowCap rows then one 'and N more' line
+ok    root-prefix Get-LabelLines is the bare payload the log records carry
+ok    root-prefix Get-UploadRefusal accepts a no-anchor corpus folder whose files have Client and Fiscal-year folders
+ok    root-prefix Get-UploadRefusal refuses short rels with guidance naming the Applications folder and no document name
+ok    root-prefix Get-UploadRefusal refuses a root one level above Applications and names the child folder
+ok    root-prefix Get-UploadRefusal builds the child path with the root's own separator
+ok    root-prefix a file name containing 'applications' never becomes a child folder in the guidance
+ok    root-prefix a root two levels above Applications is refused and every matching folder is listed
+ok    root-prefix Get-ApplicationsGuess offers a loosely named folder and prefers an exact one
+SKIP  AC4 dotfile sub-case - this platform hides dotfiles from Get-ChildItem without -Force
+ok    AC4 exactly one candidate, the real .docx
+ok    AC4 temp and extension skips are tallied
+ok    AC4 the symlink is skipped as link
+ok    AC4 walk reports counts and no errors
+ok    AC4 a missing root yields zero candidates and a recorded error
+ok    zero-diag AC1 the scan records an extension histogram of every file it walked
+ok    zero-diag AC4 Test-RootUsable separates a folder, a file and a missing path
+ok    review-fix a bracket-named root is usable and yields its candidate
+ok    review-fix a wildcard read of that root is what loses it
+ok    root-prefix a root below the client level sends Client/Fiscal year/... rels with 3+ segments
+ok    root-prefix a dragged client folder and the Applications folder itself yield the same rels
+ok    root-prefix a no-anchor corpus folder keeps its rels, labels and no refusal, as before this fix
+ok    root-prefix a no-anchor folder below the client level is refused without naming the document
+ok    root-prefix a root one level above the Applications folder is refused and the child is named
+ok    root-prefix a root two levels above the Applications folder is refused too
+ok    executed a no-anchor folder below the client level exits 1 with a REFUSED record and never reaches the prompt
+ok    executed a no-anchor corpus folder logs WARN, reaches the prompt and cancels on EOF
+ok    executed a root above the Applications folder exits 1 with REFUSED naming the child
+ok    executed an anchored root with a stray file directly inside Applications is not refused and reaches the prompt
+ok    AC6 banhall-uploader.ps1 parses and stays Windows PowerShell 5.1 compatible
+ok    AC6 uploader-lib.ps1 parses and stays Windows PowerShell 5.1 compatible
+ok    AC6 run-tests.ps1 parses and stays Windows PowerShell 5.1 compatible
+ok    AC6 one Get-UploadCandidates call site, inside the foreach over roots
+ok    root-prefix every root gets Get-RootPrefix inside the foreach over roots
+ok    AC6 all three input modes converge on roots
+ok    review-fix every path the uploader reads is a literal path
+ok    review-fix the upload body path is wildcard-escaped
+ok    regression banhall-uploader.ps1 never mentions ReparsePoint again
+ok    zero-diag AC4 every root-is-a-file message stops the run from a Test-RootUsable state
+ok    review-fix the uploader only claims a log was saved when a write succeeded
+ok    zero-diag AC2 the log is truncated before the scan and the SCAN lines beat the zero exit
+ok    zero-diag AC3 the cloud-only line is printed only when the count is above zero
+ok    zero-diag AC1 the zero-found branch prints the formatter's lines and never a file name
+ok    root-prefix the uploader prints and logs labels, warnings and refusals before asking
+ok    regression every Read-Host answer is compared as a string, so closed stdin cancels
+ok    AC5 loop-verify.sh runs the harness under set -e
+ok    AC5 an injected failing case exits 1 and stops a set -e gate
+
+93 passed, 0 failed
+ok 8s
+[9/10] uploader harness (bash)
+ok    AC1 walk classifies link/temp/dotfile/extension and keeps 3 candidates
+ok    AC4 symlink to an allowed file is skipped and counted under link
+ok    AC1 argument prefix is prepended to the relative path
+ok    AC1 zero-result block reports walked, per-reason skips, extensions, OneDrive
+ok    edge empty folder reports zeros and 'Extensions seen: none'
+ok    AC1 extension histogram is capped at 8, ties broken alphabetically
+ok    edge ext_of matches .NET GetExtension for dotfiles and bare names
+ok    AC3 root_state answers ok / is_file / missing
+ok    AC3 a file path prints 'That path is a file, not a folder' and exits 1
+ok    AC3 a folder passes and a missing path reports 'does not exist'
+ok    AC2 an unreadable file logs READ_ERROR and never calls the endpoint
+ok    AC2 control: a readable file does reach the stubbed endpoint
+ok    AC2 sha256_of returns nothing for an unreadable or missing file
+ok    AC1 under_onedrive answers yes / no / unknown
+ok    root-prefix I/O matrix on Windows-shaped paths
+ok    root-prefix I/O matrix on Mac-shaped paths
+ok    root-prefix a bracketed folder is not glob-expanded against the working directory
+ok    root-prefix a drive letter is dropped only as the first segment and rels count like sanitizeRelPath
+ok    root-prefix root_anchor_index is -1 only when no segment contains 'applications'
+ok    root-prefix label_summary tallies Client / Fiscal year payloads, biggest first, ties by label
+ok    root-prefix label_summary prints LABEL_ROW_CAP rows then 'and N more', nothing for no rels
+ok    root-prefix label_summary ties break in byte order and a leading slash is not a segment
+ok    root-prefix a rel with a file name where a folder belongs never prints the file name
+ok    root-prefix upload_refusal accepts a no-anchor corpus folder whose files have Client and Fiscal-year folders
+ok    root-prefix upload_refusal refuses short rels with guidance naming the Applications folder and no document name
+ok    root-prefix upload_refusal refuses a root one level above Applications and names the child folder
+ok    root-prefix a file name containing 'applications' never becomes a child folder in the guidance
+ok    root-prefix a root two levels above Applications is refused and every matching folder is listed
+ok    root-prefix guess_applications_root offers a loosely named folder and prefers an exact one
+ok    root-prefix announce_labels prints the lines and logs them as LABELS without re-truncating
+ok    root-prefix warn_line prints the note and logs it as WARN
+ok    root-prefix refuse_upload prints the guidance, logs REFUSED per reason and exits 1
+ok    root-prefix a root below the client level sends Client/Fiscal year/... rels with 3+ segments
+ok    root-prefix a dragged client folder and the Applications folder itself yield the same rels
+ok    root-prefix a no-anchor corpus folder keeps its rels, labels and no refusal, as before this fix
+ok    root-prefix a no-anchor folder below the client level is refused without naming the document
+ok    root-prefix a root one level above the Applications folder is refused and the child is named
+ok    root-prefix a root two levels above the Applications folder is refused too
+ok    executed a no-anchor folder below the client level exits 1 with a REFUSED record and never reaches the prompt
+ok    executed a no-anchor corpus folder logs WARN, reaches the prompt and cancels on EOF
+ok    executed a root above the Applications folder exits 1 with REFUSED naming the child
+ok    executed an anchored root with a stray file directly inside Applications is not refused and reaches the prompt
+ok    AC5 scripts/loop-verify.sh runs this harness exactly once
+ok    AC5 an injected failing case exits non-zero
+ok    shape banhall-uploader.sh uses no bash 4 constructs
+ok    shape every function is defined above the lib-only guard
+ok    root-prefix every root gets root_prefix, the no-anchor check, and labels/WARN/refusal print before the question
+
+47 passed, 0 failed
+ok 7s
+[10/10] component suite
+
+> banhall-app@0.1.0 test:component
+> vitest run --config vitest.component.config.ts
+
+5:37:21 AM [vite-plugin-svelte] no Svelte config found at /Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/runs/20260911-120649-26de/worktrees/6 - using default configuration.
+
+ RUN  v4.1.10 /Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/runs/20260911-120649-26de/worktrees/6
+
+5:37:21 AM [vite-plugin-svelte] no Svelte config found at /Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/runs/20260911-120649-26de/worktrees/6 - using default configuration.
+5:37:24 AM [vite] (client) [optimizer] bundling dependencies...
+5:38:30 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:38:30 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:38:30 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:38:30 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:38:30 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:38:30 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:38:30 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:38:30 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:38:30 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:38:30 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:38:30 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:38:30 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:38:32 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:38:32 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:38:32 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:38:32 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:38:32 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:38:32 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:38:32 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:38:32 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:38:32 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:38:32 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:38:32 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:38:32 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:38:32 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:38:32 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:38:32 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:38:32 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:38:32 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:38:32 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:38:32 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:38:32 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:38:32 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:38:32 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:38:32 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:38:32 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:38:32 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:38:32 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:38:32 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:38:32 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:38:32 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:38:32 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:38:36 AM [vite] (client) [console.error] PD review result failed validation — stored payload does not match the expected shape [{"expected":"string","code":"invalid_type","path":["summary"],"message":"Invalid input: expected string, received undefined"},{"expected":"number","code":"invalid_type","path":["qualitative_score"],"message":"Invalid input: expected number, received undefined"}]
+5:38:36 AM [vite] (client) [console.error] PD review result failed validation — stored payload does not match the expected shape [{"expected":"string","code":"invalid_type","path":["summary"],"message":"Invalid input: expected string, received undefined"},{"expected":"number","code":"invalid_type","path":["qualitative_score"],"message":"Invalid input: expected number, received undefined"}]
+5:38:38 AM [vite] (client) [console.error] storage upload failed Error: offline
+    at http://localhost:63315/Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/runs/20260911-120649-26de/worktrees/6/src/routes/project/new/newProjectOriginalUpload.component.test.ts?import&browserv=1789216718232:149:51
+    at http://localhost:63315/node_modules/@vitest/runner/dist/chunk-artifact.js?v=2d8e6dd5:302:11
+    at http://localhost:63315/node_modules/@vitest/runner/dist/chunk-artifact.js?v=2d8e6dd5:1903:26
+    at http://localhost:63315/node_modules/@vitest/runner/dist/chunk-artifact.js?v=2d8e6dd5:2326:20
+    at new Promise (<anonymous>)
+    at runWithCancel (http://localhost:63315/node_modules/@vitest/runner/dist/chunk-artifact.js?v=2d8e6dd5:2323:10)
+    at http://localhost:63315/node_modules/@vitest/runner/dist/chunk-artifact.js?v=2d8e6dd5:2305:20
+    at new Promise (<anonymous>)
+    at runWithTimeout (http://localhost:63315/node_modules/@vitest/runner/dist/chunk-artifact.js?v=2d8e6dd5:2272:10)
+    at http://localhost:63315/node_modules/@vitest/runner/dist/chunk-artifact.js?v=2d8e6dd5:2955:64
+    at run (http://localhost:63315/node_modules/@vitest/runner/dist/chunk-artifact.js?v=2d8e6dd5:1150:20)
+    at limiterFn (http://localhost:63315/node_modules/@vitest/runner/dist/chunk-artifact.js?v=2d8e6dd5:1162:59)
+    at http://localhost:63315/node_modules/@vitest/runner/dist/chunk-artifact.js?v=2d8e6dd5:2955:38
+    at Traces.$ (http://localhost:63315/node_modules/vitest/dist/chunks/traces.DT5aQ62U.js?v=2d8e6dd5:140:27)
+    at trace (http://localhost:63315/__vitest_browser__/tester-BJtsJFpD.js:1053:25)
+    at http://localhost:63315/node_modules/@vitest/runner/dist/chunk-artifact.js?v=2d8e6dd5:2955:13
+5:38:39 AM [vite] (client) [console.error] storage upload failed Error: offline
+    at http://localhost:63315/Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/runs/20260911-120649-26de/worktrees/6/src/routes/project/new/newProjectOriginalUpload.component.test.ts?import&browserv=1789216718232:175:51
+    at http://localhost:63315/node_modules/@vitest/runner/dist/chunk-artifact.js?v=2d8e6dd5:302:11
+    at http://localhost:63315/node_modules/@vitest/runner/dist/chunk-artifact.js?v=2d8e6dd5:1903:26
+    at http://localhost:63315/node_modules/@vitest/runner/dist/chunk-artifact.js?v=2d8e6dd5:2326:20
+    at new Promise (<anonymous>)
+    at runWithCancel (http://localhost:63315/node_modules/@vitest/runner/dist/chunk-artifact.js?v=2d8e6dd5:2323:10)
+    at http://localhost:63315/node_modules/@vitest/runner/dist/chunk-artifact.js?v=2d8e6dd5:2305:20
+    at new Promise (<anonymous>)
+    at runWithTimeout (http://localhost:63315/node_modules/@vitest/runner/dist/chunk-artifact.js?v=2d8e6dd5:2272:10)
+    at http://localhost:63315/node_modules/@vitest/runner/dist/chunk-artifact.js?v=2d8e6dd5:2955:64
+    at run (http://localhost:63315/node_modules/@vitest/runner/dist/chunk-artifact.js?v=2d8e6dd5:1150:20)
+    at limiterFn (http://localhost:63315/node_modules/@vitest/runner/dist/chunk-artifact.js?v=2d8e6dd5:1162:59)
+    at http://localhost:63315/node_modules/@vitest/runner/dist/chunk-artifact.js?v=2d8e6dd5:2955:38
+    at Traces.$ (http://localhost:63315/node_modules/vitest/dist/chunks/traces.DT5aQ62U.js?v=2d8e6dd5:140:27)
+    at trace (http://localhost:63315/__vitest_browser__/tester-BJtsJFpD.js:1053:25)
+    at http://localhost:63315/node_modules/@vitest/runner/dist/chunk-artifact.js?v=2d8e6dd5:2955:13
+5:38:39 AM [vite] (client) [console.error] Error: review start failed
+    at http://localhost:63315/Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/runs/20260911-120649-26de/worktrees/6/src/routes/project/new/newProjectOriginalUpload.component.test.ts?import&browserv=1789216718232:174:48
+    at http://localhost:63315/node_modules/@vitest/runner/dist/chunk-artifact.js?v=2d8e6dd5:302:11
+    at http://localhost:63315/node_modules/@vitest/runner/dist/chunk-artifact.js?v=2d8e6dd5:1903:26
+    at http://localhost:63315/node_modules/@vitest/runner/dist/chunk-artifact.js?v=2d8e6dd5:2326:20
+    at new Promise (<anonymous>)
+    at runWithCancel (http://localhost:63315/node_modules/@vitest/runner/dist/chunk-artifact.js?v=2d8e6dd5:2323:10)
+    at http://localhost:63315/node_modules/@vitest/runner/dist/chunk-artifact.js?v=2d8e6dd5:2305:20
+    at new Promise (<anonymous>)
+    at runWithTimeout (http://localhost:63315/node_modules/@vitest/runner/dist/chunk-artifact.js?v=2d8e6dd5:2272:10)
+    at http://localhost:63315/node_modules/@vitest/runner/dist/chunk-artifact.js?v=2d8e6dd5:2955:64
+    at run (http://localhost:63315/node_modules/@vitest/runner/dist/chunk-artifact.js?v=2d8e6dd5:1150:20)
+    at limiterFn (http://localhost:63315/node_modules/@vitest/runner/dist/chunk-artifact.js?v=2d8e6dd5:1162:59)
+    at http://localhost:63315/node_modules/@vitest/runner/dist/chunk-artifact.js?v=2d8e6dd5:2955:38
+    at Traces.$ (http://localhost:63315/node_modules/vitest/dist/chunks/traces.DT5aQ62U.js?v=2d8e6dd5:140:27)
+    at trace (http://localhost:63315/__vitest_browser__/tester-BJtsJFpD.js:1053:25)
+    at http://localhost:63315/node_modules/@vitest/runner/dist/chunk-artifact.js?v=2d8e6dd5:2955:13
+5:38:40 AM [vite] (client) [console.error] storage upload failed Error: offline
+    at http://localhost:63315/Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/runs/20260911-120649-26de/worktrees/6/src/routes/project/new/newProjectOriginalUpload.component.test.ts?import&browserv=1789216718232:197:51
+    at http://localhost:63315/node_modules/@vitest/runner/dist/chunk-artifact.js?v=2d8e6dd5:2027:60
+    at http://localhost:63315/node_modules/@vitest/runner/dist/chunk-artifact.js?v=2d8e6dd5:302:11
+    at http://localhost:63315/node_modules/@vitest/runner/dist/chunk-artifact.js?v=2d8e6dd5:1903:26
+    at http://localhost:63315/node_modules/@vitest/runner/dist/chunk-artifact.js?v=2d8e6dd5:2326:20
+    at new Promise (<anonymous>)
+    at runWithCancel (http://localhost:63315/node_modules/@vitest/runner/dist/chunk-artifact.js?v=2d8e6dd5:2323:10)
+    at http://localhost:63315/node_modules/@vitest/runner/dist/chunk-artifact.js?v=2d8e6dd5:2305:20
+    at new Promise (<anonymous>)
+    at runWithTimeout (http://localhost:63315/node_modules/@vitest/runner/dist/chunk-artifact.js?v=2d8e6dd5:2272:10)
+    at http://localhost:63315/node_modules/@vitest/runner/dist/chunk-artifact.js?v=2d8e6dd5:2955:64
+    at run (http://localhost:63315/node_modules/@vitest/runner/dist/chunk-artifact.js?v=2d8e6dd5:1150:20)
+    at limiterFn (http://localhost:63315/node_modules/@vitest/runner/dist/chunk-artifact.js?v=2d8e6dd5:1162:59)
+    at http://localhost:63315/node_modules/@vitest/runner/dist/chunk-artifact.js?v=2d8e6dd5:2955:38
+    at Traces.$ (http://localhost:63315/node_modules/vitest/dist/chunks/traces.DT5aQ62U.js?v=2d8e6dd5:140:27)
+    at trace (http://localhost:63315/__vitest_browser__/tester-BJtsJFpD.js:1053:25)
+5:38:41 AM [vite] (client) [console.error] Error: text save failed
+    at http://localhost:63315/Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/runs/20260911-120649-26de/worktrees/6/src/routes/project/new/newProjectOriginalUpload.component.test.ts?import&browserv=1789216718232:201:14
+    at async http://localhost:63315/node_modules/@vitest/runner/dist/chunk-artifact.js?v=2d8e6dd5:1903:20
+5:38:41 AM [vite] (client) [console.error] storage upload failed Error: offline
+    at http://localhost:63315/Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/runs/20260911-120649-26de/worktrees/6/src/routes/project/new/newProjectOriginalUpload.component.test.ts?import&browserv=1789216718232:197:51
+    at http://localhost:63315/node_modules/@vitest/runner/dist/chunk-artifact.js?v=2d8e6dd5:2027:60
+    at http://localhost:63315/node_modules/@vitest/runner/dist/chunk-artifact.js?v=2d8e6dd5:302:11
+    at http://localhost:63315/node_modules/@vitest/runner/dist/chunk-artifact.js?v=2d8e6dd5:1903:26
+    at http://localhost:63315/node_modules/@vitest/runner/dist/chunk-artifact.js?v=2d8e6dd5:2326:20
+    at new Promise (<anonymous>)
+    at runWithCancel (http://localhost:63315/node_modules/@vitest/runner/dist/chunk-artifact.js?v=2d8e6dd5:2323:10)
+    at http://localhost:63315/node_modules/@vitest/runner/dist/chunk-artifact.js?v=2d8e6dd5:2305:20
+    at new Promise (<anonymous>)
+    at runWithTimeout (http://localhost:63315/node_modules/@vitest/runner/dist/chunk-artifact.js?v=2d8e6dd5:2272:10)
+    at http://localhost:63315/node_modules/@vitest/runner/dist/chunk-artifact.js?v=2d8e6dd5:2955:64
+    at run (http://localhost:63315/node_modules/@vitest/runner/dist/chunk-artifact.js?v=2d8e6dd5:1150:20)
+    at limiterFn (http://localhost:63315/node_modules/@vitest/runner/dist/chunk-artifact.js?v=2d8e6dd5:1162:59)
+    at http://localhost:63315/node_modules/@vitest/runner/dist/chunk-artifact.js?v=2d8e6dd5:2955:38
+    at Traces.$ (http://localhost:63315/node_modules/vitest/dist/chunks/traces.DT5aQ62U.js?v=2d8e6dd5:140:27)
+    at trace (http://localhost:63315/__vitest_browser__/tester-BJtsJFpD.js:1053:25)
+5:38:41 AM [vite] (client) [console.error] Failed to record upload attempt Error: offline accounting
+    at http://localhost:63315/Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/runs/20260911-120649-26de/worktrees/6/src/routes/project/new/newProjectOriginalUpload.component.test.ts?import&browserv=1789216718232:194:83
+    at http://localhost:63315/node_modules/@vitest/runner/dist/chunk-artifact.js?v=2d8e6dd5:2027:60
+    at http://localhost:63315/node_modules/@vitest/runner/dist/chunk-artifact.js?v=2d8e6dd5:302:11
+    at http://localhost:63315/node_modules/@vitest/runner/dist/chunk-artifact.js?v=2d8e6dd5:1903:26
+    at http://localhost:63315/node_modules/@vitest/runner/dist/chunk-artifact.js?v=2d8e6dd5:2326:20
+    at new Promise (<anonymous>)
+    at runWithCancel (http://localhost:63315/node_modules/@vitest/runner/dist/chunk-artifact.js?v=2d8e6dd5:2323:10)
+    at http://localhost:63315/node_modules/@vitest/runner/dist/chunk-artifact.js?v=2d8e6dd5:2305:20
+    at new Promise (<anonymous>)
+    at runWithTimeout (http://localhost:63315/node_modules/@vitest/runner/dist/chunk-artifact.js?v=2d8e6dd5:2272:10)
+    at http://localhost:63315/node_modules/@vitest/runner/dist/chunk-artifact.js?v=2d8e6dd5:2955:64
+    at run (http://localhost:63315/node_modules/@vitest/runner/dist/chunk-artifact.js?v=2d8e6dd5:1150:20)
+    at limiterFn (http://localhost:63315/node_modules/@vitest/runner/dist/chunk-artifact.js?v=2d8e6dd5:1162:59)
+    at http://localhost:63315/node_modules/@vitest/runner/dist/chunk-artifact.js?v=2d8e6dd5:2955:38
+    at Traces.$ (http://localhost:63315/node_modules/vitest/dist/chunks/traces.DT5aQ62U.js?v=2d8e6dd5:140:27)
+    at trace (http://localhost:63315/__vitest_browser__/tester-BJtsJFpD.js:1053:25)
+5:38:41 AM [vite] (client) [console.error] Error: text save failed
+    at http://localhost:63315/Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/runs/20260911-120649-26de/worktrees/6/src/routes/project/new/newProjectOriginalUpload.component.test.ts?import&browserv=1789216718232:201:14
+    at async http://localhost:63315/node_modules/@vitest/runner/dist/chunk-artifact.js?v=2d8e6dd5:1903:20
+5:38:42 AM [vite] (client) [console.error] storage upload failed Error: offline
+    at http://localhost:63315/Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/runs/20260911-120649-26de/worktrees/6/src/routes/project/new/newProjectOriginalUpload.component.test.ts?import&browserv=1789216718232:222:43
+    at http://localhost:63315/node_modules/@vitest/runner/dist/chunk-artifact.js?v=2d8e6dd5:2027:60
+    at http://localhost:63315/node_modules/@vitest/runner/dist/chunk-artifact.js?v=2d8e6dd5:302:11
+    at http://localhost:63315/node_modules/@vitest/runner/dist/chunk-artifact.js?v=2d8e6dd5:1903:26
+    at http://localhost:63315/node_modules/@vitest/runner/dist/chunk-artifact.js?v=2d8e6dd5:2326:20
+    at new Promise (<anonymous>)
+    at runWithCancel (http://localhost:63315/node_modules/@vitest/runner/dist/chunk-artifact.js?v=2d8e6dd5:2323:10)
+    at http://localhost:63315/node_modules/@vitest/runner/dist/chunk-artifact.js?v=2d8e6dd5:2305:20
+    at new Promise (<anonymous>)
+    at runWithTimeout (http://localhost:63315/node_modules/@vitest/runner/dist/chunk-artifact.js?v=2d8e6dd5:2272:10)
+    at http://localhost:63315/node_modules/@vitest/runner/dist/chunk-artifact.js?v=2d8e6dd5:2955:64
+    at run (http://localhost:63315/node_modules/@vitest/runner/dist/chunk-artifact.js?v=2d8e6dd5:1150:20)
+    at limiterFn (http://localhost:63315/node_modules/@vitest/runner/dist/chunk-artifact.js?v=2d8e6dd5:1162:59)
+    at http://localhost:63315/node_modules/@vitest/runner/dist/chunk-artifact.js?v=2d8e6dd5:2955:38
+    at Traces.$ (http://localhost:63315/node_modules/vitest/dist/chunks/traces.DT5aQ62U.js?v=2d8e6dd5:140:27)
+    at trace (http://localhost:63315/__vitest_browser__/tester-BJtsJFpD.js:1053:25)
+5:39:00 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:00 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:00 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:00 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:00 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:00 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:00 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:00 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:00 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:00 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:00 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:00 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:00 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:00 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:00 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:00 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:00 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:00 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:00 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:00 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:00 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:00 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:00 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:00 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:00 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:00 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:00 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:00 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:00 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:00 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:00 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:00 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:00 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:00 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:00 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:00 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:00 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:00 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:00 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:00 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:00 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:00 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:00 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:00 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:00 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:00 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:00 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:01 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:01 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:01 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:01 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:01 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:01 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:01 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:01 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:01 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:01 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:01 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:01 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:01 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:01 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:01 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:01 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:01 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:01 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:01 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:01 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:01 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:01 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:01 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:01 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:01 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:01 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:01 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:01 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:01 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:01 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:01 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:01 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:01 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:01 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:01 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:01 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:01 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:01 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:01 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:01 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:01 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:01 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:01 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:01 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:01 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:01 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:01 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:01 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:01 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:01 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:02 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:02 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:02 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:02 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:02 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:02 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:02 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:02 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:02 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:02 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:02 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:02 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:02 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:02 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:02 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:02 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:02 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:02 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:02 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:02 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:02 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:02 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:02 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:02 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:02 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:03 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:03 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:03 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:03 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:03 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:03 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:03 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:03 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:03 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:03 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:03 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:03 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:03 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:03 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:03 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:03 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:03 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:03 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:03 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:03 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:03 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:03 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:03 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:03 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:03 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:03 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:03 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:03 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:03 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:03 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:03 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:03 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:03 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:03 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:09 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:09 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:09 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:09 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:09 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:09 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:09 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:09 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:09 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:09 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:09 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:09 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:09 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:09 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:09 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:09 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:09 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:09 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:09 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:09 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:09 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:09 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:09 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:09 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:09 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:09 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:09 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:09 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:09 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:09 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:09 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:09 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:09 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:09 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:09 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:09 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:09 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:09 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:09 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:09 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:09 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:09 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:09 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:09 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:09 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:09 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:09 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:09 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:09 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:09 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:09 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:09 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:09 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:09 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:09 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:09 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:09 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:09 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:09 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:09 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:09 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:09 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:09 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:09 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:09 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:09 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:09 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:09 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:09 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:09 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:09 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:09 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:09 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:09 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:09 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:09 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:09 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:09 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:09 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:09 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:09 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:09 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:09 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:09 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:09 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:09 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:09 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:09 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:09 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:09 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:09 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:09 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:09 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:09 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:09 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:09 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:09 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:09 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:09 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:09 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:09 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:09 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:09 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:09 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:09 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:09 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:09 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:09 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:09 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:09 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:09 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:09 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:09 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:09 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:09 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:09 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:09 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:09 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:09 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:09 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:09 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:09 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:09 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:09 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:09 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:09 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:09 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:09 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:09 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:09 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:09 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:09 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:09 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:09 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:09 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:09 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:09 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:09 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:09 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:09 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:09 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:09 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:09 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:09 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:09 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:09 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:09 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:09 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:09 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:09 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:09 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:09 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:09 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:09 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:09 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:09 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:09 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:09 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:09 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:09 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:09 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:09 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:09 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:09 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:09 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:09 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:09 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:09 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:09 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:09 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:09 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:09 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:09 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:09 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:16 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:16 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:16 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:20 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:20 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:20 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:20 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:21 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:21 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:21 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:21 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:21 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:21 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:21 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:21 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:21 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:21 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:21 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:21 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:21 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:21 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:21 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:21 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:21 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:21 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:21 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:21 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:21 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:21 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:21 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:21 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:21 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:21 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:21 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:21 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:21 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:21 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:21 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:21 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:21 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:21 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:21 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:21 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:21 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:21 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:21 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:21 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:21 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:21 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:21 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:21 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:21 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:21 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:21 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:21 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:21 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:21 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:21 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:21 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:21 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:21 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:21 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:21 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:21 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:21 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:21 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:21 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:21 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:21 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:21 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:21 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:21 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:21 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:21 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:21 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:21 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:21 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:21 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:21 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:21 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:21 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:21 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:21 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:21 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:21 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:21 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:21 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:21 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:21 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:21 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:21 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:21 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:21 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:21 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:21 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:21 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:21 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:21 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:21 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:21 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:21 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:21 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:21 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:21 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:21 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:21 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:21 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:21 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:21 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:21 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:21 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:21 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:21 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:21 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:21 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:21 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:21 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:21 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:21 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:21 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:21 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:21 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:21 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:21 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:21 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:21 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:21 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:21 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:21 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:21 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+5:39:21 AM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+
+ Test Files  82 passed (82)
+      Tests  633 passed (633)
+   Start at  05:37:21
+   Duration  121.91s (transform 0ms, setup 2.34s, import 25.67s, tests 95.14s, environment 0ms)
+
+ok 123s

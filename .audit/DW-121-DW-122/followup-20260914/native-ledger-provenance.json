@@ -1,0 +1,30 @@
+{
+  "captured_at": "2026-09-14T17:28:57.076261+00:00",
+  "head": "3d51a3d457a3f98f213db80f299d4e0da8b09b97",
+  "ledger_path": "_bmad-output/implementation-artifacts/deferred-work.md",
+  "working_git_blob": "fec6b364457fa465cc8b4e831cf1cd567281c49a",
+  "working_sha256": "e2a9e2589c56d9fcb6d107d76407f631c30c1e4fa8c08678db160f4aea09d18a",
+  "invocation_sha256": "e2a9e2589c56d9fcb6d107d76407f631c30c1e4fa8c08678db160f4aea09d18a",
+  "head_git_blob": "e484d55a75dc4a801b7a70b0af5030d607af4828",
+  "index_git_blob_before_staging": "e484d55a75dc4a801b7a70b0af5030d607af4828",
+  "native_journal_path": "/Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/runs/20260912-061909-feb3/journal.jsonl",
+  "native_events": [
+    {
+      "line": 337,
+      "event": {
+        "ts": 1789406475.310567,
+        "kind": "sweep-bundle-closed",
+        "story_key": "dw-candidate-scoped-bounded-reads",
+        "dw_ids": [
+          "DW-121",
+          "DW-122"
+        ],
+        "log_task": "dw-candidate-scoped-bounded-reads-dev-1",
+        "log_pos": 10053041
+      }
+    }
+  ],
+  "diff_numstat": "6\t2\t_bmad-output/implementation-artifacts/deferred-work.md",
+  "acceptance_claimed": false,
+  "ownership": "Existing orchestrator close; only unchanged bytes may be staged. No status or resolution authored by this pass."
+}

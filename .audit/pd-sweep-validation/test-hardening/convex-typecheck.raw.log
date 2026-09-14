@@ -1,0 +1,3 @@
+# HEAD=2b6e59d6237303a7f940ee04051c1431048f9cd0 node=v22.22.3 date=2026-09-14T18:23:40Z
+# cmd: npx tsc -p convex/tsconfig.json --noEmit
+EXIT_CODE=0
