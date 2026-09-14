@@ -40,7 +40,7 @@ import {
   assembleContextInclusion,
   type UnfrozenDocument,
 } from "./lib/contextInclusion";
-import { collectBounded } from "./lib/boundedRead";
+import { createReadBudget, DOCUMENT_HEADROOM } from "./lib/readBudget";
 import { buildTiptapDocument } from "./lib/tiptapReport";
 import { sectionMetrics } from "./lib/lineLimits";
 import { deidentify } from "./lib/deidentify";
@@ -982,13 +982,22 @@ export const recordContextBudget = internalMutation({
   },
 });
 
-// DW-133: bounds on the project-document walk in getContextInclusion. A
-// projectDocuments row carries its full extracted `content` (up to the 1 MiB
-// document limit), and the same query already reads up to ~60 frozen source
-// rows of ≤200k characters, so the document side keeps a conservative share of
-// the transaction read limit and reports `documentsTruncated` past it.
+// DW-133: getContextInclusion runs every read under ONE budget, because no
+// single population is small enough to ignore. Frozen generationSources hold
+// transcripts of up to FROZEN_TRANSCRIPT_CHARS (500k) and documents of up to
+// 200k characters — up to 20 transcripts and 50 documents can exceed Convex's
+// 16 MiB transaction read limit on their own — and each projectDocuments row
+// carries its full extracted text (≤ 1 MiB). The budget charges the rows
+// authorization already read, reserves a maximum-size document before each
+// further read, and holds `DOCUMENT_HEADROOM` up front for the four small
+// appSettings reads at the end; whatever it could not read is reported as
+// truncated, never thrown. Worst case actually read: 14 MiB − 1 MiB reserved
+// + a few KB of settings, ~3 MiB under the limit.
+const INCLUSION_READ_BYTES = 14 * (1 << 20);
+// The reservation freezes at most 2×20 transcript rows + 51 documents; 200
+// keeps a wide margin, so bytes are the real bound.
+const INCLUSION_SOURCE_ROWS = 200;
 const INCLUSION_DOCUMENT_ROWS = 1000;
-const INCLUSION_DOCUMENT_BYTES = 6 * (1 << 20);
 
 /**
  * Story 4 (CAP-11, AD-30): the Brief's Inputs band — one inclusion row per
@@ -1000,44 +1009,62 @@ export const getContextInclusion = query({
   args: { generationId: v.id("generations") },
   handler: async (ctx, args) => {
     const generation = await ctx.db.get(args.generationId);
-    if (
-      !generation ||
-      !(await getInternalProjectAccessOrNull(ctx, generation.projectId))
-    ) {
-      return null;
-    }
-    const sources = await ctx.db
-      .query("generationSources")
-      .withIndex("by_generationId", (q) => q.eq("generationId", generation._id))
-      .take(200);
+    if (!generation) return null;
+    const access = await getInternalProjectAccessOrNull(ctx, generation.projectId);
+    if (!access) return null;
+    const reads = createReadBudget({
+      maxBytes: INCLUSION_READ_BYTES,
+      reservedBytes: DOCUMENT_HEADROOM,
+    });
+    reads.account(generation);
+    reads.account(access.user);
+    reads.account(access.project);
+
+    const sourceRead = await reads.list(
+      ctx.db
+        .query("generationSources")
+        .withIndex("by_generationId", (q) => q.eq("generationId", generation._id)),
+      INCLUSION_SOURCE_ROWS
+    );
+    const sources = sourceRead.rows;
+    const sourcesTruncated = !sourceRead.complete;
     const frozenDocumentIds = new Set(
       sources.flatMap((row) => (row.projectDocumentId ? [row.projectDocumentId] : []))
     );
     // DW-133: a project's lifetime document count is unbounded (uploadDocument
-    // has no cap), so the listing walks the whole index range under a row cap
-    // and a byte budget instead of a flat take(100), and reports when it had
-    // to stop rather than letting the totals silently undercount.
-    const { rows: documents, complete } = await collectBounded(
-      ctx.db
-        .query("projectDocuments")
-        .withIndex("by_projectId", (q) => q.eq("projectId", generation.projectId)),
-      { maxRows: INCLUSION_DOCUMENT_ROWS, maxBytes: INCLUSION_DOCUMENT_BYTES }
-    );
-    // CAP-17: every document attached before the reservation is listed. The
-    // reasons mirror reserveGeneration's skip rule (archived, no readable
-    // text); a readable one it never captured — the reservation freezes a
-    // bounded number of documents — is listed as not captured rather than
-    // silently dropped from the band and its counts.
-    const unfrozenDocuments = documents.flatMap((document): UnfrozenDocument[] => {
-      if (document.createdAt > generation.startedAt) return [];
-      if (frozenDocumentIds.has(document._id)) return [];
-      const reason = document.archived
-        ? ("archived" as const)
-        : !document.content.trim()
-          ? ("unreadable" as const)
-          : ("not_captured" as const);
-      return [{ _id: document._id, fileName: document.fileName, reason }];
-    });
+    // has no cap), so the listing walks the whole index range under the
+    // shared budget instead of a flat take(100), and reports when it had to
+    // stop rather than letting the totals silently undercount. With a partial
+    // source set an unread frozen row is indistinguishable from an unfrozen
+    // document, so the walk is skipped and reported as truncated instead of
+    // mislabelling frozen documents as never captured.
+    let unfrozenDocuments: UnfrozenDocument[] = [];
+    let documentsTruncated = true;
+    if (!sourcesTruncated) {
+      const documentRead = await reads.list(
+        ctx.db
+          .query("projectDocuments")
+          .withIndex("by_projectId", (q) => q.eq("projectId", generation.projectId)),
+        INCLUSION_DOCUMENT_ROWS
+      );
+      documentsTruncated = !documentRead.complete;
+      // CAP-17: every document attached before the reservation is listed. The
+      // reasons mirror reserveGeneration's skip rule (archived, no readable
+      // text); a readable one it never captured — the reservation freezes a
+      // bounded number of documents — is listed as not captured rather than
+      // silently dropped from the band and its counts.
+      unfrozenDocuments = documentRead.rows.flatMap((document): UnfrozenDocument[] => {
+        if (document.createdAt > generation.startedAt) return [];
+        if (frozenDocumentIds.has(document._id)) return [];
+        const reason = document.archived
+          ? ("archived" as const)
+          : !document.content.trim()
+            ? ("unreadable" as const)
+            : ("not_captured" as const);
+        return [{ _id: document._id, fileName: document.fileName, reason }];
+      });
+    }
+    // Four small appSettings rows, covered by the budget's up-front reservation.
     const budget = await analyzerContextBudget(ctx);
     return assembleContextInclusion({
       sources: sources.map((row) => ({
@@ -1050,7 +1077,8 @@ export const getContextInclusion = query({
       })),
       unfrozenDocuments,
       fallbackCap: budget.maxDocuments,
-      documentsTruncated: !complete,
+      documentsTruncated,
+      sourcesTruncated,
     });
   },
 });

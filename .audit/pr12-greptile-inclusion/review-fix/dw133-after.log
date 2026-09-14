@@ -1,0 +1,72 @@
+
+ RUN  v4.1.10 /Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-sweep-validation
+
+ ✓ |convex| convex/lib/readBudget.test.ts > createReadBudget (DW-133) > reads an exhausted range completely 4ms
+ ✓ |convex| convex/lib/readBudget.test.ts > createReadBudget (DW-133) > reports incomplete only when a row past the cap actually exists 2ms
+ ✓ |convex| convex/lib/readBudget.test.ts > createReadBudget (DW-133) > stops before the byte budget could be crossed by one more document 7ms
+ ✓ |convex| convex/lib/readBudget.test.ts > createReadBudget (DW-133) > shares one budget across reads, with up-front reservations and accounted rows 7ms
+ ✓ |convex| convex/lib/readBudget.test.ts > createReadBudget (DW-133) > closes the source iterator when it stops early 0ms
+ ✓ |convex| convex/learningHealth.test.ts > learning health persisted metrics > source cohorts use inclusive generation bounds and retain later current judgments 60ms
+ ✓ |convex| convex/learningHealth.test.ts > learning health persisted metrics > shared-source means weight judgment samples across unequal and unjudged generations 17ms
+ ✓ |convex| convex/learningHealth.test.ts > learning health persisted metrics > later historical title replaces an early unavailable title (undefined) 7ms
+ ✓ |convex| convex/learningHealth.test.ts > learning health persisted metrics > later historical title replaces an early unavailable title () 11ms
+ ✓ |convex| convex/learningHealth.test.ts > learning health persisted metrics > later historical title replaces an early unavailable title (   ) 4ms
+ ✓ |convex| convex/learningHealth.test.ts > learning health persisted metrics > exact top-level caps are complete when no additional record exists 314ms
+ ✓ |convex| convex/contextInclusion.test.ts > getContextInclusion (story 4) > 40 uploaded documents: all frozen, 12 in context under cap 12, inclusion stored per row 911ms
+ ✓ |convex| convex/contextInclusion.test.ts > getContextInclusion (story 4) > lists a readable document the reservation never captured, in the counts 124ms
+ ✓ |convex| convex/contextInclusion.test.ts > getContextInclusion (story 4) > 101 documents: every attached document is counted, past the old 100-row fetch bound (DW-133) 52ms
+ ✓ |convex| convex/contextInclusion.test.ts > getContextInclusion (story 4) > says so when the document read budget stops the listing short (DW-133) 356ms
+ ✓ |convex| convex/contextInclusion.test.ts > getContextInclusion (story 4) > 12 MB of frozen sources: the whole transaction stays under the read limit and the document walk says it stopped (DW-133 review) 872ms
+ ✓ |convex| convex/learningHealth.test.ts > learning health persisted metrics > exact per-join and passage caps do not imply truncated evidence 39ms
+ ✓ |convex| convex/learningHealth.test.ts > learning health persisted metrics > exact shared candidate report and review budgets stay complete 1905ms
+ ✓ |convex| convex/contextInclusion.test.ts > getContextInclusion (story 4) > bounds the frozen sources themselves when they alone would exceed the budget, and says so (DW-133 review) 302ms
+ ✓ |convex| convex/contextInclusion.test.ts > getContextInclusion (story 4) > returns null to an outsider 7ms
+ ✓ |convex| convex/contextInclusion.test.ts > getContextInclusion (story 4) > lists archived and unreadable documents as not included, and a legacy row with no status 9ms
+ ✓ |convex| convex/learningHealth.test.ts > learning health persisted metrics > exhausted judgment budgets distinguish omitted evidence from verified empty joins 256ms
+ ✓ |convex| convex/learningHealthBytes.test.ts > learning health shared byte budget with enforced Convex transaction limits > large generations reproduce eager read failure, then return oldest-first partial evidence safely 489ms
+ ✓ |convex| convex/learningHealthBytes.test.ts > learning health shared byte budget with enforced Convex transaction limits > mixed evidence populations share one budget and leave later joins incomplete 136ms
+ ✓ |convex| convex/learningHealthBytes.test.ts > learning health shared byte budget with enforced Convex transaction limits > guards large sources bodies and marks row-level missing loading separately 231ms
+ ✓ |convex| convex/learningHealthBytes.test.ts > learning health shared byte budget with enforced Convex transaction limits > guards large candidates bodies and marks row-level missing loading separately 190ms
+ ✓ |convex| convex/learningHealthBytes.test.ts > learning health shared byte budget with enforced Convex transaction limits > guards large reports bodies and marks row-level missing loading separately 192ms
+ ✓ |convex| convex/learningHealth.test.ts > learning health persisted metrics > rejects unauthorized, anonymous role holders, roleless and unmapped callers 8ms
+ ✓ |convex| convex/learningHealth.test.ts > learning health persisted metrics > validates finite ordered bounded windows 6ms
+ ✓ |convex| convex/learningHealth.test.ts > learning health persisted metrics > preserves PED zero and multiple milestones, daily means, inclusive bounds and missing days 3ms
+ ✓ |convex| convex/learningHealth.test.ts > learning health persisted metrics > joins retained candidate scores directly and separates native judgment scales and identities 6ms
+ ✓ |convex| convex/learningHealth.test.ts > learning health persisted metrics > a source ID from another table never supplies unrelated metadata 4ms
+ ✓ |convex| convex/learningHealth.test.ts > learning health persisted metrics > capped candidate means include oldest-created scores and exclude newer scores 3ms
+ ✓ |convex| convex/learningHealth.test.ts > learning health persisted metrics > deduplicates source use per generation while counting repeated use across generations 2ms
+ ✓ |convex| convex/learningHealth.test.ts > learning health persisted metrics > missing provenance and missing linked reports never establish no historical source use 1ms
+ ✓ |convex| convex/learningHealth.test.ts > learning health persisted metrics > records idempotently, calculates 8 success/2 fallback/5 skip, excludes search failures and bounds 6ms
+ ✓ |convex| convex/learningHealth.test.ts > learning health persisted metrics > historical billing alone never becomes operational coverage 3ms
+ ✓ |convex| convex/learningHealth.test.ts > learning health persisted metrics > shared join budgets cap total work across generations and report associations 1819ms
+ ✓ |convex| convex/learningHealthBytes.test.ts > learning health shared byte budget with enforced Convex transaction limits > guards large reviews bodies and marks row-level missing loading separately 198ms
+ ✓ |convex| convex/learningHealth.test.ts > learning health persisted metrics > the writer-review budget is shared across reports without a silent cap 117ms
+ ✓ |convex| convex/learningHealth.test.ts > learning health persisted metrics > zero attempts stays unavailable; measured successes produce genuine zero fallback rate 2ms
+ ✓ |convex| convex/learningHealth.test.ts > learning health persisted metrics > capped rerank rate uses the oldest observed cohort and discloses its bounds 61ms
+ ✓ |convex| convex/learningHealth.test.ts > learning health persisted metrics > caps all top-level populations with honest partial flags 207ms
+ ✓ |convex| convex/learningHealth.test.ts > learning health persisted metrics > detects exact cap versus cap+1 on report, candidate and writer-review joins and provenance 30ms
+ ✓ |convex| convex/lib/contextInclusion.test.ts > assembleContextInclusion (story 4, CAP-11) > lists transcripts first, reads a digest-read transcript as condensed and skips digest/storyline rows 3ms
+ ✓ |convex| convex/lib/contextInclusion.test.ts > assembleContextInclusion (story 4, CAP-11) > reads an excluded digest as not included and an unrecorded digest as no status 0ms
+ ✓ |convex| convex/lib/contextInclusion.test.ts > assembleContextInclusion (story 4, CAP-11) > lists archived and unreadable documents as not included with their reason 0ms
+ ✓ |convex| convex/lib/contextInclusion.test.ts > assembleContextInclusion (story 4, CAP-11) > reports recorded only when a frozen row carries a budget outcome 0ms
+ ✓ |convex| convex/lib/contextInclusion.test.ts > assembleContextInclusion (story 4, CAP-11) > lists a readable document the reservation never captured 0ms
+ ✓ |convex| convex/lib/contextInclusion.test.ts > assembleContextInclusion (story 4, CAP-11) > gives a legacy row (no inclusion, no budget) a null status, never included 0ms
+ ✓ |convex| convex/lib/contextInclusion.test.ts > assembleContextInclusion (story 4, CAP-11) > derives a status from a recorded budget when the inclusion field is absent 0ms
+ ✓ |convex| convex/lib/contextInclusion.test.ts > assembleContextInclusion (story 4, CAP-11) > takes the largest recorded cap, or the fallback when none is recorded 0ms
+ ✓ |convex| convex/lib/contextInclusion.test.ts > assembleContextInclusion (story 4, CAP-11) > excludes transcripts from both counts 1ms
+ ✓ |convex| convex/lib/contextInclusion.test.ts > assembleContextInclusion (story 4, CAP-11) > carries the truncation flags through, defaulting to a complete listing (DW-133) 1ms
+ ✓ |src| src/lib/brief.test.ts > Brief rail helpers (story 4) > label maps use the glossary words 2ms
+ ✓ |src| src/lib/brief.test.ts > Brief rail helpers (story 4) > inclusionHeader counts documents against the cap 0ms
+ ✓ |src| src/lib/brief.test.ts > Brief rail helpers (story 4) > inclusionHeader qualifies a truncated total with the bounded-count plus (DW-133) 0ms
+ ✓ |src| src/lib/brief.test.ts > Brief rail helpers (story 4) > inclusionStatusText never words an unrecorded row and appends the reason 0ms
+ ✓ |src| src/lib/brief.test.ts > Brief rail helpers (story 4) > groupBrief sorts entries into the rail groups and surfaces only open questions 1ms
+ ✓ |src| src/lib/brief.test.ts > Brief rail helpers (story 4) > changeSummary reads 'N added · N removed' only when something changed 0ms
+ ✓ |src| src/lib/brief.test.ts > Brief rail helpers (story 4) > entryOrigin is edited only for a writer-changed entry 0ms
+ ✓ |src| src/lib/brief.test.ts > Brief rail helpers (story 4) > sourceChipLabel names the source and says digest for a condensed digest 0ms
+ ✓ |src| src/lib/brief.test.ts > Brief rail helpers (story 4) > offerSentence and offerHref build the save-settings banner 0ms
+
+ Test Files  6 passed (6)
+      Tests  63 passed (63)
+   Start at  13:04:49
+   Duration  6.97s (transform 2.46s, setup 0ms, import 2.15s, tests 9.01s, environment 596ms)
+

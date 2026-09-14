@@ -68,6 +68,13 @@ export type ContextInclusion = {
    * rather than the whole attachment list. Never silently undercounts.
    */
   documentsTruncated: boolean;
+  /**
+   * DW-133 review: true when the frozen `generationSources` read itself hit
+   * the transaction budget, so `rows` is a prefix of the frozen set. The
+   * document walk is skipped in that case (an unread frozen row cannot be
+   * told apart from an unfrozen document), so `documentsTruncated` is true too.
+   */
+  sourcesTruncated: boolean;
   rows: ContextInclusionRow[];
 };
 
@@ -82,6 +89,8 @@ export function assembleContextInclusion(input: {
   fallbackCap: number;
   /** Whether the project-document read behind `unfrozenDocuments` was cut short. */
   documentsTruncated?: boolean;
+  /** Whether the frozen-source read behind `sources` was cut short. */
+  sourcesTruncated?: boolean;
 }): ContextInclusion {
   const digestByTranscript = new Map<string, InclusionSourceRow>();
   for (const row of input.sources) {
@@ -146,7 +155,8 @@ export function assembleContextInclusion(input: {
       (row) => row.inclusion === "included" || row.inclusion === "condensed"
     ).length,
     documentsTotal: documentRows.length,
-    documentsTruncated: input.documentsTruncated ?? false,
+    documentsTruncated: (input.documentsTruncated ?? false) || (input.sourcesTruncated ?? false),
+    sourcesTruncated: input.sourcesTruncated ?? false,
     rows: [...transcriptRows, ...documentRows],
   };
 }

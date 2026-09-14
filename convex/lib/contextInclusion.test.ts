@@ -166,12 +166,18 @@ describe("assembleContextInclusion (story 4, CAP-11)", () => {
     expect(result.rows).toHaveLength(4);
   });
 
-  it("carries the truncation flag through, defaulting to a complete listing (DW-133)", () => {
+  it("carries the truncation flags through, defaulting to a complete listing (DW-133)", () => {
     const sources = [{ _id: "d1", kind: "project_document" as const, label: "other:a", inclusion: "included" as const }];
-    expect(assembleContextInclusion({ sources, unfrozenDocuments: [], fallbackCap: 12 }).documentsTruncated).toBe(false);
+    expect(assembleContextInclusion({ sources, unfrozenDocuments: [], fallbackCap: 12 })).toMatchObject({
+      documentsTruncated: false,
+      sourcesTruncated: false,
+    });
     expect(
       assembleContextInclusion({ sources, unfrozenDocuments: [], fallbackCap: 12, documentsTruncated: true })
-        .documentsTruncated
-    ).toBe(true);
+    ).toMatchObject({ documentsTruncated: true, sourcesTruncated: false });
+    // A cut-short source read implies a cut-short document listing.
+    expect(
+      assembleContextInclusion({ sources, unfrozenDocuments: [], fallbackCap: 12, sourcesTruncated: true })
+    ).toMatchObject({ documentsTruncated: true, sourcesTruncated: true });
   });
 });

@@ -18,8 +18,10 @@ beforeEach(() => {
   vi.stubEnv("OPENROUTER_API_KEY", "test-openrouter-key");
 });
 
-async function setup() {
-  const t = convexTest(schema, modules);
+// DW-133 review: the real 16 MiB read limit is enforced, so a query that
+// would throw in production throws here too.
+async function setup(options: { transcript?: boolean } = {}) {
+  const t = convexTest({ schema, modules, transactionLimits: true });
   const ids = await t.run(async (ctx) => {
     const now = Date.now();
     const userId = await ctx.db.insert("users", { authId, role: "writer" });
@@ -33,11 +35,13 @@ async function setup() {
       createdAt: now,
       updatedAt: now,
     });
-    await ctx.db.insert("transcripts", {
-      projectId,
-      content: "Interview body about the control loop.",
-      createdAt: now,
-    });
+    if (options.transcript !== false) {
+      await ctx.db.insert("transcripts", {
+        projectId,
+        content: "Interview body about the control loop.",
+        createdAt: now,
+      });
+    }
     return { userId, projectId };
   });
   return { t, authed: t.withIdentity({ subject: authId }), ...ids };
@@ -193,36 +197,120 @@ describe("getContextInclusion (story 4)", () => {
 
   it("says so when the document read budget stops the listing short (DW-133)", async () => {
     const { t, authed, projectId, userId } = await setup();
-    // Ten archived documents of ~700 KiB each: the reservation skips them
-    // (no frozen copies), and together they exceed the query's document byte
-    // budget, so the band cannot list them all inside one transaction.
-    await t.run(async (ctx) => {
-      const now = Date.now() - 1_000;
-      const body = "x".repeat(700 * 1024);
-      for (let index = 0; index < 10; index += 1) {
-        await ctx.db.insert("projectDocuments", {
+    // Seventeen archived documents of 900,000 characters (15.3 MB): the
+    // reservation skips them (no frozen copies) but still reads them under
+    // the 16 MiB limit, while the query's 14 MiB budget cannot list them all.
+    const now = Date.now() - 1_000;
+    for (let index = 0; index < 17; index += 1) {
+      await t.run((ctx) =>
+        ctx.db.insert("projectDocuments", {
           projectId,
           fileName: `large-${index}.txt`,
           fileType: "txt",
-          content: body,
+          content: "x".repeat(900_000),
           source: "upload",
           uploadedBy: userId,
           archived: true,
+          createdAt: now + index,
+        })
+      );
+    }
+    const generationId = await authed.mutation(api.generations.requestGeneration, { projectId });
+    await recordFromRealReport(t, generationId);
+
+    const inclusion = await authed.query(api.generations.getContextInclusion, { generationId });
+    expect(inclusion!.sourcesTruncated).toBe(false);
+    expect(inclusion!.documentsTruncated).toBe(true);
+    expect(inclusion!.documentsTotal).toBeGreaterThan(0);
+    expect(inclusion!.documentsTotal).toBeLessThan(17);
+    // The rows that were read are still listed with their real reason.
+    expect(inclusion!.rows.filter((row) => row.reason === "archived")).toHaveLength(
+      inclusion!.documentsTotal
+    );
+  });
+
+  it("12 MB of frozen sources: the whole transaction stays under the read limit and the document walk says it stopped (DW-133 review)", async () => {
+    // Four 500,000-character transcripts plus fifty 200,000-character
+    // documents freeze ~12 MB of generationSources. A document budget that
+    // ignored those bytes pushed the query past 16 MiB and it threw before
+    // it could report anything.
+    const { t, authed, projectId, userId } = await setup({ transcript: false });
+    await t.run(async (ctx) => {
+      const now = Date.now() - 1_000;
+      for (let index = 0; index < 4; index += 1) {
+        await ctx.db.insert("transcripts", { projectId, content: "a".repeat(500_000), createdAt: now + index });
+      }
+      for (let index = 0; index < 50; index += 1) {
+        await ctx.db.insert("projectDocuments", {
+          projectId,
+          fileName: `doc-${index}.txt`,
+          fileType: "txt",
+          content: "d".repeat(200_000),
+          source: "upload",
+          uploadedBy: userId,
           createdAt: now + index,
         });
       }
     });
     const generationId = await authed.mutation(api.generations.requestGeneration, { projectId });
-    await recordFromRealReport(t, generationId);
+    // Record the outcome row by row in small transactions: recordContextBudget's
+    // own get+patch loop over 12 MB of rows is a separate limit question the
+    // pipeline owns, and this case is about the read query alone.
+    const frozenIds = await t.run((ctx) =>
+      ctx.db
+        .query("generationSources")
+        .withIndex("by_generationId", (q) => q.eq("generationId", generationId))
+        .collect()
+        .then((rows) => rows.map((row) => row._id))
+    );
+    expect(frozenIds).toHaveLength(54);
+    for (const sourceId of frozenIds) {
+      await t.run((ctx) => ctx.db.patch(sourceId, { inclusion: "included" }));
+    }
 
     const inclusion = await authed.query(api.generations.getContextInclusion, { generationId });
+    expect(inclusion).not.toBeNull();
+    expect(inclusion!.recorded).toBe(true);
+    expect(inclusion!.sourcesTruncated).toBe(false);
+    expect(inclusion!.rows.filter((row) => row.kind === "transcript")).toHaveLength(4);
+    // Every frozen document is listed from its source row; the walk over
+    // projectDocuments could not finish inside the budget, so the total is a
+    // lower bound and says so.
+    expect(inclusion!.documentsTotal).toBeGreaterThanOrEqual(50);
     expect(inclusion!.documentsTruncated).toBe(true);
-    expect(inclusion!.documentsTotal).toBeGreaterThan(0);
-    expect(inclusion!.documentsTotal).toBeLessThan(10);
-    // The rows that were read are still listed with their real reason.
-    expect(inclusion!.rows.filter((row) => row.reason === "archived")).toHaveLength(
-      inclusion!.documentsTotal
+  });
+
+  it("bounds the frozen sources themselves when they alone would exceed the budget, and says so (DW-133 review)", async () => {
+    const { t, authed, projectId } = await setup();
+    const generationId = await t.run((ctx) =>
+      ctx.db.insert("generations", { projectId, status: "completed", startedAt: Date.now() })
     );
+    // Twenty 900,000-character transcript rows: 18 MB, past the 16 MiB limit.
+    for (let index = 0; index < 20; index += 1) {
+      await t.run((ctx) =>
+        ctx.db.insert("generationSources", {
+          generationId,
+          projectId,
+          kind: "transcript",
+          label: `Transcript ${index}`,
+          content: "t".repeat(900_000),
+          contentHash: `hash-${index}`,
+          truncated: false,
+          originalLength: 900_000,
+          capturedAt: Date.now(),
+          inclusion: "included",
+        })
+      );
+    }
+    const inclusion = await authed.query(api.generations.getContextInclusion, { generationId });
+    expect(inclusion).not.toBeNull();
+    expect(inclusion!.recorded).toBe(true);
+    expect(inclusion!.sourcesTruncated).toBe(true);
+    // Without the full source set, unfrozen documents cannot be told apart
+    // from frozen ones, so the document listing is reported as cut short too.
+    expect(inclusion!.documentsTruncated).toBe(true);
+    expect(inclusion!.rows.length).toBeGreaterThan(0);
+    expect(inclusion!.rows.length).toBeLessThan(20);
   });
 
   it("returns null to an outsider", async () => {
