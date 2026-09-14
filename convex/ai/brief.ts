@@ -2,12 +2,23 @@
 
 import { z } from "zod";
 import type Anthropic from "@anthropic-ai/sdk";
+import type { FunctionArgs, FunctionReturnType } from "convex/server";
 import { internal } from "../_generated/api";
 import type { ActionCtx } from "../_generated/server";
 import type { Doc, Id } from "../_generated/dataModel";
+import {
+  BRIEF_BASELINE_PAGE_BYTES,
+  MAX_BRIEF_ENTRY_ROWS,
+  briefDiffKey,
+} from "../generations";
 import type { GenerationClient } from "./openrouterCore";
+import { normalizeProviderError } from "./providers";
 import { generateStructured } from "./structured";
 import { briefInputsHash } from "../lib/briefInputsHash";
+import {
+  BRIEF_OUTCOME_DETAIL_CHARS,
+  type BriefOutcome,
+} from "../lib/briefRender";
 import { citeQuote, type FrozenSource } from "../lib/citations";
 import {
   flaggedGlossaryTerms,
@@ -19,9 +30,10 @@ import { MODEL } from "./model";
  * Generation Brief derivation stage (story 1, CAP-1/2/4).
  *
  * A plain helper module, not a registered Convex function — same pattern as
- * `analyzerAgent.ts`'s `runAnalyzerAgent`. `deriveOrReuseBrief` is called
+ * `analyzerAgent.ts`'s `runAnalyzerAgent`. `runGenerationBriefStage` is called
  * directly from `pipeline.ts`/`iterative.ts`, once per generation, right
- * after the shared analyzer call resolves. Its only reads/writes are the
+ * after the shared analyzer call resolves; it runs `deriveOrReuseBrief` and
+ * records the attempt's outcome. Its only reads/writes are the
  * `internal.generations.*` helpers next to `getGenerationInput` — the
  * exactly-two-writers rule from AD-23 (this stage, and `briefs.saveEntryEdit`)
  * is enforced there, not by this file being reachable via `internal.*`.
@@ -257,6 +269,142 @@ export function buildBriefUserMessage(
   return `${BRIEF_TASK_GUIDANCE}\n\n${blocks}`;
 }
 
+/** The only database access the publish path needs — an action's, or a test
+ * adapter over `t.query`/`t.mutation`. */
+export type BriefPublishCtx = Pick<ActionCtx, "runQuery" | "runMutation">;
+
+/** Publish attempts before a derivation whose baseline keeps moving gives up. */
+export const BRIEF_PUBLISH_ATTEMPTS = 3;
+
+type PersistDerivedBriefArgs = FunctionArgs<
+  typeof internal.generations.persistDerivedBrief
+>;
+type BaselineRetained = PersistDerivedBriefArgs["baselineRetained"][number];
+type BaselineRemoved = PersistDerivedBriefArgs["baselineRemoved"][number];
+
+/**
+ * The complete diff baseline for a new derivation, already compared with its
+ * candidates: the project's newest Brief (pinned by id) and every one of its
+ * live rows, however many there are, partitioned by `briefDiffKey`.
+ *
+ * Each page is its own bounded query transaction (`getBriefDiffBaselinePage`),
+ * so no single read grows with the Brief. A `SplitRequired` page may be
+ * incomplete, so it is discarded and re-read from the same cursor with half
+ * as many rows; a one-row page that still reports it cannot be read within
+ * the byte budget and throws. The baseline is complete only when an accepted
+ * page reports `isDone` — never a prefix, never a refusal by size.
+ *
+ * Only compact results outlive a page. A live key some candidate shares keeps
+ * a `retained` reference (the row id and the first such candidate's index) and
+ * its old text is dropped with the page; a live key no candidate shares keeps
+ * its full payload in `removed`, because it becomes a marker. As in the
+ * mutation, the last row with a key wins.
+ */
+export async function readCompleteBriefDiffBaseline(
+  ctx: BriefPublishCtx,
+  projectId: Id<"projects">,
+  candidates: ReadonlyArray<Parameters<typeof briefDiffKey>[0]>
+): Promise<{
+  briefId: Id<"generationBriefs"> | null;
+  retained: BaselineRetained[];
+  removed: BaselineRemoved[];
+}> {
+  const briefId = await ctx.runQuery(internal.generations.getBriefDiffBaselineId, {
+    projectId,
+  });
+  if (briefId === null) return { briefId: null, retained: [], removed: [] };
+
+  const candidateIndexByKey = new Map<string, number>();
+  candidates.forEach((candidate, index) => {
+    const key = briefDiffKey(candidate);
+    if (!candidateIndexByKey.has(key)) candidateIndexByKey.set(key, index);
+  });
+  const retainedByKey = new Map<string, BaselineRetained>();
+  const removedByKey = new Map<string, BaselineRemoved>();
+  let cursor: string | null = null;
+  let numItems = MAX_BRIEF_ENTRY_ROWS;
+  for (;;) {
+    const page: FunctionReturnType<typeof internal.generations.getBriefDiffBaselinePage> =
+      await ctx.runQuery(internal.generations.getBriefDiffBaselinePage, {
+        briefId,
+        cursor,
+        numItems,
+      });
+    if (page.pageStatus === "SplitRequired") {
+      if (numItems <= 1) {
+        throw new Error(
+          `Generation Brief ${briefId} diff baseline: one row exceeds the ${BRIEF_BASELINE_PAGE_BYTES}-byte page budget`
+        );
+      }
+      numItems = Math.max(1, Math.floor(numItems / 2));
+      continue;
+    }
+    for (const { entryId, ...payload } of page.entries) {
+      const key = briefDiffKey(payload);
+      const candidateIndex = candidateIndexByKey.get(key);
+      if (candidateIndex === undefined) removedByKey.set(key, payload);
+      else retainedByKey.set(key, { entryId, candidateIndex });
+    }
+    if (page.isDone) {
+      return {
+        briefId,
+        retained: [...retainedByKey.values()],
+        removed: [...removedByKey.values()],
+      };
+    }
+    if (page.continueCursor === cursor) {
+      throw new Error(
+        `Generation Brief ${briefId} diff baseline: a page made no progress`
+      );
+    }
+    cursor = page.continueCursor;
+  }
+}
+
+/**
+ * Publish one derived Brief version against a complete, fenced baseline.
+ *
+ * Reads and compares the baseline (`readCompleteBriefDiffBaseline`), then
+ * publishes the whole version in one `persistDerivedBrief` mutation that
+ * first checks the pinned Brief is still the project's newest. Its argument
+ * carries references, not text, for baseline keys the candidates reuse, so it
+ * stays bounded by what the new version writes rather than by the old
+ * version's size. If another version was published in between (a writer
+ * edit, a concurrent derivation), that mutation writes nothing and returns
+ * `null`; the baseline is re-read and the same candidates re-published — the
+ * model is never re-run. After `BRIEF_PUBLISH_ATTEMPTS` lost fences it
+ * throws, under the derivation's existing fail-open catch, and no version
+ * from this derivation exists.
+ */
+export async function publishDerivedBrief(
+  ctx: BriefPublishCtx,
+  args: Omit<
+    PersistDerivedBriefArgs,
+    "baselineBriefId" | "baselineRetained" | "baselineRemoved"
+  >
+): Promise<Id<"generationBriefs">> {
+  for (let attempt = 1; attempt <= BRIEF_PUBLISH_ATTEMPTS; attempt += 1) {
+    const baseline = await readCompleteBriefDiffBaseline(
+      ctx,
+      args.projectId,
+      args.entries
+    );
+    const briefId: Id<"generationBriefs"> | null = await ctx.runMutation(
+      internal.generations.persistDerivedBrief,
+      {
+        ...args,
+        baselineBriefId: baseline.briefId,
+        baselineRetained: baseline.retained,
+        baselineRemoved: baseline.removed,
+      }
+    );
+    if (briefId !== null) return briefId;
+  }
+  throw new Error(
+    `Generation Brief for generation ${args.generationId} not published: the project's newest Brief changed during each of ${BRIEF_PUBLISH_ATTEMPTS} attempts`
+  );
+}
+
 type CandidateEntry = {
   group: "storyline" | "claimExclusion" | "confidenceMap" | "glossaryTerm";
   text: string;
@@ -269,27 +417,35 @@ type CandidateEntry = {
   exactExcerpt: string;
 };
 
+type BriefStageArgs = {
+  projectId: Id<"projects">;
+  generationId: Id<"generations">;
+  model?: string;
+};
+
+/** What `deriveOrReuseBrief` did when it did not throw. */
+export type BriefStageAttempt =
+  | { kind: "derived" | "reused"; briefId: Id<"generationBriefs"> }
+  | { kind: "no_evidence" };
+
 /**
  * The stage: compute inputsHash, reuse the stored Brief when inputs are
  * unchanged, otherwise run one structured call and persist the result.
- * Returns the Brief id, or `undefined` if the generation has no evidence to
- * derive from (never expected in practice — `reserveGeneration` requires at
- * least one readable source).
+ * Returns which of those happened with the Brief id, or `no_evidence` if the
+ * generation has no frozen sources to derive from (never expected in
+ * practice — `reserveGeneration` requires at least one readable source).
+ * Throws on any failure; `runGenerationBriefStage` is its only caller.
  */
 export async function deriveOrReuseBrief(
-  ctx: ActionCtx,
+  ctx: BriefPublishCtx,
   client: GenerationClient,
-  args: {
-    projectId: Id<"projects">;
-    generationId: Id<"generations">;
-    model?: string;
-  }
-): Promise<Id<"generationBriefs"> | undefined> {
+  args: BriefStageArgs
+): Promise<BriefStageAttempt> {
   const sources = await ctx.runQuery(
     internal.generations.getGenerationSourcesForBrief,
     { generationId: args.generationId }
   );
-  if (sources.length === 0) return undefined;
+  if (sources.length === 0) return { kind: "no_evidence" };
 
   const inputsHash = await briefInputsHash(sources);
   const reusable = await ctx.runQuery(internal.generations.findReusableBrief, {
@@ -301,7 +457,7 @@ export async function deriveOrReuseBrief(
       generationId: args.generationId,
       briefId: reusable._id,
     });
-    return reusable._id;
+    return { kind: "reused", briefId: reusable._id };
   }
 
   const writerSource = sources.find((s) => s.kind === "writer_storyline");
@@ -432,7 +588,7 @@ export async function deriveOrReuseBrief(
   const storylineText = writerSource ? writerSource.content : output.storyline;
   const origin = writerSource ? ("writer" as const) : ("derived" as const);
 
-  const briefId = await ctx.runMutation(internal.generations.persistDerivedBrief, {
+  const briefId = await publishDerivedBrief(ctx, {
     projectId: args.projectId,
     generationId: args.generationId,
     inputsHash,
@@ -441,5 +597,125 @@ export async function deriveOrReuseBrief(
     entries: candidateEntries,
     upstreamDroppedEntryCount,
   });
-  return briefId;
+  return { kind: "derived", briefId };
+}
+
+type BriefFailureOutcome = Extract<BriefOutcome, { kind: "failed" }>;
+
+const UNAVAILABLE_BRIEF_ERROR_DETAIL =
+  "Thrown value could not be converted to text.";
+
+function briefFailureDetail(error: unknown): string {
+  let message: string;
+  try {
+    if (error instanceof Error) {
+      const rawMessage: unknown = error.message;
+      message =
+        typeof rawMessage === "string" ? rawMessage : String(rawMessage);
+    } else {
+      message = String(error);
+    }
+  } catch {
+    message = UNAVAILABLE_BRIEF_ERROR_DETAIL;
+  }
+
+  let bounded = message.slice(0, BRIEF_OUTCOME_DETAIL_CHARS);
+  // Do not keep the first half of a surrogate pair when the bound lands
+  // between its two code units.
+  if (/[\uD800-\uDBFF]$/.test(bounded)) bounded = bounded.slice(0, -1);
+
+  // A thrown string can already contain lone surrogates away from the bound.
+  // Replace those invalid code units so Convex can always store the detail.
+  let valid = "";
+  for (let index = 0; index < bounded.length; index += 1) {
+    const codeUnit = bounded.charCodeAt(index);
+    if (codeUnit >= 0xd800 && codeUnit <= 0xdbff) {
+      const nextCodeUnit = bounded.charCodeAt(index + 1);
+      if (nextCodeUnit >= 0xdc00 && nextCodeUnit <= 0xdfff) {
+        valid += bounded[index] + bounded[index + 1];
+        index += 1;
+      } else {
+        valid += "\uFFFD";
+      }
+    } else if (codeUnit >= 0xdc00 && codeUnit <= 0xdfff) {
+      valid += "\uFFFD";
+    } else {
+      valid += bounded[index];
+    }
+  }
+  return valid;
+}
+
+function briefFailureCode(error: unknown): BriefFailureOutcome["code"] {
+  try {
+    return normalizeProviderError(error).code;
+  } catch {
+    return "unknown";
+  }
+}
+
+function logBriefStageError(...values: unknown[]): void {
+  try {
+    console.error(...values);
+  } catch {
+    // Logging is telemetry too. A logger failure must remain fail-open.
+  }
+}
+
+/** A failed attempt's outcome: the provider code and the raw error message,
+ * bounded by `BRIEF_OUTCOME_DETAIL_CHARS`. This normalizer is total so it is
+ * safe to call from the stage runner's catch block. */
+export function briefFailureOutcome(
+  error: unknown
+): BriefFailureOutcome {
+  return {
+    kind: "failed",
+    code: briefFailureCode(error),
+    detail: briefFailureDetail(error),
+  };
+}
+
+/**
+ * DW-109/DW-120: the Generation Brief stage as both entry actions run it —
+ * `generateReport` (single/compare) and `startIterativeGeneration` — once per
+ * generation, right after the shared analysis is saved.
+ *
+ * Never throws. Brief is read-only guidance, never required, so a failed
+ * derivation is logged for ops (with the generation id and the original
+ * error) and the generation continues with no Brief. Every attempt, whatever
+ * its result, is recorded once through `generations.recordBriefOutcome`,
+ * which stores the outcome and appends its authored progress line together.
+ * A failure to record is itself only logged: telemetry never fails, stalls or
+ * reorders a generation.
+ */
+export async function runGenerationBriefStage(
+  ctx: BriefPublishCtx,
+  client: GenerationClient,
+  args: BriefStageArgs
+): Promise<void> {
+  let outcome: BriefOutcome;
+  try {
+    const attempt = await deriveOrReuseBrief(ctx, client, args);
+    outcome = { kind: attempt.kind };
+  } catch (error) {
+    logBriefStageError(
+      "Generation Brief derivation failed; continuing without a Brief",
+      args.generationId,
+      error
+    );
+    outcome = briefFailureOutcome(error);
+  }
+  try {
+    await ctx.runMutation(internal.generations.recordBriefOutcome, {
+      generationId: args.generationId,
+      outcome,
+    });
+  } catch (error) {
+    logBriefStageError(
+      "Generation Brief outcome not recorded",
+      args.generationId,
+      outcome.kind,
+      error
+    );
+  }
 }

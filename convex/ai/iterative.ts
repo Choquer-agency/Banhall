@@ -16,7 +16,7 @@ import { v } from "convex/values";
 import { instrumentedAnthropic } from "./instrument";
 import { clientForModel } from "./providers";
 import { runAnalyzerAgent, type TranscriptAnalysis } from "./analyzerAgent";
-import { deriveOrReuseBrief } from "./brief";
+import { runGenerationBriefStage } from "./brief";
 import { runSection242Agent } from "./section242Agent";
 import { runSection244Agent } from "./section244Agent";
 import { runSection246Agent } from "./section246Agent";
@@ -256,17 +256,15 @@ export const startIterativeGeneration = internalAction({
 
       // Story 1 (CAP-1/2/4): derive or reuse the Generation Brief once,
       // shared by every section below. Never fatal — Brief is read-only
-      // guidance, so a failure here logs and the generation continues
-      // without one.
-      try {
-        await deriveOrReuseBrief(ctx, clientFor("generation:brief"), {
-          projectId,
-          generationId: genId,
-          model: model.id,
-        });
-      } catch (error) {
-        console.error("Generation Brief derivation failed; continuing without a Brief", error);
-      }
+      // guidance, so the stage runner never throws: a failure logs and the
+      // generation continues without one. DW-109/DW-120: every attempt is
+      // recorded on generations.briefOutcome and narrated with one authored
+      // progress line.
+      await runGenerationBriefStage(ctx, clientFor("generation:brief"), {
+        projectId,
+        generationId: genId,
+        model: model.id,
+      });
 
       const created = await ctx.runMutation(
         internal.generations.createSectionRuns,

@@ -5,7 +5,58 @@
  *
  * "inline Brief text into a prompt as anything but a rendered read of the
  * stored rows" (story 1 Never-rule): this is that one render path.
+ *
+ * Also the one definition of a Brief stage attempt's outcome (DW-109/DW-120):
+ * the validator shared by `generations.briefOutcome` and its only writer
+ * (`generations.recordBriefOutcome`), and the writer-facing progress copy.
  */
+
+import { v, type Infer } from "convex/values";
+
+/** Most characters of the raw error message a failed outcome keeps. */
+export const BRIEF_OUTCOME_DETAIL_CHARS = 300;
+
+/**
+ * What one Brief stage attempt did. `failed.code` is
+ * `normalizeProviderError(error).code`; `failed.detail` is the raw error
+ * message, bounded by `BRIEF_OUTCOME_DETAIL_CHARS`, kept for ops only — it
+ * never reaches `progressLog` or a public query.
+ */
+export const briefOutcomeValidator = v.union(
+  v.object({ kind: v.literal("derived") }),
+  v.object({ kind: v.literal("reused") }),
+  v.object({ kind: v.literal("no_evidence") }),
+  v.object({
+    kind: v.literal("failed"),
+    code: v.union(
+      v.literal("billing"),
+      v.literal("rate_limited"),
+      v.literal("authentication"),
+      v.literal("model_access"),
+      v.literal("output_limit"),
+      v.literal("network"),
+      v.literal("unknown")
+    ),
+    detail: v.string(),
+  })
+);
+
+export type BriefOutcome = Infer<typeof briefOutcomeValidator>;
+
+/** The progress line for an outcome. Authored copy only — never error text,
+ * so `userSafeNarration` passes it through unchanged. */
+export function describeBriefOutcome(outcome: BriefOutcome): string {
+  switch (outcome.kind) {
+    case "derived":
+      return "Derived a new Generation Brief from this generation's inputs.";
+    case "reused":
+      return "Reusing the stored Generation Brief — its inputs are unchanged.";
+    case "no_evidence":
+      return "No frozen evidence to derive a Generation Brief from — drafting without a Brief.";
+    case "failed":
+      return "Generation Brief derivation failed — drafting without a Brief.";
+  }
+}
 
 export type BriefRenderEntry = {
   group:
