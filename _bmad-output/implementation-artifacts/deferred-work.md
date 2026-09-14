@@ -42,6 +42,7 @@ source_spec: `10-generations-record-prompt-version-hash-and-learning-digest-ids.
 severity: high
 reason: The approved story design permits completed post-QA attribution, and the union mutation has no terminal fence, so late ghost calls can also extend the union.
 status: open
+decision: 2026-09-14 Keep policy pending
 
 ### DW-6: Partial candidate retries do not define ownership for copied candidate provenance and usage.
 origin: spec-deferred 7403dbc2733c
@@ -50,6 +51,7 @@ source_spec: `10-generations-record-prompt-version-hash-and-learning-digest-ids.
 severity: high
 reason: retryFailedCandidates can copy a successful candidate into a newly hashed generation while its original usage and report provenance remain keyed to the prior generation.
 status: open
+decision: 2026-09-14 Keep origin explicit — Define copied-candidate lineage, preserve original usage ownership and expose provenance without double-counting recovery cost.
 
 ### DW-7: The prompt-program manifest does not cover every stable provider-visible rule.
 origin: spec-deferred 2b000c09e95e
@@ -99,6 +101,7 @@ source_spec: `11-getgeneration-exposes-attributable-cost-with-legacy-null-semant
 severity: medium
 reason: src/lib/components/generation/GenerationProgress.svelte:19 subscribes to api.generations.getGeneration for the duration of a run, and logUsage is scheduled per provider call (tens per generation). The in-query sum is required by this story's intent ("computed inside the same query", partial sum while in flight), so it is not fixable here; a stored running total on the generation row, or a separate cost query the progress card does not subscribe to, would remove the churn.
 status: open
+decision: 2026-09-14 Separate progress and cost — Amend the query contract and move live cost to a dedicated authorized query, preserving legacy null and consumer semantics.
 
 ### DW-13: Per-generation dollar cost is now readable by any internal role while the aggregate usageReport stays admin-gated, and the widening is recorded only in this story file, not in docs/product-domain.md.
 origin: spec-deferred 17d0f20a8246
@@ -107,6 +110,7 @@ source_spec: `11-getgeneration-exposes-attributable-cost-with-legacy-null-semant
 severity: medium
 reason: getInternalProjectAccessOrNull (convex/lib/auth.ts:33-42) admits writer, manager, and admin for any project, whereas convex/aiUsage.ts gates usageReport behind usageViewerOrNull. The story forbids adding a gate, so the code is correct as specified, but the domain contract should say who may see spend at generation granularity.
 status: open
+decision: 2026-09-14 Record visibility policy — Record approved internal generation-cost visibility in the product domain, preserve aggregate restrictions and verify both boundaries.
 
 ### DW-14: No function in convex/generations.ts declares a returns validator, so the convex-lint hook warns on every edit to the file.
 origin: spec-deferred 8dea7e53e38b
@@ -347,6 +351,7 @@ source_spec: `7-review-decisions-required-to-leave-internal-review.md`
 severity: medium
 reason: setWorkflowStage resolves the report with by_projectId + .order("desc").first(), copied verbatim from convex/reports.ts:35 and used elsewhere in the repo. With more than one reports row on a project the newest-created row need not hold the highest revisionNumber, so the audit row can pin a revision other than the one under review. Pre-existing convention, newly load-bearing for an audit record; no test inserts two reports for one project.
 status: open
+decision: 2026-09-14 Define authoritative report — Approve one selection contract for display and review decisions, testing creation order differing from revision order.
 
 ### DW-43: Nothing pins that the only production caller actually sends reviewDecision, so a UI regression would make leaving internal review impossible while the suite stays green.
 origin: spec-deferred 1f2999995097
@@ -364,6 +369,7 @@ source_spec: `7-review-decisions-required-to-leave-internal-review.md`
 severity: medium
 reason: setWorkflowStage already fences the stage field with expectedVersion, but the review decision takes no expected revisionNumber or contentHash. If the report is edited between the reviewer reading it and confirming the transition, the row silently attests a judgement against the newer revision. The story chose server-side resolution deliberately; closing this needs a client-supplied baseline and UI plumbing.
 status: open
+decision: 2026-09-14 Require reviewer baseline — Approve caller-supplied report revision/content baseline, reject stale decisions and provide updated-report review flow.
 
 ### DW-45: A project sitting in internal_review with no reports row cannot leave via either completion edge, and the UI gives no advance signal.
 origin: spec-deferred 0d92b63b042d
@@ -571,6 +577,7 @@ source_spec: `9-review-artifacts-pinned-to-revision-and-content-hash.md`
 severity: medium
 reason: submitWriterReview and saveQaItemFeedback accept target IDs without an expected revision or content hash. Existing callers may submit after another actor edits the report. CAP-9 preserves these public call shapes and records the current mutation-time target; caller observation fencing remains a separate existing workflow limitation.
 status: open
+decision: 2026-09-14 Fence observed content — Approve the caller contract, send viewed revision/hash and atomically reject stale submissions while retaining provenance.
 
 
 ### DW-70: End-to-end provider chains can exceed the Convex action deadline; shared analysis now joins the entry chain, as it already does in iterative generation.
@@ -580,6 +587,7 @@ source_spec: `10-analyzer-once-per-generation-with-prompt-caching.md`
 severity: medium
 reason: convex/ai/condense.ts:124-139 reserves only non-request time after condensation. Brain retrieval and analysis then execute sequentially. convex/ai/providers.ts:32-48 explicitly documents that provider timeout bounds apply to one slot rather than a complete action; stale-generation recovery remains the fallback. Durable per-phase scheduling is a broader existing pipeline limitation.
 status: open
+decision: 2026-09-14 Defer orchestration design
 
 
 ### DW-71: The existing because detector treats multiple recognized uncertainties in one sentence as one statement.
@@ -589,6 +597,7 @@ source_spec: `8-blocking-qa-policy.md`
 severity: medium
 reason: Baseline f122b086d745acc40b4decca26b9aaafc7257f6a convex/ai/qaChecks.ts uses uncertaintyMarkers.some and one /because/i check per sentence. One because clause can therefore satisfy another uncertainty in the same sentence. The new gate reuses that existing detector rather than adding a linguistic classifier.
 status: open
+decision: 2026-09-14 Keep decision pending
 
 
 ### DW-72: restoreSnapshot has no positive-path test asserting the pre_restore checkpoint's own fields or the provenance/lineage rewrite it performs.
