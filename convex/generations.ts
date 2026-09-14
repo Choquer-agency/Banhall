@@ -40,6 +40,7 @@ import {
   assembleContextInclusion,
   type UnfrozenDocument,
 } from "./lib/contextInclusion";
+import { createReadBudget } from "./lib/readBudget";
 import { buildTiptapDocument } from "./lib/tiptapReport";
 import { sectionMetrics } from "./lib/lineLimits";
 import { deidentify } from "./lib/deidentify";
@@ -985,6 +986,25 @@ export const recordContextBudget = internalMutation({
   },
 });
 
+// DW-133: getContextInclusion runs every read under ONE budget, because no
+// single population is small enough to ignore. Frozen generationSources hold
+// transcripts of up to FROZEN_TRANSCRIPT_CHARS (500k) and documents of up to
+// 200k characters — up to 20 transcripts and 50 documents can exceed Convex's
+// 16 MiB transaction read limit on their own — and each projectDocuments row
+// carries its full extracted text (≤ 1 MiB). Every row read outside a list
+// walk — the generation, the authorization rows and the four analyzer
+// settings (whose `value` is an unrestricted string) — is read FIRST and
+// charged at its actual size; each list then reserves a maximum-size
+// document before every read. Whatever the budget could not read is reported
+// as truncated, never thrown. Worst case actually read: the seven up-front
+// rows (≤ 7 MiB, charged) plus list reads up to the 14 MiB total, 2 MiB
+// under the limit.
+const INCLUSION_READ_BYTES = 14 * (1 << 20);
+// The reservation freezes at most 2×20 transcript rows + 51 documents; 200
+// keeps a wide margin, so bytes are the real bound.
+const INCLUSION_SOURCE_ROWS = 200;
+const INCLUSION_DOCUMENT_ROWS = 1000;
+
 /**
  * Story 4 (CAP-11, AD-30): the Brief's Inputs band — one inclusion row per
  * frozen Transcript and Supporting Document, plus the project documents the
@@ -995,39 +1015,62 @@ export const getContextInclusion = query({
   args: { generationId: v.id("generations") },
   handler: async (ctx, args) => {
     const generation = await ctx.db.get(args.generationId);
-    if (
-      !generation ||
-      !(await getInternalProjectAccessOrNull(ctx, generation.projectId))
-    ) {
-      return null;
-    }
-    const sources = await ctx.db
-      .query("generationSources")
-      .withIndex("by_generationId", (q) => q.eq("generationId", generation._id))
-      .take(200);
+    if (!generation) return null;
+    const access = await getInternalProjectAccessOrNull(ctx, generation.projectId);
+    if (!access) return null;
+    const reads = createReadBudget({ maxBytes: INCLUSION_READ_BYTES });
+    reads.account(generation);
+    reads.account(access.user);
+    reads.account(access.project);
+    // The four settings rows are read before any walk and charged as read,
+    // so a large (still parseable) setting shrinks what the walks may read
+    // instead of landing on top of them after the budget was spent.
+    const budget = await analyzerContextBudget(ctx, (row) => reads.account(row));
+
+    const sourceRead = await reads.list(
+      ctx.db
+        .query("generationSources")
+        .withIndex("by_generationId", (q) => q.eq("generationId", generation._id)),
+      INCLUSION_SOURCE_ROWS
+    );
+    const sources = sourceRead.rows;
+    const sourcesTruncated = !sourceRead.complete;
     const frozenDocumentIds = new Set(
       sources.flatMap((row) => (row.projectDocumentId ? [row.projectDocumentId] : []))
     );
-    const documents = await ctx.db
-      .query("projectDocuments")
-      .withIndex("by_projectId", (q) => q.eq("projectId", generation.projectId))
-      .take(100);
-    // CAP-17: every document attached before the reservation is listed. The
-    // reasons mirror reserveGeneration's skip rule (archived, no readable
-    // text); a readable one it never captured — the reservation freezes a
-    // bounded number of documents — is listed as not captured rather than
-    // silently dropped from the band and its counts.
-    const unfrozenDocuments = documents.flatMap((document): UnfrozenDocument[] => {
-      if (document.createdAt > generation.startedAt) return [];
-      if (frozenDocumentIds.has(document._id)) return [];
-      const reason = document.archived
-        ? ("archived" as const)
-        : !document.content.trim()
-          ? ("unreadable" as const)
-          : ("not_captured" as const);
-      return [{ _id: document._id, fileName: document.fileName, reason }];
-    });
-    const budget = await analyzerContextBudget(ctx);
+    // DW-133: a project's lifetime document count is unbounded (uploadDocument
+    // has no cap), so the listing walks the whole index range under the
+    // shared budget instead of a flat take(100), and reports when it had to
+    // stop rather than letting the totals silently undercount. With a partial
+    // source set an unread frozen row is indistinguishable from an unfrozen
+    // document, so the walk is skipped and reported as truncated instead of
+    // mislabelling frozen documents as never captured.
+    let unfrozenDocuments: UnfrozenDocument[] = [];
+    let documentsTruncated = true;
+    if (!sourcesTruncated) {
+      const documentRead = await reads.list(
+        ctx.db
+          .query("projectDocuments")
+          .withIndex("by_projectId", (q) => q.eq("projectId", generation.projectId)),
+        INCLUSION_DOCUMENT_ROWS
+      );
+      documentsTruncated = !documentRead.complete;
+      // CAP-17: every document attached before the reservation is listed. The
+      // reasons mirror reserveGeneration's skip rule (archived, no readable
+      // text); a readable one it never captured — the reservation freezes a
+      // bounded number of documents — is listed as not captured rather than
+      // silently dropped from the band and its counts.
+      unfrozenDocuments = documentRead.rows.flatMap((document): UnfrozenDocument[] => {
+        if (document.createdAt > generation.startedAt) return [];
+        if (frozenDocumentIds.has(document._id)) return [];
+        const reason = document.archived
+          ? ("archived" as const)
+          : !document.content.trim()
+            ? ("unreadable" as const)
+            : ("not_captured" as const);
+        return [{ _id: document._id, fileName: document.fileName, reason }];
+      });
+    }
     return assembleContextInclusion({
       sources: sources.map((row) => ({
         _id: row._id,
@@ -1039,6 +1082,8 @@ export const getContextInclusion = query({
       })),
       unfrozenDocuments,
       fallbackCap: budget.maxDocuments,
+      documentsTruncated,
+      sourcesTruncated,
     });
   },
 });
@@ -1589,10 +1634,11 @@ export const BRIEF_BASELINE_PAGE_BYTES = 4 * 1024 * 1024;
  * transaction with the claimed section row, the fence's candidate run,
  * generation and project, the claim's `ctx.db.patch` of the section row
  * (a patch reads the row it merges into, so it is counted as a read; convex-test
- * charges it the same way), the candidate's three section rows (prior
- * drafts) and the Brief parent: 9 other document reads of at most 1 MiB each.
+ * charges it the same way), the DW-119 `lastProgressAt` patch of the
+ * generation (another merge read), the candidate's three section rows (prior
+ * drafts) and the Brief parent: 10 other document reads of at most 1 MiB each.
  * Convex checks the byte budget after a row is read, so the Brief read can
- * overshoot by at most one row (1 MiB): 9 + 4 + 1 = 14 MiB worst case, under
+ * overshoot by at most one row (1 MiB): 10 + 4 + 1 = 15 MiB worst case, under
  * 16 MiB. `getOrderedCandidateDrafts` (6 other documents, 6 + 4 + 1 = 11 MiB)
  * and `renderBriefForGeneration` (2) have more headroom. A realistic Brief (short
  * derived entries and excerpts) is a small fraction of this; one that exceeds
@@ -3144,36 +3190,146 @@ export const setGenerationEstimate = internalMutation({
 });
 
 
+/** Page size for the running-generation scan: one page of `generations` in
+ * "running" older than the cutoff per transaction. Tests override it through
+ * `pageSize`. */
+export const STALE_GENERATION_SCAN_PAGE_SIZE = 100;
+
+/** The one `staleGenerationScans` row: the scan owner record. */
+const STALE_SCAN_KEY = "stale_generations";
+
+async function staleScanRecord(ctx: MutationCtx) {
+  return await ctx.db
+    .query("staleGenerationScans")
+    .withIndex("by_key", (q) => q.eq("key", STALE_SCAN_KEY))
+    .unique();
+}
+
+const staleScanResultValidator = v.object({
+  failed: v.number(),
+  orphanedRuns: v.number(),
+  scanned: v.number(),
+  isDone: v.boolean(),
+  projectSweepJobId: v.optional(v.id("_scheduled_functions")),
+  skipped: v.optional(
+    v.union(v.literal("scan_in_progress"), v.literal("stale_continuation"))
+  ),
+});
+type StaleScanResult = Infer<typeof staleScanResultValidator>;
+
 /**
  * Ops utility: mark generations stranded in "running"/"pending" (e.g. by the
  * pre-fanout 10-minute action death) as failed and free their projects.
  * `npx convex run generations:failStaleGenerations '{"olderThanMinutes":30}'`
+ *
+ * The running scan is paged (DW-119 review): live ordered chains stay in the
+ * `startedAt < cutoff` range while they progress, so a fixed first page could
+ * hide a stalled generation behind them on every cron run. Each invocation
+ * reads one bounded page and, when more remain, schedules itself with the
+ * continuation cursor and the same cutoff — the same single recovery owner,
+ * never a parallel reaper. Reserved rows, the orphaned-run sweep and the
+ * project sweep run once, on the first page only.
+ *
+ * Single owner across cron ticks: the `staleGenerationScans` singleton names
+ * the scan currently walking the range (a sequence number) and its pending
+ * continuation job. A cursorless (cron or manual) invocation inspects that
+ * job by id and, while it is pending or in progress, returns
+ * `skipped: "scan_in_progress"` without starting a second chain; otherwise
+ * (no job, or one that succeeded, failed or was canceled) it takes ownership
+ * with the next sequence number. Every page stores the job it schedules in
+ * the same transaction, and the last page clears it. A continuation page
+ * whose sequence number the singleton no longer names is stale and returns
+ * `skipped: "stale_continuation"` without reading or scheduling anything.
  */
 export const failStaleGenerations = internalMutation({
-  args: { olderThanMinutes: v.optional(v.number()) },
+  args: {
+    olderThanMinutes: v.optional(v.number()),
+    // Continuation pages only: the first page's cutoff (kept stable so the
+    // cursor stays valid for the same index range), where to resume, and the
+    // scan sequence number this page belongs to.
+    cutoff: v.optional(v.number()),
+    cursor: v.optional(v.union(v.string(), v.null())),
+    scan: v.optional(v.number()),
+    pageSize: v.optional(v.number()),
+  },
   // Declared so the function's type never depends on handler inference: the
-  // handler schedules a sibling function from this module, and inferring the
-  // return type through that reference would be circular.
-  returns: v.object({
-    failed: v.number(),
-    orphanedRuns: v.number(),
-    projectSweepJobId: v.id("_scheduled_functions"),
-  }),
-  handler: async (ctx, args) => {
-    const cutoff = Date.now() - (args.olderThanMinutes ?? 30) * 60 * 1000;
-    const reserved = await ctx.db
-      .query("generations")
-      .withIndex("by_status_and_startedAt", (q) =>
-        q.eq("status", "reserved").lt("startedAt", cutoff)
-      )
-      .take(100);
-    const running = await ctx.db
+  // handler schedules a sibling function from this module (and itself), and
+  // inferring the return type through that reference would be circular.
+  returns: staleScanResultValidator,
+  handler: async (ctx, args): Promise<StaleScanResult> => {
+    const cutoff =
+      args.cutoff ?? Date.now() - (args.olderThanMinutes ?? 30) * 60 * 1000;
+    const firstPage = args.cursor === undefined;
+    const skipped = (reason: "scan_in_progress" | "stale_continuation") => ({
+      failed: 0,
+      orphanedRuns: 0,
+      scanned: 0,
+      isDone: false,
+      skipped: reason,
+    });
+    const owner = await staleScanRecord(ctx);
+    let scan: number;
+    let ownerId: Id<"staleGenerationScans">;
+    if (firstPage) {
+      const continuation = owner?.continuationJobId
+        ? await ctx.db.system.get("_scheduled_functions", owner.continuationJobId)
+        : null;
+      if (
+        continuation &&
+        (continuation.state.kind === "pending" || continuation.state.kind === "inProgress")
+      ) {
+        return skipped("scan_in_progress");
+      }
+      // Take ownership: the next sequence number, no pending page yet.
+      scan = (owner?.scan ?? 0) + 1;
+      const now = Date.now();
+      if (owner) {
+        ownerId = owner._id;
+        await ctx.db.patch(owner._id, {
+          scan,
+          cutoff,
+          continuationJobId: undefined,
+          startedAt: now,
+          updatedAt: now,
+        });
+      } else {
+        ownerId = await ctx.db.insert("staleGenerationScans", {
+          key: STALE_SCAN_KEY,
+          scan,
+          cutoff,
+          startedAt: now,
+          updatedAt: now,
+        });
+      }
+    } else {
+      if (!owner || args.scan === undefined || owner.scan !== args.scan) {
+        return skipped("stale_continuation");
+      }
+      scan = args.scan;
+      ownerId = owner._id;
+    }
+    // A caller may shrink the page (tests) but never grow it past the bound.
+    const pageSize = Math.min(
+      Math.max(1, Math.floor(args.pageSize ?? STALE_GENERATION_SCAN_PAGE_SIZE)),
+      STALE_GENERATION_SCAN_PAGE_SIZE
+    );
+    // Reserved rows never stamp progress, so every one selected here is
+    // failed below and leaves the range: one page per cron run drains them.
+    const reserved = firstPage
+      ? await ctx.db
+          .query("generations")
+          .withIndex("by_status_and_startedAt", (q) =>
+            q.eq("status", "reserved").lt("startedAt", cutoff)
+          )
+          .take(100)
+      : [];
+    const runningPage = await ctx.db
       .query("generations")
       .withIndex("by_status_and_startedAt", (q) =>
         q.eq("status", "running").lt("startedAt", cutoff)
       )
-      .take(100);
-    const stale = [...reserved, ...running];
+      .paginate({ numItems: pageSize, cursor: args.cursor ?? null });
+    const stale = [...reserved, ...runningPage.page];
     let failed = 0;
     for (const generation of stale) {
       // Iterative generations in "running" mean ONE section is drafting; a
@@ -3219,6 +3375,21 @@ export const failStaleGenerations = internalMutation({
           failed += 1;
           continue;
         }
+      }
+      // DW-119 (progress-aware recovery): an ordered single/compare chain
+      // stamps lastProgressAt when a section run is created, claimed or
+      // drafted, so a slow but live chain is aged from its last progress,
+      // not from startedAt. A chain whose current action died (timeout,
+      // deploy restart) stops stamping and is failed here once the same
+      // window elapses from that last stamp — a single stuck action is still
+      // reaped. Iterative never stamps and keeps its per-section path above.
+      if (
+        generation.status === "running" &&
+        (generation.candidateMode ?? "compare") !== "iterative" &&
+        generation.lastProgressAt !== undefined &&
+        generation.lastProgressAt >= cutoff
+      ) {
+        continue;
       }
       failed += 1;
       await ctx.db.patch(generation._id, {
@@ -3266,6 +3437,31 @@ export const failStaleGenerations = internalMutation({
       await refreshProjectGenerationActivity(ctx, generation.projectId);
     }
 
+    if (!runningPage.isDone) {
+      // Failed rows have left the "running" range and live rows stay in it,
+      // but the cursor is an index position rather than an offset, so the
+      // next page resumes exactly after the last row read here. The owner
+      // record names the new page in the same transaction that schedules it.
+      const continuationJobId = await ctx.scheduler.runAfter(
+        0,
+        internal.generations.failStaleGenerations,
+        {
+          cutoff,
+          cursor: runningPage.continueCursor,
+          scan,
+          ...(args.pageSize !== undefined ? { pageSize } : {}),
+        }
+      );
+      await ctx.db.patch(ownerId, { continuationJobId, updatedAt: Date.now() });
+    } else {
+      // The scan's last page: release ownership.
+      await ctx.db.patch(ownerId, { continuationJobId: undefined, updatedAt: Date.now() });
+    }
+    const scanned = runningPage.page.length;
+    if (!firstPage) {
+      return { failed, orphanedRuns: 0, scanned, isDone: runningPage.isDone };
+    }
+
     // Also free projects orphaned in "generating" with no live generation —
     // e.g. the client dies between createProject and requestGeneration, or a
     // legacy failure predates the activeGenerationId cleanup. Without this the
@@ -3305,7 +3501,7 @@ export const failStaleGenerations = internalMutation({
       });
       orphanedRuns += 1;
     }
-    return { failed, orphanedRuns, projectSweepJobId };
+    return { failed, orphanedRuns, scanned, isDone: runningPage.isDone, projectSweepJobId };
   },
 });
 
@@ -3971,7 +4167,9 @@ export const getCandidateScoreSummary = query({
 // section (or finalizeOrderedCandidate) atomically with its writes. No
 // approval gate: iterative's approveSectionDraft is never in this path, and
 // iterative generations never create these rows. A chain stalled between
-// sections is recovered by the existing failStaleGenerations reaper.
+// sections is recovered by the existing failStaleGenerations reaper, which
+// ages the generation from lastProgressAt (DW-119) — stamped by the three
+// chain mutations below — rather than from startedAt.
 
 async function orderedRunsForCandidate(
   ctx: { db: QueryCtx["db"] },
@@ -4070,6 +4268,7 @@ export const createOrderedSectionRuns = internalMutation({
         ...(fence.generation.progressLog ?? []),
         `${fence.run.label}: drafting ${order.join(" → ")} in order; each section is Self-checked before it is shown.`,
       ],
+      lastProgressAt: now,
     });
     await ctx.scheduler.runAfter(0, internal.ai.orderedGeneration.generateOrderedSection, {
       generationId: args.generationId,
@@ -4149,7 +4348,10 @@ export const claimOrderedSectionRun = internalMutation({
       await ctx.db.patch(row._id, { status: "pending" });
       return { stopped: true as const };
     }
-    await ctx.db.patch(row._id, { status: "running", startedAt: Date.now() });
+    const now = Date.now();
+    await ctx.db.patch(row._id, { status: "running", startedAt: now });
+    // DW-119: the claim is chain progress — the reaper's window restarts here.
+    await ctx.db.patch(fence.generation._id, { lastProgressAt: now });
     const priorSections = (await orderedRunsForCandidate(ctx, fence.run._id))
       .filter(
         (prior) =>
@@ -4269,6 +4471,9 @@ export const completeOrderedSectionRun = internalMutation({
         ...(fence.generation.progressLog ?? []),
         `✓ ${fence.run.label}: ${ORDERED_SECTION_TITLES[args.section]} drafted (${checkLabel}).`,
       ],
+      // DW-119: a drafted section (and the next one scheduled below) is
+      // chain progress; the reaper's window restarts here.
+      lastProgressAt: now,
     });
     const next = (await orderedRunsForCandidate(ctx, fence.run._id)).find(
       (candidate) => (candidate.orderIndex ?? 0) === (row.orderIndex ?? 0) + 1

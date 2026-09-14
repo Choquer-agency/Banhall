@@ -1,0 +1,49 @@
+
+ RUN  v4.1.10 /Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a
+
+ ❯ |convex| convex/orderedChainRecovery.test.ts (13 tests | 2 failed) 1775ms
+     × (a) a pending continuation buried under 200+ newer unrelated jobs still fences the next tick 39ms
+     × (c) a continuation whose scan was taken over exits without scanning or scheduling 10ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |convex| convex/orderedChainRecovery.test.ts > DW-119 review: the running scan pages past live chains > (a) a pending continuation buried under 200+ newer unrelated jobs still fences the next tick
+AssertionError: expected [ { …(6) }, { …(6) } ] to have a length of 1 but got 2
+
+- Expected
++ Received
+
+- 1
++ 2
+
+ ❯ convex/orderedChainRecovery.test.ts:472:43
+    470|
+    471|     const tickB = await reapAt(t, T0 + 71 * MINUTES);
+    472|     expect(await scanContinuationJobs(t)).toHaveLength(1);
+       |                                           ^
+    473|     expect(tickB.skipped).toBe("scan_in_progress");
+    474|     expect(tickB.projectSweepJobId).toBeUndefined();
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  |convex| convex/orderedChainRecovery.test.ts > DW-119 review: the running scan pages past live chains > (c) a continuation whose scan was taken over exits without scanning or scheduling
+Error: Cannot use index "by_key" for table "staleGenerationScans" because it is not declared in the schema.
+ ❯ DatabaseFake._resolveQuerySource node_modules/convex-test/dist/index.js:443:31
+ ❯ DatabaseFake._evaluateQuery node_modules/convex-test/dist/index.js:494:54
+ ❯ DatabaseFake.startQuery node_modules/convex-test/dist/index.js:243:30
+ ❯ Object.<anonymous> node_modules/convex-test/dist/index.js:887:36
+ ❯ performSyscall node_modules/convex/src/server/impl/syscall.ts:24:27
+ ❯ QueryImpl.startQuery node_modules/convex/src/server/impl/query_impl.ts:197:24
+ ❯ QueryImpl.[Symbol.asyncIterator] node_modules/convex/src/server/impl/query_impl.ts:251:9
+ ❯ QueryImpl.collect node_modules/convex/src/server/impl/query_impl.ts:317:29
+ ❯ QueryImpl.take node_modules/convex/src/server/impl/query_impl.ts:326:25
+ ❯ QueryImpl.unique node_modules/convex/src/server/impl/query_impl.ts:335:39
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  2 failed | 11 passed (13)
+   Start at  15:07:00
+   Duration  2.43s (transform 1.18s, setup 0ms, import 405ms, tests 1.78s, environment 65ms)
+

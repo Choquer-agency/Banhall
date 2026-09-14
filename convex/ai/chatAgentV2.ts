@@ -34,6 +34,7 @@ import {
 } from "../../shared/styleOverrides";
 import { scrubBannedWordsUnlessWaived } from "../lib/reportEdits";
 import { buildChatTurnRequest, type ChatTurnContext } from "./chatEvidence";
+import { MAX_PROJECT_DOCUMENT_SCAN } from "../chatV2";
 import { describeContextCuts } from "./trustedContext";
 import { preserveReasoningSignature } from "./reasoningSignature";
 import { searchBrainExemplars, formatBrainExemplars } from "./brain/retrieve";
@@ -177,6 +178,8 @@ export interface InventoryContext {
   referenceFileNames: string[];
   unreadableReferenceFileNames: string[];
   selectedReferenceFileName: string | null;
+  /** DW-138: the project's document walk hit its bound; a PD past it was not seen. */
+  documentScanTruncated: boolean;
 }
 
 export type ChatContentDeviation = {
@@ -270,9 +273,19 @@ export async function runCompareReferencePd(
   }
   const quoted = (names: string[]) => names.map((name) => `"${name}"`).join(", ");
   const named = context.selectedReferenceFileName;
+  // DW-138: a bounded walk that stopped short is a limit to STATE on every
+  // outcome, not an absence to report. "None attached" and "the only one"
+  // are claims an incomplete walk cannot make.
+  const truncated = context.documentScanTruncated;
+  const scanNote = truncated
+    ? ` Note: this project's documents were only partly scanned (the walk stops at ${MAX_PROJECT_DOCUMENT_SCAN} documents or at its read budget), so a previous-year report beyond that point was not seen; tell the writer this limit applies.`
+    : "";
+  const scanned = truncated ? "the documents scanned" : "this project's documents";
   switch (context.referenceStatus) {
     case "none":
-      return "This project has no Reference PD attached. Tell the writer that a comparison needs last year's PD uploaded to this project as a previous-year report document, and propose nothing.";
+      return truncated
+        ? `No Reference PD was found among the documents scanned.${scanNote} Tell the writer that a comparison needs last year's PD uploaded to this project as a previous-year report document, and propose nothing.`
+        : "This project has no Reference PD attached. Tell the writer that a comparison needs last year's PD uploaded to this project as a previous-year report document, and propose nothing.";
     case "unreadable":
       // Attached, but intake extracted no text from it (an image-only PDF, a
       // reference-only file, an empty body). Saying "not attached" would be
@@ -281,26 +294,29 @@ export async function runCompareReferencePd(
         context.referenceFileNames.length
           ? ` Readable Reference PD file names: ${quoted(context.referenceFileNames)}.`
           : ""
-      }`;
+      }${scanNote}`;
     case "unparsed":
       // Readable, but its text carries no Line 242/244/246 skeleton, so nothing
       // in it can be anchored to a paragraph of this draft.
-      return `${named ? `"${named}"` : "The attached previous-year report"} could not be read into Line 242, Line 244 and Line 246 sections, so NO comparison was made. Tell the writer the file is attached but its text carries no recognizable section structure, and propose nothing from it.`;
+      return `${named ? `"${named}"` : "The attached previous-year report"} could not be read into Line 242, Line 244 and Line 246 sections, so NO comparison was made. Tell the writer the file is attached but its text carries no recognizable section structure, and propose nothing from it.${scanNote}`;
     case "unknown_name":
-      return `No readable previous-year report named ${named ? `"${named}"` : "that"} is attached to this project. The available Reference PD file names are: ${quoted(context.referenceFileNames)}. Ask the writer which one, or call the tool again with one of those names.`;
+      return `No readable previous-year report named ${named ? `"${named}"` : "that"} was found among ${scanned}. The available Reference PD file names are: ${quoted(context.referenceFileNames)}.${scanNote} Ask the writer which one, or call the tool again with one of those names.`;
     case "ambiguous":
-      return `This project has more than one previous-year report. The available Reference PD file names are: ${quoted(context.referenceFileNames)}. Ask the writer which one to compare against.`;
+      return truncated
+        ? `The document scan was incomplete, so the comparison cannot establish which previous-year report to use. Readable Reference PD file names among the documents scanned: ${quoted(context.referenceFileNames)}.${scanNote} Ask the writer which one to compare against, then call the tool again with that name.`
+        : `This project has more than one previous-year report. The available Reference PD file names are: ${quoted(context.referenceFileNames)}. Ask the writer which one to compare against.`;
     case "resolved":
       break;
   }
   if (!context.reference) {
-    return "The Reference PD could not be resolved, so no comparison was made. Tell the writer and propose nothing.";
+    return `The Reference PD could not be resolved, so no comparison was made. Tell the writer and propose nothing.${scanNote}`;
   }
-  return renderOrExplain({
+  const rendered = renderOrExplain({
     context,
     ...(input.contentDeviations ? { contentDeviations: input.contentDeviations } : {}),
     referenceSections: context.reference.sections,
   });
+  return truncated ? `${rendered}\n\n${scanNote.trim()}` : rendered;
 }
 
 /** CAP-13's tool body: one proposal, one Completion Report, human apply. */

@@ -1,0 +1,65 @@
+convex/ tree at HEAD efd7b18 is byte-identical to e63b4d0 for convex/: 0 changed files
+
+ RUN  v4.1.10 /Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-sweep-validation
+
+ ✓ |convex| convex/contextInclusion.test.ts > getContextInclusion (story 4) > 40 uploaded documents: all frozen, 12 in context under cap 12, inclusion stored per row 414ms
+ ✓ |convex| convex/contextInclusion.test.ts > getContextInclusion (story 4) > lists a readable document the reservation never captured, in the counts 83ms
+ ✓ |convex| convex/contextInclusion.test.ts > getContextInclusion (story 4) > 101 documents: every attached document is counted, past the old 100-row fetch bound (DW-133) 34ms
+ ✓ |convex| convex/contextInclusion.test.ts > getContextInclusion (story 4) > says so when the document read budget stops the listing short (DW-133) 143ms
+ × |convex| convex/contextInclusion.test.ts > getContextInclusion (story 4) > 12 MB of frozen sources: the whole transaction stays under the read limit and the document walk says it stopped (DW-133 review) 729ms
+   → Read too much data in a single function execution (limit: 16777216 bytes). This is a Convex limit: https://docs.convex.dev/production/state/limits
+ × |convex| convex/contextInclusion.test.ts > getContextInclusion (story 4) > bounds the frozen sources themselves when they alone would exceed the budget, and says so (DW-133 review) 272ms
+   → Read too much data in a single function execution (limit: 16777216 bytes). This is a Convex limit: https://docs.convex.dev/production/state/limits
+ ✓ |convex| convex/contextInclusion.test.ts > getContextInclusion (story 4) > returns null to an outsider 4ms
+ ✓ |convex| convex/contextInclusion.test.ts > getContextInclusion (story 4) > lists archived and unreadable documents as not included, and a legacy row with no status 5ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |convex| convex/contextInclusion.test.ts > getContextInclusion (story 4) > 12 MB of frozen sources: the whole transaction stays under the read limit and the document walk says it stopped (DW-133 review)
+Error: Read too much data in a single function execution (limit: 16777216 bytes). This is a Convex limit: https://docs.convex.dev/production/state/limits
+ ❯ performAsyncSyscall node_modules/convex/src/server/impl/syscall.ts:52:10
+ ❯ patch node_modules/convex/src/server/impl/database_impl.ts:113:2
+ ❯ Object.patch node_modules/convex/src/server/impl/database_impl.ts:152:10
+ ❯ handler convex/generations.ts:967:7
+    965|       // failing here would kill an otherwise-good generation.
+    966|       if (!row || row.generationId !== args.generationId) continue;
+    967|       await ctx.db.patch(entry.sourceId, {
+       |       ^
+    968|         contextBudget: {
+    969|           budgetTokens: args.budgetTokens,
+ ❯ invokeFunction node_modules/convex/src/server/impl/registration_impl.ts:90:13
+ ❯ invokeMutation node_modules/convex/src/server/impl/registration_impl.ts:70:17
+ ❯ runMutationWithHandler node_modules/convex-test/dist/index.js:1562:31
+ ❯ Object.mutationFromPath node_modules/convex-test/dist/index.js:1693:32
+ ❯ mutation node_modules/convex-test/dist/index.js:1739:20
+ ❯ recordFromRealReport convex/contextInclusion.test.ts:65:3
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  |convex| convex/contextInclusion.test.ts > getContextInclusion (story 4) > bounds the frozen sources themselves when they alone would exceed the budget, and says so (DW-133 review)
+Error: Read too much data in a single function execution (limit: 16777216 bytes). This is a Convex limit: https://docs.convex.dev/production/state/limits
+ ❯ performAsyncSyscall node_modules/convex/src/server/impl/syscall.ts:52:10
+ ❯ QueryImpl.next node_modules/convex/src/server/impl/query_impl.ts:264:28
+ ❯ QueryImpl.collect node_modules/convex/src/server/impl/query_impl.ts:317:21
+ ❯ handler convex/generations.ts:1009:21
+    1007|       return null;
+    1008|     }
+    1009|     const sources = await ctx.db
+       |                     ^
+    1010|       .query("generationSources")
+    1011|       .withIndex("by_generationId", (q) => q.eq("generationId", genera…
+ ❯ invokeFunction node_modules/convex/src/server/impl/registration_impl.ts:90:13
+ ❯ invokeQuery node_modules/convex/src/server/impl/registration_impl.ts:350:17
+ ❯ runQueryWithHandler node_modules/convex-test/dist/index.js:1595:31
+ ❯ Object.queryFromPath node_modules/convex-test/dist/index.js:1649:32
+ ❯ query node_modules/convex-test/dist/index.js:1730:20
+ ❯ convex/contextInclusion.test.ts:291:23
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  2 failed | 6 passed (8)
+   Start at  12:58:01
+   Duration  2.22s (transform 588ms, setup 0ms, import 283ms, tests 1.68s, environment 64ms)
+

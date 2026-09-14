@@ -1,0 +1,592 @@
+12:45:05 p.m. [vite-plugin-svelte] no Svelte config found at /Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-sweep-validation - using default configuration.
+
+ RUN  v4.1.10 /Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-sweep-validation
+
+12:45:05 p.m. [vite-plugin-svelte] no Svelte config found at /Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-sweep-validation - using default configuration.
+ ✓ |component (chromium)| src/lib/components/brief/BriefRailPanel.component.test.ts > BriefRailPanel > renders nothing when all three reads come back empty (a legacy generation) 9ms
+ ✓ |component (chromium)| src/lib/components/brief/BriefRailPanel.component.test.ts > BriefRailPanel > shows the Inputs band while a generation runs, before any Brief exists 34ms
+ ✓ |component (chromium)| src/lib/components/brief/BriefRailPanel.component.test.ts > BriefRailPanel > saves an edit through saveEntryEdit with the project, Brief and version fence 199ms
+ ✓ |component (chromium)| src/lib/components/brief/BriefRailPanel.component.test.ts > BriefRailPanel > pins the Brief version when a field opens, so a concurrent edit landing mid-edit is not silently adopted 92ms
+ ✓ |component (chromium)| src/lib/components/brief/BriefRailPanel.component.test.ts > BriefRailPanel > maps BRIEF_STALE to the stale copy and keeps the draft 76ms
+ ✓ |component (chromium)| src/lib/components/brief/BriefRailPanel.component.test.ts > BriefRailPanel > dismisses the settings offer for this project and remembers it 34ms
+ ✓ |component (chromium)| src/lib/components/brief/BriefRailPanel.component.test.ts > BriefRailPanel > stays absent when only an archived document is listed for a legacy generation 1ms
+ ✓ |component (chromium)| src/lib/components/brief/BriefRailPanel.component.test.ts > BriefRailPanel > clears a stale save message once the writer abandons the edit 56ms
+ ✓ |component (chromium)| src/lib/components/brief/BriefRailPanel.component.test.ts > BriefRailPanel > keeps the rail chrome at 500 weight and 44px targets 5ms
+ × |component (chromium)| src/lib/components/brief/BriefRailPanel.component.test.ts > BriefRailPanel > read failures (DW-128) > shows a plain error line in the rail instead of disappearing when a Brief read fails 102ms
+   → expected undefined to be 'Couldn\'t load the Generation Brief. …' // Object.is equality
+ × |component (chromium)| src/lib/components/brief/BriefRailPanel.component.test.ts > BriefRailPanel > read failures (DW-128) > shows the error line for the inline placement, whichever read failed 45ms
+   → expected undefined to be 'Couldn\'t load the Generation Brief. …' // Object.is equality
+ ✓ |component (chromium)| src/lib/components/brief/BriefRailPanel.component.test.ts > BriefRailPanel > read failures (DW-128) > stays hidden while the reads are still loading, and renders once data lands 3ms
+ ✓ |component (chromium)| src/lib/components/brief/BriefRailPanel.component.test.ts > BriefRailPanel > wears the rail card chrome with a close button in rail mode 28ms
+ ✓ |component (chromium)| src/lib/components/project/BriefWorkspace.component.test.ts > opens the Brief from its launcher, and chat or QA takes the rail back 1345ms
+ ✓ |component (chromium)| src/lib/components/project/BriefWorkspace.component.test.ts > remembers an open Brief, and a remembered QA still wins the rail 95ms
+ ✓ |component (chromium)| src/lib/components/project/BriefWorkspace.component.test.ts > steps the Brief pill past every other visible pill 59ms
+ ✓ |component (chromium)| src/lib/components/project/BriefWorkspace.component.test.ts > is absent for a legacy generation that recorded nothing 18ms
+ × |component (chromium)| src/lib/components/project/BriefWorkspace.component.test.ts > keeps the launcher when a Brief read fails, and the rail says so (DW-128) 15096ms
+   → Cannot find element with locator: getByRole('button', { name: 'Open Brief', exact: true })
+
+[36m<body>[39m
+  [36m<div>[39m
+    [90m<!---->[39m
+    [36m<div[39m
+      [33mclass[39m=[32m"flex h-screen flex-col overflow-hidden bg-canvas"[39m
+    [36m>[39m
+      [36m<header[39m …[36m />[39m
+      [90m<!---->[39m
+      [0m  [0m
+      [36m<div[39m …[36m />[39m
+      [0m [0m
+      [36m<div[39m …[36m />[39m
+      [90m<!---->[39m
+      [0m [0m
+      [90m<!---->[39m
+      [0m [0m
+      [90m<!---->[39m
+      [0m [0m
+      [90m<!---->[39m
+      [0m [0m
+      [90m<!---->[39m
+      [0m [0m
+      [36m<div[39m …[36m />[39m
+      [90m<!---->[39m
+      [0m [0m
+      [90m<!---->[39m
+      [0m [0m
+      [90m<!---->[39m
+      [0m [0m
+      [90m<!---->[39m
+      [90m<!---->[39m
+      [0m [0m
+      [90m<!---->[39m
+      [90m<!---->[39m
+      [0m [0m
+      [90m<!---->[39m
+      [0m [0m
+      [90m<!---->[39m
+      [0m [0m
+      [90m<!---->[39m
+      [0m [0m
+      [90m<!---->[39m
+      [0m [0m
+      [90m<!---->[39m
+      [0m [0m
+      [90m<!---->[39m
+      [0m [0m
+      [90m<!---->[39m
+      [0m [0m
+      [90m<!---->[39m
+      [0m [0m
+      [90m<!---->[39m
+    [36m</div>[39m
+    [0m[0m
+    [0m[0m
+  [36m</div>[39m
+  [90m<!---->[39m
+  [90m<!---->[39m
+  [90m<!---->[39m
+  [90m<!---->[39m
+  [90m<!---->[39m
+  [0m[0m
+  [0m[0m
+  [0m[0m
+  [0m[0m
+  [0m[0m
+  [0m[0m
+  [90m<!---->[39m
+  [90m<!---->[39m
+  [90m<!---->[39m
+  [90m<!---->[39m
+  [90m<!---->[39m
+  [0m[0m
+  [0m[0m
+  [0m[0m
+  [0m[0m
+  [0m[0m
+  [0m[0m
+  [90m<!---->[39m
+  [90m<!---->[39m
+  [90m<!---->[39m
+  [90m<!---->[39m
+  [90m<!---->[39m
+  [0m[0m
+  [0m[0m
+  [0m[0m
+  [0m[0m
+  [0m[0m
+  [0m[0m
+  [90m<!---->[39m
+  [90m<!---->[39m
+  [90m<!---->[39m
+  [90m<!---->[39m
+  [90m<!---->[39m
+  [0m[0m
+  [0m[0m
+  [0m[0m
+  [0m[0m
+  [0m[0m
+  [0m[0m
+  [90m<!---->[39m
+  [90m<!---->[39m
+  [90m<!---->[39m
+  [90m<!---->[39m
+  [90m<!---->[39m
+  [0m[0m
+  [0m[0m
+  [0m[0m
+  [0m[0m
+  [0m[0m
+  [0m[0m
+  [90m<!---->[39m
+  [90m<!---->[39m
+  [90m<!---->[39m
+  [90m<!---->[39m
+  [90m<!---->[39m
+  [90m<!---->[39m
+  [90m<!---->[39m
+  [0m[0m
+  [0m[0m
+  [0m[0m
+  [0m[0m
+  [90m<!---->[39m
+  [0m [0m
+  [36m<div[39m
+    [33mclass[39m=[32m"pointer-events-none fixed inset-0 z-[120] flex items-end sm:items-center sm:justify-center sm:p-4"[39m
+  [36m>[39m
+    [90m<!---->[39m
+    [90m<!---->[39m
+    [90m<!---->[39m
+    [90m<!---->[39m
+    [90m<!---->[39m
+    [90m<!---->[39m
+    [90m<!---->[39m
+    [90m<!---->[39m
+    [0m [0m
+    [90m<!---->[39m
+    [0m[0m
+    [90m<!---->[39m
+    [0m[0m
+    [0m[0m
+    [0m[0m
+    [0m[0m
+    [0m[0m
+    [0m[0m
+    [90m<!---->[39m
+  [36m</div>[39m
+  [0m[0m
+  [0m[0m
+  [0m[0m
+  [90m<!---->[39m
+  [90m<!---->[39m
+  [90m<!---->[39m
+  [90m<!---->[39m
+  [90m<!---->[39m
+  [90m<!---->[39m
+  [90m<!---->[39m
+  [0m[0m
+  [0m[0m
+  [0m[0m
+  [0m[0m
+  [90m<!---->[39m
+  [0m [0m
+  [36m<div[39m
+    [33mclass[39m=[32m"pointer-events-none fixed inset-0 z-[130] flex items-end sm:items-center sm:justify-center sm:p-4"[39m
+  [36m>[39m
+    [90m<!---->[39m
+    [90m<!---->[39m
+    [90m<!---->[39m
+    [90m<!---->[39m
+    [90m<!---->[39m
+    [90m<!---->[39m
+    [90m<!---->[39m
+    [90m<!---->[39m
+    [0m [0m
+    [90m<!---->[39m
+    [0m[0m
+    [90m<!---->[39m
+    [0m[0m
+    [0m[0m
+    [0m[0m
+    [0m[0m
+    [0m[0m
+    [0m[0m
+    [90m<!---->[39m
+  [36m</div>[39m
+  [0m[0m
+  [0m[0m
+  [0m[0m
+  [90m<!---->[39m
+  [90m<!---->[39m
+  [90m<!---->[39m
+  [90m<!---->[39m
+  [90m<!---->[39m
+  [0m[0m
+  [0m[0m
+  [0m[0m
+  [0m[0m
+  [0m[0m
+  [0m[0m
+  [90m<!---->[39m
+  [90m<!---->[39m
+  [90m<!---->[39m
+  [90m<!---->[39m
+  [90m<!---->[39m
+  [0m[0m
+  [0m[0m
+  [0m[0m
+  [0m[0m
+  [0m[0m
+  [0m[0m
+  [90m<!---->[39m
+  [90m<!---->[39m
+  [90m<!---->[39m
+  [90m<!---->[39m
+  [90m<!---->[39m
+  [0m[0m
+  [0m[0m
+  [0m[0m
+  [0m[0m
+  [0m[0m
+  [0m[0m
+  [90m<!---->[39m
+  [90m<!---->[39m
+  [90m<!---->[39m
+  [90m<!---->[39m
+  [90m<!---->[39m
+  [0m[0m
+  [0m[0m
+  [0m[0m
+  [0m[0m
+  [0m[0m
+  [0m[0m
+  [90m<!---->[39m
+  [90m<!---->[39m
+  [90m<!---->[39m
+  [90m<!---->[39m
+  [90m<!---->[39m
+  [0m[0m
+  [0m[0m
+  [0m[0m
+  [0m[0m
+  [0m[0m
+  [0m[0m
+[36m</body>[39m...
+ ✓ |component (chromium)| src/lib/components/project/BriefWorkspace.component.test.ts > shows the Brief under the progress card while generating, for the running generation only 19ms
+ ✓ |component (chromium)| src/lib/components/project/BriefWorkspace.component.test.ts > keeps the rail and the progress panel on one generation during a regeneration 20ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 3 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |component (chromium)| src/lib/components/brief/BriefRailPanel.component.test.ts > BriefRailPanel > read failures (DW-128) > shows a plain error line in the rail instead of disappearing when a Brief read fails
+AssertionError: expected undefined to be 'Couldn\'t load the Generation Brief. …' // Object.is equality
+
+Failure screenshot:
+  - src/lib/components/brief/__screenshots__/BriefRailPanel.component.test.ts/BriefRailPanel-read-failures--DW-128--shows-a-plain-error-line-in-the-rail-instead-of-disappearing-when-a-Brief-read-fails-2.png
+
+[32m- Expected:[39m
+"Couldn't load the Generation Brief. Try reloading the page."
+
+[31m+ Received:[39m
+undefined
+
+ ❯ src/lib/components/brief/BriefRailPanel.component.test.ts:276:41
+    274|
+    275|       const alert = container.querySelector('[role="alert"]');
+    276|       expect(alert?.textContent?.trim()).toBe(LOAD_ERROR);
+       |                                         ^
+    277|       // The rail card chrome stays, so the writer can still close it.
+    278|       expect(page.getByRole("button", { name: "Close Brief" }).element…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/3]⎯
+
+ FAIL  |component (chromium)| src/lib/components/brief/BriefRailPanel.component.test.ts > BriefRailPanel > read failures (DW-128) > shows the error line for the inline placement, whichever read failed
+AssertionError: expected undefined to be 'Couldn\'t load the Generation Brief. …' // Object.is equality
+
+Failure screenshot:
+  - src/lib/components/brief/__screenshots__/BriefRailPanel.component.test.ts/BriefRailPanel-read-failures--DW-128--shows-the-error-line-for-the-inline-placement--whichever-read-failed-1.png
+
+[32m- Expected:[39m
+"Couldn't load the Generation Brief. Try reloading the page."
+
+[31m+ Received:[39m
+undefined
+
+ ❯ src/lib/components/brief/BriefRailPanel.component.test.ts:290:77
+    288|       __setQueryError("generations:getContextInclusion", new Error("Se…
+    289|       const { container } = await render(BriefRailPanel, { generationI…
+    290|       expect(container.querySelector('[role="alert"]')?.textContent?.t…
+       |                                                                             ^
+    291|       expect(container.querySelector("aside")).toBeNull();
+    292|     });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/3]⎯
+
+ FAIL  |component (chromium)| src/lib/components/project/BriefWorkspace.component.test.ts > keeps the launcher when a Brief read fails, and the rail says so (DW-128)
+VitestBrowserElementError: Cannot find element with locator: getByRole('button', { name: 'Open Brief', exact: true })
+
+[36m<body>[39m
+  [36m<div>[39m
+    [90m<!---->[39m
+    [36m<div[39m
+      [33mclass[39m=[32m"flex h-screen flex-col overflow-hidden bg-canvas"[39m
+    [36m>[39m
+      [36m<header[39m …[36m />[39m
+      [90m<!---->[39m
+      [0m  [0m
+      [36m<div[39m …[36m />[39m
+      [0m [0m
+      [36m<div[39m …[36m />[39m
+      [90m<!---->[39m
+      [0m [0m
+      [90m<!---->[39m
+      [0m [0m
+      [90m<!---->[39m
+      [0m [0m
+      [90m<!---->[39m
+      [0m [0m
+      [90m<!---->[39m
+      [0m [0m
+      [36m<div[39m …[36m />[39m
+      [90m<!---->[39m
+      [0m [0m
+      [90m<!---->[39m
+      [0m [0m
+      [90m<!---->[39m
+      [0m [0m
+      [90m<!---->[39m
+      [90m<!---->[39m
+      [0m [0m
+      [90m<!---->[39m
+      [90m<!---->[39m
+      [0m [0m
+      [90m<!---->[39m
+      [0m [0m
+      [90m<!---->[39m
+      [0m [0m
+      [90m<!---->[39m
+      [0m [0m
+      [90m<!---->[39m
+      [0m [0m
+      [90m<!---->[39m
+      [0m [0m
+      [90m<!---->[39m
+      [0m [0m
+      [90m<!---->[39m
+      [0m [0m
+      [90m<!---->[39m
+      [0m [0m
+      [90m<!---->[39m
+    [36m</div>[39m
+    [0m[0m
+    [0m[0m
+  [36m</div>[39m
+  [90m<!---->[39m
+  [90m<!---->[39m
+  [90m<!---->[39m
+  [90m<!---->[39m
+  [90m<!---->[39m
+  [0m[0m
+  [0m[0m
+  [0m[0m
+  [0m[0m
+  [0m[0m
+  [0m[0m
+  [90m<!---->[39m
+  [90m<!---->[39m
+  [90m<!---->[39m
+  [90m<!---->[39m
+  [90m<!---->[39m
+  [0m[0m
+  [0m[0m
+  [0m[0m
+  [0m[0m
+  [0m[0m
+  [0m[0m
+  [90m<!---->[39m
+  [90m<!---->[39m
+  [90m<!---->[39m
+  [90m<!---->[39m
+  [90m<!---->[39m
+  [0m[0m
+  [0m[0m
+  [0m[0m
+  [0m[0m
+  [0m[0m
+  [0m[0m
+  [90m<!---->[39m
+  [90m<!---->[39m
+  [90m<!---->[39m
+  [90m<!---->[39m
+  [90m<!---->[39m
+  [0m[0m
+  [0m[0m
+  [0m[0m
+  [0m[0m
+  [0m[0m
+  [0m[0m
+  [90m<!---->[39m
+  [90m<!---->[39m
+  [90m<!---->[39m
+  [90m<!---->[39m
+  [90m<!---->[39m
+  [0m[0m
+  [0m[0m
+  [0m[0m
+  [0m[0m
+  [0m[0m
+  [0m[0m
+  [90m<!---->[39m
+  [90m<!---->[39m
+  [90m<!---->[39m
+  [90m<!---->[39m
+  [90m<!---->[39m
+  [90m<!---->[39m
+  [90m<!---->[39m
+  [0m[0m
+  [0m[0m
+  [0m[0m
+  [0m[0m
+  [90m<!---->[39m
+  [0m [0m
+  [36m<div[39m
+    [33mclass[39m=[32m"pointer-events-none fixed inset-0 z-[120] flex items-end sm:items-center sm:justify-center sm:p-4"[39m
+  [36m>[39m
+    [90m<!---->[39m
+    [90m<!---->[39m
+    [90m<!---->[39m
+    [90m<!---->[39m
+    [90m<!---->[39m
+    [90m<!---->[39m
+    [90m<!---->[39m
+    [90m<!---->[39m
+    [0m [0m
+    [90m<!---->[39m
+    [0m[0m
+    [90m<!---->[39m
+    [0m[0m
+    [0m[0m
+    [0m[0m
+    [0m[0m
+    [0m[0m
+    [0m[0m
+    [90m<!---->[39m
+  [36m</div>[39m
+  [0m[0m
+  [0m[0m
+  [0m[0m
+  [90m<!---->[39m
+  [90m<!---->[39m
+  [90m<!---->[39m
+  [90m<!---->[39m
+  [90m<!---->[39m
+  [90m<!---->[39m
+  [90m<!---->[39m
+  [0m[0m
+  [0m[0m
+  [0m[0m
+  [0m[0m
+  [90m<!---->[39m
+  [0m [0m
+  [36m<div[39m
+    [33mclass[39m=[32m"pointer-events-none fixed inset-0 z-[130] flex items-end sm:items-center sm:justify-center sm:p-4"[39m
+  [36m>[39m
+    [90m<!---->[39m
+    [90m<!---->[39m
+    [90m<!---->[39m
+    [90m<!---->[39m
+    [90m<!---->[39m
+    [90m<!---->[39m
+    [90m<!---->[39m
+    [90m<!---->[39m
+    [0m [0m
+    [90m<!---->[39m
+    [0m[0m
+    [90m<!---->[39m
+    [0m[0m
+    [0m[0m
+    [0m[0m
+    [0m[0m
+    [0m[0m
+    [0m[0m
+    [90m<!---->[39m
+  [36m</div>[39m
+  [0m[0m
+  [0m[0m
+  [0m[0m
+  [90m<!---->[39m
+  [90m<!---->[39m
+  [90m<!---->[39m
+  [90m<!---->[39m
+  [90m<!---->[39m
+  [0m[0m
+  [0m[0m
+  [0m[0m
+  [0m[0m
+  [0m[0m
+  [0m[0m
+  [90m<!---->[39m
+  [90m<!---->[39m
+  [90m<!---->[39m
+  [90m<!---->[39m
+  [90m<!---->[39m
+  [0m[0m
+  [0m[0m
+  [0m[0m
+  [0m[0m
+  [0m[0m
+  [0m[0m
+  [90m<!---->[39m
+  [90m<!---->[39m
+  [90m<!---->[39m
+  [90m<!---->[39m
+  [90m<!---->[39m
+  [0m[0m
+  [0m[0m
+  [0m[0m
+  [0m[0m
+  [0m[0m
+  [0m[0m
+  [90m<!---->[39m
+  [90m<!---->[39m
+  [90m<!---->[39m
+  [90m<!---->[39m
+  [90m<!---->[39m
+  [0m[0m
+  [0m[0m
+  [0m[0m
+  [0m[0m
+  [0m[0m
+  [0m[0m
+  [90m<!---->[39m
+  [90m<!---->[39m
+  [90m<!---->[39m
+  [90m<!---->[39m
+  [90m<!---->[39m
+  [0m[0m
+  [0m[0m
+  [0m[0m
+  [0m[0m
+  [0m[0m
+  [0m[0m
+[36m</body>[39m...
+
+Failure screenshot:
+  - src/lib/components/project/__screenshots__/BriefWorkspace.component.test.ts/keeps-the-launcher-when-a-Brief-read-fails--and-the-rail-says-so--DW-128--1.png
+
+ ❯ src/lib/components/project/BriefWorkspace.component.test.ts:190:36
+    188|   await expect.element(page.getByText("Evidence from thermal trials.",…
+    189|
+    190|   await expect.element(briefPill()).toBeVisible();
+       |                                    ^
+    191|   await briefPill().click();
+    192|   await expect.element(closeBrief()).toBeVisible();
+
+Caused by: Error: Matcher did not succeed in time.
+ ❯ src/lib/components/project/BriefWorkspace.component.test.ts:190:2
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/3]⎯
+
+
+ Test Files  2 failed (2)
+      Tests  3 failed | 17 passed (20)
+   Start at  12:45:05
+   Duration  28.69s (transform 0ms, setup 968ms, import 8.84s, tests 17.34s, environment 0ms)
+

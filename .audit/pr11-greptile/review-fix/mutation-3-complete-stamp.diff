@@ -1,0 +1,12 @@
+--- /private/tmp/claude-501/-Users-johnnynguyen-Documents-Repos-Banhall/74c117b1-0ee2-4aa9-a3bd-3095316a1935/scratchpad/generations.ts.snapshot	2026-09-14 12:55:45
++++ convex/generations.ts	2026-09-14 12:56:10
+@@ -3843,9 +3843,6 @@
+         ...(fence.generation.progressLog ?? []),
+         `✓ ${fence.run.label}: ${ORDERED_SECTION_TITLES[args.section]} drafted (${checkLabel}).`,
+       ],
+-      // DW-119: a drafted section (and the next one scheduled below) is
+-      // chain progress; the reaper's window restarts here.
+-      lastProgressAt: now,
+     });
+     const next = (await orderedRunsForCandidate(ctx, fence.run._id)).find(
+       (candidate) => (candidate.orderIndex ?? 0) === (row.orderIndex ?? 0) + 1

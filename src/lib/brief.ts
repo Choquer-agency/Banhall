@@ -56,14 +56,46 @@ export type InclusionRow = {
   reason?: InclusionReason;
 };
 
-/** "12 of 40 documents in context · cap 12" */
+/**
+ * "12 of 40 documents in context · cap 12". A truncated listing (DW-133) reads
+ * "12 of 40+ documents…": the `+` is the app's bounded-count qualifier, so the
+ * total is never presented as the whole attachment list when it is not. When
+ * the frozen sources themselves were cut short an unread row may be an
+ * included document, so the numerator is qualified too: "12+ of 40+".
+ */
 export function inclusionHeader(input: {
   documentsInContext: number;
   documentsTotal: number;
   cap: number;
+  documentsTruncated?: boolean;
+  sourcesTruncated?: boolean;
 }): string {
-  return `${input.documentsInContext} of ${input.documentsTotal} documents in context · cap ${input.cap}`;
+  const inContext = input.sourcesTruncated
+    ? `${input.documentsInContext}+`
+    : `${input.documentsInContext}`;
+  const total =
+    input.documentsTruncated || input.sourcesTruncated
+      ? `${input.documentsTotal}+`
+      : `${input.documentsTotal}`;
+  return `${inContext} of ${total} documents in context · cap ${input.cap}`;
 }
+
+/** Which part of the Inputs listing was cut short, if any. */
+export function inclusionTruncation(input: {
+  documentsTruncated?: boolean;
+  sourcesTruncated?: boolean;
+}): "sources" | "documents" | null {
+  if (input.sourcesTruncated) return "sources";
+  if (input.documentsTruncated) return "documents";
+  return null;
+}
+
+/** Shown under an Inputs listing whose document walk was cut short; the frozen set is complete. */
+export const INCLUSION_TRUNCATED_NOTE =
+  "Not every document could be listed. The total is a lower bound.";
+/** Shown when the frozen sources themselves were cut short: transcripts and documents may be missing. */
+export const INCLUSION_SOURCES_TRUNCATED_NOTE =
+  "Not every transcript or document could be listed. Both counts are lower bounds.";
 
 /** The row's status text: "included", "not included · archived", or "" when unrecorded. */
 export function inclusionStatusText(row: Pick<InclusionRow, "inclusion" | "reason">): string {

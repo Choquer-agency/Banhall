@@ -1,0 +1,72 @@
+UI files swapped to their ded3034 blobs for this run (test file is the final review-fix-2 version):
+  src/lib/brief.ts e95b134cdee4978d502af801abf3618e13fcc0c7 == e95b134cdee4978d502af801abf3618e13fcc0c7
+  src/lib/components/brief/BriefRail.svelte b287b93e003d4e2c2bd813b4ee3a4c667f3ff1ca == b287b93e003d4e2c2bd813b4ee3a4c667f3ff1ca
+3:17:58 p.m. [vite-plugin-svelte] no Svelte config found at /Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-sweep-validation - using default configuration.
+
+ RUN  v4.1.10 /Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-sweep-validation
+
+3:17:58 p.m. [vite-plugin-svelte] no Svelte config found at /Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-sweep-validation - using default configuration.
+ ✓ |component (chromium)| src/lib/components/brief/BriefRail.component.test.ts > BriefRail > lists every document with exactly one status and the counted header 41ms
+ × |component (chromium)| src/lib/components/brief/BriefRail.component.test.ts > BriefRail > qualifies the header and adds a note when the document listing was cut short (DW-133) 124ms
+   → expected '' to be 'documents' // Object.is equality
+ × |component (chromium)| src/lib/components/brief/BriefRail.component.test.ts > BriefRail > discloses cut-short frozen sources: both counts qualified and the note names transcripts (DW-133 review 2) 101ms
+   → expected 'Brief    Inputs 3 of 3+ documents in …' to contain '3+ of 3+ documents in context · cap 12'
+ ✓ |component (chromium)| src/lib/components/brief/BriefRail.component.test.ts > BriefRail > saves an edit with Ctrl+Enter, reverts on Esc and calls nothing when unchanged 228ms
+ ✓ |component (chromium)| src/lib/components/brief/BriefRail.component.test.ts > BriefRail > saves an entry edit through onSaveEntry with the entry it belongs to 58ms
+ ✓ |component (chromium)| src/lib/components/brief/BriefRail.component.test.ts > BriefRail > shows the edited origin chip and regenerates from the rail 33ms
+ ✓ |component (chromium)| src/lib/components/brief/BriefRail.component.test.ts > BriefRail > hides the regenerate action until the Brief is edited 5ms
+ ✓ |component (chromium)| src/lib/components/brief/BriefRail.component.test.ts > BriefRail > resolves a Storyline question with either side 61ms
+ ✓ |component (chromium)| src/lib/components/brief/BriefRail.component.test.ts > BriefRail > shows the no-profile line and the save offer, and dismisses the offer 33ms
+ ✓ |component (chromium)| src/lib/components/brief/BriefRail.component.test.ts > BriefRail > shows the Inputs band before any Brief exists, with no Brief groups 3ms
+ ✓ |component (chromium)| src/lib/components/brief/BriefRail.component.test.ts > BriefRail > is read-only without edit capability, and shows a stale save message 4ms
+ ✓ |component (chromium)| src/lib/components/brief/BriefRail.component.test.ts > BriefRail > keeps every weight at 500 or below, every target at 44px, and never says approve 8ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |component (chromium)| src/lib/components/brief/BriefRail.component.test.ts > BriefRail > qualifies the header and adds a note when the document listing was cut short (DW-133)
+AssertionError: expected '' to be 'documents' // Object.is equality
+
+Failure screenshot:
+  - src/lib/components/brief/__screenshots__/BriefRail.component.test.ts/BriefRail-qualifies-the-header-and-adds-a-note-when-the-document-listing-was-cut-short--DW-133--1.png
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- documents[39m
+
+ ❯ src/lib/components/brief/BriefRail.component.test.ts:119:59
+    117|     expect(container.textContent).toContain("12 of 40+ documents in co…
+    118|     const note = container.querySelector("[data-inclusion-truncated]");
+    119|     expect(note?.getAttribute("data-inclusion-truncated")).toBe("docum…
+       |                                                           ^
+    120|     expect(note?.textContent?.trim()).toBe(
+    121|       "Not every document could be listed. The total is a lower bound."
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  |component (chromium)| src/lib/components/brief/BriefRail.component.test.ts > BriefRail > discloses cut-short frozen sources: both counts qualified and the note names transcripts (DW-133 review 2)
+AssertionError: expected 'Brief    Inputs 3 of 3+ documents in …' to contain '3+ of 3+ documents in context · cap 12'
+
+Failure screenshot:
+  - src/lib/components/brief/__screenshots__/BriefRail.component.test.ts/BriefRail-discloses-cut-short-frozen-sources--both-counts-qualified-and-the-note-names-transcripts--DW-133-review-2--2.png
+
+Expected: [32m"3[7m+[27m of 3+ documents in context · cap 12"[39m
+Received: [31m"[7mBrief    Inputs [27m3 of 3+ documents in context · cap 12[7m  Interview transcript includedattachment-0.txt includedattachment-1.txt includedattachment-2.txt included Not every document could be listed. The counts are a lower bound.   Storyline   The team pursued a custom control loop to stabilize output. derived The team pursued a custom control loop. derived   Interview transcript   Claim Exclusions 1   Confidence Map 1   Glossary Terms 1   [27m"[39m
+
+ ❯ src/lib/components/brief/BriefRail.component.test.ts:158:34
+    156|       path: "../../../../.vitest-attachments/DW-133-review-2/brief-rai…
+    157|     });
+    158|     expect(container.textContent).toContain("3+ of 3+ documents in con…
+       |                                  ^
+    159|     const note = container.querySelector("[data-inclusion-truncated]");
+    160|     expect(note?.getAttribute("data-inclusion-truncated")).toBe("sourc…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  2 failed | 10 passed (12)
+   Start at  15:17:58
+   Duration  3.40s (transform 0ms, setup 787ms, import 448ms, tests 701ms, environment 0ms)
+
+exit=1

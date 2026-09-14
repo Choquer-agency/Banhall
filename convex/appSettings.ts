@@ -9,7 +9,7 @@ import { v } from "convex/values";
 import { requireRole } from "./lib/auth";
 import { domainError } from "./lib/contracts";
 import { MODEL, modelById } from "../shared/generationModels";
-import type { Id } from "./_generated/dataModel";
+import type { Doc, Id } from "./_generated/dataModel";
 import {
   DEFAULT_CONTEXT_BUDGET,
   type ContextBudget,
@@ -78,12 +78,17 @@ export async function defaultModelId(ctx: QueryCtx | MutationCtx): Promise<strin
 async function readPositiveInt(
   ctx: QueryCtx | MutationCtx,
   key: string,
-  fallback: number
+  fallback: number,
+  onRead?: (row: Doc<"appSettings"> | null) => void
 ): Promise<number> {
   const row = await ctx.db
     .query("appSettings")
     .withIndex("by_key", (q) => q.eq("key", key))
     .unique();
+  // The row is charged to the caller's budget as read, whatever it holds: a
+  // `value` is an unrestricted string, so a setting can be as large as any
+  // other document even when it still parses.
+  onRead?.(row);
   if (!row) return fallback;
   // Plain decimal digits only: Number() would happily read "1e9" or
   // "0x2710" as a valid positive integer that means nothing like what an
@@ -99,30 +104,39 @@ async function readPositiveInt(
  * falls back to its module constant when the row is absent, unparseable or
  * non-positive — same rule as `defaultModelId`: a stale or fat-fingered
  * setting must never break generations.
+ *
+ * `onRead` receives each of the four rows (or null) as it is read, so a
+ * caller running under a transaction read budget (DW-133,
+ * generations.getContextInclusion) can charge the bytes actually read.
  */
 export async function analyzerContextBudget(
-  ctx: QueryCtx | MutationCtx
+  ctx: QueryCtx | MutationCtx,
+  onRead?: (row: Doc<"appSettings"> | null) => void
 ): Promise<ContextBudget> {
   return {
     totalTokens: await readPositiveInt(
       ctx,
       ANALYZER_CONTEXT_BUDGET_KEY,
-      DEFAULT_CONTEXT_BUDGET.totalTokens
+      DEFAULT_CONTEXT_BUDGET.totalTokens,
+      onRead
     ),
     transcriptTokens: await readPositiveInt(
       ctx,
       ANALYZER_TRANSCRIPT_BUDGET_KEY,
-      DEFAULT_CONTEXT_BUDGET.transcriptTokens
+      DEFAULT_CONTEXT_BUDGET.transcriptTokens,
+      onRead
     ),
     perDocumentTokens: await readPositiveInt(
       ctx,
       ANALYZER_DOCUMENT_BUDGET_KEY,
-      DEFAULT_CONTEXT_BUDGET.perDocumentTokens
+      DEFAULT_CONTEXT_BUDGET.perDocumentTokens,
+      onRead
     ),
     maxDocuments: await readPositiveInt(
       ctx,
       ANALYZER_MAX_DOCUMENTS_KEY,
-      DEFAULT_CONTEXT_BUDGET.maxDocuments
+      DEFAULT_CONTEXT_BUDGET.maxDocuments,
+      onRead
     ),
   };
 }

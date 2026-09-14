@@ -1,0 +1,11 @@
+--- /private/tmp/claude-501/-Users-johnnynguyen-Documents-Repos-Banhall/74c117b1-0ee2-4aa9-a3bd-3095316a1935/scratchpad/generations.ts.snapshot	2026-09-14 12:55:45
++++ convex/generations.ts	2026-09-14 12:55:59
+@@ -3722,8 +3722,6 @@
+     }
+     const now = Date.now();
+     await ctx.db.patch(row._id, { status: "running", startedAt: now });
+-    // DW-119: the claim is chain progress — the reaper's window restarts here.
+-    await ctx.db.patch(fence.generation._id, { lastProgressAt: now });
+     const priorSections = (await orderedRunsForCandidate(ctx, fence.run._id))
+       .filter(
+         (prior) =>

@@ -1,0 +1,31 @@
+12:46:10 p.m. [vite-plugin-svelte] no Svelte config found at /Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-sweep-validation - using default configuration.
+
+ RUN  v4.1.10 /Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-sweep-validation
+
+12:46:10 p.m. [vite-plugin-svelte] no Svelte config found at /Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-sweep-validation - using default configuration.
+ ✓ |component (chromium)| src/lib/components/project/BriefWorkspace.component.test.ts > opens the Brief from its launcher, and chat or QA takes the rail back 2364ms
+ ✓ |component (chromium)| src/lib/components/project/BriefWorkspace.component.test.ts > remembers an open Brief, and a remembered QA still wins the rail 90ms
+ ✓ |component (chromium)| src/lib/components/project/BriefWorkspace.component.test.ts > steps the Brief pill past every other visible pill 58ms
+ ✓ |component (chromium)| src/lib/components/project/BriefWorkspace.component.test.ts > is absent for a legacy generation that recorded nothing 21ms
+ ✓ |component (chromium)| src/lib/components/project/BriefWorkspace.component.test.ts > keeps the launcher when a Brief read fails, and the rail says so (DW-128) 54ms
+ ✓ |component (chromium)| src/lib/components/project/BriefWorkspace.component.test.ts > shows the Brief under the progress card while generating, for the running generation only 15ms
+ ✓ |component (chromium)| src/lib/components/project/BriefWorkspace.component.test.ts > keeps the rail and the progress panel on one generation during a regeneration 22ms
+ ✓ |component (chromium)| src/lib/components/brief/BriefRailPanel.component.test.ts > BriefRailPanel > renders nothing when all three reads come back empty (a legacy generation) 2ms
+ ✓ |component (chromium)| src/lib/components/brief/BriefRailPanel.component.test.ts > BriefRailPanel > shows the Inputs band while a generation runs, before any Brief exists 3ms
+ ✓ |component (chromium)| src/lib/components/brief/BriefRailPanel.component.test.ts > BriefRailPanel > saves an edit through saveEntryEdit with the project, Brief and version fence 100ms
+ ✓ |component (chromium)| src/lib/components/brief/BriefRailPanel.component.test.ts > BriefRailPanel > pins the Brief version when a field opens, so a concurrent edit landing mid-edit is not silently adopted 59ms
+ ✓ |component (chromium)| src/lib/components/brief/BriefRailPanel.component.test.ts > BriefRailPanel > maps BRIEF_STALE to the stale copy and keeps the draft 84ms
+ ✓ |component (chromium)| src/lib/components/brief/BriefRailPanel.component.test.ts > BriefRailPanel > dismisses the settings offer for this project and remembers it 34ms
+ ✓ |component (chromium)| src/lib/components/brief/BriefRailPanel.component.test.ts > BriefRailPanel > stays absent when only an archived document is listed for a legacy generation 1ms
+ ✓ |component (chromium)| src/lib/components/brief/BriefRailPanel.component.test.ts > BriefRailPanel > clears a stale save message once the writer abandons the edit 65ms
+ ✓ |component (chromium)| src/lib/components/brief/BriefRailPanel.component.test.ts > BriefRailPanel > keeps the rail chrome at 500 weight and 44px targets 4ms
+ ✓ |component (chromium)| src/lib/components/brief/BriefRailPanel.component.test.ts > BriefRailPanel > read failures (DW-128) > shows a plain error line in the rail instead of disappearing when a Brief read fails 65ms
+ ✓ |component (chromium)| src/lib/components/brief/BriefRailPanel.component.test.ts > BriefRailPanel > read failures (DW-128) > shows the error line for the inline placement, whichever read failed 1ms
+ ✓ |component (chromium)| src/lib/components/brief/BriefRailPanel.component.test.ts > BriefRailPanel > read failures (DW-128) > stays hidden while the reads are still loading, and renders once data lands 2ms
+ ✓ |component (chromium)| src/lib/components/brief/BriefRailPanel.component.test.ts > BriefRailPanel > wears the rail card chrome with a close button in rail mode 27ms
+
+ Test Files  2 passed (2)
+      Tests  20 passed (20)
+   Start at  12:46:10
+   Duration  13.66s (transform 0ms, setup 678ms, import 8.52s, tests 3.07s, environment 0ms)
+

@@ -4,6 +4,7 @@ import { describe, expect, test } from "vitest";
 import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import schema from "./schema";
+import { MAX_PROJECT_DOCUMENT_SCAN } from "./chatV2";
 
 const modules = import.meta.glob("./**/*.ts");
 
@@ -398,6 +399,76 @@ describe("getDeviationInventoryContext Reference PD", () => {
     expect(context.reference?.sections.s242).toContain("Reference paragraph.");
   });
 
+  test("finds a previous_pd attached after more than 200 other documents (DW-138)", async () => {
+    // The read used to take 200 rows and THEN keep the previous_pd ones, so a
+    // Reference PD uploaded after 200 chat attachments was reported absent.
+    const t = convexTest(schema, modules);
+    const { projectId, agentThreadId } = await seedThread(t, {
+      paragraphs: ["Draft paragraph."],
+    });
+    await t.run(async (ctx) => {
+      for (let i = 0; i < 201; i += 1) {
+        await ctx.db.insert("projectDocuments", {
+          projectId,
+          fileName: `attachment-${i + 1}.txt`,
+          fileType: "txt",
+          content: `Attachment ${i + 1}.`,
+          category: "background",
+          source: "upload",
+          uploadedBy: "Writer",
+          createdAt: Date.now(),
+        });
+      }
+    });
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    await insertDocument(t, {
+      projectId,
+      fileName: "last-year-pd.docx",
+      paragraphs: ["Reference paragraph."],
+    });
+    const context = await t.query(internal.chatV2.getDeviationInventoryContext, {
+      agentThreadId,
+    });
+    expect(context.referenceFileNames).toEqual(["last-year-pd.docx"]);
+    expect(context.referenceStatus).toBe("resolved");
+    expect(context.reference?.fileName).toBe("last-year-pd.docx");
+    expect(context.documentScanTruncated).toBe(false);
+  });
+
+  test("says so when the document scan hit its bound instead of reporting absence (DW-138)", async () => {
+    const t = convexTest(schema, modules);
+    const { projectId, agentThreadId } = await seedThread(t, {
+      paragraphs: ["Draft paragraph."],
+    });
+    await t.run(async (ctx) => {
+      for (let i = 0; i < MAX_PROJECT_DOCUMENT_SCAN; i += 1) {
+        await ctx.db.insert("projectDocuments", {
+          projectId,
+          fileName: `attachment-${i + 1}.txt`,
+          fileType: "txt",
+          content: `Attachment ${i + 1}.`,
+          category: "background",
+          source: "upload",
+          uploadedBy: "Writer",
+          createdAt: Date.now(),
+        });
+      }
+    });
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    await insertDocument(t, {
+      projectId,
+      fileName: "beyond-the-bound.docx",
+      paragraphs: ["Reference paragraph."],
+    });
+    const context = await t.query(internal.chatV2.getDeviationInventoryContext, {
+      agentThreadId,
+    });
+    // Bounded reads stay bounded; the bound is REPORTED, never mistaken for
+    // "no Reference PD attached".
+    expect(context.documentScanTruncated).toBe(true);
+    expect(context.referenceStatus).toBe("none");
+  });
+
   test("names every available file when the requested one is unknown", async () => {
     const t = convexTest(schema, modules);
     const { projectId, agentThreadId } = await seedThread(t, {
@@ -591,5 +662,98 @@ describe("getDeviationInventoryContext Reference PD", () => {
     });
     expect(context.referenceFileNames).toEqual([]);
     expect(context.reference).toBeNull();
+  });
+});
+
+/**
+ * Astra review of DW-138: a row bound alone does not keep the walk under
+ * Convex's 16 MiB per-transaction read limit (400 attachments of 50 KiB blow
+ * it before row 1000), and an incomplete walk must not auto-resolve "the only"
+ * Reference PD or claim absence.
+ */
+describe("getDeviationInventoryContext read budget", () => {
+  /** Below the 1 MiB document cap, well above the per-row headroom. */
+  const bigBody = "attachment text ".repeat(56_000); // ~900 KB
+
+  async function insertBigAttachments(
+    t: ReturnType<typeof convexTest>,
+    projectId: Id<"projects">,
+    count: number
+  ) {
+    for (let i = 0; i < count; i += 1) {
+      await t.run(async (ctx) => {
+        await ctx.db.insert("projectDocuments", {
+          projectId,
+          fileName: `big-attachment-${i + 1}.txt`,
+          fileType: "txt",
+          content: bigBody,
+          category: "background",
+          source: "upload",
+          uploadedBy: "Writer",
+          createdAt: Date.now(),
+        });
+      });
+    }
+  }
+
+  test("stops at its byte budget instead of exceeding the transaction read limit", async () => {
+    const t = convexTest({ schema, modules, transactionLimits: true });
+    const { projectId, agentThreadId } = await seedThread(t, {
+      paragraphs: ["Draft paragraph."],
+    });
+    await insertBigAttachments(t, projectId, 20); // ~18 MiB in one index range
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    await insertDocument(t, {
+      projectId,
+      fileName: "behind-the-budget.docx",
+      paragraphs: ["Reference paragraph."],
+    });
+    // The unbudgeted walk reproduces the platform failure.
+    await expect(
+      t.query(async (ctx) => {
+        let n = 0;
+        for await (const row of ctx.db
+          .query("projectDocuments")
+          .withIndex("by_projectId", (q) => q.eq("projectId", projectId))) {
+          n += row.content.length > 0 ? 1 : 0;
+        }
+        return n;
+      })
+    ).rejects.toThrow("Read too much data");
+    const context = await t.query(internal.chatV2.getDeviationInventoryContext, {
+      agentThreadId,
+    });
+    expect(context.documentScanTruncated).toBe(true);
+    expect(context.referenceStatus).toBe("none");
+  });
+
+  test("does not auto-resolve the only PD seen when the walk was incomplete", async () => {
+    const t = convexTest({ schema, modules, transactionLimits: true });
+    const { projectId, agentThreadId } = await seedThread(t, {
+      paragraphs: ["Draft paragraph."],
+    });
+    await insertDocument(t, {
+      projectId,
+      fileName: "seen-pd.docx",
+      paragraphs: ["Reference paragraph."],
+    });
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    await insertBigAttachments(t, projectId, 20);
+    const unnamed = await t.query(internal.chatV2.getDeviationInventoryContext, {
+      agentThreadId,
+    });
+    expect(unnamed.documentScanTruncated).toBe(true);
+    expect(unnamed.referenceFileNames).toEqual(["seen-pd.docx"]);
+    // Uniqueness cannot be established, so the writer must choose explicitly.
+    expect(unnamed.referenceStatus).toBe("ambiguous");
+    expect(unnamed.reference).toBeNull();
+
+    const named = await t.query(internal.chatV2.getDeviationInventoryContext, {
+      agentThreadId,
+      referenceFileName: "seen-pd.docx",
+    });
+    expect(named.referenceStatus).toBe("resolved");
+    expect(named.reference?.fileName).toBe("seen-pd.docx");
+    expect(named.documentScanTruncated).toBe(true);
   });
 });
