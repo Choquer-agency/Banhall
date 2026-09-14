@@ -366,15 +366,16 @@ export async function readCompleteBriefDiffBaseline(
  *
  * Reads and compares the baseline (`readCompleteBriefDiffBaseline`), then
  * publishes the whole version in one `persistDerivedBrief` mutation that
- * first checks the pinned Brief is still the project's newest. Its argument
- * carries references, not text, for baseline keys the candidates reuse, so it
- * stays bounded by what the new version writes rather than by the old
- * version's size. If another version was published in between (a writer
- * edit, a concurrent derivation), that mutation writes nothing and returns
- * `null`; the baseline is re-read and the same candidates re-published — the
- * model is never re-run. After `BRIEF_PUBLISH_ATTEMPTS` lost fences it
- * throws, under the derivation's existing fail-open catch, and no version
- * from this derivation exists.
+ * first adopts and returns the latest same-key Brief when one exists. If no
+ * same-key Brief exists, persistence checks that the pinned Brief is still
+ * the project's newest. Its argument carries references, not text, for
+ * baseline keys the candidates reuse, so it stays bounded by what the new
+ * version writes rather than by the old version's size. If a different-key
+ * version was published in between, that mutation writes nothing and returns
+ * `null`; the baseline is re-read and the same candidates are re-published.
+ * The model is never re-run. After `BRIEF_PUBLISH_ATTEMPTS` lost fences it
+ * throws under the derivation's existing fail-open catch, and no version from
+ * this derivation exists.
  */
 export async function publishDerivedBrief(
   ctx: BriefPublishCtx,

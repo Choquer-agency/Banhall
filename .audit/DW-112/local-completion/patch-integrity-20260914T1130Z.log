@@ -1,0 +1,11 @@
+COMMAND=git diff --check
+GIT_DIFF_CHECK_EXIT_CODE=0
+COMMAND=shasum -a 256 _bmad-output/implementation-artifacts/deferred-work.md
+349fb5701b4cfe83cb7463a611b1c443f37f9549437d25f474ba09fb348d2ec8  _bmad-output/implementation-artifacts/deferred-work.md
+LEDGER_HASH_EXIT_CODE=0
+SOURCE_SHA256:
+71f8aafa934541d8a70add72829382a5c9a0aa74402df133a360137b2e0ca008  convex/ai/brief.test.ts
+505727fdb8a83b8f177f22c44e7acc845aa6254fdf7cca9b69f0f9f9b6117e00  convex/ai/brief.ts
+88389d3f5426cae240f41dc8bc8682740ae2855e91e9b53a347a0b5a35fb2428  convex/lib/briefRender.ts
+63d00ebe932128988c573880fddab59ffac6df14be5a70e5b26fdc862355a5ab  convex/generations.ts
+SOURCE_HASH_EXIT_CODE=0

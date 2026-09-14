@@ -1,0 +1,17 @@
+{
+  "source_commit": "81a165e6e4fa35f9b59c86118c7aa2c886666e47",
+  "tracked_entry_count": 7306,
+  "changed_since_entry": [
+    ".audit/DW-112/decisions.tsv",
+    ".audit/DW-112/evidence.md",
+    "_bmad-output/implementation-artifacts/spec-dw-112-brief-derivation-concurrency.md",
+    "convex/lib/briefRender.ts"
+  ],
+  "all_other_tracked_bytes_preserved": true,
+  "decisions_and_evidence_entry_prefix_preserved": true,
+  "frozen_intent_preserved": true,
+  "ledger_working_and_index_sha256": "349fb5701b4cfe83cb7463a611b1c443f37f9549437d25f474ba09fb348d2ec8",
+  "sprint_status_files": [],
+  "spec_done": true,
+  "native_acceptance_claimed": false
+}

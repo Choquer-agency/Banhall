@@ -1,0 +1,156 @@
+diff --git a/convex/ai/brief.test.ts b/convex/ai/brief.test.ts
+index 5b9c75c..da17f55 100644
+--- a/convex/ai/brief.test.ts
++++ b/convex/ai/brief.test.ts
+@@ -1037,6 +1037,108 @@ describe("Generation Brief publication idempotency (DW-112)", () => {
+     ]);
+   });
+ 
++  it("adopts the first publication when it becomes the current baseline before the second baseline read", async () => {
++    const t = convexTest(schema, modules);
++    const { userId, projectId } = await makeProject(t);
++    const inputsHash = "current-same-key-baseline";
++    const firstGenerationId = await makeGeneration(
++      t,
++      projectId,
++      userId,
++      TRANSCRIPT_TEXT,
++      "first-current-baseline-source"
++    );
++    const secondGenerationId = await makeGeneration(
++      t,
++      projectId,
++      userId,
++      TRANSCRIPT_TEXT,
++      "second-current-baseline-source"
++    );
++    const firstSource = await briefSourceOf(t, firstGenerationId);
++    const secondSource = await briefSourceOf(t, secondGenerationId);
++
++    const reuseMisses = await Promise.all([
++      t.query(internal.generations.findReusableBrief, { projectId, inputsHash }),
++      t.query(internal.generations.findReusableBrief, { projectId, inputsHash }),
++    ]);
++    expect(reuseMisses).toEqual([null, null]);
++
++    const firstPublish = {
++      projectId,
++      generationId: firstGenerationId,
++      inputsHash,
++      origin: "derived" as const,
++      storylineText: "The first publisher's authoritative storyline.",
++      entries: [candidateEntry(firstSource, "glossaryTerm", "control loop")],
++    };
++    const secondPublish = {
++      projectId,
++      generationId: secondGenerationId,
++      inputsHash,
++      origin: "derived" as const,
++      storylineText: "The second publisher's losing storyline.",
++      entries: [candidateEntry(secondSource, "claimExclusion", "redesign the logo")],
++    };
++
++    const firstAdapter = briefPublishCtx(t);
++    const firstResult = await publishDerivedBrief(firstAdapter.ctx, firstPublish);
++    const authoritativeSnapshot = await t.run(async (ctx) => ({
++      briefs: await ctx.db.query("generationBriefs").collect(),
++      entries: await ctx.db.query("generationBriefEntries").collect(),
++    }));
++    expect(authoritativeSnapshot.briefs).toHaveLength(1);
++    expect(authoritativeSnapshot.entries).toHaveLength(1);
++
++    const secondAdapter = briefPublishCtx(t);
++    const secondResult = await publishDerivedBrief(secondAdapter.ctx, secondPublish);
++    const secondPersistence = secondAdapter.calls.filter(
++      (call) => call.name === PERSIST_MUTATION
++    );
++    expect(secondPersistence).toHaveLength(1);
++    expect(secondPersistence[0]).toMatchObject({
++      args: { baselineBriefId: firstResult },
++      result: firstResult,
++    });
++    expect(secondResult).toBe(firstResult);
++    expect(
++      await t.run(async (ctx) => ({
++        briefs: await ctx.db.query("generationBriefs").collect(),
++        entries: await ctx.db.query("generationBriefEntries").collect(),
++      }))
++    ).toEqual(authoritativeSnapshot);
++
++    const generationsAfterAdoption = await Promise.all([
++      t.run((ctx) => ctx.db.get(firstGenerationId)),
++      t.run((ctx) => ctx.db.get(secondGenerationId)),
++    ]);
++    expect(generationsAfterAdoption.map((generation) => generation?.briefId)).toEqual([
++      firstResult,
++      firstResult,
++    ]);
++
++    const replayAdapter = briefPublishCtx(t);
++    const replayResult = await publishDerivedBrief(replayAdapter.ctx, secondPublish);
++    const replayPersistence = replayAdapter.calls.filter(
++      (call) => call.name === PERSIST_MUTATION
++    );
++    expect(replayPersistence).toHaveLength(1);
++    expect(replayPersistence[0]).toMatchObject({
++      args: { baselineBriefId: firstResult },
++      result: firstResult,
++    });
++    expect(replayResult).toBe(firstResult);
++    expect(
++      await t.run(async (ctx) => ({
++        briefs: await ctx.db.query("generationBriefs").collect(),
++        entries: await ctx.db.query("generationBriefEntries").collect(),
++      }))
++    ).toEqual(authoritativeSnapshot);
++    expect((await t.run((ctx) => ctx.db.get(secondGenerationId)))?.briefId).toBe(
++      firstResult
++    );
++  });
++
+   it("adopts the latest same-key Brief before a stale project fence or candidate processing", async () => {
+     const t = convexTest(schema, modules);
+     const { userId, projectId } = await makeProject(t);
+diff --git a/convex/ai/brief.ts b/convex/ai/brief.ts
+index ff40055..f70308d 100644
+--- a/convex/ai/brief.ts
++++ b/convex/ai/brief.ts
+@@ -366,15 +366,16 @@ export async function readCompleteBriefDiffBaseline(
+  *
+  * Reads and compares the baseline (`readCompleteBriefDiffBaseline`), then
+  * publishes the whole version in one `persistDerivedBrief` mutation that
+- * first checks the pinned Brief is still the project's newest. Its argument
+- * carries references, not text, for baseline keys the candidates reuse, so it
+- * stays bounded by what the new version writes rather than by the old
+- * version's size. If another version was published in between (a writer
+- * edit, a concurrent derivation), that mutation writes nothing and returns
+- * `null`; the baseline is re-read and the same candidates re-published — the
+- * model is never re-run. After `BRIEF_PUBLISH_ATTEMPTS` lost fences it
+- * throws, under the derivation's existing fail-open catch, and no version
+- * from this derivation exists.
++ * first adopts and returns the latest same-key Brief when one exists. If no
++ * same-key Brief exists, persistence checks that the pinned Brief is still
++ * the project's newest. Its argument carries references, not text, for
++ * baseline keys the candidates reuse, so it stays bounded by what the new
++ * version writes rather than by the old version's size. If a different-key
++ * version was published in between, that mutation writes nothing and returns
++ * `null`; the baseline is re-read and the same candidates are re-published.
++ * The model is never re-run. After `BRIEF_PUBLISH_ATTEMPTS` lost fences it
++ * throws under the derivation's existing fail-open catch, and no version from
++ * this derivation exists.
+  */
+ export async function publishDerivedBrief(
+   ctx: BriefPublishCtx,
+diff --git a/convex/lib/briefRender.ts b/convex/lib/briefRender.ts
+index 870b7df..e7ae422 100644
+--- a/convex/lib/briefRender.ts
++++ b/convex/lib/briefRender.ts
+@@ -48,7 +48,7 @@ export type BriefOutcome = Infer<typeof briefOutcomeValidator>;
+ export function describeBriefOutcome(outcome: BriefOutcome): string {
+   switch (outcome.kind) {
+     case "derived":
+-      return "Derived a new Generation Brief from this generation's inputs.";
++      return "Generation Brief ready for drafting.";
+     case "reused":
+       return "Reusing the stored Generation Brief — its inputs are unchanged.";
+     case "no_evidence":

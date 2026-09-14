@@ -1,0 +1,6 @@
+Command: git diff --check
+Working directory: /Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/runs/20260912-061909-feb3/worktrees/dw-brief-derivation-concurrency
+Observed output:
+_bmad-output/implementation-artifacts/spec-dw-112-brief-derivation-concurrency.md:85: new blank line at EOF.
+ACTUAL_EXIT_CODE=2
+

@@ -1,0 +1,15 @@
+{
+  "recorded_at_utc": "2026-09-14T11:40:58.222127+00:00",
+  "source_binding_passed": true,
+  "historical_audit_bytes_preserved": true,
+  "decisions_history_prefix_preserved": true,
+  "frozen_product_intent_unchanged": true,
+  "spec_status": "done",
+  "diff_check_exit_code": 0,
+  "ledger_snapshot_match": true,
+  "ledger_sha256": "349fb5701b4cfe83cb7463a611b1c443f37f9549437d25f474ba09fb348d2ec8",
+  "expected_ledger_git_blob": "ef5016f67f905f55521c5132519bdd3f6a4f7e7d",
+  "sprint_status_written_or_reverted": false,
+  "review_cli_checks_passed": 6,
+  "final_native_acceptance_claimed": false
+}

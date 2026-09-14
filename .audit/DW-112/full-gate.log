@@ -1,0 +1,37 @@
+DW-112 canonical verification
+Command: bash scripts/loop-verify.sh
+Exit: 0
+Source SHA-256:
+63d00ebe932128988c573880fddab59ffac6df14be5a70e5b26fdc862355a5ab  convex/generations.ts
+977e079635553a2493a857625a5bf6e3c92b2503632114cc0679dfa09b03b6ba  convex/ai/brief.test.ts
+
+[1/9] preflight
+  node v24.19.0 ok
+  PUBLIC_CONVEX_URL from placeholder
+  PUBLIC_CONVEX_SITE_URL from placeholder
+ok 0s
+[2/9] no skipped tests
+ok 0s
+[3/9] convex typecheck
+ok 13s
+[4/9] svelte-check
+svelte-check found 0 errors and 0 warnings
+ok 19s
+[5/9] unit tests
+ Test Files  187 passed (187)
+      Tests  2676 passed (2676)
+   Start at  03:42:27
+   Duration  28.28s (transform 5.79s, setup 0ms, import 12.56s, tests 21.99s, environment 4.31s)
+ok 29s
+[6/9] test discovery guard
+discovered 268 executable test files; accounted for 3 historical archives
+ok 2s
+[7/9] production build
+✓ built in 24.64s
+ok 30s
+[8/9] uploader harness (pwsh)
+93 passed, 0 failed
+ok 9s
+[9/9] uploader harness (bash)
+47 passed, 0 failed
+ok 6s

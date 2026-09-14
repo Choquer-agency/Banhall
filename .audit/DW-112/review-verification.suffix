@@ -1,0 +1,2 @@
+
+Do not invoke any skill. If the instruction file is unreadable, report that exact failure and stop. Return only the review result.

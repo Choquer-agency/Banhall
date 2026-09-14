@@ -1,0 +1,16 @@
+Review the DW-112 audit trail and implementation evidence for suboptimal or risky decisions. This is not a redo of the code review.
+
+Read these files completely:
+- `.audit/DW-112/decisions.tsv`
+- `.audit/DW-112/evidence.md`
+- `.audit/DW-112/failing-control.log`
+- `.audit/DW-112/parent-focused.log`
+- `.audit/DW-112/parent-convex-tsc.log`
+- `.audit/DW-112/parent-full-gate.raw.log`
+- `.audit/DW-112/parent-integrity.log`
+- `.audit/DW-112/reviewer-inputs-and-outputs.sha256`
+- `_bmad-output/implementation-artifacts/spec-dw-112-brief-derivation-concurrency.md`
+
+Inspect commit `09e35062ed132d65403d19f9b9af61675ffcaee6` and its diff. The active workspace has no `agent-transcripts` directory, so the transcript portion of the audit is unavailable; treat that as an evidence limitation rather than inventing transcript facts.
+
+Flag only what the user should scrutinize: weak or absent evidence, skipped verification, risky choices, scope creep, or audit gaps. Point to specific decision rows, files, or receipt lines. Return `No flags.` if none remain. Do not modify files and do not invoke any skill.

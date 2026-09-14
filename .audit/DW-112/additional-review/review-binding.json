@@ -1,0 +1,16 @@
+{
+  "source_commit": "0b34a249bac1a7c7e618308ee0416c4826214ccd",
+  "source_sha256": {
+    "convex/generations.ts": "63d00ebe932128988c573880fddab59ffac6df14be5a70e5b26fdc862355a5ab",
+    "convex/ai/brief.ts": "505727fdb8a83b8f177f22c44e7acc845aa6254fdf7cca9b69f0f9f9b6117e00",
+    "convex/lib/briefRender.ts": "88389d3f5426cae240f41dc8bc8682740ae2855e91e9b53a347a0b5a35fb2428",
+    "convex/ai/brief.test.ts": "71f8aafa934541d8a70add72829382a5c9a0aa74402df133a360137b2e0ca008"
+  },
+  "full_diff_sha256": "df553a5a8da70d5d831c5a3e128863e62ed6e173f2e9f08d1384a8136aae8672",
+  "core_diff_sha256": "708a8a68d0a6e5fc4e4c8eaec7a17af5437332ba19f97242abc443e0b315c972",
+  "post_repair_gate": ".audit/DW-112/local-completion/patch-loop-verify-20260914T1130Z.log",
+  "gate_sha256": "ef1e3740719e4814a972f6c3f853dc280fba086b02636131a787506ff82e8dc5",
+  "receipt": ".audit/DW-112/local-completion/patch-loop-verify-20260914T1130Z.meta",
+  "receipt_sha256": "f6093eb46bf8de8b16e49ed5f9b3ec2c39e9d2b0f109b44eb875e02dcf89b378",
+  "source_matches_receipt": true
+}

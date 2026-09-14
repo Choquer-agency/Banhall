@@ -1,0 +1,14 @@
+
+> banhall-app@0.1.0 test
+> vitest run convex/ai/brief.test.ts
+
+
+ RUN  v4.1.10 /Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/runs/20260912-061909-feb3/worktrees/dw-brief-derivation-concurrency
+
+
+ Test Files  1 passed (1)
+      Tests  38 passed (38)
+   Start at  03:46:39
+   Duration  3.41s (transform 657ms, setup 0ms, import 597ms, tests 2.67s, environment 39ms)
+
+ACTUAL_EXIT_CODE=0

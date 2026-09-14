@@ -1,0 +1,5 @@
+COMMAND: source/test chunks from review-input.diff compared per file to explicit git -C diff d73df4bb9277886ca97e7b8e59caea618baf051d 09e35062ed132d65403d19f9b9af61675ffcaee6
+Traceback (most recent call last):
+  File "<stdin>", line 11, in <module>
+ValueError: subsection not found
+ACTUAL_EXIT_CODE=1

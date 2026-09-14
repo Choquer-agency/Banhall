@@ -1,0 +1,32 @@
+BINDING: exact production/test diff bytes, frozen intent contract, preserved review-time spec snapshot
+SOURCE_DIFF_MATCH=true file=convex/ai/brief.test.ts sha256=9e45b470a01b4a4632c319ffff504a19f67a9a292666a1a3137ef0e993a07770
+SOURCE_DIFF_MATCH=true file=convex/generations.ts sha256=68c5b81f059f8dfa9db2917aa1ca908091a162385e6f29c8d04fa20f88b2f35d
+FROZEN_INTENT_PRESENT=true path=/Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/runs/20260912-061909-feb3/bundles/brief-derivation-concurrency/intent.md bytes=1265 sha256=2568b035295020a2d2248298da67be764bf5d050b4e81f983519b2dc3e9366a9
+REVIEW_SPEC_SNAPSHOT_PRESERVED=true sha256=8b503fd04c7601fcd203edb9ec6d0af606e42e0732289ac353743cd55b817ca7 status=in-review
+FINAL_SPEC_METADATA_ONLY_DELTA=true changes=status_done,review_triage,auto_run_result
+REVIEW_INPUT_PRESERVED=true bytes=19731 sha256=83f94ebfffe6f8d5e0553391d00ff75dc810ee70b7fd6e936feefd4e6f2162c1
+REVIEW_INPUT_NONEMPTY=true reviewer=blind bytes=20070 prompt_diff_sections=3 raw_diff_sections=3 model=gpt-6-astra effort=xhigh exit=0
+REVIEW_INPUT_NONEMPTY=true reviewer=edge bytes=20194 prompt_diff_sections=3 raw_diff_sections=3 model=gpt-6-astra effort=xhigh exit=0
+REVIEW_INPUT_NONEMPTY=true reviewer=verification bytes=20194 prompt_diff_sections=3 raw_diff_sections=3 model=gpt-6-astra effort=xhigh exit=0
+REVIEW_INPUT_NONEMPTY=true reviewer=intent bytes=21135 prompt_diff_sections=3 raw_diff_sections=3 model=gpt-6-astra effort=xhigh exit=0
+.audit/DW-112/review-blind.prompt: OK
+.audit/DW-112/review-edge.prompt: OK
+.audit/DW-112/review-verification.prompt: OK
+.audit/DW-112/review-intent.prompt: OK
+.audit/DW-112/review-input.diff: OK
+.audit/DW-112/review-blind.header: OK
+.audit/DW-112/review-edge.header: OK
+.audit/DW-112/review-intent.header: OK
+.audit/DW-112/review-verification.header: OK
+.audit/DW-112/review-edge.suffix: OK
+.audit/DW-112/review-intent.suffix: OK
+.audit/DW-112/review-verification.suffix: OK
+.audit/DW-112/review-blind.md: OK
+.audit/DW-112/review-edge.md: OK
+.audit/DW-112/review-intent.md: OK
+.audit/DW-112/review-verification.md: OK
+.audit/DW-112/review-blind.raw.log: OK
+.audit/DW-112/review-edge.raw.log: OK
+.audit/DW-112/review-intent.raw.log: OK
+.audit/DW-112/review-verification.raw.log: OK
+ACTUAL_EXIT_CODE=0

@@ -48,7 +48,7 @@ export type BriefOutcome = Infer<typeof briefOutcomeValidator>;
 export function describeBriefOutcome(outcome: BriefOutcome): string {
   switch (outcome.kind) {
     case "derived":
-      return "Derived a new Generation Brief from this generation's inputs.";
+      return "Generation Brief stage completed.";
     case "reused":
       return "Reusing the stored Generation Brief — its inputs are unchanged.";
     case "no_evidence":

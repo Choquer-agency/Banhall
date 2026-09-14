@@ -1,0 +1,7 @@
+COMMAND=bash scripts/loop-verify.sh
+ACTUAL_EXIT_CODE=0
+SOURCE_SHA256_AFTER:
+71f8aafa934541d8a70add72829382a5c9a0aa74402df133a360137b2e0ca008  convex/ai/brief.test.ts
+505727fdb8a83b8f177f22c44e7acc845aa6254fdf7cca9b69f0f9f9b6117e00  convex/ai/brief.ts
+085a38d6bc4ccdbfb6bf4d2076daa8f0ff5f39433686a440b0e61daf98210c0b  convex/lib/briefRender.ts
+63d00ebe932128988c573880fddab59ffac6df14be5a70e5b26fdc862355a5ab  convex/generations.ts

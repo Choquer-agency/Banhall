@@ -1,0 +1,5 @@
+You are an intent-alignment auditor. You have no other context about how this change was produced. Here is the verbatim intent this work started from:
+
+Use the $bmad-build-auto skill now, and use subagents as needed: Implement the deferred-work bundle described in `/Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/runs/20260912-061909-feb3/bundles/brief-derivation-concurrency/intent.md` — it carries the intent and the verbatim ledger entries to resolve. Do NOT edit the deferred-work ledger; the orchestrator records resolution.. Current user instruction for this local/dev completion run: use Sol high for implementation/tests, Luna max for bounded exploration, and Astra xhigh for independent review when required; this supersedes older review-effort notes. Use the existing /Users/johnnynguyen/.codex context for review CLIs, unset BMAD_LOOP_TASK_ID in review-only child CLIs, preserve native result/ledger ownership, and do not push or deploy. Existing implementation must be inspected and reused before making changes.
+
+Here is the diff:

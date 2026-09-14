@@ -1,0 +1,25 @@
+{
+  "command": [
+    "codex",
+    "exec",
+    "--model",
+    "gpt-6-astra",
+    "-c",
+    "model_reasoning_effort=\"xhigh\"",
+    "-c",
+    "approval_policy=\"never\"",
+    "--sandbox",
+    "read-only",
+    "--color",
+    "never",
+    "--output-last-message",
+    "/Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/runs/20260912-061909-feb3/worktrees/dw-brief-derivation-concurrency/.audit/DW-112/local-completion/triage.md",
+    "-"
+  ],
+  "model": "gpt-6-astra",
+  "effort": "xhigh",
+  "codex_home": "/Users/johnnynguyen/.codex",
+  "bmad_loop_task_id_present": false,
+  "exit_code": 0,
+  "finished_at_utc": "2026-09-14T11:32:46.422023+00:00"
+}
