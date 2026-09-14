@@ -325,3 +325,87 @@ reaperIntegration):
 - `npx tsc -p convex/tsconfig.json --noEmit` → exit 0 (`review-fix-2/tsc-convex.raw.log`).
 - `npx vitest run` → 171 files, 2223 tests passed (`review-fix-2/vitest-full.raw.log`).
 - `npm run check` → 5931 files, 0 errors, 0 warnings (`review-fix-2/npm-check.raw.log`).
+
+## Astra round-3 review of 8eaf4af (gpt-6-astra, medium) — ACCEPT_WITH_FIXES, applied
+
+Review record: `astra-review-3/`. Confirmed by the reviewer: system-table API and production
+names, concurrent-tick OCC, failed-page recovery, page-size cap. Logs for this round:
+`review-fix-3/`.
+
+### Remaining Medium — the 200-row `_scheduled_functions` lookback could miss a pending continuation
+
+Problem: with ≥200 newer unrelated jobs (scheduler delay, retries) the recency-bounded search no
+longer saw scan A's pending page, so a cron tick started scan B and both chains ran.
+
+Fix — a persisted singleton owner, additive schema, lookback code removed:
+
+- `convex/schema.ts`: new table `staleGenerationScans` (`key`, `scan`, `cutoff`,
+  `continuationJobId?: Id<"_scheduled_functions">`, `startedAt`, `updatedAt`), index `by_key`.
+  One row keyed by the constant `"stale_generations"`. Additive; nothing else changes.
+- `convex/generations.ts` `failStaleGenerations`:
+  - Cursorless tick: read the singleton; if it names a continuation job,
+    `ctx.db.system.get("_scheduled_functions", jobId)` and return `skipped: "scan_in_progress"`
+    while its state is `pending` or `inProgress`. Otherwise (no record, no job, or a job that is
+    `success` / `failed` / `canceled`) take ownership: `scan = previous + 1`, `cutoff`, no
+    continuation, in the same transaction as the first page.
+  - Every page that schedules its continuation passes `scan` to it and writes the returned job
+    id into the singleton in the same transaction; the last page (`isDone`) clears
+    `continuationJobId`.
+  - Continuation pages carry `scan`; if the singleton no longer names their scan (or is
+    missing) they return `skipped: "stale_continuation"` before reading or scheduling anything.
+  - `returns` is now a hoisted `staleScanResultValidator` with an explicit `Promise<StaleScanResult>`
+    handler type (the three early-return shapes otherwise inferred as a union that broke
+    `tsc` on the test callers). `STALE_SCAN_JOB_LOOKBACK`, `isStaleScanJobName` and the
+    `getFunctionName` import are gone.
+- Recovery: a failed or canceled page never runs again and its state is terminal, so the next
+  tick takes over; a stale page (owner replaced) is inert. Concurrent cursorless ticks both read
+  and write the same singleton row, so OCC serialises them and the loser re-reads the new owner.
+- Guidelines followed: `ctx.db.system.get("_scheduled_functions", id)` two-arg form; index name
+  includes its field; `.unique()` on the singleton; one `.paginate()` per invocation unchanged.
+
+### Tests (`convex/orderedChainRecovery.test.ts`, describe "DW-119 review: the running scan pages past live chains")
+
+- (a) "a pending continuation buried under 200+ newer unrelated jobs still fences the next
+  tick": real continuation from tick A, then 201 `freeOrphanedGeneratingProjects` jobs
+  scheduled after it via `ctx.scheduler.runAfter`, then tick B → `skipped: "scan_in_progress"`,
+  no project sweep, still one continuation chain; draining reaps the stalled row once and the
+  owner record is released (`continuationJobId` undefined).
+- (b) "a canceled continuation does not hold the scan": tick A's page canceled with
+  `ctx.scheduler.cancel`; tick B takes ownership (`skipped` undefined, `isDone: false`), job
+  states are exactly `["canceled", "pending"]`, draining reaps the stalled row.
+- (c) "a continuation whose scan was taken over exits without scanning or scheduling": the
+  singleton is patched to `scan + 1` with no job; draining runs A's stale page, which leaves the
+  stalled row `running` and schedules nothing (still one continuation job); the next tick owns a
+  fresh scan and recovers the row (two continuation jobs in total).
+- Existing overlap, position-101, page-cap and per-stamp tests unchanged and passing.
+
+Before (`review-fix-3/singleton-before.raw.log`, HEAD `8eaf4af` source):
+```
+ × (a) a pending continuation buried under 200+ newer unrelated jobs still fences the next tick
+     AssertionError: expected [ { …(6) }, { …(6) } ] to have a length of 1 but got 2
+ × (c) a continuation whose scan was taken over exits without scanning or scheduling
+     Error: Cannot use index "by_key" for table "staleGenerationScans" because it is not declared in the schema.
+ Tests  2 failed | 11 passed (13)      ← (b) already held on 8eaf4af (a canceled job was not "live")
+```
+After (`review-fix-3/singleton-after.raw.log`; new file + generationRecovery, generationReaper,
+reaperIntegration):
+```
+ Test Files  4 passed (4)
+ Tests  34 passed (34)
+```
+
+### Gates after this round (final tree)
+
+- `npx tsc -p convex/tsconfig.json --noEmit` → exit 0 (`review-fix-3/tsc-convex.raw.log`; a
+  first run flagged the inferred return union on test callers — fixed by the explicit
+  `StaleScanResult` type, re-run clean).
+- `npx vitest run` → 171 files, 2226 tests passed (`review-fix-3/vitest-full.raw.log`).
+- `npm run check` → 5931 files, 0 errors, 0 warnings (`review-fix-3/npm-check.raw.log`).
+
+### Limits
+
+- convex-test serialises transactions, so these tests prove ownership semantics and job-state
+  handling, not production OCC interleavings (the reviewer's own note); the singleton row makes
+  concurrent ticks conflict on the same document, which is what OCC needs.
+- The singleton is one extra indexed read per page and one small write per page; the cron runs
+  every 10 minutes, so this is negligible.

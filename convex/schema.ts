@@ -2236,6 +2236,21 @@ export default defineSchema({
       "section",
     ]),
 
+  // DW-119 review: the single owner of the stale-generation scan
+  // (generations.failStaleGenerations). One row, keyed by a constant. `scan`
+  // is a sequence number every continuation page carries as its fence;
+  // `continuationJobId` is that scan's pending page, inspected by id on each
+  // cron tick so a second chain never starts while one is live. Cleared when
+  // the scan's last page runs.
+  staleGenerationScans: defineTable({
+    key: v.string(),
+    scan: v.number(),
+    cutoff: v.number(),
+    continuationJobId: v.optional(v.id("_scheduled_functions")),
+    startedAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_key", ["key"]),
+
   // Admin-tunable app settings, one row per key. Currently: "defaultModel" —
   // the generation model used when a writer doesn't pick one explicitly.
   appSettings: defineTable({

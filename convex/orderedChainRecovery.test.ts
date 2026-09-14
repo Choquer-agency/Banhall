@@ -440,6 +440,92 @@ describe("DW-119 review: the running scan pages past live chains", () => {
     expect(tickC.isDone).toBe(true);
   });
 
+  /** The persisted scan owner (generations.ts staleGenerationScans). */
+  async function scanRecord(t: T) {
+    return await t.run(async (ctx) =>
+      await ctx.db
+        .query("staleGenerationScans")
+        .withIndex("by_key", (q) => q.eq("key", "stale_generations"))
+        .unique()
+    );
+  }
+
+  it("(a) a pending continuation buried under 200+ newer unrelated jobs still fences the next tick", async () => {
+    const t = convexTest(schema, modules);
+    const { stalled, liveIds } = await seedFullPageAndStalled(t);
+    const tickA = await reapAt(t, T0 + 61 * MINUTES);
+    expect(tickA.isDone).toBe(false);
+    const [continuation] = await scanContinuationJobs(t);
+    expect(continuation.state.kind).toBe("pending");
+
+    // Scheduler delay: before the continuation runs, 201 unrelated jobs are
+    // scheduled after it (any recency-bounded search would no longer see it).
+    await t.run(async (ctx) => {
+      for (let index = 0; index < 201; index += 1) {
+        await ctx.scheduler.runAfter(0, internal.generations.freeOrphanedGeneratingProjects, {
+          cutoff: 0,
+        });
+      }
+    });
+
+    const tickB = await reapAt(t, T0 + 71 * MINUTES);
+    expect(await scanContinuationJobs(t)).toHaveLength(1);
+    expect(tickB.skipped).toBe("scan_in_progress");
+    expect(tickB.projectSweepJobId).toBeUndefined();
+
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
+    await expectOnlyStalledReaped(t, stalled, liveIds);
+    expect(await scanContinuationJobs(t)).toHaveLength(1);
+    // The owner record is released once the scan's last page ran.
+    expect((await scanRecord(t))?.continuationJobId).toBeUndefined();
+  });
+
+  it("(b) a canceled continuation does not hold the scan: the next tick takes ownership", async () => {
+    const t = convexTest(schema, modules);
+    const { stalled, liveIds } = await seedFullPageAndStalled(t);
+    const tickA = await reapAt(t, T0 + 61 * MINUTES);
+    expect(tickA.isDone).toBe(false);
+    const [continuation] = await scanContinuationJobs(t);
+    await t.run((ctx) => ctx.scheduler.cancel(continuation._id));
+
+    const tickB = await reapAt(t, T0 + 71 * MINUTES);
+    expect(tickB.skipped).toBeUndefined();
+    expect(tickB.isDone).toBe(false);
+    // Tick B's own continuation is the only live one; A's stays canceled.
+    const jobs = await scanContinuationJobs(t);
+    expect(jobs.map((job) => job.state.kind).sort()).toEqual(["canceled", "pending"]);
+
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
+    await expectOnlyStalledReaped(t, stalled, liveIds);
+  });
+
+  it("(c) a continuation whose scan was taken over exits without scanning or scheduling", async () => {
+    const t = convexTest(schema, modules);
+    const { stalled, liveIds } = await seedFullPageAndStalled(t);
+    const tickA = await reapAt(t, T0 + 61 * MINUTES);
+    expect(tickA.isDone).toBe(false);
+    const before = await scanRecord(t);
+    expect(before?.continuationJobId).toBeDefined();
+
+    // Another owner took the scan (a new sequence number, no pending job).
+    await t.run((ctx) =>
+      ctx.db.patch(before!._id, { scan: before!.scan + 1, continuationJobId: undefined })
+    );
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
+
+    // A's stale page ran and did nothing: the stalled row is untouched and
+    // no further page was scheduled.
+    expect((await stateOf(t, stalled)).generation?.status).toBe("running");
+    expect(await scanContinuationJobs(t)).toHaveLength(1);
+
+    // The next tick owns a fresh scan and recovers the row.
+    const tickC = await reapAt(t, T0 + 81 * MINUTES);
+    expect(tickC.skipped).toBeUndefined();
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
+    await expectOnlyStalledReaped(t, stalled, liveIds);
+    expect(await scanContinuationJobs(t)).toHaveLength(2);
+  });
+
   it("caps a requested pageSize at the production page", async () => {
     const t = convexTest(schema, modules);
     const { stalled, liveIds } = await seedFullPageAndStalled(t);

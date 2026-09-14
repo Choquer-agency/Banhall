@@ -9,7 +9,6 @@ import {
   type QueryCtx,
 } from "./_generated/server";
 import { internal } from "./_generated/api";
-import { getFunctionName } from "convex/server";
 import { v, type Infer } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import {
@@ -2684,22 +2683,27 @@ export const setGenerationEstimate = internalMutation({
  * `pageSize`. */
 export const STALE_GENERATION_SCAN_PAGE_SIZE = 100;
 
-/** How many of the newest `_scheduled_functions` rows the overlap check
- * reads. A continuation page is scheduled with no delay by the page before
- * it, so a live scan's pending page is always among the newest jobs; the
- * system table has only its creation-time index, so this is the bound on
- * that read. */
-export const STALE_SCAN_JOB_LOOKBACK = 200;
+/** The one `staleGenerationScans` row: the scan owner record. */
+const STALE_SCAN_KEY = "stale_generations";
 
-/** Whether a `_scheduled_functions` row is this module's failStaleGenerations.
- * The backend records the bundled module path ("generations.js:…"); convex-test
- * records the reference name ("generations:…"). Compare without the extension. */
-function isStaleScanJobName(name: string): boolean {
-  return (
-    name.replace(/\.(js|ts)(?=:)/, "") ===
-    getFunctionName(internal.generations.failStaleGenerations)
-  );
+async function staleScanRecord(ctx: MutationCtx) {
+  return await ctx.db
+    .query("staleGenerationScans")
+    .withIndex("by_key", (q) => q.eq("key", STALE_SCAN_KEY))
+    .unique();
 }
+
+const staleScanResultValidator = v.object({
+  failed: v.number(),
+  orphanedRuns: v.number(),
+  scanned: v.number(),
+  isDone: v.boolean(),
+  projectSweepJobId: v.optional(v.id("_scheduled_functions")),
+  skipped: v.optional(
+    v.union(v.literal("scan_in_progress"), v.literal("stale_continuation"))
+  ),
+});
+type StaleScanResult = Infer<typeof staleScanResultValidator>;
 
 /**
  * Ops utility: mark generations stranded in "running"/"pending" (e.g. by the
@@ -2714,56 +2718,83 @@ function isStaleScanJobName(name: string): boolean {
  * never a parallel reaper. Reserved rows, the orphaned-run sweep and the
  * project sweep run once, on the first page only.
  *
- * Single owner across cron ticks: a cursorless (cron or manual) invocation
- * first looks for a pending or in-progress continuation page of this same
- * function in `_scheduled_functions` and, finding one, returns
- * `skipped: "scan_in_progress"` without starting a second chain. A page that
- * failed leaves no pending row, so the next tick simply starts over.
+ * Single owner across cron ticks: the `staleGenerationScans` singleton names
+ * the scan currently walking the range (a sequence number) and its pending
+ * continuation job. A cursorless (cron or manual) invocation inspects that
+ * job by id and, while it is pending or in progress, returns
+ * `skipped: "scan_in_progress"` without starting a second chain; otherwise
+ * (no job, or one that succeeded, failed or was canceled) it takes ownership
+ * with the next sequence number. Every page stores the job it schedules in
+ * the same transaction, and the last page clears it. A continuation page
+ * whose sequence number the singleton no longer names is stale and returns
+ * `skipped: "stale_continuation"` without reading or scheduling anything.
  */
 export const failStaleGenerations = internalMutation({
   args: {
     olderThanMinutes: v.optional(v.number()),
     // Continuation pages only: the first page's cutoff (kept stable so the
-    // cursor stays valid for the same index range) and where to resume.
+    // cursor stays valid for the same index range), where to resume, and the
+    // scan sequence number this page belongs to.
     cutoff: v.optional(v.number()),
     cursor: v.optional(v.union(v.string(), v.null())),
+    scan: v.optional(v.number()),
     pageSize: v.optional(v.number()),
   },
   // Declared so the function's type never depends on handler inference: the
   // handler schedules a sibling function from this module (and itself), and
   // inferring the return type through that reference would be circular.
-  returns: v.object({
-    failed: v.number(),
-    orphanedRuns: v.number(),
-    scanned: v.number(),
-    isDone: v.boolean(),
-    projectSweepJobId: v.optional(v.id("_scheduled_functions")),
-    skipped: v.optional(v.literal("scan_in_progress")),
-  }),
-  handler: async (ctx, args) => {
+  returns: staleScanResultValidator,
+  handler: async (ctx, args): Promise<StaleScanResult> => {
     const cutoff =
       args.cutoff ?? Date.now() - (args.olderThanMinutes ?? 30) * 60 * 1000;
     const firstPage = args.cursor === undefined;
+    const skipped = (reason: "scan_in_progress" | "stale_continuation") => ({
+      failed: 0,
+      orphanedRuns: 0,
+      scanned: 0,
+      isDone: false,
+      skipped: reason,
+    });
+    const owner = await staleScanRecord(ctx);
+    let scan: number;
+    let ownerId: Id<"staleGenerationScans">;
     if (firstPage) {
-      const recentJobs = await ctx.db.system
-        .query("_scheduled_functions")
-        .order("desc")
-        .take(STALE_SCAN_JOB_LOOKBACK);
-      const liveScan = recentJobs.some(
-        (job) =>
-          (job.state.kind === "pending" || job.state.kind === "inProgress") &&
-          isStaleScanJobName(job.name) &&
-          typeof job.args[0]?.cursor === "string"
-      );
-      if (liveScan) {
-        return {
-          failed: 0,
-          orphanedRuns: 0,
-          scanned: 0,
-          isDone: false,
-          skipped: "scan_in_progress" as const,
-        };
+      const continuation = owner?.continuationJobId
+        ? await ctx.db.system.get("_scheduled_functions", owner.continuationJobId)
+        : null;
+      if (
+        continuation &&
+        (continuation.state.kind === "pending" || continuation.state.kind === "inProgress")
+      ) {
+        return skipped("scan_in_progress");
       }
+      // Take ownership: the next sequence number, no pending page yet.
+      scan = (owner?.scan ?? 0) + 1;
+      const now = Date.now();
+      if (owner) {
+        ownerId = owner._id;
+        await ctx.db.patch(owner._id, {
+          scan,
+          cutoff,
+          continuationJobId: undefined,
+          startedAt: now,
+          updatedAt: now,
+        });
+      } else {
+        ownerId = await ctx.db.insert("staleGenerationScans", {
+          key: STALE_SCAN_KEY,
+          scan,
+          cutoff,
+          startedAt: now,
+          updatedAt: now,
+        });
+      }
+    } else {
+      if (!owner || args.scan === undefined || owner.scan !== args.scan) {
+        return skipped("stale_continuation");
+      }
+      scan = args.scan;
+      ownerId = owner._id;
     }
     // A caller may shrink the page (tests) but never grow it past the bound.
     const pageSize = Math.min(
@@ -2897,12 +2928,22 @@ export const failStaleGenerations = internalMutation({
     if (!runningPage.isDone) {
       // Failed rows have left the "running" range and live rows stay in it,
       // but the cursor is an index position rather than an offset, so the
-      // next page resumes exactly after the last row read here.
-      await ctx.scheduler.runAfter(0, internal.generations.failStaleGenerations, {
-        cutoff,
-        cursor: runningPage.continueCursor,
-        ...(args.pageSize !== undefined ? { pageSize } : {}),
-      });
+      // next page resumes exactly after the last row read here. The owner
+      // record names the new page in the same transaction that schedules it.
+      const continuationJobId = await ctx.scheduler.runAfter(
+        0,
+        internal.generations.failStaleGenerations,
+        {
+          cutoff,
+          cursor: runningPage.continueCursor,
+          scan,
+          ...(args.pageSize !== undefined ? { pageSize } : {}),
+        }
+      );
+      await ctx.db.patch(ownerId, { continuationJobId, updatedAt: Date.now() });
+    } else {
+      // The scan's last page: release ownership.
+      await ctx.db.patch(ownerId, { continuationJobId: undefined, updatedAt: Date.now() });
     }
     const scanned = runningPage.page.length;
     if (!firstPage) {
