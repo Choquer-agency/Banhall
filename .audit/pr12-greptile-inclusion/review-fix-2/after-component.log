@@ -1,0 +1,36 @@
+3:18:03 p.m. [vite-plugin-svelte] no Svelte config found at /Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-sweep-validation - using default configuration.
+
+ RUN  v4.1.10 /Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-sweep-validation
+
+3:18:03 p.m. [vite-plugin-svelte] no Svelte config found at /Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-sweep-validation - using default configuration.
+ ✓ |component (chromium)| src/lib/components/brief/BriefRail.component.test.ts > BriefRail > lists every document with exactly one status and the counted header 32ms
+ ✓ |component (chromium)| src/lib/components/brief/BriefRail.component.test.ts > BriefRail > qualifies the header and adds a note when the document listing was cut short (DW-133) 9ms
+ ✓ |component (chromium)| src/lib/components/brief/BriefRail.component.test.ts > BriefRail > discloses cut-short frozen sources: both counts qualified and the note names transcripts (DW-133 review 2) 92ms
+ ✓ |component (chromium)| src/lib/components/brief/BriefRail.component.test.ts > BriefRail > saves an edit with Ctrl+Enter, reverts on Esc and calls nothing when unchanged 267ms
+ ✓ |component (chromium)| src/lib/components/brief/BriefRail.component.test.ts > BriefRail > saves an entry edit through onSaveEntry with the entry it belongs to 59ms
+ ✓ |component (chromium)| src/lib/components/brief/BriefRail.component.test.ts > BriefRail > shows the edited origin chip and regenerates from the rail 33ms
+ ✓ |component (chromium)| src/lib/components/brief/BriefRail.component.test.ts > BriefRail > hides the regenerate action until the Brief is edited 4ms
+ ✓ |component (chromium)| src/lib/components/brief/BriefRail.component.test.ts > BriefRail > resolves a Storyline question with either side 54ms
+ ✓ |component (chromium)| src/lib/components/brief/BriefRail.component.test.ts > BriefRail > shows the no-profile line and the save offer, and dismisses the offer 34ms
+ ✓ |component (chromium)| src/lib/components/brief/BriefRail.component.test.ts > BriefRail > shows the Inputs band before any Brief exists, with no Brief groups 3ms
+ ✓ |component (chromium)| src/lib/components/brief/BriefRail.component.test.ts > BriefRail > is read-only without edit capability, and shows a stale save message 5ms
+ ✓ |component (chromium)| src/lib/components/brief/BriefRail.component.test.ts > BriefRail > keeps every weight at 500 or below, every target at 44px, and never says approve 6ms
+ ✓ |component (chromium)| src/lib/components/brief/BriefRailPanel.component.test.ts > BriefRailPanel > renders nothing when all three reads come back empty (a legacy generation) 4ms
+ ✓ |component (chromium)| src/lib/components/brief/BriefRailPanel.component.test.ts > BriefRailPanel > shows the Inputs band while a generation runs, before any Brief exists 4ms
+ ✓ |component (chromium)| src/lib/components/brief/BriefRailPanel.component.test.ts > BriefRailPanel > saves an edit through saveEntryEdit with the project, Brief and version fence 111ms
+ ✓ |component (chromium)| src/lib/components/brief/BriefRailPanel.component.test.ts > BriefRailPanel > pins the Brief version when a field opens, so a concurrent edit landing mid-edit is not silently adopted 69ms
+ ✓ |component (chromium)| src/lib/components/brief/BriefRailPanel.component.test.ts > BriefRailPanel > maps BRIEF_STALE to the stale copy and keeps the draft 83ms
+ ✓ |component (chromium)| src/lib/components/brief/BriefRailPanel.component.test.ts > BriefRailPanel > dismisses the settings offer for this project and remembers it 35ms
+ ✓ |component (chromium)| src/lib/components/brief/BriefRailPanel.component.test.ts > BriefRailPanel > stays absent when only an archived document is listed for a legacy generation 1ms
+ ✓ |component (chromium)| src/lib/components/brief/BriefRailPanel.component.test.ts > BriefRailPanel > clears a stale save message once the writer abandons the edit 64ms
+ ✓ |component (chromium)| src/lib/components/brief/BriefRailPanel.component.test.ts > BriefRailPanel > keeps the rail chrome at 500 weight and 44px targets 4ms
+ ✓ |component (chromium)| src/lib/components/brief/BriefRailPanel.component.test.ts > BriefRailPanel > read failures (DW-128) > shows a plain error line in the rail instead of disappearing when a Brief read fails 63ms
+ ✓ |component (chromium)| src/lib/components/brief/BriefRailPanel.component.test.ts > BriefRailPanel > read failures (DW-128) > shows the error line for the inline placement, whichever read failed 2ms
+ ✓ |component (chromium)| src/lib/components/brief/BriefRailPanel.component.test.ts > BriefRailPanel > read failures (DW-128) > stays hidden while the reads are still loading, and renders once data lands 2ms
+ ✓ |component (chromium)| src/lib/components/brief/BriefRailPanel.component.test.ts > BriefRailPanel > wears the rail card chrome with a close button in rail mode 28ms
+
+ Test Files  2 passed (2)
+      Tests  25 passed (25)
+   Start at  15:18:03
+   Duration  4.30s (transform 0ms, setup 1.34s, import 783ms, tests 1.07s, environment 0ms)
+

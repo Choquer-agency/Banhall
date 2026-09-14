@@ -8,7 +8,10 @@
   import {
     CONFIDENCE_WORDS,
     ELIGIBILITY_REASON_WORDS,
+    INCLUSION_SOURCES_TRUNCATED_NOTE,
+    INCLUSION_TRUNCATED_NOTE,
     changeSummary,
+    inclusionTruncation,
     entryOrigin,
     groupBrief,
     inclusionHeader,
@@ -39,6 +42,10 @@
     cap: number;
     documentsInContext: number;
     documentsTotal: number;
+    /** DW-133: the document listing stopped at its read budget; the total is a lower bound. */
+    documentsTruncated?: boolean;
+    /** DW-133: the frozen sources stopped at the budget; transcripts and both counts are lower bounds. */
+    sourcesTruncated?: boolean;
     rows: InclusionRow[];
   };
   type WriterSettingsView = {
@@ -225,6 +232,15 @@
         </li>
       {/each}
     </ul>
+  {/if}
+  {@const truncation = inclusion ? inclusionTruncation(inclusion) : null}
+  {#if truncation}
+    <p
+      data-inclusion-truncated={truncation}
+      class="border-b border-line-soft px-4 py-2.5 text-body text-ink-muted"
+    >
+      {truncation === "sources" ? INCLUSION_SOURCES_TRUNCATED_NOTE : INCLUSION_TRUNCATED_NOTE}
+    </p>
   {/if}
   {#if writerSettings?.noProfileLine}
     <p class="border-b border-line-soft px-4 py-2.5 text-body">{writerSettings.noProfileLine}</p>

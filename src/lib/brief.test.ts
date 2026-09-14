@@ -48,6 +48,29 @@ describe("Brief rail helpers (story 4)", () => {
     );
   });
 
+  it("inclusionHeader qualifies a truncated total with the bounded-count plus (DW-133)", () => {
+    expect(
+      inclusionHeader({ documentsInContext: 12, documentsTotal: 1000, cap: 12, documentsTruncated: true })
+    ).toBe("12 of 1000+ documents in context · cap 12");
+    expect(
+      inclusionHeader({ documentsInContext: 12, documentsTotal: 40, cap: 12, documentsTruncated: false })
+    ).toBe("12 of 40 documents in context · cap 12");
+  });
+
+  it("inclusionHeader qualifies both counts when the frozen sources were cut short (DW-133 review 2)", () => {
+    // An unread frozen row may be an included document, so the numerator is
+    // a lower bound too, not just the total.
+    expect(
+      inclusionHeader({
+        documentsInContext: 12,
+        documentsTotal: 40,
+        cap: 12,
+        documentsTruncated: true,
+        sourcesTruncated: true,
+      })
+    ).toBe("12+ of 40+ documents in context · cap 12");
+  });
+
   it("inclusionStatusText never words an unrecorded row and appends the reason", () => {
     expect(inclusionStatusText({ inclusion: null })).toBe("");
     expect(inclusionStatusText({ inclusion: "not_included", reason: "archived" })).toBe(

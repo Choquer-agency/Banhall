@@ -1,0 +1,666 @@
+
+> banhall-app@0.1.0 test:component
+> vitest run --config vitest.component.config.ts
+
+12:48:07 p.m. [vite-plugin-svelte] no Svelte config found at /Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-sweep-validation - using default configuration.
+
+ RUN  v4.1.10 /Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-sweep-validation
+
+12:48:07 p.m. [vite-plugin-svelte] no Svelte config found at /Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-sweep-validation - using default configuration.
+12:49:15 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:15 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:15 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:15 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:15 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:15 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:15 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:15 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:15 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:15 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:15 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:15 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:15 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:15 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:15 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:15 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:15 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:15 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:15 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:15 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:15 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:15 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:15 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:15 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:15 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:15 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:15 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:15 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:15 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:15 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:15 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:15 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:15 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:15 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:15 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:15 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:15 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:15 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:15 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:15 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:15 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:15 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:15 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:15 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:15 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:15 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:15 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:16 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:16 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:16 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:16 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:16 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:16 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:16 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:16 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:16 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:16 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:16 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:16 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:16 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:16 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:16 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:16 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:16 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:16 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:16 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:16 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:16 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:16 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:16 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:16 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:16 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:16 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:16 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:16 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:16 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:16 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:16 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:16 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:16 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:16 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:16 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:16 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:16 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:16 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:16 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:16 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:16 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:16 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:16 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:16 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:16 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:16 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:16 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:16 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:16 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:16 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:17 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:17 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:17 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:17 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:17 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:17 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:17 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:17 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:17 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:17 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:17 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:17 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:17 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:17 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:17 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:17 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:17 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:17 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:17 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:17 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:17 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:17 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:17 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:17 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:17 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:18 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:18 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:18 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:18 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:18 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:18 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:18 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:18 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:18 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:18 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:18 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:18 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:18 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:18 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:18 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:18 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:18 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:18 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:18 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:18 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:18 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:18 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:18 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:18 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:18 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:18 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:18 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:18 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:18 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:18 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:18 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:18 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:18 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:18 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:20 p.m. [vite] (client) [console.error] storage upload failed Error: offline
+    at http://localhost:63315/Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-sweep-validation/src/routes/project/new/newProjectOriginalUpload.component.test.ts?import&browserv=1789415359305:149:51
+    at http://localhost:63315/node_modules/@vitest/runner/dist/chunk-artifact.js?v=660c49f0:302:11
+    at http://localhost:63315/node_modules/@vitest/runner/dist/chunk-artifact.js?v=660c49f0:1903:26
+    at http://localhost:63315/node_modules/@vitest/runner/dist/chunk-artifact.js?v=660c49f0:2326:20
+    at new Promise (<anonymous>)
+    at runWithCancel (http://localhost:63315/node_modules/@vitest/runner/dist/chunk-artifact.js?v=660c49f0:2323:10)
+    at http://localhost:63315/node_modules/@vitest/runner/dist/chunk-artifact.js?v=660c49f0:2305:20
+    at new Promise (<anonymous>)
+    at runWithTimeout (http://localhost:63315/node_modules/@vitest/runner/dist/chunk-artifact.js?v=660c49f0:2272:10)
+    at http://localhost:63315/node_modules/@vitest/runner/dist/chunk-artifact.js?v=660c49f0:2955:64
+    at run (http://localhost:63315/node_modules/@vitest/runner/dist/chunk-artifact.js?v=660c49f0:1150:20)
+    at limiterFn (http://localhost:63315/node_modules/@vitest/runner/dist/chunk-artifact.js?v=660c49f0:1162:59)
+    at http://localhost:63315/node_modules/@vitest/runner/dist/chunk-artifact.js?v=660c49f0:2955:38
+    at Traces.$ (http://localhost:63315/node_modules/vitest/dist/chunks/traces.DT5aQ62U.js?v=660c49f0:140:27)
+    at trace (http://localhost:63315/__vitest_browser__/tester-BJtsJFpD.js:1053:25)
+    at http://localhost:63315/node_modules/@vitest/runner/dist/chunk-artifact.js?v=660c49f0:2955:13
+12:49:21 p.m. [vite] (client) [console.error] storage upload failed Error: offline
+    at http://localhost:63315/Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-sweep-validation/src/routes/project/new/newProjectOriginalUpload.component.test.ts?import&browserv=1789415359305:175:51
+    at http://localhost:63315/node_modules/@vitest/runner/dist/chunk-artifact.js?v=660c49f0:302:11
+    at http://localhost:63315/node_modules/@vitest/runner/dist/chunk-artifact.js?v=660c49f0:1903:26
+    at http://localhost:63315/node_modules/@vitest/runner/dist/chunk-artifact.js?v=660c49f0:2326:20
+    at new Promise (<anonymous>)
+    at runWithCancel (http://localhost:63315/node_modules/@vitest/runner/dist/chunk-artifact.js?v=660c49f0:2323:10)
+    at http://localhost:63315/node_modules/@vitest/runner/dist/chunk-artifact.js?v=660c49f0:2305:20
+    at new Promise (<anonymous>)
+    at runWithTimeout (http://localhost:63315/node_modules/@vitest/runner/dist/chunk-artifact.js?v=660c49f0:2272:10)
+    at http://localhost:63315/node_modules/@vitest/runner/dist/chunk-artifact.js?v=660c49f0:2955:64
+    at run (http://localhost:63315/node_modules/@vitest/runner/dist/chunk-artifact.js?v=660c49f0:1150:20)
+    at limiterFn (http://localhost:63315/node_modules/@vitest/runner/dist/chunk-artifact.js?v=660c49f0:1162:59)
+    at http://localhost:63315/node_modules/@vitest/runner/dist/chunk-artifact.js?v=660c49f0:2955:38
+    at Traces.$ (http://localhost:63315/node_modules/vitest/dist/chunks/traces.DT5aQ62U.js?v=660c49f0:140:27)
+    at trace (http://localhost:63315/__vitest_browser__/tester-BJtsJFpD.js:1053:25)
+    at http://localhost:63315/node_modules/@vitest/runner/dist/chunk-artifact.js?v=660c49f0:2955:13
+12:49:21 p.m. [vite] (client) [console.error] Error: review start failed
+    at http://localhost:63315/Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-sweep-validation/src/routes/project/new/newProjectOriginalUpload.component.test.ts?import&browserv=1789415359305:174:48
+    at http://localhost:63315/node_modules/@vitest/runner/dist/chunk-artifact.js?v=660c49f0:302:11
+    at http://localhost:63315/node_modules/@vitest/runner/dist/chunk-artifact.js?v=660c49f0:1903:26
+    at http://localhost:63315/node_modules/@vitest/runner/dist/chunk-artifact.js?v=660c49f0:2326:20
+    at new Promise (<anonymous>)
+    at runWithCancel (http://localhost:63315/node_modules/@vitest/runner/dist/chunk-artifact.js?v=660c49f0:2323:10)
+    at http://localhost:63315/node_modules/@vitest/runner/dist/chunk-artifact.js?v=660c49f0:2305:20
+    at new Promise (<anonymous>)
+    at runWithTimeout (http://localhost:63315/node_modules/@vitest/runner/dist/chunk-artifact.js?v=660c49f0:2272:10)
+    at http://localhost:63315/node_modules/@vitest/runner/dist/chunk-artifact.js?v=660c49f0:2955:64
+    at run (http://localhost:63315/node_modules/@vitest/runner/dist/chunk-artifact.js?v=660c49f0:1150:20)
+    at limiterFn (http://localhost:63315/node_modules/@vitest/runner/dist/chunk-artifact.js?v=660c49f0:1162:59)
+    at http://localhost:63315/node_modules/@vitest/runner/dist/chunk-artifact.js?v=660c49f0:2955:38
+    at Traces.$ (http://localhost:63315/node_modules/vitest/dist/chunks/traces.DT5aQ62U.js?v=660c49f0:140:27)
+    at trace (http://localhost:63315/__vitest_browser__/tester-BJtsJFpD.js:1053:25)
+    at http://localhost:63315/node_modules/@vitest/runner/dist/chunk-artifact.js?v=660c49f0:2955:13
+12:49:22 p.m. [vite] (client) [console.error] storage upload failed Error: offline
+    at http://localhost:63315/Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-sweep-validation/src/routes/project/new/newProjectOriginalUpload.component.test.ts?import&browserv=1789415359305:197:51
+    at http://localhost:63315/node_modules/@vitest/runner/dist/chunk-artifact.js?v=660c49f0:2027:60
+    at http://localhost:63315/node_modules/@vitest/runner/dist/chunk-artifact.js?v=660c49f0:302:11
+    at http://localhost:63315/node_modules/@vitest/runner/dist/chunk-artifact.js?v=660c49f0:1903:26
+    at http://localhost:63315/node_modules/@vitest/runner/dist/chunk-artifact.js?v=660c49f0:2326:20
+    at new Promise (<anonymous>)
+    at runWithCancel (http://localhost:63315/node_modules/@vitest/runner/dist/chunk-artifact.js?v=660c49f0:2323:10)
+    at http://localhost:63315/node_modules/@vitest/runner/dist/chunk-artifact.js?v=660c49f0:2305:20
+    at new Promise (<anonymous>)
+    at runWithTimeout (http://localhost:63315/node_modules/@vitest/runner/dist/chunk-artifact.js?v=660c49f0:2272:10)
+    at http://localhost:63315/node_modules/@vitest/runner/dist/chunk-artifact.js?v=660c49f0:2955:64
+    at run (http://localhost:63315/node_modules/@vitest/runner/dist/chunk-artifact.js?v=660c49f0:1150:20)
+    at limiterFn (http://localhost:63315/node_modules/@vitest/runner/dist/chunk-artifact.js?v=660c49f0:1162:59)
+    at http://localhost:63315/node_modules/@vitest/runner/dist/chunk-artifact.js?v=660c49f0:2955:38
+    at Traces.$ (http://localhost:63315/node_modules/vitest/dist/chunks/traces.DT5aQ62U.js?v=660c49f0:140:27)
+    at trace (http://localhost:63315/__vitest_browser__/tester-BJtsJFpD.js:1053:25)
+12:49:22 p.m. [vite] (client) [console.error] Error: text save failed
+    at http://localhost:63315/Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-sweep-validation/src/routes/project/new/newProjectOriginalUpload.component.test.ts?import&browserv=1789415359305:201:14
+    at async http://localhost:63315/node_modules/@vitest/runner/dist/chunk-artifact.js?v=660c49f0:1903:20
+12:49:23 p.m. [vite] (client) [console.error] storage upload failed Error: offline
+    at http://localhost:63315/Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-sweep-validation/src/routes/project/new/newProjectOriginalUpload.component.test.ts?import&browserv=1789415359305:197:51
+    at http://localhost:63315/node_modules/@vitest/runner/dist/chunk-artifact.js?v=660c49f0:2027:60
+    at http://localhost:63315/node_modules/@vitest/runner/dist/chunk-artifact.js?v=660c49f0:302:11
+    at http://localhost:63315/node_modules/@vitest/runner/dist/chunk-artifact.js?v=660c49f0:1903:26
+    at http://localhost:63315/node_modules/@vitest/runner/dist/chunk-artifact.js?v=660c49f0:2326:20
+    at new Promise (<anonymous>)
+    at runWithCancel (http://localhost:63315/node_modules/@vitest/runner/dist/chunk-artifact.js?v=660c49f0:2323:10)
+    at http://localhost:63315/node_modules/@vitest/runner/dist/chunk-artifact.js?v=660c49f0:2305:20
+    at new Promise (<anonymous>)
+    at runWithTimeout (http://localhost:63315/node_modules/@vitest/runner/dist/chunk-artifact.js?v=660c49f0:2272:10)
+    at http://localhost:63315/node_modules/@vitest/runner/dist/chunk-artifact.js?v=660c49f0:2955:64
+    at run (http://localhost:63315/node_modules/@vitest/runner/dist/chunk-artifact.js?v=660c49f0:1150:20)
+    at limiterFn (http://localhost:63315/node_modules/@vitest/runner/dist/chunk-artifact.js?v=660c49f0:1162:59)
+    at http://localhost:63315/node_modules/@vitest/runner/dist/chunk-artifact.js?v=660c49f0:2955:38
+    at Traces.$ (http://localhost:63315/node_modules/vitest/dist/chunks/traces.DT5aQ62U.js?v=660c49f0:140:27)
+    at trace (http://localhost:63315/__vitest_browser__/tester-BJtsJFpD.js:1053:25)
+12:49:23 p.m. [vite] (client) [console.error] Failed to record upload attempt Error: offline accounting
+    at http://localhost:63315/Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-sweep-validation/src/routes/project/new/newProjectOriginalUpload.component.test.ts?import&browserv=1789415359305:194:83
+    at http://localhost:63315/node_modules/@vitest/runner/dist/chunk-artifact.js?v=660c49f0:2027:60
+    at http://localhost:63315/node_modules/@vitest/runner/dist/chunk-artifact.js?v=660c49f0:302:11
+    at http://localhost:63315/node_modules/@vitest/runner/dist/chunk-artifact.js?v=660c49f0:1903:26
+    at http://localhost:63315/node_modules/@vitest/runner/dist/chunk-artifact.js?v=660c49f0:2326:20
+    at new Promise (<anonymous>)
+    at runWithCancel (http://localhost:63315/node_modules/@vitest/runner/dist/chunk-artifact.js?v=660c49f0:2323:10)
+    at http://localhost:63315/node_modules/@vitest/runner/dist/chunk-artifact.js?v=660c49f0:2305:20
+    at new Promise (<anonymous>)
+    at runWithTimeout (http://localhost:63315/node_modules/@vitest/runner/dist/chunk-artifact.js?v=660c49f0:2272:10)
+    at http://localhost:63315/node_modules/@vitest/runner/dist/chunk-artifact.js?v=660c49f0:2955:64
+    at run (http://localhost:63315/node_modules/@vitest/runner/dist/chunk-artifact.js?v=660c49f0:1150:20)
+    at limiterFn (http://localhost:63315/node_modules/@vitest/runner/dist/chunk-artifact.js?v=660c49f0:1162:59)
+    at http://localhost:63315/node_modules/@vitest/runner/dist/chunk-artifact.js?v=660c49f0:2955:38
+    at Traces.$ (http://localhost:63315/node_modules/vitest/dist/chunks/traces.DT5aQ62U.js?v=660c49f0:140:27)
+    at trace (http://localhost:63315/__vitest_browser__/tester-BJtsJFpD.js:1053:25)
+12:49:23 p.m. [vite] (client) [console.error] Error: text save failed
+    at http://localhost:63315/Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-sweep-validation/src/routes/project/new/newProjectOriginalUpload.component.test.ts?import&browserv=1789415359305:201:14
+    at async http://localhost:63315/node_modules/@vitest/runner/dist/chunk-artifact.js?v=660c49f0:1903:20
+12:49:23 p.m. [vite] (client) [console.error] storage upload failed Error: offline
+    at http://localhost:63315/Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-sweep-validation/src/routes/project/new/newProjectOriginalUpload.component.test.ts?import&browserv=1789415359305:222:43
+    at http://localhost:63315/node_modules/@vitest/runner/dist/chunk-artifact.js?v=660c49f0:2027:60
+    at http://localhost:63315/node_modules/@vitest/runner/dist/chunk-artifact.js?v=660c49f0:302:11
+    at http://localhost:63315/node_modules/@vitest/runner/dist/chunk-artifact.js?v=660c49f0:1903:26
+    at http://localhost:63315/node_modules/@vitest/runner/dist/chunk-artifact.js?v=660c49f0:2326:20
+    at new Promise (<anonymous>)
+    at runWithCancel (http://localhost:63315/node_modules/@vitest/runner/dist/chunk-artifact.js?v=660c49f0:2323:10)
+    at http://localhost:63315/node_modules/@vitest/runner/dist/chunk-artifact.js?v=660c49f0:2305:20
+    at new Promise (<anonymous>)
+    at runWithTimeout (http://localhost:63315/node_modules/@vitest/runner/dist/chunk-artifact.js?v=660c49f0:2272:10)
+    at http://localhost:63315/node_modules/@vitest/runner/dist/chunk-artifact.js?v=660c49f0:2955:64
+    at run (http://localhost:63315/node_modules/@vitest/runner/dist/chunk-artifact.js?v=660c49f0:1150:20)
+    at limiterFn (http://localhost:63315/node_modules/@vitest/runner/dist/chunk-artifact.js?v=660c49f0:1162:59)
+    at http://localhost:63315/node_modules/@vitest/runner/dist/chunk-artifact.js?v=660c49f0:2955:38
+    at Traces.$ (http://localhost:63315/node_modules/vitest/dist/chunks/traces.DT5aQ62U.js?v=660c49f0:140:27)
+    at trace (http://localhost:63315/__vitest_browser__/tester-BJtsJFpD.js:1053:25)
+12:49:28 p.m. [vite] (client) [console.error] PD review result failed validation — stored payload does not match the expected shape [{"expected":"string","code":"invalid_type","path":["summary"],"message":"Invalid input: expected string, received undefined"},{"expected":"number","code":"invalid_type","path":["qualitative_score"],"message":"Invalid input: expected number, received undefined"}]
+12:49:28 p.m. [vite] (client) [console.error] PD review result failed validation — stored payload does not match the expected shape [{"expected":"string","code":"invalid_type","path":["summary"],"message":"Invalid input: expected string, received undefined"},{"expected":"number","code":"invalid_type","path":["qualitative_score"],"message":"Invalid input: expected number, received undefined"}]
+12:49:44 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:44 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:44 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:44 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:44 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:44 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:44 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:44 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:44 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:44 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:44 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:44 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:47 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:47 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:47 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:47 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:48 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:48 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:48 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:48 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:48 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:48 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:48 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:48 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:48 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:48 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:48 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:48 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:48 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:48 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:48 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:48 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:48 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:48 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:48 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:48 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:48 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:48 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:48 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:48 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:48 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:48 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:48 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:48 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:48 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:48 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:48 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:48 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:48 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:48 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:48 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:48 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:48 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:48 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:48 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:48 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:48 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:48 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:48 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:48 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:48 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:48 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:48 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:48 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:48 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:48 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:48 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:48 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:48 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:48 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:48 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:48 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:48 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:48 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:48 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:48 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:48 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:48 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:48 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:48 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:48 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:48 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:48 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:48 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:48 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:48 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:48 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:48 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:48 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:48 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:48 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:48 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:48 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:48 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:48 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:48 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:48 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:48 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:48 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:48 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:48 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:48 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:48 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:48 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:48 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:48 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:48 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:48 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:48 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:48 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:48 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:48 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:48 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:48 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:48 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:48 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:48 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:48 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:48 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:48 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:48 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:48 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:48 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:48 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:48 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:48 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:48 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:48 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:48 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:48 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:48 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:48 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:48 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:48 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:48 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:48 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:48 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:48 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:48 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:48 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:58 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:58 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:58 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:58 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:58 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:58 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:58 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:58 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:58 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:58 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:58 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:58 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:58 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:58 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:58 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:58 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:58 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:58 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:58 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:58 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:58 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:58 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:58 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:58 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:58 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:58 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:58 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:58 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:58 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:58 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:49:59 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:00 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:01 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+12:50:05 p.m. [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+
+ Test Files  82 passed (82)
+      Tests  641 passed (641)
+   Start at  12:48:07
+   Duration  120.52s (transform 0ms, setup 2.39s, import 33.70s, tests 102.55s, environment 0ms)
+

@@ -956,11 +956,20 @@
   const briefWriterSettingsQ = useQuery(api.writerProfiles.getGenerationWriterSettings, () =>
     auth.isAuthenticated && briefGenerationId ? { generationId: briefGenerationId } : "skip"
   );
+  // DW-128: a failed Brief read keeps the launcher and the rail view, which
+  // then shows BriefRailPanel's error line — a broken read must never look
+  // like a legacy generation.
+  const briefLoadFailed = $derived(
+    !!briefQ.error || !!briefInclusionQ.error || !!briefWriterSettingsQ.error
+  );
   // A legacy generation recorded no Brief, no budget outcome and no writer
   // settings: the rail view and its launcher are absent, not empty. Rows
   // synthesized for documents the reservation skipped never count.
   const briefAvailable = $derived(
-    !!briefQ.data || !!briefWriterSettingsQ.data || briefInclusionQ.data?.recorded === true
+    briefLoadFailed ||
+      !!briefQ.data ||
+      !!briefWriterSettingsQ.data ||
+      briefInclusionQ.data?.recorded === true
   );
   // The Brief view only occupies the rail when there is a Brief to show.
   const briefShown = $derived(briefOpen && briefAvailable);

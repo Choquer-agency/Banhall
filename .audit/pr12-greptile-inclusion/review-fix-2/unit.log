@@ -1,0 +1,9 @@
+
+ RUN  v4.1.10 /Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-sweep-validation
+
+
+ Test Files  188 passed (188)
+      Tests  2652 passed (2652)
+   Start at  15:16:33
+   Duration  44.07s (transform 7.68s, setup 0ms, import 15.32s, tests 32.92s, environment 7.45s)
+
