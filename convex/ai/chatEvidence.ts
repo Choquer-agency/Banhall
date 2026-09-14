@@ -124,7 +124,7 @@ export interface ChatEvidenceDecision {
  * One unresolved or unreliable Confidence Map entry of this report's Brief
  * (CAP-14). `sourceLabel` is the frozen source the fact came from, so the
  * assistant can say where the gap is, and is null on an entry whose source row
- * is gone.
+ * is gone or could not be read within the query's read budget.
  */
 export interface ChatOpenQuestion {
   text: string;
@@ -135,12 +135,23 @@ export interface ChatOpenQuestion {
   sourceLabel: string | null;
 }
 
+/**
+ * How many open questions the query's cap left out of `openQuestions` (DW-138).
+ * `exact` is false when the query's scan bound cut the count short, making it
+ * a lower bound.
+ */
+export interface ChatOpenQuestionsOmitted {
+  count: number;
+  exact: boolean;
+}
+
 export interface ChatEvidenceInput {
   reportText: string;
   analysisText: string;
   documents?: ChatEvidenceDoc[];
   decisions?: ChatEvidenceDecision[];
   openQuestions?: ChatOpenQuestion[];
+  openQuestionsOmitted?: ChatOpenQuestionsOmitted;
   budget?: ChatEvidenceBudget;
 }
 
@@ -152,6 +163,7 @@ export interface ChatTurnContext {
   decisions: ChatEvidenceDecision[];
   /** Absent on every turn whose generation has no Brief. */
   openQuestions?: ChatOpenQuestion[];
+  openQuestionsOmitted?: ChatOpenQuestionsOmitted;
   evidenceBudget?: ChatEvidenceBudget;
 }
 
@@ -224,18 +236,55 @@ export function decisionsTextFrom(decisions: ChatEvidenceDecision[]): string {
 }
 
 /**
- * The open questions as one line each. Confidence first because it is what
- * makes the entry a question rather than a fact.
+ * The open questions block is rendered when there is something to list OR
+ * when the query could not finish reading the Brief: an absent block means
+ * "no Brief" to the prompt, so an incomplete scan must never look like one.
  */
-export function openQuestionsTextFrom(questions: ChatOpenQuestion[]): string {
-  return questions
-    .map(
-      (question, index) =>
-        `[${index + 1}: ${question.confidence.toUpperCase()}] ${question.text}${
-          question.sourceLabel ? ` (source: ${question.sourceLabel})` : ""
-        }`
-    )
-    .join("\n");
+export function openQuestionsBlockNeeded(
+  questions: ChatOpenQuestion[] | undefined,
+  omitted: ChatOpenQuestionsOmitted | undefined
+): boolean {
+  return Boolean(questions?.length) || omitted?.exact === false;
+}
+
+/**
+ * The open questions as one line each. Confidence first because it is what
+ * makes the entry a question rather than a fact. When the query's cap left
+ * some out, or its walk stopped before the Brief ended, the block OPENS with
+ * a notice (DW-138): first, so the budget's tail cut can never remove the one
+ * line that says the list is a subset.
+ */
+export function openQuestionsTextFrom(
+  questions: ChatOpenQuestion[],
+  omitted?: ChatOpenQuestionsOmitted
+): string {
+  const lines = questions.map(
+    (question, index) =>
+      `[${index + 1}: ${question.confidence.toUpperCase()}] ${question.text}${
+        question.sourceLabel ? ` (source: ${question.sourceLabel})` : ""
+      }`
+  );
+  const notice = openQuestionsNotice(questions.length, omitted);
+  if (notice) lines.unshift(notice);
+  return lines.join("\n");
+}
+
+function openQuestionsNotice(
+  listed: number,
+  omitted: ChatOpenQuestionsOmitted | undefined
+): string | null {
+  if (!omitted) return null;
+  if (omitted.exact) {
+    return omitted.count > 0
+      ? `Listing ${listed} of ${listed + omitted.count} open questions; ${omitted.count} more are not shown.`
+      : null;
+  }
+  if (omitted.count > 0) {
+    return `Listing ${listed} open questions; at least ${omitted.count} more are not shown.`;
+  }
+  return listed > 0
+    ? `Listing ${listed} open questions; the Brief was not fully read, so more may exist.`
+    : "No open question was read before the Brief scan stopped; this list is incomplete, not empty.";
 }
 
 /**
@@ -419,7 +468,7 @@ export function buildChatEvidence(input: ChatEvidenceInput): {
 
   // ── Open questions (CAP-14; spent before documents, rendered after) ───────
   let openQuestionsBody: string | null = null;
-  if (openQuestions.length) {
+  if (openQuestionsBlockNeeded(openQuestions, input.openQuestionsOmitted)) {
     openQuestionsBody = soloBody(
       charge(
         spend(
@@ -429,7 +478,7 @@ export function buildChatEvidence(input: ChatEvidenceInput): {
           // provenance of the TRANSCRIPT ANALYSIS block. Not the writer's own
           // direction, so not `internal`.
           "client",
-          openQuestionsTextFrom(openQuestions),
+          openQuestionsTextFrom(openQuestions, input.openQuestionsOmitted),
           Math.min(chars(budget.openQuestionsTokens), totalChars),
           remaining
         )
@@ -570,8 +619,16 @@ export function buildChatTurnRequest(args: {
     analysisText: analysisTextFrom(args.context.agentOutputs),
     documents: args.context.documents,
     decisions: args.context.decisions,
-    ...(args.context.openQuestions?.length
-      ? { openQuestions: args.context.openQuestions }
+    ...(openQuestionsBlockNeeded(
+      args.context.openQuestions,
+      args.context.openQuestionsOmitted
+    )
+      ? {
+          openQuestions: args.context.openQuestions ?? [],
+          ...(args.context.openQuestionsOmitted
+            ? { openQuestionsOmitted: args.context.openQuestionsOmitted }
+            : {}),
+        }
       : {}),
     ...(budget ? { budget } : {}),
   });
