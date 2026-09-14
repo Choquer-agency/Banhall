@@ -75,7 +75,11 @@ export const ANTHROPIC_TIMEOUT_MS = 240_000;
  * generateOrderedSection) whose worst case is ORDERED_SECTION_ACTION_SLOTS:
  * one draft + the compression squeezes + one Self-check + at most one repair
  * = 5, the same bound. Finalize adds consistency + (QA || chronology) = 2.
- * Iterative's one-shot ghost still runs the five-slot chain above.
+ * Iterative's one-shot ghost still runs the five-slot chain above. A section
+ * action that overruns the Convex action limit before its completion
+ * mutation runs leaves its row "running" and stops stamping the
+ * generation's lastProgressAt; failStaleGenerations then fails the
+ * generation once its window elapses from that last stamp (DW-119).
  */
 export const SEQUENTIAL_CALLS_PER_GENERATE_CANDIDATE = 5;
 

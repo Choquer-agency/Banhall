@@ -1,0 +1,31 @@
+
+ RUN  v4.1.10 /Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a
+
+ ❯ |convex| convex/orderedChainRecovery.test.ts (8 tests | 1 failed) 607ms
+     × fails a stalled generation behind a full page of older, still-progressing ones 292ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |convex| convex/orderedChainRecovery.test.ts > DW-119 review: the running scan pages past live chains > fails a stalled generation behind a full page of older, still-progressing ones
+AssertionError: expected 'running' to be 'failed' // Object.is equality
+
+Expected: "failed"
+Received: "running"
+
+ ❯ expectWholeFailed convex/orderedChainRecovery.test.ts:179:36
+    177| async function expectWholeFailed(t: T, ids: Seeded) {
+    178|   const state = await stateOf(t, ids);
+    179|   expect(state.generation?.status).toBe("failed");
+       |                                    ^
+    180|   expect(state.generation?.error).toBe("Timed out before generation co…
+    181|   for (const run of state.runs) {
+ ❯ convex/orderedChainRecovery.test.ts:392:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 7 passed (8)
+   Start at  12:54:36
+   Duration  1.05s (transform 451ms, setup 0ms, import 196ms, tests 607ms, environment 64ms)
+

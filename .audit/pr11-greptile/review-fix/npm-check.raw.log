@@ -1,0 +1,7 @@
+
+> banhall-app@0.1.0 check
+> svelte-kit sync && svelte-check --tsconfig ./tsconfig.json
+
+1789415857013 START "/Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a"
+1789415857043 COMPLETED 5931 FILES 0 ERRORS 0 WARNINGS 0 FILES_WITH_PROBLEMS
+check exit=0

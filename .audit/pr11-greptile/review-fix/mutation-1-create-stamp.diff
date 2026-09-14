@@ -1,0 +1,10 @@
+--- /private/tmp/claude-501/-Users-johnnynguyen-Documents-Repos-Banhall/74c117b1-0ee2-4aa9-a3bd-3095316a1935/scratchpad/generations.ts.snapshot	2026-09-14 12:55:45
++++ convex/generations.ts	2026-09-14 12:55:47
+@@ -3640,7 +3640,6 @@
+         ...(fence.generation.progressLog ?? []),
+         `${fence.run.label}: drafting ${order.join(" → ")} in order; each section is Self-checked before it is shown.`,
+       ],
+-      lastProgressAt: now,
+     });
+     await ctx.scheduler.runAfter(0, internal.ai.orderedGeneration.generateOrderedSection, {
+       generationId: args.generationId,

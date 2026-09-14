@@ -1,0 +1,53 @@
+
+ RUN  v4.1.10 /Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a
+
+ ❯ |convex| convex/orderedChainRecovery.test.ts (10 tests | 2 failed) 953ms
+     × a cron tick that lands while a scan's pages are still scheduled starts no second chain 21ms
+     × caps a requested pageSize at the production page 10ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |convex| convex/orderedChainRecovery.test.ts > DW-119 review: the running scan pages past live chains > a cron tick that lands while a scan's pages are still scheduled starts no second chain
+AssertionError: expected [ { …(6) }, { …(6) } ] to have a length of 1 but got 2
+
+- Expected
++ Received
+
+- 1
++ 2
+
+ ❯ convex/orderedChainRecovery.test.ts:424:43
+    422|     const tickB = await reapAt(t, T0 + 71 * MINUTES);
+    423|     // Still exactly one continuation chain: tick B started nothing.
+    424|     expect(await scanContinuationJobs(t)).toHaveLength(1);
+       |                                           ^
+    425|     expect(tickB.skipped).toBe("scan_in_progress");
+    426|     expect(tickB.failed).toBe(0);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  |convex| convex/orderedChainRecovery.test.ts > DW-119 review: the running scan pages past live chains > caps a requested pageSize at the production page
+AssertionError: expected 101 to be 100 // Object.is equality
+
+- Expected
++ Received
+
+- 100
++ 101
+
+ ❯ convex/orderedChainRecovery.test.ts:448:27
+    446|     const first = await reapAt(t, T0 + 61 * MINUTES, { pageSize: 1000 …
+    447|     // 101 rows are in range; an oversized request still reads one pag…
+    448|     expect(first.scanned).toBe(SCAN_PAGE_SIZE);
+       |                           ^
+    449|     expect(first.isDone).toBe(false);
+    450|     await t.finishAllScheduledFunctions(vi.runAllTimers);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  2 failed | 8 passed (10)
+   Start at  13:03:12
+   Duration  1.64s (transform 665ms, setup 0ms, import 319ms, tests 953ms, environment 75ms)
+

@@ -1,0 +1,9 @@
+
+ RUN  v4.1.10 /Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a
+
+
+ Test Files  4 passed (4)
+      Tests  29 passed (29)
+   Start at  12:55:20
+   Duration  1.58s (transform 1.08s, setup 0ms, import 741ms, tests 1.28s, environment 243ms)
+

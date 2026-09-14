@@ -784,6 +784,12 @@ export default defineSchema({
     // attachment — and the save offer. Written only by
     // generations.recordWriterSettings; absent on legacy rows.
     writerSettings: v.optional(writerSettingsValidator),
+    // DW-119: when the ordered chain last made progress (a section run
+    // created, claimed or drafted). failStaleGenerations ages a running
+    // single/compare generation from this stamp instead of startedAt, so a
+    // slow but live chain is never reaped while a chain whose action died
+    // stops stamping and is. Absent on iterative and legacy rows.
+    lastProgressAt: v.optional(v.number()),
     startedAt: v.number(),
     completedAt: v.optional(v.number()),
     error: v.optional(v.string()),
@@ -2377,6 +2383,20 @@ export default defineSchema({
     "contentHash",
     "classifierVersion",
   ]),
+  // DW-119 review: the single owner of the stale-generation scan
+  // (generations.failStaleGenerations). One row, keyed by a constant. `scan`
+  // is a sequence number every continuation page carries as its fence;
+  // `continuationJobId` is that scan's pending page, inspected by id on each
+  // cron tick so a second chain never starts while one is live. Cleared when
+  // the scan's last page runs.
+  staleGenerationScans: defineTable({
+    key: v.string(),
+    scan: v.number(),
+    cutoff: v.number(),
+    continuationJobId: v.optional(v.id("_scheduled_functions")),
+    startedAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_key", ["key"]),
 
   // Admin-tunable app settings, one row per key. Currently: "defaultModel" —
   // the generation model used when a writer doesn't pick one explicitly.
