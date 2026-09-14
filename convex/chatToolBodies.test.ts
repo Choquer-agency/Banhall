@@ -373,11 +373,80 @@ describe("runCompareReferencePd", () => {
       ],
     });
     const reply = await runCompareReferencePd(f.ctx, {});
-    expect(reply).toContain(
-      `only the first ${MAX_PROJECT_DOCUMENT_SCAN} documents of this project were scanned`
-    );
+    expect(reply).toContain("documents were only partly scanned");
     expect(reply).not.toContain("no Reference PD attached");
     expect(reply).toContain("propose nothing");
+  });
+
+  describe("incomplete document scan (Astra review of DW-138)", () => {
+    /** ~900 KB each: twenty of them exhaust the query's read budget. */
+    const bigBody = "attachment text ".repeat(56_000);
+    const bigAttachments = Array.from({ length: 20 }, (_, i) => ({
+      fileName: `big-${i + 1}.docx`,
+      content: bigBody,
+      category: "background" as const,
+    }));
+
+    test("asks for an explicit choice instead of auto-resolving the only PD seen", async () => {
+      const f = await setup({
+        documents: [{ fileName: "seen-pd.docx", content: REFERENCE }, ...bigAttachments],
+      });
+      const reply = await runCompareReferencePd(f.ctx, {});
+      expect(reply).not.toContain("# REFERENCE PD COMPARISON");
+      expect(reply).toContain("documents were only partly scanned");
+      expect(reply).toContain('"seen-pd.docx"');
+      expect(reply).toContain("Ask the writer which one");
+    });
+
+    test("compares a named PD and still carries the scan note", async () => {
+      const f = await setup({
+        documents: [{ fileName: "seen-pd.docx", content: REFERENCE }, ...bigAttachments],
+      });
+      const reply = await runCompareReferencePd(f.ctx, { fileName: "seen-pd.docx" });
+      expect(reply).toContain("# REFERENCE PD COMPARISON");
+      expect(reply).toContain("documents were only partly scanned");
+    });
+
+    test("says an unknown name was not found among the scanned documents", async () => {
+      const f = await setup({
+        documents: [{ fileName: "seen-pd.docx", content: REFERENCE }, ...bigAttachments],
+      });
+      const reply = await runCompareReferencePd(f.ctx, { fileName: "pd-2099.docx" });
+      expect(reply).toContain(
+        'No readable previous-year report named "pd-2099.docx" was found among the documents scanned'
+      );
+      expect(reply).toContain("documents were only partly scanned");
+    });
+
+    test("carries the scan note on unreadable and unparsed outcomes too", async () => {
+      const unreadable = await setup({
+        documents: [
+          { fileName: "blank.pdf", content: "", processingStatus: "could_not_read" },
+          ...bigAttachments,
+        ],
+      });
+      const unreadableReply = await runCompareReferencePd(unreadable.ctx, {});
+      expect(unreadableReply).toContain("no text could be read from it");
+      expect(unreadableReply).toContain("documents were only partly scanned");
+
+      const unparsed = await setup({
+        documents: [
+          {
+            fileName: "plain.docx",
+            content: JSON.stringify({
+              type: "doc",
+              content: [paragraph("Last year we built a control loop.")],
+            }),
+          },
+          ...bigAttachments,
+        ],
+      });
+      const unparsedReply = await runCompareReferencePd(unparsed.ctx, {
+        fileName: "plain.docx",
+      });
+      expect(unparsedReply).toContain("could not be read into Line 242");
+      expect(unparsedReply).toContain("documents were only partly scanned");
+    });
   });
 
   test("asks which one when more than one readable file is attached", async () => {

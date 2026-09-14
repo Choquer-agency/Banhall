@@ -130,6 +130,12 @@ export interface DeviationInventory {
    * paragraph they do not correspond to. Empty without a Reference PD.
    */
   unpairedReference: UnpairedReferenceParagraph[];
+  /**
+   * Sections too large to align within `MAX_ALIGNMENT_COMPARISONS`. No
+   * counterpart and no unpaired list is produced for them; `renderInventory`
+   * says so instead of leaving the model to read absence as "nothing similar".
+   */
+  alignmentSkippedSections: InventorySection[];
 }
 
 /** Thrown when a writer-supplied content Deviation names a paragraph that does
@@ -217,51 +223,92 @@ function bagSimilarity(a: Map<string, number>, b: Map<string, number>): number {
   return sizeA + sizeB === 0 ? 0 : (2 * overlap) / (sizeA + sizeB);
 }
 
-/** Index of the largest score and the largest OTHER score (0 when alone). */
-function bestAndRunnerUp(scores: number[]): { best: number; runnerUp: number } {
-  let best = -1;
-  let runnerUp = 0;
-  scores.forEach((score, index) => {
-    if (best === -1 || score > scores[best]!) {
-      runnerUp = best === -1 ? 0 : scores[best]!;
-      best = index;
-    } else if (score > runnerUp) {
-      runnerUp = score;
-    }
-  });
-  return { best, runnerUp };
+/**
+ * Work bound for one section's alignment: draft × reference paragraph pairs.
+ * 500 × 500. A real Locked section holds tens of paragraphs; past this the
+ * section is left unaligned and `renderInventory` says so, rather than
+ * spending unbounded time on a degenerate document.
+ */
+export const MAX_ALIGNMENT_COMPARISONS = 250_000;
+
+/** The best score seen for one side and the largest OTHER score (0 when alone). */
+interface BestTwo {
+  best: number;
+  bestScore: number;
+  runnerUp: number;
 }
+
+function observe(slot: BestTwo, index: number, score: number): void {
+  if (slot.best === -1 || score > slot.bestScore) {
+    slot.runnerUp = slot.best === -1 ? 0 : slot.bestScore;
+    slot.best = index;
+    slot.bestScore = score;
+  } else if (score > slot.runnerUp) {
+    slot.runnerUp = score;
+  }
+}
+
+const emptyBestTwo = (): BestTwo => ({ best: -1, bestScore: 0, runnerUp: 0 });
 
 /**
  * For each draft paragraph, the index of its Reference counterpart, or
  * `undefined`. A pair (d, r) is accepted only when r is d's best match by at
  * least `COUNTERPART_MARGIN` over d's runner-up, d is likewise r's best match,
  * and the score reaches `MIN_COUNTERPART_SIMILARITY`. Ties fail the margin, so
- * duplicated boilerplate on either side pairs with nothing. Each Reference
+ * duplicated boilerplate on ONE side pairs with nothing. Each Reference
  * paragraph is used at most once. Order-free: a reordered pair still meets.
+ *
+ * Two shortcuts, both deterministic: sections whose normalized paragraphs are
+ * identical position for position pair as such (so boilerplate duplicated on
+ * BOTH sides is a counterpart, not an ambiguity); and a section whose pair
+ * count exceeds `MAX_ALIGNMENT_COMPARISONS` is not aligned at all (`null`).
+ * Memory is linear: only each row's and column's best two scores are kept,
+ * never the full score matrix.
  */
 export function alignReferenceParagraphs(
   draft: string[],
   reference: string[]
-): Array<number | undefined> {
+): Array<number | undefined> | null {
+  if (draft.length === 0 || reference.length === 0) {
+    return draft.map(() => undefined);
+  }
+  if (
+    draft.length === reference.length &&
+    draft.every((text, i) => normalizeForIdentity(text) === normalizeForIdentity(reference[i]!))
+  ) {
+    return draft.map((_, i) => i);
+  }
+  if (draft.length * reference.length > MAX_ALIGNMENT_COMPARISONS) return null;
+
   const draftBags = draft.map(alignmentWordBag);
   const referenceBags = reference.map(alignmentWordBag);
-  const scores = draftBags.map((bag) =>
-    referenceBags.map((other) => bagSimilarity(bag, other))
-  );
-  return scores.map((row, d) => {
-    if (row.length === 0) return undefined;
-    const { best: r, runnerUp } = bestAndRunnerUp(row);
-    const score = row[r]!;
-    if (score < MIN_COUNTERPART_SIMILARITY || score - runnerUp < COUNTERPART_MARGIN) {
+  const rows = draft.map(emptyBestTwo);
+  const columns = reference.map(emptyBestTwo);
+  draftBags.forEach((bag, d) => {
+    referenceBags.forEach((other, r) => {
+      const score = bagSimilarity(bag, other);
+      observe(rows[d]!, r, score);
+      observe(columns[r]!, d, score);
+    });
+  });
+  return rows.map((row, d) => {
+    const r = row.best;
+    if (
+      row.bestScore < MIN_COUNTERPART_SIMILARITY ||
+      row.bestScore - row.runnerUp < COUNTERPART_MARGIN
+    ) {
       return undefined;
     }
-    const column = bestAndRunnerUp(scores.map((other) => other[r]!));
-    if (column.best !== d || score - column.runnerUp < COUNTERPART_MARGIN) {
+    const column = columns[r]!;
+    if (column.best !== d || row.bestScore - column.runnerUp < COUNTERPART_MARGIN) {
       return undefined;
     }
     return r;
   });
+}
+
+function normalizeForIdentity(text: string): string {
+  return text.toLowerCase().replace(/\s+/g, " ").trim();
 }
 
 /**
@@ -300,18 +347,22 @@ export function assembleDeviationInventory(input: {
   // aligned to (section-local, never across Locked sections).
   const alignments = new Map<
     InventorySection,
-    { referenceTexts: string[]; aligned: Array<number | undefined> }
+    { referenceTexts: string[]; aligned: Array<number | undefined>; skipped: boolean }
   >();
+  const alignmentSkippedSections: InventorySection[] = [];
   for (const section of INVENTORY_SECTION_ORDER) {
     const texts = sectionParagraphs(sectionTextOf(input.sections, section));
     counts.set(section, texts.length);
     const referenceTexts = referenceSections
       ? sectionParagraphs(sectionTextOf(referenceSections, section))
       : [];
-    const aligned = referenceSections
+    const alignment = referenceSections
       ? alignReferenceParagraphs(texts, referenceTexts)
       : [];
-    alignments.set(section, { referenceTexts, aligned });
+    const skipped = alignment === null;
+    if (skipped) alignmentSkippedSections.push(section);
+    const aligned = alignment ?? texts.map(() => undefined);
+    alignments.set(section, { referenceTexts, aligned, skipped });
     texts.forEach((text, index) => {
       const counterpart = aligned[index];
       const entry: InventoryParagraph = {
@@ -426,7 +477,7 @@ export function assembleDeviationInventory(input: {
   const unpairedReference: UnpairedReferenceParagraph[] = [];
   if (referenceSections) {
     for (const section of INVENTORY_SECTION_ORDER) {
-      const { referenceTexts, aligned } = alignments.get(section)!;
+      const { referenceTexts, aligned, skipped } = alignments.get(section)!;
       const referenceCount = referenceTexts.length;
       const draftCount = counts.get(section) ?? 0;
       const unalignedDraft: number[] = [];
@@ -441,12 +492,16 @@ export function assembleDeviationInventory(input: {
           instruction: `Structure: the Reference PD's Line ${section} has ${referenceCount} paragraph(s) against this draft's ${draftCount}, and none of them aligns with this paragraph, so it has no counterpart there.`,
         });
       }
+      // A skipped section lists no unpaired paragraphs: every one of them would
+      // qualify, and the notice already says the pairing was not made.
       const used = new Set(aligned.filter((r): r is number => r !== undefined));
-      referenceTexts.forEach((text, index) => {
-        if (!used.has(index)) {
-          unpairedReference.push({ section, paragraph: index + 1, text });
-        }
-      });
+      if (!skipped) {
+        referenceTexts.forEach((text, index) => {
+          if (!used.has(index)) {
+            unpairedReference.push({ section, paragraph: index + 1, text });
+          }
+        });
+      }
       if (referenceCount > draftCount) {
         // draftCount === 0 has no paragraph to anchor to (the section is
         // entirely missing from the draft, the largest possible structural
@@ -471,6 +526,7 @@ export function assembleDeviationInventory(input: {
     referenceUnparsed,
     unanchored,
     unpairedReference,
+    alignmentSkippedSections,
   };
 }
 
@@ -525,6 +581,11 @@ export function renderInventory(result: DeviationInventory): string {
     lines.push(
       "Reference counterpart paragraphs are shown where one could be aligned by content, each marked DATA; a paragraph with none listed was not paired with confidence, not necessarily new. Reference PD paragraphs left unpaired are listed after the paragraphs. Report Storyline, structure and terminology differences per paragraph as x- items with the ids below. Never answer with a similarity score."
     );
+    for (const section of result.alignmentSkippedSections) {
+      lines.push(
+        `Line ${section} was not aligned: the section is too large to compare paragraph by paragraph, so its paragraphs carry no counterpart and no unpaired list. Compare it at section level from the Reference PD in this turn's evidence, and say that the paragraph pairing was not made.`
+      );
+    }
   }
   lines.push("");
 

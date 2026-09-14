@@ -8,7 +8,7 @@ import {
   type MutationCtx,
 } from "./_generated/server";
 import { components, internal } from "./_generated/api";
-import { v } from "convex/values";
+import { getConvexSize, v, type Value } from "convex/values";
 import { paginationOptsValidator } from "convex/server";
 import {
   abortStream,
@@ -1082,9 +1082,82 @@ const MAX_INVENTORY_NOTES = 1000;
  * DW-138: the Reference PD lookup walks the project's documents and keeps the
  * `previous_pd` rows, so the bound is on rows SCANNED, not rows taken before
  * the filter (which lost any Reference PD uploaded after 200 attachments).
- * Hitting it is reported as `documentScanTruncated`, never as "none attached".
+ * Hitting it, or the read budget below, is reported as
+ * `documentScanTruncated`, never as "none attached".
  */
 export const MAX_PROJECT_DOCUMENT_SCAN = 1000;
+
+// ── Per-transaction read budget (Astra review of DW-138) ────────────────────
+//
+// A row bound alone does not keep a walk under Convex's 16 MiB per-transaction
+// read limit: 400 attachments of 50 KiB blow it before row 1000, and the query
+// then throws instead of reporting a cut. Every row a query reads is charged
+// here BEFORE the next read is started, and a walk stops, reporting itself
+// incomplete, once one maximum-size document no longer fits.
+//
+// This is a local twin of `convex/lib/learningHealthReads.ts` (same numbers,
+// same reserve-then-account shape). A shared `convex/lib/boundedRead.ts`
+// primitive is being extracted from that module on another branch; this block
+// is shaped so the switch is a one-line import: `account` for point reads,
+// `list` for a capped index walk returning `{ rows, complete }`.
+const MIB = 1 << 20;
+/** Half the platform limit, so everything else the transaction reads fits. */
+export const CHAT_READ_BYTES = 8 * MIB;
+/** Room for one maximum-size document before each read. */
+const CHAT_DOCUMENT_HEADROOM = MIB + 4096;
+const CHAT_DOCUMENT_OVERHEAD = 256;
+
+function chatReadBudget() {
+  let used = 0;
+  let exhausted = false;
+  function reserve(): boolean {
+    if (used + CHAT_DOCUMENT_HEADROOM <= CHAT_READ_BYTES) return true;
+    exhausted = true;
+    return false;
+  }
+  function account(value: Value): void {
+    used += getConvexSize(value) + CHAT_DOCUMENT_OVERHEAD;
+  }
+  return {
+    /** Charge a point read (`ctx.db.get`, a `.take`) that already happened. */
+    charge<T extends Value | null | undefined>(value: T): T {
+      if (Array.isArray(value)) value.forEach((row) => account(row));
+      else if (value !== null && value !== undefined) account(value);
+      return value;
+    },
+    /**
+     * Walk an index range, keeping the rows `keep` accepts, up to `cap` rows
+     * scanned and within the byte budget. `complete` is false when either
+     * bound stopped the walk before the range ended.
+     */
+    async list<T extends Value>(
+      source: AsyncIterable<T>,
+      cap: number,
+      keep: (row: T) => boolean = () => true
+    ): Promise<{ rows: T[]; complete: boolean }> {
+      const rows: T[] = [];
+      let scanned = 0;
+      if (!reserve()) return { rows, complete: false };
+      const iterator = source[Symbol.asyncIterator]();
+      try {
+        while (reserve()) {
+          if (scanned >= cap) return { rows, complete: false };
+          const next = await iterator.next();
+          if (next.done) return { rows, complete: true };
+          account(next.value);
+          scanned += 1;
+          if (keep(next.value)) rows.push(next.value);
+        }
+        return { rows, complete: false };
+      } finally {
+        await iterator.return?.();
+      }
+    },
+    get exhausted() {
+      return exhausted;
+    },
+  };
+}
 
 /** Why rule Deviations are or are not in the inventory. Three distinguishable
  * states, because "no linked generation" and "a generation that found nothing"
@@ -1191,7 +1264,11 @@ export const getDeviationInventoryContext = internalQuery({
         documentScanTruncated: false,
       };
     }
-    const report = await ctx.db.get(thread.reportId);
+    // One budget for everything this transaction reads, charged in read
+    // order, so the document walk at the end stops with headroom to spare.
+    const budget = chatReadBudget();
+    budget.charge(thread);
+    const report = budget.charge(await ctx.db.get(thread.reportId));
     const sections = report ? extractReportSections(report.content) : empty;
 
     // ONLY the report's own generation. There is deliberately no fallback to
@@ -1201,28 +1278,28 @@ export const getDeviationInventoryContext = internalQuery({
     // present another draft's rule Deviations as this one's. No linked
     // generation means rule Deviations are UNAVAILABLE, never fabricated.
     const generation = report?.generationId
-      ? await ctx.db.get(report.generationId)
+      ? budget.charge(await ctx.db.get(report.generationId))
       : null;
 
     let notes: InventoryNote[] = [];
     if (generation) {
       const candidateRunId = await selectedCandidateRunId(ctx, generation);
-      const rows =
+      const { rows } = await budget.list(
         candidateRunId !== undefined
-          ? await ctx.db
+          ? ctx.db
               .query("complianceNotes")
               .withIndex("by_generationId_and_candidateRunId_and_section", (q) =>
                 q
                   .eq("generationId", generation._id)
                   .eq("candidateRunId", candidateRunId)
               )
-              .take(MAX_INVENTORY_NOTES)
-          : await ctx.db
+          : ctx.db
               .query("complianceNotes")
               .withIndex("by_generationId_and_section", (q) =>
                 q.eq("generationId", generation._id)
-              )
-              .take(MAX_INVENTORY_NOTES);
+              ),
+        MAX_INVENTORY_NOTES
+      );
       notes = rows.map((row) => ({
         section: row.section,
         ...(row.paragraphIndex !== undefined
@@ -1245,19 +1322,14 @@ export const getDeviationInventoryContext = internalQuery({
     // filter runs INSIDE the bounded walk (DW-138): `projectDocuments` has no
     // category index, and taking a prefix first dropped any Reference PD that
     // sat behind the project's other attachments.
-    const attached: Doc<"projectDocuments">[] = [];
-    let documentScanTruncated = false;
-    let scannedDocuments = 0;
-    for await (const row of ctx.db
-      .query("projectDocuments")
-      .withIndex("by_projectId", (q) => q.eq("projectId", thread.projectId))) {
-      if (scannedDocuments >= MAX_PROJECT_DOCUMENT_SCAN) {
-        documentScanTruncated = true;
-        break;
-      }
-      scannedDocuments += 1;
-      if (row.category === "previous_pd" && !row.archived) attached.push(row);
-    }
+    const { rows: attached, complete } = await budget.list(
+      ctx.db
+        .query("projectDocuments")
+        .withIndex("by_projectId", (q) => q.eq("projectId", thread.projectId)),
+      MAX_PROJECT_DOCUMENT_SCAN,
+      (row) => row.category === "previous_pd" && !row.archived
+    );
+    const documentScanTruncated = !complete;
     // A row whose extraction produced nothing carries no text to compare. It is
     // NOT offered as a choice, because a blank Reference PD parses to three
     // empty sections and would make every draft paragraph look like a
@@ -1276,7 +1348,9 @@ export const getDeviationInventoryContext = internalQuery({
         : unreadable.some((row) => row.fileName === args.referenceFileName)
           ? "unreadable"
           : "unknown_name";
-    } else if (readable.length === 1 && readable[0]) {
+    } else if (readable.length === 1 && readable[0] && complete) {
+      // "The only one" is a claim about the whole project. An incomplete walk
+      // cannot make it, so the writer must name the file (below: ambiguous).
       selected = readable[0];
       referenceStatus = "resolved";
     } else if (readable.length === 0) {
@@ -1319,8 +1393,9 @@ export const getDeviationInventoryContext = internalQuery({
  * Brief entry rows walked per turn. The derivation writes far fewer, and a
  * Brief past `briefs.ts`'s 500-entry edit bound is still readable here; the
  * walk filters as it goes (DW-138), so open questions behind hundreds of
- * glossary or exclusion rows are found, and the bound is reported as an
- * inexact omitted count rather than silently cutting the list.
+ * glossary or exclusion rows are found, and the bound (rows or the read
+ * budget) is reported as an inexact omitted count rather than silently
+ * cutting the list.
  */
 const MAX_BRIEF_ENTRY_SCAN = 2000;
 /** CAP-14's evidence block is a prompt for the writer's next client call, not
@@ -1340,37 +1415,36 @@ export const MAX_OPEN_QUESTIONS = 20;
  */
 async function openQuestionsFor(
   ctx: QueryCtx,
-  generation: Doc<"generations"> | null
+  generation: Doc<"generations"> | null,
+  budget: ReturnType<typeof chatReadBudget>
 ): Promise<{
   questions: ChatOpenQuestion[];
   omitted: ChatOpenQuestionsOmitted;
 }> {
   const open: ChatOpenQuestion[] = [];
   let omitted = 0;
-  let exact = true;
-  if (!generation?.briefId) return { questions: open, omitted: { count: 0, exact } };
-  const labels = new Map<Id<"generationSources">, string>();
-  let scanned = 0;
-  for await (const entry of ctx.db
-    .query("generationBriefEntries")
-    .withIndex("by_briefId", (q) => q.eq("briefId", generation.briefId!))) {
-    if (scanned >= MAX_BRIEF_ENTRY_SCAN) {
-      exact = false;
-      break;
-    }
-    scanned += 1;
-    if (entry.group !== "confidenceMap") continue;
+  if (!generation?.briefId) return { questions: open, omitted: { count: 0, exact: true } };
+  const isOpen = (entry: Doc<"generationBriefEntries">) =>
+    entry.group === "confidenceMap" &&
     // Narrowed, not defaulted: a Brief confidence value this block has no
     // wording for must be left out rather than relabelled as unresolved.
-    if (entry.confidence !== "unresolved" && entry.confidence !== "unreliable") {
-      continue;
-    }
+    (entry.confidence === "unresolved" || entry.confidence === "unreliable");
+  const { rows, complete } = await budget.list(
+    ctx.db
+      .query("generationBriefEntries")
+      .withIndex("by_briefId", (q) => q.eq("briefId", generation.briefId!)),
+    MAX_BRIEF_ENTRY_SCAN,
+    isOpen
+  );
+  const labels = new Map<Id<"generationSources">, string>();
+  for (const entry of rows) {
     if (open.length >= MAX_OPEN_QUESTIONS) {
       omitted += 1;
       continue;
     }
+    if (entry.confidence !== "unresolved" && entry.confidence !== "unreliable") continue;
     if (!labels.has(entry.sourceId)) {
-      const source = await ctx.db.get(entry.sourceId);
+      const source = budget.charge(await ctx.db.get(entry.sourceId));
       if (source) labels.set(entry.sourceId, source.label);
     }
     open.push({
@@ -1379,14 +1453,19 @@ async function openQuestionsFor(
       sourceLabel: labels.get(entry.sourceId) ?? null,
     });
   }
-  return { questions: open, omitted: { count: omitted, exact } };
+  return { questions: open, omitted: { count: omitted, exact: complete } };
 }
 
 /** Grounding context for streamChatReply — thread history stays componentside. */
 export const getChatContextV2 = internalQuery({
   args: { reportId: v.id("reports"), agentThreadId: v.string() },
   handler: async (ctx, args) => {
-    const report = await ctx.db.get(args.reportId);
+    // Charged in read order so the Brief walk at the end stops with headroom.
+    // The document `.collect()` predates this budget and is charged, not
+    // bounded: which documents reach the chat is evidence policy, not read
+    // policy, and is out of this query's DW-138 scope.
+    const budget = chatReadBudget();
+    const report = budget.charge(await ctx.db.get(args.reportId));
     if (!report) throw new Error("Report not found");
 
     // Ground on the generation that actually produced THIS report — the
@@ -1397,33 +1476,39 @@ export const getChatContextV2 = internalQuery({
     // generation that has agentOutputs to offer — a best-effort grounding
     // that can still describe an older draft of this project.
     const ownGeneration = report.generationId
-      ? await ctx.db.get(report.generationId)
+      ? budget.charge(await ctx.db.get(report.generationId))
       : null;
     let generation = ownGeneration;
     if (!generation?.agentOutputs) {
-      const completed = await ctx.db
-        .query("generations")
-        .withIndex("by_projectId_and_status", (q) =>
-          q.eq("projectId", report.projectId).eq("status", "completed")
-        )
-        .order("desc")
-        .take(10);
+      const completed = budget.charge(
+        await ctx.db
+          .query("generations")
+          .withIndex("by_projectId_and_status", (q) =>
+            q.eq("projectId", report.projectId).eq("status", "completed")
+          )
+          .order("desc")
+          .take(10)
+      );
       generation = completed.find((row) => row.agentOutputs) ?? null;
     }
 
-    const documents = await ctx.db
-      .query("projectDocuments")
-      .withIndex("by_projectId", (q) => q.eq("projectId", report.projectId))
-      .collect();
+    const documents = budget.charge(
+      await ctx.db
+        .query("projectDocuments")
+        .withIndex("by_projectId", (q) => q.eq("projectId", report.projectId))
+        .collect()
+    );
 
     // Recent edit decisions = the assistant's iteration memory (mirrors v1).
-    const proposals = await ctx.db
-      .query("chatProposals")
-      .withIndex("by_agentThreadId", (q) =>
-        q.eq("agentThreadId", args.agentThreadId)
-      )
-      .order("desc")
-      .take(12);
+    const proposals = budget.charge(
+      await ctx.db
+        .query("chatProposals")
+        .withIndex("by_agentThreadId", (q) =>
+          q.eq("agentThreadId", args.agentThreadId)
+        )
+        .order("desc")
+        .take(12)
+    );
     const decisions = proposals
       .filter((p) => p.kind !== "references")
       .slice(0, 6)
@@ -1438,7 +1523,7 @@ export const getChatContextV2 = internalQuery({
           (p.replacements ? p.replacements.map((r) => r.replaceWith).join(" | ") : ""),
       }));
 
-    const openQuestions = await openQuestionsFor(ctx, ownGeneration);
+    const openQuestions = await openQuestionsFor(ctx, ownGeneration, budget);
 
     return {
       reportContent: report.content ?? null,

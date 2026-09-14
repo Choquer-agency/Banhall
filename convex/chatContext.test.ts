@@ -455,6 +455,79 @@ describe("getChatContextV2 open questions", () => {
     expect(context.openQuestionsOmitted).toEqual({ count: 0, exact: true });
   });
 
+  test("reports an inexact scan when the row bound stops before the Confidence Map", async () => {
+    const t = convexTest(schema, modules);
+    const { reportId } = await seedBrief(t, [
+      ...Array.from({ length: 2000 }, (_, i) => ({
+        text: `Excluded activity ${i + 1}.`,
+        group: "claimExclusion",
+      })),
+      { text: "The one open fact behind the bound.", confidence: "unresolved" },
+    ]);
+    const context = await t.query(internal.chatV2.getChatContextV2, {
+      reportId,
+      agentThreadId: "thread-open-questions-row-bound",
+    });
+    expect(context.openQuestions).toEqual([]);
+    expect(context.openQuestionsOmitted).toEqual({ count: 0, exact: false });
+  });
+
+  test("stops at its byte budget instead of exceeding the transaction read limit", async () => {
+    const t = convexTest({ schema, modules, transactionLimits: true });
+    const bigText = "brief entry text ".repeat(53_000); // ~900 KB per row
+    const { reportId, generationId } = await seedBrief(t, [
+      { text: "Open fact seen first.", confidence: "unresolved" },
+    ]);
+    const briefId = await t.run(async (ctx) => (await ctx.db.get(generationId))?.briefId);
+    if (!briefId) throw new Error("fixture brief missing");
+    // One row per transaction: the fixture must not trip the WRITE limit.
+    const seedEntry = async (entry: { text: string; group: string; confidence?: string }) =>
+      await t.run(async (ctx) => {
+        const first = await ctx.db
+          .query("generationBriefEntries")
+          .withIndex("by_briefId", (q) => q.eq("briefId", briefId))
+          .first();
+        if (!first) throw new Error("fixture entry missing");
+        await ctx.db.insert("generationBriefEntries", {
+          briefId,
+          projectId: first.projectId,
+          group: entry.group as "storyline",
+          text: entry.text,
+          ...(entry.confidence ? { confidence: entry.confidence as "unresolved" } : {}),
+          sourceId: first.sourceId,
+          sourceContentHash: first.sourceContentHash,
+          startOffset: 0,
+          endOffset: 17,
+          exactExcerpt: "Interview content",
+          createdAt: Date.now(),
+        });
+      });
+    for (let i = 0; i < 20; i += 1) await seedEntry({ text: bigText, group: "storyline" });
+    await seedEntry({
+      text: "Open fact behind the budget.",
+      group: "confidenceMap",
+      confidence: "unresolved",
+    });
+    // The unbudgeted walk reproduces the platform failure.
+    await expect(
+      t.query(async (ctx) => {
+        let n = 0;
+        for await (const row of ctx.db
+          .query("generationBriefEntries")
+          .withIndex("by_briefId", (q) => q.eq("briefId", briefId))) {
+          n += row.text.length > 0 ? 1 : 0;
+        }
+        return n;
+      })
+    ).rejects.toThrow("Read too much data");
+    const context = await t.query(internal.chatV2.getChatContextV2, {
+      reportId,
+      agentThreadId: "thread-open-questions-byte-budget",
+    });
+    expect(context.openQuestions.map((q) => q.text)).toEqual(["Open fact seen first."]);
+    expect(context.openQuestionsOmitted).toEqual({ count: 0, exact: false });
+  });
+
   test("returns an empty list for a generation with no Brief", async () => {
     const t = convexTest(schema, modules);
     const { projectId, transcriptId } = await seedProject(t);

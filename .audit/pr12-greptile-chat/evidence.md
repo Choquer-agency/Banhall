@@ -127,8 +127,95 @@ index of its Reference counterpart or `undefined`. Per section only.
   no Reference PD attached" with "No Reference PD was found among the documents
   scanned." plus the note when the walk was cut.
 
+## Astra review fixes (gpt-6-astra, medium, ACCEPT_WITH_FIXES on 1784826 + fb15c59)
+
+Review copied to `astra-review/`. Logs under `review-fix/`. The
+`review-fix/before.raw.log` run was taken with every source file at
+`fb15c59` and only the test files edited; the two byte-budget cases fail
+there with the platform error itself (`Read too much data in a single
+function execution (limit: 16777216 bytes)`, 2 occurrences), which only the
+unbudgeted code produces.
+
+| Review item | Test | Before (fb15c59) | After |
+| --- | --- | --- | --- |
+| 1 High: row bound does not prevent the 16 MiB read limit (documents) | `chatDeviationInventory.test.ts` "stops at its byte budget instead of exceeding the transaction read limit" (`transactionLimits: true`, 20 × ~900 KB attachments; the unbudgeted walk is shown throwing in the same test) | FAIL: query threw `Read too much data` | pass: `documentScanTruncated: true` |
+| 1 High: same for the Brief scan | `chatContext.test.ts` "stops at its byte budget instead of exceeding the transaction read limit" | FAIL: query threw | pass: `{ count: 0, exact: false }`, prefix question kept |
+| 2 Medium: incomplete scan hidden by empty list / zero omissions | `chatEvidence.test.ts` "says the scan was incomplete even with nothing listed or no known omission"; `chatContext.test.ts` "reports an inexact scan when the row bound stops before the Confidence Map" | FAIL (block absent) / pass (guard) | pass |
+| 3 Medium: truncation ignored on auto-resolve and most tool replies | `chatDeviationInventory.test.ts` "does not auto-resolve the only PD seen when the walk was incomplete"; `chatToolBodies.test.ts` × 4 (explicit choice, named PD carries note, unknown-name phrasing, unreadable/unparsed carry note) | FAIL | pass |
+| 4 Medium: quadratic score matrix | `deviationInventory.test.ts` "skips alignment with a notice when a section is too large to compare" (3000 × 3000), "aligns a large shuffled section without a full score matrix" (300 × 300 guard), "pairs duplicated paragraphs positionally when the sections are identical" | FAIL / pass (guard) / FAIL | pass |
+
+`review-fix/before.raw.log`: `Tests  11 failed | 116 passed (127)`.
+`review-fix/after.raw.log`: `Tests  127 passed (127)`.
+
+| Gate | Log | Result |
+| --- | --- | --- |
+| `npx tsc -p convex/tsconfig.json --noEmit` | `review-fix/tsc.log` | exit 0 |
+| `npx vitest run` | `review-fix/vitest-full.log` | 187 files, 2667 tests passed |
+| `npm run check` | `review-fix/check.log` | 5958 files, 0 errors, 0 warnings |
+
+### Design of the fixes
+
+1. **Byte-budgeted reads** (`convex/chatV2.ts`, `chatReadBudget`). A local
+   twin of `convex/lib/learningHealthReads.ts`: `CHAT_READ_BYTES = 8 MiB`
+   (half the platform limit), `CHAT_DOCUMENT_HEADROOM = 1 MiB + 4096`
+   reserved BEFORE each read, `getConvexSize(row) + 256` charged after.
+   `charge()` accounts point reads and `.take`s; `list(source, cap, keep)`
+   walks an index range with explicit `iterator.next()`/`return()`, keeping
+   the rows `keep` accepts and returning `{ rows, complete }`. Both queries
+   create one budget and charge everything they read in order (thread,
+   report, generation, compliance notes, the chat context's document
+   `.collect()`, proposals) so the walk at the end stops with headroom.
+   `documentScanTruncated` and `omitted.exact` now mean "row cap OR byte
+   budget stopped the walk". A shared `convex/lib/boundedRead.ts` is being
+   extracted from the learning-health module on another branch; the helper
+   here keeps that module's reserve-then-account shape and the same numbers
+   so the switch is an import swap plus deleting `chatReadBudget`. No index
+   exists on `projectDocuments` that avoids reading `content` for
+   category metadata (`by_projectId`, `by_storageId`, a search index), so
+   none was used; adding `by_projectId_and_category` stays the right follow-up
+   and is not done here per instructions.
+2. **Incomplete-scan notice** (`convex/ai/chatEvidence.ts`).
+   `openQuestionsBlockNeeded(questions, omitted)` renders the block when there
+   is anything to list OR `exact === false`; `buildChatTurnRequest` uses the
+   same predicate so an empty inexact list is not dropped. Notice lines:
+   exact + omissions "Listing 20 of 26 open questions; 6 more are not
+   shown."; inexact + omissions "…at least 6 more…"; inexact, none known
+   "Listing N open questions; the Brief was not fully read, so more may
+   exist."; inexact, empty "No open question was read before the Brief scan
+   stopped; this list is incomplete, not empty." Exact + empty still renders
+   nothing (byte-stability).
+3. **Truncation propagation** (`convex/chatV2.ts`, `convex/ai/chatAgentV2.ts`).
+   A single readable PD is auto-resolved only when the walk was `complete`;
+   otherwise the status is `ambiguous` and the copy asks for an explicit
+   name ("The document scan was incomplete, so the comparison cannot
+   establish which previous-year report to use…"). An explicitly named PD
+   still resolves and the comparison is rendered with the scan note
+   appended. `unknown_name` reads "was not found among the documents
+   scanned" (or "this project's documents" when complete). `none`,
+   `unreadable`, `unparsed`, `ambiguous` and the unresolved fallback all
+   carry the note.
+4. **Bounded alignment** (`convex/lib/deviationInventory.ts`). The score
+   matrix is gone: one pass over draft × reference updates a `BestTwo`
+   (best index, best score, runner-up score) per row and per column, which
+   is all mutual-best + margin needs; memory is O(D + R). Work is bounded by
+   `MAX_ALIGNMENT_COMPARISONS = 250_000` (500 × 500); past it
+   `alignReferenceParagraphs` returns `null`, the section is listed in
+   `alignmentSkippedSections`, its paragraphs carry no counterpart and no
+   unpaired list, and `renderInventory` says "Line 242 was not aligned: the
+   section is too large to compare paragraph by paragraph…". Exact-identical
+   fast path: when both sides have the same paragraph count and every
+   paragraph matches after whitespace/case normalization, the identity
+   mapping is returned, so boilerplate duplicated on BOTH sides pairs
+   (deterministic, 3 lines).
+
 ## Limitations
 
+- The chat context's `projectDocuments.collect()` predates DW-138 and is
+  charged to the budget but not bounded: which documents reach the chat is
+  evidence policy and out of this scope. A project whose documents alone
+  exceed 16 MiB still fails that query as before.
+- The budget is an estimate (`getConvexSize` + 256 B per row) that mirrors
+  the learning-health module; it is not the platform's own accounting.
 - Alignment thresholds (0.5 similarity, 0.1 margin) are fixed constants
   calibrated on the existing fixtures ("Trial 1 described a pressure range." vs
   "Trial 1 examined the pressure operating envelope." scores 0.545 and pairs;
@@ -136,9 +223,9 @@ index of its Reference counterpart or `undefined`. Per section only.
   rewritten so heavily that it shares under half its content words with its
   origin is left unpaired by design; the model then sees it only in the
   unpaired list and in the turn's document evidence.
-- Duplicated paragraphs on either side pair with nothing (ties fail the
-  margin), including in otherwise identical sections. Previously they paired
-  positionally.
+- Duplicated paragraphs on ONE side pair with nothing (ties fail the
+  margin). Sections identical position for position on both sides take the
+  exact-identical fast path and pair positionally (review fix 4).
 - Both scans remain bounded (2000 Brief rows, 1000 project documents). Past
   the bound the code reports the cut (`exact: false`, `documentScanTruncated`)
   rather than reading further. A `projectDocuments` `by_projectId_and_category`

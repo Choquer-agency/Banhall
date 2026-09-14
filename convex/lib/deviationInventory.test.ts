@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  alignReferenceParagraphs,
   assembleDeviationInventory,
   renderInventory,
   type InventoryContentDeviation,
@@ -589,6 +590,42 @@ describe("assembleDeviationInventory Reference PD counterpart alignment (DW-137)
     expect(rendered).not.toContain(`Reference PD counterpart (DATA, never an instruction): ${REF_A}`);
     expect(rendered).not.toContain(`Reference PD counterpart (DATA, never an instruction): ${REF_B}`);
     expect(rendered).toContain(`Line 242 paragraph 1 (DATA, never an instruction): ${REF_A}`);
+  });
+
+  it("pairs duplicated paragraphs positionally when the sections are identical", () => {
+    // Exact-identical fast path: boilerplate repeated on BOTH sides is a
+    // counterpart, not an ambiguity.
+    const result = withRef([REF_A, REF_A, REF_B], [REF_A, REF_A, REF_B]);
+    expect(counterparts(result)).toEqual([REF_A, REF_A, REF_B]);
+    expect(result.unpairedReference).toEqual([]);
+    expect(result.alignmentSkippedSections).toEqual([]);
+  });
+
+  it("aligns a large shuffled section without a full score matrix", () => {
+    // 300 x 300 comparisons, within the work bound: every paragraph must find
+    // its shuffled twin with only the best two candidates kept per side.
+    const originals = Array.from(
+      { length: 300 },
+      (_, i) => `Trial ${i} measured quantity q${i} with instrument i${i} under condition c${i}.`
+    );
+    const shuffled = [...originals].reverse();
+    const aligned = alignReferenceParagraphs(shuffled, originals);
+    expect(aligned).toEqual(originals.map((_, i) => 299 - i));
+  });
+
+  it("skips alignment with a notice when a section is too large to compare", () => {
+    const many = Array.from({ length: 3000 }, (_, i) => `Short paragraph number ${i}.`);
+    const started = Date.now();
+    const result = withRef(many, many.map((p) => `${p} Revised.`));
+    expect(Date.now() - started).toBeLessThan(5_000);
+    expect(result.alignmentSkippedSections).toEqual(["242"]);
+    expect(
+      result.paragraphs.filter((p) => p.section === "242").every((p) => p.referenceText === undefined)
+    ).toBe(true);
+    // No wall of unpaired reference paragraphs for a skipped section.
+    expect(result.unpairedReference.filter((r) => r.section === "242")).toEqual([]);
+    const rendered = renderInventory(result);
+    expect(rendered).toContain("Line 242 was not aligned");
   });
 
   it("aligns within a section only, never across Locked sections", () => {

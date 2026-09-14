@@ -236,10 +236,23 @@ export function decisionsTextFrom(decisions: ChatEvidenceDecision[]): string {
 }
 
 /**
+ * The open questions block is rendered when there is something to list OR
+ * when the query could not finish reading the Brief: an absent block means
+ * "no Brief" to the prompt, so an incomplete scan must never look like one.
+ */
+export function openQuestionsBlockNeeded(
+  questions: ChatOpenQuestion[] | undefined,
+  omitted: ChatOpenQuestionsOmitted | undefined
+): boolean {
+  return Boolean(questions?.length) || omitted?.exact === false;
+}
+
+/**
  * The open questions as one line each. Confidence first because it is what
  * makes the entry a question rather than a fact. When the query's cap left
- * some out, the block OPENS with the count (DW-138): first, so the budget's
- * tail cut can never remove the one line that says the list is a subset.
+ * some out, or its walk stopped before the Brief ended, the block OPENS with
+ * a notice (DW-138): first, so the budget's tail cut can never remove the one
+ * line that says the list is a subset.
  */
 export function openQuestionsTextFrom(
   questions: ChatOpenQuestion[],
@@ -251,14 +264,27 @@ export function openQuestionsTextFrom(
         question.sourceLabel ? ` (source: ${question.sourceLabel})` : ""
       }`
   );
-  if (omitted && omitted.count > 0) {
-    lines.unshift(
-      omitted.exact
-        ? `Listing ${questions.length} of ${questions.length + omitted.count} open questions; ${omitted.count} more are not shown.`
-        : `Listing ${questions.length} open questions; at least ${omitted.count} more are not shown.`
-    );
-  }
+  const notice = openQuestionsNotice(questions.length, omitted);
+  if (notice) lines.unshift(notice);
   return lines.join("\n");
+}
+
+function openQuestionsNotice(
+  listed: number,
+  omitted: ChatOpenQuestionsOmitted | undefined
+): string | null {
+  if (!omitted) return null;
+  if (omitted.exact) {
+    return omitted.count > 0
+      ? `Listing ${listed} of ${listed + omitted.count} open questions; ${omitted.count} more are not shown.`
+      : null;
+  }
+  if (omitted.count > 0) {
+    return `Listing ${listed} open questions; at least ${omitted.count} more are not shown.`;
+  }
+  return listed > 0
+    ? `Listing ${listed} open questions; the Brief was not fully read, so more may exist.`
+    : "No open question was read before the Brief scan stopped; this list is incomplete, not empty.";
 }
 
 /**
@@ -442,7 +468,7 @@ export function buildChatEvidence(input: ChatEvidenceInput): {
 
   // ── Open questions (CAP-14; spent before documents, rendered after) ───────
   let openQuestionsBody: string | null = null;
-  if (openQuestions.length) {
+  if (openQuestionsBlockNeeded(openQuestions, input.openQuestionsOmitted)) {
     openQuestionsBody = soloBody(
       charge(
         spend(
@@ -593,9 +619,12 @@ export function buildChatTurnRequest(args: {
     analysisText: analysisTextFrom(args.context.agentOutputs),
     documents: args.context.documents,
     decisions: args.context.decisions,
-    ...(args.context.openQuestions?.length
+    ...(openQuestionsBlockNeeded(
+      args.context.openQuestions,
+      args.context.openQuestionsOmitted
+    )
       ? {
-          openQuestions: args.context.openQuestions,
+          openQuestions: args.context.openQuestions ?? [],
           ...(args.context.openQuestionsOmitted
             ? { openQuestionsOmitted: args.context.openQuestionsOmitted }
             : {}),
