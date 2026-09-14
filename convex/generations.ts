@@ -1684,7 +1684,12 @@ export const renderBriefForGeneration = internalQuery({
       .take(500);
     return renderBriefBlock(
       brief.storylineText,
-      entries.filter((e) => e.group !== "storylineQuestion")
+      // The same filter `loadBriefCheck` applies, so both prompt readers
+      // render exactly the same rows: a re-derivation's change: "removed"
+      // markers are history for the diff UI, not guidance in force.
+      entries.filter(
+        (e) => e.group !== "storylineQuestion" && e.change !== "removed"
+      )
     );
   },
 });
