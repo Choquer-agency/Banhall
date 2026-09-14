@@ -27,10 +27,13 @@ The API surface was checked in the installed packages, not assumed. `maximumByte
 The heaviest caller is `claimOrderedSectionRun`. Besides the Brief rows, one transaction reads:
 - the claimed section row (`orderedRunForSection`)
 - the fence's candidate run, generation and project
+- the claim's `ctx.db.patch` of the section row (`generations.ts:4150`): a patch reads the row it merges into, and convex-test charges that read through `1.0/shallowMerge → getAndTrack` (`node_modules/convex-test/dist/index.js:920-926,984-990`), so it counts
 - the candidate's three section rows, which include prior drafts (`orderedRunsForCandidate`)
 - the Brief parent
 
-That is 8 documents of at most 1 MiB each. Convex checks `maximumBytesRead` after reading a row, so the Brief read can overshoot by at most one row (1 MiB or less). The worst case is 8 + 4 + 1 = 13 MiB, under 16 MiB. `getOrderedCandidateDrafts` reads 6 other documents and `renderBriefForGeneration` reads 2, so both have more headroom. 4 MiB matches `BRIEF_BASELINE_PAGE_BYTES`. A realistic derived Brief is a small fraction of it.
+That is 9 document reads of at most 1 MiB each. Convex checks `maximumBytesRead` after reading a row, so the Brief read can overshoot by at most one row (1 MiB or less). The worst case is 9 + 4 + 1 = 14 MiB, under 16 MiB. `getOrderedCandidateDrafts` reads 6 other documents (generation, run, three section rows, Brief parent: 6 + 4 + 1 = 11 MiB) and `renderBriefForGeneration` reads 2, so both have more headroom. 4 MiB matches `BRIEF_BASELINE_PAGE_BYTES`. A realistic derived Brief is a small fraction of it.
+
+Review fix (gpt-6-astra, medium, ACCEPT_WITH_FIXES, Low): the original rationale counted 8 other documents and 13 MiB, omitting the patch read. Corrected above and in the `BRIEF_CONSUMER_READ_BYTES` doc comment; the constant and logic are unchanged. Review record: `.audit/DW-152/astra-review/`.
 
 ### orderedGeneration.ts:174 / :374: decision, no change
 
@@ -48,7 +51,7 @@ Convex allows one `.paginate()` per function execution. convex-test enforces thi
   - its document sizes come from `getDocumentSize`, an approximation of the backend's accounting;
   - its paginate never ends a page early for reasons other than the row/byte options;
   - it runs no actual deployment.
-- The claim that 13 MiB is the worst case in production rests on the arithmetic above (1 MiB document cap, overshoot of at most one row), not on a deployed measurement.
+- The claim that 14 MiB is the worst case in production rests on the arithmetic above (1 MiB document cap, overshoot of at most one row), not on a deployed measurement.
 
 ## Acceptance points → proof
 

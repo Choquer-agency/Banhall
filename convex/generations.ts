@@ -1587,12 +1587,14 @@ export const BRIEF_BASELINE_PAGE_BYTES = 4 * 1024 * 1024;
  * 4 MiB (the same size as a diff-baseline page) leaves real headroom in the
  * heaviest caller, `claimOrderedSectionRun`, where the read shares one
  * transaction with the claimed section row, the fence's candidate run,
- * generation and project, the candidate's three section rows (prior drafts)
- * and the Brief parent: 8 other documents of at most 1 MiB each. Convex
- * checks the byte budget after a row is read, so the Brief read can overshoot
- * by at most one row (1 MiB): 8 + 4 + 1 = 13 MiB worst case, under 16 MiB.
- * `getOrderedCandidateDrafts` (6 other documents) and
- * `renderBriefForGeneration` (2) have more headroom. A realistic Brief (short
+ * generation and project, the claim's `ctx.db.patch` of the section row
+ * (a patch reads the row it merges into, so it is counted as a read; convex-test
+ * charges it the same way), the candidate's three section rows (prior
+ * drafts) and the Brief parent: 9 other document reads of at most 1 MiB each.
+ * Convex checks the byte budget after a row is read, so the Brief read can
+ * overshoot by at most one row (1 MiB): 9 + 4 + 1 = 14 MiB worst case, under
+ * 16 MiB. `getOrderedCandidateDrafts` (6 other documents, 6 + 4 + 1 = 11 MiB)
+ * and `renderBriefForGeneration` (2) have more headroom. A realistic Brief (short
  * derived entries and excerpts) is a small fraction of this; one that exceeds
  * it is omitted whole, like an over-bound one.
  */
