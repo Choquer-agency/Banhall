@@ -77,7 +77,7 @@ const analysisOutput = {
 };
 
 const TRANSCRIPT_TEXT =
-  "The team built a custom control loop to stabilize output. Marketing decided to redesign the logo, which is unrelated to engineering. Response time under load was not measured.";
+  "The team built a custom control loop to stabilize output. The algorithms were evaluated under load. Marketing decided to redesign the logo, which is unrelated to engineering. Response time under load was not measured.";
 
 const briefOutput = (opts: { includeBadQuote?: boolean } = {}) => ({
   storyline: "The team pursued a custom control loop to stabilize output.",
@@ -104,7 +104,10 @@ const briefOutput = (opts: { includeBadQuote?: boolean } = {}) => ({
       confidence: "unresolved",
     },
   ],
-  glossaryTerms: [{ term: "control loop" }],
+  glossaryTerms: [
+    { term: "algorithm", inflections: ["algorithms"] },
+    { term: "control loop" },
+  ],
 });
 
 function mockNetwork(opts: { includeBadQuote?: boolean } = {}) {
@@ -243,8 +246,31 @@ describe("Generation Brief derivation (story 1, CAP-1/2/4)", () => {
     expect(byGroup("claimExclusion")[0]).toMatchObject({ reason: "business_risk" });
     expect(byGroup("confidenceMap")).toHaveLength(1);
     expect(byGroup("confidenceMap")[0]).toMatchObject({ confidence: "unresolved" });
-    expect(byGroup("glossaryTerm")).toHaveLength(1);
-    expect(byGroup("glossaryTerm")[0].text.toLowerCase()).toBe("control loop");
+    expect(byGroup("glossaryTerm")).toHaveLength(2);
+    const glossaryEntry = byGroup("glossaryTerm").find(
+      (entry) => entry.exactExcerpt === "algorithms"
+    )!;
+    expect(glossaryEntry.text).toBe("algorithm");
+    expect(glossaryEntry.exactExcerpt).toBe("algorithms");
+    expect(glossaryEntry.startOffset).toBe(TRANSCRIPT_TEXT.indexOf("algorithms"));
+    expect(glossaryEntry.endOffset).toBe(
+      TRANSCRIPT_TEXT.indexOf("algorithms") + "algorithms".length
+    );
+    const glossarySource = await t.run((ctx) => ctx.db.get(glossaryEntry.sourceId));
+    expect(
+      glossarySource!.content.slice(glossaryEntry.startOffset, glossaryEntry.endOffset)
+    ).toBe("algorithms");
+    const exactGlossaryEntry = byGroup("glossaryTerm").find(
+      (entry) => entry.exactExcerpt === "control loop"
+    )!;
+    expect(exactGlossaryEntry.text).toBe("control loop");
+    const exactGlossarySource = await t.run((ctx) => ctx.db.get(exactGlossaryEntry.sourceId));
+    expect(
+      exactGlossarySource!.content.slice(
+        exactGlossaryEntry.startOffset,
+        exactGlossaryEntry.endOffset
+      )
+    ).toBe("control loop");
 
     // Every entry cites its source byte-for-byte.
     for (const entry of entries) {
@@ -431,7 +457,7 @@ describe("Generation Brief derivation (story 1, CAP-1/2/4)", () => {
     // The transcript stays byte-identical across v1 and v2 (same content,
     // same contentHash) — only its entries can key-match as "unchanged".
     const sharedTranscript =
-      "Marketing decided to redesign the logo, which is unrelated to engineering. Response time under load was not measured. The legacy control loop remained active throughout.";
+      "Marketing decided to redesign the logo, which is unrelated to engineering. Response time under load was not measured. The legacy control loop and its algorithms remained active throughout.";
     const firstGenerationId = await makeGeneration(t, projectId, userId, sharedTranscript, "shared-transcript-hash");
     await t.action(internal.ai.pipeline.generateReport, { generationId: firstGenerationId });
     expect(briefCalls()).toHaveLength(1);
@@ -507,10 +533,16 @@ describe("Generation Brief derivation (story 1, CAP-1/2/4)", () => {
     expect(confidenceMap?.change).toBe("unchanged");
     const storyline = entries.find((e) => e.group === "storyline");
     expect(storyline?.change).toBe("added");
-    // The glossary term from v1 ("control loop") isn't in v2's model output —
+    // The glossary term from v1 ("algorithm") isn't in v2's model output —
     // it shows up as a removed marker on the new version.
     const removed = entries.filter((e) => e.change === "removed");
-    expect(removed.some((e) => e.group === "glossaryTerm")).toBe(true);
+    expect(removed).toContainEqual(
+      expect.objectContaining({
+        group: "glossaryTerm",
+        text: "algorithm",
+        exactExcerpt: "algorithms",
+      })
+    );
   });
 
   it("stores a writer-supplied Storyline verbatim with origin=writer; other groups still derive", async () => {

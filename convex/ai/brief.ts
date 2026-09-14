@@ -541,7 +541,7 @@ export async function deriveOrReuseBrief(
   for (const match of glossaryMatches) {
     candidateEntries.push({
       group: "glossaryTerm",
-      text: match.text,
+      text: match.canonicalTerm,
       sourceId: match.sourceId,
       sourceContentHash: match.sourceContentHash,
       startOffset: match.startOffset,

@@ -966,7 +966,9 @@ location: convex/lib/glossaryMatcher.ts, convex/ai/brief.ts
 source_spec: `1-generation-brief-storage-and-derivation-stage.md`
 severity: low
 reason: matchGlossaryTermsAcrossSources stores the matched surface form as `text`; brief.ts's model-classification branch stores the canonical term instead. Pre-existing inconsistency, not introduced by this diff.
-status: open
+status: done 2026-09-14
+resolution: resolved by sweep bundle dw-brief-canonical-glossary
+resolution-undo: 7c588ed81be2b0a2c59763893d5486569bf1c751335de680fa64d8a479b82c77 2026-09-14 7374617475733a206f70656e
 
 ### DW-114: The I/O matrix's "3+ Transcripts reconciled" Confidence Map expectation has no corresponding instruction in the Brief system prompt.
 origin: spec-deferred b12a780b1462
