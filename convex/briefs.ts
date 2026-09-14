@@ -2,12 +2,14 @@ import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
 import { domainError, sha256 } from "./lib/contracts";
+import { getInternalProjectAccessOrNull } from "./lib/auth";
 import { requireReportEditAccess } from "./lib/roleCapabilities";
 import { computeEditDistance } from "./lib/editDistance";
 
 /**
  * Story 4: Read the stored Brief for a generation.
- * Returns the Brief and its entries for the UI to display and edit.
+ * Returns the Brief and its entries for the UI to display and edit. Null for
+ * an outsider, a missing generation, or a generation with no Brief.
  */
 export const getBrief = query({
   args: {
@@ -15,9 +17,13 @@ export const getBrief = query({
   },
   handler: async (ctx, args) => {
     const generation = await ctx.db.get(args.generationId);
-    if (!generation || !generation.briefId) {
+    if (
+      !generation ||
+      !(await getInternalProjectAccessOrNull(ctx, generation.projectId))
+    ) {
       return null;
     }
+    if (!generation.briefId) return null;
 
     const brief = await ctx.db.get(generation.briefId);
     if (!brief) return null;
@@ -35,7 +41,8 @@ export const getBrief = query({
 });
 
 /**
- * Story 4: List entries in a Brief.
+ * Story 4: List entries in a Brief version. Null for an outsider and for a
+ * Brief that does not exist — the two are indistinguishable by design.
  * Used by the UI panel to display individual entries for editing.
  */
 export const listBriefEntries = query({
@@ -43,8 +50,12 @@ export const listBriefEntries = query({
     briefId: v.id("generationBriefs"),
   },
   handler: async (ctx, args) => {
+    // Access first: an outsider and a fabricated briefId give the same
+    // answer, so a probe cannot tell a real Brief from an invented one.
     const brief = await ctx.db.get(args.briefId);
-    if (!brief) return [];
+    if (!brief || !(await getInternalProjectAccessOrNull(ctx, brief.projectId))) {
+      return null;
+    }
 
     const entries = await ctx.db
       .query("generationBriefEntries")

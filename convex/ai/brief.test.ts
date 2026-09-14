@@ -749,11 +749,33 @@ describe("Generation Brief editing and questions (briefs.ts, story 1 shape / sto
   it("getBrief and listBriefEntries read the stored Brief for the UI panel", async () => {
     const t = convexTest(schema, modules);
     const { generationId, briefId } = await briefFixture(t);
-    const read = await t.query(anyApi.briefs.getBrief, { generationId });
+    // Story 4: both reads require project access.
+    const asWriter = t.withIdentity({ subject: "brief-writer" });
+    const read = await asWriter.query(anyApi.briefs.getBrief, { generationId });
     expect(read?._id).toBe(briefId);
     expect(read?.entries.length).toBeGreaterThan(0);
 
-    const entries = await t.query(anyApi.briefs.listBriefEntries, { briefId });
-    expect(entries.length).toBe(read!.entries.length);
+    // Story 4: null is reserved for an outsider and for a Brief that does
+    // not exist; an insider reading a real Brief still gets the array.
+    const entries = await asWriter.query(anyApi.briefs.listBriefEntries, { briefId });
+    expect(entries).not.toBeNull();
+    expect(entries!.length).toBe(read!.entries.length);
+  });
+
+  it("getBrief and listBriefEntries return null to an unauthenticated caller and to a non-internal user", async () => {
+    const t = convexTest(schema, modules);
+    const { generationId, briefId } = await briefFixture(t);
+    // A mapped user with no internal role is not an internal actor
+    // (getInternalProjectAccessOrNull), exactly like anonymous auth.
+    await t.run((ctx) => ctx.db.insert("users", { authId: "brief-outsider" }));
+
+    // Unauthenticated: a valid id alone must not read project content.
+    expect(await t.query(anyApi.briefs.getBrief, { generationId })).toBeNull();
+    expect(await t.query(anyApi.briefs.listBriefEntries, { briefId })).toBeNull();
+
+    // Authenticated but outside the internal roster.
+    const asOutsider = t.withIdentity({ subject: "brief-outsider" });
+    expect(await asOutsider.query(anyApi.briefs.getBrief, { generationId })).toBeNull();
+    expect(await asOutsider.query(anyApi.briefs.listBriefEntries, { briefId })).toBeNull();
   });
 });
