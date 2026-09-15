@@ -9,7 +9,12 @@ import {
   sectionDeterministicFindings,
 } from "./qaChecks";
 import { scrubBannedWords } from "../../shared/bannedWords";
-import { normalizeStyleOverrides } from "../../shared/styleOverrides";
+import {
+  NO_STYLE_OVERRIDES,
+  normalizeHouseRuleModes,
+  normalizeStyleOverrides,
+  resolveEffectiveOverrides,
+} from "../../shared/styleOverrides";
 
 // ─── Fixtures ───────────────────────────────────────────────────────────────
 
@@ -46,15 +51,18 @@ const section242Fail = [
   "It was uncertain whether write-through caching could survive partition. Uncertainty existed regarding batching behaviour because the failure modes were undocumented.",
 ].join("\n\n");
 
-// ─── Check 1: CRA openers (246 P2-P4) ───────────────────────────────────────
+// ─── Check 1: CRA openers (246, every paragraph after the opening one) ──────
 
 describe("checkCRAOpeners", () => {
-  it("passes when P2-P4 open with CRA advancement formulations", () => {
+  it("scans every paragraph after the opening one and passes the CRA advancement formulations", () => {
     const result = checkCRAOpeners(section246Pass);
+    // Three advancement paragraphs pass; the closing status paragraph is
+    // scanned too and left to the QA prompt to exclude by content.
     expect(result.count).toBe(3);
-    expect(result.total).toBe(3);
-    expect(result.results.map((r) => r.paragraph)).toEqual([2, 3, 4]);
-    expect(result.results.every((r) => r.passes)).toBe(true);
+    expect(result.total).toBe(4);
+    expect(result.results.map((r) => r.paragraph)).toEqual([2, 3, 4, 5]);
+    expect(result.results.slice(0, 3).every((r) => r.passes)).toBe(true);
+    expect(result.results[3].passes).toBe(false);
   });
 
   it("fails paragraphs without a qualifying opener", () => {
@@ -63,20 +71,21 @@ describe("checkCRAOpeners", () => {
     expect(result.results.every((r) => r.passes)).toBe(false);
   });
 
-  // Positional pin: P2-P4 are paragraph indexes 1-3; P1 and P5 are never
-  // scanned even when they carry a qualifying opener.
-  it("only scans indexes 1-3 (P1 and P5 excluded)", () => {
+  // Only the opening summary paragraph is excluded; a later advancement
+  // paragraph is never dropped by position (PR #16 review).
+  it("excludes only the opening paragraph and keeps scanning past P4", () => {
     const decoy = [
       "Through systematic investigation, it was determined that P1 is excluded.",
       "The team found something in P2.",
       "The team found something in P3.",
       "The team found something in P4.",
-      "Through systematic investigation, it was determined that P5 is excluded.",
+      "Through systematic investigation, it was determined that P5 still counts.",
     ].join("\n\n");
     const result = checkCRAOpeners(decoy);
-    expect(result.total).toBe(3);
-    expect(result.count).toBe(0);
-    expect(result.results.map((r) => r.paragraph)).toEqual([2, 3, 4]);
+    expect(result.total).toBe(4);
+    expect(result.count).toBe(1);
+    expect(result.results.map((r) => r.paragraph)).toEqual([2, 3, 4, 5]);
+    expect(result.results[3].passes).toBe(true);
   });
 
   it("handles a short section without throwing", () => {
@@ -291,7 +300,7 @@ describe("style-override waivers", () => {
       waive({ bannedWords: true, openingClauses: true, repetitionCaps: true })
     );
     expect(summary).toContain("### Banned Word Scan\nWAIVED by writer profile");
-    expect(summary).toContain("### CRA Opener Detection (246 P2-P4)\nWAIVED by writer profile");
+    expect(summary).toContain("### CRA Opener Detection (246 advancement paragraphs)\nWAIVED");
     expect(summary).toContain("### Repetition Count\nWAIVED by writer profile");
     expect(summary).not.toContain('"novel"');
     // No opener FAIL lines despite section246Fail having no qualifying openers.
@@ -327,20 +336,49 @@ describe("style-override waivers", () => {
       section246Fail,
       skeletonWaived
     );
-    expect(summary).toContain("### CRA Opener Detection (246 P2-P4)\nWAIVED by writer profile");
+    expect(summary).toContain("### CRA Opener Detection (246 advancement paragraphs)\nWAIVED");
     expect(summary).toContain("Uncertainties with BECAUSE clauses: 1/2");
     expect(summary).toContain("FAIL —");
     expect(summary).toContain("No banned words found.");
   });
 
-  it("runDeterministicChecks default output is unchanged without waivers", () => {
+  // 2026-09-15: with no house-style row stored, openers are off for everyone.
+  it("the shipped default (no stored row) waives the opener scan and keeps BECAUSE", () => {
+    const shipped = resolveEffectiveOverrides(
+      normalizeHouseRuleModes(undefined),
+      NO_STYLE_OVERRIDES
+    );
+    expect(
+      sectionDeterministicFindings("s246", section246Fail, shipped).filter(
+        (f) => f.check === "cra_opener"
+      )
+    ).toEqual([]);
+    const summary = runDeterministicChecks(section242Fail, "Section 244.", section246Fail, shipped);
+    expect(summary).toContain("### CRA Opener Detection (246 advancement paragraphs)\nWAIVED");
+    expect(summary).toContain("Uncertainties with BECAUSE clauses: 1/2");
+    // An admin turning openers back on restores the scan.
+    const enforced = resolveEffectiveOverrides(
+      normalizeHouseRuleModes({ openingClauses: "enforced" }),
+      normalizeStyleOverrides({ openingClauses: true })
+    );
+    expect(
+      sectionDeterministicFindings("s246", section246Fail, enforced).filter(
+        (f) => f.check === "cra_opener"
+      )
+    ).toHaveLength(3);
+    const enforcedSummary = runDeterministicChecks(section242Pass, "Clean.", section246Pass, enforced);
+    expect(enforcedSummary).toContain("Qualifying openers found: 3/4");
+    expect(enforcedSummary).toContain("decide by content which of these are advancement paragraphs");
+  });
+
+  it("runDeterministicChecks full-enforcement output is unchanged without waivers", () => {
     const summary = runDeterministicChecks(
       section242Pass,
       "Clean.",
       section246Pass
     );
     expect(summary).not.toContain("WAIVED");
-    expect(summary).toContain("Qualifying openers found: 3/3");
+    expect(summary).toContain("Qualifying openers found: 3/4");
     expect(summary).toContain("No banned words found.");
     expect(summary).toContain('"systematic investigation/experimentation"');
   });

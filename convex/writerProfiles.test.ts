@@ -17,6 +17,7 @@ import { SETTINGS_CLASSIFIER_VERSION } from "./ai/writerSettings";
 import { sha256 } from "./lib/contracts";
 import { waivedCategoryLabels } from "./ai/prompts";
 import type { Id } from "./_generated/dataModel";
+import { HOUSE_STYLE_MODES_KEY } from "./houseStyle";
 
 const modules = import.meta.glob("./**/*.ts");
 
@@ -30,6 +31,16 @@ async function setup() {
     const adminId = await ctx.db.insert("users", {
       authId: "auth-admin-profile",
       role: "admin",
+    });
+    // 2026-09-15 (second) amendment: with no stored row, openingClauses
+    // defaults to "off" org-wide. These suites exercise precedence under an
+    // explicit all-writer_choice catalog, so seed it; the shipped no-row
+    // default has its own test below ("no stored modes row ...").
+    await ctx.db.insert("appSettings", {
+      key: HOUSE_STYLE_MODES_KEY,
+      value: JSON.stringify(ALL_WRITER_CHOICE),
+      updatedBy: adminId,
+      updatedAt: 1,
     });
     return { writerId, adminId };
   });
@@ -179,6 +190,26 @@ describe("writer profile style overrides", () => {
     expect(result).toEqual({
       customInstructions: null,
       styleOverrides: { ...NO_STYLE_OVERRIDES, repetitionCaps: true },
+    });
+  });
+
+  test("no stored modes row: opening clauses are waived org-wide, other categories stay writer_choice", async () => {
+    const { t, ids } = await setup();
+    await t.run(async (ctx) => {
+      const row = await ctx.db
+        .query("appSettings")
+        .withIndex("by_key", (q) => q.eq("key", HOUSE_STYLE_MODES_KEY))
+        .unique();
+      if (row) await ctx.db.delete(row._id);
+    });
+    // A user with no profile row still gets the org-wide opener waiver, so
+    // the chat/generation readers see a non-null style with openers waived.
+    const result = await t.query(internal.writerProfiles.getProfileForGeneration, {
+      userId: ids.writerId,
+    });
+    expect(result).toEqual({
+      customInstructions: null,
+      styleOverrides: { ...NO_STYLE_OVERRIDES, openingClauses: true },
     });
   });
 

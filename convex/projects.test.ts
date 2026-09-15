@@ -103,6 +103,41 @@ async function getProject(
   return await t.run(async (ctx) => await ctx.db.get(projectId));
 }
 
+type WorkItemStatus = "open" | "completed" | "declined" | "canceled";
+
+/**
+ * A handoff: a work item on `projectId` assigned to `assigneeId`. Only an
+ * OPEN item makes the assignee a collaborator for metadata/prose edits.
+ */
+async function insertWorkItem(
+  t: Awaited<ReturnType<typeof setup>>["t"],
+  args: {
+    projectId: Awaited<ReturnType<typeof setup>>["projectId"];
+    assigneeId: Awaited<ReturnType<typeof setup>>["writerId"];
+    assignerId: Awaited<ReturnType<typeof setup>>["ownerId"];
+    status: WorkItemStatus;
+  }
+) {
+  const now = Date.now();
+  await t.run(async (ctx) => {
+    await ctx.db.insert("workItems", {
+      projectId: args.projectId,
+      kind: "revision",
+      assigneeId: args.assigneeId,
+      assignerId: args.assignerId,
+      instructions: "Handoff",
+      blocking: false,
+      status: args.status,
+      ...(args.status === "completed" ? { completedAt: now, completedBy: args.assigneeId } : {}),
+      version: 1,
+      createRequestId: `req-${args.status}-${Math.random()}`,
+      createRequestFingerprint: `fp-${args.status}-${Math.random()}`,
+      createdAt: now,
+      updatedAt: now,
+    });
+  });
+}
+
 describe("dashboard project projection", () => {
   test.each([
     ["reserved", "generating"],
@@ -955,6 +990,22 @@ describe("bulk project edits", () => {
     });
   });
 
+  test("an assigned collaborator is still skipped by the bulk edit (owner-only safeguard)", async () => {
+    const { t, projectId, otherProjectId, writerId, ownerId } = await setup();
+    // The single-project gate admits an open-work-item assignee; the mass
+    // change deliberately does not (2026-09-15 amendment).
+    await insertWorkItem(t, { projectId, assigneeId: writerId, assignerId: ownerId, status: "open" });
+    const notOwned = await getProject(t, projectId);
+
+    const result = await asActor(t, "writer").mutation(api.projects.bulkUpdateProjects, {
+      projectIds: [projectId, otherProjectId],
+      clientName: "Acme Manufacturing",
+    });
+
+    expect(result).toEqual({ updated: 1, skipped: 1 });
+    await expect(getProject(t, projectId)).resolves.toEqual(notOwned);
+  });
+
   test("a writer updates only the projects they own and skips the rest untouched", async () => {
     const { t, projectId, otherProjectId } = await setup();
     // "writer" owns otherProjectId; projectId belongs to the "owner" actor.
@@ -1082,6 +1133,299 @@ describe("bulk project edits", () => {
     await expect(getProject(t, projectId)).resolves.toMatchObject({
       clientName: "Client",
     });
+  });
+});
+
+describe("single-project client name edits", () => {
+  // Owner decision 2026-09-15: descriptive metadata follows the report-prose
+  // scope — Owner, assigned collaborator (open work item), Manager, Admin.
+  test.each([
+    ["the owner", "owner"],
+    ["a manager", "manager"],
+    ["an admin", "admin"],
+  ] as const)("%s renames the client and resyncs the dashboard company key", async (_label, actor) => {
+    const { t, projectId } = await setup();
+    await t.run(async (ctx) => {
+      await ctx.db.patch(projectId, {
+        dashboardCompanyKey: dashboardCompanyKey("Client"),
+        projectNumber: "2a",
+      });
+    });
+
+    await asActor(t, actor).mutation(api.projects.updateProjectClientName, {
+      projectId,
+      clientName: "  Acme Manufacturing  ",
+    });
+
+    await expect(getProject(t, projectId)).resolves.toMatchObject({
+      clientName: "Acme Manufacturing",
+      dashboardCompanyKey: dashboardCompanyKey("Acme Manufacturing"),
+      // Numbering travels with the project (parity with bulkUpdateProjects).
+      projectNumber: "2a",
+    });
+  });
+
+  test("another writer with no handoff is rejected and writes nothing", async () => {
+    const { t, projectId } = await setup();
+    const before = await getProject(t, projectId);
+
+    await expect(
+      asActor(t, "writer").mutation(api.projects.updateProjectClientName, {
+        projectId,
+        clientName: "Acme Manufacturing",
+      })
+    ).rejects.toMatchObject({
+      data: { code: "NOT_AUTHORIZED", capability: "report.editProse" },
+    });
+    await expect(getProject(t, projectId)).resolves.toEqual(before);
+  });
+
+  test("an assigned collaborator (open work item) renames the client", async () => {
+    const { t, projectId, writerId, ownerId } = await setup();
+    await insertWorkItem(t, { projectId, assigneeId: writerId, assignerId: ownerId, status: "open" });
+
+    await asActor(t, "writer").mutation(api.projects.updateProjectClientName, {
+      projectId,
+      clientName: "Acme Manufacturing",
+    });
+
+    await expect(getProject(t, projectId)).resolves.toMatchObject({
+      clientName: "Acme Manufacturing",
+      dashboardCompanyKey: dashboardCompanyKey("Acme Manufacturing"),
+    });
+  });
+
+  test.each(["completed", "declined", "canceled"] as const)(
+    "a writer whose only work item is %s cannot rename the client",
+    async (status) => {
+      const { t, projectId, writerId, ownerId } = await setup();
+      await insertWorkItem(t, { projectId, assigneeId: writerId, assignerId: ownerId, status });
+      const before = await getProject(t, projectId);
+
+      await expect(
+        asActor(t, "writer").mutation(api.projects.updateProjectClientName, {
+          projectId,
+          clientName: "Acme Manufacturing",
+        })
+      ).rejects.toMatchObject({ data: { code: "NOT_AUTHORIZED" } });
+      await expect(getProject(t, projectId)).resolves.toEqual(before);
+    }
+  );
+
+  test("moves the counted stage bucket between company rows", async () => {
+    const { t, projectId } = await setup();
+    await t.run(async (ctx) => {
+      await ctx.db.patch(projectId, {
+        dashboardCompanyKey: dashboardCompanyKey("Client"),
+        dashboardCompanyCounted: true,
+      });
+    });
+
+    await asActor(t, "owner").mutation(api.projects.updateProjectClientName, {
+      projectId,
+      clientName: "Renamed Co",
+    });
+
+    const companies = await t.run(async (ctx) => await ctx.db.query("dashboardCompanies").collect());
+    const byKey = new Map(companies.map((row) => [row.companyKey, row]));
+    expect(byKey.get(dashboardCompanyKey("Renamed Co"))).toMatchObject({
+      clientName: "Renamed Co",
+      projectCount: 1,
+    });
+    expect(byKey.get(dashboardCompanyKey("Client"))?.projectCount ?? 0).toBe(0);
+  });
+
+  test("a casing-only correction refreshes the company row label without moving counts", async () => {
+    const { t, projectId } = await setup();
+    await t.run(async (ctx) => {
+      await ctx.db.patch(projectId, {
+        clientName: "acme  manufacturing",
+        dashboardCompanyKey: dashboardCompanyKey("acme  manufacturing"),
+        dashboardCompanyCounted: true,
+      });
+      await ctx.db.insert("dashboardCompanies", {
+        companyKey: dashboardCompanyKey("acme  manufacturing"),
+        clientName: "acme  manufacturing",
+        projectCount: 1,
+        updatedAt: 0,
+      });
+    });
+
+    await asActor(t, "owner").mutation(api.projects.updateProjectClientName, {
+      projectId,
+      clientName: "Acme Manufacturing",
+    });
+
+    const companies = await t.run(async (ctx) => await ctx.db.query("dashboardCompanies").collect());
+    expect(companies).toHaveLength(1);
+    expect(companies[0]).toMatchObject({
+      companyKey: dashboardCompanyKey("Acme Manufacturing"),
+      clientName: "Acme Manufacturing",
+      projectCount: 1,
+    });
+  });
+
+  test("rejects a blank client name and writes nothing", async () => {
+    const { t, projectId } = await setup();
+    const before = await getProject(t, projectId);
+
+    await expect(
+      asActor(t, "owner").mutation(api.projects.updateProjectClientName, {
+        projectId,
+        clientName: "   ",
+      })
+    ).rejects.toMatchObject({ data: { code: "INVALID_INPUT" } });
+    await expect(getProject(t, projectId)).resolves.toEqual(before);
+  });
+
+  test("denies a mapped user without a role and an anonymous caller", async () => {
+    const { t, projectId } = await setup();
+    const before = await getProject(t, projectId);
+
+    await expect(
+      asActor(t, "roleless").mutation(api.projects.updateProjectClientName, {
+        projectId,
+        clientName: "Nope",
+      })
+    ).rejects.toMatchObject({ data: { code: "NOT_AUTHORIZED" } });
+    await expect(
+      t.mutation(api.projects.updateProjectClientName, {
+        projectId,
+        clientName: "Nope",
+      })
+    ).rejects.toMatchObject({ data: { code: "NOT_AUTHENTICATED" } });
+    await expect(getProject(t, projectId)).resolves.toEqual(before);
+  });
+});
+
+describe("project metadata edit scope (owner decision 2026-09-15)", () => {
+  test.each([
+    ["the owner", "owner"],
+    ["a manager", "manager"],
+    ["an admin", "admin"],
+  ] as const)("%s edits the titles", async (_label, actor) => {
+    const { t, projectId } = await setup();
+
+    await asActor(t, actor).mutation(api.projects.updateProjectTitles, {
+      projectId,
+      title: "  Renamed  ",
+      sredTitle: "Formal title",
+    });
+
+    await expect(getProject(t, projectId)).resolves.toMatchObject({
+      title: "Renamed",
+      sredTitle: "Formal title",
+    });
+  });
+
+  test("an assigned collaborator edits the titles", async () => {
+    const { t, projectId, writerId, ownerId } = await setup();
+    await insertWorkItem(t, { projectId, assigneeId: writerId, assignerId: ownerId, status: "open" });
+
+    await asActor(t, "writer").mutation(api.projects.updateProjectTitles, {
+      projectId,
+      title: "Collaborator rename",
+    });
+
+    await expect(getProject(t, projectId)).resolves.toMatchObject({
+      title: "Collaborator rename",
+    });
+  });
+
+  test("another writer cannot edit the titles, even with a closed work item", async () => {
+    const { t, projectId, writerId, ownerId } = await setup();
+    await insertWorkItem(t, { projectId, assigneeId: writerId, assignerId: ownerId, status: "completed" });
+    const before = await getProject(t, projectId);
+
+    await expect(
+      asActor(t, "writer").mutation(api.projects.updateProjectTitles, {
+        projectId,
+        title: "Nope",
+      })
+    ).rejects.toMatchObject({
+      data: { code: "NOT_AUTHORIZED", capability: "report.editProse" },
+    });
+    await expect(getProject(t, projectId)).resolves.toEqual(before);
+  });
+
+  // Every single-project descriptive-metadata mutation shares the one gate.
+  // Real values throughout so the "accepts" case asserts the field, not a
+  // timestamp tick.
+  const metadataEdits = [
+    ["updateProjectTitle", { title: "Nope" }, { title: "Nope" }],
+    ["updateProjectIndustry", { industry: "manufacturing" }, { industry: "manufacturing" }],
+    ["updateProjectScienceCode", { scienceCode: "1.02.01" }, { scienceCode: "1.02.01" }],
+    ["setProjectNumber", { projectNumber: "1" }, { projectNumber: "1" }],
+    ["updateProjectTags", { tagIds: [] }, { tagIds: [] }],
+    [
+      "updateProjectFiscalYear",
+      { fiscalYearEnd: Date.UTC(2026, 11, 31) },
+      { fiscalYearEnd: Date.UTC(2026, 11, 31) },
+    ],
+  ] as const;
+
+  test.each(metadataEdits)("%s rejects a writer with no handoff and writes nothing", async (name, args, _expected) => {
+    const { t, projectId } = await setup();
+    const before = await getProject(t, projectId);
+
+    await expect(
+      asActor(t, "writer").mutation(api.projects[name], { projectId, ...args } as never)
+    ).rejects.toMatchObject({ data: { code: "NOT_AUTHORIZED" } });
+    await expect(getProject(t, projectId)).resolves.toEqual(before);
+  });
+
+  test.each(metadataEdits)("%s accepts an assigned collaborator", async (name, args, expected) => {
+    const { t, projectId, writerId, ownerId } = await setup();
+    await insertWorkItem(t, { projectId, assigneeId: writerId, assignerId: ownerId, status: "open" });
+    const before = await getProject(t, projectId);
+
+    await asActor(t, "writer").mutation(api.projects[name], { projectId, ...args } as never);
+
+    const after = await getProject(t, projectId);
+    expect(after?.updatedAt).toBeGreaterThanOrEqual(before?.updatedAt ?? 0);
+    expect(after).toMatchObject(expected);
+  });
+});
+
+describe("getProjectEditAccess mirrors the metadata edit gate", () => {
+  test.each([
+    ["the owner", "owner", true],
+    ["a manager", "manager", true],
+    ["an admin", "admin", true],
+    ["another writer with no handoff", "writer", false],
+    ["a roleless user", "roleless", false],
+  ] as const)("%s → canEditDetails %s", async (_label, actor, expected) => {
+    const { t, projectId } = await setup();
+
+    await expect(
+      asActor(t, actor).query(api.projects.getProjectEditAccess, { projectId })
+    ).resolves.toEqual({ canEditDetails: expected });
+  });
+
+  test("an assigned collaborator (open work item) may edit", async () => {
+    const { t, projectId, writerId, ownerId } = await setup();
+    await insertWorkItem(t, { projectId, assigneeId: writerId, assignerId: ownerId, status: "open" });
+
+    await expect(
+      asActor(t, "writer").query(api.projects.getProjectEditAccess, { projectId })
+    ).resolves.toEqual({ canEditDetails: true });
+  });
+
+  test("a closed work item does not make a writer a collaborator", async () => {
+    const { t, projectId, writerId, ownerId } = await setup();
+    await insertWorkItem(t, { projectId, assigneeId: writerId, assignerId: ownerId, status: "completed" });
+
+    await expect(
+      asActor(t, "writer").query(api.projects.getProjectEditAccess, { projectId })
+    ).resolves.toEqual({ canEditDetails: false });
+  });
+
+  test("an anonymous caller gets false, not an error", async () => {
+    const { t, projectId } = await setup();
+
+    await expect(
+      t.query(api.projects.getProjectEditAccess, { projectId })
+    ).resolves.toEqual({ canEditDetails: false });
   });
 });
 
@@ -1284,6 +1628,8 @@ describe("project number auto-lettering (meeting 2026-08-18)", () => {
           dashboardFiscalYearRank: -2025,
           status: "review",
           createdBy: base.ownerId,
+          // Metadata edits are gated on ownerId (never createdBy).
+          ownerId: base.ownerId,
           shareToken: `token-${title}`,
           createdAt: now,
           updatedAt: now,
@@ -1361,6 +1707,7 @@ describe("project number auto-lettering (meeting 2026-08-18)", () => {
         dashboardFiscalYearRank: -2026,
         status: "review",
         createdBy: ownerId,
+        ownerId,
         shareToken: "token-rollover",
         createdAt: Date.now(),
         updatedAt: Date.now(),

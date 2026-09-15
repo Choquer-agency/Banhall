@@ -118,7 +118,8 @@
           locked tier (CRA form length limits and no-fabrication rules) applies
           to everyone — no writer, admin, or preference document can change
           it. The waivable tier below is the organization's own writing
-          standard, including the default report skeleton: each category can
+          standard, including the default report skeleton (content coverage
+          and order per line, not paragraph counts): each category can
           be governed per rule, from writer-by-writer choice to org-wide
           enforcement to switching the rule off entirely.
         </p>
@@ -156,10 +157,16 @@
           <h2 class="text-title">House style rules</h2>
           <p class="mt-1 max-w-3xl text-sm text-gray-500">
             Each category has one org-wide mode. <span class="font-medium text-gray-700">Writer's choice</span>
-            — enforced by default, each consultant may let their own
+            — enforced unless a consultant lets their own
             instructions override it; <span class="font-medium text-gray-700">Always enforced</span>
             — consultant overrides are ignored; <span class="font-medium text-gray-700">Off for everyone</span>
             — the rule is disabled org-wide.
+          </p>
+          <p class="mt-1 max-w-3xl text-sm text-gray-500">
+            Until an admin saves a mode here, every category is Writer's
+            choice except Mandated opening clauses, which is Off for everyone.
+            The report skeleton mandates the content each CRA line covers and
+            its order, never a paragraph count.
           </p>
           {#if updatedDate(configQ.data?.updatedAt)}
             <p class="mt-1 text-xs text-gray-400">

@@ -41,6 +41,7 @@
   import IndustrySelect from "$lib/components/ui/IndustrySelect.svelte";
   import { industryLabel } from "$lib/industries";
   import { CRA_SCIENCE_CODE_ITEMS, scienceCodeLabel } from "../../../../shared/craScienceCodes";
+  import { parsePdFilename } from "../../../../shared/pdFilename";
   import { SINGLE_MODEL_ITEMS, comparePairFromSlots, comparePairLabel, type CandidateModelId } from "../../../../shared/generationModels";
   import ComparePairPicker from "$lib/components/generation/ComparePairPicker.svelte";
   import SingleModelPicker from "$lib/components/generation/SingleModelPicker.svelte";
@@ -355,12 +356,50 @@
         pdFileError = `Couldn't extract any text from ${file.name}.`;
       } else {
         pdDoc = { name: file.name, content: text, file };
+        if (mode === "review") prefillFromPdFileName(file.name);
       }
     } catch {
       pdFileError = `Couldn't read ${file.name}. Try another file.`;
     } finally {
       parsingPd = null;
     }
+  }
+
+  // PD file-name prefill (writer request 2026-09-09): the firm names PDs
+  // "03 3GAMarine 2025-12-31 R1.LR.mo ProjectTitle.docx", so a dropped PD
+  // already carries the project number, client, fiscal year-end and title.
+  // Same guard grammar as the other prefills: only a field the writer has
+  // left empty is filled, never one they typed. The initials are shown in
+  // the hint only — the domain contract forbids inferring the Owner or a
+  // writer from metadata, so they never set a person field.
+  let pdNameHint = $state("");
+  function prefillFromPdFileName(fileName: string) {
+    pdNameHint = "";
+    const parsed = parsePdFilename(fileName);
+    if (!parsed) return;
+    const filled: string[] = [];
+    if (parsed.projectNumber && !projectNumber.trim()) {
+      projectNumber = parsed.projectNumber;
+      filled.push(`project ${parsed.projectNumber}`);
+    }
+    if (parsed.clientName && !clientName.trim()) {
+      clientName = parsed.clientName;
+      filled.push(parsed.clientName);
+    }
+    if (parsed.fiscalYearEnd && !fiscalYearEnd) {
+      fiscalYearEnd = parsed.fiscalYearEnd;
+      filled.push(`FYE ${parsed.fiscalYearEnd}`);
+    }
+    if (parsed.title && (!sredTitle.trim() || !title.trim())) {
+      if (!sredTitle.trim()) sredTitle = parsed.title;
+      if (!title.trim()) title = parsed.title;
+      filled.push("title");
+    }
+    if (!filled.length) return;
+    if (parsed.revision) filled.push(`R${parsed.revision}`);
+    if (parsed.writerInitials) filled.push(`writer ${parsed.writerInitials}`);
+    if (parsed.reviewerInitials) filled.push(`reviewer ${parsed.reviewerInitials}`);
+    pdNameHint = `Filled from the file name: ${filled.join(" · ")}`;
   }
 
   // Previous-year reports get a structured year-by-year UI (BNH-9 / BNH-26).
@@ -1074,7 +1113,10 @@
                   </div>
                   <button
                     type="button"
-                    onclick={() => (pdDoc = null)}
+                    onclick={() => {
+                      pdDoc = null;
+                      pdNameHint = "";
+                    }}
                     aria-label="Remove file"
                     class="flex-none rounded-md p-1.5 text-gray-400 transition-colors hover:text-red-500"
                   >
@@ -1130,6 +1172,21 @@
               />
               {#if pdFileError}
                 <p class="text-xs text-red-600">{pdFileError}</p>
+              {/if}
+              {#if pdNameHint}
+                <div class="flex items-center gap-2 rounded-md bg-primary-wash px-3 py-1.5" role="status">
+                  <p class="min-w-0 flex-1 text-xs text-ink-secondary">{pdNameHint}</p>
+                  <button
+                    type="button"
+                    aria-label="Dismiss the file-name hint"
+                    class="-my-1 flex h-7 w-7 flex-none items-center justify-center rounded-md text-ink-muted transition-colors hover:text-navy focus-visible:outline focus-visible:outline-2 focus-visible:outline-navy motion-reduce:transition-none"
+                    onclick={() => (pdNameHint = "")}
+                  >
+                    <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                      <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                </div>
               {/if}
             </div>
           {/if}

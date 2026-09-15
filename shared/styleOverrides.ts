@@ -3,13 +3,17 @@
  *
  * The SR&ED writing standard has two tiers. The locked tier (CRA form
  * line/word limits and the no-fabrication/evidence rules) applies to everyone.
- * The waivable tier below is enforced by default but a writer may waive
- * individual categories so their own "Writing preferences" document governs
- * that area instead. Since the 2026-09-01 amendment this includes
- * `reportSkeleton`: the whole built-in section skeleton (paragraph counts,
- * roles, ordering, framing conventions) — waiving it makes the writer's
- * document authoritative for report architecture, with only the line limits
- * and no-fabrication rules still enforced. A waived category is removed from the drafting
+ * The waivable tier below is enforced by default (with one exception, below)
+ * but a writer may waive individual categories so their own "Writing
+ * preferences" document governs that area instead. Since the 2026-09-01
+ * amendment this includes `reportSkeleton`: the whole built-in section
+ * skeleton (the content each line covers, its order, framing conventions) —
+ * waiving it makes the writer's document authoritative for report
+ * architecture, with only the line limits and no-fabrication rules still
+ * enforced. Since the 2026-09-15 owner decision the default skeleton mandates
+ * no paragraph counts, and `openingClauses` (the literal CRA signal phrases)
+ * is OFF by default for every writer; an admin can turn it back on
+ * (DEFAULT_HOUSE_RULE_MODES). A waived category is removed from the drafting
  * prompts, skipped by the programmatic scrub/QA scans, and exempted from QA
  * deductions — conflicts are resolved before prompt assembly, never silently
  * inside it.
@@ -72,10 +76,13 @@ export function styleOverridesEqual(
 // ─── PSOS-50: org-level governance modes ────────────────────────────────────
 //
 // Each house-style category has an admin-set global mode:
-//   "writer_choice" — enforced by default, each writer may waive it (default)
+//   "writer_choice" — enforced by default, each writer may waive it
 //   "enforced"      — always enforced; writer waivers are ignored
 //   "off"           — waived for everyone, profile or not
 // Stored as JSON in the appSettings row "houseStyle.modes" (convex/houseStyle.ts).
+// Default per category: "writer_choice", except `openingClauses`, which is
+// "off" since the 2026-09-15 owner decision (mandated opening clauses are not
+// enforced for anyone unless an admin turns them on).
 
 export const HOUSE_RULE_MODES = ["writer_choice", "enforced", "off"] as const;
 
@@ -88,7 +95,7 @@ export const DEFAULT_HOUSE_RULE_MODES: HouseRuleModes = {
   paragraphDensity: "writer_choice",
   sentenceConstruction: "writer_choice",
   repetitionCaps: "writer_choice",
-  openingClauses: "writer_choice",
+  openingClauses: "off",
   reportSkeleton: "writer_choice",
 };
 
@@ -105,8 +112,8 @@ function isHouseRuleMode(value: unknown): value is HouseRuleMode {
 /**
  * Normalize a stored value (raw JSON string or already-parsed object) into a
  * full mode record. Missing rows, malformed JSON, and unknown values all fall
- * back to "writer_choice" — misconfiguration can never change behavior
- * beyond the pre-governance default.
+ * back to DEFAULT_HOUSE_RULE_MODES — misconfiguration can never change
+ * behavior beyond the documented default.
  */
 export function normalizeHouseRuleModes(raw: unknown): HouseRuleModes {
   let parsed: unknown = raw;
@@ -172,11 +179,11 @@ export const STYLE_OVERRIDE_META: Record<
   openingClauses: {
     label: "Mandated opening clauses",
     description:
-      "Waive the literal CRA signal phrases that must open certain paragraphs; the required content still has to appear, in your phrasing.",
+      "The literal CRA signal phrases that open certain paragraphs. Off by default: the required content still has to appear, in your phrasing. An admin can turn the phrases back on.",
   },
   reportSkeleton: {
     label: "Report skeleton and paragraph roles",
     description:
-      "Waive the built-in section skeleton: paragraph counts, paragraph roles, content ordering, and framing conventions. Your instructions define each line's architecture. The CRA form line/word limits and the no-fabrication rules always stay.",
+      "Waive the built-in section skeleton: the content each line must cover, its ordering, and the framing conventions. Your instructions define each line's architecture. The CRA form line/word limits and the no-fabrication rules always stay.",
   },
 };

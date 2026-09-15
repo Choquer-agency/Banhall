@@ -202,9 +202,12 @@
       <p class="mt-1 text-sm text-ink-muted">
         Describe how you like to write and every report you generate will
         follow it. The CRA line length limits always apply. House style rules
-        and the default report skeleton apply too, unless you tick one below
-        to let your instructions take over. Check what applies reads your
-        instructions and ticks the rules they cover for you.
+        and the default report skeleton (the content each line covers, in
+        order, in as many paragraphs as the material warrants) apply too,
+        unless you tick one below to let your instructions take over.
+        Mandated opening clauses are off unless your organization turns them
+        on. Check what applies reads your instructions and ticks the rules
+        they cover for you.
       </p>
     </div>
     <div class="settings-row-form max-w-4xl!">
@@ -281,7 +284,7 @@
                 <p class="ml-[26px] mt-0.5 max-w-2xl text-xs text-ink-faint">
                   {mode === "enforced"
                     ? "Your organization always enforces this rule."
-                    : "Disabled for everyone by your organization."}
+                    : "Off for everyone in your organization; your own instructions govern this area."}
                 </p>
               {/if}
             </div>

@@ -4,8 +4,9 @@
  * Admins set a global mode per waivable category ("writer_choice" |
  * "enforced" | "off"), stored as JSON in the appSettings row
  * "houseStyle.modes" (same key/value convention as the other admin-tunable
- * settings). Missing/malformed rows normalize to "writer_choice" — the
- * pre-governance default. The rule TEXT itself stays in shared/houseRules.ts
+ * settings). Missing/malformed rows normalize to DEFAULT_HOUSE_RULE_MODES:
+ * "writer_choice" everywhere except `openingClauses`, which is "off" (the
+ * 2026-09-15 owner decision). The rule TEXT itself stays in shared/houseRules.ts
  * (code-reviewed changes only); these modes govern enforcement.
  */
 import { query, mutation, type QueryCtx, type MutationCtx } from "./_generated/server";

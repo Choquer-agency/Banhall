@@ -12,7 +12,9 @@ import {
 import {
   NO_STYLE_OVERRIDES,
   STYLE_OVERRIDE_KEYS,
+  normalizeHouseRuleModes,
   normalizeStyleOverrides,
+  resolveEffectiveOverrides,
   type StyleOverrides,
 } from "../../shared/styleOverrides";
 import { findDashConnectors, RULES_HUMAN_PROSE } from "../../shared/humanProse";
@@ -25,6 +27,12 @@ const waive = (...keys: Array<keyof StyleOverrides>): StyleOverrides =>
   normalizeStyleOverrides(Object.fromEntries(keys.map((k) => [k, true])));
 
 const ALL_WAIVED = waive(...STYLE_OVERRIDE_KEYS);
+// What every writer gets with no house-style row stored and no profile:
+// since 2026-09-15 that waives the mandated opening clauses and nothing else.
+const SHIPPED_DEFAULT = resolveEffectiveOverrides(
+  normalizeHouseRuleModes(undefined),
+  NO_STYLE_OVERRIDES
+);
 // Every house-style category waived but the skeleton kept (the PSOS-49 set).
 const ALL_HOUSE_STYLE_WAIVED = waive(
   ...STYLE_OVERRIDE_KEYS.filter((key) => key !== "reportSkeleton")
@@ -110,7 +118,7 @@ describe("waivedCategoryLabels", () => {
 });
 
 describe("section 242 prompt", () => {
-  it("mandates literal openers by default", () => {
+  it("mandates literal openers under full enforcement (an admin 'enforced' row)", () => {
     expect(buildSection242SystemPrompt()).toContain(
       'It MUST open with: "The limitations to standard practice were that..."'
     );
@@ -132,8 +140,10 @@ describe("section 242 prompt", () => {
     expect(prompt).toContain("technological objective");
     // Locked structure stays under the full house-style waiver set too.
     const allWaived = buildSection242SystemPrompt(ALL_HOUSE_STYLE_WAIVED);
-    expect(allWaived).toContain("exactly 5 paragraphs");
-    expect(allWaived).toContain("CRITICAL DISTINCTION between Paragraph 3 and Paragraph 5");
+    expect(allWaived).toContain(
+      "Line 242 must cover, in this order: company context, goal/problem, limitations of standard practice (passive uncertainties), technological objective, active uncertainties."
+    );
+    expect(allWaived).toContain("CRITICAL DISTINCTION between passive and active uncertainties");
     expect(allWaived).toContain("The BECAUSE clause is what makes an uncertainty credible");
   });
 });
@@ -147,7 +157,7 @@ describe("reportSkeleton waiver", () => {
     const s242 = buildSection242SystemPrompt(skeletonWaived);
     expect(s242).toContain("## Section Architecture (writer-defined)");
     expect(s242).not.toContain("exactly 5 paragraphs");
-    expect(s242).not.toContain("## Paragraph Structure");
+    expect(s242).not.toContain("## Required Content");
     expect(s242).not.toContain("It MUST open with");
 
     const s244 = buildSection244SystemPrompt(skeletonWaived);
@@ -158,7 +168,7 @@ describe("reportSkeleton waiver", () => {
     const s246 = buildSection246SystemPrompt(skeletonWaived);
     expect(s246).toContain("## Section Architecture (writer-defined)");
     expect(s246).not.toContain("KNOWLEDGE FIRST, CAPABILITIES SECOND");
-    expect(s246).not.toContain("At least 2 of the 3 advancement paragraphs");
+    expect(s246).not.toContain("Most advancement paragraphs MUST open with");
   });
 
   it("keeps the length budget and evidence rules locked", () => {
@@ -232,7 +242,7 @@ describe("section 244 prompt", () => {
 describe("section 246 prompt", () => {
   it("waiving openingClauses keeps knowledge-first but frees the phrasing", () => {
     const prompt = buildSection246SystemPrompt(waive("openingClauses"));
-    expect(prompt).not.toContain("At least 2 of the 3 advancement paragraphs MUST open with");
+    expect(prompt).not.toContain("Most advancement paragraphs MUST open with");
     expect(prompt).toContain("KNOWLEDGE FIRST, CAPABILITIES SECOND");
     expect(prompt).toContain("knowledge finding");
   });
@@ -250,8 +260,28 @@ describe("section 246 prompt", () => {
 });
 
 describe("QA system prompt", () => {
-  it("deducts for missing openers by default", () => {
+  it("deducts for missing openers under full enforcement", () => {
     expect(buildQaSystemPrompt()).toContain("If not, flag and deduct 5 points from 242");
+  });
+
+  it("judges structure by content coverage and order, never by paragraph count or position", () => {
+    for (const prompt of [buildQaSystemPrompt(), buildQaSystemPrompt(SHIPPED_DEFAULT)]) {
+      expect(prompt).toContain("Judge content coverage and order, never paragraph count.");
+      expect(prompt).toContain("Do NOT deduct for the number of paragraphs");
+      expect(prompt).toContain("Does Section 242 cover, in this order: company/context, goal/problem, passive uncertainties");
+      expect(prompt).toContain("Identify them by their content, not their position.");
+      expect(prompt).not.toContain("all 5 required paragraphs");
+      expect(prompt).not.toContain("paragraphs 2, 3, and 4");
+      expect(prompt).not.toContain("Paragraph 6");
+      expect(prompt).not.toContain("paragraph 6");
+      expect(prompt).not.toContain("fewer than 2/3");
+      expect(prompt).not.toMatch(/Does paragraph \d/);
+      // Methodology checks survive, now keyed on roles.
+      expect(prompt).toContain("### Passive vs. Active Uncertainty Check");
+      expect(prompt).toContain("### Hypothesis Specificity Check");
+      expect(prompt).toContain("### Experimentation Narrative Arc Check");
+      expect(prompt).toContain("### Knowledge vs. Capability Check");
+    }
   });
 
   it("waiving openingClauses swaps deductions for a content-only check", () => {
@@ -278,7 +308,11 @@ describe("chat skeleton + system prompt", () => {
     const rules = buildSectionStructureRules(waive("openingClauses"));
     expect(rules).not.toContain('P3 opens "The limitations to standard practice were..."');
     expect(rules).not.toContain('opens "It was hypothesized that if..."');
-    expect(rules).toContain("Line 242: Scientific/Technological Uncertainty** (5 paragraphs)");
+    expect(rules).toContain("Line 242: Scientific/Technological Uncertainty**: company context → goal/problem → passive uncertainties");
+    expect(rules).toContain("never impose or restore a paragraph count");
+    expect(rules).not.toContain("(5 paragraphs)");
+    expect(rules).not.toContain("≈6 paragraphs");
+    expect(rules).not.toContain("≥2 open");
     expect(rules).toContain('each needs a "because" clause');
     expect(rules).toContain("Never blur the two");
   });
@@ -373,6 +407,154 @@ describe("chat prompt: tools, Completion Report and the converge guard", () => {
     expect(prompt).toContain("Use its ids verbatim as the finding ids");
     expect(prompt).toContain("never renumber them");
     expect(prompt).toContain("with every item's original ID and its status");
+  });
+});
+
+// 2026-09-15 owner decision: the default skeleton mandates content coverage
+// and order, never a paragraph count or numbered paragraph roles; the
+// mandated opening clauses are off for everyone unless an admin turns them on.
+describe("2026-09-15 re-tiering: no paragraph counts, openers off by default", () => {
+  const COUNT_MANDATES = [
+    /exactly \d+ paragraphs?/i,
+    /\*\*Paragraphs? \d/,
+    /Paragraphs? \d+;/,
+    /≈\d+ paragraphs/,
+    /≥\d+ open/,
+    /\d+ of the \d+ advancement paragraphs/,
+    /paragraphs 2, 3,? and 4/i,
+    /SELF-CHECK FOR PARAGRAPHS/,
+    /fewer than \d+ (distinct experiments|advancements)/,
+  ];
+
+  it("the shipped default waives openers only", () => {
+    expect(SHIPPED_DEFAULT).toEqual({ ...NO_STYLE_OVERRIDES, openingClauses: true });
+  });
+
+  it("no default section or QA prompt carries a paragraph-count or numbered-paragraph mandate", () => {
+    for (const overrides of [NO_STYLE_OVERRIDES, SHIPPED_DEFAULT, ALL_HOUSE_STYLE_WAIVED]) {
+      for (const [name, prompt] of [
+        ["242", buildSection242SystemPrompt(overrides)],
+        ["244", buildSection244SystemPrompt(overrides)],
+        ["246", buildSection246SystemPrompt(overrides)],
+        ["qa", buildQaSystemPrompt(overrides)],
+        ["chat", buildChatSystemPromptV2(overrides)],
+      ] as const) {
+        for (const pattern of COUNT_MANDATES) {
+          expect(prompt, `${name}: ${pattern}`).not.toMatch(pattern);
+        }
+      }
+    }
+  });
+
+  it("default prompts keep the role lists in order, the passive/active rule and the content rules", () => {
+    for (const overrides of [NO_STYLE_OVERRIDES, SHIPPED_DEFAULT]) {
+      const s242 = buildSection242SystemPrompt(overrides);
+      expect(s242).toContain(
+        "Line 242 must cover, in this order: company context, goal/problem, limitations of standard practice (passive uncertainties), technological objective, active uncertainties."
+      );
+      expect(s242).toContain("Use as many paragraphs as the material warrants");
+      expect(s242).toContain("a role may share a paragraph with its neighbour or span more than one");
+      for (const role of [
+        "**COMPANY/CONTEXT:**",
+        "**GOAL/PROBLEM:**",
+        "**PASSIVE TECHNOLOGICAL UNCERTAINTIES/LIMITATIONS:**",
+        "**TECHNOLOGICAL OBJECTIVE:**",
+        "**ACTIVE TECHNOLOGICAL UNCERTAINTIES:**",
+      ]) {
+        expect(s242).toContain(role);
+      }
+      expect(s242).toContain("CRITICAL DISTINCTION between passive and active uncertainties");
+      expect(s242).toContain("The BECAUSE clause is what makes an uncertainty credible");
+      expect(s242).toContain("The first clause is CONCEPTUAL");
+      expect(s242).toContain("Respond with ONLY the paragraphs of text.");
+
+      const s244 = buildSection244SystemPrompt(overrides);
+      expect(s244).toContain(
+        "Line 244 must cover, in this order: prior-year status (only for a continuing project), workplan, hypothesis, experimentation/iterations."
+      );
+      expect(s244).toContain("**HYPOTHESIS:**");
+      expect(s244).toContain("strict if/then structure");
+      expect(s244).toContain("The THEN clause MUST contain at least one concrete, measurable outcome");
+      expect(s244).toContain("**EXPERIMENTATION/ITERATIONS:**");
+      expect(s244).toContain("Write one experimentation paragraph per distinct experiment or iteration the source material supports");
+      for (const element of ["PROBLEM STATEMENT", "INITIAL APPROACH", "WHAT WENT WRONG OR WAS LEARNED", "REVISED APPROACH", "CONCLUSION"]) {
+        expect(s244).toContain(element);
+      }
+      expect(s244).toContain("never pad to a count, and never invent experiments");
+
+      const s246 = buildSection246SystemPrompt(overrides);
+      expect(s246).toContain(
+        "Line 246 must cover, in this order: overall advancement to science/technology, the specific technological advancements (one per resolved uncertainty), project status and next steps, project goal and improvements."
+      );
+      expect(s246).toContain("KNOWLEDGE FIRST, CAPABILITIES SECOND");
+      expect(s246).toContain("SELF-CHECK FOR EVERY ADVANCEMENT PARAGRAPH");
+      expect(s246).toContain("**TECHNOLOGICAL ADVANCEMENTS (one paragraph per resolved uncertainty):**");
+      expect(s246).toContain("one per advancement it supports, never padded to a count");
+      expect(s246).toContain("**PROJECT GOAL & IMPROVEMENTS:**");
+    }
+  });
+
+  it("with no stored house-style row, every prompt waives the openers but keeps the content", () => {
+    const shared = buildSharedWritingRules(SHIPPED_DEFAULT);
+    expect(shared).not.toContain("CRA KEYWORD VISIBILITY:");
+    expect(shared).toContain("HOUSE-RULE WAIVERS:");
+    expect(shared).toContain("mandated opening clauses");
+
+    const s242 = buildSection242SystemPrompt(SHIPPED_DEFAULT);
+    expect(s242).not.toContain('It MUST open with: "The limitations to standard practice were that..."');
+    expect(s242).not.toContain('This paragraph MUST open with: "The technological objective was to');
+    expect(s242).toContain("direct statement of the limitations to standard practice");
+    expect(s242).toContain("both clauses must appear");
+
+    const s244 = buildSection244SystemPrompt(SHIPPED_DEFAULT);
+    expect(s244).not.toContain('This paragraph MUST open with: "It was hypothesized that if');
+    expect(s244).toContain("strict if/then form");
+
+    const s246 = buildSection246SystemPrompt(SHIPPED_DEFAULT);
+    expect(s246).not.toContain("Most advancement paragraphs MUST open with");
+    expect(s246).toContain("Every advancement paragraph MUST open with the knowledge finding itself");
+
+    const qa = buildQaSystemPrompt(SHIPPED_DEFAULT);
+    expect(qa).not.toContain("If not, flag and deduct 5 points from 242");
+    expect(qa).toContain("Still verify the underlying CONTENT is present");
+    expect(qa).toContain("Identify each by its content, not its position.");
+
+    const chat = buildSectionStructureRules(SHIPPED_DEFAULT);
+    expect(chat).toContain("the literal opening phrases are not required");
+    expect(chat).not.toContain('opens "The limitations to standard practice were..."');
+  });
+
+  it("an explicit enforced row restores the literal openers everywhere", () => {
+    const enforced = resolveEffectiveOverrides(
+      normalizeHouseRuleModes({ openingClauses: "enforced" }),
+      normalizeStyleOverrides({ openingClauses: true })
+    );
+    expect(enforced.openingClauses).toBe(false);
+    expect(buildSharedWritingRules(enforced)).toContain("CRA KEYWORD VISIBILITY:");
+    expect(buildSection242SystemPrompt(enforced)).toContain(
+      'It MUST open with: "The limitations to standard practice were that..."'
+    );
+    expect(buildSection244SystemPrompt(enforced)).toContain(
+      'This paragraph MUST open with: "It was hypothesized that if'
+    );
+    expect(buildSection246SystemPrompt(enforced)).toContain(
+      "Most advancement paragraphs MUST open with"
+    );
+    expect(buildQaSystemPrompt(enforced)).toContain("If not, flag and deduct 5 points from 242");
+    expect(buildQaSystemPrompt(enforced)).toContain("If most advancement paragraphs FAIL, deduct 5 points from 246");
+    expect(buildSectionStructureRules(enforced)).toContain(
+      'opens "The limitations to standard practice were..."'
+    );
+  });
+
+  it("the writer-defined (reportSkeleton) branches no longer claim the default has fixed counts", () => {
+    for (const prompt of [
+      buildSection242SystemPrompt(waive("reportSkeleton")),
+      buildQaSystemPrompt(waive("reportSkeleton")),
+      buildSectionStructureRules(waive("reportSkeleton")),
+    ]) {
+      expect(prompt).not.toMatch(/(P3|P5|paragraphs 2, 3, and 4)/);
+    }
   });
 });
 

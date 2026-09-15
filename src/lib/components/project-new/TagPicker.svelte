@@ -13,6 +13,7 @@
     size = "md",
     label = "Tags",
     onChange,
+    readonly = false,
   }: {
     allTags: Tag[];
     selectedTagIds?: string[];
@@ -22,6 +23,11 @@
     label?: string | null;
     /** Fires after every toggle with the updated selection (for persistence). */
     onChange?: (ids: string[]) => void;
+    /**
+     * 2026-09-15 metadata gate: the selection renders as plain bubbles with
+     * no remove or add affordance, and `onChange` never fires.
+     */
+    readonly?: boolean;
   } = $props();
 
   let open = $state(false);
@@ -47,6 +53,7 @@
   );
 
   function toggle(id: string) {
+    if (readonly) return;
     selectedTagIds = selectedTagIds.includes(id)
       ? selectedTagIds.filter((t) => t !== id)
       : [...selectedTagIds, id];
@@ -54,6 +61,7 @@
   }
 
   function openPicker() {
+    if (readonly) return;
     open = !open;
     search = "";
     if (open) setTimeout(() => searchInput?.focus(), 0);
@@ -78,17 +86,24 @@
       } ${tag.parentId ? "bg-primary" : "bg-navy"}`}
     >
       {tag.name}
-      <button
-        type="button"
-        aria-label={`Remove tag ${tag.name}`}
-        onclick={() => toggle(tag._id)}
-        class="text-white/70 transition-colors hover:text-white"
-      >
-        ×
-      </button>
+      {#if !readonly}
+        <button
+          type="button"
+          aria-label={`Remove tag ${tag.name}`}
+          onclick={() => toggle(tag._id)}
+          class="text-white/70 transition-colors hover:text-white"
+        >
+          ×
+        </button>
+      {/if}
     </span>
+  {:else}
+    {#if readonly}
+      <span class={size === "sm" ? "text-xs italic text-gray-400" : "text-sm italic text-gray-400"}>No tags</span>
+    {/if}
   {/each}
 
+  {#if !readonly}
   <button
     type="button"
     aria-label="Add tags"
@@ -100,8 +115,9 @@
   >
     +
   </button>
+  {/if}
 
-  {#if open}
+  {#if open && !readonly}
     <!-- Compact dropdown is the one true size — same on every surface. -->
     <div
       transition:popoverPop

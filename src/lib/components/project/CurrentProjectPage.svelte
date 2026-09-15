@@ -139,6 +139,20 @@
     auth.isAuthenticated ? {} : "skip"
   );
 
+  // 2026-09-15 metadata gate: the same scope the metadata mutations enforce
+  // (Owner, open-work-item collaborator, Manager, Admin). While the answer is
+  // still loading the controls stay editable so an eligible editor never sees
+  // a read-only flash; a definite `false` swaps them for plain values.
+  const editAccessQ = useQuery(api.projects.getProjectEditAccess, () =>
+    auth.isAuthenticated ? { projectId } : "skip"
+  );
+  // Loading keeps the controls editable (no read-only flash for an eligible
+  // editor; the server still rejects an ineligible save). A query error is
+  // not "loading": fail closed to read-only until it resolves.
+  const canEditDetails = $derived(
+    editAccessQ.error ? false : (editAccessQ.data?.canEditDetails ?? true)
+  );
+
   const generateReport = useMutation(api.generations.requestGeneration);
   const recordUploadAttempts = useMutation(api.uploadAttempts.recordUploadAttempts);
   const logPdReviewEvent = useMutation(api.pdReviews.logPdReviewEvent);
@@ -1030,27 +1044,41 @@
 
     {#snippet projectMetadata()}
       <div class="mb-8 border-b border-gray-200 pb-6">
-        <EditableText
-          value={project.title}
-          placeholder="Set internal title"
-          variant="heading"
-          label="internal project title"
-          required
-          onSave={async (value) => {
-            await updateTitles({ projectId, title: value.trim() });
-          }}
-        />
+        {#if canEditDetails}
+          <EditableText
+            value={project.title}
+            placeholder="Set internal title"
+            variant="heading"
+            label="internal project title"
+            required
+            onSave={async (value) => {
+              await updateTitles({ projectId, title: value.trim() });
+            }}
+          />
+        {:else}
+          <h1 class="text-display min-w-0 break-words">{project.title || "Set internal title"}</h1>
+        {/if}
         <div class="mt-5 grid grid-cols-1 gap-x-10 gap-y-4 text-sm sm:grid-cols-2">
           <div>
             <span class="text-label block">SR&amp;ED title</span>
-            <EditableText
-              value={project.sredTitle ?? ""}
-              placeholder="Add the formal SR&ED title (finalize at the end)"
-              label="SR&ED title"
-              onSave={async (value) => {
-                await updateTitles({ projectId, sredTitle: value });
-              }}
-            />
+            {#if canEditDetails}
+              <EditableText
+                value={project.sredTitle ?? ""}
+                placeholder="Add the formal SR&ED title (finalize at the end)"
+                label="SR&ED title"
+                onSave={async (value) => {
+                  await updateTitles({ projectId, sredTitle: value });
+                }}
+              />
+            {:else}
+              <p class="min-w-0 truncate text-gray-800">
+                {#if project.sredTitle}
+                  {project.sredTitle}
+                {:else}
+                  <span class="italic text-gray-400">Not set</span>
+                {/if}
+              </p>
+            {/if}
           </div>
           <div>
             <span class="text-label block">Client</span>
@@ -1087,6 +1115,7 @@
             <FiscalYearField
               {projectId}
               fiscalYearEnd={project.fiscalYearEnd ?? null}
+              readonly={!canEditDetails}
             />
           </div>
           <div>
@@ -1095,6 +1124,7 @@
               {projectId}
               industry={project.industry ?? null}
               canCreate={user?.role === "admin"}
+              readonly={!canEditDetails}
             />
           </div>
           <div>
@@ -1102,6 +1132,7 @@
             <ScienceCodeField
               {projectId}
               scienceCode={project.scienceCode ?? null}
+              readonly={!canEditDetails}
             />
           </div>
           <div class="sm:col-span-2">
@@ -1117,6 +1148,7 @@
                 bind:selectedTagIds
                 label={null}
                 onChange={handleTagsChange}
+                readonly={!canEditDetails}
               />
             </div>
             {#if tagError}

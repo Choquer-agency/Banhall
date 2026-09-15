@@ -97,6 +97,17 @@
   {#if open}
     <div transition:slide={{ duration: 200 }} class="px-5 pb-4">
       <p class="ml-4 text-xs leading-snug text-gray-500">{def.help}</p>
+      {#if def.id === "writer_notes"}
+        <!-- Writer alert 2026-08-23: settings/guidance in "Other supporting
+             docs" produced a weaker PD than the same file here. True by
+             construction: the analyzer presents categories highest-trust
+             first (trustedContext ANALYZER_CATEGORY_ORDER) and a settings
+             document is picked from Writer's Notes before any other
+             attachment (lib/settingsDocument). -->
+        <p class="ml-4 mt-1 text-xs leading-snug text-ink-muted">
+          Put your writing settings and style guidance here, not in supporting docs — Writer's notes are read first and carry the most weight.
+        </p>
+      {/if}
 
       <!-- Full-width drop / browse target -->
       <button

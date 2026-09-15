@@ -129,6 +129,32 @@ export async function requireReportEditAccess(
   );
 }
 
+/**
+ * Owner decision (2026-09-15): a project's descriptive metadata (titles,
+ * client name, industry, science code, project number, tags, fiscal
+ * year-end) is edited by the same people who may edit its report prose —
+ * the Owner, a writer currently handed off to via an open work item, or a
+ * Manager/Admin. Delegates to `reportEditLevelAllows` so the rule has one
+ * implementation and no separate capability key; only the message differs.
+ * `bulkUpdateProjects` keeps its stricter owner-only Consultant scope on
+ * purpose (mass-change safeguard) and does not use this gate.
+ */
+export async function requireProjectMetadataAccess(
+  ctx: CapabilityCtx,
+  projectId: Id<"projects">
+) {
+  const access = await requireInternalProjectAccess(ctx, projectId);
+  if (await reportEditLevelAllows(ctx, access)) return access;
+  domainError(
+    "NOT_AUTHORIZED",
+    "Only the project owner, an assigned collaborator, a manager, or an administrator can edit project details",
+    {
+      capability: "report.editProse",
+      effectiveLevel: getEffectiveCapabilityLevel(access.user.role, "report.editProse"),
+    }
+  );
+}
+
 /** Nullable read gate for financial queries: internal access AND financial.read. */
 export async function getFinancialReadAccessOrNull(
   ctx: CapabilityCtx,
