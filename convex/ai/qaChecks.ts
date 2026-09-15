@@ -19,11 +19,13 @@ import {
 } from "../../shared/styleOverrides";
 import { findDashConnectors } from "../../shared/humanProse";
 
-// ─── Check 1: CRA opener detection for 246 P2-P4 ────────────────────────────
+// ─── Check 1: CRA opener detection for 246 advancement paragraphs ───────────
 // Only runs when `openingClauses` is enforced (off by default since
-// 2026-09-15). Positional heuristic: with no mandated paragraph count, the
-// QA prompt decides by content which scanned paragraphs are advancement
-// paragraphs; this scan reports first sentences and PASS/FAIL only.
+// 2026-09-15). With no mandated paragraph count, every paragraph after the
+// opening summary is scanned (PR #16 review: a fixed P2-P4 window missed
+// later advancement paragraphs); the QA prompt decides by content which of
+// them are advancement paragraphs. The scan reports first sentences and
+// PASS/FAIL only.
 
 const CRA_OPENER_PATTERNS = [
   /^through\s+(systematic\s+|this\s+)?(investigation|experimental\s+work)/i,
@@ -49,8 +51,10 @@ export interface CRAOpenerResult {
 
 export function checkCRAOpeners(section246Text: string): CRAOpenerResult {
   const paragraphs = section246Text.split(/\n\n+/).filter((p) => p.trim());
-  // P2, P3, P4 are indexes 1, 2, 3 (P1 is the overall summary at index 0)
-  const advancementParagraphs = paragraphs.slice(1, 4);
+  // Index 0 is the overall-advancement summary; everything after it is a
+  // candidate advancement paragraph (status/goal paragraphs are excluded by
+  // the QA prompt on content, not by position).
+  const advancementParagraphs = paragraphs.slice(1);
 
   const results = advancementParagraphs.map((p, i) => {
     const firstSentence = getFirstSentence(p);
@@ -58,7 +62,7 @@ export function checkCRAOpeners(section246Text: string): CRAOpenerResult {
       pattern.test(firstSentence)
     );
     return {
-      paragraph: i + 2, // P2, P3, P4
+      paragraph: i + 2, // 1-based, after the opening paragraph
       passes,
       firstSentence: firstSentence.slice(0, 120) + (firstSentence.length > 120 ? "..." : ""),
     };
@@ -315,7 +319,7 @@ export function runDeterministicChecks(
     summary += `WAIVED (house rule off by default, or waived by writer profile) — literal opening clauses are not required for this writer. Do not deduct for missing signal phrases.\n`;
   } else {
     const openers = checkCRAOpeners(section246);
-    summary += `Scanned the three paragraphs after the opening paragraph. The default skeleton mandates no paragraph count, so decide by content which of these are advancement paragraphs; a scanned project-status or project-goal paragraph does not count.\n`;
+    summary += `Scanned every paragraph after the opening paragraph. The default skeleton mandates no paragraph count, so decide by content which of these are advancement paragraphs; a scanned project-status or project-goal paragraph does not count.\n`;
     summary += `Qualifying openers found: ${openers.count}/${openers.total}\n`;
     for (const r of openers.results) {
       summary += `- P${r.paragraph}: ${r.passes ? "PASS" : "FAIL"} — "${r.firstSentence}"\n`;

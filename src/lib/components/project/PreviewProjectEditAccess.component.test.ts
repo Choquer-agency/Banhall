@@ -9,6 +9,7 @@ import {
   __mutationCalls,
   __resetConvexStub,
   __setQueryData,
+  __setQueryError,
 } from "$lib/test/convex-svelte-stub.svelte";
 
 /**
@@ -156,5 +157,15 @@ describe("PreviewProjectPage metadata edit access", () => {
     expect(button("Edit client name")).not.toBeNull();
     expect(button("Edit SR&ED title")).not.toBeNull();
     expect(button("Add tags")).not.toBeNull();
+  });
+
+  // PR #16 review: an errored access query is not "loading"; fail closed.
+  it("falls back to read-only when the access query errors", async () => {
+    __setQueryError("projects:getProjectEditAccess", new Error("access lookup failed"));
+    await mountWithAccess(undefined);
+
+    for (const name of EDIT_CONTROLS) expect(button(name), name).toBeNull();
+    expect(rowValue("Client").textContent?.trim()).toBe("Acme Labs");
+    expect(__mutationCalls("projects:updateProjectClientName")).toEqual([]);
   });
 });

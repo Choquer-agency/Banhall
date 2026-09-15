@@ -146,7 +146,12 @@
   const editAccessQ = useQuery(api.projects.getProjectEditAccess, () =>
     auth.isAuthenticated ? { projectId } : "skip"
   );
-  const canEditDetails = $derived(editAccessQ.data?.canEditDetails ?? true);
+  // Loading keeps the controls editable (no read-only flash for an eligible
+  // editor; the server still rejects an ineligible save). A query error is
+  // not "loading": fail closed to read-only until it resolves.
+  const canEditDetails = $derived(
+    editAccessQ.error ? false : (editAccessQ.data?.canEditDetails ?? true)
+  );
 
   const generateReport = useMutation(api.generations.requestGeneration);
   const recordUploadAttempts = useMutation(api.uploadAttempts.recordUploadAttempts);
