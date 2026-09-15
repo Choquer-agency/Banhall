@@ -25,7 +25,11 @@ import {
 } from "./lib/teamRoster";
 import { domainError, projectTypeValidator, sha256 } from "./lib/contracts";
 import { effectiveProjectType } from "../shared/projectTypes";
-import { requireCapability } from "./lib/roleCapabilities";
+import {
+  getReportEditAccessOrNull,
+  requireCapability,
+  requireProjectMetadataAccess,
+} from "./lib/roleCapabilities";
 import { workflowStageRank } from "../shared/workflowStages";
 import { normalizeCraScienceCode } from "../shared/craScienceCodes";
 import { deriveStoredProcessing } from "../shared/documentStatus";
@@ -194,7 +198,7 @@ export const updateProjectTitles = mutation({
     sredTitle: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    await requireInternalProjectAccess(ctx, args.projectId);
+    await requireProjectMetadataAccess(ctx, args.projectId);
     const patch: Record<string, unknown> = { updatedAt: Date.now() };
     if (args.title !== undefined && args.title.trim()) {
       patch.title = args.title.trim();
@@ -202,6 +206,32 @@ export const updateProjectTitles = mutation({
     if (args.sredTitle !== undefined) {
       patch.sredTitle = args.sredTitle.trim() || undefined;
     }
+    await ctx.db.patch(args.projectId, patch);
+    await syncProjectDashboardFields(ctx, args.projectId, patch);
+  },
+});
+
+/**
+ * 2026-09-10 writer flag: the client (company) name was fixed after project
+ * creation, so a misnamed review-mode project was stuck. Single-project
+ * counterpart of bulkUpdateProjects' clientName branch — same trim/empty
+ * rule, same dashboard sync (the company row move lives in
+ * syncProjectDashboardFields). Access mirrors updateProjectTitles. Like the
+ * bulk edit, an existing projectNumber travels with the project unchanged;
+ * numbering is only de-duplicated when a number is set.
+ */
+export const updateProjectClientName = mutation({
+  args: {
+    projectId: v.id("projects"),
+    clientName: v.string(),
+  },
+  handler: async (ctx, args) => {
+    await requireProjectMetadataAccess(ctx, args.projectId);
+    const clientName = args.clientName.trim();
+    if (!clientName) {
+      domainError("INVALID_INPUT", "Company name cannot be empty");
+    }
+    const patch = { clientName, updatedAt: Date.now() };
     await ctx.db.patch(args.projectId, patch);
     await syncProjectDashboardFields(ctx, args.projectId, patch);
   },
@@ -219,7 +249,7 @@ export const updateProjectIndustry = mutation({
     industry: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    await requireInternalProjectAccess(ctx, args.projectId);
+    await requireProjectMetadataAccess(ctx, args.projectId);
     const industry = await validatedIndustry(ctx, args.industry);
     const patch = { industry, updatedAt: Date.now() };
     await ctx.db.patch(args.projectId, patch);
@@ -234,7 +264,7 @@ export const updateProjectScienceCode = mutation({
     scienceCode: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    await requireInternalProjectAccess(ctx, args.projectId);
+    await requireProjectMetadataAccess(ctx, args.projectId);
     const scienceCode = normalizeCraScienceCode(args.scienceCode);
     if (args.scienceCode?.trim() && !scienceCode) {
       domainError("INVALID_INPUT", "Select a valid CRA science code");
@@ -456,7 +486,7 @@ export const setProjectNumber = mutation({
   },
   returns: v.null(),
   handler: async (ctx, args) => {
-    const { project } = await requireInternalProjectAccess(ctx, args.projectId);
+    const { project } = await requireProjectMetadataAccess(ctx, args.projectId);
     const projectNumber = await resolveProjectNumberCollision(
       ctx,
       {
@@ -481,7 +511,7 @@ export const updateProjectTags = mutation({
     tagIds: v.array(v.id("tags")),
   },
   handler: async (ctx, args) => {
-    await requireInternalProjectAccess(ctx, args.projectId);
+    await requireProjectMetadataAccess(ctx, args.projectId);
     const tagIds = await validateProjectTagIds(ctx, args.tagIds);
     await ctx.db.patch(args.projectId, {
       tagIds,
@@ -496,7 +526,7 @@ export const updateProjectFiscalYear = mutation({
     fiscalYearEnd: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
-    await requireInternalProjectAccess(ctx, args.projectId);
+    await requireProjectMetadataAccess(ctx, args.projectId);
     const patch = {
       fiscalYearEnd: args.fiscalYearEnd,
       updatedAt: Date.now(),
@@ -583,6 +613,24 @@ export const getProject = query({
         access.project.interviewer,
         access.project.interviewerUserId
       ),
+    };
+  },
+});
+
+/**
+ * Owner decision (2026-09-15): the project pages only offer metadata
+ * controls to people the single-project metadata mutations will accept —
+ * the Owner, a collaborator with an open work item, a Manager or an Admin
+ * (`requireProjectMetadataAccess`). Same decision as the Brief's `canEdit`;
+ * an outsider, a roleless user or an anonymous caller gets `false`, never
+ * an error, so the page can render plain values instead of failing on save.
+ */
+export const getProjectEditAccess = query({
+  args: { projectId: v.id("projects") },
+  handler: async (ctx, args) => {
+    return {
+      canEditDetails:
+        (await getReportEditAccessOrNull(ctx, args.projectId)) !== null,
     };
   },
 });
@@ -1132,7 +1180,7 @@ export const updateProjectTitle = mutation({
     title: v.string(),
   },
   handler: async (ctx, args) => {
-    await requireInternalProjectAccess(ctx, args.projectId);
+    await requireProjectMetadataAccess(ctx, args.projectId);
 
     const patch = { title: args.title.trim(), updatedAt: Date.now() };
     await ctx.db.patch(args.projectId, patch);

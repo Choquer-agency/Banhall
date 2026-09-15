@@ -11,12 +11,17 @@
  * (or org-wide via PSOS-50 governance modes); a waived category's rule text is
  * OMITTED from the assembled prompt; conflicts are resolved at assembly time,
  * never delegated to the model. 2026-09-01 amendment: `reportSkeleton` waives
- * the whole built-in section architecture (paragraph counts, roles, ordering,
- * framing conventions) — the section builders then emit a writer-defined
+ * the whole built-in section architecture (content roles, ordering, framing
+ * conventions) — the section builders then emit a writer-defined
  * architecture prompt in which the writer's preferences block is the
  * authority and only the length budget and no-fabrication rules stay.
+ * 2026-09-15 owner decision: the default skeleton mandates the CONTENT each
+ * line covers and its order, never a paragraph count or numbered paragraph
+ * roles; and the mandated opening clauses are off by default
+ * (DEFAULT_HOUSE_RULE_MODES.openingClauses = "off"), so the `openingClauses`
+ * branches below are the default output unless an admin turns them on.
  * Prompts are produced by the `build*` functions; call them with no argument
- * for the default (full-enforcement) build.
+ * for the full-enforcement build (every category enforced, openers included).
  */
 
 import {
@@ -171,7 +176,7 @@ export const SHARED_WRITING_RULE_PROGRAM = {
     skeletonWaivedMandatory:
       "Only the length budget and the evidence rules (use only the provided material; [GAP] placeholders instead of invention) remain mandatory; the writer's preferences govern everything else about structure and content.",
     defaultMandatory:
-      "Every CRA rule in this prompt (section structure, paragraph roles, required content, length limits, and evidence rules) remains mandatory.",
+      "Every CRA rule in this prompt (section structure, required content and its order, length limits, and evidence rules) remains mandatory.",
   },
 } as const;
 
@@ -284,11 +289,13 @@ Respond with ONLY the paragraphs of text. No headers, no labels, no metadata. Ju
   }
   return `You are an expert SR&ED report writer for a Canadian consulting firm. Your task is to draft Line 242 (Scientific or Technological Uncertainty) of an SR&ED project description report.
 
-You will receive structured analysis of an interview transcript. Use ONLY the information provided. Your output must contain exactly 5 paragraphs as described below.
+You will receive structured analysis of an interview transcript. Use ONLY the information provided.
 
-## Paragraph Structure
+## Required Content (in this order)
 
-**Paragraph 1; COMPANY/CONTEXT:**
+Line 242 must cover, in this order: company context, goal/problem, limitations of standard practice (passive uncertainties), technological objective, active uncertainties. Use as many paragraphs as the material warrants; a role may share a paragraph with its neighbour or span more than one when that reads better. What matters is that every role below is covered, in this order, with the content rules given for it.
+
+**COMPANY/CONTEXT:**
 This paragraph is NOT a company bio. It must establish WHY this company has the domain expertise and operational context that makes this SR&ED project credible. Every sentence must connect to the project.
 
 BAD example (generic company description):
@@ -299,11 +306,11 @@ GOOD example (context that sets up the SR&ED argument):
 
 The difference: every detail in the good version serves the SR&ED argument. Do NOT list customers, markets served, or general capabilities.
 
-**Paragraph 2; GOAL/PROBLEM:**
+**GOAL/PROBLEM:**
 Describe the company's goal. This can be high-level. This is the project goal; the creation of new, or improvement to existing, materials, devices, products, or processes. Describe the actual thing they are trying to build or improve. This is NOT the SR&ED criteria; it is the physical or practical objective.
 
-**Paragraph 3; PASSIVE TECHNOLOGICAL UNCERTAINTIES/LIMITATIONS:**
-This is the HARDEST and MOST IMPORTANT paragraph. ${
+**PASSIVE TECHNOLOGICAL UNCERTAINTIES/LIMITATIONS:**
+This is the HARDEST and MOST IMPORTANT content in the line. ${
     overrides.openingClauses
       ? SECTION_242_PROMPT_BRANCHES.passiveUncertaintyOpening.waived
       : SECTION_242_PROMPT_BRANCHES.passiveUncertaintyOpening.default
@@ -328,16 +335,16 @@ Every limitation must reference the knowledge gap, not the tool gap. Use phrases
 WRONG: "Existing PG rated windows max out at PG45."
 RIGHT: "The engineering knowledge required to design window systems capable of exceeding PG45 performance thresholds was insufficient, as conventional frame design methodologies, glass-to-frame thermal break calculations, and structural load distribution models did not account for the combined stress factors present at higher performance grades."
 
-**Paragraph 4; TECHNOLOGICAL OBJECTIVE:**
+**TECHNOLOGICAL OBJECTIVE:**
 ${
     overrides.openingClauses
       ? SECTION_242_PROMPT_BRANCHES.technologicalObjectiveOpening.waived
       : SECTION_242_PROMPT_BRANCHES.technologicalObjectiveOpening.default
   }
 
-The first clause is CONCEPTUAL; it describes new knowledge being sought. The second clause is the PHYSICAL EMBODIMENT; the specific solution that applies that knowledge. The second clause is NOT the same as the project goal from Paragraph 2.
+The first clause is CONCEPTUAL; it describes new knowledge being sought. The second clause is the PHYSICAL EMBODIMENT; the specific solution that applies that knowledge. The second clause is NOT the same as the project goal stated under GOAL/PROBLEM.
 
-**Paragraph 5; ACTIVE TECHNOLOGICAL UNCERTAINTIES:**
+**ACTIVE TECHNOLOGICAL UNCERTAINTIES:**
 Each uncertainty must be framed as a genuine open question with a reason WHY it is uncertain. Not just "it was uncertain whether X would work" but "it was uncertain whether X would work BECAUSE [specific technical reason]."
 
 BAD: "It was uncertain whether dual-spectrum imaging could provide consistent image quality in greenhouse conditions."
@@ -346,13 +353,13 @@ GOOD: "It was uncertain whether dual-spectrum imaging combining visible and near
 
 The BECAUSE clause is what makes an uncertainty credible to a CRA auditor.
 
-CRITICAL DISTINCTION between Paragraph 3 and Paragraph 5: Passive uncertainties (Paragraph 3) describe what was unknown or limited BEFORE any solution was conceived; these are problems with existing knowledge and standard practice. Active uncertainties (Paragraph 5) describe what is uncertain about the SPECIFIC approach being taken; these are risks with the chosen solution. If a sentence could apply to any project in the field, it belongs in Paragraph 3. If it is specific to this project's proposed approach, it belongs in Paragraph 5.
+CRITICAL DISTINCTION between passive and active uncertainties: Passive uncertainties (the limitations of standard practice) describe what was unknown or limited BEFORE any solution was conceived; these are problems with existing knowledge and standard practice. Active uncertainties describe what is uncertain about the SPECIFIC approach being taken; these are risks with the chosen solution. If a sentence could apply to any project in the field, it belongs with the passive uncertainties. If it is specific to this project's proposed approach, it belongs with the active uncertainties.
 
 ${buildSharedWritingRules(overrides)}
 
 ## Output Format
 
-Respond with ONLY the 5 paragraphs of text. No headers, no labels, no metadata. Just the 5 paragraphs separated by blank lines.`;
+Respond with ONLY the paragraphs of text. No headers, no labels, no metadata. Just the paragraphs separated by blank lines.`;
 }
 
 
@@ -391,17 +398,19 @@ Respond with ONLY the paragraphs of text. No headers, no labels, no metadata. Ju
   }
   return `You are an expert SR&ED report writer for a Canadian consulting firm. Your task is to draft Line 244 (Work Performed) of an SR&ED project description report.
 
-You will receive structured analysis of an interview transcript. Use ONLY the information provided. Your output should contain the paragraphs described below.
+You will receive structured analysis of an interview transcript. Use ONLY the information provided.
 
-## Paragraph Structure
+## Required Content (in this order)
 
-**Paragraph 1; PRIOR YEAR STATUS (OPTIONAL):**
-ONLY include this paragraph if the transcript analysis indicates this is a continuation from a previous fiscal year. If so, describe the project status at the end of last year and what uncertainties remained. If this is a new project with no prior-year work, SKIP this paragraph entirely.
+Line 244 must cover, in this order: prior-year status (only for a continuing project), workplan, hypothesis, experimentation/iterations. Use as many paragraphs as the material warrants; a role may share a paragraph with its neighbour or span more than one when that reads better. What matters is that every role below is covered, in this order, with the content rules given for it.
 
-**Paragraph 2; WORKPLAN:**
+**PRIOR YEAR STATUS (OPTIONAL):**
+ONLY include this content if the transcript analysis indicates this is a continuation from a previous fiscal year. If so, describe the project status at the end of last year and what uncertainties remained. If this is a new project with no prior-year work, SKIP it entirely.
+
+**WORKPLAN:**
 Define or re-state the technological problem. Then describe the planned systematic approaches and steps the company undertook to resolve the technological uncertainties. Map approaches back to the technological uncertainties described in Section 242. Use language like "The company undertook a systematic investigation to..." or "A planned series of experiments was designed to..."
 
-**Paragraph 3; HYPOTHESIS:**
+**HYPOTHESIS:**
 ${
     overrides.openingClauses
       ? SECTION_244_PROMPT_BRANCHES.hypothesisOpening.waived
@@ -424,8 +433,8 @@ Rules for the hypothesis:
 - TEST: Cover the IF clause and read only the THEN clause. If it says "then it would work" or "then the system would function as intended", the hypothesis is too vague. The THEN clause must specify WHAT specifically would be true and HOW you would measure it
 - TEST: Could a graduate student design an experiment to test this hypothesis? If not, it needs more specificity
 
-**Paragraphs 4, 5, 6; EXPERIMENTATION/ITERATIONS:**
-Each experimentation paragraph must follow this internal structure:
+**EXPERIMENTATION/ITERATIONS:**
+Write one experimentation paragraph per distinct experiment or iteration the source material supports; consolidate closely related work. Each experimentation paragraph must follow this internal structure:
 1. PROBLEM STATEMENT (1 sentence): What specific uncertainty is being addressed?
 2. INITIAL APPROACH (1-2 sentences): What was tried first?
 3. WHAT WENT WRONG OR WAS LEARNED (1-2 sentences): What happened? What was the unexpected finding?
@@ -442,7 +451,7 @@ ${
       : SECTION_244_PROMPT_BRANCHES.systematicPhraseGuidance.default
   }
 
-If the transcript analysis contains fewer than 3 distinct experiments, write fewer paragraphs. If it contains more, consolidate related work. Do not invent experiments not present in the source material.
+The number of experimentation paragraphs follows the material: never pad to a count, and never invent experiments not present in the source material.
 
 ${buildSharedWritingRules(overrides)}
 
@@ -457,7 +466,7 @@ Respond with ONLY the paragraphs of text. No headers, no labels, no metadata. Ju
 export const SECTION_246_PROMPT_BRANCHES = {
   advancementOpening: {
     default:
-      'At least 2 of the 3 advancement paragraphs MUST open with "Through systematic investigation, it was determined that..." or "It was established that..."',
+      'Most advancement paragraphs MUST open with "Through systematic investigation, it was determined that..." or "It was established that..."',
     waived:
       'Every advancement paragraph MUST open with the knowledge finding itself; what was determined or established; in the writer\'s preferred phrasing (the default openers are "Through systematic investigation, it was determined that..." and "It was established that...").',
   },
@@ -490,20 +499,22 @@ Respond with ONLY the paragraphs of text. No headers, no labels, no metadata. Ju
   }
   return `You are an expert SR&ED report writer for a Canadian consulting firm. Your task is to draft Line 246 (Scientific or Technological Advancement) of an SR&ED project description report.
 
-You will receive structured analysis of an interview transcript. Use ONLY the information provided. Your output should contain the paragraphs described below.
+You will receive structured analysis of an interview transcript. Use ONLY the information provided.
 
 CRITICAL RULE: KNOWLEDGE FIRST, CAPABILITIES SECOND.
 This is the single biggest quality gap to avoid. Section 246 describes "the WHY that was ultimately achieved"; meaning WHAT WAS LEARNED, not WHAT WAS BUILT. Every paragraph must lead with knowledge or understanding gained. The physical outcome is mentioned only AFTER the knowledge claim, as evidence.
 
-SELF-CHECK FOR PARAGRAPHS 2, 3, 4: After writing each advancement paragraph, re-read its FIRST SENTENCE. If the subject is a system, tool, product, or prototype ("The system achieved...", "The model demonstrated...", "The platform enabled..."), REWRITE it to lead with the knowledge finding instead ("It was determined that...", "Through this investigation, it was established that...", "The experimental work revealed that..."). The physical system is EVIDENCE for the knowledge claim, not the claim itself.
+SELF-CHECK FOR EVERY ADVANCEMENT PARAGRAPH: After writing each advancement paragraph, re-read its FIRST SENTENCE. If the subject is a system, tool, product, or prototype ("The system achieved...", "The model demonstrated...", "The platform enabled..."), REWRITE it to lead with the knowledge finding instead ("It was determined that...", "Through this investigation, it was established that...", "The experimental work revealed that..."). The physical system is EVIDENCE for the knowledge claim, not the claim itself.
 
-## Paragraph Structure
+## Required Content (in this order)
 
-**Paragraph 1; ADVANCEMENT TO SCIENCE/TECHNOLOGY:**
-Open by restating the technological objective and to what extent it was achieved. State whether the hypothesis was proven, disproven, or partially proven; and be specific about which parts. This paragraph should read like a thesis conclusion: here's what we set out to learn, here's what we learned, here's how reality differed from our expectations. This ties back directly to Section 242.
+Line 246 must cover, in this order: overall advancement to science/technology, the specific technological advancements (one per resolved uncertainty), project status and next steps, project goal and improvements. Use as many paragraphs as the material warrants; a role may share a paragraph with its neighbour or span more than one when that reads better. What matters is that every role below is covered, in this order, with the content rules given for it.
 
-**Paragraphs 2, 3, 4; TECHNOLOGICAL ADVANCEMENTS:**
-Each paragraph addresses ONE specific technological uncertainty from 242 and describes the advancement. ${
+**ADVANCEMENT TO SCIENCE/TECHNOLOGY:**
+Open the line by restating the technological objective and to what extent it was achieved. State whether the hypothesis was proven, disproven, or partially proven; and be specific about which parts. This opening should read like a thesis conclusion: here's what we set out to learn, here's what we learned, here's how reality differed from our expectations. This ties back directly to Section 242.
+
+**TECHNOLOGICAL ADVANCEMENTS (one paragraph per resolved uncertainty):**
+Each advancement paragraph addresses ONE specific technological uncertainty from 242 and describes the advancement. ${
     overrides.openingClauses
       ? SECTION_246_PROMPT_BRANCHES.advancementOpening.waived
       : SECTION_246_PROMPT_BRANCHES.advancementOpening.default
@@ -524,13 +535,13 @@ ${
     overrides.repetitionCaps
       ? SECTION_246_PROMPT_BRANCHES.repetitionGuidance.waived
       : SECTION_246_PROMPT_BRANCHES.repetitionGuidance.default
-  }If fewer than 3 advancements are present in the source material, write fewer paragraphs. Do not fabricate advancements.
+  }The number of advancement paragraphs follows the source material: one per advancement it supports, never padded to a count. Do not fabricate advancements.
 
-**Paragraph 5; PROJECT STATUS & NEXT STEPS:**
+**PROJECT STATUS & NEXT STEPS:**
 Be specific about what is still unknown and WHY it remains uncertain. Don't just list remaining work; explain the technical reason each item is still an open question. Describe the planned approach for the next fiscal period.
 
-**Paragraph 6; PROJECT GOAL & IMPROVEMENTS:**
-This is the only paragraph in 246 where you lead with the physical outcome. Connect the knowledge gained back to the original project goal from 242 P2. Describe how the advancement improved the product/process. This should feel like the report coming full circle; the last paragraph of 246 echoes the project goal in 242 P2.${
+**PROJECT GOAL & IMPROVEMENTS:**
+This closing content is the only place in 246 where you lead with the physical outcome. Connect the knowledge gained back to the original project goal stated in 242 (its goal/problem content). Describe how the advancement improved the product/process. This should feel like the report coming full circle; the close of 246 echoes the project goal in 242.${
     overrides.paragraphDensity
       ? SECTION_246_PROMPT_BRANCHES.paragraphDensity.waived
       : SECTION_246_PROMPT_BRANCHES.paragraphDensity.default
@@ -549,12 +560,14 @@ Respond with ONLY the paragraphs of text. No headers, no labels, no metadata. Ju
 export const QA_PROMPT_BRANCHES = {
   structureCompliance: {
     default: `### Structure Compliance
-- Does Section 242 contain all 5 required paragraphs (company/context, goal/problem, passive uncertainties, technological objective, active uncertainties)?
-- Does Section 244 contain the required paragraphs (optional prior year, workplan, hypothesis, experimentation)?
-- Does Section 246 contain the required paragraphs (advancement, specific advancements, project status, project goal)?`,
+- Judge content coverage and order, never paragraph count. Each line covers its roles in as many paragraphs as the material warrants; a role may share a paragraph with its neighbour or span more than one. Do NOT deduct for the number of paragraphs, or for a role that is merged into or split across paragraphs. Deduct only when a role's content is missing or out of order.
+- Does Section 242 cover, in this order: company/context, goal/problem, passive uncertainties (limitations of standard practice), technological objective, active uncertainties?
+- Does Section 244 cover, in this order: prior-year status (continuing projects only), workplan, hypothesis, experimentation/iterations?
+- Does Section 246 cover, in this order: overall advancement, the specific advancements (one per resolved uncertainty), project status and next steps, project goal and improvements?
+- Identify each role by its content, not by its position; the [P#] markers exist for reporting only.`,
     skeletonWaived: `### Structure Compliance: WAIVED
 - This writer's profile replaces the built-in section skeleton with their own settings document. Paragraph counts, paragraph roles, ordering, mandated opening phrases, and the default framing conventions do NOT apply. Do NOT flag or deduct for a section having more, fewer, or differently arranged paragraphs than the default skeleton, for consolidated or split paragraphs, or for the absence of signal phrases.
-- Every check below that names a paragraph position (P3, P5, "paragraphs 2, 3, and 4") is positional guidance for the DEFAULT skeleton only. For this report, locate the relevant content by what it says, not where it sits; waive differences in position and architecture only. Absent substantive content still fails the applicable methodology check.
+- Every check below that names a paragraph role (the limitations paragraph, the hypothesis paragraph, the advancement paragraphs) describes the DEFAULT skeleton's content roles only. For this report, locate the relevant content by what it says, wherever it sits and however the writer arranged it; waive differences in architecture only. Absent substantive content still fails the applicable methodology check.
 - Judge the substance instead: does the report, in the writer's own architecture, convey a genuine technological uncertainty, a systematic investigation, and a knowledge advancement that a CRA reviewer would accept? Deduct only for substantive weaknesses a writer would need to rework, never for deviation from the default structure.
 - Substantive CRA methodology remains mandatory under every skeleton: evaluate why_how_why_intact and uncertainties_distinguished honestly. Missing because clauses in recognized uncertainty statements anywhere in section 242 are non-waivable. House-style verbiage and opening phrases remain advisory. The Human Prose, Writing Quality, Faithfulness, and Gaps checks apply as written.
 
@@ -565,12 +578,12 @@ export const QA_PROMPT_BRANCHES = {
     heading: "### CRA Keyword Visibility Check\n",
     skeletonWaived: "",
     openingClausesWaived: `- WAIVED: this writer's profile waives the mandated literal opening clauses. Do NOT deduct points or flag issues for missing signal phrases ("The limitations to standard practice were...", "The technological objective was to...", "It was hypothesized that if...", "Through systematic investigation, it was determined that...").
-- Still verify the underlying CONTENT is present in the writer's own phrasing: 242 P3 states the limitations of standard practice, 242 P4 states the technological objective (knowledge sought + solution), the 244 hypothesis is in if/then form, and 246 advancement paragraphs open with knowledge findings. Flag and deduct only when the content itself is missing.`,
-    default: `- Does "The limitations to standard practice were..." appear near the start of 242 P3? (Not buried mid-sentence) If not, flag and deduct 5 points from 242.
-- Does "The technological objective was to..." open 242 P4? If not, flag and deduct 5 points.
+- Still verify the underlying CONTENT is present in the writer's own phrasing: 242 states the limitations of standard practice, 242 states the technological objective (knowledge sought + solution), the 244 hypothesis is in if/then form, and 246 advancement paragraphs open with knowledge findings. Identify each by its content, not its position. Flag and deduct only when the content itself is missing.`,
+    default: `- Does "The limitations to standard practice were..." appear near the start of the 242 paragraph that states the limitations of standard practice (the passive uncertainties)? (Not buried mid-sentence) If not, flag and deduct 5 points from 242.
+- Does "The technological objective was to..." open the 242 paragraph that states the technological objective? If not, flag and deduct 5 points.
 - Does the hypothesis open with "It was hypothesized that if..."? If not, flag and deduct 5 points from 244.
-- FOR 246 ADVANCEMENT OPENERS: Use the pre-computed "CRA Opener Detection" results provided above. These were verified programmatically by parsing the first sentence of each paragraph. Trust these results; do not re-evaluate them. If the pre-computed check shows fewer than 2/3 passing, deduct 5 points from 246.
-  NOTE: Paragraph 1 of 246 SHOULD open by restating the technological objective. Do NOT apply the knowledge-first opening rule to paragraph 1.`,
+- FOR 246 ADVANCEMENT OPENERS: Use the pre-computed "CRA Opener Detection" results provided above. They were verified programmatically by parsing the first sentence of the paragraphs that follow the opening overall-advancement paragraph; trust each paragraph's PASS/FAIL, do not re-parse. Decide by content which scanned paragraphs are advancement paragraphs (each reports one resolved uncertainty as knowledge gained); a project-status or project-goal paragraph that was scanned is not an advancement paragraph and its result does not count. If most advancement paragraphs FAIL, deduct 5 points from 246.
+  NOTE: The opening paragraph of 246 SHOULD open by restating the technological objective. Do NOT apply the knowledge-first opening rule to it.`,
   },
   firstPerson: {
     requested: `- The writer's preferences ASK for first-person plural ("we", "our"). Sentences about the team's actions, observations, interpretations, or expectations must use "we/our"; if the report never uses first person at all, flag once as "requested first person not applied" and deduct 3 points overall.`,
@@ -633,7 +646,7 @@ ${
         ? QA_PROMPT_BRANCHES.firstPerson.notRequested
         : QA_PROMPT_BRANCHES.firstPerson.unknown
   }
-- Mixed-voice rule (first-person reports only). Check the paragraphs that carry a mandated opener: 242 P3 and P4, the 244 hypothesis paragraph, and each 246 advancement paragraph that opens with "Through systematic investigation". The opener itself is always impersonal and is never a violation.
+- Mixed-voice rule (first-person reports only). Check the paragraphs that carry a mandated opener: the 242 limitations-of-standard-practice and technological-objective paragraphs, the 244 hypothesis paragraph, and each 246 advancement paragraph that opens with "Through systematic investigation". The opener itself is always impersonal and is never a violation.
 - After the opener, voice must follow sentence FUNCTION: sentences stating a physical/technical mechanism or established scientific principle stay neutral third person; sentences describing the team's actions, observations, interpretations, expectations, or applications of knowledge use "we/our". In a first-person report, "the company observed" and passive "it was observed" both count as impersonal for a team-action sentence.
 - Flag a paragraph only when it mixes voice on the SAME kind of content (for example, one team-action sentence says "we observed" and another in the same paragraph says "it was observed"). A paragraph that is neutral for mechanisms and first-person for team actions is CORRECT, not mixed.
 - When flagging, quote the two sentences that conflict. Deduct 3 points from that section per mixed paragraph. If you cannot quote both sentences, do not flag.
@@ -650,8 +663,8 @@ ${
 - Is the WHY-HOW-WHY sandwich maintained? (242 = WHY sought → 244 = HOW investigated → 246 = WHY achieved)
 
 ### Knowledge vs. Capability Check (Section 246 only)
-- This check applies ONLY to paragraphs 2, 3, and 4 of Section 246. Paragraph 1 (overall summary) and paragraph 6 (project goal bookend) are EXEMPT; paragraph 6 is EXPECTED to describe the physical outcome.
-- For each of paragraphs 2, 3, and 4, identify whether the FIRST SENTENCE (all text up to the first period) describes knowledge gained or a system capability. Ignore all subsequent sentences; they may describe applications or capabilities and that is fine.
+- This check applies ONLY to the advancement paragraphs of Section 246: the paragraphs that each report one resolved uncertainty as knowledge gained. Identify them by their content, not their position. The opening paragraph (overall advancement summary), the project-status/next-steps paragraph, and the closing project-goal paragraph are EXEMPT; the project-goal paragraph is EXPECTED to describe the physical outcome.
+- For each advancement paragraph, identify whether the FIRST SENTENCE (all text up to the first period) describes knowledge gained or a system capability. Ignore all subsequent sentences; they may describe applications or capabilities and that is fine.
 - If any of these paragraphs leads with a capability/feature rather than knowledge, flag it and deduct 5 points.
 - "The system achieved..." = capability (BAD as a lead)
 - "It was determined that..." = knowledge (GOOD as a lead)
@@ -668,9 +681,9 @@ ${
 - If the hypothesis reads more like a project plan than a scientific hypothesis, flag it and deduct 10 points from 244.
 
 ### Passive vs. Active Uncertainty Check (Section 242 only)
-- Does paragraph 3 describe knowledge limitations (what the field doesn't know)?
-- Does paragraph 5 describe approach-specific uncertainties (what's risky about their chosen solution)?
-- If paragraph 3 contains product/tool limitations instead of knowledge limitations, flag it.
+- Does the passive-uncertainties content (the limitations of standard practice) describe knowledge limitations (what the field doesn't know)?
+- Does the active-uncertainties content describe approach-specific uncertainties (what's risky about their chosen solution)?
+- Identify both by content, not by paragraph number. If the passive-uncertainties content contains product/tool limitations instead of knowledge limitations, flag it.
 - FOR BECAUSE CLAUSES throughout 242: Use the pre-computed "BECAUSE Clause Detection" results provided above. These were verified programmatically by scanning for the literal word "because" after each uncertainty statement. Trust these results; do not re-evaluate them.
 - IMPORTANT CLARIFICATION on knowledge vs product limitations: Phrases like "no documented methods existed for X", "no established approaches for X", "the knowledge required to X was insufficient", "the scientific basis for X had not been established" are ALL knowledge limitation language; they describe gaps in the field's understanding. A product limitation would be "the existing software could not do X" or "the tool failed to perform X"; it describes a specific product failing, not a gap in knowledge. Do NOT flag knowledge-gap language as product limitations.
 
@@ -895,30 +908,30 @@ Locked regardless of preferences: every claim stays supported by the provided ma
   return `
 ## SR&ED report skeleton (NEVER break this, even on a "redo it all" request)
 
-The report is built around three CRA lines. Edits must preserve this structure${
+The report is built around three CRA lines. Each line covers its content roles in the order given, in as many paragraphs as the material warrants; a role may share a paragraph with its neighbour or span more than one, so never impose or restore a paragraph count. Edits must preserve this coverage and order${
     openersWaived
-      ? " (this writer's profile waives the literal opening phrases; the stated content must still appear, in the writer's phrasing)"
+      ? " (the literal opening phrases are not required; the stated content must still appear, in the writer's phrasing)"
       : " and these mandated opening phrases"
   }:
 
-- **Line 242: Scientific/Technological Uncertainty** (5 paragraphs): company context → goal/problem → passive uncertainties ${
+- **Line 242: Scientific/Technological Uncertainty**: company context → goal/problem → passive uncertainties ${
     openersWaived
-      ? "(P3 states the limitations to standard practice)"
-      : '(P3 opens "The limitations to standard practice were...")'
+      ? "(states the limitations to standard practice)"
+      : '(opens "The limitations to standard practice were...")'
   } → technological objective ${
     openersWaived
-      ? "(P4 states the technological objective: knowledge sought + solution)"
-      : '(P4 opens "The technological objective was to...")'
+      ? "(states the technological objective: knowledge sought + solution)"
+      : '(opens "The technological objective was to...")'
   } → active uncertainties (each needs a "because" clause).
 - **Line 244: Work Performed**: optional prior-year status → workplan → hypothesis ${
     openersWaived
       ? "(strict if/then form, with a measurable then-clause)"
       : '(opens "It was hypothesized that if...", with a measurable then-clause)'
-  } → experimentation/iterations (problem → approach → result/learning → conclusion).
-- **Line 246: Scientific/Technological Advancement** (≈6 paragraphs): overall advancement → specific advancements ${
+  } → experimentation/iterations (one per experiment: problem → approach → result/learning → revised approach → conclusion).
+- **Line 246: Scientific/Technological Advancement**: overall advancement → specific advancements (one per resolved uncertainty; ${
     openersWaived
-      ? "(each opens with the knowledge finding; what was determined or established)"
-      : '(≥2 open "Through systematic investigation, it was determined that..." or "It was determined that...")'
+      ? "each opens with the knowledge finding; what was determined or established)"
+      : 'most open "Through systematic investigation, it was determined that..." or "It was determined that...")'
   } → project status/next steps → goal/improvements.
 
 Passive uncertainties = gaps in general knowledge/standard practice. Active uncertainties = risks specific to this project's chosen approach. Never blur the two.`;

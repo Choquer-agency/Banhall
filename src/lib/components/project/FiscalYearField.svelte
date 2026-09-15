@@ -17,9 +17,15 @@
   let {
     projectId,
     fiscalYearEnd,
+    readonly = false,
   }: {
     projectId: Id<"projects">;
     fiscalYearEnd: number | null;
+    /**
+     * 2026-09-15 metadata gate: a viewer outside the project's edit scope
+     * sees the value as plain text and can never reach the mutation.
+     */
+    readonly?: boolean;
   } = $props();
 
   const update = useMutation(api.projects.updateProjectFiscalYear);
@@ -28,6 +34,7 @@
   let saving = $state(false);
 
   async function save() {
+    if (readonly) return;
     saving = true;
     try {
       await update({
@@ -41,7 +48,17 @@
   }
 </script>
 
-{#if editing}
+{#if readonly}
+  {#if fiscalYearEnd}
+    {@const d = new Date(fiscalYearEnd)}
+    <p class="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs leading-5 text-gray-800">
+      <span>{d.toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" })}</span>
+      <span class="text-[0.6875rem] text-gray-400">(Fiscal {d.getFullYear()})</span>
+    </p>
+  {:else}
+    <p class="text-xs leading-5 italic text-gray-400">Not set</p>
+  {/if}
+{:else if editing}
   <div
     data-fiscal-year-editor
     class="grid w-full min-w-0 grid-cols-2 gap-1.5 @sm:grid-cols-[minmax(8rem,11rem)_auto_auto] @sm:items-center"

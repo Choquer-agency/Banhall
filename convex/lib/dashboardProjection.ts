@@ -194,6 +194,18 @@ export async function syncProjectDashboardFields(
     const bucket = stageCountBucket(merged.workflowStage);
     await upsertDashboardCompany(ctx, oldCompanyKey, project.clientName, -1, bucket);
     await upsertDashboardCompany(ctx, patch.dashboardCompanyKey, merged.clientName, 1, bucket);
+  } else if (next.clientName !== undefined) {
+    // A casing/whitespace/diacritic-only correction keeps the company key,
+    // so no count moves; the row label is what the board header shows, so
+    // refresh it or the typo the writer just fixed lives on there. Callers
+    // patch the project before syncing, so the row label is the comparand.
+    const row = await ctx.db
+      .query("dashboardCompanies")
+      .withIndex("by_companyKey", (q) => q.eq("companyKey", patch.dashboardCompanyKey))
+      .unique();
+    if (row && row.clientName !== next.clientName) {
+      await ctx.db.patch(row._id, { clientName: next.clientName, updatedAt: Date.now() });
+    }
   }
 }
 

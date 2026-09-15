@@ -30,7 +30,7 @@ When first person is in use, choose voice by what each sentence DOES, never by w
 - A sentence that states a physical or technical mechanism, or an established scientific principle, stays neutral third person, active where possible: "rapid salt formation restricts solids transport and wall-to-batch heat transfer..."
 - A sentence that describes the team's actions, observations, interpretations, expectations, or applications of knowledge uses first-person plural: "our reactor trials showed...", "we theorized...", "we expected...". In a first-person report, "the company observed..." and passive "it was observed..." are both violations for that kind of sentence.
 - Within one paragraph, every sentence of the same kind takes the same voice. Never alternate between "we" and impersonal construction on the same kind of content.
-- This covers every paragraph that carries a mandated opener: 242 P3 (limitations of standard practice), 242 P4 (technological objective), the 244 hypothesis paragraph, and each 246 advancement paragraph that opens with "Through systematic investigation".
+- This covers every paragraph that carries a mandated opener: the 242 limitations-of-standard-practice paragraph, the 242 technological-objective paragraph, the 244 hypothesis paragraph, and each 246 advancement paragraph that opens with "Through systematic investigation".
 - Before returning one of those paragraphs in a first-person report, check it: does every team-action or interpretation sentence use "we/our", and does every mechanism or principle sentence stay neutral? Fix any mix before returning.`;
 
 export const RULES_GENERAL = `GENERAL RULES:
@@ -53,10 +53,10 @@ export const RULES_SENTENCE_CONSTRUCTION = `SENTENCE CONSTRUCTION:
 // Waivable: openingClauses
 export const RULES_CRA_OPENERS = `CRA KEYWORD VISIBILITY:
 CRA auditors skim. The following phrases must appear near the START of their respective paragraphs, not buried mid-sentence:
-- "The limitations to standard practice were..." (242, P3; must be the opening clause)
-- "The technological objective was to..." (242, P4; must be the opening clause)
+- "The limitations to standard practice were..." (242, the limitations-of-standard-practice paragraph; must be the opening clause)
+- "The technological objective was to..." (242, the technological-objective paragraph; must be the opening clause)
 - "It was hypothesized that if..." (244, hypothesis paragraph; must be the opening clause)
-- "Through systematic investigation, it was determined that..." (246, advancement paragraphs; use as opening for at least 2 of the 3 advancement paragraphs)
+- "Through systematic investigation, it was determined that..." (246, advancement paragraphs; use as the opening of most advancement paragraphs)
 These are signal phrases for CRA reviewers. They must be immediately visible, not embedded in subordinate clauses.`;
 
 // Waivable: bannedWords. The term list is GENERATED from the scrubber's own
@@ -110,11 +110,13 @@ Do NOT skip this step. The word "novel" in particular appears frequently in AI-g
 // architecture the drafting prompts encode inline (convex/ai/prompts.ts).
 // When waived, the writer's own preferences document defines each line's
 // architecture and framing; only the CRA form line/word limits and the
-// no-fabrication/evidence rules remain enforced.
+// no-fabrication/evidence rules remain enforced. Since 2026-09-15 the default
+// mandates content coverage and order, never a paragraph count.
 export const RULES_REPORT_SKELETON = `REPORT SKELETON (default architecture):
-- Line 242 (Scientific/Technological Uncertainty), 5 paragraphs: company context → goal/problem → passive limitations of standard practice → technological objective → active uncertainties, each with a "because" clause.
+Each line covers its content roles in the order given, in as many paragraphs as the material warrants; a role may share a paragraph with its neighbour or span more than one.
+- Line 242 (Scientific/Technological Uncertainty): company context → goal/problem → passive limitations of standard practice → technological objective → active uncertainties, each with a "because" clause.
 - Line 244 (Work Performed): optional prior-year status → workplan → hypothesis in if/then form with a measurable then-clause → experimentation paragraphs, each a problem → attempt → finding → adaptation → conclusion arc.
-- Line 246 (Scientific/Technological Advancement), ~6 paragraphs: overall advancement → knowledge-first advancement paragraphs (one per resolved uncertainty) → project status and next steps → project-goal bookend.
+- Line 246 (Scientific/Technological Advancement): overall advancement → knowledge-first advancement paragraphs (one per resolved uncertainty) → project status and next steps → project-goal bookend.
 - The WHY–HOW–WHY arc across the three lines; passive vs active uncertainties never blurred; advancements lead with what was LEARNED, not what was built.`;
 
 // ─── Display catalog for the admin House Rules page ─────────────────────────

@@ -38,6 +38,7 @@ import { MODEL } from "./model";
 import { APPLYING_WRITER_STYLE_LOG, waivingHouseRulesLog } from "./writerStyle";
 import type { OrderedProfileContext } from "../lib/orderedChain";
 import { MAX_INSTRUCTIONS_CHARS } from "../../shared/writerProfileLimits";
+import { HOUSE_STYLE_MODES_KEY } from "../houseStyle";
 
 const network = vi.hoisted(() => ({ create: vi.fn() }));
 vi.mock("@anthropic-ai/sdk", () => ({
@@ -63,6 +64,7 @@ const DRAFTS: Record<Section, string> = {
   "244": "S244-DRAFT: The team built three prototype controllers and measured each.",
   "246": "S246-DRAFT: The work established how the controller behaves under load.",
 };
+
 const AUTH_ID = "writer-settings-writer";
 const FILE = "PD Writing Customized Settings.docx";
 const SETTINGS_TEXT = [
@@ -209,6 +211,23 @@ async function project(t: ReturnType<typeof convexTest>, profile?: ProfileSeed):
   return await t.run(async (ctx) => {
     const now = Date.now();
     const userId = await ctx.db.insert("users", { authId: AUTH_ID, role: "admin" });
+    // 2026-09-15 (second) amendment: openingClauses defaults to "off" with no
+    // stored row. These fixtures assert settings-document precedence under an
+    // explicit all-writer_choice catalog (the no-row default is covered in
+    // convex/houseStyle.test.ts and convex/writerProfiles.test.ts).
+    await ctx.db.insert("appSettings", {
+      key: HOUSE_STYLE_MODES_KEY,
+      value: JSON.stringify({
+        bannedWords: "writer_choice",
+        paragraphDensity: "writer_choice",
+        sentenceConstruction: "writer_choice",
+        repetitionCaps: "writer_choice",
+        openingClauses: "writer_choice",
+        reportSkeleton: "writer_choice",
+      }),
+      updatedBy: userId,
+      updatedAt: now,
+    });
     const projectId = await ctx.db.insert("projects", {
       title: "Control experiment",
       clientName: "Client",

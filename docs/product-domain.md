@@ -187,6 +187,7 @@ Legend:
 | Create a project | Yes; creator becomes Owner | Yes; creator becomes Owner | Yes; creator becomes Owner | No |
 | Read internal projects | All, under the current visibility default | All | All | Read only as required for linked financial work; exact scope lands with the role |
 | Edit report prose | Own and assigned collaboration contexts | All | All | No by default |
+| Edit project details (titles, client name, project number, industry, science code, tags, fiscal year-end) | Own project or assigned collaboration context (the dashboard bulk edit stays own-project only as a mass-change safeguard) | All | All | No |
 | Transfer project ownership | Own project to another eligible Consultant/Manager | All | All | No |
 | Change workflow stage | Own project; or current handoff where the transition matrix permits | All | All | Linked financial stages only if later introduced; no technical-report stage changes initially |
 | Create/assign a work item | Own project | All | All | Own financial work items when the financial workspace ships |
@@ -1282,7 +1283,7 @@ per-writer overridable.
 
   | Tier | Rules | Overridable |
   |---|---|---|
-  | Locked CRA compliance | Three-line skeleton (242/244/246) and paragraph roles; passive-vs-active uncertainty distinction; because-clause in 242 P5; if/then hypothesis with measurable then-clause; knowledge-first framing in 246; CRA line/word limits (`convex/lib/lineLimits.ts`); no-fabrication/[GAP] rules | Never |
+  | Locked CRA compliance | Three-line skeleton (242/244/246) and paragraph roles; passive-vs-active uncertainty distinction; because-clause in 242 P5; if/then hypothesis with measurable then-clause; knowledge-first framing in 246; CRA line/word limits (`convex/lib/lineLimits.ts`); no-fabrication/[GAP] rules (superseded: the skeleton became waivable on 2026-09-01 and content-role based, with openers off by default, on 2026-09-15 — see those amendments) | Never |
   | House style | Five categories: `bannedWords`, `paragraphDensity`, `sentenceConstruction`, `repetitionCaps`, `openingClauses` (canonical list in `shared/styleOverrides.ts`) | Per writer, per category |
 
 - **Storage:** `writerProfiles.styleOverrides` (optional object of five
@@ -1394,10 +1395,14 @@ the authority for report architecture.
   `k9707a4y5wexp3bx4dq3w4shvd8dkybr`): with all five house-style categories
   waived, their "PD Writing Customized Settings" document still could not
   change paragraph count or roles (line 246 kept three mandated advancement
-  paragraphs instead of the document's consolidated architecture). Owner
+  paragraphs instead of the document's consolidated architecture; the
+  default skeleton itself stopped prescribing counts on 2026-09-15, see
+  that amendment). Owner
   direction 2026-09-01: the only rule that must stay is the per-line word
   count, because that is what fits on the finalized form.
-- **Tier table (supersedes the PSOS-49 table):**
+- **Tier table (supersedes the PSOS-49 table; itself superseded by the
+  2026-09-15 (second) amendment, which keeps the Locked row and re-describes
+  the default skeleton):**
 
   | Tier | Rules | Overridable |
   |---|---|---|
@@ -1504,7 +1509,7 @@ project behave exactly like a saved Writer Profile.
 
   | Tier | Rules | Beats |
   |---|---|---|
-  | 1. Locked Rules | 242/244/246 skeleton; caps s242 50 lines/350 words, s244 100/700, s246 50/350 (`convex/lib/lineLimits.ts`); no fabrication | everything |
+  | 1. Locked Rules | the three CRA line identities (242/244/246) and their line/word caps (the skeleton's paragraph architecture is not Locked: waivable since the 2026-09-01 amendment, content-role based with openers off by default since 2026-09-15 (second)); caps s242 50 lines/350 words, s244 100/700, s246 50/350 (`convex/lib/lineLimits.ts`); no fabrication | everything |
   | 2. Enforced Org Mode | a House Rule category an admin set to `enforced` | Writer Profile, House Rules |
   | 3. Writer Profile | the saved profile, or a settings document applied as the profile for that generation | House Rules in a category it waives under `writer_choice` |
   | 4. House Rules | the six waivable categories at their defaults | — |
@@ -2006,6 +2011,127 @@ direction 2026-09-03. Landed by the `workspace-1-gate-on-for-everyone` and
 - **Approval:** product owner direction 2026-09-03, from the 2026-08-26 client
   meeting ("the writers need the new dashboard"); recorded here in the same
   wave as the code that relies on it.
+
+### 2026-09-15 — Project metadata edit scope
+
+Authorization amendment. It adds one row to the role and capability matrix
+and changes no vocabulary, invariant, transition, or storage.
+
+- **Affected ticket/scope:** untracked owner decision (no BNH ticket); lands
+  with the client-name field in Project details and the review-mode PD upload
+  prefill. Origin: product owner direction 2026-09-15 (lhouse@banhall.com):
+  the people allowed to write a project's report are the people allowed to
+  correct its details, and a writer handed a project through an open work
+  item should not need the Owner to fix a title or a fiscal year-end.
+- **What changes:** the matrix gains "Edit project details (titles, client
+  name, project number, industry, science code, tags, fiscal year-end)":
+  Consultant — own project or assigned collaboration context; Manager and
+  Admin — all; Financial — no. "Own" reuses the report-prose definition (the
+  durable Owner via `projects.ownerId`, or a Consultant with an OPEN work item
+  on the project assigned to them). `createdBy` is never consulted.
+- **Bulk edit stays owner-only for Consultants:** the dashboard bulk edit
+  (`bulkUpdateProjects`) keeps its 2026-09-01 (second) scope — a Consultant
+  changes only projects they currently own; other selected projects are
+  counted as skipped, assigned ones included. This is deliberate: a mass
+  change across a selection is a different risk from a single-project
+  correction, and the assignment context is per project.
+- **Storage:** none. No new capability key; the row is enforced through
+  `report.editProse`.
+- **Behaviour/implementation:** one gate, `requireProjectMetadataAccess` in
+  `convex/lib/roleCapabilities.ts`, shares the report-prose decision
+  (`reportEditLevelAllows`) and differs only in its error message. It guards
+  every single-project metadata mutation in `convex/projects.ts`
+  (`updateProjectTitle`, `updateProjectTitles`, `updateProjectClientName`,
+  `updateProjectIndustry`, `updateProjectScienceCode`, `setProjectNumber`,
+  `updateProjectTags`, `updateProjectFiscalYear`). Client name gains a
+  single-project mutation with the same trim/non-empty rule as the bulk
+  branch. Outsiders and Financial users receive a typed `NOT_AUTHORIZED`.
+- **Authorization:** one new matrix row; no existing cell is loosened.
+  Shared/client-review tokens do not inherit it.
+- **Tests:** `convex/projects.test.ts` (Owner, open-item assignee, unassigned
+  Consultant, Manager/Admin, closed item; bulk-edit skip count unchanged).
+- **Recorded residual tensions:** (1) When the work item closes, the
+  collaborator loses metadata access at the same moment they lose prose
+  access; a correction after handoff needs the Owner or a Manager. (2)
+  `deleteProject` remains creator-or-admin (2026-09-01 second) and is not part
+  of this row.
+- **Approval:** product owner direction 2026-09-15.
+
+### 2026-09-15 (second) — Default report structure: content roles, not paragraph counts; opening clauses off by default
+
+Generation-behaviour amendment. It supersedes the tier table in the
+2026-09-01 "Writer-defined report skeleton" amendment and re-describes what
+the default (unwaived) skeleton prescribes. No storage table or authorization
+changes.
+
+- **Affected ticket/scope:** untracked owner decision; follow-on to
+  PSOS-49/PSOS-50, the 2026-09-01 `reportSkeleton` amendment and the
+  2026-09-11 four-tier precedence. Origin: the same writer's flags of
+  2026-08-23, 2026-08-31 and 2026-09-01 (lrinaldo@banhall.com — the house
+  openers and the fixed paragraph architecture kept overriding their settings
+  document) and the product owner direction of 2026-09-15: the built-in
+  structure should say what each line must contain, not how many paragraphs
+  it takes or which words they open with.
+- **Owner rule:**
+  1. The three CRA lines (242/244/246) and the content each must cover
+     remain. They are form fields.
+  2. Mandated opening clauses are OFF by default for every writer. The
+     house-rule mode for `openingClauses` defaults to `off` with no stored
+     row. An admin may still set the category to `writer_choice` or
+     `enforced` on `/admin/house-rules`, and a stored value wins.
+  3. The default skeleton no longer prescribes exact paragraph counts or
+     numbered paragraph roles ("242 P5", "three advancement paragraphs").
+     The roles are content the line must cover, in a sensible order, in as
+     many paragraphs as the material warrants.
+  4. These stay as content rules of the default skeleton (waivable only via
+     `reportSkeleton`): the passive/active uncertainty split, because-clauses
+     on recognized uncertainties, the if/then hypothesis with a measurable
+     then-clause, and the experimentation/iteration elements of line 244
+     (problem, approach, result or learning, conclusion).
+  5. Per-line line/word limits and no-fabrication/[GAP] stay Locked.
+  6. QA identifies paragraphs by role, not by ordinal, and never deducts for
+     a paragraph count.
+- **Tier table (supersedes the 2026-09-01 table):**
+
+  | Tier | Rules | Overridable |
+  |---|---|---|
+  | Locked | The three CRA line identities (242/244/246); CRA line/word limits (`convex/lib/lineLimits.ts`, compression pass); no-fabrication/[GAP] and evidence-tracing rules; human-prose dash scan; voice consistency | Never |
+  | Default skeleton (`reportSkeleton`) | Per-line content roles in a sensible order; passive/active split; because-clauses; if/then hypothesis with measurable then-clause; iteration elements; knowledge-first framing in 246. No paragraph counts, no ordinal roles. | Per writer; org mode via PSOS-50 |
+  | House style | `bannedWords`, `paragraphDensity`, `sentenceConstruction`, `repetitionCaps`, `openingClauses` (canonical list in `shared/styleOverrides.ts`) | Per writer, per category; org mode via PSOS-50. `openingClauses` defaults to org mode `off` |
+
+- **Storage:** no new table or field. The catalog default for
+  `openingClauses` in `shared/styleOverrides.ts` (`DEFAULT_HOUSE_RULE_MODES`)
+  becomes `off`; a missing or malformed `houseStyle.modes` row degrades to the
+  catalog default, which for the other five categories is still
+  `writer_choice`. This narrows the PSOS-50 sentence "missing or malformed
+  config always degrades to `writer_choice`" to "degrades to the catalog
+  default" for this one category. Stored rows are honoured unchanged; no
+  backfill.
+- **Behaviour:** the section builders in `convex/ai/prompts.ts` describe each
+  line's roles as content to cover rather than numbered paragraphs; the
+  opener rule text is omitted from drafting/QA/chat assembly unless an admin
+  has set `openingClauses` to `enforced`, or to `writer_choice` and the
+  writer has not waived it; the deterministic opener scan reports `WAIVED`
+  under `off`; QA's Structure Compliance checks role presence and order, not
+  count; CAP-8 (2026-09-04) is unchanged — missing because-clauses and an
+  unmade passive/active distinction still block. When `reportSkeleton` is
+  waived the writer's document remains the authority exactly as on
+  2026-09-01.
+- **Authorization:** none changed.
+- **Tests:** `shared/styleOverrides.test.ts` (default mode for
+  `openingClauses`, resolution matrix), `convex/houseStyle.test.ts`,
+  `convex/ai/prompts.test.ts`, `convex/ai/qaChecks.test.ts`.
+- **Recorded residual tensions:** (1) Under the 2026-09-11 rule an `off`
+  category's Compliance Note rows carry `tier: org_enforced`; with `off` now
+  the default for openers, that label appears without an admin having decided
+  anything, and the Brief's "No Writer Profile applied — House Rules in
+  full." line overstates what applied. (2) The PSOS-49 residual tension about
+  the locked CRA-verbiage presence check still stands. (3)
+  `RULES_VOICE_CONSISTENCY` (recorded 2026-09-01) is resolved in this batch:
+  the block now names paragraph roles, not positions. (4) A writer whose saved
+  profile waived `openingClauses` now carries a redundant waiver; nothing to
+  migrate.
+- **Approval:** product owner direction 2026-09-15.
 
 ## Amendment process
 

@@ -161,6 +161,14 @@
   const tagsQ = useQuery(api.tags.listTags, () =>
     auth.isAuthenticated ? {} : "skip"
   );
+  // 2026-09-15 metadata gate: the same scope the metadata mutations enforce
+  // (Owner, open-work-item collaborator, Manager, Admin). While the answer is
+  // still loading the controls stay editable so an eligible editor never sees
+  // a read-only flash; a definite `false` swaps them for plain values.
+  const editAccessQ = useQuery(api.projects.getProjectEditAccess, () =>
+    auth.isAuthenticated ? { projectId } : "skip"
+  );
+  const canEditDetails = $derived(editAccessQ.data?.canEditDetails ?? true);
   // 2026-08-11 (second) amendment: a review project links back to the source
   // project it reviews. Gated on sourceProjectId so non-review projects (the
   // overwhelming majority) subscribe to nothing extra.
@@ -177,6 +185,7 @@
   const createSnapshot = useMutation(api.snapshots.createManualSnapshot);
   const markProposalApplied = useMutation(api.chatV2.markProposalApplied);
   const updateTitles = useMutation(api.projects.updateProjectTitles);
+  const updateClientName = useMutation(api.projects.updateProjectClientName);
   const updateProjectNumber = useMutation(api.projects.setProjectNumber);
   // Per-company project number / draft letter (2026-08-11 amendment).
   // Mirrors the server rule: "1".."20", a letter "A".."Z", or combined "2A".
@@ -1148,24 +1157,42 @@
   >
   <div class="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-canvas" data-report-cohort="preview">
 
+    <!-- Read-only twin of EditableText's body variant for viewers outside the
+         metadata edit scope: the same value, no pencil, honest empty. -->
+    {#snippet readonlyValue(value: string)}
+      <p class="min-w-0 truncate text-gray-800">
+        {#if value}
+          {value}
+        {:else}
+          <span class="italic text-gray-400">Not set</span>
+        {/if}
+      </p>
+    {/snippet}
+
     {#snippet projectMetadata()}
       <div data-project-overview class="mb-5 border-b border-line-soft pb-4">
         <div class="flex min-w-0 items-center gap-3">
           <!-- headingLevel 2: the workspace bar below AppNav carries the page's
                single h1 (a11y P0 — one unambiguous main heading per route). -->
           <div class="min-w-0 flex-1">
-            <EditableText
-              value={project.title}
-              placeholder="Set internal title"
-              variant="heading"
-              headingLevel={2}
-              headingClass="text-xl font-medium tracking-tight text-ink"
-              label="internal project title"
-              required
-              onSave={async (value) => {
-                await updateTitles({ projectId, title: value.trim() });
-              }}
-            />
+            {#if canEditDetails}
+              <EditableText
+                value={project.title}
+                placeholder="Set internal title"
+                variant="heading"
+                headingLevel={2}
+                headingClass="text-xl font-medium tracking-tight text-ink"
+                label="internal project title"
+                required
+                onSave={async (value) => {
+                  await updateTitles({ projectId, title: value.trim() });
+                }}
+              />
+            {:else}
+              <h2 class="min-w-0 break-words text-xl font-medium tracking-tight text-ink">
+                {project.title || "Set internal title"}
+              </h2>
+            {/if}
           </div>
           <button
             data-project-details-toggle
@@ -1198,19 +1225,39 @@
           <div class="grid min-h-9 grid-cols-[6.5rem_minmax(0,1fr)] items-center gap-x-3 py-1 @md:grid-cols-[7.5rem_minmax(0,1fr)] @2xl:col-span-2">
             <span class="text-label">SR&amp;ED title</span>
             <div class="min-w-0">
-              <EditableText
-                value={project.sredTitle ?? ""}
-                placeholder="Add the formal SR&ED title (finalize at the end)"
-                label="SR&ED title"
-                onSave={async (value) => {
-                  await updateTitles({ projectId, sredTitle: value });
-                }}
-              />
+              {#if canEditDetails}
+                <EditableText
+                  value={project.sredTitle ?? ""}
+                  placeholder="Add the formal SR&ED title (finalize at the end)"
+                  label="SR&ED title"
+                  onSave={async (value) => {
+                    await updateTitles({ projectId, sredTitle: value });
+                  }}
+                />
+              {:else}
+                {@render readonlyValue(project.sredTitle ?? "")}
+              {/if}
             </div>
           </div>
           <div class="grid min-h-9 grid-cols-[6.5rem_minmax(0,1fr)] items-center gap-x-3 py-1 @md:grid-cols-[7.5rem_minmax(0,1fr)]">
             <span class="text-label">Client</span>
-            <p class="min-w-0 truncate text-gray-800">{project.clientName}</p>
+            <!-- 2026-09-10 writer flag: a misnamed company was stuck. Same
+                 EditableText affordance as the SR&ED title row. -->
+            <div class="min-w-0">
+              {#if canEditDetails}
+                <EditableText
+                  value={project.clientName}
+                  placeholder="Set client name"
+                  label="client name"
+                  required
+                  onSave={async (value) => {
+                    await updateClientName({ projectId, clientName: value.trim() });
+                  }}
+                />
+              {:else}
+                {@render readonlyValue(project.clientName)}
+              {/if}
+            </div>
           </div>
           <div class="grid min-h-9 grid-cols-[6.5rem_minmax(0,1fr)] items-center gap-x-3 py-1 @md:grid-cols-[7.5rem_minmax(0,1fr)]">
             <!-- Domain truth (product-domain vocabulary): `project.writer` is
@@ -1248,6 +1295,7 @@
               <FiscalYearField
                 {projectId}
                 fiscalYearEnd={project.fiscalYearEnd ?? null}
+                readonly={!canEditDetails}
               />
             </div>
           </div>
@@ -1258,18 +1306,23 @@
                 {projectId}
                 industry={project.industry ?? null}
                 canCreate={user?.role === "admin"}
+                readonly={!canEditDetails}
               />
             </div>
           </div>
           <div class="grid min-h-9 grid-cols-[6.5rem_minmax(0,1fr)] items-center gap-x-3 py-1 @md:grid-cols-[7.5rem_minmax(0,1fr)]">
             <span class="text-label">Project #</span>
             <div class="min-w-0">
-              <EditableText
-                value={project.projectNumber ?? ""}
-                placeholder="e.g. 2, A, or 2a"
-                label="project number"
-                onSave={saveProjectNumber}
-              />
+              {#if canEditDetails}
+                <EditableText
+                  value={project.projectNumber ?? ""}
+                  placeholder="e.g. 2, A, or 2a"
+                  label="project number"
+                  onSave={saveProjectNumber}
+                />
+              {:else}
+                {@render readonlyValue(project.projectNumber ?? "")}
+              {/if}
               {#if projectNumberError}
                 <p class="mt-1 text-xs text-red-700" role="alert">{projectNumberError}</p>
               {/if}
@@ -1287,6 +1340,7 @@
               <ScienceCodeField
                 {projectId}
                 scienceCode={project.scienceCode ?? null}
+                readonly={!canEditDetails}
               />
             </div>
           </div>
@@ -1315,6 +1369,7 @@
                 bind:selectedTagIds
                 label={null}
                 onChange={handleTagsChange}
+                readonly={!canEditDetails}
               />
               {#if tagError}
                 <p class="mt-1 text-xs text-red-700" role="alert">{tagError}</p>

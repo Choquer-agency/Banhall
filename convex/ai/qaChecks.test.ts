@@ -9,7 +9,12 @@ import {
   sectionDeterministicFindings,
 } from "./qaChecks";
 import { scrubBannedWords } from "../../shared/bannedWords";
-import { normalizeStyleOverrides } from "../../shared/styleOverrides";
+import {
+  NO_STYLE_OVERRIDES,
+  normalizeHouseRuleModes,
+  normalizeStyleOverrides,
+  resolveEffectiveOverrides,
+} from "../../shared/styleOverrides";
 
 // ─── Fixtures ───────────────────────────────────────────────────────────────
 
@@ -291,7 +296,7 @@ describe("style-override waivers", () => {
       waive({ bannedWords: true, openingClauses: true, repetitionCaps: true })
     );
     expect(summary).toContain("### Banned Word Scan\nWAIVED by writer profile");
-    expect(summary).toContain("### CRA Opener Detection (246 P2-P4)\nWAIVED by writer profile");
+    expect(summary).toContain("### CRA Opener Detection (246 advancement paragraphs)\nWAIVED");
     expect(summary).toContain("### Repetition Count\nWAIVED by writer profile");
     expect(summary).not.toContain('"novel"');
     // No opener FAIL lines despite section246Fail having no qualifying openers.
@@ -327,13 +332,42 @@ describe("style-override waivers", () => {
       section246Fail,
       skeletonWaived
     );
-    expect(summary).toContain("### CRA Opener Detection (246 P2-P4)\nWAIVED by writer profile");
+    expect(summary).toContain("### CRA Opener Detection (246 advancement paragraphs)\nWAIVED");
     expect(summary).toContain("Uncertainties with BECAUSE clauses: 1/2");
     expect(summary).toContain("FAIL —");
     expect(summary).toContain("No banned words found.");
   });
 
-  it("runDeterministicChecks default output is unchanged without waivers", () => {
+  // 2026-09-15: with no house-style row stored, openers are off for everyone.
+  it("the shipped default (no stored row) waives the opener scan and keeps BECAUSE", () => {
+    const shipped = resolveEffectiveOverrides(
+      normalizeHouseRuleModes(undefined),
+      NO_STYLE_OVERRIDES
+    );
+    expect(
+      sectionDeterministicFindings("s246", section246Fail, shipped).filter(
+        (f) => f.check === "cra_opener"
+      )
+    ).toEqual([]);
+    const summary = runDeterministicChecks(section242Fail, "Section 244.", section246Fail, shipped);
+    expect(summary).toContain("### CRA Opener Detection (246 advancement paragraphs)\nWAIVED");
+    expect(summary).toContain("Uncertainties with BECAUSE clauses: 1/2");
+    // An admin turning openers back on restores the scan.
+    const enforced = resolveEffectiveOverrides(
+      normalizeHouseRuleModes({ openingClauses: "enforced" }),
+      normalizeStyleOverrides({ openingClauses: true })
+    );
+    expect(
+      sectionDeterministicFindings("s246", section246Fail, enforced).filter(
+        (f) => f.check === "cra_opener"
+      )
+    ).toHaveLength(3);
+    const enforcedSummary = runDeterministicChecks(section242Pass, "Clean.", section246Pass, enforced);
+    expect(enforcedSummary).toContain("Qualifying openers found: 3/3");
+    expect(enforcedSummary).toContain("decide by content which of these are advancement paragraphs");
+  });
+
+  it("runDeterministicChecks full-enforcement output is unchanged without waivers", () => {
     const summary = runDeterministicChecks(
       section242Pass,
       "Clean.",

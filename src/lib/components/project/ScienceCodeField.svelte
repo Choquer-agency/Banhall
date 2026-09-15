@@ -2,16 +2,23 @@
   import { useConvexClient, useMutation } from "convex-svelte";
   import { api } from "../../../../convex/_generated/api";
   import type { Id } from "../../../../convex/_generated/dataModel";
-  import { CRA_SCIENCE_CODE_ITEMS } from "../../../../shared/craScienceCodes";
+  import { CRA_SCIENCE_CODE_ITEMS, scienceCodeLabel } from "../../../../shared/craScienceCodes";
   import SelectInput from "$lib/components/ui/SelectInput.svelte";
   import Button from "$lib/components/ui/Button.svelte";
 
   let {
     projectId,
     scienceCode,
+    readonly = false,
   }: {
     projectId: Id<"projects">;
     scienceCode: string | null;
+    /**
+     * 2026-09-15 metadata gate: a viewer outside the project's edit scope
+     * sees the value as plain text; neither the save nor the AI suggestion
+     * (which saves) is reachable.
+     */
+    readonly?: boolean;
   } = $props();
 
   const convex = useConvexClient();
@@ -21,6 +28,7 @@
   let suggestionMessage = $state("");
 
   async function save(value: string) {
+    if (readonly) return;
     saving = true;
     try {
       await update({ projectId, scienceCode: value || undefined });
@@ -30,6 +38,7 @@
   }
 
   async function suggest() {
+    if (readonly) return;
     suggesting = true;
     suggestionMessage = "";
     try {
@@ -51,34 +60,42 @@
 </script>
 
 <div>
-  <div class="flex flex-wrap items-center gap-2">
-    <SelectInput
-      value={scienceCode ?? ""}
-      items={CRA_SCIENCE_CODE_ITEMS}
-      size="sm"
-      placeholder="Not set"
-      disabled={saving || suggesting}
-      class="min-w-0 max-w-[300px] flex-1"
-      onValueChange={save}
-    />
-    <Button
-      type="button"
-      variant="link"
-      class="shrink-0 gap-1.5 text-xs"
-      disabled={saving || suggesting}
-      onclick={suggest}
-    >
-      <svg aria-hidden="true" class="ai-suggest-icon h-3.5 w-3.5 flex-none" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
-        <path stroke-linecap="round" stroke-linejoin="round" d="M12 3l1.15 3.35a5 5 0 003.15 3.15l3.35 1.15-3.35 1.15a5 5 0 00-3.15 3.15L12 18.3l-1.15-3.35a5 5 0 00-3.15-3.15l-3.35-1.15L7.7 9.5a5 5 0 003.15-3.15L12 3z" />
-        <path stroke-linecap="round" stroke-linejoin="round" d="M18.5 3.5v3M20 5h-3M5.5 17.5v3M7 19H4" />
-      </svg>
-      <span class="ai-suggest-label">{suggesting ? "AI suggesting…" : "AI Suggests"}</span>
-    </Button>
-  </div>
-  {#if suggestionMessage}
-    <p class="mt-1.5 text-xs text-gray-500" aria-live="polite">
-      {suggestionMessage}
-    </p>
+  {#if readonly}
+    {#if scienceCode}
+      <p class="min-w-0 truncate text-gray-800">{scienceCodeLabel(scienceCode)}</p>
+    {:else}
+      <p class="italic text-gray-400">Not set</p>
+    {/if}
+  {:else}
+    <div class="flex flex-wrap items-center gap-2">
+      <SelectInput
+        value={scienceCode ?? ""}
+        items={CRA_SCIENCE_CODE_ITEMS}
+        size="sm"
+        placeholder="Not set"
+        disabled={saving || suggesting}
+        class="min-w-0 max-w-[300px] flex-1"
+        onValueChange={save}
+      />
+      <Button
+        type="button"
+        variant="link"
+        class="shrink-0 gap-1.5 text-xs"
+        disabled={saving || suggesting}
+        onclick={suggest}
+      >
+        <svg aria-hidden="true" class="ai-suggest-icon h-3.5 w-3.5 flex-none" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M12 3l1.15 3.35a5 5 0 003.15 3.15l3.35 1.15-3.35 1.15a5 5 0 00-3.15 3.15L12 18.3l-1.15-3.35a5 5 0 00-3.15-3.15l-3.35-1.15L7.7 9.5a5 5 0 003.15-3.15L12 3z" />
+          <path stroke-linecap="round" stroke-linejoin="round" d="M18.5 3.5v3M20 5h-3M5.5 17.5v3M7 19H4" />
+        </svg>
+        <span class="ai-suggest-label">{suggesting ? "AI suggesting…" : "AI Suggests"}</span>
+      </Button>
+    </div>
+    {#if suggestionMessage}
+      <p class="mt-1.5 text-xs text-gray-500" aria-live="polite">
+        {suggestionMessage}
+      </p>
+    {/if}
   {/if}
 </div>
 

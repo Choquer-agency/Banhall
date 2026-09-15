@@ -8,6 +8,7 @@ import {
   normalizeHouseRuleModes,
   normalizeStyleOverrides,
   resolveEffectiveOverrides,
+  type HouseRuleModes,
 } from "./styleOverrides";
 
 describe("normalizeStyleOverrides", () => {
@@ -66,8 +67,50 @@ describe("STYLE_OVERRIDE_META", () => {
 
 // ─── PSOS-50: org-level governance modes ────────────────────────────────────
 
+describe("DEFAULT_HOUSE_RULE_MODES (2026-09-15 owner decision)", () => {
+  it("is writer_choice for every category except openingClauses, which is off", () => {
+    for (const key of STYLE_OVERRIDE_KEYS) {
+      expect(DEFAULT_HOUSE_RULE_MODES[key], key).toBe(
+        key === "openingClauses" ? "off" : "writer_choice"
+      );
+    }
+  });
+
+  it("waives the mandated opening clauses for everyone when no row is stored", () => {
+    const effective = resolveEffectiveOverrides(
+      normalizeHouseRuleModes(undefined),
+      NO_STYLE_OVERRIDES
+    );
+    expect(effective).toEqual({ ...NO_STYLE_OVERRIDES, openingClauses: true });
+    // A stored row that omits the key gets the same default.
+    expect(
+      resolveEffectiveOverrides(
+        normalizeHouseRuleModes('{"bannedWords":"off"}'),
+        NO_STYLE_OVERRIDES
+      ).openingClauses
+    ).toBe(true);
+  });
+
+  it("an explicit enforced row still enforces openers; writer_choice hands it back to the writer", () => {
+    const enforced = normalizeHouseRuleModes('{"openingClauses":"enforced"}');
+    expect(enforced.openingClauses).toBe("enforced");
+    expect(
+      resolveEffectiveOverrides(enforced, normalizeStyleOverrides({ openingClauses: true }))
+        .openingClauses
+    ).toBe(false);
+    const writerChoice = normalizeHouseRuleModes({ openingClauses: "writer_choice" });
+    expect(resolveEffectiveOverrides(writerChoice, NO_STYLE_OVERRIDES).openingClauses).toBe(
+      false
+    );
+    expect(
+      resolveEffectiveOverrides(writerChoice, normalizeStyleOverrides({ openingClauses: true }))
+        .openingClauses
+    ).toBe(true);
+  });
+});
+
 describe("normalizeHouseRuleModes", () => {
-  it("defaults to writer_choice for absent, malformed, and unknown values", () => {
+  it("falls back to the defaults for absent, malformed, and unknown values", () => {
     expect(normalizeHouseRuleModes(undefined)).toEqual(DEFAULT_HOUSE_RULE_MODES);
     expect(normalizeHouseRuleModes(null)).toEqual(DEFAULT_HOUSE_RULE_MODES);
     expect(normalizeHouseRuleModes("not json {")).toEqual(DEFAULT_HOUSE_RULE_MODES);
@@ -94,13 +137,19 @@ describe("normalizeHouseRuleModes", () => {
 
 describe("resolveEffectiveOverrides", () => {
   it("writer_choice defers to the writer's toggle", () => {
+    const allWriterChoice = Object.fromEntries(
+      STYLE_OVERRIDE_KEYS.map((key) => [key, "writer_choice" as const])
+    ) as HouseRuleModes;
     const writer = normalizeStyleOverrides({ bannedWords: true });
-    expect(resolveEffectiveOverrides(DEFAULT_HOUSE_RULE_MODES, writer)).toEqual(
-      writer
+    expect(resolveEffectiveOverrides(allWriterChoice, writer)).toEqual(writer);
+    expect(resolveEffectiveOverrides(allWriterChoice, NO_STYLE_OVERRIDES)).toEqual(
+      NO_STYLE_OVERRIDES
     );
-    expect(
-      resolveEffectiveOverrides(DEFAULT_HOUSE_RULE_MODES, NO_STYLE_OVERRIDES)
-    ).toEqual(NO_STYLE_OVERRIDES);
+    // The shipped default differs only by the org-wide opener waiver.
+    expect(resolveEffectiveOverrides(DEFAULT_HOUSE_RULE_MODES, writer)).toEqual({
+      ...writer,
+      openingClauses: true,
+    });
   });
 
   it("off waives for everyone regardless of the writer's toggle", () => {

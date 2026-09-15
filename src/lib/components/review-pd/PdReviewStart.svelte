@@ -17,6 +17,7 @@
   import { userErrorMessage } from "$lib/errors";
   import { parseFileToText, isSupportedFile, SUPPORTED_LABEL } from "$lib/parseDocument";
   import { guessFileType } from "$lib/components/project-new/shared";
+  import { uploadOriginal } from "$lib/uploads/originalUpload";
 
   let { projectId }: { projectId: Id<"projects"> } = $props();
   const extractionScope = createExtractionScope(() => projectId);
@@ -70,20 +71,17 @@
       }
       // Keep the original bytes when storage accepts them; the review only
       // needs the extracted text, so a failed byte upload is non-fatal.
-      let storageId: Id<"_storage"> | undefined;
-      try {
-        const url = await generateUploadUrl({});
-        operation.throwIfAborted();
-        const res = await fetch(url, {
-          method: "POST",
-          headers: { "Content-Type": file.type || "application/octet-stream" },
-          body: file,
-          signal: operation.signal,
-        });
-        storageId = ((await res.json()) as { storageId: Id<"_storage"> }).storageId;
-      } catch {
-        storageId = undefined;
-      }
+      // 2026-09-09 alert ("storage upload failed Failed to fetch" right after
+      // "Review PD"): a single raw POST had no retry or timeout. The shared
+      // transport retries once with a fresh URL, bounds the POST, validates
+      // the response, and resolves undefined on exhaustion; only an abort
+      // propagates, which the outer catch already recognises.
+      const storageId = await uploadOriginal({
+        file,
+        generateUploadUrl: () => generateUploadUrl({}),
+        fetch,
+        signal: operation.signal,
+      });
       operation.throwIfAborted();
       const documentId = await uploadDocument({
         projectId: operationProjectId,

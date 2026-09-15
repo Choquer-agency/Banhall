@@ -105,7 +105,9 @@ describe("/settings/writing ?fromGeneration prefill (AC 5)", () => {
     expect(isChecked("bannedWords")).toBe("true");
     expect(isChecked("reportSkeleton")).toBe("true");
     expect(isChecked("paragraphDensity")).toBe("false");
-    expect(isChecked("openingClauses")).toBe("false");
+    // 2026-09-15 (second) amendment: opening clauses are off org-wide by
+    // default, and the page renders an "off" category as a locked, ticked box.
+    expect(isChecked("openingClauses")).toBe("true");
     // The draft is dirty, so Save is enabled — and nothing was saved.
     expect(saveButton()?.disabled).toBe(false);
     expect(__mutationCalls("writerProfiles:saveMyProfile")).toEqual([]);
