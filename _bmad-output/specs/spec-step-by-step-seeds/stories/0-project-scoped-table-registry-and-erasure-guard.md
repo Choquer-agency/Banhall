@@ -77,9 +77,18 @@ context:
 
 Recorded here rather than in `_bmad-output/implementation-artifacts/deferred-work.md`, which the native BMAD orchestrator owns (AGENTS.md). Reviewer: gpt-6-astra, medium; three layers (blind hunter, edge-case hunter, verification gap). Seven patch findings were applied in the review round; these three were deferred.
 
-- Human and non-generation async write paths (document upload, work items, chat `saveProposal`, research completion) are not fenced by the deletion barrier and can insert rows during the multi-transaction purge window. The spec limited barrier sites to candidate/section claims and post-QA (Ask First).
-- `aiUsage.logUsage` keeps a supplied `projectId` after the project is deleting or gone, so a late provider response can re-associate a billing row with a purged project.
+- Resolved on 2026-09-18 under the owner-requested PR #18 greploop: shared internal/client access rejects deleting projects; workflow, ingestion, oversight and asynchronous save paths check the barrier in their writing transaction. Generation artifacts cannot be recreated after their parent is purged. Authorized repeated deletion still restarts the purge.
+- Resolved on 2026-09-18: `aiUsage.logUsage` retains billed usage and available writer attribution, but omits explicit or inferred project references when that project is deleting or gone.
 - `terminalizeLiveGenerationWork` runs inside the `deleteProject` transaction with fixed limits (50 live generations per status, 500 runs per generation) and warns on truncation instead of continuing; claims fail closed on the barrier, so the impact is bounded.
+
+## PR review corrections (2026-09-18)
+
+The owner requested agent-tree and greploop on PRs #17 and #18. This authorizes extending the original barrier-site scope and supersedes the frozen restriction against touching `requireInternalProjectAccess` for this correction. Shared access fencing closes the reviewed erasure races without changing actor permissions or retained-data dispositions.
+
+- Every new purge continuation carries the serialized ordered registry contract, including indexes, child cleanup, detach fields, blobs and the final self-reference. Missing or changed versions restart from the beginning before the finalization sentinel is considered.
+- The dashboard rebuild skips deleting projects, preserving the deletion entry's one-time decrement.
+- Regression coverage: `projectErasure.test.ts` includes upload-after-purge, artifact resurrection, changed/legacy finalization jobs and dashboard recounting; `projectErasureAsyncWriters.test.ts` covers late background saves and retained usage; `projectErasureWorkflow.test.ts` covers workflow, ingestion and oversight writers. Existing chat-turn fixtures now establish real thread/project ownership.
+- Red evidence reproduced generation artifact resurrection and dashboard recounting. The corresponding focused tests pass after the fixes. The full gate is required before push; its final result and the independent Astra review are reported in the PR review replies.
 
 ## Suggested Review Order
 

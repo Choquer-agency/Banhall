@@ -11,6 +11,7 @@ import type { GenericDatabaseWriter, GenericDataModel, GenericDocument } from "c
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import {
+  PROJECT_ERASURE_REGISTRY_VERSION,
   PROJECT_SCOPED_TABLES,
   PROJECT_SELF_REFERENCE,
   type ProjectScopedChild,
@@ -428,7 +429,7 @@ export const backfillProjectNumberLetters = internalMutation({
 
     const groups = new Map<string, typeof projects>();
     for (const project of projects) {
-      if (!project.projectNumber) continue;
+      if (project.deletionStartedAt !== undefined || !project.projectNumber) continue;
       const lower = project.projectNumber.toLowerCase();
       const match = lower.match(/^([0-9]+)([a-z]?)$/);
       if (!match) {
@@ -583,7 +584,7 @@ export const bulkUpdateProjects = mutation({
     const editsAll = user.role === "manager" || user.role === "admin";
     for (const projectId of projectIds) {
       const project = await ctx.db.get(projectId);
-      if (!project) {
+      if (!project || project.deletionStartedAt !== undefined) {
         skipped++;
         continue;
       }
@@ -650,7 +651,7 @@ export const getProjectByShareToken = query({
       .query("projects")
       .withIndex("by_shareToken", (q) => q.eq("shareToken", args.shareToken))
       .unique();
-    if (!project?.sharedReportId) return null;
+    if (!project?.sharedReportId || project.deletionStartedAt !== undefined) return null;
     const report = await ctx.db.get(project.sharedReportId);
     if (!report || report.projectId !== project._id) return null;
     return {
@@ -1257,6 +1258,7 @@ export const SCHEDULED_CHILD_CLEANUP_TABLES = ["qaFindings"] as const;
  * page skip a table or replay a cursor against another index.
  */
 type PurgePosition = {
+  registryVersion?: string;
   entryIndex: number;
   table: string;
   field: string;
@@ -1273,17 +1275,22 @@ export function purgePosition(entryIndex: number, cursor: string | null): PurgeP
     entryIndex < PROJECT_SCOPED_TABLES.length
       ? PROJECT_SCOPED_TABLES[entryIndex]
       : PROJECT_SELF_REFERENCE;
-  return { entryIndex, table: entry.table, field: entry.field, cursor };
+  return { registryVersion: PROJECT_ERASURE_REGISTRY_VERSION, entryIndex, table: entry.table, field: entry.field, cursor };
 }
 
 /**
  * Resolve a continuation against the registry as deployed now. The cursor is
  * kept only when the named entry still sits at the index it was scheduled
  * for (same table, field and therefore index range). An entry that moved
- * restarts from its own beginning; an entry that vanished restarts the whole
+ * restarts the whole walk; an entry that vanished restarts the whole
  * walk, which is idempotent and only costs re-reading emptied ranges.
  */
 function resolvePurgePosition(args: PurgePosition): PurgePosition | "finalize" {
+  // Check before the finalization sentinel too. Old scheduled jobs have no
+  // version and must restart, as must any changed ordering or cleanup rule.
+  if (args.registryVersion !== PROJECT_ERASURE_REGISTRY_VERSION) {
+    return purgePosition(0, null);
+  }
   if (args.table === PROJECT_SELF_REFERENCE.table && args.field === PROJECT_SELF_REFERENCE.field) {
     return "finalize";
   }
@@ -1298,13 +1305,13 @@ function resolvePurgePosition(args: PurgePosition): PurgePosition | "finalize" {
     return purgePosition(0, null);
   }
   if (byName !== args.entryIndex) {
-    console.warn("purgeProjectPage: registry entry moved; resuming it from its start", {
+    console.warn("purgeProjectPage: registry entry moved; restarting the walk", {
       table: args.table,
       field: args.field,
       scheduledIndex: args.entryIndex,
       currentIndex: byName,
     });
-    return purgePosition(byName, null);
+    return purgePosition(0, null);
   }
   return args;
 }
@@ -1430,7 +1437,7 @@ async function terminalizeLiveGenerationWork(
 export const deleteProject = mutation({
   args: { projectId: v.id("projects") },
   handler: async (ctx, args) => {
-    const { project } = await requireProjectCreatorOrAdmin(ctx, args.projectId);
+    const { project } = await requireProjectCreatorOrAdmin(ctx, args.projectId, { allowDeleting: true });
     if (project.deletionStartedAt !== undefined) {
       // The barrier is the idempotency key: the bucket was decremented and
       // live work terminalized when it was set, so a repeat (double-click,
@@ -1573,6 +1580,7 @@ async function finalizeProjectPurge(
 export const purgeProjectPage = internalMutation({
   args: {
     projectId: v.id("projects"),
+    registryVersion: v.optional(v.string()),
     entryIndex: v.number(),
     table: v.string(),
     field: v.string(),

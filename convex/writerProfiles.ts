@@ -13,6 +13,7 @@ import {
   requireRole,
 } from "./lib/auth";
 import { domainError, sha256 } from "./lib/contracts";
+import { isProjectDeleting } from "./lib/projectDeletion";
 import { MAX_INSTRUCTIONS_CHARS } from "../shared/writerProfileLimits";
 import {
   styleOverridesValidator,
@@ -669,6 +670,7 @@ export const recordSettingsAnalysis = internalMutation({
   },
   returns: v.null(),
   handler: async (ctx, args) => {
+    if (await isProjectDeleting(ctx, args.projectId)) return null;
     const existing = await readSettingsAnalysis(ctx, args);
     if (existing) return null;
     await ctx.db.insert("settingsDocumentAnalyses", {

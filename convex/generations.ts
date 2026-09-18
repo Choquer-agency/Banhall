@@ -788,7 +788,7 @@ export const beginGeneration = internalMutation({
       throw new Error("Invalid promptVersion hash");
     }
     const project = await ctx.db.get(generation.projectId);
-    if (!project || project.activeGenerationId !== generation._id) return false;
+    if (!project || project.deletionStartedAt !== undefined || project.activeGenerationId !== generation._id) return false;
     await ctx.db.patch(generation._id, {
       status: "running",
       // A present digest array is the new-reservation marker. Legacy reserved
@@ -859,7 +859,7 @@ export const getGenerationInput = internalQuery({
     const generation = await ctx.db.get(args.generationId);
     if (!generation) return null;
     const project = await ctx.db.get(generation.projectId);
-    if (!project || project.activeGenerationId !== generation._id) return null;
+    if (!project || project.deletionStartedAt !== undefined || project.activeGenerationId !== generation._id) return null;
     const sources = await ctx.db
       .query("generationSources")
       .withIndex("by_generationId", (q) => q.eq("generationId", generation._id))
@@ -1100,6 +1100,7 @@ export const createCandidateRun = internalMutation({
   handler: async (ctx, args) => {
     const generation = await ctx.db.get(args.generationId);
     if (!generation || generation.status !== "running") return null;
+    if (await isProjectDeleting(ctx, generation.projectId)) return null;
     const existing = await ctx.db
       .query("generationCandidateRuns")
       .withIndex("by_generationId_and_model", (q) =>
@@ -1157,6 +1158,7 @@ export const claimCandidateRun = internalMutation({
       !generation ||
       !activeStatuses.includes(generation.status) ||
       !project ||
+      project.deletionStartedAt !== undefined ||
       project.activeGenerationId !== generation._id
     ) {
       return null;
@@ -1271,6 +1273,7 @@ async function settleCandidateRun(
 ) {
     const run = await ctx.db.get(args.candidateRunId);
     if (!run || run.status !== "running") return;
+    if (await isProjectDeleting(ctx, run.projectId)) return;
     const generation = await ctx.db.get(run.generationId);
     const project = await ctx.db.get(run.projectId);
     const succeeded = Boolean(args.content && args.agentOutputs && !args.error);
@@ -1574,6 +1577,8 @@ export const saveIterativeArtifacts = internalMutation({
     brainBlocks: v.string(),
   },
   handler: async (ctx, args) => {
+    const generation = await ctx.db.get(args.generationId);
+    if (!generation || await isProjectDeleting(ctx, generation.projectId)) return;
     for (const [kind, content] of [
       ["analysis", args.analysis],
       ["brain_blocks", args.brainBlocks],
@@ -2047,6 +2052,13 @@ export const persistDerivedBrief = internalMutation({
   },
   returns: v.union(v.id("generationBriefs"), v.null()),
   handler: async (ctx, args) => {
+    if (await isProjectDeleting(ctx, args.projectId)) {
+      domainError("INVALID_STATE", "Project is being deleted");
+    }
+    const generation = await ctx.db.get(args.generationId);
+    if (!generation || generation.projectId !== args.projectId) {
+      domainError("NOT_FOUND", "Generation not found");
+    }
     const reusable = await latestBriefForInputs(
       ctx,
       args.projectId,
@@ -2226,6 +2238,7 @@ export const createSectionRuns = internalMutation({
   handler: async (ctx, args) => {
     const generation = await ctx.db.get(args.generationId);
     if (!generation || generation.status !== "running") return false;
+    if (await isProjectDeleting(ctx, generation.projectId)) return false;
     const now = Date.now();
     for (const section of SECTION_ORDER) {
       const existing = await getSectionRun(ctx, args.generationId, section);
@@ -2265,6 +2278,7 @@ export const claimSectionRun = internalMutation({
       !generation ||
       generation.status !== "running" ||
       !project ||
+      project.deletionStartedAt !== undefined ||
       project.activeGenerationId !== generation._id
     ) {
       return null;
@@ -2300,6 +2314,7 @@ export const completeSectionRun = internalMutation({
       !generation ||
       generation.status !== "running" ||
       !project ||
+      project.deletionStartedAt !== undefined ||
       project.activeGenerationId !== generation._id
     ) {
       return;
@@ -2335,6 +2350,7 @@ export const failSectionRun = internalMutation({
     if (!run || (run.status !== "running" && run.status !== "queued")) return;
     const generation = await ctx.db.get(run.generationId);
     if (!generation) return;
+    if (await isProjectDeleting(ctx, generation.projectId)) return;
     await ctx.db.patch(run._id, {
       status: "failed",
       error: args.error.slice(0, 500),
@@ -2365,7 +2381,7 @@ export const getIterativeSectionInput = internalQuery({
     const generation = await ctx.db.get(args.generationId);
     if (!generation) return null;
     const project = await ctx.db.get(generation.projectId);
-    if (!project || project.activeGenerationId !== generation._id) return null;
+    if (!project || project.deletionStartedAt !== undefined || project.activeGenerationId !== generation._id) return null;
     const [analysisRow, brainRow] = await Promise.all([
       ctx.db
         .query("generationArtifacts")
@@ -3743,6 +3759,7 @@ export const updateGenerationStatus = internalMutation({
     // action's own "running" patch would zombie the row while the project
     // pointer is already cleared.
     if (!generation || isTerminalGenerationStatus(generation.status)) return;
+    if (await isProjectDeleting(ctx, generation.projectId)) return;
     const updates: Record<string, unknown> = { status: args.status };
     if (args.currentStep !== undefined) updates.currentStep = args.currentStep;
     if (args.agentOutputs !== undefined)
@@ -4261,7 +4278,7 @@ async function orderedChainFence(
   const generation = await ctx.db.get(generationId);
   if (!generation || generation.status !== "running") return null;
   const project = await ctx.db.get(generation.projectId);
-  if (!project || project.activeGenerationId !== generation._id) return null;
+  if (!project || project.deletionStartedAt !== undefined || project.activeGenerationId !== generation._id) return null;
   return { run, generation, project };
 }
 

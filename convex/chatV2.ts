@@ -50,6 +50,7 @@ import type {
 import { publicChatDelta, publicChatMessage } from "./lib/chatPublicOutput";
 import { safeErrorDetails } from "./lib/safeErrorDetails";
 import { domainError, sha256 } from "./lib/contracts";
+import { isProjectDeleting } from "./lib/projectDeletion";
 import { normalizeCraScienceCode } from "../shared/craScienceCodes";
 import { isRecordOnlyProposal, proposalPairs } from "../shared/chatProposals";
 import { chatAdmissionLimits, chatEvidenceBudget } from "./appSettings";
@@ -829,6 +830,10 @@ export const markTurnStarted = internalMutation({
     status: chatTurnStatusValidator,
   }),
   handler: async (ctx, args) => {
+    const threadOwner = await threadRow(ctx, args.agentThreadId);
+    if (!threadOwner || (await isProjectDeleting(ctx, threadOwner.projectId))) {
+      return { shouldRun: false, status: "failed" as const };
+    }
     const turn = await ctx.db
       .query("chatTurns")
       .withIndex("by_agentThreadId_and_promptMessageId", (q) =>
@@ -863,6 +868,10 @@ export const finishTurn = internalMutation({
   },
   returns: v.object({ status: chatTurnStatusValidator }),
   handler: async (ctx, args) => {
+    const threadOwner = await threadRow(ctx, args.agentThreadId);
+    if (!threadOwner || (await isProjectDeleting(ctx, threadOwner.projectId))) {
+      return { status: args.requestedStatus };
+    }
     const turn = await ctx.db
       .query("chatTurns")
       .withIndex("by_agentThreadId_and_promptMessageId", (q) =>
@@ -917,6 +926,8 @@ export const failStaleChatTurns = internalMutation({
       for (const turn of turns) {
         // Queued rows never got startedAt; age them from creation instead.
         if ((turn.startedAt ?? turn._creationTime) >= cutoff) continue;
+        const threadOwner = await threadRow(ctx, turn.agentThreadId);
+        if (!threadOwner || (await isProjectDeleting(ctx, threadOwner.projectId))) continue;
         await ctx.db.patch(turn._id, {
           status: "failed",
           endedAt: Date.now(),
@@ -953,7 +964,18 @@ export const saveProposal = internalMutation({
   },
   handler: async (ctx, args) => {
     const thread = await threadRow(ctx, args.agentThreadId);
-    if (!thread) throw new Error("Unknown agent thread");
+    if (!thread) {
+      return {
+        ok: false as const,
+        reason: "The project is no longer available.",
+      };
+    }
+    if (await isProjectDeleting(ctx, thread.projectId)) {
+      return {
+        ok: false as const,
+        reason: "The project is being deleted.",
+      };
+    }
 
     // Final stop fence. The action's pre-stream check can't cover the instant
     // between it and the model's first tool call, and a card appearing after

@@ -196,3 +196,10 @@ export const PROJECT_SELF_REFERENCE = {
   disposition: "detach",
   index: "by_sourceProjectId",
 } as const satisfies ProjectScopedTable;
+
+/** Continuations pin the full ordered erasure contract, including child cleanup
+ * and the final self-reference pass. No manual version bump can be forgotten. */
+export const PROJECT_ERASURE_REGISTRY_VERSION = JSON.stringify({
+  entries: PROJECT_SCOPED_TABLES,
+  self: PROJECT_SELF_REFERENCE,
+});

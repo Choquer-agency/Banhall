@@ -22,6 +22,7 @@ import {
 import { MAX_WORKFLOW_NOTE_CHARS } from "../shared/workflowLabels";
 import { patchProjectWorkflowStage } from "./lib/dashboardProjection";
 import { scheduleOwnershipOversightRebuild } from "./oversight";
+import { isProjectDeleting } from "./lib/projectDeletion";
 
 const transferCandidateRoleValidator = v.union(
   v.literal("writer"),
@@ -269,6 +270,9 @@ export const transferOwnership = mutation({
     if (!project) domainError("NOT_FOUND", "Project not found");
 
     await requireTransferAuthority(ctx, project, user);
+    if (await isProjectDeleting(ctx, project._id)) {
+      domainError("NOT_FOUND", "Project not found");
+    }
     validateExpectedVersion(args.expectedVersion);
     const version = workflowVersion(project);
     if (project.ownerId === args.toUserId) {
@@ -340,6 +344,9 @@ export const setWorkflowStage = mutation({
     if (!project) domainError("NOT_FOUND", "Project not found");
 
     const authorities = await requireAnyWorkflowAuthority(ctx, project, user);
+    if (await isProjectDeleting(ctx, project._id)) {
+      domainError("NOT_FOUND", "Project not found");
+    }
     validateExpectedVersion(args.expectedVersion);
     const version = workflowVersion(project);
     const fromStage = project.workflowStage ?? "intake";

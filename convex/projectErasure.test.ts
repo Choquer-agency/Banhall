@@ -581,6 +581,19 @@ describe("deleteProject erasure", () => {
   });
 });
 
+async function seedTranscripts(s: Setup, projectId: Id<"projects">, count: number) {
+  await s.t.run(async (ctx) => {
+    for (let i = 0; i < count; i++) {
+      await ctx.db.insert("transcripts", { projectId, content: `t${i}`, createdAt: i });
+    }
+  });
+}
+const transcriptCount = (s: Setup, projectId: Id<"projects">) =>
+  s.t.run(async (ctx) =>
+    (await ctx.db.query("transcripts").withIndex("by_projectId", (q) => q.eq("projectId", projectId)).collect()).length
+  );
+const setBarrier = (s: Setup) => s.t.run((ctx) => ctx.db.patch(s.projectId, { deletionStartedAt: 1 }));
+
 describe("purgeProjectPage", () => {
   beforeEach(() => vi.useFakeTimers());
   afterEach(() => vi.useRealTimers());
@@ -588,18 +601,7 @@ describe("purgeProjectPage", () => {
   const transcriptsEntry = entryIndexOf("transcripts");
   const agentThreadsEntry = entryIndexOf("agentChatThreads");
 
-  async function seedTranscripts(s: Setup, projectId: Id<"projects">, count: number) {
-    await s.t.run(async (ctx) => {
-      for (let i = 0; i < count; i++) {
-        await ctx.db.insert("transcripts", { projectId, content: `t${i}`, createdAt: i });
-      }
-    });
-  }
-  const transcriptCount = (s: Setup, projectId: Id<"projects">) =>
-    s.t.run(async (ctx) =>
-      (await ctx.db.query("transcripts").withIndex("by_projectId", (q) => q.eq("projectId", projectId)).collect()).length
-    );
-  const setBarrier = (s: Setup) => s.t.run((ctx) => ctx.db.patch(s.projectId, { deletionStartedAt: 1 }));
+
 
   it("reads one bounded page per transaction and the scheduled continuation alone finishes the table", async () => {
     const s = await setup();
@@ -665,11 +667,11 @@ describe("purgeProjectPage", () => {
     const s = await setup();
     await seedTranscripts(s, s.projectId, 3);
     await setBarrier(s);
-    // Moved entry: same name, stale index → resumed from its own start, no cursor reuse.
+    // A legacy or moved continuation restarts the complete walk without reusing its cursor.
     await s.t.mutation(internal.projects.purgeProjectPage, {
       projectId: s.projectId, entryIndex: transcriptsEntry + 1, table: "transcripts", field: "projectId", cursor: null,
     });
-    expect(await transcriptCount(s, s.projectId)).toBe(0);
+    expect(await transcriptCount(s, s.projectId)).toBe(3);
     // Vanished entry: the walk restarts from the first entry and still completes.
     await s.t.mutation(internal.projects.purgeProjectPage, {
       projectId: s.projectId, entryIndex: 0, table: "noSuchTable", field: "projectId", cursor: null,
@@ -760,5 +762,89 @@ describe("deletion barrier", () => {
     const seeded = await seedProjectRows(s, s.projectId);
     const claimed = await s.t.mutation(internal.generations.claimCandidateRun, { candidateRunId: seeded.candidateRunId });
     expect(claimed).toMatchObject({ generationId: seeded.generationId, projectId: s.projectId });
+  });
+});
+
+
+describe("erasure deployment and late-writer regressions", () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
+  it("refuses an upload after the document purge page without recreating a row", async () => {
+    const s = await setup();
+    const storageId = await s.t.run(ctx => ctx.storage.store(new Blob(["late upload"])));
+    await setBarrier(s);
+    await s.t.mutation(internal.projects.purgeProjectPage, {
+      projectId: s.projectId, ...purgePosition(entryIndexOf("projectDocuments"), null),
+    });
+    await expect(s.creator.mutation(api.documents.uploadDocument, {
+      projectId: s.projectId, fileName: "late.txt", fileType: "txt", content: "late", storageId,
+    })).rejects.toThrow("Project is being deleted");
+    expect(await s.t.run(ctx => ctx.db.query("projectDocuments").collect())).toHaveLength(0);
+    await drain(s);
+    expect(await s.t.run(ctx => ctx.db.get(s.projectId))).toBeNull();
+  });
+
+  it.each([false, true])("does not recreate generation artifacts after erasure (parent removed: %s)", async (removeParent) => {
+    const s = await setup();
+    const generationId = await s.t.run(ctx => ctx.db.insert("generations", {
+      projectId: s.projectId, status: "running", startedAt: 1, agentOutputs: "{}",
+    }));
+    await setBarrier(s);
+    if (removeParent) await s.t.run(async ctx => {
+      await ctx.db.delete(generationId);
+      await ctx.db.delete(s.projectId);
+    });
+    await s.t.mutation(internal.generations.saveIterativeArtifacts, {
+      generationId, analysis: "late analysis", brainBlocks: "{}",
+    });
+    expect(await s.t.run(ctx => ctx.db.query("generationArtifacts").collect())).toHaveLength(0);
+  });
+
+  it("does not recount a deleting project during dashboard rebuild", async () => {
+    const s = await setup();
+    await s.admin.mutation(api.projects.deleteProject, { projectId: s.projectId });
+    // Model the rebuild's reset pass, then run its project page in the purge window.
+    await s.t.run(async ctx => {
+      for (const company of await ctx.db.query("dashboardCompanies").collect()) {
+        await ctx.db.delete(company._id);
+      }
+    });
+    await s.t.mutation(internal.dashboardBackfill.processBatch, {
+      cursor: null, dryRun: false, scanned: 0, patched: 0,
+    });
+    expect((await s.t.run(ctx => ctx.db.get(s.projectId)))?.dashboardCompanyCounted).toBe(false);
+    await drain(s);
+    const companies = await s.t.run(ctx => ctx.db.query("dashboardCompanies").collect());
+    expect(companies.reduce((sum, company) => sum + company.projectCount, 0)).toBe(1);
+  });
+
+  it("restarts before an unchanged later entry when the registry version differs", async () => {
+    const s = await setup();
+    await seedTranscripts(s, s.projectId, 1);
+    await setBarrier(s);
+    await s.t.mutation(internal.projects.purgeProjectPage, {
+      projectId: s.projectId, ...purgePosition(entryIndexOf("reports"), null),
+      registryVersion: "registry-before-a-table-was-added",
+    });
+    expect(await s.t.run(ctx => ctx.db.get(s.projectId))).not.toBeNull();
+    await drain(s);
+    expect(await transcriptCount(s, s.projectId)).toBe(0);
+    expect(await s.t.run(ctx => ctx.db.get(s.projectId))).toBeNull();
+  });
+
+  it.each(["legacy", "changed"])("restarts a %s finalization continuation before deleting the project", async (kind) => {
+    const s = await setup();
+    await seedTranscripts(s, s.projectId, 1);
+    await setBarrier(s);
+    const position = purgePosition(PROJECT_SCOPED_TABLES.length, null);
+    await s.t.mutation(internal.projects.purgeProjectPage, {
+      projectId: s.projectId, ...position,
+      ...(kind === "changed" ? { registryVersion: "previous-registry" } : { registryVersion: undefined }),
+    });
+    expect(await s.t.run(ctx => ctx.db.get(s.projectId))).not.toBeNull();
+    await drain(s);
+    expect(await transcriptCount(s, s.projectId)).toBe(0);
+    expect(await s.t.run(ctx => ctx.db.get(s.projectId))).toBeNull();
   });
 });

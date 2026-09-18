@@ -6,10 +6,9 @@ import type { QueryCtx } from "../_generated/server";
  * stamped `deletionStartedAt`, and stays true after the purge deletes the
  * row: a project that no longer exists must not be repopulated either.
  *
- * Checked only by async writers that can land after a deletion started
- * (candidate/section run claims, the post-QA action's entry). They return
- * early without writing; nothing throws, so a late scheduled job simply
- * finishes as a no-op.
+ * Writers check in their mutation transaction, so the barrier and the write
+ * cannot race. Async callbacks can stop without writing; public access gates
+ * reject new work. Retained billing is recorded without the project link.
  */
 export async function isProjectDeleting(
   ctx: { db: QueryCtx["db"] },

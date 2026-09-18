@@ -11,6 +11,7 @@ import {
   requireInternalProjectAccess,
 } from "./lib/auth";
 import { domainError, sha256 } from "./lib/contracts";
+import { isProjectDeleting } from "./lib/projectDeletion";
 import { requireAnthropicConfigured } from "./lib/providerConfig";
 import { projectTranscriptPromptText } from "./lib/transcripts";
 /**
@@ -279,6 +280,7 @@ export const completePdReview = internalMutation({
   handler: async (ctx, args) => {
     const review = await ctx.db.get(args.reviewId);
     if (!review) return;
+    if (await isProjectDeleting(ctx, review.projectId)) return;
     const now = Date.now();
     await ctx.db.patch(args.reviewId, {
       status: "completed",
@@ -318,6 +320,7 @@ export const failStalePdReviews = internalMutation({
       .take(100);
     let failed = 0;
     for (const review of stale) {
+      if (await isProjectDeleting(ctx, review.projectId)) continue;
       const now = Date.now();
       await ctx.db.patch(review._id, {
         status: "failed",
@@ -346,6 +349,7 @@ export const failPdReview = internalMutation({
   handler: async (ctx, args) => {
     const review = await ctx.db.get(args.reviewId);
     if (!review) return;
+    if (await isProjectDeleting(ctx, review.projectId)) return;
     const now = Date.now();
     await ctx.db.patch(args.reviewId, {
       status: "failed",

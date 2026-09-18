@@ -1,6 +1,7 @@
 import { v } from "convex/values";
 import { internalMutation, internalQuery } from "./_generated/server";
-import { sha256 } from "./lib/contracts";
+import { domainError, sha256 } from "./lib/contracts";
+import { isProjectDeleting } from "./lib/projectDeletion";
 import {
   CONDENSE_VERSION,
   generationTranscriptIds,
@@ -99,6 +100,9 @@ export const recordDigest = internalMutation({
   },
   returns: v.id("transcriptDigests"),
   handler: async (ctx, args) => {
+    if (await isProjectDeleting(ctx, args.projectId)) {
+      domainError("INVALID_STATE", "Project is being deleted");
+    }
     const existing = await ctx.db
       .query("transcriptDigests")
       .withIndex(
@@ -146,6 +150,7 @@ export const freezeDigestSource = internalMutation({
   handler: async (ctx, args) => {
     const generation = await ctx.db.get(args.generationId);
     if (!generation) return null;
+    if (await isProjectDeleting(ctx, generation.projectId)) return null;
     const digest = await ctx.db.get(args.digestId);
     if (!digest) return null;
     const sources = await ctx.db
