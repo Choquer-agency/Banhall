@@ -34,6 +34,7 @@ import {
 } from "../shared/generationModels";
 import { randomComparePair, resolveCompareModels } from "./ai/model";
 import { findActiveGeneration } from "./lib/activeGeneration";
+import { resolveGatedWorkflow } from "./lib/gatedWorkflow";
 import { isProjectDeleting } from "./lib/projectDeletion";
 import { analyzerContextBudget, defaultModelId } from "./appSettings";
 import { sourceInclusion } from "./ai/trustedContext";
@@ -489,6 +490,9 @@ async function reserveGeneration(
     learningDigestIds: [],
     lengthTarget,
     candidateMode,
+    // Story 1 ships dark: persist the workflow that actually runs today.
+    // Switch new reservations to seeds only when that pipeline ships (AD-31).
+    gatedWorkflow: candidateMode === "iterative" ? "sections" : undefined,
     singleModelId,
     compareModelIds: persistedCompareModelIds,
     retryOfGenerationId,
@@ -2850,6 +2854,7 @@ export const getIterativeState = query({
     return {
       status: generation.status,
       candidateMode: "iterative" as const,
+      gatedWorkflow: resolveGatedWorkflow(generation),
       modelLabel,
       error: userSafeStoredError(
         generation.error,

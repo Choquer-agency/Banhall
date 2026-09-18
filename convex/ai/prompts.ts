@@ -43,6 +43,10 @@ import {
   RULES_BANNED_SELF_CHECK,
 } from "../../shared/houseRules";
 import { RULES_HUMAN_PROSE } from "../../shared/humanProse";
+import {
+  pdSubsectionRoleLabel,
+  pdSubsectionRoleList,
+} from "../../shared/pdSubsections";
 
 // ─── AGENT 1: TRANSCRIPT ANALYZER ───────────────────────────────────────────
 
@@ -293,7 +297,7 @@ You will receive structured analysis of an interview transcript. Use ONLY the in
 
 ## Required Content (in this order)
 
-Line 242 must cover, in this order: company context, goal/problem, limitations of standard practice (passive uncertainties), technological objective, active uncertainties. Use as many paragraphs as the material warrants; a role may share a paragraph with its neighbour or span more than one when that reads better. What matters is that every role below is covered, in this order, with the content rules given for it.
+Line 242 must cover, in this order: ${pdSubsectionRoleList("s242", "draft")}. Use as many paragraphs as the material warrants; a role may share a paragraph with its neighbour or span more than one when that reads better. What matters is that every role below is covered, in this order, with the content rules given for it.
 
 **COMPANY/CONTEXT:**
 This paragraph is NOT a company bio. It must establish WHY this company has the domain expertise and operational context that makes this SR&ED project credible. Every sentence must connect to the project.
@@ -402,7 +406,7 @@ You will receive structured analysis of an interview transcript. Use ONLY the in
 
 ## Required Content (in this order)
 
-Line 244 must cover, in this order: prior-year status (only for a continuing project), workplan, hypothesis, experimentation/iterations. Use as many paragraphs as the material warrants; a role may share a paragraph with its neighbour or span more than one when that reads better. What matters is that every role below is covered, in this order, with the content rules given for it.
+Line 244 must cover, in this order: ${pdSubsectionRoleList("s244", "draft")}. Use as many paragraphs as the material warrants; a role may share a paragraph with its neighbour or span more than one when that reads better. What matters is that every role below is covered, in this order, with the content rules given for it.
 
 **PRIOR YEAR STATUS (OPTIONAL):**
 ONLY include this content if the transcript analysis indicates this is a continuation from a previous fiscal year. If so, describe the project status at the end of last year and what uncertainties remained. If this is a new project with no prior-year work, SKIP it entirely.
@@ -508,7 +512,7 @@ SELF-CHECK FOR EVERY ADVANCEMENT PARAGRAPH: After writing each advancement parag
 
 ## Required Content (in this order)
 
-Line 246 must cover, in this order: overall advancement to science/technology, the specific technological advancements (one per resolved uncertainty), project status and next steps, project goal and improvements. Use as many paragraphs as the material warrants; a role may share a paragraph with its neighbour or span more than one when that reads better. What matters is that every role below is covered, in this order, with the content rules given for it.
+Line 246 must cover, in this order: ${pdSubsectionRoleList("s246", "draft")}. Use as many paragraphs as the material warrants; a role may share a paragraph with its neighbour or span more than one when that reads better. What matters is that every role below is covered, in this order, with the content rules given for it.
 
 **ADVANCEMENT TO SCIENCE/TECHNOLOGY:**
 Open the line by restating the technological objective and to what extent it was achieved. State whether the hypothesis was proven, disproven, or partially proven; and be specific about which parts. This opening should read like a thesis conclusion: here's what we set out to learn, here's what we learned, here's how reality differed from our expectations. This ties back directly to Section 242.
@@ -561,9 +565,9 @@ export const QA_PROMPT_BRANCHES = {
   structureCompliance: {
     default: `### Structure Compliance
 - Judge content coverage and order, never paragraph count. Each line covers its roles in as many paragraphs as the material warrants; a role may share a paragraph with its neighbour or span more than one. Do NOT deduct for the number of paragraphs, or for a role that is merged into or split across paragraphs. Deduct only when a role's content is missing or out of order.
-- Does Section 242 cover, in this order: company/context, goal/problem, passive uncertainties (limitations of standard practice), technological objective, active uncertainties?
-- Does Section 244 cover, in this order: prior-year status (continuing projects only), workplan, hypothesis, experimentation/iterations?
-- Does Section 246 cover, in this order: overall advancement, the specific advancements (one per resolved uncertainty), project status and next steps, project goal and improvements?
+- Does Section 242 cover, in this order: ${pdSubsectionRoleList("s242", "qa")}?
+- Does Section 244 cover, in this order: ${pdSubsectionRoleList("s244", "qa")}?
+- Does Section 246 cover, in this order: ${pdSubsectionRoleList("s246", "qa")}?
 - Identify each role by its content, not by its position; the [P#] markers exist for reporting only.`,
     skeletonWaived: `### Structure Compliance: WAIVED
 - This writer's profile replaces the built-in section skeleton with their own settings document. Paragraph counts, paragraph roles, ordering, mandated opening phrases, and the default framing conventions do NOT apply. Do NOT flag or deduct for a section having more, fewer, or differently arranged paragraphs than the default skeleton, for consolidated or split paragraphs, or for the absence of signal phrases.
@@ -914,25 +918,25 @@ The report is built around three CRA lines. Each line covers its content roles i
       : " and these mandated opening phrases"
   }:
 
-- **Line 242: Scientific/Technological Uncertainty**: company context → goal/problem → passive uncertainties ${
+- **Line 242: Scientific/Technological Uncertainty**: ${pdSubsectionRoleLabel("company_context", "chat")} → ${pdSubsectionRoleLabel("goal_problem", "chat")} → ${pdSubsectionRoleLabel("passive_limitations", "chat")} ${
     openersWaived
       ? "(states the limitations to standard practice)"
       : '(opens "The limitations to standard practice were...")'
-  } → technological objective ${
+  } → ${pdSubsectionRoleLabel("technological_objective", "chat")} ${
     openersWaived
       ? "(states the technological objective: knowledge sought + solution)"
       : '(opens "The technological objective was to...")'
-  } → active uncertainties (each needs a "because" clause).
-- **Line 244: Work Performed**: optional prior-year status → workplan → hypothesis ${
+  } → ${pdSubsectionRoleLabel("active_uncertainties", "chat")} (each needs a "because" clause).
+- **Line 244: Work Performed**: ${pdSubsectionRoleLabel("prior_year_status", "chat")} → ${pdSubsectionRoleLabel("workplan", "chat")} → ${pdSubsectionRoleLabel("hypothesis", "chat")} ${
     openersWaived
       ? "(strict if/then form, with a measurable then-clause)"
       : '(opens "It was hypothesized that if...", with a measurable then-clause)'
-  } → experimentation/iterations (one per experiment: problem → approach → result/learning → revised approach → conclusion).
-- **Line 246: Scientific/Technological Advancement**: overall advancement → specific advancements (one per resolved uncertainty; ${
+  } → ${pdSubsectionRoleLabel("experimentation", "chat")} (one per experiment: problem → approach → result/learning → revised approach → conclusion).
+- **Line 246: Scientific/Technological Advancement**: ${pdSubsectionRoleLabel("overall_advancement", "chat")} → ${pdSubsectionRoleLabel("specific_advancements", "chat")} (one per resolved uncertainty; ${
     openersWaived
       ? "each opens with the knowledge finding; what was determined or established)"
       : 'most open "Through systematic investigation, it was determined that..." or "It was determined that...")'
-  } → project status/next steps → goal/improvements.
+  } → ${pdSubsectionRoleLabel("project_status", "chat")} → ${pdSubsectionRoleLabel("goal_improvements", "chat")}.
 
 Passive uncertainties = gaps in general knowledge/standard practice. Active uncertainties = risks specific to this project's chosen approach. Never blur the two.`;
 }

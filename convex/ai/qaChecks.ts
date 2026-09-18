@@ -18,6 +18,7 @@ import {
   type StyleOverrides,
 } from "../../shared/styleOverrides";
 import { findDashConnectors } from "../../shared/humanProse";
+import { pdSubsectionRoleLabel } from "../../shared/pdSubsections";
 
 // ─── Check 1: CRA opener detection for 246 advancement paragraphs ───────────
 // Only runs when `openingClauses` is enforced (off by default since
@@ -319,7 +320,7 @@ export function runDeterministicChecks(
     summary += `WAIVED (house rule off by default, or waived by writer profile) — literal opening clauses are not required for this writer. Do not deduct for missing signal phrases.\n`;
   } else {
     const openers = checkCRAOpeners(section246);
-    summary += `Scanned every paragraph after the opening paragraph. The default skeleton mandates no paragraph count, so decide by content which of these are advancement paragraphs; a scanned project-status or project-goal paragraph does not count.\n`;
+    summary += `Scanned every paragraph after the opening paragraph. The default skeleton mandates no paragraph count, so decide by content which of these are advancement paragraphs; a scanned ${pdSubsectionRoleLabel("project_status", "qaScan")} or ${pdSubsectionRoleLabel("goal_improvements", "qaScan")} paragraph does not count.\n`;
     summary += `Qualifying openers found: ${openers.count}/${openers.total}\n`;
     for (const r of openers.results) {
       summary += `- P${r.paragraph}: ${r.passes ? "PASS" : "FAIL"} — "${r.firstSentence}"\n`;

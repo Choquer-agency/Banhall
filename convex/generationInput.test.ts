@@ -98,6 +98,35 @@ function generationInput(t: TestConvex, generationId: Id<"generations">) {
 }
 
 describe("reserveGeneration freezes the project's transcripts", () => {
+  it.each(["iterative", "single", "compare"] as const)(
+    "records the current gated workflow at reservation for %s",
+    async (candidateMode) => {
+      const { t, authed, projectId } = await setup([{ content: "Interview body" }]);
+      const generationId = await authed.mutation(api.generations.requestGeneration, {
+        projectId,
+        candidateMode,
+      });
+      const generation = await t.run((ctx) => ctx.db.get(generationId));
+      expect(generation?.status).toBe("reserved");
+      expect(generation?.gatedWorkflow).toBe(
+        candidateMode === "iterative" ? "sections" : undefined
+      );
+      expect(await t.run((ctx) => ctx.db.query("seedSubsections").collect())).toEqual([]);
+      const state = await authed.query(api.generations.getIterativeState, { generationId });
+      if (candidateMode === "iterative") {
+        expect(state?.gatedWorkflow).toBe("sections");
+        await t.run((ctx) => ctx.db.patch(generationId, { gatedWorkflow: undefined }));
+        expect((await authed.query(api.generations.getIterativeState, { generationId }))
+          ?.gatedWorkflow).toBe("sections");
+        await t.run((ctx) => ctx.db.patch(generationId, { gatedWorkflow: "seeds" }));
+        expect((await authed.query(api.generations.getIterativeState, { generationId }))
+          ?.gatedWorkflow).toBe("seeds");
+      } else {
+        expect(state).toBeNull();
+      }
+    }
+  );
+
   it("passes a single transcript through byte-for-byte (AC1)", async () => {
     const { t, authed, projectId, transcriptIds } = await setup([
       { content: "Only interview body" },
