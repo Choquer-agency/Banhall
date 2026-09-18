@@ -62,7 +62,7 @@
     bounds: seedRevisions canonical DTO and hashes, select/edit/restore,
     feedback requests and withdrawal, regenerate/retry/restore batch,
     skip/unskip, approve with the server-owned challenge, stale episodes,
-    readiness, AD-44 DTOs with pagination, seedDecisionEvents and the
+    shared seedReadiness calculation and transaction-local loader, AD-44 DTOs with pagination, seedDecisionEvents and the
     learningHealth reader with the trace fixture. Spine AD-36, AD-39, AD-43,
     AD-44.
   spec_checkpoint: true
@@ -76,7 +76,11 @@
     results arrive unselected. The learningHealth query must reproduce the
     worked event trace in build-sequence.md exactly (it is the fixture).
     Events carry no seed or feedback text. Each mutation ships an
-    authorization-branch convex-test case.
+    authorization-branch convex-test case. Put readiness in lib/seedReadiness.ts;
+    seeds.getReadiness and generations.signOffSeedStage share its transaction-local
+    loader. generations.ts must not import seeds.ts or its registered query;
+    seeds.ts may import the generations.ts version-bump helper. Test query/sign-off
+    parity and readiness loss before sign-off with no Summary or lifecycle writes.
 - id: "4"
   title: Sign-off, content-plan drafting, coverage notes and retry
   description: >-
