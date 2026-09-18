@@ -1643,12 +1643,31 @@ describe("CAP-4 independent stream admission and provenance", () => {
       kind: "draft_style",
     });
     expect(history.digests[0].admission).toBeUndefined();
+    expect(history.seedWorkflowCoverage).toEqual({
+      included: false,
+      label: "Seed-workflow generations are not included",
+    });
     expect(history.latestAttempt?.outcome).toBe("insufficient_inputs");
     for (const caller of [t, writer, manager]) {
       await expect(
         caller.query(api.learning.getDigestHistory, { kind: "draft_style" }),
       ).rejects.toThrow();
     }
+  });
+
+  test("labels seed workflow as excluded only for draft-style learning", async () => {
+    const { admin } = await setup();
+    await expect(
+      admin.query(api.learning.getDigestHistory, { kind: "draft_style" }),
+    ).resolves.toMatchObject({
+      seedWorkflowCoverage: {
+        included: false,
+        label: "Seed-workflow generations are not included",
+      },
+    });
+    await expect(
+      admin.query(api.learning.getDigestHistory, { kind: "qa_calibration" }),
+    ).resolves.toMatchObject({ seedWorkflowCoverage: null });
   });
 });
 

@@ -1,3 +1,4 @@
+import { bypassSeedEpisodes } from "./lib/seedDecisionWrites";
 import { extractReportSections } from "./lib/tiptapReport";
 import { persistDeterministicFindings, persistMethodologyFindings, reportQaRef } from "./lib/qaFindings";
 import {
@@ -3397,6 +3398,7 @@ export const cancelIterativeGeneration = mutation({
     if (resolveGatedWorkflow(generation) === "seeds") {
       await requireReportEditAccess(ctx, generation.projectId);
       await terminateSeedAttempts(ctx, generation._id);
+      await bypassSeedEpisodes(ctx, generation._id);
       await ctx.db.insert("seedDecisionEvents", {
         projectId: generation.projectId, generationId: generation._id,
         kind: "cancel", at: Date.now(), actorUserId: (await requireCurrentUser(ctx))._id,

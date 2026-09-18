@@ -12,6 +12,7 @@ import {
 import { MODEL } from "./ai/model";
 import { buildSeedPrompt, seedPromptProjection } from "./ai/trustedContext";
 import { domainError } from "./lib/contracts";
+import { reconcileRestoredSeedApproval } from "./lib/seedDecisionWrites";
 import { resolveGatedWorkflow } from "./lib/gatedWorkflow";
 import {
   SEED_ATTEMPT_LEASE_MS,
@@ -98,6 +99,8 @@ type DispatchArgs = {
   commandId: string;
   feedbackRequestId?: Id<"seedFeedbackRequests">;
   actorUserId?: Id<"users">;
+  bumpVersion?: boolean;
+  budget?: import("./lib/seedDecisionState").SeedDecisionReadBudget;
 };
 
 export type SeedDispatchResult =
@@ -264,6 +267,7 @@ export async function dispatchSeedAttempt(
   const loaded = await loadSeedDispatchSnapshot(ctx, {
     generationId: args.generationId,
     roleId: args.roleId,
+    budget: args.budget,
     ...(args.feedbackRequestId
       ? { feedbackRequestId: args.feedbackRequestId }
       : {}),
@@ -318,11 +322,9 @@ export async function dispatchSeedAttempt(
   if (!briefVersionId) {
     domainError("INVALID_STATE", "Seed stage has no frozen Brief");
   }
-  const frozen = await loadFrozenSeedActionInput(ctx, {
-    generation,
-    briefVersionId,
-  });
+  let frozen: Awaited<ReturnType<typeof loadFrozenSeedActionInput>>;
   try {
+    frozen = await loadFrozenSeedActionInput(ctx, { generation, briefVersionId, budget: args.budget });
     buildSeedPrompt({
       mode: args.operation === "feedback" ? "feedback" : "batch",
       objective: roleDefinition(args.roleId).objective,
@@ -340,7 +342,7 @@ export async function dispatchSeedAttempt(
     });
   } catch (error) {
     if (error instanceof SeedContextLimitError) {
-      domainError("INVALID_INPUT", `Seed context for ${args.roleId} exceeds the prompt limit`);
+      domainError("INVALID_INPUT", `Seed context for ${args.roleId} exceeds the prompt limit`, { reason: "SEED_PROCESSING_LIMIT" });
     }
     throw error;
   }
@@ -408,6 +410,7 @@ export async function dispatchSeedAttempt(
   }
   await ctx.db.patch(subsection._id, {
     priorState: subsection.state,
+    pendingApprovalReasons: undefined,
     state: "generating",
     pendingBatchId: batchId,
   });
@@ -416,7 +419,7 @@ export async function dispatchSeedAttempt(
     generation._id,
     SEED_ATTEMPT_REQUESTS_RESERVED
   );
-  await bumpSeedStageVersion(ctx, generation._id);
+  if (args.bumpVersion !== false) await bumpSeedStageVersion(ctx, generation._id);
   await ctx.db.insert("seedDecisionEvents", {
     projectId: project._id,
     generationId: generation._id,
@@ -606,6 +609,7 @@ async function failSeedAttempt(
     requestsMade: number;
     errorCode: SeedFailureCode;
     actorSystem?: boolean;
+    bumpVersion?: boolean;
   }
 ) {
   const now = Date.now();
@@ -639,17 +643,31 @@ async function failSeedAttempt(
     const restored = wasGenerating
       ? subsection.priorState ?? "untouched"
       : subsection.state;
+    const nextState =
+      wasGenerating && failures >= 3 && !subsection.shownBatchId
+        ? "failed"
+        : restored;
     await ctx.db.patch(subsection._id, {
       pendingBatchId: undefined,
       priorState: undefined,
+      pendingApprovalReasons: undefined,
       consecutiveFailures: failures,
-      state:
-        wasGenerating && failures >= 3 && !subsection.shownBatchId
-          ? "failed"
-          : restored,
+      state: nextState,
     });
+    if (
+      wasGenerating &&
+      nextState === "approved" &&
+      args.errorCode !== "GENERATION_TERMINATED" &&
+      generation?.status === "awaiting_input" &&
+      resolveGatedWorkflow(generation) === "seeds" &&
+      !generation.summaryVersionId &&
+      project?.activeGenerationId === generation._id &&
+      project.deletionStartedAt === undefined
+    ) {
+      await reconcileRestoredSeedApproval(ctx, { ...subsection, state: nextState });
+    }
   }
-  if (generation) await bumpSeedStageVersion(ctx, generation._id);
+  if (generation && args.bumpVersion !== false) await bumpSeedStageVersion(ctx, generation._id);
   if (generation && project && project.deletionStartedAt === undefined) {
     await ctx.db.insert("seedDecisionEvents", {
       projectId: current.projectId,
@@ -894,6 +912,7 @@ export const completeAttempt = internalMutation({
     await ctx.db.patch(subsection._id, {
       pendingBatchId: undefined,
       priorState: undefined,
+      pendingApprovalReasons: undefined,
       state: subsection.state === "generating" ? "in_progress" : subsection.state,
       consecutiveFailures: 0,
       ...(batch.operation === "feedback" ? {} : { shownBatchId: batch._id }),
@@ -1031,4 +1050,61 @@ export async function reapSeedAttempts(
     continueCursor: null,
     isDone: page.isDone,
   };
+}
+
+/** Decision writers retain Batch patch ownership in this module. */
+export async function restoreSeedBatch(
+  ctx: MutationCtx,
+  subsection: Doc<"seedSubsections">,
+  batchId: Id<"seedBatches">,
+) {
+  const batch = await ctx.db.get(batchId);
+  if (
+    !batch ||
+    batch.projectId !== subsection.projectId ||
+    batch.generationId !== subsection.generationId ||
+    batch.roleId !== subsection.roleId ||
+    batch.operation === "feedback" ||
+    (batch.status !== "shown" && batch.status !== "superseded") ||
+    batch.completedAt === undefined
+  )
+    domainError(
+      "INVALID_INPUT",
+      "Only a completed ordinary Batch of this subsection can be restored",
+    );
+  if (subsection.pendingBatchId)
+    domainError("INVALID_STATE", "A seed attempt is already generating");
+  if (subsection.shownBatchId && subsection.shownBatchId !== batchId) {
+    const previous = await ctx.db.get(subsection.shownBatchId);
+    if (previous?.status === "shown")
+      await ctx.db.patch(previous._id, { status: "superseded" });
+  }
+  await ctx.db.patch(batchId, { status: "shown" });
+  return batch;
+}
+
+export async function terminateSeedRoleAttempt(
+  ctx: MutationCtx,
+  subsection: Doc<"seedSubsections">,
+) {
+  if (!subsection.pendingBatchId) return;
+  const batch = await ctx.db.get(subsection.pendingBatchId);
+  if (
+    batch &&
+    batch.generationId === subsection.generationId &&
+    batch.roleId === subsection.roleId &&
+    (batch.status === "queued" || batch.status === "running")
+  ) {
+    await failSeedAttempt(ctx, {
+      batch,
+      requestsMade: batch.requestsReserved,
+      errorCode: "GENERATION_TERMINATED",
+      bumpVersion: false,
+    });
+  }
+  await ctx.db.patch(subsection._id, {
+    pendingBatchId: undefined,
+    priorState: undefined,
+    pendingApprovalReasons: undefined,
+  });
 }

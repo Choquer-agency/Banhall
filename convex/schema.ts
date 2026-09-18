@@ -145,6 +145,7 @@ export default defineSchema({
     .index("by_status", ["status"]),
 
   projects: defineTable({
+    usedInDevelopment: v.optional(v.boolean()),
     // Plain-language internal title (set at the start; shown in lists).
     title: v.string(),
     // BNH-23: formal SR&ED / science title for the report (finalized at the end).
@@ -931,6 +932,8 @@ export default defineSchema({
         v.literal("failed")
       )
     ),
+    // Bounded causal evidence while a pending attempt temporarily hides approval.
+    pendingApprovalReasons: v.optional(v.array(seedRoleIdValidator)),
     consecutiveFailures: v.number(),
     activeStaleEpisodeId: v.optional(v.id("seedStaleEpisodes")),
     approvedBy: v.optional(v.id("users")),
@@ -1057,8 +1060,10 @@ export default defineSchema({
     editedAt: v.optional(v.number()),
     selectedAt: v.number(),
     version: v.number(),
+    orderKey: v.optional(v.string()),
   })
     .index("by_generationId_and_roleId", ["generationId", "roleId"])
+    .index("by_generationId_and_roleId_and_selected_and_orderKey", ["generationId", "roleId", "selected", "orderKey"])
     .index("by_generationId_and_selected_and_roleId", [
       "generationId",
       "selected",
@@ -1080,6 +1085,14 @@ export default defineSchema({
       v.literal("withdrawn")
     ),
     withdrawnAt: v.optional(v.number()),
+    commandId: v.optional(v.string()),
+    firstApproveExposure: v.optional(v.object({
+      approveEventId: v.id("seedDecisionEvents"),
+      outcome: v.union(v.literal("selected"), v.literal("not_selected"), v.literal("response_not_available")),
+    })),
+    eligibleScore: v.optional(v.object({
+      approveEventId: v.id("seedDecisionEvents"), selected: v.boolean(),
+    })),
     batchId: v.optional(v.id("seedBatches")),
   })
     .index("by_generationId_and_roleId", ["generationId", "roleId"])
@@ -1088,6 +1101,7 @@ export default defineSchema({
       "status",
       "roleId",
     ])
+    .index("by_generationId_and_roleId_and_commandId", ["generationId", "roleId", "commandId"])
     .index("by_targetSeedId", ["targetSeedId"])
     .index("by_projectId", ["projectId"]),
 
@@ -1177,6 +1191,8 @@ export default defineSchema({
     )
   )
     .index("by_generationId_and_at", ["generationId", "at"])
+    .index("by_at", ["at"])
+    .index("by_generationId_and_roleId_and_kind_and_at", ["generationId", "roleId", "kind", "at"])
     .index("by_batchId_and_actorUserId_and_kind", ["batchId", "actorUserId", "kind"])
     .index("by_projectId", ["projectId"]),
 

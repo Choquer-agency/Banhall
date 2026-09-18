@@ -2,16 +2,16 @@
 title: 'Decision mutations, revisions, approval challenge, events and reader'
 type: 'feature'
 created: '2026-09-18'
-status: 'ready-for-owner-checkpoint'
+status: 'in-progress'
 baseline_commit: '7aa4ad20b0bdaf810db145abbcb436c6d2d82d99'
-review_loop_iteration: 0
+review_loop_iteration: 2
 context:
   - '{project-root}/_bmad-output/specs/spec-step-by-step-seeds/SPEC.md'
   - '{project-root}/_bmad-output/specs/spec-step-by-step-seeds/stories.yaml'
   - '{project-root}/convex/_generated/ai/guidelines.md'
 ---
 
-<frozen-after-approval reason="human-owned intent; pending owner checkpoint">
+<frozen-after-approval reason="human-owned intent; owner approved 2026-09-18">
 
 ## Intent
 
@@ -83,15 +83,15 @@ context:
 
 ## Tasks & Acceptance
 
-- [ ] **Shared canonical decisions:** Implement complete active-selection/skip/feedback assembly, own feedback, selection revision, contribution hashes and explainChange. Maintain stored strings unchanged and sorted-key stable encoding; no successors in predecessor context. Shared orderShownSet sorts by role, Batch creation, Seed order with revisions directly after their original. Assert insertion-order invariance, absent/empty equivalence, edit/restore equality and Story 2 codec/request regressions.
-- [ ] **Public writers and atomic transitions:** Implement select/deselect, edit/restoreWording, giveFeedback/withdrawFeedback, open/regenerate/retry/restoreBatch, skip/unskip and markBatchViewed with appropriate IDs, expected version and stable command identity. Run the AD-36 transaction order and all cross-resource guards. Test a lost-response feedback retry with the original stale version (STALE_REVISION, no changes), then the same command and payload with a refreshed version (original request/attempt, no changes), and a changed payload with a current version (INVALID_INPUT). Event/no-op/redelivery behavior is explicit and tested. Keep exactly one pending attempt and preserve human state when callbacks race decisions.
-- [ ] **Staleness and approval:** Derived predicate only, one open episode, immutable consumed revisions, contribution-based explanations, feedback target-wording Outdated. Build a server-owned challenge from version, selected wording hashes, Batch IDs, changed roles and exclusion IDs. Require exact acknowledgments, current reference membership and at least one active selection. Stamp current approved revisions and text-free approval snapshot. Capture fresh-attempt-completed, fresh-seeds-in-snapshot and older-confirmed facts accurately; restored contexts never spawn duplicate episodes.
-- [ ] **Approval-triggered prefetch:** Implement resolution 1 and 2 in the actual approve flow. Test out-of-order approval, exhausted successors, first untouched candidate with history, existing queued/running prefetch, open/prefetch reuse, and context overflow preserving approval without dispatch artifacts.
-- [ ] **Readiness:** Shared pure rule and complete transaction-local loader with named blocking roles and invalid advancement links. Incomplete inputs cannot yield ready. Query and mutation-context parity, all role-kind states, own/successor readiness loss and no side effects; record the real sign-off integration as Story 4 acceptance, not already tested.
-- [ ] **Readers and pagination:** Thirteen-row outline with words/counts/previews, usage notice and version; full Shown Set policy with feedback groups, carried selections, history and server Outdated/challenge; paginated Batches and live/frozen Summary with stable ordering. Shared createReadBudget accounts for authorization and all joins. Incomplete challenges cannot be approved. Summary pagination must never apply the 128-item prompt ceiling. Cross-scope IDs and cursor parameters are validated.
-- [ ] **Events and learning reader:** Closed text-free event schema, actor and role enforcement, view dedupe, immutable first exposure and first eligible feedback score even after withdrawal. Exact AD-39 cohort, development/cancel exclusions, firm-time half-open periods, cross-window joins and incomplete flags. Include request/cost, viewed/selected/edited, feedback, regenerate, stale dispositions/durations, sign-offs/active time and latency measurements; no provider calls. Reproduce build-sequence v1 trace, adding explicitly omitted prerequisite events to the fixture without changing the canonical file or expected results. Label seed generations excluded from draft-style digestion.
-- [ ] **Security and lifecycle:** Each public mutation has report-edit authorization branches (owner, open assignment, manager/admin; closed/unrelated/creator-only/anonymous/roleless denied), expected-version and closed-stage cases. Reads require existing project-read access; health remains admin-only. Cancel bypasses every open episode without changing established cancellation semantics. Prove no report/proposal/Brief or Summary writes from decisions.
-- [ ] **Gate and reviews:** Run focused suites, then `bash scripts/loop-verify.sh`. Three independent gpt-6-astra medium layers (blind, edge, verification gap) review against baseline; triage and correct material findings, then reverify. No component suite unless component scope changes.
+- [x] **Shared canonical decisions:** Implement complete active-selection/skip/feedback assembly, own feedback, selection revision, contribution hashes and explainChange. Maintain stored strings unchanged and sorted-key stable encoding; no successors in predecessor context. Shared orderShownSet sorts by role, Batch creation, Seed order with revisions directly after their original. Assert insertion-order invariance, absent/empty equivalence, edit/restore equality and Story 2 codec/request regressions.
+- [x] **Public writers and atomic transitions:** Implement select/deselect, edit/restoreWording, giveFeedback/withdrawFeedback, open/regenerate/retry/restoreBatch, skip/unskip and markBatchViewed with appropriate IDs, expected version and stable command identity. Run the AD-36 transaction order and all cross-resource guards. Test a lost-response feedback retry with the original stale version (STALE_REVISION, no changes), then the same command and payload with a refreshed version (original request/attempt, no changes), and a changed payload with a current version (INVALID_INPUT). Event/no-op/redelivery behavior is explicit and tested. Keep exactly one pending attempt and preserve human state when callbacks race decisions.
+- [x] **Staleness and approval:** Derived predicate only, one open episode, immutable consumed revisions, contribution-based explanations, feedback target-wording Outdated. Build a server-owned challenge from version, selected wording hashes, Batch IDs, changed roles and exclusion IDs. Require exact acknowledgments, current reference membership and at least one active selection. Stamp current approved revisions and text-free approval snapshot. Capture fresh-attempt-completed, fresh-seeds-in-snapshot and older-confirmed facts accurately; restored contexts never spawn duplicate episodes.
+- [x] **Approval-triggered prefetch:** Implement resolution 1 and 2 in the actual approve flow. Test out-of-order approval, exhausted successors, first untouched candidate with history, existing queued/running prefetch, open/prefetch reuse, and context overflow preserving approval without dispatch artifacts.
+- [x] **Readiness:** Shared pure rule and complete transaction-local loader with named blocking roles and invalid advancement links. Incomplete inputs cannot yield ready. Query and mutation-context parity, all role-kind states, own/successor readiness loss and no side effects; record the real sign-off integration as Story 4 acceptance, not already tested.
+- [x] **Readers and pagination:** Thirteen-row outline with words/counts/previews, usage notice and version; full Shown Set policy with feedback groups, carried selections, history and server Outdated/challenge; paginated Batches and live/frozen Summary with stable ordering. Shared createReadBudget accounts for authorization and all joins. Incomplete challenges cannot be approved. Summary pagination must never apply the 128-item prompt ceiling. Cross-scope IDs and cursor parameters are validated.
+- [x] **Events and learning reader:** Closed text-free event schema, actor and role enforcement, view dedupe, immutable first exposure and first eligible feedback score even after withdrawal. Exact AD-39 cohort, development/cancel exclusions, firm-time half-open periods, cross-window joins and incomplete flags. Include request/cost, viewed/selected/edited, feedback, regenerate, stale dispositions/durations, sign-offs/active time and latency measurements; no provider calls. Reproduce build-sequence v1 trace, adding explicitly omitted prerequisite events to the fixture without changing the canonical file or expected results. Label seed generations excluded from draft-style digestion.
+- [x] **Security and lifecycle:** Each public mutation has report-edit authorization branches (owner, open assignment, manager/admin; closed/unrelated/creator-only/anonymous/roleless denied), expected-version and closed-stage cases. Reads require existing project-read access; health remains admin-only. Cancel bypasses every open episode without changing established cancellation semantics. Prove no report/proposal/Brief or Summary writes from decisions.
+- [x] **Gate and reviews:** Run focused suites, then `bash scripts/loop-verify.sh`. Three independent gpt-6-astra medium layers (blind, edge, verification gap) review against baseline; triage and correct material findings, then reverify. No component suite unless component scope changes.
 
 ## Verification and Delivery
 
@@ -111,8 +111,35 @@ At completion present concrete verified code, test results and review dispositio
 
 ## Execution Notes
 
-Prepared using the user-confirmed agent-tree setup. Story 2 baseline is PR #20, commit 7aa4ad20b0bdaf810db145abbcb436c6d2d82d99, with local nine-step gate, both CI suites and Greptile 5/5. The independent Story 2 review lead assigned approval-relative prefetch selection to this story; it is explicitly covered above. No Story 3 production code has been changed.
+Prepared using the user-confirmed agent-tree setup. Story 2 baseline is PR #20, commit 7aa4ad20b0bdaf810db145abbcb436c6d2d82d99, with local nine-step gate, both CI suites and Greptile 5/5. The independent Story 2 review lead assigned approval-relative prefetch selection to this story; it is explicitly covered above. This checkpoint was prepared before implementation. The owner subsequently approved implementation below.
 
 ## Checkpoint Review
 
 Independent `gpt-6-astra` medium review found one material contract mismatch between AD-33 field ownership and AD-39 approval scoring. Resolution 6 now proposes the narrow owner-approved reconciliation and write-spy witnesses explicitly. Re-review found the checkpoint ready for owner approval with no remaining material findings. Evidence: `.git-local-evidence/story3-spec-review.md`. This is specification review only; no production implementation or test execution is claimed.
+
+Owner approved implementation and the six reviewed resolutions with “continue work now” after the checkpoint Greploop reached 5/5 on e991615. Implementation began on 2026-09-18; the done checkpoint remains in force.
+
+
+## Implementation record
+
+The public seed decision API, complete revision/readiness helpers, paginated readers, and bounded learning-health query are implemented. Normal reservations remain on the legacy sections workflow; this story adds no UI, sign-off endpoint, Summary writer, prose writer, dependency change, generated-file edit, or native ledger change.
+
+- Decision calculations use one 8 MiB budget, separate from the model snapshot's 128-row limit. Incomplete mutations fail with the affected role and `SEED_PROCESSING_LIMIT`; readers disclose truncation and never issue an incomplete challenge. Approval payloads also respect Convex document/array processing limits.
+- The shared selection insertion helper creates `selected=false` for edits, and records canonical ordering metadata. Complete readers load revision ancestry; public-mutation tests cover ordering without manufacturing keys.
+- Edits preserve original bullets and support provenance. The edit event uses the existing linear word-multiset distance signal rather than quadratic character distance.
+- Feedback outcomes are written once by approval. Tests cover reapproval after selection changes and withdrawal, as well as feedback becoming Outdated solely because an unselected target's wording changed.
+- Optional prefetch shares the decision read budget and validates before attempt writes. Skipped selections are removed before prompt row limits. Approval survives known pre-write context overflow.
+- Failure restoration delegates episode writes to the existing AD-36 helper inside the same transaction. `pendingApprovalReasons` stores bounded causal evidence while generating; an episode opens only when restoring approved actually makes the Stale predicate true. Success, restored context, own approval withdrawal, skip and cancellation clear pending evidence. Existing episodes remain unique. An older attempt lacking this metadata uses an empty reason list to mean unknown provenance, not proof that no role changed. No complete decision reread is added to mandatory failure settlement. The Astra review lead confirmed this lifecycle delegation is implementation reconciliation of the approved semantics, not a new state or permission rule.
+
+The initial complete verification gate passed all nine steps (212 test files / 3,069 tests). Three independent `gpt-6-astra` medium layers then found three concrete defects and four missing regression witnesses. All were accepted for correction or coverage; no finding was dismissed to obtain a clean result. Local review reports, triage, byte manifests and gate logs are retained under `.git-local-evidence/`. Corrected-artifact verification and final reviewer dispositions are recorded below.
+
+The actual sign-off/query race witness remains Story 4 acceptance. Story 3 tests the same transaction-local readiness loader from a mutation context and proves decision changes cannot write placeholder Summaries.
+
+
+## Done-checkpoint evidence
+
+All three independent Astra medium review layers are clear after corrections. Blind and edge review closed the failure-restoration, incomplete Batch join, and partial history cursor defects. Verification-gap review closed immutable scoring, producer-written stale facts, target-only feedback Outdated, and production selection-order coverage. Its final follow-up restored the separate 130-item live Summary witness alongside the production-ordering test; the 135-item frozen Summary witness remains separate.
+
+Correction checks passed: lifecycle and attempt suites (62 tests), approval integration suite (15 tests), and reader suite including the restored limit witness (9 tests). Counts overlap with larger runs and are not additive. The initial and corrected full-gate logs, final combined gate, review reports, triage and exact artifact manifests are retained locally. The final combined command remains `bash scripts/loop-verify.sh`; no component suite is required because no component changed.
+
+Implementation is ready for the owner's done checkpoint. A local reviewed commit may preserve the result; publication of implementation to PR #21 against `feat/seeds-2-pipeline` remains pending that checkpoint. No merge or main-branch push is authorized. Sign-off itself and its real query/mutation race proof remain Story 4 work.
