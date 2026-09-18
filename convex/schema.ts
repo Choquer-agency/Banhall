@@ -126,6 +126,12 @@ export default defineSchema({
     // only — no workflow, ownership, or outcome coupling crosses it. Set once
     // at creation by reviewFromProject.createReviewFromProject.
     sourceProjectId: v.optional(v.id("projects")),
+    // Story 0 (AD-19) deletion barrier. Set once by projects.deleteProject in
+    // the transaction that decrements the dashboard bucket and terminalizes
+    // live generation work; the paginated purge then owns the row until it
+    // deletes it last. Async writers (candidate/section claims, post-QA)
+    // return early when it is set. Never cleared, never backfilled.
+    deletionStartedAt: v.optional(v.number()),
     // PSOS-07 widen phase. Owner is durable accountability and never replaces
     // immutable createdBy. Human workflow remains separate from legacy status
     // and technical generation state. PSOS-08 owns backfill.
@@ -209,6 +215,9 @@ export default defineSchema({
     .index("by_createdAt", ["createdAt"])
     .index("by_updatedAt", ["updatedAt"])
     .index("by_lastViewedAt", ["lastViewedAt"])
+    // Story 0 (AD-19): review projects pointing at a deleted source are
+    // detached by the purge's final page through this range.
+    .index("by_sourceProjectId", ["sourceProjectId"])
     .searchIndex("search_dashboardSearchText", {
       searchField: "dashboardSearchText",
       filterFields: ["workflowStage", "ownerId", "industry", "scienceCode"],
@@ -876,7 +885,8 @@ export default defineSchema({
     createdAt: v.number(),
   })
     .index("by_reportId", ["reportId"])
-    .index("by_agentThreadId", ["agentThreadId"]),
+    .index("by_agentThreadId", ["agentThreadId"])
+    .index("by_projectId", ["projectId"]),
 
   // The agent UIMessage cannot durably express turn start/end, so app-owned
   // timing keeps queued and terminal states stable across reloads and races.
@@ -923,7 +933,9 @@ export default defineSchema({
     })),
     vote: v.union(v.literal(1), v.literal(-1)),
     createdAt: v.number(),
-  }).index("by_turnId_and_userId", ["turnId", "userId"]),
+  })
+    .index("by_turnId_and_userId", ["turnId", "userId"])
+    .index("by_projectId", ["projectId"]),
 
   // One row per tool call the assistant makes (proposeEdit / proposeReplacements
   // / highlightPassages). Same lifecycle semantics as chatMessages.proposedEdit.
@@ -979,7 +991,8 @@ export default defineSchema({
       "agentThreadId",
       "promptMessageId",
     ])
-    .index("by_agentThreadId_and_toolCallId", ["agentThreadId", "toolCallId"]),
+    .index("by_agentThreadId_and_toolCallId", ["agentThreadId", "toolCallId"])
+    .index("by_projectId", ["projectId"]),
 
   // Story 5 (CAP-13, AD-28): the Completion Report. One child row per item of a
   // Coordinated Revision, written ONLY by internal.chatV2.saveProposal in the
@@ -1255,7 +1268,8 @@ export default defineSchema({
     completedAt: v.optional(v.number()),
   })
     .index("by_reportId", ["reportId"])
-    .index("by_reportId_and_requestedBy", ["reportId", "requestedBy"]),
+    .index("by_reportId_and_requestedBy", ["reportId", "requestedBy"])
+    .index("by_projectId", ["projectId"]),
 
   researchRuns: defineTable({
     sessionId: v.id("researchSessions"),
@@ -1282,7 +1296,8 @@ export default defineSchema({
     completedAt: v.optional(v.number()),
   })
     .index("by_sessionId", ["sessionId"])
-    .index("by_sessionId_and_provider", ["sessionId", "provider"]),
+    .index("by_sessionId_and_provider", ["sessionId", "provider"])
+    .index("by_projectId", ["projectId"]),
 
   researchSources: defineTable({
     sessionId: v.id("researchSessions"),
@@ -1307,7 +1322,9 @@ export default defineSchema({
       v.literal("brain_pattern")
     ),
     createdAt: v.number(),
-  }).index("by_sessionId", ["sessionId"]),
+  })
+    .index("by_sessionId", ["sessionId"])
+    .index("by_projectId", ["projectId"]),
 
   researchClaims: defineTable({
     sessionId: v.id("researchSessions"),
@@ -1326,7 +1343,9 @@ export default defineSchema({
     ),
     sourceIds: v.array(v.id("researchSources")),
     createdAt: v.number(),
-  }).index("by_sessionId", ["sessionId"]),
+  })
+    .index("by_sessionId", ["sessionId"])
+    .index("by_projectId", ["projectId"]),
 
   // ─── Error reporting (in-app "we noticed an error" + manual flag) ──────────
   // One row per reported issue. Captures everything Claude Code needs to debug:
@@ -1503,7 +1522,8 @@ export default defineSchema({
     .index("by_generationId", ["generationId"])
     .index("by_generationId_and_candidateId", ["generationId", "candidateId"])
     .index("by_generationId_and_model", ["generationId", "model"])
-    .index("by_status_and_startedAt", ["status", "startedAt"]),
+    .index("by_status_and_startedAt", ["status", "startedAt"])
+    .index("by_projectId", ["projectId"]),
 
   // ─── Iterative (section-by-section) generation ─────────────────────────────
   // One row per T661 section per generation. The writer reviews/edits/approves
@@ -1546,7 +1566,8 @@ export default defineSchema({
   })
     .index("by_generationId", ["generationId"])
     .index("by_generationId_and_section", ["generationId", "section"])
-    .index("by_candidateRunId_and_section", ["candidateRunId", "section"]),
+    .index("by_candidateRunId_and_section", ["candidateRunId", "section"])
+    .index("by_projectId", ["projectId"]),
 
   // Frozen per-generation artifacts for the iterative flow (analysis JSON,
   // brain-block JSON). Kept out of the live-subscribed generations row so the
@@ -1915,7 +1936,10 @@ export default defineSchema({
     reviewedBy: v.optional(v.string()),
     reviewNote: v.optional(v.string()),
     createdAt: v.number(),
-  }).index("by_status", ["status"]),
+  })
+    .index("by_status", ["status"])
+    // Story 0 (AD-19): project deletion detaches the optional project link.
+    .index("by_projectId", ["projectId"]),
 
   // BNH-39: full audit trail + revert log. Every approve/revoke/reweight/unlearn
   // is recorded so the admin can see (and undo) what changed the Brain.
@@ -1978,7 +2002,9 @@ export default defineSchema({
     editRatio: v.number(),
     userId: v.optional(v.id("users")),
     createdAt: v.number(),
-  }).index("by_generationId", ["generationId"]),
+  })
+    .index("by_generationId", ["generationId"])
+    .index("by_projectId", ["projectId"]),
 
   learningDigests: defineTable({
     kind: v.union(v.literal("qa_calibration"), v.literal("draft_style")),
@@ -2199,7 +2225,8 @@ export default defineSchema({
     reviewNote: v.optional(v.string()),
     // 2026-08-18 amendment — historical projects ported from ingestion.
     // Navigational association only (like projects.sourceProjectId); widen
-    // fields, no backfill, no index. Set by ingestionPort.portItemToProject.
+    // fields, no backfill. Set by ingestionPort.portItemToProject. Indexed
+    // since story 0 (AD-19) so project deletion can detach it without a scan.
     portedProjectId: v.optional(v.id("projects")),
     portedDocumentId: v.optional(v.id("projectDocuments")),
     portedAt: v.optional(v.number()),
@@ -2223,7 +2250,8 @@ export default defineSchema({
     .index("by_driveItemId", ["driveItemId"])
     .index("by_status", ["status"])
     .index("by_pairGroupKey", ["pairGroupKey"])
-    .index("by_pairStatus", ["pairStatus"]),
+    .index("by_pairStatus", ["pairStatus"])
+    .index("by_portedProjectId", ["portedProjectId"]),
 
   // ─── Story 1 (CAP-1/2/4): Generation Brief ────────────────────────────────
   // Stores the Brief: Storyline, Claim Exclusions, Confidence Map, Glossary Terms.
@@ -2347,7 +2375,8 @@ export default defineSchema({
     edited: v.optional(v.boolean()),
     createdAt: v.number(),
   })
-    .index("by_briefId", ["briefId"]),
+    .index("by_briefId", ["briefId"])
+    .index("by_projectId", ["projectId"]),
 
   // Story 2 (CAP-7, AD-25): one row per Self-check / consistency decision for
   // one section of one generation (and, per candidate, its candidateRunId).
@@ -2364,7 +2393,8 @@ export default defineSchema({
       "generationId",
       "candidateRunId",
       "section",
-    ]),
+    ])
+    .index("by_projectId", ["projectId"]),
 
   // Story 3 (CAP-8, AD-26/27): the House Rule categories a settings document
   // legislates, from the PSOS-50 style classifier, cached so a document costs

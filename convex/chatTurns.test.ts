@@ -682,7 +682,9 @@ describe("chat turn lifecycle", () => {
   });
 
   test("transitions queued to running to completed", async () => {
-    const { t } = await setup();
+    const setupResult = await setup();
+    const { t } = setupResult;
+    await insertMappedThread(setupResult, "thread-lifecycle");
     await insertTurn(t, {
       agentThreadId: "thread-lifecycle",
       promptMessageId: "prompt-lifecycle",
@@ -726,7 +728,9 @@ describe("chat turn lifecycle", () => {
   });
 
   test("repeated starts and finishes are idempotent", async () => {
-    const { t } = await setup();
+    const setupResult = await setup();
+    const { t } = setupResult;
+    await insertMappedThread(setupResult, "thread-idempotent");
     await insertTurn(t, {
       agentThreadId: "thread-idempotent",
       promptMessageId: "prompt-idempotent",
@@ -789,7 +793,9 @@ describe("chat turn lifecycle", () => {
   });
 
   test("finalizes a failed turn with a normalized step count", async () => {
-    const { t } = await setup();
+    const setupResult = await setup();
+    const { t } = setupResult;
+    await insertMappedThread(setupResult, "thread-failed");
     await insertTurn(t, {
       agentThreadId: "thread-failed",
       promptMessageId: "prompt-failed",
@@ -1040,7 +1046,9 @@ describe("failStaleChatTurns", () => {
   const MINUTES = 60 * 1000;
 
   test("fails stuck queued/running turns past the cutoff, leaves fresh and terminal turns", async () => {
-    const { t } = await setup();
+    const setupResult = await setup();
+    const { t } = setupResult;
+    await insertMappedThread(setupResult, "thread-reaper");
     const base = Date.now();
     // Stale rows: created (and started) 20 minutes before the sweep runs. A
     // queued row has no startedAt — it ages from _creationTime.

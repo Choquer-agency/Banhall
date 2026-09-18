@@ -196,6 +196,9 @@ export const logUsage = internalMutation({
     }
 
     const project = projectId ? await ctx.db.get(projectId) : null;
+    if (projectId && (!project || project.deletionStartedAt !== undefined)) {
+      projectId = undefined;
+    }
     let userId = candidateUserId
       ? (ctx.db.normalizeId("users", candidateUserId) ?? undefined)
       : undefined;

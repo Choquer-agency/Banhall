@@ -16,6 +16,7 @@ import {
   domainError,
   sha256,
 } from "./lib/contracts";
+import { isProjectDeleting } from "./lib/projectDeletion";
 import { extractPlainText } from "./lib/reportEdits";
 import { computeEditDistance } from "./lib/editDistance";
 import { normalizeCraScienceCode } from "../shared/craScienceCodes";
@@ -85,6 +86,9 @@ export const createProvenance = internalMutation({
     claims: v.array(claimCitationValidator),
   },
   handler: async (ctx, args) => {
+    if (await isProjectDeleting(ctx, args.projectId)) {
+      domainError("INVALID_STATE", "Project is being deleted");
+    }
     assertBoundedCitations(args.claims);
     const contentHash = await sha256(args.content);
     const reportText = extractPlainText(args.content);

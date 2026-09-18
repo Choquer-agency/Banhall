@@ -7,8 +7,17 @@ import {
   type MutationCtx,
 } from "./_generated/server";
 import { v } from "convex/values";
+import type { GenericDatabaseWriter, GenericDataModel, GenericDocument } from "convex/server";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
+import {
+  PROJECT_ERASURE_REGISTRY_VERSION,
+  PROJECT_SCOPED_TABLES,
+  PROJECT_SELF_REFERENCE,
+  type ProjectScopedChild,
+  type ProjectScopedTable,
+} from "./lib/projectScopedTables";
+import { deleteStorageIfUnreferenced } from "./lib/storage";
 import {
   getInternalProjectAccessOrNull,
   getFilingReadiness,
@@ -420,7 +429,7 @@ export const backfillProjectNumberLetters = internalMutation({
 
     const groups = new Map<string, typeof projects>();
     for (const project of projects) {
-      if (!project.projectNumber) continue;
+      if (project.deletionStartedAt !== undefined || !project.projectNumber) continue;
       const lower = project.projectNumber.toLowerCase();
       const match = lower.match(/^([0-9]+)([a-z]?)$/);
       if (!match) {
@@ -575,7 +584,7 @@ export const bulkUpdateProjects = mutation({
     const editsAll = user.role === "manager" || user.role === "admin";
     for (const projectId of projectIds) {
       const project = await ctx.db.get(projectId);
-      if (!project) {
+      if (!project || project.deletionStartedAt !== undefined) {
         skipped++;
         continue;
       }
@@ -642,7 +651,7 @@ export const getProjectByShareToken = query({
       .query("projects")
       .withIndex("by_shareToken", (q) => q.eq("shareToken", args.shareToken))
       .unique();
-    if (!project?.sharedReportId) return null;
+    if (!project?.sharedReportId || project.deletionStartedAt !== undefined) return null;
     const report = await ctx.db.get(project.sharedReportId);
     if (!report || report.projectId !== project._id) return null;
     return {
@@ -1206,20 +1215,236 @@ export const cleanupDeletedReportQaFindings = internalMutation({
   },
 });
 
+// ─── Story 0 (AD-19): project erasure ────────────────────────────────────────
+// deleteProject is the authorized entry: it refuses while open work exists,
+// stamps the deletion barrier, decrements the dashboard bucket once,
+// terminalizes live generation work, and hands off to purgeProjectPage,
+// which walks PROJECT_SCOPED_TABLES one paginated page per transaction and
+// deletes the project row last. Every page is idempotent and resumable: a
+// redelivered page re-reads its range and finds the rows it already removed
+// gone.
+
+/** Rows read per purge page (spec: `numItems ≤ 100`). */
+export const PROJECT_PURGE_PAGE_SIZE = 100;
+/**
+ * Rows written per purge transaction, across parents and their inline
+ * children. A page that hits it stops and reschedules itself with the same
+ * cursor; nothing it already deleted is read twice.
+ */
+export const PROJECT_PURGE_WRITE_BUDGET = 1000;
+/**
+ * Bytes one purge page may read. Transcripts, reports and snapshots carry
+ * whole documents per row, so a 100-row page could otherwise approach the
+ * transaction read limit before its continuation is scheduled.
+ */
+export const PROJECT_PURGE_MAX_BYTES_READ = 4 * 1024 * 1024;
+const CHILD_BATCH_SIZE = 100;
+/**
+ * Terminalization bounds. Generations are read by (projectId, status), so
+ * the limit is per live status; runs have no status-scoped index under a
+ * generation, so all of a generation's runs are read and filtered. Hitting
+ * a limit is logged with counts; rows beyond it stay fenced by the barrier
+ * and are purged with everything else (a continuation is deferred).
+ */
+const LIVE_GENERATION_LIMIT = 50;
+const LIVE_RUN_LIMIT = 500;
+const PROJECT_DELETED_ERROR = "Project deleted";
+/** Child tables whose rows a dedicated cleanup removes (registry `cleanup: "scheduled"`). */
+export const SCHEDULED_CHILD_CLEANUP_TABLES = ["qaFindings"] as const;
+
+/**
+ * Continuation args. The entry is named by (table, field), never by position
+ * alone: a registry edit deployed during an active purge must not make a
+ * page skip a table or replay a cursor against another index.
+ */
+type PurgePosition = {
+  registryVersion?: string;
+  entryIndex: number;
+  table: string;
+  field: string;
+  cursor: string | null;
+};
+/** The registry names tables and indexes as strings; the walk reads them generically. */
+type ErasureDb = GenericDatabaseWriter<GenericDataModel>;
+type ErasureId = Parameters<ErasureDb["delete"]>[0];
+const rowId = (row: GenericDocument) => row._id as ErasureId;
+
+/** Args for `PROJECT_SCOPED_TABLES[entryIndex]`, or the final self-reference page past the end. */
+export function purgePosition(entryIndex: number, cursor: string | null): PurgePosition {
+  const entry =
+    entryIndex < PROJECT_SCOPED_TABLES.length
+      ? PROJECT_SCOPED_TABLES[entryIndex]
+      : PROJECT_SELF_REFERENCE;
+  return { registryVersion: PROJECT_ERASURE_REGISTRY_VERSION, entryIndex, table: entry.table, field: entry.field, cursor };
+}
+
+/**
+ * Resolve a continuation against the registry as deployed now. The cursor is
+ * kept only when the named entry still sits at the index it was scheduled
+ * for (same table, field and therefore index range). An entry that moved
+ * restarts the whole walk; an entry that vanished restarts the whole
+ * walk, which is idempotent and only costs re-reading emptied ranges.
+ */
+function resolvePurgePosition(args: PurgePosition): PurgePosition | "finalize" {
+  // Check before the finalization sentinel too. Old scheduled jobs have no
+  // version and must restart, as must any changed ordering or cleanup rule.
+  if (args.registryVersion !== PROJECT_ERASURE_REGISTRY_VERSION) {
+    return purgePosition(0, null);
+  }
+  if (args.table === PROJECT_SELF_REFERENCE.table && args.field === PROJECT_SELF_REFERENCE.field) {
+    return "finalize";
+  }
+  const byName = PROJECT_SCOPED_TABLES.findIndex(
+    (entry) => entry.table === args.table && entry.field === args.field
+  );
+  if (byName < 0) {
+    console.warn("purgeProjectPage: registry entry no longer exists; restarting the walk", {
+      table: args.table,
+      field: args.field,
+    });
+    return purgePosition(0, null);
+  }
+  if (byName !== args.entryIndex) {
+    console.warn("purgeProjectPage: registry entry moved; restarting the walk", {
+      table: args.table,
+      field: args.field,
+      scheduledIndex: args.entryIndex,
+      currentIndex: byName,
+    });
+    return purgePosition(0, null);
+  }
+  return args;
+}
+
+async function schedulePurgePage(
+  ctx: MutationCtx,
+  projectId: Id<"projects">,
+  position: PurgePosition
+) {
+  await ctx.scheduler.runAfter(0, internal.projects.purgeProjectPage, {
+    projectId,
+    ...position,
+  });
+}
+
+async function cancelScheduledJob(
+  ctx: MutationCtx,
+  jobId: Id<"_scheduled_functions"> | undefined
+) {
+  if (!jobId) return;
+  try {
+    await ctx.scheduler.cancel(jobId);
+  } catch (error) {
+    // A job that already ran or was already canceled is not a reason to
+    // refuse the deletion.
+    console.warn("deleteProject: could not cancel scheduled job", jobId, error);
+  }
+}
+
+const LIVE_GENERATION_STATUSES = [
+  "reserved",
+  "running",
+  "awaiting_selection",
+  "awaiting_input",
+] as const;
+
+function warnIfTruncated(
+  what: string,
+  read: number,
+  limit: number,
+  context: Record<string, unknown>
+) {
+  if (read < limit) return;
+  console.warn(`deleteProject: ${what} limit reached; rows beyond it stay fenced by the barrier`, {
+    ...context,
+    read,
+    limit,
+  });
+}
+
+/**
+ * Fail every non-terminal generation, candidate run and section run of the
+ * project, invalidate a running post-QA attempt, and cancel their scheduled
+ * jobs, so no in-flight work outlives the barrier.
+ */
+async function terminalizeLiveGenerationWork(
+  ctx: MutationCtx,
+  projectId: Id<"projects">,
+  now: number
+) {
+  for (const status of LIVE_GENERATION_STATUSES) {
+    const generations = await ctx.db
+      .query("generations")
+      .withIndex("by_projectId_and_status", (q) =>
+        q.eq("projectId", projectId).eq("status", status)
+      )
+      .take(LIVE_GENERATION_LIMIT);
+    warnIfTruncated("live generation", generations.length, LIVE_GENERATION_LIMIT, { projectId, status });
+    for (const generation of generations) {
+      await cancelScheduledJob(ctx, generation.scheduledJobId);
+      await ctx.db.patch(generation._id, {
+        status: "failed",
+        completedAt: now,
+        error: PROJECT_DELETED_ERROR,
+        // A post-QA attempt in flight can no longer settle: saveReportQa
+        // refuses a non-running attempt (and consults the barrier besides).
+        ...(generation.postQaStatus === "running" ? { postQaStatus: "failed" as const } : {}),
+      });
+      const candidateRuns = await ctx.db
+        .query("generationCandidateRuns")
+        .withIndex("by_generationId", (q) => q.eq("generationId", generation._id))
+        .take(LIVE_RUN_LIMIT);
+      warnIfTruncated("candidate run", candidateRuns.length, LIVE_RUN_LIMIT, {
+        projectId,
+        generationId: generation._id,
+      });
+      for (const run of candidateRuns) {
+        if (run.status !== "queued" && run.status !== "running") continue;
+        await cancelScheduledJob(ctx, run.scheduledJobId);
+        await ctx.db.patch(run._id, {
+          status: "failed",
+          completedAt: now,
+          error: PROJECT_DELETED_ERROR,
+        });
+      }
+      const sectionRuns = await ctx.db
+        .query("generationSectionRuns")
+        .withIndex("by_generationId", (q) => q.eq("generationId", generation._id))
+        .take(LIVE_RUN_LIMIT);
+      warnIfTruncated("section run", sectionRuns.length, LIVE_RUN_LIMIT, {
+        projectId,
+        generationId: generation._id,
+      });
+      for (const run of sectionRuns) {
+        if (
+          run.status !== "pending" &&
+          run.status !== "queued" &&
+          run.status !== "running" &&
+          run.status !== "awaiting_review"
+        ) {
+          continue;
+        }
+        await ctx.db.patch(run._id, {
+          status: "failed",
+          completedAt: now,
+          error: PROJECT_DELETED_ERROR,
+        });
+      }
+    }
+  }
+}
+
 export const deleteProject = mutation({
   args: { projectId: v.id("projects") },
   handler: async (ctx, args) => {
-    const { project } = await requireProjectCreatorOrAdmin(ctx, args.projectId);
-    if (project.dashboardCompanyCounted === true) {
-      // Decrement the exact stage bucket the row occupied (2026-08-06
-      // second amendment): workflowStage ?? "legacy".
-      await upsertDashboardCompany(
-        ctx,
-        project.dashboardCompanyKey ?? projectDashboardProjectionPatch(project).dashboardCompanyKey,
-        project.clientName,
-        -1,
-        stageCountBucket(project.workflowStage)
-      );
+    const { project } = await requireProjectCreatorOrAdmin(ctx, args.projectId, { allowDeleting: true });
+    if (project.deletionStartedAt !== undefined) {
+      // The barrier is the idempotency key: the bucket was decremented and
+      // live work terminalized when it was set, so a repeat (double-click,
+      // retry after a lost continuation) only re-kicks the purge, which is
+      // itself a no-op for everything already gone.
+      await schedulePurgePage(ctx, args.projectId, purgePosition(0, null));
+      return;
     }
 
     const openWorkItem = await ctx.db
@@ -1235,53 +1460,199 @@ export const deleteProject = mutation({
       );
     }
 
-    // Delete related records
-    const transcripts = await ctx.db
-      .query("transcripts")
-      .withIndex("by_projectId", (q) => q.eq("projectId", args.projectId))
-      .collect();
-    for (const t of transcripts) await ctx.db.delete(t._id);
+    const now = Date.now();
+    // dashboardCompanyCounted flips off with the barrier: the row now outlives
+    // its decrement by a few transactions, and a stage change or client
+    // rename landing in that window must not move a bucket it no longer holds.
+    await ctx.db.patch(args.projectId, {
+      deletionStartedAt: now,
+      dashboardCompanyCounted: false,
+    });
+    if (project.dashboardCompanyCounted === true) {
+      // Decrement the exact stage bucket the row occupied (2026-08-06
+      // second amendment): workflowStage ?? "legacy".
+      await upsertDashboardCompany(
+        ctx,
+        project.dashboardCompanyKey ?? projectDashboardProjectionPatch(project).dashboardCompanyKey,
+        project.clientName,
+        -1,
+        stageCountBucket(project.workflowStage)
+      );
+    }
+    await terminalizeLiveGenerationWork(ctx, args.projectId, now);
+    await schedulePurgePage(ctx, args.projectId, purgePosition(0, null));
+  },
+});
 
-    const reports = await ctx.db
-      .query("reports")
-      .withIndex("by_projectId", (q) => q.eq("projectId", args.projectId))
-      .collect();
-    for (const r of reports) {
-      await ctx.db.delete(r._id);
-      await ctx.scheduler.runAfter(0, internal.projects.cleanupDeletedReportQaFindings, { reportId: r._id });
+async function scheduleChildCleanup(
+  ctx: MutationCtx,
+  child: ProjectScopedChild,
+  parentId: string
+) {
+  switch (child.table) {
+    case "qaFindings":
+      await ctx.scheduler.runAfter(0, internal.projects.cleanupDeletedReportQaFindings, {
+        reportId: parentId as Id<"reports">,
+      });
+      return;
+    default:
+      throw new Error(`No scheduled cleanup registered for ${child.table}`);
+  }
+}
+
+/**
+ * Delete one registry row with its inline children, within `budget` writes.
+ * Returns `deleted: false` when a child batch filled up or the budget ran
+ * out; the parent then stays in its index range, so the page that retries
+ * from the same cursor picks it up again.
+ */
+async function deleteRowWithChildren(
+  ctx: MutationCtx,
+  entry: ProjectScopedTable,
+  row: GenericDocument,
+  budget: number
+): Promise<{ deleted: boolean; writes: number }> {
+  const db = ctx.db as unknown as ErasureDb;
+  let writes = 0;
+  for (const child of entry.children ?? []) {
+    if (child.cleanup === "scheduled") continue;
+    const parentKey = row[child.parentField ?? "_id"];
+    if (parentKey === undefined) continue;
+    const limit = Math.min(CHILD_BATCH_SIZE, budget - writes);
+    if (limit <= 0) return { deleted: false, writes };
+    const children = await db
+      .query(child.table)
+      .withIndex(child.index, (q) => q.eq(child.field, parentKey))
+      .take(limit);
+    for (const childRow of children) {
+      await db.delete(rowId(childRow));
+      writes += 1;
+    }
+    if (children.length === limit) return { deleted: false, writes };
+  }
+  if (writes >= budget) return { deleted: false, writes };
+  await db.delete(rowId(row));
+  writes += 1;
+  if (entry.blob) {
+    const storageId = row[entry.blob];
+    // Same transaction as the row delete, so the reference check sees it gone.
+    if (typeof storageId === "string") {
+      await deleteStorageIfUnreferenced(ctx, storageId as Id<"_storage">);
+    }
+  }
+  for (const child of entry.children ?? []) {
+    if (child.cleanup === "scheduled") await scheduleChildCleanup(ctx, child, rowId(row));
+  }
+  return { deleted: true, writes };
+}
+
+/** The final page: detach review projects from the source, then delete the row. */
+async function finalizeProjectPurge(
+  ctx: MutationCtx,
+  projectId: Id<"projects">,
+  position: PurgePosition
+) {
+  const referrers = await ctx.db
+    .query(PROJECT_SELF_REFERENCE.table)
+    .withIndex(PROJECT_SELF_REFERENCE.index, (q) =>
+      q.eq(PROJECT_SELF_REFERENCE.field, projectId)
+    )
+    .paginate({
+      cursor: position.cursor,
+      numItems: PROJECT_PURGE_PAGE_SIZE,
+      maximumBytesRead: PROJECT_PURGE_MAX_BYTES_READ,
+    });
+  for (const referrer of referrers.page) {
+    await ctx.db.patch(referrer._id, { [PROJECT_SELF_REFERENCE.field]: undefined });
+  }
+  if (!referrers.isDone) {
+    await schedulePurgePage(ctx, projectId, { ...position, cursor: referrers.continueCursor });
+    return;
+  }
+  await ctx.db.delete(projectId);
+}
+
+/**
+ * One purge page: the registry entry named by `table`/`field` from `cursor`.
+ * Runs only behind the barrier; refuses (without writing) on a project that
+ * never entered deletion, and is a no-op once the project row is gone.
+ */
+export const purgeProjectPage = internalMutation({
+  args: {
+    projectId: v.id("projects"),
+    registryVersion: v.optional(v.string()),
+    entryIndex: v.number(),
+    table: v.string(),
+    field: v.string(),
+    cursor: v.union(v.string(), v.null()),
+  },
+  handler: async (ctx, args) => {
+    const project = await ctx.db.get(args.projectId);
+    if (!project) return null;
+    if (project.deletionStartedAt === undefined) {
+      console.warn("purgeProjectPage: project has no deletion barrier; refusing", args.projectId);
+      return null;
+    }
+    const resolved = resolvePurgePosition(args);
+    if (resolved === "finalize") {
+      await finalizeProjectPurge(ctx, args.projectId, args);
+      return null;
+    }
+    const position = resolved;
+    const entry: ProjectScopedTable = PROJECT_SCOPED_TABLES[position.entryIndex];
+    const nextEntry = purgePosition(position.entryIndex + 1, null);
+    if (entry.disposition === "keep" || entry.index === undefined) {
+      await schedulePurgePage(ctx, args.projectId, nextEntry);
+      return null;
     }
 
-    const comments = await ctx.db
-      .query("comments")
-      .withIndex("by_projectId", (q) => q.eq("projectId", args.projectId))
-      .collect();
-    for (const c of comments) await ctx.db.delete(c._id);
+    const db = ctx.db as unknown as ErasureDb;
+    const page = await db
+      .query(entry.table)
+      .withIndex(entry.index, (q) => q.eq(entry.field, args.projectId))
+      .paginate({
+        cursor: position.cursor,
+        numItems: PROJECT_PURGE_PAGE_SIZE,
+        maximumBytesRead: PROJECT_PURGE_MAX_BYTES_READ,
+      });
 
-    const generations = await ctx.db
-      .query("generations")
-      .withIndex("by_projectId", (q) => q.eq("projectId", args.projectId))
-      .collect();
-    for (const g of generations) await ctx.db.delete(g._id);
+    let writes = 0;
+    let budgetExhausted = false;
+    for (const row of page.page) {
+      if (writes >= PROJECT_PURGE_WRITE_BUDGET) {
+        budgetExhausted = true;
+        break;
+      }
+      if (entry.disposition === "detach") {
+        const patch: Record<string, undefined> = { [entry.field]: undefined };
+        for (const sibling of entry.clearWith ?? []) patch[sibling] = undefined;
+        await db.patch(rowId(row), patch);
+        writes += 1;
+        continue;
+      }
+      const result = await deleteRowWithChildren(
+        ctx,
+        entry,
+        row,
+        PROJECT_PURGE_WRITE_BUDGET - writes
+      );
+      writes += result.writes;
+      if (!result.deleted) {
+        budgetExhausted = true;
+        break;
+      }
+    }
 
-    const commenters = await ctx.db
-      .query("commenters")
-      .withIndex("by_projectId", (q) => q.eq("projectId", args.projectId))
-      .collect();
-    for (const c of commenters) await ctx.db.delete(c._id);
-
-    const pdReviews = await ctx.db
-      .query("pdReviews")
-      .withIndex("by_projectId", (q) => q.eq("projectId", args.projectId))
-      .collect();
-    for (const r of pdReviews) await ctx.db.delete(r._id);
-
-    const pdReviewEvents = await ctx.db
-      .query("pdReviewEvents")
-      .withIndex("by_projectId", (q) => q.eq("projectId", args.projectId))
-      .collect();
-    for (const e of pdReviewEvents) await ctx.db.delete(e._id);
-
-    await ctx.db.delete(args.projectId);
+    if (budgetExhausted) {
+      // Same cursor: everything this page removed has left the range, and a
+      // parent kept back for remaining children is still in it.
+      await schedulePurgePage(ctx, args.projectId, position);
+    } else if (!page.isDone) {
+      await schedulePurgePage(ctx, args.projectId, { ...position, cursor: page.continueCursor });
+    } else {
+      await schedulePurgePage(ctx, args.projectId, nextEntry);
+    }
+    return null;
   },
 });
 

@@ -29,6 +29,14 @@ export const runReportQa = internalAction({
       generationId: args.generationId,
     });
     if (!attempt || (args.attemptStartedAt !== undefined && args.attemptStartedAt !== attempt.startedAt)) return;
+    // Story 0 (AD-19) deletion barrier: a pass scheduled before the project
+    // entered deletion returns here, before any provider call or write.
+    if (attempt.projectDeleting) {
+      console.log("runReportQa: project is being deleted; pass skipped", {
+        generationId: args.generationId,
+      });
+      return;
+    }
     const attemptStartedAt = attempt.startedAt;
     const input = await ctx.runQuery(internal.generations.getPostQaInput, {
       generationId: args.generationId,

@@ -29,6 +29,7 @@ import { requireEligibleProjectOwner } from "./lib/eligibleOwner";
 import { deleteOversightForItem, syncOversightForItem } from "./lib/workItemOversight";
 import { patchProjectWorkflowStage } from "./lib/dashboardProjection";
 import { findWorkflowTransition } from "../shared/workflowTransitions";
+import { isProjectDeleting } from "./lib/projectDeletion";
 
 function validateVersion(expectedVersion: number) {
   if (!Number.isInteger(expectedVersion) || expectedVersion < 0) {
@@ -126,6 +127,9 @@ async function requireOpenItem(ctx: MutationCtx, workItemId: Id<"workItems">) {
   if (!item) domainError("NOT_FOUND", "Work item not found");
   const project = await ctx.db.get(item.projectId);
   if (!project) domainError("NOT_FOUND", "Project not found");
+  if (await isProjectDeleting(ctx, project._id)) {
+    domainError("NOT_FOUND", "Project not found");
+  }
   return { item, project };
 }
 
@@ -181,6 +185,9 @@ export const create = mutation({
     const { user } = await requireCapability(ctx, "workItem.create", {
       ownedBy: project.ownerId ? [project.ownerId] : [],
     });
+    if (await isProjectDeleting(ctx, project._id)) {
+      domainError("NOT_FOUND", "Project not found");
+    }
     if (args.kind === "financial" && user.role !== "manager" && user.role !== "admin") {
       domainError("NOT_AUTHORIZED", "Only a Manager or Administrator can create financial work items");
     }

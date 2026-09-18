@@ -34,6 +34,7 @@ import {
 } from "../shared/generationModels";
 import { randomComparePair, resolveCompareModels } from "./ai/model";
 import { findActiveGeneration } from "./lib/activeGeneration";
+import { isProjectDeleting } from "./lib/projectDeletion";
 import { analyzerContextBudget, defaultModelId } from "./appSettings";
 import { sourceInclusion } from "./ai/trustedContext";
 import {
@@ -787,7 +788,7 @@ export const beginGeneration = internalMutation({
       throw new Error("Invalid promptVersion hash");
     }
     const project = await ctx.db.get(generation.projectId);
-    if (!project || project.activeGenerationId !== generation._id) return false;
+    if (!project || project.deletionStartedAt !== undefined || project.activeGenerationId !== generation._id) return false;
     await ctx.db.patch(generation._id, {
       status: "running",
       // A present digest array is the new-reservation marker. Legacy reserved
@@ -858,7 +859,7 @@ export const getGenerationInput = internalQuery({
     const generation = await ctx.db.get(args.generationId);
     if (!generation) return null;
     const project = await ctx.db.get(generation.projectId);
-    if (!project || project.activeGenerationId !== generation._id) return null;
+    if (!project || project.deletionStartedAt !== undefined || project.activeGenerationId !== generation._id) return null;
     const sources = await ctx.db
       .query("generationSources")
       .withIndex("by_generationId", (q) => q.eq("generationId", generation._id))
@@ -1099,6 +1100,7 @@ export const createCandidateRun = internalMutation({
   handler: async (ctx, args) => {
     const generation = await ctx.db.get(args.generationId);
     if (!generation || generation.status !== "running") return null;
+    if (await isProjectDeleting(ctx, generation.projectId)) return null;
     const existing = await ctx.db
       .query("generationCandidateRuns")
       .withIndex("by_generationId_and_model", (q) =>
@@ -1136,6 +1138,15 @@ export const claimCandidateRun = internalMutation({
   handler: async (ctx, args) => {
     const run = await ctx.db.get(args.candidateRunId);
     if (!run || run.status !== "queued") return null;
+    // Story 0 (AD-19): a claim scheduled before the project entered deletion
+    // must not repopulate it. Narrate and return without writing.
+    if (await isProjectDeleting(ctx, run.projectId)) {
+      console.log("claimCandidateRun: project is being deleted; run left unclaimed", {
+        projectId: run.projectId,
+        candidateRunId: run._id,
+      });
+      return null;
+    }
     const generation = await ctx.db.get(run.generationId);
     const project = await ctx.db.get(run.projectId);
     // Ghost runs draft in parallel with the iterative section flow, whose
@@ -1147,6 +1158,7 @@ export const claimCandidateRun = internalMutation({
       !generation ||
       !activeStatuses.includes(generation.status) ||
       !project ||
+      project.deletionStartedAt !== undefined ||
       project.activeGenerationId !== generation._id
     ) {
       return null;
@@ -1261,6 +1273,7 @@ async function settleCandidateRun(
 ) {
     const run = await ctx.db.get(args.candidateRunId);
     if (!run || run.status !== "running") return;
+    if (await isProjectDeleting(ctx, run.projectId)) return;
     const generation = await ctx.db.get(run.generationId);
     const project = await ctx.db.get(run.projectId);
     const succeeded = Boolean(args.content && args.agentOutputs && !args.error);
@@ -1564,6 +1577,8 @@ export const saveIterativeArtifacts = internalMutation({
     brainBlocks: v.string(),
   },
   handler: async (ctx, args) => {
+    const generation = await ctx.db.get(args.generationId);
+    if (!generation || await isProjectDeleting(ctx, generation.projectId)) return;
     for (const [kind, content] of [
       ["analysis", args.analysis],
       ["brain_blocks", args.brainBlocks],
@@ -2037,6 +2052,13 @@ export const persistDerivedBrief = internalMutation({
   },
   returns: v.union(v.id("generationBriefs"), v.null()),
   handler: async (ctx, args) => {
+    if (await isProjectDeleting(ctx, args.projectId)) {
+      domainError("INVALID_STATE", "Project is being deleted");
+    }
+    const generation = await ctx.db.get(args.generationId);
+    if (!generation || generation.projectId !== args.projectId) {
+      domainError("NOT_FOUND", "Generation not found");
+    }
     const reusable = await latestBriefForInputs(
       ctx,
       args.projectId,
@@ -2216,6 +2238,7 @@ export const createSectionRuns = internalMutation({
   handler: async (ctx, args) => {
     const generation = await ctx.db.get(args.generationId);
     if (!generation || generation.status !== "running") return false;
+    if (await isProjectDeleting(ctx, generation.projectId)) return false;
     const now = Date.now();
     for (const section of SECTION_ORDER) {
       const existing = await getSectionRun(ctx, args.generationId, section);
@@ -2240,12 +2263,22 @@ export const claimSectionRun = internalMutation({
   handler: async (ctx, args) => {
     const run = await getSectionRun(ctx, args.generationId, args.section);
     if (!run || run.status !== "queued") return null;
+    // Story 0 (AD-19): see claimCandidateRun.
+    if (await isProjectDeleting(ctx, run.projectId)) {
+      console.log("claimSectionRun: project is being deleted; run left unclaimed", {
+        projectId: run.projectId,
+        generationId: run.generationId,
+        section: run.section,
+      });
+      return null;
+    }
     const generation = await ctx.db.get(run.generationId);
     const project = await ctx.db.get(run.projectId);
     if (
       !generation ||
       generation.status !== "running" ||
       !project ||
+      project.deletionStartedAt !== undefined ||
       project.activeGenerationId !== generation._id
     ) {
       return null;
@@ -2281,6 +2314,7 @@ export const completeSectionRun = internalMutation({
       !generation ||
       generation.status !== "running" ||
       !project ||
+      project.deletionStartedAt !== undefined ||
       project.activeGenerationId !== generation._id
     ) {
       return;
@@ -2316,6 +2350,7 @@ export const failSectionRun = internalMutation({
     if (!run || (run.status !== "running" && run.status !== "queued")) return;
     const generation = await ctx.db.get(run.generationId);
     if (!generation) return;
+    if (await isProjectDeleting(ctx, generation.projectId)) return;
     await ctx.db.patch(run._id, {
       status: "failed",
       error: args.error.slice(0, 500),
@@ -2346,7 +2381,7 @@ export const getIterativeSectionInput = internalQuery({
     const generation = await ctx.db.get(args.generationId);
     if (!generation) return null;
     const project = await ctx.db.get(generation.projectId);
-    if (!project || project.activeGenerationId !== generation._id) return null;
+    if (!project || project.deletionStartedAt !== undefined || project.activeGenerationId !== generation._id) return null;
     const [analysisRow, brainRow] = await Promise.all([
       ctx.db
         .query("generationArtifacts")
@@ -2433,9 +2468,13 @@ export const getPostQaAttempt = internalQuery({
   args: { generationId: v.id("generations") },
   handler: async (ctx, args) => {
     const generation = await ctx.db.get(args.generationId);
-    return generation?.postQaStatus === "running"
-      ? { startedAt: generation.postQaStartedAt ?? null }
-      : null;
+    if (generation?.postQaStatus !== "running") return null;
+    return {
+      startedAt: generation.postQaStartedAt ?? null,
+      // Story 0 (AD-19): the post-QA action's entry reads this and returns
+      // without writing when the project entered deletion.
+      projectDeleting: await isProjectDeleting(ctx, generation.projectId),
+    };
   },
 });
 
@@ -2574,6 +2613,16 @@ export const saveReportQa = internalMutation({
   handler: async (ctx, args) => {
     const generation = await ctx.db.get(args.generationId);
     if (!generation) return;
+    // Story 0 (AD-19): a pass that started before the project entered
+    // deletion persists nothing — no findings, no status flip. The barrier
+    // fences the persistence side as well as the action's entry.
+    if (await isProjectDeleting(ctx, generation.projectId)) {
+      console.log("saveReportQa: project is being deleted; results discarded", {
+        projectId: generation.projectId,
+        generationId: generation._id,
+      });
+      return;
+    }
     // A delayed completion must not settle a replacement attempt or overwrite
     // results that have already completed, even when the report is unchanged.
     if (args.attemptStartedAt !== undefined &&
@@ -3710,6 +3759,7 @@ export const updateGenerationStatus = internalMutation({
     // action's own "running" patch would zombie the row while the project
     // pointer is already cleared.
     if (!generation || isTerminalGenerationStatus(generation.status)) return;
+    if (await isProjectDeleting(ctx, generation.projectId)) return;
     const updates: Record<string, unknown> = { status: args.status };
     if (args.currentStep !== undefined) updates.currentStep = args.currentStep;
     if (args.agentOutputs !== undefined)
@@ -4228,7 +4278,7 @@ async function orderedChainFence(
   const generation = await ctx.db.get(generationId);
   if (!generation || generation.status !== "running") return null;
   const project = await ctx.db.get(generation.projectId);
-  if (!project || project.activeGenerationId !== generation._id) return null;
+  if (!project || project.deletionStartedAt !== undefined || project.activeGenerationId !== generation._id) return null;
   return { run, generation, project };
 }
 

@@ -22,6 +22,7 @@ import {
   isTeamRosterMember,
   userDisplayLabel,
 } from "./lib/teamRoster";
+import { isProjectDeleting } from "./lib/projectDeletion";
 
 const totalsFields = {
   scanned: v.number(),
@@ -147,6 +148,7 @@ export const backfillOwnership = internalMutation({
     batch.scanned = page.page.length;
 
     for (const project of page.page) {
+      if (await isProjectDeleting(ctx, project._id)) continue;
       const patch: {
         ownerId?: typeof project.createdBy;
         ownerBackfillStatus?: "needs_review";
@@ -384,6 +386,9 @@ export const assignOwnerFromReview = mutation({
       getTeamRosterMemberOrNull(ctx, args.toUserId),
     ]);
     if (!project) domainError("NOT_FOUND", "Project not found");
+    if (await isProjectDeleting(ctx, project._id)) {
+      domainError("NOT_FOUND", "Project not found");
+    }
     if (project.ownerBackfillStatus !== "needs_review") {
       domainError("INVALID_STATE", "This project no longer needs ownership review");
     }
@@ -434,6 +439,9 @@ export const confirmFallbackOwner = mutation({
     await requireRole(ctx, ["admin"]);
     const project = await ctx.db.get(args.projectId);
     if (!project) domainError("NOT_FOUND", "Project not found");
+    if (await isProjectDeleting(ctx, project._id)) {
+      domainError("NOT_FOUND", "Project not found");
+    }
     if (project.ownerBackfillStatus !== "needs_review") {
       domainError("INVALID_STATE", "This project no longer needs ownership review");
     }
