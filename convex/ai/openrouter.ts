@@ -73,11 +73,13 @@ export async function openRouterChatCompletion(
     headers?: Record<string, string>;
     /** Per-attempt fetch timeout. Defaults to DEFAULT_TIMEOUT_MS. */
     timeoutMs?: number;
+    /** Transport retries. Defaults to the shared generation policy. */
+    maxRetries?: number;
   }
 ): Promise<ChatCompletionsResponse> {
   const apiKey = requireOpenRouterConfigured();
   const timeoutMs = input.timeoutMs ?? DEFAULT_TIMEOUT_MS;
-  const maxAttempts = OPENROUTER_MAX_RETRIES + 1;
+  const maxAttempts = (input.maxRetries ?? OPENROUTER_MAX_RETRIES) + 1;
   await recordGenerationHandoff(ctx, input.attribution);
   const startedAt = Date.now();
   let response!: Response;
@@ -188,14 +190,22 @@ export function instrumentedOpenRouter(
     projectId?: Id<"projects">;
     userId?: string;
     attribution?: GenerationAttribution;
-  }
+  },
+  options: {
+    timeoutMs?: number;
+    maxRetries?: number;
+    preserveMaxTokens?: boolean;
+  } = {}
 ): GenerationClient {
   return {
     messages: {
       create: async (params) => {
         const body = await openRouterChatCompletion(ctx, {
-          body: toChatCompletions(params),
+          body: toChatCompletions(params, {
+            preserveMaxTokens: options.preserveMaxTokens,
+          }),
           model: params.model,
+          ...options,
           ...meta,
         });
         return fromChatCompletions(body);

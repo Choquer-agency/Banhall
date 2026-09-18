@@ -10,13 +10,13 @@
 // is NEVER used as context for section drafting and never selectable as the
 // report.
 
-import { internalAction } from "../_generated/server";
+import { internalAction, type ActionCtx } from "../_generated/server";
 import { internal } from "../_generated/api";
 import { v } from "convex/values";
 import { instrumentedAnthropic } from "./instrument";
 import { clientForModel } from "./providers";
 import { runAnalyzerAgent, type TranscriptAnalysis } from "./analyzerAgent";
-import { runGenerationBriefStage } from "./brief";
+import { runGenerationBriefStage, deriveOrReuseBrief } from "./brief";
 import { runSection242Agent } from "./section242Agent";
 import { runSection244Agent } from "./section244Agent";
 import { runSection246Agent } from "./section246Agent";
@@ -60,6 +60,43 @@ const SECTION_TITLES: Record<IterativeSection, string> =
   ITERATIVE_SECTION_TITLES;
 
 export { ITERATIVE_PROMPT_SCAFFOLDS } from "./promptDefinitions";
+
+async function finishSeedInitialization(
+  ctx: ActionCtx,
+  generationId: Id<"generations">,
+  projectId: Id<"projects">,
+  model: string,
+  requestedBy?: Id<"users">
+): Promise<void> {
+  try {
+    const client = clientForModel(ctx, model, {
+      callSite: "generation:brief", projectId,
+      ...(requestedBy ? { userId: requestedBy } : {}),
+      attribution: { generationId },
+    });
+    const result = await deriveOrReuseBrief(ctx, client, {
+      projectId, generationId, model, seedStartup: true,
+    });
+    if (result.kind === "no_evidence") throw new Error("Frozen seed evidence is unavailable");
+    await ctx.runMutation(internal.generations.initializeSeedStage, { generationId });
+  } catch {
+    // This boundary never persists provider errors or source/model text.
+    await ctx.runMutation(internal.generations.recordSeedInitializationFailure, { generationId });
+  }
+}
+
+/** Retry only frozen Brief publication and row initialization, never analysis or retrieval. */
+export const resumeSeedInitialization = internalAction({
+  args: { generationId: v.id("generations") },
+  returns: v.null(),
+  handler: async (ctx, args): Promise<null> => {
+    const input = await ctx.runQuery(internal.generations.getGenerationInput, args);
+    if (!input || input.gatedWorkflow !== "seeds") return null;
+    const model = candidateModelsForMode("iterative", input.singleModelId)[0];
+    await finishSeedInitialization(ctx, args.generationId, input.projectId, model.id, input.requestedBy);
+    return null;
+  },
+});
 
 /**
  * One-time setup for an iterative generation: analyzer + Brain retrieval +
@@ -253,6 +290,11 @@ export const startIterativeGeneration = internalAction({
           styleOverrides: styleOverrides ?? NO_STYLE_OVERRIDES,
         }),
       });
+
+      if (input.gatedWorkflow === "seeds") {
+        await finishSeedInitialization(ctx, genId, projectId, model.id, input.requestedBy);
+        return;
+      }
 
       // Story 1 (CAP-1/2/4): derive or reuse the Generation Brief once,
       // shared by every section below. Never fatal — Brief is read-only

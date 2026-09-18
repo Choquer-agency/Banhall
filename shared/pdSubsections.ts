@@ -1,6 +1,15 @@
 export type PdSection = "s242" | "s244" | "s246";
 export type PdSubsectionKind = "standard" | "optional" | "multiple";
 
+export const SEED_TAG_DISPLAY_LABELS = {
+  conservative: "Conservative",
+  aggressive: "Aggressive",
+  high_level: "High level",
+  detailed: "Detailed",
+  technical: "Technical",
+  alternative_angle: "Alternative angle",
+} as const;
+
 type PdSubsectionDefinition = {
   readonly roleId: string;
   readonly section: PdSection;

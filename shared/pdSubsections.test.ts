@@ -5,8 +5,10 @@ import {
   buildSection244SystemPrompt,
   buildSection246SystemPrompt,
 } from "../convex/ai/prompts";
+import { SEED_TAGS } from "../convex/lib/seedContract";
 import {
   PD_SUBSECTIONS,
+  SEED_TAG_DISPLAY_LABELS,
   pdSubsectionRoleList,
   pdSubsectionsForSection,
 } from "./pdSubsections";
@@ -76,6 +78,18 @@ const EXPECTED_SUBSECTIONS = [
 ] as const;
 
 describe("PD_SUBSECTIONS", () => {
+  it("provides display labels for the closed seed tag vocabulary", () => {
+    expect(SEED_TAG_DISPLAY_LABELS).toEqual({
+      conservative: "Conservative",
+      aggressive: "Aggressive",
+      high_level: "High level",
+      detailed: "Detailed",
+      technical: "Technical",
+      alternative_angle: "Alternative angle",
+    });
+    expect(Object.keys(SEED_TAG_DISPLAY_LABELS)).toEqual([...SEED_TAGS]);
+  });
+
   it("matches the canonical role, display-title, section, order, and kind bijection", () => {
     expect(
       PD_SUBSECTIONS.map(({ order, section, roleId, title, kind }) => [

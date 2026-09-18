@@ -35,6 +35,9 @@ import {
 import { randomComparePair, resolveCompareModels } from "./ai/model";
 import { findActiveGeneration } from "./lib/activeGeneration";
 import { resolveGatedWorkflow } from "./lib/gatedWorkflow";
+import { PD_SUBSECTIONS } from "../shared/pdSubsections";
+import { emptyContextRevision, emptySelectionRevision } from "./lib/seedRevisions";
+import { terminateSeedAttempts, reapSeedAttempts } from "./seedRuns";
 import { isProjectDeleting } from "./lib/projectDeletion";
 import { analyzerContextBudget, defaultModelId } from "./appSettings";
 import { sourceInclusion } from "./ai/trustedContext";
@@ -918,6 +921,7 @@ export const getGenerationInput = internalQuery({
       lengthTarget: generation.lengthTarget ?? "standard",
       candidateMode: generation.candidateMode ?? "compare",
       singleModelId: generation.singleModelId as CandidateModelId | undefined,
+      gatedWorkflow: resolveGatedWorkflow(generation),
       compareModelIds: generation.compareModelIds,
       retryModelIds: generation.retryModelIds,
       seededCandidates: generation.seededCandidates ?? 0,
@@ -1583,6 +1587,10 @@ export const saveIterativeArtifacts = internalMutation({
   handler: async (ctx, args) => {
     const generation = await ctx.db.get(args.generationId);
     if (!generation || await isProjectDeleting(ctx, generation.projectId)) return;
+    if (resolveGatedWorkflow(generation) === "seeds") {
+      const project = await ctx.db.get(generation.projectId);
+      if (generation.status !== "running" || project?.activeGenerationId !== generation._id) return;
+    }
     for (const [kind, content] of [
       ["analysis", args.analysis],
       ["brain_blocks", args.brainBlocks],
@@ -1594,6 +1602,7 @@ export const saveIterativeArtifacts = internalMutation({
         )
         .unique();
       if (existing) {
+        if (resolveGatedWorkflow(generation) === "seeds") continue;
         await ctx.db.patch(existing._id, { content });
       } else {
         await ctx.db.insert("generationArtifacts", {
@@ -1792,11 +1801,162 @@ export const findReusableBrief = internalQuery({
   },
 });
 
+/** Seeds pin a reusable Brief (including explicit absence) before model work. */
+async function requireSeedInitialization(ctx: MutationCtx, generationId: Id<"generations">) {
+  const generation = await ctx.db.get(generationId);
+  if (!generation || resolveGatedWorkflow(generation) !== "seeds") {
+    domainError("INVALID_STATE", "Seed initialization is unavailable");
+  }
+  const project = await ctx.db.get(generation.projectId);
+  if (!project || project.activeGenerationId !== generationId ||
+      await isProjectDeleting(ctx, generation.projectId) ||
+      (generation.status !== "running" && generation.status !== "awaiting_input") ||
+      generation.summaryVersionId) {
+    domainError("INVALID_STATE", "Seed initialization is no longer active");
+  }
+  return generation;
+}
+
+export const pinSeedBrief = internalMutation({
+  args: { generationId: v.id("generations"), inputsHash: v.string() },
+  returns: v.union(v.id("generationBriefs"), v.null()),
+  handler: async (ctx, args) => {
+    const generation = await requireSeedInitialization(ctx, args.generationId);
+    if (generation.seedBriefPin !== undefined) {
+      if (generation.seedBriefInputsHash !== args.inputsHash) {
+        domainError("INVALID_STATE", "Frozen Brief inputs changed");
+      }
+      return generation.briefId ?? generation.seedBriefPin;
+    }
+    const candidate = generation.briefId
+      ? await ctx.db.get(generation.briefId)
+      : await latestBriefForInputs(ctx, generation.projectId, args.inputsHash);
+    if (candidate && (candidate.projectId !== generation.projectId || candidate.inputsHash !== args.inputsHash)) {
+      domainError("INVALID_STATE", "Frozen Brief inputs do not match");
+    }
+    const pin = candidate?._id ?? null;
+    await ctx.db.patch(generation._id, {
+      seedBriefPin: pin,
+      seedBriefInputsHash: args.inputsHash,
+      ...(pin ? { briefId: pin } : {}),
+    });
+    return pin;
+  },
+});
+
+export const SEED_INITIALIZATION_ERROR = "Seed preparation did not complete. Retry initialization.";
+
+export async function bumpSeedStageVersion(ctx: MutationCtx, generationId: Id<"generations">): Promise<void> {
+  const generation = await ctx.db.get(generationId);
+  if (generation) await ctx.db.patch(generationId, { seedStageVersion: (generation.seedStageVersion ?? 0) + 1 });
+}
+
+export async function adjustSeedRequestsReserved(ctx: MutationCtx, generationId: Id<"generations">, delta: number): Promise<void> {
+  const generation = await ctx.db.get(generationId);
+  if (!generation) return;
+  const next = (generation.seedRequestsReserved ?? 0) + delta;
+  if (!Number.isInteger(next) || next < 0) domainError("INVALID_STATE", "Invalid seed request reservation");
+  await ctx.db.patch(generationId, { seedRequestsReserved: next });
+}
+
+async function requireFrozenSeedArtifacts(ctx: MutationCtx, generation: Doc<"generations">) {
+  if (!generation.writerSettings) domainError("INVALID_STATE", "Frozen writer settings are unavailable");
+  for (const kind of ["analysis", "brain_blocks"] as const) {
+    const artifact = await ctx.db.query("generationArtifacts")
+      .withIndex("by_generationId_and_kind", q => q.eq("generationId", generation._id).eq("kind", kind)).unique();
+    if (!artifact) domainError("INVALID_STATE", "Frozen initialization artifacts are unavailable");
+  }
+}
+
+export const initializeSeedStage = internalMutation({
+  args: { generationId: v.id("generations") },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const generation = await requireSeedInitialization(ctx, args.generationId);
+    const existing = await ctx.db.query("seedSubsections")
+      .withIndex("by_generationId", q => q.eq("generationId", generation._id)).take(14);
+    if (existing.length) {
+      if (existing.length !== 13 || PD_SUBSECTIONS.some(role => !existing.some(row => row.roleId === role.roleId))) {
+        domainError("INVALID_STATE", "Seed initialization is incomplete");
+      }
+      return null;
+    }
+    await requireFrozenSeedArtifacts(ctx, generation);
+    if (!generation.briefId || generation.seedBriefPin === undefined) {
+      domainError("INVALID_STATE", "Frozen Brief is unavailable");
+    }
+    const brief = await ctx.db.get(generation.briefId);
+    if (!brief || brief.projectId !== generation.projectId || brief.inputsHash !== generation.seedBriefInputsHash) {
+      domainError("INVALID_STATE", "Frozen Brief is unavailable");
+    }
+    const currentContextRevision = await emptyContextRevision();
+    const selectionRevision = await emptySelectionRevision();
+    for (const role of PD_SUBSECTIONS) {
+      await ctx.db.insert("seedSubsections", {
+        projectId: generation.projectId, generationId: generation._id,
+        roleId: role.roleId, kind: role.kind, state: "untouched",
+        currentContextRevision, selectionRevision, consecutiveFailures: 0,
+      });
+    }
+    await ctx.db.patch(generation._id, {
+      status: "awaiting_input", briefVersionId: brief._id,
+      seedStageVersion: 0, seedRequestsReserved: 0, seedStageError: undefined,
+      lengthTarget: generation.lengthTarget ?? "standard", currentStep: "Seeds ready",
+    });
+    await ctx.db.insert("seedDecisionEvents", {
+      projectId: generation.projectId, generationId: generation._id,
+      kind: "initialized", at: Date.now(), actorSystem: true,
+    });
+    await refreshProjectGenerationActivity(ctx, generation.projectId);
+    return null;
+  },
+});
+
+export const recordSeedInitializationFailure = internalMutation({
+  args: { generationId: v.id("generations") },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const generation = await ctx.db.get(args.generationId);
+    if (!generation || resolveGatedWorkflow(generation) !== "seeds" ||
+        generation.status !== "running" || generation.summaryVersionId ||
+        await isProjectDeleting(ctx, generation.projectId)) return null;
+    const project = await ctx.db.get(generation.projectId);
+    if (project?.activeGenerationId !== generation._id) return null;
+    await ctx.db.patch(generation._id, { seedStageError: SEED_INITIALIZATION_ERROR, currentStep: "Seed preparation needs a retry" });
+    return null;
+  },
+});
+
+export const retryInitializeSeedStage = mutation({
+  args: { generationId: v.id("generations") },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const existing = await ctx.db.get(args.generationId);
+    if (!existing) domainError("NOT_FOUND", "Generation not found");
+    await requireReportEditAccess(ctx, existing.projectId);
+    const generation = await requireSeedInitialization(ctx, args.generationId);
+    if (generation.status !== "running" || !generation.seedStageError) {
+      domainError("INVALID_STATE", "Seed initialization is not waiting for a retry");
+    }
+    await requireFrozenSeedArtifacts(ctx, generation);
+    await ctx.db.patch(generation._id, { seedStageError: undefined, currentStep: "Preparing seeds" });
+    await ctx.scheduler.runAfter(0, internal.ai.iterative.resumeSeedInitialization, args);
+    return null;
+  },
+});
+
 /** Reuse path: stamp the reused Brief onto this generation. No new version,
  * no model call. */
 export const stampGenerationBriefId = internalMutation({
   args: { generationId: v.id("generations"), briefId: v.id("generationBriefs") },
   handler: async (ctx, args) => {
+    const generation = await ctx.db.get(args.generationId);
+    if (!generation) return;
+    if (resolveGatedWorkflow(generation) === "seeds") {
+      await requireSeedInitialization(ctx, generation._id);
+      if (generation.briefId) return;
+      if (generation.seedBriefPin !== args.briefId) domainError("INVALID_STATE", "Brief was not pinned at startup");
+    }
     await ctx.db.patch(args.generationId, { briefId: args.briefId });
   },
 });
@@ -2033,6 +2193,7 @@ export const persistDerivedBrief = internalMutation({
     generationId: v.id("generations"),
     inputsHash: v.string(),
     origin: v.union(v.literal("writer"), v.literal("derived")),
+    seedStartup: v.optional(v.boolean()),
     storylineText: v.string(),
     entries: v.array(briefCandidateEntryValidator),
     // Entries the caller already dropped before reaching here (its own
@@ -2063,18 +2224,31 @@ export const persistDerivedBrief = internalMutation({
     if (!generation || generation.projectId !== args.projectId) {
       domainError("NOT_FOUND", "Generation not found");
     }
+    const seedStartup = resolveGatedWorkflow(generation) === "seeds";
+    if (seedStartup) {
+      await requireSeedInitialization(ctx, generation._id);
+      if (!args.seedStartup || generation.seedBriefPin === undefined ||
+          generation.seedBriefInputsHash !== args.inputsHash ||
+          args.baselineBriefId !== null || args.baselineRetained.length || args.baselineRemoved.length) {
+        domainError("INVALID_STATE", "Seed Brief publication must use frozen startup inputs");
+      }
+      if (generation.briefId) return generation.briefId;
+      if (generation.seedBriefPin !== null) domainError("INVALID_STATE", "Pinned Brief cannot be replaced");
+    }
     const reusable = await latestBriefForInputs(
       ctx,
       args.projectId,
       args.inputsHash
     );
-    if (reusable) {
+    if (reusable && !seedStartup) {
       await ctx.db.patch(args.generationId, { briefId: reusable._id });
       return reusable._id;
     }
 
-    const newest = await newestProjectBrief(ctx, args.projectId);
-    if ((newest?._id ?? null) !== args.baselineBriefId) return null;
+    if (!seedStartup) {
+      const newest = await newestProjectBrief(ctx, args.projectId);
+      if ((newest?._id ?? null) !== args.baselineBriefId) return null;
+    }
 
     let droppedEntryCount = args.upstreamDroppedEntryCount ?? 0;
     const validatedEntries: Array<
@@ -2160,7 +2334,7 @@ export const persistDerivedBrief = internalMutation({
       projectId: args.projectId,
       generationId: args.generationId,
       inputsHash: args.inputsHash,
-      version: 1,
+      version: seedStartup ? (reusable?.version ?? 0) + 1 : 1,
       origin: args.origin,
       storylineText: args.storylineText,
       droppedEntryCount,
@@ -2850,11 +3024,20 @@ export const getIterativeState = query({
       ghost = { status: ghostRun.status, label: ghostRun.label, content };
     }
 
+    const seedRow = resolveGatedWorkflow(generation) === "seeds"
+      ? await ctx.db.query("seedSubsections").withIndex("by_generationId", q => q.eq("generationId", generation._id)).first()
+      : null;
     const modelLabel = runs[0]?.label ?? null;
     return {
       status: generation.status,
       candidateMode: "iterative" as const,
       gatedWorkflow: resolveGatedWorkflow(generation),
+      seedPhase: resolveGatedWorkflow(generation) === "seeds"
+        ? generation.status === "completed" ? "completed" as const
+          : generation.summaryVersionId ? generation.status === "failed" ? "draftFailed" as const : "drafting" as const
+          : seedRow ? "seeding" as const : "initializing" as const
+        : undefined,
+      seedStageError: generation.seedStageError ? SEED_INITIALIZATION_ERROR : undefined,
       modelLabel,
       error: userSafeStoredError(
         generation.error,
@@ -2909,6 +3092,10 @@ export const approveSectionDraft = mutation({
       ctx,
       args.generationId
     );
+
+    if (resolveGatedWorkflow(generation) !== "sections") {
+      domainError("INVALID_STATE", "Section operations are unavailable during seed preparation");
+    }
     // report.editProse: approving a section writes report prose (and the
     // final approval assembles the report).
     await requireReportEditAccess(ctx, generation.projectId);
@@ -3152,6 +3339,10 @@ export const regenerateSectionDraft = mutation({
       ctx,
       args.generationId
     );
+
+    if (resolveGatedWorkflow(generation) !== "sections") {
+      domainError("INVALID_STATE", "Section operations are unavailable during seed preparation");
+    }
     if (generation.status !== "awaiting_input") {
       domainError("INVALID_STATE", "No section is awaiting review right now");
     }
@@ -3203,6 +3394,14 @@ export const cancelIterativeGeneration = mutation({
     ) {
       domainError("INVALID_STATE", "This generation is no longer active");
     }
+    if (resolveGatedWorkflow(generation) === "seeds") {
+      await requireReportEditAccess(ctx, generation.projectId);
+      await terminateSeedAttempts(ctx, generation._id);
+      await ctx.db.insert("seedDecisionEvents", {
+        projectId: generation.projectId, generationId: generation._id,
+        kind: "cancel", at: Date.now(), actorUserId: (await requireCurrentUser(ctx))._id,
+      });
+    }
     const now = Date.now();
     await ctx.db.patch(generation._id, {
       status: "failed",
@@ -3243,6 +3442,18 @@ export const setGenerationEstimate = internalMutation({
   },
 });
 
+
+/** Drain lease-expired seed attempts in bounded pages under the existing cron owner. */
+export const reapSeedBatchPage = internalMutation({
+  args: { status: v.union(v.literal("queued"), v.literal("running")), cutoff: v.number(), pageSize: v.optional(v.number()) },
+  returns: v.null(),
+  handler: async (ctx, args): Promise<null> => {
+    const pageSize = Math.min(50, Math.max(1, Math.floor(args.pageSize ?? 50)));
+    const page = await reapSeedAttempts(ctx, { ...args, cursor: null, pageSize });
+    if (!page.isDone) await ctx.scheduler.runAfter(0, internal.generations.reapSeedBatchPage, { status: args.status, cutoff: args.cutoff, pageSize });
+    return null;
+  },
+});
 
 /** Page size for the running-generation scan: one page of `generations` in
  * "running" older than the cutoff per transaction. Tests override it through
@@ -3362,6 +3573,11 @@ export const failStaleGenerations = internalMutation({
       scan = args.scan;
       ownerId = owner._id;
     }
+    if (firstPage) {
+      for (const status of ["queued", "running"] as const) {
+        await ctx.scheduler.runAfter(0, internal.generations.reapSeedBatchPage, { status, cutoff: Date.now() });
+      }
+    }
     // A caller may shrink the page (tests) but never grow it past the bound.
     const pageSize = Math.min(
       Math.max(1, Math.floor(args.pageSize ?? STALE_GENERATION_SCAN_PAGE_SIZE)),
@@ -3386,6 +3602,15 @@ export const failStaleGenerations = internalMutation({
     const stale = [...reserved, ...runningPage.page];
     let failed = 0;
     for (const generation of stale) {
+      if (generation.status === "running" && resolveGatedWorkflow(generation) === "seeds" && !generation.summaryVersionId) {
+        if (!await isProjectDeleting(ctx, generation.projectId)) {
+          const project = await ctx.db.get(generation.projectId);
+          if (project?.activeGenerationId === generation._id) {
+            await ctx.db.patch(generation._id, { seedStageError: SEED_INITIALIZATION_ERROR, currentStep: "Seed preparation needs a retry" });
+          }
+        }
+        continue;
+      }
       // Iterative generations in "running" mean ONE section is drafting; a
       // stale section run fails alone and hands control back to the writer
       // (awaiting_input → regenerate), never killing the whole run. Note the
@@ -3725,6 +3950,12 @@ export const recordWriterSettings = internalMutation({
   handler: async (ctx, args) => {
     const generation = await ctx.db.get(args.generationId);
     if (!generation) return null;
+    if (await isProjectDeleting(ctx, generation.projectId)) return null;
+    if (resolveGatedWorkflow(generation) === "seeds") {
+      const project = await ctx.db.get(generation.projectId);
+      if (generation.status !== "running" || project?.activeGenerationId !== generation._id) return null;
+    }
+    if (resolveGatedWorkflow(generation) === "seeds" && generation.writerSettings) return null;
     // The validator admits only the six categories; dedupe bounds the list.
     const { addressedCategories, ...record } = args.writerSettings;
     await ctx.db.patch(args.generationId, {

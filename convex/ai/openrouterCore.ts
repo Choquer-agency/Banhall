@@ -76,7 +76,8 @@ export const OPENROUTER_CONVERSION = {
 } as const;
 
 export function toChatCompletions(
-  params: GenerationMessageParams
+  params: GenerationMessageParams,
+  options: { preserveMaxTokens?: boolean } = {}
 ): ChatCompletionsBody {
   const body: ChatCompletionsBody = {
     model: params.model,
@@ -84,7 +85,9 @@ export function toChatCompletions(
     // number). On OpenRouter, a reasoning model's thinking tokens come out of
     // the same budget, so scale it here rather than inflating every agent's
     // maxTokens for one gateway.
-    max_tokens: maxTokensWithReasoningHeadroom(params.model, params.max_tokens),
+    max_tokens: options.preserveMaxTokens
+      ? params.max_tokens
+      : maxTokensWithReasoningHeadroom(params.model, params.max_tokens),
     messages: [
       ...(OPENROUTER_CONVERSION.systemInclusion === "truthy-string" &&
       params.system

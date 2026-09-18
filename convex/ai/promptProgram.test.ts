@@ -568,8 +568,13 @@ describe("iterative mode is unchanged", () => {
     expect(await t.run((ctx) => ctx.db.query("complianceNotes").collect())).toHaveLength(0);
     expect((await generationOf(t, generationId)).status).toBe("awaiting_input");
     // The iterative topology keeps its gate and its one-shot ghost.
-    expect(generationPromptProgram.topology.modes.iterative).toContain("section-242-human-review");
-    expect(generationPromptProgram.topology.modes.iterative).toContain("one-shot-ghost-candidate-pipeline");
+    expect(generationPromptProgram.topology.modes.iterative.sections).toContain("section-242-human-review");
+    expect(generationPromptProgram.topology.modes.iterative.sections).toContain("one-shot-ghost-candidate-pipeline");
+    expect(generationPromptProgram.topology.modes.iterative.seeds).toContain("seed-stage-human-gate");
+    expect(generationPromptProgram.topology.modes.iterative.seeds).not.toContain("one-shot-ghost-candidate-pipeline");
+    expect(generationPromptProgram.topology.modes.iterative.selectedBy).toBe(
+      "stored-gatedWorkflow"
+    );
   });
 });
 

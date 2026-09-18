@@ -784,6 +784,9 @@ export default defineSchema({
     // table so pre-feature generations remain valid without a backfill.
     gatedWorkflow: v.optional(v.union(v.literal("sections"), v.literal("seeds"))),
     seedStageError: v.optional(v.string()),
+    // undefined = not pinned; null = derive only from frozen startup sources.
+    seedBriefPin: v.optional(v.union(v.id("generationBriefs"), v.null())),
+    seedBriefInputsHash: v.optional(v.string()),
     seedStageVersion: v.optional(v.number()),
     briefVersionId: v.optional(v.id("generationBriefs")),
     summaryVersionId: v.optional(v.id("summaryVersions")),
@@ -974,6 +977,7 @@ export default defineSchema({
     model: v.string(),
     slot: v.string(),
     promptVersion: v.string(),
+    roleOpen: v.optional(v.boolean()),
     requestsReserved: v.number(),
     requestsMade: v.optional(v.number()),
     settledAt: v.optional(v.number()),
@@ -983,6 +987,8 @@ export default defineSchema({
     .index("by_generationId_and_roleId", ["generationId", "roleId"])
     .index("by_status_and_leaseExpiresAt", ["status", "leaseExpiresAt"])
     .index("by_generationId_and_dedupeKey", ["generationId", "dedupeKey"])
+    .index("by_generationId_and_status", ["generationId", "status"])
+    .index("by_generationId_and_roleId_and_commandId", ["generationId", "roleId", "commandId"])
     .index("by_projectId", ["projectId"]),
 
   seedBatchContext: defineTable({
@@ -1053,6 +1059,11 @@ export default defineSchema({
     version: v.number(),
   })
     .index("by_generationId_and_roleId", ["generationId", "roleId"])
+    .index("by_generationId_and_selected_and_roleId", [
+      "generationId",
+      "selected",
+      "roleId",
+    ])
     .index("by_seedId", ["seedId"])
     .index("by_projectId", ["projectId"]),
 
@@ -1072,6 +1083,11 @@ export default defineSchema({
     batchId: v.optional(v.id("seedBatches")),
   })
     .index("by_generationId_and_roleId", ["generationId", "roleId"])
+    .index("by_generationId_and_status_and_roleId", [
+      "generationId",
+      "status",
+      "roleId",
+    ])
     .index("by_targetSeedId", ["targetSeedId"])
     .index("by_projectId", ["projectId"]),
 
