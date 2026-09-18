@@ -79,6 +79,7 @@ import {
   ORDERED_SECTION_TITLES,
   SELF_CHECK_REQUEST,
   SELF_CHECK_SCHEMA,
+  SEED_PROMPT_PROGRAM,
   STYLE_GUIDANCE_SCAFFOLDS,
 } from "./promptDefinitions";
 import { CANDIDATE_MODE_ROUTING } from "./model";
@@ -115,6 +116,8 @@ import {
   GENERATION_BRAIN_RETRIEVALS,
 } from "./brainRetrieval";
 import { OPENROUTER_CONVERSION } from "./openrouterCore";
+import { PD_SUBSECTIONS } from "../../shared/pdSubsections";
+import { seedToolSchema } from "../lib/seedContract";
 
 export const PROMPT_PROGRAM_CONTRACT_ID =
   "banhall.generation-prompt-program/v1";
@@ -210,6 +213,19 @@ const projectedModels = CANDIDATE_MODELS.map((model) => ({
   })),
 })).sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
 
+const seedRolePromptProgram = PD_SUBSECTIONS.map((role) => ({
+  roleId: role.roleId,
+  section: role.section,
+  order: role.order,
+  kind: role.kind,
+  title: role.title,
+  objective: role.objective,
+  schemas: {
+    batch: seedToolSchema(role.roleId, "batch"),
+    feedback: seedToolSchema(role.roleId, "feedback"),
+  },
+}));
+
 const derivedWordBudgets = Object.keys(LINE_LIMITS).flatMap((section) =>
   Object.keys(LENGTH_TARGETS).map((target) => ({
     section,
@@ -246,23 +262,33 @@ export const generationPromptProgram = {
         "parallel-candidate-pipelines",
         "human-candidate-selection",
       ],
-      iterative: [
-        "retrieval-brief-with-fallback-query",
-        "four-sequential-brain-searches-with-optional-rerank",
-        "frozen-analyzer-brain-style-artifacts",
-        // Story 1 (CAP-1/2/4): Brief stage after analyzer, before sections —
-        // same position as candidatePipeline's "brief" for single/compare.
-        "brief",
-        "section-242-human-review",
-        "approved-prior-section-context",
-        "section-244-human-review",
-        "approved-prior-section-context",
-        "section-246-human-review",
-        "redraft-with-writer-guidance",
-        "one-shot-ghost-candidate-pipeline",
-        "assemble-approved-sections",
-        "post-terminal-qa-and-chronology",
-      ],
+      iterative: {
+        selectedBy: "stored-gatedWorkflow",
+        sections: [
+          "retrieval-brief-with-fallback-query",
+          "four-sequential-brain-searches-with-optional-rerank",
+          "frozen-analyzer-brain-style-artifacts",
+          "brief",
+          "section-242-human-review",
+          "approved-prior-section-context",
+          "section-244-human-review",
+          "approved-prior-section-context",
+          "section-246-human-review",
+          "redraft-with-writer-guidance",
+          "one-shot-ghost-candidate-pipeline",
+          "assemble-approved-sections",
+          "post-terminal-qa-and-chronology",
+        ],
+        seeds: [
+          "retrieval-brief-with-fallback-query",
+          "four-sequential-brain-searches-with-optional-rerank",
+          "frozen-analyzer-brain-style-artifacts",
+          "brief",
+          "seed-stage-human-gate",
+          "ordered-section-chain-after-sign-off",
+          "post-terminal-qa-and-chronology",
+        ],
+      },
     },
     candidatePipeline: [
       "analyzer",
@@ -365,6 +391,34 @@ export const generationPromptProgram = {
       structuredPolicy: "two-attempt-repair",
       // Slot label for aiUsage tracking (AD-27)
       callSite: "generation:brief",
+    },
+    seeds: {
+      kind: "structured",
+      systemTemplate: SEED_PROMPT_PROGRAM.systemPolicy,
+      styleOverridesScaffold: SEED_PROMPT_PROGRAM.styleOverrides,
+      userScaffold: SEED_PROMPT_PROGRAM.user,
+      request: SEED_PROMPT_PROGRAM.request,
+      schemaByRole: Object.fromEntries(
+        seedRolePromptProgram.map((role) => [role.roleId, role.schemas.batch])
+      ),
+      model: { kind: "candidate", fallbackModelId: MODEL },
+      thinking: { kind: "omitted" },
+      structuredPolicy: "two-attempt-repair",
+      callSite: "generation:seeds:<roleId>",
+    },
+    seedFeedback: {
+      kind: "structured",
+      systemTemplate: SEED_PROMPT_PROGRAM.systemPolicy,
+      styleOverridesScaffold: SEED_PROMPT_PROGRAM.styleOverrides,
+      userScaffold: SEED_PROMPT_PROGRAM.user,
+      request: SEED_PROMPT_PROGRAM.request,
+      schemaByRole: Object.fromEntries(
+        seedRolePromptProgram.map((role) => [role.roleId, role.schemas.feedback])
+      ),
+      model: { kind: "candidate", fallbackModelId: MODEL },
+      thinking: { kind: "omitted" },
+      structuredPolicy: "two-attempt-repair",
+      callSite: "generation:seedFeedback:<roleId>",
     },
     // Story 3 (CAP-8, AD-26/27): the PSOS-50 style classifier run on a
     // settings document supplied as Writer's Notes or an attachment, reused
@@ -473,6 +527,10 @@ export const generationPromptProgram = {
     ordered: {
       sectionTitles: ORDERED_SECTION_TITLES,
       scaffolds: ORDERED_PROMPT_SCAFFOLDS,
+    },
+    seeds: {
+      scaffolds: SEED_PROMPT_PROGRAM,
+      roles: seedRolePromptProgram,
     },
   },
   configuration: {

@@ -57,6 +57,12 @@ export const ANTHROPIC_MAX_RETRIES = 1;
  */
 export const ANTHROPIC_TIMEOUT_MS = 240_000;
 
+/** Seed attempts own their repair envelope, so transport retries stay off. */
+export const SEED_PROVIDER_MAX_RETRIES = 0;
+
+/** Per-request deadline for both seed gateways (AD-34). */
+export const SEED_PROVIDER_TIMEOUT_MS = 90_000;
+
 /**
  * Worst-case count of provider calls that run one after another in wall time
  * inside a single generateCandidate action (pipeline.ts, runPipelineForModel).
@@ -102,13 +108,49 @@ export const ORDERED_SECTION_ACTION_SLOTS = {
 export const RESERVED_NON_REQUEST_MS = 60_000;
 
 export function createAnthropicClient(
-  capability: AnthropicCapability
+  capability: AnthropicCapability,
+  options: {
+    maxRetries?: number;
+    timeout?: number;
+  } = {}
 ): Anthropic {
   return new Anthropic({
     apiKey: requireAnthropicConfigured(capability),
-    maxRetries: ANTHROPIC_MAX_RETRIES,
-    timeout: ANTHROPIC_TIMEOUT_MS,
+    maxRetries: options.maxRetries ?? ANTHROPIC_MAX_RETRIES,
+    timeout: options.timeout ?? ANTHROPIC_TIMEOUT_MS,
   });
+}
+
+/**
+ * Seed-only client policy. `generateStructured` owns the one repair request,
+ * so neither gateway may add a hidden transport retry.
+ */
+export function seedClientForModel(
+  ctx: ActionCtx,
+  modelId: string,
+  meta: {
+    callSite: string;
+    projectId?: Id<"projects">;
+    userId?: string;
+    attribution?: GenerationAttribution;
+  }
+): GenerationClient {
+  assertGenerationCallSite(meta.callSite);
+  if (gatewayForModel(modelId) === "openrouter") {
+    return instrumentedOpenRouter(ctx, meta, {
+      maxRetries: SEED_PROVIDER_MAX_RETRIES,
+      timeoutMs: SEED_PROVIDER_TIMEOUT_MS,
+      preserveMaxTokens: true,
+    });
+  }
+  return instrumentedAnthropic(ctx, {
+    ...meta,
+    capability: "generation",
+    clientOptions: {
+      maxRetries: SEED_PROVIDER_MAX_RETRIES,
+      timeout: SEED_PROVIDER_TIMEOUT_MS,
+    },
+  }) as unknown as GenerationClient;
 }
 
 /**

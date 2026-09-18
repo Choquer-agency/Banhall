@@ -1,3 +1,4 @@
+import { terminateSeedAttempts } from "./seedRuns";
 import { persistDeterministicFindings, hasBlockingQa } from "./lib/qaFindings";
 import {
   query,
@@ -1381,6 +1382,7 @@ async function terminalizeLiveGenerationWork(
       .take(LIVE_GENERATION_LIMIT);
     warnIfTruncated("live generation", generations.length, LIVE_GENERATION_LIMIT, { projectId, status });
     for (const generation of generations) {
+      await terminateSeedAttempts(ctx, generation._id);
       await cancelScheduledJob(ctx, generation.scheduledJobId);
       await ctx.db.patch(generation._id, {
         status: "failed",

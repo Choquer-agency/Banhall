@@ -22,6 +22,7 @@ import { CONTEXT_INPUTS_GUIDANCE, waivedCategoryLabels } from "./prompts";
 import { numberParagraphs } from "./qaAgent";
 import { CHARS_PER_LINE, LINE_LIMITS, wordBudget } from "../lib/lineLimits";
 import { NO_STYLE_OVERRIDES } from "../../shared/styleOverrides";
+import { SEED_PROMPT_PROGRAM } from "./promptDefinitions";
 
 /**
  * Story 10 split the inline prompt templates into fragment tables that both
@@ -219,6 +220,74 @@ describe("the condense call belongs to the prompt program (AC5)", () => {
       structuredPolicy: "two-attempt-repair",
       callSite: "generation:brief",
     });
+  });
+
+  it("declares both seed modes from the hashed scaffold with a two-request repair envelope", async () => {
+    expect(generationPromptProgram.templates.seeds.scaffolds).toBe(
+      SEED_PROMPT_PROGRAM
+    );
+    expect(generationPromptProgram.templates.seeds.roles).toHaveLength(13);
+    expect(SEED_PROMPT_PROGRAM.user.guidance).toContain(
+      "when the frozen predecessor decisions include experimentation selections"
+    );
+    expect(SEED_PROMPT_PROGRAM.user.guidance).toContain(
+      "When there are no frozen experiment selections, omit both link fields."
+    );
+    expect(
+      generationPromptProgram.templates.seeds.roles.find(
+        (role) => role.roleId === "specific_advancements"
+      )
+    ).toMatchObject({
+      objective: expect.any(String),
+      schemas: {
+        batch: expect.objectContaining({ type: "object" }),
+        feedback: expect.objectContaining({ type: "object" }),
+      },
+    });
+    expect(generationPromptProgram.calls.seeds).toMatchObject({
+      systemTemplate: SEED_PROMPT_PROGRAM.systemPolicy,
+      userScaffold: SEED_PROMPT_PROGRAM.user,
+      request: SEED_PROMPT_PROGRAM.request,
+      structuredPolicy: "two-attempt-repair",
+      callSite: "generation:seeds:<roleId>",
+    });
+    expect(generationPromptProgram.calls.seedFeedback).toMatchObject({
+      systemTemplate: SEED_PROMPT_PROGRAM.systemPolicy,
+      userScaffold: SEED_PROMPT_PROGRAM.user,
+      request: SEED_PROMPT_PROGRAM.request,
+      structuredPolicy: "two-attempt-repair",
+      callSite: "generation:seedFeedback:<roleId>",
+    });
+    const current = await hashPromptProgram(generationPromptProgram);
+    const changedObjective = await hashPromptProgram({
+      ...generationPromptProgram,
+      templates: {
+        ...generationPromptProgram.templates,
+        seeds: {
+          ...generationPromptProgram.templates.seeds,
+          roles: generationPromptProgram.templates.seeds.roles.map((role) =>
+            role.roleId === "active_uncertainties"
+              ? { ...role, objective: `${role.objective} Changed.` }
+              : role
+          ),
+        },
+      },
+    });
+    const changedSchema = await hashPromptProgram({
+      ...generationPromptProgram,
+      calls: {
+        ...generationPromptProgram.calls,
+        seeds: {
+          ...generationPromptProgram.calls.seeds,
+          schemaByRole: {
+            ...generationPromptProgram.calls.seeds.schemaByRole,
+            active_uncertainties: { type: "object", required: [] },
+          },
+        },
+      },
+    });
+    expect(changedObjective).not.toBe(current);
+    expect(changedSchema).not.toBe(current);
   });
 
   it("declares the settings-document classifier with the PSOS-50 prompt, request and schema verbatim (story 3, AD-27)", async () => {

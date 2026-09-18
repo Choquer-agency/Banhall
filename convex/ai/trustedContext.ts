@@ -15,6 +15,17 @@
 import type { Id } from "../_generated/dataModel";
 import { buildTranscriptPromptText } from "../lib/transcripts";
 import { CONTEXT_INPUTS_GUIDANCE } from "./prompts";
+import { SEED_PROMPT_PROGRAM } from "./promptDefinitions";
+import { STRUCTURED_OUTPUT_PROGRAM } from "./structured";
+import { NO_STYLE_OVERRIDES } from "../../shared/styleOverrides";
+import {
+  MAX_SEED_PROMPT_UTF8_BYTES,
+  SeedContextLimitError,
+  assertSeedPromptWithinLimit,
+  snapshotPromptProjection,
+  type SeedContextItem,
+  type SeedContextSnapshot,
+} from "../lib/seedRevisions";
 
 export type ContextDocCategory =
   | "previous_pd"
@@ -556,4 +567,377 @@ export function describeContextCuts(report: {
   if (truncated.length) clauses.push(`shortened ${names(truncated)}`);
   if (dropped.length) clauses.push(`left out ${names(dropped)}`);
   return `Context budget (${formatCount(report.budget.totalTokens)} tokens) ${clauses.join(" and ")}.`;
+}
+
+export type SeedPromptMode = "batch" | "feedback";
+
+export type SeedPromptSource = {
+  sourceId: string;
+  label: string;
+  kind: string;
+  content: string;
+  contentHash: string;
+};
+
+export type SeedPromptProjection = {
+  /** Canonical JSON produced by snapshotPromptProjection. */
+  decisions: string;
+  /** Canonical JSON produced by snapshotPromptProjection. */
+  feedback: string;
+  /** Canonical JSON produced by snapshotPromptProjection, when applicable. */
+  target?: string;
+};
+
+export type SeedTrustedContextInput = {
+  mode: SeedPromptMode;
+  objective: string;
+  brief: unknown;
+  sources: readonly SeedPromptSource[];
+  projection: SeedPromptProjection;
+  writerSettings: unknown;
+  lengthTarget: string;
+  maxPromptBytes?: number;
+};
+
+export function splitSeedWriterSettings(value: unknown): {
+  styleOverrides: unknown;
+  remaining: unknown;
+} {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return { styleOverrides: {}, remaining: value };
+  }
+  const entries = Object.entries(value);
+  const styleOverrides = entries.find(([key]) => key === "styleOverrides")?.[1];
+  const remaining = Object.fromEntries(
+    entries.filter(([key]) => key !== "styleOverrides")
+  );
+  return { styleOverrides: styleOverrides ?? {}, remaining };
+}
+
+function seedSnapshotOf(
+  items: readonly SeedContextItem[]
+): SeedContextSnapshot {
+  return { v: 1, items: [...items] };
+}
+
+export function seedPromptProjection(snapshot: SeedContextSnapshot) {
+  const decisions = snapshot.items.filter(
+    (item) =>
+      item.kind === "selection" ||
+      item.kind === "skip" ||
+      item.kind === "feedback"
+  );
+  const feedback = snapshot.items.filter((item) => item.kind === "ownFeedback");
+  const target = snapshot.items.filter((item) => item.kind === "target");
+  return {
+    decisions: snapshotPromptProjection(seedSnapshotOf(decisions)),
+    feedback: snapshotPromptProjection(seedSnapshotOf(feedback)),
+    ...(target.length > 0
+      ? { target: snapshotPromptProjection(seedSnapshotOf(target)) }
+      : {}),
+  };
+}
+
+export type SeedPromptSourceReport = {
+  sourceId: string;
+  originalBytes: number;
+  includedBytes: number;
+  included: boolean;
+  truncated: boolean;
+};
+
+const utf8 = new TextEncoder();
+
+export function utf8Bytes(value: string): number {
+  return utf8.encode(value).byteLength;
+}
+
+/** Cut at a Unicode scalar boundary to an exact UTF-8 byte budget. */
+export function cutUtf8ToBudget(value: string, maxBytes: number): string {
+  if (maxBytes <= 0) return "";
+  if (utf8Bytes(value) <= maxBytes) return value;
+  let used = 0;
+  let result = "";
+  for (const scalar of value) {
+    const size = utf8Bytes(scalar);
+    if (used + size > maxBytes) break;
+    result += scalar;
+    used += size;
+  }
+  return result;
+}
+
+export function stableSeedPromptJson(value: unknown): string {
+  const seen = new Set<object>();
+  const normalize = (item: unknown): unknown => {
+    if (item === null || typeof item !== "object") return item;
+    if (seen.has(item)) throw new Error("Seed prompt context must not contain cycles");
+    seen.add(item);
+    const normalized = Array.isArray(item)
+      ? item.map(normalize)
+      : Object.fromEntries(
+          Object.entries(item)
+            .sort(([left], [right]) => left.localeCompare(right))
+            .map(([key, nested]) => [key, normalize(nested)])
+        );
+    seen.delete(item);
+    return normalized;
+  };
+  return JSON.stringify(normalize(value));
+}
+
+function seedBlock(label: string, rawContent: string): string {
+  const delimiters = SEED_PROMPT_PROGRAM.user.delimiters;
+  const content = neutralizeMarkers(rawContent);
+  return `${delimiters.beginPrefix}${label}${delimiters.suffix}${delimiters.contentPrefix}${content}${delimiters.contentSuffix}${delimiters.endPrefix}${label}${delimiters.suffix}`;
+}
+
+function seedValue(value: unknown): string {
+  return value === undefined
+    ? SEED_PROMPT_PROGRAM.user.empty
+    : stableSeedPromptJson(value);
+}
+
+/** The seed system message contains policy and frozen style switches only. */
+export function buildSeedSystemPrompt(styleOverrides: unknown): string {
+  const normalized = { ...NO_STYLE_OVERRIDES };
+  if (typeof styleOverrides === "object" && styleOverrides !== null) {
+    for (const [key, value] of Object.entries(styleOverrides)) {
+      if (value !== true) continue;
+      switch (key) {
+        case "bannedWords":
+        case "paragraphDensity":
+        case "sentenceConstruction":
+        case "repetitionCaps":
+        case "openingClauses":
+        case "reportSkeleton":
+          normalized[key] = true;
+          break;
+      }
+    }
+  }
+  return `${SEED_PROMPT_PROGRAM.systemPolicy}${SEED_PROMPT_PROGRAM.styleOverrides.prefix}${stableSeedPromptJson(normalized)}`;
+}
+
+function sourceLabel(source: SeedPromptSource): string {
+  const metadata = SEED_PROMPT_PROGRAM.user.sourceMetadata;
+  return `${SEED_PROMPT_PROGRAM.user.blocks.sourcePrefix}${metadata.kind}${sanitizeFileName(source.kind)}${metadata.separator}${metadata.id}${source.sourceId}${metadata.separator}${metadata.hash}${sanitizeFileName(source.contentHash)}${metadata.separator}${metadata.label}${sanitizeFileName(source.label)}`;
+}
+
+/**
+ * Assemble the seed user message from frozen inputs only. Every fixed input is
+ * complete; only source text may be shortened to fit the shared byte limit.
+ */
+export function buildSeedTrustedContext(input: SeedTrustedContextInput): {
+  userMessage: string;
+  promptBytes: number;
+  sources: SeedPromptSourceReport[];
+} {
+  const prompt = SEED_PROMPT_PROGRAM.user;
+  const separator = prompt.delimiters.separator;
+  const beforeSources = [
+    prompt.heading,
+    prompt.modeLabels[input.mode],
+    prompt.guidance,
+    seedBlock(prompt.blocks.objective, input.objective),
+    seedBlock(prompt.blocks.brief, seedValue(input.brief)),
+  ];
+  const afterSources = [
+    seedBlock(prompt.blocks.decisions, input.projection.decisions),
+    seedBlock(prompt.blocks.feedback, input.projection.feedback),
+    seedBlock(
+      prompt.blocks.target,
+      input.projection.target ?? prompt.empty
+    ),
+    seedBlock(prompt.blocks.settings, seedValue(input.writerSettings)),
+    seedBlock(prompt.blocks.lengthTarget, input.lengthTarget),
+  ];
+  const maxBytes = input.maxPromptBytes ?? MAX_SEED_PROMPT_UTF8_BYTES;
+  const separatorBytes = utf8Bytes(separator);
+  const fixedBytes =
+    utf8Bytes(beforeSources.join(separator)) +
+    utf8Bytes(afterSources.join(separator)) +
+    separatorBytes * 2;
+  if (fixedBytes > maxBytes) {
+    throw new SeedContextLimitError(
+      "prompt_utf8_bytes",
+      `Seed prompt fixed context is ${fixedBytes} UTF-8 bytes; limit is ${maxBytes}`
+    );
+  }
+
+  let remaining = maxBytes - fixedBytes;
+  const sourceBlocks: string[] = [];
+  const reports: SeedPromptSourceReport[] = [];
+  const fullSourceBytes = utf8Bytes(
+    input.sources
+      .map((source) =>
+        seedBlock(sourceLabel(source), neutralizeMarkers(source.content))
+      )
+      .join(separator)
+  );
+  let omissionReserveBytes = 0;
+  if (input.sources.length > 0 && fullSourceBytes > remaining) {
+    const maximalNotice = seedBlock(
+      prompt.blocks.sources,
+      `${prompt.truncation.omittedPrefix}${input.sources
+        .map((source) => source.sourceId)
+        .join(", ")}${prompt.truncation.omittedSuffix}`
+    );
+    omissionReserveBytes = utf8Bytes(maximalNotice) + separatorBytes;
+    if (omissionReserveBytes > remaining) {
+      throw new SeedContextLimitError(
+        "prompt_utf8_bytes",
+        "Seed prompt has no room to disclose omitted frozen sources"
+      );
+    }
+    remaining -= omissionReserveBytes;
+  }
+  for (const source of input.sources) {
+    const label = sourceLabel(source);
+    const safe = neutralizeMarkers(source.content);
+    const originalBytes = utf8Bytes(safe);
+    const emptyBlock = seedBlock(label, "");
+    const joinBytes = sourceBlocks.length > 0 ? separatorBytes : 0;
+    const overhead = utf8Bytes(emptyBlock) + joinBytes;
+    if (remaining < overhead) {
+      reports.push({
+        sourceId: source.sourceId,
+        originalBytes,
+        includedBytes: 0,
+        included: false,
+        truncated: originalBytes > 0,
+      });
+      continue;
+    }
+    const fullBlock = seedBlock(label, safe);
+    const fullBlockBytes = utf8Bytes(fullBlock) + joinBytes;
+    if (fullBlockBytes <= remaining) {
+      sourceBlocks.push(fullBlock);
+      remaining -= fullBlockBytes;
+      reports.push({
+        sourceId: source.sourceId,
+        originalBytes,
+        includedBytes: originalBytes,
+        included: true,
+        truncated: false,
+      });
+      continue;
+    }
+
+    const notice = `${prompt.truncation.prefix}${originalBytes}${prompt.truncation.middle}`;
+    const contentBudget = Math.max(
+      0,
+      remaining - overhead - utf8Bytes(notice) - utf8Bytes("\n")
+    );
+    const kept = cutUtf8ToBudget(safe, contentBudget);
+    const includedBytes = utf8Bytes(kept);
+    if (includedBytes === 0) {
+      reports.push({
+        sourceId: source.sourceId,
+        originalBytes,
+        includedBytes: 0,
+        included: false,
+        truncated: originalBytes > 0,
+      });
+      continue;
+    }
+    const omitted = originalBytes - includedBytes;
+    const block = seedBlock(
+      label,
+      `${kept}\n${prompt.truncation.prefix}${omitted}${prompt.truncation.middle}`
+    );
+    sourceBlocks.push(block);
+    remaining -= utf8Bytes(block) + joinBytes;
+    reports.push({
+      sourceId: source.sourceId,
+      originalBytes,
+      includedBytes,
+      included: true,
+      truncated: true,
+    });
+  }
+
+  const omitted = reports.filter((report) => !report.included);
+  if (omitted.length > 0) {
+    const omissionNotice = seedBlock(
+      prompt.blocks.sources,
+      `${prompt.truncation.omittedPrefix}${omitted
+        .map((report) => report.sourceId)
+        .join(", ")}${prompt.truncation.omittedSuffix}`
+    );
+    const omissionBytes =
+      utf8Bytes(omissionNotice) +
+      (sourceBlocks.length > 0 ? separatorBytes : 0);
+    if (omissionReserveBytes === 0 || omissionBytes > omissionReserveBytes) {
+      throw new SeedContextLimitError(
+        "prompt_utf8_bytes",
+        "Seed prompt could not disclose omitted frozen sources"
+      );
+    }
+    sourceBlocks.push(omissionNotice);
+  }
+  if (sourceBlocks.length === 0) {
+    const empty = seedBlock(prompt.blocks.sources, prompt.empty);
+    if (utf8Bytes(empty) > remaining) {
+      throw new SeedContextLimitError(
+        "prompt_utf8_bytes",
+        "Seed prompt has no room for its source boundary block"
+      );
+    }
+    sourceBlocks.push(empty);
+  }
+
+  const userMessage = [
+    ...beforeSources,
+    sourceBlocks.join(separator),
+    ...afterSources,
+  ].join(separator);
+  const promptBytes = utf8Bytes(userMessage);
+  if (promptBytes > maxBytes) {
+    throw new SeedContextLimitError(
+      "prompt_utf8_bytes",
+      `Seed prompt is ${promptBytes} UTF-8 bytes after assembly; limit is ${maxBytes}`
+    );
+  }
+  if (input.maxPromptBytes === undefined) {
+    assertSeedPromptWithinLimit(userMessage);
+  }
+  return { userMessage, promptBytes, sources: reports };
+}
+
+/** Assemble the complete two-message request under one shared byte limit. */
+export function buildSeedPrompt(
+  input: Omit<SeedTrustedContextInput, "maxPromptBytes">
+): {
+  system: string;
+  user: string;
+  promptBytes: number;
+  sources: SeedPromptSourceReport[];
+} {
+  const settings = splitSeedWriterSettings(input.writerSettings);
+  const system = buildSeedSystemPrompt(settings.styleOverrides);
+  const systemBytes = utf8Bytes(system);
+  const repairReserveBytes =
+    utf8Bytes(STRUCTURED_OUTPUT_PROGRAM.repairScaffold.prefix) +
+    utf8Bytes(STRUCTURED_OUTPUT_PROGRAM.repairScaffold.suffix) +
+    SEED_PROMPT_PROGRAM.request.repairValidationSummaryMaxUtf8Bytes;
+  if (systemBytes + repairReserveBytes >= MAX_SEED_PROMPT_UTF8_BYTES) {
+    throw new SeedContextLimitError(
+      "prompt_utf8_bytes",
+      "Seed system prompt exhausts the shared prompt byte limit"
+    );
+  }
+  const built = buildSeedTrustedContext({
+    ...input,
+    writerSettings: settings.remaining,
+    maxPromptBytes:
+      MAX_SEED_PROMPT_UTF8_BYTES - systemBytes - repairReserveBytes,
+  });
+  assertSeedPromptWithinLimit(`${system}${built.userMessage}`);
+  return {
+    system,
+    user: built.userMessage,
+    promptBytes: systemBytes + built.promptBytes,
+    sources: built.sources,
+  };
 }

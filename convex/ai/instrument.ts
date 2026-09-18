@@ -5,6 +5,7 @@ import type { AnthropicCapability } from "../lib/providerConfig";
 import type { ActionCtx } from "../_generated/server";
 import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
+import { PD_SUBSECTIONS } from "../../shared/pdSubsections";
 
 export type UsageEvent = {
   projectId?: Id<"projects">;
@@ -67,6 +68,10 @@ export const GENERATION_CALL_SLOTS = [
   "compression:242",
   "compression:244",
   "compression:246",
+  ...PD_SUBSECTIONS.flatMap(({ roleId }) => [
+    `seeds:${roleId}` as const,
+    `seedFeedback:${roleId}` as const,
+  ]),
 ] as const;
 export type GenerationCallSlot = (typeof GENERATION_CALL_SLOTS)[number];
 
@@ -86,6 +91,8 @@ export const GENERATION_SLOT_ALLOWANCES: Readonly<Record<string, number>> = {
   selfCheck: 1,
   repair: 1,
   compression: COMPRESSION_REQUEST.squeezes.length,
+  seeds: 2,
+  seedFeedback: 2,
 };
 
 /** Throws on a `generation:*` label that is not a declared slot. */
@@ -299,10 +306,17 @@ export function instrumentedAnthropic(
   meta: ProviderCallMeta & {
     brainSourceId?: Id<"brainSources">;
     capability?: AnthropicCapability;
+    clientOptions?: {
+      maxRetries?: number;
+      timeout?: number;
+    };
   }
 ): Anthropic {
   assertGenerationCallSite(meta.callSite);
-  const client = createAnthropicClient(meta.capability ?? "generation");
+  const client = createAnthropicClient(
+    meta.capability ?? "generation",
+    meta.clientOptions
+  );
   const messages = client.messages;
   const originalCreate = messages.create.bind(messages);
   const instrumentedMessages = new Proxy(messages, {

@@ -390,11 +390,9 @@ export async function publishDerivedBrief(
   >
 ): Promise<Id<"generationBriefs">> {
   for (let attempt = 1; attempt <= BRIEF_PUBLISH_ATTEMPTS; attempt += 1) {
-    const baseline = await readCompleteBriefDiffBaseline(
-      ctx,
-      args.projectId,
-      args.entries
-    );
+    const baseline = args.seedStartup
+      ? { briefId: null, retained: [], removed: [] }
+      : await readCompleteBriefDiffBaseline(ctx, args.projectId, args.entries);
     const briefId: Id<"generationBriefs"> | null = await ctx.runMutation(
       internal.generations.persistDerivedBrief,
       {
@@ -424,6 +422,7 @@ type CandidateEntry = {
 };
 
 type BriefStageArgs = {
+  seedStartup?: boolean;
   projectId: Id<"projects">;
   generationId: Id<"generations">;
   model?: string;
@@ -454,16 +453,14 @@ export async function deriveOrReuseBrief(
   if (sources.length === 0) return { kind: "no_evidence" };
 
   const inputsHash = await briefInputsHash(sources);
-  const reusable = await ctx.runQuery(internal.generations.findReusableBrief, {
-    projectId: args.projectId,
-    inputsHash,
-  });
-  if (reusable) {
-    await ctx.runMutation(internal.generations.stampGenerationBriefId, {
-      generationId: args.generationId,
-      briefId: reusable._id,
+  const reusableId = args.seedStartup
+    ? await ctx.runMutation(internal.generations.pinSeedBrief, { generationId: args.generationId, inputsHash })
+    : (await ctx.runQuery(internal.generations.findReusableBrief, { projectId: args.projectId, inputsHash }))?._id;
+  if (reusableId) {
+    if (!args.seedStartup) await ctx.runMutation(internal.generations.stampGenerationBriefId, {
+      generationId: args.generationId, briefId: reusableId,
     });
-    return { kind: "reused", briefId: reusable._id };
+    return { kind: "reused", briefId: reusableId };
   }
 
   const writerSource = sources.find((s) => s.kind === "writer_storyline");
@@ -595,6 +592,7 @@ export async function deriveOrReuseBrief(
   const origin = writerSource ? ("writer" as const) : ("derived" as const);
 
   const briefId = await publishDerivedBrief(ctx, {
+    ...(args.seedStartup ? { seedStartup: true } : {}),
     projectId: args.projectId,
     generationId: args.generationId,
     inputsHash,

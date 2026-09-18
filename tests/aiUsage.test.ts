@@ -3,6 +3,8 @@ import { estimateCostUsd } from "../convex/aiUsage";
 import { voyageTokenCount } from "../convex/ai/providers";
 import { MODEL } from "../convex/ai/model";
 import { sha256 } from "../convex/lib/contracts";
+import { seedToolSchema } from "../convex/lib/seedContract";
+import { PD_SUBSECTIONS } from "../shared/pdSubsections";
 import {
   PROMPT_PROGRAM_CONTRACT_ID,
   canonicalSerialize,
@@ -260,6 +262,8 @@ describe("generation prompt program", () => {
       "section242",
       "section244",
       "section246",
+      "seedFeedback",
+      "seeds",
       "selfCheck",
       // Story 3 (CAP-8): the settings-document style classifier.
       "settingsAnalysis",
@@ -269,6 +273,21 @@ describe("generation prompt program", () => {
       "iterative",
       "single",
     ]);
+    const seedRoleIds = PD_SUBSECTIONS.map(({ roleId }) => roleId).sort();
+    expect(
+      Object.keys(generationPromptProgram.calls.seeds.schemaByRole).sort()
+    ).toEqual(seedRoleIds);
+    expect(
+      Object.keys(generationPromptProgram.calls.seedFeedback.schemaByRole).sort()
+    ).toEqual(seedRoleIds);
+    for (const roleId of seedRoleIds) {
+      expect(generationPromptProgram.calls.seeds.schemaByRole[roleId]).toEqual(
+        seedToolSchema(roleId, "batch")
+      );
+      expect(
+        generationPromptProgram.calls.seedFeedback.schemaByRole[roleId]
+      ).toEqual(seedToolSchema(roleId, "feedback"));
+    }
     const serialized = JSON.stringify(generationPromptProgram);
     expect(serialized).toContain("post-terminal-qa-and-chronology");
     expect(serialized).toContain("one-shot-ghost-candidate-pipeline");

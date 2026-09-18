@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import type { Id, TableNames } from "../_generated/dataModel";
 import type { ActionCtx } from "../_generated/server";
+import { PD_SUBSECTIONS } from "../../shared/pdSubsections";
 
 const providerMocks = vi.hoisted(() => ({
   createAnthropicClient: vi.fn(),
@@ -438,7 +439,11 @@ function emittedGenerationLabels(): string[] {
   for (const source of Object.values(engineSources)) {
     for (const match of source.matchAll(pattern)) {
       const label = match[1];
-      if (/:(\$\{[^}]*\}|<n>)$/.test(label)) {
+      if (label.endsWith(":<roleId>")) {
+        for (const { roleId } of PD_SUBSECTIONS) {
+          labels.add(label.replace(/:<roleId>$/, `:${roleId}`));
+        }
+      } else if (/:(\$\{[^}]*\}|<n>)$/.test(label)) {
         for (const line of ["242", "244", "246"]) {
           labels.add(label.replace(/:(\$\{[^}]*\}|<n>)$/, `:${line}`));
         }
