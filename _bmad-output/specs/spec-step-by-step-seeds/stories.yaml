@@ -1,0 +1,163 @@
+- id: "0"
+  title: Project-scoped table registry and whole-schema erasure guard
+  description: >-
+    Prerequisite for CAP-15 privacy and parent AD-19: create the registry of
+    every projectId table with a disposition, make deleteProject purge through
+    it with a deletion barrier, and add the schema-walk erasure test. Spine
+    AD-45.
+  spec_checkpoint: true
+  done_checkpoint: true
+  invoke_dev_with: >-
+    Read ARCHITECTURE-SPINE AD-45 and parent AD-19 first. This slice touches
+    deleteProject and must preserve today's storage and Brain cleanup exactly;
+    prove that with the existing erasure behaviour tests before adding the
+    registry. The whole-schema guard must pass on day one, so enumerate every
+    existing projectId table (walk convex/schema.ts in the test). Write the
+    deletion barrier (projects.deletionStartedAt) and terminalize non-terminal
+    generation and run rows before the first purge page. No seed tables yet.
+    Run bash scripts/loop-verify.sh.
+- id: "1"
+  title: Subsection vocabulary, workflow discriminator and seed tables
+  description: >-
+    CAP-1 (discriminator and resolver) and CAP-2 (vocabulary): shared
+    PD_SUBSECTIONS with the 13 role ids mapped to the prompt and QA roles,
+    generations.gatedWorkflow written at reservation, resolveGatedWorkflow, the
+    eleven seed tables and generation fields, registered in the slice-0
+    registry. Spine AD-31 (reservation), AD-32, AD-33, AD-40.
+  spec_checkpoint: false
+  done_checkpoint: false
+  invoke_dev_with: >-
+    Widen-only schema change (all new fields optional). The role ids are new;
+    map them one-to-one to the natural-language content roles in
+    convex/ai/prompts.ts:296/405/511 and qaChecks.ts and make the prompt
+    builders import the list rather than restate it. resolveGatedWorkflow must
+    return sections for any iterative generation without the field; test the
+    four cases in AD-40. No behaviour change for existing generations.
+- id: "2"
+  title: Seed stage pipeline, batch attempts and seed contract
+  description: >-
+    CAP-3 and CAP-14: seeds stage in the iterative topology, initializeSeedStage
+    in generations.ts, seedRuns.ts dispatch/claim/complete/fail/settle with the
+    immutable context snapshot and lease, the Node action with the role-aware
+    tool schema, seedContract validation, provenance, slots, usage metering
+    (never refused), reaper scan. Spine AD-31, AD-34, AD-35, AD-38, AD-42.
+  spec_checkpoint: true
+  done_checkpoint: false
+  invoke_dev_with: >-
+    Mutations never live in a "use node" file: the action is convex/ai/seeds.ts,
+    its internal mutations are convex/seedRuns.ts, and status transitions stay
+    in convex/generations.ts (parent AD-2). The action reads only
+    decodeBatchContext of the snapshot rows, never live selections; prove it
+    with the dispatch/edit/claim interleaving test asserting request bytes.
+    Seed calls use SDK maxRetries 0, 90 s timeout, max_tokens 1200, at most two
+    requests per attempt. There is no cap and no extension: usage is counted
+    and displayed only (owner decision 2026-09-17). Do not schedule the ghost
+    draft for seeds generations. Add the two slots to convex/ai/instrument.ts
+    and seed fixtures to convex/ai/contextBoundary.test.ts. Every prompt string
+    goes in promptDefinitions.ts so promptVersion moves.
+- id: "3"
+  title: Decision mutations, revisions, approval challenge, events and reader
+  description: >-
+    CAP-4 (decision set assembly), CAP-5 to CAP-10, CAP-15 and CAP-16 read
+    bounds: seedRevisions canonical DTO and hashes, select/edit/restore,
+    feedback requests and withdrawal, regenerate/retry/restore batch,
+    skip/unskip, approve with the server-owned challenge, stale episodes,
+    shared seedReadiness calculation and transaction-local loader, AD-44 DTOs with pagination, seedDecisionEvents and the
+    learningHealth reader with the trace fixture. Spine AD-36, AD-39, AD-43,
+    AD-44.
+  spec_checkpoint: true
+  done_checkpoint: true
+  invoke_dev_with: >-
+    Every public mutation follows the AD-36 transaction order exactly and the
+    transition table is the contract; test successor-only staleness, own-change
+    approval revert, immutable consumed revision, challenge mismatch refused,
+    one open episode across R0→R1→R0→R2, skip/unskip/cancel dispositions,
+    withdrawn feedback never resurrected, unlinked advancement refused. Feedback
+    results arrive unselected. The learningHealth query must reproduce the
+    worked event trace in build-sequence.md exactly (it is the fixture).
+    Events carry no seed or feedback text. Each mutation ships an
+    authorization-branch convex-test case. Put readiness in lib/seedReadiness.ts;
+    seeds.getReadiness and generations.signOffSeedStage share its transaction-local
+    loader. generations.ts must not import seeds.ts or its registered query;
+    seeds.ts may import the generations.ts version-bump helper. Test query/sign-off
+    parity and readiness loss before sign-off with no Summary or lifecycle writes.
+- id: "4"
+  title: Sign-off, content-plan drafting, coverage notes and retry
+  description: >-
+    CAP-12 and CAP-13: signOffSeedStage in generations.ts freezing the Summary
+    and entering the ordered chain for iterative seeds, the section-plan DTO
+    with reference dictionary and skip instructions, coverage and skip
+    compliance rows by planRef, exclusion conflicts recorded not repaired,
+    report creation and post-QA as today, retryFromSummary with sourceIdMap.
+    Spine AD-37.
+  spec_checkpoint: true
+  done_checkpoint: true
+  invoke_dev_with: >-
+    Parent amendments C2 and C4 are approved (docs/product-domain.md,
+    2026-09-17). createOrderedSectionRuns currently rejects iterative
+    generations and generateOrderedSection needs candidateRunId and a payload:
+    extend both for gatedWorkflow=seeds rather than forking the chain. The
+    report must be created by createGeneratedReportArtifacts; do not add a
+    revision writer. Coverage rows are model verdicts inside the existing
+    Self-check call (no extra call). Prove with Build Order 246-first that the
+    reference dictionary carries the writer's edited uncertainty and experiment
+    wording into the 246 request and into a recovery request.
+- id: "5"
+  title: Seed workspace UI
+  description: >-
+    CAP-2 Outline, CAP-5 to CAP-9 interactions, CAP-10 client behaviour,
+    CAP-16: SeedWorkspace split host on the intake-workbench contract,
+    SeedOutline, SeedSubsectionPane with the pinned action bar and
+    Confirm-and-approve listing, SeedCard, drawer below lg, conflict handling
+    that keeps unsaved text, polite announcements, routing by seedPhase. Spine
+    AD-41.
+  spec_checkpoint: true
+  done_checkpoint: false
+  invoke_dev_with: >-
+    Render server DTOs only; never derive Outdated, Stale, readiness or the
+    approval challenge on the client. Reuse ui/Checkbox.svelte, Disclosure,
+    BriefSourceChip-style provenance disclosure, ui/drawer for the narrow
+    layout; no Tabs primitive exists (aria-pressed button groups). Max font
+    weight 500, existing tokens, no modal. Run npm run test:component locally
+    before opening the PR; component tests go under
+    src/lib/components/seeds/*.component.test.ts.
+- id: "6"
+  title: Summary Review, post-completion summary and Brief rail labelling
+  description: >-
+    CAP-11, CAP-12 UI, CAP-4 Brief labelling: SeedSummaryReview as a full-width
+    in-page state with sticky navigation, per-item edit through seeds.edit,
+    read-only frozen settings, readiness-loss re-render, Sign off and generate;
+    the read-only signed-off Summary from the report; the Brief rail version
+    label and disabled Regenerate-with-this-Brief during an active generation.
+    Spine AD-41.
+  spec_checkpoint: false
+  done_checkpoint: true
+  invoke_dev_with: >-
+    The review is toggled by ?view=summary with pushState, never a modal. The
+    sticky in-page section nav is a new design-system pattern: add the note to
+    docs/design-system.md in this story. Run npm run test:component locally.
+- id: "7"
+  title: Semantic release suite and production-model measurement
+  description: >-
+    CAP-13 suite and CAP-14 numbers: scripts/seed-plan-eval.mjs with the six
+    fixtures judged by the reviewing manager, a latency measurement on the
+    production model, and the NFR-1 / notice-threshold numbers fixed by a dated
+    amendment. Spine AD-37, Deferred.
+  spec_checkpoint: false
+  done_checkpoint: true
+  invoke_dev_with: >-
+    Judgments are recorded under _bmad-output/test-artifacts/; every fixture
+    must pass before release. Record the measurement as a note in the spine
+    memlog and propose the amendment; do not change thresholds silently.
+- id: "8"
+  title: Mode relabel, shared selector list and documentation
+  description: >-
+    CAP-1 relabel: the mode-selector list moves to shared/generationModes.ts and
+    all three selectors import it, the label becomes Step by step with the hint "Decide the ideas first, then generate the PD" and the mode is listed first; changelog
+    entry per docs/changelog-guidelines.md. Spine AD-41.
+  spec_checkpoint: false
+  done_checkpoint: true
+  invoke_dev_with: >-
+    Land last, after slices 5 and 6, so the relabel points at the shipped
+    workspace. Add the shared test that the three selectors import the shared
+    list.
