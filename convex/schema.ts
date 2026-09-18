@@ -16,6 +16,77 @@ import {
 } from "./lib/contracts";
 import { admissionValidator, attemptOutcomeValidator } from "./lib/learningAdmission";
 import { styleOverridesValidator } from "./lib/styleOverrides";
+import { PD_SUBSECTIONS } from "../shared/pdSubsections";
+
+const seedRoleIdValidator = v.union(
+  ...PD_SUBSECTIONS.map((subsection) => v.literal(subsection.roleId))
+);
+const seedSubsectionKindValidator = v.union(
+  v.literal("standard"),
+  v.literal("optional"),
+  v.literal("multiple")
+);
+const seedSupportValidator = v.union(
+  v.literal("source_supported"),
+  v.literal("writer_asserted")
+);
+const seedGenerationEventKindValidator = v.union(
+  v.literal("initialized"),
+  v.literal("signOff"),
+  v.literal("cancel")
+);
+const seedRoleEventKindValidator = v.union(
+  v.literal("batchDispatched"),
+  v.literal("batchCompleted"),
+  v.literal("batchFailed"),
+  v.literal("batchLate"),
+  v.literal("batchViewed"),
+  v.literal("select"),
+  v.literal("deselect"),
+  v.literal("edit"),
+  v.literal("restoreWording"),
+  v.literal("feedbackRequested"),
+  v.literal("feedbackWithdrawn"),
+  v.literal("regenerate"),
+  v.literal("retry"),
+  v.literal("restoreBatch"),
+  v.literal("skip"),
+  v.literal("unskip"),
+  v.literal("approve"),
+  v.literal("staleOpened"),
+  v.literal("staleDisposed")
+);
+const seedDecisionEventOptionalFields = {
+  batchId: v.optional(v.id("seedBatches")),
+  attemptId: v.optional(v.string()),
+  feedbackRequestId: v.optional(v.id("seedFeedbackRequests")),
+  seedId: v.optional(v.id("seeds")),
+  contextRevision: v.optional(v.string()),
+  selectionRevision: v.optional(v.string()),
+  contributionHashes: v.optional(
+    v.array(
+      v.object({
+        roleId: seedRoleIdValidator,
+        contributionHash: v.string(),
+      })
+    )
+  ),
+  outcome: v.optional(v.string()),
+  staleEpisodeId: v.optional(v.id("seedStaleEpisodes")),
+  editRatio: v.optional(v.number()),
+  confirmed: v.optional(v.boolean()),
+  snapshot: v.optional(
+    v.object({
+      items: v.array(
+        v.object({
+          seedId: v.id("seeds"),
+          wordingHash: v.string(),
+          selectionVersion: v.number(),
+        })
+      ),
+    })
+  ),
+};
 
 export default defineSchema({
   // Auth lives in the Better Auth component (see convex/auth.ts). This app
@@ -709,6 +780,23 @@ export default defineSchema({
         v.literal("iterative")
       )
     ),
+    // Step-by-step seeds story 1 (AD-31/33/40). Optional on this existing
+    // table so pre-feature generations remain valid without a backfill.
+    gatedWorkflow: v.optional(v.union(v.literal("sections"), v.literal("seeds"))),
+    seedStageError: v.optional(v.string()),
+    seedStageVersion: v.optional(v.number()),
+    briefVersionId: v.optional(v.id("generationBriefs")),
+    summaryVersionId: v.optional(v.id("summaryVersions")),
+    originGenerationId: v.optional(v.id("generations")),
+    sourceIdMap: v.optional(
+      v.array(
+        v.object({
+          originSourceId: v.id("generationSources"),
+          recoverySourceId: v.id("generationSources"),
+        })
+      )
+    ),
+    seedRequestsReserved: v.optional(v.number()),
     singleModelId: v.optional(v.string()),
     // Compare mode's persisted model pair (exactly 2 ids). Absent on legacy
     // rows, which fall back to the full candidate roster.
@@ -808,6 +896,273 @@ export default defineSchema({
     .index("by_status_and_startedAt", ["status", "startedAt"])
     .index("by_startedAt", ["startedAt"])
     .index("by_postQaStatus", ["postQaStatus"]),
+
+  // ─── Step-by-step idea seeds (AD-33/39) ───────────────────────────────────
+  // All eleven tables are project-scoped. Core fields are required for new
+  // rows; only fields marked optional in AD-33 are optional here.
+
+  seedSubsections: defineTable({
+    projectId: v.id("projects"),
+    generationId: v.id("generations"),
+    roleId: seedRoleIdValidator,
+    kind: seedSubsectionKindValidator,
+    state: v.union(
+      v.literal("untouched"),
+      v.literal("generating"),
+      v.literal("in_progress"),
+      v.literal("approved"),
+      v.literal("skipped"),
+      v.literal("failed")
+    ),
+    currentContextRevision: v.string(),
+    selectionRevision: v.string(),
+    shownBatchId: v.optional(v.id("seedBatches")),
+    pendingBatchId: v.optional(v.id("seedBatches")),
+    priorState: v.optional(
+      v.union(
+        v.literal("untouched"),
+        v.literal("generating"),
+        v.literal("in_progress"),
+        v.literal("approved"),
+        v.literal("skipped"),
+        v.literal("failed")
+      )
+    ),
+    consecutiveFailures: v.number(),
+    activeStaleEpisodeId: v.optional(v.id("seedStaleEpisodes")),
+    approvedBy: v.optional(v.id("users")),
+    approvedAt: v.optional(v.number()),
+    approvedSelectionRevision: v.optional(v.string()),
+    approvedContextRevision: v.optional(v.string()),
+    approvedWithConfirmation: v.optional(v.boolean()),
+    exclusionAcknowledgedAt: v.optional(v.number()),
+  })
+    .index("by_generationId", ["generationId"])
+    .index("by_generationId_and_roleId", ["generationId", "roleId"])
+    .index("by_projectId", ["projectId"]),
+
+  seedBatches: defineTable({
+    projectId: v.id("projects"),
+    generationId: v.id("generations"),
+    roleId: seedRoleIdValidator,
+    operation: v.union(
+      v.literal("open"),
+      v.literal("prefetch"),
+      v.literal("retry"),
+      v.literal("regenerate"),
+      v.literal("feedback")
+    ),
+    dedupeKey: v.string(),
+    commandId: v.string(),
+    attemptId: v.string(),
+    feedbackRequestId: v.optional(v.id("seedFeedbackRequests")),
+    consumedContextRevision: v.string(),
+    briefVersionId: v.id("generationBriefs"),
+    settingsHash: v.string(),
+    status: v.union(
+      v.literal("queued"),
+      v.literal("running"),
+      v.literal("shown"),
+      v.literal("superseded"),
+      v.literal("failed")
+    ),
+    deliveredLateAt: v.optional(v.number()),
+    queuedAt: v.number(),
+    leaseExpiresAt: v.number(),
+    startedAt: v.optional(v.number()),
+    completedAt: v.optional(v.number()),
+    model: v.string(),
+    slot: v.string(),
+    promptVersion: v.string(),
+    requestsReserved: v.number(),
+    requestsMade: v.optional(v.number()),
+    settledAt: v.optional(v.number()),
+    seedsDropped: v.optional(v.number()),
+    error: v.optional(v.string()),
+  })
+    .index("by_generationId_and_roleId", ["generationId", "roleId"])
+    .index("by_status_and_leaseExpiresAt", ["status", "leaseExpiresAt"])
+    .index("by_generationId_and_dedupeKey", ["generationId", "dedupeKey"])
+    .index("by_projectId", ["projectId"]),
+
+  seedBatchContext: defineTable({
+    projectId: v.id("projects"),
+    generationId: v.id("generations"),
+    batchId: v.id("seedBatches"),
+    roleId: seedRoleIdValidator,
+    kind: v.union(
+      v.literal("selection"),
+      v.literal("skip"),
+      v.literal("feedback"),
+      v.literal("ownFeedback"),
+      v.literal("target")
+    ),
+    sourceRoleId: seedRoleIdValidator,
+    seedId: v.optional(v.id("seeds")),
+    feedbackRequestId: v.optional(v.id("seedFeedbackRequests")),
+    bullets: v.optional(v.array(v.string())),
+    text: v.optional(v.string()),
+    order: v.number(),
+    contributionHash: v.string(),
+  })
+    .index("by_batchId", ["batchId"])
+    .index("by_projectId", ["projectId"]),
+
+  seeds: defineTable({
+    projectId: v.id("projects"),
+    generationId: v.id("generations"),
+    batchId: v.id("seedBatches"),
+    roleId: seedRoleIdValidator,
+    order: v.number(),
+    bullets: v.array(v.string()),
+    tags: v.array(v.string()),
+    support: seedSupportValidator,
+    originalSupport: seedSupportValidator,
+    revisionOfSeedId: v.optional(v.id("seeds")),
+    feedbackRequestId: v.optional(v.id("seedFeedbackRequests")),
+    uncertaintySeedId: v.optional(v.id("seeds")),
+    experimentSeedIds: v.optional(v.array(v.id("seeds"))),
+  })
+    .index("by_batchId", ["batchId"])
+    .index("by_generationId_and_roleId", ["generationId", "roleId"])
+    .index("by_projectId", ["projectId"]),
+
+  seedProvenance: defineTable({
+    seedId: v.id("seeds"),
+    projectId: v.id("projects"),
+    generationId: v.id("generations"),
+    sourceId: v.id("generationSources"),
+    sourceContentHash: v.string(),
+    startOffset: v.number(),
+    endOffset: v.number(),
+    exactExcerpt: v.string(),
+  })
+    .index("by_seedId", ["seedId"])
+    .index("by_projectId", ["projectId"]),
+
+  seedSelections: defineTable({
+    projectId: v.id("projects"),
+    generationId: v.id("generations"),
+    seedId: v.id("seeds"),
+    roleId: seedRoleIdValidator,
+    selected: v.boolean(),
+    editedBullets: v.optional(v.array(v.string())),
+    editedBy: v.optional(v.id("users")),
+    editedAt: v.optional(v.number()),
+    selectedAt: v.number(),
+    version: v.number(),
+  })
+    .index("by_generationId_and_roleId", ["generationId", "roleId"])
+    .index("by_seedId", ["seedId"])
+    .index("by_projectId", ["projectId"]),
+
+  seedFeedbackRequests: defineTable({
+    projectId: v.id("projects"),
+    generationId: v.id("generations"),
+    roleId: seedRoleIdValidator,
+    targetSeedId: v.id("seeds"),
+    targetWording: v.array(v.string()),
+    instruction: v.string(),
+    status: v.union(
+      v.literal("active"),
+      v.literal("suspendedBySkip"),
+      v.literal("withdrawn")
+    ),
+    withdrawnAt: v.optional(v.number()),
+    batchId: v.optional(v.id("seedBatches")),
+  })
+    .index("by_generationId_and_roleId", ["generationId", "roleId"])
+    .index("by_targetSeedId", ["targetSeedId"])
+    .index("by_projectId", ["projectId"]),
+
+  seedStaleEpisodes: defineTable({
+    projectId: v.id("projects"),
+    generationId: v.id("generations"),
+    roleId: seedRoleIdValidator,
+    openedAt: v.number(),
+    reasons: v.array(seedRoleIdValidator),
+    disposedAt: v.optional(v.number()),
+    disposition: v.optional(v.union(v.literal("resolved"), v.literal("bypassed"))),
+    freshAttemptCompleted: v.optional(v.boolean()),
+    freshSeedsInSnapshot: v.optional(v.boolean()),
+    olderSelectionsConfirmed: v.optional(v.boolean()),
+  })
+    .index("by_generationId_and_roleId", ["generationId", "roleId"])
+    .index("by_projectId", ["projectId"]),
+
+  summaryVersions: defineTable({
+    projectId: v.id("projects"),
+    generationId: v.id("generations"),
+    version: v.number(),
+    originGenerationId: v.id("generations"),
+    briefVersionId: v.id("generationBriefs"),
+    settingsHash: v.string(),
+    skippedRoleIds: v.array(seedRoleIdValidator),
+    readiness: v.boolean(),
+    signedOffBy: v.id("users"),
+    signedOffAt: v.number(),
+  })
+    .index("by_generationId", ["generationId"])
+    .index("by_projectId", ["projectId"]),
+
+  summaryItems: defineTable({
+    projectId: v.id("projects"),
+    generationId: v.id("generations"),
+    summaryVersionId: v.id("summaryVersions"),
+    roleId: seedRoleIdValidator,
+    kind: seedSubsectionKindValidator,
+    order: v.number(),
+    seedId: v.id("seeds"),
+    bullets: v.array(v.string()),
+    support: seedSupportValidator,
+    tags: v.array(v.string()),
+    uncertaintySeedId: v.optional(v.id("seeds")),
+    experimentSeedIds: v.optional(v.array(v.id("seeds"))),
+  })
+    .index("by_summaryVersionId_and_order", ["summaryVersionId", "order"])
+    .index("by_projectId", ["projectId"]),
+
+  seedDecisionEvents: defineTable(
+    v.union(
+      v.object({
+        projectId: v.id("projects"),
+        generationId: v.id("generations"),
+        kind: seedGenerationEventKindValidator,
+        at: v.number(),
+        actorUserId: v.id("users"),
+        ...seedDecisionEventOptionalFields,
+      }),
+      v.object({
+        projectId: v.id("projects"),
+        generationId: v.id("generations"),
+        kind: seedGenerationEventKindValidator,
+        at: v.number(),
+        actorSystem: v.literal(true),
+        ...seedDecisionEventOptionalFields,
+      }),
+      v.object({
+        projectId: v.id("projects"),
+        generationId: v.id("generations"),
+        kind: seedRoleEventKindValidator,
+        roleId: seedRoleIdValidator,
+        at: v.number(),
+        actorUserId: v.id("users"),
+        ...seedDecisionEventOptionalFields,
+      }),
+      v.object({
+        projectId: v.id("projects"),
+        generationId: v.id("generations"),
+        kind: seedRoleEventKindValidator,
+        roleId: seedRoleIdValidator,
+        at: v.number(),
+        actorSystem: v.literal(true),
+        ...seedDecisionEventOptionalFields,
+      })
+    )
+  )
+    .index("by_generationId_and_at", ["generationId", "at"])
+    .index("by_batchId_and_actorUserId_and_kind", ["batchId", "actorUserId", "kind"])
+    .index("by_projectId", ["projectId"]),
 
   // ─── BNH-15: model A/B testing ─────────────────────────────────────────────
 

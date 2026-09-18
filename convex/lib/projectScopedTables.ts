@@ -83,6 +83,18 @@ export const PROJECT_SCOPED_TABLES = [
   // Generation-owned rows, leaves first.
   { table: "sectionEditEvents", field: "projectId", disposition: "delete", index: "by_projectId" },
   { table: "complianceNotes", field: "projectId", disposition: "delete", index: "by_projectId" },
+  // Step-by-step seed-stage rows (AD-33), leaves before their parents.
+  { table: "seedDecisionEvents", field: "projectId", disposition: "delete", index: "by_projectId" },
+  { table: "seedProvenance", field: "projectId", disposition: "delete", index: "by_projectId" },
+  { table: "seedSelections", field: "projectId", disposition: "delete", index: "by_projectId" },
+  { table: "summaryItems", field: "projectId", disposition: "delete", index: "by_projectId" },
+  { table: "seedBatchContext", field: "projectId", disposition: "delete", index: "by_projectId" },
+  { table: "seeds", field: "projectId", disposition: "delete", index: "by_projectId" },
+  { table: "seedFeedbackRequests", field: "projectId", disposition: "delete", index: "by_projectId" },
+  { table: "seedStaleEpisodes", field: "projectId", disposition: "delete", index: "by_projectId" },
+  { table: "seedBatches", field: "projectId", disposition: "delete", index: "by_projectId" },
+  { table: "seedSubsections", field: "projectId", disposition: "delete", index: "by_projectId" },
+  { table: "summaryVersions", field: "projectId", disposition: "delete", index: "by_projectId" },
   { table: "generationBriefEntries", field: "projectId", disposition: "delete", index: "by_projectId" },
   { table: "generationBriefs", field: "projectId", disposition: "delete", index: "by_projectId" },
   { table: "generationSources", field: "projectId", disposition: "delete", index: "by_projectId_and_generationId" },

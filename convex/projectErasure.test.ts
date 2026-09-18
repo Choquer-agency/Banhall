@@ -105,6 +105,19 @@ function schemaProjectReferences(): Set<string> {
 
 const registry: readonly ProjectScopedTable[] = [...PROJECT_SCOPED_TABLES, PROJECT_SELF_REFERENCE];
 const refKey = (entry: ProjectScopedTable) => `${entry.table}.${entry.field}`;
+const SEED_TABLES = [
+  "seedSubsections",
+  "seedBatches",
+  "seedBatchContext",
+  "seeds",
+  "seedProvenance",
+  "seedSelections",
+  "seedFeedbackRequests",
+  "seedStaleEpisodes",
+  "summaryVersions",
+  "summaryItems",
+  "seedDecisionEvents",
+] as const;
 
 function indexFields(table: string, index: string): string[] | undefined {
   return tables[table]?.export().indexes.find((i) => i.indexDescriptor === index)?.fields;
@@ -164,6 +177,19 @@ describe("project-scoped table registry", () => {
       }
     }
     expect(PROJECT_SCOPED_TABLES.map((e) => e.table)).not.toContain("projects");
+  });
+
+  it("registers all eleven seed tables for indexed deletion", () => {
+    for (const table of SEED_TABLES) {
+      expect(PROJECT_SCOPED_TABLES).toContainEqual(
+        expect.objectContaining({
+          table,
+          field: "projectId",
+          disposition: "delete",
+          index: "by_projectId",
+        })
+      );
+    }
   });
 });
 
@@ -347,6 +373,89 @@ async function seedProjectRows(
     const briefId = await ctx.db.insert("generationBriefs", { projectId, generationId, inputsHash: "h", version: 1, origin: "derived", storylineText: "s", createdAt: now });
     await ctx.db.insert("generationBriefEntries", {
       briefId, projectId, group: "storyline", text: "t", sourceId, sourceContentHash: "h", startOffset: 0, endOffset: 1, exactExcerpt: "c", createdAt: now,
+    });
+    // One schema-populated row in every seed table proves both the AD-33 shape
+    // and the registry-driven purge. These rows exercise optional references;
+    // they are not intended to model one semantically valid workflow episode.
+    // The retained project's duplicate fixture proves erasure stays scoped.
+    const batchId = await ctx.db.insert("seedBatches", {
+      projectId, generationId, roleId: "company_context", operation: "feedback",
+      dedupeKey: `seed-dedupe-${projectId}`, commandId: `seed-command-${projectId}`,
+      attemptId: `seed-attempt-${projectId}`, consumedContextRevision: "context-r1",
+      briefVersionId: briefId, settingsHash: "settings-hash", status: "shown",
+      deliveredLateAt: now + 4, queuedAt: now, leaseExpiresAt: now + 600_000,
+      startedAt: now + 1, completedAt: now + 2, model: "m",
+      slot: "generation:seedFeedback:company_context", promptVersion: "prompt-v1",
+      requestsReserved: 2, requestsMade: 1, settledAt: now + 3, seedsDropped: 0,
+      error: "bounded fixture error",
+    });
+    const seedId = await ctx.db.insert("seeds", {
+      projectId, generationId, batchId, roleId: "company_context", order: 1,
+      bullets: ["A concise seed."], tags: ["technical"],
+      support: "source_supported", originalSupport: "source_supported",
+    });
+    const feedbackRequestId = await ctx.db.insert("seedFeedbackRequests", {
+      projectId, generationId, roleId: "company_context", targetSeedId: seedId,
+      targetWording: ["A concise seed."], instruction: "Make it more precise",
+      status: "withdrawn", withdrawnAt: now + 5, batchId,
+    });
+    await ctx.db.patch(batchId, { feedbackRequestId });
+    await ctx.db.patch(seedId, {
+      revisionOfSeedId: seedId,
+      feedbackRequestId,
+      uncertaintySeedId: seedId,
+      experimentSeedIds: [seedId],
+    });
+    const staleEpisodeId = await ctx.db.insert("seedStaleEpisodes", {
+      projectId, generationId, roleId: "company_context", openedAt: now,
+      reasons: ["company_context"], disposedAt: now + 6, disposition: "resolved",
+      freshAttemptCompleted: true, freshSeedsInSnapshot: true,
+      olderSelectionsConfirmed: true,
+    });
+    await ctx.db.insert("seedSubsections", {
+      projectId, generationId, roleId: "company_context", kind: "standard",
+      state: "approved", currentContextRevision: "context-r1",
+      selectionRevision: "selection-r1", shownBatchId: batchId,
+      pendingBatchId: batchId, priorState: "in_progress", consecutiveFailures: 1,
+      activeStaleEpisodeId: staleEpisodeId, approvedBy: userId,
+      approvedAt: now + 7, approvedSelectionRevision: "selection-r1",
+      approvedContextRevision: "context-r1", approvedWithConfirmation: true,
+      exclusionAcknowledgedAt: now + 8,
+    });
+    await ctx.db.insert("seedBatchContext", {
+      projectId, generationId, batchId, roleId: "company_context", kind: "target",
+      sourceRoleId: "company_context", seedId, feedbackRequestId,
+      bullets: ["A concise seed."], text: "Make it more precise", order: 1,
+      contributionHash: "contribution-hash",
+    });
+    await ctx.db.insert("seedProvenance", {
+      seedId, projectId, generationId, sourceId, sourceContentHash: "h",
+      startOffset: 0, endOffset: 1, exactExcerpt: "c",
+    });
+    await ctx.db.insert("seedSelections", {
+      projectId, generationId, seedId, roleId: "company_context", selected: true,
+      editedBullets: ["A writer-edited seed."], editedBy: userId, editedAt: now + 9,
+      selectedAt: now, version: 1,
+    });
+    const summaryVersionId = await ctx.db.insert("summaryVersions", {
+      projectId, generationId, version: 1, originGenerationId: generationId,
+      briefVersionId: briefId, settingsHash: "settings-hash", skippedRoleIds: [],
+      readiness: true, signedOffBy: userId, signedOffAt: now + 10,
+    });
+    await ctx.db.insert("summaryItems", {
+      projectId, generationId, summaryVersionId, roleId: "company_context",
+      kind: "standard", order: 1, seedId, bullets: ["A writer-edited seed."],
+      support: "writer_asserted", tags: ["technical"], uncertaintySeedId: seedId,
+      experimentSeedIds: [seedId],
+    });
+    await ctx.db.insert("seedDecisionEvents", {
+      projectId, generationId, kind: "approve", roleId: "company_context", at: now + 11,
+      actorUserId: userId, batchId, attemptId: `seed-attempt-${projectId}`,
+      feedbackRequestId, seedId, contextRevision: "context-r1",
+      selectionRevision: "selection-r1",
+      contributionHashes: [{ roleId: "company_context", contributionHash: "contribution-hash" }],
+      outcome: "approved", staleEpisodeId, editRatio: 0.25, confirmed: true,
+      snapshot: { items: [{ seedId, wordingHash: "wording-hash", selectionVersion: 1 }] },
     });
     await ctx.db.insert("settingsDocumentAnalyses", { projectId, contentHash: "h", classifierVersion: "1", addressedCategories: [], analyzedAt: now });
     // Detach rows.
