@@ -10,7 +10,7 @@ stateDiagram-v2
   reserved --> running: startIterativeGeneration (analysis, Brief)
   running --> awaiting_input: initializeSeedStage (13 Subsection rows)
   awaiting_input --> awaiting_input: seed stage (batches, decisions)
-  awaiting_input --> running: seeds.signOff (Summary frozen)
+  awaiting_input --> running: generations.signOffSeedStage (Summary frozen)
   running --> completed: section chain + createGeneratedReportArtifacts
   running --> failed: chain failure
   awaiting_input --> failed: cancelIterativeGeneration (existing cancel semantics: terminal, no report, seed records retained)
@@ -25,10 +25,11 @@ stateDiagram-v2
 stateDiagram-v2
   [*] --> untouched
   untouched --> generating: open / prefetch (attempt pending)
-  generating --> in_progress: completeBatch (shown)
-  generating --> untouched: failBatch (no prior batch)
-  generating --> failed: allowance of 3 initial attempts exhausted
-  failed --> generating: retry (counted request)
+  generating --> in_progress: seedRuns.completeAttempt (shown)
+  generating --> untouched: seedRuns.failAttempt (no prior batch, fewer than 3 consecutive failures)
+  generating --> in_progress: seedRuns.failAttempt (prior batch restored)
+  generating --> failed: seedRuns.failAttempt (3 consecutive failures, no shown Batch)
+  failed --> generating: retry (metered request, available without limit)
   in_progress --> generating: regenerate / feedback (attempt pending)
   in_progress --> approved: approve (records approved revisions)
   approved --> in_progress: own selection change
@@ -50,13 +51,13 @@ sequenceDiagram
   participant S as seedSubsections
   participant B as seedBatches
   participant A as generateBatch action
-  W->>S: set pendingAttemptId = a1, reserve 2 requests
-  W->>B: insert a1 queued (consumedContextRevision = C1)
-  A->>B: claimSeedBatch a1 (queued→running)
+  W->>B: insert b1 queued (attemptId = a1, consumedContextRevision = C1)
+  W->>S: set pendingBatchId = b1, reserve up to 2 requests for metering
+  A->>B: seedRuns.claimAttempt(b1) (queued→running)
   Note over W,S: writer changes a Predecessor: currentContextRevision = C2
-  A->>B: completeBatch a1 → shown (Outdated: C1 ≠ C2)
-  W->>S: retry → pendingAttemptId = a2
-  A->>B: completeBatch a1 (again, after lease) → late (never current)
+  A->>B: seedRuns.completeAttempt(b1) → shown (Outdated: C1 ≠ C2)
+  W->>S: retry → pendingBatchId = b2 (attemptId = a2)
+  A->>B: seedRuns.completeAttempt(b1) after lease → records deliveredLateAt; terminal status unchanged, never current
 ```
 
 ## Approval and staleness across Subsections

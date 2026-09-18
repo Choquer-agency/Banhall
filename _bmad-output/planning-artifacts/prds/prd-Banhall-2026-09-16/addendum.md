@@ -49,7 +49,7 @@ For Subsection k the Decision Set is the active Seed Selections (final wording),
 
 ### Attempt ownership
 
-`seedSubsections.pendingAttemptId` names the one attempt allowed to become current; `completeBatch` for any other attempt writes the Batch as `late`. Lease 10 min; the reaper marks an over-lease pending attempt `failed` and clears `pendingAttemptId`.
+`seedSubsections.pendingBatchId` names the Batch whose attempt is allowed to become current. `seedRuns.completeAttempt` for any other Batch records a late delivery that never becomes current. The lease is 10 minutes; `seedRuns.failAttempt`, called by the reaper for an expired Batch, marks the attempt failed and clears `pendingBatchId`. `consecutiveFailures` increments on failure and resets on success. Three consecutive failures with no shown Batch produce the visible `failed` state, but the writer can retry without limit.
 
 ### Worked event trace (for the metrics)
 
@@ -57,7 +57,7 @@ Larry opens S1 (batchShown by system, batchViewed by Larry), selects two Seeds (
 
 ### Versions
 
-The system bumps a per-generation `seedStageVersion` on every writer-initiated seed mutation. Writer mutations send `expectedSeedStageVersion` (Batch completions are fenced by attempt ownership instead, FR-19). A mismatch returns the existing `STALE_REVISION`; the live query refreshes and the client keeps unsaved box text. Navigation (open Subsection) is client-local per user.
+The system bumps a per-generation `seedStageVersion` on every writer-initiated seed mutation. Writer mutations send `expectedSeedStageVersion` (Batch completions are fenced by `pendingBatchId` instead, FR-19). The bump is a plain helper in `convex/generations.ts` that accepts the caller's `MutationCtx`, so the seed write, version bump and event stay in the same transaction. A mismatch returns the existing `STALE_REVISION`; the live query refreshes and the client keeps unsaved box text. Navigation (open Subsection) is client-local per user.
 
 ### Legacy
 
@@ -67,9 +67,9 @@ The system bumps a per-generation `seedStageVersion` on every writer-initiated s
 
 One call returns 1–3 Revised Seeds with `revisionOfSeedId`; they are inserted unselected.
 
-### Budget
+### Usage metering
 
-Reserved at dispatch and reconciled at completion over all seed-stage requests; each Subsection's three initial attempts are exempt from the hard cap, later retries are ordinary counted requests; `seeds.extendBudget` (+20, once, Owner/Manager/Admin) is recorded (NFR-3, FR-27).
+Up to two model requests are reserved at dispatch and reconciled at completion for every seed-stage attempt. Initial attempts, structured-output repairs, Feedback, prefetch, failures and every writer-requested retry are metered. The running count and cost are informational only: there is no allowance, hard cap or `extendBudget` mutation, and Retry remains available without limit (NFR-3, FR-27; owner decision 2026-09-17).
 
 ## C. Cost model (to be measured; assumptions)
 
@@ -80,9 +80,9 @@ Reserved at dispatch and reconciled at completion over all seed-stage requests; 
 | Feedback, typical | 2–5 | 1–3 Revised Seeds each |
 | Regenerate, typical | 1–3 | |
 | Prose: 3 Sections × (draft + Self-check + ≤1 repair) | 6–9 | as today's gated mode |
-| Ghost draft (if kept) | +1 full one-shot | OQ-5 |
+| Ghost draft | 0 | retired for seed generations by the owner decision of 2026-09-17 |
 
-Typical seed-stage total 16–21 calls, median well under the 40 soft warning; the 60 hard cap is a runaway guard, not a target. Latency: one Batch is one small structured call, so p50 ≤ 12 s is plausible on Sonnet-class models; measure on the production model before fixing NFR-1.
+Typical seed-stage total is estimated at 16–21 calls, with a median expected below the informational notice at 40. There is no hard cap. Latency: one Batch is one small structured call, so p50 ≤ 12 s is plausible on Sonnet-class models; measure on the production model before fixing NFR-1.
 
 ## D. UX notes for the design step
 
