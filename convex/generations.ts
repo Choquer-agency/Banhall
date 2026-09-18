@@ -34,6 +34,7 @@ import {
 } from "../shared/generationModels";
 import { randomComparePair, resolveCompareModels } from "./ai/model";
 import { findActiveGeneration } from "./lib/activeGeneration";
+import { isProjectDeleting } from "./lib/projectDeletion";
 import { analyzerContextBudget, defaultModelId } from "./appSettings";
 import { sourceInclusion } from "./ai/trustedContext";
 import {
@@ -1136,6 +1137,15 @@ export const claimCandidateRun = internalMutation({
   handler: async (ctx, args) => {
     const run = await ctx.db.get(args.candidateRunId);
     if (!run || run.status !== "queued") return null;
+    // Story 0 (AD-19): a claim scheduled before the project entered deletion
+    // must not repopulate it. Narrate and return without writing.
+    if (await isProjectDeleting(ctx, run.projectId)) {
+      console.log("claimCandidateRun: project is being deleted; run left unclaimed", {
+        projectId: run.projectId,
+        candidateRunId: run._id,
+      });
+      return null;
+    }
     const generation = await ctx.db.get(run.generationId);
     const project = await ctx.db.get(run.projectId);
     // Ghost runs draft in parallel with the iterative section flow, whose
@@ -2240,6 +2250,15 @@ export const claimSectionRun = internalMutation({
   handler: async (ctx, args) => {
     const run = await getSectionRun(ctx, args.generationId, args.section);
     if (!run || run.status !== "queued") return null;
+    // Story 0 (AD-19): see claimCandidateRun.
+    if (await isProjectDeleting(ctx, run.projectId)) {
+      console.log("claimSectionRun: project is being deleted; run left unclaimed", {
+        projectId: run.projectId,
+        generationId: run.generationId,
+        section: run.section,
+      });
+      return null;
+    }
     const generation = await ctx.db.get(run.generationId);
     const project = await ctx.db.get(run.projectId);
     if (
@@ -2433,9 +2452,13 @@ export const getPostQaAttempt = internalQuery({
   args: { generationId: v.id("generations") },
   handler: async (ctx, args) => {
     const generation = await ctx.db.get(args.generationId);
-    return generation?.postQaStatus === "running"
-      ? { startedAt: generation.postQaStartedAt ?? null }
-      : null;
+    if (generation?.postQaStatus !== "running") return null;
+    return {
+      startedAt: generation.postQaStartedAt ?? null,
+      // Story 0 (AD-19): the post-QA action's entry reads this and returns
+      // without writing when the project entered deletion.
+      projectDeleting: await isProjectDeleting(ctx, generation.projectId),
+    };
   },
 });
 
@@ -2574,6 +2597,16 @@ export const saveReportQa = internalMutation({
   handler: async (ctx, args) => {
     const generation = await ctx.db.get(args.generationId);
     if (!generation) return;
+    // Story 0 (AD-19): a pass that started before the project entered
+    // deletion persists nothing — no findings, no status flip. The barrier
+    // fences the persistence side as well as the action's entry.
+    if (await isProjectDeleting(ctx, generation.projectId)) {
+      console.log("saveReportQa: project is being deleted; results discarded", {
+        projectId: generation.projectId,
+        generationId: generation._id,
+      });
+      return;
+    }
     // A delayed completion must not settle a replacement attempt or overwrite
     // results that have already completed, even when the report is unchanged.
     if (args.attemptStartedAt !== undefined &&
