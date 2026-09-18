@@ -2133,6 +2133,88 @@ changes.
   migrate.
 - **Approval:** product owner direction 2026-09-15.
 
+### 2026-09-17 — Step-by-step mode: idea seeds before prose (Summary sign-off gate)
+
+Generation-behaviour amendment for the gated mode only. Origin: the
+owner's brief of 2026-09-16, the product design handoff (Google Doc
+`1cbfdHVOVqQkzLZAM7IDMEGDiRYc040oFKiwb_Mnb2_E`), PRD
+`_bmad-output/planning-artifacts/prds/prd-Banhall-2026-09-16/prd.md` (§10),
+feature spine
+`_bmad-output/planning-artifacts/architecture/architecture-Banhall-2026-09-16-step-by-step-seeds/ARCHITECTURE-SPINE.md`,
+and the owner's answers of 2026-09-17 recorded in
+`_bmad-output/planning-artifacts/prds/prd-Banhall-2026-09-16/DECISIONS-2026-09-17.md`.
+Single and compare modes are unchanged.
+
+- **Owner rule:**
+  1. The gated generation mode (`candidateMode: iterative`, relabelled
+     "Step by step") gains a seed stage: for each of thirteen fixed
+     Subsections of the PD template the AI proposes three to five Idea
+     Seeds (one or two bullets, positioning tags, cited excerpts); the
+     writer selects, edits, gives feedback, regenerates, skips Optional
+     Subsections and approves; a Running Summary accumulates; prose is
+     written only after the writer signs off the Summary.
+  2. The gate for a seed generation is the Summary sign-off. The
+     per-section prose approval of the previous gated flow is retired for
+     generations that carry the seed workflow; generations reserved before
+     this change keep their section-approval surfaces (workflow recorded on
+     the generation at reservation; absent resolves to section approval).
+  3. Seed-stage requests are metered and reported per generation and are
+     **never refused on usage**: the writer may regenerate, give feedback
+     and retry until the PD is done. An informational notice appears at 40
+     requests. This keeps the existing alert-only spend stance.
+  4. A signed-off Seed Selection that matches a Claim Exclusion is drafted
+     and the Compliance Note records the conflict (`tier: conflict`); it is
+     not repaired away. The writer is warned at approval and the
+     confirmation is recorded.
+  5. Content precedence in drafting: Locked Rules, then the signed-off
+     Seed Selections, then Brief entries. Style precedence (2026-09-11) is
+     unchanged; Glossary Terms normalize wording only.
+  6. Subsections are content roles (2026-09-15 second amendment), never
+     headings and never paragraph counts; the report keeps exactly three
+     Lines. Seeds are not prose and never enter the report, a Proposal or
+     the Brief; the report is created through the existing creation path.
+  7. The Brief version and generation settings are frozen per generation
+     for the seed stage; a Brief edit mid-run applies to the next
+     generation; "Regenerate with this Brief" is unavailable while a
+     generation is active.
+  8. The ghost one-shot comparison draft is not run for seed generations;
+     their edit-distance baseline is the generated report's first snapshot,
+     as in single mode. Seed generations do not produce
+     `sectionEditEvents`; the draft-style digest labels the mode as not
+     included until seed decisions are distilled.
+- **Storage:** new project-scoped tables (`seedSubsections`, `seedBatches`,
+  `seedBatchContext`, `seeds`, `seedProvenance`, `seedSelections`,
+  `seedFeedbackRequests`, `seedStaleEpisodes`, `summaryVersions`,
+  `summaryItems`, `seedDecisionEvents`), optional fields on `generations`
+  (`gatedWorkflow`, `seedStageVersion`, `briefVersionId`,
+  `summaryVersionId`, `originGenerationId`, `sourceIdMap`,
+  `seedRequestsReserved`, `seedStageError`), an optional `planRef` on
+  `complianceNotes`, and the project-scoped table registry the 2026-09-03
+  spine named as a target. No `generations.status` value is added; the seed
+  stage waits in `awaiting_input`. Widen-only; no backfill.
+- **Authorization:** no new capability cells. Starting, working and
+  signing off a seed generation require `report.editProse` as enforced on
+  2026-09-01; `createdBy` is never consulted. The seed-decision events
+  record a user reference or `system`, never a free-text identity.
+- **Tests:** enforcing tests are named per AD in the feature spine
+  (`convex/seeds.test.ts`, `convex/seedRuns`-backed lifecycle tests in
+  `convex/generationLifecycle.test.ts`, `convex/lib/seedContract.test.ts`,
+  `convex/lib/seedRevisions.test.ts`, `convex/lib/gatedWorkflow.test.ts`,
+  `convex/projectErasure.test.ts`, `convex/learningHealth.test.ts`,
+  `convex/ai/contextBoundary.test.ts` seed fixtures, component tests under
+  `src/lib/components/seeds/`), plus a release-blocking semantic suite
+  judged by the reviewing manager.
+- **Affected tickets:** none in futur-board yet; build slices 0–8 are
+  listed in `_bmad-output/specs/spec-step-by-step-seeds/build-sequence.md`.
+- **Recorded residual tensions:** (1) the 2026-09-09 spec's 2x cost
+  ceiling does not apply to the seed stage (metered, reported, uncapped);
+  (2) latency placeholders (12 s median / 30 s p95 per Batch) are
+  unmeasured until build slice 7; (3) whether writers discover the
+  relabelled mode is open (PRD OQ-7).
+- **Approval:** product owner direction 2026-09-17 (chat), answering the
+  nine PRD open questions; items 2 and 4 are the parent-spine amendments
+  the feature spine lists as C2 and C4.
+
 ## Amendment process
 
 A change to vocabulary, an invariant, a transition edge, or a decision above requires:
