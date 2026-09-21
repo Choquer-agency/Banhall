@@ -3,6 +3,7 @@ import { internalMutation, query } from "./_generated/server";
 import { requireRole } from "./lib/auth";
 import { domainError } from "./lib/contracts";
 import { learningHealthReads } from "./lib/learningHealthReads";
+import { readSeedLearningHealth } from "./lib/seedLearningHealth";
 
 const DAY = 86_400_000;
 export const HEALTH_LIMITS = { ped: 2000, generations: 200, outcomes: 2000, join: 20, joinBudget: 1000, passages: 2000 };
@@ -163,5 +164,42 @@ export const getHealth = query({
         firstInWindowAt: outcomes.length ? outcomes[0].observedAt : null, lastInWindowAt: outcomes.length ? outcomes[outcomes.length - 1].observedAt : null, partial: truncated.has("rerank outcomes") },
       coverage: { partial: truncated.size > 0, truncated: [...truncated], limits: HEALTH_LIMITS, byteBudget: reads.snapshot(), recording: "best-effort" },
     };
+  },
+});
+
+/**
+ * AD-39 seed scorecard. NFR-1 cohort: "From the dispatch of an attempt to its
+ * validated result being available (completion event; failures included,
+ * prefetch included): at most 12 s at the median and 30 s at the 95th
+ * percentile for a project within the standard context budget. A separate
+ * foreground figure, dispatch to first render for attempts whose Subsection
+ * stayed open, is reported but not thresholded; first-view events remain the
+ * exposure measure. Prose Generation, from Sign-off to report created, is the
+ * normative bound: within the existing single-mode drafting time (request to
+ * report created, same model, same project, retries included) plus the
+ * consistency pass, measured as a median over the release cohort."
+ */
+export const getSeedHealth = query({
+  args: {
+    start: v.number(),
+    end: v.number(),
+    gatedWorkflow: v.literal("seeds"),
+  },
+  handler: async (ctx, { start, end }) => {
+    await requireRole(ctx, ["admin"]);
+    if (
+      !Number.isFinite(start) ||
+      !Number.isFinite(end) ||
+      start < 0 ||
+      end <= start ||
+      end - start > 90 * DAY ||
+      end > 8.64e15
+    ) {
+      domainError(
+        "INVALID_INPUT",
+        "Choose finite ordered half-open bounds spanning at most 90 firm-time days",
+      );
+    }
+    return await readSeedLearningHealth(ctx, { start, end });
   },
 });

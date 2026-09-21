@@ -9,14 +9,20 @@ import {
   SeedContextLimitError,
   assertSeedPromptWithinLimit,
   assertSeedSnapshotWithinLimits,
+  buildCompleteDecisionSnapshot,
   buildDispatchSnapshot,
   canonicalizeSeedSnapshot,
+  completeContextRevision,
   contextRevision,
   contributionHashes,
   decodeBatchContext,
   emptyContextRevision,
   emptySelectionRevision,
   encodeBatchContext,
+  explainChange,
+  isSeedSubsectionStale,
+  materializeFinalWording,
+  orderShownSet,
   selectionRevision,
   stableSerialize,
   type SeedContextItem,
@@ -62,6 +68,162 @@ describe("seed revisions", () => {
     expect(await emptyContextRevision()).toBe(EMPTY_CONTEXT_REVISION);
     expect(await emptySelectionRevision()).toBe(EMPTY_SELECTION_REVISION);
     expect(await selectionRevision([])).toBe(await selectionRevision([]));
+  });
+
+  it("keeps the canonical bytes and hash exact", async () => {
+    const snapshot = buildCompleteDecisionSnapshot({
+      targetRoleId: "goal_problem",
+      selections: [
+        {
+          roleId: "company_context",
+          seedId: "seed-1",
+          bullets: ["Stored wording."],
+          active: true,
+        },
+      ],
+      skippedRoleIds: [],
+      feedbackRequests: [],
+    });
+    expect(stableSerialize(snapshot)).toBe(
+      '{"items":[{"bullets":["Stored wording."],"kind":"selection","roleId":"company_context","seedId":"seed-1"}],"v":1}'
+    );
+    expect(await completeContextRevision(snapshot)).toBe(
+      "dcd0a9db749a3825480159e60f44bcbaac05d1194016958fa31bb37ae3e187ad"
+    );
+  });
+
+  it("hashes complete decisions beyond the 128-row prompt ceiling", async () => {
+    const selections = Array.from({ length: MAX_SEED_SNAPSHOT_ROWS + 1 }, (_, index) => ({
+      roleId: "company_context" as const,
+      seedId: `seed-${String(index).padStart(3, "0")}`,
+      bullets: [`Stored wording ${index}.`],
+      active: true,
+    }));
+    const complete = buildCompleteDecisionSnapshot({
+      targetRoleId: "goal_problem",
+      selections,
+      skippedRoleIds: [],
+      feedbackRequests: [],
+    });
+    expect(complete.items).toHaveLength(MAX_SEED_SNAPSHOT_ROWS + 1);
+    await expect(completeContextRevision(complete)).resolves.toMatch(/^[a-f0-9]{64}$/);
+    expect(() =>
+      buildDispatchSnapshot({
+        targetRoleId: "goal_problem",
+        selections,
+        skippedRoleIds: [],
+        feedbackRequests: [],
+      })
+    ).toThrow(SeedContextLimitError);
+  });
+
+  it("materializes edited wording without changing the stored Seed", () => {
+    const seed = { _id: "seed-1", bullets: ["Original wording."] };
+    const bullets = materializeFinalWording(seed, {
+      seedId: seed._id,
+      editedBullets: ["Edited wording."],
+    });
+    bullets[0] = "Caller mutation.";
+    expect(seed.bullets).toEqual(["Original wording."]);
+    expect(materializeFinalWording(seed)).toEqual(["Original wording."]);
+  });
+
+  it("restores the exact original selection revision after an edit", async () => {
+    const original = [
+      { seedId: "seed-1", bullets: ["Original wording."] },
+    ];
+    const edited = [
+      { seedId: "seed-1", bullets: ["Edited wording."] },
+    ];
+    expect(await selectionRevision(edited)).not.toBe(
+      await selectionRevision(original)
+    );
+    expect(await selectionRevision([...original])).toBe(
+      await selectionRevision(original)
+    );
+  });
+
+  it("orders revisions directly after their original across Batch creation order", () => {
+    const batches = [
+      { _id: "batch-older", _creationTime: 10 },
+      { _id: "batch-current", _creationTime: 20 },
+      { _id: "batch-feedback", _creationTime: 30 },
+    ];
+    const seeds = [
+      {
+        _id: "seed-current",
+        _creationTime: 20,
+        roleId: "company_context" as const,
+        batchId: "batch-current",
+        order: 0,
+      },
+      {
+        _id: "seed-revision",
+        _creationTime: 30,
+        roleId: "company_context" as const,
+        batchId: "batch-feedback",
+        order: 0,
+        revisionOfSeedId: "seed-older",
+      },
+      {
+        _id: "seed-older",
+        _creationTime: 10,
+        roleId: "company_context" as const,
+        batchId: "batch-older",
+        order: 1,
+      },
+    ];
+    expect(orderShownSet({ seeds, batches }).map((seed) => seed._id)).toEqual([
+      "seed-older",
+      "seed-revision",
+      "seed-current",
+    ]);
+  });
+
+  it("explains canonical changes and recognizes a restored contribution", () => {
+    const original = new Map([
+      ["company_context" as const, "r0"],
+      ["goal_problem" as const, "g0"],
+    ]);
+    const changed = new Map([
+      ["company_context" as const, "r1"],
+      ["goal_problem" as const, "g0"],
+    ]);
+    expect(explainChange(original, changed)).toEqual({
+      changedRoleIds: ["company_context"],
+      restored: false,
+    });
+    expect(explainChange(original, original, changed)).toEqual({
+      changedRoleIds: [],
+      restored: true,
+    });
+    expect(
+      explainChange(
+        new Map(),
+        new Map([["company_context" as const, EMPTY_CONTEXT_REVISION]])
+      )
+    ).toEqual({ changedRoleIds: [], restored: false });
+  });
+
+  it("derives stale from both approved revisions", () => {
+    expect(
+      isSeedSubsectionStale({
+        state: "approved",
+        currentContextRevision: "context-r1",
+        selectionRevision: "selection-r0",
+        approvedContextRevision: "context-r0",
+        approvedSelectionRevision: "selection-r0",
+      })
+    ).toBe(true);
+    expect(
+      isSeedSubsectionStale({
+        state: "in_progress",
+        currentContextRevision: "context-r1",
+        selectionRevision: "selection-r1",
+        approvedContextRevision: "context-r0",
+        approvedSelectionRevision: "selection-r0",
+      })
+    ).toBe(false);
   });
 
   it("loads only active predecessors, predecessor skips, own feedback, and target", () => {

@@ -1,3 +1,4 @@
+import { normalizeExclusionMatch } from "./claimExclusionMatcher";
 import { LINE_LIMITS, WORD_CAPS, sectionMetrics } from "./lineLimits";
 import { sectionParagraphs } from "./tiptapReport";
 import { matchGlossaryTerms } from "./glossaryMatcher";
@@ -96,7 +97,7 @@ function exclusionReasonLabel(reason: string | undefined): string {
 
 /** Lowercase words joined by single spaces, padded for boundary matching. */
 function normalizeForMatch(text: string): string {
-  return ` ${text.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim()} `;
+  return normalizeExclusionMatch(text);
 }
 
 function isBlankNeedle(text: string): boolean {

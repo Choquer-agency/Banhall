@@ -91,6 +91,28 @@ export type BuildDispatchSnapshotArgs = {
   target?: MaterializedSeedTarget;
 };
 
+export type SeedSubsectionRevisionState = {
+  state: "untouched" | "generating" | "in_progress" | "approved" | "skipped" | "failed";
+  currentContextRevision: string;
+  selectionRevision: string;
+  approvedContextRevision?: string;
+  approvedSelectionRevision?: string;
+};
+
+export type ShownSetSeed = {
+  _id: string;
+  _creationTime: number;
+  roleId: PdSubsectionRoleId;
+  batchId: string;
+  order: number;
+  revisionOfSeedId?: string;
+};
+
+export type ShownSetBatch = {
+  _id: string;
+  _creationTime: number;
+};
+
 const ROLE_ORDER = new Map<PdSubsectionRoleId, number>(
   PD_SUBSECTIONS.map((subsection) => [subsection.roleId, subsection.order])
 );
@@ -186,6 +208,17 @@ export function canonicalizeSeedSnapshot(
   return { v: 1, items };
 }
 
+/** Resolve a Seed's current writer-visible wording without mutating either row. */
+export function materializeFinalWording(
+  seed: { _id: string; bullets: readonly string[] },
+  selection?: { seedId: string; editedBullets?: readonly string[] }
+): string[] {
+  if (selection && selection.seedId !== seed._id) {
+    throw new Error("Seed selection does not belong to the supplied seed");
+  }
+  return [...(selection?.editedBullets ?? seed.bullets)];
+}
+
 function utf8Bytes(value: string): number {
   return new TextEncoder().encode(value).byteLength;
 }
@@ -195,7 +228,8 @@ export class SeedContextLimitError extends Error {
     | "rows"
     | "row_utf8_bytes"
     | "snapshot_utf8_bytes"
-    | "prompt_utf8_bytes";
+    | "prompt_utf8_bytes"
+    | "read_bytes";
 
   constructor(
     limit: SeedContextLimitError["limit"],
@@ -256,7 +290,7 @@ export function assertSeedPromptWithinLimit(prompt: string): void {
   }
 }
 
-export function buildDispatchSnapshot(args: BuildDispatchSnapshotArgs): SeedContextSnapshot {
+function buildDecisionSnapshot(args: BuildDispatchSnapshotArgs): SeedContextSnapshot {
   const targetOrder = roleOrder(args.targetRoleId);
   const skipped = new Set(args.skippedRoleIds);
   const items: SeedContextItem[] = [];
@@ -315,7 +349,19 @@ export function buildDispatchSnapshot(args: BuildDispatchSnapshotArgs): SeedCont
     });
   }
 
-  const snapshot = canonicalizeSeedSnapshot({ v: 1, items });
+  return canonicalizeSeedSnapshot({ v: 1, items });
+}
+
+/** Complete decision materialization. It intentionally has no prompt row ceiling. */
+export function buildCompleteDecisionSnapshot(
+  args: BuildDispatchSnapshotArgs
+): SeedContextSnapshot {
+  return buildDecisionSnapshot(args);
+}
+
+/** Model-dispatch materialization, retaining Story 2's prompt safety limits. */
+export function buildDispatchSnapshot(args: BuildDispatchSnapshotArgs): SeedContextSnapshot {
+  const snapshot = buildDecisionSnapshot(args);
   assertSeedSnapshotWithinLimits(snapshot);
   return snapshot;
 }
@@ -338,17 +384,27 @@ export async function contributionHashes(
   return new Map(entries);
 }
 
-export async function contextRevision(
+/** Complete per-role decision hashes, independent of model snapshot ceilings. */
+export const completeContributionHashes = contributionHashes;
+
+export async function completeContextRevision(
   snapshot: SeedContextSnapshot
 ): Promise<string> {
   const canonical = canonicalizeSeedSnapshot(snapshot);
-  assertSeedSnapshotWithinLimits(canonical);
   return await sha256Text(
     stableSerialize({
       v: 1,
       items: canonical.items.filter((item) => item.kind !== "target"),
     })
   );
+}
+
+export async function contextRevision(
+  snapshot: SeedContextSnapshot
+): Promise<string> {
+  const canonical = canonicalizeSeedSnapshot(snapshot);
+  assertSeedSnapshotWithinLimits(canonical);
+  return await completeContextRevision(canonical);
 }
 
 export async function selectionRevision(
@@ -371,6 +427,122 @@ export async function emptyContextRevision(): Promise<string> {
 
 export async function emptySelectionRevision(): Promise<string> {
   return await selectionRevision([]);
+}
+
+export function isSeedSubsectionStale(
+  subsection: SeedSubsectionRevisionState
+): boolean {
+  return (
+    subsection.state === "approved" &&
+    (subsection.approvedContextRevision !== subsection.currentContextRevision ||
+      subsection.approvedSelectionRevision !== subsection.selectionRevision)
+  );
+}
+
+export type SeedContributionExplanation = {
+  changedRoleIds: PdSubsectionRoleId[];
+  restored: boolean;
+};
+
+/**
+ * Compare immutable consumed/approved contributions with the current ones.
+ * `previousCurrent` lets a caller identify the R0 -> R1 -> R0 restoration
+ * without treating the restored role as changed.
+ */
+export function explainChange(
+  snapshot: ReadonlyMap<PdSubsectionRoleId, string>,
+  current: ReadonlyMap<PdSubsectionRoleId, string>,
+  previousCurrent?: ReadonlyMap<PdSubsectionRoleId, string>
+): SeedContributionExplanation {
+  const changedRoleIds = PD_SUBSECTIONS
+    .map(({ roleId }) => roleId)
+    .filter(
+      (roleId) =>
+        (snapshot.get(roleId) ?? EMPTY_CONTEXT_REVISION) !==
+        (current.get(roleId) ?? EMPTY_CONTEXT_REVISION)
+    );
+  const restored =
+    previousCurrent !== undefined &&
+    changedRoleIds.length === 0 &&
+    PD_SUBSECTIONS.some(
+      ({ roleId }) =>
+        (previousCurrent.get(roleId) ?? EMPTY_CONTEXT_REVISION) !==
+        (current.get(roleId) ?? EMPTY_CONTEXT_REVISION)
+    );
+  return { changedRoleIds, restored };
+}
+
+function compareText(left: string, right: string): number {
+  if (left < right) return -1;
+  if (left > right) return 1;
+  return 0;
+}
+
+/** Shared Shown Set/Summary ordering from AD-37 and AD-44. */
+export function orderShownSet<Seed extends ShownSetSeed>(args: {
+  seeds: readonly Seed[];
+  batches: readonly ShownSetBatch[];
+}): Seed[] {
+  const byId = new Map(args.seeds.map((seed) => [seed._id, seed]));
+  const batchCreatedAt = new Map(
+    args.batches.map((batch) => [batch._id, batch._creationTime])
+  );
+  const rootBySeedId = new Map<string, string>();
+
+  for (const seed of args.seeds) {
+    const seen = new Set<string>([seed._id]);
+    let current = seed;
+    let rootId = seed._id;
+    while (current.revisionOfSeedId) {
+      rootId = current.revisionOfSeedId;
+      if (seen.has(rootId)) break;
+      seen.add(rootId);
+      const parent = byId.get(rootId);
+      if (!parent) break;
+      current = parent;
+    }
+    rootBySeedId.set(seed._id, rootId);
+  }
+
+  function creationTime(seed: Seed): number {
+    return batchCreatedAt.get(seed.batchId) ?? seed._creationTime;
+  }
+
+  const groupAnchor = new Map<string, Seed>();
+  for (const seed of args.seeds) {
+    const rootId = rootBySeedId.get(seed._id) ?? seed._id;
+    const root = byId.get(rootId);
+    const candidate = root ?? seed;
+    const existing = groupAnchor.get(rootId);
+    if (
+      !existing ||
+      creationTime(candidate) < creationTime(existing) ||
+      (creationTime(candidate) === creationTime(existing) &&
+        (candidate.order < existing.order ||
+          (candidate.order === existing.order && candidate._id < existing._id)))
+    ) {
+      groupAnchor.set(rootId, candidate);
+    }
+  }
+
+  return [...args.seeds].sort((left, right) => {
+    const leftRoot = rootBySeedId.get(left._id) ?? left._id;
+    const rightRoot = rootBySeedId.get(right._id) ?? right._id;
+    const leftAnchor = groupAnchor.get(leftRoot) ?? left;
+    const rightAnchor = groupAnchor.get(rightRoot) ?? right;
+    const groupOrder =
+      roleOrder(leftAnchor.roleId) - roleOrder(rightAnchor.roleId) ||
+      creationTime(leftAnchor) - creationTime(rightAnchor) ||
+      leftAnchor.order - rightAnchor.order ||
+      compareText(leftRoot, rightRoot);
+    if (groupOrder !== 0) return groupOrder;
+    return (
+      Number(left._id !== leftRoot) - Number(right._id !== rightRoot) ||
+      creationTime(left) - creationTime(right) ||
+      left.order - right.order ||
+      compareText(left._id, right._id)
+    );
+  });
 }
 
 export type EncodedSeedBatchContextRow = {
@@ -497,7 +669,7 @@ export function decodeBatchContext(
 
 export function contributionHashesFromRows(
   rows: readonly SeedBatchContextRowLike[]
-): ReadonlyMap<PdSubsectionRoleId, string> {
+): Map<PdSubsectionRoleId, string> {
   const hashes = new Map<PdSubsectionRoleId, string>();
   for (const row of rows) {
     const existing = hashes.get(row.sourceRoleId);

@@ -4,6 +4,7 @@ import {
   PD_SUBSECTIONS,
   type PdSubsectionRoleId,
 } from "../../shared/pdSubsections";
+import { createReadBudget } from "./readBudget";
 import { domainError } from "./contracts";
 import {
   MAX_SEED_SNAPSHOT_ROWS,
@@ -34,49 +35,94 @@ export async function loadSeedDispatchSnapshot(
     generationId: Id<"generations">;
     roleId: PdSubsectionRoleId;
     feedbackRequestId?: Id<"seedFeedbackRequests">;
-  }
+    budget?: ReturnType<typeof createReadBudget>;
+  },
 ): Promise<LoadedSeedDispatchSnapshot> {
   const targetRole = PD_SUBSECTIONS.find((role) => role.roleId === args.roleId);
   if (!targetRole) domainError("INVALID_INPUT", "Unknown seed subsection role");
-  const predecessorRoleIds = PD_SUBSECTIONS
-    .filter((role) => role.order < targetRole.order)
-    .map((role) => role.roleId);
+  const predecessorRoleIds = PD_SUBSECTIONS.filter(
+    (role) => role.order < targetRole.order,
+  ).map((role) => role.roleId);
   const feedbackRoleIds = [...predecessorRoleIds, args.roleId];
-  const subsections = await ctx.db
-    .query("seedSubsections")
-    .withIndex("by_generationId", (q) => q.eq("generationId", args.generationId))
-    .take(14);
+  const budget = args.budget ?? createReadBudget({ maxBytes: 8 * 1024 * 1024 });
+  async function readOne<T extends import("convex/values").Value>(
+    read: () => Promise<T>,
+  ) {
+    const result = await budget.one(read);
+    if (result.kind === "not-loaded")
+      domainError(
+        "INVALID_INPUT",
+        `Seed context for ${args.roleId} exceeds the read budget`,
+        { reason: "SEED_PROCESSING_LIMIT" },
+      );
+    return result.value;
+  }
+  const subsectionRead = await budget.list(
+    ctx.db
+      .query("seedSubsections")
+      .withIndex("by_generationId", (q) =>
+        q.eq("generationId", args.generationId),
+      ),
+    14,
+  );
+  if (!subsectionRead.complete)
+    domainError(
+      "INVALID_INPUT",
+      `Seed context for ${args.roleId} exceeds the read budget`,
+      { reason: "SEED_PROCESSING_LIMIT" },
+    );
+  const subsections = subsectionRead.rows;
+  const skippedRoleIds = subsections
+    .filter((row) => row.state === "skipped")
+    .map((row) => row.roleId);
+  const skipped = new Set<PdSubsectionRoleId>(skippedRoleIds);
   const selectionRows: Doc<"seedSelections">[] = [];
   for (const roleId of predecessorRoleIds) {
     const remaining = MAX_SEED_SNAPSHOT_ROWS + 1 - selectionRows.length;
     if (remaining <= 0) break;
-    selectionRows.push(
-      ...(await ctx.db
+    if (skipped.has(roleId)) continue;
+    const read = await budget.list(
+      ctx.db
         .query("seedSelections")
         .withIndex("by_generationId_and_selected_and_roleId", (q) =>
           q
             .eq("generationId", args.generationId)
             .eq("selected", true)
-            .eq("roleId", roleId)
-        )
-        .take(remaining))
+            .eq("roleId", roleId),
+        ),
+      remaining,
     );
+    if (!read.complete)
+      domainError(
+        "INVALID_INPUT",
+        `Seed context for ${args.roleId} exceeds the processing budget`,
+        { reason: "SEED_PROCESSING_LIMIT" },
+      );
+    selectionRows.push(...read.rows);
   }
+
   const feedbackRows: Doc<"seedFeedbackRequests">[] = [];
   for (const roleId of feedbackRoleIds) {
     const remaining = MAX_SEED_SNAPSHOT_ROWS + 1 - feedbackRows.length;
     if (remaining <= 0) break;
-    feedbackRows.push(
-      ...(await ctx.db
+    const read = await budget.list(
+      ctx.db
         .query("seedFeedbackRequests")
         .withIndex("by_generationId_and_status_and_roleId", (q) =>
           q
             .eq("generationId", args.generationId)
             .eq("status", "active")
-            .eq("roleId", roleId)
-        )
-        .take(remaining))
+            .eq("roleId", roleId),
+        ),
+      remaining,
     );
+    if (!read.complete)
+      domainError(
+        "INVALID_INPUT",
+        `Seed context for ${args.roleId} exceeds the processing budget`,
+        { reason: "SEED_PROCESSING_LIMIT" },
+      );
+    feedbackRows.push(...read.rows);
   }
 
   if (subsections.length > 13) {
@@ -86,24 +132,26 @@ export async function loadSeedDispatchSnapshot(
     selectionRows.length > MAX_SEED_SNAPSHOT_ROWS ||
     feedbackRows.length > MAX_SEED_SNAPSHOT_ROWS
   ) {
-    domainError("INVALID_INPUT", `Seed context for ${args.roleId} is too large`);
+    domainError(
+      "INVALID_INPUT",
+      `Seed context for ${args.roleId} is too large`,
+      { reason: "SEED_PROCESSING_LIMIT" },
+    );
   }
-
-  const skippedRoleIds = subsections
-    .filter((row) => row.state === "skipped")
-    .map((row) => row.roleId);
-  const skipped = new Set<PdSubsectionRoleId>(skippedRoleIds);
 
   const selections: MaterializedSeedSelection[] = [];
   for (const row of selectionRows) {
-    const seed = await ctx.db.get(row.seedId);
+    const seed = await readOne(() => ctx.db.get(row.seedId));
     if (
       !seed ||
       seed.generationId !== args.generationId ||
       seed.projectId !== row.projectId ||
       seed.roleId !== row.roleId
     ) {
-      domainError("INVALID_STATE", "A selected seed no longer belongs to this seed stage");
+      domainError(
+        "INVALID_STATE",
+        "A selected seed no longer belongs to this seed stage",
+      );
     }
     selections.push({
       roleId: row.roleId,
@@ -113,24 +161,30 @@ export async function loadSeedDispatchSnapshot(
     });
   }
 
-  const feedbackRequests: MaterializedSeedFeedback[] = feedbackRows.map((row) => ({
-    roleId: row.roleId,
-    feedbackRequestId: row._id,
-    targetSeedId: row.targetSeedId,
-    instruction: row.instruction,
-    status: row.status,
-  }));
+  const feedbackRequests: MaterializedSeedFeedback[] = feedbackRows.map(
+    (row) => ({
+      roleId: row.roleId,
+      feedbackRequestId: row._id,
+      targetSeedId: row.targetSeedId,
+      instruction: row.instruction,
+      status: row.status,
+    }),
+  );
 
   let target: Parameters<typeof buildDispatchSnapshot>[0]["target"];
   if (args.feedbackRequestId) {
-    const request = await ctx.db.get(args.feedbackRequestId);
+    const requestId = args.feedbackRequestId;
+    const request = await readOne(() => ctx.db.get(requestId));
     if (
       !request ||
       request.generationId !== args.generationId ||
       request.roleId !== args.roleId ||
       request.status !== "active"
     ) {
-      domainError("INVALID_STATE", "Feedback request is no longer active for this role");
+      domainError(
+        "INVALID_STATE",
+        "Feedback request is no longer active for this role",
+      );
     }
     target = {
       roleId: request.roleId,
@@ -152,14 +206,21 @@ export async function loadSeedDispatchSnapshot(
     return { snapshot, contextRevision: await contextRevision(snapshot) };
   } catch (error) {
     if (error instanceof SeedContextLimitError) {
-      domainError("INVALID_INPUT", `Seed context for ${args.roleId} exceeds its ${error.limit} limit`);
+      domainError(
+        "INVALID_INPUT",
+        `Seed context for ${args.roleId} exceeds its ${error.limit} limit`,
+        { reason: "SEED_PROCESSING_LIMIT" },
+      );
     }
     throw error;
   }
 }
 
 export type FrozenSeedActionInput = {
-  brief: Pick<Doc<"generationBriefs">, "_id" | "inputsHash" | "origin" | "storylineText" | "version">;
+  brief: Pick<
+    Doc<"generationBriefs">,
+    "_id" | "inputsHash" | "origin" | "storylineText" | "version"
+  >;
   briefEntries: Array<
     Pick<
       Doc<"generationBriefEntries">,
@@ -178,7 +239,13 @@ export type FrozenSeedActionInput = {
   sources: Array<
     Pick<
       Doc<"generationSources">,
-      "_id" | "kind" | "label" | "content" | "contentHash" | "truncated" | "originalLength"
+      | "_id"
+      | "kind"
+      | "label"
+      | "content"
+      | "contentHash"
+      | "truncated"
+      | "originalLength"
     >
   >;
   writerSettings: {
@@ -206,7 +273,8 @@ function frozenStyleProjection(content: string): {
   } catch {
     throw new Error("Frozen seed writer settings are malformed");
   }
-  if (!isRecord(parsed)) throw new Error("Frozen seed writer settings are malformed");
+  if (!isRecord(parsed))
+    throw new Error("Frozen seed writer settings are malformed");
   const styleGuidance = parsed.styleGuidance;
   const styleOverrides = parsed.styleOverrides;
   if (typeof styleGuidance !== "string" || !isRecord(styleOverrides)) {
@@ -221,35 +289,70 @@ export async function loadFrozenSeedActionInput(
   args: {
     generation: Doc<"generations">;
     briefVersionId: Id<"generationBriefs">;
-  }
+    budget?: ReturnType<typeof createReadBudget>;
+  },
 ): Promise<FrozenSeedActionInput> {
-  const brief = await ctx.db.get(args.briefVersionId);
+  const budget = args.budget ?? createReadBudget({ maxBytes: 8 * 1024 * 1024 });
+  const briefRead = await budget.one(() => ctx.db.get(args.briefVersionId));
+  if (briefRead.kind === "not-loaded")
+    throw new SeedContextLimitError(
+      "read_bytes",
+      "Frozen Brief exceeds the read budget",
+    );
+  const brief = briefRead.value;
   if (!brief || brief.projectId !== args.generation.projectId) {
-    throw new Error("Seed attempt Brief is missing or belongs to another project");
+    throw new Error(
+      "Seed attempt Brief is missing or belongs to another project",
+    );
   }
-  const [briefEntries, sources, settingsArtifact] = await Promise.all([
+  const entryRead = await budget.list(
     ctx.db
       .query("generationBriefEntries")
-      .withIndex("by_briefId", (q) => q.eq("briefId", brief._id))
-      .take(MAX_SEED_BRIEF_ENTRY_ROWS + 1),
+      .withIndex("by_briefId", (q) => q.eq("briefId", brief._id)),
+    MAX_SEED_BRIEF_ENTRY_ROWS,
+  );
+  const sourceRead = await budget.list(
     ctx.db
       .query("generationSources")
-      .withIndex("by_generationId", (q) => q.eq("generationId", args.generation._id))
-      .take(MAX_SEED_SOURCE_ROWS + 1),
+      .withIndex("by_generationId", (q) =>
+        q.eq("generationId", args.generation._id),
+      ),
+    MAX_SEED_SOURCE_ROWS,
+  );
+  const settingsRead = await budget.one(() =>
     ctx.db
       .query("generationArtifacts")
       .withIndex("by_generationId_and_kind", (q) =>
-        q.eq("generationId", args.generation._id).eq("kind", "brain_blocks")
+        q.eq("generationId", args.generation._id).eq("kind", "brain_blocks"),
       )
       .unique(),
-  ]);
+  );
+  if (
+    !entryRead.complete ||
+    !sourceRead.complete ||
+    settingsRead.kind === "not-loaded"
+  )
+    throw new SeedContextLimitError(
+      "read_bytes",
+      "Frozen seed inputs exceed the processing budget",
+    );
+  const briefEntries = entryRead.rows,
+    sources = sourceRead.rows,
+    settingsArtifact = settingsRead.value;
   if (briefEntries.length > MAX_SEED_BRIEF_ENTRY_ROWS) {
-    throw new Error("Seed attempt Brief exceeds its bounded row limit");
+    throw new SeedContextLimitError(
+      "rows",
+      "Seed attempt Brief exceeds its bounded row limit",
+    );
   }
   if (sources.length > MAX_SEED_SOURCE_ROWS) {
-    throw new Error("Seed attempt sources exceed their bounded row limit");
+    throw new SeedContextLimitError(
+      "rows",
+      "Seed attempt sources exceed their bounded row limit",
+    );
   }
-  if (!settingsArtifact) throw new Error("Frozen seed writer settings are missing");
+  if (!settingsArtifact)
+    throw new Error("Frozen seed writer settings are missing");
   const style = frozenStyleProjection(settingsArtifact.content);
   return {
     brief: {
@@ -260,19 +363,22 @@ export async function loadFrozenSeedActionInput(
       version: brief.version,
     },
     briefEntries: briefEntries
-      .filter(entry => entry.change !== "removed" && entry.group !== "storylineQuestion")
+      .filter(
+        (entry) =>
+          entry.change !== "removed" && entry.group !== "storylineQuestion",
+      )
       .map((entry) => ({
-      _id: entry._id,
-      group: entry.group,
-      text: entry.text,
-      reason: entry.reason,
-      confidence: entry.confidence,
-      sourceId: entry.sourceId,
-      sourceContentHash: entry.sourceContentHash,
-      startOffset: entry.startOffset,
-      endOffset: entry.endOffset,
-      exactExcerpt: entry.exactExcerpt,
-    })),
+        _id: entry._id,
+        group: entry.group,
+        text: entry.text,
+        reason: entry.reason,
+        confidence: entry.confidence,
+        sourceId: entry.sourceId,
+        sourceContentHash: entry.sourceContentHash,
+        startOffset: entry.startOffset,
+        endOffset: entry.endOffset,
+        exactExcerpt: entry.exactExcerpt,
+      })),
     sources: sources.map((source) => ({
       _id: source._id,
       kind: source.kind,

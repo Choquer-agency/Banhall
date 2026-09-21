@@ -355,6 +355,13 @@ export const getDigestHistory = query({
         ? [publishedDigest, ...digests]
         : digests;
     return {
+      seedWorkflowCoverage:
+        args.kind === "draft_style"
+          ? {
+              included: false,
+              label: "Seed-workflow generations are not included",
+            }
+          : null,
       latestAttempt: await ctx.db
         .query("learningDigestAttempts")
         .withIndex("by_kind", (q) => q.eq("kind", args.kind))
