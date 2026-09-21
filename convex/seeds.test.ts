@@ -18,6 +18,9 @@ import {
 } from "./lib/seedDecisionState";
 import { api } from "./_generated/api";
 import type { completeAttempt } from "./seedRuns";
+import { readCompleteFixture } from "./testFixtureRows";
+
+const SEED_DECISION_FIXTURE_ROW_LIMIT = 100;
 
 const select = decisionMutation<typeof endpoints.select>("seeds:select");
 const deselect = decisionMutation<typeof endpoints.deselect>("seeds:deselect");
@@ -55,13 +58,41 @@ function args(
 async function dump(s: Setup) {
   return s.t.run(async (ctx) => ({
     generation: await ctx.db.get(s.generationId),
-    selections: await ctx.db.query("seedSelections").collect(),
-    events: await ctx.db.query("seedDecisionEvents").collect(),
-    feedback: await ctx.db.query("seedFeedbackRequests").collect(),
-    batches: await ctx.db.query("seedBatches").collect(),
-    episodes: await ctx.db.query("seedStaleEpisodes").collect(),
-    roles: await ctx.db.query("seedSubsections").collect(),
-    scheduled: await ctx.db.system.query("_scheduled_functions").collect(),
+    selections: await readCompleteFixture({
+      label: "seedSelections",
+      maxRows: SEED_DECISION_FIXTURE_ROW_LIMIT,
+      query: ctx.db.query("seedSelections"),
+    }),
+    events: await readCompleteFixture({
+      label: "seedDecisionEvents",
+      maxRows: SEED_DECISION_FIXTURE_ROW_LIMIT,
+      query: ctx.db.query("seedDecisionEvents"),
+    }),
+    feedback: await readCompleteFixture({
+      label: "seedFeedbackRequests",
+      maxRows: SEED_DECISION_FIXTURE_ROW_LIMIT,
+      query: ctx.db.query("seedFeedbackRequests"),
+    }),
+    batches: await readCompleteFixture({
+      label: "seedBatches",
+      maxRows: SEED_DECISION_FIXTURE_ROW_LIMIT,
+      query: ctx.db.query("seedBatches"),
+    }),
+    episodes: await readCompleteFixture({
+      label: "seedStaleEpisodes",
+      maxRows: SEED_DECISION_FIXTURE_ROW_LIMIT,
+      query: ctx.db.query("seedStaleEpisodes"),
+    }),
+    roles: await readCompleteFixture({
+      label: "seedSubsections",
+      maxRows: PD_SUBSECTIONS.length,
+      query: ctx.db.query("seedSubsections"),
+    }),
+    scheduled: await readCompleteFixture({
+      label: "_scheduled_functions",
+      maxRows: SEED_DECISION_FIXTURE_ROW_LIMIT,
+      query: ctx.db.system.query("_scheduled_functions"),
+    }),
   }));
 }
 beforeEach(() => {
@@ -104,11 +135,11 @@ describe("public seed decisions", () => {
     expect(
       await s.t.run(async (ctx) =>
         Promise.all([
-          ctx.db.query("reports").collect(),
-          ctx.db.query("chatProposals").collect(),
-          ctx.db.query("summaryVersions").collect(),
-          ctx.db.query("summaryItems").collect(),
-          ctx.db.query("generationBriefEntries").collect(),
+          ctx.db.query("reports").take(1),
+          ctx.db.query("chatProposals").take(1),
+          ctx.db.query("summaryVersions").take(1),
+          ctx.db.query("summaryItems").take(1),
+          ctx.db.query("generationBriefEntries").take(1),
         ]),
       ),
     ).toEqual([[], [], [], [], []]);
@@ -314,7 +345,12 @@ describe("public seed decisions", () => {
     const s = await decisionFixture(),
       seed = await addDecisionSeed(s);
     await s.t.run(async (ctx) => {
-      for (const row of await ctx.db.query("seedSubsections").collect())
+      const rows = await readCompleteFixture({
+        label: "seedSubsections",
+        maxRows: PD_SUBSECTIONS.length,
+        query: ctx.db.query("seedSubsections"),
+      });
+      for (const row of rows)
         await ctx.db.patch(row._id, {
           state: row.kind === "optional" ? "skipped" : "approved",
           approvedContextRevision: row.currentContextRevision,
@@ -824,7 +860,12 @@ it("refuses an incomplete decision calculation atomically and never reports part
   const s = await decisionFixture(),
     seed = await addDecisionSeed(s);
   await s.t.run(async (ctx) => {
-    for (const role of await ctx.db.query("seedSubsections").collect())
+    const roles = await readCompleteFixture({
+      label: "seedSubsections",
+      maxRows: PD_SUBSECTIONS.length,
+      query: ctx.db.query("seedSubsections"),
+    });
+    for (const role of roles)
       await ctx.db.patch(role._id, {
         state: role.kind === "optional" ? "skipped" : "approved",
         approvedContextRevision: role.currentContextRevision,

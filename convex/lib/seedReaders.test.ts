@@ -22,6 +22,9 @@ import {
   decisionFixture,
 } from "../seedDecision.fixture";
 import { emptyContextRevision, orderShownSet } from "./seedRevisions";
+import { readCompleteFixture } from "../testFixtureRows";
+
+const SEED_READER_FIXTURE_ROW_LIMIT = 10;
 
 type QueryReferenceFromExport<Export> =
   Export extends RegisteredQuery<
@@ -203,22 +206,28 @@ describe("seed reader pagination", () => {
       seeds.firstRevisionId,
     ]);
     const expected = await fixture.t.run(async (ctx) => {
-      const allSeeds = await ctx.db
-        .query("seeds")
-        .withIndex("by_generationId_and_roleId", (q) =>
-          q
-            .eq("generationId", fixture.generationId)
-            .eq("roleId", "company_context"),
-        )
-        .collect();
-      const batches = await ctx.db
-        .query("seedBatches")
-        .withIndex("by_generationId_and_roleId", (q) =>
-          q
-            .eq("generationId", fixture.generationId)
-            .eq("roleId", "company_context"),
-        )
-        .collect();
+      const allSeeds = await readCompleteFixture({
+        label: "seed reader seeds",
+        maxRows: SEED_READER_FIXTURE_ROW_LIMIT,
+        query: ctx.db
+          .query("seeds")
+          .withIndex("by_generationId_and_roleId", (q) =>
+            q
+              .eq("generationId", fixture.generationId)
+              .eq("roleId", "company_context"),
+          ),
+      });
+      const batches = await readCompleteFixture({
+        label: "seed reader batches",
+        maxRows: SEED_READER_FIXTURE_ROW_LIMIT,
+        query: ctx.db
+          .query("seedBatches")
+          .withIndex("by_generationId_and_roleId", (q) =>
+            q
+              .eq("generationId", fixture.generationId)
+              .eq("roleId", "company_context"),
+          ),
+      });
       return orderShownSet({ seeds: allSeeds, batches })
         .filter((seed) => selectedIds.has(seed._id))
         .map((seed) => seed._id);
