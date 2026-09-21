@@ -3,7 +3,7 @@ import type { Doc, Id } from "../_generated/dataModel";
 import type { QueryCtx, MutationCtx } from "../_generated/server";
 import { PD_SUBSECTIONS, type PdSubsectionRoleId } from "../../shared/pdSubsections";
 import { domainError } from "./contracts";
-import { materializeActiveSelections, materializeCompleteDecisionSnapshot, type SeedDecisionState } from "./seedDecisionState";
+import { SEED_DECISION_COLLECTION_ROWS, materializeActiveSelections, materializeCompleteDecisionSnapshot, type SeedDecisionState } from "./seedDecisionState";
 import { completeContributionHashes, contributionHashesFromRows, explainChange, materializeFinalWording, sha256Text, stableSerialize } from "./seedRevisions";
 
 type Ctx = Pick<QueryCtx | MutationCtx, "db">;
@@ -59,7 +59,7 @@ export async function buildSeedApprovalChallenge(ctx: Ctx, state: SeedDecisionSt
     if (batch.feedbackRequestId && batch.consumedContextRevision === row.currentContextRevision) changed.add(row.roleId);
   }
   const carriedSeedIds = selected.filter(s => outdated.has(s.batchId)).map(s => s._id).sort();
-  const entries = state.generation.briefVersionId ? await state.budget.list(ctx.db.query("generationBriefEntries").withIndex("by_briefId", q => q.eq("briefId", state.generation.briefVersionId!)), Number.MAX_SAFE_INTEGER) : null;
+  const entries = state.generation.briefVersionId ? await state.budget.list(ctx.db.query("generationBriefEntries").withIndex("by_briefId", q => q.eq("briefId", state.generation.briefVersionId!)), SEED_DECISION_COLLECTION_ROWS) : null;
   if (!entries?.complete) processingLimit(row.roleId);
   const exclusions: SeedApprovalChallenge["exclusions"] = [];
   for (const entry of entries.rows) {

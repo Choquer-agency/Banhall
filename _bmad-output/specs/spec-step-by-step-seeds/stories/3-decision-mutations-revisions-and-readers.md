@@ -2,7 +2,7 @@
 title: 'Decision mutations, revisions, approval challenge, events and reader'
 type: 'feature'
 created: '2026-09-18'
-status: 'in-progress'
+status: 'done'
 baseline_commit: '7aa4ad20b0bdaf810db145abbcb436c6d2d82d99'
 review_loop_iteration: 2
 context:
@@ -142,4 +142,11 @@ All three independent Astra medium review layers are clear after corrections. Bl
 
 Correction checks passed: lifecycle and attempt suites (62 tests), approval integration suite (15 tests), and reader suite including the restored limit witness (9 tests). Counts overlap with larger runs and are not additive. The initial and corrected full-gate logs, final combined gate, review reports, triage and exact artifact manifests are retained locally. The final combined command remains `bash scripts/loop-verify.sh`; no component suite is required because no component changed.
 
-Implementation is ready for the owner's done checkpoint. A local reviewed commit may preserve the result; publication of implementation to PR #21 against `feat/seeds-2-pipeline` remains pending that checkpoint. No merge or main-branch push is authorized. Sign-off itself and its real query/mutation race proof remain Story 4 work.
+The owner approved the done checkpoint and publication on 2026-09-20. Implementation commit `ac3c13a` was published to PR #21 against `feat/seeds-2-pipeline`. No merge or main-branch push is authorized. Sign-off itself and its real query/mutation race proof remain Story 4 work.
+
+
+## Publication review correction
+
+The first implementation Greptile pass reviewed `ac3c13a` and returned 4/5 with one finding: effectively unlimited collection row bounds. Replaced those bounds with a shared 4,096-row processing limit per index range, retaining explicit incompleteness and typed refusal rather than approving partial decisions. This does not change the model-input limit or introduce a stored-selection quota. Paginated Summary reads remain independent.
+
+Independent Astra medium correction review also identified that many small point reads could exhaust Convex's index-range limit before the byte budget. The shared read budget now optionally counts index ranges, and Story 3 decision/read entry points allow 4,000 budgeted ranges with headroom for bounded authorization and lifecycle reads. Legacy budget callers retain their prior behavior. Overflow follows existing incomplete-result and `SEED_PROCESSING_LIMIT` paths. Correction test, gate and review results are recorded in the local evidence as they complete; implementation Greptile completion is recorded separately from the checkpoint-only score.

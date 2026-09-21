@@ -11,6 +11,8 @@ import {
   loadSeedDecisionState,
   materializeCompleteDecisionSnapshot,
   SEED_DECISION_READ_BYTES,
+  SEED_DECISION_READ_RANGES,
+  SEED_DECISION_COLLECTION_ROWS,
   type SeedDecisionState,
 } from "./seedDecisionState";
 import { computeSeedReadiness } from "./seedReadiness";
@@ -31,6 +33,7 @@ const LIVE_SUMMARY_JOIN_PAGE_SIZE = 4;
 function readerBudget() {
   return createReadBudget({
     maxBytes: SEED_DECISION_READ_BYTES,
+    maxRanges: SEED_DECISION_READ_RANGES,
     reservedBytes: 3 * DOCUMENT_HEADROOM,
   });
 }
@@ -222,7 +225,7 @@ async function seedCard(
     ctx.db
       .query("seedProvenance")
       .withIndex("by_seedId", (q) => q.eq("seedId", seed._id)),
-    Number.MAX_SAFE_INTEGER
+    SEED_DECISION_COLLECTION_ROWS
   );
   for (const citation of citations.rows) {
     if (
@@ -359,7 +362,7 @@ export async function getSubsectionData(
       ctx.db
         .query("seeds")
         .withIndex("by_batchId", (q) => q.eq("batchId", batchId)),
-      Number.MAX_SAFE_INTEGER
+      SEED_DECISION_COLLECTION_ROWS
     );
     truncated ||= !read.complete;
     for (const seed of read.rows) {
@@ -553,7 +556,7 @@ async function completeBatchHistoryRow(
     ctx.db
       .query("seeds")
       .withIndex("by_batchId", (q) => q.eq("batchId", batch._id)),
-    Number.MAX_SAFE_INTEGER
+    SEED_DECISION_COLLECTION_ROWS
   );
   if (!seeds.complete) return { kind: "incomplete" } as const;
 
@@ -587,7 +590,7 @@ async function completeBatchHistoryRow(
       ctx.db
         .query("seedProvenance")
         .withIndex("by_seedId", (q) => q.eq("seedId", seed._id)),
-      Number.MAX_SAFE_INTEGER
+      SEED_DECISION_COLLECTION_ROWS
     );
     if (!provenance.complete) return { kind: "incomplete" } as const;
     for (const citation of provenance.rows) {

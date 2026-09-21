@@ -12,7 +12,10 @@ import { WORK_ITEM_KINDS } from "../shared/workItems";
 import { isSeedSubsectionStale } from "./lib/seedRevisions";
 import { readSeedReadiness } from "./lib/seedReadiness";
 import { createReadBudget, DOCUMENT_HEADROOM } from "./lib/readBudget";
-import { SEED_DECISION_READ_BYTES } from "./lib/seedDecisionState";
+import {
+  SEED_DECISION_READ_BYTES,
+  SEED_DECISION_READ_RANGES,
+} from "./lib/seedDecisionState";
 import { api } from "./_generated/api";
 import type { completeAttempt } from "./seedRuns";
 
@@ -325,6 +328,7 @@ describe("public seed decisions", () => {
       readSeedReadiness(ctx, s.generationId, {
         budget: createReadBudget({
           maxBytes: SEED_DECISION_READ_BYTES,
+          maxRanges: SEED_DECISION_READ_RANGES,
           reservedBytes: 3 * DOCUMENT_HEADROOM,
         }),
       }),

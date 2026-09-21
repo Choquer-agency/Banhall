@@ -18,6 +18,8 @@ import { createReadBudget, DOCUMENT_HEADROOM } from "./lib/readBudget";
 import {
   loadSeedDecisionState,
   SEED_DECISION_READ_BYTES,
+  SEED_DECISION_READ_RANGES,
+  SEED_DECISION_COLLECTION_ROWS,
   type SeedDecisionReadBudget,
 } from "./lib/seedDecisionState";
 import {
@@ -91,6 +93,7 @@ async function decisionFence(ctx: MutationCtx, args: DecisionArgs) {
     domainError("INVALID_STATE", "Seed subsection is missing");
   const budget = createReadBudget({
     maxBytes: SEED_DECISION_READ_BYTES,
+    maxRanges: SEED_DECISION_READ_RANGES,
     reservedBytes: 3 * DOCUMENT_HEADROOM,
   });
   return { generation, row, user, project, budget };
@@ -754,7 +757,7 @@ export const approve = mutation({
           .withIndex("by_generationId_and_roleId", (q) =>
             q.eq("generationId", args.generationId).eq("roleId", args.roleId),
           ),
-        Number.MAX_SAFE_INTEGER,
+        SEED_DECISION_COLLECTION_ROWS,
       );
       if (!fresh.complete)
         domainError(
@@ -860,6 +863,7 @@ export const getReadiness = query({
       generationId: args.generationId,
       budget: createReadBudget({
         maxBytes: SEED_DECISION_READ_BYTES,
+        maxRanges: SEED_DECISION_READ_RANGES,
         reservedBytes: 3 * DOCUMENT_HEADROOM,
       }),
     });

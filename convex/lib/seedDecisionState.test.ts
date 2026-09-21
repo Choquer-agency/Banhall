@@ -4,13 +4,18 @@ import { convexTest } from "convex-test";
 import { describe, expect, it } from "vitest";
 import { PD_SUBSECTIONS } from "../../shared/pdSubsections";
 import schema from "../schema";
-import { DOCUMENT_HEADROOM } from "./readBudget";
+import { createReadBudget, DOCUMENT_HEADROOM } from "./readBudget";
+import { getSubsectionData } from "./seedReaders";
+import { computeSeedReadiness } from "./seedReadiness";
 import {
   loadSeedDecisionState,
   materializeActiveSelections,
   materializeCompleteDecisionSnapshot,
+  SEED_DECISION_COLLECTION_ROWS,
+  SEED_DECISION_READ_BYTES,
 } from "./seedDecisionState";
 import {
+  completeContributionHashes,
   emptyContextRevision,
   emptySelectionRevision,
   orderShownSet,
@@ -330,6 +335,197 @@ describe("seed decision state loader", () => {
     }
     const payload = errorPayload(thrown);
     expect(payload).toMatchObject({
+      code: "INVALID_INPUT",
+      reason: "SEED_PROCESSING_LIMIT",
+      roleId: "company_context",
+    });
+  });
+
+  it("accepts exactly 4096 feedback rows and refuses the 4097th before hashing, readiness, or approval challenge", async () => {
+    const s = await fixture();
+    const targetSeedId = await s.t.run(async (ctx) => {
+      const seedId = await ctx.db.insert("seeds", {
+        projectId: s.projectId,
+        generationId: s.generationId,
+        batchId: s.batchId,
+        roleId: "company_context",
+        order: 0,
+        bullets: ["T."],
+        tags: ["technical"],
+        support: "writer_asserted",
+        originalSupport: "writer_asserted",
+      });
+      for (let index = 0; index < SEED_DECISION_COLLECTION_ROWS; index += 1) {
+        await ctx.db.insert("seedFeedbackRequests", {
+          projectId: s.projectId,
+          generationId: s.generationId,
+          roleId: "company_context",
+          targetSeedId: seedId,
+          targetWording: ["T."],
+          instruction: "x",
+          status: "withdrawn",
+          withdrawnAt: index,
+        });
+      }
+      return seedId;
+    });
+
+    const exactBoundary = await s.t.run(async (ctx) => {
+      const state = await loadSeedDecisionState(ctx, {
+        generationId: s.generationId,
+        requireComplete: true,
+      });
+      const hashes = await completeContributionHashes(
+        materializeCompleteDecisionSnapshot(state, {
+          targetRoleId: "goal_problem",
+        }),
+      );
+      return {
+        complete: state.complete,
+        feedbackCount: state.feedbackRows.length,
+        seedIds: state.seeds.map((seed) => seed._id),
+        exhausted: state.readBudget.exhausted,
+        hashCount: hashes.size,
+      };
+    });
+    expect(exactBoundary).toEqual({
+      complete: true,
+      feedbackCount: SEED_DECISION_COLLECTION_ROWS,
+      seedIds: [targetSeedId],
+      exhausted: false,
+      hashCount: PD_SUBSECTIONS.length,
+    });
+
+    await s.t.run((ctx) =>
+      ctx.db.insert("seedFeedbackRequests", {
+        projectId: s.projectId,
+        generationId: s.generationId,
+        roleId: "company_context",
+        targetSeedId,
+        targetWording: ["T."],
+        instruction: "overflow",
+        status: "withdrawn",
+        withdrawnAt: SEED_DECISION_COLLECTION_ROWS,
+      }),
+    );
+
+    const overflow = await s.t.run(async (ctx) => {
+      const state = await loadSeedDecisionState(ctx, {
+        generationId: s.generationId,
+      });
+      const readiness = computeSeedReadiness(state);
+      let snapshotError: unknown;
+      try {
+        materializeCompleteDecisionSnapshot(state, {
+          targetRoleId: "company_context",
+        });
+      } catch (error) {
+        snapshotError = error;
+      }
+      const subsection = await getSubsectionData(
+        ctx,
+        s.generationId,
+        "company_context",
+      );
+      return {
+        complete: state.complete,
+        feedbackCount: state.feedbackRows.length,
+        exhausted: state.readBudget.exhausted,
+        readiness,
+        snapshotError: errorPayload(snapshotError),
+        subsection: {
+          truncated: subsection.truncated,
+          approvalChallenge: subsection.approvalChallenge,
+        },
+      };
+    });
+    expect(overflow).toMatchObject({
+      complete: false,
+      feedbackCount: SEED_DECISION_COLLECTION_ROWS,
+      exhausted: false,
+      readiness: {
+        ready: false,
+        complete: false,
+        blockingRoleIds: [],
+        blockers: [{ code: "INCOMPLETE_INPUT" }],
+      },
+      snapshotError: {
+        code: "INVALID_INPUT",
+        reason: "SEED_PROCESSING_LIMIT",
+        roleId: "company_context",
+      },
+      subsection: {
+        truncated: true,
+        approvalChallenge: null,
+      },
+    });
+
+    let requiredError: unknown;
+    try {
+      await s.t.run((ctx) =>
+        loadSeedDecisionState(ctx, {
+          generationId: s.generationId,
+          roleId: "company_context",
+          requireComplete: true,
+        }),
+      );
+    } catch (error) {
+      requiredError = error;
+    }
+    expect(errorPayload(requiredError)).toMatchObject({
+      code: "INVALID_INPUT",
+      reason: "SEED_PROCESSING_LIMIT",
+      roleId: "company_context",
+    });
+  });
+
+  it("marks real decision state incomplete when the shared range budget is exhausted", async () => {
+    const s = await fixture();
+    const partial = await s.t.run(async (ctx) => {
+      const state = await loadSeedDecisionState(ctx, {
+        generationId: s.generationId,
+        budget: createReadBudget({
+          maxBytes: SEED_DECISION_READ_BYTES,
+          maxRanges: 3,
+        }),
+      });
+      return {
+        complete: state.complete,
+        readBudget: state.readBudget,
+        readiness: computeSeedReadiness(state),
+      };
+    });
+    expect(partial).toMatchObject({
+      complete: false,
+      readBudget: {
+        exhausted: true,
+        rangeLimit: 3,
+        rangesRead: 3,
+      },
+      readiness: {
+        ready: false,
+        complete: false,
+        blockers: [{ code: "INCOMPLETE_INPUT" }],
+      },
+    });
+
+    let requiredError: unknown;
+    try {
+      await s.t.run((ctx) =>
+        loadSeedDecisionState(ctx, {
+          generationId: s.generationId,
+          roleId: "company_context",
+          requireComplete: true,
+          budget: createReadBudget({
+            maxBytes: SEED_DECISION_READ_BYTES,
+            maxRanges: 3,
+          }),
+        }),
+      );
+    } catch (error) {
+      requiredError = error;
+    }
+    expect(errorPayload(requiredError)).toMatchObject({
       code: "INVALID_INPUT",
       reason: "SEED_PROCESSING_LIMIT",
       roleId: "company_context",

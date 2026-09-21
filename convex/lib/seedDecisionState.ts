@@ -16,6 +16,15 @@ import {
 } from "./seedRevisions";
 
 export const SEED_DECISION_READ_BYTES = 8 * 1024 * 1024;
+/**
+ * Per-index-range processing bound, independent of the 128-item model input.
+ * The shared byte budget still applies across every range and point read.
+ * Overflow must remain incomplete: mutations reject it and readers disclose it,
+ * independently of the top-level history and Summary pagination.
+ */
+export const SEED_DECISION_COLLECTION_ROWS = 4096;
+/** Leaves headroom below 4,096 ranges for bounded authorization/lifecycle reads. */
+export const SEED_DECISION_READ_RANGES = 4000;
 
 export type SeedDecisionReadBudget = ReturnType<typeof createReadBudget>;
 export type SeedDecisionReadBudgetSnapshot = ReturnType<
@@ -74,7 +83,10 @@ export async function loadSeedDecisionState(
 ): Promise<SeedDecisionState> {
   const budget =
     args.budget ??
-    createReadBudget({ maxBytes: args.maxBytes ?? SEED_DECISION_READ_BYTES });
+    createReadBudget({
+      maxBytes: args.maxBytes ?? SEED_DECISION_READ_BYTES,
+      maxRanges: SEED_DECISION_READ_RANGES,
+    });
   const generationRead = await budget.one(() => ctx.db.get(args.generationId));
   if (generationRead.kind === "not-loaded") processingLimit(args);
   const generation = generationRead.value;
@@ -109,7 +121,7 @@ export async function loadSeedDecisionState(
         .withIndex("by_generationId_and_roleId", (q) =>
           q.eq("generationId", args.generationId).eq("roleId", roleId)
         ),
-      Number.MAX_SAFE_INTEGER
+      SEED_DECISION_COLLECTION_ROWS
     );
     selectionRows.push(...selections.rows);
     complete &&= selections.complete;
@@ -120,7 +132,7 @@ export async function loadSeedDecisionState(
         .withIndex("by_generationId_and_roleId", (q) =>
           q.eq("generationId", args.generationId).eq("roleId", roleId)
         ),
-      Number.MAX_SAFE_INTEGER
+      SEED_DECISION_COLLECTION_ROWS
     );
     feedbackRows.push(...feedback.rows);
     complete &&= feedback.complete;

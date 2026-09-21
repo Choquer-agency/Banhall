@@ -80,4 +80,32 @@ describe("createReadBudget (DW-133)", () => {
     expect(result).toMatchObject({ complete: false, stoppedBy: "rows" });
     expect(closed).toBe(true);
   });
+
+  it("shares a range limit across point reads and empty index streams", async () => {
+    const budget = createReadBudget({ maxBytes: 8 * DOCUMENT_HEADROOM, maxRanges: 3 });
+    let pointCalls = 0;
+    const point = async () => { pointCalls += 1; return null; };
+    expect((await budget.one(point)).kind).toBe("loaded");
+    expect(await budget.list(rows(0, 0), 10)).toMatchObject({ complete: true });
+    expect((await budget.one(point)).kind).toBe("loaded");
+    expect((await budget.one(point)).kind).toBe("not-loaded");
+    let opened = false;
+    const source = {
+      [Symbol.asyncIterator]() { opened = true; return rows(1, 1); },
+    };
+    expect(await budget.list(source, 10)).toEqual({ rows: [], complete: false, stoppedBy: "ranges" });
+    expect(opened).toBe(false);
+    expect(pointCalls).toBe(2);
+    expect(budget.snapshot()).toMatchObject({ rangeLimit: 3, rangesRead: 3, exhausted: true });
+  });
+
+  it("charges one range for a streamed collection, not one per row", async () => {
+    const budget = createReadBudget({ maxBytes: 8 * DOCUMENT_HEADROOM, maxRanges: 1 });
+    const result = await budget.list(rows(100, 1), 100);
+    expect(result.rows).toHaveLength(100);
+    expect(result.complete).toBe(true);
+    expect(budget.snapshot()).toMatchObject({ rangesRead: 1, exhausted: false });
+    expect((await budget.one(async () => null)).kind).toBe("not-loaded");
+  });
+
 });
