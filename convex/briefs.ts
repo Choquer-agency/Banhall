@@ -8,6 +8,7 @@ import {
   requireReportEditAccess,
 } from "./lib/roleCapabilities";
 import { computeEditDistance } from "./lib/editDistance";
+import { resolveGatedWorkflow } from "./lib/gatedWorkflow";
 // One definition per bound: the generation-side reader owns it. `generations.ts`
 // imports nothing from this file, so this direction introduces no cycle.
 import { MAX_BRIEF_ENTRY_ROWS } from "./generations";
@@ -43,11 +44,35 @@ async function latestVersionOf(ctx: QueryCtx, brief: Doc<"generationBriefs">) {
     .first();
 }
 
+async function partitionedBriefEntries(
+  ctx: QueryCtx | MutationCtx,
+  briefId: Id<"generationBriefs">
+) {
+  const [immutableInput, generatedOutput] = await Promise.all([
+    ctx.db
+      .query("generationBriefEntries")
+      .withIndex("by_briefId_and_generatedOutput", (q) =>
+        q.eq("briefId", briefId).eq("generatedOutput", undefined))
+      .take(MAX_BRIEF_ENTRY_ROWS + 1),
+    ctx.db
+      .query("generationBriefEntries")
+      .withIndex("by_briefId_and_generatedOutput", (q) =>
+        q.eq("briefId", briefId).eq("generatedOutput", true))
+      .take(MAX_BRIEF_ENTRY_ROWS + 1),
+  ]);
+  return { immutableInput, generatedOutput };
+}
+
 async function briefEntries(ctx: QueryCtx, briefId: Id<"generationBriefs">) {
-  return await ctx.db
-    .query("generationBriefEntries")
-    .withIndex("by_briefId", (q) => q.eq("briefId", briefId))
-    .take(MAX_BRIEF_ENTRY_ROWS);
+  const { immutableInput, generatedOutput } = await partitionedBriefEntries(
+    ctx,
+    briefId
+  );
+  return [
+    ...immutableInput.slice(0, MAX_BRIEF_ENTRY_ROWS),
+    ...generatedOutput.slice(0, MAX_BRIEF_ENTRY_ROWS),
+  ]
+    .sort((left, right) => left._creationTime - right._creationTime);
 }
 
 /**
@@ -57,19 +82,52 @@ async function briefEntries(ctx: QueryCtx, briefId: Id<"generationBriefs">) {
  */
 async function briefEntriesToCopy(
   ctx: MutationCtx,
-  briefId: Id<"generationBriefs">
+  brief: Doc<"generationBriefs">
 ) {
-  const entries = await ctx.db
-    .query("generationBriefEntries")
-    .withIndex("by_briefId", (q) => q.eq("briefId", briefId))
-    .take(MAX_BRIEF_ENTRY_ROWS + 1);
-  if (entries.length > MAX_BRIEF_ENTRY_ROWS) {
+  const { immutableInput, generatedOutput } = await partitionedBriefEntries(
+    ctx,
+    brief._id
+  );
+  const project = await ctx.db.get(brief.projectId);
+  const originGeneration = await ctx.db.get(brief.generationId);
+  let admissionGeneration = originGeneration;
+  if (project?.activeGenerationId) {
+    const activeGeneration = await ctx.db.get(project.activeGenerationId);
+    const activeBrief = activeGeneration?.briefId
+      ? await ctx.db.get(activeGeneration.briefId)
+      : null;
+    if (
+      activeGeneration?.projectId === brief.projectId &&
+      activeBrief?.inputsHash === brief.inputsHash
+    ) {
+      admissionGeneration = activeGeneration;
+    }
+  }
+  if (!admissionGeneration || admissionGeneration.projectId !== brief.projectId) {
+    domainError("INVALID_STATE", "This Brief's workflow context is unavailable");
+  }
+  const summaryAdmission = resolveGatedWorkflow(admissionGeneration) === "seeds";
+  if (
+    immutableInput.length > MAX_BRIEF_ENTRY_ROWS ||
+    (!summaryAdmission &&
+      immutableInput.length + generatedOutput.length > MAX_BRIEF_ENTRY_ROWS)
+  ) {
     domainError(
       "INVALID_STATE",
       `This Brief has more than ${MAX_BRIEF_ENTRY_ROWS} entries and cannot be edited`
     );
   }
-  return entries;
+  if (generatedOutput.length > MAX_BRIEF_ENTRY_ROWS) {
+    domainError(
+      "INVALID_STATE",
+      `This Brief has more than ${MAX_BRIEF_ENTRY_ROWS} generated questions and cannot be edited`
+    );
+  }
+  return {
+    admissionGenerationId: admissionGeneration._id,
+    entries: [...immutableInput, ...generatedOutput]
+      .sort((left, right) => left._creationTime - right._creationTime),
+  };
 }
 
 /**
@@ -292,10 +350,11 @@ export const saveEntryEdit = mutation({
         ? "writer"
         : "edited";
 
+    const { admissionGenerationId, entries } = await briefEntriesToCopy(ctx, brief);
     const now = Date.now();
     const newBriefId = await ctx.db.insert("generationBriefs", {
       projectId: args.projectId,
-      generationId: brief.generationId,
+      generationId: admissionGenerationId,
       inputsHash: brief.inputsHash,
       version: brief.version + 1,
       origin: "edited",
@@ -312,7 +371,6 @@ export const saveEntryEdit = mutation({
 
     // Copy every entry into the new version; the edited one carries the
     // change and `edited: true` (its reason chip and citation stay).
-    const entries = await briefEntriesToCopy(ctx, args.briefId);
     for (const entry of entries) {
       const { _id, _creationTime, ...fields } = entry;
       await ctx.db.insert("generationBriefEntries", {

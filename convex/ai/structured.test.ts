@@ -51,6 +51,32 @@ describe("generateStructured", () => {
     expect(client.messages.create).toHaveBeenCalledTimes(2);
   });
 
+  it("preserves legacy encoded-root recovery", async () => {
+    const client = clientWith([JSON.stringify({ required: "present" })]);
+    await expect(generateStructured(client, {
+      system: "system",
+      user: "user",
+      toolName: "submit",
+      description: "submit",
+      validate: z.object({ required: z.string() }),
+    })).resolves.toEqual({ required: "present" });
+    expect(client.messages.create).toHaveBeenCalledTimes(1);
+  });
+
+  it("can reject an encoded root without a recovery attempt", async () => {
+    const client = clientWith([JSON.stringify({ required: "present" })]);
+    await expect(generateStructured(client, {
+      system: "system",
+      user: "user",
+      toolName: "submit",
+      description: "submit",
+      validate: z.object({ required: z.string() }),
+      attempts: 1,
+      encodedJsonRecovery: false,
+    })).rejects.toThrow("unexpected shape");
+    expect(client.messages.create).toHaveBeenCalledTimes(1);
+  });
+
   it("spends the repair attempt on a retryable OpenRouter decode failure", async () => {
     const create = vi
       .fn()

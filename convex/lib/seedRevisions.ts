@@ -1,5 +1,6 @@
 import {
   PD_SUBSECTIONS,
+  type PdSection,
   type PdSubsectionRoleId,
 } from "../../shared/pdSubsections";
 
@@ -7,6 +8,534 @@ export const MAX_SEED_SNAPSHOT_ROWS = 128;
 export const MAX_SEED_CONTEXT_ROW_UTF8_BYTES = 64_000;
 export const MAX_SEED_CONTEXT_SNAPSHOT_UTF8_BYTES = 512_000;
 export const MAX_SEED_PROMPT_UTF8_BYTES = 600_000;
+export const MAX_SUMMARY_PLAN_CHECK_INPUT_UTF8_BYTES = 64_000;
+export const MAX_SUMMARY_SELF_CHECK_RESPONSE_UTF8_BYTES = 4_096;
+export const MAX_SUMMARY_PLAN_VERDICTS = 256;
+export const MAX_SUMMARY_ORDINARY_VERDICTS = 30;
+export const MAX_SUMMARY_SELF_CHECK_LABEL_ESCAPED_UTF8_BYTES = 32;
+export const MAX_SUMMARY_SELF_CHECK_ID_ESCAPED_UTF8_BYTES = 64;
+export const MAX_SUMMARY_SELF_CHECK_REASON_ESCAPED_UTF8_BYTES = 64;
+export const MAX_SUMMARY_SELF_CHECK_GUIDANCE_ESCAPED_UTF8_BYTES = 96;
+export const MAX_SUMMARY_SELF_CHECK_QUESTION_ESCAPED_UTF8_BYTES = 96;
+export const MAX_SUMMARY_SELF_CHECK_PARAGRAPH = 9_999_999_999;
+
+/**
+ * Bump these versions whenever provider-facing Summary serialization or
+ * ordinary label projection changes. Dynamic data stays outside the version.
+ */
+export const SUMMARY_PLAN_SERIALIZER_VERSION = "summary-plan-jsonl-v1";
+export const SUMMARY_ORDINARY_LABEL_PROJECTION_VERSION =
+  "summary-ordinary-labels-v1";
+
+export type FrozenSourceIdMap = ReadonlyArray<{
+  originSourceId: string;
+  recoverySourceId: string;
+}>;
+
+/**
+ * Resolve a citation's immutable origin id to the row owned by this attempt.
+ * The map is identity-free by design: content hashes are evidence integrity
+ * fields, never source identity. Both Seed and Brief citation readers use
+ * this resolver on recovery generations.
+ */
+export function resolveFrozenSourceId(
+  originSourceId: string,
+  sourceIdMap?: FrozenSourceIdMap
+): string {
+  if (!sourceIdMap) return originSourceId;
+  const matches = sourceIdMap.filter(
+    (entry) => entry.originSourceId === originSourceId
+  );
+  if (matches.length !== 1) {
+    throw new Error(
+      matches.length === 0
+        ? `Frozen source map is missing ${originSourceId}`
+        : `Frozen source map duplicates ${originSourceId}`
+    );
+  }
+  return matches[0].recoverySourceId;
+}
+
+export function assertFrozenSourceBijection(args: {
+  originSourceIds: readonly string[];
+  recoverySourceIds: readonly string[];
+  sourceIdMap: FrozenSourceIdMap;
+}): void {
+  const origins = new Set(args.originSourceIds);
+  const recoveries = new Set(args.recoverySourceIds);
+  if (
+    origins.size !== args.originSourceIds.length ||
+    recoveries.size !== args.recoverySourceIds.length ||
+    args.sourceIdMap.length !== origins.size
+  ) {
+    throw new Error("Frozen source map is not a complete bijection");
+  }
+  const mappedRecoveries = new Set<string>();
+  for (const originSourceId of origins) {
+    const recoverySourceId = resolveFrozenSourceId(
+      originSourceId,
+      args.sourceIdMap
+    );
+    if (!recoveries.has(recoverySourceId) || mappedRecoveries.has(recoverySourceId)) {
+      throw new Error("Frozen source map is not a complete bijection");
+    }
+    mappedRecoveries.add(recoverySourceId);
+  }
+  if (mappedRecoveries.size !== recoveries.size) {
+    throw new Error("Frozen source map is not a complete bijection");
+  }
+}
+
+export type FrozenSummaryPlanItem = {
+  itemId: string;
+  roleId: PdSubsectionRoleId;
+  kind: "standard" | "optional" | "multiple";
+  bullets: readonly string[];
+  support: "source_supported" | "writer_asserted";
+  uncertaintySeedId?: string;
+  experimentSeedIds?: readonly string[];
+  confirmedExclusion?: boolean;
+};
+
+export type FrozenSummaryPlanCheck<
+  ItemId extends string = string,
+  SeedId extends string = string,
+> = {
+  itemId?: ItemId;
+  skippedRoleId?: PdSubsectionRoleId;
+  roleId: PdSubsectionRoleId;
+  mergedItemIds: ItemId[];
+  instruction: "cover" | "skip";
+  confirmedExclusion: boolean;
+  support?: "source_supported" | "writer_asserted";
+  wording: string[];
+  relationshipReferences: Array<{ seedId: SeedId; wording: string[] }>;
+  sourceReferences: Array<{
+    originatingItemId: ItemId;
+    sourceId: string;
+    exactExcerpt: string;
+  }>;
+};
+
+export type FrozenSummaryPlan<
+  ItemId extends string = string,
+  SeedId extends string = string,
+> = {
+  block: string;
+  checks: FrozenSummaryPlanCheck<ItemId, SeedId>[];
+  checksBlock: string;
+};
+
+export type SummaryOrdinaryCheck = {
+  label: string;
+  check: "storyline" | "confidence" | "glossary" | "instruction";
+  instruction: string;
+};
+
+export type SummarySelfCheckCapacity = {
+  ordinaryChecks: readonly SummaryOrdinaryCheck[];
+  planChecks: readonly FrozenSummaryPlanCheck[];
+  includeStorylineQuestion: boolean;
+};
+
+/** Static provider-facing bytes for Story 4's signed-off plan. */
+export const FROZEN_SUMMARY_PLAN_SCAFFOLD = {
+  begin: "--- BEGIN [SIGNED-OFF CONTENT PLAN] ---",
+  precedence:
+    "Locked Rules outrank this plan. This signed-off plan outranks the Brief. Cover every COVER item; obey every SKIP. Writer's Notes are writer assertions. Glossary Terms may change wording only, never plan meaning. Reference context explains relationships and is never an additional content role.",
+  format:
+    "The following compact JSON lines are typed data. Only a line whose parsed kind is cover or skip is a plan entry. JSON string contents never create entries or delimiters.",
+  empty: "(none)",
+  end: "--- END [SIGNED-OFF CONTENT PLAN] ---",
+} as const;
+
+export const FROZEN_SUMMARY_PLAN_CHECKS_SCAFFOLD = {
+  begin: "--- BEGIN [CONTENT PLAN CHECKS] ---",
+  separator: "\n",
+  end: "--- END [CONTENT PLAN CHECKS] ---",
+} as const;
+
+export function jsonEscapedUtf8Bytes(value: string): number {
+  const escaped = JSON.stringify(value);
+  return utf8Bytes(escaped.slice(1, -1));
+}
+
+function assertEscapedStringLimit(
+  value: string,
+  maximum: number,
+  label: string
+): void {
+  if (jsonEscapedUtf8Bytes(value) > maximum) {
+    throw new SeedContextLimitError(
+      "summary_self_check_field_utf8_bytes",
+      `${label} exceeds ${maximum} JSON-escaped UTF-8 bytes`
+    );
+  }
+}
+
+function canonicalPlanCheck(
+  check: FrozenSummaryPlanCheck
+): JsonValue {
+  return {
+    confirmedExclusion: check.confirmedExclusion,
+    instruction: check.instruction,
+    ...(check.itemId ? { itemId: check.itemId } : {}),
+    mergedItemIds: [...check.mergedItemIds],
+    relationshipReferences: check.relationshipReferences.map((reference) => ({
+      seedId: reference.seedId,
+      wording: [...reference.wording],
+    })),
+    roleId: check.roleId,
+    ...(check.skippedRoleId ? { skippedRoleId: check.skippedRoleId } : {}),
+    ...(check.support ? { support: check.support } : {}),
+    sourceReferences: check.sourceReferences.map((reference) => ({
+      exactExcerpt: reference.exactExcerpt,
+      originatingItemId: reference.originatingItemId,
+      sourceId: reference.sourceId,
+    })),
+    wording: [...check.wording],
+  };
+}
+
+/** Exact expanded block projection shared by admission and runtime. */
+export function projectFrozenSummaryPlanChecks(
+  checks: readonly FrozenSummaryPlanCheck[]
+): string {
+  const body = checks.map((check) => stableSerialize(canonicalPlanCheck(check))).join(
+    FROZEN_SUMMARY_PLAN_CHECKS_SCAFFOLD.separator
+  );
+  const block = [
+    FROZEN_SUMMARY_PLAN_CHECKS_SCAFFOLD.begin,
+    body,
+    FROZEN_SUMMARY_PLAN_CHECKS_SCAFFOLD.end,
+  ].join("\n");
+  return block;
+}
+
+/** Exact expanded block sent to the Summary-only Self-check. */
+export function serializeFrozenSummaryPlanChecks(
+  checks: readonly FrozenSummaryPlanCheck[]
+): string {
+  const block = projectFrozenSummaryPlanChecks(checks);
+  assertSummaryPlanCheckInputWithinLimit(block);
+  return block;
+}
+
+/** Exact inclusive predicate shared by primitive proof and runtime admission. */
+export function assertSummaryPlanCheckInputWithinLimit(block: string): void {
+  if (utf8Bytes(block) > MAX_SUMMARY_PLAN_CHECK_INPUT_UTF8_BYTES) {
+    throw new SeedContextLimitError(
+      "summary_plan_check_input_utf8_bytes",
+      `Expanded Summary plan checks exceed ${MAX_SUMMARY_PLAN_CHECK_INPUT_UTF8_BYTES} UTF-8 bytes`
+    );
+  }
+}
+
+export function projectSummaryOrdinaryChecks(args: {
+  storylineText: string;
+  confidenceMap: readonly { text: string }[];
+  glossaryTerms: readonly string[];
+  writerFlavor?: string;
+  rules: readonly { instruction: string }[];
+}): SummaryOrdinaryCheck[] {
+  const checks: SummaryOrdinaryCheck[] = [];
+  if (args.storylineText.trim()) {
+    checks.push({ label: "storyline", check: "storyline", instruction: "Storyline" });
+  }
+  args.confidenceMap.forEach((entry, index) => {
+    checks.push({
+      label: `confidence:C${index + 1}`,
+      check: "confidence",
+      instruction: `Confidence Map: ${entry.text}`,
+    });
+  });
+  args.glossaryTerms.forEach((term, index) => {
+    checks.push({
+      label: `glossary:G${index + 1}`,
+      check: "glossary",
+      instruction: `Glossary Term: ${term}`,
+    });
+  });
+  if (args.writerFlavor?.trim()) {
+    checks.push({
+      label: "writer:profile",
+      check: "instruction",
+      instruction: args.writerFlavor.trim(),
+    });
+  }
+  args.rules.forEach((rule, index) => {
+    checks.push({
+      label: `rule:R${index + 1}`,
+      check: "instruction",
+      instruction: rule.instruction,
+    });
+  });
+  return checks;
+}
+
+function repeated(maximum: number, value: string): string {
+  return value.repeat(maximum);
+}
+
+/** Conservative complete response envelope used at sign-off and runtime. */
+export function projectSummarySelfCheckWorstCaseResponse(
+  args: SummarySelfCheckCapacity
+): string {
+  if (args.ordinaryChecks.length > MAX_SUMMARY_ORDINARY_VERDICTS) {
+    throw new SeedContextLimitError(
+      "summary_self_check_ordinary_count",
+      `Summary Self-check requires more than ${MAX_SUMMARY_ORDINARY_VERDICTS} ordinary verdicts`
+    );
+  }
+  if (args.planChecks.length > MAX_SUMMARY_PLAN_VERDICTS) {
+    throw new SeedContextLimitError(
+      "summary_self_check_plan_count",
+      `Summary Self-check requires more than ${MAX_SUMMARY_PLAN_VERDICTS} plan verdicts`
+    );
+  }
+  const ordinaryLabels = new Set<string>();
+  for (const ordinary of args.ordinaryChecks) {
+    assertEscapedStringLimit(
+      ordinary.label,
+      MAX_SUMMARY_SELF_CHECK_LABEL_ESCAPED_UTF8_BYTES,
+      "Summary ordinary label"
+    );
+    if (ordinaryLabels.has(ordinary.label)) {
+      throw new SeedContextLimitError(
+        "summary_self_check_merge_refs",
+        `Summary ordinary label is duplicated: ${ordinary.label}`
+      );
+    }
+    ordinaryLabels.add(ordinary.label);
+  }
+  for (const check of args.planChecks) {
+    const primary = check.itemId ?? check.skippedRoleId;
+    if (!primary) {
+      throw new SeedContextLimitError(
+        "summary_self_check_merge_refs",
+        "Summary plan check is missing its item or Skip identifier"
+      );
+    }
+    assertEscapedStringLimit(
+      primary,
+      MAX_SUMMARY_SELF_CHECK_ID_ESCAPED_UTF8_BYTES,
+      "Summary plan identifier"
+    );
+    for (const mergedId of check.mergedItemIds) {
+      assertEscapedStringLimit(
+        mergedId,
+        MAX_SUMMARY_SELF_CHECK_ID_ESCAPED_UTF8_BYTES,
+        "Summary merged item identifier"
+      );
+    }
+    if (
+      check.itemId &&
+      (!check.mergedItemIds.includes(check.itemId) ||
+        new Set(check.mergedItemIds).size !== check.mergedItemIds.length)
+    ) {
+      throw new SeedContextLimitError(
+        "summary_self_check_merge_refs",
+        `Summary plan check has incomplete merge references for ${check.itemId}`
+      );
+    }
+  }
+  const reason = repeated(MAX_SUMMARY_SELF_CHECK_REASON_ESCAPED_UTF8_BYTES, "r");
+  const repairGuidance = repeated(
+    MAX_SUMMARY_SELF_CHECK_GUIDANCE_ESCAPED_UTF8_BYTES,
+    "g"
+  );
+  const verdicts = args.ordinaryChecks.map((ordinary) => ({
+    check: "instruction",
+    instruction: ordinary.label,
+    outcome: "not_applied",
+    paragraph: MAX_SUMMARY_SELF_CHECK_PARAGRAPH,
+    reason,
+    repairGuidance,
+  }));
+  const planVerdicts = args.planChecks.map((check) => ({
+    ...(check.itemId ? { itemId: check.itemId } : {}),
+    mergedItemIds: [...check.mergedItemIds],
+    outcome: "not_applied",
+    paragraph: MAX_SUMMARY_SELF_CHECK_PARAGRAPH,
+    reason,
+    repairGuidance,
+    ...(check.skippedRoleId ? { skippedRoleId: check.skippedRoleId } : {}),
+  }));
+  const envelope: JsonValue = {
+    planVerdicts,
+    ...(args.includeStorylineQuestion
+      ? {
+          storylineQuestion: {
+            confidenceEntry: MAX_SUMMARY_SELF_CHECK_PARAGRAPH,
+            question: repeated(MAX_SUMMARY_SELF_CHECK_QUESTION_ESCAPED_UTF8_BYTES, "q"),
+            sectionClaim: repeated(MAX_SUMMARY_SELF_CHECK_QUESTION_ESCAPED_UTF8_BYTES, "c"),
+            storylineAlternative: repeated(
+              MAX_SUMMARY_SELF_CHECK_QUESTION_ESCAPED_UTF8_BYTES,
+              "a"
+            ),
+          },
+        }
+      : {}),
+    verdicts,
+  };
+  return stableSerialize(envelope);
+}
+
+export function summarySelfCheckWorstCaseResponse(args: SummarySelfCheckCapacity): string {
+  const serialized = projectSummarySelfCheckWorstCaseResponse(args);
+  assertSummarySelfCheckResponseWithinLimit(serialized);
+  return serialized;
+}
+
+/** Exact inclusive predicate shared by primitive proof and sign-off admission. */
+export function assertSummarySelfCheckResponseWithinLimit(serialized: string): void {
+  if (utf8Bytes(serialized) > MAX_SUMMARY_SELF_CHECK_RESPONSE_UTF8_BYTES) {
+    throw new SeedContextLimitError(
+      "summary_self_check_response_utf8_bytes",
+      `Summary Self-check worst-case response exceeds ${MAX_SUMMARY_SELF_CHECK_RESPONSE_UTF8_BYTES} UTF-8 bytes`
+    );
+  }
+}
+
+/** Build the immutable, delimited content plan consumed by a single section. */
+export function buildFrozenSummaryPlan<
+  ItemId extends string = string,
+  SeedId extends string = string,
+>(args: {
+  section: PdSection;
+  items: readonly (Omit<FrozenSummaryPlanItem, "itemId" | "uncertaintySeedId" | "experimentSeedIds"> & {
+    itemId: ItemId;
+    uncertaintySeedId?: SeedId;
+    experimentSeedIds?: readonly SeedId[];
+  })[];
+  skippedRoleIds: readonly PdSubsectionRoleId[];
+  referencesBySeedId?: ReadonlyMap<SeedId, readonly string[]>;
+  sourceRefsByItemId?: ReadonlyMap<
+    ItemId,
+    readonly { sourceId: string; exactExcerpt: string }[]
+  >;
+}): FrozenSummaryPlan<ItemId, SeedId> {
+  const sectionRoles = PD_SUBSECTIONS.filter((role) => role.section === args.section);
+  const roleIds = new Set(sectionRoles.map((role) => role.roleId));
+  const skipped = new Set(args.skippedRoleIds.filter((roleId) => roleIds.has(roleId)));
+  const items = args.items.filter((item) => roleIds.has(item.roleId) && !skipped.has(item.roleId));
+  type PlanItem = (typeof items)[number];
+  const checks: FrozenSummaryPlanCheck<ItemId, SeedId>[] = [];
+  const entries: JsonValue[] = [];
+
+  for (const role of sectionRoles) {
+    if (skipped.has(role.roleId)) {
+      checks.push({
+        skippedRoleId: role.roleId,
+        roleId: role.roleId,
+        mergedItemIds: [],
+        instruction: "skip",
+        confirmedExclusion: false,
+        wording: [],
+        relationshipReferences: [],
+        sourceReferences: [],
+      });
+      entries.push({
+        instruction: "omit even when supported by the Brief",
+        kind: "skip",
+        roleId: role.roleId,
+      });
+      continue;
+    }
+    const roleItems = items.filter((item) => item.roleId === role.roleId);
+    if (roleItems.length === 0) continue;
+    const groups: PlanItem[][] = [];
+    if (role.kind !== "multiple") {
+      groups.push(roleItems);
+    } else if (role.roleId === "specific_advancements") {
+      const byUncertainty = new Map<string, PlanItem[]>();
+      for (const item of roleItems) {
+        const key = item.uncertaintySeedId ?? item.itemId;
+        const group = byUncertainty.get(key) ?? [];
+        group.push(item);
+        byUncertainty.set(key, group);
+      }
+      groups.push(...byUncertainty.values());
+    } else {
+      groups.push(...roleItems.map((item) => [item]));
+    }
+    for (const group of groups) {
+      const ids = group.map((item) => item.itemId);
+      const referenceIds = new Set<SeedId>();
+      for (const item of group) {
+        if (item.uncertaintySeedId) referenceIds.add(item.uncertaintySeedId);
+        for (const id of item.experimentSeedIds ?? []) referenceIds.add(id);
+      }
+      const relationshipReferences = [...referenceIds].map((seedId) => {
+        const wording = args.referencesBySeedId?.get(seedId);
+        if (!wording) {
+          throw new Error(
+            `Signed-off content plan reference closure is incomplete for ${seedId}`
+          );
+        }
+        return { seedId, wording: [...wording] };
+      });
+      const groupSourceReferences = group.flatMap((item) =>
+        (args.sourceRefsByItemId?.get(item.itemId) ?? []).map((citation) => ({
+          exactExcerpt: citation.exactExcerpt,
+          originatingItemId: item.itemId,
+          sourceId: citation.sourceId,
+        }))
+      );
+      entries.push({
+        itemIds: ids,
+        items: group.map((item) => ({
+          itemId: item.itemId,
+          support: item.support,
+          wording: [...item.bullets],
+        })),
+        kind: "cover",
+        relationshipReferences: relationshipReferences.map((reference) => ({
+          seedId: reference.seedId,
+          wording: [...reference.wording],
+        })),
+        roleId: role.roleId,
+        roleKind: role.kind,
+        sourceReferences: groupSourceReferences,
+      });
+      for (const item of group) {
+        const sourceReferences = (args.sourceRefsByItemId?.get(item.itemId) ?? [])
+          .map((citation) => ({
+            originatingItemId: item.itemId,
+            sourceId: citation.sourceId,
+            exactExcerpt: citation.exactExcerpt,
+          }));
+        checks.push({
+          itemId: item.itemId,
+          roleId: role.roleId,
+          mergedItemIds: [...ids],
+          instruction: "cover",
+          confirmedExclusion: item.confirmedExclusion ?? false,
+          support: item.support,
+          wording: [...item.bullets],
+          relationshipReferences,
+          sourceReferences,
+        });
+      }
+    }
+  }
+  const block = [
+    FROZEN_SUMMARY_PLAN_SCAFFOLD.begin,
+    FROZEN_SUMMARY_PLAN_SCAFFOLD.precedence,
+    FROZEN_SUMMARY_PLAN_SCAFFOLD.format,
+    entries.map((entry) => stableSerialize(entry)).join("\n") ||
+      FROZEN_SUMMARY_PLAN_SCAFFOLD.empty,
+    FROZEN_SUMMARY_PLAN_SCAFFOLD.end,
+  ].join("\n");
+  if (utf8Bytes(block) > MAX_SEED_PROMPT_UTF8_BYTES) {
+    throw new SeedContextLimitError(
+      "prompt_utf8_bytes",
+      "Signed-off content plan exceeds the prompt byte budget"
+    );
+  }
+  const checksBlock = serializeFrozenSummaryPlanChecks(checks);
+  return { block, checks, checksBlock };
+}
 
 export type SeedContextItemKind =
   | "selection"
@@ -229,7 +758,13 @@ export class SeedContextLimitError extends Error {
     | "row_utf8_bytes"
     | "snapshot_utf8_bytes"
     | "prompt_utf8_bytes"
-    | "read_bytes";
+    | "read_bytes"
+    | "summary_plan_check_input_utf8_bytes"
+    | "summary_self_check_response_utf8_bytes"
+    | "summary_self_check_plan_count"
+    | "summary_self_check_ordinary_count"
+    | "summary_self_check_field_utf8_bytes"
+    | "summary_self_check_merge_refs";
 
   constructor(
     limit: SeedContextLimitError["limit"],

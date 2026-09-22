@@ -4,6 +4,17 @@
  * import the real definitions without creating action-module cycles.
  */
 
+import {
+  MAX_SUMMARY_ORDINARY_VERDICTS,
+  MAX_SUMMARY_PLAN_VERDICTS,
+  MAX_SUMMARY_SELF_CHECK_GUIDANCE_ESCAPED_UTF8_BYTES,
+  MAX_SUMMARY_SELF_CHECK_ID_ESCAPED_UTF8_BYTES,
+  MAX_SUMMARY_SELF_CHECK_LABEL_ESCAPED_UTF8_BYTES,
+  MAX_SUMMARY_SELF_CHECK_PARAGRAPH,
+  MAX_SUMMARY_SELF_CHECK_QUESTION_ESCAPED_UTF8_BYTES,
+  MAX_SUMMARY_SELF_CHECK_REASON_ESCAPED_UTF8_BYTES,
+} from "../lib/seedRevisions";
+
 export const LENGTH_BUDGET_SCAFFOLD = {
   prefix:
     "\n\n# LENGTH BUDGET (CRA form constraint — hard requirement)\nThe CRA form field for this section holds at most ",
@@ -240,6 +251,13 @@ export const SELF_CHECK_REQUEST = {
 
 const verdictOutcome = { type: "string", enum: ["applied", "not_applied"] } as const;
 
+function summaryEscapedUtf8Description(
+  purpose: string,
+  maximum: number
+): string {
+  return `${purpose} Return at most ${maximum} JSON-escaped UTF-8 bytes, measured after JSON string escaping and excluding the surrounding quotes. Escapes such as \\n count as two bytes, and non-ASCII text counts by its UTF-8 encoding. maxLength=${maximum} is a conservative character bound; the escaped-byte limit is authoritative.`;
+}
+
 export const SELF_CHECK_SCHEMA = {
   type: "object",
   properties: {
@@ -289,6 +307,163 @@ export const SELF_CHECK_SCHEMA = {
     },
   },
   required: ["verdicts"],
+} as const;
+
+/** Story 4 extension used only when a signed Summary plan is present. */
+export const SUMMARY_PLAN_SELF_CHECK_SCHEMA = {
+  ...SELF_CHECK_SCHEMA,
+  properties: {
+    ...SELF_CHECK_SCHEMA.properties,
+    verdicts: {
+      ...SELF_CHECK_SCHEMA.properties.verdicts,
+      maxItems: MAX_SUMMARY_ORDINARY_VERDICTS,
+      items: {
+        ...SELF_CHECK_SCHEMA.properties.verdicts.items,
+        additionalProperties: false,
+        properties: {
+          ...SELF_CHECK_SCHEMA.properties.verdicts.items.properties,
+          paragraph: {
+            type: "integer",
+            minimum: 0,
+            maximum: MAX_SUMMARY_SELF_CHECK_PARAGRAPH,
+          },
+          instruction: {
+            type: "string",
+            maxLength: MAX_SUMMARY_SELF_CHECK_LABEL_ESCAPED_UTF8_BYTES,
+            description: summaryEscapedUtf8Description(
+              "The deterministic Summary-only check label supplied in the input.",
+              MAX_SUMMARY_SELF_CHECK_LABEL_ESCAPED_UTF8_BYTES
+            ),
+          },
+          reason: {
+            type: "string",
+            maxLength: MAX_SUMMARY_SELF_CHECK_REASON_ESCAPED_UTF8_BYTES,
+            description: summaryEscapedUtf8Description(
+              "Explain the verdict concisely.",
+              MAX_SUMMARY_SELF_CHECK_REASON_ESCAPED_UTF8_BYTES
+            ),
+          },
+          repairGuidance: {
+            type: "string",
+            maxLength: MAX_SUMMARY_SELF_CHECK_GUIDANCE_ESCAPED_UTF8_BYTES,
+            description: summaryEscapedUtf8Description(
+              "For not_applied only: give one concrete fix a writer could follow.",
+              MAX_SUMMARY_SELF_CHECK_GUIDANCE_ESCAPED_UTF8_BYTES
+            ),
+          },
+        },
+      },
+    },
+    storylineQuestion: {
+      ...SELF_CHECK_SCHEMA.properties.storylineQuestion,
+      additionalProperties: false,
+      properties: {
+        ...SELF_CHECK_SCHEMA.properties.storylineQuestion.properties,
+        question: {
+          type: "string",
+          maxLength: MAX_SUMMARY_SELF_CHECK_QUESTION_ESCAPED_UTF8_BYTES,
+          description: summaryEscapedUtf8Description(
+            "Ask one question that would resolve the Storyline contradiction.",
+            MAX_SUMMARY_SELF_CHECK_QUESTION_ESCAPED_UTF8_BYTES
+          ),
+        },
+        sectionClaim: {
+          type: "string",
+          maxLength: MAX_SUMMARY_SELF_CHECK_QUESTION_ESCAPED_UTF8_BYTES,
+          description: summaryEscapedUtf8Description(
+            "State what the section says, backed by the stronger evidence.",
+            MAX_SUMMARY_SELF_CHECK_QUESTION_ESCAPED_UTF8_BYTES
+          ),
+        },
+        confidenceEntry: {
+          type: "integer",
+          minimum: 0,
+          maximum: MAX_SUMMARY_SELF_CHECK_PARAGRAPH,
+        },
+        storylineAlternative: {
+          type: "string",
+          maxLength: MAX_SUMMARY_SELF_CHECK_QUESTION_ESCAPED_UTF8_BYTES,
+          description: summaryEscapedUtf8Description(
+            "State the Storyline wording supported by the evidence.",
+            MAX_SUMMARY_SELF_CHECK_QUESTION_ESCAPED_UTF8_BYTES
+          ),
+        },
+      },
+    },
+    planVerdicts: {
+      type: "array",
+      maxItems: MAX_SUMMARY_PLAN_VERDICTS,
+      description: "Exactly one verdict for every signed-off plan item and Skip requirement supplied.",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          itemId: {
+            type: "string",
+            maxLength: MAX_SUMMARY_SELF_CHECK_ID_ESCAPED_UTF8_BYTES,
+            description: summaryEscapedUtf8Description(
+              "Return the exact signed-off item identifier supplied in the input.",
+              MAX_SUMMARY_SELF_CHECK_ID_ESCAPED_UTF8_BYTES
+            ),
+          },
+          skippedRoleId: {
+            type: "string",
+            maxLength: MAX_SUMMARY_SELF_CHECK_ID_ESCAPED_UTF8_BYTES,
+            description: summaryEscapedUtf8Description(
+              "Return the exact signed-off Skip role identifier supplied in the input.",
+              MAX_SUMMARY_SELF_CHECK_ID_ESCAPED_UTF8_BYTES
+            ),
+          },
+          mergedItemIds: {
+            type: "array",
+            items: {
+              type: "string",
+              maxLength: MAX_SUMMARY_SELF_CHECK_ID_ESCAPED_UTF8_BYTES,
+              description: summaryEscapedUtf8Description(
+                "Return one exact signed-off merged-item identifier supplied in the input.",
+                MAX_SUMMARY_SELF_CHECK_ID_ESCAPED_UTF8_BYTES
+              ),
+            },
+          },
+          paragraph: {
+            type: "integer",
+            minimum: 0,
+            maximum: MAX_SUMMARY_SELF_CHECK_PARAGRAPH,
+            description: "1-based [P#]; 0 only when not applied.",
+          },
+          outcome: verdictOutcome,
+          reason: {
+            type: "string",
+            maxLength: MAX_SUMMARY_SELF_CHECK_REASON_ESCAPED_UTF8_BYTES,
+            description: summaryEscapedUtf8Description(
+              "Explain the plan verdict concisely.",
+              MAX_SUMMARY_SELF_CHECK_REASON_ESCAPED_UTF8_BYTES
+            ),
+          },
+          repairGuidance: {
+            type: "string",
+            maxLength: MAX_SUMMARY_SELF_CHECK_GUIDANCE_ESCAPED_UTF8_BYTES,
+            description: summaryEscapedUtf8Description(
+              "For not_applied only: give one concrete fix a writer could follow.",
+              MAX_SUMMARY_SELF_CHECK_GUIDANCE_ESCAPED_UTF8_BYTES
+            ),
+          },
+        },
+        required: ["mergedItemIds", "outcome", "reason"],
+        oneOf: [
+          { required: ["itemId"] },
+          { required: ["skippedRoleId"] },
+        ],
+      },
+    },
+  },
+  required: ["verdicts", "planVerdicts"],
+  additionalProperties: false,
+} as const;
+
+export const SUMMARY_PLAN_SELF_CHECK_REQUEST = {
+  blockLabel: "CONTENT PLAN CHECKS",
+  blockSeparator: "\n",
 } as const;
 
 export const CONSISTENCY_REQUEST = {

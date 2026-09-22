@@ -4,6 +4,7 @@
 // its own frozen transcript row, run through `generateReport` with the
 // Anthropic SDK mocked so story 1's stage derives a real Brief.
 import type Anthropic from "@anthropic-ai/sdk";
+import type { FunctionArgs } from "convex/server";
 import { convexTest } from "convex-test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api, internal } from "./_generated/api";
@@ -33,6 +34,36 @@ const analysisOutput = {
   work_performed: {},
   project_status: "completed",
 };
+
+function isUnknownArray(value: unknown): value is unknown[] {
+  return Array.isArray(value);
+}
+
+function contentText(content: unknown): string {
+  if (typeof content === "string") return content;
+  if (!isUnknownArray(content)) return "";
+  return content.map((block) => {
+    if (
+      block === null ||
+      typeof block !== "object" ||
+      !("type" in block) ||
+      block.type !== "text" ||
+      !("text" in block) ||
+      typeof block.text !== "string"
+    ) {
+      return "";
+    }
+    return block.text;
+  }).join("");
+}
+
+function requestText(
+  params: GenerationMessageParams | Anthropic.MessageCreateParamsNonStreaming
+): string {
+  return params.messages.map((message) => {
+    return contentText(message.content);
+  }).join("\n");
+}
 
 const briefOutput = {
   storyline: DERIVED_STORYLINE,
@@ -516,5 +547,208 @@ describe("briefs.saveEntryEdit (story 4)", () => {
     // The rail for the new generation shows the same version, not "edited since".
     const read = await asWriter.query(api.briefs.getBrief, { generationId: nextGenerationId });
     expect(read).toMatchObject({ _id: editedId, editedSinceGeneration: false });
+  });
+
+  it("atomically refuses a legacy edit when the combined Brief partitions exceed the legacy bound", async () => {
+    const { t, asWriter, projectId, briefId } = await briefFixture();
+    const questionId = await t.run(async (ctx) => {
+      const evidence = (await ctx.db.query("generationBriefEntries")
+        .withIndex("by_briefId", (q) => q.eq("briefId", briefId))
+        .take(10)).find((row) => row.group === "confidenceMap");
+      if (!evidence) throw new Error("Missing confidence evidence");
+      for (let index = 0; index < 496; index += 1) {
+        await ctx.db.insert("generationBriefEntries", {
+          briefId,
+          projectId,
+          group: "claimExclusion",
+          text: `Legacy boundary guidance ${index + 1}.`,
+          sourceId: evidence.sourceId,
+          sourceContentHash: evidence.sourceContentHash,
+          startOffset: evidence.startOffset,
+          endOffset: evidence.endOffset,
+          exactExcerpt: evidence.exactExcerpt,
+          createdAt: 100 + index,
+        });
+      }
+      return await ctx.db.insert("generationBriefEntries", {
+        briefId,
+        projectId,
+        group: "storylineQuestion",
+        text: "A generated question pushes the combined legacy view over its bound.",
+        sourceId: evidence.sourceId,
+        sourceContentHash: evidence.sourceContentHash,
+        startOffset: evidence.startOffset,
+        endOffset: evidence.endOffset,
+        exactExcerpt: evidence.exactExcerpt,
+        question: {
+          questionText: "Should the legacy storyline change?",
+          alternativeText: "Evidence says the legacy storyline should change.",
+        },
+        generatedOutput: true,
+        createdAt: 1000,
+      });
+    });
+    const before = await t.run(async (ctx) => ({
+      briefs: await ctx.db.query("generationBriefs")
+        .withIndex("by_projectId", (q) => q.eq("projectId", projectId))
+        .take(10),
+      entries: await ctx.db.query("generationBriefEntries")
+        .withIndex("by_briefId", (q) => q.eq("briefId", briefId))
+        .take(502),
+    }));
+    expect(before.entries.filter((row) => row.generatedOutput === undefined)).toHaveLength(500);
+    expect(before.entries.filter((row) => row.generatedOutput === true)).toHaveLength(1);
+    expect(await errorCode(() => asWriter.mutation(api.briefs.saveEntryEdit, {
+      projectId,
+      briefId,
+      expectedBriefVersion: 1,
+      entryId: questionId,
+      resolvedBy: "use_evidence",
+    }))).toBe("INVALID_STATE");
+    const after = await t.run(async (ctx) => ({
+      briefs: await ctx.db.query("generationBriefs")
+        .withIndex("by_projectId", (q) => q.eq("projectId", projectId))
+        .take(10),
+      entries: await ctx.db.query("generationBriefEntries")
+        .withIndex("by_briefId", (q) => q.eq("briefId", briefId))
+        .take(502),
+    }));
+    expect(after).toEqual(before);
+  });
+
+  it("reuses a partitioned Summary edit as complete legacy guidance without replacing the human resolution", async () => {
+    const { t, asWriter, userId, projectId, generationId, briefId } = await briefFixture();
+    const questionId = await t.run(async (ctx) => {
+      await ctx.db.patch(generationId, { gatedWorkflow: "seeds" });
+      const evidence = (await ctx.db.query("generationBriefEntries")
+        .withIndex("by_briefId", (q) => q.eq("briefId", briefId))
+        .take(10)).find((row) => row.group === "confidenceMap");
+      if (!evidence) throw new Error("Missing confidence evidence");
+      for (let index = 0; index < 496; index += 1) {
+        await ctx.db.insert("generationBriefEntries", {
+          briefId,
+          projectId,
+          group: "claimExclusion",
+          text: `Summary-only guidance ${index + 1}.`,
+          sourceId: evidence.sourceId,
+          sourceContentHash: evidence.sourceContentHash,
+          startOffset: evidence.startOffset,
+          endOffset: evidence.endOffset,
+          exactExcerpt: evidence.exactExcerpt,
+          createdAt: 100 + index,
+        });
+      }
+      return await ctx.db.insert("generationBriefEntries", {
+        briefId,
+        projectId,
+        group: "storylineQuestion",
+        text: "Summary generated question.",
+        sourceId: evidence.sourceId,
+        sourceContentHash: evidence.sourceContentHash,
+        startOffset: evidence.startOffset,
+        endOffset: evidence.endOffset,
+        exactExcerpt: evidence.exactExcerpt,
+        question: {
+          questionText: "Use the Summary evidence?",
+          alternativeText: "Summary evidence changes the Storyline.",
+        },
+        generatedOutput: true,
+        createdAt: 1000,
+      });
+    });
+    const editedId = await asWriter.mutation(api.briefs.saveEntryEdit, {
+      projectId,
+      briefId,
+      expectedBriefVersion: 1,
+      entryId: questionId,
+      resolvedBy: "use_evidence",
+    });
+    const editedEntries = await entriesOf(t, editedId);
+    expect(editedEntries.filter((row) => row.generatedOutput === true)).toHaveLength(1);
+    const beforeReuse = await t.run(async (ctx) => ({
+      briefs: await ctx.db.query("generationBriefs")
+        .withIndex("by_projectId", (q) => q.eq("projectId", projectId))
+        .take(10),
+      entries: await ctx.db.query("generationBriefEntries")
+        .withIndex("by_briefId", (q) => q.eq("briefId", editedId))
+        .take(502),
+    }));
+
+    await t.run((ctx) => ctx.db.patch(projectId, {
+      status: "review",
+      activeGenerationId: undefined,
+    }));
+    const nextGenerationId = await makeGeneration(t, projectId, userId);
+    network.create.mockClear();
+    await t.action(internal.ai.pipeline.generateReport, { generationId: nextGenerationId });
+    const next = await t.run((ctx) => ctx.db.get(nextGenerationId));
+    expect(next?.briefId).toBe(editedId);
+    expect(network.create.mock.calls.some(
+      ([params]) => (params as GenerationMessageParams).tool_choice?.name === "submit_generation_brief"
+    )).toBe(false);
+    const afterReuse = await t.run(async (ctx) => ({
+      briefs: await ctx.db.query("generationBriefs")
+        .withIndex("by_projectId", (q) => q.eq("projectId", projectId))
+        .take(10),
+      entries: await ctx.db.query("generationBriefEntries")
+        .withIndex("by_briefId", (q) => q.eq("briefId", editedId))
+        .take(502),
+    }));
+    expect(afterReuse).toEqual(beforeReuse);
+    const rendered = await t.query(internal.generations.renderBriefForGeneration, {
+      generationId: nextGenerationId,
+    });
+    expect(rendered).toContain("Summary evidence changes the Storyline.");
+    expect(rendered).toContain("Logo redesign is out of scope.");
+    expect(rendered).toContain("Summary-only guidance 1.");
+    expect(rendered).toContain("Summary-only guidance 496.");
+    network.create.mockClear();
+    const candidateJob = await t.run(async (ctx) => {
+      const pending = (await ctx.db.system.query("_scheduled_functions").take(50)).find(
+        (job) =>
+          job.name === "ai/pipeline:generateCandidate" &&
+          job.args[0]?.generationId === nextGenerationId &&
+          job.state.kind === "pending"
+      );
+      if (pending) await ctx.scheduler.cancel(pending._id);
+      return pending;
+    });
+    if (!candidateJob) throw new Error("Missing legacy candidate job");
+    await t.action(
+      internal.ai.pipeline.generateCandidate,
+      candidateJob.args[0] as FunctionArgs<typeof internal.ai.pipeline.generateCandidate>
+    );
+    const sectionJob = await t.run(async (ctx) => {
+      const pending = (await ctx.db.system.query("_scheduled_functions").take(50)).find(
+        (job) =>
+          job.name === "ai/orderedGeneration:generateOrderedSection" &&
+          job.args[0]?.generationId === nextGenerationId &&
+          job.state.kind === "pending"
+      );
+      if (pending) await ctx.scheduler.cancel(pending._id);
+      return pending;
+    });
+    if (!sectionJob) throw new Error("Missing legacy section job");
+    await t.action(
+      internal.ai.orderedGeneration.generateOrderedSection,
+      sectionJob.args[0] as FunctionArgs<
+        typeof internal.ai.orderedGeneration.generateOrderedSection
+      >
+    );
+    const consumedRequests = network.create.mock.calls
+      .map(([params]) => requestText(params));
+    expect(consumedRequests.some((text) =>
+      text.includes("Summary evidence changes the Storyline.") &&
+      text.includes("Summary-only guidance 1.") &&
+      text.includes("Summary-only guidance 496.")
+    )).toBe(true);
+    expect(editedEntries.find((row) => row.generatedOutput === true)).toMatchObject({
+      sourceContentHash: "story-4-hash",
+      question: {
+        questionText: "Use the Summary evidence?",
+        alternativeText: "Summary evidence changes the Storyline.",
+        resolvedBy: "use_evidence",
+      },
+    });
   });
 });

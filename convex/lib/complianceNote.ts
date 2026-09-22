@@ -6,6 +6,19 @@ import {
   type ComplianceTier,
   type SectionNumber,
 } from "./orderedChain";
+import { PD_SUBSECTIONS } from "../../shared/pdSubsections";
+
+const planRoleIdValidator = v.union(
+  ...PD_SUBSECTIONS.map((subsection) => v.literal(subsection.roleId))
+);
+
+export const compliancePlanRefValidator = v.object({
+  summaryVersionId: v.id("summaryVersions"),
+  itemId: v.optional(v.id("summaryItems")),
+  skippedRoleId: v.optional(planRoleIdValidator),
+  mergedItemIds: v.array(v.id("summaryItems")),
+});
+export type CompliancePlanRef = Infer<typeof compliancePlanRefValidator>;
 
 /**
  * Story 2 (CAP-7, AD-25): Compliance Notes are rows, one per decision, in the
@@ -33,6 +46,7 @@ export const complianceNoteDraftValidator = v.object({
   tier: complianceTierValidator,
   reason: v.string(),
   repaired: v.boolean(),
+  planRef: v.optional(compliancePlanRefValidator),
 });
 export type ComplianceNoteDraft = Infer<typeof complianceNoteDraftValidator>;
 
@@ -61,6 +75,7 @@ export function noteDraft(fields: {
   tier: ComplianceTier;
   reason: string;
   repaired?: boolean;
+  planRef?: CompliancePlanRef;
 }): ComplianceNoteDraft {
   return {
     section: fields.section,
@@ -73,6 +88,7 @@ export function noteDraft(fields: {
     tier: fields.tier,
     reason: bounded(fields.reason),
     repaired: fields.repaired ?? false,
+    ...(fields.planRef ? { planRef: fields.planRef } : {}),
   };
 }
 
@@ -105,4 +121,10 @@ export type SelfCheckSummary = {
   remainingFailures: number;
   /** Whether the structured model Self-check call returned verdicts. */
   modelCheck: "ok" | "failed";
+  /** Final durable Summary-plan evidence, separate from prose repair state. */
+  planCoverage?: {
+    status: "complete" | "incomplete" | "unavailable";
+    applied: number;
+    total: number;
+  };
 };

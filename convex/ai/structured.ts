@@ -81,6 +81,11 @@ export async function generateStructured<T>(
      * for a bounded wall clock.
      */
     attempts?: number;
+    /**
+     * Legacy calls accept a JSON-encoded root string as a compatibility
+     * recovery. Strict raw-boundary callers can disable that recovery.
+     */
+    encodedJsonRecovery?: boolean;
   }
 ): Promise<T> {
   const client = rawClient as GenerationClient;
@@ -148,7 +153,9 @@ export async function generateStructured<T>(
     const asReturned = opts.validate.safeParse(block.input);
     if (asReturned.success) return asReturned.data;
 
-    const unwrapped = unwrapEncodedJson(block.input);
+    const unwrapped = opts.encodedJsonRecovery === false
+      ? block.input
+      : unwrapEncodedJson(block.input);
     const parsed =
       unwrapped === block.input
         ? asReturned

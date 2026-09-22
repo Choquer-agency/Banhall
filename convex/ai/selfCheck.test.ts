@@ -14,15 +14,30 @@ import type { FunctionArgs } from "convex/server";
 import { api, internal } from "../_generated/api";
 import type { Doc, Id } from "../_generated/dataModel";
 import schema from "../schema";
-import type { GenerationMessageParams } from "./openrouterCore";
+import type { GenerationClient, GenerationMessageParams } from "./openrouterCore";
 import { SECTION_242_REQUEST } from "./section242Agent";
 import { SECTION_244_REQUEST } from "./section244Agent";
 import { SECTION_246_REQUEST } from "./section246Agent";
-import { COMPRESSION_REQUEST, ORDERED_PROMPT_SCAFFOLDS } from "./promptDefinitions";
+import {
+  COMPRESSION_REQUEST,
+  ORDERED_PROMPT_SCAFFOLDS,
+  SELF_CHECK_REQUEST,
+  SELF_CHECK_SCHEMA,
+  SUMMARY_PLAN_SELF_CHECK_SCHEMA,
+} from "./promptDefinitions";
 import { SEQUENTIAL_CALLS_PER_GENERATE_CANDIDATE } from "./providers";
 import { sectionMetrics } from "../lib/lineLimits";
 import { assembleSectionNotes, runDeterministicSelfCheck } from "../lib/selfCheckRules";
 import type { OrderedProfileContext } from "../lib/orderedChain";
+import { planComplianceNoteDrafts } from "./orderedGeneration";
+import { runModelSelfCheck, type SelfCheckPlanCheck } from "./selfCheck";
+import { SELF_CHECK_SYSTEM_PROMPT } from "./prompts";
+import {
+  jsonEscapedUtf8Bytes,
+  MAX_SUMMARY_SELF_CHECK_GUIDANCE_ESCAPED_UTF8_BYTES,
+  MAX_SUMMARY_SELF_CHECK_REASON_ESCAPED_UTF8_BYTES,
+  serializeFrozenSummaryPlanChecks,
+} from "../lib/seedRevisions";
 
 const network = vi.hoisted(() => ({ create: vi.fn() }));
 vi.mock("@anthropic-ai/sdk", () => ({
@@ -286,7 +301,705 @@ function selfCheckPrompt(section: Section): string {
   return prompts[0];
 }
 
+async function completeSelfCheckRequestHash(
+  params: GenerationMessageParams
+): Promise<string> {
+  const bytes = new TextEncoder().encode(JSON.stringify(params));
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  return [...new Uint8Array(digest)]
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
+}
+
 describe("Self-check before display (CAP-9)", () => {
+  it("keeps the legacy Self-check provider request unchanged when no Summary plan exists", async () => {
+    const create = vi.fn(async (params: GenerationMessageParams) => ({
+      content: [{
+        type: "tool_use" as const,
+        id: "legacy-self-check",
+        name: params.tool_choice?.name ?? "submit_self_check",
+        input: { verdicts: [] },
+      }],
+      usage: { input_tokens: 1, output_tokens: 1 },
+    }));
+    const result = await runModelSelfCheck({ messages: { create } } as GenerationClient, {
+      section: "242",
+      text: "One legacy paragraph.",
+      storylineText: "Legacy storyline.",
+      confidenceMap: [{ text: "Legacy confidence.", confidence: "partial" }],
+      glossaryCandidates: ["control loop"],
+      writerInstructions: "Use the saved writer voice.",
+      rules: [{ instruction: "Keep the uncertainty explicit.", paragraphIndex: 0 }],
+      model: "claude-opus-4-8",
+    });
+    expect(result.planVerdicts).toEqual([]);
+    expect(create).toHaveBeenCalledTimes(1);
+    const [request] = create.mock.calls[0];
+    expect(request).toEqual({
+      model: "claude-opus-4-8",
+      max_tokens: SELF_CHECK_REQUEST.maxTokens,
+      system: SELF_CHECK_SYSTEM_PROMPT,
+      tools: [{
+        name: SELF_CHECK_REQUEST.toolName,
+        description: SELF_CHECK_REQUEST.toolDescription,
+        input_schema: SELF_CHECK_SCHEMA,
+      }],
+      tool_choice: { type: "tool", name: SELF_CHECK_REQUEST.toolName },
+      messages: [{
+        role: "user",
+        content:
+          "Run the Self-check on the drafted section below. Paragraphs are numbered [P1], [P2], ...; name the paragraph each verdict concerns (0 for the whole section).\n\n" +
+          "--- BEGIN [SECTION DRAFT: Line 242 — Uncertainty] ---\n" +
+          "[P1] One legacy paragraph.\n" +
+          "--- END [SECTION DRAFT: Line 242 — Uncertainty] ---\n\n" +
+          "--- BEGIN [STORYLINE] ---\nLegacy storyline.\n--- END [STORYLINE] ---\n\n" +
+          "--- BEGIN [CONFIDENCE MAP] ---\n[C1] (partial) Legacy confidence.\n--- END [CONFIDENCE MAP] ---\n\n" +
+          "--- BEGIN [GLOSSARY CANDIDATES (Glossary Terms not found verbatim in the section)] ---\n" +
+          "- control loop\n" +
+          "--- END [GLOSSARY CANDIDATES (Glossary Terms not found verbatim in the section)] ---\n\n" +
+          "--- BEGIN [WRITER INSTRUCTIONS] ---\n" +
+          "Use the saved writer voice.\n\n" +
+          "[R1] (paragraph 1) Keep the uncertainty explicit.\n" +
+          "--- END [WRITER INSTRUCTIONS] ---",
+      }],
+    });
+    // Captured from baseline 20ab25e627657e716476b393fa463e828ea978c1
+    // with this nonempty Storyline/confidence/glossary/profile/rule fixture.
+    // This literal hash is independent of current prompt/schema exports.
+    expect(await completeSelfCheckRequestHash(request)).toBe(
+      "cb044a02a77bf7709d905201555fcd3503d7f310b6d87f1b65fedec85de7dfb3"
+    );
+  });
+
+  it.each(["missing tool output", "malformed adapter output", "invalid field type"] as const)(
+    "uses one Summary attempt for %s",
+    async (failure) => {
+      const check: SelfCheckPlanCheck = {
+        itemId: "item-1",
+        roleId: "company_context",
+        mergedItemIds: ["item-1"],
+        instruction: "cover",
+        confirmedExclusion: false,
+        wording: ["Frozen wording."],
+        relationshipReferences: [],
+        sourceReferences: [],
+      };
+      const create = vi.fn(async (params: GenerationMessageParams) => {
+        if (failure === "missing tool output") {
+          return {
+            content: [{ type: "text" as const, text: "No tool." }],
+            usage: { input_tokens: 1, output_tokens: 1 },
+          };
+        }
+        if (failure === "malformed adapter output") {
+          const { MalformedOutputError } = await import("./openrouterCore");
+          throw new MalformedOutputError("malformed tool JSON");
+        }
+        return {
+          content: [{
+            type: "tool_use" as const,
+            id: "invalid-summary-shape",
+            name: params.tool_choice?.name ?? "submit_self_check",
+            input: {
+              verdicts: [],
+              planVerdicts: [{
+                itemId: "item-1",
+                mergedItemIds: ["item-1"],
+                paragraph: 1,
+                outcome: 7,
+                reason: "Invalid outcome type.",
+              }],
+            },
+          }],
+          usage: { input_tokens: 1, output_tokens: 1 },
+        };
+      });
+      const result = runModelSelfCheck({ messages: { create } } as GenerationClient, {
+        section: "242",
+        text: "One paragraph.",
+        storylineText: "",
+        confidenceMap: [],
+        glossaryCandidates: [],
+        rules: [],
+        model: "claude-opus-4-8",
+        planChecks: [check],
+        planChecksBlock: serializeFrozenSummaryPlanChecks([check]),
+      });
+      await expect(result).rejects.toThrow();
+      expect(create).toHaveBeenCalledTimes(1);
+    }
+  );
+
+  it.each([
+    {
+      case: "multibyte reason",
+      field: "reason",
+      maximum: MAX_SUMMARY_SELF_CHECK_REASON_ESCAPED_UTF8_BYTES,
+      atLimit: "é".repeat(32),
+      aboveLimit: `${"é".repeat(32)}x`,
+    },
+    {
+      case: "JSON-escaped reason",
+      field: "reason",
+      maximum: MAX_SUMMARY_SELF_CHECK_REASON_ESCAPED_UTF8_BYTES,
+      atLimit: "\n".repeat(32),
+      aboveLimit: `${"\n".repeat(32)}x`,
+    },
+    {
+      case: "multibyte repair guidance",
+      field: "repairGuidance",
+      maximum: MAX_SUMMARY_SELF_CHECK_GUIDANCE_ESCAPED_UTF8_BYTES,
+      atLimit: "é".repeat(48),
+      aboveLimit: `${"é".repeat(48)}x`,
+    },
+    {
+      case: "JSON-escaped repair guidance",
+      field: "repairGuidance",
+      maximum: MAX_SUMMARY_SELF_CHECK_GUIDANCE_ESCAPED_UTF8_BYTES,
+      atLimit: "\n".repeat(48),
+      aboveLimit: `${"\n".repeat(48)}x`,
+    },
+  ] as const)(
+    "advertises and enforces the Summary byte limit for $case text",
+    async ({ field, maximum, atLimit, aboveLimit }) => {
+      expect(jsonEscapedUtf8Bytes(atLimit)).toBe(maximum);
+      expect(jsonEscapedUtf8Bytes(aboveLimit)).toBe(maximum + 1);
+      const fieldSchema = field === "reason"
+        ? SUMMARY_PLAN_SELF_CHECK_SCHEMA.properties.verdicts.items.properties.reason
+        : SUMMARY_PLAN_SELF_CHECK_SCHEMA.properties.verdicts.items.properties.repairGuidance;
+      expect(aboveLimit.length).toBeLessThanOrEqual(
+        fieldSchema.maxLength
+      );
+
+      const check: SelfCheckPlanCheck = {
+        itemId: "item-1",
+        roleId: "company_context",
+        mergedItemIds: ["item-1"],
+        instruction: "cover",
+        confirmedExclusion: false,
+        wording: ["Frozen wording."],
+        relationshipReferences: [],
+        sourceReferences: [],
+      };
+      const execute = async (boundedValue: string) => {
+        const create = vi.fn(async (params: GenerationMessageParams) => ({
+          content: [{
+            type: "tool_use" as const,
+            id: "summary-byte-boundary",
+            name: params.tool_choice?.name ?? "submit_self_check",
+            input: {
+              verdicts: [{
+                paragraph: 1,
+                check: "storyline",
+                instruction: "storyline",
+                outcome: "applied",
+                reason: field === "reason" ? boundedValue : "Applied.",
+                ...(field === "repairGuidance"
+                  ? { repairGuidance: boundedValue }
+                  : {}),
+              }],
+              planVerdicts: [{
+                itemId: "item-1",
+                mergedItemIds: ["item-1"],
+                paragraph: 1,
+                outcome: "applied",
+                reason: "Covered.",
+              }],
+            },
+          }],
+          usage: { input_tokens: 1, output_tokens: 1 },
+        }));
+        const result = runModelSelfCheck(
+          { messages: { create } } as GenerationClient,
+          {
+            section: "242",
+            text: "One paragraph.",
+            storylineText: "Frozen storyline.",
+            confidenceMap: [],
+            glossaryCandidates: [],
+            rules: [],
+            model: "claude-opus-4-8",
+            planChecks: [check],
+            planChecksBlock: serializeFrozenSummaryPlanChecks([check]),
+          }
+        );
+        return { create, result };
+      };
+
+      const accepted = await execute(atLimit);
+      await expect(accepted.result).resolves.toMatchObject({
+        verdicts: [{ outcome: "applied" }],
+      });
+      expect(accepted.create).toHaveBeenCalledTimes(1);
+      const [request] = accepted.create.mock.calls[0];
+      expect(request.tools?.[0]).toMatchObject({
+        input_schema: SUMMARY_PLAN_SELF_CHECK_SCHEMA,
+      });
+      const properties = SUMMARY_PLAN_SELF_CHECK_SCHEMA.properties;
+      const boundedProviderFields = [
+        properties.verdicts.items.properties.instruction,
+        properties.verdicts.items.properties.reason,
+        properties.verdicts.items.properties.repairGuidance,
+        properties.storylineQuestion.properties.question,
+        properties.storylineQuestion.properties.sectionClaim,
+        properties.storylineQuestion.properties.storylineAlternative,
+        properties.planVerdicts.items.properties.itemId,
+        properties.planVerdicts.items.properties.skippedRoleId,
+        properties.planVerdicts.items.properties.mergedItemIds.items,
+        properties.planVerdicts.items.properties.reason,
+        properties.planVerdicts.items.properties.repairGuidance,
+      ];
+      for (const field of boundedProviderFields) {
+        expect(field.description).toContain(
+          `Return at most ${field.maxLength} JSON-escaped UTF-8 bytes`
+        );
+        expect(field.description).toContain(
+          "measured after JSON string escaping and excluding the surrounding quotes"
+        );
+        expect(field.description).toContain(
+          `maxLength=${field.maxLength} is a conservative character bound; ` +
+          "the escaped-byte limit is authoritative"
+        );
+      }
+
+      const rejected = await execute(aboveLimit);
+      await expect(rejected.result).rejects.toThrow(
+        "Summary Self-check returned an invalid ordinary verdict"
+      );
+      expect(rejected.create).toHaveBeenCalledTimes(1);
+    }
+  );
+
+  it("accepts only finite integer plan paragraphs inside the actual Section", async () => {
+    const check: SelfCheckPlanCheck = {
+      itemId: "item-1",
+      roleId: "company_context",
+      mergedItemIds: ["item-1"],
+      instruction: "cover" as const,
+      confirmedExclusion: false,
+      wording: ["Frozen wording."],
+      relationshipReferences: [],
+      sourceReferences: [],
+    };
+    for (const paragraph of [-1, 0, 1.5, undefined, 3]) {
+      const create = vi.fn(async (params: GenerationMessageParams) => ({
+        content: [{
+          type: "tool_use" as const,
+          id: "plan-paragraph",
+          name: params.tool_choice?.name ?? "submit_self_check",
+          input: {
+            verdicts: [],
+            planVerdicts: [{
+              itemId: "item-1",
+              mergedItemIds: ["item-1"],
+              ...(paragraph === undefined ? {} : { paragraph }),
+              outcome: "applied",
+              reason: "Covered.",
+            }],
+          },
+        }],
+        usage: { input_tokens: 1, output_tokens: 1 },
+      }));
+      const result = await runModelSelfCheck({ messages: { create } } as GenerationClient, {
+        section: "242",
+        text: "Paragraph one.\n\nParagraph two.",
+        storylineText: "",
+        confidenceMap: [],
+        glossaryCandidates: [],
+        rules: [],
+        model: "claude-opus-4-8",
+        planChecks: [check],
+        planChecksBlock: serializeFrozenSummaryPlanChecks([check]),
+      });
+      expect(result.planVerdicts[0], String(paragraph)).toMatchObject({
+        outcome: "not_applied",
+        reason: "Applied plan verdict did not identify valid paragraph evidence.",
+        actionableRepair: false,
+      });
+      expect(result.planVerdicts[0]?.paragraphIndex, String(paragraph)).toBeUndefined();
+    }
+    const create = vi.fn(async (params: GenerationMessageParams) => ({
+      content: [{
+        type: "tool_use" as const,
+        id: "valid-plan-paragraph",
+        name: params.tool_choice?.name ?? "submit_self_check",
+        input: {
+          verdicts: [],
+          planVerdicts: [{
+            itemId: "item-1",
+            mergedItemIds: ["item-1"],
+            paragraph: 2,
+            outcome: "applied",
+            reason: "Covered.",
+          }],
+        },
+      }],
+      usage: { input_tokens: 1, output_tokens: 1 },
+    }));
+    const accepted = await runModelSelfCheck({ messages: { create } } as GenerationClient, {
+      section: "242",
+      text: "Paragraph one.\n\nParagraph two.",
+      storylineText: "",
+      confidenceMap: [],
+      glossaryCandidates: [],
+      rules: [],
+      model: "claude-opus-4-8",
+      planChecks: [check],
+      planChecksBlock: serializeFrozenSummaryPlanChecks([check]),
+    });
+    expect(accepted.planVerdicts[0]).toMatchObject({
+      outcome: "applied",
+      paragraphIndex: 1,
+    });
+  });
+
+  it.each([null, "1"])(
+    "downgrades nonnumeric plan paragraph %j without rejecting valid siblings",
+    async (paragraph) => {
+      const checks: SelfCheckPlanCheck[] = ["item-1", "item-2"].map((itemId) => ({
+        itemId,
+        roleId: "company_context",
+        mergedItemIds: [itemId],
+        instruction: "cover",
+        confirmedExclusion: false,
+        wording: [`Frozen ${itemId}.`],
+        relationshipReferences: [],
+        sourceReferences: [],
+      }));
+      const create = vi.fn(async (params: GenerationMessageParams) => ({
+        content: [{
+          type: "tool_use" as const,
+          id: "nonnumeric-plan-paragraph",
+          name: params.tool_choice?.name ?? "submit_self_check",
+          input: {
+            verdicts: [],
+            planVerdicts: [
+              {
+                itemId: "item-1",
+                mergedItemIds: ["item-1"],
+                paragraph,
+                outcome: "applied",
+                reason: "Invalid evidence scope.",
+              },
+              {
+                itemId: "item-2",
+                mergedItemIds: ["item-2"],
+                paragraph: 1,
+                outcome: "applied",
+                reason: "Covered.",
+              },
+            ],
+          },
+        }],
+        usage: { input_tokens: 1, output_tokens: 1 },
+      }));
+      const result = await runModelSelfCheck(
+        { messages: { create } } as GenerationClient,
+        {
+          section: "242",
+          text: "Paragraph one.",
+          storylineText: "",
+          confidenceMap: [],
+          glossaryCandidates: [],
+          rules: [],
+          model: "claude-opus-4-8",
+          planChecks: checks,
+          planChecksBlock: serializeFrozenSummaryPlanChecks(checks),
+        }
+      );
+      expect(result.planVerdicts).toEqual([
+        expect.objectContaining({ itemId: "item-1", outcome: "not_applied" }),
+        expect.objectContaining({ itemId: "item-2", outcome: "applied", paragraphIndex: 0 }),
+      ]);
+      expect(result.planVerdicts[0]?.paragraphIndex).toBeUndefined();
+      expect(create).toHaveBeenCalledTimes(1);
+    }
+  );
+
+  it("rejects encoded Summary roots without unwrapping", async () => {
+    const check: SelfCheckPlanCheck = {
+      itemId: "item-1",
+      roleId: "company_context",
+      mergedItemIds: ["item-1"],
+      instruction: "cover",
+      confirmedExclusion: false,
+      wording: ["Frozen wording."],
+      relationshipReferences: [],
+      sourceReferences: [],
+    };
+    const create = vi.fn(async (params: GenerationMessageParams) => ({
+      content: [{
+        type: "tool_use" as const,
+        id: "encoded-summary-root",
+        name: params.tool_choice?.name ?? "submit_self_check",
+        input: JSON.stringify({
+          verdicts: [],
+          planVerdicts: [{
+            itemId: "item-1",
+            mergedItemIds: ["item-1"],
+            paragraph: 1,
+            outcome: "applied",
+            reason: "Covered.",
+          }],
+        }),
+      }],
+      usage: { input_tokens: 1, output_tokens: 1 },
+    }));
+    await expect(runModelSelfCheck(
+      { messages: { create } } as GenerationClient,
+      {
+        section: "242",
+        text: "Paragraph one.",
+        storylineText: "",
+        confidenceMap: [],
+        glossaryCandidates: [],
+        rules: [],
+        model: "claude-opus-4-8",
+        planChecks: [check],
+        planChecksBlock: serializeFrozenSummaryPlanChecks([check]),
+      }
+    )).rejects.toThrow("unexpected shape");
+    expect(create).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    ["mismatched", "Frozen Summary plan-check serialization mismatch", "tampered", ""],
+    ["oversized", "Expanded Summary plan checks exceed", "unused", "x".repeat(64_000)],
+  ] as const)("refuses a %s Summary plan-check block before any provider call", async (
+    _case,
+    message,
+    planChecksBlock,
+    exactExcerpt
+  ) => {
+    const check: SelfCheckPlanCheck = {
+      itemId: "item-1",
+      roleId: "company_context",
+      mergedItemIds: ["item-1"],
+      instruction: "cover" as const,
+      confirmedExclusion: false,
+      wording: ["Frozen wording."],
+      relationshipReferences: [],
+      sourceReferences: [{
+        originatingItemId: "item-1",
+        sourceId: "source-1",
+        exactExcerpt,
+      }],
+    };
+    const create = vi.fn();
+    const result = runModelSelfCheck({ messages: { create } } as GenerationClient, {
+      section: "242",
+      text: "One paragraph.",
+      storylineText: "",
+      confidenceMap: [],
+      glossaryCandidates: [],
+      rules: [],
+      model: "claude-opus-4-8",
+      planChecks: [check],
+      planChecksBlock,
+    });
+    await expect(result).rejects.toThrow(message);
+    expect(create).not.toHaveBeenCalled();
+  });
+
+  it("accepts one complete mixed ordinary/plan response and rejects every malformed whole response", async () => {
+    const checks: SelfCheckPlanCheck[] = [
+      {
+        itemId: "item-a",
+        roleId: "specific_advancements",
+        mergedItemIds: ["item-a", "item-b"],
+        instruction: "cover",
+        confirmedExclusion: false,
+        support: "source_supported",
+        wording: ["Advancement A."],
+        relationshipReferences: [],
+        sourceReferences: [],
+      },
+      {
+        itemId: "item-b",
+        roleId: "specific_advancements",
+        mergedItemIds: ["item-a", "item-b"],
+        instruction: "cover",
+        confirmedExclusion: false,
+        support: "writer_asserted",
+        wording: ["Advancement B."],
+        relationshipReferences: [],
+        sourceReferences: [],
+      },
+      {
+        skippedRoleId: "prior_year_status",
+        roleId: "prior_year_status",
+        mergedItemIds: [],
+        instruction: "skip",
+        confirmedExclusion: false,
+        wording: [],
+        relationshipReferences: [],
+        sourceReferences: [],
+      },
+    ];
+    const valid = {
+      verdicts: [
+        { paragraph: 1, check: "storyline", instruction: "storyline", outcome: "applied", reason: "Applied." },
+        { paragraph: 1, check: "confidence", instruction: "confidence:C1", outcome: "applied", reason: "Applied." },
+        { paragraph: 1, check: "glossary", instruction: "glossary:G1", outcome: "applied", reason: "Applied." },
+        { paragraph: 1, check: "instruction", instruction: "writer:profile", outcome: "applied", reason: "Applied." },
+        { paragraph: 1, check: "instruction", instruction: "rule:R1", outcome: "applied", reason: "Applied." },
+      ],
+      planVerdicts: checks.map((check) => ({
+        ...(check.itemId ? { itemId: check.itemId } : {}),
+        ...(check.skippedRoleId ? { skippedRoleId: check.skippedRoleId } : {}),
+        mergedItemIds: [...check.mergedItemIds],
+        paragraph: 1,
+        outcome: "applied",
+        reason: "Applied.",
+      })),
+      storylineQuestion: {
+        question: "Which result is supported?",
+        sectionClaim: "The result was stable.",
+        confidenceEntry: 1,
+        storylineAlternative: "The result may be stable.",
+      },
+    };
+    const input = {
+      section: "242" as const,
+      text: "One paragraph covers the plan.",
+      storylineText: "Frozen storyline.",
+      confidenceMap: [{ text: "Confidence entry.", confidence: "partial" }],
+      glossaryCandidates: ["control loop"],
+      writerInstructions: "Use direct language.",
+      rules: [{ instruction: "State the result." }],
+      model: "claude-opus-4-8",
+      planChecks: checks,
+      planChecksBlock: serializeFrozenSummaryPlanChecks(checks),
+    };
+    const execute = async (response: typeof valid) => {
+      const create = vi.fn(async (params: GenerationMessageParams) => ({
+        content: [{
+          type: "tool_use" as const,
+          id: "summary-output-validation",
+          name: params.tool_choice?.name ?? "submit_self_check",
+          input: response,
+        }],
+        usage: { input_tokens: 1, output_tokens: 1 },
+      }));
+      const result = runModelSelfCheck(
+        { messages: { create } } as GenerationClient,
+        input
+      );
+      return { create, result };
+    };
+
+    const accepted = await execute(structuredClone(valid));
+    await expect(accepted.result).resolves.toMatchObject({
+      verdicts: [
+        { instruction: "Storyline" },
+        { instruction: "Confidence Map: Confidence entry." },
+        { instruction: "Glossary Term: control loop" },
+        { instruction: "Use direct language." },
+        { instruction: "State the result." },
+      ],
+      planVerdicts: [
+        { itemId: "item-a", mergedItemIds: ["item-a", "item-b"] },
+        { itemId: "item-b", mergedItemIds: ["item-a", "item-b"] },
+        { skippedRoleId: "prior_year_status", mergedItemIds: [] },
+      ],
+    });
+    expect(accepted.create).toHaveBeenCalledTimes(1);
+
+    const malformed: Array<[string, (response: typeof valid) => void]> = [
+      ["omitted ordinary row", (response) => { response.verdicts.pop(); }],
+      ["omitted ordinary reason", (response) => { Reflect.deleteProperty(response.verdicts[0], "reason"); }],
+      ["omitted Skip merge array", (response) => { Reflect.deleteProperty(response.planVerdicts[2], "mergedItemIds"); }],
+      ["duplicate ordinary row", (response) => { response.verdicts[4] = { ...response.verdicts[0] }; }],
+      ["unknown ordinary label", (response) => { response.verdicts[0].instruction = "unknown"; }],
+      ["omitted plan row", (response) => { response.planVerdicts.pop(); }],
+      ["duplicate plan row", (response) => { response.planVerdicts[2] = { ...response.planVerdicts[0] }; }],
+      ["unknown plan reference", (response) => { response.planVerdicts[0].itemId = "unknown-item"; }],
+      ["incomplete merge ids", (response) => { response.planVerdicts[0].mergedItemIds = ["item-a"]; }],
+      ["overlong escaped field", (response) => { response.verdicts[0].reason = "\n".repeat(33); }],
+      ["overlong returned id", (response) => { response.planVerdicts[0].itemId = "x".repeat(65); }],
+      ["ordinary paragraph numeric limit", (response) => { response.verdicts[0].paragraph = 10_000_000_000; }],
+      ["plan paragraph numeric limit", (response) => { response.planVerdicts[0].paragraph = 10_000_000_000; }],
+      ["Storyline numeric limit", (response) => { response.storylineQuestion.confidenceEntry = 10_000_000_000; }],
+      ["negative Storyline entry", (response) => { response.storylineQuestion.confidenceEntry = -1; }],
+      ["oversized negative Storyline entry", (response) => { response.storylineQuestion.confidenceEntry = -10_000_000_000; }],
+      ["oversized unknown root property", (response) => { Object.assign(response, { unknownRoot: "x".repeat(4_097) }); }],
+      ["oversized unknown nested property", (response) => { Object.assign(response.planVerdicts[0], { unknownNested: "x".repeat(4_097) }); }],
+      ["unknown root property", (response) => { Object.assign(response, { unknownRoot: true }); }],
+      ["unknown ordinary property", (response) => { Object.assign(response.verdicts[0], { unknownOrdinary: true }); }],
+      ["unknown plan property", (response) => { Object.assign(response.planVerdicts[0], { unknownPlan: true }); }],
+      ["unknown Storyline property", (response) => { Object.assign(response.storylineQuestion, { unknownQuestion: true }); }],
+      ["both plan identities", (response) => { response.planVerdicts[0].skippedRoleId = "prior_year_status"; }],
+    ];
+    for (const [name, mutate] of malformed) {
+      const response = structuredClone(valid);
+      mutate(response);
+      const rejected = await execute(response);
+      await expect(rejected.result, name).rejects.toThrow();
+      expect(rejected.create, name).toHaveBeenCalledTimes(1);
+    }
+  });
+
+  it.each([
+    [-1, false],
+    [1.5, false],
+    [0, true],
+    [1, true],
+    [2, false],
+  ] as const)("validates Summary ordinary paragraph %s", async (paragraph, accepted) => {
+    const check: SelfCheckPlanCheck = {
+      itemId: "item-1",
+      roleId: "company_context",
+      mergedItemIds: ["item-1"],
+      instruction: "cover",
+      confirmedExclusion: false,
+      wording: ["Frozen wording."],
+      relationshipReferences: [],
+      sourceReferences: [],
+    };
+    const create = vi.fn(async (params: GenerationMessageParams) => ({
+      content: [{
+        type: "tool_use" as const,
+        id: "ordinary-paragraph",
+        name: params.tool_choice?.name ?? "submit_self_check",
+        input: {
+          verdicts: [{
+            paragraph,
+            check: "storyline",
+            instruction: "storyline",
+            outcome: "applied",
+            reason: "Applied.",
+          }],
+          planVerdicts: [{
+            itemId: "item-1",
+            mergedItemIds: ["item-1"],
+            paragraph: 1,
+            outcome: "applied",
+            reason: "Applied.",
+          }],
+        },
+      }],
+      usage: { input_tokens: 1, output_tokens: 1 },
+    }));
+    const result = runModelSelfCheck({ messages: { create } } as GenerationClient, {
+      section: "242",
+      text: "One paragraph.",
+      storylineText: "Frozen storyline.",
+      confidenceMap: [],
+      glossaryCandidates: [],
+      rules: [],
+      model: "claude-opus-4-8",
+      planChecks: [check],
+      planChecksBlock: serializeFrozenSummaryPlanChecks([check]),
+    });
+    if (!accepted) {
+      await expect(result).rejects.toThrow();
+    } else {
+      const value = await result;
+      expect(value.verdicts[0]?.paragraphIndex).toBe(paragraph === 0 ? undefined : 0);
+    }
+    expect(create).toHaveBeenCalledTimes(1);
+  });
+
   it("an excluded claim triggers exactly one repair and the row records repaired: true", async () => {
     const drafted = `${CLEAN["242"]}\n\n${EXCLUDED} to reflect the new product.`;
     const { notes, sectionRows, generation, t, generationId } = await generate({
@@ -689,6 +1402,58 @@ describe("deterministic Self-check rules", () => {
     expect(reasonFor(true)).toContain("Storyline question raised in the Brief: Which result holds?");
     expect(reasonFor(false)).toContain("Storyline question not recorded in the Brief");
     expect(reasonFor(false)).not.toContain("raised in the Brief");
+  });
+
+  it("writes one plan row per item and Skip, retains merges, and never repairs confirmed exclusions", () => {
+    const summaryVersionId = "summary" as Id<"summaryVersions">;
+    const first = "item-1" as Id<"summaryItems">;
+    const second = "item-2" as Id<"summaryItems">;
+    const rows = planComplianceNoteDrafts({
+      section: "246",
+      summaryVersionId,
+      checks: [
+        {
+          itemId: first,
+          roleId: "specific_advancements",
+          mergedItemIds: [first, second],
+          instruction: "cover",
+          confirmedExclusion: false,
+          wording: ["First advancement."],
+          relationshipReferences: [],
+          sourceReferences: [],
+        },
+        {
+          itemId: second,
+          roleId: "specific_advancements",
+          mergedItemIds: [first, second],
+          instruction: "cover",
+          confirmedExclusion: true,
+          wording: ["Excluded advancement."],
+          relationshipReferences: [],
+          sourceReferences: [],
+        },
+        {
+          skippedRoleId: "project_status",
+          roleId: "project_status",
+          mergedItemIds: [],
+          instruction: "skip",
+          confirmedExclusion: false,
+          wording: [],
+          relationshipReferences: [],
+          sourceReferences: [],
+        },
+      ],
+      verdicts: [
+        { itemId: first, mergedItemIds: [first, second], paragraphIndex: 1, outcome: "applied", reason: "Covered." },
+        { itemId: second, mergedItemIds: [first, second], paragraphIndex: 1, outcome: "applied", reason: "Covered." },
+        { skippedRoleId: "project_status", mergedItemIds: [], paragraphIndex: 2, outcome: "applied", reason: "Absent." },
+      ],
+    });
+    expect(rows).toHaveLength(3);
+    expect(rows[0]).toMatchObject({ outcome: "applied", paragraphIndex: 1, planRef: { itemId: first, mergedItemIds: [first, second] } });
+    expect(rows[1]).toMatchObject({ outcome: "not_applied", tier: "conflict", repaired: false, planRef: { itemId: second, mergedItemIds: [first, second] } });
+    expect(rows[1].paragraphIndex).toBeUndefined();
+    expect(rows[2]).toMatchObject({ outcome: "applied", planRef: { skippedRoleId: "project_status", mergedItemIds: [] } });
   });
 });
 

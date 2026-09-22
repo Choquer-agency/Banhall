@@ -47,6 +47,8 @@ export type SeedReadinessInput = Pick<
 export type ReadSeedReadinessOptions = {
   budget?: SeedDecisionReadBudget;
   maxBytes?: number;
+  /** Internal mutation callers may reuse the exact transaction-local rows. */
+  includeState?: boolean;
 };
 
 export type ReadSeedReadinessArgs = ReadSeedReadinessOptions & {
@@ -175,7 +177,7 @@ export async function readSeedReadiness(
   ctx: SeedReadCtx,
   generationOrArgs: Id<"generations"> | ReadSeedReadinessArgs,
   positionalOptions: ReadSeedReadinessOptions = {}
-): Promise<LoadedSeedReadiness> {
+): Promise<LoadedSeedReadiness & { state?: SeedDecisionState }> {
   const generationId =
     typeof generationOrArgs === "string"
       ? generationOrArgs
@@ -190,5 +192,6 @@ export async function readSeedReadiness(
   return {
     ...computeSeedReadiness(state),
     readBudget: state.budget.snapshot(),
+    ...(options.includeState ? { state } : {}),
   };
 }

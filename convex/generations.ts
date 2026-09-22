@@ -11,6 +11,7 @@ import {
 } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { v, type Infer } from "convex/values";
+import { makeFunctionReference } from "convex/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import {
   getCurrentUserOrNull,
@@ -36,9 +37,27 @@ import {
 import { randomComparePair, resolveCompareModels } from "./ai/model";
 import { findActiveGeneration } from "./lib/activeGeneration";
 import { resolveGatedWorkflow } from "./lib/gatedWorkflow";
-import { PD_SUBSECTIONS } from "../shared/pdSubsections";
-import { emptyContextRevision, emptySelectionRevision } from "./lib/seedRevisions";
+import { PD_SUBSECTIONS, type PdSubsectionRoleId } from "../shared/pdSubsections";
+import {
+  assertFrozenSourceBijection,
+  buildFrozenSummaryPlan,
+  emptyContextRevision,
+  emptySelectionRevision,
+  materializeFinalWording,
+  orderShownSet,
+  resolveFrozenSourceId,
+  sha256Text,
+  stableSerialize,
+  projectSummaryOrdinaryChecks,
+  summarySelfCheckWorstCaseResponse,
+  SeedContextLimitError,
+} from "./lib/seedRevisions";
 import { terminateSeedAttempts, reapSeedAttempts } from "./seedRuns";
+import { readSeedReadiness } from "./lib/seedReadiness";
+import {
+  SEED_DECISION_COLLECTION_ROWS,
+} from "./lib/seedDecisionState";
+import { matchesSeedExclusion } from "./lib/seedApproval";
 import { isProjectDeleting } from "./lib/projectDeletion";
 import { analyzerContextBudget, defaultModelId } from "./appSettings";
 import { sourceInclusion } from "./ai/trustedContext";
@@ -77,6 +96,7 @@ import {
   sectionKeyOf,
   sectionNumberValidator,
   writerSettingsValidator,
+  type OrderedPayload,
   type SectionNumber,
 } from "./lib/orderedChain";
 import { ORDERED_SECTION_TITLES } from "./ai/promptDefinitions";
@@ -114,6 +134,22 @@ function isVisibleGeneration(
 }
 
 const GENERATION_HISTORY_LIMIT = 50;
+
+const generateOrderedSectionRef = makeFunctionReference<
+  "action",
+  {
+    generationId: Id<"generations">;
+    candidateRunId: Id<"generationCandidateRuns">;
+    section: SectionNumber;
+    payload: OrderedPayload;
+  },
+  null
+>("ai/orderedGeneration:generateOrderedSection");
+const startSummaryRecoveryRef = makeFunctionReference<
+  "action",
+  { generationId: Id<"generations"> },
+  null
+>("ai/orderedGeneration:startSummaryRecovery");
 
 /** Newest-first visible generations for a project. The scan stops at `limit`
  * visible rows; every superseded row it skips is paired with a newer recovery
@@ -628,6 +664,9 @@ export const retryGeneration = mutation({
     if (failed.status !== "failed") {
       domainError("INVALID_INPUT", "Only a failed generation can be retried");
     }
+    if (resolveGatedWorkflow(failed) === "seeds" && failed.summaryVersionId) {
+      domainError("INVALID_INPUT", "Use Summary recovery for a signed-off seed generation");
+    }
     const { project, user } = await requireInternalProjectAccess(ctx, failed.projectId);
     return await reserveGeneration(
       ctx,
@@ -639,6 +678,155 @@ export const retryGeneration = mutation({
       failed.compareModelIds,
       failed._id
     );
+  },
+});
+
+/** Recover prose drafting from the same immutable Summary and frozen inputs. */
+export const retryFromSummary = mutation({
+  args: { failedGenerationId: v.id("generations") },
+  handler: async (ctx, args) => {
+    const failed = await ctx.db.get(args.failedGenerationId);
+    if (!failed) domainError("NOT_FOUND", "Generation not found");
+    if (
+      failed.status !== "failed" ||
+      resolveGatedWorkflow(failed) !== "seeds" ||
+      !failed.summaryVersionId
+    ) {
+      domainError("INVALID_STATE", "Only failed signed-off seed drafting can be recovered");
+    }
+    const { project, user } = await requireReportEditAccess(ctx, failed.projectId);
+    const active = await findActiveGeneration(ctx, project, ACTIVE_GENERATION_STATUSES);
+    if (active) {
+      domainError("GENERATION_ACTIVE", "A generation is already active for this project");
+    }
+    const duplicate = await ctx.db.query("generations")
+      .withIndex("by_retryOfGenerationId", (q) =>
+        q.eq("retryOfGenerationId", failed._id))
+      .first();
+    if (duplicate) {
+      domainError("INVALID_STATE", "This failed generation already has a recovery attempt");
+    }
+    const originGenerationId = failed.originGenerationId ?? failed._id;
+    const summary = await ctx.db.get(failed.summaryVersionId);
+    if (!summary || summary.originGenerationId !== originGenerationId) {
+      domainError("INVALID_STATE", "Frozen Summary lineage is unavailable");
+    }
+    const maxFrozenSources = 2 * MAX_TRANSCRIPTS_PER_PROJECT + 51;
+    const [originSources, currentSources, artifacts] = await Promise.all([
+      ctx.db.query("generationSources")
+        .withIndex("by_generationId", (q) => q.eq("generationId", originGenerationId))
+        .take(maxFrozenSources + 1),
+      ctx.db.query("generationSources")
+        .withIndex("by_generationId", (q) => q.eq("generationId", failed._id))
+        .take(maxFrozenSources + 1),
+      ctx.db.query("generationArtifacts")
+        .withIndex("by_generationId_and_kind", (q) => q.eq("generationId", failed._id))
+        .take(3),
+    ]);
+    if (
+      originSources.length === 0 ||
+      currentSources.length === 0 ||
+      originSources.length > maxFrozenSources ||
+      currentSources.length > maxFrozenSources ||
+      artifacts.length !== 2
+    ) {
+      domainError("INVALID_STATE", "Frozen recovery inputs are incomplete");
+    }
+    const priorMap = failed.sourceIdMap ?? originSources.map((source) => ({
+      originSourceId: source._id,
+      recoverySourceId: source._id,
+    }));
+    try {
+      assertFrozenSourceBijection({
+        originSourceIds: originSources.map((source) => source._id),
+        recoverySourceIds: currentSources.map((source) => source._id),
+        sourceIdMap: priorMap,
+      });
+    } catch {
+      domainError("INVALID_STATE", "Frozen recovery source map is incomplete");
+    }
+    const currentById = new Map(currentSources.map((source) => [source._id, source]));
+    const now = Date.now();
+    const generationId = await ctx.db.insert("generations", {
+      projectId: failed.projectId,
+      transcriptId: failed.transcriptId,
+      transcriptIds: failed.transcriptIds,
+      inputMode: failed.inputMode,
+      digestIds: failed.digestIds,
+      status: "reserved",
+      requestedAt: now,
+      requestedBy: user._id,
+      learningDigestIds: failed.learningDigestIds ?? [],
+      lengthTarget: failed.lengthTarget,
+      candidateMode: "iterative",
+      gatedWorkflow: "seeds",
+      briefId: failed.briefId,
+      briefVersionId: failed.briefVersionId,
+      summaryVersionId: failed.summaryVersionId,
+      originGenerationId,
+      singleModelId: failed.singleModelId,
+      retryOfGenerationId: failed._id,
+      previousProjectStatus: project.status,
+      currentStep: "Preparing Summary recovery",
+      progressLog: ["Summary recovery reserved from frozen inputs."],
+      candidatesDone: 0,
+      candidatesFailed: 0,
+      totalCandidates: 1,
+      writerSettings: failed.writerSettings,
+      startedAt: now,
+    });
+    const nextMap: Array<{
+      originSourceId: Id<"generationSources">;
+      recoverySourceId: Id<"generationSources">;
+    }> = [];
+    for (const origin of originSources) {
+      const currentId = resolveFrozenSourceId(origin._id, priorMap);
+      const current = currentById.get(currentId as Id<"generationSources">);
+      if (!current) domainError("INVALID_STATE", "Frozen recovery source map is incomplete");
+      const recoverySourceId = await ctx.db.insert("generationSources", {
+        generationId,
+        projectId: current.projectId,
+        kind: current.kind,
+        transcriptId: current.transcriptId,
+        digestId: current.digestId,
+        projectDocumentId: current.projectDocumentId,
+        label: current.label,
+        content: current.content,
+        contentHash: current.contentHash,
+        truncated: current.truncated,
+        originalLength: current.originalLength,
+        capturedAt: current.capturedAt,
+        uploaderRole: current.uploaderRole,
+        contextBudget: current.contextBudget,
+      });
+      nextMap.push({ originSourceId: origin._id, recoverySourceId });
+    }
+    assertFrozenSourceBijection({
+      originSourceIds: originSources.map((source) => source._id),
+      recoverySourceIds: nextMap.map((entry) => entry.recoverySourceId),
+      sourceIdMap: nextMap,
+    });
+    for (const artifact of artifacts) {
+      await ctx.db.insert("generationArtifacts", {
+        generationId,
+        kind: artifact.kind,
+        content: artifact.content,
+      });
+    }
+    await ctx.db.patch(generationId, { sourceIdMap: nextMap });
+    await ctx.db.patch(project._id, {
+      activeGenerationId: generationId,
+      status: "generating",
+      updatedAt: now,
+    });
+    const scheduledJobId = await ctx.scheduler.runAfter(
+      0,
+      startSummaryRecoveryRef,
+      { generationId }
+    );
+    await ctx.db.patch(generationId, { scheduledJobId });
+    await refreshProjectGenerationActivity(ctx, project._id);
+    return generationId;
   },
 });
 
@@ -868,6 +1056,22 @@ export const getGenerationInput = internalQuery({
     if (!generation) return null;
     const project = await ctx.db.get(generation.projectId);
     if (!project || project.deletionStartedAt !== undefined || project.activeGenerationId !== generation._id) return null;
+    let reportTitle = project.title;
+    if (
+      resolveGatedWorkflow(generation) === "seeds" &&
+      generation.summaryVersionId !== undefined
+    ) {
+      const summary = await ctx.db.get(generation.summaryVersionId);
+      if (
+        !summary ||
+        summary.projectId !== generation.projectId ||
+        summary.originGenerationId !== (generation.originGenerationId ?? generation._id) ||
+        summary.reportTitle === undefined
+      ) {
+        return null;
+      }
+      reportTitle = summary.reportTitle;
+    }
     const sources = await ctx.db
       .query("generationSources")
       .withIndex("by_generationId", (q) => q.eq("generationId", generation._id))
@@ -918,7 +1122,7 @@ export const getGenerationInput = internalQuery({
       transcriptIds,
       transcript: buildTranscriptPromptText(transcriptParts),
       transcriptParts,
-      title: project.title,
+      title: reportTitle,
       lengthTarget: generation.lengthTarget ?? "standard",
       candidateMode: generation.candidateMode ?? "compare",
       singleModelId: generation.singleModelId as CandidateModelId | undefined,
@@ -1419,7 +1623,11 @@ async function settleCandidateRun(
       return;
     }
     if (done > 0) {
-      if (generation.candidateMode !== "single") {
+      const isSeedOrdered =
+        generation.candidateMode === "iterative" &&
+        resolveGatedWorkflow(generation) === "seeds" &&
+        generation.summaryVersionId !== undefined;
+      if (generation.candidateMode !== "single" && !isSeedOrdered) {
         await ctx.db.patch(generation._id, {
           status: "awaiting_selection",
           candidatesDone: done,
@@ -1447,7 +1655,12 @@ async function settleCandidateRun(
         currentStep: "Complete",
         agentOutputs: candidate.agentOutputs,
         completedAt: now,
-        progressLog,
+        progressLog: isSeedOrdered
+          ? [...progressLog, "Running the QA scorecard and chronology in the background…"]
+          : progressLog,
+        ...(isSeedOrdered
+          ? { postQaStatus: "running" as const, postQaStartedAt: now }
+          : {}),
       });
       await refreshProjectGenerationActivity(ctx, generation.projectId);
       const candidates = await ctx.db
@@ -1457,6 +1670,12 @@ async function settleCandidateRun(
         )
         .take(10);
       for (const row of candidates) await ctx.db.delete(row._id);
+      if (isSeedOrdered) {
+        await ctx.scheduler.runAfter(0, internal.ai.postQa.runReportQa, {
+          generationId: generation._id,
+          attemptStartedAt: now,
+        });
+      }
       return;
     }
 
@@ -1504,6 +1723,35 @@ async function terminalizeOrphanedCandidateRuns(
   }
 }
 
+/** Terminalize only the ordered section rows owned by a signed-off seed
+ * chain. Legacy iterative rows keep their existing per-section recovery
+ * behavior and never call this helper. */
+async function terminalizeSignedOffSeedSections(
+  ctx: MutationCtx,
+  generationId: Id<"generations">,
+  error: string
+) {
+  const rows = await ctx.db
+    .query("generationSectionRuns")
+    .withIndex("by_generationId", (q) => q.eq("generationId", generationId))
+    .take(10);
+  const now = Date.now();
+  for (const row of rows) {
+    if (
+      row.status !== "pending" &&
+      row.status !== "queued" &&
+      row.status !== "running"
+    ) {
+      continue;
+    }
+    await ctx.db.patch(row._id, {
+      status: "failed",
+      error,
+      completedAt: now,
+    });
+  }
+}
+
 export const failGeneration = internalMutation({
   args: {
     generationId: v.id("generations"),
@@ -1528,6 +1776,16 @@ export const failGeneration = internalMutation({
       generation._id,
       "The generation failed before this draft completed."
     );
+    if (
+      resolveGatedWorkflow(generation) === "seeds" &&
+      generation.summaryVersionId !== undefined
+    ) {
+      await terminalizeSignedOffSeedSections(
+        ctx,
+        generation._id,
+        "The generation failed before this section draft completed."
+      );
+    }
     const project = await ctx.db.get(generation.projectId);
     if (project?.activeGenerationId === generation._id) {
       await ctx.db.patch(project._id, {
@@ -1740,33 +1998,93 @@ async function readBriefSourceRows(
  * section/candidate outright. Brief guidance is optional by contract, so its
  * unreadability must not fail or stall a generation.
  */
-async function readBriefEntryRowsOrOmit(
+type CompleteBriefEntryRead = {
+  kind: "complete";
+  rows: Doc<"generationBriefEntries">[];
+};
+
+type IncompleteBriefEntryRead =
+  | { kind: "row_limit" }
+  | { kind: "byte_limit" };
+
+type BriefEntryReadScope = "all" | "immutable_input";
+
+/**
+ * The one bounded complete-read criterion shared by legacy generation
+ * consumers, Summary sign-off admission and every signed Summary consumer.
+ */
+async function readBriefEntryRowsBounded(
   ctx: { db: QueryCtx["db"] },
-  generationId: Id<"generations">,
-  briefId: Id<"generationBriefs">
-) {
-  const result = await ctx.db
-    .query("generationBriefEntries")
-    .withIndex("by_briefId", (q) => q.eq("briefId", briefId))
-    .paginate({
-      cursor: null,
-      numItems: MAX_BRIEF_ENTRY_ROWS + 1,
-      maximumBytesRead: BRIEF_CONSUMER_READ_BYTES,
-    });
+  briefId: Id<"generationBriefs">,
+  scope: BriefEntryReadScope = "all"
+): Promise<CompleteBriefEntryRead | IncompleteBriefEntryRead> {
+  const pagination = {
+    cursor: null,
+    numItems: MAX_BRIEF_ENTRY_ROWS + 1,
+    maximumBytesRead: BRIEF_CONSUMER_READ_BYTES,
+  } as const;
+  const result = scope === "immutable_input"
+    ? await ctx.db
+        .query("generationBriefEntries")
+        .withIndex("by_briefId_and_generatedOutput", (q) =>
+          q.eq("briefId", briefId).eq("generatedOutput", undefined))
+        .paginate(pagination)
+    : await ctx.db
+        .query("generationBriefEntries")
+        .withIndex("by_briefId", (q) => q.eq("briefId", briefId))
+        .paginate(pagination);
   const rows = result.page;
   if (rows.length > MAX_BRIEF_ENTRY_ROWS) {
-    console.error(
-      `Generation Brief omitted from generation ${generationId}: Brief ${briefId} has more than ${MAX_BRIEF_ENTRY_ROWS} entries and cannot be read completely`
-    );
-    return null;
+    return { kind: "row_limit" };
   }
   if (!result.isDone || result.pageStatus === "SplitRequired") {
+    return { kind: "byte_limit" };
+  }
+  return { kind: "complete", rows };
+}
+
+/**
+ * Generated questions belong to a Summary-authored Brief's visible/editable
+ * history, not to its reusable prompt guidance. The author generation is the
+ * persisted workflow discriminator: legacy-authored Briefs retain their
+ * historical combined read, while Summary consumers and legacy consumers of
+ * a Summary-authored edit read the complete immutable-input partition.
+ */
+async function briefEntryReadScope(
+  ctx: { db: QueryCtx["db"] },
+  consumer: Doc<"generations">,
+  brief: Doc<"generationBriefs">
+): Promise<BriefEntryReadScope> {
+  if (resolveGatedWorkflow(consumer) === "seeds") return "immutable_input";
+  const author = await ctx.db.get(brief.generationId);
+  return author && resolveGatedWorkflow(author) === "seeds"
+    ? "immutable_input"
+    : "all";
+}
+
+async function readBriefEntryRowsOrOmit(
+  ctx: { db: QueryCtx["db"] },
+  generation: Doc<"generations">,
+  brief: Doc<"generationBriefs">
+) {
+  const result = await readBriefEntryRowsBounded(
+    ctx,
+    brief._id,
+    await briefEntryReadScope(ctx, generation, brief)
+  );
+  if (result.kind === "row_limit") {
     console.error(
-      `Generation Brief omitted from generation ${generationId}: Brief ${briefId} cannot be read completely within ${BRIEF_CONSUMER_READ_BYTES} bytes`
+      `Generation Brief omitted from generation ${generation._id}: Brief ${brief._id} has more than ${MAX_BRIEF_ENTRY_ROWS} entries and cannot be read completely`
     );
     return null;
   }
-  return rows;
+  if (result.kind === "byte_limit") {
+    console.error(
+      `Generation Brief omitted from generation ${generation._id}: Brief ${brief._id} cannot be read completely within ${BRIEF_CONSUMER_READ_BYTES} bytes`
+    );
+    return null;
+  }
+  return result.rows;
 }
 
 /** The frozen `generationSources` rows a Brief derivation reads. */
@@ -1792,13 +2110,30 @@ async function latestBriefForInputs(
     .first();
 }
 
+async function reusableBriefForGeneration(
+  ctx: { db: QueryCtx["db"] },
+  generation: Doc<"generations">,
+  inputsHash: string
+) {
+  const brief = await latestBriefForInputs(ctx, generation.projectId, inputsHash);
+  if (!brief) return null;
+  const scope = await briefEntryReadScope(ctx, generation, brief);
+  // Preserve the historical legacy path: legacy-authored Briefs are reused by
+  // parent row and an over-bound combined read remains optional/fail-open.
+  if (scope === "all") return brief;
+  const read = await readBriefEntryRowsBounded(ctx, brief._id, scope);
+  return read.kind === "complete" ? brief : null;
+}
+
 /** MAX(version) Brief for (projectId, inputsHash), regardless of origin — a
  * writer-edited version is reused too (CAP-4: "the next generation with the
  * same inputsHash reuses that version"). */
 export const findReusableBrief = internalQuery({
-  args: { projectId: v.id("projects"), inputsHash: v.string() },
+  args: { generationId: v.id("generations"), inputsHash: v.string() },
   handler: async (ctx, args) => {
-    return await latestBriefForInputs(ctx, args.projectId, args.inputsHash);
+    const generation = await ctx.db.get(args.generationId);
+    if (!generation) return null;
+    return await reusableBriefForGeneration(ctx, generation, args.inputsHash);
   },
 });
 
@@ -1831,7 +2166,7 @@ export const pinSeedBrief = internalMutation({
     }
     const candidate = generation.briefId
       ? await ctx.db.get(generation.briefId)
-      : await latestBriefForInputs(ctx, generation.projectId, args.inputsHash);
+      : await reusableBriefForGeneration(ctx, generation, args.inputsHash);
     if (candidate && (candidate.projectId !== generation.projectId || candidate.inputsHash !== args.inputsHash)) {
       domainError("INVALID_STATE", "Frozen Brief inputs do not match");
     }
@@ -1910,6 +2245,442 @@ export const initializeSeedStage = internalMutation({
     });
     await refreshProjectGenerationActivity(ctx, generation.projectId);
     return null;
+  },
+});
+
+type FrozenBrainArtifact = {
+  blocks: OrderedPayload["brainExemplars"];
+  styleGuidance: string;
+  orderedContext: OrderedPayload["orderedContext"];
+  qaCalibration?: string;
+  draftStyle?: string;
+  qaCalibrationDigestId?: Id<"learningDigests">;
+  draftStyleDigestId?: Id<"learningDigests">;
+  writerFlavor?: string;
+  styleOverrides?: OrderedPayload["styleOverrides"];
+};
+
+function parseFrozenBrainArtifact(content: string): FrozenBrainArtifact {
+  let value: unknown;
+  try {
+    value = JSON.parse(content);
+  } catch {
+    domainError("INVALID_STATE", "Frozen drafting artifacts are malformed");
+  }
+  if (!value || typeof value !== "object") {
+    domainError("INVALID_STATE", "Frozen drafting artifacts are malformed");
+  }
+  const artifact = value as Partial<FrozenBrainArtifact>;
+  const blocks = artifact.blocks;
+  if (
+    !blocks ||
+    typeof blocks.analyzer !== "string" ||
+    typeof blocks.s242 !== "string" ||
+    typeof blocks.s244 !== "string" ||
+    typeof blocks.s246 !== "string" ||
+    typeof artifact.styleGuidance !== "string" ||
+    !artifact.orderedContext
+  ) {
+    domainError("INVALID_STATE", "Frozen drafting artifacts are incomplete");
+  }
+  return artifact as FrozenBrainArtifact;
+}
+
+async function frozenOrderedPayload(
+  ctx: MutationCtx,
+  generation: Doc<"generations">,
+  summaryVersionId: Id<"summaryVersions">
+): Promise<OrderedPayload> {
+  const [analysis, brain] = await Promise.all([
+    ctx.db.query("generationArtifacts")
+      .withIndex("by_generationId_and_kind", (q) =>
+        q.eq("generationId", generation._id).eq("kind", "analysis"))
+      .unique(),
+    ctx.db.query("generationArtifacts")
+      .withIndex("by_generationId_and_kind", (q) =>
+        q.eq("generationId", generation._id).eq("kind", "brain_blocks"))
+      .unique(),
+  ]);
+  if (!analysis || !brain) {
+    domainError("INVALID_STATE", "Frozen drafting artifacts are unavailable");
+  }
+  const artifact = parseFrozenBrainArtifact(brain.content);
+  return {
+    analysis: analysis.content,
+    brainExemplars: artifact.blocks,
+    ...(artifact.qaCalibration ? { qaCalibration: artifact.qaCalibration } : {}),
+    ...(artifact.draftStyle ? { draftStyle: artifact.draftStyle } : {}),
+    ...(artifact.qaCalibrationDigestId
+      ? { qaCalibrationDigestId: artifact.qaCalibrationDigestId }
+      : {}),
+    ...(artifact.draftStyleDigestId
+      ? { draftStyleDigestId: artifact.draftStyleDigestId }
+      : {}),
+    ...(artifact.writerFlavor ? { writerFlavor: artifact.writerFlavor } : {}),
+    ...(artifact.styleOverrides ? { styleOverrides: artifact.styleOverrides } : {}),
+    orderedContext: artifact.orderedContext,
+    frozenStyleGuidance: artifact.styleGuidance,
+    summaryVersionId,
+  };
+}
+
+async function createFrozenOrderedChain(
+  ctx: MutationCtx,
+  generation: Doc<"generations">,
+  summaryVersionId: Id<"summaryVersions">,
+  payload: OrderedPayload
+): Promise<{
+  candidateRunId: Id<"generationCandidateRuns">;
+  scheduledJobId: Id<"_scheduled_functions">;
+}> {
+  const model = generation.singleModelId ?? MODEL;
+  const candidate = modelById(model);
+  if (!candidate) domainError("INVALID_STATE", "Frozen generation model is unavailable");
+  const now = Date.now();
+  const candidateRunId = await ctx.db.insert("generationCandidateRuns", {
+    generationId: generation._id,
+    projectId: generation.projectId,
+    model: candidate.id,
+    label: candidate.label,
+    status: "running",
+    queuedAt: now,
+    startedAt: now,
+  });
+  const order = payload.orderedContext.buildOrder;
+  if (order.length !== 3) domainError("INVALID_STATE", "Frozen Build Order is invalid");
+  for (const [index, section] of order.entries()) {
+    await ctx.db.insert("generationSectionRuns", {
+      generationId: generation._id,
+      projectId: generation.projectId,
+      section: sectionKeyOf(section),
+      status: index === 0 ? "queued" : "pending",
+      model: candidate.id,
+      label: candidate.label,
+      attempt: 1,
+      candidateRunId,
+      orderIndex: index,
+      queuedAt: now,
+    });
+  }
+  const scheduledJobId = await ctx.scheduler.runAfter(
+    0,
+    generateOrderedSectionRef,
+    {
+      generationId: generation._id,
+      candidateRunId,
+      section: order[0],
+      payload: { ...payload, summaryVersionId },
+    }
+  );
+  await ctx.db.patch(candidateRunId, { scheduledJobId });
+  return { candidateRunId, scheduledJobId };
+}
+
+function refuseSummaryCapacity(error: unknown): never {
+  if (error instanceof SeedContextLimitError) {
+    domainError("INVALID_INPUT", error.message, {
+      reason: "SUMMARY_CAPACITY_EXCEEDED",
+      limit: error.limit,
+    });
+  }
+  throw error;
+}
+
+function summaryOrdinaryAdmission(args: {
+  section: SectionNumber;
+  storylineText: string;
+  briefEntries: ReadonlyArray<{
+    group: string;
+    text: string;
+    change?: string;
+  }>;
+  payload: OrderedPayload;
+}) {
+  const activeEntries = args.briefEntries.filter((entry) => entry.change !== "removed");
+  return projectSummaryOrdinaryChecks({
+    storylineText: args.storylineText,
+    confidenceMap: activeEntries
+      .filter((entry) => entry.group === "confidenceMap")
+      .map((entry) => ({ text: entry.text })),
+    glossaryTerms: activeEntries
+      .filter((entry) => entry.group === "glossaryTerm")
+      .map((entry) => entry.text),
+    writerFlavor: args.payload.writerFlavor,
+    rules: args.payload.orderedContext.selfCheckRules.filter(
+      (rule) =>
+        (rule.section === undefined || rule.section === args.section) &&
+        rule.maxWords === undefined &&
+        rule.maxLines === undefined
+    ),
+  });
+}
+
+/** AD-37: freeze ready decisions and enter the existing ordered chain. */
+export const signOffSeedStage = mutation({
+  args: {
+    generationId: v.id("generations"),
+    expectedSeedStageVersion: v.number(),
+  },
+  handler: async (ctx, args) => {
+    const generation = await ctx.db.get(args.generationId);
+    if (!generation) domainError("NOT_FOUND", "Generation not found");
+    const { user, project } = await requireReportEditAccess(ctx, generation.projectId);
+    if (
+      resolveGatedWorkflow(generation) !== "seeds" ||
+      generation.status !== "awaiting_input" ||
+      generation.summaryVersionId ||
+      project.activeGenerationId !== generation._id
+    ) {
+      domainError("INVALID_STATE", "The seed stage is closed", {
+        reason: "SEED_STAGE_CLOSED",
+      });
+    }
+    if (
+      !Number.isSafeInteger(args.expectedSeedStageVersion) ||
+      args.expectedSeedStageVersion !== (generation.seedStageVersion ?? 0)
+    ) {
+      domainError("STALE_REVISION", "Seed decisions changed; refresh and retry");
+    }
+    const readiness = await readSeedReadiness(ctx, {
+      generationId: generation._id,
+      includeState: true,
+    });
+    if (!readiness.complete || !readiness.ready) {
+      domainError("INVALID_STATE", "Every required seed decision must be ready before sign-off");
+    }
+    const state = readiness.state;
+    if (!state) domainError("INVALID_STATE", "Seed readiness state is unavailable");
+    if (!generation.briefVersionId || !generation.writerSettings) {
+      domainError("INVALID_STATE", "Frozen Brief and settings are required for sign-off");
+    }
+    const activeSelectionRows = state.selectionRows.filter((row) => row.selected);
+    const selectedIds = new Set(activeSelectionRows.map((row) => row.seedId));
+    const selectedSeeds = orderShownSet({
+      seeds: state.seeds,
+      batches: state.batches,
+    }).filter((seed) => selectedIds.has(seed._id));
+    const skippedRoleIds = PD_SUBSECTIONS.filter((role) =>
+      state.subsections.some(
+        (row) => row.roleId === role.roleId && row.state === "skipped"
+      )
+    ).map((role) => role.roleId);
+    const briefRead = await readBriefEntryRowsBounded(
+      ctx,
+      generation.briefVersionId,
+      "immutable_input"
+    );
+    if (briefRead.kind === "row_limit") {
+      domainError("INVALID_INPUT", "Frozen Brief exceeds the runtime row budget", {
+        reason: "SUMMARY_BRIEF_ROWS_EXCEEDED",
+        limit: String(MAX_BRIEF_ENTRY_ROWS),
+      });
+    }
+    if (briefRead.kind === "byte_limit") {
+      domainError("INVALID_INPUT", "Frozen Brief exceeds the runtime byte budget", {
+        reason: "SUMMARY_BRIEF_BYTES_EXCEEDED",
+        limit: String(BRIEF_CONSUMER_READ_BYTES),
+      });
+    }
+    const briefEntries = briefRead.rows;
+    const briefDoc = await ctx.db.get(generation.briefVersionId);
+    if (!briefDoc || briefDoc.projectId !== generation.projectId) {
+      domainError("INVALID_STATE", "Frozen Brief is unavailable");
+    }
+    const claimExclusions = briefEntries.filter(
+      (entry) => entry.group === "claimExclusion" && entry.change !== "removed"
+    );
+    const settingsHash = await sha256Text(JSON.stringify({
+      writerSettings: generation.writerSettings,
+      lengthTarget: generation.lengthTarget,
+    }));
+    const now = Date.now();
+    const summaryVersionId = await ctx.db.insert("summaryVersions", {
+      projectId: generation.projectId,
+      generationId: generation._id,
+      version: 1,
+      originGenerationId: generation._id,
+      briefVersionId: generation.briefVersionId,
+      reportTitle: project.title,
+      settingsHash,
+      skippedRoleIds,
+      readiness: true,
+      signedOffBy: user._id,
+      signedOffAt: now,
+    });
+    const frozenItems: Array<{
+      _id: Id<"summaryItems">;
+      itemId: Id<"summaryItems">;
+      roleId: (typeof PD_SUBSECTIONS)[number]["roleId"];
+      kind: "standard" | "optional" | "multiple";
+      bullets: string[];
+      support: "source_supported" | "writer_asserted";
+      uncertaintySeedId?: Id<"seeds">;
+      experimentSeedIds?: Id<"seeds">[];
+      confirmedExclusion?: boolean;
+      seedId: Id<"seeds">;
+    }> = [];
+    for (const [order, seed] of selectedSeeds.entries()) {
+      const selection = activeSelectionRows.find((row) => row.seedId === seed._id);
+      if (!selection) domainError("INVALID_STATE", "Summary selection is unavailable");
+      const subsection = state.subsections.find((row) => row.roleId === seed.roleId);
+      const bullets = materializeFinalWording(seed, selection);
+      const confirmedExclusion = Boolean(
+        subsection?.exclusionAcknowledgedAt &&
+        claimExclusions.some((entry) =>
+          matchesSeedExclusion(bullets, entry.text, entry.exactExcerpt)
+        )
+      );
+      const itemId = await ctx.db.insert("summaryItems", {
+        projectId: generation.projectId,
+        generationId: generation._id,
+        summaryVersionId,
+        roleId: seed.roleId,
+        kind: subsection?.kind ?? "standard",
+        order,
+        seedId: seed._id,
+        bullets,
+        support: selection.editedBullets ? "writer_asserted" : seed.support,
+        tags: seed.tags,
+        ...(seed.uncertaintySeedId ? { uncertaintySeedId: seed.uncertaintySeedId } : {}),
+        ...(seed.experimentSeedIds ? { experimentSeedIds: seed.experimentSeedIds } : {}),
+        ...(confirmedExclusion ? { confirmedExclusion: true } : {}),
+      });
+      frozenItems.push({
+        _id: itemId,
+        itemId,
+        roleId: seed.roleId,
+        kind: subsection?.kind ?? "standard",
+        bullets,
+        support: selection.editedBullets ? "writer_asserted" : seed.support,
+        ...(seed.uncertaintySeedId ? { uncertaintySeedId: seed.uncertaintySeedId } : {}),
+        ...(seed.experimentSeedIds ? { experimentSeedIds: seed.experimentSeedIds } : {}),
+        ...(confirmedExclusion ? { confirmedExclusion: true } : {}),
+        seedId: seed._id,
+      });
+    }
+    const referencesBySeedId = new Map(
+      frozenItems.map((item) => [item.seedId, item.bullets] as const)
+    );
+    const sourceRefsByItemId = await loadSummarySourceRefs(ctx, generation, frozenItems);
+    const payload = await frozenOrderedPayload(ctx, generation, summaryVersionId);
+    try {
+      for (const section of ["242", "244", "246"] as const) {
+        const plan = buildFrozenSummaryPlan({
+          section: `s${section}`,
+          items: frozenItems,
+          skippedRoleIds,
+          referencesBySeedId,
+          sourceRefsByItemId,
+        });
+        const ordinaryChecks = summaryOrdinaryAdmission({
+          section,
+          storylineText: briefDoc.storylineText,
+          briefEntries,
+          payload,
+        });
+        summarySelfCheckWorstCaseResponse({
+          ordinaryChecks,
+          planChecks: plan.checks,
+          includeStorylineQuestion:
+            briefDoc.storylineText.trim().length > 0 &&
+            briefEntries.some(
+              (entry) => entry.group === "confidenceMap" && entry.change !== "removed"
+            ),
+        });
+      }
+    } catch (error) {
+      refuseSummaryCapacity(error);
+    }
+    await terminateSeedAttempts(ctx, generation._id);
+    await bypassSeedEpisodes(ctx, generation._id);
+    await ctx.db.insert("seedDecisionEvents", {
+      projectId: generation.projectId,
+      generationId: generation._id,
+      kind: "signOff",
+      at: now,
+      actorUserId: user._id,
+      snapshot: {
+        items: await Promise.all(frozenItems.map(async (item) => {
+          const selection = activeSelectionRows.find((row) => row.seedId === item.seedId)!;
+          return {
+            seedId: item.seedId,
+            wordingHash: await sha256Text(stableSerialize(item.bullets)),
+            selectionVersion: selection.version,
+          };
+        })),
+      },
+    });
+    await ctx.db.patch(generation._id, {
+      summaryVersionId,
+      status: "running",
+      currentStep: `Drafting ${payload.orderedContext.buildOrder[0]}…`,
+      totalCandidates: 1,
+      candidatesDone: 0,
+      candidatesFailed: 0,
+      productionOrder: payload.orderedContext.buildOrder,
+      progressLog: [
+        ...(generation.progressLog ?? []),
+        `Summary signed off. Drafting ${payload.orderedContext.buildOrder.join(" → ")} in Build Order.`,
+      ],
+      lastProgressAt: now,
+    });
+    const chain = await createFrozenOrderedChain(
+      ctx,
+      generation,
+      summaryVersionId,
+      payload
+    );
+    await refreshProjectGenerationActivity(ctx, generation.projectId);
+    return { summaryVersionId, candidateRunId: chain.candidateRunId };
+  },
+});
+
+export const beginSummaryRecovery = internalMutation({
+  args: {
+    generationId: v.id("generations"),
+    promptVersion: v.string(),
+  },
+  returns: v.boolean(),
+  handler: async (ctx, args): Promise<boolean> => {
+    const generation = await ctx.db.get(args.generationId);
+    if (
+      !generation ||
+      generation.status !== "reserved" ||
+      resolveGatedWorkflow(generation) !== "seeds" ||
+      !generation.summaryVersionId ||
+      !generation.retryOfGenerationId
+    ) return false;
+    const project = await ctx.db.get(generation.projectId);
+    if (!project || project.activeGenerationId !== generation._id) return false;
+    if (!generation.sourceIdMap) {
+      domainError("INVALID_STATE", "Frozen recovery source map is unavailable");
+    }
+    const payload = await frozenOrderedPayload(
+      ctx,
+      generation,
+      generation.summaryVersionId
+    );
+    await assertFrozenSummaryRuntimeAdmission(ctx, generation, payload);
+    const now = Date.now();
+    await ctx.db.patch(generation._id, {
+      promptVersion: args.promptVersion,
+      status: "running",
+      currentStep: `Drafting ${payload.orderedContext.buildOrder[0]}…`,
+      productionOrder: payload.orderedContext.buildOrder,
+      lastProgressAt: now,
+      progressLog: [
+        ...(generation.progressLog ?? []),
+        `Drafting frozen Summary in ${payload.orderedContext.buildOrder.join(" → ")} Build Order.`,
+      ],
+    });
+    await createFrozenOrderedChain(
+      ctx,
+      generation,
+      generation.summaryVersionId,
+      payload
+    );
+    await refreshProjectGenerationActivity(ctx, generation.projectId);
+    return true;
   },
 });
 
@@ -2241,7 +3012,14 @@ export const persistDerivedBrief = internalMutation({
       args.projectId,
       args.inputsHash
     );
-    if (reusable && !seedStartup) {
+    let compatibleReusable = false;
+    if (reusable) {
+      const reusableScope = await briefEntryReadScope(ctx, generation, reusable);
+      compatibleReusable = reusableScope === "all" ||
+        (await readBriefEntryRowsBounded(ctx, reusable._id, reusableScope)).kind ===
+          "complete";
+    }
+    if (reusable && compatibleReusable && !seedStartup) {
       await ctx.db.patch(args.generationId, { briefId: reusable._id });
       return reusable._id;
     }
@@ -2335,7 +3113,7 @@ export const persistDerivedBrief = internalMutation({
       projectId: args.projectId,
       generationId: args.generationId,
       inputsHash: args.inputsHash,
-      version: seedStartup ? (reusable?.version ?? 0) + 1 : 1,
+      version: (reusable?.version ?? 0) + 1,
       origin: args.origin,
       storylineText: args.storylineText,
       droppedEntryCount,
@@ -2391,7 +3169,7 @@ export const renderBriefForGeneration = internalQuery({
     if (!generation?.briefId) return "";
     const brief = await ctx.db.get(generation.briefId);
     if (!brief) return "";
-    const entries = await readBriefEntryRowsOrOmit(ctx, args.generationId, brief._id);
+    const entries = await readBriefEntryRowsOrOmit(ctx, generation, brief);
     // Fail open: an unreadable Brief is omitted whole, exactly as a
     // generation with no briefId renders "" above. Never a prefix.
     if (entries === null) return "";
@@ -3411,9 +4189,24 @@ export const cancelIterativeGeneration = mutation({
       error: "Cancelled by writer",
       completedAt: now,
     });
+    const signedOffSeedDraft =
+      resolveGatedWorkflow(generation) === "seeds" &&
+      generation.summaryVersionId !== undefined;
+    if (signedOffSeedDraft) {
+      await terminalizeOrphanedCandidateRuns(
+        ctx,
+        generation._id,
+        "The generation was cancelled before this draft completed."
+      );
+      await terminalizeSignedOffSeedSections(
+        ctx,
+        generation._id,
+        "The generation was cancelled before this section draft completed."
+      );
+    }
     // Ghost/section jobs still scheduled become no-ops: their claim fences
-    // require an active generation + project pointer. Their rows stay
-    // (harmless) except candidate content, which never outlives a generation.
+    // require an active generation + project pointer. Candidate artifacts are
+    // still removed by the existing cancellation contract.
     const candidates = await ctx.db
       .query("reportCandidates")
       .withIndex("by_generationId", (q) => q.eq("generationId", generation._id))
@@ -3604,6 +4397,10 @@ export const failStaleGenerations = internalMutation({
     const stale = [...reserved, ...runningPage.page];
     let failed = 0;
     for (const generation of stale) {
+      const signedOffSeedDrafting =
+        generation.status === "running" &&
+        resolveGatedWorkflow(generation) === "seeds" &&
+        generation.summaryVersionId !== undefined;
       if (generation.status === "running" && resolveGatedWorkflow(generation) === "seeds" && !generation.summaryVersionId) {
         if (!await isProjectDeleting(ctx, generation.projectId)) {
           const project = await ctx.db.get(generation.projectId);
@@ -3620,7 +4417,8 @@ export const failStaleGenerations = internalMutation({
       // writer thinking time is unbounded.
       if (
         generation.status === "running" &&
-        (generation.candidateMode ?? "compare") === "iterative"
+        (generation.candidateMode ?? "compare") === "iterative" &&
+        !signedOffSeedDrafting
       ) {
         const sectionRuns = await ctx.db
           .query("generationSectionRuns")
@@ -3666,7 +4464,8 @@ export const failStaleGenerations = internalMutation({
       // reaped. Iterative never stamps and keeps its per-section path above.
       if (
         generation.status === "running" &&
-        (generation.candidateMode ?? "compare") !== "iterative" &&
+        ((generation.candidateMode ?? "compare") !== "iterative" ||
+          signedOffSeedDrafting) &&
         generation.lastProgressAt !== undefined &&
         generation.lastProgressAt >= cutoff
       ) {
@@ -3681,6 +4480,13 @@ export const failStaleGenerations = internalMutation({
       });
       // In-flight candidate runs die with the generation — otherwise they
       // read "running" forever (skewed stats, invisible to retry).
+      if (signedOffSeedDrafting) {
+        await terminalizeSignedOffSeedSections(
+          ctx,
+          generation._id,
+          "Timed out before the section draft completed."
+        );
+      }
       await terminalizeOrphanedCandidateRuns(
         ctx,
         generation._id,
@@ -4489,14 +5295,36 @@ function sectionNumberOfRow(row: Doc<"generationSectionRuns">): SectionNumber {
   return row.section.slice(1) as SectionNumber;
 }
 
-function selfCheckStatusOf(selfCheck: string | undefined): string | null {
+function selfCheckResultOf(selfCheck: string | undefined): {
+  status: string;
+  planCoverage?: "complete" | "incomplete" | "unavailable";
+} | null {
   if (!selfCheck) return null;
   try {
     const parsed: unknown = JSON.parse(selfCheck);
-    return parsed && typeof parsed === "object" && "status" in parsed &&
-      typeof parsed.status === "string"
-      ? parsed.status
-      : null;
+    if (
+      !parsed ||
+      typeof parsed !== "object" ||
+      !("status" in parsed) ||
+      typeof parsed.status !== "string"
+    ) {
+      return null;
+    }
+    if (
+      "planCoverage" in parsed &&
+      parsed.planCoverage &&
+      typeof parsed.planCoverage === "object" &&
+      "status" in parsed.planCoverage &&
+      (parsed.planCoverage.status === "complete" ||
+        parsed.planCoverage.status === "incomplete" ||
+        parsed.planCoverage.status === "unavailable")
+    ) {
+      return {
+        status: parsed.status,
+        planCoverage: parsed.planCoverage.status,
+      };
+    }
+    return { status: parsed.status };
   } catch {
     return null;
   }
@@ -4532,7 +5360,13 @@ export const createOrderedSectionRuns = internalMutation({
   handler: async (ctx, args): Promise<boolean> => {
     const fence = await orderedChainFence(ctx, args.generationId, args.candidateRunId);
     if (!fence) return false;
-    if ((fence.generation.candidateMode ?? "compare") === "iterative") return false;
+    if ((fence.generation.candidateMode ?? "compare") === "iterative") {
+      if (
+        resolveGatedWorkflow(fence.generation) !== "seeds" ||
+        !fence.generation.summaryVersionId ||
+        args.payload.summaryVersionId !== fence.generation.summaryVersionId
+      ) return false;
+    }
     const order = args.payload.orderedContext.buildOrder;
     if (order.length === 0) return false;
     if ((await orderedRunsForCandidate(ctx, fence.run._id)).length > 0) return false;
@@ -4574,20 +5408,69 @@ async function loadBriefCheck(
   ctx: { db: QueryCtx["db"] },
   generation: Doc<"generations">
 ) {
-  const briefDoc = generation.briefId ? await ctx.db.get(generation.briefId) : null;
-  if (!briefDoc) return { briefBlock: "", brief: null };
-  const rows = await readBriefEntryRowsOrOmit(ctx, generation._id, briefDoc._id);
-  // Fail open, identically to renderBriefForGeneration: an unreadable Brief
-  // is omitted whole, never rendered as a prefix. A throw here would strand
-  // the section this claim just CAS-claimed (see readBriefEntryRowsOrOmit).
-  if (rows === null) return { briefBlock: "", brief: null };
+  const summary = generation.summaryVersionId
+    ? await ctx.db.get(generation.summaryVersionId)
+    : null;
+  const isSummaryConsumer =
+    resolveGatedWorkflow(generation) === "seeds" &&
+    generation.summaryVersionId !== undefined;
+  if (
+    isSummaryConsumer &&
+    (!summary ||
+      summary.projectId !== generation.projectId ||
+      summary.originGenerationId !== (generation.originGenerationId ?? generation._id))
+  ) {
+    domainError("INVALID_STATE", "Frozen Summary Brief lineage is unavailable", {
+      reason: "SUMMARY_BRIEF_UNREADABLE",
+    });
+  }
+  const briefId = isSummaryConsumer ? summary?.briefVersionId : generation.briefId;
+  const briefDoc = briefId ? await ctx.db.get(briefId) : null;
+  if (!briefDoc || briefDoc.projectId !== generation.projectId) {
+    if (isSummaryConsumer) {
+      domainError("INVALID_STATE", "Frozen Summary Brief is unavailable", {
+        reason: "SUMMARY_BRIEF_UNREADABLE",
+      });
+    }
+    return { briefBlock: "", brief: null, briefDoc: null, briefEntries: [] };
+  }
+  const read = await readBriefEntryRowsBounded(
+    ctx,
+    briefDoc._id,
+    await briefEntryReadScope(ctx, generation, briefDoc)
+  );
+  if (read.kind !== "complete") {
+    if (isSummaryConsumer) {
+      domainError("INVALID_STATE", "Frozen Summary Brief cannot be read completely", {
+        reason:
+          read.kind === "row_limit"
+            ? "SUMMARY_BRIEF_ROWS_EXCEEDED"
+            : "SUMMARY_BRIEF_BYTES_EXCEEDED",
+      });
+    }
+    // Legacy Brief guidance remains optional and fail-open.
+    console.error(
+      read.kind === "row_limit"
+        ? `Generation Brief omitted from generation ${generation._id}: Brief ${briefDoc._id} has more than ${MAX_BRIEF_ENTRY_ROWS} entries and cannot be read completely`
+        : `Generation Brief omitted from generation ${generation._id}: Brief ${briefDoc._id} cannot be read completely within ${BRIEF_CONSUMER_READ_BYTES} bytes`
+    );
+    return { briefBlock: "", brief: null, briefDoc: null, briefEntries: [] };
+  }
+  const rows = read.rows;
   const entries = rows.filter(
     // A re-derivation carries the previous version's dropped entries as
     // change: "removed" markers for the diff; they are no longer in force.
     (entry) => entry.group !== "storylineQuestion" && entry.change !== "removed"
   );
+  // Brief and Seed citations share the same immutable origin-to-current
+  // resolver. Recovery never substitutes equal hashes for source identity.
+  for (const sourceId of new Set(entries.map((entry) => entry.sourceId as string))) {
+    resolveFrozenSourceId(sourceId, generation.sourceIdMap);
+  }
   return {
     briefBlock: renderBriefBlock(briefDoc.storylineText, entries),
+    briefDoc,
+    briefEntries: rows,
     brief: {
       storylineText: briefDoc.storylineText,
       claimExclusions: entries
@@ -4611,6 +5494,171 @@ async function loadBriefCheck(
   };
 }
 
+async function loadFrozenSectionPlan(
+  ctx: { db: QueryCtx["db"] },
+  generation: Doc<"generations">,
+  section: SectionNumber
+): Promise<{
+  planBlock: string;
+  planChecksBlock: string;
+  planChecks: Array<{
+    itemId?: Id<"summaryItems">;
+    skippedRoleId?: PdSubsectionRoleId;
+    roleId: PdSubsectionRoleId;
+    mergedItemIds: Id<"summaryItems">[];
+    instruction: "cover" | "skip";
+    confirmedExclusion: boolean;
+    support?: "source_supported" | "writer_asserted";
+    wording: string[];
+    relationshipReferences: Array<{
+      seedId: Id<"seeds">;
+      wording: string[];
+    }>;
+    sourceReferences: Array<{
+      originatingItemId: Id<"summaryItems">;
+      sourceId: string;
+      exactExcerpt: string;
+    }>;
+  }>;
+}> {
+  if (!generation.summaryVersionId) {
+    return { planBlock: "", planChecksBlock: "", planChecks: [] };
+  }
+  const summary = await ctx.db.get(generation.summaryVersionId);
+  if (!summary || summary.projectId !== generation.projectId) {
+    domainError("INVALID_STATE", "Frozen Summary is unavailable");
+  }
+  const originGenerationId = generation.originGenerationId ?? generation._id;
+  if (summary.originGenerationId !== originGenerationId) {
+    domainError("INVALID_STATE", "Frozen Summary lineage does not match the generation");
+  }
+  const items = await ctx.db.query("summaryItems")
+    .withIndex("by_summaryVersionId_and_order", (q) =>
+      q.eq("summaryVersionId", summary._id))
+    .take(SEED_DECISION_COLLECTION_ROWS + 1);
+  if (items.length > SEED_DECISION_COLLECTION_ROWS) {
+    domainError("INVALID_INPUT", "Frozen Summary exceeds the drafting budget");
+  }
+  const referencesBySeedId = new Map(
+    items.map((item) => [item.seedId, item.bullets] as const)
+  );
+  const sourceRefsByItemId = await loadSummarySourceRefs(ctx, generation, items);
+  const pdSection = section === "242" ? "s242" : section === "244" ? "s244" : "s246";
+  const plan = buildFrozenSummaryPlan({
+    section: pdSection,
+    items: items.map((item) => ({
+      itemId: item._id,
+      roleId: item.roleId,
+      kind: item.kind,
+      bullets: item.bullets,
+      support: item.support,
+      ...(item.uncertaintySeedId
+        ? { uncertaintySeedId: item.uncertaintySeedId }
+        : {}),
+      ...(item.experimentSeedIds
+        ? { experimentSeedIds: item.experimentSeedIds }
+        : {}),
+      ...(item.confirmedExclusion ? { confirmedExclusion: true } : {}),
+    })),
+    skippedRoleIds: summary.skippedRoleIds,
+    referencesBySeedId,
+    sourceRefsByItemId,
+  });
+  return {
+    planBlock: `\n\n${plan.block}`,
+    planChecksBlock: plan.checksBlock,
+    planChecks: plan.checks.map((check) => ({
+      ...(check.itemId ? { itemId: check.itemId } : {}),
+      ...(check.skippedRoleId ? { skippedRoleId: check.skippedRoleId } : {}),
+      roleId: check.roleId,
+      mergedItemIds: check.mergedItemIds,
+      instruction: check.instruction,
+      confirmedExclusion: check.confirmedExclusion,
+      ...(check.support ? { support: check.support } : {}),
+      wording: check.wording,
+      relationshipReferences: check.relationshipReferences,
+      sourceReferences: check.sourceReferences,
+    })),
+  };
+}
+
+/**
+ * Recovery admission for the deployment that will execute the frozen
+ * Summary. Both provider-input and complete-output capacity are checked for
+ * every Section before the chain is created or any provider can run.
+ */
+async function assertFrozenSummaryRuntimeAdmission(
+  ctx: MutationCtx,
+  generation: Doc<"generations">,
+  payload: OrderedPayload
+): Promise<Awaited<ReturnType<typeof loadBriefCheck>>> {
+  const loadedBrief = await loadBriefCheck(ctx, generation);
+  if (!loadedBrief.briefDoc || !loadedBrief.brief) {
+    domainError("INVALID_STATE", "Frozen Summary Brief is unavailable", {
+      reason: "SUMMARY_BRIEF_UNREADABLE",
+    });
+  }
+  try {
+    for (const section of ["242", "244", "246"] as const) {
+      const plan = await loadFrozenSectionPlan(ctx, generation, section);
+      const ordinaryChecks = summaryOrdinaryAdmission({
+        section,
+        storylineText: loadedBrief.briefDoc.storylineText,
+        briefEntries: loadedBrief.briefEntries,
+        payload,
+      });
+      summarySelfCheckWorstCaseResponse({
+        ordinaryChecks,
+        planChecks: plan.planChecks,
+        includeStorylineQuestion:
+          loadedBrief.briefDoc.storylineText.trim().length > 0 &&
+          loadedBrief.briefEntries.some(
+            (entry) =>
+              entry.group === "confidenceMap" && entry.change !== "removed"
+          ),
+      });
+    }
+  } catch (error) {
+    refuseSummaryCapacity(error);
+  }
+  return loadedBrief;
+}
+
+async function loadSummarySourceRefs(
+  ctx: { db: QueryCtx["db"] },
+  generation: Doc<"generations">,
+  items: ReadonlyArray<{
+    _id: Id<"summaryItems">;
+    seedId: Id<"seeds">;
+  }>
+) {
+  const result = new Map<
+    Id<"summaryItems">,
+    Array<{ sourceId: string; exactExcerpt: string }>
+  >();
+  for (const item of items) {
+    const rows = await ctx.db.query("seedProvenance")
+      .withIndex("by_seedId", (q) => q.eq("seedId", item.seedId))
+      .take(129);
+    if (rows.length > 128) {
+      domainError("INVALID_INPUT", "Seed provenance exceeds the drafting budget");
+    }
+    result.set(item._id, rows.map((row) => {
+      if (row.projectId !== generation.projectId) {
+        domainError("INVALID_STATE", "Seed provenance belongs to another project");
+      }
+      resolveFrozenSourceId(row.sourceId, generation.sourceIdMap);
+      return {
+        // Keep the immutable origin id in provider bytes. The resolver above
+        // validates its current attempt row without making retries differ.
+        sourceId: row.sourceId,
+        exactExcerpt: row.exactExcerpt,
+      };
+    }));
+  }
+  return result;
+}
+
 /** CAS claim of one queued section (row queued, candidate run running,
  * generation running, project pointer matching). Returns this candidate's
  * drafted prior sections in production order and the Brief it checks
@@ -4620,6 +5668,8 @@ export const claimOrderedSectionRun = internalMutation({
     generationId: v.id("generations"),
     candidateRunId: v.id("generationCandidateRuns"),
     section: sectionNumberValidator,
+    promptVersion: v.optional(v.string()),
+    payload: v.optional(orderedPayloadValidator),
   },
   handler: async (ctx, args) => {
     const row = await orderedRunForSection(ctx, args.candidateRunId, args.section);
@@ -4628,6 +5678,27 @@ export const claimOrderedSectionRun = internalMutation({
     }
     const fence = await orderedChainFence(ctx, args.generationId, args.candidateRunId);
     if (!fence) return null;
+    let executionBrief:
+      | Awaited<ReturnType<typeof loadBriefCheck>>
+      | undefined;
+    if (
+      resolveGatedWorkflow(fence.generation) === "seeds" &&
+      fence.generation.summaryVersionId !== undefined &&
+      args.promptVersion &&
+      fence.generation.promptVersion !== args.promptVersion
+    ) {
+      // Capacity belongs to the program that will execute the request. A
+      // prior sign-off or recovery-start admission cannot authorize a newer
+      // deployment. Any rejection rolls this claim back atomically.
+      if (!args.payload) {
+        domainError("INVALID_STATE", "Frozen Summary execution payload is unavailable");
+      }
+      executionBrief = await assertFrozenSummaryRuntimeAdmission(
+        ctx,
+        fence.generation,
+        args.payload
+      );
+    }
     const orderIndex = row.orderIndex ?? 0;
     // Stopped between sections (AD-24): this section is never drafted and
     // the action finalizes what was. The first section is always drafted, so
@@ -4639,7 +5710,14 @@ export const claimOrderedSectionRun = internalMutation({
     const now = Date.now();
     await ctx.db.patch(row._id, { status: "running", startedAt: now });
     // DW-119: the claim is chain progress — the reaper's window restarts here.
-    await ctx.db.patch(fence.generation._id, { lastProgressAt: now });
+    await ctx.db.patch(fence.generation._id, {
+      lastProgressAt: now,
+      ...(resolveGatedWorkflow(fence.generation) === "seeds" &&
+      fence.generation.summaryVersionId !== undefined &&
+      args.promptVersion
+        ? { promptVersion: args.promptVersion }
+        : {}),
+    });
     const priorSections = (await orderedRunsForCandidate(ctx, fence.run._id))
       .filter(
         (prior) =>
@@ -4652,7 +5730,10 @@ export const claimOrderedSectionRun = internalMutation({
         text: prior.draftText ?? "",
       }));
 
-    const { briefBlock, brief } = await loadBriefCheck(ctx, fence.generation);
+    const [{ briefBlock, brief }, plan] = await Promise.all([
+      executionBrief ?? loadBriefCheck(ctx, fence.generation),
+      loadFrozenSectionPlan(ctx, fence.generation, args.section),
+    ]);
     return {
       projectId: fence.generation.projectId,
       model: row.model,
@@ -4664,6 +5745,7 @@ export const claimOrderedSectionRun = internalMutation({
       priorSections,
       briefBlock,
       brief,
+      ...plan,
     };
   },
 });
@@ -4744,20 +5826,25 @@ export const completeOrderedSectionRun = internalMutation({
             questionText: args.storylineQuestion.question,
             alternativeText: args.storylineQuestion.storylineAlternative,
           },
+          generatedOutput: true,
           createdAt: now,
         });
       }
     }
-    const status = selfCheckStatusOf(args.selfCheck);
+    const result = selfCheckResultOf(args.selfCheck);
+    const status = result?.status;
     // The intent's flag wording for a repair that did not clear the check.
     const checkLabel =
       status === "repair_failed"
         ? "Self-check repair failed"
         : `Self-check: ${status?.replace(/_/g, " ") ?? "recorded"}`;
+    const coverageLabel = result?.planCoverage
+      ? `; plan coverage ${result.planCoverage}`
+      : "";
     await ctx.db.patch(fence.generation._id, {
       progressLog: [
         ...(fence.generation.progressLog ?? []),
-        `✓ ${fence.run.label}: ${ORDERED_SECTION_TITLES[args.section]} drafted (${checkLabel}).`,
+        `✓ ${fence.run.label}: ${ORDERED_SECTION_TITLES[args.section]} drafted (${checkLabel}${coverageLabel}).`,
       ],
       // DW-119: a drafted section (and the next one scheduled below) is
       // chain progress; the reaper's window restarts here.
@@ -5019,7 +6106,7 @@ export const getOrderedSectionDrafts = query({
         section: sectionNumberOfRow(row),
         orderIndex: row.orderIndex ?? 0,
         text: row.draftText ?? "",
-        selfCheckStatus: selfCheckStatusOf(row.selfCheck),
+        selfCheckStatus: selfCheckResultOf(row.selfCheck)?.status ?? null,
       }));
   },
 });

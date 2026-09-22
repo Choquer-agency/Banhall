@@ -896,6 +896,7 @@ export default defineSchema({
     error: v.optional(v.string()),
   })
     .index("by_projectId", ["projectId"])
+    .index("by_retryOfGenerationId", ["retryOfGenerationId"])
     .index("by_projectId_and_status", ["projectId", "status"])
     .index("by_status_and_startedAt", ["status", "startedAt"])
     .index("by_startedAt", ["startedAt"])
@@ -1126,6 +1127,9 @@ export default defineSchema({
     version: v.number(),
     originGenerationId: v.id("generations"),
     briefVersionId: v.id("generationBriefs"),
+    // Content metadata is frozen with the signed plan. Recoveries reuse this
+    // row instead of reading mutable project prose at finalization time.
+    reportTitle: v.optional(v.string()),
     settingsHash: v.string(),
     skippedRoleIds: v.array(seedRoleIdValidator),
     readiness: v.boolean(),
@@ -1148,6 +1152,10 @@ export default defineSchema({
     tags: v.array(v.string()),
     uncertaintySeedId: v.optional(v.id("seeds")),
     experimentSeedIds: v.optional(v.array(v.id("seeds"))),
+    // The writer explicitly acknowledged a frozen Brief Claim Exclusion for
+    // this role before sign-off. Drafting still follows the signed plan; the
+    // conflict is retained as unrepaired compliance evidence.
+    confirmedExclusion: v.optional(v.boolean()),
   })
     .index("by_summaryVersionId_and_order", ["summaryVersionId", "order"])
     .index("by_projectId", ["projectId"]),
@@ -2760,9 +2768,13 @@ export default defineSchema({
     // Story 4: true on the copy of an entry a writer changed through
     // briefs.saveEntryEdit (the *edited* origin chip). Absent = derived.
     edited: v.optional(v.boolean()),
+    // Generated Self-check output stays visible with the Brief but is not
+    // part of the immutable input admitted at Summary sign-off.
+    generatedOutput: v.optional(v.boolean()),
     createdAt: v.number(),
   })
     .index("by_briefId", ["briefId"])
+    .index("by_briefId_and_generatedOutput", ["briefId", "generatedOutput"])
     .index("by_projectId", ["projectId"]),
 
   // Story 2 (CAP-7, AD-25): one row per Self-check / consistency decision for

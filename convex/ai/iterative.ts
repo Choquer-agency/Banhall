@@ -258,7 +258,7 @@ export const startIterativeGeneration = internalAction({
       } catch (err) {
         console.error("learning digest fetch failed for generation", genId, err);
       }
-      const { writerFlavor, styleOverrides } = await writerStylePromise;
+      const { writerFlavor, styleOverrides, orderedContext } = await writerStylePromise;
       const styleGuidance = buildStyleGuidance(
         draftStyle,
         writerFlavor,
@@ -286,7 +286,12 @@ export const startIterativeGeneration = internalAction({
         brainBlocks: JSON.stringify({
           blocks: brainBlocks,
           styleGuidance,
+          orderedContext,
+          ...(qaCalibration ? { qaCalibration } : {}),
+          ...(draftStyle ? { draftStyle } : {}),
+          ...(qaCalibrationDigestId ? { qaCalibrationDigestId } : {}),
           ...(draftStyleDigestId ? { draftStyleDigestId } : {}),
+          ...(writerFlavor ? { writerFlavor } : {}),
           styleOverrides: styleOverrides ?? NO_STYLE_OVERRIDES,
         }),
       });

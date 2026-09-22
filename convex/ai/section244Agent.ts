@@ -15,6 +15,7 @@ export const SECTION_244_REQUEST = {
     "{{runtime.brainExemplars}}",
     "{{runtime.lengthBudget}}",
     "{{runtime.styleGuidance}}",
+    "{{runtime.contentPlan}}",
   ],
   roleOrder: ["system", "user"],
   jsonIndentation: 2,
@@ -32,7 +33,8 @@ export async function runSection244Agent(
   styleGuidance: string = "",
   styleOverrides?: StyleOverrides,
   // Story 1 (CAP-1/2/4): the stored Brief, rendered as an AD-11 data block.
-  briefBlock: string = ""
+  briefBlock: string = "",
+  contentPlanBlock: string = ""
 ): Promise<string> {
   const response = await client.messages.create({
     model,
@@ -42,7 +44,7 @@ export async function runSection244Agent(
     messages: [
       {
         role: "user",
-        content: `${SECTION_244_REQUEST.userPrefix}${JSON.stringify(analysis, null, SECTION_244_REQUEST.jsonIndentation)}${brainExemplars}${lengthBudget}${styleGuidance}${briefBlock}`,
+        content: `${SECTION_244_REQUEST.userPrefix}${JSON.stringify(analysis, null, SECTION_244_REQUEST.jsonIndentation)}${brainExemplars}${lengthBudget}${styleGuidance}${contentPlanBlock}${briefBlock}`,
       },
     ],
   });

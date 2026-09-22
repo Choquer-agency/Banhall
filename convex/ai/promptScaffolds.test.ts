@@ -18,11 +18,29 @@ import {
 } from "../lib/transcripts";
 import { priorSectionsBlock } from "./iterative";
 import { buildStyleGuidance, lengthBudgetBlock, toContextDocs } from "./pipeline";
-import { CONTEXT_INPUTS_GUIDANCE, waivedCategoryLabels } from "./prompts";
+import {
+  CONTEXT_INPUTS_GUIDANCE,
+  SUMMARY_PLAN_SELF_CHECK_SYSTEM_PROMPT,
+  waivedCategoryLabels,
+} from "./prompts";
 import { numberParagraphs } from "./qaAgent";
 import { CHARS_PER_LINE, LINE_LIMITS, wordBudget } from "../lib/lineLimits";
 import { NO_STYLE_OVERRIDES } from "../../shared/styleOverrides";
-import { SEED_PROMPT_PROGRAM } from "./promptDefinitions";
+import {
+  SEED_PROMPT_PROGRAM,
+  SUMMARY_PLAN_SELF_CHECK_REQUEST,
+  SUMMARY_PLAN_SELF_CHECK_SCHEMA,
+} from "./promptDefinitions";
+import {
+  FROZEN_SUMMARY_PLAN_CHECKS_SCAFFOLD,
+  FROZEN_SUMMARY_PLAN_SCAFFOLD,
+  MAX_SUMMARY_ORDINARY_VERDICTS,
+  MAX_SUMMARY_PLAN_CHECK_INPUT_UTF8_BYTES,
+  MAX_SUMMARY_PLAN_VERDICTS,
+  MAX_SUMMARY_SELF_CHECK_RESPONSE_UTF8_BYTES,
+  SUMMARY_ORDINARY_LABEL_PROJECTION_VERSION,
+  SUMMARY_PLAN_SERIALIZER_VERSION,
+} from "../lib/seedRevisions";
 
 /**
  * Story 10 split the inline prompt templates into fragment tables that both
@@ -329,6 +347,136 @@ describe("the condense call belongs to the prompt program (AC5)", () => {
     expect(edited).not.toBe(current);
     // The unedited program hashes stably.
     expect(await hashPromptProgram({ ...generationPromptProgram })).toBe(current);
+  });
+
+  it("fingerprints the executable Summary plan and its conditional Self-check contract", async () => {
+    expect(SUMMARY_PLAN_SELF_CHECK_SCHEMA.additionalProperties).toBe(false);
+    expect(SUMMARY_PLAN_SELF_CHECK_SCHEMA.properties.verdicts.items.additionalProperties)
+      .toBe(false);
+    expect(SUMMARY_PLAN_SELF_CHECK_SCHEMA.properties.storylineQuestion.additionalProperties)
+      .toBe(false);
+    const planSchema = SUMMARY_PLAN_SELF_CHECK_SCHEMA.properties.planVerdicts.items;
+    expect(planSchema.additionalProperties).toBe(false);
+    expect(planSchema.oneOf).toEqual([
+      { required: ["itemId"] },
+      { required: ["skippedRoleId"] },
+    ]);
+    expect(planSchema.required).not.toContain("paragraph");
+    expect(generationPromptProgram.calls.selfCheck.summaryPlan).toEqual({
+      systemTemplate: SUMMARY_PLAN_SELF_CHECK_SYSTEM_PROMPT,
+      requestScaffold: SUMMARY_PLAN_SELF_CHECK_REQUEST,
+      schema: SUMMARY_PLAN_SELF_CHECK_SCHEMA,
+      structuredPolicy: "single-attempt-no-repair",
+      encodedJsonRecovery: "disabled",
+    });
+    expect(generationPromptProgram.templates.seeds.summaryPlan).toEqual({
+      drafting: FROZEN_SUMMARY_PLAN_SCAFFOLD,
+      checks: FROZEN_SUMMARY_PLAN_CHECKS_SCAFFOLD,
+      serializerVersion: SUMMARY_PLAN_SERIALIZER_VERSION,
+      ordinaryLabelProjectionVersion:
+        SUMMARY_ORDINARY_LABEL_PROJECTION_VERSION,
+      capacity: {
+        maxOrdinaryVerdicts: MAX_SUMMARY_ORDINARY_VERDICTS,
+        maxPlanVerdicts: MAX_SUMMARY_PLAN_VERDICTS,
+        maxCheckInputUtf8Bytes: MAX_SUMMARY_PLAN_CHECK_INPUT_UTF8_BYTES,
+        maxResponseUtf8Bytes: MAX_SUMMARY_SELF_CHECK_RESPONSE_UTF8_BYTES,
+      },
+    });
+    const current = await hashPromptProgram(generationPromptProgram);
+    const changedSelfCheck = await hashPromptProgram({
+      ...generationPromptProgram,
+      calls: {
+        ...generationPromptProgram.calls,
+        selfCheck: {
+          ...generationPromptProgram.calls.selfCheck,
+          summaryPlan: {
+            ...generationPromptProgram.calls.selfCheck.summaryPlan,
+            systemTemplate: `${SUMMARY_PLAN_SELF_CHECK_SYSTEM_PROMPT}\nChanged.`,
+          },
+        },
+      },
+    });
+    const changedPlanScaffold = await hashPromptProgram({
+      ...generationPromptProgram,
+      templates: {
+        ...generationPromptProgram.templates,
+        seeds: {
+          ...generationPromptProgram.templates.seeds,
+          summaryPlan: {
+            ...generationPromptProgram.templates.seeds.summaryPlan,
+            drafting: {
+              ...generationPromptProgram.templates.seeds.summaryPlan.drafting,
+              precedence: `${FROZEN_SUMMARY_PLAN_SCAFFOLD.precedence} Changed.`,
+            },
+          },
+        },
+      },
+    });
+    const changedStructuredPolicy = await hashPromptProgram({
+      ...generationPromptProgram,
+      calls: {
+        ...generationPromptProgram.calls,
+        selfCheck: {
+          ...generationPromptProgram.calls.selfCheck,
+          summaryPlan: {
+            ...generationPromptProgram.calls.selfCheck.summaryPlan,
+            structuredPolicy: "changed-policy" as "single-attempt-no-repair",
+          },
+        },
+      },
+    });
+    const changedSerializerVersion = await hashPromptProgram({
+      ...generationPromptProgram,
+      templates: {
+        ...generationPromptProgram.templates,
+        seeds: {
+          ...generationPromptProgram.templates.seeds,
+          summaryPlan: {
+            ...generationPromptProgram.templates.seeds.summaryPlan,
+            serializerVersion: "summary-plan-jsonl-v2",
+          },
+        },
+      },
+    });
+    const changedOrdinaryProjectionVersion = await hashPromptProgram({
+      ...generationPromptProgram,
+      templates: {
+        ...generationPromptProgram.templates,
+        seeds: {
+          ...generationPromptProgram.templates.seeds,
+          summaryPlan: {
+            ...generationPromptProgram.templates.seeds.summaryPlan,
+            ordinaryLabelProjectionVersion: "summary-ordinary-labels-v2",
+          },
+        },
+      },
+    });
+    const changedEncodedJsonPolicy = await hashPromptProgram({
+      ...generationPromptProgram,
+      calls: {
+        ...generationPromptProgram.calls,
+        selfCheck: {
+          ...generationPromptProgram.calls.selfCheck,
+          summaryPlan: {
+            ...generationPromptProgram.calls.selfCheck.summaryPlan,
+            encodedJsonRecovery: "enabled" as "disabled",
+          },
+        },
+      },
+    });
+    const changedSchemaProgram = structuredClone(generationPromptProgram);
+    Object.assign(
+      changedSchemaProgram.calls.selfCheck.summaryPlan.schema,
+      { additionalProperties: true }
+    );
+    const changedSummarySchema = await hashPromptProgram(changedSchemaProgram);
+    expect(changedSelfCheck).not.toBe(current);
+    expect(changedPlanScaffold).not.toBe(current);
+    expect(changedSerializerVersion).not.toBe(current);
+    expect(changedOrdinaryProjectionVersion).not.toBe(current);
+    expect(changedStructuredPolicy).not.toBe(current);
+    expect(changedEncodedJsonPolicy).not.toBe(current);
+    expect(changedSummarySchema).not.toBe(current);
   });
 
   it("moves promptVersion, so no generation reports a stale contract", async () => {

@@ -160,6 +160,38 @@ async function flushScheduledUsage(t: ReturnType<typeof convexTest>) {
 
 const sectionRequests = [SECTION_242_REQUEST, SECTION_244_REQUEST, SECTION_246_REQUEST];
 
+// Complete request hashes captured by executing this same no-plan compare
+// fixture at pre-Story-4 baseline 20ab25e627657e716476b393fa463e828ea978c1.
+// They cover the full request objects, not values rebuilt from today's agent
+// constants. The retained baseline capture's SHA-256 is
+// 1e88981a71815a9b2c70b77c335f6ede7d6e9de5b3c632521ab543b70304ff6c.
+const HISTORICAL_NO_PLAN_SECTION_REQUEST_HASHES = [
+  "ad1f47f05cd713226a4374221ba8d3210f28300681ae974e703e3ae250b16159",
+  "4f141cd39de27c0da4ddb56227b5944b3c05876bd6887d2a85100925d14d7a4d",
+  "91dfb047f3db406815e6d4bf660d9aad96dde2eaea2e082f35b62790c2050885",
+] as const;
+
+async function completeRequestHash(params: GenerationMessageParams): Promise<string> {
+  const bytes = new TextEncoder().encode(JSON.stringify(params));
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  return [...new Uint8Array(digest)]
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+async function expectHistoricalNoPlanRequests(model: string): Promise<void> {
+  const requests = network.create.mock.calls
+    .map(([params]) => params as GenerationMessageParams)
+    .filter((params) =>
+      params.model === model &&
+      sectionRequests.some((section) => userText(params).startsWith(section.userPrefix)) &&
+      !userText(params).includes("Self-check repair")
+    );
+  expect(requests).toHaveLength(3);
+  expect(await Promise.all(requests.map(completeRequestHash)))
+    .toEqual(HISTORICAL_NO_PLAN_SECTION_REQUEST_HASHES);
+}
+
 describe("shared generation analysis", () => {
   it.each([pair, [...pair].reverse()])("analyzes once before fanout and shares persisted validated analysis (%s, %s)", async (...models) => {
     const t = convexTest(schema, modules);
@@ -209,6 +241,7 @@ describe("shared generation analysis", () => {
         expect(userText(drafts[0][0])).toContain(JSON.stringify(analysis, null, section.jsonIndentation));
       }
     }
+    await expectHistoricalNoPlanRequests("claude-opus-4-8");
     await flushScheduledUsage(t);
     const usage = await t.run((ctx) => ctx.db.query("aiUsage").collect());
     const analyzerUsage = usage.filter((row) => row.callSite === "generation:analyzer");
@@ -277,6 +310,7 @@ describe("shared analysis failure and compatibility", () => {
     expect(projects[0].status).toBe("review");
     expect(projects[0].activeGenerationId).toBeUndefined();
     expect(analyzerCalls()).toHaveLength(1);
+    await expectHistoricalNoPlanRequests("claude-opus-4-8");
   });
 
   it("fails generation without scheduling candidates when shared analysis rejects", async () => {

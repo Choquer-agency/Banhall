@@ -31,6 +31,7 @@ import {
   CONTEXT_INPUTS_GUIDANCE,
   GENERATION_WRITING_PROMPT_PROGRAM,
   SELF_CHECK_SYSTEM_PROMPT,
+  SUMMARY_PLAN_SELF_CHECK_SYSTEM_PROMPT,
 } from "./prompts";
 import {
   ANALYSIS_SCHEMA,
@@ -80,8 +81,20 @@ import {
   SELF_CHECK_REQUEST,
   SELF_CHECK_SCHEMA,
   SEED_PROMPT_PROGRAM,
+  SUMMARY_PLAN_SELF_CHECK_REQUEST,
+  SUMMARY_PLAN_SELF_CHECK_SCHEMA,
   STYLE_GUIDANCE_SCAFFOLDS,
 } from "./promptDefinitions";
+import {
+  FROZEN_SUMMARY_PLAN_CHECKS_SCAFFOLD,
+  FROZEN_SUMMARY_PLAN_SCAFFOLD,
+  MAX_SUMMARY_ORDINARY_VERDICTS,
+  MAX_SUMMARY_PLAN_CHECK_INPUT_UTF8_BYTES,
+  MAX_SUMMARY_PLAN_VERDICTS,
+  MAX_SUMMARY_SELF_CHECK_RESPONSE_UTF8_BYTES,
+  SUMMARY_ORDINARY_LABEL_PROJECTION_VERSION,
+  SUMMARY_PLAN_SERIALIZER_VERSION,
+} from "../lib/seedRevisions";
 import { CANDIDATE_MODE_ROUTING } from "./model";
 import {
   RETRIEVAL_BRIEF_MODEL,
@@ -472,6 +485,13 @@ export const generationPromptProgram = {
       structuredPolicy: "two-attempt-repair",
       callSite: "generation:selfCheck:<n>",
       perSection: 1,
+      summaryPlan: {
+        systemTemplate: SUMMARY_PLAN_SELF_CHECK_SYSTEM_PROMPT,
+        requestScaffold: SUMMARY_PLAN_SELF_CHECK_REQUEST,
+        schema: SUMMARY_PLAN_SELF_CHECK_SCHEMA,
+        structuredPolicy: "single-attempt-no-repair",
+        encodedJsonRecovery: "disabled",
+      },
     },
     // Story 2 (CAP-9): the repair is the section agent itself, re-run once
     // with the repair guidance appended; re-checked deterministically only.
@@ -531,6 +551,19 @@ export const generationPromptProgram = {
     seeds: {
       scaffolds: SEED_PROMPT_PROGRAM,
       roles: seedRolePromptProgram,
+      summaryPlan: {
+        drafting: FROZEN_SUMMARY_PLAN_SCAFFOLD,
+        checks: FROZEN_SUMMARY_PLAN_CHECKS_SCAFFOLD,
+        serializerVersion: SUMMARY_PLAN_SERIALIZER_VERSION,
+        ordinaryLabelProjectionVersion:
+          SUMMARY_ORDINARY_LABEL_PROJECTION_VERSION,
+        capacity: {
+          maxOrdinaryVerdicts: MAX_SUMMARY_ORDINARY_VERDICTS,
+          maxPlanVerdicts: MAX_SUMMARY_PLAN_VERDICTS,
+          maxCheckInputUtf8Bytes: MAX_SUMMARY_PLAN_CHECK_INPUT_UTF8_BYTES,
+          maxResponseUtf8Bytes: MAX_SUMMARY_SELF_CHECK_RESPONSE_UTF8_BYTES,
+        },
+      },
     },
   },
   configuration: {

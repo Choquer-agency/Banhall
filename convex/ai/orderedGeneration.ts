@@ -13,6 +13,7 @@ import { internalAction, type ActionCtx } from "../_generated/server";
 import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { v } from "convex/values";
+import type { FunctionReturnType } from "convex/server";
 import { clientForModel, normalizeProviderError } from "./providers";
 import type { GenerationClient, GenerationMessageParams } from "./openrouterCore";
 import { parseTranscriptAnalysis } from "./analyzerAgent";
@@ -58,13 +59,36 @@ import {
   type DeterministicSelfCheck,
   type ModelVerdict,
 } from "../lib/selfCheckRules";
-import type { ComplianceNoteDraft } from "../lib/complianceNote";
+import { noteDraft, type ComplianceNoteDraft } from "../lib/complianceNote";
+import { currentPromptVersion } from "./promptProgram";
+import type { PdSubsectionRoleId } from "../../shared/pdSubsections";
 
 const SECTION_AGENTS = {
   "242": runSection242Agent,
   "244": runSection244Agent,
   "246": runSection246Agent,
 } as const;
+
+/** Stamp the deployment's current prompt program, then enter the frozen plan. */
+export const startSummaryRecovery = internalAction({
+  args: { generationId: v.id("generations") },
+  returns: v.null(),
+  handler: async (ctx, args): Promise<null> => {
+    try {
+      await ctx.runMutation(internal.generations.beginSummaryRecovery, {
+        generationId: args.generationId,
+        promptVersion: await currentPromptVersion(),
+      });
+    } catch (error) {
+      const normalized = normalizeProviderError(error);
+      await ctx.runMutation(internal.generations.failGeneration, {
+        generationId: args.generationId,
+        error: `${normalized.code}: ${normalized.message}`,
+      });
+    }
+    return null;
+  },
+});
 
 /** Prompt block carrying this candidate's prior DRAFTED sections (ungated:
  * context for consistency, never iterative's "approved" canonical text). */
@@ -88,6 +112,88 @@ export function repairGuidanceBlock(issues: string[], draft: string): string {
   return `${scaffold.prefix}${issues
     .map((issue) => `${scaffold.issuePrefix}${issue}`)
     .join(scaffold.issueSeparator)}${scaffold.draftPrefix}${draft}`;
+}
+
+type PlanCheck = {
+  itemId?: Id<"summaryItems">;
+  skippedRoleId?: PdSubsectionRoleId;
+  roleId: PdSubsectionRoleId;
+  mergedItemIds: Id<"summaryItems">[];
+  instruction: "cover" | "skip";
+  confirmedExclusion: boolean;
+  support?: "source_supported" | "writer_asserted";
+  wording: string[];
+  relationshipReferences: Array<{
+    seedId: Id<"seeds">;
+    wording: string[];
+  }>;
+  sourceReferences: Array<{
+    originatingItemId: Id<"summaryItems">;
+    sourceId: string;
+    exactExcerpt: string;
+  }>;
+};
+
+function sameUtf8Bytes(left: string, right: string): boolean {
+  const leftBytes = new TextEncoder().encode(left);
+  const rightBytes = new TextEncoder().encode(right);
+  return leftBytes.byteLength === rightBytes.byteLength &&
+    leftBytes.every((byte, index) => byte === rightBytes[index]);
+}
+
+/** Convert the one Self-check response into one AD-37 row per item/Skip. */
+export function planComplianceNoteDrafts(args: {
+  section: SectionNumber;
+  summaryVersionId: Id<"summaryVersions">;
+  checks: PlanCheck[];
+  verdicts: ModelSelfCheckResult["planVerdicts"];
+  repairSucceeded?: boolean;
+  coverageCheckSucceeded?: boolean;
+  finalCoverageNotReverified?: boolean;
+}): ComplianceNoteDraft[] {
+  return args.verdicts.flatMap((verdict) => {
+    const expected = args.checks.find((check) =>
+      verdict.itemId
+        ? check.itemId === verdict.itemId
+        : check.skippedRoleId === verdict.skippedRoleId
+    );
+    if (!expected) return [];
+    const conflict = expected.confirmedExclusion;
+    const invalidated =
+      !conflict &&
+      args.finalCoverageNotReverified === true &&
+      verdict.outcome === "applied";
+    return [noteDraft({
+      section: args.section,
+      ...(conflict || invalidated || verdict.paragraphIndex === undefined
+        ? {}
+        : { paragraphIndex: verdict.paragraphIndex }),
+      source: "model",
+      instruction: expected.instruction === "skip"
+        ? `Omit signed-off role ${expected.skippedRoleId}`
+        : `Cover signed-off Summary item ${expected.itemId}`,
+      outcome: conflict || invalidated ? "not_applied" : verdict.outcome,
+      tier: conflict ? "conflict" : "none",
+      reason: conflict
+        ? "The writer confirmed a Brief Claim Exclusion conflict at sign-off."
+        : invalidated
+          ? "Final coverage was not reverified after an accepted repair changed the exact checked Section text."
+          : verdict.reason,
+      repaired:
+        !conflict &&
+        !invalidated &&
+        verdict.outcome === "not_applied" &&
+        verdict.actionableRepair !== false &&
+        args.coverageCheckSucceeded !== false &&
+        (args.repairSucceeded ?? false),
+      planRef: {
+        summaryVersionId: args.summaryVersionId,
+        ...(expected.itemId ? { itemId: expected.itemId } : {}),
+        ...(expected.skippedRoleId ? { skippedRoleId: expected.skippedRoleId } : {}),
+        mergedItemIds: expected.mergedItemIds,
+      },
+    })];
+  });
 }
 
 /** AD-27: one increment per messages.create, keyed by slot. */
@@ -171,11 +277,30 @@ export const generateOrderedSection = internalAction({
   },
   returns: v.null(),
   handler: async (ctx, args): Promise<null> => {
-    const claim = await ctx.runMutation(internal.generations.claimOrderedSectionRun, {
-      generationId: args.generationId,
-      candidateRunId: args.candidateRunId,
-      section: args.section,
-    });
+    let claim: FunctionReturnType<
+      typeof internal.generations.claimOrderedSectionRun
+    >;
+    try {
+      claim = await ctx.runMutation(internal.generations.claimOrderedSectionRun, {
+        generationId: args.generationId,
+        candidateRunId: args.candidateRunId,
+        section: args.section,
+        promptVersion: await currentPromptVersion(),
+        payload: args.payload,
+      });
+    } catch (error) {
+      // The failed claim mutation rolls back atomically. The owning action is
+      // still responsible for terminalizing its live signed-off chain so the
+      // immutable Summary can be retried.
+      const normalized = normalizeProviderError(error);
+      await ctx.runMutation(internal.generations.failOrderedSectionRun, {
+        generationId: args.generationId,
+        candidateRunId: args.candidateRunId,
+        section: args.section,
+        error: `${normalized.code}: ${normalized.message}`,
+      });
+      return null;
+    }
     if (!claim) return null;
     if ("stopped" in claim) {
       await ctx.scheduler.runAfter(0, internal.ai.orderedGeneration.finalizeOrderedCandidate, {
@@ -204,7 +329,8 @@ export const generateOrderedSection = internalAction({
       const key = sectionKeyOf(section);
       const lengthTarget = claim.lengthTarget as LengthTarget;
       const styleGuidance =
-        buildStyleGuidance(payload.draftStyle, payload.writerFlavor, styleOverrides) +
+        (payload.frozenStyleGuidance ??
+          buildStyleGuidance(payload.draftStyle, payload.writerFlavor, styleOverrides)) +
         draftedPriorSectionsBlock(claim.priorSections);
       const styleDigestIds =
         payload.draftStyleDigestId && payload.draftStyle?.trim()
@@ -221,7 +347,8 @@ export const generateOrderedSection = internalAction({
             lengthBudgetBlock(key, lengthTarget),
             styleGuidance + extraGuidance,
             styleOverrides,
-            claim.briefBlock
+            claim.briefBlock,
+            claim.planBlock
           ),
           styleOverrides.bannedWords
         );
@@ -250,11 +377,15 @@ export const generateOrderedSection = internalAction({
           brief,
           profile: payload.orderedContext,
           isFirstInOrder: claim.isFirstInOrder,
+          confirmedPlanConflicts: claim.planChecks
+            .filter((planCheck) => planCheck.confirmedExclusion)
+            .map((planCheck) => planCheck.wording),
         });
       const before = check(text);
 
       let verdicts: ModelVerdict[] = [];
       let storylineQuestion: ModelSelfCheckResult["storylineQuestion"] = null;
+      let planVerdicts: ModelSelfCheckResult["planVerdicts"] = [];
       let modelCheck: { ok: true } | { ok: false; reason: string } = { ok: true };
       try {
         const result = await runModelSelfCheck(clientFor(`generation:selfCheck:${section}`), {
@@ -266,16 +397,40 @@ export const generateOrderedSection = internalAction({
           writerInstructions: payload.writerFlavor,
           rules: before.modelRules,
           model: claim.model,
+          planChecks: claim.planChecks,
+          planChecksBlock: claim.planChecksBlock,
         });
         verdicts = result.verdicts;
         storylineQuestion = result.storylineQuestion;
+        planVerdicts = result.planVerdicts;
       } catch (error) {
         // An unrepaired or unrun check never blocks the section (Never-rule);
         // the failure is recorded in the Compliance Note instead.
         modelCheck = { ok: false, reason: normalizeProviderError(error).code };
+        planVerdicts = claim.planChecks.map((check) => ({
+          ...(check.itemId ? { itemId: check.itemId } : {}),
+          ...(check.skippedRoleId ? { skippedRoleId: check.skippedRoleId } : {}),
+          mergedItemIds: [...check.mergedItemIds],
+          outcome: "not_applied" as const,
+          reason: "The plan coverage Self-check did not complete.",
+        }));
       }
 
-      const issues = repairIssues(before, verdicts);
+      const planIssues = modelCheck.ok
+        ? planVerdicts.flatMap((verdict) => {
+            const expected = claim.planChecks.find((check) =>
+              verdict.itemId
+                ? check.itemId === verdict.itemId
+                : check.skippedRoleId === verdict.skippedRoleId
+            );
+            return verdict.outcome === "not_applied" &&
+              verdict.actionableRepair !== false &&
+              !expected?.confirmedExclusion
+              ? [verdict.repairGuidance ?? verdict.reason]
+              : [];
+          })
+        : [];
+      const issues = [...repairIssues(before, verdicts), ...planIssues];
       const repair: { attempted: boolean; succeeded: boolean; failureReason?: string } = {
         attempted: issues.length > 0,
         succeeded: false,
@@ -303,13 +458,16 @@ export const generateOrderedSection = internalAction({
         }
       }
 
+      const finalCoverageNotReverified =
+        repair.succeeded && !sameUtf8Bytes(text, finalText);
+
       // The question is stored only when it cites a Confidence Map entry of
       // this Brief; the note must not claim a question the Brief never got.
       const evidence =
         storylineQuestion && storylineQuestion.confidenceEntryIndex !== null
           ? brief?.confidenceMap[storylineQuestion.confidenceEntryIndex]
           : undefined;
-      const { rows, summary } = assembleSectionNotes({
+      const { rows: baseRows, summary: baseSummary } = assembleSectionNotes({
         section,
         before,
         after,
@@ -321,6 +479,49 @@ export const generateOrderedSection = internalAction({
         repair,
         finalText,
       });
+      const rows = [...baseRows];
+      let planRows: ComplianceNoteDraft[] = [];
+      if (payload.summaryVersionId) {
+        planRows = planComplianceNoteDrafts({
+          section,
+          summaryVersionId: payload.summaryVersionId,
+          checks: claim.planChecks,
+          verdicts: planVerdicts,
+          repairSucceeded: repair.succeeded,
+          coverageCheckSucceeded: modelCheck.ok,
+          finalCoverageNotReverified,
+        });
+        rows.push(...planRows);
+      }
+      const initialPlanFailures = planVerdicts.filter((verdict) => {
+        const expected = claim.planChecks.find((check) =>
+          verdict.itemId
+            ? check.itemId === verdict.itemId
+            : check.skippedRoleId === verdict.skippedRoleId
+        );
+        return verdict.outcome !== "applied" || expected?.confirmedExclusion === true;
+      }).length;
+      const finalPlanFailures = planRows.filter(
+        (row) => row.outcome !== "applied"
+      ).length;
+      const summary = {
+        ...baseSummary,
+        failedChecks: baseSummary.failedChecks + initialPlanFailures,
+        remainingFailures: baseSummary.remainingFailures + finalPlanFailures,
+        ...(payload.summaryVersionId
+          ? {
+              planCoverage: {
+                status: modelCheck.ok
+                  ? finalPlanFailures === 0
+                    ? "complete" as const
+                    : "incomplete" as const
+                  : "unavailable" as const,
+                applied: planRows.length - finalPlanFailures,
+                total: planRows.length,
+              },
+            }
+          : {}),
+      };
       await ctx.runMutation(internal.generations.completeOrderedSectionRun, {
         generationId: args.generationId,
         candidateRunId: args.candidateRunId,
@@ -370,15 +571,6 @@ export const finalizeOrderedCandidate = internalAction({
   },
   returns: v.null(),
   handler: async (ctx, args): Promise<null> => {
-    const [drafts, input] = await Promise.all([
-      ctx.runQuery(internal.generations.getOrderedCandidateDrafts, {
-        generationId: args.generationId,
-        candidateRunId: args.candidateRunId,
-      }),
-      ctx.runQuery(internal.generations.getGenerationInput, {
-        generationId: args.generationId,
-      }),
-    ]);
     const complete = (
       fields: Omit<
         Parameters<typeof ctx.runMutation<typeof internal.generations.completeCandidateRun>>[1],
@@ -389,25 +581,34 @@ export const finalizeOrderedCandidate = internalAction({
         candidateRunId: args.candidateRunId,
         ...fields,
       });
-    if (!drafts || !input || drafts.runStatus !== "running") {
-      if (drafts?.runStatus === "running") {
-        await complete({ error: "Frozen generation input unavailable" });
-      }
-      return null;
-    }
-    const slotCounts: Record<string, number> = {};
-    const clientFor = chainClientFactory(
-      ctx,
-      {
-        model: drafts.model,
-        projectId: input.projectId,
-        requestedBy: input.requestedBy,
-        generationId: args.generationId,
-        candidateRunId: args.candidateRunId,
-      },
-      slotCounts
-    );
     try {
+      const [drafts, input] = await Promise.all([
+        ctx.runQuery(internal.generations.getOrderedCandidateDrafts, {
+          generationId: args.generationId,
+          candidateRunId: args.candidateRunId,
+        }),
+        ctx.runQuery(internal.generations.getGenerationInput, {
+          generationId: args.generationId,
+        }),
+      ]);
+      if (!drafts || !input || drafts.runStatus !== "running") {
+        if (drafts?.runStatus === "running") {
+          await complete({ error: "Frozen generation input unavailable" });
+        }
+        return null;
+      }
+      const slotCounts: Record<string, number> = {};
+      const clientFor = chainClientFactory(
+        ctx,
+        {
+          model: drafts.model,
+          projectId: input.projectId,
+          requestedBy: input.requestedBy,
+          generationId: args.generationId,
+          candidateRunId: args.candidateRunId,
+        },
+        slotCounts
+      );
       const { payload } = args;
       const analysis = parseTranscriptAnalysis(payload.analysis);
       const styleOverrides = normalizeStyleOverrides(payload.styleOverrides);

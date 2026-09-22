@@ -1,4 +1,7 @@
-import { normalizeExclusionMatch } from "./claimExclusionMatcher";
+import {
+  matchesClaimExclusion,
+  normalizeExclusionMatch,
+} from "./claimExclusionMatcher";
 import { LINE_LIMITS, WORD_CAPS, sectionMetrics } from "./lineLimits";
 import { sectionParagraphs } from "./tiptapReport";
 import { matchGlossaryTerms } from "./glossaryMatcher";
@@ -165,6 +168,8 @@ export function runDeterministicSelfCheck(input: {
   profile: OrderedProfileContext;
   /** The first section in production order carries the Build Order row. */
   isFirstInOrder: boolean;
+  /** Signed plan items whose matching Brief exclusions were human-confirmed. */
+  confirmedPlanConflicts?: readonly (readonly string[])[];
 }): DeterministicSelfCheck {
   const { section, text, brief, profile, isFirstInOrder } = input;
   const key = sectionKeyOf(section);
@@ -358,17 +363,25 @@ export function runDeterministicSelfCheck(input: {
       });
       return;
     }
+    const confirmedPlanConflict = (input.confirmedPlanConflicts ?? []).some(
+      (wording) =>
+        matchesClaimExclusion(wording, exclusion.text, exclusion.exactExcerpt)
+    );
     add(
       `exclusion:${index}`,
       {
         instruction,
         paragraphIndex: found,
         outcome: "not_applied",
-        tier: "none",
-        reason: `excluded claim appears in paragraph ${found + 1} (${label})`,
+        tier: confirmedPlanConflict ? "conflict" : "none",
+        reason: confirmedPlanConflict
+          ? `writer-confirmed signed-plan conflict appears in paragraph ${found + 1} (${label}); retained and not repaired`
+          : `excluded claim appears in paragraph ${found + 1} (${label})`,
       },
-      true,
-      `Paragraph ${found + 1}: remove the excluded claim "${exclusion.text}"; it is outside the eligible work (${label}) and must not be claimed.`
+      !confirmedPlanConflict,
+      confirmedPlanConflict
+        ? undefined
+        : `Paragraph ${found + 1}: remove the excluded claim "${exclusion.text}"; it is outside the eligible work (${label}) and must not be claimed.`
     );
   });
 

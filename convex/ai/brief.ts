@@ -455,7 +455,10 @@ export async function deriveOrReuseBrief(
   const inputsHash = await briefInputsHash(sources);
   const reusableId = args.seedStartup
     ? await ctx.runMutation(internal.generations.pinSeedBrief, { generationId: args.generationId, inputsHash })
-    : (await ctx.runQuery(internal.generations.findReusableBrief, { projectId: args.projectId, inputsHash }))?._id;
+    : (await ctx.runQuery(internal.generations.findReusableBrief, {
+        generationId: args.generationId,
+        inputsHash,
+      }))?._id;
   if (reusableId) {
     if (!args.seedStartup) await ctx.runMutation(internal.generations.stampGenerationBriefId, {
       generationId: args.generationId, briefId: reusableId,

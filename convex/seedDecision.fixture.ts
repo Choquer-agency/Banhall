@@ -70,15 +70,41 @@ export async function decisionFixture() {
     await ctx.db.insert("generationArtifacts", {
       generationId,
       kind: "analysis",
-      content: "{}",
+      content: JSON.stringify({
+        company_context: "Test company",
+        project_goal: "Stabilize a control system",
+        business_problem: "Existing controls were unstable",
+        scientific_technical_problem: "Response under load was unknown",
+        passive_uncertainties: [],
+        active_uncertainties: ["Control response"],
+        technological_objective: "A repeatable control response",
+        work_performed: {
+          prior_year_status: null,
+          workplan_steps: [],
+          hypothesis: "A tuned loop would stabilize output",
+          experiments_iterations: [],
+        },
+        advancements_achieved: ["The stable operating range was established"],
+        remaining_uncertainties: [],
+        project_status: "completed",
+        unreliable_narrator_flags: [],
+        gaps: [],
+        useful_quotes: [],
+      }),
     });
     await ctx.db.insert("generationArtifacts", {
       generationId,
       kind: "brain_blocks",
       content: JSON.stringify({
-        blocks: {},
+        blocks: { analyzer: "", s242: "", s244: "", s246: "" },
         styleGuidance: "Use direct language.",
         styleOverrides: {},
+        orderedContext: {
+          profileState: "missing",
+          categoryOutcomes: [],
+          buildOrder: ["246", "242", "244"],
+          selfCheckRules: [],
+        },
       }),
     });
     const sourceContent = "Evidence alpha supports the work.";
