@@ -10,6 +10,7 @@ import {
   __mutationCalls,
   __resetConvexStub,
   __setMutationError,
+  __setMutationResult,
   __setPaginatedRows,
   __setQueryData,
 } from "$lib/test/convex-svelte-stub.svelte";
@@ -278,6 +279,35 @@ describe("PreviewProjectPage final shell", () => {
     ]);
     await page.getByRole("button", { name: "Close details", exact: true }).click();
     await expect.poll(() => document.querySelector("[data-side-panel]")?.getAttribute("data-side-panel") ?? null).toBeNull();
+  });
+
+  it("keeps a science code chosen by hand while an AI suggestion is pending", async () => {
+    seed();
+    let resolveSuggestion!: (value: unknown) => void;
+    __setMutationResult("scienceCodeSuggestions:suggest", new Promise((done) => (resolveSuggestion = done)));
+    await render(PreviewProjectPage);
+    await expect.element(page.getByText("Evidence from thermal trials.", { exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "Details", exact: true }).click();
+    await page.getByRole("button", { name: "Edit science code", exact: true }).click();
+    await page.getByRole("button", { name: "Suggest with AI", exact: true }).click();
+    await expect.poll(() => __mutationCalls("scienceCodeSuggestions:suggest")).toHaveLength(1);
+
+    // The writer reopens the picker and chooses a code by hand.
+    await page.getByRole("button", { name: "Edit science code", exact: true }).click();
+    await page.getByPlaceholder("Search by name or code").fill("robotics");
+    await expect.poll(() => document.querySelectorAll("[data-command-item]").length).toBe(1);
+    (document.querySelector("[data-command-item]") as HTMLElement).click();
+    await expect.poll(() => __mutationCalls("projects:updateProjectScienceCode")).toEqual([
+      { projectId: "project-1", scienceCode: "2.02.02" },
+    ]);
+
+    // The late suggestion never overwrites that choice.
+    resolveSuggestion({ code: "1.02.01", label: "Chemistry" });
+    await new Promise((done) => setTimeout(done, 50));
+    expect(__mutationCalls("projects:updateProjectScienceCode")).toEqual([
+      { projectId: "project-1", scienceCode: "2.02.02" },
+    ]);
+    expect(document.querySelector('[data-details-facts]')?.textContent).not.toContain("Suggested");
   });
 
   it("opens QA in the side slot with the quiet score line and band-coloured bars", async () => {

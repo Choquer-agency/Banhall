@@ -58,6 +58,15 @@ export type DetailsFieldSavers = {
   onSaveFiscalYear?: (fiscalYearEnd: number | null) => Promise<void>;
   onSaveScienceCode?: (scienceCode: string | null) => Promise<void>;
   onSaveProjectNumber?: (projectNumber: string) => Promise<void>;
-  /** Asks the AI for a science code and saves it; resolves to the chosen label or null. */
-  onSuggestScienceCode?: () => Promise<string | null>;
+  /**
+   * Asks the AI for a science code and saves it. "superseded" means the
+   * writer chose a code by hand while the suggestion was pending, so the
+   * suggestion was not saved.
+   */
+  onSuggestScienceCode?: () => Promise<ScienceCodeSuggestion>;
 };
+
+export type ScienceCodeSuggestion =
+  | { status: "suggested"; label: string }
+  | { status: "none" }
+  | { status: "superseded" };
