@@ -69,6 +69,132 @@ function sectionBody(text: string | null | undefined): Array<Record<string, unkn
   return textToParagraphs(text);
 }
 
+type ReportNode = { type?: unknown; attrs?: unknown; content?: unknown; text?: unknown };
+type SectionKey = "s242" | "s244" | "s246";
+
+function inlineText(node: ReportNode): string {
+  if (typeof node.text === "string") return node.text;
+  if (!Array.isArray(node.content)) return "";
+  return (node.content as ReportNode[]).map(inlineText).join("");
+}
+
+/** A top-level report heading that opens one of the three Sections. */
+function sectionOfHeading(node: ReportNode): SectionKey | null {
+  if (node.type !== "heading") return null;
+  const level =
+    node.attrs && typeof node.attrs === "object" && "level" in node.attrs
+      ? (node.attrs as { level?: unknown }).level
+      : undefined;
+  if (level !== 2) return null;
+  const match = inlineText(node).trim().match(/^(?:Line|Section)\s+(242|244|246)\b/i);
+  return match ? (`s${match[1]}` as SectionKey) : null;
+}
+
+function parseReportDoc(content: string): { type: "doc"; content: ReportNode[] } | null {
+  try {
+    const parsed: unknown = JSON.parse(content);
+    if (
+      parsed &&
+      typeof parsed === "object" &&
+      (parsed as ReportNode).type === "doc" &&
+      Array.isArray((parsed as ReportNode).content)
+    ) {
+      return parsed as { type: "doc"; content: ReportNode[] };
+    }
+  } catch {
+    /* Plaintext reports have no node structure to fill. */
+  }
+  return null;
+}
+
+/** Top-level [start, end) body range of each Section: the nodes after its
+ * heading up to the next Section heading, minus a trailing divider. */
+function sectionBodyRanges(nodes: ReportNode[]): Map<SectionKey, { start: number; end: number }> {
+  const headings: Array<{ key: SectionKey; index: number }> = [];
+  nodes.forEach((node, index) => {
+    const key = sectionOfHeading(node);
+    if (key) headings.push({ key, index });
+  });
+  const ranges = new Map<SectionKey, { start: number; end: number }>();
+  headings.forEach((heading, position) => {
+    // A Section heading that appears twice is ambiguous: refuse to fill it.
+    if (headings.filter((other) => other.key === heading.key).length > 1) return;
+    let end = headings[position + 1]?.index ?? nodes.length;
+    while (end > heading.index + 1 && nodes[end - 1]?.type === "horizontalRule") end -= 1;
+    ranges.set(heading.key, { start: heading.index + 1, end });
+  });
+  return ranges;
+}
+
+/** True when a Section body is still exactly the untouched "Not drafted"
+ * placeholder: one paragraph reading `[NOT GENERATED]`, ignoring empty
+ * paragraphs the editor may add around it. */
+function isNotDraftedBody(nodes: ReportNode[]): boolean {
+  const meaningful = nodes.filter(
+    (node) => !(node.type === "paragraph" && !inlineText(node).trim())
+  );
+  return (
+    meaningful.length === 1 &&
+    meaningful[0].type === "paragraph" &&
+    inlineText(meaningful[0]).trim() === NOT_GENERATED_PLACEHOLDER
+  );
+}
+
+/** Sections whose body in `content` is still the untouched placeholder. */
+export function notDraftedReportSections(content: string): SectionKey[] {
+  const doc = parseReportDoc(content);
+  if (!doc) return [];
+  const ranges = sectionBodyRanges(doc.content);
+  return (["s242", "s244", "s246"] as const).filter((key) => {
+    const range = ranges.get(key);
+    return range !== undefined && isNotDraftedBody(doc.content.slice(range.start, range.end));
+  });
+}
+
+/**
+ * Redraft after Stop (owner decision 20): replace the body of each Section
+ * that is still exactly the `[NOT GENERATED]` placeholder with its drafted
+ * paragraphs. Every other node, including every Section the writer edited or
+ * filled by hand, is carried over unchanged. A Section whose placeholder is
+ * gone (the writer typed there) is reported as skipped and left alone.
+ */
+export function fillNotDraftedSections(
+  content: string,
+  drafts: Partial<Record<SectionKey, string>>
+): { content: string; filled: SectionKey[]; skipped: SectionKey[] } {
+  const requested = (["s242", "s244", "s246"] as const).filter(
+    (key) => drafts[key] !== undefined
+  );
+  const doc = parseReportDoc(content);
+  if (!doc) return { content, filled: [], skipped: requested };
+  const ranges = sectionBodyRanges(doc.content);
+  const fillable = requested.filter((key) => {
+    const range = ranges.get(key);
+    const text = drafts[key] ?? "";
+    return (
+      range !== undefined &&
+      text.trim().length > 0 &&
+      isNotDraftedBody(doc.content.slice(range.start, range.end))
+    );
+  });
+  if (fillable.length === 0) return { content, filled: [], skipped: requested };
+  // Splice from the end so earlier ranges keep their indices.
+  const ordered = [...fillable].sort(
+    (left, right) => (ranges.get(right)?.start ?? 0) - (ranges.get(left)?.start ?? 0)
+  );
+  const nodes = [...doc.content];
+  for (const key of ordered) {
+    const range = ranges.get(key);
+    if (!range) continue;
+    nodes.splice(range.start, range.end - range.start, ...textToParagraphs(drafts[key] ?? ""));
+  }
+  return {
+    content: JSON.stringify({ ...doc, content: nodes }),
+    filled: fillable,
+    skipped: requested.filter((key) => !fillable.includes(key)),
+  };
+}
+
 /**
  * Build a Tiptap-compatible JSON document from the three section texts.
  * The exact heading strings are load-bearing: parseCanonicalReport

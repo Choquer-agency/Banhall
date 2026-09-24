@@ -147,6 +147,33 @@ export const PD_SUBSECTIONS = [
 export type PdSubsection = (typeof PD_SUBSECTIONS)[number];
 export type PdSubsectionRoleId = PdSubsection["roleId"];
 
+/**
+ * Display headings for the three report Sections in the Step-by-step writing
+ * view (ui-design-final.md section 6): the small sans label ("242 Technological
+ * uncertainty") and the serif question. Presentation only; the report's own
+ * Line headings stay as buildTiptapDocument writes them.
+ */
+export const PD_SECTION_HEADINGS = {
+  s242: {
+    number: "242",
+    title: "Technological uncertainty",
+    question: "What scientific or technological uncertainties did you attempt to overcome?",
+  },
+  s244: {
+    number: "244",
+    title: "Work performed",
+    question: "What work did you perform to overcome these uncertainties?",
+  },
+  s246: {
+    number: "246",
+    title: "Technological advancement",
+    question: "What scientific or technological advancements did you achieve?",
+  },
+} as const satisfies Record<
+  PdSection,
+  { number: string; title: string; question: string }
+>;
+
 type RoleAudience = "draft" | "qa" | "chat" | "qaScan";
 
 const ROLE_LANGUAGE = {

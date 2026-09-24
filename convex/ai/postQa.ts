@@ -71,10 +71,24 @@ export const runReportQa = internalAction({
     // Reviewer calibration digest and (for legacy generations without a
     // frozen copy) the live style policy load in parallel — both optional,
     // neither may block the scorecard.
+    const frozen = "frozenQaInputs" in input ? input.frozenQaInputs : undefined;
     const calibrationPromise = (async (): Promise<
-      | { content: string; digestId: Id<"learningDigests"> }
+      | { content: string; digestId?: Id<"learningDigests"> }
       | undefined
     > => {
+      // CAP-18: a signed-off seed run scores under the calibration frozen at
+      // generation start, exactly as its former inline QA did; never the
+      // live digest.
+      if (frozen) {
+        return frozen.qaCalibration?.trim()
+          ? {
+              content: frozen.qaCalibration,
+              ...(frozen.qaCalibrationDigestId
+                ? { digestId: frozen.qaCalibrationDigestId }
+                : {}),
+            }
+          : undefined;
+      }
       try {
         const digest = await ctx.runQuery(internal.learning.getActiveDigest, {
           kind: "qa_calibration",
@@ -97,8 +111,13 @@ export const runReportQa = internalAction({
     }> => {
       // Frozen waivers carry no preference text, so first-person intent is
       // unknown on that path; the QA prompt falls back to report-based detection.
-      if (input.styleOverrides) {
-        return { overrides: normalizeStyleOverrides(input.styleOverrides), firstPerson: null };
+      if (input.styleOverrides || frozen) {
+        return {
+          overrides: normalizeStyleOverrides(input.styleOverrides),
+          // A seed run froze the writer's instructions too, so its intent is
+          // known; the inline QA it replaces read it the same way.
+          firstPerson: frozen ? detectFirstPersonPreference(frozen.writerFlavor) : null,
+        };
       }
       try {
         const profile = await ctx.runQuery(
@@ -129,7 +148,7 @@ export const runReportQa = internalAction({
         runQAAgent(
           clientFor(
             "generation:post_qa",
-            calibration ? [calibration.digestId] : undefined
+            calibration?.digestId ? [calibration.digestId] : undefined
           ),
           analysis,
           input.section242,

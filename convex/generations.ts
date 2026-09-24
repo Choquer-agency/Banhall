@@ -1,5 +1,12 @@
 import { bypassSeedEpisodes } from "./lib/seedDecisionWrites";
-import { extractReportSections } from "./lib/tiptapReport";
+import {
+  extractReportSections,
+  fillNotDraftedSections,
+  notDraftedReportSections,
+  NOT_GENERATED_PLACEHOLDER,
+  sectionParagraphs,
+} from "./lib/tiptapReport";
+import { writePreEditSnapshot } from "./lib/snapshots";
 import { persistDeterministicFindings, persistMethodologyFindings, reportQaRef } from "./lib/qaFindings";
 import {
   query,
@@ -40,7 +47,11 @@ import {
 import { randomComparePair, resolveCompareModels } from "./ai/model";
 import { findActiveGeneration } from "./lib/activeGeneration";
 import { resolveGatedWorkflow, resolveSeedPhase } from "./lib/gatedWorkflow";
-import { PD_SUBSECTIONS, type PdSubsectionRoleId } from "../shared/pdSubsections";
+import {
+  PD_SECTION_HEADINGS,
+  PD_SUBSECTIONS,
+  type PdSubsectionRoleId,
+} from "../shared/pdSubsections";
 import {
   assertFrozenSourceBijection,
   buildFrozenSummaryPlan,
@@ -221,6 +232,12 @@ export const getLatestGeneration = query({
       selectedModelLabel,
       iterativeModelLabel,
       postQaStatus: generation.postQaStatus,
+      // Step-by-step writing and QA (CAP-17, CAP-18): the writer's stop, the
+      // last Section drafted before it when Sections remain Not drafted, and
+      // when the latest QA pass settled.
+      stopRequestedAt: generation.stopRequestedAt,
+      stoppedAfterSection: generation.stoppedAfterSection,
+      postQaCompletedAt: generation.postQaCompletedAt,
       _id: generation._id,
       projectId: generation.projectId,
       transcriptId: generation.transcriptId,
@@ -1647,8 +1664,14 @@ async function settleCandidateRun(
     // chain, the section it stopped after. Compare candidates stop
     // independently, so there the selected candidate's value is copied on
     // selectReportCandidate instead.
+    // A signed-off seed run is one chain too (FR-43): its stop is stamped here.
+    const isSeedOrdered =
+      generation.candidateMode === "iterative" &&
+      resolveGatedWorkflow(generation) === "seeds" &&
+      generation.summaryVersionId !== undefined;
     const stampStop =
-      args.stoppedAfterSection !== undefined && generation.candidateMode === "single";
+      args.stoppedAfterSection !== undefined &&
+      (generation.candidateMode === "single" || isSeedOrdered);
     if (args.productionOrder || stampStop) {
       await ctx.db.patch(generation._id, {
         ...(args.productionOrder ? { productionOrder: args.productionOrder } : {}),
@@ -1686,10 +1709,10 @@ async function settleCandidateRun(
       return;
     }
     if (done > 0) {
-      const isSeedOrdered =
-        generation.candidateMode === "iterative" &&
-        resolveGatedWorkflow(generation) === "seeds" &&
-        generation.summaryVersionId !== undefined;
+      // CAP-18: the seed report exists before QA, which then runs in the
+      // background. A stopped seed draft runs no QA (FR-43).
+      const seedStopped = isSeedOrdered && args.stoppedAfterSection !== undefined;
+      const scheduleSeedQa = isSeedOrdered && !seedStopped;
       if (generation.candidateMode !== "single" && !isSeedOrdered) {
         await ctx.db.patch(generation._id, {
           status: "awaiting_selection",
@@ -1705,6 +1728,16 @@ async function settleCandidateRun(
       const candidate = candidateId ? await ctx.db.get(candidateId) : null;
       if (!candidate) return;
       await createGeneratedReportArtifacts(ctx, generation, candidate);
+      if (seedStopped) {
+        // FR-43: the Sections the stop left undrafted are explicitly "Not
+        // drafted" rather than pending forever; redraftMissingSections
+        // re-queues exactly these rows.
+        await terminalizeSignedOffSeedSections(
+          ctx,
+          generation._id,
+          NOT_DRAFTED_AFTER_STOP
+        );
+      }
       const now = Date.now();
       await ctx.db.patch(project._id, {
         activeGenerationId: undefined,
@@ -1718,10 +1751,15 @@ async function settleCandidateRun(
         currentStep: "Complete",
         agentOutputs: candidate.agentOutputs,
         completedAt: now,
-        progressLog: isSeedOrdered
+        progressLog: scheduleSeedQa
           ? [...progressLog, "Running the QA scorecard and chronology in the background…"]
-          : progressLog,
-        ...(isSeedOrdered
+          : seedStopped
+            ? [
+                ...progressLog,
+                `Stopped after Line ${args.stoppedAfterSection}: the drafted Sections are in the report, the rest are marked Not drafted, and QA does not run on a stopped draft.`,
+              ]
+            : progressLog,
+        ...(scheduleSeedQa
           ? { postQaStatus: "running" as const, postQaStartedAt: now }
           : {}),
       });
@@ -1733,7 +1771,7 @@ async function settleCandidateRun(
         )
         .take(10);
       for (const row of candidates) await ctx.db.delete(row._id);
-      if (isSeedOrdered) {
+      if (scheduleSeedQa) {
         await ctx.scheduler.runAfter(0, internal.ai.postQa.runReportQa, {
           generationId: generation._id,
           attemptStartedAt: now,
@@ -1785,6 +1823,9 @@ async function terminalizeOrphanedCandidateRuns(
     });
   }
 }
+
+/** Row error for a Section a writer's stop left undrafted (FR-43). */
+const NOT_DRAFTED_AFTER_STOP = "Not drafted: the writer stopped before this Section.";
 
 /** Terminalize only the ordered section rows owned by a signed-off seed
  * chain. Legacy iterative rows keep their existing per-section recovery
@@ -3530,6 +3571,23 @@ export const getPostQaInput = internalQuery({
       // drafted with — the ones frozen into the brain_blocks artifact at
       // generation start, not the writer's live profile.
       let styleOverrides: Record<string, boolean> | undefined;
+      // CAP-18: a signed-off seed run scores in the background under the
+      // same frozen calibration and first-person intent its inline QA used
+      // to read from the ordered payload (both frozen into brain_blocks at
+      // generation start). Other iterative runs keep the live calibration.
+      let frozenQaInputs:
+        | {
+            qaCalibration: string | null;
+            qaCalibrationDigestId: Id<"learningDigests"> | null;
+            writerFlavor: string | null;
+          }
+        | undefined;
+      const seedOrdered =
+        resolveGatedWorkflow(generation) === "seeds" &&
+        generation.summaryVersionId !== undefined;
+      if (seedOrdered) {
+        frozenQaInputs = { qaCalibration: null, qaCalibrationDigestId: null, writerFlavor: null };
+      }
       if (brainRow) {
         try {
           const parsed: unknown = JSON.parse(brainRow.content);
@@ -3541,6 +3599,19 @@ export const getPostQaInput = internalQuery({
             typeof parsed.styleOverrides === "object"
           ) {
             styleOverrides = parsed.styleOverrides as Record<string, boolean>;
+          }
+          if (seedOrdered && parsed && typeof parsed === "object") {
+            const artifact = parsed as Partial<FrozenBrainArtifact>;
+            frozenQaInputs = {
+              qaCalibration:
+                typeof artifact.qaCalibration === "string" ? artifact.qaCalibration : null,
+              qaCalibrationDigestId:
+                typeof artifact.qaCalibrationDigestId === "string"
+                  ? artifact.qaCalibrationDigestId
+                  : null,
+              writerFlavor:
+                typeof artifact.writerFlavor === "string" ? artifact.writerFlavor : null,
+            };
           }
         } catch {
           // Malformed artifact: score under default enforcement.
@@ -3571,6 +3642,7 @@ export const getPostQaInput = internalQuery({
         section246: currentSections.s246,
         model: sections.s242.model || undefined,
         styleOverrides,
+        ...(frozenQaInputs ? { frozenQaInputs } : {}),
       };
     }
     // One-shot / compare generations (Jul 17: "regenerate QA panel"): the
@@ -3656,7 +3728,10 @@ export const saveReportQa = internalMutation({
         // Only an identified active attempt may release the retry lock. Its
         // stale scorecard and chronology never become current evidence.
         if (args.attemptStartedAt !== undefined) {
-          await ctx.db.patch(generation._id, { postQaStatus: "failed" });
+          await ctx.db.patch(generation._id, {
+            postQaStatus: "failed",
+            postQaCompletedAt: Date.now(),
+          });
         }
         return;
       }
@@ -3700,6 +3775,7 @@ export const saveReportQa = internalMutation({
       await ctx.db.patch(generation._id, {
         agentOutputs: JSON.stringify(outputs),
         postQaStatus: "failed",
+        postQaCompletedAt: Date.now(),
         progressLog: [
           ...(generation.progressLog ?? []),
           "Post-assembly QA pass failed — the report is unaffected.",
@@ -3710,6 +3786,7 @@ export const saveReportQa = internalMutation({
     await ctx.db.patch(generation._id, {
       agentOutputs: JSON.stringify(outputs),
       postQaStatus: "done",
+      postQaCompletedAt: Date.now(),
       ...(args.qaScore !== undefined ? { qaScore: args.qaScore } : {}),
       progressLog: [
         ...(generation.progressLog ?? []),
@@ -4749,6 +4826,7 @@ export const failStalePostQa = internalMutation({
       if ((generation.postQaStartedAt ?? 0) >= cutoff) continue;
       await ctx.db.patch(generation._id, {
         postQaStatus: "failed",
+        postQaCompletedAt: Date.now(),
         progressLog: [
           ...(generation.progressLog ?? []),
           "Post-assembly QA pass timed out — the report is unaffected. Run it again from the QA panel.",
@@ -5789,25 +5867,123 @@ export const claimOrderedSectionRun = internalMutation({
         text: prior.draftText ?? "",
       }));
 
-    const [{ briefBlock, brief }, plan] = await Promise.all([
-      executionBrief ?? loadBriefCheck(ctx, fence.generation),
-      loadFrozenSectionPlan(ctx, fence.generation, args.section),
-    ]);
-    return {
-      projectId: fence.generation.projectId,
-      model: row.model,
-      label: row.label,
-      requestedBy: fence.generation.requestedBy,
-      lengthTarget: fence.generation.lengthTarget ?? "standard",
-      orderIndex,
-      isFirstInOrder: orderIndex === 0,
+    return await orderedSectionClaim(ctx, {
+      generation: fence.generation,
+      row,
+      section: args.section,
       priorSections,
-      briefBlock,
-      brief,
-      ...plan,
-    };
+      executionBrief,
+    });
   },
 });
+
+/** The drafting input one claimed Section receives: shared by the ordered
+ * chain's claim and the seed redraft's claim so both draft the same way. */
+async function orderedSectionClaim(
+  ctx: MutationCtx,
+  args: {
+    generation: Doc<"generations">;
+    row: Doc<"generationSectionRuns">;
+    section: SectionNumber;
+    priorSections: Array<{ section: SectionNumber; text: string }>;
+    executionBrief?: Awaited<ReturnType<typeof loadBriefCheck>>;
+  }
+) {
+  const orderIndex = args.row.orderIndex ?? 0;
+  const [{ briefBlock, brief }, plan] = await Promise.all([
+    args.executionBrief ?? loadBriefCheck(ctx, args.generation),
+    loadFrozenSectionPlan(ctx, args.generation, args.section),
+  ]);
+  return {
+    projectId: args.generation.projectId,
+    model: args.row.model,
+    label: args.row.label,
+    requestedBy: args.generation.requestedBy,
+    lengthTarget: args.generation.lengthTarget ?? "standard",
+    orderIndex,
+    isFirstInOrder: orderIndex === 0,
+    priorSections: args.priorSections,
+    briefBlock,
+    brief,
+    ...plan,
+  };
+}
+
+const storylineQuestionValidator = v.object({
+  question: v.string(),
+  sectionClaim: v.string(),
+  storylineAlternative: v.string(),
+  evidenceEntryId: v.id("generationBriefEntries"),
+});
+
+/** A drafted Section's Compliance Note rows and at most one Storyline
+ * question, written for the chain and the seed redraft alike. */
+async function persistSectionNotes(
+  ctx: MutationCtx,
+  args: {
+    generation: Doc<"generations">;
+    run: Doc<"generationCandidateRuns">;
+    section: SectionNumber;
+    notes: Array<Infer<typeof complianceNoteDraftValidator>>;
+    storylineQuestion?: Infer<typeof storylineQuestionValidator>;
+    now: number;
+  }
+) {
+  const owner = {
+    projectId: args.generation.projectId,
+    generationId: args.generation._id,
+    candidateRunId: args.run._id,
+  };
+  for (const note of args.notes) {
+    // A section's rows belong to that section only.
+    if (note.section !== args.section) continue;
+    await ctx.db.insert("complianceNotes", complianceNoteRow(note, owner));
+  }
+  // AD-23/AD-25: the chain's one write outside complianceNotes. The
+  // question cites the Confidence Map entry the section's stronger evidence
+  // rests on, so it carries a byte-validated citation like every entry.
+  if (args.storylineQuestion && args.generation.briefId) {
+    const evidence = await ctx.db.get(args.storylineQuestion.evidenceEntryId);
+    if (
+      evidence &&
+      evidence.briefId === args.generation.briefId &&
+      evidence.group === "confidenceMap"
+    ) {
+      await ctx.db.insert("generationBriefEntries", {
+        briefId: evidence.briefId,
+        projectId: evidence.projectId,
+        group: "storylineQuestion",
+        text: args.storylineQuestion.sectionClaim,
+        sourceId: evidence.sourceId,
+        sourceContentHash: evidence.sourceContentHash,
+        startOffset: evidence.startOffset,
+        endOffset: evidence.endOffset,
+        exactExcerpt: evidence.exactExcerpt,
+        question: {
+          questionText: args.storylineQuestion.question,
+          alternativeText: args.storylineQuestion.storylineAlternative,
+        },
+        generatedOutput: true,
+        createdAt: args.now,
+      });
+    }
+  }
+}
+
+/** The progress-log label of a drafted Section's Self-check outcome. */
+function sectionCheckNarration(selfCheck: string): string {
+  const result = selfCheckResultOf(selfCheck);
+  const status = result?.status;
+  // The intent's flag wording for a repair that did not clear the check.
+  const checkLabel =
+    status === "repair_failed"
+      ? "Self-check repair failed"
+      : `Self-check: ${status?.replace(/_/g, " ") ?? "recorded"}`;
+  const coverageLabel = result?.planCoverage
+    ? `; plan coverage ${result.planCoverage}`
+    : "";
+  return `${checkLabel}${coverageLabel}`;
+}
 
 /** Persist one finished section (draft, metrics, Self-check summary, slot
  * counts, its Compliance Note rows, at most one Storyline question) and
@@ -5823,14 +5999,7 @@ export const completeOrderedSectionRun = internalMutation({
     selfCheck: v.string(),
     slotCounts: v.string(),
     notes: v.array(complianceNoteDraftValidator),
-    storylineQuestion: v.optional(
-      v.object({
-        question: v.string(),
-        sectionClaim: v.string(),
-        storylineAlternative: v.string(),
-        evidenceEntryId: v.id("generationBriefEntries"),
-      })
-    ),
+    storylineQuestion: v.optional(storylineQuestionValidator),
     payload: orderedPayloadValidator,
   },
   returns: v.boolean(),
@@ -5851,59 +6020,18 @@ export const completeOrderedSectionRun = internalMutation({
       error: undefined,
       completedAt: now,
     });
-    const owner = {
-      projectId: fence.generation.projectId,
-      generationId: fence.generation._id,
-      candidateRunId: fence.run._id,
-    };
-    for (const note of args.notes) {
-      // A section's rows belong to that section only.
-      if (note.section !== args.section) continue;
-      await ctx.db.insert("complianceNotes", complianceNoteRow(note, owner));
-    }
-    // AD-23/AD-25: the chain's one write outside complianceNotes. The
-    // question cites the Confidence Map entry the section's stronger evidence
-    // rests on, so it carries a byte-validated citation like every entry.
-    if (args.storylineQuestion && fence.generation.briefId) {
-      const evidence = await ctx.db.get(args.storylineQuestion.evidenceEntryId);
-      if (
-        evidence &&
-        evidence.briefId === fence.generation.briefId &&
-        evidence.group === "confidenceMap"
-      ) {
-        await ctx.db.insert("generationBriefEntries", {
-          briefId: evidence.briefId,
-          projectId: evidence.projectId,
-          group: "storylineQuestion",
-          text: args.storylineQuestion.sectionClaim,
-          sourceId: evidence.sourceId,
-          sourceContentHash: evidence.sourceContentHash,
-          startOffset: evidence.startOffset,
-          endOffset: evidence.endOffset,
-          exactExcerpt: evidence.exactExcerpt,
-          question: {
-            questionText: args.storylineQuestion.question,
-            alternativeText: args.storylineQuestion.storylineAlternative,
-          },
-          generatedOutput: true,
-          createdAt: now,
-        });
-      }
-    }
-    const result = selfCheckResultOf(args.selfCheck);
-    const status = result?.status;
-    // The intent's flag wording for a repair that did not clear the check.
-    const checkLabel =
-      status === "repair_failed"
-        ? "Self-check repair failed"
-        : `Self-check: ${status?.replace(/_/g, " ") ?? "recorded"}`;
-    const coverageLabel = result?.planCoverage
-      ? `; plan coverage ${result.planCoverage}`
-      : "";
+    await persistSectionNotes(ctx, {
+      generation: fence.generation,
+      run: fence.run,
+      section: args.section,
+      notes: args.notes,
+      storylineQuestion: args.storylineQuestion,
+      now,
+    });
     await ctx.db.patch(fence.generation._id, {
       progressLog: [
         ...(fence.generation.progressLog ?? []),
-        `✓ ${fence.run.label}: ${ORDERED_SECTION_TITLES[args.section]} drafted (${checkLabel}${coverageLabel}).`,
+        `✓ ${fence.run.label}: ${ORDERED_SECTION_TITLES[args.section]} drafted (${sectionCheckNarration(args.selfCheck)}).`,
       ],
       // DW-119: a drafted section (and the next one scheduled below) is
       // chain progress; the reaper's window restarts here.
@@ -5940,6 +6068,9 @@ export const failOrderedSectionRun = internalMutation({
     candidateRunId: v.id("generationCandidateRuns"),
     section: sectionNumberValidator,
     error: v.string(),
+    // Present when the chain action can finalize: a stopped seed run then
+    // keeps its drafted Sections instead of failing (FR-43).
+    payload: v.optional(orderedPayloadValidator),
   },
   returns: v.null(),
   handler: async (ctx, args) => {
@@ -5949,7 +6080,44 @@ export const failOrderedSectionRun = internalMutation({
     const fence = await orderedChainFence(ctx, args.generationId, args.candidateRunId);
     if (!fence) return null;
     const now = Date.now();
-    for (const row of await orderedRunsForCandidate(ctx, fence.run._id)) {
+    const rows = await orderedRunsForCandidate(ctx, fence.run._id);
+    // A Section that fails after the writer stopped a signed-off seed run
+    // does not throw away the Sections already drafted: it is marked not
+    // drafted and the stopped draft is assembled from what exists.
+    if (
+      args.payload &&
+      fence.generation.stopRequestedAt !== undefined &&
+      resolveGatedWorkflow(fence.generation) === "seeds" &&
+      fence.generation.summaryVersionId !== undefined &&
+      rows.some((row) => row.status === "drafted")
+    ) {
+      for (const row of rows) {
+        if (row.generationId !== args.generationId) continue;
+        if (row.section === sectionKeyOf(args.section) && row.status === "running") {
+          await ctx.db.patch(row._id, {
+            status: "failed",
+            error: args.error.slice(0, 500),
+            completedAt: now,
+          });
+        } else if (row.status === "queued") {
+          await ctx.db.patch(row._id, { status: "pending" });
+        }
+      }
+      await ctx.db.patch(fence.generation._id, {
+        progressLog: [
+          ...(fence.generation.progressLog ?? []),
+          `✗ ${fence.run.label}: ${ORDERED_SECTION_TITLES[args.section]} failed after the stop; the drafted Sections are kept.`,
+        ],
+        lastProgressAt: now,
+      });
+      await ctx.scheduler.runAfter(0, internal.ai.orderedGeneration.finalizeOrderedCandidate, {
+        generationId: args.generationId,
+        candidateRunId: args.candidateRunId,
+        payload: args.payload,
+      });
+      return null;
+    }
+    for (const row of rows) {
       if (row.generationId !== args.generationId) continue;
       if (
         row.section === sectionKeyOf(args.section) &&
@@ -6042,10 +6210,22 @@ export const getOrderedCandidateDrafts = internalQuery({
 });
 
 /**
- * The writer stops an ungated single/compare generation (AD-24). Same auth
- * and CAS on activeGenerationId as cancelIterativeGeneration. The section in
- * progress finishes, no further section is scheduled, and the generation
- * completes with stoppedAfterSection and [NOT GENERATED] bodies. Idempotent.
+ * The writer stops an ungated single/compare generation (AD-24), or a
+ * signed-off seed run (FR-43, CAP-17). Same CAS on activeGenerationId as
+ * cancelIterativeGeneration. The section in progress finishes and is kept, no
+ * further section is scheduled, and the generation completes with
+ * stoppedAfterSection and [NOT GENERATED] bodies. Idempotent.
+ *
+ * Seed runs need report edit access and record a "stop" seed event. Stop
+ * takes effect at Section boundaries, so the outcome is deterministic:
+ * - accepted while a Section is still queued or being written: that Section
+ *   finishes and is kept; no later Section starts. If it was the last one,
+ *   every Section is drafted, the consistency pass runs as usual and the
+ *   complete draft gets its background QA (it is not a stopped draft);
+ * - refused with INVALID_STATE reason DRAFT_COMPLETE once every Section is
+ *   already drafted (the consistency pass or report creation is running):
+ *   nothing is left to stop, and the complete draft finishes as usual.
+ * Before sign-off a seed generation is cancelled, never stopped.
  */
 export const stopOrderedGeneration = mutation({
   args: { generationId: v.id("generations") },
@@ -6053,12 +6233,23 @@ export const stopOrderedGeneration = mutation({
   handler: async (ctx, args) => {
     const generation = await ctx.db.get(args.generationId);
     if (!generation) domainError("NOT_FOUND", "Generation not found");
-    const { project } = await requireInternalProjectAccess(ctx, generation.projectId);
-    if ((generation.candidateMode ?? "compare") === "iterative") {
-      domainError(
-        "INVALID_STATE",
-        "Section-by-section generations are cancelled, not stopped"
-      );
+    const signedOffSeedDraft =
+      resolveGatedWorkflow(generation) === "seeds" &&
+      generation.summaryVersionId !== undefined;
+    let project: Doc<"projects">;
+    let actorUserId: Id<"users"> | undefined;
+    if (signedOffSeedDraft) {
+      const access = await requireReportEditAccess(ctx, generation.projectId);
+      project = access.project;
+      actorUserId = access.user._id;
+    } else {
+      project = (await requireInternalProjectAccess(ctx, generation.projectId)).project;
+      if ((generation.candidateMode ?? "compare") === "iterative") {
+        domainError(
+          "INVALID_STATE",
+          "Section-by-section generations are cancelled, not stopped"
+        );
+      }
     }
     if (project.activeGenerationId !== generation._id) {
       domainError("STALE_REVISION", "This generation is no longer active");
@@ -6067,8 +6258,33 @@ export const stopOrderedGeneration = mutation({
     if (generation.status !== "reserved" && generation.status !== "running") {
       domainError("INVALID_STATE", "This generation is no longer drafting");
     }
+    const now = Date.now();
+    if (signedOffSeedDraft) {
+      const rows = (
+        await ctx.db
+          .query("generationSectionRuns")
+          .withIndex("by_generationId", (q) => q.eq("generationId", generation._id))
+          .take(10)
+      ).filter((row) => row.candidateRunId !== undefined);
+      if (rows.length > 0 && rows.every((row) => row.status === "drafted")) {
+        domainError(
+          "INVALID_STATE",
+          "Every Section is already drafted; the report is being finished",
+          { reason: "DRAFT_COMPLETE" }
+        );
+      }
+      if (actorUserId) {
+        await ctx.db.insert("seedDecisionEvents", {
+          projectId: generation.projectId,
+          generationId: generation._id,
+          kind: "stop",
+          at: now,
+          actorUserId,
+        });
+      }
+    }
     await ctx.db.patch(generation._id, {
-      stopRequestedAt: Date.now(),
+      stopRequestedAt: now,
       progressLog: [
         ...(generation.progressLog ?? []),
         "Stop requested: the section in progress finishes, then the draft is assembled.",
@@ -6167,5 +6383,800 @@ export const getOrderedSectionDrafts = query({
         text: row.draftText ?? "",
         selfCheckStatus: selfCheckResultOf(row.selfCheck)?.status ?? null,
       }));
+  },
+});
+
+// ─── Step-by-step writing progress, Stop and redraft (CAP-17, CAP-18) ───────
+//
+// A signed-off seed generation drafts its three Sections through the ordered
+// chain above. The writing view reads getSeedDraftProgress; Stop is
+// stopOrderedGeneration; "Draft the rest" is redraftMissingSections, which
+// drafts only the Sections a stop left "Not drafted" and writes them into the
+// SAME report (owner decision 20).
+//
+// Redraft write rule (AGENTS.md "agents propose, humans apply"): the redraft
+// is not an AI tool editing prose. It is the writer's own "Draft the rest"
+// action finishing the report-creation path their Stop interrupted, and it
+// may only replace a Section body that is still exactly the untouched
+// `[NOT GENERATED]` placeholder. The merge runs inside one mutation against
+// the report's latest saved content and bumps its revision, so no saved edit
+// can be overwritten: every other node is carried over byte for byte, a
+// Section the writer has started typing in is left alone, and a pre-edit
+// snapshot makes the write restorable.
+
+/** A finished Section with no measured duration yet: a draft, compression,
+ * Self-check and possible repair. */
+export const DEFAULT_SECTION_DRAFT_MS = 90_000;
+/** The assembled-draft consistency pass before the last Section is shown. */
+export const DEFAULT_CONSISTENCY_PASS_MS = 20_000;
+/** Floor for a measured estimate, so an implausibly fast Section never
+ * makes the next one's share jump straight to the cap. */
+const MIN_SECTION_ESTIMATE_MS = 10_000;
+/** The share of a Section the pill may show before it is done. */
+const SECTION_PROGRESS_CAP = 0.95;
+/** A redraft that made no progress for this long is treated as dead: the
+ * writing view shows the draft as stopped again and a new "Draft the rest"
+ * starts a fresh attempt (older actions are fenced by attemptStartedAt). */
+export const REDRAFT_STALE_MS = 15 * 60 * 1000;
+
+function isSignedOffSeedGeneration(generation: Doc<"generations">): boolean {
+  return (
+    resolveGatedWorkflow(generation) === "seeds" &&
+    generation.summaryVersionId !== undefined
+  );
+}
+
+/** The seed chain's candidate run and its Section rows in production order.
+ * A signed-off seed generation owns one chain (recovery is a new
+ * generation); the newest run wins if an older row ever remains. */
+async function seedChainRows(
+  ctx: { db: QueryCtx["db"] },
+  generationId: Id<"generations">
+): Promise<{
+  run: Doc<"generationCandidateRuns"> | null;
+  rows: Doc<"generationSectionRuns">[];
+}> {
+  const all = (
+    await ctx.db
+      .query("generationSectionRuns")
+      .withIndex("by_generationId", (q) => q.eq("generationId", generationId))
+      .take(10)
+  ).filter((row) => row.candidateRunId !== undefined);
+  if (all.length === 0) return { run: null, rows: [] };
+  const newest = all.reduce((latest, row) =>
+    row._creationTime > latest._creationTime ? row : latest
+  );
+  const runId = newest.candidateRunId as Id<"generationCandidateRuns">;
+  const run = await ctx.db.get(runId);
+  const rows = all
+    .filter((row) => row.candidateRunId === runId)
+    .sort((a, b) => (a.orderIndex ?? 0) - (b.orderIndex ?? 0));
+  return { run, rows };
+}
+
+function isRedraftLive(
+  redraft: Doc<"generations">["redraft"],
+  now: number
+): boolean {
+  return (
+    redraft !== undefined &&
+    redraft.status === "running" &&
+    now - redraft.lastProgressAt < REDRAFT_STALE_MS
+  );
+}
+
+type SeedProgressPhase = "drafting" | "stopping" | "completed" | "stopped" | "failed";
+type SeedProgressStatus = "queued" | "writing" | "done" | "not_drafted";
+
+/**
+ * Honest writing progress for a signed-off seed generation (FR-42, CAP-17):
+ * one row per Section in production order, driven by the per-Section run
+ * rows, never by tokens. Rules:
+ * - `done` means drafted AND checked. The last Section in production order
+ *   stays `writing` (paragraphs withheld) until the consistency pass is
+ *   recorded; during a redraft the last redrafted Section stays `writing`
+ *   until the redraft is written into the report.
+ * - `percent` counts done Sections, plus the elapsed share of the Section
+ *   being written against the estimate, capped at 95% of that Section, so it
+ *   only moves forward while a run is live; a completed draft reads 100.
+ *   A new redraft run starts again from the Sections already done.
+ * - The per-Section estimate is the mean duration of this run's finished
+ *   Sections, or DEFAULT_SECTION_DRAFT_MS before any finished; the
+ *   consistency pass adds DEFAULT_CONSISTENCY_PASS_MS.
+ * Bounded reads: the generation, access checks, at most 10 Section rows and
+ * one candidate run. Returns null when this is not a signed-off seed
+ * generation or the caller has no internal project access.
+ */
+export const getSeedDraftProgress = query({
+  args: { generationId: v.id("generations") },
+  handler: async (ctx, args) => {
+    const generation = await ctx.db.get(args.generationId);
+    if (!generation || !isSignedOffSeedGeneration(generation)) return null;
+    if (!(await getInternalProjectAccessOrNull(ctx, generation.projectId))) return null;
+    const now = Date.now();
+    const { run, rows } = await seedChainRows(ctx, generation._id);
+    const redraft = generation.redraft;
+    const redraftLive = generation.status === "completed" && isRedraftLive(redraft, now);
+    const redraftSections = new Set<string>(
+      redraftLive && redraft ? redraft.sections.map((section) => sectionKeyOf(section)) : []
+    );
+
+    let phase: SeedProgressPhase;
+    if (generation.status === "reserved" || generation.status === "running") {
+      phase = generation.stopRequestedAt !== undefined ? "stopping" : "drafting";
+    } else if (generation.status === "completed") {
+      phase = redraftLive
+        ? "drafting"
+        : rows.some((row) => row.status !== "drafted")
+          ? "stopped"
+          : "completed";
+    } else {
+      phase = "failed";
+    }
+
+    const lastIndex = rows.reduce((max, row) => Math.max(max, row.orderIndex ?? 0), -1);
+    const lastRedraftIndex = rows
+      .filter((row) => redraftSections.has(row.section))
+      .reduce((max, row) => Math.max(max, row.orderIndex ?? 0), -1);
+    const chainLive = phase === "drafting" || phase === "stopping";
+    const awaitingCheck = (row: Doc<"generationSectionRuns">): boolean => {
+      if (row.status !== "drafted") return false;
+      if (redraftLive) {
+        return redraftSections.has(row.section) && (row.orderIndex ?? 0) === lastRedraftIndex;
+      }
+      return (
+        chainLive &&
+        (row.orderIndex ?? 0) === lastIndex &&
+        run?.consistencyCheckedAt === undefined
+      );
+    };
+    const statusOf = (row: Doc<"generationSectionRuns">): SeedProgressStatus => {
+      if (row.status === "drafted") return awaitingCheck(row) ? "writing" : "done";
+      if (redraftLive) {
+        if (!redraftSections.has(row.section)) return "not_drafted";
+        return row.status === "running" ? "writing" : "queued";
+      }
+      if (phase === "drafting") {
+        if (row.status === "running") return "writing";
+        return row.status === "failed" ? "not_drafted" : "queued";
+      }
+      if (phase === "stopping") {
+        if (row.status === "running") return "writing";
+        // After a stop only a first Section that has not started is still
+        // drafted; every later one will not be.
+        return row.status === "queued" && (row.orderIndex ?? 0) === 0
+          ? "queued"
+          : "not_drafted";
+      }
+      return "not_drafted";
+    };
+
+    const durations = rows
+      .filter(
+        (row) =>
+          row.status === "drafted" &&
+          row.startedAt !== undefined &&
+          row.completedAt !== undefined &&
+          row.completedAt >= row.startedAt &&
+          !(redraftLive && redraftSections.has(row.section) && awaitingCheck(row))
+      )
+      .map((row) => (row.completedAt as number) - (row.startedAt as number));
+    const sectionEstimate = durations.length
+      ? Math.max(
+          MIN_SECTION_ESTIMATE_MS,
+          durations.reduce((sum, value) => sum + value, 0) / durations.length
+        )
+      : DEFAULT_SECTION_DRAFT_MS;
+
+    const order: SectionNumber[] = rows.length
+      ? rows.map(sectionNumberOfRow)
+      : (generation.productionOrder ?? ["242", "244", "246"]);
+    const sections = order.map((section, index) => {
+      const row = rows.find((candidate) => candidate.section === sectionKeyOf(section));
+      const status: SeedProgressStatus = row
+        ? statusOf(row)
+        : phase === "drafting"
+          ? "queued"
+          : "not_drafted";
+      const heading = PD_SECTION_HEADINGS[sectionKeyOf(section)];
+      const doneAt =
+        row && status === "done"
+          ? !redraftLive &&
+            (row.orderIndex ?? 0) === lastIndex &&
+            run?.consistencyCheckedAt !== undefined
+            ? Math.max(row.completedAt ?? 0, run.consistencyCheckedAt)
+            : (row.completedAt ?? null)
+          : null;
+      return {
+        key: section as string,
+        number: heading.number as string,
+        title: heading.title as string,
+        question: heading.question as string,
+        orderIndex: row?.orderIndex ?? index,
+        status,
+        paragraphs:
+          status === "done" && row?.draftText ? sectionParagraphs(row.draftText) : [],
+        startedAt:
+          row && (status === "writing" || status === "done") ? (row.startedAt ?? null) : null,
+        completedAt: doneAt,
+        row,
+      };
+    });
+
+    const total = Math.max(sections.length, 1);
+    const doneCount = sections.filter((section) => section.status === "done").length;
+    let partial = 0;
+    let remaining = 0;
+    let consistencyPending = false;
+    for (const section of sections) {
+      const row = section.row;
+      if (section.status === "writing" && row) {
+        if (row.status === "drafted") {
+          // Drafted, waiting for the consistency check.
+          partial += SECTION_PROGRESS_CAP;
+          consistencyPending = true;
+          const waited = now - (row.completedAt ?? now);
+          remaining += Math.max(0, DEFAULT_CONSISTENCY_PASS_MS - waited);
+        } else {
+          const elapsed = Math.max(0, now - (row.startedAt ?? now));
+          partial += Math.min(SECTION_PROGRESS_CAP, elapsed / sectionEstimate);
+          remaining += Math.max(0, sectionEstimate - elapsed);
+        }
+      } else if (section.status === "queued") {
+        remaining += sectionEstimate;
+      } else if (
+        phase === "stopped" &&
+        row?.status === "failed" &&
+        row.startedAt !== undefined &&
+        row.completedAt !== undefined &&
+        row.error !== NOT_DRAFTED_AFTER_STOP
+      ) {
+        // A Section that failed after the stop keeps the share the pill
+        // already showed, so the stopped reading never goes backwards.
+        partial += Math.min(
+          SECTION_PROGRESS_CAP,
+          Math.max(0, row.completedAt - row.startedAt) / sectionEstimate
+        );
+      }
+    }
+    // The consistency pass runs once every Section is drafted: still ahead
+    // while the chain is drafting (not stopping) or a redraft will complete
+    // the report.
+    const willCheck =
+      !consistencyPending &&
+      ((phase === "drafting" && !redraftLive && run?.consistencyCheckedAt === undefined) ||
+        (redraftLive && sections.every((section) => section.status !== "not_drafted")));
+    if (willCheck) remaining += DEFAULT_CONSISTENCY_PASS_MS;
+
+    const percent =
+      phase === "completed"
+        ? 100
+        : Math.min(99, Math.floor(((doneCount + partial) / total) * 100));
+    const current = sections.find((section) => section.status === "writing") ?? null;
+    const lastDone = [...sections].reverse().find((section) => section.status === "done") ?? null;
+    return {
+      phase,
+      percent,
+      estimatedRemainingMs: chainLive ? Math.round(remaining) : null,
+      currentSectionKey: current?.key ?? null,
+      stoppedAfterSectionKey:
+        generation.stoppedAfterSection ??
+        (phase === "stopping" ? (current?.key ?? lastDone?.key ?? null) : null),
+      sections: sections.map(({ row: _row, ...section }) => section),
+    };
+  },
+});
+
+/** The fence every redraft write re-checks: the generation is still the
+ * completed signed-off seed run, the redraft attempt is the live one, and the
+ * project is not being deleted. */
+async function redraftFence(
+  ctx: MutationCtx,
+  generationId: Id<"generations">,
+  candidateRunId: Id<"generationCandidateRuns">,
+  attemptStartedAt: number
+) {
+  const generation = await ctx.db.get(generationId);
+  if (
+    !generation ||
+    generation.status !== "completed" ||
+    !isSignedOffSeedGeneration(generation)
+  ) {
+    return null;
+  }
+  const redraft = generation.redraft;
+  if (
+    !redraft ||
+    redraft.status !== "running" ||
+    redraft.attemptStartedAt !== attemptStartedAt
+  ) {
+    return null;
+  }
+  if (await isProjectDeleting(ctx, generation.projectId)) return null;
+  const run = await ctx.db.get(candidateRunId);
+  if (!run || run.generationId !== generation._id || run.ghost) return null;
+  return { generation, redraft, run };
+}
+
+async function reportForGeneration(
+  ctx: { db: QueryCtx["db"] },
+  generationId: Id<"generations">
+) {
+  return await ctx.db
+    .query("reports")
+    .withIndex("by_generationId", (q) => q.eq("generationId", generationId))
+    .unique();
+}
+
+/** Current report text of a Section, or null when it is empty or still the
+ * untouched "Not drafted" placeholder. */
+function presentReportSection(
+  sections: ReturnType<typeof extractReportSections> | null,
+  section: SectionNumber
+): string | null {
+  const text = sections?.[sectionKeyOf(section)]?.trim() ?? "";
+  return text && text !== NOT_GENERATED_PLACEHOLDER ? text : null;
+}
+
+/**
+ * "Draft the rest" after Stop (owner decision 20, PRD FR-43, CAP-17). Drafts
+ * only the Sections the stop left "Not drafted", from the same frozen Summary
+ * version and frozen inputs, and writes them into the SAME report without
+ * touching any other Section. Requires report edit access.
+ *
+ * - Only a completed, signed-off seed generation with a report qualifies; a
+ *   Section counts as missing when its run row was not drafted AND its report
+ *   body is still exactly the `[NOT GENERATED]` placeholder. A Section the
+ *   writer filled by hand is never redrafted.
+ * - Idempotent and one at a time: while a redraft attempt is live the call
+ *   returns `running` with its Sections; when nothing is missing it returns
+ *   `nothing_to_draft`. A redraft with no progress for REDRAFT_STALE_MS is
+ *   replaced by a fresh attempt; the old attempt's writes are fenced out.
+ * - Refused while another generation is active for the project.
+ */
+export const redraftMissingSections = mutation({
+  args: { generationId: v.id("generations") },
+  returns: v.object({
+    status: v.union(
+      v.literal("started"),
+      v.literal("running"),
+      v.literal("nothing_to_draft")
+    ),
+    sections: v.array(sectionNumberValidator),
+  }),
+  handler: async (
+    ctx,
+    args
+  ): Promise<{
+    status: "started" | "running" | "nothing_to_draft";
+    sections: SectionNumber[];
+  }> => {
+    const generation = await ctx.db.get(args.generationId);
+    if (!generation) domainError("NOT_FOUND", "Generation not found");
+    const { user, project } = await requireReportEditAccess(ctx, generation.projectId);
+    if (!isSignedOffSeedGeneration(generation) || generation.status !== "completed") {
+      domainError("INVALID_STATE", "Only a stopped Step-by-step draft can be redrafted", {
+        reason: "NOT_STOPPED",
+      });
+    }
+    if (await isProjectDeleting(ctx, project._id)) {
+      domainError("INVALID_STATE", "This project is being deleted");
+    }
+    const now = Date.now();
+    const previous = generation.redraft;
+    if (previous && isRedraftLive(previous, now)) {
+      return { status: "running", sections: previous.sections };
+    }
+    if (await findActiveGeneration(ctx, project, ACTIVE_GENERATION_STATUSES)) {
+      domainError("GENERATION_ACTIVE", "A generation is already active for this project");
+    }
+    const report = await reportForGeneration(ctx, generation._id);
+    if (!report) domainError("INVALID_STATE", "This generation has no report to fill");
+    const { run, rows } = await seedChainRows(ctx, generation._id);
+    if (!run || rows.length === 0) {
+      domainError("INVALID_STATE", "This generation has no Section runs to redraft");
+    }
+    const placeholders = new Set<string>(notDraftedReportSections(report.content));
+    const missing = rows.filter(
+      (row) => row.status !== "drafted" && placeholders.has(row.section)
+    );
+    if (missing.length === 0) return { status: "nothing_to_draft", sections: [] };
+    const summaryVersionId = generation.summaryVersionId as Id<"summaryVersions">;
+    const payload = await frozenOrderedPayload(ctx, generation, summaryVersionId);
+    const sections = missing.map(sectionNumberOfRow);
+    const attemptStartedAt = Math.max(now, (previous?.attemptStartedAt ?? 0) + 1);
+    for (const [index, row] of missing.entries()) {
+      await ctx.db.patch(row._id, {
+        status: index === 0 ? "queued" : "pending",
+        attempt: row.attempt + 1,
+        queuedAt: now,
+        draftText: undefined,
+        metrics: undefined,
+        selfCheck: undefined,
+        slotCounts: undefined,
+        error: undefined,
+        startedAt: undefined,
+        completedAt: undefined,
+      });
+    }
+    await ctx.db.patch(generation._id, {
+      redraft: {
+        status: "running",
+        attemptStartedAt,
+        requestedBy: user._id,
+        sections,
+        lastProgressAt: now,
+      },
+      progressLog: [
+        ...(generation.progressLog ?? []),
+        `Drafting the Not drafted Sections (${sections.join(", ")}) from the signed-off Summary into the same report.`,
+      ],
+    });
+    await ctx.scheduler.runAfter(0, internal.ai.orderedGeneration.redraftSeedSection, {
+      generationId: generation._id,
+      candidateRunId: run._id,
+      attemptStartedAt,
+      section: sections[0],
+      payload: { ...payload, summaryVersionId },
+    });
+    return { status: "started", sections };
+  },
+});
+
+/** CAS claim of one queued redraft Section. Prior Sections are the report's
+ * current text (the writer's edits included), or this attempt's own drafts
+ * for Sections it has redrafted but not yet written. */
+export const claimRedraftSection = internalMutation({
+  args: {
+    generationId: v.id("generations"),
+    candidateRunId: v.id("generationCandidateRuns"),
+    attemptStartedAt: v.number(),
+    section: sectionNumberValidator,
+    promptVersion: v.optional(v.string()),
+    payload: orderedPayloadValidator,
+  },
+  handler: async (ctx, args) => {
+    const fence = await redraftFence(
+      ctx,
+      args.generationId,
+      args.candidateRunId,
+      args.attemptStartedAt
+    );
+    if (!fence) return null;
+    const row = await orderedRunForSection(ctx, args.candidateRunId, args.section);
+    if (!row || row.status !== "queued" || row.generationId !== args.generationId) {
+      return null;
+    }
+    let executionBrief: Awaited<ReturnType<typeof loadBriefCheck>> | undefined;
+    if (args.promptVersion && fence.generation.promptVersion !== args.promptVersion) {
+      // Capacity belongs to the program that executes the request, exactly as
+      // for the chain's own claim. A rejection rolls this claim back.
+      executionBrief = await assertFrozenSummaryRuntimeAdmission(
+        ctx,
+        fence.generation,
+        args.payload
+      );
+    }
+    const now = Date.now();
+    await ctx.db.patch(row._id, { status: "running", startedAt: now });
+    await ctx.db.patch(fence.generation._id, {
+      redraft: { ...fence.redraft, lastProgressAt: now },
+    });
+    const report = await reportForGeneration(ctx, fence.generation._id);
+    const current = report ? extractReportSections(report.content) : null;
+    const redrafting = new Set<string>(fence.redraft.sections.map(sectionKeyOf));
+    const orderIndex = row.orderIndex ?? 0;
+    const priorSections = (await orderedRunsForCandidate(ctx, fence.run._id))
+      .filter((prior) => (prior.orderIndex ?? 0) < orderIndex)
+      .flatMap((prior) => {
+        const section = sectionNumberOfRow(prior);
+        const text =
+          redrafting.has(prior.section) && prior.status === "drafted"
+            ? (prior.draftText ?? null)
+            : presentReportSection(current, section) ??
+              (prior.status === "drafted" ? (prior.draftText ?? null) : null);
+        return text ? [{ section, text }] : [];
+      });
+    return await orderedSectionClaim(ctx, {
+      generation: fence.generation,
+      row,
+      section: args.section,
+      priorSections,
+      executionBrief,
+    });
+  },
+});
+
+/** Persist one redrafted Section, then schedule the next one or the redraft
+ * finalizer. The report is not touched until every Section of the attempt is
+ * drafted (or the attempt fails). */
+export const completeRedraftSection = internalMutation({
+  args: {
+    generationId: v.id("generations"),
+    candidateRunId: v.id("generationCandidateRuns"),
+    attemptStartedAt: v.number(),
+    section: sectionNumberValidator,
+    draftText: v.string(),
+    metrics: v.string(),
+    selfCheck: v.string(),
+    slotCounts: v.string(),
+    notes: v.array(complianceNoteDraftValidator),
+    storylineQuestion: v.optional(storylineQuestionValidator),
+    payload: orderedPayloadValidator,
+  },
+  returns: v.boolean(),
+  handler: async (ctx, args): Promise<boolean> => {
+    const fence = await redraftFence(
+      ctx,
+      args.generationId,
+      args.candidateRunId,
+      args.attemptStartedAt
+    );
+    if (!fence) return false;
+    const row = await orderedRunForSection(ctx, args.candidateRunId, args.section);
+    if (!row || row.status !== "running" || row.generationId !== args.generationId) {
+      return false;
+    }
+    const now = Date.now();
+    await ctx.db.patch(row._id, {
+      status: "drafted",
+      draftText: args.draftText,
+      metrics: args.metrics,
+      selfCheck: args.selfCheck,
+      slotCounts: args.slotCounts,
+      error: undefined,
+      completedAt: now,
+    });
+    await persistSectionNotes(ctx, {
+      generation: fence.generation,
+      run: fence.run,
+      section: args.section,
+      notes: args.notes,
+      storylineQuestion: args.storylineQuestion,
+      now,
+    });
+    await ctx.db.patch(fence.generation._id, {
+      redraft: { ...fence.redraft, lastProgressAt: now },
+      progressLog: [
+        ...(fence.generation.progressLog ?? []),
+        `✓ ${fence.run.label}: ${ORDERED_SECTION_TITLES[args.section]} redrafted (${sectionCheckNarration(args.selfCheck)}).`,
+      ],
+    });
+    const position = fence.redraft.sections.indexOf(args.section);
+    const nextSection = fence.redraft.sections[position + 1];
+    const next = nextSection
+      ? await orderedRunForSection(ctx, args.candidateRunId, nextSection)
+      : null;
+    if (nextSection && next && next.status === "pending") {
+      await ctx.db.patch(next._id, { status: "queued", queuedAt: now });
+      await ctx.scheduler.runAfter(0, internal.ai.orderedGeneration.redraftSeedSection, {
+        generationId: args.generationId,
+        candidateRunId: args.candidateRunId,
+        attemptStartedAt: args.attemptStartedAt,
+        section: nextSection,
+        payload: args.payload,
+      });
+    } else {
+      await ctx.scheduler.runAfter(0, internal.ai.orderedGeneration.finalizeSeedRedraft, {
+        generationId: args.generationId,
+        candidateRunId: args.candidateRunId,
+        attemptStartedAt: args.attemptStartedAt,
+      });
+    }
+    return true;
+  },
+});
+
+/**
+ * Write this attempt's redrafted Sections into the report and settle the
+ * attempt. The merge reads the report's latest saved content in this same
+ * transaction and replaces only bodies that are still the untouched
+ * placeholder, so a writer's saved edits are never overwritten.
+ */
+async function settleSeedRedraft(
+  ctx: MutationCtx,
+  fence: NonNullable<Awaited<ReturnType<typeof redraftFence>>>,
+  outcome: { failed: false } | { failed: true; error: string }
+) {
+  const now = Date.now();
+  const { generation, redraft, run } = fence;
+  const rows = await orderedRunsForCandidate(ctx, run._id);
+  const drafts: Partial<Record<"s242" | "s244" | "s246", string>> = {};
+  for (const row of rows) {
+    if (
+      redraft.sections.includes(sectionNumberOfRow(row)) &&
+      row.status === "drafted" &&
+      row.draftText
+    ) {
+      drafts[row.section] = row.draftText;
+    }
+  }
+  const report = await reportForGeneration(ctx, generation._id);
+  let filled: SectionNumber[] = [];
+  let skipped: SectionNumber[] = [];
+  if (report && Object.keys(drafts).length > 0) {
+    const merged = fillNotDraftedSections(report.content, drafts);
+    filled = merged.filled.map((key) => key.slice(1) as SectionNumber);
+    skipped = merged.skipped.map((key) => key.slice(1) as SectionNumber);
+    if (merged.filled.length > 0) {
+      await writePreEditSnapshot(ctx, report, "pre_chat_edit", { createdAt: now });
+      await ctx.db.patch(report._id, {
+        content: merged.content,
+        contentHash: await sha256(merged.content),
+        revisionNumber: (report.revisionNumber ?? 0) + 1,
+        // Like any change to the prose, the new revision needs its own
+        // provenance review.
+        provenanceId: undefined,
+        updatedAt: now,
+      });
+      await persistDeterministicFindings(ctx, report._id);
+    }
+  }
+  const undrafted = rows.filter((row) => row.status !== "drafted");
+  const lastDrafted = [...rows].reverse().find((row) => row.status === "drafted");
+  const complete = undrafted.length === 0;
+  let outputs: Record<string, unknown> = {};
+  try {
+    const parsed: unknown = JSON.parse(generation.agentOutputs ?? "{}");
+    if (parsed && typeof parsed === "object") outputs = parsed as Record<string, unknown>;
+  } catch {
+    /* Rebuild from the Section keys below. */
+  }
+  for (const section of filled) outputs[`section${section}`] = drafts[sectionKeyOf(section)];
+  if (complete) delete outputs.stoppedAfterSection;
+  else if (lastDrafted) outputs.stoppedAfterSection = sectionNumberOfRow(lastDrafted);
+  const scheduleQa = complete && filled.length > 0;
+  const postQaStartedAt = Math.max(now, (generation.postQaStartedAt ?? 0) + 1);
+  const lines = (sections: SectionNumber[]) =>
+    `${sections.length === 1 ? "Line" : "Lines"} ${sections.join(", ")}`;
+  const narration = outcome.failed
+    ? `✗ The redraft did not finish. ${filled.length ? `${lines(filled)} went into the report; ` : ""}the other Sections stay Not drafted.`
+    : `✓ Redrafted ${filled.length ? lines(filled) : "no Section"} into the report${skipped.length ? `. ${lines(skipped)} kept the writer's own text` : ""}.`;
+  await ctx.db.patch(generation._id, {
+    redraft: {
+      ...redraft,
+      status: outcome.failed ? "failed" : "completed",
+      lastProgressAt: now,
+      completedAt: now,
+      filledSections: filled,
+      ...(outcome.failed ? { error: outcome.error.slice(0, 500) } : {}),
+    },
+    // stoppedAfterSection is present only while Sections remain Not drafted.
+    stoppedAfterSection: complete
+      ? undefined
+      : lastDrafted
+        ? sectionNumberOfRow(lastDrafted)
+        : generation.stoppedAfterSection,
+    agentOutputs: JSON.stringify(outputs),
+    progressLog: [
+      ...(generation.progressLog ?? []),
+      narration,
+      ...(scheduleQa ? ["Running the QA scorecard and chronology in the background…"] : []),
+    ],
+    ...(scheduleQa ? { postQaStatus: "running" as const, postQaStartedAt } : {}),
+  });
+  if (scheduleQa) {
+    // CAP-18: the report is complete now, so QA follows in the background.
+    await ctx.scheduler.runAfter(0, internal.ai.postQa.runReportQa, {
+      generationId: generation._id,
+      attemptStartedAt: postQaStartedAt,
+    });
+  }
+  return { filled, skipped };
+}
+
+/** A redraft Section failed: it and the Sections after it stay Not drafted,
+ * and any Section this attempt already drafted is written into the report. */
+export const failRedraftSection = internalMutation({
+  args: {
+    generationId: v.id("generations"),
+    candidateRunId: v.id("generationCandidateRuns"),
+    attemptStartedAt: v.number(),
+    section: sectionNumberValidator,
+    error: v.string(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const fence = await redraftFence(
+      ctx,
+      args.generationId,
+      args.candidateRunId,
+      args.attemptStartedAt
+    );
+    if (!fence) return null;
+    const now = Date.now();
+    for (const row of await orderedRunsForCandidate(ctx, fence.run._id)) {
+      if (!fence.redraft.sections.includes(sectionNumberOfRow(row))) continue;
+      if (row.status === "running" || row.status === "queued" || row.status === "pending") {
+        await ctx.db.patch(row._id, {
+          status: "failed",
+          error:
+            row.section === sectionKeyOf(args.section)
+              ? args.error.slice(0, 500)
+              : "Not drafted: an earlier Section failed during the redraft.",
+          completedAt: now,
+        });
+      }
+    }
+    await settleSeedRedraft(ctx, fence, { failed: true, error: args.error });
+    return null;
+  },
+});
+
+/** Finalizer input: the attempt's rows, the report's current Section text
+ * and the frozen Brief the consistency pass checks against. */
+export const getSeedRedraftInput = internalQuery({
+  args: {
+    generationId: v.id("generations"),
+    candidateRunId: v.id("generationCandidateRuns"),
+    attemptStartedAt: v.number(),
+  },
+  handler: async (ctx, args) => {
+    const generation = await ctx.db.get(args.generationId);
+    const run = await ctx.db.get(args.candidateRunId);
+    if (
+      !generation ||
+      !run ||
+      run.generationId !== generation._id ||
+      generation.redraft?.status !== "running" ||
+      generation.redraft.attemptStartedAt !== args.attemptStartedAt
+    ) {
+      return null;
+    }
+    const rows = await orderedRunsForCandidate(ctx, run._id);
+    const report = await reportForGeneration(ctx, generation._id);
+    const current = report ? extractReportSections(report.content) : null;
+    const redrafting = new Set<string>(generation.redraft.sections.map(sectionKeyOf));
+    const { brief } = await loadBriefCheck(ctx, generation);
+    return {
+      model: run.model,
+      projectId: generation.projectId,
+      requestedBy: generation.requestedBy,
+      brief,
+      sections: rows.map((row) => {
+        const section = sectionNumberOfRow(row);
+        return {
+          section,
+          text:
+            redrafting.has(row.section) && row.status === "drafted"
+              ? (row.draftText ?? null)
+              : presentReportSection(current, section),
+        };
+      }),
+    };
+  },
+});
+
+/** Store the redraft's consistency rows (when the report became complete)
+ * and write the redrafted Sections into the report. */
+export const applySeedRedraft = internalMutation({
+  args: {
+    generationId: v.id("generations"),
+    candidateRunId: v.id("generationCandidateRuns"),
+    attemptStartedAt: v.number(),
+    notes: v.array(complianceNoteDraftValidator),
+  },
+  returns: v.boolean(),
+  handler: async (ctx, args): Promise<boolean> => {
+    const fence = await redraftFence(
+      ctx,
+      args.generationId,
+      args.candidateRunId,
+      args.attemptStartedAt
+    );
+    if (!fence) return false;
+    const owner = {
+      projectId: fence.generation.projectId,
+      generationId: fence.generation._id,
+      candidateRunId: fence.run._id,
+    };
+    for (const note of args.notes) {
+      await ctx.db.insert("complianceNotes", complianceNoteRow(note, owner));
+    }
+    if (args.notes.length > 0) {
+      await ctx.db.patch(fence.run._id, { consistencyCheckedAt: Date.now() });
+    }
+    await settleSeedRedraft(ctx, fence, { failed: false });
+    return true;
   },
 });
