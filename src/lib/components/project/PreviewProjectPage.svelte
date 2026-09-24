@@ -1281,8 +1281,11 @@
   );
   const draftProgress = $derived(draftProgressGenerationId ? draftProgressQ.data : undefined);
   // `null` means the server does not treat the run as a signed-off Seed
-  // draft: the page falls back to the centred progress card.
-  const showWritingView = $derived(writingGenerationId !== null && draftProgress !== null);
+  // draft, and a failed read cannot show honest progress: in both cases the
+  // page falls back to the centred progress card.
+  const showWritingView = $derived(
+    writingGenerationId !== null && draftProgress !== null && !draftProgressQ.error
+  );
   let writingScrollEl = $state<HTMLElement | null>(null);
 
   // A7 continued: focus that landed on the progress region while the draft

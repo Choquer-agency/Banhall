@@ -14,6 +14,7 @@ import {
   __setMutationResult,
   __setPaginatedRows,
   __setQueryData,
+  __setQueryError,
 } from "$lib/test/convex-svelte-stub.svelte";
 import { __resetQaSeenMemory } from "$lib/qa/qaSeen";
 
@@ -188,6 +189,29 @@ describe("PreviewProjectPage writing a signed-off Step-by-step draft", () => {
     await page.getByRole("dialog").getByRole("button", { name: "Stop", exact: true }).click();
     await expect.poll(() => __mutationCalls("generations:stopOrderedGeneration")).toEqual([{ generationId: GENERATION }]);
     await expect.poll(() => page.getByRole("dialog").elements().length).toBe(0);
+  });
+
+  it("keeps the centred progress card when the progress read does not recognise the run or fails", async () => {
+    seedDrafting();
+    __setQueryData("generations:getGeneration", {
+      _id: GENERATION,
+      status: "running",
+      currentStep: "Drafting from the signed-off Summary",
+      startedAt: Date.now(),
+      estimatedMs: 60_000,
+      totalCandidates: 1,
+      candidatesDone: 0,
+    });
+    __setQueryData("generations:getSeedDraftProgress", null);
+    await render(PreviewProjectPage);
+    await expect.element(page.getByRole("heading", { name: "Generating your report", exact: true })).toBeVisible();
+    expect(document.querySelector("[data-seed-drafting-view]")).toBeNull();
+
+    __setQueryData("generations:getSeedDraftProgress", progress("drafting", ["done", "writing", "queued"]));
+    await expect.element(page.getByText("Writing section 244", { exact: true })).toBeVisible();
+    __setQueryError("generations:getSeedDraftProgress", new Error("progress read failed"));
+    await expect.element(page.getByRole("heading", { name: "Generating your report", exact: true })).toBeVisible();
+    expect(document.querySelector("[data-seed-drafting-view]")).toBeNull();
   });
 
   it("keeps the Stop dialog open with the reason when every Section is already drafted", async () => {
