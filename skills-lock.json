@@ -43,6 +43,18 @@
       "skillPath": "skills/convex-setup-auth/SKILL.md",
       "computedHash": "b1a940758751c5b2fdc6ced105b19927a1655f0c1d4bd2fd5536dc3264202c00"
     },
+    "copywriting": {
+      "source": "coreyhaines31/marketingskills",
+      "sourceType": "github",
+      "skillPath": "skills/copywriting/SKILL.md",
+      "computedHash": "779f05c8be67da475e6a7af78de3e0400b0038e371ce898dd6ff9d3331aab7db"
+    },
+    "dashfix": {
+      "source": "sentimony/skills",
+      "sourceType": "github",
+      "skillPath": "skills/dashfix/SKILL.md",
+      "computedHash": "4ca33abdc8f95f8a8b419b4d71dc3b90639d28e268a98728c6c9fea03013f997"
+    },
     "design-taste-frontend": {
       "source": "Leonxlnx/taste-skill",
       "sourceType": "github",
