@@ -924,7 +924,7 @@
                               maxlength={MAX_EDITED_BULLET_CHARS}
                               aria-label="Bullet 1"
                               aria-describedby={`summary-edit-hint-${item.seedId}`}
-                              class="min-h-11 w-full resize-none rounded-md border border-primary bg-surface px-2.5 py-2 text-[14px] leading-5 text-ink shadow-[0_0_0_3px_var(--color-primary-wash)] [field-sizing:content] focus:outline-none"
+                              class="field-control min-h-11 w-full resize-none rounded-md px-2.5 py-2 text-[14px] leading-5 text-ink [field-sizing:content]"
                             ></textarea>
                             <textarea
                               bind:value={bulletTwo}
@@ -935,7 +935,7 @@
                               aria-label="Bullet 2, optional"
                               aria-describedby={`summary-edit-hint-${item.seedId}`}
                               placeholder="Optional second bullet"
-                              class="min-h-11 w-full resize-none rounded-md border border-line bg-surface px-2.5 py-2 text-[14px] leading-5 text-ink placeholder:text-ink-faint [field-sizing:content] focus:border-primary focus:shadow-[0_0_0_3px_var(--color-primary-wash)] focus:outline-none"
+                              class="field-control min-h-11 w-full resize-none rounded-md px-2.5 py-2 text-[14px] leading-5 text-ink placeholder:text-ink-faint [field-sizing:content]"
                             ></textarea>
                             {#if editingStale}
                               <div class="rounded-lg bg-gap-bg px-3 py-2 text-body text-gap-text!" role="status">

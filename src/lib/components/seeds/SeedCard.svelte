@@ -366,7 +366,7 @@
             onkeydown={editKeydown}
             rows="2"
             maxlength={MAX_EDITED_BULLET_CHARS}
-            class="block min-h-11 w-full resize-none rounded-md border border-line bg-surface px-2.5 py-1.5 text-[15px] leading-relaxed text-ink [field-sizing:content] focus:border-primary focus:outline-none"
+            class="field-control block min-h-11 w-full resize-none rounded-md px-2.5 py-1.5 text-[15px] leading-relaxed text-ink [field-sizing:content]"
           ></textarea>
           <textarea
             aria-label="Bullet 2, optional"
@@ -378,7 +378,7 @@
             onkeydown={editKeydown}
             rows="2"
             maxlength={MAX_EDITED_BULLET_CHARS}
-            class="block min-h-11 w-full resize-none rounded-md border border-line bg-surface px-2.5 py-1.5 text-[15px] leading-relaxed text-ink [field-sizing:content] placeholder:text-ink-faint focus:border-primary focus:outline-none"
+            class="field-control block min-h-11 w-full resize-none rounded-md px-2.5 py-1.5 text-[15px] leading-relaxed text-ink [field-sizing:content] placeholder:text-ink-faint"
           ></textarea>
           <p class="text-xs text-ink-muted">Enter to save, Shift+Enter for a new line, Esc to cancel.</p>
           {#if discardArmed}
@@ -448,7 +448,7 @@
             onkeydown={feedbackKeydown}
             rows="2"
             maxlength="300"
-            class="block min-h-11 w-full resize-none rounded-md border border-line bg-surface px-2.5 py-1.5 text-body text-ink [field-sizing:content] placeholder:text-ink-faint focus:border-primary focus:outline-none"
+            class="field-control block min-h-11 w-full resize-none rounded-md px-2.5 py-1.5 text-body text-ink [field-sizing:content] placeholder:text-ink-faint"
           ></textarea>
           {#if feedbackStale}
             <div class="mt-2 rounded-lg bg-gap-bg px-3 py-2 text-body text-gap-text!" role="status">
