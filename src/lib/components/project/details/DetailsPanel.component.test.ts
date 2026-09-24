@@ -273,6 +273,28 @@ describe("Details panel", () => {
     expect(onHandOff).toHaveBeenCalledWith(expect.objectContaining({ stage: "on_hold", note: "Client is travelling." }));
   });
 
+  it("never offers a hand-off stage the server refuses", async () => {
+    await mount();
+    await page.getByRole("button", { name: "Hand off", exact: true }).click();
+    document.querySelector<HTMLButtonElement>("[data-hand-off-stage]")!.click();
+    await expect.poll(() => document.querySelector("[data-hand-off-stage-option='drafting']")).not.toBeNull();
+    // A handoff opens work, so Abandoned is never a hand-off stage.
+    expect(document.querySelector("[data-hand-off-stage-option='abandoned']")).toBeNull();
+    expect(document.querySelector("[data-hand-off-stage-option='on_hold']")).not.toBeNull();
+    document.body.innerHTML = "";
+
+    // A Delivered project cannot stay Delivered: the view picks a stage it may move to.
+    const { onHandOff } = await mount({ stage: "delivered", viewerAuthorities: ["manager"] });
+    await page.getByRole("button", { name: "Hand off", exact: true }).click();
+    await expect.element(page.getByRole("heading", { name: "Hand off", exact: true })).toBeVisible();
+    expect(document.querySelector("[data-hand-off-stage]")?.textContent).not.toContain("Delivered");
+    document.querySelector<HTMLButtonElement>("[data-hand-off-stage]")!.click();
+    await expect.poll(() => document.querySelectorAll("[data-hand-off-stage-option]").length).toBeGreaterThan(0);
+    expect(document.querySelector("[data-hand-off-stage-option='delivered']")).toBeNull();
+    expect(document.querySelector("[data-hand-off-stage-option='abandoned']")).toBeNull();
+    expect(onHandOff).not.toHaveBeenCalled();
+  });
+
   it("keeps the hand off view open with the error when the save fails", async () => {
     const onHandOff = vi.fn(async () => {
       throw new Error("You cannot move this project to Internal review");

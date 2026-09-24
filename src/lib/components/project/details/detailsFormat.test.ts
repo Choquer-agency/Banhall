@@ -12,6 +12,8 @@ import {
   toDateInput,
 } from "./detailsFormat";
 import { handOffStageOptions, NOT_AVAILABLE_YET, stageMenuGroups, stageMove } from "./stageMenu";
+import { handoffStageRefusal } from "../../../../../shared/workItems";
+import { WORKFLOW_STAGES } from "../../../../../shared/workflowStages";
 
 describe("Details formatting", () => {
   it("shows the science code label and code apart, without touching the retrieval label", () => {
@@ -98,5 +100,27 @@ describe("Stage menu", () => {
     expect(stages).not.toContain("ready_for_delivery");
     expect(stages).not.toContain("delivered");
     expect(stages).toContain("on_hold");
+  });
+
+  it("never offers a hand-off stage that workItems.handOff refuses", () => {
+    // From Drafting: Abandoned is refused because a handoff opens work.
+    const fromDrafting = handOffStageOptions("drafting").map((option) => option.stage);
+    expect(fromDrafting).not.toContain("abandoned");
+    expect(fromDrafting).toContain("drafting");
+    expect(fromDrafting).toContain("internal_review");
+    // Delivered and Abandoned cannot be kept in place; reopening is offered.
+    const fromDelivered = handOffStageOptions("delivered", ["manager"]).map((option) => option.stage);
+    expect(fromDelivered).not.toContain("delivered");
+    expect(fromDelivered).not.toContain("abandoned");
+    expect(fromDelivered).toContain("revisions");
+    const fromAbandoned = handOffStageOptions("abandoned", ["manager"]).map((option) => option.stage);
+    expect(fromAbandoned).not.toContain("abandoned");
+    expect(fromAbandoned).toContain("drafting");
+    // Every offered option agrees with the shared rule the mutation applies.
+    for (const current of WORKFLOW_STAGES) {
+      for (const option of handOffStageOptions(current, ["owner", "manager", "admin"])) {
+        expect(handoffStageRefusal(current, option.stage)).toBeNull();
+      }
+    }
   });
 });

@@ -5,6 +5,7 @@ import {
   type TransitionAuthority,
 } from "../../../../../shared/workflowTransitions";
 import { WORKFLOW_STAGE_LABELS } from "../../../../../shared/workflowLabels";
+import { handoffStageRefusal } from "../../../../../shared/workItems";
 import { WORKFLOW_STAGE_GROUPS } from "$lib/workflow/stageGroups";
 import { nextInProgressStage } from "./detailsFormat";
 
@@ -90,14 +91,20 @@ export function stageMenuGroups(
   }));
 }
 
-/** Stages a hand off may target: any enabled plain or reason move, plus keeping the current stage. */
+/**
+ * Stages a hand off may target: keeping the current stage or any enabled
+ * move, minus every stage `workItems.handOff` refuses (the shared
+ * `handoffStageRefusal`): Abandoned, keeping Delivered or Abandoned in place,
+ * the review-completion edges and edges whose requirement fails closed.
+ */
 export function handOffStageOptions(
   current: WorkflowStage,
   viewerAuthorities?: readonly TransitionAuthority[]
 ): StageMenuOption[] {
   return stageMenuGroups(current, viewerAuthorities)
     .flatMap((group) => group.options)
-    .filter((option) => option.current || (!option.disabledReason && option.move !== "decision"));
+    .filter((option) => option.current || !option.disabledReason)
+    .filter((option) => handoffStageRefusal(current, option.stage) === null);
 }
 
 /** The question the inline reason step asks for a note-required move. */
