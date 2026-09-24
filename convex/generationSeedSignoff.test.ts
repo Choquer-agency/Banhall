@@ -5932,7 +5932,8 @@ describe("Step-by-step writing: background QA, Stop and redraft (CAP-17, CAP-18)
     | "ai/orderedGeneration:finalizeOrderedCandidate"
     | "ai/orderedGeneration:redraftSeedSection"
     | "ai/orderedGeneration:finalizeSeedRedraft"
-    | "ai/postQa:runReportQa";
+    | "ai/postQa:runReportQa"
+    | "generations:expireStaleRedraft";
 
   async function pendingJobs(s: ReadyFixture, name: ScheduledName) {
     return await s.t.run(async (ctx) =>
@@ -5983,6 +5984,23 @@ describe("Step-by-step writing: background QA, Stop and redraft (CAP-17, CAP-18)
       args as FunctionArgs<typeof internal.ai.orderedGeneration.finalizeSeedRedraft>
     );
   }
+
+  async function runExpiry(s: ReadyFixture) {
+    const args = await takeJob(s, "generations:expireStaleRedraft");
+    await s.t.mutation(
+      internal.generations.expireStaleRedraft,
+      args as FunctionArgs<typeof internal.generations.expireStaleRedraft>
+    );
+  }
+
+  /** The action that would run next dies: its job never runs. */
+  async function dropJobs(s: ReadyFixture, name: ScheduledName) {
+    for (const job of await pendingJobs(s, name)) {
+      await s.t.run((ctx) => ctx.scheduler.cancel(job._id));
+    }
+  }
+
+  const REDRAFT_STALE_MS = 15 * 60 * 1000;
 
   async function signedOff(prefix: string) {
     // Scheduled jobs run only when a test takes and runs them.
@@ -6407,6 +6425,9 @@ describe("Step-by-step writing: background QA, Stop and redraft (CAP-17, CAP-18)
     const queued = await progress(s);
     expect(queued.phase).toBe("drafting");
     expect(statuses(queued)).toEqual([["246", "done"], ["242", "queued"], ["244", "queued"]]);
+    expect(queued.redraft).toMatchObject({ status: "running", error: null, sections: ["242", "244"] });
+    const attemptId = queued.redraft?.attemptId;
+    expect(attemptId).toEqual(expect.any(Number));
 
     network.create.mockClear();
     await runRedraftSection(s);
@@ -6464,6 +6485,13 @@ describe("Step-by-step writing: background QA, Stop and redraft (CAP-17, CAP-18)
     const complete = await progress(s);
     expect(complete).toMatchObject({ phase: "completed", percent: 100, stoppedAfterSectionKey: null });
     expect(statuses(complete)).toEqual([["246", "done"], ["242", "done"], ["244", "done"]]);
+    expect(complete.redraft).toEqual({
+      status: "done",
+      error: null,
+      attemptId,
+      sections: ["242", "244"],
+      filledSections: ["242", "244"],
+    });
 
     // Idempotent afterwards: nothing is left to draft.
     expect(await s.writer.mutation(api.generations.redraftMissingSections, {
@@ -6485,12 +6513,30 @@ describe("Step-by-step writing: background QA, Stop and redraft (CAP-17, CAP-18)
     expect(await s.writer.mutation(api.generations.redraftMissingSections, {
       generationId: s.generationId,
     })).toEqual({ status: "started", sections: ["242"] });
+    // While 242 is redrafted, the hand-filled 244 already counts as present.
+    expect(statuses(await progress(s))).toEqual([["246", "done"], ["242", "queued"], ["244", "done"]]);
     await runRedraftSection(s);
     await runRedraftFinalizer(s);
     const report = await reportOf(s);
     expect(report.content).toContain("HandRedraft draft 1.");
     expect(report.content).toContain("Writer wrote 244 by hand.");
     expect(report.content).not.toContain("[NOT GENERATED]");
+    // Completion is the report's: 244's run row stays failed as history, but
+    // the report has every Section, so the draft is complete and QA runs.
+    const generation = await s.t.run((ctx) => ctx.db.get(s.generationId));
+    expect(generation?.stoppedAfterSection).toBeUndefined();
+    expect(generation?.postQaStatus).toBe("running");
+    expect(await pendingJobs(s, "ai/postQa:runReportQa")).toHaveLength(1);
+    const row244 = await s.t.run(async (ctx) =>
+      await ctx.db.query("generationSectionRuns")
+        .withIndex("by_generationId_and_section", (q) =>
+          q.eq("generationId", s.generationId).eq("section", "s244"))
+        .unique());
+    expect(row244?.status).toBe("failed");
+    const complete = await progress(s);
+    expect(complete).toMatchObject({ phase: "completed", percent: 100, stoppedAfterSectionKey: null });
+    expect(statuses(complete)).toEqual([["246", "done"], ["242", "done"], ["244", "done"]]);
+    expect(complete.sections[2]?.paragraphs).toEqual(["Writer wrote 244 by hand."]);
   });
 
   it("leaves a placeholder the writer starts typing in during the redraft alone", async () => {
@@ -6510,7 +6556,17 @@ describe("Step-by-step writing: background QA, Stop and redraft (CAP-17, CAP-18)
       content: typed,
       expectedRevisionNumber: current.revisionNumber ?? 0,
     });
+    network.create.mockClear();
     await runRedraftFinalizer(s);
+    // The consistency pass checks the document the write produces: the
+    // writer's 244, never the discarded draft.
+    const consistencyCall = network.create.mock.calls
+      .map(([params]) => params as GenerationMessageParams)
+      .find((params) => params.tool_choice?.name === "submit_consistency_findings");
+    if (!consistencyCall) throw new Error("The redraft made no consistency call");
+    expect(JSON.stringify(consistencyCall)).toContain("Writer started 244.");
+    expect(JSON.stringify(consistencyCall)).toContain("RaceRedraft draft 1.");
+    expect(JSON.stringify(consistencyCall)).not.toContain("RaceRedraft draft 2.");
     const report = await reportOf(s);
     expect(report.content).toContain("RaceRedraft draft 1.");
     expect(report.content).toContain("Writer started 244.");
@@ -6542,15 +6598,11 @@ describe("Step-by-step writing: background QA, Stop and redraft (CAP-17, CAP-18)
     const [oldJob] = await pendingJobs(stopped.s, "ai/orderedGeneration:redraftSeedSection");
     if (!oldJob) throw new Error("Missing first redraft job");
     await stopped.s.t.run((ctx) => ctx.scheduler.cancel(oldJob._id));
-    // The first attempt's action died: after the stale window a new request
-    // starts a fresh attempt, and the dead attempt's late job changes nothing.
-    await stopped.s.t.run(async (ctx) => {
-      const generation = await ctx.db.get(stopped.s.generationId);
-      if (!generation?.redraft) throw new Error("Missing redraft");
-      await ctx.db.patch(generation._id, {
-        redraft: { ...generation.redraft, lastProgressAt: Date.now() - 16 * 60 * 1000 },
-      });
-    });
+    // The first attempt's action died: after the stale window its scheduled
+    // expiry settles it, a new request starts a fresh attempt, and the dead
+    // attempt's late job changes nothing.
+    vi.setSystemTime(Date.now() + REDRAFT_STALE_MS + 1_000);
+    await runExpiry(stopped.s);
     expect((await progress(stopped.s)).phase).toBe("stopped");
     expect(await stopped.s.writer.mutation(api.generations.redraftMissingSections, {
       generationId: stopped.s.generationId,
@@ -6567,6 +6619,156 @@ describe("Step-by-step writing: background QA, Stop and redraft (CAP-17, CAP-18)
     const report = await reportOf(stopped.s);
     expect(report.content).toContain("FenceRedraft draft 1.");
     expect(report.content).toContain("FenceRedraft draft 2.");
+  });
+
+  it("carries a draft a dead attempt never wrote into the retry, including when only the write died", async () => {
+    // The action after 242's draft dies, and so does the expiry, so only the
+    // request-time stale fallback can replace the attempt.
+    const { s } = await stopAfterFirstSection("Strand");
+    configureSuccessfulSummaryFinalization("StrandRedraft");
+    await s.writer.mutation(api.generations.redraftMissingSections, {
+      generationId: s.generationId,
+    });
+    await runRedraftSection(s);
+    await dropJobs(s, "ai/orderedGeneration:redraftSeedSection");
+    await dropJobs(s, "generations:expireStaleRedraft");
+    vi.setSystemTime(Date.now() + REDRAFT_STALE_MS + 1_000);
+    expect((await reportOf(s)).content.match(/\[NOT GENERATED\]/g)).toHaveLength(2);
+    expect(await s.writer.mutation(api.generations.redraftMissingSections, {
+      generationId: s.generationId,
+    })).toEqual({ status: "started", sections: ["242", "244"] });
+    // 242 is carried as drafted; only 244 is drafted again.
+    const retryJobs = await pendingJobs(s, "ai/orderedGeneration:redraftSeedSection");
+    expect(retryJobs.map((job) => job.args[0]?.section)).toEqual(["244"]);
+    expect(statuses(await progress(s))).toEqual([["246", "done"], ["242", "done"], ["244", "queued"]]);
+    await runRedraftSection(s);
+    await runRedraftFinalizer(s);
+    const report = await reportOf(s);
+    expect(report.content).toContain("StrandRedraft draft 1.");
+    expect(report.content).toContain("StrandRedraft draft 2.");
+    expect(report.content).not.toContain("[NOT GENERATED]");
+    expect((await s.t.run((ctx) => ctx.db.get(s.generationId)))?.redraft).toMatchObject({
+      status: "completed",
+      filledSections: ["242", "244"],
+    });
+    expect((await progress(s)).phase).toBe("completed");
+
+    // Only the write dies: every Section is drafted, and the retry writes
+    // them without drafting anything again.
+    const lost = await stopAfterFirstSection("Unwritten");
+    configureSuccessfulSummaryFinalization("UnwrittenRedraft");
+    await lost.s.writer.mutation(api.generations.redraftMissingSections, {
+      generationId: lost.s.generationId,
+    });
+    await runRedraftSection(lost.s);
+    await runRedraftSection(lost.s);
+    await dropJobs(lost.s, "ai/orderedGeneration:finalizeSeedRedraft");
+    await dropJobs(lost.s, "generations:expireStaleRedraft");
+    vi.setSystemTime(Date.now() + REDRAFT_STALE_MS + 1_000);
+    expect(await lost.s.writer.mutation(api.generations.redraftMissingSections, {
+      generationId: lost.s.generationId,
+    })).toEqual({ status: "started", sections: ["242", "244"] });
+    expect(await pendingJobs(lost.s, "ai/orderedGeneration:redraftSeedSection")).toHaveLength(0);
+    network.create.mockClear();
+    await runRedraftFinalizer(lost.s);
+    expect(network.create.mock.calls.map(
+      ([params]) => (params as GenerationMessageParams).tool_choice?.name ?? null
+    )).toEqual(["submit_consistency_findings"]);
+    const written = await reportOf(lost.s);
+    expect(written.content).toContain("UnwrittenRedraft draft 1.");
+    expect(written.content).toContain("UnwrittenRedraft draft 2.");
+    expect(written.content).not.toContain("[NOT GENERATED]");
+    expect(await pendingJobs(lost.s, "ai/postQa:runReportQa")).toHaveLength(1);
+  });
+
+  it("expires a redraft whose action died on its own, so an idle page sees it stop without a new request", async () => {
+    const { s } = await stopAfterFirstSection("Idle");
+    configureSuccessfulSummaryFinalization("IdleRedraft");
+    const started = await s.writer.mutation(api.generations.redraftMissingSections, {
+      generationId: s.generationId,
+    });
+    expect(started.status).toBe("started");
+    const startedAt = Date.now();
+    const [expiry] = await pendingJobs(s, "generations:expireStaleRedraft");
+    if (!expiry) throw new Error("Missing scheduled redraft expiry");
+    expect(expiry.scheduledTime).toBeGreaterThanOrEqual(startedAt + REDRAFT_STALE_MS - 1_000);
+
+    // 242 is drafted ten minutes in, so the first expiry finds recent
+    // progress and checks again later instead of ending a live attempt.
+    vi.setSystemTime(startedAt + 10 * 60 * 1000);
+    await runRedraftSection(s);
+    await dropJobs(s, "ai/orderedGeneration:redraftSeedSection");
+    vi.setSystemTime(startedAt + REDRAFT_STALE_MS + 1_000);
+    await runExpiry(s);
+    const stillRunning = await progress(s);
+    expect(stillRunning.phase).toBe("drafting");
+    expect(stillRunning.redraft).toMatchObject({ status: "running", error: null });
+    const [recheck] = await pendingJobs(s, "generations:expireStaleRedraft");
+    if (!recheck) throw new Error("Missing rescheduled redraft expiry");
+    expect(recheck.scheduledTime).toBeGreaterThan(startedAt + REDRAFT_STALE_MS + 1_000);
+
+    // Nobody asks again; the page only reads. Once the window has passed
+    // since the last progress, the expiry settles the attempt.
+    vi.setSystemTime(startedAt + 10 * 60 * 1000 + REDRAFT_STALE_MS + 1_000);
+    await runExpiry(s);
+    const expired = await progress(s);
+    expect(expired).toMatchObject({ phase: "stopped", stoppedAfterSectionKey: "242" });
+    expect(statuses(expired)).toEqual([["246", "done"], ["242", "done"], ["244", "not_drafted"]]);
+    expect(expired.redraft).toEqual({
+      status: "failed",
+      error: "Drafting stopped responding, so the missing sections were not drafted. Try again.",
+      attemptId: expect.any(Number),
+      sections: ["242", "244"],
+      filledSections: ["242"],
+    });
+    // The Section it had drafted went into the report; the other stays Not drafted.
+    const report = await reportOf(s);
+    expect(report.content).toContain("IdleRedraft draft 1.");
+    expect(report.content.match(/\[NOT GENERATED\]/g)).toHaveLength(1);
+    expect(await pendingJobs(s, "generations:expireStaleRedraft")).toHaveLength(0);
+    // A settled attempt ignores a late expiry.
+    await s.t.mutation(internal.generations.expireStaleRedraft, recheck.args[0] as FunctionArgs<
+      typeof internal.generations.expireStaleRedraft
+    >);
+    expect((await progress(s)).redraft?.status).toBe("failed");
+    // Retry drafts only what is still missing.
+    expect(await s.writer.mutation(api.generations.redraftMissingSections, {
+      generationId: s.generationId,
+    })).toEqual({ status: "started", sections: ["244"] });
+  });
+
+  it("reports a redraft worker failure on the attempt with a plain error and no provider detail", async () => {
+    const { s } = await stopAfterFirstSection("Broken");
+    network.create.mockImplementation(async () => {
+      throw new Error("upstream said: secret-provider-detail");
+    });
+    await s.writer.mutation(api.generations.redraftMissingSections, {
+      generationId: s.generationId,
+    });
+    const running = await progress(s);
+    expect(running.redraft).toMatchObject({ status: "running", error: null });
+    await runRedraftSection(s);
+    const failed = await progress(s);
+    expect(failed.phase).toBe("stopped");
+    expect(failed.redraft).toEqual({
+      status: "failed",
+      error: "The missing sections could not be drafted. Try again.",
+      attemptId: running.redraft?.attemptId,
+      sections: ["242", "244"],
+      filledSections: [],
+    });
+    expect(JSON.stringify(failed)).not.toContain("secret-provider-detail");
+    // The stored error keeps the detail for diagnosis.
+    const generation = await s.t.run((ctx) => ctx.db.get(s.generationId));
+    expect(generation?.redraft?.error).toContain("secret-provider-detail");
+    // A retry is a new attempt.
+    configureSuccessfulSummaryFinalization("BrokenRetry");
+    await s.writer.mutation(api.generations.redraftMissingSections, {
+      generationId: s.generationId,
+    });
+    const retry = await progress(s);
+    expect(retry.redraft).toMatchObject({ status: "running", error: null });
+    expect(retry.redraft?.attemptId).toBeGreaterThan(running.redraft?.attemptId ?? Infinity);
   });
 });
 

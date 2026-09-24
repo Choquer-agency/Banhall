@@ -6418,6 +6418,8 @@ const SECTION_PROGRESS_CAP = 0.95;
  * writing view shows the draft as stopped again and a new "Draft the rest"
  * starts a fresh attempt (older actions are fenced by attemptStartedAt). */
 export const REDRAFT_STALE_MS = 15 * 60 * 1000;
+/** Error code the scheduled expiry records on a redraft that went quiet. */
+const REDRAFT_TIMEOUT_CODE = "timeout";
 
 function isSignedOffSeedGeneration(generation: Doc<"generations">): boolean {
   return (
@@ -6454,6 +6456,10 @@ async function seedChainRows(
   return { run, rows };
 }
 
+/** Whether a redraft attempt still counts as running when a writer asks to
+ * start one. The scheduled expiry (expireStaleRedraft) settles a dead
+ * attempt; this time check is only the fallback for an expiry that never
+ * ran, so a request after the stale window always starts a fresh attempt. */
 function isRedraftLive(
   redraft: Doc<"generations">["redraft"],
   now: number
@@ -6463,6 +6469,73 @@ function isRedraftLive(
     redraft.status === "running" &&
     now - redraft.lastProgressAt < REDRAFT_STALE_MS
   );
+}
+
+type SeedRedraftSummary = {
+  status: "running" | "failed" | "done";
+  /** Plain words for the writer; never the provider's raw message. */
+  error: string | null;
+  /** The attempt's `attemptStartedAt`: a new "Draft the rest" is a new id. */
+  attemptId: number;
+  /** Section numbers this attempt drafts or writes into the report. */
+  sections: SectionNumber[];
+  /** Section numbers this attempt wrote into the report (settled only). */
+  filledSections: SectionNumber[];
+};
+
+/** The stored redraft error is `<code>: <provider message>`; the page gets
+ * a fixed sentence for its code instead, so no provider detail leaks. */
+export function redraftUserError(stored: string | undefined): string {
+  const code = stored?.split(":", 1)[0]?.trim() ?? "";
+  switch (code) {
+    case REDRAFT_TIMEOUT_CODE:
+      return "Drafting stopped responding, so the missing sections were not drafted. Try again.";
+    case "rate_limited":
+      return "The AI service is busy right now. Try again in a few minutes.";
+    case "network":
+      return "The AI service could not be reached. Try again.";
+    case "output_limit":
+      return "A section ran past its length limit and was not drafted. Try again.";
+    case "billing":
+    case "authentication":
+    case "model_access":
+      return "The AI service refused the request. Ask an administrator to check the AI settings.";
+    default:
+      return "The missing sections could not be drafted. Try again.";
+  }
+}
+
+function seedRedraftSummary(
+  redraft: Doc<"generations">["redraft"]
+): SeedRedraftSummary | null {
+  if (!redraft) return null;
+  return {
+    status:
+      redraft.status === "running" ? "running" : redraft.status === "failed" ? "failed" : "done",
+    error: redraft.status === "failed" ? redraftUserError(redraft.error) : null,
+    attemptId: redraft.attemptStartedAt,
+    sections: [...redraft.sections],
+    filledSections: [...(redraft.filledSections ?? [])],
+  };
+}
+
+/** The attempt's drafted Sections as the report would take them: a draft
+ * fills only a body that is still the untouched placeholder, so wherever
+ * the writer typed, their text wins over the draft. Returns the resulting
+ * Section text, or null without a report. */
+function prospectiveRedraftSections(
+  reportContent: string | null,
+  rows: Doc<"generationSectionRuns">[],
+  redrafting: Set<string>
+): ReturnType<typeof extractReportSections> | null {
+  if (reportContent === null) return null;
+  const drafts: Partial<Record<"s242" | "s244" | "s246", string>> = {};
+  for (const row of rows) {
+    if (redrafting.has(row.section) && row.status === "drafted" && row.draftText) {
+      drafts[row.section] = row.draftText;
+    }
+  }
+  return extractReportSections(fillNotDraftedSections(reportContent, drafts).content);
 }
 
 type SeedProgressPhase = "drafting" | "stopping" | "completed" | "stopped" | "failed";
@@ -6483,8 +6556,13 @@ type SeedProgressStatus = "queued" | "writing" | "done" | "not_drafted";
  * - The per-Section estimate is the mean duration of this run's finished
  *   Sections, or DEFAULT_SECTION_DRAFT_MS before any finished; the
  *   consistency pass adds DEFAULT_CONSISTENCY_PASS_MS.
- * Bounded reads: the generation, access checks, at most 10 Section rows and
- * one candidate run. Returns null when this is not a signed-off seed
+ * - A completed run is judged by its report bodies: a Section the writer
+ *   filled by hand counts as `done` (its paragraphs are the report text), a
+ *   drafted Section whose body is still the placeholder counts as
+ *   `not_drafted`, and the phase is `completed` once no body is the
+ *   placeholder. `redraft` reports the latest "Draft the rest" attempt.
+ * Bounded reads: the generation, access checks, at most 10 Section rows, one
+ * candidate run and, for a completed run, its report. Returns null when this is not a signed-off seed
  * generation or the caller has no internal project access.
  */
 export const getSeedDraftProgress = query({
@@ -6496,10 +6574,24 @@ export const getSeedDraftProgress = query({
     const now = Date.now();
     const { run, rows } = await seedChainRows(ctx, generation._id);
     const redraft = generation.redraft;
-    const redraftLive = generation.status === "completed" && isRedraftLive(redraft, now);
+    // Live means running. The scheduled expiry (expireStaleRedraft) moves a
+    // dead attempt to `failed`, so this read sees it end without the clock.
+    const redraftLive = generation.status === "completed" && redraft?.status === "running";
     const redraftSections = new Set<string>(
       redraftLive && redraft ? redraft.sections.map((section) => sectionKeyOf(section)) : []
     );
+    // A completed run is judged by the report the writer sees: a Section they
+    // filled by hand is present, and a draft the report never took is not.
+    const report =
+      generation.status === "completed" ? await reportForGeneration(ctx, generation._id) : null;
+    const reportSections = report ? extractReportSections(report.content) : null;
+    const placeholderSections = new Set<string>(
+      report ? notDraftedReportSections(report.content) : []
+    );
+    const handText = (row: Doc<"generationSectionRuns">): string | null =>
+      report && row.status !== "drafted"
+        ? presentReportSection(reportSections, sectionNumberOfRow(row))
+        : null;
 
     let phase: SeedProgressPhase;
     if (generation.status === "reserved" || generation.status === "running") {
@@ -6507,7 +6599,9 @@ export const getSeedDraftProgress = query({
     } else if (generation.status === "completed") {
       phase = redraftLive
         ? "drafting"
-        : rows.some((row) => row.status !== "drafted")
+        : (report
+              ? placeholderSections.size > 0
+              : rows.some((row) => row.status !== "drafted"))
           ? "stopped"
           : "completed";
     } else {
@@ -6531,7 +6625,12 @@ export const getSeedDraftProgress = query({
       );
     };
     const statusOf = (row: Doc<"generationSectionRuns">): SeedProgressStatus => {
-      if (row.status === "drafted") return awaitingCheck(row) ? "writing" : "done";
+      if (row.status === "drafted") {
+        if (!redraftLive && placeholderSections.has(row.section)) return "not_drafted";
+        return awaitingCheck(row) ? "writing" : "done";
+      }
+      // Filled by hand: the Section has text, so it is not missing.
+      if (handText(row) !== null) return "done";
       if (redraftLive) {
         if (!redraftSections.has(row.section)) return "not_drafted";
         return row.status === "running" ? "writing" : "queued";
@@ -6579,8 +6678,10 @@ export const getSeedDraftProgress = query({
           ? "queued"
           : "not_drafted";
       const heading = PD_SECTION_HEADINGS[sectionKeyOf(section)];
+      const drafted = row?.status === "drafted";
+      const handFilled = row && status === "done" && !drafted ? handText(row) : null;
       const doneAt =
-        row && status === "done"
+        row && status === "done" && drafted
           ? !redraftLive &&
             (row.orderIndex ?? 0) === lastIndex &&
             run?.consistencyCheckedAt !== undefined
@@ -6595,9 +6696,17 @@ export const getSeedDraftProgress = query({
         orderIndex: row?.orderIndex ?? index,
         status,
         paragraphs:
-          status === "done" && row?.draftText ? sectionParagraphs(row.draftText) : [],
+          status !== "done"
+            ? []
+            : drafted && row?.draftText
+              ? sectionParagraphs(row.draftText)
+              : handFilled
+                ? sectionParagraphs(handFilled)
+                : [],
         startedAt:
-          row && (status === "writing" || status === "done") ? (row.startedAt ?? null) : null,
+          row && (status === "writing" || (status === "done" && drafted))
+            ? (row.startedAt ?? null)
+            : null,
         completedAt: doneAt,
         row,
       };
@@ -6626,6 +6735,7 @@ export const getSeedDraftProgress = query({
         remaining += sectionEstimate;
       } else if (
         phase === "stopped" &&
+        section.status === "not_drafted" &&
         row?.status === "failed" &&
         row.startedAt !== undefined &&
         row.completedAt !== undefined &&
@@ -6663,6 +6773,9 @@ export const getSeedDraftProgress = query({
         generation.stoppedAfterSection ??
         (phase === "stopping" ? (current?.key ?? lastDone?.key ?? null) : null),
       sections: sections.map(({ row: _row, ...section }) => section),
+      // The latest "Draft the rest" attempt, so the page can show an
+      // attempt-scoped failure with a retry; null before the first one.
+      redraft: seedRedraftSummary(redraft),
     };
   },
 });
@@ -6725,9 +6838,15 @@ function presentReportSection(
  * touching any other Section. Requires report edit access.
  *
  * - Only a completed, signed-off seed generation with a report qualifies; a
- *   Section counts as missing when its run row was not drafted AND its report
- *   body is still exactly the `[NOT GENERATED]` placeholder. A Section the
- *   writer filled by hand is never redrafted.
+ *   Section counts as missing when its report body is still exactly the
+ *   `[NOT GENERATED]` placeholder. A missing Section whose run row was not
+ *   drafted is drafted again; one an earlier attempt drafted but never wrote
+ *   into the report (its action died) is carried into this attempt as it is
+ *   and written with it. A Section the writer filled by hand is never
+ *   redrafted.
+ * - Each attempt schedules a fenced expiry (expireStaleRedraft), so an
+ *   attempt whose action died settles as `failed` on its own and every
+ *   subscribed page sees it.
  * - Idempotent and one at a time: while a redraft attempt is live the call
  *   returns `running` with its Sections; when nothing is missing it returns
  *   `nothing_to_draft`. A redraft with no progress for REDRAFT_STALE_MS is
@@ -6780,10 +6899,23 @@ export const redraftMissingSections = mutation({
     const missing = rows.filter(
       (row) => row.status !== "drafted" && placeholders.has(row.section)
     );
-    if (missing.length === 0) return { status: "nothing_to_draft", sections: [] };
+    // Drafted by an earlier attempt that died before writing them: carried
+    // into this attempt unchanged, still only into a placeholder body.
+    const carried = rows.filter(
+      (row) =>
+        row.status === "drafted" &&
+        (row.draftText ?? "").trim().length > 0 &&
+        placeholders.has(row.section)
+    );
+    if (missing.length === 0 && carried.length === 0) {
+      return { status: "nothing_to_draft", sections: [] };
+    }
     const summaryVersionId = generation.summaryVersionId as Id<"summaryVersions">;
     const payload = await frozenOrderedPayload(ctx, generation, summaryVersionId);
-    const sections = missing.map(sectionNumberOfRow);
+    const carriedKeys = new Set<string>(carried.map((row) => row.section));
+    const sections = rows
+      .filter((row) => carriedKeys.has(row.section) || missing.includes(row))
+      .map(sectionNumberOfRow);
     const attemptStartedAt = Math.max(now, (previous?.attemptStartedAt ?? 0) + 1);
     for (const [index, row] of missing.entries()) {
       await ctx.db.patch(row._id, {
@@ -6812,13 +6944,18 @@ export const redraftMissingSections = mutation({
         `Drafting the Not drafted Sections (${sections.join(", ")}) from the signed-off Summary into the same report.`,
       ],
     });
-    await ctx.scheduler.runAfter(0, internal.ai.orderedGeneration.redraftSeedSection, {
-      generationId: generation._id,
-      candidateRunId: run._id,
-      attemptStartedAt,
-      section: sections[0],
-      payload: { ...payload, summaryVersionId },
-    });
+    const attempt = { generationId: generation._id, candidateRunId: run._id, attemptStartedAt };
+    if (missing.length > 0) {
+      await ctx.scheduler.runAfter(0, internal.ai.orderedGeneration.redraftSeedSection, {
+        ...attempt,
+        section: sectionNumberOfRow(missing[0]),
+        payload: { ...payload, summaryVersionId },
+      });
+    } else {
+      // Every missing Section is already drafted: only the write is left.
+      await ctx.scheduler.runAfter(0, internal.ai.orderedGeneration.finalizeSeedRedraft, attempt);
+    }
+    await ctx.scheduler.runAfter(REDRAFT_STALE_MS, internal.generations.expireStaleRedraft, attempt);
     return { status: "started", sections };
   },
 });
@@ -6863,18 +7000,19 @@ export const claimRedraftSection = internalMutation({
       redraft: { ...fence.redraft, lastProgressAt: now },
     });
     const report = await reportForGeneration(ctx, fence.generation._id);
-    const current = report ? extractReportSections(report.content) : null;
     const redrafting = new Set<string>(fence.redraft.sections.map(sectionKeyOf));
     const orderIndex = row.orderIndex ?? 0;
-    const priorSections = (await orderedRunsForCandidate(ctx, fence.run._id))
+    const chainRows = await orderedRunsForCandidate(ctx, fence.run._id);
+    // The report as this attempt would leave it, so a Section the writer
+    // typed into mid-redraft is read as their text, not the discarded draft.
+    const current = prospectiveRedraftSections(report?.content ?? null, chainRows, redrafting);
+    const priorSections = chainRows
       .filter((prior) => (prior.orderIndex ?? 0) < orderIndex)
       .flatMap((prior) => {
         const section = sectionNumberOfRow(prior);
         const text =
-          redrafting.has(prior.section) && prior.status === "drafted"
-            ? (prior.draftText ?? null)
-            : presentReportSection(current, section) ??
-              (prior.status === "drafted" ? (prior.draftText ?? null) : null);
+          presentReportSection(current, section) ??
+          (prior.status === "drafted" ? (prior.draftText ?? null) : null);
         return text ? [{ section, text }] : [];
       });
     return await orderedSectionClaim(ctx, {
@@ -6942,12 +7080,19 @@ export const completeRedraftSection = internalMutation({
         `✓ ${fence.run.label}: ${ORDERED_SECTION_TITLES[args.section]} redrafted (${sectionCheckNarration(args.selfCheck)}).`,
       ],
     });
+    // The next Section still to draft; a carried Section is already drafted.
     const position = fence.redraft.sections.indexOf(args.section);
-    const nextSection = fence.redraft.sections[position + 1];
-    const next = nextSection
-      ? await orderedRunForSection(ctx, args.candidateRunId, nextSection)
-      : null;
-    if (nextSection && next && next.status === "pending") {
+    let nextSection: SectionNumber | undefined;
+    let next: Doc<"generationSectionRuns"> | null = null;
+    for (const candidate of fence.redraft.sections.slice(position + 1)) {
+      const candidateRow = await orderedRunForSection(ctx, args.candidateRunId, candidate);
+      if (candidateRow?.status === "pending") {
+        nextSection = candidate;
+        next = candidateRow;
+        break;
+      }
+    }
+    if (nextSection && next) {
       await ctx.db.patch(next._id, { status: "queued", queuedAt: now });
       await ctx.scheduler.runAfter(0, internal.ai.orderedGeneration.redraftSeedSection, {
         generationId: args.generationId,
@@ -6994,8 +7139,10 @@ async function settleSeedRedraft(
   const report = await reportForGeneration(ctx, generation._id);
   let filled: SectionNumber[] = [];
   let skipped: SectionNumber[] = [];
+  let resultingContent = report?.content ?? null;
   if (report && Object.keys(drafts).length > 0) {
     const merged = fillNotDraftedSections(report.content, drafts);
+    resultingContent = merged.content;
     filled = merged.filled.map((key) => key.slice(1) as SectionNumber);
     skipped = merged.skipped.map((key) => key.slice(1) as SectionNumber);
     if (merged.filled.length > 0) {
@@ -7012,9 +7159,13 @@ async function settleSeedRedraft(
       await persistDeterministicFindings(ctx, report._id);
     }
   }
-  const undrafted = rows.filter((row) => row.status !== "drafted");
+  // Completion is the report's, not the run rows': a Section the writer
+  // filled by hand counts as present, and the rows stay generation history.
   const lastDrafted = [...rows].reverse().find((row) => row.status === "drafted");
-  const complete = undrafted.length === 0;
+  const complete =
+    resultingContent !== null
+      ? notDraftedReportSections(resultingContent).length === 0
+      : rows.every((row) => row.status === "drafted");
   let outputs: Record<string, unknown> = {};
   try {
     const parsed: unknown = JSON.parse(generation.agentOutputs ?? "{}");
@@ -7025,7 +7176,8 @@ async function settleSeedRedraft(
   for (const section of filled) outputs[`section${section}`] = drafts[sectionKeyOf(section)];
   if (complete) delete outputs.stoppedAfterSection;
   else if (lastDrafted) outputs.stoppedAfterSection = sectionNumberOfRow(lastDrafted);
-  const scheduleQa = complete && filled.length > 0;
+  // CAP-18: once no Section is Not drafted, QA runs once in the background.
+  const scheduleQa = complete && generation.postQaStatus !== "running";
   const postQaStartedAt = Math.max(now, (generation.postQaStartedAt ?? 0) + 1);
   const lines = (sections: SectionNumber[]) =>
     `${sections.length === 1 ? "Line" : "Lines"} ${sections.join(", ")}`;
@@ -7084,21 +7236,68 @@ export const failRedraftSection = internalMutation({
       args.attemptStartedAt
     );
     if (!fence) return null;
-    const now = Date.now();
-    for (const row of await orderedRunsForCandidate(ctx, fence.run._id)) {
-      if (!fence.redraft.sections.includes(sectionNumberOfRow(row))) continue;
-      if (row.status === "running" || row.status === "queued" || row.status === "pending") {
-        await ctx.db.patch(row._id, {
-          status: "failed",
-          error:
-            row.section === sectionKeyOf(args.section)
-              ? args.error.slice(0, 500)
-              : "Not drafted: an earlier Section failed during the redraft.",
-          completedAt: now,
-        });
-      }
-    }
+    await failOpenRedraftRows(ctx, fence, (row) =>
+      row.section === sectionKeyOf(args.section)
+        ? args.error.slice(0, 500)
+        : "Not drafted: an earlier Section failed during the redraft."
+    );
     await settleSeedRedraft(ctx, fence, { failed: true, error: args.error });
+    return null;
+  },
+});
+
+/** Mark the attempt's Sections that are not drafted yet as failed. */
+async function failOpenRedraftRows(
+  ctx: MutationCtx,
+  fence: NonNullable<Awaited<ReturnType<typeof redraftFence>>>,
+  errorFor: (row: Doc<"generationSectionRuns">) => string
+) {
+  const now = Date.now();
+  for (const row of await orderedRunsForCandidate(ctx, fence.run._id)) {
+    if (!fence.redraft.sections.includes(sectionNumberOfRow(row))) continue;
+    if (row.status === "running" || row.status === "queued" || row.status === "pending") {
+      await ctx.db.patch(row._id, { status: "failed", error: errorFor(row), completedAt: now });
+    }
+  }
+}
+
+/**
+ * Fenced expiry of one redraft attempt, scheduled when it starts. An attempt
+ * that made progress within REDRAFT_STALE_MS is checked again when that
+ * window ends; one that went quiet (its action died) settles as `failed`:
+ * Sections it already drafted are written into the report, the rest stay Not
+ * drafted, and every subscribed page sees the change. A settled or replaced
+ * attempt is left alone.
+ */
+export const expireStaleRedraft = internalMutation({
+  args: {
+    generationId: v.id("generations"),
+    candidateRunId: v.id("generationCandidateRuns"),
+    attemptStartedAt: v.number(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const fence = await redraftFence(
+      ctx,
+      args.generationId,
+      args.candidateRunId,
+      args.attemptStartedAt
+    );
+    if (!fence) return null;
+    const idle = Date.now() - fence.redraft.lastProgressAt;
+    if (idle < REDRAFT_STALE_MS) {
+      await ctx.scheduler.runAfter(
+        REDRAFT_STALE_MS - idle,
+        internal.generations.expireStaleRedraft,
+        args
+      );
+      return null;
+    }
+    const error = `${REDRAFT_TIMEOUT_CODE}: the redraft made no progress for ${REDRAFT_STALE_MS / 60_000} minutes.`;
+    await failOpenRedraftRows(ctx, fence, () =>
+      "Not drafted: the redraft stopped responding."
+    );
+    await settleSeedRedraft(ctx, fence, { failed: true, error });
     return null;
   },
 });
@@ -7125,8 +7324,10 @@ export const getSeedRedraftInput = internalQuery({
     }
     const rows = await orderedRunsForCandidate(ctx, run._id);
     const report = await reportForGeneration(ctx, generation._id);
-    const current = report ? extractReportSections(report.content) : null;
     const redrafting = new Set<string>(generation.redraft.sections.map(sectionKeyOf));
+    // Check the document the write will produce: the writer's text wherever
+    // they typed, this attempt's drafts only where a placeholder remains.
+    const current = prospectiveRedraftSections(report?.content ?? null, rows, redrafting);
     const { brief } = await loadBriefCheck(ctx, generation);
     return {
       model: run.model,
@@ -7137,10 +7338,11 @@ export const getSeedRedraftInput = internalQuery({
         const section = sectionNumberOfRow(row);
         return {
           section,
-          text:
-            redrafting.has(row.section) && row.status === "drafted"
+          text: current
+            ? presentReportSection(current, section)
+            : redrafting.has(row.section) && row.status === "drafted"
               ? (row.draftText ?? null)
-              : presentReportSection(current, section),
+              : null,
         };
       }),
     };
