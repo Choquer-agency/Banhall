@@ -2027,3 +2027,122 @@ describe("seedDemoProject writes a listable transcript row", () => {
     expect(rows[0].contentHash).toMatch(/^[0-9a-f]{64}$/);
   });
 });
+
+describe("getProjectDetailsPanel (Details panel, 2026-09-24)", () => {
+  async function panelSetup() {
+    const t = convexTest(schema, modules);
+    const ids = await t.run(async (ctx) => {
+      const ownerId = await ctx.db.insert("users", { authId: "dp-owner", role: "writer", firstName: "Owen", lastName: "Park" });
+      const viewerId = await ctx.db.insert("users", { authId: "dp-viewer", role: "writer", firstName: "Vera" });
+      const reviewerId = await ctx.db.insert("users", { authId: "dp-reviewer", role: "writer", firstName: "Sam", lastName: "Chen" });
+      const managerId = await ctx.db.insert("users", { authId: "dp-manager", role: "manager", firstName: "Mara" });
+      await ctx.db.insert("users", { authId: "dp-roleless", firstName: "None" });
+      const projectId = await ctx.db.insert("projects", {
+        title: "Details project", clientName: "Client", status: "review", createdBy: ownerId, ownerId,
+        shareToken: "details-project", workflowStage: "drafting", workflowVersion: 0,
+        industry: "manufacturing", fiscalYearEnd: Date.UTC(2026, 5, 30), scienceCode: "2.03.01",
+        projectNumber: "3", createdAt: 1_000, updatedAt: 2_000,
+      });
+      return { ownerId, viewerId, reviewerId, managerId, projectId };
+    });
+    return {
+      t, ...ids,
+      owner: t.withIdentity({ subject: "dp-owner" }),
+      viewer: t.withIdentity({ subject: "dp-viewer" }),
+      reviewer: t.withIdentity({ subject: "dp-reviewer" }),
+      manager: t.withIdentity({ subject: "dp-manager" }),
+      roleless: t.withIdentity({ subject: "dp-roleless" }),
+    };
+  }
+
+  test("returns the contract shape for the Owner with no handoff", async () => {
+    const f = await panelSetup();
+    const panel = await f.owner.query(api.projects.getProjectDetailsPanel, { projectId: f.projectId });
+    expect(panel).toEqual({
+      stage: "drafting",
+      workflowVersion: 0,
+      industry: "manufacturing",
+      fiscalYearEnd: Date.UTC(2026, 5, 30),
+      scienceCode: "2.03.01",
+      projectNumber: "3",
+      owner: { userId: f.ownerId, label: "Owen Park", initials: "OP", isYou: true },
+      createdAt: 1_000,
+      editedAt: 2_000,
+      currentHandoff: null,
+      permissions: { canEditDetails: true, canChangeStage: true, canHandOff: true },
+    });
+  });
+
+  test("shows the current handoff and moves editedAt with a stage change", async () => {
+    const f = await panelSetup();
+    const { workItemId } = await f.owner.mutation(api.workItems.handOff, {
+      projectId: f.projectId, assigneeId: f.reviewerId, stage: "internal_review",
+      note: "Please check 242", expectedWorkflowVersion: 0, createRequestId: "dp-handoff",
+    });
+    const panel = await f.owner.query(api.projects.getProjectDetailsPanel, { projectId: f.projectId });
+    expect(panel?.stage).toBe("internal_review");
+    expect(panel?.workflowVersion).toBe(1);
+    expect(panel?.currentHandoff).toEqual({
+      workItemId, assigneeId: f.reviewerId, assigneeLabel: "Sam Chen", initials: "SC",
+      isYou: false, note: "Please check 242",
+    });
+    const project = await f.t.run((ctx) => ctx.db.get(f.projectId));
+    expect(project?.updatedAt).toBe(2_000);
+    expect(panel?.editedAt).toBe(project?.workflowUpdatedAt);
+    expect(panel!.editedAt).toBeGreaterThan(2_000);
+
+    // The reviewer holds the handoff: they may edit details and complete the
+    // review, but not hand the project on.
+    const asReviewer = await f.reviewer.query(api.projects.getProjectDetailsPanel, { projectId: f.projectId });
+    expect(asReviewer?.currentHandoff?.isYou).toBe(true);
+    expect(asReviewer?.owner?.isYou).toBe(false);
+    expect(asReviewer?.permissions).toEqual({ canEditDetails: true, canChangeStage: true, canHandOff: false });
+  });
+
+  test("editedAt follows a plain stage change", async () => {
+    const f = await panelSetup();
+    await f.owner.mutation(api.projectWorkflow.setWorkflowStage, {
+      projectId: f.projectId, toStage: "client_review", expectedVersion: 0,
+    });
+    const panel = await f.owner.query(api.projects.getProjectDetailsPanel, { projectId: f.projectId });
+    const project = await f.t.run((ctx) => ctx.db.get(f.projectId));
+    expect(panel?.stage).toBe("client_review");
+    expect(panel?.editedAt).toBe(project?.workflowUpdatedAt);
+    expect(panel!.editedAt).toBeGreaterThan(project!.updatedAt);
+  });
+
+  test("gives a viewer no edit, stage or handoff permission and a Manager all three", async () => {
+    const f = await panelSetup();
+    const asViewer = await f.viewer.query(api.projects.getProjectDetailsPanel, { projectId: f.projectId });
+    expect(asViewer?.owner).toMatchObject({ userId: f.ownerId, isYou: false });
+    expect(asViewer?.permissions).toEqual({ canEditDetails: false, canChangeStage: false, canHandOff: false });
+    const asManager = await f.manager.query(api.projects.getProjectDetailsPanel, { projectId: f.projectId });
+    expect(asManager?.permissions).toEqual({ canEditDetails: true, canChangeStage: true, canHandOff: true });
+  });
+
+  test("returns null to a roleless or signed-out caller", async () => {
+    const f = await panelSetup();
+    expect(await f.roleless.query(api.projects.getProjectDetailsPanel, { projectId: f.projectId })).toBeNull();
+    await expect(f.t.query(api.projects.getProjectDetailsPanel, { projectId: f.projectId })).resolves.toBeNull();
+  });
+
+  test("uses null for absent facts and a stale handoff pointer", async () => {
+    const f = await panelSetup();
+    await f.t.run(async (ctx) => {
+      const itemId = await ctx.db.insert("workItems", {
+        projectId: f.projectId, kind: "other", assigneeId: f.reviewerId, assignerId: f.ownerId,
+        dueSortAt: 1, instructions: "", blocking: true, status: "canceled", version: 1,
+        createRequestId: "dp-stale", createRequestFingerprint: "dp-stale", createdAt: 1, updatedAt: 1,
+      });
+      await ctx.db.patch(f.projectId, {
+        industry: undefined, fiscalYearEnd: undefined, scienceCode: undefined, projectNumber: undefined,
+        workflowStage: undefined, currentHandoffId: itemId,
+      });
+    });
+    const panel = await f.owner.query(api.projects.getProjectDetailsPanel, { projectId: f.projectId });
+    expect(panel).toMatchObject({
+      stage: "intake", industry: null, fiscalYearEnd: null, scienceCode: null, projectNumber: null,
+      currentHandoff: null,
+    });
+  });
+});

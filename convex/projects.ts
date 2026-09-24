@@ -30,16 +30,24 @@ import {
 } from "./lib/auth";
 import {
   getTeamRosterMemberOrNull,
+  isTeamRosterMember,
   resolveLiveUserLabel,
   userDisplayLabel,
 } from "./lib/teamRoster";
 import { domainError, projectTypeValidator, sha256 } from "./lib/contracts";
 import { effectiveProjectType } from "../shared/projectTypes";
 import {
+  getEffectiveCapabilityLevel,
   getReportEditAccessOrNull,
   requireCapability,
   requireProjectMetadataAccess,
 } from "./lib/roleCapabilities";
+import {
+  userInitials,
+  validCurrentHandoff,
+  workflowAuthorities,
+} from "./projectWorkflow";
+import { WORKFLOW_TRANSITIONS } from "../shared/workflowTransitions";
 import { workflowStageRank } from "../shared/workflowStages";
 import { normalizeCraScienceCode } from "../shared/craScienceCodes";
 import { deriveStoredProcessing } from "../shared/documentStatus";
@@ -641,6 +649,80 @@ export const getProjectEditAccess = query({
     return {
       canEditDetails:
         (await getReportEditAccessOrNull(ctx, args.projectId)) !== null,
+    };
+  },
+});
+
+/**
+ * The report page's Details panel (story 5-6 owner amendment, 2026-09-24;
+ * ui-design-final section 8). One bounded read: the project, its Owner, the
+ * validated current handoff and its assignee, plus at most 100 open work
+ * items for the edit decision. `editedAt` is the later of `updatedAt` and
+ * `workflowUpdatedAt`, because stage and handoff writes do not bump
+ * `updatedAt`. Permissions mirror the mutations they front:
+ * `requireProjectMetadataAccess` for details, the transition matrix for
+ * stage changes, and Owner/Manager/Admin plus `workItem.create` for Hand off.
+ * An outsider, a roleless user or an anonymous caller gets `null`.
+ */
+export const getProjectDetailsPanel = query({
+  args: { projectId: v.id("projects") },
+  handler: async (ctx, args) => {
+    const access = await getInternalProjectAccessOrNull(ctx, args.projectId);
+    if (!access) return null;
+    const { project, user } = access;
+    if (getEffectiveCapabilityLevel(user.role, "project.readInternal") === "none") {
+      return null;
+    }
+    const stage = project.workflowStage ?? "intake";
+    const [ownerDoc, handoff, authorities, editAccess] = await Promise.all([
+      project.ownerId ? ctx.db.get(project.ownerId) : Promise.resolve(null),
+      validCurrentHandoff(ctx, project),
+      workflowAuthorities(ctx, project, user),
+      getReportEditAccessOrNull(ctx, project._id),
+    ]);
+    const owner = isTeamRosterMember(ownerDoc) ? ownerDoc : null;
+    const assignee = handoff ? await ctx.db.get(handoff.assigneeId) : null;
+    const createLevel = getEffectiveCapabilityLevel(user.role, "workItem.create");
+    const canCreateWork =
+      createLevel === "all" || (createLevel === "own" && project.ownerId === user._id);
+    return {
+      stage,
+      workflowVersion: project.workflowVersion ?? 0,
+      industry: project.industry ?? null,
+      fiscalYearEnd: project.fiscalYearEnd ?? null,
+      scienceCode: project.scienceCode ?? null,
+      projectNumber: project.projectNumber ?? null,
+      owner: owner
+        ? {
+            userId: owner._id,
+            label: userDisplayLabel(owner),
+            initials: userInitials(owner),
+            isYou: owner._id === user._id,
+          }
+        : null,
+      createdAt: project.createdAt,
+      editedAt: Math.max(project.updatedAt, project.workflowUpdatedAt ?? 0),
+      currentHandoff: handoff
+        ? {
+            workItemId: handoff._id,
+            assigneeId: handoff.assigneeId,
+            assigneeLabel: assignee ? userDisplayLabel(assignee) : "Unknown team member",
+            initials: assignee ? userInitials(assignee) : "?",
+            isYou: handoff.assigneeId === user._id,
+            note: handoff.instructions,
+          }
+        : null,
+      permissions: {
+        canEditDetails: editAccess !== null,
+        canChangeStage: WORKFLOW_TRANSITIONS.some(
+          (transition) =>
+            transition.from === stage &&
+            transition.authorities.some((authority) => authorities.has(authority))
+        ),
+        canHandOff:
+          canCreateWork &&
+          (authorities.has("owner") || authorities.has("manager") || authorities.has("admin")),
+      },
     };
   },
 });
