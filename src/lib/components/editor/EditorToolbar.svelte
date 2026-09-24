@@ -1,7 +1,7 @@
 <script lang="ts">
   import type { Editor } from "@tiptap/core";
   import ToolbarButton from "./ToolbarButton.svelte";
-  import ChatIcon from "$lib/components/ui/ChatIcon.svelte";
+  import AuroraMark from "$lib/components/ui/AuroraMark.svelte";
 
   let {
     editor,
@@ -161,9 +161,15 @@
 
     {#if onAskAI}
       {@const askAI = onAskAI}
-      <ToolbarButton active={false} onclick={askAI} title="Ask AI about this">
-        <ChatIcon class="h-3.5 w-3.5" />
-      </ToolbarButton>
+      <button
+        type="button"
+        onclick={askAI}
+        title="Ask assistant"
+        class="flex h-7 items-center gap-1.5 rounded px-1.5 text-xs text-primary-selected transition-colors hover:bg-primary-wash"
+      >
+        <AuroraMark size={14} />
+        Ask assistant
+      </button>
     {/if}
 
     {#if onResearch}

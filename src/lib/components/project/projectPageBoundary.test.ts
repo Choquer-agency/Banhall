@@ -26,17 +26,22 @@ const read = (name: string) => readFileSync(new URL(name, import.meta.url), "utf
 
 const currentSrc = read("./CurrentProjectPage.svelte");
 const previewSrc = read("./PreviewProjectPage.svelte");
+const detailsMoreSrc = read("./details/DetailsMore.svelte");
 
 /**
- * Preview-only tokens: chat focus mode, mobile pane switching, resizable
- * assistant rail layout, and the cohort marker the route-shape component
- * test keys on.
+ * Preview-only tokens: assistant full screen, mobile pane switching, the
+ * resizable 400px side slot and panel toolbar of the final UI
+ * (ui-design-final.md sections 2 and 8), the Details panel, and the cohort
+ * marker the route-shape component test keys on. Updated 2026-09-24 when the
+ * final shell replaced the left assistant rail (`--assistant-width`,
+ * `lg:flex-row-reverse`).
  */
 const PREVIEW_ONLY_MARKERS = [
   "chatFocus",
   "mobileWorkspaceView",
-  "--assistant-width",
-  "lg:flex-row-reverse",
+  "--side-panel-width",
+  "<PanelToolbar",
+  "<DetailsPanel",
   'data-report-cohort="preview"',
 ] as const;
 
@@ -58,26 +63,31 @@ describe("project page rollback-purity boundary", () => {
     }
   });
 
-  it("lets the preview workbench and report surface fill their available width", () => {
-    expect(previewSrc).toContain('data-project-workspace class="mx-auto flex min-h-0 w-full max-w-full');
-    expect(previewSrc).toContain('data-report-surface class={`w-full max-w-full px-4');
+  it("switches the report between the 660px reading column and full width", () => {
+    expect(previewSrc).toContain('data-project-workspace class="flex min-h-0 w-full flex-1 flex-col overflow-hidden"');
+    expect(previewSrc).toContain('data-report-width={workspaceMaximized ? "full" : "reading"}');
+    expect(previewSrc).toContain('"mx-auto max-w-[708px] px-6"');
+    expect(previewSrc).toContain('sidePanelOpen ? "px-6 lg:px-12" : "px-6 lg:px-24"');
     expect(previewSrc).toContain("min-h-0 min-w-0 w-full flex-1 flex-col overflow-y-auto");
   });
 
-  it("keeps secondary project metadata behind an accessible disclosure", () => {
-    expect(previewSrc).toContain("data-project-details-toggle");
-    expect(previewSrc).toContain("aria-expanded={projectDetailsOpen}");
-    expect(previewSrc).toContain("<Disclosure id={projectDetailsBodyId} open={projectDetailsOpen}>");
+  it("keeps project metadata in the Details panel instead of an inline disclosure", () => {
+    expect(previewSrc).toContain("<DetailsMore");
+    expect(previewSrc).not.toContain("data-project-details-toggle");
+    expect(previewSrc).not.toContain("projectDetailsOpen");
   });
 
-  it("keeps workflow editing in the Stage highlight instead of the project header", () => {
+  it("keeps workflow editing in the Details panel instead of a header popover", () => {
     expect(previewSrc).not.toContain("<ProjectWorkflowMenu");
+    expect(previewSrc).not.toContain("<ProjectHighlights");
   });
 
   it("presents project type as immutable project identity", () => {
-    expect(previewSrc).toContain("{PROJECT_TYPE_LABELS[effectiveProjectType(project)]}");
-    expect(previewSrc).not.toContain("api.projects.setProjectType");
-    expect(previewSrc).not.toContain('ariaLabel="Project type"');
+    expect(detailsMoreSrc).toContain("PROJECT_TYPE_LABELS[effectiveProjectType(project)]");
+    for (const src of [previewSrc, detailsMoreSrc]) {
+      expect(src).not.toContain("api.projects.setProjectType");
+      expect(src).not.toContain('ariaLabel="Project type"');
+    }
   });
 
   it("finds the shared report anchors in both files (guards against file swap/gutting)", () => {

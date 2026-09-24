@@ -109,7 +109,7 @@
           <dd class="mt-1 min-w-0">
             <p class="truncate text-[0.8125rem] font-medium leading-5 text-ink">{currentHandoff.assignee.label}</p>
             <p class="truncate text-[0.6875rem] text-ink-muted" title={handoffDue?.absolute}>
-              {WORK_ITEM_KIND_LABELS[currentHandoff.kind] ?? currentHandoff.kind}{#if handoffDue}{" · "}<span class={handoffDue.overdue ? "font-medium text-red-700" : ""}>{handoffDue.relative}</span>{/if}
+              {WORK_ITEM_KIND_LABELS[currentHandoff.kind] ?? currentHandoff.kind}{#if handoffDue}{", "}<span class={handoffDue.overdue ? "font-medium text-red-700" : ""}>{handoffDue.relative}</span>{/if}
             </p>
           </dd>
         {:else}

@@ -4,7 +4,7 @@
   check on the current code. Group headers show the field name only.
 -->
 <script lang="ts">
-  import type { Snippet } from "svelte";
+  import { tick, type Snippet } from "svelte";
   import { Command, Popover } from "bits-ui";
   import { CheckIcon, MagnifyingGlassIcon } from "phosphor-svelte";
   import AuroraMark from "$lib/components/ui/AuroraMark.svelte";
@@ -27,9 +27,18 @@
   } = $props();
 
   let query = $state("");
+  let highlighted = $state("");
   const groups = $derived(scienceCodeGroups(query));
   $effect(() => {
-    if (!open) query = "";
+    if (!open) {
+      query = "";
+      return;
+    }
+    // Open on the current code: highlighted and scrolled into view.
+    highlighted = value ?? "";
+    void tick().then(() =>
+      document.querySelector("[data-science-code-current]")?.scrollIntoView({ block: "center" })
+    );
   });
 
   function choose(code: string | null) {
@@ -55,7 +64,7 @@
       collisionPadding={12}
       class="z-[120] w-[min(22rem,calc(100vw-1.5rem))] overflow-hidden rounded-xl border border-line bg-surface shadow-lg outline-none"
     >
-      <Command.Root shouldFilter={false} loop label="Science code" class="flex max-h-[min(24rem,calc(100dvh-8rem))] flex-col">
+      <Command.Root shouldFilter={false} loop label="Science code" bind:value={highlighted} class="flex max-h-[min(24rem,calc(100dvh-8rem))] flex-col">
         <div class="relative shrink-0 border-b border-line-soft p-2">
           <MagnifyingGlassIcon size={14} aria-hidden="true" class="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-ink-faint" />
           <Command.Input
@@ -77,6 +86,7 @@
                       onSelect={() => choose(item.code)}
                       class={itemClass}
                       aria-current={item.code === value ? "true" : undefined}
+                      data-science-code-current={item.code === value ? "" : undefined}
                     >
                       <span class="w-14 shrink-0 font-mono text-xs text-ink-muted">{item.code}</span>
                       <span class="min-w-0 flex-1">{item.label}</span>

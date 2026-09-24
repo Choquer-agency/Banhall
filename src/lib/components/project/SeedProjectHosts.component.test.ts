@@ -41,6 +41,24 @@ function frozenSummary(generationId: string, summaryVersionId: string, bullets: 
   };
 }
 
+/**
+ * Report actions and the generation cancel, per host. The frozen current page
+ * shows History in its header and "Cancel iterative draft"; the preview page
+ * keeps History in the top-bar More menu and names the cancel "Cancel
+ * generation" (ui-design-final.md section 2 and decision 19).
+ */
+function reportActions(Component: typeof CurrentProjectPage | typeof PreviewProjectPage) {
+  return Component === PreviewProjectPage
+    ? browserPage.getByRole("button", { name: "More actions", exact: true })
+    : browserPage.getByRole("button", { name: "History", exact: true });
+}
+function cancelGeneration(Component: typeof CurrentProjectPage | typeof PreviewProjectPage) {
+  return browserPage.getByRole("button", {
+    name: Component === PreviewProjectPage ? "Cancel generation" : "Cancel iterative draft",
+    exact: true,
+  });
+}
+
 function seedHostQueries() {
   __setQueryData("projects:getProject", {
     _id: "project-seed-host",
@@ -324,7 +342,7 @@ describe("Seed project hosts", () => {
     });
     let mounted = await render(PreviewProjectPage, {});
     await expect.element(browserPage.getByLabelText("Seed workspace")).toBeVisible();
-    for (const name of ["Cancel iterative draft", "Edit", "Give feedback", "Regenerate", "Approve"]) {
+    for (const name of ["Cancel iterative draft", "Cancel generation", "Edit", "Give feedback", "Regenerate", "Approve"]) {
       expect(browserPage.getByRole("button", { name, exact: true }).elements()).toHaveLength(0);
     }
     mounted.unmount();
@@ -646,7 +664,7 @@ describe("Seed project hosts", () => {
     let mounted = await render(Component, {});
     await expect.element(browserPage.getByRole("button", { name: "Try again", exact: true })).toBeVisible();
     expect(browserPage.getByLabelText("Seed workspace").elements()).toHaveLength(0);
-    for (const name of ["Edit", "Give feedback", "Regenerate", "Approve", "Review Summary", "Cancel iterative draft", "Sign off and generate"]) {
+    for (const name of ["Edit", "Give feedback", "Regenerate", "Approve", "Review Summary", "Cancel iterative draft", "Cancel generation", "Sign off and generate"]) {
       expect(browserPage.getByRole("button", { name, exact: true }).elements()).toHaveLength(0);
     }
     expect(__activeQueryArgs("seeds:getOutline")).toEqual([]);
@@ -674,7 +692,7 @@ describe("Seed project hosts", () => {
     mounted = await render(Component, {});
     await expect.element(browserPage.getByText("Older completed report.", { exact: true })).toBeVisible();
     expect(browserPage.getByLabelText("Seed workspace").elements()).toHaveLength(0);
-    for (const name of ["Edit", "Give feedback", "Regenerate", "Approve", "Review Summary", "Cancel iterative draft"]) {
+    for (const name of ["Edit", "Give feedback", "Regenerate", "Approve", "Review Summary", "Cancel iterative draft", "Cancel generation"]) {
       expect(browserPage.getByRole("button", { name, exact: true }).elements()).toHaveLength(0);
     }
     mounted.unmount();
@@ -851,7 +869,7 @@ describe("Seed project hosts", () => {
     const reportText = browserPage.getByText("Existing report stays visible.", { exact: true });
     await expect.element(browserPage.getByRole("heading", { name: "Preparing report generation", exact: true })).toBeVisible();
     await expect.element(reportText).toBeVisible();
-    await expect.element(browserPage.getByRole("button", { name: "History", exact: true })).toBeVisible();
+    await expect.element(reportActions(Component)).toBeVisible();
 
     __setQueryData("generations:getGeneration", {
       _id: "generation-compare",
@@ -871,7 +889,7 @@ describe("Seed project hosts", () => {
     });
     await expect.element(browserPage.getByRole("heading", { name: "Generating your report", exact: true })).toBeVisible();
     await expect.element(reportText).toBeVisible();
-    await expect.element(browserPage.getByRole("button", { name: "History", exact: true })).toBeVisible();
+    await expect.element(reportActions(Component)).toBeVisible();
 
     // The existing Seed-drafting suppression witness still holds.
     __setQueryData("generations:getGeneration", {
@@ -895,7 +913,7 @@ describe("Seed project hosts", () => {
     });
     await expect.element(browserPage.getByRole("heading", { name: "Generating your report", exact: true })).toBeVisible();
     await expect.poll(() => document.body.textContent).not.toContain("Existing report stays visible.");
-    expect(browserPage.getByRole("button", { name: "History", exact: true }).elements()).toHaveLength(0);
+    expect(reportActions(Component).elements()).toHaveLength(0);
   }
 
   it("keeps an existing report and its actions visible through single and compare generations in the current host", async () => {
@@ -952,9 +970,9 @@ describe("Seed project hosts", () => {
       const mounted = await render(Component, {});
       await expect.element(browserPage.getByRole("heading", { name: heading, exact: true })).toBeVisible();
       await expect.element(browserPage.getByText(`Existing report through ${mode} ${status}.`, { exact: true })).toBeVisible();
-      await expect.element(browserPage.getByRole("button", { name: "History", exact: true })).toBeVisible();
+      await expect.element(reportActions(Component)).toBeVisible();
       expect(browserPage.getByLabelText("Seed workspace").elements()).toHaveLength(0);
-      expect(browserPage.getByRole("button", { name: "Cancel iterative draft", exact: true }).elements()).toHaveLength(0);
+      expect(cancelGeneration(Component).elements()).toHaveLength(0);
       mounted.unmount();
     }
   }
@@ -987,9 +1005,9 @@ describe("Seed project hosts", () => {
     });
     const mounted = await render(Component, {});
     await expect.element(browserPage.getByRole("heading", { name: "Section-by-section draft", exact: true })).toBeVisible();
-    await expect.element(browserPage.getByRole("button", { name: "Cancel iterative draft", exact: true })).toBeVisible();
+    await expect.element(cancelGeneration(Component)).toBeVisible();
     expect(document.body.textContent).not.toContain("Existing report behind the legacy stepper.");
-    expect(browserPage.getByRole("button", { name: "History", exact: true }).elements()).toHaveLength(0);
+    expect(reportActions(Component).elements()).toHaveLength(0);
     expect(browserPage.getByLabelText("Seed workspace").elements()).toHaveLength(0);
     expect(browserPage.getByRole("heading", { name: "Summary Review", exact: true }).elements()).toHaveLength(0);
     mounted.unmount();
@@ -1039,8 +1057,8 @@ describe("Seed project hosts", () => {
     expect(browserPage.getByRole("heading", { name: "Summary Review", exact: true }).elements()).toHaveLength(0);
     expect(document.body.textContent).not.toContain("Frozen report-owned Summary item.");
     expect(document.body.textContent).not.toContain("Completed Seed report.");
-    await expect.element(browserPage.getByRole("button", { name: "Cancel iterative draft", exact: true })).toBeVisible();
-    expect(browserPage.getByRole("button", { name: "History", exact: true }).elements()).toHaveLength(0);
+    await expect.element(cancelGeneration(Component)).toBeVisible();
+    expect(reportActions(Component).elements()).toHaveLength(0);
     expect(browserPage.getByRole("button", { name: "Signed-off Summary", exact: true }).elements()).toHaveLength(0);
     expect(__activeQueryArgs("seeds:getSummary")).toEqual([]);
 

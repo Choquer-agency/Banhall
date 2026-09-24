@@ -98,7 +98,13 @@
       aria-label="Details"
       class="z-[120] w-[360px] max-w-[calc(100vw-1.5rem)] rounded-xl border border-line bg-surface text-[13px] shadow-lg outline-none"
     >
-      <Popover.Arrow class="text-surface [&_svg]:drop-shadow-[0_1px_0_var(--color-line)]" width={14} height={7} />
+      <Popover.Arrow>
+        {#snippet child({ props })}
+          <span {...props} data-details-popover-notch>
+            <span class="block size-3 translate-y-1/2 rotate-45 rounded-[2px] border-l border-t border-line bg-surface"></span>
+          </span>
+        {/snippet}
+      </Popover.Arrow>
       {#if data}
         <div class="p-4 pb-3">
           <p class="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
