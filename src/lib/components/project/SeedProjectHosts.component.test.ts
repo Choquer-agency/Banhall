@@ -85,6 +85,8 @@ function hostOutline(readiness: { ready: boolean; complete: boolean; blockingRol
       writerProfile: null,
     },
   };
+}
+
 /**
  * Report actions and the generation cancel, per host. The frozen current page
  * shows History in its header and "Cancel iterative draft"; the preview page
