@@ -6,7 +6,8 @@
    * source label with the state of its read, and "Open in transcript" when
    * the host can open the source. The card sits right after the phrase in the
    * DOM, so Tab moves from the phrase into it; focus or hover opens it, a
-   * click or Enter keeps it open, and Escape closes it and returns focus.
+   * click or Enter keeps it open, and Escape closes it. Focus returns to the
+   * phrase only when it was inside the quote.
    */
   import { onDestroy, tick } from "svelte";
   import { describeSource, type SeedSourceAttribution } from "./attribution";
@@ -32,6 +33,7 @@
   let open = $state(false);
   let pinned = $state(false);
   let trigger = $state<HTMLButtonElement | null>(null);
+  let wrapper = $state<HTMLSpanElement | null>(null);
   let card = $state<HTMLElement | null>(null);
   let position = $state({ top: 0, left: 0 });
   let timer: ReturnType<typeof setTimeout> | null = null;
@@ -86,6 +88,24 @@
     timer = setTimeout(hide, CLOSE_DELAY_MS);
   }
 
+  // A card opened by hover leaves keyboard focus where it was, so Escape
+  // never reaches the wrapper's own handler. While the card is open, Escape
+  // anywhere closes it; focus moves back to the phrase only when it was
+  // inside this quote (the wrapper's handler below), never from elsewhere.
+  // The event is left to other handlers (for example an edit field's own
+  // Escape) when focus is outside the quote.
+  $effect(() => {
+    if (!open) return;
+    const onKeydown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      const active = document.activeElement;
+      if (wrapper && active instanceof Node && wrapper.contains(active)) return;
+      hide();
+    };
+    document.addEventListener("keydown", onKeydown, true);
+    return () => document.removeEventListener("keydown", onKeydown, true);
+  });
+
   $effect(() => {
     if (!open) return;
     const reposition = () => place();
@@ -101,6 +121,7 @@
 </script>
 
 <span
+  bind:this={wrapper}
   class="inline"
   data-seed-quote
   role="presentation"

@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { page } from "vitest/browser";
+import { page, userEvent } from "vitest/browser";
 import { render } from "vitest-browser-svelte";
 import { ConvexError } from "convex/values";
 import PreviewProjectPage from "./PreviewProjectPage.svelte";
@@ -303,6 +303,89 @@ describe("PreviewProjectPage writing a signed-off Step-by-step draft", () => {
     await expect.element(page.getByText("Redrafted 246.", { exact: true })).toBeVisible();
     await expect.poll(() => document.querySelector("[data-not-drafted-banner]")).toBeNull();
     await expect.element(page.getByText("Your draft is ready", { exact: true })).toBeVisible();
+  });
+
+  it("saves typing before Draft the rest and keeps the report read-only until the filled Sections are in", async () => {
+    seedDrafting();
+    __setQueryData("generations:getSeedDraftProgress", progress("stopped", ["done", "not_drafted", "not_drafted"], 40));
+    completeRun(reportDoc({ "242": "Final 242.", "244": "[NOT GENERATED]", "246": "[NOT GENERATED]" }), { stopRequestedAt: 5, stoppedAfterSection: "242" });
+    __setMutationResult("reports:updateReportContent", 2);
+    await render(PreviewProjectPage);
+    await expect.element(page.getByRole("button", { name: "Draft the rest", exact: true })).toBeVisible();
+    const prose = () => document.querySelector<HTMLElement>(".ProseMirror")!;
+
+    // Typing inside the editor schedules a debounced autosave.
+    await page.getByText("Final 242.", { exact: true }).click();
+    await userEvent.keyboard("{End} Typed before.");
+    await expect.poll(() => prose().textContent).toContain("Typed before.");
+
+    let resolveRedraft!: (value: unknown) => void;
+    __setMutationResult("generations:redraftMissingSections", new Promise((done) => (resolveRedraft = done)));
+    await page.getByRole("button", { name: "Draft the rest", exact: true }).click();
+    // The pending save is flushed before the redraft starts.
+    await expect.poll(() => __mutationCalls("generations:redraftMissingSections")).toHaveLength(1);
+    const saves = __mutationCalls("reports:updateReportContent") as Array<{ content: string }>;
+    expect(saves.at(-1)?.content).toContain("Typed before.");
+    // Read-only from the click, with a quiet reason.
+    await expect.poll(() => prose().getAttribute("contenteditable")).toBe("false");
+    await expect
+      .element(page.getByText("Drafting the missing sections. Editing resumes when they are in.", { exact: true }))
+      .toBeVisible();
+
+    // The request resolves and the redraft is live: still read-only.
+    __setQueryData("generations:getSeedDraftProgress", progress("drafting", ["done", "writing", "queued"], 50));
+    resolveRedraft({ status: "started", sections: ["244", "246"] });
+    await new Promise((done) => setTimeout(done, 50));
+    expect(prose().getAttribute("contenteditable")).toBe("false");
+    // Typing during the attempt changes nothing and saves nothing.
+    prose().focus();
+    await userEvent.keyboard(" Typed during.");
+    await new Promise((done) => setTimeout(done, 1300));
+    expect(prose().textContent).not.toContain("Typed during.");
+    const savedBefore = __mutationCalls("reports:updateReportContent").length;
+
+    // The server merge keeps the saved edit and fills the missing Sections.
+    __setQueryData("generations:getSeedDraftProgress", progress("completed", ["done", "done", "done"], 100));
+    completeRun(reportDoc({ "242": "Final 242. Typed before.", "244": "Redrafted 244.", "246": "Redrafted 246." }));
+    await expect.element(page.getByText("Redrafted 246.", { exact: true })).toBeVisible();
+    await expect.poll(() => prose().getAttribute("contenteditable")).toBe("true");
+    expect(prose().textContent).toContain("Final 242. Typed before.");
+    expect(document.querySelector("[data-redraft-status]")).toBeNull();
+    await new Promise((done) => setTimeout(done, 1300));
+    const later = __mutationCalls("reports:updateReportContent") as Array<{ content: string }>;
+    expect(later).toHaveLength(savedBefore);
+    expect(later.some((save) => save.content.includes("Typed during."))).toBe(false);
+  });
+
+  it("shows a redraft that failed after it started, with a retry", async () => {
+    seedDrafting();
+    completeRun(reportDoc({ "242": "Final 242.", "244": "[NOT GENERATED]", "246": "[NOT GENERATED]" }), { stopRequestedAt: 5, stoppedAfterSection: "242" });
+    __setQueryData("generations:getSeedDraftProgress", {
+      ...progress("stopped", ["done", "not_drafted", "not_drafted"], 40),
+      redraft: { status: "running", error: null, attemptId: "attempt-1" },
+    });
+    await render(PreviewProjectPage);
+    await expect.element(page.getByRole("button", { name: "Draft the rest", exact: true })).toBeVisible();
+
+    // The worker fails: the progress read reports the attempt's failure.
+    __setQueryData("generations:getSeedDraftProgress", {
+      ...progress("stopped", ["done", "not_drafted", "not_drafted"], 40),
+      redraft: { status: "failed", error: "The model did not respond in time.", attemptId: "attempt-1" },
+    });
+    await expect
+      .element(page.getByText("Drafting the missing sections did not finish. The model did not respond in time.", { exact: true }))
+      .toBeVisible();
+    __setMutationResult("generations:redraftMissingSections", { status: "started", sections: ["244", "246"] });
+    await page.getByRole("button", { name: "Try again", exact: true }).click();
+    await expect.poll(() => __mutationCalls("generations:redraftMissingSections")).toEqual([{ generationId: GENERATION }]);
+
+    // A new attempt runs: the failure makes way for it.
+    __setQueryData("generations:getSeedDraftProgress", {
+      ...progress("drafting", ["done", "writing", "queued"], 50),
+      redraft: { status: "running", error: null, attemptId: "attempt-2" },
+    });
+    await expect.element(page.getByRole("button", { name: "Drafting…", exact: true })).toBeDisabled();
+    expect(document.querySelector("[data-redraft-failed]")).toBeNull();
   });
 
   it("shows QA finished bottom right until QA is opened, and keeps the dot after Later", async () => {

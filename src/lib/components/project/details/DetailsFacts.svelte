@@ -68,10 +68,17 @@
   }
 
   async function suggest() {
-    suggestionNote = "";
+    suggestionNote = "Suggesting a code...";
     await run("science", async () => {
-      const label = await onSuggestScienceCode?.();
-      suggestionNote = label ? `Suggested ${label}` : "No suggestion available.";
+      const result = await onSuggestScienceCode?.();
+      if (!result) return;
+      // A code chosen by hand while the suggestion was pending stands.
+      suggestionNote =
+        result.status === "suggested"
+          ? `Suggested ${result.label}`
+          : result.status === "none"
+            ? "No suggestion available."
+            : "";
     });
   }
 

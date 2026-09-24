@@ -25,7 +25,7 @@ import type { WorkflowStage } from "../../../../../shared/workflowStages";
 import { reviewDecisionForStage } from "../../../../../shared/workflowTransitions";
 import { userErrorCode, userErrorMessage } from "$lib/errors";
 import { createRequestId } from "$lib/requestId";
-import type { DetailsPanelData, HandOffInput, TeamMember } from "./types";
+import type { DetailsPanelData, HandOffInput, ScienceCodeSuggestion, TeamMember } from "./types";
 
 /** Per-company project number rule the server enforces: "1".."20", "A".."Z", or "2A". */
 const PROJECT_NUMBER_PATTERN = /^(?:[1-9][0-9]?[A-Z]?|[A-Z])$/;
@@ -161,7 +161,13 @@ export function useDetailsData(options: {
     }
   }
 
+  // Every science code write takes a ticket. A manual choice made while an
+  // AI suggestion is pending takes a newer one, so the suggestion, when it
+  // resolves, sees it is stale and never overwrites the writer's choice.
+  let scienceCodeTicket = 0;
+
   async function saveScienceCode(scienceCode: string | null) {
+    scienceCodeTicket += 1;
     try {
       await updateScienceCode({ projectId: options.projectId(), scienceCode: scienceCode ?? undefined });
     } catch (error) {
@@ -178,13 +184,16 @@ export function useDetailsData(options: {
     }
   }
 
-  async function suggestCode(): Promise<string | null> {
+  async function suggestCode(): Promise<ScienceCodeSuggestion> {
+    const ticket = ++scienceCodeTicket;
     try {
       const result = await suggestScienceCode({ projectId: options.projectId() });
-      if (!result) return null;
+      if (ticket !== scienceCodeTicket) return { status: "superseded" };
+      if (!result) return { status: "none" };
       await updateScienceCode({ projectId: options.projectId(), scienceCode: result.code });
-      return result.label;
+      return { status: "suggested", label: result.label };
     } catch (error) {
+      if (ticket !== scienceCodeTicket) return { status: "superseded" };
       fail(error, "Could not suggest a science code.");
     }
   }

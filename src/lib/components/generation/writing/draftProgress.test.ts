@@ -7,6 +7,7 @@ import {
   remainingTimeText,
   revealDelayMs,
   sectionListText,
+  seedRedraftAttempt,
 } from "./draftProgress";
 import type { SeedDraftProgress } from "./types";
 
@@ -65,5 +66,24 @@ describe("draft progress text", () => {
 
   it("staggers reveals 60ms apart, capped at five", () => {
     expect([0, 1, 4, 5, 9].map(revealDelayMs)).toEqual([0, 60, 240, 240, 240]);
+  });
+});
+
+describe("seedRedraftAttempt", () => {
+  it("reads the latest redraft attempt when the progress read carries it", () => {
+    expect(seedRedraftAttempt({ phase: "stopped", redraft: { status: "failed", error: " The model timed out. ", attemptId: "a-2" } })).toEqual({
+      status: "failed",
+      error: "The model timed out.",
+      attemptId: "a-2",
+    });
+    expect(seedRedraftAttempt({ redraft: { status: "done", error: null, attemptId: 17 } })).toEqual({ status: "done", error: null, attemptId: "17" });
+  });
+
+  it("treats a missing or unexpected field as no known attempt", () => {
+    expect(seedRedraftAttempt(undefined)).toBeNull();
+    expect(seedRedraftAttempt({ phase: "stopped" })).toBeNull();
+    expect(seedRedraftAttempt({ redraft: null })).toBeNull();
+    expect(seedRedraftAttempt({ redraft: { status: "completed", attemptId: "a" } })).toBeNull();
+    expect(seedRedraftAttempt({ redraft: { status: "failed", error: "x" } })).toBeNull();
   });
 });

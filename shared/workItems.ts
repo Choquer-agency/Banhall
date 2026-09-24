@@ -1,4 +1,5 @@
 import type { WorkflowStage } from "./workflowStages";
+import { findWorkflowTransition } from "./workflowTransitions";
 
 export const WORK_ITEM_KINDS = [
   "internal_review",
@@ -96,4 +97,35 @@ export function workItemKindForHandoffStage(stage: WorkflowStage): WorkItemKind 
     default:
       return "other";
   }
+}
+
+/**
+ * Why `workItems.handOff` refuses a handoff from `from` into `to`, or null
+ * when the stage itself is acceptable (authority, notes and the version fence
+ * are checked separately). Shared by the mutation and the Hand off view's
+ * stage list, so the view never offers a stage the server always refuses.
+ *
+ * - "reopen_first": keeping Delivered or Abandoned in place; reopen first.
+ * - "abandons": a handoff opens work, and Abandoned needs no open work.
+ * - "review_decision": an internal-review completion edge, which records the
+ *   reviewer decision through Change stage.
+ * - "requirement": an edge whose requirement fails closed today (delivery
+ *   outcome, promoted branch).
+ */
+export type HandoffStageRefusal = "reopen_first" | "abandons" | "review_decision" | "requirement";
+
+export function handoffStageRefusal(
+  from: WorkflowStage,
+  to: WorkflowStage
+): HandoffStageRefusal | null {
+  if (from === to) {
+    return from === "delivered" || from === "abandoned" ? "reopen_first" : null;
+  }
+  if (to === "abandoned") return "abandons";
+  const requirements = findWorkflowTransition(from, to)?.requirements ?? [];
+  if (requirements.includes("review_decision")) return "review_decision";
+  if (requirements.includes("delivery_outcome") || requirements.includes("promoted_branch")) {
+    return "requirement";
+  }
+  return null;
 }

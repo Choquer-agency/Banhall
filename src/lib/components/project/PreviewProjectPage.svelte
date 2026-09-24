@@ -41,6 +41,7 @@
   import StopDraftingDialog from "$lib/components/generation/writing/StopDraftingDialog.svelte";
   import NotDraftedBanner from "$lib/components/generation/writing/NotDraftedBanner.svelte";
   import DraftReadyToast from "$lib/components/generation/writing/DraftReadyToast.svelte";
+  import { seedRedraftAttempt } from "$lib/components/generation/writing/draftProgress";
   import { notDraftedReportSections } from "../../../../convex/lib/tiptapReport";
   import { PD_SECTION_HEADINGS } from "../../../../shared/pdSubsections";
   import Editor from "$lib/components/editor/Editor.svelte";
@@ -354,6 +355,10 @@
     }
     const ed = editorRef;
     if (!ed || !report || replaceSession || finishingReplace) return;
+    if (reportReadOnly) {
+      notifyReplace("Drafting the missing sections. Editing resumes when they are in.");
+      return;
+    }
     const matches = ed.findReplaceMatches(pairs);
     if (matches.length === 0) {
       notifyReplace(
@@ -581,7 +586,6 @@
   // Which surface occupies the side slot (also while all are closed, so
   // exactly one is in flow at a time).
   let railView = $state<"chat" | "qa" | "details">("chat");
-  const sidePanelOpen = $derived(chatOpen || qaOpen || detailsOpen);
   let workspaceEl: HTMLDivElement | null = $state(null);
   let dragging = $state(false);
 
@@ -1346,16 +1350,83 @@
   );
   const redraftMut = useMutation(api.generations.redraftMissingSections);
   let redraftError = $state<string | null>(null);
+  // The latest redraft attempt's terminal status and sanitized error, when
+  // the progress read carries them (optional field, read defensively).
+  const redraftAttempt = $derived(seedRedraftAttempt(draftProgress));
+  const redraftFailure = $derived(
+    reportSeedGenerationId !== null && redraftAttempt?.status === "failed"
+      ? { error: redraftAttempt.error }
+      : null
+  );
+  // "Draft the rest" holds the report read-only from the click until the
+  // server content with the filled Sections is in (or the attempt ends): the
+  // pending autosave is flushed first, and no keystroke can land between the
+  // server merge and the editor taking the merged document. While the
+  // redraft is live the progress read keeps it read-only (redraftLive); the
+  // hold covers the flush, the request, and a response that arrives before
+  // the live phase is visible.
+  type RedraftHold = {
+    token: number;
+    generationId: string;
+    baselineAttemptId: string | null;
+    requested: boolean;
+  };
+  let redraftHold = $state.raw<RedraftHold | null>(null);
+  let redraftHoldToken = 0;
+  const reportReadOnly = $derived(redraftLive || redraftHold !== null);
+  $effect(() => {
+    const hold = redraftHold;
+    if (!hold) return;
+    const generationId = reportSeedGenerationId ? String(reportSeedGenerationId) : null;
+    const phase = draftProgress?.phase;
+    const attempt = redraftAttempt;
+    untrack(() => {
+      if (redraftHold?.token !== hold.token) return;
+      // Another report or generation took the page: nothing to wait for.
+      if (generationId !== hold.generationId) {
+        redraftHold = null;
+        return;
+      }
+      if (!hold.requested) return;
+      const attemptEnded =
+        attempt !== null && attempt.attemptId !== hold.baselineAttemptId && attempt.status !== "running";
+      // The request resolved: the live phase (redraftLive) now keeps the
+      // report read-only until the merged content arrives with its end.
+      if (attemptEnded || (phase !== undefined && phase !== "drafting")) redraftHold = null;
+    });
+  });
   async function draftTheRest() {
     const generationId = reportSeedGenerationId;
-    if (!generationId) return;
+    if (!generationId || redraftHold) return;
     redraftError = null;
+    const token = ++redraftHoldToken;
+    redraftHold = {
+      token,
+      generationId: String(generationId),
+      baselineAttemptId: redraftAttempt?.attemptId ?? null,
+      requested: false,
+    };
+    const release = () => {
+      if (redraftHold?.token === token) redraftHold = null;
+    };
+    try {
+      // Every edit the writer made is saved before the server merges.
+      await flushEditor();
+    } catch {
+      release();
+      redraftError = "Your latest edits could not be saved, so the missing sections were not drafted. Try again.";
+      return;
+    }
     try {
       const result = await redraftMut({ generationId });
       if (result.status === "nothing_to_draft") {
+        release();
         toast.info("Every section already has text, so there was nothing to draft.");
+      } else if (redraftHold?.token === token) {
+        redraftHold = { ...redraftHold, requested: true };
       }
     } catch (error) {
+      release();
       const code = userErrorCode(error);
       redraftError =
         code === "GENERATION_ACTIVE"
@@ -1388,6 +1459,24 @@
       draftReadyFor = id;
     });
   });
+
+  // Effective side-panel visibility (see sidePanelOpen): the Assistant and QA
+  // render only beside the report, so elsewhere their saved open state keeps
+  // no panel, divider or full screen on the page.
+  const sideSurfacesAvailable = $derived(Boolean(report && user && reportActionsVisible));
+  const chatShown = $derived(chatOpen && sideSurfacesAvailable);
+  const qaShown = $derived(qaOpen && sideSurfacesAvailable);
+  // The persisted open state (chatOpen, qaOpen) is a preference. A surface
+  // the page does not offer right now (Seed phases, writing, intake) takes
+  // no room: the side panel is open only for a surface that can show.
+  const sidePanelOpen = $derived(chatShown || qaShown || detailsOpen);
+  const assistantFull = $derived(chatFocus && chatShown);
+  // Whether the main pane (the tab content) is on screen: not behind
+  // Assistant full screen, and not replaced by the side panel on a narrow
+  // screen.
+  const mainPaneVisible = $derived(
+    !assistantFull && !(sidePanelOpen && mobileWorkspaceView === "assistant" && !desktopAssistant)
+  );
 
   // Panel toolbar tabs (ui-design-final.md section 2). A Step-by-step run
   // shows Plan, Summary, Report and Sources; everything else Report and
@@ -1444,6 +1533,10 @@
     ];
   });
   function selectTab(id: PanelTab["id"]) {
+    // Every tab shows main content: leave Assistant full screen, and on a
+    // narrow screen show the main pane instead of the side panel.
+    chatFocus = false;
+    mobileWorkspaceView = "report";
     if (id === "sources") {
       sourcesOpen = true;
       mobileWorkspaceView = "report";
@@ -1486,9 +1579,13 @@
     return readQaSeen(String(generation._id), qaCompletedAt);
   });
   const qaUnseen = $derived(qaSeen !== null && qaSeen !== "seen");
-  // Opening QA marks the current result seen: no notice, no dot.
+  // The QA panel is rendered and on screen: its side surface is the one in
+  // the slot, and on a narrow screen the side panel is the active pane.
+  const qaOnScreen = $derived(qaShown && railView === "qa" && sidePanelOnScreen);
+  // Showing QA marks the current result seen: no notice, no dot. A restored
+  // or kept-open preference whose panel is not on screen marks nothing.
   $effect(() => {
-    if (!qaOpen || !generation || qaCompletedAt === null || qaState !== "done") return;
+    if (!qaOnScreen || !generation || qaCompletedAt === null || qaState !== "done") return;
     const generationId = String(generation._id);
     const completedAt = qaCompletedAt;
     untrack(() => {
@@ -1506,7 +1603,7 @@
     openSidePanel("qa");
   }
   const showQaFinished = $derived(
-    reportActionsVisible && qaSeen === "unseen" && !(qaOpen && sidePanelOnScreen)
+    reportActionsVisible && qaSeen === "unseen" && !qaOnScreen
   );
 
   const topBarMoreItems = $derived.by((): TopBarMoreItem[] => {
@@ -1533,8 +1630,8 @@
 <svelte:window
   onpopstate={() => (seedSummaryRequested = new URL(window.location.href).searchParams.get("view") === "summary")}
   onkeydown={(e) => {
-    if (e.key === "Escape" && chatFocus && !replaceSession) chatFocus = false;
-    else if (e.key === "Escape" && chatOpen && !replaceSession) {
+    if (e.key === "Escape" && assistantFull && !replaceSession) chatFocus = false;
+    else if (e.key === "Escape" && chatShown && !replaceSession) {
       chatOpen = false;
       mobileWorkspaceView = "report";
     }
@@ -1721,7 +1818,7 @@
         tabs={panelTabs}
         {activeTab}
         onSelectTab={selectTab}
-        showFullWidth={reportActionsVisible && !sourcesOpen && !chatFocus}
+        showFullWidth={reportActionsVisible && !sourcesOpen && !assistantFull}
         fullWidth={workspaceMaximized}
         onToggleFullWidth={() => (workspaceMaximized = !workspaceMaximized)}
         detailsActive={detailsOpen && sidePanelOnScreen}
@@ -1731,7 +1828,7 @@
         }}
         bind:detailsButton
         showAssistant={reportActionsVisible && !!user}
-        assistantActive={chatOpen && sidePanelOnScreen}
+        assistantActive={chatShown && sidePanelOnScreen}
         onToggleAssistant={() => toggleSidePanel("chat")}
       >
         {#snippet detailsPeek()}
@@ -1749,7 +1846,7 @@
               state={qaState}
               score={qaScore}
               unseen={qaUnseen}
-              active={qaOpen && sidePanelOnScreen}
+              active={qaShown && sidePanelOnScreen}
               onToggle={() => toggleSidePanel("qa")}
             />
           {/if}
@@ -1759,8 +1856,8 @@
       <div bind:this={workspaceEl} data-project-body class="flex min-h-0 flex-1 overflow-hidden">
         <div
           data-project-main
-          inert={chatFocus}
-          class={`relative flex min-h-0 min-w-0 flex-1 flex-col ${chatFocus ? "hidden" : ""} ${sidePanelOpen && mobileWorkspaceView === "assistant" ? "max-lg:hidden" : ""}`}
+          inert={assistantFull}
+          class={`relative flex min-h-0 min-w-0 flex-1 flex-col ${assistantFull ? "hidden" : ""} ${sidePanelOpen && mobileWorkspaceView === "assistant" ? "max-lg:hidden" : ""}`}
         >
           <!-- Draft ready (board 4.4): where the writing pill was, top centre
                of the Report tab. Export and Send for review are back in the
@@ -1875,6 +1972,7 @@
             generationId={generation._id}
             {projectId}
             userId={user?._id ?? "anonymous"}
+            hostVisible={mainPaneVisible && !sourcesOpen}
             onReviewSummary={() => {
               summaryOpener = "trigger";
               setSeedSummary(true);
@@ -1961,11 +2059,16 @@
                   <NotDraftedBanner
                     missingSections={notDraftedSections}
                     onDraftRest={draftTheRest}
-                    pending={redraftLive}
+                    pending={reportReadOnly}
                     errorMessage={redraftError}
+                    failedAttempt={redraftFailure}
                     disabled={!reportGenerationQ.data?.seedCanEdit}
                   />
                 </div>
+              {:else if reportReadOnly}
+                <p class="mb-6 text-[13px] leading-5 text-ink-secondary" role="status" data-redraft-status>
+                  Drafting the missing sections. Editing resumes when they are in.
+                </p>
               {/if}
               <!-- Editor column -->
               <Editor
@@ -1976,6 +2079,7 @@
                 onAskAI={handleAskAI}
                 onResearch={handleResearch}
                 editable={true}
+                readOnly={reportReadOnly}
                 {commentRanges}
                 onHoverComment={(id) => (hoveredCommentId = id)}
               />
@@ -2258,7 +2362,7 @@
 
         <!-- Twenty-style hairline resize divider between the page and the
              side panel (pointer and keyboard). -->
-        {#if sidePanelOpen && !chatFocus}
+        {#if sidePanelOpen && !assistantFull}
           <button
             type="button"
             onmousedown={startDrag}
@@ -2293,8 +2397,8 @@
         <aside
           data-side-panel={sidePanelOpen ? railView : undefined}
           aria-label="Side panel"
-          class={`relative min-h-0 flex-col overflow-hidden bg-surface ${sidePanelOpen && (mobileWorkspaceView === "assistant" || chatFocus) ? "flex w-full flex-1" : "hidden"} lg:flex lg:flex-none lg:w-[var(--side-panel-width)] ${dragging ? "" : "lg:transition-[width] lg:duration-[325ms] lg:ease-out motion-reduce:transition-none"}`}
-          style={`--side-panel-width: ${chatFocus ? "100%" : sidePanelOpen ? `${sidePanelWidth}px` : "0px"}`}
+          class={`relative min-h-0 flex-col overflow-hidden bg-surface ${sidePanelOpen && (mobileWorkspaceView === "assistant" || assistantFull) ? "flex w-full flex-1" : "hidden"} lg:flex lg:flex-none lg:w-[var(--side-panel-width)] ${dragging ? "" : "lg:transition-[width] lg:duration-[325ms] lg:ease-out motion-reduce:transition-none"}`}
+          style={`--side-panel-width: ${assistantFull ? "100%" : sidePanelOpen ? `${sidePanelWidth}px` : "0px"}`}
         >
           {#if detailsOpen && railView === "details"}
             <div class="h-full" style={`min-width: ${SIDE_PANEL_MIN}px`}>
@@ -2356,8 +2460,8 @@
               aria-label="AI assistant"
               inert={!chatOpen}
             >
-              <div class={chatFocus ? "mx-auto flex h-full w-full max-w-[720px] flex-col" : "flex h-full flex-col"} data-assistant-column={chatFocus ? "full" : "side"}>
-                <LazyModule load={() => import("$lib/components/chat/AgentChatPanel.svelte")} label="assistant" active={chatPreferencesReady && chatOpen && railView === "chat" && (desktopAssistant || mobileWorkspaceView === "assistant" || chatFocus)}>
+              <div class={assistantFull ? "mx-auto flex h-full w-full max-w-[720px] flex-col" : "flex h-full flex-col"} data-assistant-column={assistantFull ? "full" : "side"}>
+                <LazyModule load={() => import("$lib/components/chat/AgentChatPanel.svelte")} label="assistant" active={chatPreferencesReady && chatOpen && railView === "chat" && (desktopAssistant || mobileWorkspaceView === "assistant" || assistantFull)}>
                   {#snippet children(AgentChatPanel)}
                     <AgentChatPanel
                         {projectId}
@@ -2375,7 +2479,7 @@
                         reviewingId={replaceSession?.messageId ?? null}
                         onBeforeApply={flushEditor}
                         closeInset={false}
-                        isFull={chatFocus}
+                        isFull={assistantFull}
                         onToggleFull={() => {
                           openSidePanel("chat");
                           chatFocus = !chatFocus;

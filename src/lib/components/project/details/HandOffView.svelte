@@ -43,9 +43,15 @@
   } = $props();
 
   const stageOptions = $derived(handOffStageOptions(currentStage, viewerAuthorities));
-  const defaultStage = $derived.by(() => {
+  // The wanted stage when it may be handed off into, else keeping the
+  // current stage, else the first stage offered (a Delivered or Abandoned
+  // project cannot stay where it is).
+  const defaultStage = $derived.by((): WorkflowStage | null => {
     const wanted = initialStage ?? nextInProgressStage(currentStage);
-    return stageOptions.some((option) => option.stage === wanted) ? wanted : currentStage;
+    const offered = (candidate: WorkflowStage) => stageOptions.some((option) => option.stage === candidate);
+    if (offered(wanted)) return wanted;
+    if (offered(currentStage)) return currentStage;
+    return stageOptions[0]?.stage ?? null;
   });
 
   let assigneeId = $state<string | null>(null);
@@ -67,8 +73,10 @@
     return needle ? ordered.filter((member) => member.label.toLowerCase().includes(needle)) : ordered;
   });
   const assignee = $derived(team.find((member) => member.userId === assigneeId) ?? null);
+  const canKeepStage = $derived(stageOptions.some((option) => option.current));
   const canSubmit = $derived(
     Boolean(assignee) &&
+      stage !== null &&
       !busy &&
       note.length <= MAX_WORKFLOW_NOTE_CHARS &&
       (!noteRequired || note.trim().length > 0)
@@ -79,7 +87,7 @@
   });
 
   async function submit() {
-    if (!assignee || !canSubmit) return;
+    if (!assignee || !canSubmit || stage === null) return;
     busy = true;
     error = null;
     try {
@@ -180,7 +188,11 @@
         {#snippet child({ props })}
           <button {...props} type="button" class={fieldTrigger} aria-labelledby="hand-off-stage-label hand-off-stage-value" data-hand-off-stage>
             <span id="hand-off-stage-value" class="flex min-w-0 flex-1 items-center">
-              <StageBadge {stage} dot />
+              {#if stage}
+                <StageBadge {stage} dot />
+              {:else}
+                <span class="text-ink-faint">No stage available</span>
+              {/if}
             </span>
             <CaretDownIcon size={12} aria-hidden="true" class="shrink-0 text-ink-muted" />
           </button>
@@ -223,8 +235,10 @@
     <p class="text-xs leading-5 text-ink-muted">
       {#if stage === currentStage}
         The stage stays {WORKFLOW_STAGE_LABELS[currentStage]}.
-      {:else}
+      {:else if canKeepStage}
         The project moves to this stage when you hand off. Keep {WORKFLOW_STAGE_LABELS[currentStage]} if it should not move.
+      {:else}
+        The project moves to this stage when you hand off.
       {/if}
     </p>
   </div>

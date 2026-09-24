@@ -24,6 +24,7 @@ import {
   MAX_WORK_ITEM_RESOLUTION_CHARS,
   MAX_WORK_ITEM_DUE_AT,
   workItemDueSortAt,
+  handoffStageRefusal,
   workItemKindForHandoffStage,
 } from "../shared/workItems";
 import { requireEligibleProjectOwner } from "./lib/eligibleOwner";
@@ -426,23 +427,26 @@ export const handOff = mutation({
     const fromStage = project.workflowStage ?? "intake";
     const stageChanges = fromStage !== args.stage;
     let stageNote: string | undefined;
-    if (!stageChanges) {
-      if (fromStage === "delivered" || fromStage === "abandoned") {
-        domainError("INVALID_STATE", "Reopen this project before assigning new work");
-      }
-    } else {
-      if (args.stage === "abandoned") {
-        // A handoff opens new work, and a project cannot enter Abandoned
-        // while any work item is open.
-        domainError("INVALID_STATE", "A handoff cannot move a project to Abandoned");
-      }
+    // The stage rules the Hand off view also reads (shared/workItems.ts), so
+    // the view never offers a stage refused here. "requirement" refusals are
+    // raised below by requireWorkflowStageRequirements with their own codes.
+    const refusal = handoffStageRefusal(fromStage, args.stage);
+    if (refusal === "reopen_first") {
+      domainError("INVALID_STATE", "Reopen this project before assigning new work");
+    }
+    if (refusal === "abandons") {
+      // A handoff opens new work, and a project cannot enter Abandoned
+      // while any work item is open.
+      domainError("INVALID_STATE", "A handoff cannot move a project to Abandoned");
+    }
+    if (refusal === "review_decision") {
+      domainError(
+        "INVALID_STATE",
+        "Complete an internal review with Change stage, which records the review decision"
+      );
+    }
+    if (stageChanges) {
       const edge = findWorkflowTransition(fromStage, args.stage);
-      if (edge?.requirements?.includes("review_decision")) {
-        domainError(
-          "INVALID_STATE",
-          "Complete an internal review with Change stage, which records the review decision"
-        );
-      }
       // The handoff note is the audit note on edges that require one; an
       // empty note is refused there by the shared edge policy.
       const { transition, note: auditNote } = requireWorkflowStageEdge({

@@ -74,3 +74,26 @@ export function sectionListText(numbers: readonly string[]): string {
 export function revealDelayMs(index: number): number {
   return Math.min(Math.max(0, index), 4) * 60;
 }
+
+/**
+ * The latest "Draft the rest" attempt, as `getSeedDraftProgress` reports it
+ * in its optional `redraft` field: its terminal status and a sanitized error.
+ * Read defensively, so a progress read without the field (or with an
+ * unexpected shape) means "no attempt known" rather than a crash.
+ */
+export type SeedRedraftAttempt = {
+  status: "running" | "failed" | "done";
+  error: string | null;
+  attemptId: string;
+};
+
+export function seedRedraftAttempt(progress: unknown): SeedRedraftAttempt | null {
+  if (!progress || typeof progress !== "object") return null;
+  const redraft = (progress as { redraft?: unknown }).redraft;
+  if (!redraft || typeof redraft !== "object") return null;
+  const { status, error, attemptId } = redraft as Record<string, unknown>;
+  if (status !== "running" && status !== "failed" && status !== "done") return null;
+  if (typeof attemptId !== "string" && typeof attemptId !== "number") return null;
+  const message = typeof error === "string" && error.trim() ? error.trim() : null;
+  return { status, error: message, attemptId: String(attemptId) };
+}

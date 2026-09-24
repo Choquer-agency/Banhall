@@ -2369,6 +2369,27 @@ describe("Seed plan final UI (ui-design-final.md sections 3 and 11)", () => {
     expect(document.activeElement).toBe(underline.element());
   });
 
+  it("closes a hover-opened quote card on Escape without moving focus from elsewhere", async () => {
+    const citation = quotedCitation({ speaker: "Priya", line: 18 });
+    await render(SeedSubsectionPane, paneProps(subsection({
+      items: [seed({ provenance: [citation] })],
+    }), { sourceAttribution: attributed }));
+    // Keyboard focus stays on a control outside the quote.
+    const elsewhere = document.createElement("button");
+    elsewhere.textContent = "Elsewhere";
+    document.body.append(elsewhere);
+    elsewhere.focus();
+    const underline = page.getByRole("button", { name: "The control loop stabilized output", exact: true });
+    await underline.hover();
+    await expect.element(page.getByRole("group", { name: "Quoted line" })).toBeVisible();
+    expect(document.activeElement).toBe(elsewhere);
+
+    await userEvent.keyboard("{Escape}");
+    await expect.poll(() => document.querySelector("[data-quote-card]")).toBeNull();
+    expect(document.activeElement).toBe(elsewhere);
+    elsewhere.remove();
+  });
+
   it("drops underlines from an edited bullet and offers Restore original wording beside it", async () => {
     await render(SeedSubsectionPane, paneProps(subsection({
       items: [seed({

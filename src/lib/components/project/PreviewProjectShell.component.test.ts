@@ -10,9 +10,11 @@ import {
   __mutationCalls,
   __resetConvexStub,
   __setMutationError,
+  __setMutationResult,
   __setPaginatedRows,
   __setQueryData,
 } from "$lib/test/convex-svelte-stub.svelte";
+import { __resetQaSeenMemory } from "$lib/qa/qaSeen";
 
 /**
  * The preview report page's final shell (ui-design-final.md sections 2 and 8,
@@ -122,6 +124,7 @@ describe("PreviewProjectPage final shell", () => {
     __resetPage();
     __resetNavigation();
     __resetConvexStub();
+    __resetQaSeenMemory();
     localStorage.clear();
     document.body.innerHTML = "";
     __setPageParams({ id: "project-1" });
@@ -249,6 +252,83 @@ describe("PreviewProjectPage final shell", () => {
     await expect.poll(() => aside.getBoundingClientRect().width).toBe(400);
   });
 
+  it("leaves Assistant full screen when a tab is selected, so the tab's page shows", async () => {
+    seed({ seedRun: true });
+    await render(PreviewProjectPage);
+    await expect.element(page.getByRole("textbox", { name: "Message the report assistant" })).toBeVisible();
+    const main = () => document.querySelector<HTMLElement>("[data-project-main]")!;
+
+    await page.getByRole("button", { name: "Expand assistant", exact: true }).click();
+    await expect.poll(() => getComputedStyle(main()).display).toBe("none");
+    await page.getByRole("button", { name: /^Sources/ }).click();
+    await expect.poll(() => getComputedStyle(main()).display).not.toBe("none");
+    expect(main().hasAttribute("inert")).toBe(false);
+    await expect.element(page.getByText("Interview with Priya", { exact: true })).toBeVisible();
+    expect(document.querySelector("[data-assistant-column]")?.getAttribute("data-assistant-column")).toBe("side");
+
+    await page.getByRole("button", { name: "Report", exact: true }).click();
+    await page.getByRole("button", { name: "Expand assistant", exact: true }).click();
+    await expect.poll(() => getComputedStyle(main()).display).toBe("none");
+    // The signed-off Summary takes the page; the Assistant is not offered there.
+    await page.getByRole("button", { name: "Signed-off Summary", exact: true }).click();
+    await expect.poll(() => getComputedStyle(main()).display).not.toBe("none");
+    expect(main().hasAttribute("inert")).toBe(false);
+    expect(document.querySelector("[data-side-panel-divider]")).toBeNull();
+  });
+
+  it("shows the selected tab's page instead of the side panel on a phone", async () => {
+    seed({ seedRun: true });
+    localStorage.setItem("banhall_chat_open", "0");
+    await page.viewport(390, 844);
+    await render(PreviewProjectPage);
+    await expect.element(page.getByText("Evidence from thermal trials.", { exact: true })).toBeVisible();
+    const main = () => document.querySelector<HTMLElement>("[data-project-main]")!;
+    const aside = () => document.querySelector<HTMLElement>('aside[aria-label="Side panel"]')!;
+    for (const tab of [/^Sources/, "Signed-off Summary"] as const) {
+      await page.getByRole("button", { name: "Report", exact: true }).click();
+      await page.getByRole("button", { name: "Details", exact: true }).click();
+      await expect.poll(() => getComputedStyle(main()).display).toBe("none");
+      await page.getByRole("button", { name: tab, exact: typeof tab === "string" }).click();
+      await expect.poll(() => getComputedStyle(main()).display).not.toBe("none");
+      expect(getComputedStyle(aside()).display).toBe("none");
+    }
+  });
+
+  it("marks QA seen only once its panel is on screen", async () => {
+    seed();
+    __setQueryData("generations:getLatestGeneration", {
+      _id: "gen-1",
+      status: "completed",
+      candidateMode: "single",
+      summaryVersionId: null,
+      postQaStatus: "running",
+    });
+    // The saved preference keeps QA open, but a phone starts on the report.
+    localStorage.setItem("banhall_qa_open", "1");
+    await page.viewport(390, 844);
+    await render(PreviewProjectPage);
+    await expect.element(page.getByText("Evidence from thermal trials.", { exact: true })).toBeVisible();
+    // The result arrives while the QA pane is not shown.
+    __setQueryData("generations:getLatestGeneration", {
+      _id: "gen-1",
+      status: "completed",
+      candidateMode: "single",
+      summaryVersionId: null,
+      postQaStatus: "done",
+      postQaCompletedAt: 3_000,
+      agentOutputs: JSON.stringify({ qa: { overall_score: 78, section_scores: { "242": { score: 86 } } } }),
+    });
+    await expect.poll(() => document.querySelector('[data-panel-toggle="qa"] [data-qa-unseen-dot]')).not.toBeNull();
+    await new Promise((done) => setTimeout(done, 50));
+    expect(localStorage.getItem("banhall_qa_seen:gen-1:3000")).toBeNull();
+    expect(document.querySelector('[data-panel-toggle="qa"] [data-qa-unseen-dot]')).not.toBeNull();
+    await expect.element(page.getByRole("heading", { name: "QA finished", exact: true })).toBeVisible();
+
+    // Showing the QA pane marks it seen.
+    await page.getByRole("button", { name: "Open QA", exact: true }).click();
+    await expect.poll(() => localStorage.getItem("banhall_qa_seen:gen-1:3000")).toBe("seen");
+  });
+
   it("resizes the side panel from the keyboard and remembers the width", async () => {
     seed();
     await render(PreviewProjectPage);
@@ -278,6 +358,35 @@ describe("PreviewProjectPage final shell", () => {
     ]);
     await page.getByRole("button", { name: "Close details", exact: true }).click();
     await expect.poll(() => document.querySelector("[data-side-panel]")?.getAttribute("data-side-panel") ?? null).toBeNull();
+  });
+
+  it("keeps a science code chosen by hand while an AI suggestion is pending", async () => {
+    seed();
+    let resolveSuggestion!: (value: unknown) => void;
+    __setMutationResult("scienceCodeSuggestions:suggest", new Promise((done) => (resolveSuggestion = done)));
+    await render(PreviewProjectPage);
+    await expect.element(page.getByText("Evidence from thermal trials.", { exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "Details", exact: true }).click();
+    await page.getByRole("button", { name: "Edit science code", exact: true }).click();
+    await page.getByRole("button", { name: "Suggest with AI", exact: true }).click();
+    await expect.poll(() => __mutationCalls("scienceCodeSuggestions:suggest")).toHaveLength(1);
+
+    // The writer reopens the picker and chooses a code by hand.
+    await page.getByRole("button", { name: "Edit science code", exact: true }).click();
+    await page.getByPlaceholder("Search by name or code").fill("robotics");
+    await expect.poll(() => document.querySelectorAll("[data-command-item]").length).toBe(1);
+    (document.querySelector("[data-command-item]") as HTMLElement).click();
+    await expect.poll(() => __mutationCalls("projects:updateProjectScienceCode")).toEqual([
+      { projectId: "project-1", scienceCode: "2.02.02" },
+    ]);
+
+    // The late suggestion never overwrites that choice.
+    resolveSuggestion({ code: "1.02.01", label: "Chemistry" });
+    await new Promise((done) => setTimeout(done, 50));
+    expect(__mutationCalls("projects:updateProjectScienceCode")).toEqual([
+      { projectId: "project-1", scienceCode: "2.02.02" },
+    ]);
+    expect(document.querySelector('[data-details-facts]')?.textContent).not.toContain("Suggested");
   });
 
   it("opens QA in the side slot with the quiet score line and band-coloured bars", async () => {

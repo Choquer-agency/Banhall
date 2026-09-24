@@ -142,6 +142,18 @@ describe("PreviewProjectPage intake workbench", () => {
     expect(document.querySelector('[aria-label="AI assistant"]')).toBeNull();
   });
 
+  it("reserves no side panel or divider under the default open-Assistant preference", async () => {
+    // Default preferences: the Assistant is saved as open, but intake offers none.
+    await mountIntake(1024);
+    const aside = document.querySelector<HTMLElement>('aside[aria-label="Side panel"]')!;
+    expect(aside.hasAttribute("data-side-panel")).toBe(false);
+    expect(aside.getBoundingClientRect().width).toBe(0);
+    expect(document.querySelector("[data-side-panel-divider]")).toBeNull();
+    const main = document.querySelector<HTMLElement>("[data-project-main]")!;
+    const body = document.querySelector<HTMLElement>("[data-project-body]")!;
+    expect(main.getBoundingClientRect().width).toBe(body.getBoundingClientRect().width);
+  });
+
   it("lists every transcript, opens the first by default and subscribes one body at a time", async () => {
     await mountIntake(1440, 900, [
       transcriptRow("t-1", "Kickoff interview.docx", 11),
