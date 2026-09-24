@@ -388,7 +388,7 @@
               metric.rawLines !== metric.lines
                 ? ` (+${metric.rawLines - metric.lines} with gaps)`
                 : "";
-            count.textContent = `${metric.lines}/${metric.limit} lines${gapLineSuffix} · ${metric.words}/${metric.wordCap} words`;
+            count.textContent = `${metric.lines} / ${metric.limit} lines${gapLineSuffix}, ${metric.words} / ${metric.wordCap} words`;
 
             chip.append(label, count);
             if (state !== "ok") {
@@ -1168,11 +1168,9 @@
             </svg>
             {limitOverlayVisible ? "Hide CRA limits" : "Show CRA limits"}
           </button>
-          <span class="flex flex-wrap items-center gap-x-1.5 text-[11px] text-ink-muted">
+          <span class="flex flex-wrap items-center gap-x-3 text-[11px] text-ink-muted">
             <span class="whitespace-nowrap"><strong class="font-medium text-ink-secondary">{lineCount}</strong> form lines</span>
-            <span aria-hidden="true">·</span>
             <span class="whitespace-nowrap"><strong class="font-medium text-ink-secondary">{wordCount}</strong> words</span>
-            <span aria-hidden="true">·</span>
             <span class="whitespace-nowrap"><strong class="font-medium text-ink-secondary">{charCount}</strong> characters</span>
           </span>
         </div>
@@ -1197,7 +1195,7 @@
                       ></div>
                     </div>
                     <span class={`flex-none whitespace-nowrap text-[11px] tabular-nums ${m.s === "over" ? "font-medium text-red-700" : m.s === "warning" ? "font-medium text-amber-600" : "text-ink-muted"}`}>
-                      {m.value}/{m.cap} {m.label}{m.raw !== m.value ? ` (+${m.raw - m.value} with gaps)` : ""}
+                      {m.value} / {m.cap} {m.label}{m.raw !== m.value ? ` (+${m.raw - m.value} with gaps)` : ""}
                     </span>
                   </div>
                 {/each}

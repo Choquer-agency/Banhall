@@ -2325,9 +2325,10 @@
             <!-- BNH-47: QA review (exactly one side surface in flow at a time) -->
             {#if railView === "qa"}
               <div class="h-full" style={`min-width: ${SIDE_PANEL_MIN}px`}>
-                <LazyModule load={() => import("$lib/components/qa/QARailPanel.svelte")} label="QA review">
+                <LazyModule load={() => import("$lib/components/qa/QARailPanel.svelte")} label="QA score">
                   {#snippet children(QARailPanel)}
                     <QARailPanel
+                      title="QA score"
                       open={qaOpen}
                       onClose={closeSidePanel}
                       modelName={generation?.selectedModelLabel ?? generation?.iterativeModelLabel ?? null}

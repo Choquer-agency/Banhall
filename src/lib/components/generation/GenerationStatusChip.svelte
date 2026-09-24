@@ -13,14 +13,14 @@
 
   const config = $derived.by(() => {
     if (status === "reserved" || status === "running") {
-      return { label: "AI · Generating", tone: "bg-white/15 text-white", dot: "bg-white/70" };
+      return { label: "AI generating", tone: "bg-white/15 text-white", dot: "bg-white/70" };
     }
     if (status === "failed") {
       return { label: "AI generation needs attention", tone: "bg-white/15 text-white", dot: "bg-red-300" };
     }
     if (status === "awaiting_selection" && candidatesFailed > 0) {
       return {
-        label: candidatesDone > 0 ? "AI · Some drafts need retry" : "AI generation needs attention",
+        label: candidatesDone > 0 ? "Some drafts need a retry" : "AI generation needs attention",
         tone: "bg-white/15 text-white",
         dot: "bg-amber-300",
       };
@@ -29,8 +29,8 @@
       return {
         label:
           status === "awaiting_selection"
-            ? "Action needed · Choose draft"
-            : "Action needed · Review section",
+            ? "Action needed: choose a draft"
+            : "Action needed: review a section",
         tone: "bg-white/15 text-white",
         dot: "bg-white/70",
       };
@@ -38,9 +38,9 @@
     // CAP-7: the pre-retry half of a recovery generation. The project page
     // follows the recovery run instead, so this only shows for exact-id views.
     if (status === "superseded") {
-      return { label: "AI · Replaced by retry", tone: "bg-white/15 text-white", dot: "bg-white/70" };
+      return { label: "Replaced by a retry", tone: "bg-white/15 text-white", dot: "bg-white/70" };
     }
-    return { label: "AI · Generation complete", tone: "bg-white/15 text-white", dot: "bg-white/70" };
+    return { label: "Generation complete", tone: "bg-white/15 text-white", dot: "bg-white/70" };
   });
 </script>
 

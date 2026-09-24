@@ -520,7 +520,7 @@ Please revise the report to remove or rewrite ONLY the statements that specifica
           <!-- Surfaced on the collapsed header: a failure hidden behind a shut
                panel is the thing this receipt exists to prevent. -->
           <span class="ml-2 text-xs font-medium text-red-600">
-            · {failureCount} failed
+            {failureCount} failed
           </span>
         {/if}
       </div>
@@ -645,7 +645,7 @@ Please revise the report to remove or rewrite ONLY the statements that specifica
                   {/if}
                 {/if}
                 <p class="text-xs text-gray-400">
-                  {formatDate(doc.createdAt)}{doc.archived ? " · excluded from AI" : ""}
+                  {formatDate(doc.createdAt)}{doc.archived ? ", excluded from AI" : ""}
                 </p>
               </div>
               {#if !doc.archived && docCanReplace.get(doc._id)}

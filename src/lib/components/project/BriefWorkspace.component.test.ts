@@ -217,7 +217,7 @@ it("shows the Brief under the progress card while generating, for the running ge
   await render(CurrentProjectPage);
 
   await expect.element(page.getByRole("heading", { name: "Brief", exact: true })).toBeVisible();
-  await expect.element(page.getByText("1 of 2 documents in context · cap 12", { exact: true })).toBeVisible();
+  await expect.element(page.getByText("1 of 2 documents in context, cap 12", { exact: true })).toBeVisible();
   // One id feeds every Brief surface: the generation that is running, never
   // the report's older one.
   const args = __activeQueryArgs("briefs:getBrief").map((entry) => JSON.stringify(entry));

@@ -473,3 +473,28 @@ describe("Editor autosave and external content", () => {
     expect(saved.at(-1)).toContain("New words.");
   });
 });
+
+it("writes the CRA limit counts with commas and marks a Not drafted Section in place", async () => {
+  document.body.innerHTML = "";
+  const content = JSON.stringify({
+    type: "doc",
+    content: [
+      { type: "heading", attrs: { level: 2 }, content: [{ type: "text", text: "Line 242 - Technological uncertainties" }] },
+      { type: "paragraph", content: [{ type: "text", text: "Measured drift across the load bands." }] },
+      { type: "heading", attrs: { level: 2 }, content: [{ type: "text", text: "Line 244 - Work performed" }] },
+      { type: "paragraph", content: [{ type: "text", text: "[NOT GENERATED]" }] },
+    ],
+  });
+  const { container } = await mountEditor(content);
+  // ui-design-final.md section 8: "96 / 100 lines, 668 / 700 words".
+  await expect.poll(() => container.querySelectorAll(".cra-section-end__count").length).toBeGreaterThan(0);
+  for (const count of container.querySelectorAll(".cra-section-end__count")) {
+    expect(count.textContent).toMatch(/^\d+ \/ \d+ lines( \(\+\d+ with gaps\))?, \d+ \/ \d+ words$/);
+  }
+  expect(container.textContent).not.toContain("·");
+  // A stopped Step-by-step draft's placeholder is marked, its text unchanged.
+  const marked = container.querySelectorAll<HTMLElement>('p[data-not-drafted="true"]');
+  expect(marked).toHaveLength(1);
+  expect(marked[0].textContent).toBe("[NOT GENERATED]");
+  expect(getComputedStyle(marked[0], "::before").content).toBe('"Not drafted"');
+});

@@ -77,7 +77,7 @@ export function inclusionHeader(input: {
     input.documentsTruncated || input.sourcesTruncated
       ? `${input.documentsTotal}+`
       : `${input.documentsTotal}`;
-  return `${inContext} of ${total} documents in context · cap ${input.cap}`;
+  return `${inContext} of ${total} documents in context, cap ${input.cap}`;
 }
 
 /** Which part of the Inputs listing was cut short, if any. */
@@ -97,11 +97,11 @@ export const INCLUSION_TRUNCATED_NOTE =
 export const INCLUSION_SOURCES_TRUNCATED_NOTE =
   "Not every transcript or document could be listed. Both counts are lower bounds.";
 
-/** The row's status text: "included", "not included · archived", or "" when unrecorded. */
+/** The row's status text: "included", "not included (archived)", or "" when unrecorded. */
 export function inclusionStatusText(row: Pick<InclusionRow, "inclusion" | "reason">): string {
   if (row.inclusion === null) return "";
   const word = INCLUSION_WORDS[row.inclusion];
-  return row.reason ? `${word} · ${INCLUSION_REASON_WORDS[row.reason]}` : word;
+  return row.reason ? `${word} (${INCLUSION_REASON_WORDS[row.reason]})` : word;
 }
 
 export type BriefEntryLike = {
@@ -145,12 +145,12 @@ export function groupBrief<E extends BriefEntryLike>(entries: readonly E[]): Gro
   };
 }
 
-/** "2 added · 1 removed" when the group changed since the last Brief; otherwise null. */
+/** "2 added, 1 removed" when the group changed since the last Brief; otherwise null. */
 export function changeSummary(entries: readonly Pick<BriefEntryLike, "change">[]): string | null {
   const added = entries.filter((entry) => entry.change === "added").length;
   const removed = entries.filter((entry) => entry.change === "removed").length;
   if (added === 0 && removed === 0) return null;
-  return `${added} added · ${removed} removed`;
+  return `${added} added, ${removed} removed`;
 }
 
 /** Entries that still count toward a group (a removed marker row is not one). */
@@ -169,7 +169,7 @@ export function sourceChipLabel(entry: Pick<BriefEntryLike, "source">): string {
   const source = entry.source;
   if (!source) return "source";
   if (source.kind === "project_document") return parseSourceLabel(source.label).fileName;
-  if (source.kind === "transcript_digest") return `${source.label} · digest`;
+  if (source.kind === "transcript_digest") return `${source.label} (digest)`;
   return source.label;
 }
 

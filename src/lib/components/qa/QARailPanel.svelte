@@ -64,8 +64,8 @@
     {/if}
     <button
       onclick={onClose}
-      title="Close QA review"
-      aria-label="Close QA review"
+      title={`Close ${title}`}
+      aria-label={`Close ${title}`}
       class="ml-auto flex h-7 w-7 items-center justify-center rounded-md text-gray-400 transition-colors hover:text-navy"
     >
       <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">

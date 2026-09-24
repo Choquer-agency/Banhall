@@ -71,10 +71,9 @@ export function missingSourceIds(
   return [...missing];
 }
 
-/** The shared source chip label, without the middle-dot separator the seed
- * screens' copy rules do not allow ("Interview 2 (digest)"). */
+/** The shared source chip label ("Interview 2 (digest)"). */
 export function seedSourceLabel(source: { label: string; kind: SourceKind }) {
-  return sourceChipLabel({ source }).replace(/ · digest$/, " (digest)");
+  return sourceChipLabel({ source });
 }
 
 /** Attribution from one `seeds:getSourceAttribution` read, for surfaces that

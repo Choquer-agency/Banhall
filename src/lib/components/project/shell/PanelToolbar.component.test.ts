@@ -10,7 +10,7 @@ import PanelToolbar from "./PanelToolbar.svelte";
  * Full width, divider, Details, Assistant (Aurora mark), QA.
  */
 const qaSnippet = createRawSnippet(() => ({
-  render: () => '<button type="button" data-panel-toggle="qa" aria-label="QA review">QA</button>',
+  render: () => '<button type="button" data-panel-toggle="qa" aria-label="QA">QA</button>',
 }));
 
 describe("PanelToolbar", () => {

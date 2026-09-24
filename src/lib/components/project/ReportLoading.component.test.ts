@@ -22,6 +22,7 @@ const variants = [
     openChat: () => page.getByRole("button", { name: "Open AI assistant", exact: true }).first().click(),
     closeChat: () => page.getByRole("button", { name: "Close assistant", exact: true }).click(),
     openQa: () => page.getByRole("button", { name: "Open QA panel", exact: true }).click(),
+    closeQaName: "Close QA review",
     openHistory: () => page.getByRole("button", { name: "History", exact: true }).click(),
   },
   {
@@ -29,7 +30,9 @@ const variants = [
     component: PreviewProjectPage,
     openChat: () => page.getByRole("button", { name: "Assistant", exact: true }).click(),
     closeChat: () => page.getByRole("button", { name: "Assistant", exact: true }).click(),
-    openQa: () => page.getByRole("button", { name: /^QA review/ }).click(),
+    // Board 2.2: the toolbar toggle reads "QA" and the panel "QA score".
+    openQa: () => page.getByRole("button", { name: "QA", exact: true }).click(),
+    closeQaName: "Close QA score",
     openHistory: async () => {
       await page.getByRole("button", { name: "More actions", exact: true }).click();
       await page.getByRole("menuitem", { name: "History", exact: true }).click();
@@ -50,7 +53,7 @@ beforeEach(() => {
   __setPageParams({ id: "project-1" }); seed();
 });
 
-for (const { name, component, openChat, closeChat, openQa, openHistory } of variants) {
+for (const { name, component, openChat, closeChat, openQa, closeQaName, openHistory } of variants) {
   it(`${name}: remembered closed assistant starts no chat and preserves draft and pending send on reopen`, async () => {
     await page.viewport(1440, 1000);
     localStorage.setItem("banhall_chat_open", "0");
@@ -88,7 +91,7 @@ for (const { name, component, openChat, closeChat, openQa, openHistory } of vari
     const textarea = composer().element();
     await expect.element(page.getByText("Active response begins", { exact: true })).toBeVisible();
     await openQa();
-    await expect.element(page.getByRole("button", { name: "Close QA review", exact: true })).toBeVisible();
+    await expect.element(page.getByRole("button", { name: closeQaName, exact: true })).toBeVisible();
     __setPaginatedRows("chatV2:listMessages", [answer("Active response advances while hidden")]);
     await openChat();
     await expect.element(page.getByText("Active response advances while hidden", { exact: true })).toBeVisible();
