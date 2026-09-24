@@ -51,10 +51,11 @@
   aria-pressed={active}
   {disabled}
   data-qa-toggle
+  data-panel-toggle="qa"
   data-qa-state={state}
   data-active={active ? "true" : "false"}
   onclick={() => onToggle()}
-  class={`relative flex h-[26px] min-w-[26px] shrink-0 items-center justify-center gap-1 rounded-md px-1 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:pointer-events-none disabled:opacity-50 motion-reduce:transition-none ${fill}`}
+  class={`relative flex h-[26px] min-w-[26px] shrink-0 pointer-coarse:h-11 pointer-coarse:min-w-11 items-center justify-center gap-1 rounded-md px-1 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:pointer-events-none disabled:opacity-50 motion-reduce:transition-none ${fill}`}
 >
   <svg
     viewBox="0 0 24 24"

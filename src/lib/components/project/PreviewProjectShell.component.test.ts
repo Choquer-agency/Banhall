@@ -147,7 +147,7 @@ describe("PreviewProjectPage final shell", () => {
     const items = Array.from(document.querySelectorAll("[data-top-bar-more-item]")).map((item) => item.getAttribute("data-top-bar-more-item"));
     expect(items).toEqual(["ai-review", "share", "history", "financial"]);
     // The QA toggle carries the band chip.
-    expect(document.querySelector("[data-qa-score-chip]")?.textContent).toBe("78");
+    expect(document.querySelector('[data-panel-toggle="qa"] [data-qa-chip]')?.textContent).toBe("78");
   });
 
   it("shows Plan, Summary, Report and Sources for a Step-by-step report, with Plan and Summary done", async () => {
@@ -257,7 +257,7 @@ describe("PreviewProjectPage final shell", () => {
     localStorage.setItem("banhall_chat_open", "0");
     await render(PreviewProjectPage);
     await expect.element(page.getByText("Evidence from thermal trials.", { exact: true })).toBeVisible();
-    await page.getByRole("button", { name: /^QA review/ }).click();
+    await page.getByRole("button", { name: /^QA score/ }).click();
     await expect.poll(() => document.querySelector("[data-qa-overall]")).not.toBeNull();
     expect(document.querySelector("[data-side-panel]")?.getAttribute("data-side-panel")).toBe("qa");
     expect(document.querySelector("[data-qa-overall]")?.textContent).toContain("78/100");

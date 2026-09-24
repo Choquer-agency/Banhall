@@ -3,7 +3,6 @@ import { page } from "vitest/browser";
 import { render } from "vitest-browser-svelte";
 import { createRawSnippet } from "svelte";
 import PanelToolbar from "./PanelToolbar.svelte";
-import PanelQaToggleSlot from "./PanelQaToggleSlot.svelte";
 
 /**
  * Panel toolbar (ui-design-final.md section 2): tabs left with a 2px
@@ -75,37 +74,5 @@ describe("PanelToolbar", () => {
     expect(details.getBoundingClientRect().height).toBe(26);
     expect(document.querySelector('[data-panel-toggle="full-width"]')).toBeNull();
     expect(document.querySelector('[data-panel-toggle="assistant"]')).toBeNull();
-  });
-});
-
-describe("PanelQaToggleSlot", () => {
-  beforeEach(() => {
-    document.body.innerHTML = "";
-  });
-
-  it("shows the band chip, and a pink dot until a finished result is opened", async () => {
-    await render(PanelQaToggleSlot, { state: "done", score: 78, unseen: true, onToggle: () => {} });
-    const chip = document.querySelector<HTMLElement>("[data-qa-score-chip]")!;
-    expect(chip.textContent).toBe("78");
-    expect(getComputedStyle(chip).backgroundColor).toBe("rgb(255, 237, 213)");
-    expect(getComputedStyle(chip).color).toBe("rgb(194, 65, 12)");
-    expect(document.querySelector("[data-qa-unseen-dot]")).not.toBeNull();
-    expect(document.querySelector("button")?.getAttribute("aria-label")).toBe("QA review, score 78, new result");
-  });
-
-  it("uses a gray-50 fill and an Aurora spinner while QA runs", async () => {
-    await render(PanelQaToggleSlot, { state: "running", score: null, onToggle: () => {} });
-    const button = document.querySelector<HTMLElement>("button")!;
-    expect(button.className).toContain("bg-gray-50");
-    expect(button.querySelector('[data-ai-mark-glyph="spinner"]')).not.toBeNull();
-    expect(button.querySelector("[data-qa-score-chip]")).toBeNull();
-  });
-
-  it("keeps the band colour for green and red scores", async () => {
-    await render(PanelQaToggleSlot, { state: "done", score: 91, onToggle: () => {} });
-    expect(getComputedStyle(document.querySelector<HTMLElement>("[data-qa-score-chip]")!).color).toBe("rgb(21, 128, 61)");
-    document.body.innerHTML = "";
-    await render(PanelQaToggleSlot, { state: "done", score: 42, onToggle: () => {} });
-    expect(getComputedStyle(document.querySelector<HTMLElement>("[data-qa-score-chip]")!).color).toBe("rgb(185, 28, 28)");
   });
 });

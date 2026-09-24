@@ -58,7 +58,9 @@
   import SelectInput from "$lib/components/ui/SelectInput.svelte";
   import ProjectTopBar, { type TopBarMoreItem } from "$lib/components/project/shell/ProjectTopBar.svelte";
   import PanelToolbar, { type PanelTab } from "$lib/components/project/shell/PanelToolbar.svelte";
-  import PanelQaToggleSlot from "$lib/components/project/shell/PanelQaToggleSlot.svelte";
+  import QaToggle from "$lib/components/qa/QaToggle.svelte";
+  import { qaSectionScores } from "$lib/qa/qaSectionScores";
+  import { markQaSeen, readQaSeen, type QaSeenState } from "$lib/qa/qaSeen";
   import SourcesView from "$lib/components/project/shell/SourcesView.svelte";
   import DetailsPanel from "$lib/components/project/details/DetailsPanel.svelte";
   import DetailsPopover from "$lib/components/project/details/DetailsPopover.svelte";
@@ -1315,44 +1317,32 @@
     teamNeeded: () => detailsOpen && detailsView === "handoff",
   });
 
-  // QA toggle: the score comes from the stored scorecard; "seen" is
-  // browser-local per generation and QA completion.
-  const qaScore = $derived.by((): number | null => {
-    const raw = generation?.agentOutputs;
-    if (!raw) return null;
-    try {
-      const parsed = JSON.parse(raw) as { qa?: { overall_score?: unknown } };
-      const score = parsed.qa?.overall_score;
-      return typeof score === "number" && Number.isFinite(score) ? Math.round(score) : null;
-    } catch {
-      return null;
-    }
-  });
+  // QA toggle (ui-design-final.md section 7): the score comes from the
+  // stored scorecard; "seen" is
+  // browser-local per generation and QA completion (src/lib/qa/qaSeen.ts).
+  const qaScores = $derived(qaSectionScores(generation?.agentOutputs ?? null));
+  const qaScore = $derived(qaScores?.overall ?? null);
   const qaState = $derived<"idle" | "running" | "done">(
     generation?.postQaStatus === "running" ? "running" : qaScore !== null ? "done" : "idle"
   );
-  const qaSeenKey = $derived.by(() => {
-    const completedAt = (generation as { postQaCompletedAt?: number } | null | undefined)?.postQaCompletedAt;
-    return generation && completedAt ? `banhall_qa_seen:${generation._id}:${completedAt}` : null;
-  });
+  const qaCompletedAt = $derived(generation?.postQaCompletedAt ?? null);
   let qaSeenTick = $state(0);
-  const qaUnseen = $derived.by(() => {
+  const qaSeen = $derived.by((): QaSeenState | null => {
     void qaSeenTick;
-    if (!qaSeenKey || qaState !== "done") return false;
-    try {
-      return localStorage.getItem(qaSeenKey) !== "1";
-    } catch {
-      return false;
-    }
+    if (!generation || qaCompletedAt === null || qaState !== "done") return null;
+    return readQaSeen(String(generation._id), qaCompletedAt);
   });
+  const qaUnseen = $derived(qaSeen !== null && qaSeen !== "seen");
+  // Opening QA marks the current result seen: no notice, no dot.
   $effect(() => {
-    if (!qaOpen || !qaSeenKey) return;
-    try {
-      localStorage.setItem(qaSeenKey, "1");
-    } catch {
-      // Storage blocked: the dot simply stays until the next session.
-    }
-    untrack(() => (qaSeenTick += 1));
+    if (!qaOpen || !generation || qaCompletedAt === null || qaState !== "done") return;
+    const generationId = String(generation._id);
+    const completedAt = qaCompletedAt;
+    untrack(() => {
+      if (readQaSeen(generationId, completedAt) === "seen") return;
+      markQaSeen(generationId, completedAt);
+      qaSeenTick += 1;
+    });
   });
 
   const topBarMoreItems = $derived.by((): TopBarMoreItem[] => {
@@ -1591,7 +1581,7 @@
         {/snippet}
         {#snippet qa()}
           {#if reportActionsVisible && user}
-            <PanelQaToggleSlot
+            <QaToggle
               state={qaState}
               score={qaScore}
               unseen={qaUnseen}
