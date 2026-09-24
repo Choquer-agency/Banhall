@@ -175,6 +175,10 @@ export async function getOutlineData(
           : [],
       pendingBatchId: row.pendingBatchId ?? null,
       shownBatchId: row.shownBatchId ?? null,
+      // The approval time while the step is approved. The stored field keeps
+      // the last approval after a step leaves "approved", so it is not sent
+      // then.
+      approvedAt: row.state === "approved" ? (row.approvedAt ?? null) : null,
     });
   }
   return {
@@ -711,6 +715,9 @@ type LiveSummaryItem = {
   subsectionKind: Doc<"seedSubsections">["kind"];
   bullets: string[];
   support: Doc<"seeds">["support"];
+  /** The writer changed the wording (not derived from `support`: a
+   * generated Seed can start as writer_asserted). */
+  edited: boolean;
   tags: string[];
   uncertaintySeedId: Id<"seeds"> | null;
   experimentSeedIds: Id<"seeds">[];
@@ -775,6 +782,11 @@ export async function getSummaryData(
         maximumRowsRead: MAX_PAGE_SIZE,
       });
     budget.account(result.page);
+    // A frozen item stores only its final wording, so `edited` compares it
+    // with the Seed's generated bullets (immutable). One point read per item
+    // on a page already capped at MAX_PAGE_SIZE rows; Seed rows hold one or
+    // two short bullets.
+    const page = [];
     for (const item of result.page) {
       if (
         item.projectId !== generation.projectId ||
@@ -782,13 +794,24 @@ export async function getSummaryData(
       ) {
         domainError("INVALID_STATE", "Frozen Summary ownership mismatch");
       }
-    }
-    return {
-      page: result.page.map((item) => ({
+      const seed = await ctx.db.get(item.seedId);
+      budget.account(seed);
+      if (
+        !seed ||
+        seed.projectId !== generation.projectId ||
+        seed.roleId !== item.roleId
+      ) {
+        domainError("INVALID_STATE", "Frozen Summary ownership mismatch");
+      }
+      page.push({
         ...item,
         kind: "selection" as const,
         subsectionKind: item.kind,
-      })),
+        edited: stableSerialize(item.bullets) !== stableSerialize(seed.bullets),
+      });
+    }
+    return {
+      page,
       skippedRoleIds: version.skippedRoleIds,
       isDone: result.isDone,
       continueCursor: JSON.stringify({
@@ -920,6 +943,7 @@ export async function getSummaryData(
       subsectionKind: definition.kind,
       bullets: materializeFinalWording(seed, selection),
       support: selection.editedBullets ? "writer_asserted" : seed.support,
+      edited: selection.editedBullets !== undefined,
       tags: seed.tags,
       uncertaintySeedId: seed.uncertaintySeedId ?? null,
       experimentSeedIds: seed.experimentSeedIds ?? [],

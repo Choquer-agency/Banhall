@@ -10,6 +10,7 @@ import {
 import { describe, expect, it } from "vitest";
 import type { Id } from "../_generated/dataModel";
 import type {
+  getOutline,
   getSubsection,
   getSummary,
   listBatches,
@@ -45,6 +46,7 @@ function queryReference<Export>(name: string) {
 }
 
 const getSummaryRef = queryReference<typeof getSummary>("seeds:getSummary");
+const getOutlineRef = queryReference<typeof getOutline>("seeds:getOutline");
 const listBatchesRef = queryReference<typeof listBatches>("seeds:listBatches");
 const getSubsectionRef = queryReference<typeof getSubsection>(
   "seeds:getSubsection",
@@ -623,4 +625,135 @@ it("keeps all 130 live selections reachable beyond the separate 128-row prompt l
   expect(actual).toHaveLength(130);
   expect(actual).toEqual(expected);
   expect(new Set(actual).size).toBe(130);
+});
+
+describe("Seed DTO fields for the final UI (2026-09-24)", () => {
+  it("sends approvedAt only while a step is approved", async () => {
+    const fixture = await decisionFixture();
+    await fixture.t.run(async (ctx) => {
+      const approved = await ctx.db.get(fixture.subsectionIds.company_context!);
+      await ctx.db.patch(approved!._id, {
+        state: "approved",
+        approvedAt: 1_234,
+        approvedContextRevision: approved!.currentContextRevision,
+        approvedSelectionRevision: approved!.selectionRevision,
+      });
+      // A step that left "approved" keeps the stored time; it is not sent.
+      await ctx.db.patch(fixture.subsectionIds.goal_problem!, {
+        state: "in_progress",
+        approvedAt: 999,
+      });
+    });
+    const outline = await fixture.writer.query(getOutlineRef, {
+      generationId: fixture.generationId,
+    });
+    const byRole = new Map(outline.rows.map((row) => [row.roleId, row]));
+    expect(byRole.get("company_context")?.approvedAt).toBe(1_234);
+    expect(byRole.get("goal_problem")?.approvedAt).toBeNull();
+    expect(byRole.get("workplan")?.approvedAt).toBeNull();
+  });
+
+  it("marks live Summary items edited from the writer's wording, not from support", async () => {
+    const fixture = await decisionFixture();
+    const batchId = await insertBatch(fixture, 0);
+    const [editedId, plainId, assertedId] = await fixture.t.run(async (ctx) => {
+      const ids: Id<"seeds">[] = [];
+      for (const [order, support] of [
+        [0, "source_supported"],
+        [1, "source_supported"],
+        // Generated as writer_asserted, never edited.
+        [2, "writer_asserted"],
+      ] as const) {
+        const seedId = await ctx.db.insert("seeds", {
+          projectId: fixture.projectId,
+          generationId: fixture.generationId,
+          batchId,
+          roleId: "company_context",
+          order,
+          bullets: [`Generated idea ${order}.`],
+          tags: ["technical"],
+          support,
+          originalSupport: support,
+        });
+        await ctx.db.insert("seedSelections", {
+          projectId: fixture.projectId,
+          generationId: fixture.generationId,
+          roleId: "company_context",
+          seedId,
+          selected: true,
+          selectedAt: 1,
+          version: 1,
+          orderKey: String(order).padStart(5, "0"),
+          ...(order === 0
+            ? { editedBullets: ["The writer's own words."], editedBy: fixture.userId, editedAt: 2 }
+            : {}),
+        });
+        ids.push(seedId);
+      }
+      return ids;
+    });
+    const items: Array<SummaryResult["page"][number]> = [];
+    let cursor: string | null = null;
+    let done = false;
+    for (let pageNumber = 0; pageNumber < 20 && !done; pageNumber += 1) {
+      const result: SummaryResult = await fixture.writer.query(getSummaryRef, {
+        generationId: fixture.generationId,
+        cursor,
+        numItems: 10,
+      });
+      items.push(...result.page);
+      cursor = result.continueCursor;
+      done = result.isDone;
+    }
+    const edited = new Map(items.map((item) => [item.seedId, item.edited]));
+    expect(edited.get(editedId)).toBe(true);
+    expect(edited.get(plainId)).toBe(false);
+    expect(edited.get(assertedId)).toBe(false);
+    expect(items.find((item) => item.seedId === assertedId)?.support).toBe("writer_asserted");
+  });
+
+  it("marks frozen Summary items edited when their wording differs from the Seed", async () => {
+    const fixture = await decisionFixture();
+    const seed = await addDecisionSeed(fixture);
+    const summaryVersionId = await fixture.t.run(async (ctx) => {
+      const summaryVersionId = await ctx.db.insert("summaryVersions", {
+        projectId: fixture.projectId,
+        generationId: fixture.generationId,
+        version: 1,
+        originGenerationId: fixture.generationId,
+        briefVersionId: fixture.briefId,
+        settingsHash: "settings",
+        skippedRoleIds: [],
+        readiness: true,
+        signedOffBy: fixture.userId,
+        signedOffAt: 1,
+      });
+      for (const [order, bullets] of [
+        [0, ["Original frozen wording."]],
+        [1, ["Rewritten by the writer."]],
+      ] as const) {
+        await ctx.db.insert("summaryItems", {
+          projectId: fixture.projectId,
+          generationId: fixture.generationId,
+          summaryVersionId,
+          roleId: "company_context",
+          kind: "standard",
+          order,
+          seedId: seed.seedId,
+          bullets: [...bullets],
+          support: order === 0 ? "source_supported" : "writer_asserted",
+          tags: ["technical"],
+        });
+      }
+      return summaryVersionId;
+    });
+    const result: SummaryResult = await fixture.writer.query(getSummaryRef, {
+      generationId: fixture.generationId,
+      versionId: summaryVersionId,
+      cursor: null,
+      numItems: 10,
+    });
+    expect(result.frozen).toBe(true);
+    expect(result.page.map((item) => item.edited)).toEqual([false, true]);
+  });
 });
