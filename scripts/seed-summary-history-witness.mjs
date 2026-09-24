@@ -684,7 +684,7 @@ async function seedingJourney(browser, host) {
   // Keyboard entry: the host's SvelteKit pushState creates the Summary entry.
   await page.locator("#seed-review-summary-trigger").focus();
   await page.keyboard.press("Enter");
-  await page.getByRole("heading", { name: "Summary Review", exact: true }).waitFor({ state: "visible" });
+  await page.getByRole("heading", { name: "Summary review", exact: true }).waitFor({ state: "visible" });
   check(host, "seeding: pushState wrote ?view=summary", view(page) === "summary", page.url());
   check(host, "seeding: entry focused the Summary heading", await waitFocus(page, "summary-review-title"), await focusedId(page));
   await page.getByRole("button", { name: "Edit", exact: true }).click();
@@ -705,7 +705,7 @@ async function seedingJourney(browser, host) {
 
   // Real browser Forward.
   await page.goForward();
-  await page.getByRole("heading", { name: "Summary Review", exact: true }).waitFor({ state: "visible" });
+  await page.getByRole("heading", { name: "Summary review", exact: true }).waitFor({ state: "visible" });
   check(host, "seeding: Forward restored ?view=summary", view(page) === "summary", page.url());
   check(host, "seeding: Forward focused the Summary heading", await waitFocus(page, "summary-review-title"), await focusedId(page));
   await page.getByRole("button", { name: "Edit", exact: true }).click();
@@ -718,12 +718,12 @@ async function seedingJourney(browser, host) {
 
   // The in-page Back action makes a third entry; history Back/Forward still
   // move between the Summary and workspace with the same transitions.
-  await page.getByRole("button", { name: "Back to workspace", exact: true }).click();
+  await page.getByRole("button", { name: "Back to plan", exact: true }).click();
   await page.locator('[aria-label="Seed workspace"]').waitFor({ state: "visible" });
-  check(host, "seeding: Back to workspace action removed ?view", view(page) === null, page.url());
-  check(host, "seeding: Back to workspace action focused the trigger", await waitFocus(page, "seed-review-summary-trigger"), await focusedId(page));
+  check(host, "seeding: Back to plan action removed ?view", view(page) === null, page.url());
+  check(host, "seeding: Back to plan action focused the trigger", await waitFocus(page, "seed-review-summary-trigger"), await focusedId(page));
   await page.goBack();
-  await page.getByRole("heading", { name: "Summary Review", exact: true }).waitFor({ state: "visible" });
+  await page.getByRole("heading", { name: "Summary review", exact: true }).waitFor({ state: "visible" });
   check(host, "seeding: Back after the action reopened the Summary entry", view(page) === "summary" && (await waitFocus(page, "summary-review-title")), page.url());
   await page.goForward();
   await page.locator('[aria-label="Seed workspace"]').waitFor({ state: "visible" });
@@ -820,7 +820,7 @@ const surfaces = {
 
 async function enterSummary(page) {
   await page.locator("#seed-review-summary-trigger").click();
-  await page.getByRole("heading", { name: "Summary Review", exact: true }).waitFor({ state: "visible" });
+  await page.getByRole("heading", { name: "Summary review", exact: true }).waitFor({ state: "visible" });
   await page.getByText(summaryItems[1].bullet, { exact: true }).waitFor({ state: "visible" });
 }
 

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { page } from "vitest/browser";
+import { page, userEvent } from "vitest/browser";
 import { render } from "vitest-browser-svelte";
 import { ConvexError } from "convex/values";
 import type { Id } from "../../../../convex/_generated/dataModel";
@@ -107,6 +107,11 @@ function item(seedId: string, roleId: string, bullet: string, support = "source_
   };
 }
 
+/** A Summary item carrying fields a newer DTO adds (`edited`, `provenance`). */
+function withFields(base: ReturnType<typeof item>, fields: Record<string, unknown>): ReturnType<typeof item> {
+  return Object.assign({}, base, fields);
+}
+
 function firstPage(overrides: Record<string, unknown> = {}) {
   return {
     page: [item("seed-a", "company_context", "The company designed adaptive controls.")],
@@ -151,7 +156,15 @@ const continuation = (cursor: string, owner: Id<"generations"> = generationId) =
   numItems: 50,
 });
 
-const signOffButton = () => page.getByRole("button", { name: "Sign off and generate", exact: true });
+// The bar's primary opens the confirm; the confirm's primary starts sign-off.
+const signOffButton = () => page.getByRole("region", { name: "Summary review" }).getByRole("button", { name: "Sign off and generate PD", exact: true });
+const signOffDialog = () => page.getByRole("dialog");
+const confirmButton = () => signOffDialog().getByRole("button", { name: "Sign off and generate PD", exact: true });
+async function confirmSignOff() {
+  await signOffButton().click();
+  await expect.element(signOffDialog()).toBeVisible();
+  await confirmButton().click();
+}
 
 beforeEach(async () => {
   document.body.innerHTML = "";
@@ -183,7 +196,7 @@ describe("Seed Summary Review", () => {
     });
     container.style.width = "1000px";
     container.style.height = "800px";
-    const summarySurface = page.getByRole("region", { name: "Summary Review" });
+    const summarySurface = page.getByRole("region", { name: "Summary review" });
     const summaryElement = summarySurface.elements()[0];
     if (!(summaryElement instanceof HTMLElement)) throw new Error("Summary Review did not render");
     expect(Math.round(summaryElement.getBoundingClientRect().width)).toBe(1000);
@@ -234,7 +247,7 @@ describe("Seed Summary Review", () => {
     }]);
 
     __setQueryData("seeds:getOutline", outline(false, true, 13));
-    await expect.element(page.getByText("Blocked by: goal_problem.", { exact: true })).toBeVisible();
+    await expect.poll(() => container.querySelector("[data-summary-readiness=blocked]")?.textContent ?? "").toContain("1 step still open");
     await expect.element(signOffButton()).toBeDisabled();
     // The server is ready at version 13, but the complete review on screen is
     // still version 12: it must not be signable.
@@ -264,7 +277,7 @@ describe("Seed Summary Review", () => {
     await summarySurface.screenshot({
       path: await captures.path("summary-review-narrow-editable-scrolled"),
     });
-    await signOffButton().click();
+    await confirmSignOff();
     expect(__mutationCalls("generations:signOffSeedStage")).toEqual([{
       generationId,
       expectedSeedStageVersion: 13,
@@ -303,7 +316,7 @@ describe("Seed Summary Review", () => {
     await expect.element(page.getByText("Version thirteen second page.", { exact: true })).toBeVisible();
     await expect.element(page.getByText("Version thirteen first page.", { exact: true })).toBeVisible();
     await expect.element(signOffButton()).toBeEnabled();
-    await signOffButton().click();
+    await confirmSignOff();
     expect(__mutationCalls("generations:signOffSeedStage")).toEqual([{
       generationId,
       expectedSeedStageVersion: 13,
@@ -321,7 +334,7 @@ describe("Seed Summary Review", () => {
     await render(SeedSummaryReview, { generationId, userId: "writer-1", onSignedOff });
     await expect.element(signOffButton()).toBeEnabled();
 
-    await signOffButton().click();
+    await confirmSignOff();
     await expect.element(page.getByRole("alert")).toHaveTextContent("Readiness changed; review the blockers");
     await expect.element(signOffButton()).toBeEnabled();
     expect(document.body.textContent).not.toContain("Partial Summary");
@@ -329,7 +342,7 @@ describe("Seed Summary Review", () => {
     expect(onSignedOff).not.toHaveBeenCalled();
 
     __setMutationResult("generations:signOffSeedStage", null);
-    await signOffButton().click();
+    await confirmSignOff();
     expect(__mutationCalls("generations:signOffSeedStage")).toEqual([
       { generationId, expectedSeedStageVersion: 12 },
       { generationId, expectedSeedStageVersion: 12 },
@@ -455,7 +468,7 @@ describe("Seed Summary Review", () => {
     expect(readinessNotice()?.getAttribute("role")).toBe("status");
     expect(readinessNotice()?.textContent).toContain("Readiness could not be fully computed within the server's safe processing limit");
     expect(readinessNotice()?.textContent).toContain("Seed readiness could not read the complete decision set");
-    expect(document.body.textContent).not.toContain("Blocked by:");
+    expect(document.body.textContent).not.toContain("still open");
     await expect.element(signOffButton()).toBeDisabled();
 
     // The explicit recovery re-establishes the plan-status subscription; a
@@ -463,15 +476,15 @@ describe("Seed Summary Review", () => {
     await page.getByRole("button", { name: "Reload plan status", exact: true }).click();
     await expect.poll(() => __queryArgsHistory("seeds:getOutline")).toEqual([{ generationId }, "skip", { generationId }]);
     await expect.poll(() => readinessNotice()?.dataset.summaryReadiness).toBe("incomplete");
-    expect(document.body.textContent).not.toContain("Blocked by:");
+    expect(document.body.textContent).not.toContain("still open");
     await expect.element(signOffButton()).toBeDisabled();
     expect(__mutationCalls("generations:signOffSeedStage")).toEqual([]);
 
     // A complete response names its decision blockers; a complete ready one
     // clears every readiness notice and enables sign-off.
     __setQueryData("seeds:getOutline", outline(false));
-    await expect.element(page.getByText("Blocked by: goal_problem.", { exact: true })).toBeVisible();
-    expect(readinessNotice()?.dataset.summaryReadiness).toBe("blocked");
+    await expect.poll(() => readinessNotice()?.dataset.summaryReadiness).toBe("blocked");
+    expect(readinessNotice()?.textContent).toContain("1 step still open");
     expect(document.body.textContent).not.toContain("Readiness could not be fully computed");
     __setQueryData("seeds:getOutline", outline(true));
     await expect.poll(() => readinessNotice()).toBeNull();
@@ -644,7 +657,7 @@ describe("Seed Summary Review", () => {
     __setQueryData("seeds:getSummary", onePage([item("seed-a", "company_context", "Server wording A.")]));
     await render(SeedSummaryReview, { generationId, userId: "writer-1" });
     await expect.element(page.getByText("Server wording A.", { exact: true })).toBeVisible();
-    for (const name of ["Edit", "Save wording", "Sign off and generate"]) {
+    for (const name of ["Edit", "Save wording", "Sign off and generate PD"]) {
       expect(page.getByRole("button", { name, exact: true }).elements()).toHaveLength(0);
     }
     expect(page.getByRole("textbox").elements()).toHaveLength(0);
@@ -657,7 +670,7 @@ describe("Seed Summary Review", () => {
 
     __setQueryData("seeds:getOutline", outline(true, false));
     await expect.poll(() => page.getByRole("textbox").elements().length).toBe(0);
-    for (const name of ["Edit", "Save wording", "Sign off and generate"]) {
+    for (const name of ["Edit", "Save wording", "Sign off and generate PD"]) {
       expect(page.getByRole("button", { name, exact: true }).elements()).toHaveLength(0);
     }
     expect(storedSummaryDrafts()["seed-a"].bulletOne).toBe("Typed before Summary revocation.");
@@ -688,7 +701,7 @@ describe("Seed Summary Review", () => {
     ));
     await expect.element(page.getByText("New generation Summary item.", { exact: true })).toBeVisible();
     expect(document.body.textContent).not.toContain("Previous generation Summary item.");
-    await signOffButton().click();
+    await confirmSignOff();
     expect(__mutationCalls("generations:signOffSeedStage")).toEqual([{
       generationId: otherGenerationId,
       expectedSeedStageVersion: 12,
@@ -771,8 +784,8 @@ describe("Seed Summary Review", () => {
     await expect.element(page.getByText("Signed-off plan", { exact: true })).toBeVisible();
     await expect.element(page.getByText("The frozen plan is immutable.", { exact: true })).toBeVisible();
     expect(page.getByRole("button", { name: "Edit", exact: true }).elements()).toHaveLength(0);
-    expect(page.getByRole("button", { name: "Sign off and generate", exact: true }).elements()).toHaveLength(0);
-    expect(container.textContent).not.toContain("Blocked by:");
+    expect(page.getByRole("button", { name: "Sign off and generate PD", exact: true }).elements()).toHaveLength(0);
+    expect(container.textContent).not.toContain("still open");
     expect(container.querySelector("[data-summary-model]")?.textContent).toBe("claude-sonnet-test");
     expect(container.textContent).not.toContain("Writer Profile");
     // A regenerated Summary names its version beside the model.
@@ -1253,5 +1266,306 @@ describe("Seed Summary Review", () => {
     finishAgain?.(undefined);
     await expect.poll(() => stored()["seed-a"]).toBeUndefined();
     expect(stored()["seed-b"].bulletOne).toBe("Independent B.");
+  });
+
+  describe("final UI (boards 3.3 and 3.4)", () => {
+    const editedPage = () => onePage([
+      withFields(item("seed-a", "company_context", "Plain server wording."), { edited: false }),
+      withFields(item("seed-b", "goal_problem", "Hand wording for the goal.", "writer_asserted"), { edited: true }),
+      withFields(item("seed-c", "experimentation", "Hand wording for the trials.", "writer_asserted"), { edited: true }),
+    ]);
+
+    it("reads as a 760px document with mono Section eyebrows over serif titles and no page header", async () => {
+      __setQueryData("seeds:getOutline", outline());
+      __setQueryData("seeds:getSummary", onePage([item("seed-a", "company_context", "The company designed adaptive controls.")]));
+      const { container } = await render(SeedSummaryReview, { generationId, userId: "writer-1", onClose: vi.fn() });
+      container.style.width = "1300px";
+      container.style.height = "800px";
+      await expect.element(page.getByText("The company designed adaptive controls.", { exact: true })).toBeVisible();
+
+      // The heading stays for entry focus but is not a visible page header.
+      const heading = container.querySelector<HTMLElement>("#summary-review-title")!;
+      expect(heading.textContent).toBe("Summary review");
+      expect(heading.getBoundingClientRect().height).toBeLessThanOrEqual(1);
+      expect(container.textContent).not.toContain("Final review");
+      expect(page.getByRole("button", { name: "Back to workspace", exact: true }).elements()).toHaveLength(0);
+
+      const title = page.getByRole("heading", { level: 2, name: "Section 242, Technological uncertainty" });
+      await expect.element(title).toBeVisible();
+      const titleElement = title.element() as HTMLElement;
+      expect(getComputedStyle(titleElement).fontFamily).toContain("Georgia");
+      expect(getComputedStyle(titleElement).fontSize).toBe("24px");
+      const eyebrow = [...container.querySelectorAll<HTMLElement>("p")].find((node) => node.textContent === "Section 242")!;
+      expect(getComputedStyle(eyebrow).fontFamily).toContain("Mono");
+      await expect.element(page.getByRole("heading", { level: 2, name: "Section 244, Work performed" })).toBeVisible();
+      await expect.element(page.getByRole("heading", { level: 2, name: "Section 246, Technological advancement" })).toBeVisible();
+
+      const column = titleElement.closest("section")!.parentElement!.parentElement!;
+      expect(Math.round(column.getBoundingClientRect().width)).toBe(760);
+      // Tag pills use the fixed Seed tag palette.
+      const tag = page.getByText("Technical", { exact: true }).element() as HTMLElement;
+      expect(getComputedStyle(tag).backgroundColor).toBe("rgb(213, 243, 241)");
+      expect(getComputedStyle(tag).color).toBe("rgb(8, 122, 117)");
+      // The bar: ready state, model, Back to plan and the new primary label.
+      const bar = container.querySelector<HTMLElement>("footer")!;
+      expect(bar.querySelector("[data-summary-status=ready]")?.textContent).toContain("Ready to sign off");
+      await expect.element(page.getByRole("button", { name: "Back to plan", exact: true })).toBeVisible();
+      await expect.element(signOffButton()).toBeEnabled();
+      expect(Math.round(bar.getBoundingClientRect().height)).toBeGreaterThanOrEqual(68);
+    });
+
+    it("confirms sign-off in a dialog with the exact copy, starting nothing until its primary is pressed", async () => {
+      __setQueryData("seeds:getOutline", outline());
+      __setQueryData("seeds:getSummary", editedPage());
+      const onSignedOff = vi.fn();
+      const { container } = await render(SeedSummaryReview, { generationId, userId: "writer-1", onSignedOff });
+      await signOffButton().click();
+      const dialog = signOffDialog();
+      await expect.element(dialog).toBeVisible();
+      await expect.element(dialog.getByRole("heading", { name: "Sign off and generate the PD?" })).toBeVisible();
+      const text = (dialog.element() as HTMLElement).textContent ?? "";
+      expect(text).toContain("We will draft sections 242, 244 and 246 from this plan. Once you sign off, the plan is locked and later changes happen in the report.");
+      expect(text).toContain(`All ${PD_SUBSECTIONS.length} steps decided`);
+      expect(text).toContain("2 seeds edited by hand");
+      expect(text).toContain("They are drafted as written, not quoted from the interview.");
+      expect(text).toContain("Written by claude-sonnet-test");
+      expect(text).toContain("Takes about three minutes. You can leave this page; we will let you know when the draft is ready.");
+      expect((dialog.element() as HTMLElement).querySelector("[data-signoff-row=model] [data-ai-mark=aurora]")).not.toBeNull();
+      await expect.element(dialog.getByRole("button", { name: "Keep reviewing", exact: true })).toBeVisible();
+      await expect.element(confirmButton()).toBeEnabled();
+      // Opening lands on the action that changes nothing; the page behind is inert.
+      expect(document.activeElement?.textContent?.trim()).toBe("Keep reviewing");
+      expect(container.querySelector("section")?.hasAttribute("inert")).toBe(true);
+      const dialogBox = (dialog.element() as HTMLElement).getBoundingClientRect();
+      expect(Math.round(dialogBox.width)).toBe(536);
+      expect(getComputedStyle(dialog.element() as HTMLElement).borderRadius).toBe("16px");
+      // Near-black fir scrim over the Summary.
+      const scrim = document.querySelector<HTMLElement>("[data-signoff-scrim]")!;
+      expect(scrim.className).toContain("bg-[#041413]/75");
+      expect(getComputedStyle(scrim).position).toBe("fixed");
+      expect(__mutationCalls("generations:signOffSeedStage")).toEqual([]);
+
+      await confirmButton().click();
+      expect(__mutationCalls("generations:signOffSeedStage")).toEqual([{ generationId, expectedSeedStageVersion: 12 }]);
+      await expect.poll(() => onSignedOff.mock.calls.length).toBe(1);
+      await expect.poll(() => signOffDialog().elements().length).toBe(0);
+    });
+
+    it("leaves out the hand-edit row when nothing was edited by hand", async () => {
+      __setQueryData("seeds:getOutline", outline());
+      __setQueryData("seeds:getSummary", onePage([item("seed-a", "company_context", "Plain server wording.")]));
+      await render(SeedSummaryReview, { generationId, userId: "writer-1" });
+      await signOffButton().click();
+      await expect.element(signOffDialog()).toBeVisible();
+      expect(document.querySelector("[data-signoff-row=edited]")).toBeNull();
+      expect((signOffDialog().element() as HTMLElement).textContent).not.toContain("edited by hand");
+      expect(document.querySelector("[data-summary-edited-pill]")).toBeNull();
+    });
+
+    it("keeps reviewing without signing off and returns focus to the bar's sign-off button", async () => {
+      __setQueryData("seeds:getOutline", outline());
+      __setQueryData("seeds:getSummary", onePage([item("seed-a", "company_context", "Plain server wording.")]));
+      await render(SeedSummaryReview, { generationId, userId: "writer-1" });
+      (signOffButton().element() as HTMLElement).focus();
+      await userEvent.keyboard("{Enter}");
+      await expect.element(signOffDialog()).toBeVisible();
+      await signOffDialog().getByRole("button", { name: "Keep reviewing", exact: true }).click();
+      await expect.poll(() => signOffDialog().elements().length).toBe(0);
+      await expect.poll(() => document.activeElement).toBe(signOffButton().element());
+      expect(__mutationCalls("generations:signOffSeedStage")).toEqual([]);
+    });
+
+    it("closes the dialog with Esc without cancelling an open row edit", async () => {
+      __setQueryData("seeds:getOutline", outline());
+      __setQueryData("seeds:getSummary", onePage([item("seed-a", "company_context", "Server wording A.")]));
+      await render(SeedSummaryReview, { generationId, userId: "writer-1" });
+      await page.getByRole("button", { name: "Edit", exact: true }).click();
+      await page.getByRole("textbox", { name: "Bullet 1" }).fill("Draft typed before the dialog.");
+      await signOffButton().click();
+      await expect.element(signOffDialog()).toBeVisible();
+      await userEvent.keyboard("{Escape}");
+      await expect.poll(() => signOffDialog().elements().length).toBe(0);
+      await expect.element(page.getByRole("textbox", { name: "Bullet 1" })).toHaveValue("Draft typed before the dialog.");
+      expect(storedSummaryDrafts()["seed-a"].bulletOne).toBe("Draft typed before the dialog.");
+      expect(__mutationCalls("generations:signOffSeedStage")).toEqual([]);
+    });
+
+    it("re-checks the version fence while the dialog is open and refuses a Summary that changed underneath it", async () => {
+      __setQueryData("seeds:getOutline", outline());
+      __setQueryData("seeds:getSummary", onePage([item("seed-a", "company_context", "Version twelve wording.")]));
+      await render(SeedSummaryReview, { generationId, userId: "writer-1" });
+      await signOffButton().click();
+      await expect.element(confirmButton()).toBeEnabled();
+
+      // The plan advances while the writer reads the confirm.
+      __setQueryData("seeds:getOutline", outline(true, true, 13));
+      await expect.element(confirmButton()).toBeDisabled();
+      await expect.poll(() => document.querySelector("[data-signoff-changed]")?.textContent ?? "")
+        .toContain("The Summary changed while this was open.");
+
+      // Even once version 13 is completely loaded, this confirm was opened for
+      // version 12: it stays refused until the writer reopens it.
+      __setQueryData("seeds:getSummary", onePage([item("seed-a", "company_context", "Version thirteen wording.")], { seedStageVersion: 13 }));
+      await expect.poll(() => document.body.textContent ?? "").toContain("Version thirteen wording.");
+      await expect.element(confirmButton()).toBeDisabled();
+      (confirmButton().element() as HTMLButtonElement).click();
+      expect(__mutationCalls("generations:signOffSeedStage")).toEqual([]);
+
+      await signOffDialog().getByRole("button", { name: "Keep reviewing", exact: true }).click();
+      await expect.poll(() => signOffDialog().elements().length).toBe(0);
+      await confirmSignOff();
+      expect(__mutationCalls("generations:signOffSeedStage")).toEqual([{ generationId, expectedSeedStageVersion: 13 }]);
+    });
+
+    it("rests focus on the bar's sign-off button while the confirmed command runs, then announces a refusal there", async () => {
+      __setQueryData("seeds:getOutline", outline());
+      __setQueryData("seeds:getSummary", onePage([item("seed-a", "company_context", "Plain server wording.")]));
+      let refuse: ((reason: unknown) => void) | undefined;
+      __setMutationResult("generations:signOffSeedStage", new Promise((_, reject) => { refuse = reject; }));
+      await render(SeedSummaryReview, { generationId, userId: "writer-1" });
+      await confirmSignOff();
+      await expect.poll(() => signOffDialog().elements().length).toBe(0);
+      await expect.poll(() => document.activeElement).toBe(signOffButton().element());
+      expect((signOffButton().element() as HTMLElement).getAttribute("aria-busy")).toBe("true");
+      // A second press while the command runs starts nothing.
+      (signOffButton().element() as HTMLElement).click();
+      expect(signOffDialog().elements()).toHaveLength(0);
+      refuse?.(new ConvexError({ code: "INVALID_STATE", message: "Sign-off refused" }));
+      await expect.element(page.getByRole("alert")).toHaveTextContent("Sign-off refused");
+      await expect.element(signOffButton()).toBeEnabled();
+      expect(__mutationCalls("generations:signOffSeedStage")).toHaveLength(1);
+    });
+
+    it("counts hand edits in an amber pill that jumps to the first one, and marks edited bullets without quote underlines", async () => {
+      __setQueryData("seeds:getOutline", outline());
+      __setQueryData("seeds:getSummary", onePage([
+        withFields(item("seed-a", "company_context", "We run four sites across Ontario today."), {
+          edited: false,
+          provenance: [{ sourceId: "source-1", exactExcerpt: "We run four sites, all refrigerated.", speaker: "Priya", line: 18 }],
+        }),
+        withFields(item("seed-b", "goal_problem", "We run four sites and hold every zone.", "writer_asserted"), {
+          edited: true,
+          provenance: [{ sourceId: "source-1", exactExcerpt: "We run four sites, all refrigerated." }],
+        }),
+        withFields(item("seed-c", "experimentation", "Hand wording for the trials.", "writer_asserted"), { edited: true }),
+      ]));
+      const { container } = await render(SeedSummaryReview, { generationId, userId: "writer-1" });
+      const pill = page.getByRole("button", { name: "2 edited by hand, go to the first" });
+      await expect.element(pill).toBeVisible();
+      await pill.click();
+      await expect.poll(() => (document.activeElement as HTMLElement | null)?.dataset.summaryItem).toBe("seed-b");
+      expect(container.querySelectorAll("[data-summary-edited-mark]")).toHaveLength(2);
+      // The source-backed bullet keeps its exact quote; the edited one does not.
+      const quotes = container.querySelectorAll<HTMLElement>("[data-exact-quote]");
+      expect([...quotes].map((quote) => quote.textContent)).toEqual(["We run four sites"]);
+      expect(quotes[0].closest("[data-summary-item]")?.getAttribute("data-summary-item")).toBe("seed-a");
+    });
+
+    it("shows the exact-quote card on hover with its source label, and opens the transcript only through the host", async () => {
+      const onOpenSource = vi.fn();
+      __setQueryData("seeds:getOutline", outline());
+      __setQueryData("seeds:getSummary", onePage([
+        withFields(item("seed-a", "company_context", "Mid-size operator running four refrigerated warehouses in Ontario."), {
+          provenance: [{ sourceId: "source-1", exactExcerpt: "We are running four refrigerated warehouses", speaker: "Priya", line: 18 }],
+        }),
+      ]));
+      const view = await render(SeedSummaryReview, { generationId, userId: "writer-1", onOpenSource });
+      const quote = view.container.querySelector<HTMLElement>("[data-exact-quote]")!;
+      expect(quote.textContent).toBe("running four refrigerated warehouses");
+      expect(getComputedStyle(quote).borderBottomStyle).toBe("solid");
+      const card = view.container.querySelector<HTMLElement>("[data-quote-card]")!;
+      expect(getComputedStyle(card).visibility).toBe("hidden");
+      await userEvent.hover(quote);
+      await expect.poll(() => getComputedStyle(card).visibility).toBe("visible");
+      expect(card.textContent).toContain("“We are running four refrigerated warehouses”");
+      expect(card.textContent).toContain("Priya, line 18");
+      await page.getByRole("button", { name: "Open in transcript", exact: true }).click();
+      expect(onOpenSource).toHaveBeenCalledWith("source-1");
+
+      view.unmount();
+      await render(SeedSummaryReview, { generationId, userId: "writer-1" });
+      await expect.poll(() => document.querySelector("[data-exact-quote]")).not.toBeNull();
+      expect(page.getByRole("button", { name: "Open in transcript", exact: true }).elements()).toHaveLength(0);
+    });
+
+    it("links the open step instead of listing role ids, through the workspace's own open-step record", async () => {
+      __setQueryData("seeds:getOutline", outline(false));
+      __setQueryData("seeds:getSummary", onePage([item("seed-a", "company_context", "Plain server wording.")]));
+      const onClose = vi.fn();
+      const view = await render(SeedSummaryReview, { generationId, userId: "writer-1", onClose });
+      const link = page.getByRole("button", { name: "1 step still open: open Goal / Problem" });
+      await expect.element(link).toBeVisible();
+      expect(view.container.textContent).not.toContain("goal_problem");
+      expect(view.container.textContent).not.toContain("Ready to sign off");
+      await expect.element(signOffButton()).toBeDisabled();
+      await link.click();
+      expect(localStorage.getItem(`seeds.openRole:writer-1:${generationId}`)).toBe("goal_problem");
+      expect(onClose).toHaveBeenCalledTimes(1);
+
+      // A host that opens steps itself is called instead; nothing is stored.
+      view.unmount();
+      localStorage.clear();
+      const onOpenStep = vi.fn();
+      await render(SeedSummaryReview, { generationId, userId: "writer-1", onClose, onOpenStep });
+      await page.getByRole("button", { name: "1 step still open: open Goal / Problem" }).click();
+      expect(onOpenStep).toHaveBeenCalledWith("goal_problem");
+      expect(localStorage.getItem(`seeds.openRole:writer-1:${generationId}`)).toBeNull();
+      expect(onClose).toHaveBeenCalledTimes(1);
+    });
+
+    it("shows a borderless Version chip with a tooltip only from version 2", async () => {
+      __setQueryData("seeds:getOutline", outline(false, false));
+      __setQueryData("seeds:getSummary", onePage(
+        [item("seed-frozen", "goal_problem", "The frozen plan is immutable.")],
+        { frozen: true, summaryVersionId: versionId, summaryVersion: 1 }
+      ));
+      const first = await render(SeedSummaryReview, { generationId, userId: "writer-1", versionId, readOnly: true });
+      await expect.element(page.getByText("The frozen plan is immutable.", { exact: true })).toBeVisible();
+      expect(first.container.querySelector("[data-summary-version]")).toBeNull();
+      first.unmount();
+
+      __setQueryData("seeds:getSummary", onePage(
+        [item("seed-frozen", "goal_problem", "The frozen plan is immutable.")],
+        { frozen: true, summaryVersionId: versionId, summaryVersion: 3 }
+      ));
+      const second = await render(SeedSummaryReview, { generationId, userId: "writer-1", versionId, readOnly: true });
+      const chip = page.getByText("Version 3", { exact: true });
+      await expect.element(chip).toBeVisible();
+      expect(getComputedStyle(chip.element() as HTMLElement).borderTopWidth).toBe("0px");
+      await userEvent.hover(chip);
+      await expect.element(page.getByText("This Summary was rebuilt after a regeneration, so this is version 3.")).toBeVisible();
+      second.unmount();
+    });
+
+    it("saves on Enter, keeps Shift+Enter as a new line, and cancels on Esc with focus back on Edit", async () => {
+      __setQueryData("seeds:getOutline", outline());
+      __setQueryData("seeds:getSummary", onePage([item("seed-a", "company_context", "Server wording A.")]));
+      await render(SeedSummaryReview, { generationId, userId: "writer-1" });
+      await page.getByRole("button", { name: "Edit", exact: true }).click();
+      const bullet = page.getByRole("textbox", { name: "Bullet 1" });
+      await expect.element(page.getByText("Enter to save, Esc to cancel", { exact: true })).toBeVisible();
+      await bullet.fill("First line");
+      await userEvent.keyboard("{Shift>}{Enter}{/Shift}second line");
+      await expect.element(bullet).toHaveValue("First line\nsecond line");
+      expect(__mutationCalls("seeds:edit")).toEqual([]);
+
+      await userEvent.keyboard("{Escape}");
+      await expect.poll(() => page.getByRole("textbox").elements().length).toBe(0);
+      expect(storedSummaryDrafts()["seed-a"]).toBeUndefined();
+      await expect.poll(() => document.activeElement).toBe(page.getByRole("button", { name: "Edit", exact: true }).element());
+
+      await page.getByRole("button", { name: "Edit", exact: true }).click();
+      await expect.element(page.getByRole("textbox", { name: "Bullet 1" })).toHaveValue("Server wording A.");
+      await page.getByRole("textbox", { name: "Bullet 1" }).fill("Saved with Enter.");
+      await userEvent.keyboard("{Enter}");
+      expect(__mutationCalls("seeds:edit")).toEqual([{
+        generationId,
+        roleId: "company_context",
+        seedId: "seed-a",
+        bullets: ["Saved with Enter."],
+        expectedSeedStageVersion: 12,
+      }]);
+      await expect.poll(() => page.getByRole("textbox").elements().length).toBe(0);
+    });
   });
 });
