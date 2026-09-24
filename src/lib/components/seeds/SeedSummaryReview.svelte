@@ -4,14 +4,22 @@
   import { api } from "../../../../convex/_generated/api";
   import type { Id } from "../../../../convex/_generated/dataModel";
   import { isLongForSeed, MAX_EDITED_BULLET_CHARS } from "../../../../convex/lib/seedContract";
-  import { PD_SUBSECTIONS, SEED_TAG_DISPLAY_LABELS } from "../../../../shared/pdSubsections";
+  import { PD_SUBSECTIONS } from "../../../../shared/pdSubsections";
   import { SINGLE_MODEL_ITEMS } from "../../../../shared/generationModels";
   import { userErrorCode, userErrorMessage } from "$lib/errors";
+  import { reducedMotion } from "$lib/motion";
   import Button from "$lib/components/ui/Button.svelte";
   import Spinner from "$lib/components/ui/Spinner.svelte";
+  import Tooltip from "$lib/components/ui/Tooltip.svelte";
   import type { SeedSummaryItem, SeedSummaryPage } from "./types";
   import { seedsApi } from "./api";
   import { SEED_SUMMARY_HEADING_ID } from "./summaryFocus";
+  import { findExactQuoteSpans, segmentBullet } from "./exactQuote";
+  import { PD_SECTION_TITLES, pdSectionNumber } from "./sectionTitles";
+  import { seedTagLabel, seedTagStyle } from "./seedTagPalette";
+  import { citationSourceLabel, itemCitations, itemEdited } from "./summaryItem";
+  import QuoteUnderline from "./QuoteUnderline.svelte";
+  import SeedSignOffDialog from "./SeedSignOffDialog.svelte";
 
   let {
     generationId,
@@ -23,6 +31,8 @@
     focusHeadingOnMount = false,
     onClose,
     onSignedOff,
+    onOpenStep,
+    onOpenSource,
   }: {
     generationId: Id<"generations">;
     userId: string;
@@ -37,6 +47,14 @@
     /** An accepted sign-off, named by its submitting owner so the host can
      * fence the completion to that generation and its own lifetime (A5/A7). */
     onSignedOff?: (submitted: { generationId: Id<"generations">; userId: string }) => void;
+    /** Opens one planning step in the workspace. Without it, "n steps still
+     * open" records the step as this user's open step for this generation
+     * (the workspace's own `seeds.openRole` restore) and returns through
+     * `onClose`. */
+    onOpenStep?: (roleId: string) => void;
+    /** Opens a cited source; the quote card shows "Open in transcript" only
+     * when the host provides it. */
+    onOpenSource?: (sourceId: string) => void;
   } = $props();
 
   type LoadedSummary = {
@@ -104,6 +122,15 @@
   // read fails so an open editor's text stays visible with its actions off.
   let lastKnownCanEdit = $state(false);
   let headingEl = $state<HTMLHeadingElement | null>(null);
+  let rootEl = $state<HTMLElement | null>(null);
+  // The sign-off confirm and the exact Summary it was opened for (A1): the
+  // confirm re-checks this fence at the moment the writer presses it.
+  let signOffOpen = $state(false);
+  // Mounted on first use and kept, so its close transition and focus return
+  // can finish; a review that never opens it carries no dialog at all.
+  let signOffDialogMounted = $state(false);
+  let signOffFence = $state<{ ownerKey: string; pageKey: string; seedStageVersion: number } | null>(null);
+  const signOffTrigger = () => rootEl?.querySelector<HTMLElement>("[data-summary-signoff]") ?? null;
   let activeLoadRequest = 0;
   let loadingPageKey = "";
   let componentOwnerKey = "";
@@ -129,20 +156,6 @@
   const draftItemKey = (store: DraftStore, seedId: string) => `${store.storagePrefix}${seedId}`;
   const pageKeyOf = (first: SeedSummaryPage) =>
     `${first.generationId}:${first.summaryVersionId ?? "live"}:${first.seedStageVersion}`;
-
-  function tagLabel(tag: string) {
-    switch (tag) {
-      case "conservative":
-      case "aggressive":
-      case "high_level":
-      case "detailed":
-      case "technical":
-      case "alternative_angle":
-        return SEED_TAG_DISPLAY_LABELS[tag];
-      default:
-        return tag;
-    }
-  }
 
   onMount(() => {
     if (!focusHeadingOnMount) return;
@@ -340,6 +353,8 @@
         bulletTwo = "";
         savingSeedIds = [];
         lastKnownCanEdit = false;
+        signOffOpen = false;
+        signOffFence = null;
         unmirrored.clear();
         persistence = "ok";
         drafts = readStoredDrafts(draftStore());
@@ -547,7 +562,10 @@
       if (sameDraft(drafts[owner.seedId], submitted)) {
         delete drafts[owner.seedId];
         persistDraftItem(store, owner.seedId, null);
-        closeEditor(owner.seedId);
+        if (editingSeedId === owner.seedId) {
+          closeEditor(owner.seedId);
+          refocusItem(owner.seedId);
+        }
       }
     } catch (cause) {
       if (!disposed && store.ownerKey === currentOwnerKey()) {
@@ -571,9 +589,58 @@
     actionError = null;
   }
 
-  async function signOffSummary() {
+  // Sign-off is offered only for the exact, completely loaded Summary that is
+  // still the server's current, ready one (A1).
+  const canSignOffNow = $derived(
+    !busy && mutationsAvailable && reviewedCurrentVersion && (readiness?.ready ?? false)
+  );
+  // The confirm stays valid only while the Summary it was opened for is
+  // still the one on screen and still current.
+  const signOffFenceHolds = $derived(
+    canSignOffNow &&
+      !!signOffFence &&
+      !!shownView &&
+      signOffFence.ownerKey === currentOwnerKey() &&
+      signOffFence.pageKey === shownView.pageKey &&
+      signOffFence.seedStageVersion === shownView.seedStageVersion
+  );
+
+  /** Opens the confirm; nothing is submitted until its primary is pressed. */
+  function openSignOff() {
     const reviewed = shownView;
-    if (!mutationsAvailable || !reviewedCurrentVersion || !reviewed || busy) return;
+    if (!canSignOffNow || !reviewed) return;
+    actionError = null;
+    signOffFence = {
+      ownerKey: currentOwnerKey(),
+      pageKey: reviewed.pageKey,
+      seedStageVersion: reviewed.seedStageVersion,
+    };
+    signOffDialogMounted = true;
+    signOffOpen = true;
+  }
+
+  /** The confirm's primary: re-checks the fence at the moment it is pressed. */
+  function confirmSignOff(): boolean {
+    const fence = signOffFence;
+    if (!fence || !signOffFenceHolds) return false;
+    signOffOpen = false;
+    signOffFence = null;
+    void signOffSummary(fence.seedStageVersion);
+    // Focus rests on the bar's sign-off button while the command runs, as if
+    // the writer had pressed it there. The host's own move afterwards (back
+    // to the workspace, or on to the drafting progress) always wins.
+    void tick().then(() => {
+      if (disposed || fence.ownerKey !== currentOwnerKey()) return;
+      const active = document.activeElement;
+      if (!active || active === document.body || active.closest("[data-signoff-dialog]")) {
+        signOffTrigger()?.focus();
+      }
+    });
+    return true;
+  }
+
+  async function signOffSummary(expectedSeedStageVersion: number) {
+    if (!mutationsAvailable || !reviewedCurrentVersion || busy) return;
     // The submitting owner, captured before the await: the completion is
     // reported under that identity so the host can fence it (A5/A7). This
     // review may legitimately be destroyed before the command resolves when
@@ -584,7 +651,7 @@
     try {
       await signOff({
         generationId: submitted.generationId,
-        expectedSeedStageVersion: reviewed.seedStageVersion,
+        expectedSeedStageVersion,
       });
       if (!disposed && submitted.ownerKey !== currentOwnerKey()) return;
       onSignedOff?.({ generationId: submitted.generationId, userId: submitted.userId });
@@ -597,6 +664,86 @@
       if (!disposed) busy = false;
     }
   }
+
+  const canSaveEdit = (item: SeedSummaryItem) =>
+    editingSeedId === item.seedId &&
+    !savingSeedIds.includes(item.seedId) &&
+    !!bulletOne.trim() &&
+    !editingStale &&
+    mutationsAvailable;
+
+  /** Returns focus to an item's Edit control once its editor has closed. */
+  function refocusItem(seedId: string) {
+    void tick().then(() => {
+      if (disposed) return;
+      const active = document.activeElement;
+      if (active && active !== document.body) return;
+      rootEl?.querySelector<HTMLElement>(`[data-summary-edit="${seedId}"]`)?.focus();
+    });
+  }
+
+  function cancelEdit(seedId: string) {
+    discardEditDraft(seedId);
+    refocusItem(seedId);
+  }
+
+  /** Enter saves, Shift+Enter starts a new line, Esc cancels the edit. */
+  function editKeydown(event: KeyboardEvent, item: SeedSummaryItem) {
+    if (event.isComposing) return;
+    if (event.key === "Enter" && !event.shiftKey) {
+      event.preventDefault();
+      if (canSaveEdit(item)) void saveEdit(item);
+    } else if (event.key === "Escape") {
+      event.preventDefault();
+      event.stopPropagation();
+      cancelEdit(item.seedId);
+    }
+  }
+
+  // Items in reading order: Section, then role, then the server's order.
+  const orderedItems = $derived(
+    shownView
+      ? PD_SUBSECTIONS.flatMap((definition) =>
+          shownView.items.filter((item) => item.roleId === definition.roleId)
+        )
+      : []
+  );
+  const editedItems = $derived(orderedItems.filter(itemEdited));
+
+  /** The "n edited by hand" pill: brings the first hand edit into view. */
+  function jumpToFirstEdit() {
+    const first = editedItems[0];
+    if (!first) return;
+    const target = rootEl?.querySelector<HTMLElement>(`[data-summary-item="${first.seedId}"]`);
+    if (!target) return;
+    target.scrollIntoView({ block: "center", behavior: reducedMotion() ? "auto" : "smooth" });
+    target.focus({ preventScroll: true });
+  }
+
+  // Decision blockers named by the server; never derived here (A4).
+  const blockingRoleIds = $derived(
+    !readOnly && readiness && !readiness.ready && !readinessIncomplete ? readiness.blockingRoleIds : []
+  );
+  const roleTitle = (roleId: string) =>
+    PD_SUBSECTIONS.find((definition) => definition.roleId === roleId)?.title ?? roleId;
+  const canOpenStep = $derived(!readOnly && (!!onOpenStep || !!onClose));
+
+  /** Opens the first open step in the plan, for this user and generation only. */
+  function openBlockingStep(roleId: string) {
+    if (onOpenStep) {
+      onOpenStep(roleId);
+      return;
+    }
+    try {
+      // The workspace restores its open step from this same record.
+      localStorage.setItem(`seeds.openRole:${userId}:${generationId}`, roleId);
+    } catch {
+      // Navigation state only: the workspace then opens its default step.
+    }
+    onClose?.();
+  }
+
+  const modelName = $derived(settings ? modelLabel(settings.modelId) : "");
 
   async function retryDraft() {
     if (!canRecover || busy) return;
@@ -612,116 +759,183 @@
   }
 </script>
 
-<section class="flex h-full min-h-0 flex-col bg-canvas" aria-labelledby={SEED_SUMMARY_HEADING_ID}>
-  <header class="shrink-0 border-b border-line bg-surface px-5 py-4 sm:px-8">
-    <div class="mx-auto flex max-w-[var(--container-shell)] flex-wrap items-center gap-3">
-      <div class="min-w-0 flex-1">
-        <p class="text-label text-ink-muted">{readOnly ? "Signed-off plan" : "Final review"}</p>
-        <h1
-          id={SEED_SUMMARY_HEADING_ID}
-          bind:this={headingEl}
-          tabindex="-1"
-          class="rounded-md text-heading focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy"
-        >Summary Review</h1>
-      </div>
-      {#if onClose}
-        <Button variant="ghost" size="sm" onclick={onClose}>
-          {readOnly ? "Back to report" : "Back to workspace"}
-        </Button>
+
+{#snippet bulletText(item: SeedSummaryItem, bullet: string)}
+  <!-- Exact quotes only (decision 17); a hand-edited bullet is the writer's
+       own wording and carries no quote underline. -->
+  {@const citations = itemEdited(item) ? [] : itemCitations(item)}
+  {@const spans = citations.length > 0 ? findExactQuoteSpans(bullet, citations.map((citation) => citation.exactExcerpt)) : []}
+  {#each segmentBullet(bullet, spans) as segment}
+    {#if segment.citationIndex !== undefined}
+      {@const citation = citations[segment.citationIndex]}
+      <QuoteUnderline
+        text={segment.text}
+        quote={citation.exactExcerpt}
+        sourceLabel={citationSourceLabel(citation)}
+        onOpenTranscript={onOpenSource && citation.sourceId ? () => onOpenSource(citation.sourceId) : undefined}
+      />
+    {:else}{segment.text}{/if}
+  {/each}
+{/snippet}
+
+{#snippet editIcon()}
+  <svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9" /><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" /></svg>
+{/snippet}
+
+{#snippet revertIcon(className: string)}
+  <svg class={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" /><path d="M3 3v5h5" /></svg>
+{/snippet}
+
+<section
+  bind:this={rootEl}
+  class="flex h-full min-h-0 flex-col bg-canvas"
+  aria-labelledby={SEED_SUMMARY_HEADING_ID}
+  inert={signOffOpen}
+>
+  <!-- No page header (board 3.3): the shell's Summary tab names the view.
+       The heading stays for assistive technology and entry focus (A7). -->
+  <h1
+    id={SEED_SUMMARY_HEADING_ID}
+    bind:this={headingEl}
+    tabindex="-1"
+    class="sr-only"
+  >Summary review</h1>
+
+  <div class="relative min-h-0 flex-1 overflow-y-auto">
+    <div class="mx-auto w-full max-w-[760px] px-4 pt-9 pb-14 sm:px-0">
+      {#if outlineError}
+        <!-- Separate from the Summary-page and revision states below: the
+             pages on screen stay complete; only live readiness and
+             capability are unknown until this subscription is back. -->
+        <div class="mb-4 rounded-lg border border-line bg-surface px-3 py-3" role="alert" data-summary-outline-error>
+          <p class="text-body text-gap-text!">The live plan status could not be loaded. {userErrorMessage(outlineError, "The server could not return the current readiness.")}</p>
+          <p class="mt-1 text-[12px] text-ink-muted">Edits and sign-off stay unavailable until it reloads. Your unsaved wording is kept.</p>
+          <Button class="mt-2" variant="secondary" size="sm" onclick={retryOutline} disabled={retryingOutline}>
+            {retryingOutline ? "Reloading…" : "Reload plan status"}
+          </Button>
+        </div>
       {/if}
-    </div>
-  </header>
-
-  <div class="min-h-0 flex-1 overflow-y-auto">
-    <div class="mx-auto max-w-[var(--container-shell)] px-5 py-6 sm:px-8">
-
-      <div class="min-w-0">
-        {#if outlineError}
-          <!-- Separate from the Summary-page and revision states below: the
-               pages on screen stay complete; only live readiness and
-               capability are unknown until this subscription is back. -->
-          <div class="mb-4 rounded-lg border border-line bg-surface px-3 py-3" role="alert" data-summary-outline-error>
-            <p class="text-body text-gap-text!">The live plan status could not be loaded. {userErrorMessage(outlineError, "The server could not return the current readiness.")}</p>
-            <p class="mt-1 text-data text-ink-muted">Edits and sign-off stay unavailable until it reloads. Your unsaved wording is kept.</p>
-            <Button class="mt-2" variant="secondary" size="sm" onclick={retryOutline} disabled={retryingOutline}>
-              {retryingOutline ? "Reloading…" : "Reload plan status"}
-            </Button>
-          </div>
-        {/if}
-        {#if persistence === "unavailable" && !readOnly}
-          <p role="status" data-summary-persistence="unavailable" class="mb-4 rounded-lg bg-gap-bg px-3 py-2 text-body text-gap-text!">
-            Unsaved Summary edits stay in this open review only. This device cannot keep them across navigation or reload.
+      {#if persistence === "unavailable" && !readOnly}
+        <p role="status" data-summary-persistence="unavailable" class="mb-4 rounded-lg bg-gap-bg px-3 py-2 text-body text-gap-text!">
+          Unsaved Summary edits stay in this open review only. This device cannot keep them across navigation or reload.
+        </p>
+      {/if}
+      {#if !shownView && loadError}
+        <div class="rounded-xl border border-line bg-surface p-6 text-center" role="alert">
+          <p class="text-body text-gap-text!">{loadError}</p>
+          <p class="mt-1 text-[12px] text-ink-muted">Sign-off stays unavailable until the complete Summary loads. {persistence === "ok" ? "Unsaved edits are kept on this device." : "Unsaved edits stay in this open review."}</p>
+          <Button class="mt-3" variant="secondary" size="sm" onclick={retryLoad} disabled={retryingLoad || loading}>
+            {retryingLoad || loading ? "Reloading…" : "Reload Summary"}
+          </Button>
+        </div>
+      {:else if loading || !shownView}
+        <div class="flex min-h-48 items-center justify-center gap-2 text-body text-ink-muted">
+          <Spinner size="sm" /> Loading the complete Summary…
+        </div>
+      {:else}
+        {#if !shownView.complete}
+          <p class="mb-4 rounded-lg bg-gap-bg px-3 py-2 text-body text-gap-text!">
+            Partial Summary. Sign-off stays unavailable until every page is loaded.
+          </p>
+        {:else if !readOnly && outline && !reviewedCurrentVersion && !loadError}
+          <p class="mb-4 rounded-lg bg-gap-bg px-3 py-2 text-body text-gap-text!">
+            The plan changed after this review loaded. Sign-off and new edits return once the current version is completely loaded.
           </p>
         {/if}
-        {#if !shownView && loadError}
-          <div class="rounded-xl border border-line bg-surface p-6 text-center" role="alert">
+        {#if loadError}
+          <div class="mb-4 rounded-lg border border-line bg-surface px-3 py-3" role="alert">
             <p class="text-body text-gap-text!">{loadError}</p>
-            <p class="mt-1 text-data text-ink-muted">Sign-off stays unavailable until the complete Summary loads. {persistence === "ok" ? "Unsaved edits are kept on this device." : "Unsaved edits stay in this open review."}</p>
-            <Button class="mt-3" variant="secondary" size="sm" onclick={retryLoad} disabled={retryingLoad || loading}>
-              {retryingLoad || loading ? "Reloading…" : "Reload Summary"}
-            </Button>
+            <p class="mt-1 text-[12px] text-ink-muted">Sign-off stays unavailable until the live Summary reloads. Your unsaved wording is kept.</p>
+            <Button class="mt-2" variant="secondary" size="sm" onclick={retryLoad} disabled={retryingLoad || loading}>Reload complete Summary</Button>
           </div>
-        {:else if loading || !shownView}
-          <div class="flex min-h-48 items-center justify-center gap-2 text-body text-ink-muted">
-            <Spinner size="sm" /> Loading the complete Summary…
-          </div>
-        {:else}
-          {#if !shownView.complete}
-            <p class="mb-4 rounded-lg bg-gap-bg px-3 py-2 text-body text-gap-text!">
-              Partial Summary. Sign-off stays unavailable until every page is loaded.
-            </p>
-          {:else if !readOnly && outline && !reviewedCurrentVersion && !loadError}
-            <p class="mb-4 rounded-lg bg-gap-bg px-3 py-2 text-body text-gap-text!">
-              The plan changed after this review loaded. Sign-off and new edits return once the current version is completely loaded.
-            </p>
-          {/if}
-          {#if loadError}
-            <div class="mb-4 rounded-lg border border-line bg-surface px-3 py-3" role="alert">
-              <p class="text-body text-gap-text!">{loadError}</p>
-              <p class="mt-1 text-data text-ink-muted">Sign-off stays unavailable until the live Summary reloads. Your unsaved wording is kept.</p>
-              <Button class="mt-2" variant="secondary" size="sm" onclick={retryLoad} disabled={retryingLoad || loading}>Reload complete Summary</Button>
-            </div>
-          {/if}
+        {/if}
+        <div class="flex flex-col gap-14">
           {#each sections as section}
-            <section id={`summary-${section}`} class="scroll-mt-4 pb-8" aria-labelledby={`summary-heading-${section}`}>
-              <h2 id={`summary-heading-${section}`} class="sticky top-0 z-10 border-b border-line bg-canvas/95 py-3 text-title backdrop-blur">
-                Section {section.slice(1)}
-              </h2>
+            <section id={`summary-${section}`} class="flex flex-col gap-1" aria-labelledby={`summary-heading-${section}`}>
+              <!-- Sticky Section heading (no jump list, owner amendment 2026-09-23). -->
+              <div class="sticky top-0 z-10 flex flex-col gap-1.5 bg-canvas px-3 pt-2 pb-3.5">
+                <p class="font-mono text-[11px] leading-[14px] text-ink-muted" aria-hidden="true">Section {pdSectionNumber(section)}</p>
+                <h2 id={`summary-heading-${section}`} class="font-serif text-[24px] leading-[30px] font-normal text-ink">
+                  <span class="sr-only">Section {pdSectionNumber(section)}, </span>{PD_SECTION_TITLES[section]}
+                </h2>
+              </div>
               {#each PD_SUBSECTIONS.filter((definition) => definition.section === section) as definition}
                 {@const roleItems = shownView.items.filter((item) => item.roleId === definition.roleId)}
                 {@const skipped = shownView.skippedRoleIds.includes(definition.roleId)}
-                <article id={`summary-${definition.roleId}`} class="scroll-mt-16 border-b border-line-soft py-5">
-                  <div class="flex flex-wrap items-center gap-2">
-                    <h3 class="text-title">{definition.title}</h3>
-                    {#if skipped}
-                      <span class="rounded-full bg-gray-100 px-2 py-0.5 text-label text-gray-700!">Skipped</span>
+                {@const roleTags = [...new Set(roleItems.flatMap((item) => item.tags))]}
+                {@const writerAsserted = roleItems.some((item) => item.support === "writer_asserted")}
+                <article
+                  id={`summary-${definition.roleId}`}
+                  data-summary-role={definition.roleId}
+                  class={`flex scroll-mt-24 flex-col gap-2 rounded-[10px] px-3 py-3.5 transition-colors motion-reduce:transition-none sm:flex-row sm:gap-6 ${canEdit && roleItems.length > 0 ? "hover:bg-gray-50" : ""}`}
+                >
+                  <div class="flex shrink-0 flex-col gap-1.5 sm:w-[200px]">
+                    <h3 class={`text-[14px] leading-5 font-medium ${skipped ? "text-ink-muted" : "text-ink"}`}>{definition.title}</h3>
+                    {#if roleTags.length > 0}
+                      <div class="flex flex-wrap gap-1.5">
+                        {#each roleTags as tag}
+                          <span class="rounded-full px-2 py-0.5 text-[11px] leading-4" style={seedTagStyle(tag)}>{seedTagLabel(tag)}</span>
+                        {/each}
+                      </div>
+                    {/if}
+                    {#if writerAsserted}
+                      <!-- FR-21 marker, kept small (decision 19). -->
+                      <p class="text-[11px] leading-4 text-ink-muted" data-summary-marker="writer-asserted">Writer asserted</p>
                     {/if}
                   </div>
-                  {#if roleItems.length === 0 && !skipped}
-                    {#if shownView.complete}
-                      <p class="mt-2 text-body text-ink-muted" data-summary-role-empty={definition.roleId}>No selected items.</p>
-                    {:else}
-                      <!-- A role absent from an incomplete aggregate is unknown,
-                           not empty (A4): its items may be on unread pages. -->
-                      <p class="mt-2 text-body text-gap-text!" data-summary-role-unknown={definition.roleId}>
-                        Selected items may be on pages that did not load. Reload the complete Summary to review them.
-                      </p>
+                  <div class="flex min-w-0 flex-1 flex-col gap-3">
+                    {#if skipped}
+                      <p class="text-body text-ink-faint!" data-summary-marker="skipped">Skipped</p>
                     {/if}
-                  {/if}
-                  <div class="mt-3 space-y-3">
+                    {#if roleItems.length === 0 && !skipped}
+                      {#if shownView.complete}
+                        <p class="text-body text-ink-muted" data-summary-role-empty={definition.roleId}>No selected items.</p>
+                      {:else}
+                        <!-- A role absent from an incomplete aggregate is unknown,
+                             not empty (A4): its items may be on unread pages. -->
+                        <p class="text-body text-gap-text!" data-summary-role-unknown={definition.roleId}>
+                          Selected items may be on pages that did not load. Reload the complete Summary to review them.
+                        </p>
+                      {/if}
+                    {/if}
                     {#each roleItems as item (item.seedId)}
-                      <div class="rounded-xl border border-line bg-surface p-4">
+                      {@const edited = itemEdited(item)}
+                      <div
+                        data-summary-item={item.seedId}
+                        data-summary-edited={edited ? "true" : undefined}
+                        tabindex="-1"
+                        class="group/item flex scroll-mt-24 gap-3 rounded-md focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-primary"
+                      >
                         {#if editingSeedId === item.seedId && canEdit}
-                          <div class="space-y-2">
-                            <textarea bind:value={bulletOne} oninput={(event) => { bulletOne = event.currentTarget.value; persistEditDraft(); }} rows="2" maxlength={MAX_EDITED_BULLET_CHARS} aria-label="Bullet 1" class="field-control min-h-11 w-full resize-y rounded-lg px-3 py-2 text-body"></textarea>
-                            <textarea bind:value={bulletTwo} oninput={(event) => { bulletTwo = event.currentTarget.value; persistEditDraft(); }} rows="2" maxlength={MAX_EDITED_BULLET_CHARS} aria-label="Bullet 2, optional" class="field-control min-h-11 w-full resize-y rounded-lg px-3 py-2 text-body"></textarea>
+                          <div class="flex min-w-0 flex-1 flex-col gap-1.5">
+                            <textarea
+                              bind:value={bulletOne}
+                              oninput={(event) => { bulletOne = event.currentTarget.value; persistEditDraft(); }}
+                              onkeydown={(event) => editKeydown(event, item)}
+                              rows="1"
+                              maxlength={MAX_EDITED_BULLET_CHARS}
+                              aria-label="Bullet 1"
+                              aria-describedby={`summary-edit-hint-${item.seedId}`}
+                              class="min-h-11 w-full resize-none rounded-md border border-primary bg-surface px-2.5 py-2 text-[14px] leading-5 text-ink shadow-[0_0_0_3px_var(--color-primary-wash)] [field-sizing:content] focus:outline-none"
+                            ></textarea>
+                            <textarea
+                              bind:value={bulletTwo}
+                              oninput={(event) => { bulletTwo = event.currentTarget.value; persistEditDraft(); }}
+                              onkeydown={(event) => editKeydown(event, item)}
+                              rows="1"
+                              maxlength={MAX_EDITED_BULLET_CHARS}
+                              aria-label="Bullet 2, optional"
+                              aria-describedby={`summary-edit-hint-${item.seedId}`}
+                              placeholder="Optional second bullet"
+                              class="min-h-11 w-full resize-none rounded-md border border-line bg-surface px-2.5 py-2 text-[14px] leading-5 text-ink placeholder:text-ink-faint [field-sizing:content] focus:border-primary focus:shadow-[0_0_0_3px_var(--color-primary-wash)] focus:outline-none"
+                            ></textarea>
                             {#if editingStale}
                               <div class="rounded-lg bg-gap-bg px-3 py-2 text-body text-gap-text!" role="status">
                                 <p>This wording began against an older decision version. Review the current wording before saving it.</p>
                                 {#if reviewedCurrentVersion}
-                                  <p class="mt-1 text-data">Current wording: {item.bullets.join(" ")}</p>
+                                  <p class="mt-1 text-[12px]">Current wording: {item.bullets.join(" ")}</p>
                                 {:else}
-                                  <p class="mt-1 text-data">The current wording is still loading. Your draft stays as typed until it is displayed.</p>
+                                  <p class="mt-1 text-[12px]">The current wording is still loading. Your draft stays as typed until it is displayed.</p>
                                 {/if}
                                 <Button
                                   class="mt-2"
@@ -732,39 +946,64 @@
                                 >Use current decision version</Button>
                               </div>
                             {/if}
-                            <div class="flex gap-2">
-                              <Button
-                                size="sm"
-                                onclick={() => saveEdit(item)}
-                                disabled={savingSeedIds.includes(item.seedId) || !bulletOne.trim() || editingStale || !mutationsAvailable}
-                              >{savingSeedIds.includes(item.seedId) ? "Saving…" : "Save wording"}</Button>
-                              <Button size="sm" variant="ghost" onclick={() => discardEditDraft(item.seedId)}>Cancel</Button>
+                            <div class="flex items-center gap-3">
+                              <p id={`summary-edit-hint-${item.seedId}`} class="flex-1 text-[12px] leading-4 text-ink-muted">Enter to save, Esc to cancel</p>
                               {#if editLong}
-                                <p class="ml-auto self-center text-data text-gap-text!" aria-live="polite" data-seed-long-note>Long for a seed</p>
+                                <p class="text-[12px] leading-4 text-gap-text" aria-live="polite" data-seed-long-note>Long for a seed</p>
                               {/if}
                             </div>
                           </div>
-                        {:else}
-                          <ul class="space-y-1 pl-5 text-body">
-                            {#each item.bullets as bullet}<li class="list-disc">{bullet}</li>{/each}
-                          </ul>
-                          <div class="mt-3 flex flex-wrap items-center gap-1.5">
-                            <span class="rounded-full bg-chrome px-2 py-0.5 text-label text-ink-secondary!">
-                              {item.support === "writer_asserted" ? "Writer asserted" : "Source supported"}
-                            </span>
-                            {#each item.tags as tag}
-                              <span class="rounded-full bg-gray-100 px-2 py-0.5 text-data text-gray-700!">{tagLabel(tag)}</span>
-                            {/each}
-                            {#if canEdit}
-                              <Button
-                                class="ml-auto"
-                                size="sm"
-                                variant="ghost"
-                                onclick={() => startEdit(item)}
-                                disabled={!mutationsAvailable || !reviewedCurrentVersion}
-                              >Edit</Button>
-                            {/if}
+                          <div class="flex w-7 shrink-0 flex-col items-end gap-1 pt-1">
+                            <button
+                              type="button"
+                              aria-label={savingSeedIds.includes(item.seedId) ? "Saving…" : "Save wording"}
+                              onclick={() => saveEdit(item)}
+                              disabled={!canSaveEdit(item)}
+                              class="flex size-[22px] items-center justify-center rounded-[5px] bg-primary-selected text-white transition-opacity focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary disabled:opacity-50 motion-reduce:transition-none [@media(pointer:coarse)]:size-11"
+                            >
+                              {#if savingSeedIds.includes(item.seedId)}
+                                <Spinner size="sm" />
+                              {:else}
+                                <svg class="size-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5" /></svg>
+                              {/if}
+                            </button>
+                            <button
+                              type="button"
+                              aria-label="Cancel"
+                              onclick={() => cancelEdit(item.seedId)}
+                              class="flex size-[22px] items-center justify-center rounded-[5px] border border-line bg-surface text-ink-secondary hover:bg-primary-wash focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary [@media(pointer:coarse)]:size-11"
+                            >
+                              <svg class="size-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12" /></svg>
+                            </button>
                           </div>
+                        {:else}
+                          <ul class="flex min-w-0 flex-1 flex-col gap-1.5">
+                            {#each item.bullets as bullet, bulletIndex}
+                              <li class="flex gap-2 text-[14px] leading-5 text-ink">
+                                <span class="mt-2 size-1 shrink-0 rounded-full bg-ink-faint" aria-hidden="true"></span>
+                                <span class="min-w-0 flex-1">
+                                  <span>{@render bulletText(item, bullet)}</span>
+                                  {#if edited && bulletIndex === item.bullets.length - 1}
+                                    <span class="ml-1 inline-flex translate-y-0.5 text-ink-muted" role="img" aria-label="Edited by hand" data-summary-edited-mark>
+                                      {@render revertIcon("size-[13px]")}
+                                    </span>
+                                  {/if}
+                                </span>
+                              </li>
+                            {/each}
+                          </ul>
+                          {#if canEdit}
+                            <button
+                              type="button"
+                              aria-label="Edit"
+                              data-summary-edit={item.seedId}
+                              onclick={() => startEdit(item)}
+                              disabled={!mutationsAvailable || !reviewedCurrentVersion}
+                              class="flex size-7 shrink-0 items-center justify-center rounded-md border border-line bg-surface text-ink opacity-0 transition-opacity group-hover/item:opacity-100 focus-visible:opacity-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary disabled:pointer-events-none disabled:text-ink-faint motion-reduce:transition-none [@media(hover:none)]:opacity-100 [@media(pointer:coarse)]:size-11"
+                            >
+                              {@render editIcon()}
+                            </button>
+                          {/if}
                         {/if}
                       </div>
                     {/each}
@@ -773,53 +1012,122 @@
               {/each}
             </section>
           {/each}
-        {/if}
-      </div>
+        </div>
+      {/if}
     </div>
   </div>
 
-  <footer class="shrink-0 border-t border-line bg-surface px-5 py-3 sm:px-8">
-    <div class="mx-auto flex max-w-[var(--container-shell)] flex-wrap items-center gap-3">
-      <div class="min-w-0 flex-1 text-data text-ink-muted">
-        <!-- Only the model, plus the Summary version once it has been
-             regenerated (PRD FR-21). Length target and Writer Profile stay
-             frozen and recorded at sign-off but are not shown here. -->
-        <span data-summary-model>{settings ? modelLabel(settings.modelId) : "Loading model"}</span>
-        {#if summaryVersion !== null && summaryVersion > 1}
-          <span class="ml-2 rounded-full border border-line bg-gray-50 px-2 py-0.5 text-data text-ink-secondary!" data-summary-version>Version {summaryVersion}</span>
-        {/if}
-      </div>
-      {#if actionError}<p role="alert" class="w-full text-body text-gap-text!">{actionError}</p>{/if}
-      {#if recovery && canRecover}
-        <Button onclick={retryDraft} disabled={busy || !versionId}>Retry from this Summary</Button>
-      {:else if canEdit}
-        <Button onclick={signOffSummary} disabled={busy || !mutationsAvailable || !reviewedCurrentVersion || !(readiness?.ready ?? false)}>
-          Sign off and generate
-        </Button>
-      {/if}
-      {#if !readOnly && readiness && !readiness.ready}
-        {#if readinessIncomplete}
+  <footer class="shrink-0 border-t border-line bg-surface">
+    {#if actionError || (!readOnly && readiness && !readiness.ready && readinessIncomplete)}
+      <div class="flex flex-col gap-2 border-b border-line-soft px-4 py-3 sm:px-6">
+        {#if actionError}<p role="alert" class="text-body text-gap-text!">{actionError}</p>{/if}
+        {#if !readOnly && readiness && !readiness.ready && readinessIncomplete}
           <!-- The server could not read the complete decision set within its
                safe processing limit, so whether the plan is ready is unknown:
                an empty blocker list explains nothing. Sign-off stays off and
                the explicit recovery re-reads the plan status. -->
-          <div class="w-full" role="status" data-summary-readiness="incomplete">
+          <div role="status" data-summary-readiness="incomplete">
             <p class="text-body text-gap-text!">
               Readiness could not be fully computed within the server's safe processing limit, so it is not known whether every subsection is decided. Sign-off stays unavailable until the plan status is read completely.
             </p>
             {#each incompleteReadinessMessages as message}
-              <p class="mt-1 text-data text-ink-muted">{message}</p>
+              <p class="mt-1 text-[12px] text-ink-muted">{message}</p>
             {/each}
             <Button class="mt-2 min-h-11" variant="secondary" size="sm" onclick={retryOutline} disabled={retryingOutline}>
               {retryingOutline ? "Reloading…" : "Reload plan status"}
             </Button>
           </div>
-        {:else}
-          <p class="w-full text-body text-gap-text!" data-summary-readiness="blocked">
-            Blocked by: {readiness.blockingRoleIds.join(", ")}.
-          </p>
         {/if}
+      </div>
+    {/if}
+    <div class="flex min-h-[68px] flex-wrap items-center gap-x-3.5 gap-y-2 px-4 py-3 sm:px-6">
+      {#if readOnly}
+        <p class="text-[14px] leading-5 font-medium text-ink" data-summary-status="signed-off">Signed-off plan</p>
+      {:else if readiness?.ready}
+        <div class="flex items-center gap-2.5" data-summary-status="ready">
+          <span class="flex size-5 shrink-0 items-center justify-center rounded-full" style="background:#DCFCE7" aria-hidden="true">
+            <svg class="size-3" viewBox="0 0 24 24" fill="none" stroke="#15803D" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5" /></svg>
+          </span>
+          <p class="text-[14px] leading-5 font-medium text-ink">Ready to sign off</p>
+        </div>
+      {:else if blockingRoleIds.length > 0}
+        {@const count = blockingRoleIds.length}
+        {@const stepLabel = `${count} ${count === 1 ? "step" : "steps"} still open`}
+        <div class="flex items-center gap-2.5" data-summary-readiness="blocked">
+          <span class="size-2 shrink-0 rounded-full bg-[#F59E0B]" aria-hidden="true"></span>
+          {#if canOpenStep}
+            <button
+              type="button"
+              aria-label={`${stepLabel}: open ${roleTitle(blockingRoleIds[0])}`}
+              class="rounded text-[14px] leading-5 font-medium text-ink underline decoration-line underline-offset-4 hover:decoration-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+              onclick={() => openBlockingStep(blockingRoleIds[0])}
+            >{stepLabel}</button>
+          {:else}
+            <p class="text-[14px] leading-5 font-medium text-ink" title={blockingRoleIds.map(roleTitle).join(", ")}>{stepLabel}</p>
+          {/if}
+        </div>
+      {/if}
+      {#if editedItems.length > 0}
+        <button
+          type="button"
+          data-summary-edited-pill
+          aria-label={`${editedItems.length} edited by hand, go to the first`}
+          class="inline-flex h-6 shrink-0 items-center gap-1.5 rounded-full bg-gap-bg pr-2 pl-1.5 text-[12px] leading-4 text-gap-text transition-opacity hover:opacity-80 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary motion-reduce:transition-none"
+          onclick={jumpToFirstEdit}
+        >
+          {@render revertIcon("size-3")}
+          {editedItems.length} edited by hand
+          <svg class="size-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6" /></svg>
+        </button>
+      {/if}
+      <div class="hidden flex-1 sm:block"></div>
+      <div class="flex items-center gap-2 text-[12px] leading-4 text-ink-muted">
+        <!-- Only the model, plus the Summary version once it has been
+             regenerated (PRD FR-21). Length target and Writer Profile stay
+             frozen and recorded at sign-off but are not shown here. -->
+        <span data-summary-model>{settings ? modelName : "Loading model"}</span>
+        {#if summaryVersion !== null && summaryVersion > 1}
+          <Tooltip text={`This Summary was rebuilt after a regeneration, so this is version ${summaryVersion}.`} delayDuration={200}>
+            {#snippet children({ props })}
+              <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+              <span {...props} tabindex="0" class="rounded-full bg-gray-50 px-2 py-0.5 text-ink-secondary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary" data-summary-version>Version {summaryVersion}</span>
+            {/snippet}
+          </Tooltip>
+        {/if}
+      </div>
+      {#if onClose}
+        <Button variant="secondary" size="sm" class="min-h-9" onclick={onClose}>
+          {readOnly ? "Back to report" : "Back to plan"}
+        </Button>
+      {/if}
+      {#if recovery && canRecover}
+        <Button size="sm" class="min-h-9" onclick={retryDraft} disabled={busy || !versionId}>Retry from this Summary</Button>
+      {:else if canEdit}
+        <Button
+          data-summary-signoff
+          size="sm"
+          class="min-h-9"
+          onclick={() => { if (!busy) openSignOff(); }}
+          disabled={!busy && !canSignOffNow}
+          aria-disabled={busy ? "true" : undefined}
+          aria-busy={busy ? "true" : undefined}
+        >Sign off and generate PD</Button>
       {/if}
     </div>
   </footer>
 </section>
+
+{#if signOffDialogMounted}
+<SeedSignOffDialog
+  bind:open={signOffOpen}
+  stepCount={PD_SUBSECTIONS.length}
+  editedCount={editedItems.length}
+  modelLabel={modelName}
+  canConfirm={signOffFenceHolds}
+  changedNotice={signOffOpen && !signOffFenceHolds
+    ? "The Summary changed while this was open. Keep reviewing to see the current version before you sign off."
+    : null}
+  onConfirm={confirmSignOff}
+  returnFocus={signOffTrigger}
+/>
+{/if}

@@ -17,6 +17,18 @@ import {
 import CurrentProjectPage from "./CurrentProjectPage.svelte";
 import PreviewProjectPage from "./PreviewProjectPage.svelte";
 
+// The Summary bar's primary opens the sign-off confirm (board 3.4); only the
+// confirm's own primary starts sign-off.
+const summarySignOffButton = () =>
+  browserPage.getByRole("region", { name: "Summary review" }).getByRole("button", { name: "Sign off and generate PD", exact: true });
+const signOffConfirmButton = () =>
+  browserPage.getByRole("dialog").getByRole("button", { name: "Sign off and generate PD", exact: true });
+async function confirmSummarySignOff() {
+  await summarySignOffButton().click();
+  await expect.element(browserPage.getByRole("dialog")).toBeVisible();
+  await signOffConfirmButton().click();
+}
+
 const budget = {
   limit: 1_000_000,
   estimatedBytesRead: 0,
@@ -38,6 +50,40 @@ function frozenSummary(generationId: string, summaryVersionId: string, bullets: 
     skippedRoleIds: [], isDone: true, continueCursor: "done", partial: false,
     frozen: true, generationId, summaryVersionId, seedStageVersion: 4,
     settings: frozenSettings, budget,
+  };
+}
+
+/** The host's live Outline; readiness defaults to ready. */
+function hostOutline(readiness: { ready: boolean; complete: boolean; blockingRoleIds: string[] } = { ready: true, complete: true, blockingRoleIds: [] }) {
+  return {
+    generationId: "generation-seed-host",
+    rows: PD_SUBSECTIONS.map((definition) => ({
+      ...definition,
+      state: "in_progress",
+      stale: false,
+      staleReason: null,
+      outdated: false,
+      selectedCount: 0,
+      selectedWordCount: 0,
+      countsComplete: true,
+      previewLines: [],
+      pendingBatchId: null,
+      shownBatchId: null,
+    })),
+    readiness,
+    usage: { requests: 1, notice: false },
+    seedStageVersion: 4,
+    truncated: false,
+    budget,
+    canEdit: true,
+    workflow: "seeds",
+    frozen: {
+      briefVersionId: "brief-seed-host",
+      summaryVersionId: null,
+      lengthTarget: "standard",
+      modelId: "claude-test",
+      writerProfile: null,
+    },
   };
 }
 
@@ -103,36 +149,7 @@ function seedHostQueries() {
     "snapshots:listSnapshots",
   ]) __setQueryData(name, []);
 
-  __setQueryData("seeds:getOutline", {
-    generationId: "generation-seed-host",
-    rows: PD_SUBSECTIONS.map((definition) => ({
-      ...definition,
-      state: "in_progress",
-      stale: false,
-      staleReason: null,
-      outdated: false,
-      selectedCount: 0,
-      selectedWordCount: 0,
-      countsComplete: true,
-      previewLines: [],
-      pendingBatchId: null,
-      shownBatchId: null,
-    })),
-    readiness: { ready: true, complete: true, blockingRoleIds: [] },
-    usage: { requests: 1, notice: false },
-    seedStageVersion: 4,
-    truncated: false,
-    budget,
-    canEdit: true,
-    workflow: "seeds",
-    frozen: {
-      briefVersionId: "brief-seed-host",
-      summaryVersionId: null,
-      lengthTarget: "standard",
-      modelId: "claude-test",
-      writerProfile: null,
-    },
-  });
+  __setQueryData("seeds:getOutline", hostOutline());
   __setQueryData("seeds:getSubsection", {
     generationId: "generation-seed-host",
     roleId: "company_context",
@@ -203,7 +220,7 @@ async function assertConnectedJourney(Component: typeof CurrentProjectPage | typ
   const reviewTrigger = browserPage.getByRole("button", { name: "Review Summary", exact: true });
   (reviewTrigger.element() as HTMLElement).focus();
   await userEvent.keyboard("{Enter}");
-  await expect.element(browserPage.getByRole("heading", { name: "Summary Review", exact: true })).toBeVisible();
+  await expect.element(browserPage.getByRole("heading", { name: "Summary review", exact: true })).toBeVisible();
   await expect.poll(() => document.activeElement?.id).toBe("summary-review-title");
   expect(__navigationCalls).toContainEqual({
     kind: "pushState",
@@ -221,7 +238,7 @@ async function assertConnectedJourney(Component: typeof CurrentProjectPage | typ
   browserUrl.searchParams.set("view", "summary");
   window.history.pushState({}, "", browserUrl);
   window.dispatchEvent(new PopStateEvent("popstate"));
-  await expect.element(browserPage.getByRole("heading", { name: "Summary Review", exact: true })).toBeVisible();
+  await expect.element(browserPage.getByRole("heading", { name: "Summary review", exact: true })).toBeVisible();
   await expect.poll(() => document.activeElement?.id).toBe("summary-review-title");
   await browserPage.getByRole("button", { name: "Edit", exact: true }).click();
   await expect.element(browserPage.getByRole("textbox", { name: "Bullet 1" })).toHaveValue("Summary draft survives the workspace.");
@@ -230,7 +247,7 @@ async function assertConnectedJourney(Component: typeof CurrentProjectPage | typ
 
   // Returning by keyboard restores focus to the recreated Review Summary
   // trigger without losing either local draft.
-  const backToWorkspace = browserPage.getByRole("button", { name: "Back to workspace", exact: true });
+  const backToWorkspace = browserPage.getByRole("button", { name: "Back to plan", exact: true });
   (backToWorkspace.element() as HTMLElement).focus();
   await userEvent.keyboard("{Enter}");
   await expect.element(browserPage.getByLabelText("Seed workspace")).toBeVisible();
@@ -284,6 +301,32 @@ describe("Seed project hosts", () => {
 
   it("routes the preview host from Seeds to Summary and back without the legacy stepper", async () => {
     await assertConnectedJourney(PreviewProjectPage);
+  });
+
+  async function assertOpenStepLink(Component: typeof CurrentProjectPage | typeof PreviewProjectPage) {
+    // Board 3.3: a not-ready Summary links its open step; the workspace
+    // restores that step from its own per-user, per-generation record.
+    __setQueryData("seeds:getOutline", hostOutline({ ready: false, complete: true, blockingRoleIds: ["goal_problem"] }));
+    const mounted = await render(Component, {});
+    await browserPage.getByRole("button", { name: "Review Summary", exact: true }).click();
+    await expect.poll(() => document.activeElement?.id).toBe("summary-review-title");
+    await expect.element(summarySignOffButton()).toBeDisabled();
+    await browserPage.getByRole("button", { name: "1 step still open: open Goal / Problem" }).click();
+    await expect.element(browserPage.getByLabelText("Seed workspace")).toBeVisible();
+    expect(localStorage.getItem("seeds.openRole:writer-1:generation-seed-host")).toBe("goal_problem");
+    await expect.poll(() => __activeQueryArgs("seeds:getSubsection")).toContainEqual(
+      expect.objectContaining({ generationId: "generation-seed-host", roleId: "goal_problem" })
+    );
+    expect(__navigationCalls.at(-1)).toEqual({ kind: "pushState", url: "/project/project-seed-host" });
+    mounted.unmount();
+  }
+
+  it("opens the Summary's open step in the current host's workspace", async () => {
+    await assertOpenStepLink(CurrentProjectPage);
+  });
+
+  it("opens the Summary's open step in the preview host's workspace", async () => {
+    await assertOpenStepLink(PreviewProjectPage);
   });
 
   it("removes every Seed mutation control from read-only initialization, workspace, and recovery", async () => {
@@ -357,7 +400,7 @@ describe("Seed project hosts", () => {
     });
     __setQueryData("seeds:getSummary", frozenSummary("generation-seed-host", "summary-frozen", ["Read-only frozen item."]));
     mounted = await render(PreviewProjectPage, {});
-    await expect.element(browserPage.getByRole("heading", { name: "Summary Review", exact: true })).toBeVisible();
+    await expect.element(browserPage.getByRole("heading", { name: "Summary review", exact: true })).toBeVisible();
     await expect.element(browserPage.getByText("Read-only frozen item.", { exact: true })).toBeVisible();
     expect(browserPage.getByRole("button", { name: "Retry from this Summary", exact: true }).elements()).toHaveLength(0);
     expect(__mutationCalls("generations:retryFromSummary")).toEqual([]);
@@ -481,7 +524,7 @@ describe("Seed project hosts", () => {
     });
     await render(Component, {});
     await browserPage.getByRole("button", { name: "Review Summary", exact: true }).click();
-    await browserPage.getByRole("button", { name: "Sign off and generate", exact: true }).click();
+    await confirmSummarySignOff();
     expect(__mutationCalls("generations:signOffSeedStage")).toEqual([{
       generationId: "generation-seed-host",
       expectedSeedStageVersion: 4,
@@ -516,7 +559,7 @@ describe("Seed project hosts", () => {
       seedCanEdit: true,
     });
     await expect.element(browserPage.getByRole("heading", { name: "Generating your report", exact: true })).toBeVisible();
-    expect(browserPage.getByRole("heading", { name: "Summary Review", exact: true }).elements()).toHaveLength(0);
+    expect(browserPage.getByRole("heading", { name: "Summary review", exact: true }).elements()).toHaveLength(0);
     expect(document.body.textContent).not.toContain("Older completed report.");
 
     __setQueryData("seeds:getSummary", frozenSummary("generation-seed-host", "summary-frozen", ["Failed draft frozen Summary."]));
@@ -561,7 +604,7 @@ describe("Seed project hosts", () => {
       seedCanEdit: true,
     });
     await expect.element(browserPage.getByRole("heading", { name: "Generating your report", exact: true })).toBeVisible();
-    expect(browserPage.getByRole("heading", { name: "Summary Review", exact: true }).elements()).toHaveLength(0);
+    expect(browserPage.getByRole("heading", { name: "Summary review", exact: true }).elements()).toHaveLength(0);
     expect(browserPage.getByRole("button", { name: "Retry from this Summary", exact: true }).elements()).toHaveLength(0);
     expect(document.body.textContent).not.toContain("Older completed report.");
 
@@ -596,7 +639,7 @@ describe("Seed project hosts", () => {
     __setQueryData("seeds:getSummary", frozenSummary("generation-recovery", "summary-frozen", ["Completed run frozen Summary."]));
     await expect.element(browserPage.getByText("Newly completed Seed report.", { exact: true })).toBeVisible();
     expect(__activeQueryArgs("generations:getGenerationSeedView")).toContainEqual({ generationId: "generation-recovery" });
-    expect(browserPage.getByRole("heading", { name: "Summary Review", exact: true }).elements()).toHaveLength(0);
+    expect(browserPage.getByRole("heading", { name: "Summary review", exact: true }).elements()).toHaveLength(0);
     await browserPage.getByRole("button", { name: "Signed-off Summary", exact: true }).click();
     await expect.element(browserPage.getByText("Completed run frozen Summary.", { exact: true })).toBeVisible();
     // The report-owned Summary is read through the recovery generation while
@@ -607,7 +650,7 @@ describe("Seed project hosts", () => {
       cursor: null,
       numItems: 50,
     });
-    expect(browserPage.getByRole("button", { name: "Sign off and generate", exact: true }).elements()).toHaveLength(0);
+    expect(browserPage.getByRole("button", { name: "Sign off and generate PD", exact: true }).elements()).toHaveLength(0);
     expect(browserPage.getByRole("button", { name: "Edit", exact: true }).elements()).toHaveLength(0);
   }
 
@@ -646,7 +689,7 @@ describe("Seed project hosts", () => {
     let mounted = await render(Component, {});
     await expect.element(browserPage.getByRole("button", { name: "Try again", exact: true })).toBeVisible();
     expect(browserPage.getByLabelText("Seed workspace").elements()).toHaveLength(0);
-    for (const name of ["Edit", "Give feedback", "Regenerate", "Approve", "Review Summary", "Cancel iterative draft", "Sign off and generate"]) {
+    for (const name of ["Edit", "Give feedback", "Regenerate", "Approve", "Review Summary", "Cancel iterative draft", "Sign off and generate PD"]) {
       expect(browserPage.getByRole("button", { name, exact: true }).elements()).toHaveLength(0);
     }
     expect(__activeQueryArgs("seeds:getOutline")).toEqual([]);
@@ -991,7 +1034,7 @@ describe("Seed project hosts", () => {
     expect(document.body.textContent).not.toContain("Existing report behind the legacy stepper.");
     expect(browserPage.getByRole("button", { name: "History", exact: true }).elements()).toHaveLength(0);
     expect(browserPage.getByLabelText("Seed workspace").elements()).toHaveLength(0);
-    expect(browserPage.getByRole("heading", { name: "Summary Review", exact: true }).elements()).toHaveLength(0);
+    expect(browserPage.getByRole("heading", { name: "Summary review", exact: true }).elements()).toHaveLength(0);
     mounted.unmount();
   }
 
@@ -1036,7 +1079,7 @@ describe("Seed project hosts", () => {
     });
     const mounted = await render(Component, {});
     await expect.element(browserPage.getByRole("heading", { name: "Section-by-section draft", exact: true })).toBeVisible();
-    expect(browserPage.getByRole("heading", { name: "Summary Review", exact: true }).elements()).toHaveLength(0);
+    expect(browserPage.getByRole("heading", { name: "Summary review", exact: true }).elements()).toHaveLength(0);
     expect(document.body.textContent).not.toContain("Frozen report-owned Summary item.");
     expect(document.body.textContent).not.toContain("Completed Seed report.");
     await expect.element(browserPage.getByRole("button", { name: "Cancel iterative draft", exact: true })).toBeVisible();
@@ -1056,7 +1099,7 @@ describe("Seed project hosts", () => {
     expect(document.body.textContent).not.toContain("Completed Seed report.");
     await browserPage.getByRole("button", { name: "Back to report", exact: true }).click();
     await expect.element(browserPage.getByText("Completed Seed report.", { exact: true })).toBeVisible();
-    expect(browserPage.getByRole("heading", { name: "Summary Review", exact: true }).elements()).toHaveLength(0);
+    expect(browserPage.getByRole("heading", { name: "Summary review", exact: true }).elements()).toHaveLength(0);
     mounted.unmount();
   }
 
@@ -1096,8 +1139,12 @@ describe("Seed project hosts", () => {
     }
     const mounted = await render(Component, {});
     await browserPage.getByRole("button", { name: "Review Summary", exact: true }).click();
-    const signOff = browserPage.getByRole("button", { name: "Sign off and generate", exact: true });
-    (signOff.element() as HTMLElement).focus();
+    // By keyboard: the bar's primary opens the confirm, whose primary starts it.
+    (summarySignOffButton().element() as HTMLElement).focus();
+    await userEvent.keyboard("{Enter}");
+    await expect.element(browserPage.getByRole("dialog")).toBeVisible();
+    expect(__mutationCalls("generations:signOffSeedStage")).toEqual([]);
+    (signOffConfirmButton().element() as HTMLElement).focus();
     await userEvent.keyboard("{Enter}");
     expect(__mutationCalls("generations:signOffSeedStage")).toEqual([{
       generationId: "generation-seed-host",
@@ -1128,13 +1175,13 @@ describe("Seed project hosts", () => {
       expect(region.getAttribute("role")).toBe("region");
       expect(region.getAttribute("aria-label")).toBe("Generation progress");
       expect(document.getElementById("generation-progress-heading")).toBeNull();
-      expect(browserPage.getByRole("heading", { name: "Summary Review", exact: true }).elements()).toHaveLength(0);
+      expect(browserPage.getByRole("heading", { name: "Summary review", exact: true }).elements()).toHaveLength(0);
       expect(browserPage.getByLabelText("Seed workspace").elements()).toHaveLength(0);
       __setQueryData("generations:getGeneration", exactGeneration);
     }
     await expect.element(browserPage.getByRole("heading", { name: "Generating your report", exact: true })).toBeVisible();
     await expect.poll(() => document.activeElement?.id).toBe("generation-progress-heading");
-    expect(browserPage.getByRole("heading", { name: "Summary Review", exact: true }).elements()).toHaveLength(0);
+    expect(browserPage.getByRole("heading", { name: "Summary review", exact: true }).elements()).toHaveLength(0);
     expect(browserPage.getByLabelText("Seed workspace").elements()).toHaveLength(0);
     if (ordering === "subscription-first") {
       accept?.(null);
@@ -1214,12 +1261,12 @@ describe("Seed project hosts", () => {
 
     let trigger: () => void;
     if (transition === "summary-return") {
-      const back = browserPage.getByRole("button", { name: "Back to workspace", exact: true }).element() as HTMLElement;
+      const back = browserPage.getByRole("button", { name: "Back to plan", exact: true }).element() as HTMLElement;
       trigger = () => back.click();
     } else {
       // The accepted command closes the review first (its return focus is
       // the ordinary, legitimate move); drafting then schedules its own.
-      await browserPage.getByRole("button", { name: "Sign off and generate", exact: true }).click();
+      await confirmSummarySignOff();
       await expect.poll(() => document.activeElement?.id).toBe("seed-review-summary-trigger");
       trigger = () => __setQueryData("generations:getLatestGeneration", {
         _id: "generation-seed-host",
@@ -1278,7 +1325,7 @@ describe("Seed project hosts", () => {
     expect(document.activeElement?.id).not.toBe(target);
     expect(document.activeElement?.id).not.toBe("generation-progress");
     expect(document.activeElement).toBe(document.body);
-    expect(browserPage.getByRole("heading", { name: "Summary Review", exact: true }).elements()).toHaveLength(0);
+    expect(browserPage.getByRole("heading", { name: "Summary review", exact: true }).elements()).toHaveLength(0);
     if (interruption === "host-destroyed") (await replacement!).unmount();
     else mounted.unmount();
   }
@@ -1380,14 +1427,14 @@ describe("Seed project hosts", () => {
     await browserPage.getByRole("button", { name: "Save wording", exact: true }).click();
     await expect.element(browserPage.getByRole("button", { name: "Saving…", exact: true })).toBeDisabled();
     await browserPage.getByRole("button", { name: "Review Summary", exact: true }).click();
-    await expect.element(browserPage.getByRole("heading", { name: "Summary Review", exact: true })).toBeVisible();
+    await expect.element(browserPage.getByRole("heading", { name: "Summary review", exact: true })).toBeVisible();
 
     // Summary: a pending edit save, then back to the workspace.
     await browserPage.getByRole("button", { name: "Edit", exact: true }).first().click();
     await browserPage.getByRole("textbox", { name: "Bullet 1" }).fill("Submitted Summary wording.");
     await browserPage.getByRole("button", { name: "Save wording", exact: true }).click();
     await expect.element(browserPage.getByRole("button", { name: "Saving…", exact: true })).toBeDisabled();
-    await browserPage.getByRole("button", { name: "Back to workspace", exact: true }).click();
+    await browserPage.getByRole("button", { name: "Back to plan", exact: true }).click();
     await expect.element(browserPage.getByLabelText("Seed workspace")).toBeVisible();
 
     // The recreated workspace: newer wording for the submitted Seed plus an
@@ -1412,7 +1459,7 @@ describe("Seed project hosts", () => {
     expect(browserPage.getByRole("alert").elements()).toHaveLength(0);
 
     // Recreate both surfaces again: everything typed since remains.
-    await browserPage.getByRole("button", { name: "Back to workspace", exact: true }).click();
+    await browserPage.getByRole("button", { name: "Back to plan", exact: true }).click();
     await expect.element(browserPage.getByRole("textbox", { name: "Bullet 1" })).toHaveValue("Submitted workspace wording. Newer.");
     await expect.element(browserPage.getByRole("textbox", { name: "Revision instruction" })).toHaveValue("Independent workspace instruction.");
     await browserPage.getByRole("button", { name: "Review Summary", exact: true }).click();
@@ -1444,7 +1491,7 @@ describe("Seed project hosts", () => {
     __setMutationResult("generations:signOffSeedStage", new Promise((resolve) => { accept = resolve; }));
     const mounted = await render(Component, {});
     await browserPage.getByRole("button", { name: "Review Summary", exact: true }).click();
-    await browserPage.getByRole("button", { name: "Sign off and generate", exact: true }).click();
+    await confirmSummarySignOff();
     expect(__mutationCalls("generations:signOffSeedStage")).toEqual([{
       generationId: "generation-seed-host",
       expectedSeedStageVersion: 4,
@@ -1452,7 +1499,7 @@ describe("Seed project hosts", () => {
 
     if (replacement === "host-destroyed") {
       mounted.unmount();
-      expect(browserPage.getByRole("heading", { name: "Summary Review", exact: true }).elements()).toHaveLength(0);
+      expect(browserPage.getByRole("heading", { name: "Summary review", exact: true }).elements()).toHaveLength(0);
     } else if (replacement === "generation-replaced") {
       __setQueryData("generations:getLatestGeneration", {
         _id: "generation-seed-host-next",
@@ -1465,7 +1512,7 @@ describe("Seed project hosts", () => {
         briefVersionId: "brief-seed-host-next",
         seedCanEdit: true,
       });
-      await expect.element(browserPage.getByRole("heading", { name: "Summary Review", exact: true })).toBeVisible();
+      await expect.element(browserPage.getByRole("heading", { name: "Summary review", exact: true })).toBeVisible();
     } else {
       __setQueryData("users:getCurrentUser", {
         _id: "writer-2",
@@ -1474,7 +1521,7 @@ describe("Seed project hosts", () => {
         lastName: "Writer",
         email: "rae@example.test",
       });
-      await expect.element(browserPage.getByRole("heading", { name: "Summary Review", exact: true })).toBeVisible();
+      await expect.element(browserPage.getByRole("heading", { name: "Summary review", exact: true })).toBeVisible();
     }
     await new Promise((resolve) => setTimeout(resolve, 50));
     const navigationCount = __navigationCalls.length;
@@ -1487,11 +1534,11 @@ describe("Seed project hosts", () => {
     expect(window.location.href).toBe(url);
     expect(document.activeElement).toBe(focused);
     if (replacement === "host-destroyed") {
-      expect(browserPage.getByRole("heading", { name: "Summary Review", exact: true }).elements()).toHaveLength(0);
+      expect(browserPage.getByRole("heading", { name: "Summary review", exact: true }).elements()).toHaveLength(0);
       expect(browserPage.getByLabelText("Seed workspace").elements()).toHaveLength(0);
     } else {
       // The replacement owner's Summary stays open; no Seed drafting focus move.
-      await expect.element(browserPage.getByRole("heading", { name: "Summary Review", exact: true })).toBeVisible();
+      await expect.element(browserPage.getByRole("heading", { name: "Summary review", exact: true })).toBeVisible();
       expect(browserPage.getByLabelText("Seed workspace").elements()).toHaveLength(0);
       expect(browserPage.getByRole("heading", { name: "Generating your report", exact: true }).elements()).toHaveLength(0);
       mounted.unmount();
