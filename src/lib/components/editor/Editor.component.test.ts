@@ -473,6 +473,20 @@ describe("Editor autosave and external content", () => {
     expect(saved.at(-1)).toContain("New words.");
   });
 
+  it("holds an editable editor read-only at run time without saving", async () => {
+    const { container, rerender, saved } = await mountEditor();
+    const prose = () => container.querySelector<HTMLElement>(".ProseMirror")!;
+    expect(prose().getAttribute("contenteditable")).toBe("true");
+    await rerender({ readOnly: true });
+    await expect.poll(() => prose().getAttribute("contenteditable")).toBe("false");
+    expect(tiptapOf(container).isEditable).toBe(false);
+    await rerender({ readOnly: false });
+    await expect.poll(() => prose().getAttribute("contenteditable")).toBe("true");
+    // Toggling editability is not an edit: no autosave is scheduled.
+    await new Promise((resolve) => setTimeout(resolve, 1200));
+    expect(saved).toEqual([]);
+  });
+
   it("keeps a queued edit when the echo of an older in-flight save arrives", async () => {
     const saved: string[] = [];
     let releaseFirst: (() => void) | undefined;

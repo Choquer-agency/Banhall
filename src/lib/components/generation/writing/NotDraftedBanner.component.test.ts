@@ -63,6 +63,34 @@ describe("NotDraftedBanner", () => {
     errorSpy.mockRestore();
   });
 
+  it("shows a failed attempt with its reason and a retry, until a newer attempt runs", async () => {
+    const onDraftRest = vi.fn();
+    const view = await render(NotDraftedBanner, {
+      missingSections: [{ number: "244" }, { number: "246" }],
+      onDraftRest,
+      failedAttempt: { error: "The model did not respond in time." },
+    });
+    expect(banner()!.querySelector('[role="alert"]')?.textContent?.trim()).toBe(
+      "Drafting the missing sections did not finish. The model did not respond in time."
+    );
+    expect(action().textContent?.trim()).toBe("Try again");
+    action().click();
+    expect(onDraftRest).toHaveBeenCalledTimes(1);
+    // A newer attempt is running: the failure gives way to the pending state.
+    await view.rerender({ pending: true });
+    expect(banner()!.querySelector("[data-redraft-failed]")).toBeNull();
+    expect(banner()!.querySelector('[role="status"]')?.textContent?.trim()).toBe(
+      "Drafting the missing sections. Editing resumes when they are in."
+    );
+    // Without a reason the notice still says the attempt did not finish.
+    await view.rerender({ pending: false, failedAttempt: { error: null } });
+    expect(banner()!.querySelector('[role="alert"]')?.textContent?.trim()).toBe("Drafting the missing sections did not finish.");
+    // A start error takes the place of the attempt failure.
+    await view.rerender({ errorMessage: "Another draft is running." });
+    expect(banner()!.querySelector('[role="alert"]')?.textContent).toBe("Another draft is running.");
+    expect(action().textContent?.trim()).toBe("Draft the rest");
+  });
+
   it("respects host pending and disabled states", async () => {
     const onDraftRest = vi.fn();
     const view = await render(NotDraftedBanner, { missingSections: [{ number: "246" }], onDraftRest, pending: true });

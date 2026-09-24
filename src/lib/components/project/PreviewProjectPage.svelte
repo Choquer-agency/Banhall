@@ -41,6 +41,7 @@
   import StopDraftingDialog from "$lib/components/generation/writing/StopDraftingDialog.svelte";
   import NotDraftedBanner from "$lib/components/generation/writing/NotDraftedBanner.svelte";
   import DraftReadyToast from "$lib/components/generation/writing/DraftReadyToast.svelte";
+  import { seedRedraftAttempt } from "$lib/components/generation/writing/draftProgress";
   import { notDraftedReportSections } from "../../../../convex/lib/tiptapReport";
   import { PD_SECTION_HEADINGS } from "../../../../shared/pdSubsections";
   import Editor from "$lib/components/editor/Editor.svelte";
@@ -354,6 +355,10 @@
     }
     const ed = editorRef;
     if (!ed || !report || replaceSession || finishingReplace) return;
+    if (reportReadOnly) {
+      notifyReplace("Drafting the missing sections. Editing resumes when they are in.");
+      return;
+    }
     const matches = ed.findReplaceMatches(pairs);
     if (matches.length === 0) {
       notifyReplace(
@@ -1345,16 +1350,83 @@
   );
   const redraftMut = useMutation(api.generations.redraftMissingSections);
   let redraftError = $state<string | null>(null);
+  // The latest redraft attempt's terminal status and sanitized error, when
+  // the progress read carries them (optional field, read defensively).
+  const redraftAttempt = $derived(seedRedraftAttempt(draftProgress));
+  const redraftFailure = $derived(
+    reportSeedGenerationId !== null && redraftAttempt?.status === "failed"
+      ? { error: redraftAttempt.error }
+      : null
+  );
+  // "Draft the rest" holds the report read-only from the click until the
+  // server content with the filled Sections is in (or the attempt ends): the
+  // pending autosave is flushed first, and no keystroke can land between the
+  // server merge and the editor taking the merged document. While the
+  // redraft is live the progress read keeps it read-only (redraftLive); the
+  // hold covers the flush, the request, and a response that arrives before
+  // the live phase is visible.
+  type RedraftHold = {
+    token: number;
+    generationId: string;
+    baselineAttemptId: string | null;
+    requested: boolean;
+  };
+  let redraftHold = $state.raw<RedraftHold | null>(null);
+  let redraftHoldToken = 0;
+  const reportReadOnly = $derived(redraftLive || redraftHold !== null);
+  $effect(() => {
+    const hold = redraftHold;
+    if (!hold) return;
+    const generationId = reportSeedGenerationId ? String(reportSeedGenerationId) : null;
+    const phase = draftProgress?.phase;
+    const attempt = redraftAttempt;
+    untrack(() => {
+      if (redraftHold?.token !== hold.token) return;
+      // Another report or generation took the page: nothing to wait for.
+      if (generationId !== hold.generationId) {
+        redraftHold = null;
+        return;
+      }
+      if (!hold.requested) return;
+      const attemptEnded =
+        attempt !== null && attempt.attemptId !== hold.baselineAttemptId && attempt.status !== "running";
+      // The request resolved: the live phase (redraftLive) now keeps the
+      // report read-only until the merged content arrives with its end.
+      if (attemptEnded || (phase !== undefined && phase !== "drafting")) redraftHold = null;
+    });
+  });
   async function draftTheRest() {
     const generationId = reportSeedGenerationId;
-    if (!generationId) return;
+    if (!generationId || redraftHold) return;
     redraftError = null;
+    const token = ++redraftHoldToken;
+    redraftHold = {
+      token,
+      generationId: String(generationId),
+      baselineAttemptId: redraftAttempt?.attemptId ?? null,
+      requested: false,
+    };
+    const release = () => {
+      if (redraftHold?.token === token) redraftHold = null;
+    };
+    try {
+      // Every edit the writer made is saved before the server merges.
+      await flushEditor();
+    } catch {
+      release();
+      redraftError = "Your latest edits could not be saved, so the missing sections were not drafted. Try again.";
+      return;
+    }
     try {
       const result = await redraftMut({ generationId });
       if (result.status === "nothing_to_draft") {
+        release();
         toast.info("Every section already has text, so there was nothing to draft.");
+      } else if (redraftHold?.token === token) {
+        redraftHold = { ...redraftHold, requested: true };
       }
     } catch (error) {
+      release();
       const code = userErrorCode(error);
       redraftError =
         code === "GENERATION_ACTIVE"
@@ -1987,11 +2059,16 @@
                   <NotDraftedBanner
                     missingSections={notDraftedSections}
                     onDraftRest={draftTheRest}
-                    pending={redraftLive}
+                    pending={reportReadOnly}
                     errorMessage={redraftError}
+                    failedAttempt={redraftFailure}
                     disabled={!reportGenerationQ.data?.seedCanEdit}
                   />
                 </div>
+              {:else if reportReadOnly}
+                <p class="mb-6 text-[13px] leading-5 text-ink-secondary" role="status" data-redraft-status>
+                  Drafting the missing sections. Editing resumes when they are in.
+                </p>
               {/if}
               <!-- Editor column -->
               <Editor
@@ -2002,6 +2079,7 @@
                 onAskAI={handleAskAI}
                 onResearch={handleResearch}
                 editable={true}
+                readOnly={reportReadOnly}
                 {commentRanges}
                 onHoverComment={(id) => (hoveredCommentId = id)}
               />

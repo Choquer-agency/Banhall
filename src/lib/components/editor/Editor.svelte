@@ -12,6 +12,9 @@
     onAskAI?: (sel) => void            — selection toolbar "Ask AI"; sel = { from, to, text } with
                                          the FULL selected text (no cap).
     editable?: boolean = true          — fixed at mount (extensions + editability).
+    readOnly?: boolean = false         - runtime lock on an editable editor: typing and the
+                                         editing chrome pause (for example while the server
+                                         fills Not drafted Sections); comments stay.
     commentRanges?: CommentRange[]     — comment highlight decorations (re-resolved by text).
     onHoverComment?: (id|null) => void — hover over a comment highlight.
 
@@ -616,6 +619,7 @@
     onAskAI,
     onResearch,
     editable = true,
+    readOnly = false,
     commentRanges = [],
     onHoverComment,
   }: {
@@ -631,6 +635,7 @@
     onAskAI?: (selection: { from: number; to: number; text: string }) => void;
     onResearch?: (selection: ResearchSelection) => void;
     editable?: boolean;
+    readOnly?: boolean;
     commentRanges?: CommentRange[];
     onHoverComment?: (commentId: string | null) => void;
   } = $props();
@@ -764,6 +769,16 @@
       saveTimeout = undefined;
       unsubscribe();
     };
+  });
+
+  // Editing is live only when the editor was mounted editable and is not
+  // held read-only. The toggle emits no update, so it never schedules a save.
+  const canEdit = $derived(editable && !readOnly);
+  $effect(() => {
+    const ed = editor;
+    const next = canEdit;
+    if (!ed || ed.isEditable === next) return;
+    ed.setEditable(next, false);
   });
 
   // Apply external content changes (see lastContent/recentLocalSaves above).
@@ -1119,12 +1134,12 @@
 {#if editor}
   <div class="group/editor relative">
     <!-- Block handles -->
-    {#if editable}
+    {#if canEdit}
       <BlockHandle {editor} />
     {/if}
 
     <!-- Floating toolbar on text selection -->
-    {#if editable}
+    {#if canEdit}
       <EditorToolbar
         {editor}
         onComment={handleComment}
@@ -1134,12 +1149,12 @@
     {/if}
 
     <!-- Comment-only bubble for read-only mode -->
-    {#if !editable && onComment}
+    {#if !canEdit && onComment}
       <EditorToolbar {editor} onComment={handleComment} commentOnly />
     {/if}
 
     <!-- Slash command menu -->
-    {#if editable}
+    {#if canEdit}
       <SlashCommandMenu
         {editor}
         isOpen={slashMenu.isOpen}
