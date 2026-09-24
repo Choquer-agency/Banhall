@@ -116,9 +116,17 @@ const completeAttemptRef = decisionMutation<typeof completeAttempt>(
 );
 const dispatchRef = decisionMutation<typeof dispatch>("seedRuns:dispatch");
 
-const network = vi.hoisted(() => ({ create: vi.fn() }));
+const network = vi.hoisted(() => ({
+  create: vi.fn(),
+  clientOptions: [] as Array<{ maxRetries?: number; timeout?: number }>,
+}));
 vi.mock("@anthropic-ai/sdk", () => ({
-  default: class { messages = { create: network.create }; },
+  default: class {
+    messages = { create: network.create };
+    constructor(options: { maxRetries?: number; timeout?: number } = {}) {
+      network.clientOptions.push({ maxRetries: options.maxRetries, timeout: options.timeout });
+    }
+  },
 }));
 
 afterEach(() => {
@@ -127,6 +135,7 @@ afterEach(() => {
   vi.useRealTimers();
   vi.unstubAllEnvs();
   network.create.mockReset();
+  network.clientOptions.length = 0;
   vi.restoreAllMocks();
 });
 
@@ -6737,8 +6746,15 @@ describe("Step-by-step writing: background QA, Stop and redraft (CAP-17, CAP-18)
     const calls = consistencyReportsWhatItSaw("FenceRedraft", async (call) => {
       if (call === 1) await writerTypes(s, "[NOT GENERATED]", "Writer typed 244 first.");
     });
-    // The rerun is its own scheduled action, never a loop inside one.
+    // The rerun is its own scheduled action, never a loop inside one, and
+    // each pass uses the seed request policy (no transport retry, 90 s), so
+    // one pass with its structured repair fits inside a single action.
+    network.clientOptions.length = 0;
     expect(await runRedraftFinalizerUntilSettled(s)).toEqual([0, 1]);
+    expect(network.clientOptions.length).toBeGreaterThan(0);
+    for (const options of network.clientOptions) {
+      expect(options).toEqual({ maxRetries: 0, timeout: 90_000 });
+    }
 
     const stored = (await redraftNotes(s)).filter(
       (row) => !before.some((old) => old._id === row._id)

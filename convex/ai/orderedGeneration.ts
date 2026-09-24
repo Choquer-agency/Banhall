@@ -14,7 +14,7 @@ import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { v } from "convex/values";
 import type { FunctionReturnType } from "convex/server";
-import { clientForModel, normalizeProviderError } from "./providers";
+import { clientForModel, normalizeProviderError, seedClientForModel } from "./providers";
 import type { GenerationClient, GenerationMessageParams } from "./openrouterCore";
 import { parseTranscriptAnalysis } from "./analyzerAgent";
 import { runSection242Agent } from "./section242Agent";
@@ -921,20 +921,18 @@ export const finalizeSeedRedraft = internalAction({
         });
         return null;
       }
-      const clientFor = chainClientFactory(
-        ctx,
-        {
-          model: input.model,
-          projectId: input.projectId,
-          requestedBy: input.requestedBy,
-          generationId: args.generationId,
-          candidateRunId: args.candidateRunId,
-        },
-        {}
-      );
+      // The seed request policy (no hidden transport retry, a short request
+      // timeout) keeps one pass, including its structured repair, well
+      // inside a single action's time limit.
+      const consistencyClient = seedClientForModel(ctx, input.model, {
+        callSite: "generation:consistency",
+        projectId: input.projectId,
+        ...(input.requestedBy ? { userId: input.requestedBy } : {}),
+        attribution: { generationId: args.generationId, candidateRunId: args.candidateRunId },
+      });
       let notes: ComplianceNoteDraft[];
       try {
-        const findings = await runConsistencyPass(clientFor("generation:consistency"), {
+        const findings = await runConsistencyPass(consistencyClient, {
           sections: present,
           claimExclusions: input.brief?.claimExclusions.map((entry) => entry.text) ?? [],
           glossaryTerms: input.brief?.glossaryTerms ?? [],
