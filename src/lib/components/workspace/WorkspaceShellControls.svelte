@@ -1,6 +1,6 @@
 <script lang="ts">
   // Shared workspace top-bar controls. The hamburger owns navigation below
-  // 1280px. On desktop, the rail owns its collapse/expand button in both
+  // 1024px; from there the icons-only rail is on screen. On desktop, the rail owns its collapse/expand button in both
   // states. Attio fully slides the desktop rail away, so this component owns
   // the restore affordance on the content plane.
   import { ListIcon } from "phosphor-svelte";
@@ -33,7 +33,7 @@
   type="button"
   aria-label="Open workspace navigation"
   onclick={onOpenNavigation}
-  class={`-ml-2 flex ${buttonBase} xl:hidden`}
+  class={`-ml-2 flex ${buttonBase} lg:hidden`}
 >
   <ListIcon size={20} weight="regular" aria-hidden="true" />
 </button>

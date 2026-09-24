@@ -30,7 +30,8 @@
     normalizeTurnParts,
     type TurnTiming,
   } from "$lib/chat/turnParts";
-  import ChatIcon from "$lib/components/ui/ChatIcon.svelte";
+  import AuroraMark from "$lib/components/ui/AuroraMark.svelte";
+  import { ArrowsInSimpleIcon, ArrowsOutSimpleIcon } from "phosphor-svelte";
   import Spinner from "$lib/components/ui/Spinner.svelte";
   import ResearchFeed from "$lib/components/research/ResearchFeed.svelte";
   import type { ResearchSelection } from "$lib/components/editor/types";
@@ -81,6 +82,8 @@
     onClearResearch?: () => void;
     isFull?: boolean;
     onToggleFull?: () => void;
+    /** Keep header room for a host's overlaid close button (default true). */
+    closeInset?: boolean;
     onReferenceText?: (texts: string[], scrollTo?: string) => void;
     onReviewReplacements?: (
       pairs: { find: string; replaceWith: string }[],
@@ -105,6 +108,7 @@
     onClearResearch,
     isFull,
     onToggleFull,
+    closeInset = true,
     onReferenceText,
     onReviewReplacements,
     onPreviewProposal,
@@ -1461,14 +1465,15 @@
       transition:fade={{ duration: motionDuration(300) }}
       class="pt-1.5 text-center text-[11px] text-gray-400"
     >
-      Enter to send&nbsp;&nbsp;·&nbsp;&nbsp;Shift+Enter for new line
+      Enter to send, Shift+Enter for a new line
     </p>
   {/if}
 {/snippet}
 
 <div class="flex h-full flex-col bg-white">
-  <!-- Header (pr-12 clears the workspace's overlay close button) -->
-  <div class="flex shrink-0 items-center gap-1 border-b border-chrome py-1.5 pl-2.5 pr-12">
+  <!-- Header (pr-12 clears a host's overlay close button when it has one) -->
+  <div class={`flex shrink-0 items-center gap-1 border-b border-chrome py-1.5 pl-2.5 ${closeInset ? "pr-12" : "pr-2.5"}`}>
+    <AuroraMark size={18} class="ml-1" />
     <!-- Obvious thread bar: one ghost rounded-full pill IS the thread
          selector — "Assistant · thread ⌄" opens the conversation menu. -->
     <DropdownMenu.Root>
@@ -1477,8 +1482,7 @@
         class="group flex h-7 shrink-0 items-center gap-1.5 rounded-full px-3 text-sm transition-colors hover:bg-chrome/60 data-[state=open]:bg-chrome/60 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy motion-reduce:transition-none pointer-coarse:min-h-11"
       >
         <span class="font-medium text-ink">Assistant</span>
-        <span aria-hidden="true" class="text-ink-muted">•</span>
-        <span class="text-ink-muted">{threadsQ.data?.length ?? 0}</span>
+        <span class="text-ink-muted">({threadsQ.data?.length ?? 0})</span>
         <svg class="size-3.5 shrink-0 text-ink-faint transition-transform group-data-[state=open]:rotate-180 motion-reduce:transition-none" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true">
           <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
         </svg>
@@ -1526,13 +1530,16 @@
     {#if onToggleFull}
       <button
         onclick={onToggleFull}
-        title={isFull ? "Exit focus mode" : "Enter focus mode"}
-        aria-label={isFull ? "Exit focus mode" : "Enter focus mode"}
+        title={isFull ? "Collapse assistant" : "Expand assistant"}
+        aria-label={isFull ? "Collapse assistant" : "Expand assistant"}
+        aria-pressed={isFull}
         class="ml-auto flex size-7 shrink-0 items-center justify-center rounded-full text-ink-muted transition-colors hover:bg-chrome/60 hover:text-ink motion-reduce:transition-none"
       >
-        <svg class="size-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M10 4H4V10M20 14V20H14M4.75 4.75L10 10M14 14L19.25 19.25" />
-        </svg>
+        {#if isFull}
+          <ArrowsInSimpleIcon size={16} aria-hidden="true" />
+        {:else}
+          <ArrowsOutSimpleIcon size={16} aria-hidden="true" />
+        {/if}
       </button>
     {/if}
   </div>
@@ -1542,15 +1549,13 @@
     <!-- Empty state: brand mark, capability blurb, starter suggestions; the
          composer stays pinned to the bottom (Obvious anatomy) in EVERY state. -->
     <div class="flex min-h-0 flex-1 flex-col items-center justify-center overflow-y-auto px-6 py-6">
-      <span class="mb-3 flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-navy text-white">
-        <ChatIcon class="h-4 w-4" />
-      </span>
+      <AuroraMark size={36} class="mb-3" />
       <h2 class="text-center text-[15px] font-medium text-ink">
         How can I help with this report?
       </h2>
       <p class="mt-1 max-w-[300px] text-center text-xs leading-relaxed text-ink-muted">
-        I can tighten language, find passages, check compliance, and propose
-        edits — grounded in this report and its source documents.
+        I can tighten language, find passages, check compliance and propose
+        edits, grounded in this report and its source documents.
       </p>
       <div class="mt-5 flex w-full max-w-[320px] flex-col gap-1.5">
         {#each STARTERS as starter (starter)}

@@ -1,0 +1,111 @@
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { page } from "vitest/browser";
+import { render } from "vitest-browser-svelte";
+import { createRawSnippet } from "svelte";
+import PanelToolbar from "./PanelToolbar.svelte";
+import PanelQaToggleSlot from "./PanelQaToggleSlot.svelte";
+
+/**
+ * Panel toolbar (ui-design-final.md section 2): tabs left with a 2px
+ * primary-selected underline on the active one; toggles right in the order
+ * Full width, divider, Details, Assistant (Aurora mark), QA.
+ */
+const qaSnippet = createRawSnippet(() => ({
+  render: () => '<button type="button" data-panel-toggle="qa" aria-label="QA review">QA</button>',
+}));
+
+describe("PanelToolbar", () => {
+  beforeEach(async () => {
+    document.body.innerHTML = "";
+    await page.viewport(1280, 800);
+  });
+
+  it("orders the toggles Full width, divider, Details, Assistant, QA", async () => {
+    await render(PanelToolbar, {
+      tabs: [{ id: "report", label: "Report" }, { id: "sources", label: "Sources", count: 3 }],
+      activeTab: "report",
+      onSelectTab: () => {},
+      showFullWidth: true,
+      showAssistant: true,
+      qa: qaSnippet,
+    });
+    const order = Array.from(
+      document.querySelectorAll("[data-panel-toggles] [data-panel-toggle], [data-panel-toggles] [data-panel-toggle-divider]")
+    ).map((el) => el.getAttribute("data-panel-toggle") ?? "divider");
+    expect(order).toEqual(["full-width", "divider", "details", "assistant", "qa"]);
+    expect(document.querySelector('[data-panel-toggle="assistant"] [data-ai-mark="aurora"]')).not.toBeNull();
+  });
+
+  it("marks the active tab with ink text and a 2px primary-selected underline", async () => {
+    const onSelectTab = vi.fn();
+    await render(PanelToolbar, {
+      tabs: [
+        { id: "plan", label: "Plan", done: true },
+        { id: "summary", label: "Summary", status: "Ready" },
+        { id: "report", label: "Report", disabled: true },
+        { id: "sources", label: "Sources" },
+      ],
+      activeTab: "summary",
+      onSelectTab,
+    });
+    const tab = (id: string) => document.querySelector<HTMLButtonElement>(`[data-panel-tab="${id}"]`)!;
+    expect(tab("summary").getAttribute("aria-current")).toBe("page");
+    expect(tab("summary").className).toContain("text-ink");
+    const underline = tab("summary").querySelector<HTMLElement>("span.bg-primary-selected")!;
+    expect(underline.getBoundingClientRect().height).toBe(2);
+    expect(tab("plan").getAttribute("aria-current")).toBeNull();
+    expect(tab("plan").textContent).toContain("done");
+    expect(tab("summary").textContent).toContain("Ready");
+    expect(tab("report").disabled).toBe(true);
+    tab("sources").click();
+    expect(onSelectTab).toHaveBeenCalledWith("sources");
+  });
+
+  it("shows an active toggle as a 26px selected tile", async () => {
+    await render(PanelToolbar, {
+      tabs: [{ id: "report", label: "Report" }],
+      activeTab: "report",
+      onSelectTab: () => {},
+      detailsActive: true,
+    });
+    const details = document.querySelector<HTMLElement>('[data-panel-toggle="details"]')!;
+    expect(details.getAttribute("aria-pressed")).toBe("true");
+    expect(details.className).toContain("bg-workspace-rail-selected");
+    expect(details.className).toContain("text-fir");
+    expect(details.getBoundingClientRect().height).toBe(26);
+    expect(document.querySelector('[data-panel-toggle="full-width"]')).toBeNull();
+    expect(document.querySelector('[data-panel-toggle="assistant"]')).toBeNull();
+  });
+});
+
+describe("PanelQaToggleSlot", () => {
+  beforeEach(() => {
+    document.body.innerHTML = "";
+  });
+
+  it("shows the band chip, and a pink dot until a finished result is opened", async () => {
+    await render(PanelQaToggleSlot, { state: "done", score: 78, unseen: true, onToggle: () => {} });
+    const chip = document.querySelector<HTMLElement>("[data-qa-score-chip]")!;
+    expect(chip.textContent).toBe("78");
+    expect(getComputedStyle(chip).backgroundColor).toBe("rgb(255, 237, 213)");
+    expect(getComputedStyle(chip).color).toBe("rgb(194, 65, 12)");
+    expect(document.querySelector("[data-qa-unseen-dot]")).not.toBeNull();
+    expect(document.querySelector("button")?.getAttribute("aria-label")).toBe("QA review, score 78, new result");
+  });
+
+  it("uses a gray-50 fill and an Aurora spinner while QA runs", async () => {
+    await render(PanelQaToggleSlot, { state: "running", score: null, onToggle: () => {} });
+    const button = document.querySelector<HTMLElement>("button")!;
+    expect(button.className).toContain("bg-gray-50");
+    expect(button.querySelector('[data-ai-mark-glyph="spinner"]')).not.toBeNull();
+    expect(button.querySelector("[data-qa-score-chip]")).toBeNull();
+  });
+
+  it("keeps the band colour for green and red scores", async () => {
+    await render(PanelQaToggleSlot, { state: "done", score: 91, onToggle: () => {} });
+    expect(getComputedStyle(document.querySelector<HTMLElement>("[data-qa-score-chip]")!).color).toBe("rgb(21, 128, 61)");
+    document.body.innerHTML = "";
+    await render(PanelQaToggleSlot, { state: "done", score: 42, onToggle: () => {} });
+    expect(getComputedStyle(document.querySelector<HTMLElement>("[data-qa-score-chip]")!).color).toBe("rgb(185, 28, 28)");
+  });
+});

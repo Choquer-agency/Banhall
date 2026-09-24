@@ -19,11 +19,11 @@ export const RAIL_DEFAULT_WIDTH = 275;
 export const RAIL_MAX_WIDTH = 288;
 
 /**
- * Attio's desktop collapse slides the global rail fully off canvas. The
- * persisted `hidden` key remains compatible with older builds; expanding
- * restores the last expanded width.
+ * Collapsed desktop rail: an icons-only column (ui-design-final.md section 2,
+ * board 1.2). The persisted `hidden` key keeps its name for compatibility and
+ * now means "collapsed"; expanding restores the last expanded width.
  */
-export const RAIL_COLLAPSED_WIDTH = 0;
+export const RAIL_COLLAPSED_WIDTH = 56;
 
 /** Arrow-key resize step on the keyboard separator; Shift multiplies. */
 export const RAIL_KEYBOARD_STEP = 8;

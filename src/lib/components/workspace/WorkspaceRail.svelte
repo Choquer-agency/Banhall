@@ -20,7 +20,6 @@
     LightbulbIcon,
     MagnifyingGlassIcon,
     MegaphoneIcon,
-    PlusIcon,
     SlidersHorizontalIcon,
     TagIcon,
     UserGearIcon,
@@ -35,7 +34,7 @@
 
   let {
     variant = "rail",
-    collapsed = false,
+    collapsed: collapsedProp = false,
     displayedView,
     myWorkAvailable,
     myWorkHref,
@@ -47,7 +46,7 @@
     onToggleRail = null,
   }: {
     variant?: "rail" | "drawer";
-    /** Kept for shell API compatibility; desktop collapse removes the rail. */
+    /** Desktop collapsed rail: icons only (the drawer always renders expanded). */
     collapsed?: boolean;
     displayedView: DashboardView | null;
     myWorkAvailable: boolean;
@@ -60,6 +59,8 @@
     onToggleRail?: (() => void) | null;
   } = $props();
 
+  // Only the desktop rail collapses; the drawer always renders expanded.
+  const collapsed = $derived(variant === "rail" && collapsedProp);
   const auth = useAuth();
   const userQ = useQuery(api.users.getCurrentUser, () => (auth.isAuthenticated ? {} : "skip"));
   const isDeveloper = $derived(userQ.data?.isDeveloper === true);
@@ -110,10 +111,13 @@
   // floating high. Measured at 1x and 2x DPR (2026-08-22).
   const rowHeight = $derived(variant === "rail" ? "h-7" : "min-h-11");
   const rowBase = $derived(
-    `${rowHeight} workspace-rail-row flex w-full items-center gap-2 rounded-md pl-2 pr-1 [&>svg]:shrink-0 text-left text-sm font-medium leading-5 tracking-[-0.01em] transition-colors duration-150 ease-out focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir motion-reduce:transition-none`
+    `${rowHeight} workspace-rail-row flex w-full items-center gap-2 rounded-md pl-2 pr-1 [&>svg]:shrink-0 text-left text-sm font-normal leading-5 tracking-[-0.01em] transition-colors duration-150 ease-out focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir motion-reduce:transition-none`
   );
+  // Collapsed rail (board 1.2): 32px icon tiles with a tooltip each.
+  const iconRow =
+    "workspace-rail-row relative flex h-8 w-8 items-center justify-center rounded-md transition-colors duration-150 ease-out focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir motion-reduce:transition-none";
   const idleRow = "text-ink hover:bg-workspace-rail-hover";
-  const selectedRow = "bg-workspace-rail-selected font-semibold text-ink";
+  const selectedRow = "bg-workspace-rail-selected font-medium text-ink";
 
   const ADMIN_LINKS = [
     { href: "/admin/brain", label: "The Brain", icon: "brain", tone: "bg-blue-500" },
@@ -128,27 +132,118 @@
   ] as const;
 </script>
 
+<!--
+  Workspace rail (ui-design-final.md section 2): the Banhall workspace header,
+  Home and Projects, the Admin records group for workspace admins, an
+  "Other" group (What's new with its counter, Settings, Flag issue, and the
+  developer utilities for flagged accounts), and the signed-in identity at
+  the bottom with sign-out beside it. Collapsed, the desktop rail keeps only
+  the icons (board 1.2). Search opens the shell command palette (also on
+  Cmd K); New project lives on Home, the Projects header and the palette.
+-->
+{#snippet row(opts: { href?: string; label: string; selected?: boolean; onclick?: (event: MouseEvent) => void; disabled?: boolean; attrs?: Record<string, unknown>; badge?: string | null; badgeTone?: string }, icon: import("svelte").Snippet)}
+  {#if collapsed}
+    <Tooltip text={opts.label} side="right" delayDuration={300}>
+      {#snippet children({ props })}
+        {#if opts.href}
+          <a
+            {...props}
+            {...opts.attrs}
+            href={opts.href}
+            aria-label={opts.label}
+            aria-current={opts.selected ? "page" : undefined}
+            aria-disabled={opts.disabled ? "true" : undefined}
+            onclick={opts.onclick}
+            class={`${iconRow} ${opts.selected ? selectedRow : idleRow}`}
+          >
+            {@render icon()}
+            {#if opts.badge}
+              <span class={`absolute -right-0.5 -top-0.5 flex h-3.5 min-w-3.5 items-center justify-center rounded-full px-0.5 text-[0.5625rem] font-medium leading-none text-white ${opts.badgeTone ?? "bg-primary"}`}>{opts.badge}</span>
+            {/if}
+          </a>
+        {:else}
+          <button
+            {...props}
+            {...opts.attrs}
+            type="button"
+            aria-label={opts.label}
+            onclick={opts.onclick}
+            class={`${iconRow} ${idleRow}`}
+          >
+            {@render icon()}
+          </button>
+        {/if}
+      {/snippet}
+    </Tooltip>
+  {:else if opts.href}
+    <a
+      {...opts.attrs}
+      href={opts.href}
+      aria-current={opts.selected ? "page" : undefined}
+      aria-disabled={opts.disabled ? "true" : undefined}
+      onclick={opts.onclick}
+      class={`${rowBase} ${opts.selected ? selectedRow : idleRow}`}
+    >
+      {@render icon()}
+      <span class="min-w-0 translate-y-[0.5px] truncate">{opts.label}</span>
+      {#if opts.badge}
+        <span class={`ml-auto flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full px-1 text-[0.625rem] font-medium leading-none text-white ${opts.badgeTone ?? "bg-primary"}`}>{opts.badge}</span>
+      {/if}
+    </a>
+  {:else}
+    <button {...opts.attrs} type="button" onclick={opts.onclick} class={`${rowBase} ${idleRow}`}>
+      {@render icon()}
+      <span class="min-w-0 translate-y-[0.5px] truncate">{opts.label}</span>
+    </button>
+  {/if}
+{/snippet}
+
+{#snippet houseIcon()}<HouseIcon size={16} weight="regular" aria-hidden="true" />{/snippet}
+{#snippet folderIcon()}<FolderSimpleIcon size={16} weight="regular" aria-hidden="true" />{/snippet}
+{#snippet megaphoneIcon()}<MegaphoneIcon size={16} weight="regular" aria-hidden="true" />{/snippet}
+{#snippet gearIcon()}<GearSixIcon size={16} weight="regular" aria-hidden="true" />{/snippet}
+{#snippet flagIcon()}<FlagIcon size={16} weight="regular" aria-hidden="true" />{/snippet}
+{#snippet bellIcon()}<BellIcon size={16} weight="regular" aria-hidden="true" />{/snippet}
+{#snippet bulbIcon()}<LightbulbIcon size={16} weight="regular" aria-hidden="true" />{/snippet}
+{#snippet escapeIcon()}<ArrowSquareOutIcon size={16} weight="regular" aria-hidden="true" />{/snippet}
+
 <nav
   aria-label="Workspace"
   data-collapsed-compat={collapsed ? "" : undefined}
+  data-rail-collapsed={collapsed ? "" : undefined}
   class={`flex h-full min-h-0 flex-col bg-workspace-rail text-ink ${variant === "drawer" ? "pb-[max(0.5rem,env(safe-area-inset-bottom))] pt-[env(safe-area-inset-top)]" : "pb-2"}`}
 >
   <div class="flex min-h-0 flex-1 flex-col">
     <div data-rail-drawer-header class="shrink-0 bg-workspace-rail">
-      <div class={`flex h-12 items-center pl-3 ${variant === "drawer" ? "pr-14" : "pr-[13px]"}`}>
+      <div class={`flex h-14 items-center ${collapsed ? "justify-center px-0" : `gap-1 pl-3 ${variant === "drawer" ? "pr-14" : "pr-[13px]"}`}`}>
         <a
           href={resolve("/dashboard")}
-          aria-label={`${userName} dashboard`}
+          aria-label="Banhall dashboard"
           onclick={onNavigate}
           class="flex min-w-0 flex-1 items-center gap-2 rounded-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-fir"
+          class:flex-none={collapsed}
         >
-          <span class="flex h-7 w-7 shrink-0 items-center justify-center rounded-[5px] bg-fir text-[0.6875rem] font-semibold text-white" aria-hidden="true">{userInitials}</span>
-          <span class="min-w-0 flex-1">
-            <span class="block truncate text-sm font-medium leading-4 text-ink">{userName}</span>
-            <span class="block truncate text-[0.6875rem] leading-4 text-ink-muted">{userRole}</span>
-          </span>
+          <span data-rail-workspace-mark class="flex h-7 w-7 shrink-0 items-center justify-center rounded-[6px] bg-fir text-[0.75rem] font-medium text-white" aria-hidden="true">B</span>
+          {#if !collapsed}
+            <span class="min-w-0 flex-1 truncate text-sm font-medium text-ink">Banhall</span>
+          {/if}
         </a>
-        {#if variant === "rail" && onToggleRail}
+        {#if !collapsed}
+          <Tooltip text="Search" side="bottom" delayDuration={300}>
+            {#snippet children({ props })}
+              <button
+                {...props}
+                type="button"
+                aria-label="Search projects"
+                onclick={onFocusSearch}
+                class="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-ink-muted transition-colors hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir"
+              >
+                <MagnifyingGlassIcon size={15} weight="regular" aria-hidden="true" />
+              </button>
+            {/snippet}
+          </Tooltip>
+        {/if}
+        {#if variant === "rail" && onToggleRail && !collapsed}
           <Tooltip text="Collapse sidebar" side="bottom" delayDuration={300}>
             {#snippet children({ props })}
               <button
@@ -168,65 +263,30 @@
           </Tooltip>
         {/if}
       </div>
-
-      <div class={`flex items-center gap-2 pb-0 pl-3 pr-[13px] ${variant === "drawer" ? "mb-2 pt-1.5" : "mb-3 pt-2.5"}`}>
-        <button
-          type="button"
-          aria-label="Search projects"
-          onclick={onFocusSearch}
-          class={`${variant === "rail" ? "h-7" : "min-h-11"} workspace-rail-control flex min-w-0 flex-1 items-center gap-1.5 rounded-md bg-workspace-control pl-1.5 pr-1 text-sm font-medium text-ink transition-colors hover:bg-workspace-rail-hover focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir motion-reduce:transition-none`}
-        >
-          <MagnifyingGlassIcon size={16} weight="regular" aria-hidden="true" />
-          <span>Search</span>
-          <kbd class="ml-auto rounded-sm px-1.5 text-xs font-medium text-ink-faint">⌘K</kbd>
-        </button>
-        <Tooltip text="New project" side="bottom" delayDuration={300}>
-          {#snippet children({ props })}
-            <a
-              {...props}
-              href={resolve("/project/new")}
-              aria-label="New project"
-              onclick={onNavigate}
-              class={`${variant === "rail" ? "h-7 w-7" : "h-11 w-11"} flex shrink-0 items-center justify-center rounded-md bg-action-primary text-action-primary-foreground transition-colors hover:bg-action-primary-hover focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir motion-reduce:transition-none`}
-            >
-              <PlusIcon size={16} weight="regular" aria-hidden="true" />
-            </a>
-          {/snippet}
-        </Tooltip>
-      </div>
     </div>
 
     <div data-rail-scroll class="scrollbar-hidden flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain">
-      <div class="flex flex-col gap-px px-2">
-        <a
-          href={myWorkHref}
-          class={`${rowBase} ${displayedView === "my_work" ? selectedRow : idleRow}`}
-          aria-current={displayedView === "my_work" ? "page" : undefined}
-          aria-disabled={!myWorkAvailable}
-          onclick={(event) => {
+      {#if !collapsed}
+        <p class="px-4 pb-1 pt-1 text-xs text-ink-muted">Workspace</p>
+      {/if}
+      <div class={`flex flex-col gap-1 ${collapsed ? "items-center px-0" : "px-2"}`}>
+        {@render row({
+          href: myWorkHref,
+          label: "Home",
+          selected: displayedView === "my_work",
+          disabled: !myWorkAvailable,
+          onclick: (event) => {
             if (!myWorkAvailable) {
               event.preventDefault();
               return;
             }
             onNavigate?.();
-          }}
-        >
-          <HouseIcon size={16} weight="regular" aria-hidden="true" />
-          <span class="min-w-0 translate-y-[0.5px] truncate">Home</span>
-        </a>
-
-        <a
-          href={projectsHref}
-          class={`${rowBase} ${displayedView === "all_projects" ? selectedRow : idleRow}`}
-          aria-current={displayedView === "all_projects" ? "page" : undefined}
-          onclick={onNavigate}
-        >
-          <FolderSimpleIcon size={16} weight="regular" aria-hidden="true" />
-          <span class="min-w-0 translate-y-[0.5px] truncate">Projects</span>
-        </a>
+          },
+        }, houseIcon)}
+        {@render row({ href: projectsHref, label: "Projects", selected: displayedView === "all_projects", onclick: () => onNavigate?.() }, folderIcon)}
       </div>
 
-      {#if userQ.data?.role === "admin" && (isDeveloper || isOwner)}
+      {#if userQ.data?.role === "admin" && (isDeveloper || isOwner) && !collapsed}
         <div data-rail-admin class="mt-5 flex flex-col gap-[3px] px-2">
           <button
             type="button"
@@ -273,94 +333,118 @@
         </div>
       {/if}
 
-      <div class="min-h-4 flex-1" aria-hidden="true"></div>
+      {#if userQ.data?.role === "admin" && (isDeveloper || isOwner) && collapsed}
+        <div data-rail-admin class="mt-4 flex flex-col items-center gap-1 border-t border-workspace-rail-line pt-3">
+          {#each ADMIN_LINKS as link (link.href)}
+            <Tooltip text={link.label} side="right" delayDuration={300}>
+              {#snippet children({ props })}
+                <a
+                  {...props}
+                  href={resolve(link.href)}
+                  aria-label={link.label}
+                  onclick={onNavigate}
+                  aria-current={pathname.startsWith(resolve(link.href)) ? "page" : undefined}
+                  class={`${iconRow} ${pathname.startsWith(resolve(link.href)) ? selectedRow : idleRow}`}
+                >
+                  <span data-admin-icon-tone={link.icon} class={`flex h-4 w-4 shrink-0 items-center justify-center rounded-[3px] text-white ${link.tone}`}>
+                    {#if link.icon === "brain"}<BrainIcon size={12} weight="bold" aria-hidden="true" />
+                    {:else if link.icon === "ingestion"}<CloudArrowDownIcon size={12} weight="bold" aria-hidden="true" />
+                    {:else if link.icon === "tag"}<TagIcon size={12} weight="bold" aria-hidden="true" />
+                    {:else if link.icon === "reviews"}<ClipboardTextIcon size={12} weight="bold" aria-hidden="true" />
+                    {:else if link.icon === "users"}<UserGearIcon size={12} weight="bold" aria-hidden="true" />
+                    {:else if link.icon === "models"}<SlidersHorizontalIcon size={12} weight="bold" aria-hidden="true" />
+                    {:else}<ChartBarIcon size={12} weight="bold" aria-hidden="true" />{/if}
+                  </span>
+                </a>
+              {/snippet}
+            </Tooltip>
+          {/each}
+        </div>
+      {/if}
 
-      <div data-rail-utilities class="mb-1 border-t border-workspace-rail-line px-2 pt-2">
-        <div class="flex flex-col gap-px">
-          {#if isDeveloper}
-            <a
-              href={resolve("/alerts")}
-              onclick={onNavigate}
-              class={`${rowBase} ${pathname.startsWith(resolve("/alerts")) ? selectedRow : idleRow}`}
-              aria-current={pathname.startsWith(resolve("/alerts")) ? "page" : undefined}
-            >
-              <BellIcon size={16} weight="regular" aria-hidden="true" />
-              <span class="min-w-0 translate-y-[0.5px] truncate">Alerts</span>
-              {#if openAlerts > 0}
-                <span class="ml-auto flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-red-500 px-1 text-[0.625rem] font-semibold leading-none text-white">{openAlerts > 99 ? "99+" : openAlerts}</span>
-              {/if}
-            </a>
-            <a
-              href={resolve("/requests")}
-              onclick={onNavigate}
-              class={`${rowBase} ${pathname.startsWith(resolve("/requests")) ? selectedRow : idleRow}`}
-              aria-current={pathname.startsWith(resolve("/requests")) ? "page" : undefined}
-            >
-              <LightbulbIcon size={16} weight="regular" aria-hidden="true" />
-              <span class="min-w-0 translate-y-[0.5px] truncate">Feature requests</span>
-            </a>
-          {/if}
-          <a
-            href={resolve("/changelog")}
-            onclick={onNavigate}
-            class={`${rowBase} ${pathname.startsWith(resolve("/changelog")) ? selectedRow : idleRow}`}
-            aria-current={pathname.startsWith(resolve("/changelog")) ? "page" : undefined}
-          >
-            <MegaphoneIcon size={16} weight="regular" aria-hidden="true" />
-            <span class="min-w-0 translate-y-[0.5px] truncate">What's new</span>
-            {#if unseenChangelog > 0}
-              <span class="ml-auto flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-primary px-1 text-[0.625rem] font-semibold leading-none text-white">{unseenChangelog > 99 ? "99+" : unseenChangelog}</span>
-            {/if}
-          </a>
+      {#if collapsed}
+        <div class="min-h-4 flex-1" aria-hidden="true"></div>
+      {/if}
+
+      <div data-rail-utilities class={collapsed ? "mb-1 flex flex-col items-center gap-1" : "mt-5 px-2"}>
+        {#if !collapsed}
+          <p class="px-2 pb-1 text-xs text-ink-muted">Other</p>
+        {/if}
+        <div class={`flex flex-col gap-1 ${collapsed ? "items-center" : ""}`}>
+          {@render row({
+            href: resolve("/changelog"),
+            label: "What's new",
+            selected: pathname.startsWith(resolve("/changelog")),
+            onclick: () => onNavigate?.(),
+            badge: unseenChangelog > 0 ? (unseenChangelog > 99 ? "99+" : String(unseenChangelog)) : null,
+          }, megaphoneIcon)}
+          {@render row({
+            href: resolve("/settings"),
+            label: "Settings",
+            selected: pathname.startsWith(resolve("/settings")),
+            onclick: () => onNavigate?.(),
+          }, gearIcon)}
           <!-- Flag issue is for every user (2026-08-19): bug reports and
                feature requests come from the whole team, not just devs. -->
-          <button
-            type="button"
-            data-rail-flag-issue
-            onclick={() => {
+          {@render row({
+            label: "Flag issue",
+            attrs: { "data-rail-flag-issue": "" },
+            onclick: () => {
               onNavigate?.();
               window.dispatchEvent(new CustomEvent("banhall:flag-issue"));
-            }}
-            class={`${rowBase} ${idleRow}`}
-          >
-            <FlagIcon size={16} weight="regular" aria-hidden="true" />
-            <span class="min-w-0 translate-y-[0.5px] truncate">Flag issue</span>
-          </button>
+            },
+          }, flagIcon)}
           {#if isDeveloper}
-            <button
-              type="button"
-              data-workspace-escape
-              onclick={() => {
+            {@render row({
+              href: resolve("/alerts"),
+              label: "Alerts",
+              selected: pathname.startsWith(resolve("/alerts")),
+              onclick: () => onNavigate?.(),
+              badge: openAlerts > 0 ? (openAlerts > 99 ? "99+" : String(openAlerts)) : null,
+              badgeTone: "bg-red-500",
+            }, bellIcon)}
+            {@render row({
+              href: resolve("/requests"),
+              label: "Feature requests",
+              selected: pathname.startsWith(resolve("/requests")),
+              onclick: () => onNavigate?.(),
+            }, bulbIcon)}
+            {@render row({
+              label: currentExperienceLabel,
+              attrs: { "data-workspace-escape": "" },
+              onclick: () => {
                 onNavigate?.();
                 goto(currentDashboardHref);
-              }}
-              class={`${rowBase} ${idleRow}`}
-            >
-              <ArrowSquareOutIcon size={16} weight="regular" aria-hidden="true" />
-              <span class="min-w-0 translate-y-[0.5px] truncate">{currentExperienceLabel}</span>
-            </button>
+              },
+            }, escapeIcon)}
           {/if}
         </div>
       </div>
+
+      {#if !collapsed}
+        <div class="min-h-4 flex-1" aria-hidden="true"></div>
+      {/if}
     </div>
   </div>
 
-  <div class="border-t border-workspace-rail-line px-2 pt-2">
-    <!-- One composite footer surface: Settings owns the active state while
-         sign-out remains an adjacent action inside the same visual group. -->
+  <div class={`border-t border-workspace-rail-line pt-2 ${collapsed ? "px-0" : "px-2"}`}>
+    <!-- Identity at the bottom: who is signed in, with sign-out beside it. -->
     <div
       data-rail-account-actions
-      class={`flex items-center rounded-md transition-colors duration-150 ease-out motion-reduce:transition-none ${pathname.startsWith(resolve("/settings")) ? "bg-workspace-rail-selected" : "hover:bg-workspace-rail-hover"}`}
+      data-rail-identity
+      class={`flex items-center rounded-md ${collapsed ? "flex-col gap-1" : "gap-2 pl-1.5"}`}
     >
-      <a
-        href={resolve("/settings")}
-        aria-current={pathname.startsWith(resolve("/settings")) ? "page" : undefined}
-        onclick={onNavigate}
-        class={`flex min-w-0 flex-1 items-center gap-2 rounded-l-md px-2 text-left text-sm font-medium text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir ${variant === "rail" ? "h-9" : "h-11"} ${pathname.startsWith(resolve("/settings")) ? "font-semibold" : ""}`}
-      >
-        <GearSixIcon size={16} weight="regular" aria-hidden="true" class="shrink-0" />
-        <span class="min-w-0 flex-1 truncate">Settings</span>
-      </a>
+      <span
+        aria-hidden={collapsed ? undefined : "true"}
+        title={collapsed ? `${userName}, ${userRole}` : undefined}
+        class="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-fir text-[0.6875rem] font-medium text-white"
+      >{userInitials}</span>
+      {#if !collapsed}
+        <span class="min-w-0 flex-1">
+          <span class="block truncate text-sm font-medium leading-4 text-ink">{userName}</span>
+          <span class="block truncate text-[0.6875rem] leading-4 text-ink-muted">{userRole}, Banhall</span>
+        </span>
+      {/if}
       <UserMenu
         tone="light"
         menuTheme="light"

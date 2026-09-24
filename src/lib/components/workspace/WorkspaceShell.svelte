@@ -32,11 +32,11 @@
     theme: "light" | "dark";
     navigationOpen?: boolean;
     /**
-     * Desktop rail collapse state. The Attio-style rail fully leaves the
-     * canvas at width 0; its previous expanded width remains persisted. The
-     * shell owns the
-     * persisted preference; hosts bind this so their header toggle stays a
-     * plain prop wire. The mobile drawer is independent and unchanged.
+     * Desktop rail collapse state. Collapsed, the rail keeps an icons-only
+     * column (ui-design-final.md section 2, board 1.2); its expanded width
+     * stays persisted. The shell owns the persisted preference; hosts bind
+     * this so their header toggle stays a plain prop wire. The mobile drawer
+     * is independent and unchanged.
      */
     railHidden?: boolean;
     displayedView: DashboardView | null;
@@ -86,8 +86,21 @@
     root?.style.setProperty("--workspace-rail-width", `${railWidth}px`);
   }
 
+  // Tablet widths (1024 to 1279px) keep the icons-only rail on screen
+  // (ui-design-final.md section 3, board 3.5); the preference applies from
+  // 1280px up.
+  let tablet = $state(false);
   $effect(() => {
-    const desktop = window.matchMedia("(min-width: 80rem)");
+    const media = window.matchMedia("(min-width: 64rem) and (max-width: 79.98rem)");
+    const update = () => (tablet = media.matches);
+    update();
+    media.addEventListener("change", update);
+    return () => media.removeEventListener("change", update);
+  });
+  const railCollapsed = $derived(railHidden || tablet);
+
+  $effect(() => {
+    const desktop = window.matchMedia("(min-width: 64rem)");
     const closeDrawer = () => {
       if (desktop.matches) navigationOpen = false;
     };
@@ -105,23 +118,19 @@
   data-rail-hidden={railHidden ? "" : undefined}
   data-rail-resizing={resizing ? "" : undefined}
   style={`--workspace-rail-width: ${railWidth}px; --workspace-rail-collapsed-width: ${RAIL_COLLAPSED_WIDTH}px;`}
-  class="workspace-shell-grid relative grid h-dvh grid-rows-[minmax(0,1fr)] overflow-hidden bg-canvas text-ink xl:grid-cols-[var(--workspace-rail-col)_minmax(0,1fr)]"
+  class="workspace-shell-grid relative grid h-dvh grid-rows-[minmax(0,1fr)] overflow-hidden bg-canvas text-ink lg:grid-cols-[var(--workspace-rail-collapsed-width)_minmax(0,1fr)] xl:grid-cols-[var(--workspace-rail-col)_minmax(0,1fr)]"
 >
-  <div class="workspace-rail-column relative hidden min-h-0 xl:block">
+  <div class="workspace-rail-column relative hidden min-h-0 lg:block">
     <aside
       id="workspace-rail"
       data-rail-panel
-      inert={railHidden ? true : undefined}
-      aria-hidden={railHidden ? "true" : undefined}
-      class="workspace-rail-panel absolute inset-y-0 left-0 overflow-hidden border-r border-workspace-rail-line bg-workspace-rail"
-      style="width: var(--workspace-rail-width);"
+      class="workspace-rail-panel absolute inset-y-0 left-0 overflow-hidden bg-workspace-rail"
+      style={`width: ${railCollapsed ? "var(--workspace-rail-collapsed-width)" : "var(--workspace-rail-width)"};`}
     >
-      <!-- Fixed-width panel: the grid track and the panel translate travel
-           together, so the rail exits intact instead of being squeezed. -->
-      <div class="h-full" style="width: var(--workspace-rail-width);">
+      <div class="h-full" style={`width: ${railCollapsed ? "var(--workspace-rail-collapsed-width)" : "var(--workspace-rail-width)"};`}>
         <WorkspaceRail
           variant="rail"
-          collapsed={false}
+          collapsed={railCollapsed}
           {displayedView}
           {myWorkAvailable}
           {myWorkHref}
@@ -133,7 +142,7 @@
         />
       </div>
       <!-- Pointer/keyboard resize applies to the expanded rail only. -->
-      {#if !railHidden}
+      {#if !railCollapsed}
         <WorkspaceRailResizeHandle width={railWidth} onResize={applyLiveWidth} onCommit={commitWidth} />
       {/if}
     </aside>
@@ -148,7 +157,7 @@
   <Drawer.Content
     data-workspace-drawer
     data-workspace-theme="light"
-    class="z-[110] h-dvh w-[min(19rem,calc(100vw-2.5rem))]! max-w-none! rounded-none! border-r border-workspace-rail-line bg-workspace-rail p-0 text-ink shadow-workspace-drawer xl:hidden"
+    class="z-[110] h-dvh w-[min(19rem,calc(100vw-2.5rem))]! max-w-none! rounded-none! border-r border-workspace-rail-line bg-workspace-rail p-0 text-ink shadow-workspace-drawer lg:hidden"
   >
     <Drawer.Title class="sr-only">Workspace navigation</Drawer.Title>
     <Drawer.Description class="sr-only">{drawerDescription}</Drawer.Description>
@@ -173,29 +182,21 @@
 </Drawer.Root>
 
 <style>
-  /* Rail column: the grid tracks the expanded width or slides fully closed.
-     `data-rail-hidden` is kept as the persisted-preference lineage.
-     The panel translates by the same distance while the grid track closes,
-     matching Attio's intact off-canvas exit instead of clipping the rail's
-     right edge. Live pointer drags suspend the track transition so the edge
-     follows the pointer 1:1. */
+  /* Rail column: the grid tracks the expanded width or the icons-only
+     collapsed width. `data-rail-hidden` is kept as the persisted-preference
+     lineage (it now means "collapsed"). Live pointer drags suspend the track
+     transition so the edge follows the pointer 1:1. */
   .workspace-shell-grid {
     --workspace-rail-col: var(--workspace-rail-width, 275px);
     transition: grid-template-columns 300ms cubic-bezier(0.16, 1, 0.3, 1);
   }
 
   .workspace-rail-panel {
-    transform: translate3d(0, 0, 0);
-    transition: transform 300ms cubic-bezier(0.16, 1, 0.3, 1);
-    will-change: transform;
+    transition: width 300ms cubic-bezier(0.16, 1, 0.3, 1);
   }
 
   .workspace-shell-grid[data-rail-hidden] {
-    --workspace-rail-col: var(--workspace-rail-collapsed-width, 0px);
-  }
-
-  .workspace-shell-grid[data-rail-hidden] .workspace-rail-panel {
-    transform: translate3d(-100%, 0, 0);
+    --workspace-rail-col: var(--workspace-rail-collapsed-width, 56px);
   }
 
   .workspace-shell-grid[data-rail-resizing] {

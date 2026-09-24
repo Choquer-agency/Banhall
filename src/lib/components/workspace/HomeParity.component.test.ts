@@ -135,7 +135,7 @@ describe("Home Obvious-parity presentation", () => {
     expect(projects?.querySelector('a[href="/projects"]')).not.toBeNull();
   });
 
-  it("removes Home's redundant context header while keeping creation anchored in the rail", async () => {
+  it("removes Home's redundant context header while keeping creation on Home itself", async () => {
     __setPageUrl("/my-work");
     seedHome();
     await render(WorkspaceDashboard, { view: "my_work" });
@@ -144,12 +144,10 @@ describe("Home Obvious-parity presentation", () => {
     expect(document.querySelector("[data-workspace-toolbar]")).toBeNull();
     expect(document.querySelector("[data-home-shell-controls]")).not.toBeNull();
     expect(document.querySelector("main h1")?.textContent).toContain("Good");
-    // The rail keeps the persistent creation anchor (Obvious sidebar parity);
-    // no header creation CTA exists to duplicate it.
-    expect(
-      document.querySelectorAll('nav a[href="/project/new"]').length
-    ).toBeGreaterThanOrEqual(1);
-    // The header does not duplicate the persistent rail creation action.
+    // The final rail (ui-design-final.md section 2) carries no creation
+    // action: Home starts projects from its own composer, the Projects header
+    // and the command palette keep New project.
+    expect(document.querySelectorAll('nav a[href="/project/new"]').length).toBe(0);
     expect(document.querySelector('[data-home-shell-controls] a[href="/project/new"]')).toBeNull();
   });
 

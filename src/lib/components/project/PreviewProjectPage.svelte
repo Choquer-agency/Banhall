@@ -12,23 +12,21 @@
   import { goto, pushState } from "$app/navigation";
   import { resolve } from "$app/paths";
   import WorkspaceShell from "$lib/components/workspace/WorkspaceShell.svelte";
-  import WorkspaceShellControls from "$lib/components/workspace/WorkspaceShellControls.svelte";
   import { page } from "$app/state";
   import { useConvexClient, useQuery, useMutation, useAction } from "convex-svelte";
   import { useAuth } from "@mmailaender/convex-better-auth-svelte/svelte";
-  import { scale } from "svelte/transition";
   import { overlayFade, modalPop } from "$lib/motion";
   import { api } from "../../../../convex/_generated/api";
   import type { Id } from "../../../../convex/_generated/dataModel";
   import ProjectStateBadge from "$lib/components/dashboard/ProjectStateBadge.svelte";
   import Button from "$lib/components/ui/Button.svelte";
   import Spinner from "$lib/components/ui/Spinner.svelte";
-  import ChatIcon from "$lib/components/ui/ChatIcon.svelte";
   import GenerationProgress from "$lib/components/generation/GenerationProgress.svelte";
   import GenerationStatusChip from "$lib/components/generation/GenerationStatusChip.svelte";
   import SeedWorkspace from "$lib/components/seeds/SeedWorkspace.svelte";
   import SeedSummaryReview from "$lib/components/seeds/SeedSummaryReview.svelte";
   import SeedInitializationRecovery from "$lib/components/seeds/SeedInitializationRecovery.svelte";
+  import { seedsApi } from "$lib/components/seeds/api";
   import {
     focusSummaryReturnTrigger,
     SEED_SIGNED_OFF_SUMMARY_TRIGGER_ID,
@@ -44,8 +42,6 @@
     WriterEditorHandle,
   } from "$lib/components/editor/types";
   import QAScorePanel from "$lib/components/editor/QAScorePanel.svelte";
-  import QALauncher from "$lib/components/qa/QALauncher.svelte";
-  import Tooltip from "$lib/components/ui/Tooltip.svelte";
   import ChronologyTable from "$lib/components/editor/ChronologyTable.svelte";
   import ModelTestSummary from "$lib/components/editor/ModelTestSummary.svelte";
   import FilesPanel from "$lib/components/editor/FilesPanel.svelte";
@@ -53,19 +49,22 @@
   import DisclosureChevron from "$lib/components/ui/DisclosureChevron.svelte";
   import { normalizeExtractedText } from "$lib/parseDocument";
   import { projectPagingPosition } from "$lib/workspace/projectPagingContext";
-  import ProjectHighlights from "$lib/components/project/ProjectHighlights.svelte";
   import FilingReadinessPanel from "$lib/components/evidence/FilingReadinessPanel.svelte";
   import LogsPanel from "$lib/components/editor/LogsPanel.svelte";
   import CommentOverlay from "$lib/components/comments/CommentOverlay.svelte";
   import LazyModule from "$lib/components/ui/LazyModule.svelte";
-  import EditableText from "$lib/components/project/EditableText.svelte";
   import PdReviewReport from "$lib/components/review-pd/PdReviewReport.svelte";
   import PdReviewStart from "$lib/components/review-pd/PdReviewStart.svelte";
-  import TagPicker from "$lib/components/project-new/TagPicker.svelte";
   import SelectInput from "$lib/components/ui/SelectInput.svelte";
-  import IndustryField from "$lib/components/project/IndustryField.svelte";
-  import FiscalYearField from "$lib/components/project/FiscalYearField.svelte";
-  import ScienceCodeField from "$lib/components/project/ScienceCodeField.svelte";
+  import ProjectTopBar, { type TopBarMoreItem } from "$lib/components/project/shell/ProjectTopBar.svelte";
+  import PanelToolbar, { type PanelTab } from "$lib/components/project/shell/PanelToolbar.svelte";
+  import PanelQaToggleSlot from "$lib/components/project/shell/PanelQaToggleSlot.svelte";
+  import SourcesView from "$lib/components/project/shell/SourcesView.svelte";
+  import DetailsPanel from "$lib/components/project/details/DetailsPanel.svelte";
+  import DetailsPopover from "$lib/components/project/details/DetailsPopover.svelte";
+  import DetailsMore from "$lib/components/project/details/DetailsMore.svelte";
+  import { useDetailsData } from "$lib/components/project/details/detailsData.svelte";
+  import type { WorkflowStage } from "../../../../shared/workflowStages";
   import ExportValidationDialog from "$lib/components/export/ExportValidationDialog.svelte";
   import {
     canonicalizeExportPreflight,
@@ -82,10 +81,6 @@
   import SingleModelPicker from "$lib/components/generation/SingleModelPicker.svelte";
   import GhostCompareDialog from "$lib/components/generation/GhostCompareDialog.svelte";
   import { displayName } from "$lib/displayName";
-  import {
-    PROJECT_TYPE_LABELS,
-    effectiveProjectType,
-  } from "../../../../shared/projectTypes";
 
   const auth = useAuth();
   // New-UI shell wiring (2026-08-10): same contract WorkspaceChrome uses —
@@ -168,15 +163,9 @@
       ? { projectId, reportId: reportQ.data._id }
       : "skip"
   );
-  const viewSummaryQ = useQuery(api.reportViews.getViewSummary, () =>
-    auth.isAuthenticated ? { projectId } : "skip"
-  );
   // BNH-39: review-mode projects show the AI feedback report on the written PD.
   const pdReviewQ = useQuery(api.pdReviews.getLatestPdReview, () =>
     auth.isAuthenticated ? { projectId } : "skip"
-  );
-  const tagsQ = useQuery(api.tags.listTags, () =>
-    auth.isAuthenticated ? {} : "skip"
   );
   // 2026-09-15 metadata gate: the same scope the metadata mutations enforce
   // (Owner, open-work-item collaborator, Manager, Admin). While the answer is
@@ -191,14 +180,6 @@
   const canEditDetails = $derived(
     editAccessQ.error ? false : (editAccessQ.data?.canEditDetails ?? true)
   );
-  // 2026-08-11 (second) amendment: a review project links back to the source
-  // project it reviews. Gated on sourceProjectId so non-review projects (the
-  // overwhelming majority) subscribe to nothing extra.
-  const sourceProjectQ = useQuery(api.projects.getProject, () =>
-    auth.isAuthenticated && projectQ.data?.sourceProjectId
-      ? { projectId: projectQ.data.sourceProjectId }
-      : "skip"
-  );
 
   const generateReport = useMutation(api.generations.requestGeneration);
   const recordUploadAttempts = useMutation(api.uploadAttempts.recordUploadAttempts);
@@ -206,38 +187,6 @@
   const updateReport = useMutation(api.reports.updateReportContent);
   const createSnapshot = useMutation(api.snapshots.createManualSnapshot);
   const markProposalApplied = useMutation(api.chatV2.markProposalApplied);
-  const updateTitles = useMutation(api.projects.updateProjectTitles);
-  const updateClientName = useMutation(api.projects.updateProjectClientName);
-  const updateProjectNumber = useMutation(api.projects.setProjectNumber);
-  // Per-company project number / draft letter (2026-08-11 amendment).
-  // Mirrors the server rule: "1".."20", a letter "A".."Z", or combined "2A".
-  const PROJECT_NUMBER_PATTERN = /^(?:[1-9][0-9]?[A-Z]?|[A-Z])$/;
-  let projectNumberError = $state("");
-  async function saveProjectNumber(value: string) {
-    projectNumberError = "";
-    const next = value.trim().toUpperCase();
-    const numericPart = next.match(/^[0-9]+/)?.[0];
-    if (
-      next &&
-      (!PROJECT_NUMBER_PATTERN.test(next) ||
-        (numericPart !== undefined && Number(numericPart) > 20))
-    ) {
-      projectNumberError = "Use 1–20, a letter A–Z, or combined like 2A.";
-      return;
-    }
-    try {
-      await updateProjectNumber({
-        projectId,
-        projectNumber: next || undefined,
-      });
-    } catch (error) {
-      projectNumberError = userErrorMessage(
-        error,
-        "The project number could not be updated."
-      );
-    }
-  }
-  const updateProjectTags = useMutation(api.projects.updateProjectTags);
   const authorizeExport = useMutation(api.reports.authorizeExport);
   const completeExport = useMutation(api.reports.completeExport);
   const failExport = useMutation(api.reports.failExport);
@@ -278,14 +227,7 @@
         (project.createdBy === user._id || user.role === "admin")
     )
   );
-  const viewSummary = $derived(viewSummaryQ.data);
   const pdReview = $derived(pdReviewQ.data);
-  const allTags = $derived(tagsQ.data ?? []);
-  const writerLabel = $derived(project?.writer?.trim() || "Unknown writer");
-  const interviewerLabel = $derived(project?.interviewer?.trim() || null);
-  const interviewees = $derived(
-    (project?.interviewees ?? []).map((name) => name.trim()).filter(Boolean)
-  );
 
   let editorRef: WriterEditorHandle | null = $state(null);
   let lastSnapshotAt = 0;
@@ -348,10 +290,6 @@
   let workspaceMaximized = $state(false);
   let candidateMaximized = $state(false);
   let generationError = $state("");
-  // string[] (not Id<"tags">[]) so it can bind into the shared TagPicker.
-  let selectedTagIds = $state<string[]>([]);
-  let tagsSaving = $state(false);
-  let tagError = $state("");
 
   // BNH-30: one-by-one replace-and-scan-next session.
   type ReplaceMatch = { from: number; to: number; replaceWith: string; text: string };
@@ -544,30 +482,29 @@
   }
 
   function handleAskAI(selection: { from: number; to: number; text: string }) {
-    chatOpen = true;
-    qaOpen = false;
-    railView = "chat";
-    mobileWorkspaceView = "assistant";
+    openSidePanel("chat");
     pendingChatHighlight = selection;
   }
 
   function handleResearch(selection: ResearchSelection) {
-    chatOpen = true;
-    qaOpen = false;
-    railView = "chat";
+    openSidePanel("chat");
     pendingChatHighlight = null;
     pendingResearch = selection;
-    mobileWorkspaceView = "assistant";
   }
 
-  // BNH-14: resizable, closable chat rail. Width + open state persist across
-  // sessions (localStorage). Drag clamps keep both panes usable: chat never
-  // narrower than 24% nor wider than 55% of the workspace. (2026-07-03: the
-  // rail stays right-docked and resizable; only open/close changed — the
-  // panel now pops up from the bottom instead of sliding in from the side.)
+  // Side slot (ui-design-final.md section 8): the Assistant, QA and Details
+  // share one right panel, 400px by default, resized with a hairline divider
+  // (pointer and keyboard). Chat and QA open state persist as before; the
+  // width persists per browser. The intake context split keeps its ratio
+  // clamps below.
   const CHAT_MIN = 0.24;
   const CHAT_MAX = 0.55;
-  let chatRatio = $state(0.31);
+  const SIDE_PANEL_MIN = 320;
+  const SIDE_PANEL_MAX = 640;
+  const SIDE_PANEL_DEFAULT = 400;
+  const clampSidePanel = (width: number) =>
+    Math.round(Math.min(SIDE_PANEL_MAX, Math.max(SIDE_PANEL_MIN, width)));
+  let sidePanelWidth = $state(SIDE_PANEL_DEFAULT);
   let chatOpen = $state(true);
   let chatPreferencesReady = $state(false);
   let chatFocus = $state(false);
@@ -579,9 +516,17 @@
     media.addEventListener("change", update);
     return () => media.removeEventListener("change", update);
   });
+  // Narrow screens show one pane at a time: the report, or the side panel
+  // ("assistant" names every side panel: Assistant, QA or Details).
   let mobileWorkspaceView = $state<"report" | "assistant">("report");
-  let projectDetailsOpen = $state(false);
-  const projectDetailsBodyId = "project-details-body";
+  let detailsOpen = $state(false);
+  let detailsView = $state<"details" | "handoff">("details");
+  let handOffStage = $state<WorkflowStage | null>(null);
+  let detailsPeekOpen = $state(false);
+  let detailsButton = $state<HTMLButtonElement | null>(null);
+  // Sources tab: the main surfaces stay mounted (hidden) so no draft or
+  // editor state is lost while it shows.
+  let sourcesOpen = $state(false);
   // Intake workbench (2026-08-08 Obvious-parity amendment): the NO-REPORT
   // state mirrors the report workbench's split — a persistent left CONTEXT
   // pane (files evidence + interview transcript) beside the primary intake/
@@ -619,14 +564,44 @@
   );
   let intakeEl: HTMLDivElement | null = $state(null);
   let contextDragging = $state(false);
-  // BNH-47: QA rail panel — independent toggle; opening either closes the
-  // other so the right rail hosts one passive-review surface at a time.
+  // BNH-47: QA rail panel. Opening one side panel closes the others so the
+  // side slot hosts one surface at a time.
   let qaOpen = $state(false);
-  // Which card occupies the rail (also while both are closed, for the sink
-  // animation and so exactly one card is in flow at a time).
-  let railView = $state<"chat" | "qa">("chat");
+  // Which surface occupies the side slot (also while all are closed, so
+  // exactly one is in flow at a time).
+  let railView = $state<"chat" | "qa" | "details">("chat");
+  const sidePanelOpen = $derived(chatOpen || qaOpen || detailsOpen);
   let workspaceEl: HTMLDivElement | null = $state(null);
   let dragging = $state(false);
+
+  function openSidePanel(view: "chat" | "qa" | "details") {
+    chatOpen = view === "chat";
+    qaOpen = view === "qa";
+    detailsOpen = view === "details";
+    railView = view;
+    if (view !== "chat") chatFocus = false;
+    mobileWorkspaceView = "assistant";
+  }
+  function closeSidePanel() {
+    chatOpen = false;
+    qaOpen = false;
+    detailsOpen = false;
+    chatFocus = false;
+    mobileWorkspaceView = "report";
+  }
+  // Narrow screens show the side panel only as their active pane.
+  const sidePanelOnScreen = $derived(desktopAssistant || mobileWorkspaceView === "assistant");
+  function toggleSidePanel(view: "chat" | "qa" | "details") {
+    const open = view === "chat" ? chatOpen : view === "qa" ? qaOpen : detailsOpen;
+    if (open && sidePanelOnScreen) closeSidePanel();
+    else openSidePanel(view);
+  }
+  function openDetails(view: "details" | "handoff" = "details", stage: WorkflowStage | null = null) {
+    detailsView = view;
+    handOffStage = stage;
+    detailsPeekOpen = false;
+    openSidePanel("details");
+  }
 
   // Send any upload failures this user queued while offline. Page-level rather
   // than inside FilesPanel so it runs in every state of the page, including the
@@ -646,8 +621,8 @@
   $effect(() => {
     // Restore once from locals only — reading component state here would make
     // this effect re-run on every toggle and stomp the user's click.
-    const r = localStorage.getItem("banhall_chat_ratio");
-    if (r) chatRatio = Math.min(CHAT_MAX, Math.max(CHAT_MIN, parseFloat(r)));
+    const w = Number(localStorage.getItem("banhall_side_panel_width"));
+    if (Number.isFinite(w) && w > 0) sidePanelWidth = clampSidePanel(w);
     const c = localStorage.getItem("banhall_intake_context_ratio");
     if (c) contextRatio = Math.min(CHAT_MAX, Math.max(CHAT_MIN, parseFloat(c)));
     contextOpen = localStorage.getItem("banhall_intake_context_open") !== "0";
@@ -660,7 +635,7 @@
     chatPreferencesReady = true;
   });
   $effect(() => {
-    localStorage.setItem("banhall_chat_ratio", String(chatRatio));
+    localStorage.setItem("banhall_side_panel_width", String(sidePanelWidth));
     localStorage.setItem("banhall_intake_context_ratio", String(contextRatio));
     localStorage.setItem("banhall_intake_context_open", contextOpen ? "1" : "0");
     localStorage.setItem("banhall_chat_open", chatOpen ? "1" : "0");
@@ -673,8 +648,7 @@
     function onMove(e: MouseEvent) {
       if (!dragging || !workspaceEl) return;
       const rect = workspaceEl.getBoundingClientRect();
-      const ratio = (e.clientX - rect.left) / rect.width;
-      chatRatio = Math.min(CHAT_MAX, Math.max(CHAT_MIN, ratio));
+      sidePanelWidth = clampSidePanel(rect.right - e.clientX);
     }
     function onUp() {
       if (dragging) {
@@ -698,7 +672,7 @@
     document.body.style.cursor = "col-resize";
   }
   function adjustRail(delta: number) {
-    chatRatio = Math.min(CHAT_MAX, Math.max(CHAT_MIN, chatRatio + delta));
+    sidePanelWidth = clampSidePanel(sidePanelWidth + delta);
   }
 
   // Intake context-pane resize — same drag/keyboard grammar as the assistant
@@ -756,24 +730,6 @@
   $effect(() => {
     if (report && pendingSaves === 0) localRevision = report.revisionNumber ?? 0;
   });
-  $effect(() => {
-    if (project) selectedTagIds = [...(project.tagIds ?? [])];
-  });
-
-  // Persist every TagPicker toggle; on failure re-sync from the server row.
-  async function handleTagsChange(ids: string[]) {
-    if (!project) return;
-    tagsSaving = true;
-    tagError = "";
-    try {
-      await updateProjectTags({ projectId, tagIds: ids as Id<"tags">[] });
-    } catch (error) {
-      selectedTagIds = [...(project.tagIds ?? [])];
-      tagError = userErrorMessage(error, "The project tags could not be updated.");
-    } finally {
-      tagsSaving = false;
-    }
-  }
 
 
   async function handleEditorUpdate(json: string) {
@@ -1267,6 +1223,157 @@
     pushState(`${url.pathname}${url.search}`, {});
     seedSummaryRequested = open;
   }
+
+  // The report surface and its actions (Export, Send for review, the top-bar
+  // More menu, the Assistant and QA toggles) show only when no generation
+  // surface owns the page.
+  const reportActionsVisible = $derived(
+    Boolean(report) &&
+      !awaitingSelection &&
+      !showIterativeStepper &&
+      !showSeedSummary &&
+      !showSeedWorkspace &&
+      !showSeedRecovery &&
+      !showSeedDrafting
+  );
+
+  // Panel toolbar tabs (ui-design-final.md section 2). A Step-by-step run
+  // shows Plan, Summary, Report and Sources; everything else Report and
+  // Sources. Tabs map onto the existing surfaces: Summary is still the
+  // `?view=summary` state with its focus and fencing rules.
+  const seedMode = $derived(isSeedWorkflow || reportGenerationQ.data?.gatedWorkflow === "seeds");
+  const seeding = $derived(isSeedWorkflow && generation?.seedPhase === "seeding");
+  const seedOutlineQ = useQuery(seedsApi.getOutline, () =>
+    auth.isAuthenticated && seeding && generation ? { generationId: generation._id } : "skip"
+  );
+  const planReady = $derived(Boolean(seeding && seedOutlineQ.data?.readiness?.ready));
+  const signedOffSummaryAvailable = $derived(
+    Boolean(report) &&
+      !awaitingSelection &&
+      !showIterativeStepper &&
+      !showSeedWorkspace &&
+      !showSeedRecovery &&
+      !showSeedDrafting &&
+      reportGenerationQ.data?.gatedWorkflow === "seeds" &&
+      !!reportGenerationQ.data.summaryVersionId
+  );
+  const seedSignedOff = $derived(
+    seedMode && !seeding && (signedOffSummaryAvailable || showSeedDrafting || showSeedRecovery || !!generation?.summaryVersionId)
+  );
+  const activeTab = $derived<PanelTab["id"]>(
+    sourcesOpen
+      ? "sources"
+      : showSeedSummary || showSeedRecovery
+        ? "summary"
+        : showSeedWorkspace
+          ? "plan"
+          : "report"
+  );
+  const sourceCount = $derived(
+    transcripts.length + (documentsQ.data ?? []).filter((doc) => !doc.archived).length
+  );
+  const panelTabs = $derived.by((): PanelTab[] => {
+    const sources: PanelTab = { id: "sources", label: "Sources", count: sourceCount || null };
+    if (!seedMode) return [{ id: "report", label: "Report" }, sources];
+    return [
+      { id: "plan", label: "Plan", done: seedSignedOff || planReady, disabled: !seeding },
+      {
+        id: "summary",
+        label: "Summary",
+        done: seedSignedOff,
+        status: seeding && planReady ? "Ready" : null,
+        disabled: !(seeding || signedOffSummaryAvailable || showSeedSummary || showSeedRecovery),
+        ...(signedOffSummaryAvailable
+          ? { triggerId: SEED_SIGNED_OFF_SUMMARY_TRIGGER_ID, ariaLabel: "Signed-off Summary" }
+          : {}),
+      },
+      { id: "report", label: "Report", disabled: seeding },
+      sources,
+    ];
+  });
+  function selectTab(id: PanelTab["id"]) {
+    if (id === "sources") {
+      sourcesOpen = true;
+      mobileWorkspaceView = "report";
+      return;
+    }
+    sourcesOpen = false;
+    if (id === "summary") {
+      if (!showSeedSummary && !showSeedRecovery) setSeedSummary(true);
+      return;
+    }
+    if (id === "report") mobileWorkspaceView = "report";
+    if (showSeedSummary) setSeedSummary(false);
+  }
+
+  // Details panel data and actions go through one adapter module.
+  const details = useDetailsData({
+    projectId: () => projectId,
+    project: () => projectQ.data,
+    currentUserId: () => userQ.data?._id,
+    canEditDetails: () => canEditDetails,
+    teamNeeded: () => detailsOpen && detailsView === "handoff",
+  });
+
+  // QA toggle: the score comes from the stored scorecard; "seen" is
+  // browser-local per generation and QA completion.
+  const qaScore = $derived.by((): number | null => {
+    const raw = generation?.agentOutputs;
+    if (!raw) return null;
+    try {
+      const parsed = JSON.parse(raw) as { qa?: { overall_score?: unknown } };
+      const score = parsed.qa?.overall_score;
+      return typeof score === "number" && Number.isFinite(score) ? Math.round(score) : null;
+    } catch {
+      return null;
+    }
+  });
+  const qaState = $derived<"idle" | "running" | "done">(
+    generation?.postQaStatus === "running" ? "running" : qaScore !== null ? "done" : "idle"
+  );
+  const qaSeenKey = $derived.by(() => {
+    const completedAt = (generation as { postQaCompletedAt?: number } | null | undefined)?.postQaCompletedAt;
+    return generation && completedAt ? `banhall_qa_seen:${generation._id}:${completedAt}` : null;
+  });
+  let qaSeenTick = $state(0);
+  const qaUnseen = $derived.by(() => {
+    void qaSeenTick;
+    if (!qaSeenKey || qaState !== "done") return false;
+    try {
+      return localStorage.getItem(qaSeenKey) !== "1";
+    } catch {
+      return false;
+    }
+  });
+  $effect(() => {
+    if (!qaOpen || !qaSeenKey) return;
+    try {
+      localStorage.setItem(qaSeenKey, "1");
+    } catch {
+      // Storage blocked: the dot simply stays until the next session.
+    }
+    untrack(() => (qaSeenTick += 1));
+  });
+
+  const topBarMoreItems = $derived.by((): TopBarMoreItem[] => {
+    if (!reportActionsVisible) return [];
+    return [
+      {
+        id: "ai-review",
+        label: startingReview ? "Starting AI review..." : "Start AI review",
+        onSelect: handleStartAiReview,
+        disabled: startingReview,
+      },
+      ...(canShare
+        ? [{ id: "share", label: sharing ? "Publishing..." : "Share review link", onSelect: handleCopyShareLink, disabled: sharing }]
+        : []),
+      ...(ghostSnapshot
+        ? [{ id: "compare", label: "Compare with the one-shot draft", onSelect: () => (ghostCompareOpen = true) }]
+        : []),
+      { id: "history", label: "History", onSelect: () => (showHistory = true) },
+      { id: "financial", label: "Financial", href: `/project/${projectId}/financial` },
+    ];
+  });
 </script>
 
 <svelte:window
@@ -1313,307 +1420,35 @@
     onFocusSearch={() => void goto(workspaceHref("/projects"))}
     drawerDescription="Navigate between work, projects, and account pages."
   >
-  <div class="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-canvas" data-report-cohort="preview">
-
-    <!-- Read-only twin of EditableText's body variant for viewers outside the
-         metadata edit scope: the same value, no pencil, honest empty. -->
-    {#snippet readonlyValue(value: string)}
-      <p class="min-w-0 truncate text-gray-800">
-        {#if value}
-          {value}
-        {:else}
-          <span class="italic text-gray-400">Not set</span>
-        {/if}
-      </p>
-    {/snippet}
-
-    {#snippet projectMetadata()}
-      <div data-project-overview class="mb-5 border-b border-line-soft pb-4">
-        <div class="flex min-w-0 items-center gap-3">
-          <!-- headingLevel 2: the workspace bar below AppNav carries the page's
-               single h1 (a11y P0 — one unambiguous main heading per route). -->
-          <div class="min-w-0 flex-1">
-            {#if canEditDetails}
-              <EditableText
-                value={project.title}
-                placeholder="Set internal title"
-                variant="heading"
-                headingLevel={2}
-                headingClass="text-xl font-medium tracking-tight text-ink"
-                label="internal project title"
-                required
-                onSave={async (value) => {
-                  await updateTitles({ projectId, title: value.trim() });
-                }}
-              />
-            {:else}
-              <h2 class="min-w-0 break-words text-xl font-medium tracking-tight text-ink">
-                {project.title || "Set internal title"}
-              </h2>
-            {/if}
-          </div>
-          <button
-            data-project-details-toggle
-            type="button"
-            onclick={() => (projectDetailsOpen = !projectDetailsOpen)}
-            aria-expanded={projectDetailsOpen}
-            aria-controls={projectDetailsBodyId}
-            class="flex min-h-9 shrink-0 items-center gap-1.5 rounded-md px-2 text-xs font-medium text-ink-muted transition-colors hover:bg-primary-wash hover:text-primary-selected focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy motion-reduce:transition-none pointer-coarse:min-h-11"
-          >
-            Project details
-            <DisclosureChevron open={projectDetailsOpen} tone="neutral" class="size-3.5" />
-          </button>
-        </div>
-        <!-- Highlights band (2026-08-13, Attio-research P1): the project's
-             load-bearing facts at a glance, honest empties included.
-             mt-5 (2026-08-19): the divider needs clear air below the title. -->
-        <div class="mt-5">
-          <ProjectHighlights {projectId} fiscalYearEnd={project.fiscalYearEnd ?? null} padBottom={projectDetailsOpen} />
-        </div>
-        <!-- Attribute rows (same amendment): the Attio record-page grammar —
-             fixed label column + value per row — replacing the stacked
-             label-over-value grid. Editing affordances are unchanged. The
-             rows are progressively disclosed so the report remains primary. -->
-        <Disclosure id={projectDetailsBodyId} open={projectDetailsOpen}>
-          <!-- No top border here: a border on the collapsing body pops at the
-               end of the Disclosure exit. The highlights band's own border
-               and padding carry the separation in both states. -->
-          <div data-project-details class="@container pt-1">
-            <div class="grid grid-cols-1 gap-x-8 text-[13px] @2xl:grid-cols-2">
-          <div class="grid min-h-9 grid-cols-[6.5rem_minmax(0,1fr)] items-center gap-x-3 py-1 @md:grid-cols-[7.5rem_minmax(0,1fr)] @2xl:col-span-2">
-            <span class="text-label">SR&amp;ED title</span>
-            <div class="min-w-0">
-              {#if canEditDetails}
-                <EditableText
-                  value={project.sredTitle ?? ""}
-                  placeholder="Add the formal SR&ED title (finalize at the end)"
-                  label="SR&ED title"
-                  onSave={async (value) => {
-                    await updateTitles({ projectId, sredTitle: value });
-                  }}
-                />
-              {:else}
-                {@render readonlyValue(project.sredTitle ?? "")}
-              {/if}
-            </div>
-          </div>
-          <div class="grid min-h-9 grid-cols-[6.5rem_minmax(0,1fr)] items-center gap-x-3 py-1 @md:grid-cols-[7.5rem_minmax(0,1fr)]">
-            <span class="text-label">Client</span>
-            <!-- 2026-09-10 writer flag: a misnamed company was stuck. Same
-                 EditableText affordance as the SR&ED title row. -->
-            <div class="min-w-0">
-              {#if canEditDetails}
-                <EditableText
-                  value={project.clientName}
-                  placeholder="Set client name"
-                  label="client name"
-                  required
-                  onSave={async (value) => {
-                    await updateClientName({ projectId, clientName: value.trim() });
-                  }}
-                />
-              {:else}
-                {@render readonlyValue(project.clientName)}
-              {/if}
-            </div>
-          </div>
-          <div class="grid min-h-9 grid-cols-[6.5rem_minmax(0,1fr)] items-center gap-x-3 py-1 @md:grid-cols-[7.5rem_minmax(0,1fr)]">
-            <!-- Domain truth (product-domain vocabulary): `project.writer` is
-                 the writer metadata field, NOT the immutable Creator
-                 (`projects.createdBy`). Labelling it "Created by" conflated
-                 Writer with Creator; the field now says what it holds. -->
-            <span class="text-label">Writer</span>
-            <p class="min-w-0 truncate text-gray-800">{writerLabel}</p>
-          </div>
-          {#if interviewerLabel}
-            <div class="grid min-h-9 grid-cols-[6.5rem_minmax(0,1fr)] items-center gap-x-3 py-1 @md:grid-cols-[7.5rem_minmax(0,1fr)]">
-              <span class="text-label">Interviewer</span>
-              <p class="min-w-0 truncate text-gray-800">{interviewerLabel}</p>
-            </div>
-          {/if}
-          {#if interviewees.length > 0}
-            <div class="grid min-h-9 grid-cols-[6.5rem_minmax(0,1fr)] items-center gap-x-3 py-1 @md:grid-cols-[7.5rem_minmax(0,1fr)]">
-              <span class="text-label">Interviewees</span>
-              <p class="min-w-0 text-gray-800">{interviewees.join(", ")}</p>
-            </div>
-          {/if}
-          <div class="grid min-h-9 grid-cols-[6.5rem_minmax(0,1fr)] items-center gap-x-3 py-1 @md:grid-cols-[7.5rem_minmax(0,1fr)]">
-            <span class="text-label">Created</span>
-            <p class="min-w-0 text-gray-800">
-              {new Date(project.createdAt).toLocaleDateString("en-US", {
-                year: "numeric",
-                month: "long",
-                day: "numeric",
-              })}
-            </p>
-          </div>
-          <div class="grid min-h-9 grid-cols-[6.5rem_minmax(0,1fr)] items-center gap-x-3 py-1 @md:grid-cols-[7.5rem_minmax(0,1fr)]">
-            <span class="text-label">Fiscal year-end</span>
-            <div class="min-w-0">
-              <FiscalYearField
-                {projectId}
-                fiscalYearEnd={project.fiscalYearEnd ?? null}
-                readonly={!canEditDetails}
-              />
-            </div>
-          </div>
-          <div class="grid min-h-9 grid-cols-[6.5rem_minmax(0,1fr)] items-center gap-x-3 py-1 @md:grid-cols-[7.5rem_minmax(0,1fr)]">
-            <span class="text-label">Industry</span>
-            <div class="min-w-0">
-              <IndustryField
-                {projectId}
-                industry={project.industry ?? null}
-                canCreate={user?.role === "admin"}
-                readonly={!canEditDetails}
-              />
-            </div>
-          </div>
-          <div class="grid min-h-9 grid-cols-[6.5rem_minmax(0,1fr)] items-center gap-x-3 py-1 @md:grid-cols-[7.5rem_minmax(0,1fr)]">
-            <span class="text-label">Project #</span>
-            <div class="min-w-0">
-              {#if canEditDetails}
-                <EditableText
-                  value={project.projectNumber ?? ""}
-                  placeholder="e.g. 2, A, or 2a"
-                  label="project number"
-                  onSave={saveProjectNumber}
-                />
-              {:else}
-                {@render readonlyValue(project.projectNumber ?? "")}
-              {/if}
-              {#if projectNumberError}
-                <p class="mt-1 text-xs text-red-700" role="alert">{projectNumberError}</p>
-              {/if}
-            </div>
-          </div>
-          <div class="grid min-h-9 grid-cols-[6.5rem_minmax(0,1fr)] items-center gap-x-3 py-1 @md:grid-cols-[7.5rem_minmax(0,1fr)]">
-            <span class="text-label">Project type</span>
-            <p class="min-w-0 truncate text-gray-800">
-              {PROJECT_TYPE_LABELS[effectiveProjectType(project)]}
-            </p>
-          </div>
-          <div class="grid min-h-9 grid-cols-[6.5rem_minmax(0,1fr)] items-center gap-x-3 py-1 @md:grid-cols-[7.5rem_minmax(0,1fr)]">
-            <span class="text-label">Science code</span>
-            <div class="min-w-0">
-              <ScienceCodeField
-                {projectId}
-                scienceCode={project.scienceCode ?? null}
-                readonly={!canEditDetails}
-              />
-            </div>
-          </div>
-          {#if project.sourceProjectId}
-            <!-- 2026-08-11 (second) amendment: navigational association only —
-                 the review project links to the project it reviews. -->
-            <div class="grid min-h-9 grid-cols-[6.5rem_minmax(0,1fr)] items-center gap-x-3 py-1 @md:grid-cols-[7.5rem_minmax(0,1fr)]">
-              <span class="text-label">Reviews</span>
-              <p class="min-w-0 truncate">
-                <a
-                  href={`/project/${project.sourceProjectId}`}
-                  class="text-sm text-primary-selected hover:underline"
-                >
-                  {sourceProjectQ.data?.title ?? "Open source project"}
-                </a>
-              </p>
-            </div>
-          {/if}
-          <div class="grid min-h-9 grid-cols-[6.5rem_minmax(0,1fr)] items-start gap-x-3 py-1 @md:grid-cols-[7.5rem_minmax(0,1fr)] @2xl:col-span-2">
-            <span class="text-label pt-1.5">
-              Tags{#if tagsSaving}<span class="ml-2 normal-case tracking-normal text-ink-muted">Saving…</span>{/if}
-            </span>
-            <div class="min-w-0">
-              <TagPicker
-                {allTags}
-                bind:selectedTagIds
-                label={null}
-                onChange={handleTagsChange}
-                readonly={!canEditDetails}
-              />
-              {#if tagError}
-                <p class="mt-1 text-xs text-red-700" role="alert">{tagError}</p>
-              {/if}
-            </div>
-          </div>
-        </div>
-        {#if viewSummary && viewSummary.totalViews > 0}
-          <div class="mt-3 flex flex-wrap items-center gap-3">
-            <div class="flex items-center gap-1.5 text-xs text-ink-muted">
-              <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                <path stroke-linecap="round" stroke-linejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-              </svg>
-              {viewSummary.totalViews} view{viewSummary.totalViews !== 1 ? "s" : ""}
-            </div>
-            {#each viewSummary.uniqueViewers as viewer (`${viewer.name}-${viewer.type}`)}
-              <span class="inline-flex items-center gap-1 rounded-full bg-chrome px-2 py-0.5 text-xs text-gray-500">
-                {viewer.name}
-                <span class="text-ink-muted">
-                  {new Date(viewer.lastViewed).toLocaleDateString("en-US", {
-                    month: "short",
-                    day: "numeric",
-                  })}
-                </span>
-              </span>
-            {/each}
-          </div>
-        {/if}
-          </div>
-        </Disclosure>
-      </div>
-    {/snippet}
-
-    <!-- Page bar — the second band of the dense two-level workspace header
-         (Obvious anatomy: ~54px app bar + 44px project bar). It carries the
-         page's SINGLE h1 project title beside the workflow control so every
-         generation state keeps one unambiguous main heading (a11y P0). -->
-    <header data-workspace-page-header class="flex h-[49px] shrink-0 items-center gap-2 border-b border-workspace-rail-line px-3 sm:px-4">
-      <WorkspaceShellControls
-        tone="light"
-        onOpenNavigation={() => (navigationOpen = true)}
-        {railHidden}
-        onToggleRail={() => (railHidden = !railHidden)}
-      />
-      <div class="flex min-w-0 flex-1 items-center gap-2">
-        {#if report && user && !chatOpen && !awaitingSelection && !showIterativeStepper && !showSeedSummary && !showSeedWorkspace && !showSeedRecovery && !showSeedDrafting}
-          <!-- Obvious puts the reopen-panel control at the FAR LEFT with the
-               open-panel glyph, not a chat icon in the right cluster. -->
-          <button
-            type="button"
-            title="Open AI assistant"
-            aria-label="Open AI assistant"
-            onclick={() => {
-              qaOpen = false;
-              chatOpen = true;
-              railView = "chat";
-              mobileWorkspaceView = "assistant";
-            }}
-            class="flex size-7 shrink-0 items-center justify-center rounded-full text-ink-muted transition-colors hover:bg-chrome/60 hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy motion-reduce:transition-none pointer-coarse:size-11"
-          >
-            <svg class="h-[18px] w-[18px]" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M4 7C4 5.343 5.343 4 7 4h10c1.657 0 3 1.343 3 3v10c0 1.657-1.343 3-3 3H7c-1.657 0-3-1.343-3-3V7zM15 5v14" />
-            </svg>
-          </button>
-        {/if}
+  <div class="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-workspace-rail" data-report-cohort="preview">
+    <!-- Top bar (ui-design-final.md section 2): the route's single h1 lives
+         here; page actions sit at the right, the rest in the More menu. -->
+    <ProjectTopBar
+      title={project.title}
+      projectsHref={workspaceHref("/projects")}
+      {railHidden}
+      onToggleRail={() => (railHidden = !railHidden)}
+      onOpenNavigation={() => (navigationOpen = true)}
+      moreItems={topBarMoreItems}
+    >
+      {#snippet leading()}
         {#if showIntakeWorkbench && !contextOpen}
-          <!-- Same far-left reopen grammar as the assistant rail: the panel
-               that closed comes back from where Obvious puts it. Desktop only —
+          <!-- The intake context pane reopens from the far left, desktop only;
                narrow screens keep the Work/Context switch. -->
           <button
             type="button"
             title="Show project context"
             aria-label="Show project context"
             onclick={() => (contextOpen = true)}
-            class="hidden size-7 shrink-0 items-center justify-center rounded-full text-ink-muted transition-colors hover:bg-chrome/60 hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy motion-reduce:transition-none lg:flex"
+            class="hidden size-8 shrink-0 items-center justify-center rounded-lg text-ink-muted transition-colors hover:bg-primary-wash hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy motion-reduce:transition-none lg:flex"
           >
             <svg class="h-[18px] w-[18px]" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true">
               <path stroke-linecap="round" stroke-linejoin="round" d="M4 7C4 5.343 5.343 4 7 4h10c1.657 0 3 1.343 3 3v10c0 1.657-1.343 3-3 3H7c-1.657 0-3-1.343-3-3V7zM15 5v14" />
             </svg>
           </button>
         {/if}
-        <!-- Single h1 for the route (a11y P0), carried by the thin header. -->
-        <h1 data-project-heading class="min-w-0 truncate text-sm font-medium text-ink max-sm:sr-only">
-          {project.title}
-        </h1>
+      {/snippet}
+      {#snippet status()}
         {#if !project.workflowStage}
           <ProjectStateBadge workflowStage={project.workflowStage} legacyStatus={project.status} />
         {/if}
@@ -1626,13 +1461,9 @@
             />
           </span>
         {/if}
-      </div>
-      <div class="flex shrink-0 items-center gap-1">
         {#if pagingPosition}
-          <!-- "N of M in <where>" — flow-state paging over the bounded page
-               the invoking list stashed; count keeps the + qualifier when
-               that page was bounded. No subscriptions: prev/next navigate
-               within the already-loaded id list. -->
+          <!-- "N of M in <where>": flow-state paging over the bounded page the
+               invoking list stashed. No subscriptions. -->
           <span data-paging-context class="hidden items-center gap-0.5 lg:flex">
             <span class="whitespace-nowrap text-xs text-ink-muted">
               <span class="text-data">{pagingPosition.index + 1} of {pagingPosition.total}{pagingPosition.bounded ? "+" : ""}</span>
@@ -1647,7 +1478,7 @@
                 const id = pagingPosition?.prevId;
                 if (id) void goto(resolve("/project/[id]", { id }));
               }}
-              class="flex size-7 items-center justify-center rounded-full text-ink-muted transition-colors hover:bg-chrome/60 hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy disabled:cursor-default disabled:opacity-40 disabled:hover:bg-transparent motion-reduce:transition-none"
+              class="flex size-7 items-center justify-center rounded-md text-ink-muted transition-colors hover:bg-primary-wash hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy disabled:cursor-default disabled:opacity-40 disabled:hover:bg-transparent motion-reduce:transition-none"
             >
               <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7" /></svg>
             </button>
@@ -1660,14 +1491,14 @@
                 const id = pagingPosition?.nextId;
                 if (id) void goto(resolve("/project/[id]", { id }));
               }}
-              class="flex size-7 items-center justify-center rounded-full text-ink-muted transition-colors hover:bg-chrome/60 hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy disabled:cursor-default disabled:opacity-40 disabled:hover:bg-transparent motion-reduce:transition-none"
+              class="flex size-7 items-center justify-center rounded-md text-ink-muted transition-colors hover:bg-primary-wash hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy disabled:cursor-default disabled:opacity-40 disabled:hover:bg-transparent motion-reduce:transition-none"
             >
               <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" /></svg>
             </button>
           </span>
         {/if}
         {#if saving}
-          <span class="hidden text-xs text-ink-faint sm:inline">Saving…</span>
+          <span class="hidden text-xs text-ink-faint sm:inline">Saving...</span>
         {/if}
         {#if saveError}
           <span class="hidden max-w-60 truncate text-xs text-red-700 sm:inline" role="alert">Save failed: {saveError}</span>
@@ -1678,88 +1509,46 @@
         {#if showIterativeStepper && generation?.iterativeModelLabel}
           <span class="hidden text-xs text-ink-muted sm:inline">Model: {generation.iterativeModelLabel}</span>
         {/if}
+      {/snippet}
+      {#snippet actions()}
         {#if (showIterativeStepper || showSeedWorkspace) && (!isSeedWorkflow || generation?.seedCanEdit)}
-          <button
-            type="button"
-            onclick={() => (confirmCancelIterative = true)}
-            class="flex h-7 items-center rounded-full px-2.5 text-xs text-ink-muted transition-colors hover:bg-chrome/60 hover:text-red-700 motion-reduce:transition-none"
-          >
-            Cancel iterative draft
-          </button>
+          <!-- Seed stage: the one top-bar cancel. While drafting after
+               sign-off the writing pill's Stop is the only cancel. -->
+          <Button variant="secondary" size="sm" class="h-9" onclick={() => (confirmCancelIterative = true)}>
+            Cancel generation
+          </Button>
         {/if}
-        {#if report && !awaitingSelection && !showIterativeStepper && !showSeedSummary && !showSeedWorkspace && !showSeedRecovery && !showSeedDrafting}
-          {#if reportGenerationQ.data?.gatedWorkflow === "seeds" && reportGenerationQ.data.summaryVersionId}
-            <button
-              type="button"
-              id={SEED_SIGNED_OFF_SUMMARY_TRIGGER_ID}
-              title="Open the signed-off Summary"
-              aria-label="Signed-off Summary"
-              onclick={() => setSeedSummary(true)}
-              class="flex size-7 shrink-0 items-center justify-center rounded-full text-ink-muted transition-colors hover:bg-chrome/60 hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy motion-reduce:transition-none pointer-coarse:size-11"
-            >
-              <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M6 4h12v16H6zM9 8h6M9 12h6M9 16h4" />
-              </svg>
-            </button>
-          {/if}
-          <!-- 2026-08-11: start PD-review mode from this written report — the
-               review lives as an associated project (sourceProjectId). -->
-          <button type="button" title="Start AI review" aria-label={startingReview ? "Starting AI review…" : "Start AI review"} onclick={handleStartAiReview} disabled={startingReview} class="flex size-7 shrink-0 items-center justify-center rounded-full text-ink-muted transition-colors hover:bg-chrome/60 hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy disabled:opacity-40 motion-reduce:transition-none pointer-coarse:size-11">
-            <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z" />
-            </svg>
-          </button>
-          {#if canShare}
-            <button type="button" title="Publish and copy review link" aria-label={sharing ? "Publishing…" : "Share"} onclick={handleCopyShareLink} disabled={sharing} class="flex size-7 shrink-0 items-center justify-center rounded-full text-ink-muted transition-colors hover:bg-chrome/60 hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy disabled:opacity-40 motion-reduce:transition-none pointer-coarse:size-11">
-              <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" />
-              </svg>
-            </button>
-          {/if}
-          {#if ghostSnapshot}
-            <button type="button" title="Compare with the one-shot draft" aria-label="Compare drafts" onclick={() => (ghostCompareOpen = true)} class="flex size-7 shrink-0 items-center justify-center rounded-full text-ink-muted transition-colors hover:bg-chrome/60 hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy disabled:opacity-40 motion-reduce:transition-none pointer-coarse:size-11">
-              <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M9 4v16m6-16v16M4 8h4m8 0h4M4 16h4m8 0h4M6 4h12a2 2 0 012 2v12a2 2 0 01-2 2H6a2 2 0 01-2-2V6a2 2 0 012-2z" />
-              </svg>
-            </button>
-          {/if}
-          <button type="button" title="History" aria-label="History" onclick={() => (showHistory = true)} class="flex size-7 shrink-0 items-center justify-center rounded-full text-ink-muted transition-colors hover:bg-chrome/60 hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy disabled:opacity-40 motion-reduce:transition-none pointer-coarse:size-11">
-            <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-          </button>
-          <button
-            type="button"
-            title={workspaceMaximized ? "Exit focus mode" : "Enter focus mode"}
-            aria-label={workspaceMaximized ? "Exit focus mode" : "Enter focus mode"}
-            onclick={() => (workspaceMaximized = !workspaceMaximized)}
-            class="flex size-7 shrink-0 items-center justify-center rounded-full text-ink-muted transition-colors hover:bg-chrome/60 hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy disabled:opacity-40 motion-reduce:transition-none pointer-coarse:size-11"
+        {#if reportActionsVisible}
+          <Button
+            variant="secondary"
+            size="sm"
+            class="h-9 gap-1.5"
+            aria-label={exporting ? "Exporting..." : "Export .docx"}
+            onclick={handleExport}
+            disabled={exporting}
           >
-            <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true">
-              {#if workspaceMaximized}
-                <path stroke-linecap="round" stroke-linejoin="round" d="M9 9H4.5M9 9V4.5M15 9h4.5M15 9V4.5M9 15H4.5M9 15v4.5M15 15h4.5M15 15v4.5" />
-              {:else}
-                <path stroke-linecap="round" stroke-linejoin="round" d="M7 3H3v4M3 3l6 6m8-6h4v4m0-4-6 6M7 21H3v-4m0 4 6-6m8 6h4v-4m0 4-6-6" />
-              {/if}
-            </svg>
-          </button>
-          <button type="button" title="Export .docx" aria-label={exporting ? "Exporting…" : "Export .docx"} onclick={handleExport} disabled={exporting} class="flex size-7 shrink-0 items-center justify-center rounded-full text-ink-muted transition-colors hover:bg-chrome/60 hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy disabled:opacity-40 motion-reduce:transition-none pointer-coarse:size-11">
             <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true">
               <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
             </svg>
-          </button>
-          <a title="Financial" aria-label="Financial" href={`/project/${projectId}/financial`} class="flex size-7 shrink-0 items-center justify-center rounded-full text-ink-muted transition-colors hover:bg-chrome/60 hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy disabled:opacity-40 motion-reduce:transition-none pointer-coarse:size-11">
-            <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-          </a>
+            <span class="max-sm:sr-only">Export</span>
+          </Button>
+          <Button
+            size="sm"
+            class="h-9 max-sm:hidden"
+            data-send-for-review
+            disabled={!details.data?.permissions.canHandOff}
+            title={details.data && !details.data.permissions.canHandOff ? (details.handOffReason ?? undefined) : undefined}
+            onclick={() => openDetails("handoff", "internal_review")}
+          >
+            Send for review
+          </Button>
         {:else if awaitingSelection}
           <button
             type="button"
             title={candidateMaximized ? "Exit focus mode" : "Enter focus mode"}
             aria-label={candidateMaximized ? "Exit focus mode" : "Enter focus mode"}
             onclick={() => (candidateMaximized = !candidateMaximized)}
-            class="flex size-7 shrink-0 items-center justify-center rounded-full text-ink-muted transition-colors hover:bg-chrome/60 hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy disabled:opacity-40 motion-reduce:transition-none pointer-coarse:size-11"
+            class="flex size-8 shrink-0 items-center justify-center rounded-lg text-ink-muted transition-colors hover:bg-primary-wash hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy motion-reduce:transition-none pointer-coarse:size-11"
           >
             <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true">
               {#if candidateMaximized}
@@ -1770,9 +1559,65 @@
             </svg>
           </button>
         {/if}
-      </div>
-    </header>
+      {/snippet}
+    </ProjectTopBar>
 
+    <div data-project-card class="mb-2 mr-2 flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-workspace-rail-line bg-surface max-xl:ml-2">
+      <PanelToolbar
+        tabs={panelTabs}
+        {activeTab}
+        onSelectTab={selectTab}
+        showFullWidth={reportActionsVisible && !sourcesOpen && !chatFocus}
+        fullWidth={workspaceMaximized}
+        onToggleFullWidth={() => (workspaceMaximized = !workspaceMaximized)}
+        detailsActive={detailsOpen && sidePanelOnScreen}
+        onToggleDetails={() => {
+          if (detailsOpen && sidePanelOnScreen) closeSidePanel();
+          else openDetails();
+        }}
+        bind:detailsButton
+        showAssistant={reportActionsVisible && !!user}
+        assistantActive={chatOpen && sidePanelOnScreen}
+        onToggleAssistant={() => toggleSidePanel("chat")}
+      >
+        {#snippet detailsPeek()}
+          <DetailsPopover
+            data={details.data}
+            anchor={detailsButton}
+            bind:open={detailsPeekOpen}
+            disabled={detailsOpen}
+            onOpenAll={() => openDetails()}
+          />
+        {/snippet}
+        {#snippet qa()}
+          {#if reportActionsVisible && user}
+            <PanelQaToggleSlot
+              state={qaState}
+              score={qaScore}
+              unseen={qaUnseen}
+              active={qaOpen && sidePanelOnScreen}
+              onToggle={() => toggleSidePanel("qa")}
+            />
+          {/if}
+        {/snippet}
+      </PanelToolbar>
+
+      <div bind:this={workspaceEl} data-project-body class="flex min-h-0 flex-1 overflow-hidden">
+        <div
+          data-project-main
+          inert={chatFocus}
+          class={`flex min-h-0 min-w-0 flex-1 flex-col ${chatFocus ? "hidden" : ""} ${sidePanelOpen && mobileWorkspaceView === "assistant" ? "max-lg:hidden" : ""}`}
+        >
+          {#if sourcesOpen}
+            <div class="min-h-0 flex-1 overflow-y-auto">
+              <SourcesView
+                transcripts={transcripts}
+                documents={documentsQ.data ?? []}
+                loading={transcriptsQ.data === undefined || documentsQ.data === undefined}
+              />
+            </div>
+          {/if}
+          <div class={`flex min-h-0 flex-1 flex-col ${sourcesOpen ? "hidden" : ""}`}>
     <!-- Generation progress — no metadata header; the progress card is the page -->
     {#if generation && (isGenerating || showFailedGeneration)}
       <!-- `my-auto` rather than `items-center`: a centred flex child that
@@ -1884,37 +1729,17 @@
       </p>
     {/if}
 
-    <!-- Report + Agent workbench. Wide screens mirror the inspected Obvious
-         composition (conversation left, artifact right); narrow screens use
-         one explicit pane at a time so neither surface is percentage-squeezed. -->
-    {#if !awaitingSelection && !showIterativeStepper && !showSeedSummary && !showSeedWorkspace && !showSeedRecovery && !showSeedDrafting && report}
-      {#if user}
-        <div class="flex shrink-0 items-center justify-center gap-0.5 border-b border-line-soft bg-white px-3 py-2 lg:hidden" role="group" aria-label="Project workspace pane">
-          <button
-            type="button"
-            aria-pressed={mobileWorkspaceView === "report"}
-            onclick={() => (mobileWorkspaceView = "report")}
-            class={`min-h-11 rounded-full px-4 text-sm font-medium transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy ${mobileWorkspaceView === "report" ? "bg-navy text-white" : "text-ink-muted hover:bg-primary-wash hover:text-navy"}`}
-          >Report</button>
-          <button
-            type="button"
-            aria-pressed={mobileWorkspaceView === "assistant"}
-            onclick={() => {
-              chatOpen = true;
-              qaOpen = false;
-              railView = "chat";
-              mobileWorkspaceView = "assistant";
-            }}
-            class={`min-h-11 rounded-full px-4 text-sm font-medium transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy ${mobileWorkspaceView === "assistant" ? "bg-navy text-white" : "text-ink-muted hover:bg-primary-wash hover:text-navy"}`}
-          >Agent</button>
-        </div>
-      {/if}
-      <div bind:this={workspaceEl} data-project-workspace class="mx-auto flex min-h-0 w-full max-w-full flex-1 flex-col overflow-hidden transition-[max-width] duration-[325ms] ease-out motion-reduce:transition-none lg:flex-row-reverse">
-        <div inert={chatFocus} class={`[container-type:inline-size] ${mobileWorkspaceView === "report" && !chatFocus ? "flex" : "hidden"} min-h-0 min-w-0 w-full flex-1 flex-col overflow-y-auto ${chatFocus ? "lg:hidden" : "lg:flex"}`}>
-            <div data-report-surface class={`w-full max-w-full px-4 transition-[padding] duration-[325ms] ease-out motion-reduce:transition-none sm:px-6 ${workspaceMaximized ? "py-5 sm:py-6" : "py-6 sm:py-8"}`}>
-              <!-- Project info header -->
-              {@render projectMetadata()}
-
+    <!-- Report surface (ui-design-final.md section 8, row 5): a centred
+         660px reading column, or full width with 48px side padding beside a
+         side panel and 96px when the report is alone. -->
+    {#if reportActionsVisible && report}
+      <div data-project-workspace class="flex min-h-0 w-full flex-1 flex-col overflow-hidden">
+        <div class="[container-type:inline-size] flex min-h-0 min-w-0 w-full flex-1 flex-col overflow-y-auto">
+            <div
+              data-report-surface
+              data-report-width={workspaceMaximized ? "full" : "reading"}
+              class={`w-full py-10 transition-[padding,max-width] duration-[325ms] ease-out motion-reduce:transition-none ${workspaceMaximized ? (sidePanelOpen ? "px-6 lg:px-12" : "px-6 lg:px-24") : "mx-auto max-w-[708px] px-6"}`}
+            >
               <!-- Editor column -->
               <Editor
                 bind:this={editorRef}
@@ -1928,13 +1753,10 @@
                 onHoverComment={(id) => (hoveredCommentId = id)}
               />
 
-              <!-- Supporting panels (QA moved to the right rail — BNH-47) -->
+              <!-- Supporting panels (QA lives in the side panel, BNH-47) -->
               <div class="mt-8 mb-12">
                 <!-- 2026-08-11 (second) amendment: review-mode projects keep
-                     the AI feedback visible ALONGSIDE the PD in the editor.
-                     Previously the review report only rendered in the
-                     no-report intake state, so a review project with a report
-                     (e.g. created from an existing project) hid its feedback. -->
+                     the AI feedback visible ALONGSIDE the PD in the editor. -->
                 {#if project.mode === "review" && pdReview}
                   <div class="mb-4">
                     <PdReviewReport
@@ -1968,412 +1790,18 @@
               </div>
             </div>
           </div>
-
-        <!-- Draggable divider -->
-        {#if report && user && (chatOpen || qaOpen) && !chatFocus}
-          <button
-            type="button"
-            onmousedown={startDrag}
-            role="slider"
-            aria-label="Resize assistant panel"
-            aria-orientation="vertical"
-            aria-valuemin={Math.round(CHAT_MIN * 100)}
-            aria-valuemax={Math.round(CHAT_MAX * 100)}
-            aria-valuenow={Math.round(chatRatio * 100)}
-            onkeydown={(event) => {
-              if (event.key === "ArrowLeft") adjustRail(-0.02);
-              else if (event.key === "ArrowRight") adjustRail(0.02);
-              else if (event.key === "Home") chatRatio = CHAT_MIN;
-              else if (event.key === "End") chatRatio = CHAT_MAX;
-              else return;
-              event.preventDefault();
-            }}
-            title="Drag or use arrow keys to resize"
-            class="group hidden w-3 flex-none cursor-col-resize items-center justify-center focus-visible:outline focus-visible:outline-2 focus-visible:outline-navy lg:flex"
-          >
-            <div class="h-10 w-1 rounded-full bg-gray-300 transition-colors group-hover:bg-primary"></div>
-          </button>
-        {/if}
-
-        <!-- Chat rail — right-docked + resizable. Open/close is a bottom-up
-             pop (reference: 21st.dev glowing assistant): the panel rises from
-             the bottom with a slight overshoot and sinks away on close. The
-             panel stays mounted so chat state survives close/reopen. -->
-        {#if report && user}
-          <aside
-            class={`relative [container-type:inline-size] ${mobileWorkspaceView === "assistant" || chatFocus ? "flex" : "hidden"} min-h-0 w-full flex-1 flex-col overflow-hidden bg-white lg:flex lg:w-[var(--assistant-width)] lg:flex-none ${chatOpen || qaOpen || chatFocus ? "lg:border-r lg:border-line-soft" : ""} ${dragging ? "" : "transition-all duration-[325ms] ease-out"}`}
-            style={`--assistant-width: ${chatFocus ? "100%" : chatOpen || qaOpen ? `${chatRatio * 100}%` : "0%"}`}
-          >
-            <!-- BNH-47: QA review — shared rail card (in flow; exactly one
-                 of chat/QA is in flow at a time via railView) -->
-            {#if railView === "qa"}
-              <LazyModule load={() => import("$lib/components/qa/QARailPanel.svelte")} label="QA review">
-                {#snippet children(QARailPanel)}
-                  <QARailPanel
-                    open={qaOpen}
-                    onClose={() => {
-                      qaOpen = false;
-                      mobileWorkspaceView = "report";
-                    }}
-                    modelName={generation?.selectedModelLabel ?? generation?.iterativeModelLabel ?? null}
-                    agentOutputs={generation?.agentOutputs}
-                    reportContent={report.content}
-                    reportId={report._id}
-                    onLocateGap={locateGap}
-                    onRunQa={generation?.status === "completed"
-                      ? async () => {
-                          await requestReportQaMut({ generationId: generation._id });
-                        }
-                      : undefined}
-                    postQaStatus={generation?.postQaStatus ?? null}
-                  />
-                {/snippet}
-              </LazyModule>
-            {/if}
-            <div
-              class={`chat-rise relative flex h-full origin-bottom flex-col overflow-hidden bg-white ${chatOpen ? "" : "is-closed"} ${railView !== "chat" ? "hidden" : ""}`}
-              role="dialog"
-              aria-label="AI assistant"
-              inert={!chatOpen}
-            >
-              <button
-                onclick={() => {
-                  chatOpen = false;
-                  chatFocus = false;
-                  mobileWorkspaceView = "report";
-                }}
-                title="Close assistant (Esc)"
-                aria-label="Close assistant"
-                class="absolute right-2.5 top-1.5 z-10 flex size-7 items-center justify-center rounded-full text-ink-muted transition-colors hover:bg-chrome/60 hover:text-ink motion-reduce:transition-none"
-              >
-                <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                  <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
-              <LazyModule load={() => import("$lib/components/chat/AgentChatPanel.svelte")} label="assistant" active={chatPreferencesReady && chatOpen && railView === "chat" && (desktopAssistant || mobileWorkspaceView === "assistant" || chatFocus)}>
-                {#snippet children(AgentChatPanel)}
-                  <AgentChatPanel
-                      {projectId}
-                      reportId={report._id}
-                      pendingHighlight={pendingChatHighlight}
-                      onClearHighlight={() => (pendingChatHighlight = null)}
-                      {pendingResearch}
-                      onClearResearch={() => (pendingResearch = null)}
-                      onReferenceText={(texts, scrollTo) => editorRef?.highlightText(texts, scrollTo)}
-                      onReviewReplacements={startReplaceReview}
-                      onPreviewProposal={(pairs, on) => {
-                        if (on && pairs.length) editorRef?.previewProposal(pairs);
-                        else editorRef?.clearProposalPreview();
-                      }}
-                      reviewingId={replaceSession?.messageId ?? null}
-                      onBeforeApply={flushEditor}
-                      isFull={chatFocus}
-                      onToggleFull={() => {
-                        chatOpen = true;
-                        qaOpen = false;
-                        railView = "chat";
-                        chatFocus = !chatFocus;
-                        if (chatFocus) mobileWorkspaceView = "assistant";
-                      }}
-                    />
-                {/snippet}
-              </LazyModule>
-            </div>
-          </aside>
-        {/if}
-
-        <!-- Launcher pills when the respective panel is closed -->
-        {#if report && user && !chatOpen}
-          <Tooltip text="Open AI assistant" side="left" delayDuration={300}>
-            {#snippet children({ props })}
-              <button
-                {...props}
-                in:scale={{ duration: 200, start: 0.6, delay: 240 }}
-                out:scale={{ duration: 150, start: 0.6 }}
-                onclick={() => {
-                  qaOpen = false;
-                  chatOpen = true;
-                  railView = "chat";
-                  mobileWorkspaceView = "assistant";
-                }}
-                aria-label="Open AI assistant"
-                class="chat-pill-glow fixed bottom-6 right-6 z-[70] flex h-11 w-11 items-center justify-center rounded-full bg-navy text-white transition-transform hover:scale-105"
-              >
-                <ChatIcon class="h-4.5 w-4.5" />
-              </button>
-            {/snippet}
-          </Tooltip>
-        {/if}
-        {#if report && user && !qaOpen}
-          <QALauncher
-            right={chatOpen ? "1.5rem" : "5rem"}
-            onOpen={() => {
-              chatOpen = false;
-              qaOpen = true;
-              railView = "qa";
-              chatFocus = false;
-              mobileWorkspaceView = "assistant";
-            }}
-          />
-        {/if}
       </div>
     {/if}
-
-    <!-- BNH-30: one-by-one replace stepper — Word-style "replace & find next" -->
-    {#if replaceSession}
-      <div class="fixed bottom-6 left-1/2 z-[80] -translate-x-1/2">
-        <div class="card flex items-center gap-3 px-4 py-3 shadow-xl">
-          <div class="flex flex-col">
-            <span class="text-xs font-medium text-gray-400">
-              Reviewing replacements
-            </span>
-            <span class="text-sm font-semibold text-navy">
-              {replaceSession.current
-                ? `Instance ${replaceSession.position} of ${replaceSession.total}`
-                : "Done"}
-              {#if replaceSession.current}
-                <span class="ml-2 font-normal text-gray-500">
-                  “{replaceSession.current.text}” →
-                  <span class="text-primary-dark">
-                    {replaceSession.current.replaceWith}
-                  </span>
-                </span>
-              {/if}
-            </span>
-          </div>
-          <div class="ml-2 flex items-center gap-1.5">
-            <button
-              onclick={replaceAndNext}
-              class="inline-flex items-center gap-1 rounded-lg bg-primary-selected px-3 py-2 text-xs font-semibold text-white transition-colors hover:bg-primary-dark"
-            >
-              Replace · Next
-              <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M13 7l5 5m0 0l-5 5m5-5H6" />
-              </svg>
-            </button>
-            <button
-              onclick={replaceAllRemaining}
-              class="rounded-lg border border-line bg-white px-3 py-2 text-xs font-medium text-navy transition-colors hover:bg-primary-wash"
-            >
-              Replace All
-            </button>
-            <button
-              onclick={keepOriginalAndNext}
-              class="rounded-lg px-3 py-2 text-xs font-medium text-ink-secondary transition-colors hover:bg-primary-wash hover:text-navy"
-            >
-              Keep original
-            </button>
-            <button
-              onclick={endReplaceReview}
-              title="Stop reviewing"
-              class="rounded-md p-1.5 text-gray-400 transition-colors hover:bg-primary-wash hover:text-gray-600"
-            >
-              <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </button>
-          </div>
-        </div>
-      </div>
-    {/if}
-
-    <!-- BNH-30: transient notice (e.g. text not found to replace) -->
-    {#if replaceNotice}
-      <div class="fixed bottom-6 left-1/2 z-[85] -translate-x-1/2 rounded-lg bg-navy px-4 py-2 text-sm text-white shadow-xl">
-        {replaceNotice}
-      </div>
-    {/if}
-
-    <!-- Comment authoring + hover overlay (single view) -->
-    {#if !awaitingSelection && !showIterativeStepper && !showSeedSummary && !showSeedWorkspace && !showSeedRecovery && !showSeedDrafting && report && user}
-      <CommentOverlay
-        {projectId}
-        reportId={report._id}
-        commenterId={user._id}
-        commenterName={displayName(user, "Consultant")}
-        {hoveredCommentId}
-        {pendingHighlight}
-        onClearPending={() => (pendingHighlight = null)}
-      />
-    {/if}
-
-    <!-- BNH-52: confirm re-running an already-generated test -->
-    {#if confirmRegenerate}
-      {@const regenSource = confirmRegenerate}
-      <div transition:overlayFade class="fixed inset-0 z-[100] flex items-center justify-center bg-navy/30 px-4" role="dialog" aria-modal="true" aria-labelledby="regen-title">
-        <div transition:modalPop class="card w-full max-w-md p-6 shadow-xl">
-          <div class="flex items-start gap-3">
-            <span class="flex h-8 w-8 flex-none items-center justify-center rounded-full bg-amber-100 text-amber-600">
-              <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
-              </svg>
-            </span>
-            <div>
-              <h3 id="regen-title" class="text-base font-semibold text-gray-900">
-                This project already has a generated test
-              </h3>
-              <p class="mt-1.5 text-sm leading-relaxed text-gray-600">
-                {#if candidateMode === "single"}
-                  Re-running generates one fresh draft and adds it directly as a
-                  new report version.
-                {:else if candidateMode === "iterative"}
-                  Re-running drafts the report section by section — you review and
-                  approve each section — and adds a new report version at the end.
-                {:else}
-                  Re-running generates two fresh candidate drafts and adds a new
-                  report version after you select one.
-                {/if}
-                Previous results are preserved in version history — nothing is deleted.
-              </p>
-            </div>
-          </div>
-          <div class="mt-5 flex justify-end gap-2">
-            <button
-              type="button"
-              onclick={() => (confirmRegenerate = null)}
-              class="rounded-lg px-4 py-2 text-sm font-medium text-gray-600 transition-colors hover:bg-chrome"
-            >
-              Cancel
-            </button>
-            <button
-              type="button"
-              onclick={() => runGenerate(regenSource, true)}
-              class="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-primary-dark"
-            >
-              Re-run generation
-            </button>
-          </div>
-        </div>
-      </div>
-    {/if}
-
-    <!-- Version history modal -->
-    {#if showHistory && report}
-      <LazyModule load={() => import("$lib/components/history/VersionHistory.svelte")} label="version history">
-        {#snippet children(VersionHistory)}
-          <VersionHistory
-            reportId={report._id}
-            beforeSnapshot={flushEditor}
-            onClose={() => (showHistory = false)}
-          />
-        {/snippet}
-      </LazyModule>
-    {/if}
-
-    {#if shareLink}
-      <div
-        transition:overlayFade
-        class="fixed inset-0 z-[110] flex items-center justify-center bg-navy/30 px-4"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="share-link-title"
-      >
-        <div transition:modalPop class="card w-full max-w-lg p-6 shadow-xl">
-          <h3 id="share-link-title" class="text-base font-semibold text-gray-900">
-            Review link published
-          </h3>
-          <p class="mt-1.5 text-sm leading-relaxed text-gray-600">
-            The current report is available for client review. Anyone with this link
-            can read it and leave comments.
-          </p>
-          <label for="published-review-link" class="mt-5 block text-xs font-medium uppercase tracking-wide text-gray-500">
-            Client review link
-          </label>
-          <input
-            id="published-review-link"
-            value={shareLink}
-            readonly
-            onfocus={(event) => event.currentTarget.select()}
-            onclick={(event) => event.currentTarget.select()}
-            class="field-control mt-1.5 w-full rounded-lg px-3 py-2 font-mono text-xs text-gray-700"
-          />
-          {#if shareError}
-            <p class="mt-2 text-sm text-red-700" role="alert">{shareError}</p>
-          {/if}
-          <div class="mt-5 flex justify-end gap-2">
-            <button
-              type="button"
-              onclick={() => {
-                shareLink = "";
-                shareError = "";
-                copied = false;
-              }}
-              class="rounded-lg px-4 py-2 text-sm font-medium text-gray-600 transition-colors hover:bg-chrome"
-            >
-              Close
-            </button>
-            <button
-              type="button"
-              onclick={copyPublishedReviewLink}
-              class="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-primary-dark"
-            >
-              {copied ? "Copied!" : "Copy link"}
-            </button>
-          </div>
-        </div>
-      </div>
-    {/if}
-
-    {#if exportValidation}
-      <ExportValidationDialog
-        errors={exportValidation.errors}
-        warnings={exportValidation.warnings}
-        onCancel={cancelExportValidation}
-        onProceed={proceedAfterExportWarnings}
-      />
-    {/if}
-    {#if exportError}
-      <div class="fixed bottom-5 left-1/2 z-[110] -translate-x-1/2 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 shadow-lg" role="alert">
-        Export failed: {exportError}
-      </div>
-    {/if}
-
-    <!-- Filing-readiness blockers: caught pre-export with a path to fix -->
-    {#if readinessBlockers.length}
-      <div class="fixed inset-0 z-[110] flex items-center justify-center bg-navy/30 px-4" role="dialog" aria-modal="true" aria-labelledby="readiness-blockers-title">
-        <div class="card w-full max-w-md p-6 shadow-xl">
-          <h3 id="readiness-blockers-title" class="text-base font-semibold text-gray-900">
-            Not ready to export yet
-          </h3>
-          <p class="mt-1.5 text-sm leading-relaxed text-gray-600">
-            The official export needs filing evidence in place first:
-          </p>
-          <ul class="mt-3 flex flex-col gap-2">
-            {#each readinessBlockers as blocker (`${blocker.code}:${blocker.message}`)}
-              <li class="flex items-start gap-2 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800">
-                <svg class="mt-0.5 h-4 w-4 flex-none" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                  <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
-                </svg>
-                {blocker.message}
-              </li>
-            {/each}
-          </ul>
-          <p class="mt-3 text-xs text-gray-500">
-            Add and verify evidence in the Filing readiness panel below the report, then export again.
-          </p>
-          <div class="mt-5 flex justify-end">
-            <button
-              type="button"
-              onclick={() => (readinessBlockers = [])}
-              class="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-primary-dark"
-            >
-              Got it
-            </button>
-          </div>
-        </div>
-      </div>
-    {/if}
-
-    <!-- No report, not generating — the INTAKE WORKBENCH (2026-08-08
+    <!-- No report, not generating: the INTAKE WORKBENCH (2026-08-08
          Obvious-parity amendment). Desktop ≥lg mirrors the report
          workbench's split anatomy: a persistent left CONTEXT pane (files
-         evidence + interview transcript — the project's conversation-like
+         evidence + interview transcript, the project's conversation-like
          source material) beside the primary intake/generation work surface,
          each owning its own vertical scroll, with the same resizable
          separator grammar. This replaces the single 768px long-scroll
          column whose transcript drove a ~27k-px page. Narrow screens use
          explicit Work/Context switches with one pane visible at a time.
-         The state stays HONEST: no report and no chat exist here — the
+         The state stays HONEST: no report and no chat exist here; the
          left pane is source context, never a fabricated conversation. -->
     {#if showIntakeWorkbench}
       <div class="flex shrink-0 items-center justify-center gap-0.5 border-b border-line-soft bg-white px-3 py-2 lg:hidden" role="group" aria-label="Project intake pane">
@@ -2522,7 +1950,7 @@
           style={`--context-width: ${contextOpen ? contextRatio * 100 : 0}%`}
         >
           <!-- Pane header: names the surface and carries the close control
-               (assistant-rail grammar). Desktop only — narrow screens close
+               (assistant-rail grammar). Desktop only; narrow screens close
                via the Work/Context switch. -->
           <div class={`hidden shrink-0 items-center justify-between pt-4 lg:flex ${contextOpen ? "px-5" : "lg:px-0"}`}>
             <h2 class="text-label">Context</h2>
@@ -2539,9 +1967,6 @@
             </button>
           </div>
           <div class={`min-h-0 flex-1 overflow-y-auto py-6 lg:pt-3 ${contextOpen ? "px-5" : "px-5 lg:px-0"}`}>
-            <div data-project-record-details>
-              {@render projectMetadata()}
-            </div>
             <!-- Reachable later: a project with no report still has to show
                  what happened to its uploads. -->
             <FilesPanel {projectId} />
@@ -2569,8 +1994,8 @@
                         {transcriptRow.label}
                       </span>
                       {#if transcriptRow.wordCount > 0}
-                        <span class="flex-shrink-0 text-xs text-gray-400">
-                          · {transcriptRow.wordCount.toLocaleString()} words
+                        <span class="ml-1 flex-shrink-0 text-xs text-gray-400">
+                          {transcriptRow.wordCount.toLocaleString()} words
                         </span>
                       {/if}
                       <span class="ml-auto flex items-center" aria-hidden="true">
@@ -2601,6 +2026,386 @@
       </div>
     {/if}
 
+          </div>
+        </div>
+
+        <!-- Twenty-style hairline resize divider between the page and the
+             side panel (pointer and keyboard). -->
+        {#if sidePanelOpen && !chatFocus}
+          <button
+            type="button"
+            onmousedown={startDrag}
+            role="slider"
+            aria-label="Resize assistant panel"
+            aria-orientation="vertical"
+            aria-valuemin={SIDE_PANEL_MIN}
+            aria-valuemax={SIDE_PANEL_MAX}
+            aria-valuenow={sidePanelWidth}
+            aria-valuetext={`${sidePanelWidth} pixels`}
+            onkeydown={(event) => {
+              if (event.key === "ArrowLeft") adjustRail(16);
+              else if (event.key === "ArrowRight") adjustRail(-16);
+              else if (event.key === "Home") sidePanelWidth = SIDE_PANEL_MIN;
+              else if (event.key === "End") sidePanelWidth = SIDE_PANEL_MAX;
+              else return;
+              event.preventDefault();
+            }}
+            title="Drag or use arrow keys to resize"
+            data-side-panel-divider
+            class="group relative hidden w-px flex-none cursor-col-resize bg-line-soft focus-visible:outline-none lg:block"
+          >
+            <span aria-hidden="true" class={`absolute inset-y-0 -left-[3px] w-[7px] transition-colors group-hover:bg-primary/25 group-focus-visible:bg-primary/40 ${dragging ? "bg-primary/40" : ""}`}></span>
+            <span aria-hidden="true" class={`absolute inset-y-0 left-0 w-px transition-colors group-hover:bg-primary-selected group-focus-visible:bg-primary-selected ${dragging ? "bg-primary-selected" : ""}`}></span>
+          </button>
+        {/if}
+
+        <!-- Side slot: Assistant, QA or Details, 400px by default. The chat
+             stays mounted so its state survives close and reopen; in
+             Assistant full screen it takes the page and centres the
+             conversation in a 720px column. -->
+        <aside
+          data-side-panel={sidePanelOpen ? railView : undefined}
+          aria-label="Side panel"
+          class={`relative min-h-0 flex-col overflow-hidden bg-surface ${sidePanelOpen && (mobileWorkspaceView === "assistant" || chatFocus) ? "flex w-full flex-1" : "hidden"} lg:flex lg:flex-none lg:w-[var(--side-panel-width)] ${dragging ? "" : "lg:transition-[width] lg:duration-[325ms] lg:ease-out motion-reduce:transition-none"}`}
+          style={`--side-panel-width: ${chatFocus ? "100%" : sidePanelOpen ? `${sidePanelWidth}px` : "0px"}`}
+        >
+          {#if detailsOpen && railView === "details"}
+            <div class="h-full" style={`min-width: ${SIDE_PANEL_MIN}px`}>
+              <DetailsPanel
+                data={details.data}
+                error={details.error}
+                bind:view={detailsView}
+                {handOffStage}
+                team={details.team}
+                teamLoading={details.teamLoading}
+                teamError={details.teamError}
+                changeStageReason={details.changeStageReason}
+                handOffReason={details.handOffReason}
+                canCreateIndustry={user?.role === "admin"}
+                onChangeStage={details.changeStage}
+                onHandOff={details.handOff}
+                onSaveIndustry={details.saveIndustry}
+                onSaveFiscalYear={details.saveFiscalYear}
+                onSaveScienceCode={details.saveScienceCode}
+                onSaveProjectNumber={details.saveProjectNumber}
+                onSuggestScienceCode={canEditDetails ? details.suggestScienceCode : undefined}
+                onClose={closeSidePanel}
+              >
+                {#snippet more()}
+                  <DetailsMore {projectId} {project} {canEditDetails} {details} />
+                {/snippet}
+              </DetailsPanel>
+            </div>
+          {/if}
+          {#if report && user && reportActionsVisible}
+            <!-- BNH-47: QA review (exactly one side surface in flow at a time) -->
+            {#if railView === "qa"}
+              <div class="h-full" style={`min-width: ${SIDE_PANEL_MIN}px`}>
+                <LazyModule load={() => import("$lib/components/qa/QARailPanel.svelte")} label="QA review">
+                  {#snippet children(QARailPanel)}
+                    <QARailPanel
+                      open={qaOpen}
+                      onClose={closeSidePanel}
+                      modelName={generation?.selectedModelLabel ?? generation?.iterativeModelLabel ?? null}
+                      agentOutputs={generation?.agentOutputs}
+                      reportContent={report.content}
+                      reportId={report._id}
+                      onLocateGap={locateGap}
+                      onRunQa={generation?.status === "completed"
+                        ? async () => {
+                            await requestReportQaMut({ generationId: generation._id });
+                          }
+                        : undefined}
+                      postQaStatus={generation?.postQaStatus ?? null}
+                    />
+                  {/snippet}
+                </LazyModule>
+              </div>
+            {/if}
+            <div
+              class={`chat-rise relative flex h-full origin-bottom flex-col overflow-hidden bg-surface ${chatOpen ? "" : "is-closed"} ${railView !== "chat" ? "hidden" : ""}`}
+              role="dialog"
+              aria-label="AI assistant"
+              inert={!chatOpen}
+            >
+              <div class={chatFocus ? "mx-auto flex h-full w-full max-w-[720px] flex-col" : "flex h-full flex-col"} data-assistant-column={chatFocus ? "full" : "side"}>
+                <LazyModule load={() => import("$lib/components/chat/AgentChatPanel.svelte")} label="assistant" active={chatPreferencesReady && chatOpen && railView === "chat" && (desktopAssistant || mobileWorkspaceView === "assistant" || chatFocus)}>
+                  {#snippet children(AgentChatPanel)}
+                    <AgentChatPanel
+                        {projectId}
+                        reportId={report._id}
+                        pendingHighlight={pendingChatHighlight}
+                        onClearHighlight={() => (pendingChatHighlight = null)}
+                        {pendingResearch}
+                        onClearResearch={() => (pendingResearch = null)}
+                        onReferenceText={(texts, scrollTo) => editorRef?.highlightText(texts, scrollTo)}
+                        onReviewReplacements={startReplaceReview}
+                        onPreviewProposal={(pairs, on) => {
+                          if (on && pairs.length) editorRef?.previewProposal(pairs);
+                          else editorRef?.clearProposalPreview();
+                        }}
+                        reviewingId={replaceSession?.messageId ?? null}
+                        onBeforeApply={flushEditor}
+                        closeInset={false}
+                        isFull={chatFocus}
+                        onToggleFull={() => {
+                          openSidePanel("chat");
+                          chatFocus = !chatFocus;
+                        }}
+                      />
+                  {/snippet}
+                </LazyModule>
+              </div>
+            </div>
+          {/if}
+        </aside>
+      </div>
+    </div>
+    <!-- BNH-30: one-by-one replace stepper, Word-style "replace & find next" -->
+    {#if replaceSession}
+      <div class="fixed bottom-6 left-1/2 z-[80] -translate-x-1/2">
+        <div class="card flex items-center gap-3 px-4 py-3 shadow-xl">
+          <div class="flex flex-col">
+            <span class="text-xs font-medium text-gray-400">
+              Reviewing replacements
+            </span>
+            <span class="text-sm font-semibold text-navy">
+              {replaceSession.current
+                ? `Instance ${replaceSession.position} of ${replaceSession.total}`
+                : "Done"}
+              {#if replaceSession.current}
+                <span class="ml-2 font-normal text-gray-500">
+                  “{replaceSession.current.text}” →
+                  <span class="text-primary-dark">
+                    {replaceSession.current.replaceWith}
+                  </span>
+                </span>
+              {/if}
+            </span>
+          </div>
+          <div class="ml-2 flex items-center gap-1.5">
+            <button
+              onclick={replaceAndNext}
+              class="inline-flex items-center gap-1 rounded-lg bg-primary-selected px-3 py-2 text-xs font-semibold text-white transition-colors hover:bg-primary-dark"
+            >
+              Replace and next
+              <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M13 7l5 5m0 0l-5 5m5-5H6" />
+              </svg>
+            </button>
+            <button
+              onclick={replaceAllRemaining}
+              class="rounded-lg border border-line bg-white px-3 py-2 text-xs font-medium text-navy transition-colors hover:bg-primary-wash"
+            >
+              Replace All
+            </button>
+            <button
+              onclick={keepOriginalAndNext}
+              class="rounded-lg px-3 py-2 text-xs font-medium text-ink-secondary transition-colors hover:bg-primary-wash hover:text-navy"
+            >
+              Keep original
+            </button>
+            <button
+              onclick={endReplaceReview}
+              title="Stop reviewing"
+              class="rounded-md p-1.5 text-gray-400 transition-colors hover:bg-primary-wash hover:text-gray-600"
+            >
+              <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+        </div>
+      </div>
+    {/if}
+
+    <!-- BNH-30: transient notice (e.g. text not found to replace) -->
+    {#if replaceNotice}
+      <div class="fixed bottom-6 left-1/2 z-[85] -translate-x-1/2 rounded-lg bg-navy px-4 py-2 text-sm text-white shadow-xl">
+        {replaceNotice}
+      </div>
+    {/if}
+
+    <!-- Comment authoring + hover overlay (single view) -->
+    {#if !awaitingSelection && !showIterativeStepper && !showSeedSummary && !showSeedWorkspace && !showSeedRecovery && !showSeedDrafting && report && user}
+      <CommentOverlay
+        {projectId}
+        reportId={report._id}
+        commenterId={user._id}
+        commenterName={displayName(user, "Consultant")}
+        {hoveredCommentId}
+        {pendingHighlight}
+        onClearPending={() => (pendingHighlight = null)}
+      />
+    {/if}
+
+    <!-- BNH-52: confirm re-running an already-generated test -->
+    {#if confirmRegenerate}
+      {@const regenSource = confirmRegenerate}
+      <div transition:overlayFade class="fixed inset-0 z-[100] flex items-center justify-center bg-navy/30 px-4" role="dialog" aria-modal="true" aria-labelledby="regen-title">
+        <div transition:modalPop class="card w-full max-w-md p-6 shadow-xl">
+          <div class="flex items-start gap-3">
+            <span class="flex h-8 w-8 flex-none items-center justify-center rounded-full bg-amber-100 text-amber-600">
+              <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+              </svg>
+            </span>
+            <div>
+              <h3 id="regen-title" class="text-base font-semibold text-gray-900">
+                This project already has a generated test
+              </h3>
+              <p class="mt-1.5 text-sm leading-relaxed text-gray-600">
+                {#if candidateMode === "single"}
+                  Re-running generates one fresh draft and adds it directly as a
+                  new report version.
+                {:else if candidateMode === "iterative"}
+                  Re-running drafts the report section by section. You review and
+                  approve each section, and a new report version is added at the end.
+                {:else}
+                  Re-running generates two fresh candidate drafts and adds a new
+                  report version after you select one.
+                {/if}
+                Previous results are preserved in version history; nothing is deleted.
+              </p>
+            </div>
+          </div>
+          <div class="mt-5 flex justify-end gap-2">
+            <button
+              type="button"
+              onclick={() => (confirmRegenerate = null)}
+              class="rounded-lg px-4 py-2 text-sm font-medium text-gray-600 transition-colors hover:bg-chrome"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onclick={() => runGenerate(regenSource, true)}
+              class="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-primary-dark"
+            >
+              Re-run generation
+            </button>
+          </div>
+        </div>
+      </div>
+    {/if}
+
+    <!-- Version history modal -->
+    {#if showHistory && report}
+      <LazyModule load={() => import("$lib/components/history/VersionHistory.svelte")} label="version history">
+        {#snippet children(VersionHistory)}
+          <VersionHistory
+            reportId={report._id}
+            beforeSnapshot={flushEditor}
+            onClose={() => (showHistory = false)}
+          />
+        {/snippet}
+      </LazyModule>
+    {/if}
+
+    {#if shareLink}
+      <div
+        transition:overlayFade
+        class="fixed inset-0 z-[110] flex items-center justify-center bg-navy/30 px-4"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="share-link-title"
+      >
+        <div transition:modalPop class="card w-full max-w-lg p-6 shadow-xl">
+          <h3 id="share-link-title" class="text-base font-semibold text-gray-900">
+            Review link published
+          </h3>
+          <p class="mt-1.5 text-sm leading-relaxed text-gray-600">
+            The current report is available for client review. Anyone with this link
+            can read it and leave comments.
+          </p>
+          <label for="published-review-link" class="mt-5 block text-xs font-medium uppercase tracking-wide text-gray-500">
+            Client review link
+          </label>
+          <input
+            id="published-review-link"
+            value={shareLink}
+            readonly
+            onfocus={(event) => event.currentTarget.select()}
+            onclick={(event) => event.currentTarget.select()}
+            class="field-control mt-1.5 w-full rounded-lg px-3 py-2 font-mono text-xs text-gray-700"
+          />
+          {#if shareError}
+            <p class="mt-2 text-sm text-red-700" role="alert">{shareError}</p>
+          {/if}
+          <div class="mt-5 flex justify-end gap-2">
+            <button
+              type="button"
+              onclick={() => {
+                shareLink = "";
+                shareError = "";
+                copied = false;
+              }}
+              class="rounded-lg px-4 py-2 text-sm font-medium text-gray-600 transition-colors hover:bg-chrome"
+            >
+              Close
+            </button>
+            <button
+              type="button"
+              onclick={copyPublishedReviewLink}
+              class="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-primary-dark"
+            >
+              {copied ? "Copied!" : "Copy link"}
+            </button>
+          </div>
+        </div>
+      </div>
+    {/if}
+
+    {#if exportValidation}
+      <ExportValidationDialog
+        errors={exportValidation.errors}
+        warnings={exportValidation.warnings}
+        onCancel={cancelExportValidation}
+        onProceed={proceedAfterExportWarnings}
+      />
+    {/if}
+    {#if exportError}
+      <div class="fixed bottom-5 left-1/2 z-[110] -translate-x-1/2 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 shadow-lg" role="alert">
+        Export failed: {exportError}
+      </div>
+    {/if}
+
+    <!-- Filing-readiness blockers: caught pre-export with a path to fix -->
+    {#if readinessBlockers.length}
+      <div class="fixed inset-0 z-[110] flex items-center justify-center bg-navy/30 px-4" role="dialog" aria-modal="true" aria-labelledby="readiness-blockers-title">
+        <div class="card w-full max-w-md p-6 shadow-xl">
+          <h3 id="readiness-blockers-title" class="text-base font-semibold text-gray-900">
+            Not ready to export yet
+          </h3>
+          <p class="mt-1.5 text-sm leading-relaxed text-gray-600">
+            The official export needs filing evidence in place first:
+          </p>
+          <ul class="mt-3 flex flex-col gap-2">
+            {#each readinessBlockers as blocker (`${blocker.code}:${blocker.message}`)}
+              <li class="flex items-start gap-2 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800">
+                <svg class="mt-0.5 h-4 w-4 flex-none" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+                </svg>
+                {blocker.message}
+              </li>
+            {/each}
+          </ul>
+          <p class="mt-3 text-xs text-gray-500">
+            Add and verify evidence in the Filing readiness panel below the report, then export again.
+          </p>
+          <div class="mt-5 flex justify-end">
+            <button
+              type="button"
+              onclick={() => (readinessBlockers = [])}
+              class="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-primary-dark"
+            >
+              Got it
+            </button>
+          </div>
+        </div>
+      </div>
+    {/if}
+
     {#if ghostSnapshot && report}
       <GhostCompareDialog
         bind:open={ghostCompareOpen}
@@ -2615,11 +2420,11 @@
       <div class="fixed inset-0 z-[100] flex items-center justify-center bg-navy/30 px-4" role="dialog" aria-modal="true" aria-labelledby="cancel-iterative-title">
         <div class="card w-full max-w-md p-6 shadow-xl">
           <h3 id="cancel-iterative-title" class="text-base font-semibold text-gray-900">
-            Cancel this section-by-section draft?
+            Cancel this generation?
           </h3>
           <p class="mt-1.5 text-sm leading-relaxed text-gray-600">
-            Approved sections and drafts in progress will be discarded, and the project
-            returns to its previous state. This cannot be undone.
+            Approved steps, approved sections and drafts in progress are discarded, and the
+            project returns to its previous state. This cannot be undone.
           </p>
           <div class="mt-5 flex justify-end gap-2">
             <button
@@ -2627,7 +2432,7 @@
               onclick={() => (confirmCancelIterative = false)}
               class="rounded-lg px-4 py-2 text-sm font-medium text-gray-600 transition-colors hover:bg-chrome"
             >
-              Keep drafting
+              Keep working
             </button>
             <button
               type="button"
@@ -2638,7 +2443,7 @@
               {#if cancellingIterative}
                 <Spinner size="sm" class="h-3.5 w-3.5 border-white" />
               {/if}
-              Cancel draft
+              Cancel generation
             </button>
           </div>
         </div>
