@@ -103,7 +103,7 @@ function item(seedId: string, roleId: string, bullet: string, support = "source_
     support,
     tags: ["technical"],
     uncertaintySeedId: null,
-    experimentSeedIds: [], edited: false, provenance: [],
+    experimentSeedIds: [], edited: false, provenance: [], provenanceTruncated: false,
   };
 }
 

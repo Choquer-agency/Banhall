@@ -771,4 +771,138 @@ describe("Seed DTO fields for the final UI (2026-09-24)", () => {
     expect(result.frozen).toBe(true);
     expect(result.page.map((item) => item.edited)).toEqual([false, true]);
   });
+
+  it("trusts a frozen item's stored edit flag over a wording match", async () => {
+    const fixture = await decisionFixture();
+    const seed = await addDecisionSeed(fixture);
+    const summaryVersionId = await fixture.t.run(async (ctx) => {
+      await ctx.db.insert("seedProvenance", {
+        seedId: seed.seedId,
+        projectId: fixture.projectId,
+        generationId: fixture.generationId,
+        sourceId: fixture.sourceId,
+        sourceContentHash: "source-hash",
+        startOffset: 0,
+        endOffset: 1,
+        exactExcerpt: "Original frozen wording.",
+      });
+      const summaryVersionId = await ctx.db.insert("summaryVersions", {
+        projectId: fixture.projectId,
+        generationId: fixture.generationId,
+        version: 1,
+        originGenerationId: fixture.generationId,
+        briefVersionId: fixture.briefId,
+        settingsHash: "settings",
+        skippedRoleIds: [],
+        readiness: true,
+        signedOffBy: fixture.userId,
+        signedOffAt: 1,
+      });
+      // Same text as the Seed in all three rows; only the stored flag
+      // differs (the third row predates the flag).
+      for (const [order, edited] of [[0, true], [1, false], [2, undefined]] as const) {
+        await ctx.db.insert("summaryItems", {
+          projectId: fixture.projectId,
+          generationId: fixture.generationId,
+          summaryVersionId,
+          roleId: "company_context",
+          kind: "standard",
+          order,
+          seedId: seed.seedId,
+          bullets: ["Original frozen wording."],
+          support: edited ? "writer_asserted" : "source_supported",
+          tags: ["technical"],
+          ...(edited === undefined ? {} : { edited }),
+        });
+      }
+      return summaryVersionId;
+    });
+    const result: SummaryResult = await fixture.writer.query(getSummaryRef, {
+      generationId: fixture.generationId,
+      versionId: summaryVersionId,
+      cursor: null,
+      numItems: 10,
+    });
+    expect(result.page.map((item) => item.edited)).toEqual([true, false, false]);
+    expect(result.page.map((item) => item.provenance.length)).toEqual([0, 1, 1]);
+  });
+
+  it("keeps a fourth citation on live and frozen Summary items", async () => {
+    const fixture = await decisionFixture();
+    const seed = await addDecisionSeed(fixture);
+    const excerpts = [
+      "First short quote.",
+      "Second short quote.",
+      "Third short quote.",
+      "Original frozen wording.",
+    ];
+    const summaryVersionId = await fixture.t.run(async (ctx) => {
+      await ctx.db.insert("seedSelections", {
+        projectId: fixture.projectId,
+        generationId: fixture.generationId,
+        roleId: "company_context",
+        seedId: seed.seedId,
+        selected: true,
+        selectedAt: 1,
+        version: 1,
+        orderKey: "00000",
+      });
+      for (const [index, exactExcerpt] of excerpts.entries()) {
+        await ctx.db.insert("seedProvenance", {
+          seedId: seed.seedId,
+          projectId: fixture.projectId,
+          generationId: fixture.generationId,
+          sourceId: fixture.sourceId,
+          sourceContentHash: "source-hash",
+          startOffset: index,
+          endOffset: index + 1,
+          exactExcerpt,
+        });
+      }
+      const summaryVersionId = await ctx.db.insert("summaryVersions", {
+        projectId: fixture.projectId,
+        generationId: fixture.generationId,
+        version: 1,
+        originGenerationId: fixture.generationId,
+        briefVersionId: fixture.briefId,
+        settingsHash: "settings",
+        skippedRoleIds: [],
+        readiness: true,
+        signedOffBy: fixture.userId,
+        signedOffAt: 1,
+      });
+      await ctx.db.insert("summaryItems", {
+        projectId: fixture.projectId,
+        generationId: fixture.generationId,
+        summaryVersionId,
+        roleId: "company_context",
+        kind: "standard",
+        order: 0,
+        seedId: seed.seedId,
+        // The displayed phrase is exactly the fourth citation.
+        bullets: ["Original frozen wording."],
+        support: "source_supported",
+        tags: ["technical"],
+        edited: false,
+      });
+      return summaryVersionId;
+    });
+    const live: SummaryResult = await fixture.writer.query(getSummaryRef, {
+      generationId: fixture.generationId,
+      cursor: null,
+      numItems: 10,
+    });
+    const frozen: SummaryResult = await fixture.writer.query(getSummaryRef, {
+      generationId: fixture.generationId,
+      versionId: summaryVersionId,
+      cursor: null,
+      numItems: 10,
+    });
+    for (const result of [live, frozen]) {
+      const item = result.page.find((candidate) => candidate.seedId === seed.seedId);
+      expect(item?.bullets).toEqual(["Original frozen wording."]);
+      expect(item?.provenance.map((citation) => citation.exactExcerpt)).toEqual(excerpts);
+      expect(item?.provenanceTruncated).toBe(false);
+    }
+  });
 });
