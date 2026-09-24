@@ -162,6 +162,34 @@ describe("PreviewProjectPage final shell", () => {
     expect(tab("report").getAttribute("aria-current")).toBe("page");
   });
 
+  it("uses the back chevron top bar on a phone", async () => {
+    seed();
+    await page.viewport(390, 844);
+    await render(PreviewProjectPage);
+    await expect.element(page.getByText("Evidence from thermal trials.", { exact: true })).toBeVisible();
+    const header = document.querySelector<HTMLElement>("[data-workspace-page-header]")!;
+    // The chevron links where the desktop breadcrumb does (Projects).
+    const back = page.getByLabelText("Back to projects", { exact: true });
+    await expect.element(back).toBeVisible();
+    expect(back.element().tagName).toBe("A");
+    const breadcrumb = Array.from(header.querySelectorAll("a")).find((link) => link.textContent?.trim() === "Projects")!;
+    expect(back.element().getAttribute("href")).toBe(breadcrumb.getAttribute("href"));
+    expect(getComputedStyle(breadcrumb).display).toBe("none");
+    // Board 3.6: back chevron, title, More. The menu button, breadcrumb and bell step aside.
+    const hidden = (element: Element | null) => element === null || getComputedStyle(element).display === "none";
+    expect(hidden(header.querySelector('button[aria-label="Open workspace navigation"]')?.parentElement ?? null)).toBe(true);
+    expect(hidden(header.querySelector("[data-top-bar-bell]"))).toBe(true);
+    await expect.element(page.getByRole("heading", { level: 1, name: "Adaptive cold storage controls" })).toBeVisible();
+    await expect.element(page.getByRole("button", { name: "More actions", exact: true })).toBeVisible();
+    const backRect = back.element().getBoundingClientRect();
+    expect(backRect.width).toBeGreaterThanOrEqual(44);
+    expect(backRect.height).toBeGreaterThanOrEqual(44);
+
+    await page.viewport(1440, 900);
+    await expect.poll(() => getComputedStyle(back.element()).display).toBe("none");
+    expect(hidden(header.querySelector("[data-top-bar-bell]"))).toBe(false);
+  });
+
   it("opens the Sources view without unmounting the report", async () => {
     seed();
     await render(PreviewProjectPage);

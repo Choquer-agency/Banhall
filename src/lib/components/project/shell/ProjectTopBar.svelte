@@ -1,7 +1,8 @@
 <!--
   Project top bar (ui-design-final.md section 2): page icon, "Projects /"
   breadcrumb and the project title (the route's single h1) on the left; on
-  the right the bell, then the page actions. Tools the screens do not show
+  the right the bell, then the page actions. On a phone (board 3.6) it is a
+  back chevron, the title and the More menu. Tools the screens do not show
   (AI review, Share, Compare, History, Financial) sit in a More menu
   (decision 19).
 -->
@@ -18,7 +19,7 @@
 <script lang="ts">
   import type { Snippet } from "svelte";
   import { DropdownMenu } from "bits-ui";
-  import { BellIcon, DotsThreeIcon, FileTextIcon } from "phosphor-svelte";
+  import { BellIcon, CaretLeftIcon, DotsThreeIcon, FileTextIcon } from "phosphor-svelte";
   import { resolve } from "$app/paths";
   import { useQuery } from "convex-svelte";
   import { useAuth } from "@mmailaender/convex-better-auth-svelte/svelte";
@@ -59,12 +60,24 @@
 </script>
 
 <header data-workspace-page-header class="flex h-14 shrink-0 items-center gap-2 px-3 sm:px-4">
-  <WorkspaceShellControls
-    tone="light"
-    {onOpenNavigation}
-    {railHidden}
-    onToggleRail={onToggleRail ?? null}
-  />
+  <!-- Phone (board 3.6): a back chevron to Projects replaces the menu button
+       and the breadcrumb; from 640px the workspace controls return. -->
+  <a
+    href={projectsHref}
+    aria-label="Back to projects"
+    data-top-bar-back
+    class="-ml-2 flex size-11 shrink-0 items-center justify-center rounded-lg text-ink-secondary transition-colors hover:bg-primary-wash hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir motion-reduce:transition-none sm:hidden"
+  >
+    <CaretLeftIcon size={18} aria-hidden="true" />
+  </a>
+  <div class="contents max-sm:hidden">
+    <WorkspaceShellControls
+      tone="light"
+      {onOpenNavigation}
+      {railHidden}
+      onToggleRail={onToggleRail ?? null}
+    />
+  </div>
   {@render leading?.()}
   <div class="flex min-w-0 flex-1 items-center gap-2 text-sm">
     <FileTextIcon size={16} aria-hidden="true" class="shrink-0 text-primary-selected max-sm:hidden" />
@@ -78,7 +91,7 @@
       href={resolve("/changelog")}
       data-top-bar-bell
       aria-label={unseen > 0 ? `Notifications, ${unseen} new update${unseen === 1 ? "" : "s"}` : "Notifications"}
-      class={`relative ${iconButton}`}
+      class={`relative max-sm:hidden ${iconButton}`}
     >
       <BellIcon size={17} aria-hidden="true" />
       {#if unseen > 0}
