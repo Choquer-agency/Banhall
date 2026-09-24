@@ -68,6 +68,7 @@
   import * as Tooltip from "$lib/components/ui/tooltip/index.js";
   import SelectInput from "$lib/components/ui/SelectInput.svelte";
   import { adjustedQaScores, issueDeduction } from "$lib/qaScoring";
+  import { qaBandColors } from "$lib/qa/qaBands";
   import { canOverrideQaSeverity } from "../../../../shared/roles";
   import { api } from "../../../../convex/_generated/api";
   import type { Id } from "../../../../convex/_generated/dataModel";
@@ -302,9 +303,6 @@
   }
 
   const overall = $derived(adjustedScores.overall);
-  const band = $derived(
-    overall >= 80 ? "text-green-600" : overall >= 60 ? "text-amber-600" : "text-red-600"
-  );
 
   // Issues/strengths per section collapse by default so the rail stays scannable.
   let openSections = $state<Record<string, boolean>>({});
@@ -401,31 +399,23 @@
 
 {#if scorecard}
   <div class="flex flex-col gap-6">
-    <!-- Score gauge -->
-    <div class="flex items-center gap-3.5">
-      <div class="relative h-14 w-14 flex-none">
-        <svg viewBox="0 0 36 36" class="h-14 w-14 -rotate-90">
-          <circle cx="18" cy="18" r="16" fill="none" class="stroke-gray-100" stroke-width="2" />
-          <circle
-            cx="18" cy="18" r="16" fill="none"
-            class={`${band} transition-[stroke-dashoffset] duration-700 ease-out`}
-            stroke="currentColor" stroke-width="2" stroke-linecap="round"
-            stroke-dasharray={2 * Math.PI * 16}
-            stroke-dashoffset={2 * Math.PI * 16 * (1 - overall / 100)}
-          />
-        </svg>
-        <div class="absolute inset-0 flex items-center justify-center">
-          <span class={`text-base font-semibold tabular-nums ${band}`}>{overall}</span>
-        </div>
-      </div>
-      <div class="min-w-0">
-        <p class="text-label">AI QA score</p>
-        <p class="mt-0.5 text-sm text-gray-600">
-          {overall >= 80 ? "Strong draft" : overall >= 60 ? "Needs attention" : "Significant issues"}
-          <span class="text-gray-400"> · /100</span>
+    <!-- Score line (ui-design-final.md section 8, board 2.2): quiet "78/100"
+         with a band bar; the band colour carries the judgement. -->
+    <div class="flex items-start gap-3.5">
+      <div class="min-w-0 flex-1" data-qa-score-line>
+        <p class="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+          <span class="text-[17px] leading-6 tabular-nums text-ink" data-qa-overall>{overall}/100</span>
+          <span class="text-xs text-ink-muted">AI QA score</span>
         </p>
+        <div class="mt-2 h-[3px] w-full overflow-hidden rounded-full bg-line-soft" aria-hidden="true">
+          <div
+            data-qa-overall-bar
+            class="h-full rounded-full transition-[width] duration-700 ease-out motion-reduce:transition-none"
+            style={`width: ${overall}%; background: ${qaBandColors(overall).bar}`}
+          ></div>
+        </div>
         {#if myReview}
-          <span class="mt-1 inline-flex items-center gap-1 rounded-full bg-navy/5 px-2 py-0.5 text-xs font-medium text-navy">
+          <span class="mt-2 inline-flex items-center gap-1 rounded-full bg-navy/5 px-2 py-0.5 text-xs font-medium text-navy">
             You: {myReview.score}
           </span>
         {/if}
@@ -458,7 +448,6 @@
       <div class="flex flex-col gap-3">
         {#each Object.entries(scorecard.section_scores) as [key, section] (key)}
           {@const sectionScore = adjustedScores.sections[key] ?? section.score}
-          {@const c = sectionScore >= 80 ? "bg-green-500" : sectionScore >= 60 ? "bg-amber-500" : "bg-red-500"}
           {@const noteCount = section.issues.length + section.strengths.length}
           {@const open = openSections[key] ?? false}
           {@const qaGroups = sectionQaGroups(key, section)}
@@ -470,11 +459,11 @@
               aria-expanded={open}
               class="flex w-full items-center gap-3 px-3 py-2.5 text-left transition-colors hover:bg-gray-50/80 disabled:hover:bg-transparent"
             >
-              <span class="text-data w-8 flex-none font-semibold text-gray-700">{key}</span>
+              <span class="text-data w-8 flex-none font-medium text-gray-700">{key}</span>
               <div class="h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-gray-200">
-                <div class={`h-full rounded-full ${c} transition-[width] duration-700 ease-out`} style={`width: ${sectionScore}%`}></div>
+                <div data-qa-section-bar class="h-full rounded-full transition-[width] duration-700 ease-out motion-reduce:transition-none" style={`width: ${sectionScore}%; background: ${qaBandColors(sectionScore).bar}`}></div>
               </div>
-              <span class="text-data w-7 flex-none text-right font-semibold text-gray-700">{sectionScore}</span>
+              <span class="text-data w-7 flex-none text-right font-medium text-gray-700">{sectionScore}</span>
               {#if noteCount > 0}
                 <span class="flex flex-none items-center gap-2">
                   {#if section.issues.length > 0}
@@ -500,8 +489,8 @@
               <ul class="space-y-1 border-t border-line-soft bg-white/70 px-3 py-2.5">
                 {#each qaGroups as group (group.key)}
                   <li class="flex items-center gap-2 px-0.5 pb-0.5 pt-1 first:pt-0">
-                    <span class={`text-[10px] font-semibold uppercase tracking-[0.08em] ${group.key === "issues" ? "text-red-700" : group.key === "warnings" ? "text-amber-700" : "text-green-700"}`}>{group.label}</span>
-                    <span class={`inline-flex h-4 min-w-4 flex-none items-center justify-center rounded-full px-1 text-[10px] font-semibold tabular-nums ${group.key === "issues" ? "bg-red-200/70 text-red-700" : group.key === "warnings" ? "bg-amber-200/70 text-amber-700" : "bg-green-200/70 text-green-700"}`}>{group.items.length}</span>
+                    <span class={`text-[10px] font-medium uppercase tracking-[0.08em] ${group.key === "issues" ? "text-red-700" : group.key === "warnings" ? "text-amber-700" : "text-green-700"}`}>{group.label}</span>
+                    <span class={`inline-flex h-4 min-w-4 flex-none items-center justify-center rounded-full px-1 text-[10px] font-medium tabular-nums ${group.key === "issues" ? "bg-red-200/70 text-red-700" : group.key === "warnings" ? "bg-amber-200/70 text-amber-700" : "bg-green-200/70 text-green-700"}`}>{group.items.length}</span>
                   </li>
                   {#each group.items as row (`${row.kind}-${row.originalIndex}`)}
                     {#if row.kind === "issue"}
@@ -702,13 +691,13 @@
         <ul class="space-y-1.5">
           {#each scorecard.ai_language_flags as flag, i (`ai-${i}`)}
             <li class="flex items-start gap-2">
-              <span class="mt-0.5 flex-none rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-700">AI</span>
+              <span class="mt-0.5 flex-none rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-amber-700">AI</span>
               <span class="min-w-0 text-xs leading-relaxed text-gray-700">{flag}</span>
             </li>
           {/each}
           {#each scorecard.superlative_flags as flag, i (`sup-${i}`)}
             <li class="flex items-start gap-2">
-              <span class="mt-0.5 flex-none rounded bg-red-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-red-700">Superlative</span>
+              <span class="mt-0.5 flex-none rounded bg-red-100 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-red-700">Superlative</span>
               <span class="min-w-0 text-xs leading-relaxed text-gray-700">{flag}</span>
             </li>
           {/each}
@@ -730,8 +719,8 @@
                 aria-expanded={open}
                 class="flex w-full items-center gap-2 bg-amber-50/55 px-2.5 py-2 text-left transition-colors hover:bg-amber-50/90"
               >
-                <span class="text-data font-semibold text-gap-text">Line {group.section}</span>
-                <span class="inline-flex h-4 min-w-4 flex-none items-center justify-center rounded-full bg-amber-200/70 px-1 text-[10px] font-semibold tabular-nums text-gap-text">
+                <span class="text-data font-medium text-gap-text">Line {group.section}</span>
+                <span class="inline-flex h-4 min-w-4 flex-none items-center justify-center rounded-full bg-amber-200/70 px-1 text-[10px] font-medium tabular-nums text-gap-text">
                   {group.items.length}
                 </span>
                 <svg
@@ -809,7 +798,7 @@
     {#if reportId}
       <div class="-mx-5 -mb-5 mt-1 border-t border-primary/15 bg-primary/5 px-5 py-4">
         <div class="flex items-center justify-between gap-2">
-          <p class="text-xs font-semibold text-navy">Your review</p>
+          <p class="text-xs font-medium text-navy">Your review</p>
           {#if hasReview && !dirty && !saving}
             <span class="inline-flex flex-none items-center gap-1 text-[10px] font-medium text-green-700">
               <svg class="h-2.5 w-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
@@ -832,7 +821,7 @@
             oninput={(e) => (draft = { score: e.currentTarget.value, comment: reviewComment })}
             placeholder="0–100"
             aria-label="Your score out of 100"
-            class="field-control w-20 rounded-lg px-2.5 py-1.5 text-sm font-semibold text-navy placeholder:text-gray-400"
+            class="field-control w-20 rounded-lg px-2.5 py-1.5 text-sm font-medium text-navy placeholder:text-gray-400"
           />
           <span class="text-xs text-gray-400">/ 100</span>
         </div>
@@ -852,7 +841,7 @@
           type="button"
           onclick={saveReview}
           disabled={saving || reviewScore === "" || reviewComment.trim() === "" || (hasReview && !dirty)}
-          class="mt-2 inline-flex h-8 w-full items-center justify-center rounded-lg bg-primary px-3.5 text-sm font-semibold text-white transition-colors hover:bg-primary-dark disabled:opacity-50"
+          class="mt-2 inline-flex h-8 w-full items-center justify-center rounded-lg bg-primary px-3.5 text-sm font-medium text-white transition-colors hover:bg-primary-dark disabled:opacity-50"
         >
           {saving ? "Saving…" : hasReview ? (dirty ? "Update review" : "Saved") : "Save review"}
         </button>
@@ -893,7 +882,7 @@
         <button
           type="button"
           onclick={handleRunQa}
-          class="mt-1 rounded-lg bg-primary px-3.5 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-primary-dark"
+          class="mt-1 rounded-lg bg-primary px-3.5 py-1.5 text-xs font-medium text-white transition-colors hover:bg-primary-dark"
         >
           {scorecardUnreadable ? "Run QA scorecard again" : "Run QA scorecard"}
         </button>
