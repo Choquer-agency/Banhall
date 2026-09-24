@@ -81,10 +81,27 @@ describe("SeedDraftingView", () => {
     expect(onStop).toHaveBeenCalledTimes(1);
   });
 
+  it("gives the draft title the host's heading id as a focus target", async () => {
+    await render(SeedDraftingView, { progress: progress(), reportTitle: "Adaptive cold storage controls", headingId: "draft-heading" });
+    const heading = document.getElementById("draft-heading")!;
+    expect(heading.tagName).toBe("H2");
+    expect(heading.getAttribute("tabindex")).toBe("-1");
+    heading.focus();
+    expect(document.activeElement).toBe(heading);
+  });
+
   it("renders the report body per Section status", async () => {
     await render(SeedDraftingView, { progress: progress(), reportTitle: "Adaptive cold storage controls" });
 
-    expect(q("h1")?.textContent).toBe("Adaptive cold storage controls");
+    // The host's top bar owns the page h1; the draft title is an h2 and each
+    // Section question an h3.
+    expect(q("h1")).toBeNull();
+    expect(q("h2")?.textContent).toBe("Adaptive cold storage controls");
+    expect(qa("h3").map((heading) => heading.textContent)).toEqual([
+      "What scientific or technological uncertainties did you attempt to overcome?",
+      "What work did you perform to overcome these uncertainties?",
+      "What scientific or technological advancements did you achieve?",
+    ]);
     const text = q("[data-drafting-report]")!.textContent!;
     expect(text).toContain("242 Technological uncertainty");
     expect(text).toContain("What work did you perform to overcome these uncertainties?");
