@@ -48,6 +48,7 @@ import {
   orderedPayloadValidator,
   sectionKeyOf,
   sectionNumberValidator,
+  type OrderedPayload,
   type SectionNumber,
 } from "../lib/orderedChain";
 import {
@@ -263,10 +264,260 @@ function parseCounts(value: string | null): Record<string, number> {
   return out;
 }
 
+/** The claim both the ordered chain and the seed redraft draft from. */
+type SectionClaim = Exclude<
+  NonNullable<FunctionReturnType<typeof internal.generations.claimOrderedSectionRun>>,
+  { stopped: true }
+>;
+
+/** What one drafted, Self-checked Section persists (slot counts aside). */
+type SectionCompletion = {
+  draftText: string;
+  metrics: string;
+  selfCheck: string;
+  notes: ComplianceNoteDraft[];
+  storylineQuestion?: {
+    question: string;
+    sectionClaim: string;
+    storylineAlternative: string;
+    evidenceEntryId: Id<"generationBriefEntries">;
+  };
+};
+
 /**
  * Draft, Self-check and (at most once) repair one section. Worst case:
  * draft 1 + compression 2 + Self-check 1 + repair 1 = 5 sequential calls
- * (providers.ts ORDERED_SECTION_ACTION_SLOTS).
+ * (providers.ts ORDERED_SECTION_ACTION_SLOTS). Shared by the ordered chain
+ * and the seed redraft so both draft under the same rules. Throws on a
+ * failed draft; the caller records the failure.
+ */
+async function draftCheckedSection(input: {
+  claim: SectionClaim;
+  payload: OrderedPayload;
+  section: SectionNumber;
+  clientFor: ReturnType<typeof chainClientFactory>;
+}): Promise<SectionCompletion> {
+  const { claim, payload, section, clientFor } = input;
+  const analysis = parseTranscriptAnalysis(payload.analysis);
+  const styleOverrides = normalizeStyleOverrides(payload.styleOverrides);
+  const key = sectionKeyOf(section);
+  const lengthTarget = claim.lengthTarget as LengthTarget;
+  const styleGuidance =
+    (payload.frozenStyleGuidance ??
+      buildStyleGuidance(payload.draftStyle, payload.writerFlavor, styleOverrides)) +
+    draftedPriorSectionsBlock(claim.priorSections);
+  const styleDigestIds =
+    payload.draftStyleDigestId && payload.draftStyle?.trim()
+      ? [payload.draftStyleDigestId]
+      : undefined;
+  const agent = SECTION_AGENTS[section];
+  const draftWith = async (callSite: string, extraGuidance = "") =>
+    scrubBannedWordsUnlessWaived(
+      await agent(
+        clientFor(callSite, styleDigestIds),
+        analysis,
+        claim.model,
+        payload.brainExemplars[key],
+        lengthBudgetBlock(key, lengthTarget),
+        styleGuidance + extraGuidance,
+        styleOverrides,
+        claim.briefBlock,
+        claim.planBlock
+      ),
+      styleOverrides.bannedWords
+    );
+
+  let text = await draftWith(`generation:section:${section}`);
+  if (!text.trim()) {
+    // The raw model response is non-empty (requireTextResponse already
+    // guards that); only the banned-word scrub can empty it here. There
+    // is no repair fallback for the first draft, so this fails the
+    // section run rather than persisting an empty body.
+    throw new Error("Section draft empty after the banned-word scrub");
+  }
+  text = await compressToFit(clientFor, claim.model, key, text, lengthTarget, styleOverrides);
+  if (!text.trim()) {
+    // Same guard as the initial draft above: only the banned-word scrub
+    // inside compressToFit's re-scrub step can empty an already-non-empty
+    // compressed draft. There is no repair fallback for this stage.
+    throw new Error("Section draft empty after compression");
+  }
+
+  const brief = claim.brief;
+  const check = (draft: string): DeterministicSelfCheck =>
+    runDeterministicSelfCheck({
+      section,
+      text: draft,
+      brief,
+      profile: payload.orderedContext,
+      isFirstInOrder: claim.isFirstInOrder,
+      confirmedPlanConflicts: claim.planChecks
+        .filter((planCheck) => planCheck.confirmedExclusion)
+        .map((planCheck) => planCheck.wording),
+    });
+  const before = check(text);
+
+  let verdicts: ModelVerdict[] = [];
+  let storylineQuestion: ModelSelfCheckResult["storylineQuestion"] = null;
+  let planVerdicts: ModelSelfCheckResult["planVerdicts"] = [];
+  let modelCheck: { ok: true } | { ok: false; reason: string } = { ok: true };
+  try {
+    const result = await runModelSelfCheck(clientFor(`generation:selfCheck:${section}`), {
+      section,
+      text,
+      storylineText: brief?.storylineText ?? "",
+      confidenceMap: brief?.confidenceMap ?? [],
+      glossaryCandidates: before.glossaryCandidates,
+      writerInstructions: payload.writerFlavor,
+      rules: before.modelRules,
+      model: claim.model,
+      planChecks: claim.planChecks,
+      planChecksBlock: claim.planChecksBlock,
+    });
+    verdicts = result.verdicts;
+    storylineQuestion = result.storylineQuestion;
+    planVerdicts = result.planVerdicts;
+  } catch (error) {
+    // An unrepaired or unrun check never blocks the section (Never-rule);
+    // the failure is recorded in the Compliance Note instead.
+    modelCheck = { ok: false, reason: normalizeProviderError(error).code };
+    planVerdicts = claim.planChecks.map((check) => ({
+      ...(check.itemId ? { itemId: check.itemId } : {}),
+      ...(check.skippedRoleId ? { skippedRoleId: check.skippedRoleId } : {}),
+      mergedItemIds: [...check.mergedItemIds],
+      outcome: "not_applied" as const,
+      reason: "The plan coverage Self-check did not complete.",
+    }));
+  }
+
+  const planIssues = modelCheck.ok
+    ? planVerdicts.flatMap((verdict) => {
+        const expected = claim.planChecks.find((check) =>
+          verdict.itemId
+            ? check.itemId === verdict.itemId
+            : check.skippedRoleId === verdict.skippedRoleId
+        );
+        return verdict.outcome === "not_applied" &&
+          verdict.actionableRepair !== false &&
+          !expected?.confirmedExclusion
+          ? [verdict.repairGuidance ?? verdict.reason]
+          : [];
+      })
+    : [];
+  const issues = [...repairIssues(before, verdicts), ...planIssues];
+  const repair: { attempted: boolean; succeeded: boolean; failureReason?: string } = {
+    attempted: issues.length > 0,
+    succeeded: false,
+  };
+  let finalText = text;
+  let after: DeterministicSelfCheck | null = null;
+  if (repair.attempted) {
+    try {
+      // The same section agent that drafted it, with the repair guidance
+      // appended: a separate model interaction, never an inline edit.
+      const repaired = await draftWith(
+        `generation:repair:${section}`,
+        repairGuidanceBlock(issues, text)
+      );
+      if (repaired.trim()) {
+        finalText = repaired;
+        repair.succeeded = true;
+        after = check(finalText);
+      } else {
+        // An empty repair never replaces the draft it was meant to fix.
+        repair.failureReason = "EMPTY_OUTPUT";
+      }
+    } catch (error) {
+      repair.failureReason = normalizeProviderError(error).code;
+    }
+  }
+
+  const finalCoverageNotReverified =
+    repair.succeeded && !sameUtf8Bytes(text, finalText);
+
+  // The question is stored only when it cites a Confidence Map entry of
+  // this Brief; the note must not claim a question the Brief never got.
+  const evidence =
+    storylineQuestion && storylineQuestion.confidenceEntryIndex !== null
+      ? brief?.confidenceMap[storylineQuestion.confidenceEntryIndex]
+      : undefined;
+  const { rows: baseRows, summary: baseSummary } = assembleSectionNotes({
+    section,
+    before,
+    after,
+    verdicts,
+    modelCheck,
+    storylineQuestion: storylineQuestion
+      ? { question: storylineQuestion.question, recorded: evidence !== undefined }
+      : null,
+    repair,
+    finalText,
+  });
+  const rows = [...baseRows];
+  let planRows: ComplianceNoteDraft[] = [];
+  if (payload.summaryVersionId) {
+    planRows = planComplianceNoteDrafts({
+      section,
+      summaryVersionId: payload.summaryVersionId,
+      checks: claim.planChecks,
+      verdicts: planVerdicts,
+      repairSucceeded: repair.succeeded,
+      coverageCheckSucceeded: modelCheck.ok,
+      finalCoverageNotReverified,
+    });
+    rows.push(...planRows);
+  }
+  const initialPlanFailures = planVerdicts.filter((verdict) => {
+    const expected = claim.planChecks.find((check) =>
+      verdict.itemId
+        ? check.itemId === verdict.itemId
+        : check.skippedRoleId === verdict.skippedRoleId
+    );
+    return verdict.outcome !== "applied" || expected?.confirmedExclusion === true;
+  }).length;
+  const finalPlanFailures = planRows.filter(
+    (row) => row.outcome !== "applied"
+  ).length;
+  const summary = {
+    ...baseSummary,
+    failedChecks: baseSummary.failedChecks + initialPlanFailures,
+    remainingFailures: baseSummary.remainingFailures + finalPlanFailures,
+    ...(payload.summaryVersionId
+      ? {
+          planCoverage: {
+            status: modelCheck.ok
+              ? finalPlanFailures === 0
+                ? "complete" as const
+                : "incomplete" as const
+              : "unavailable" as const,
+            applied: planRows.length - finalPlanFailures,
+            total: planRows.length,
+          },
+        }
+      : {}),
+  };
+  return {
+    draftText: finalText,
+    metrics: JSON.stringify(sectionMetrics(finalText, key)),
+    selfCheck: JSON.stringify(summary),
+    notes: rows,
+    ...(storylineQuestion && evidence
+      ? {
+          storylineQuestion: {
+            question: storylineQuestion.question,
+            sectionClaim: storylineQuestion.sectionClaim,
+            storylineAlternative: storylineQuestion.storylineAlternative,
+            evidenceEntryId: evidence.entryId,
+          },
+        }
+      : {}),
+  };
+}
+
+/**
+ * One scheduled action per Section of the ordered chain: claim, draft with
+ * draftCheckedSection, then the fenced completion that schedules what comes
+ * next.
  */
 export const generateOrderedSection = internalAction({
   args: {
@@ -323,225 +574,19 @@ export const generateOrderedSection = internalAction({
       slotCounts
     );
     try {
-      const { payload, section } = args;
-      const analysis = parseTranscriptAnalysis(payload.analysis);
-      const styleOverrides = normalizeStyleOverrides(payload.styleOverrides);
-      const key = sectionKeyOf(section);
-      const lengthTarget = claim.lengthTarget as LengthTarget;
-      const styleGuidance =
-        (payload.frozenStyleGuidance ??
-          buildStyleGuidance(payload.draftStyle, payload.writerFlavor, styleOverrides)) +
-        draftedPriorSectionsBlock(claim.priorSections);
-      const styleDigestIds =
-        payload.draftStyleDigestId && payload.draftStyle?.trim()
-          ? [payload.draftStyleDigestId]
-          : undefined;
-      const agent = SECTION_AGENTS[section];
-      const draftWith = async (callSite: string, extraGuidance = "") =>
-        scrubBannedWordsUnlessWaived(
-          await agent(
-            clientFor(callSite, styleDigestIds),
-            analysis,
-            claim.model,
-            payload.brainExemplars[key],
-            lengthBudgetBlock(key, lengthTarget),
-            styleGuidance + extraGuidance,
-            styleOverrides,
-            claim.briefBlock,
-            claim.planBlock
-          ),
-          styleOverrides.bannedWords
-        );
-
-      let text = await draftWith(`generation:section:${section}`);
-      if (!text.trim()) {
-        // The raw model response is non-empty (requireTextResponse already
-        // guards that); only the banned-word scrub can empty it here. There
-        // is no repair fallback for the first draft, so this fails the
-        // section run rather than persisting an empty body.
-        throw new Error("Section draft empty after the banned-word scrub");
-      }
-      text = await compressToFit(clientFor, claim.model, key, text, lengthTarget, styleOverrides);
-      if (!text.trim()) {
-        // Same guard as the initial draft above: only the banned-word scrub
-        // inside compressToFit's re-scrub step can empty an already-non-empty
-        // compressed draft. There is no repair fallback for this stage.
-        throw new Error("Section draft empty after compression");
-      }
-
-      const brief = claim.brief;
-      const check = (draft: string): DeterministicSelfCheck =>
-        runDeterministicSelfCheck({
-          section,
-          text: draft,
-          brief,
-          profile: payload.orderedContext,
-          isFirstInOrder: claim.isFirstInOrder,
-          confirmedPlanConflicts: claim.planChecks
-            .filter((planCheck) => planCheck.confirmedExclusion)
-            .map((planCheck) => planCheck.wording),
-        });
-      const before = check(text);
-
-      let verdicts: ModelVerdict[] = [];
-      let storylineQuestion: ModelSelfCheckResult["storylineQuestion"] = null;
-      let planVerdicts: ModelSelfCheckResult["planVerdicts"] = [];
-      let modelCheck: { ok: true } | { ok: false; reason: string } = { ok: true };
-      try {
-        const result = await runModelSelfCheck(clientFor(`generation:selfCheck:${section}`), {
-          section,
-          text,
-          storylineText: brief?.storylineText ?? "",
-          confidenceMap: brief?.confidenceMap ?? [],
-          glossaryCandidates: before.glossaryCandidates,
-          writerInstructions: payload.writerFlavor,
-          rules: before.modelRules,
-          model: claim.model,
-          planChecks: claim.planChecks,
-          planChecksBlock: claim.planChecksBlock,
-        });
-        verdicts = result.verdicts;
-        storylineQuestion = result.storylineQuestion;
-        planVerdicts = result.planVerdicts;
-      } catch (error) {
-        // An unrepaired or unrun check never blocks the section (Never-rule);
-        // the failure is recorded in the Compliance Note instead.
-        modelCheck = { ok: false, reason: normalizeProviderError(error).code };
-        planVerdicts = claim.planChecks.map((check) => ({
-          ...(check.itemId ? { itemId: check.itemId } : {}),
-          ...(check.skippedRoleId ? { skippedRoleId: check.skippedRoleId } : {}),
-          mergedItemIds: [...check.mergedItemIds],
-          outcome: "not_applied" as const,
-          reason: "The plan coverage Self-check did not complete.",
-        }));
-      }
-
-      const planIssues = modelCheck.ok
-        ? planVerdicts.flatMap((verdict) => {
-            const expected = claim.planChecks.find((check) =>
-              verdict.itemId
-                ? check.itemId === verdict.itemId
-                : check.skippedRoleId === verdict.skippedRoleId
-            );
-            return verdict.outcome === "not_applied" &&
-              verdict.actionableRepair !== false &&
-              !expected?.confirmedExclusion
-              ? [verdict.repairGuidance ?? verdict.reason]
-              : [];
-          })
-        : [];
-      const issues = [...repairIssues(before, verdicts), ...planIssues];
-      const repair: { attempted: boolean; succeeded: boolean; failureReason?: string } = {
-        attempted: issues.length > 0,
-        succeeded: false,
-      };
-      let finalText = text;
-      let after: DeterministicSelfCheck | null = null;
-      if (repair.attempted) {
-        try {
-          // The same section agent that drafted it, with the repair guidance
-          // appended: a separate model interaction, never an inline edit.
-          const repaired = await draftWith(
-            `generation:repair:${section}`,
-            repairGuidanceBlock(issues, text)
-          );
-          if (repaired.trim()) {
-            finalText = repaired;
-            repair.succeeded = true;
-            after = check(finalText);
-          } else {
-            // An empty repair never replaces the draft it was meant to fix.
-            repair.failureReason = "EMPTY_OUTPUT";
-          }
-        } catch (error) {
-          repair.failureReason = normalizeProviderError(error).code;
-        }
-      }
-
-      const finalCoverageNotReverified =
-        repair.succeeded && !sameUtf8Bytes(text, finalText);
-
-      // The question is stored only when it cites a Confidence Map entry of
-      // this Brief; the note must not claim a question the Brief never got.
-      const evidence =
-        storylineQuestion && storylineQuestion.confidenceEntryIndex !== null
-          ? brief?.confidenceMap[storylineQuestion.confidenceEntryIndex]
-          : undefined;
-      const { rows: baseRows, summary: baseSummary } = assembleSectionNotes({
-        section,
-        before,
-        after,
-        verdicts,
-        modelCheck,
-        storylineQuestion: storylineQuestion
-          ? { question: storylineQuestion.question, recorded: evidence !== undefined }
-          : null,
-        repair,
-        finalText,
+      const completion = await draftCheckedSection({
+        claim,
+        payload: args.payload,
+        section: args.section,
+        clientFor,
       });
-      const rows = [...baseRows];
-      let planRows: ComplianceNoteDraft[] = [];
-      if (payload.summaryVersionId) {
-        planRows = planComplianceNoteDrafts({
-          section,
-          summaryVersionId: payload.summaryVersionId,
-          checks: claim.planChecks,
-          verdicts: planVerdicts,
-          repairSucceeded: repair.succeeded,
-          coverageCheckSucceeded: modelCheck.ok,
-          finalCoverageNotReverified,
-        });
-        rows.push(...planRows);
-      }
-      const initialPlanFailures = planVerdicts.filter((verdict) => {
-        const expected = claim.planChecks.find((check) =>
-          verdict.itemId
-            ? check.itemId === verdict.itemId
-            : check.skippedRoleId === verdict.skippedRoleId
-        );
-        return verdict.outcome !== "applied" || expected?.confirmedExclusion === true;
-      }).length;
-      const finalPlanFailures = planRows.filter(
-        (row) => row.outcome !== "applied"
-      ).length;
-      const summary = {
-        ...baseSummary,
-        failedChecks: baseSummary.failedChecks + initialPlanFailures,
-        remainingFailures: baseSummary.remainingFailures + finalPlanFailures,
-        ...(payload.summaryVersionId
-          ? {
-              planCoverage: {
-                status: modelCheck.ok
-                  ? finalPlanFailures === 0
-                    ? "complete" as const
-                    : "incomplete" as const
-                  : "unavailable" as const,
-                applied: planRows.length - finalPlanFailures,
-                total: planRows.length,
-              },
-            }
-          : {}),
-      };
       await ctx.runMutation(internal.generations.completeOrderedSectionRun, {
         generationId: args.generationId,
         candidateRunId: args.candidateRunId,
-        section,
-        draftText: finalText,
-        metrics: JSON.stringify(sectionMetrics(finalText, key)),
-        selfCheck: JSON.stringify(summary),
+        section: args.section,
+        ...completion,
         slotCounts: JSON.stringify(slotCounts),
-        notes: rows,
-        ...(storylineQuestion && evidence
-          ? {
-              storylineQuestion: {
-                question: storylineQuestion.question,
-                sectionClaim: storylineQuestion.sectionClaim,
-                storylineAlternative: storylineQuestion.storylineAlternative,
-                evidenceEntryId: evidence.entryId,
-              },
-            }
-          : {}),
-        payload,
+        payload: args.payload,
       });
     } catch (error) {
       const normalized = normalizeProviderError(error);
@@ -550,6 +595,7 @@ export const generateOrderedSection = internalAction({
         candidateRunId: args.candidateRunId,
         section: args.section,
         error: `${normalized.code}: ${normalized.message}`,
+        payload: args.payload,
       });
     }
     return null;
@@ -558,10 +604,11 @@ export const generateOrderedSection = internalAction({
 
 /**
  * After the last drafted section: one consistency call (when every section
- * was drafted), then QA and chronology as today, the Tiptap document (with
- * [NOT GENERATED] for sections a stop left undrafted), provenance, and the
- * candidate's completion with its Self-check summary, call budget and
- * production order.
+ * was drafted), then QA and chronology as today (skipped for a signed-off
+ * seed run, whose QA runs in the background after the report exists), the
+ * Tiptap document (with [NOT GENERATED] for sections a stop left undrafted),
+ * provenance, and the candidate's completion with its Self-check summary,
+ * call budget and production order.
  */
 export const finalizeOrderedCandidate = internalAction({
   args: {
@@ -662,10 +709,16 @@ export const finalizeOrderedCandidate = internalAction({
         payload.qaCalibrationDigestId && payload.qaCalibration?.trim()
           ? [payload.qaCalibrationDigestId]
           : undefined;
+      // CAP-18: a signed-off seed run never waits on QA. Its report is created
+      // as soon as the Sections are drafted and checked; the background
+      // post-QA job (ai/postQa:runReportQa, scheduled by settleCandidateRun)
+      // runs the scorecard and chronology once, from the same frozen inputs.
+      // A stopped seed run schedules no QA at all (FR-43).
+      const seedRun = payload.summaryVersionId !== undefined;
       // QA scores a complete draft; a stopped draft skips it rather than be
       // scored on empty sections. Both stay advisory, as in the one-shot path.
       const [qaSettled, chronologySettled] = await Promise.allSettled([
-        allDrafted
+        allDrafted && !seedRun
           ? runQAAgent(
               clientFor("generation:qa", qaDigestIds),
               analysis,
@@ -678,7 +731,9 @@ export const finalizeOrderedCandidate = internalAction({
               detectFirstPersonPreference(payload.writerFlavor)
             )
           : Promise.resolve(null),
-        runChronologyAgent(clientFor("generation:chronology"), analysis, drafts.model),
+        seedRun
+          ? Promise.resolve(null)
+          : runChronologyAgent(clientFor("generation:chronology"), analysis, drafts.model),
       ]);
       if (qaSettled.status === "rejected") {
         console.error("QA scorecard failed; continuing without it", qaSettled.reason);
@@ -737,6 +792,141 @@ export const finalizeOrderedCandidate = internalAction({
       const normalized = normalizeProviderError(error);
       await complete({ error: `${normalized.code}: ${normalized.message}` });
     }
+    return null;
+  },
+});
+
+/**
+ * "Draft the rest" after Stop (owner decision 20): draft one "Not drafted"
+ * Section of a stopped signed-off seed run under exactly the chain's rules
+ * (draftCheckedSection), from the same frozen payload. Every write goes
+ * through the fenced redraft mutations; the report itself is only written by
+ * applySeedRedraft once the attempt's Sections are drafted.
+ */
+export const redraftSeedSection = internalAction({
+  args: {
+    generationId: v.id("generations"),
+    candidateRunId: v.id("generationCandidateRuns"),
+    attemptStartedAt: v.number(),
+    section: sectionNumberValidator,
+    payload: orderedPayloadValidator,
+  },
+  returns: v.null(),
+  handler: async (ctx, args): Promise<null> => {
+    const fail = async (error: unknown) => {
+      const normalized = normalizeProviderError(error);
+      await ctx.runMutation(internal.generations.failRedraftSection, {
+        generationId: args.generationId,
+        candidateRunId: args.candidateRunId,
+        attemptStartedAt: args.attemptStartedAt,
+        section: args.section,
+        error: `${normalized.code}: ${normalized.message}`,
+      });
+    };
+    let claim: SectionClaim | null;
+    try {
+      claim = await ctx.runMutation(internal.generations.claimRedraftSection, {
+        generationId: args.generationId,
+        candidateRunId: args.candidateRunId,
+        attemptStartedAt: args.attemptStartedAt,
+        section: args.section,
+        promptVersion: await currentPromptVersion(),
+        payload: args.payload,
+      });
+    } catch (error) {
+      await fail(error);
+      return null;
+    }
+    if (!claim) return null;
+    const slotCounts: Record<string, number> = {};
+    const clientFor = chainClientFactory(
+      ctx,
+      {
+        model: claim.model,
+        projectId: claim.projectId,
+        requestedBy: claim.requestedBy,
+        generationId: args.generationId,
+        candidateRunId: args.candidateRunId,
+      },
+      slotCounts
+    );
+    try {
+      const completion = await draftCheckedSection({
+        claim,
+        payload: args.payload,
+        section: args.section,
+        clientFor,
+      });
+      await ctx.runMutation(internal.generations.completeRedraftSection, {
+        generationId: args.generationId,
+        candidateRunId: args.candidateRunId,
+        attemptStartedAt: args.attemptStartedAt,
+        section: args.section,
+        ...completion,
+        slotCounts: JSON.stringify(slotCounts),
+        payload: args.payload,
+      });
+    } catch (error) {
+      await fail(error);
+    }
+    return null;
+  },
+});
+
+/**
+ * After the redraft's last Section: when the report now has all three
+ * Sections, one consistency pass over them (the writer's current text for
+ * the Sections they kept, the redrafted text for the rest); then the fenced
+ * write into the report. QA follows in the background (CAP-18).
+ */
+export const finalizeSeedRedraft = internalAction({
+  args: {
+    generationId: v.id("generations"),
+    candidateRunId: v.id("generationCandidateRuns"),
+    attemptStartedAt: v.number(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args): Promise<null> => {
+    const input = await ctx.runQuery(internal.generations.getSeedRedraftInput, args);
+    if (!input) return null;
+    const present = input.sections.flatMap((row) =>
+      row.text !== null ? [{ section: row.section, text: row.text }] : []
+    );
+    let notes: ComplianceNoteDraft[] = [];
+    if (present.length === input.sections.length && present.length > 0) {
+      const last = input.sections[input.sections.length - 1].section;
+      const clientFor = chainClientFactory(
+        ctx,
+        {
+          model: input.model,
+          projectId: input.projectId,
+          requestedBy: input.requestedBy,
+          generationId: args.generationId,
+          candidateRunId: args.candidateRunId,
+        },
+        {}
+      );
+      try {
+        const findings = await runConsistencyPass(clientFor("generation:consistency"), {
+          sections: present,
+          claimExclusions: input.brief?.claimExclusions.map((entry) => entry.text) ?? [],
+          glossaryTerms: input.brief?.glossaryTerms ?? [],
+          model: input.model,
+        });
+        notes = [
+          ...consistencyNoteDrafts(findings),
+          consistencySummaryNote(last, { ok: true, findings: findings.length }),
+        ];
+      } catch (error) {
+        notes = [
+          consistencySummaryNote(last, {
+            ok: false,
+            reason: normalizeProviderError(error).code,
+          }),
+        ];
+      }
+    }
+    await ctx.runMutation(internal.generations.applySeedRedraft, { ...args, notes });
     return null;
   },
 });

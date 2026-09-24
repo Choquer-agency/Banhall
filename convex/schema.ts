@@ -33,7 +33,9 @@ const seedSupportValidator = v.union(
 const seedGenerationEventKindValidator = v.union(
   v.literal("initialized"),
   v.literal("signOff"),
-  v.literal("cancel")
+  v.literal("cancel"),
+  // Stop after sign-off (PRD FR-43, CAP-17): drafted Sections are kept.
+  v.literal("stop")
 );
 const seedRoleEventKindValidator = v.union(
   v.literal("batchDispatched"),
@@ -838,6 +840,9 @@ export default defineSchema({
     // reaper's clock. Absent on rows from before the reaper existed (treated
     // as already stale, since nothing can still be running them).
     postQaStartedAt: v.optional(v.number()),
+    // When the latest post-QA pass settled (done or failed). The report page
+    // keys its browser-local "QA result seen" state on it (CAP-18).
+    postQaCompletedAt: v.optional(v.number()),
     // Overall score from the post-assembly QA pass (one-shot modes carry the
     // score inside agentOutputs.qa instead).
     qaScore: v.optional(v.number()),
@@ -880,6 +885,26 @@ export default defineSchema({
     stopRequestedAt: v.optional(v.number()),
     stoppedAfterSection: v.optional(sectionNumberValidator),
     productionOrder: v.optional(v.array(sectionNumberValidator)),
+    // Redraft after Stop (owner decision 20, PRD FR-43): a signed-off seed
+    // generation stays `completed`; this sub-state tracks drafting only its
+    // "Not drafted" Sections into the same report. `attemptStartedAt` fences
+    // every redraft write, so a stale action cannot touch a newer attempt.
+    redraft: v.optional(
+      v.object({
+        status: v.union(
+          v.literal("running"),
+          v.literal("completed"),
+          v.literal("failed")
+        ),
+        attemptStartedAt: v.number(),
+        requestedBy: v.id("users"),
+        sections: v.array(sectionNumberValidator),
+        lastProgressAt: v.number(),
+        completedAt: v.optional(v.number()),
+        filledSections: v.optional(v.array(sectionNumberValidator)),
+        error: v.optional(v.string()),
+      })
+    ),
     // Story 3 (CAP-8, AD-26): the Writer Profile this generation ran under —
     // saved profile, or a settings document supplied as Writer's Notes or an
     // attachment — and the save offer. Written only by

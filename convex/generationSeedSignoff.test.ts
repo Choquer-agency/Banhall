@@ -5100,12 +5100,19 @@ describe("seed Summary sign-off and recovery", () => {
       ));
     if (!finalizer) throw new Error("Missing ordered candidate finalizer");
     await s.t.run((ctx) => ctx.scheduler.cancel(finalizer._id));
+    network.create.mockClear();
     await s.t.action(
       internal.ai.orderedGeneration.finalizeOrderedCandidate,
       finalizer.args[0] as FunctionArgs<
         typeof internal.ai.orderedGeneration.finalizeOrderedCandidate
       >
     );
+    // CAP-18: the finalizer runs only the consistency pass; QA and
+    // chronology run once, in the background job, after the report exists.
+    const finalizerTools = network.create.mock.calls.map(
+      ([params]) => (params as GenerationMessageParams).tool_choice?.name ?? null
+    );
+    expect(finalizerTools).toEqual(["submit_consistency_findings"]);
 
     const completed = await s.t.run(async (ctx) => {
       const report = await ctx.db.query("reports")
@@ -5142,7 +5149,9 @@ describe("seed Summary sign-off and recovery", () => {
     });
     expect(completed.project).toMatchObject({ status: "review" });
     expect(completed.project?.activeGenerationId).toBeUndefined();
-    expect(completed.candidate).toMatchObject({ status: "succeeded", qaScore: 88 });
+    expect(completed.candidate).toMatchObject({ status: "succeeded" });
+    expect(completed.candidate?.qaScore).toBeUndefined();
+    expect(completed.generation?.qaScore).toBeUndefined();
     expect(completed.report).not.toBeNull();
     expect(completed.snapshots).toHaveLength(1);
     expect(completed.snapshots[0]?.content).toBe(completed.report?.content);
@@ -5916,6 +5925,650 @@ async function completeSignedOffChain(s: ReadyFixture, prefix: string) {
   );
   return signed;
 }
+
+describe("Step-by-step writing: background QA, Stop and redraft (CAP-17, CAP-18)", () => {
+  type ScheduledName =
+    | "ai/orderedGeneration:generateOrderedSection"
+    | "ai/orderedGeneration:finalizeOrderedCandidate"
+    | "ai/orderedGeneration:redraftSeedSection"
+    | "ai/orderedGeneration:finalizeSeedRedraft"
+    | "ai/postQa:runReportQa";
+
+  async function pendingJobs(s: ReadyFixture, name: ScheduledName) {
+    return await s.t.run(async (ctx) =>
+      (await ctx.db.system.query("_scheduled_functions").order("desc").take(200)).filter(
+        (job) =>
+          job.name === name &&
+          job.args[0]?.generationId === s.generationId &&
+          job.state.kind === "pending"
+      ));
+  }
+
+  async function takeJob(s: ReadyFixture, name: ScheduledName) {
+    const [job] = await pendingJobs(s, name);
+    if (!job) throw new Error(`Missing scheduled ${name}`);
+    await s.t.run((ctx) => ctx.scheduler.cancel(job._id));
+    return job.args[0] as Record<string, unknown>;
+  }
+
+  async function runSection(s: ReadyFixture) {
+    const args = await takeJob(s, "ai/orderedGeneration:generateOrderedSection");
+    await s.t.action(
+      internal.ai.orderedGeneration.generateOrderedSection,
+      args as FunctionArgs<typeof internal.ai.orderedGeneration.generateOrderedSection>
+    );
+  }
+
+  async function runFinalizer(s: ReadyFixture) {
+    const args = await takeJob(s, "ai/orderedGeneration:finalizeOrderedCandidate");
+    await s.t.action(
+      internal.ai.orderedGeneration.finalizeOrderedCandidate,
+      args as FunctionArgs<typeof internal.ai.orderedGeneration.finalizeOrderedCandidate>
+    );
+  }
+
+  async function runRedraftSection(s: ReadyFixture) {
+    const args = await takeJob(s, "ai/orderedGeneration:redraftSeedSection");
+    await s.t.action(
+      internal.ai.orderedGeneration.redraftSeedSection,
+      args as FunctionArgs<typeof internal.ai.orderedGeneration.redraftSeedSection>
+    );
+    return args;
+  }
+
+  async function runRedraftFinalizer(s: ReadyFixture) {
+    const args = await takeJob(s, "ai/orderedGeneration:finalizeSeedRedraft");
+    await s.t.action(
+      internal.ai.orderedGeneration.finalizeSeedRedraft,
+      args as FunctionArgs<typeof internal.ai.orderedGeneration.finalizeSeedRedraft>
+    );
+  }
+
+  async function signedOff(prefix: string) {
+    // Scheduled jobs run only when a test takes and runs them.
+    vi.useFakeTimers();
+    vi.stubEnv("ANTHROPIC_API_KEY", "test-key");
+    const s = await decisionFixture();
+    await makeReady(s);
+    configureSuccessfulSummaryFinalization(prefix);
+    const signed = await s.writer.mutation(api.generations.signOffSeedStage, {
+      generationId: s.generationId,
+      expectedSeedStageVersion: 0,
+    });
+    return { s, signed };
+  }
+
+  async function progress(s: ReadyFixture) {
+    const value = await s.writer.query(api.generations.getSeedDraftProgress, {
+      generationId: s.generationId,
+    });
+    if (!value) throw new Error("Missing seed draft progress");
+    return value;
+  }
+
+  const statuses = (value: Awaited<ReturnType<typeof progress>>) =>
+    value.sections.map((section) => [section.key, section.status]);
+
+  async function reportOf(s: ReadyFixture) {
+    const report = await s.t.run(async (ctx) =>
+      await ctx.db.query("reports")
+        .withIndex("by_generationId", (q) => q.eq("generationId", s.generationId))
+        .unique());
+    if (!report) throw new Error("Missing generated report");
+    return report;
+  }
+
+  async function stopAfterFirstSection(prefix: string) {
+    const { s, signed } = await signedOff(prefix);
+    await runSection(s);
+    await s.writer.mutation(api.generations.stopOrderedGeneration, {
+      generationId: s.generationId,
+    });
+    // The next claim sees the stop, leaves its Section undrafted and hands
+    // over to the finalizer without a provider call.
+    network.create.mockClear();
+    await runSection(s);
+    expect(network.create).not.toHaveBeenCalled();
+    await runFinalizer(s);
+    return { s, signed };
+  }
+
+  it("creates the report before QA, then runs QA once in the background under the frozen calibration", async () => {
+    vi.useFakeTimers();
+    vi.stubEnv("ANTHROPIC_API_KEY", "test-key");
+    const s = await decisionFixture();
+    await makeReady(s);
+    await s.t.run(async (ctx) => {
+      const brain = await ctx.db.query("generationArtifacts")
+        .withIndex("by_generationId_and_kind", (q) =>
+          q.eq("generationId", s.generationId).eq("kind", "brain_blocks"))
+        .unique();
+      if (!brain) throw new Error("Missing brain blocks");
+      await ctx.db.patch(brain._id, {
+        content: JSON.stringify({
+          ...JSON.parse(brain.content),
+          qaCalibration: "FROZEN QA CALIBRATION MARKER",
+        }),
+      });
+      await ctx.db.insert("learningDigests", {
+        kind: "qa_calibration",
+        content: "LIVE QA CALIBRATION MARKER",
+        sourceCount: 1,
+        feedbackCutoff: 1,
+        model: "claude-sonnet-5",
+        createdAt: 1,
+      });
+    });
+    configureSuccessfulSummaryFinalization("Background");
+    await s.writer.mutation(api.generations.signOffSeedStage, {
+      generationId: s.generationId,
+      expectedSeedStageVersion: 0,
+    });
+    await runSection(s);
+    await runSection(s);
+    await runSection(s);
+    network.create.mockClear();
+    await runFinalizer(s);
+    const finalizerTools = network.create.mock.calls.map(
+      ([params]) => (params as GenerationMessageParams).tool_choice?.name ?? null
+    );
+    expect(finalizerTools).not.toContain("submit_qa_scorecard");
+    expect(finalizerTools).not.toContain("submit_chronology_table");
+
+    // The report is readable while QA has not run yet.
+    const report = await reportOf(s);
+    expect(report.content).toContain("Background draft 3.");
+    const beforeQa = await s.writer.query(api.generations.getLatestGeneration, {
+      projectId: s.projectId,
+    });
+    expect(beforeQa).toMatchObject({ status: "completed", postQaStatus: "running" });
+    expect(beforeQa?.postQaCompletedAt).toBeUndefined();
+    expect(await pendingJobs(s, "ai/postQa:runReportQa")).toHaveLength(1);
+    expect((await progress(s))).toMatchObject({ phase: "completed", percent: 100 });
+
+    network.create.mockClear();
+    const qaArgs = await takeJob(s, "ai/postQa:runReportQa");
+    await s.t.action(
+      internal.ai.postQa.runReportQa,
+      qaArgs as FunctionArgs<typeof internal.ai.postQa.runReportQa>
+    );
+    const qaCall = network.create.mock.calls
+      .map(([params]) => params as GenerationMessageParams)
+      .find((params) => params.tool_choice?.name === "submit_qa_scorecard");
+    if (!qaCall) throw new Error("The background QA pass made no scorecard call");
+    const qaRequest = JSON.stringify(qaCall);
+    expect(qaRequest).toContain("FROZEN QA CALIBRATION MARKER");
+    expect(qaRequest).not.toContain("LIVE QA CALIBRATION MARKER");
+    const afterQa = await s.writer.query(api.generations.getLatestGeneration, {
+      projectId: s.projectId,
+    });
+    expect(afterQa).toMatchObject({ postQaStatus: "done" });
+    expect(typeof afterQa?.postQaCompletedAt).toBe("number");
+    const generation = await s.t.run((ctx) => ctx.db.get(s.generationId));
+    expect(generation?.qaScore).toBe(91);
+  });
+
+  it("reports honest progress: percent only moves forward and the last Section waits for its consistency check", async () => {
+    const { s } = await signedOff("Progress");
+    const percents: number[] = [];
+    const first = await progress(s);
+    percents.push(first.percent);
+    expect(first).toMatchObject({
+      phase: "drafting",
+      percent: 0,
+      currentSectionKey: null,
+      stoppedAfterSectionKey: null,
+      estimatedRemainingMs: 3 * 90_000 + 20_000,
+    });
+    expect(first.sections.map((section) => [section.key, section.title, section.question]))
+      .toEqual([
+        ["246", "Technological advancement", "What scientific or technological advancements did you achieve?"],
+        ["242", "Technological uncertainty", "What scientific or technological uncertainties did you attempt to overcome?"],
+        ["244", "Work performed", "What work did you perform to overcome these uncertainties?"],
+      ]);
+    expect(statuses(first)).toEqual([["246", "queued"], ["242", "queued"], ["244", "queued"]]);
+
+    await runSection(s);
+    const afterFirst = await progress(s);
+    percents.push(afterFirst.percent);
+    expect(statuses(afterFirst)).toEqual([["246", "done"], ["242", "queued"], ["244", "queued"]]);
+    expect(afterFirst.sections[0]).toMatchObject({
+      paragraphs: ["Progress draft 1."],
+      orderIndex: 0,
+    });
+    expect(afterFirst.sections[0]?.completedAt).toEqual(expect.any(Number));
+
+    // A Section in flight earns its elapsed share, capped below done.
+    const row242 = await s.t.run(async (ctx) =>
+      (await ctx.db.query("generationSectionRuns")
+        .withIndex("by_generationId_and_section", (q) =>
+          q.eq("generationId", s.generationId).eq("section", "s242"))
+        .unique()));
+    if (!row242) throw new Error("Missing Section 242 row");
+    await s.t.run((ctx) => ctx.db.patch(row242._id, {
+      status: "running",
+      startedAt: Date.now() - 5_000,
+    }));
+    const writing = await progress(s);
+    percents.push(writing.percent);
+    expect(writing.currentSectionKey).toBe("242");
+    expect(writing.sections[1]).toMatchObject({ status: "writing", paragraphs: [] });
+    expect(writing.percent).toBeGreaterThan(afterFirst.percent);
+    await s.t.run((ctx) => ctx.db.patch(row242._id, { startedAt: Date.now() - 600_000 }));
+    const capped = await progress(s);
+    percents.push(capped.percent);
+    expect(capped.percent).toBeLessThan(67);
+    await s.t.run((ctx) => ctx.db.patch(row242._id, {
+      status: "queued",
+      startedAt: undefined,
+    }));
+
+    await runSection(s);
+    percents.push((await progress(s)).percent);
+    await runSection(s);
+    const awaitingCheck = await progress(s);
+    percents.push(awaitingCheck.percent);
+    // Drafted but not yet checked: still "writing", paragraphs withheld.
+    expect(statuses(awaitingCheck)).toEqual([["246", "done"], ["242", "done"], ["244", "writing"]]);
+    expect(awaitingCheck.sections[2]?.paragraphs).toEqual([]);
+    expect(awaitingCheck.currentSectionKey).toBe("244");
+    expect(awaitingCheck.percent).toBeLessThan(100);
+
+    await runFinalizer(s);
+    const done = await progress(s);
+    percents.push(done.percent);
+    expect(done).toMatchObject({ phase: "completed", percent: 100, estimatedRemainingMs: null });
+    expect(statuses(done)).toEqual([["246", "done"], ["242", "done"], ["244", "done"]]);
+    expect(done.sections[2]?.paragraphs).toEqual(["Progress draft 3."]);
+    expect(percents).toEqual([...percents].sort((a, b) => a - b));
+    expect(new Set(percents).size).toBeGreaterThan(4);
+  });
+
+  it("returns no progress for a generation that is not a signed-off seed run", async () => {
+    vi.stubEnv("ANTHROPIC_API_KEY", "test-key");
+    const s = await decisionFixture();
+    expect(await s.writer.query(api.generations.getSeedDraftProgress, {
+      generationId: s.generationId,
+    })).toBeNull();
+  });
+
+  it("stops a signed-off seed run: keeps drafted Sections, marks the rest Not drafted, records the event and schedules no QA", async () => {
+    const { s, signed } = await signedOff("Stop");
+    await runSection(s);
+    await s.t.run((ctx) => ctx.db.insert("users", {
+      authId: "unassigned-seed-reader",
+      role: "writer",
+    }));
+    const reader = s.t.withIdentity({ subject: "unassigned-seed-reader" });
+    await expect(reader.mutation(api.generations.stopOrderedGeneration, {
+      generationId: s.generationId,
+    })).rejects.toMatchObject({ data: { code: "NOT_AUTHORIZED" } });
+
+    await s.writer.mutation(api.generations.stopOrderedGeneration, {
+      generationId: s.generationId,
+    });
+    // Idempotent while the stop is pending.
+    await s.writer.mutation(api.generations.stopOrderedGeneration, {
+      generationId: s.generationId,
+    });
+    const stopping = await progress(s);
+    expect(stopping).toMatchObject({ phase: "stopping", stoppedAfterSectionKey: "246" });
+    expect(statuses(stopping)).toEqual([["246", "done"], ["242", "not_drafted"], ["244", "not_drafted"]]);
+    const events = await s.t.run(async (ctx) =>
+      (await ctx.db.query("seedDecisionEvents")
+        .withIndex("by_generationId_and_at", (q) => q.eq("generationId", s.generationId))
+        .take(200)).filter((event) => event.kind === "stop"));
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({ kind: "stop", actorUserId: s.userId });
+
+    network.create.mockClear();
+    await runSection(s);
+    expect(network.create).not.toHaveBeenCalled();
+    await runFinalizer(s);
+
+    const state = await s.t.run(async (ctx) => ({
+      generation: await ctx.db.get(s.generationId),
+      candidate: await ctx.db.get(signed.candidateRunId),
+      rows: await ctx.db.query("generationSectionRuns")
+        .withIndex("by_generationId", (q) => q.eq("generationId", s.generationId))
+        .take(10),
+    }));
+    expect(state.generation).toMatchObject({
+      status: "completed",
+      stoppedAfterSection: "246",
+    });
+    expect(state.generation?.postQaStatus).toBeUndefined();
+    expect(await pendingJobs(s, "ai/postQa:runReportQa")).toHaveLength(0);
+    expect(state.candidate).toMatchObject({ status: "succeeded" });
+    const bySection = Object.fromEntries(state.rows.map((row) => [row.section, row]));
+    expect(bySection.s246).toMatchObject({ status: "drafted" });
+    expect(bySection.s242).toMatchObject({
+      status: "failed",
+      error: "Not drafted: the writer stopped before this Section.",
+    });
+    expect(bySection.s244).toMatchObject({ status: "failed" });
+    const report = await reportOf(s);
+    expect(report.content).toContain("Stop draft 1.");
+    expect(report.content.match(/\[NOT GENERATED\]/g)).toHaveLength(2);
+
+    const stopped = await progress(s);
+    expect(stopped).toMatchObject({
+      phase: "stopped",
+      percent: 33,
+      estimatedRemainingMs: null,
+      currentSectionKey: null,
+      stoppedAfterSectionKey: "246",
+    });
+    expect(statuses(stopped)).toEqual([["246", "done"], ["242", "not_drafted"], ["244", "not_drafted"]]);
+    const latest = await s.writer.query(api.generations.getLatestGeneration, {
+      projectId: s.projectId,
+    });
+    expect(latest).toMatchObject({ stoppedAfterSection: "246" });
+    expect(latest?.stopRequestedAt).toEqual(expect.any(Number));
+  });
+
+  it("keeps drafted Sections when the Section in flight fails after the stop", async () => {
+    const { s } = await signedOff("Failing");
+    await runSection(s);
+    network.create.mockImplementation(async (params: GenerationMessageParams) => {
+      if (!params.tool_choice) {
+        await s.writer.mutation(api.generations.stopOrderedGeneration, {
+          generationId: s.generationId,
+        });
+        throw new Error("provider down");
+      }
+      throw new Error("Unexpected tool call");
+    });
+    await runSection(s);
+    configureSuccessfulSummaryFinalization("Failing");
+    await runFinalizer(s);
+    const generation = await s.t.run((ctx) => ctx.db.get(s.generationId));
+    expect(generation).toMatchObject({ status: "completed", stoppedAfterSection: "246" });
+    expect(generation?.postQaStatus).toBeUndefined();
+    const report = await reportOf(s);
+    expect(report.content).toContain("Failing draft 1.");
+    expect(statuses(await progress(s))).toEqual([
+      ["246", "done"],
+      ["242", "not_drafted"],
+      ["244", "not_drafted"],
+    ]);
+  });
+
+  it("lets the last Section finish when Stop lands while it is written, and refuses Stop during the consistency pass", async () => {
+    const { s } = await signedOff("Late");
+    await runSection(s);
+    await runSection(s);
+    // Stop arrives while the last Section is being written: it finishes and
+    // is kept, so the draft is complete and gets its consistency pass and QA.
+    let draftCalls = 0;
+    let consistencyStop: unknown = null;
+    network.create.mockImplementation(async (params: GenerationMessageParams) => {
+      if (!params.tool_choice) {
+        draftCalls += 1;
+        if (draftCalls === 1) {
+          await s.writer.mutation(api.generations.stopOrderedGeneration, {
+            generationId: s.generationId,
+          });
+        }
+        return {
+          content: [{ type: "text", text: "Late draft 3." }],
+          usage: { input_tokens: 10, output_tokens: 5 },
+        };
+      }
+      const toolName = params.tool_choice.name;
+      if (toolName === "submit_consistency_findings") {
+        // A stop landing during the consistency pass has nothing to stop.
+        consistencyStop = await s.writer.mutation(api.generations.stopOrderedGeneration, {
+          generationId: s.generationId,
+        }).then(() => "accepted", (error: unknown) => error);
+        return {
+          content: [{ type: "tool_use", id: "late-consistency", name: toolName, input: { findings: [] } }],
+          usage: { input_tokens: 10, output_tokens: 5 },
+        };
+      }
+      const checks = providerPlanChecks(params);
+      return {
+        content: [{
+          type: "tool_use",
+          id: "late-check",
+          name: toolName,
+          input: {
+            verdicts: providerOrdinaryVerdicts(params),
+            planVerdicts: checks.map((check) => ({
+              ...(check.itemId ? { itemId: check.itemId } : {}),
+              ...(check.skippedRoleId ? { skippedRoleId: check.skippedRoleId } : {}),
+              mergedItemIds: [...check.mergedItemIds],
+              paragraph: 1,
+              outcome: "applied",
+              reason: "Covered.",
+            })),
+          },
+        }],
+        usage: { input_tokens: 10, output_tokens: 5 },
+      };
+    });
+    await runSection(s);
+    expect((await progress(s)).phase).toBe("stopping");
+    await runFinalizer(s);
+    // The stop was already recorded, so the second request returns early.
+    expect(consistencyStop).toBe("accepted");
+    const generation = await s.t.run((ctx) => ctx.db.get(s.generationId));
+    expect(generation).toMatchObject({ status: "completed", postQaStatus: "running" });
+    expect(generation?.stoppedAfterSection).toBeUndefined();
+    expect(generation?.stopRequestedAt).toEqual(expect.any(Number));
+    expect(await pendingJobs(s, "ai/postQa:runReportQa")).toHaveLength(1);
+    expect((await progress(s))).toMatchObject({ phase: "completed", percent: 100 });
+    expect((await reportOf(s)).content).not.toContain("[NOT GENERATED]");
+  });
+
+  it("refuses a first Stop once every Section is drafted and the consistency pass is running", async () => {
+    const { s } = await signedOff("Checked");
+    await runSection(s);
+    await runSection(s);
+    await runSection(s);
+    await expect(s.writer.mutation(api.generations.stopOrderedGeneration, {
+      generationId: s.generationId,
+    })).rejects.toMatchObject({
+      data: { code: "INVALID_STATE", reason: "DRAFT_COMPLETE" },
+    });
+    const events = await s.t.run(async (ctx) =>
+      (await ctx.db.query("seedDecisionEvents")
+        .withIndex("by_generationId_and_at", (q) => q.eq("generationId", s.generationId))
+        .take(200)).filter((event) => event.kind === "stop"));
+    expect(events).toHaveLength(0);
+    await runFinalizer(s);
+    const generation = await s.t.run((ctx) => ctx.db.get(s.generationId));
+    expect(generation).toMatchObject({ status: "completed", postQaStatus: "running" });
+    expect(generation?.stopRequestedAt).toBeUndefined();
+  });
+
+  it("redrafts only the Not drafted Sections into the same report and keeps the writer's edits", async () => {
+    const { s } = await stopAfterFirstSection("Stopped");
+    const stoppedReport = await reportOf(s);
+    const editedContent = stoppedReport.content.replace(
+      "Stopped draft 1.",
+      "Writer edited 246 after the stop."
+    );
+    const editedRevision = await s.writer.mutation(api.reports.updateReportContent, {
+      reportId: stoppedReport._id,
+      content: editedContent,
+      expectedRevisionNumber: stoppedReport.revisionNumber ?? 0,
+    });
+
+    configureSuccessfulSummaryFinalization("Redraft");
+    expect(await s.writer.mutation(api.generations.redraftMissingSections, {
+      generationId: s.generationId,
+    })).toEqual({ status: "started", sections: ["242", "244"] });
+    // One redraft at a time: a second request joins the live attempt.
+    expect(await s.writer.mutation(api.generations.redraftMissingSections, {
+      generationId: s.generationId,
+    })).toEqual({ status: "running", sections: ["242", "244"] });
+    expect(await pendingJobs(s, "ai/orderedGeneration:redraftSeedSection")).toHaveLength(1);
+    const queued = await progress(s);
+    expect(queued.phase).toBe("drafting");
+    expect(statuses(queued)).toEqual([["246", "done"], ["242", "queued"], ["244", "queued"]]);
+
+    network.create.mockClear();
+    await runRedraftSection(s);
+    const firstRequest = network.create.mock.calls
+      .map(([params]) => params as GenerationMessageParams)
+      .find((params) => !params.tool_choice);
+    // The Section is drafted against the writer's current 246, not the old draft.
+    expect(JSON.stringify(firstRequest)).toContain("Writer edited 246 after the stop.");
+    expect(JSON.stringify(firstRequest)).not.toContain("Stopped draft 1.");
+    const midway = await progress(s);
+    expect(statuses(midway)).toEqual([["246", "done"], ["242", "done"], ["244", "queued"]]);
+    // The report is untouched until the redraft is complete.
+    expect((await reportOf(s)).content).toBe(editedContent);
+
+    await runRedraftSection(s);
+    const awaiting = await progress(s);
+    expect(statuses(awaiting)).toEqual([["246", "done"], ["242", "done"], ["244", "writing"]]);
+    expect(awaiting.percent).toBeGreaterThanOrEqual(midway.percent);
+    network.create.mockClear();
+    await runRedraftFinalizer(s);
+    expect(network.create.mock.calls.map(
+      ([params]) => (params as GenerationMessageParams).tool_choice?.name ?? null
+    )).toEqual(["submit_consistency_findings"]);
+
+    const report = await reportOf(s);
+    expect(report._id).toBe(stoppedReport._id);
+    expect(report.revisionNumber).toBe(editedRevision + 1);
+    expect(report.content).toContain("Writer edited 246 after the stop.");
+    expect(report.content).toContain("Redraft draft 1.");
+    expect(report.content).toContain("Redraft draft 2.");
+    expect(report.content).not.toContain("[NOT GENERATED]");
+    // Every node outside the filled bodies is carried over unchanged.
+    const before = JSON.parse(editedContent) as { content: unknown[] };
+    const after = JSON.parse(report.content) as { content: unknown[] };
+    const heading242 = (doc: { content: unknown[] }) =>
+      doc.content.findIndex((node) => JSON.stringify(node).includes("Line 242"));
+    expect(after.content.slice(0, heading242(after) + 1))
+      .toEqual(before.content.slice(0, heading242(before) + 1));
+    expect(after.content.slice(-2)).toEqual(before.content.slice(-2));
+    const snapshots = await s.t.run(async (ctx) =>
+      await ctx.db.query("reportSnapshots")
+        .withIndex("by_reportId", (q) => q.eq("reportId", report._id))
+        .take(20));
+    expect(snapshots.find((row) => row.reason === "pre_chat_edit")?.content).toBe(editedContent);
+
+    const generation = await s.t.run((ctx) => ctx.db.get(s.generationId));
+    expect(generation?.redraft).toMatchObject({
+      status: "completed",
+      sections: ["242", "244"],
+      filledSections: ["242", "244"],
+    });
+    expect(generation?.stoppedAfterSection).toBeUndefined();
+    expect(generation?.postQaStatus).toBe("running");
+    expect(await pendingJobs(s, "ai/postQa:runReportQa")).toHaveLength(1);
+    const complete = await progress(s);
+    expect(complete).toMatchObject({ phase: "completed", percent: 100, stoppedAfterSectionKey: null });
+    expect(statuses(complete)).toEqual([["246", "done"], ["242", "done"], ["244", "done"]]);
+
+    // Idempotent afterwards: nothing is left to draft.
+    expect(await s.writer.mutation(api.generations.redraftMissingSections, {
+      generationId: s.generationId,
+    })).toEqual({ status: "nothing_to_draft", sections: [] });
+  });
+
+  it("never redrafts a Section the writer filled by hand", async () => {
+    const { s } = await stopAfterFirstSection("Hand");
+    const stoppedReport = await reportOf(s);
+    const at = stoppedReport.content.lastIndexOf("[NOT GENERATED]");
+    const handFilled = `${stoppedReport.content.slice(0, at)}Writer wrote 244 by hand.${stoppedReport.content.slice(at + "[NOT GENERATED]".length)}`;
+    await s.writer.mutation(api.reports.updateReportContent, {
+      reportId: stoppedReport._id,
+      content: handFilled,
+      expectedRevisionNumber: stoppedReport.revisionNumber ?? 0,
+    });
+    configureSuccessfulSummaryFinalization("HandRedraft");
+    expect(await s.writer.mutation(api.generations.redraftMissingSections, {
+      generationId: s.generationId,
+    })).toEqual({ status: "started", sections: ["242"] });
+    await runRedraftSection(s);
+    await runRedraftFinalizer(s);
+    const report = await reportOf(s);
+    expect(report.content).toContain("HandRedraft draft 1.");
+    expect(report.content).toContain("Writer wrote 244 by hand.");
+    expect(report.content).not.toContain("[NOT GENERATED]");
+  });
+
+  it("leaves a placeholder the writer starts typing in during the redraft alone", async () => {
+    const { s } = await stopAfterFirstSection("Race");
+    configureSuccessfulSummaryFinalization("RaceRedraft");
+    await s.writer.mutation(api.generations.redraftMissingSections, {
+      generationId: s.generationId,
+    });
+    await runRedraftSection(s);
+    await runRedraftSection(s);
+    // The writer types into the 244 placeholder before the redraft lands.
+    const current = await reportOf(s);
+    const at = current.content.lastIndexOf("[NOT GENERATED]");
+    const typed = `${current.content.slice(0, at)}Writer started 244.${current.content.slice(at + "[NOT GENERATED]".length)}`;
+    await s.writer.mutation(api.reports.updateReportContent, {
+      reportId: current._id,
+      content: typed,
+      expectedRevisionNumber: current.revisionNumber ?? 0,
+    });
+    await runRedraftFinalizer(s);
+    const report = await reportOf(s);
+    expect(report.content).toContain("RaceRedraft draft 1.");
+    expect(report.content).toContain("Writer started 244.");
+    expect(report.content).not.toContain("RaceRedraft draft 2.");
+    const generation = await s.t.run((ctx) => ctx.db.get(s.generationId));
+    expect(generation?.redraft).toMatchObject({ status: "completed", filledSections: ["242"] });
+  });
+
+  it("refuses redraft without edit access or without a stopped draft, and fences a replaced attempt", async () => {
+    const { s } = await signedOff("Refuse");
+    await expect(s.writer.mutation(api.generations.redraftMissingSections, {
+      generationId: s.generationId,
+    })).rejects.toMatchObject({ data: { code: "INVALID_STATE", reason: "NOT_STOPPED" } });
+
+    const stopped = await stopAfterFirstSection("Fence");
+    await stopped.s.t.run((ctx) => ctx.db.insert("users", {
+      authId: "unassigned-seed-reader",
+      role: "writer",
+    }));
+    const reader = stopped.s.t.withIdentity({ subject: "unassigned-seed-reader" });
+    await expect(reader.mutation(api.generations.redraftMissingSections, {
+      generationId: stopped.s.generationId,
+    })).rejects.toMatchObject({ data: { code: "NOT_AUTHORIZED" } });
+
+    configureSuccessfulSummaryFinalization("FenceRedraft");
+    await stopped.s.writer.mutation(api.generations.redraftMissingSections, {
+      generationId: stopped.s.generationId,
+    });
+    const [oldJob] = await pendingJobs(stopped.s, "ai/orderedGeneration:redraftSeedSection");
+    if (!oldJob) throw new Error("Missing first redraft job");
+    await stopped.s.t.run((ctx) => ctx.scheduler.cancel(oldJob._id));
+    // The first attempt's action died: after the stale window a new request
+    // starts a fresh attempt, and the dead attempt's late job changes nothing.
+    await stopped.s.t.run(async (ctx) => {
+      const generation = await ctx.db.get(stopped.s.generationId);
+      if (!generation?.redraft) throw new Error("Missing redraft");
+      await ctx.db.patch(generation._id, {
+        redraft: { ...generation.redraft, lastProgressAt: Date.now() - 16 * 60 * 1000 },
+      });
+    });
+    expect((await progress(stopped.s)).phase).toBe("stopped");
+    expect(await stopped.s.writer.mutation(api.generations.redraftMissingSections, {
+      generationId: stopped.s.generationId,
+    })).toEqual({ status: "started", sections: ["242", "244"] });
+    network.create.mockClear();
+    await stopped.s.t.action(
+      internal.ai.orderedGeneration.redraftSeedSection,
+      oldJob.args[0] as FunctionArgs<typeof internal.ai.orderedGeneration.redraftSeedSection>
+    );
+    expect(network.create).not.toHaveBeenCalled();
+    await runRedraftSection(stopped.s);
+    await runRedraftSection(stopped.s);
+    await runRedraftFinalizer(stopped.s);
+    const report = await reportOf(stopped.s);
+    expect(report.content).toContain("FenceRedraft draft 1.");
+    expect(report.content).toContain("FenceRedraft draft 2.");
+  });
+});
 
 describe("Seed workspace read models (stories 5-6)", () => {
   it("R1-23: reads each generation's own Seed metadata once an older run completed and a newer run was requested", async () => {
