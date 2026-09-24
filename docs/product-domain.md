@@ -2215,6 +2215,20 @@ Single and compare modes are unchanged.
   nine PRD open questions; items 2 and 4 are the parent-spine amendments
   the feature spine lists as C2 and C4.
 
+### 2026-09-24: Hand off from the Details panel names a person and a stage
+
+Workflow amendment for the project Details panel (story 5-6 owner amendment of 2026-09-24; `_bmad-output/specs/spec-step-by-step-seeds/ui-design-final.md` section 8; owner decisions 16 and 18 in `_bmad-output/planning-artifacts/prds/prd-Banhall-2026-09-16/DECISIONS-2026-09-17.md`).
+
+- **Owner rule:** a handoff made from the Details panel names a person and a stage. When the chosen stage differs from the current stage, pressing Hand off is the user's confirmation of that stage change, and the work item and the stage change are written in one mutation. This widens the earlier rule under which only "Send for internal review" could carry a stage change.
+- **Stage change:** follows the transition matrix unchanged. The actor needs authority for the edge; for edges that require an audit note the handoff note is the audit note and an empty note is refused; edges with requirements that cannot be met (delivery outcome, promoted branch) fail closed and the UI shows them disabled; the internal-review completion edges, which need a recorded reviewer decision, are not offered from Hand off.
+- **Work item:** always blocking. Its type is derived from the chosen stage: `internal_review` gives `internal_review`; `edits` or `revisions` give `revision`; `intake` or `interview_complete` give `interview_followup`; `ready_for_delivery` or `delivered` give `delivery_prep`; any other stage gives `other`. `dueAt` is not set from this surface (existing due dates stay stored). Instructions may be empty.
+- **Replacement:** an open blocking handoff is canceled in the same mutation with a system reason naming the new assignee, and `projects.currentHandoffId` points to the new item (the existing replacement rule).
+- **Authority:** unchanged. Only the Owner, a Manager or an Admin can hand off; a current handoff assignee who is not one of those cannot.
+- **Migration and compatibility:** none; one additive mutation. `workItems.create`, "Send for internal review" and every other work-item surface keep their behaviour.
+- **Tests:** each derived type, replacement of an existing handoff, a note-required edge with and without a note, fail-closed edges, refused authority, and idempotent retry by request id.
+- **Tickets:** none (feature branch `feat/seeds-5-6-ui`).
+- **Approval:** product owner, 2026-09-24.
+
 ## Amendment process
 
 A change to vocabulary, an invariant, a transition edge, or a decision above requires:

@@ -499,7 +499,7 @@ The writer can stop Prose Generation after Sign-off from the writing status pill
 **Consequences (testable):**
 - Stop keeps every Section already drafted and checked in the report; Sections not finished are left empty with a visible "Not drafted" marker. The report is created with what exists.
 - QA does not run on a stopped draft (the existing stopped-draft behaviour).
-- The signed-off Summary stays read-only and linked. The writer can finish the missing Sections by hand or with the assistant, or start a recovery generation bound to the same Summary version (FR-27).
+- The signed-off Summary stays read-only and linked. The writer can finish the missing Sections by hand or with the assistant, or redraft them from the same Summary version: the redraft writes only the Sections marked "Not drafted" into the same report and keeps every edit made to the drafted Sections (owner decision 20, 2026-09-24).
 - Stop asks for confirmation and is recorded as an event (FR-33).
 
 #### FR-32: Legacy generations keep their surfaces
