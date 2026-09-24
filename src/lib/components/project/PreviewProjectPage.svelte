@@ -1309,9 +1309,9 @@
   // Details panel data and actions go through one adapter module.
   const details = useDetailsData({
     projectId: () => projectId,
-    project: () => projectQ.data,
     currentUserId: () => userQ.data?._id,
     canEditDetails: () => canEditDetails,
+    panelOpen: () => detailsOpen,
     teamNeeded: () => detailsOpen && detailsView === "handoff",
   });
 
@@ -2088,7 +2088,7 @@
                 onSaveFiscalYear={details.saveFiscalYear}
                 onSaveScienceCode={details.saveScienceCode}
                 onSaveProjectNumber={details.saveProjectNumber}
-                onSuggestScienceCode={canEditDetails ? details.suggestScienceCode : undefined}
+                onSuggestScienceCode={details.data?.permissions.canEditDetails ? details.suggestScienceCode : undefined}
                 onClose={closeSidePanel}
               >
                 {#snippet more()}

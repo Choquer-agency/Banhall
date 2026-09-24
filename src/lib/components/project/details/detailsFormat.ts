@@ -1,6 +1,5 @@
 import { CRA_SCIENCE_CODES } from "../../../../../shared/craScienceCodes";
 import type { WorkflowStage } from "../../../../../shared/workflowStages";
-import type { WorkItemKind } from "../../../../../shared/workItems";
 import { WORKFLOW_STAGE_GROUPS } from "$lib/workflow/stageGroups";
 
 /**
@@ -104,23 +103,4 @@ export function nextInProgressStage(current: WorkflowStage): WorkflowStage {
   const index = IN_PROGRESS.indexOf(current);
   if (index < 0 || index >= IN_PROGRESS.length - 1) return current;
   return IN_PROGRESS[index + 1];
-}
-
-/** Work item type derived from the chosen hand-off stage (domain amendment 2026-09-24). */
-export function workItemKindForStage(stage: WorkflowStage): WorkItemKind {
-  switch (stage) {
-    case "internal_review":
-      return "internal_review";
-    case "edits":
-    case "revisions":
-      return "revision";
-    case "intake":
-    case "interview_complete":
-      return "interview_followup";
-    case "ready_for_delivery":
-    case "delivered":
-      return "delivery_prep";
-    default:
-      return "other";
-  }
 }

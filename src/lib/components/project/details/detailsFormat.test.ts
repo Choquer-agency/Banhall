@@ -10,7 +10,6 @@ import {
   scienceCodeGroups,
   scienceFieldName,
   toDateInput,
-  workItemKindForStage,
 } from "./detailsFormat";
 import { handOffStageOptions, NOT_AVAILABLE_YET, stageMenuGroups, stageMove } from "./stageMenu";
 
@@ -49,18 +48,6 @@ describe("Details formatting", () => {
     expect(formatEdited(now - 12 * 60_000, now)).toBe("12 min ago");
     expect(formatEdited(now - 3 * 3_600_000, now)).toBe("3 hours ago");
     expect(formatEdited(now - 26 * 3_600_000, now)).toBe("Yesterday");
-  });
-
-  it("derives the work item type from the hand-off stage", () => {
-    expect(workItemKindForStage("internal_review")).toBe("internal_review");
-    expect(workItemKindForStage("edits")).toBe("revision");
-    expect(workItemKindForStage("revisions")).toBe("revision");
-    expect(workItemKindForStage("intake")).toBe("interview_followup");
-    expect(workItemKindForStage("interview_complete")).toBe("interview_followup");
-    expect(workItemKindForStage("ready_for_delivery")).toBe("delivery_prep");
-    expect(workItemKindForStage("delivered")).toBe("delivery_prep");
-    expect(workItemKindForStage("drafting")).toBe("other");
-    expect(workItemKindForStage("on_hold")).toBe("other");
   });
 
   it("finds the next In progress stage and the first name", () => {

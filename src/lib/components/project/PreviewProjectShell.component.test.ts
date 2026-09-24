@@ -5,9 +5,11 @@ import PreviewProjectPage from "./PreviewProjectPage.svelte";
 import { __resetPage, __setPageParams } from "$lib/test/app-state-stub.svelte";
 import { __resetNavigation } from "$lib/test/app-navigation-stub";
 import { __resetAuthState } from "$lib/test/convex-auth-stub";
+import { ConvexError } from "convex/values";
 import {
   __mutationCalls,
   __resetConvexStub,
+  __setMutationError,
   __setPaginatedRows,
   __setQueryData,
 } from "$lib/test/convex-svelte-stub.svelte";
@@ -77,6 +79,19 @@ function seed({ seedRun = false }: { seedRun?: boolean } = {}) {
     ownerNeedsReview: false,
     createdByLabel: "Jordan Ellis",
     viewerAuthorities: ["owner"],
+  });
+  __setQueryData("projects:getProjectDetailsPanel", {
+    stage: "drafting",
+    workflowVersion: 3,
+    industry: "manufacturing",
+    fiscalYearEnd: new Date(2026, 5, 30).getTime(),
+    scienceCode: "2.03.01",
+    projectNumber: "1A",
+    owner: { userId: "user-1", label: "Jordan Ellis", initials: "JE", isYou: true },
+    createdAt: new Date(2026, 8, 17).getTime(),
+    editedAt: Date.now() - 12 * 60_000,
+    currentHandoff: null,
+    permissions: { canEditDetails: true, canChangeStage: true, canHandOff: true },
   });
   __setQueryData("workItems:getProjectWorkPanel", {
     currentHandoffId: null,
@@ -264,17 +279,52 @@ describe("PreviewProjectPage final shell", () => {
     (document.querySelector("[data-command-item]") as HTMLElement).click();
     await expect.poll(() => document.querySelector<HTMLButtonElement>("[data-hand-off-submit]")?.disabled).toBe(false);
     document.querySelector<HTMLButtonElement>("[data-hand-off-submit]")!.click();
-    // On this branch the adapter uses the existing confirmed Internal review path.
-    await expect.poll(() => __mutationCalls("workItems:create").length).toBe(1);
-    expect(__mutationCalls("workItems:create")[0]).toMatchObject({
+    // One atomic handOff call: the stage change and the new handoff together,
+    // fenced on the panel's workflow version, with a request id per attempt.
+    await expect.poll(() => __mutationCalls("workItems:handOff").length).toBe(1);
+    const call = __mutationCalls("workItems:handOff")[0] as Record<string, unknown>;
+    expect(call).toMatchObject({
       projectId: "project-1",
-      kind: "internal_review",
       assigneeId: "user-2",
-      blocking: true,
-      instructions: "",
-      confirmedStageChange: "internal_review",
+      stage: "internal_review",
+      note: "",
       expectedWorkflowVersion: 3,
     });
-    expect(__mutationCalls("workItems:create")[0]).not.toHaveProperty("dueAt");
+    expect(typeof call.createRequestId).toBe("string");
+    expect(call).not.toHaveProperty("dueAt");
+    expect(__mutationCalls("workItems:create")).toEqual([]);
+    expect(__mutationCalls("projectWorkflow:setWorkflowStage")).toEqual([]);
+    expect(__mutationCalls("workItems:cancel")).toEqual([]);
+  });
+
+  it("gives every Hand off attempt its own request id and says why a refused hand off failed", async () => {
+    seed();
+    __setMutationError(
+      "workItems:handOff",
+      new ConvexError({ code: "NOT_AUTHORIZED", message: "Only the project owner, a manager, or an administrator can hand off this project" })
+    );
+    await render(PreviewProjectPage);
+    await expect.element(page.getByText("Evidence from thermal trials.", { exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "Send for review", exact: true }).click();
+    await expect.element(page.getByRole("heading", { name: "Hand off", exact: true })).toBeVisible();
+    document.querySelector<HTMLButtonElement>("[data-hand-off-to]")!.click();
+    await expect.poll(() => document.querySelectorAll("[data-command-item]").length).toBe(2);
+    (document.querySelector("[data-command-item]") as HTMLElement).click();
+    await expect.poll(() => document.querySelector<HTMLButtonElement>("[data-hand-off-submit]")?.disabled).toBe(false);
+    document.querySelector<HTMLButtonElement>("[data-hand-off-submit]")!.click();
+    await expect.element(page.getByText("Only the Owner, a Manager or an Admin can hand off this project.", { exact: true })).toBeVisible();
+
+    __setMutationError(
+      "workItems:handOff",
+      new ConvexError({ code: "STALE_REVISION", message: "The project workflow changed while you were reviewing it" })
+    );
+    await expect.poll(() => document.querySelector<HTMLButtonElement>("[data-hand-off-submit]")?.disabled).toBe(false);
+    document.querySelector<HTMLButtonElement>("[data-hand-off-submit]")!.click();
+    await expect
+      .element(page.getByText("The workflow changed while you were working. Check the latest stage and try again.", { exact: true }))
+      .toBeVisible();
+    const calls = __mutationCalls("workItems:handOff") as Array<{ createRequestId: string }>;
+    expect(calls).toHaveLength(2);
+    expect(calls[0].createRequestId).not.toBe(calls[1].createRequestId);
   });
 });

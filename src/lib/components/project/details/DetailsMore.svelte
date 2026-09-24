@@ -79,8 +79,13 @@
     }
   }
 
+  // The workflow header comes from the adapter (read while the panel is
+  // open); the work panel is read here, only while More is open.
   const header = $derived(details.header);
-  const workPanel = $derived(details.workPanel);
+  const workPanelQ = useQuery(api.workItems.getProjectWorkPanel, () =>
+    auth.isAuthenticated ? { projectId } : "skip"
+  );
+  const workPanel = $derived(workPanelQ.data);
   const otherWork = $derived((workPanel?.openItems ?? []).filter((item) => !item.isCurrentHandoff));
   const canManageOwner = $derived(
     Boolean(header?.viewerAuthorities.some((authority) => authority === "owner" || authority === "manager" || authority === "admin"))
@@ -352,7 +357,7 @@
         <button type="button" class={`ml-auto ${quietButton}`} onclick={openComposer}>Assign work</button>
       {/if}
     </div>
-    {#if details.workPanelError}
+    {#if workPanelQ.error}
       <p class="mt-2 text-xs text-red-700" role="alert">Open work is unavailable.</p>
     {:else if otherWork.length === 0}
       <p class="mt-1.5 text-[13px] text-ink-faint">No other open work.</p>

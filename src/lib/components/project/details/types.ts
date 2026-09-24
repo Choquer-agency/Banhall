@@ -3,10 +3,10 @@ import type { WorkflowStage } from "../../../../../shared/workflowStages";
 import type { TransitionAuthority } from "../../../../../shared/workflowTransitions";
 
 /**
- * The Details panel read model (ui-design-final.md section 8). It mirrors the
- * `api.projects.getProjectDetailsPanel` return shape from the shared build
- * brief field for field, so the components below never change when the
- * adapter in `detailsData.svelte.ts` switches from existing queries to it.
+ * The Details panel read model (ui-design-final.md section 8): the
+ * `api.projects.getProjectDetailsPanel` return shape, plus the viewer's
+ * workflow authorities that the adapter in `detailsData.svelte.ts` adds while
+ * the panel is open.
  */
 export type DetailsPanelData = {
   stage: WorkflowStage;
@@ -29,7 +29,7 @@ export type DetailsPanelData = {
   };
   permissions: { canEditDetails: boolean; canChangeStage: boolean; canHandOff: boolean };
   /**
-   * Optional: the viewer's workflow authorities, when the source provides
+   * Optional: the viewer's workflow authorities, when the adapter has read
    * them. With them the stage menu disables the edges this viewer cannot
    * take; without them every edge is offered and the server decides.
    */

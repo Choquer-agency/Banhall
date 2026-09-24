@@ -303,6 +303,19 @@ describe("PreviewProjectPage intake workbench", () => {
       createdByLabel: "Wren Writer",
       viewerAuthorities: ["owner"],
     });
+    __setQueryData("projects:getProjectDetailsPanel", {
+      stage: "intake",
+      workflowVersion: 1,
+      industry: null,
+      fiscalYearEnd: null,
+      scienceCode: null,
+      projectNumber: null,
+      owner: null,
+      createdAt: 1753747200000,
+      editedAt: 1753747200000,
+      currentHandoff: null,
+      permissions: { canEditDetails: true, canChangeStage: true, canHandOff: true },
+    });
     await browserPage.getByRole("button", { name: "Details", exact: true }).click();
     await expect.poll(() => document.querySelector("[data-details-more-toggle]")).not.toBeNull();
     document.querySelector<HTMLButtonElement>("[data-details-more-toggle]")!.click();

@@ -70,6 +70,19 @@ function seedProject() {
     createdByLabel: "Olive Owner",
     viewerAuthorities: [],
   });
+  __setQueryData("projects:getProjectDetailsPanel", {
+    stage: "intake",
+    workflowVersion: 1,
+    industry: "manufacturing",
+    fiscalYearEnd: FISCAL_YEAR_END,
+    scienceCode: "1.02.01",
+    projectNumber: "2A",
+    owner: { userId: "u-owner", label: "Olive Owner", initials: "OO", isYou: false },
+    createdAt: 1753747200000,
+    editedAt: 1753747200000,
+    currentHandoff: null,
+    permissions: { canEditDetails: true, canChangeStage: false, canHandOff: false },
+  });
   __setQueryData("workItems:getProjectWorkPanel", {
     currentHandoffId: null,
     openItems: [],
