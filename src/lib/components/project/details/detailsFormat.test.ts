@@ -23,9 +23,9 @@ describe("Details formatting", () => {
   });
 
   it("groups science codes by the field after the separator", () => {
-    expect(scienceFieldName("Engineering and technology — Mechanical engineering")).toBe("Mechanical engineering");
+    expect(scienceFieldName("Engineering and technology \u2014 Mechanical engineering")).toBe("Mechanical engineering");
     const groups = scienceCodeGroups();
-    expect(groups.every((group) => !group.field.includes("—"))).toBe(true);
+    expect(groups.every((group) => !group.field.includes("\u2014"))).toBe(true);
     expect(groups.find((group) => group.field === "Mechanical engineering")?.items[0]).toEqual({
       code: "2.03.01",
       label: "Mechanical engineering",

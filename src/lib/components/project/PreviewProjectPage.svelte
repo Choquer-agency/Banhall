@@ -1792,16 +1792,16 @@
           </div>
       </div>
     {/if}
-    <!-- No report, not generating — the INTAKE WORKBENCH (2026-08-08
+    <!-- No report, not generating: the INTAKE WORKBENCH (2026-08-08
          Obvious-parity amendment). Desktop ≥lg mirrors the report
          workbench's split anatomy: a persistent left CONTEXT pane (files
-         evidence + interview transcript — the project's conversation-like
+         evidence + interview transcript, the project's conversation-like
          source material) beside the primary intake/generation work surface,
          each owning its own vertical scroll, with the same resizable
          separator grammar. This replaces the single 768px long-scroll
          column whose transcript drove a ~27k-px page. Narrow screens use
          explicit Work/Context switches with one pane visible at a time.
-         The state stays HONEST: no report and no chat exist here — the
+         The state stays HONEST: no report and no chat exist here; the
          left pane is source context, never a fabricated conversation. -->
     {#if showIntakeWorkbench}
       <div class="flex shrink-0 items-center justify-center gap-0.5 border-b border-line-soft bg-white px-3 py-2 lg:hidden" role="group" aria-label="Project intake pane">
@@ -1950,7 +1950,7 @@
           style={`--context-width: ${contextOpen ? contextRatio * 100 : 0}%`}
         >
           <!-- Pane header: names the surface and carries the close control
-               (assistant-rail grammar). Desktop only — narrow screens close
+               (assistant-rail grammar). Desktop only; narrow screens close
                via the Work/Context switch. -->
           <div class={`hidden shrink-0 items-center justify-between pt-4 lg:flex ${contextOpen ? "px-5" : "lg:px-0"}`}>
             <h2 class="text-label">Context</h2>
@@ -2161,7 +2161,7 @@
         </aside>
       </div>
     </div>
-    <!-- BNH-30: one-by-one replace stepper — Word-style "replace & find next" -->
+    <!-- BNH-30: one-by-one replace stepper, Word-style "replace & find next" -->
     {#if replaceSession}
       <div class="fixed bottom-6 left-1/2 z-[80] -translate-x-1/2">
         <div class="card flex items-center gap-3 px-4 py-3 shadow-xl">

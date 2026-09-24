@@ -124,7 +124,7 @@
             </dd>
             <dt class="flex min-h-8 items-center text-ink-muted">Science code</dt>
             <dd class="flex min-h-8 min-w-0 items-center text-ink">
-              {#if science}<span class="truncate">{science.label}</span><span class="ml-2 font-mono text-xs text-ink-muted">{science.code}</span>{:else}<span class="text-ink-faint">Not set</span>{/if}
+              {#if science}<span class="truncate">{science.label}</span> <span class="ml-1.5 font-mono text-xs text-ink-muted">{science.code}</span>{:else}<span class="text-ink-faint">Not set</span>{/if}
             </dd>
             <dt class="flex min-h-8 items-center text-ink-muted">Owner</dt>
             <dd class="flex min-h-8 min-w-0 items-center gap-2 text-ink">

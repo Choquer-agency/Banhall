@@ -10,7 +10,7 @@ import { WORKFLOW_STAGE_GROUPS } from "$lib/workflow/stageGroups";
  */
 
 /** The data's group labels read "Broad area <separator> Field"; the panel shows the field. */
-const GROUP_SEPARATOR = " — ";
+const GROUP_SEPARATOR = " \u2014 ";
 
 export function scienceFieldName(group: string): string {
   const index = group.indexOf(GROUP_SEPARATOR);
