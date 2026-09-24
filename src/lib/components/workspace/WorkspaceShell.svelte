@@ -86,8 +86,21 @@
     root?.style.setProperty("--workspace-rail-width", `${railWidth}px`);
   }
 
+  // Tablet widths (1024 to 1279px) keep the icons-only rail on screen
+  // (ui-design-final.md section 3, board 3.5); the preference applies from
+  // 1280px up.
+  let tablet = $state(false);
   $effect(() => {
-    const desktop = window.matchMedia("(min-width: 80rem)");
+    const media = window.matchMedia("(min-width: 64rem) and (max-width: 79.98rem)");
+    const update = () => (tablet = media.matches);
+    update();
+    media.addEventListener("change", update);
+    return () => media.removeEventListener("change", update);
+  });
+  const railCollapsed = $derived(railHidden || tablet);
+
+  $effect(() => {
+    const desktop = window.matchMedia("(min-width: 64rem)");
     const closeDrawer = () => {
       if (desktop.matches) navigationOpen = false;
     };
@@ -105,19 +118,19 @@
   data-rail-hidden={railHidden ? "" : undefined}
   data-rail-resizing={resizing ? "" : undefined}
   style={`--workspace-rail-width: ${railWidth}px; --workspace-rail-collapsed-width: ${RAIL_COLLAPSED_WIDTH}px;`}
-  class="workspace-shell-grid relative grid h-dvh grid-rows-[minmax(0,1fr)] overflow-hidden bg-canvas text-ink xl:grid-cols-[var(--workspace-rail-col)_minmax(0,1fr)]"
+  class="workspace-shell-grid relative grid h-dvh grid-rows-[minmax(0,1fr)] overflow-hidden bg-canvas text-ink lg:grid-cols-[var(--workspace-rail-collapsed-width)_minmax(0,1fr)] xl:grid-cols-[var(--workspace-rail-col)_minmax(0,1fr)]"
 >
-  <div class="workspace-rail-column relative hidden min-h-0 xl:block">
+  <div class="workspace-rail-column relative hidden min-h-0 lg:block">
     <aside
       id="workspace-rail"
       data-rail-panel
       class="workspace-rail-panel absolute inset-y-0 left-0 overflow-hidden bg-workspace-rail"
-      style={`width: ${railHidden ? "var(--workspace-rail-collapsed-width)" : "var(--workspace-rail-width)"};`}
+      style={`width: ${railCollapsed ? "var(--workspace-rail-collapsed-width)" : "var(--workspace-rail-width)"};`}
     >
-      <div class="h-full" style={`width: ${railHidden ? "var(--workspace-rail-collapsed-width)" : "var(--workspace-rail-width)"};`}>
+      <div class="h-full" style={`width: ${railCollapsed ? "var(--workspace-rail-collapsed-width)" : "var(--workspace-rail-width)"};`}>
         <WorkspaceRail
           variant="rail"
-          collapsed={railHidden}
+          collapsed={railCollapsed}
           {displayedView}
           {myWorkAvailable}
           {myWorkHref}
@@ -129,7 +142,7 @@
         />
       </div>
       <!-- Pointer/keyboard resize applies to the expanded rail only. -->
-      {#if !railHidden}
+      {#if !railCollapsed}
         <WorkspaceRailResizeHandle width={railWidth} onResize={applyLiveWidth} onCommit={commitWidth} />
       {/if}
     </aside>
@@ -144,7 +157,7 @@
   <Drawer.Content
     data-workspace-drawer
     data-workspace-theme="light"
-    class="z-[110] h-dvh w-[min(19rem,calc(100vw-2.5rem))]! max-w-none! rounded-none! border-r border-workspace-rail-line bg-workspace-rail p-0 text-ink shadow-workspace-drawer xl:hidden"
+    class="z-[110] h-dvh w-[min(19rem,calc(100vw-2.5rem))]! max-w-none! rounded-none! border-r border-workspace-rail-line bg-workspace-rail p-0 text-ink shadow-workspace-drawer lg:hidden"
   >
     <Drawer.Title class="sr-only">Workspace navigation</Drawer.Title>
     <Drawer.Description class="sr-only">{drawerDescription}</Drawer.Description>

@@ -333,6 +333,35 @@
         </div>
       {/if}
 
+      {#if userQ.data?.role === "admin" && (isDeveloper || isOwner) && collapsed}
+        <div data-rail-admin class="mt-4 flex flex-col items-center gap-1 border-t border-workspace-rail-line pt-3">
+          {#each ADMIN_LINKS as link (link.href)}
+            <Tooltip text={link.label} side="right" delayDuration={300}>
+              {#snippet children({ props })}
+                <a
+                  {...props}
+                  href={resolve(link.href)}
+                  aria-label={link.label}
+                  onclick={onNavigate}
+                  aria-current={pathname.startsWith(resolve(link.href)) ? "page" : undefined}
+                  class={`${iconRow} ${pathname.startsWith(resolve(link.href)) ? selectedRow : idleRow}`}
+                >
+                  <span data-admin-icon-tone={link.icon} class={`flex h-4 w-4 shrink-0 items-center justify-center rounded-[3px] text-white ${link.tone}`}>
+                    {#if link.icon === "brain"}<BrainIcon size={12} weight="bold" aria-hidden="true" />
+                    {:else if link.icon === "ingestion"}<CloudArrowDownIcon size={12} weight="bold" aria-hidden="true" />
+                    {:else if link.icon === "tag"}<TagIcon size={12} weight="bold" aria-hidden="true" />
+                    {:else if link.icon === "reviews"}<ClipboardTextIcon size={12} weight="bold" aria-hidden="true" />
+                    {:else if link.icon === "users"}<UserGearIcon size={12} weight="bold" aria-hidden="true" />
+                    {:else if link.icon === "models"}<SlidersHorizontalIcon size={12} weight="bold" aria-hidden="true" />
+                    {:else}<ChartBarIcon size={12} weight="bold" aria-hidden="true" />{/if}
+                  </span>
+                </a>
+              {/snippet}
+            </Tooltip>
+          {/each}
+        </div>
+      {/if}
+
       {#if collapsed}
         <div class="min-h-4 flex-1" aria-hidden="true"></div>
       {/if}

@@ -187,6 +187,24 @@ describe("Workspace rail resize + hide/show", () => {
       .toBeGreaterThanOrEqual(271);
   });
 
+  it("keeps the icons-only rail on screen at tablet widths, whatever the preference (board 3.5)", async () => {
+    localStorage.setItem(RAIL_PREFERENCES_KEY, JSON.stringify({ width: 272, hidden: false }));
+    __setPageUrl("/projects?layout=list");
+    seedQueries();
+    await browserPage.viewport(1024, 768);
+    await render(WorkspaceDashboard, { view: "all_projects" });
+    await expect.poll(() => railAside()?.querySelector("[data-rail-collapsed]")).not.toBeNull();
+    await expect
+      .poll(() => railAside()!.getBoundingClientRect().width, { timeout: 2000 })
+      .toBe(RAIL_COLLAPSED_WIDTH);
+    expect(handle()).toBeNull();
+    // The rail replaces the drawer hamburger from 1024px up.
+    const hamburger = document.querySelector<HTMLElement>('button[aria-label="Open workspace navigation"]');
+    expect(hamburger === null || getComputedStyle(hamburger).display === "none").toBe(true);
+    // The stored expanded preference is untouched.
+    expect(storedPrefs()).toEqual({ width: 272, hidden: false });
+  });
+
   it("restores persisted collapsed state on mount (preference survives reload)", async () => {
     localStorage.setItem(RAIL_PREFERENCES_KEY, JSON.stringify({ width: 280, hidden: true }));
     await mountShell();
