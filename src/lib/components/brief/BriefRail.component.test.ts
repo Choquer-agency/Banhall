@@ -106,7 +106,7 @@ describe("BriefRail", () => {
   it("lists every document with exactly one status and the counted header", async () => {
     const { container } = await render(BriefRail, props());
 
-    expect(container.textContent).toContain("12 of 40 documents in context · cap 12");
+    expect(container.textContent).toContain("12 of 40 documents in context, cap 12");
     const statuses = [...container.querySelectorAll("[data-inclusion]")];
     // The Transcript plus the 40 recorded documents, one status word each;
     // the unrecorded row carries none.
@@ -133,7 +133,7 @@ describe("BriefRail", () => {
       BriefRail,
       props({ inclusion: { ...inclusion40(), documentsTruncated: true } })
     );
-    expect(container.textContent).toContain("12 of 40+ documents in context · cap 12");
+    expect(container.textContent).toContain("12 of 40+ documents in context, cap 12");
     const note = container.querySelector("[data-inclusion-truncated]");
     expect(note?.getAttribute("data-inclusion-truncated")).toBe("documents");
     expect(note?.textContent?.trim()).toBe(
@@ -143,7 +143,7 @@ describe("BriefRail", () => {
     // A complete listing carries neither the qualifier nor the note.
     document.body.innerHTML = "";
     const complete = await render(BriefRail, props());
-    expect(complete.container.textContent).toContain("12 of 40 documents in context · cap 12");
+    expect(complete.container.textContent).toContain("12 of 40 documents in context, cap 12");
     expect(complete.container.textContent).not.toContain("40+");
     expect(complete.container.querySelector("[data-inclusion-truncated]")).toBeNull();
   });
@@ -174,7 +174,7 @@ describe("BriefRail", () => {
     await page.screenshot({
       path: "../../../../.vitest-attachments/DW-133-review-2/brief-rail-sources-truncated.png",
     });
-    expect(container.textContent).toContain("3+ of 3+ documents in context · cap 12");
+    expect(container.textContent).toContain("3+ of 3+ documents in context, cap 12");
     const note = container.querySelector("[data-inclusion-truncated]");
     expect(note?.getAttribute("data-inclusion-truncated")).toBe("sources");
     expect(note?.textContent?.trim()).toBe(
@@ -191,7 +191,7 @@ describe("BriefRail", () => {
       BriefRail,
       props({ inclusion: { ...inclusion40(), documentsTruncated: true } })
     );
-    expect(documentsOnly.container.textContent).toContain("12 of 40+ documents in context · cap 12");
+    expect(documentsOnly.container.textContent).toContain("12 of 40+ documents in context, cap 12");
     expect(
       documentsOnly.container.querySelector("[data-inclusion-truncated]")?.getAttribute("data-inclusion-truncated")
     ).toBe("documents");
@@ -303,7 +303,7 @@ describe("BriefRail", () => {
 
   it("shows the Inputs band before any Brief exists, with no Brief groups", async () => {
     const { container } = await render(BriefRail, props({ brief: null }));
-    expect(container.textContent).toContain("12 of 40 documents in context · cap 12");
+    expect(container.textContent).toContain("12 of 40 documents in context, cap 12");
     expect(container.querySelectorAll("[data-inclusion]").length).toBe(41);
     expect(container.textContent).toContain("unrecorded.txt");
     expect(page.getByRole("button", { name: /Storyline/ }).elements()).toHaveLength(0);
