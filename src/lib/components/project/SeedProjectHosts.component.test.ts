@@ -45,7 +45,7 @@ function frozenSummary(generationId: string, summaryVersionId: string, bullets: 
     page: bullets.map((bullet, index) => ({
       kind: "selection", seedId: `seed-frozen-${index}`, roleId: "company_context",
       subsectionKind: "standard", bullets: [bullet],
-      support: "source_supported", tags: [], uncertaintySeedId: null, experimentSeedIds: [],
+      support: "source_supported", tags: [], uncertaintySeedId: null, experimentSeedIds: [], edited: false, provenance: [],
     })),
     skippedRoleIds: [], isDone: true, continueCursor: "done", partial: false,
     frozen: true, generationId, summaryVersionId, seedStageVersion: 4,
@@ -193,7 +193,7 @@ function seedHostQueries() {
       support: "source_supported",
       tags: ["technical"],
       uncertaintySeedId: null,
-      experimentSeedIds: [],
+      experimentSeedIds: [], edited: false, provenance: [],
     }],
     skippedRoleIds: [],
     isDone: true,
@@ -1396,7 +1396,7 @@ describe("Seed project hosts", () => {
       support: "source_supported",
       tags: ["technical"],
       uncertaintySeedId: null,
-      experimentSeedIds: [],
+      experimentSeedIds: [], edited: false, provenance: [],
     });
     __setQueryData("seeds:getSummary", {
       page: [

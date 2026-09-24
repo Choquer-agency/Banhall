@@ -436,3 +436,40 @@ it("previews actual heading, list and blockquote hard breaks without joining wor
   await component.flushPendingSave();
   expect(saved).toEqual([content]);
 });
+
+describe("Editor autosave and external content", () => {
+  beforeEach(() => {
+    document.body.innerHTML = "";
+  });
+
+  function tiptapOf(container: HTMLElement): TiptapEditor {
+    const element = container.querySelector(".tiptap-editor");
+    if (!element || !("editor" in element) || !(element.editor instanceof TiptapEditor)) {
+      throw new Error("Mounted Tiptap editor instance is unavailable");
+    }
+    return element.editor;
+  }
+
+  it("drops a pending autosave when server content replaces the document", async () => {
+    const { container, rerender, saved, component } = await mountEditor();
+    // A keystroke schedules the debounced save of the local document.
+    tiptapOf(container).commands.insertContent("Unsaved words. ");
+    // Before it fires, the server's newer content arrives (e.g. a redraft).
+    const serverDoc = JSON.stringify({
+      type: "doc",
+      content: [{ type: "paragraph", content: [{ type: "text", text: "Redrafted on the server." }] }],
+    });
+    await rerender({ content: serverDoc });
+    await expect.poll(() => container.textContent).toContain("Redrafted on the server.");
+    await new Promise((resolve) => setTimeout(resolve, 1300));
+    await component.flushPendingSave();
+    // Nothing from before the replacement is written over the server content.
+    expect(saved.some((json) => json.includes("Unsaved words."))).toBe(false);
+
+    // Editing after the replacement saves on top of the server content.
+    tiptapOf(container).commands.insertContent("New words. ");
+    await component.flushPendingSave();
+    expect(saved.at(-1)).toContain("Redrafted on the server.");
+    expect(saved.at(-1)).toContain("New words.");
+  });
+});

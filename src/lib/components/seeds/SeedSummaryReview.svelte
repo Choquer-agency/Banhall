@@ -16,9 +16,9 @@
   import { SEED_SUMMARY_HEADING_ID } from "./summaryFocus";
   import { findExactQuoteSpans, segmentBullet } from "./exactQuote";
   import { PD_SECTION_TITLES, pdSectionNumber } from "./sectionTitles";
-  import { seedTagLabel, seedTagStyle } from "./seedTagPalette";
-  import { citationSourceLabel, itemCitations, itemEdited } from "./summaryItem";
-  import QuoteUnderline from "./QuoteUnderline.svelte";
+  import { seedTagStyle } from "./seedTags";
+  import { attributionFromRead } from "./attribution";
+  import SeedQuote from "./SeedQuote.svelte";
   import SeedSignOffDialog from "./SeedSignOffDialog.svelte";
 
   let {
@@ -84,6 +84,13 @@
   let outlinePaused = $state(false);
   const outlineQ = useQuery(seedsApi.getOutline, () =>
     readOnly || outlinePaused ? "skip" : { generationId }
+  );
+  // Source names for the quote cards (decision 17), with the read's state.
+  const sourcesQ = useQuery(seedsApi.getSourceAttribution, () =>
+    summaryPaused ? "skip" : { generationId }
+  );
+  const sourceAttribution = $derived(
+    attributionFromRead(sourcesQ.data, String(generationId), !!sourcesQ.error)
   );
   const summaryQ = useQuery(seedsApi.getSummary, () =>
     summaryPaused
@@ -708,7 +715,7 @@
         )
       : []
   );
-  const editedItems = $derived(orderedItems.filter(itemEdited));
+  const editedItems = $derived(orderedItems.filter((item) => item.edited));
 
   /** The "n edited by hand" pill: brings the first hand edit into view. */
   function jumpToFirstEdit() {
@@ -763,16 +770,16 @@
 {#snippet bulletText(item: SeedSummaryItem, bullet: string)}
   <!-- Exact quotes only (decision 17); a hand-edited bullet is the writer's
        own wording and carries no quote underline. -->
-  {@const citations = itemEdited(item) ? [] : itemCitations(item)}
+  {@const citations = item.edited ? [] : item.provenance}
   {@const spans = citations.length > 0 ? findExactQuoteSpans(bullet, citations.map((citation) => citation.exactExcerpt)) : []}
   {#each segmentBullet(bullet, spans) as segment}
     {#if segment.citationIndex !== undefined}
       {@const citation = citations[segment.citationIndex]}
-      <QuoteUnderline
+      <SeedQuote
         text={segment.text}
-        quote={citation.exactExcerpt}
-        sourceLabel={citationSourceLabel(citation)}
-        onOpenTranscript={onOpenSource && citation.sourceId ? () => onOpenSource(citation.sourceId) : undefined}
+        {citation}
+        {sourceAttribution}
+        onOpenSource={onOpenSource ? (cited) => onOpenSource(String(cited.sourceId)) : undefined}
       />
     {:else}{segment.text}{/if}
   {/each}
@@ -874,7 +881,8 @@
                     {#if roleTags.length > 0}
                       <div class="flex flex-wrap gap-1.5">
                         {#each roleTags as tag}
-                          <span class="rounded-full px-2 py-0.5 text-[11px] leading-4" style={seedTagStyle(tag)}>{seedTagLabel(tag)}</span>
+                          {@const style = seedTagStyle(tag)}
+                          <span class="rounded-full px-2 py-0.5 text-[11px] leading-4" style={`background:${style.background};color:${style.color}`}>{style.label}</span>
                         {/each}
                       </div>
                     {/if}
@@ -899,7 +907,7 @@
                       {/if}
                     {/if}
                     {#each roleItems as item (item.seedId)}
-                      {@const edited = itemEdited(item)}
+                      {@const edited = item.edited}
                       <div
                         data-summary-item={item.seedId}
                         data-summary-edited={edited ? "true" : undefined}

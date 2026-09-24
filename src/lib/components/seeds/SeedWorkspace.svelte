@@ -8,15 +8,14 @@
   } from "../../../../shared/pdSubsections";
   import { useStableQuery } from "$lib/stableQuery.svelte";
   import { userErrorMessage } from "$lib/errors";
-  import { sourceChipLabel, type SourceKind } from "$lib/brief";
-  import Button from "$lib/components/ui/Button.svelte";
+    import Button from "$lib/components/ui/Button.svelte";
   import Spinner from "$lib/components/ui/Spinner.svelte";
   import * as Drawer from "$lib/components/ui/drawer/index.js";
   import BriefRailPanel from "$lib/components/brief/BriefRailPanel.svelte";
   import SeedOutline from "./SeedOutline.svelte";
   import SeedSubsectionPane from "./SeedSubsectionPane.svelte";
-  import type { SeedSourceAttribution } from "./attribution";
-  import { rowApprovedAt, type SeedCitation } from "./dtoExtras";
+  import { seedSourceLabel, type SeedSourceAttribution } from "./attribution";
+  import type { QuoteCitation } from "./citations";
   import { SEED_REVIEW_SUMMARY_TRIGGER_ID } from "./summaryFocus";
   import type { SeedDraftUpdate, SeedLocalDraft } from "./types";
   import { seedsApi } from "./api";
@@ -34,7 +33,7 @@
     onReviewSummary: () => void;
     /** Opens a quoted source in its transcript; without it the quote card
      * shows no "Open in transcript" action. */
-    onOpenSource?: (citation: SeedCitation) => void;
+    onOpenSource?: (citation: QuoteCitation) => void;
   } = $props();
 
   // A failed read is retried by re-establishing the live subscriptions.
@@ -126,12 +125,6 @@
     "Editing is paused until the live read of this subsection recovers.";
   const READ_PENDING_NOTICE =
     "Editing is paused until the live read of this subsection returns.";
-
-  /** The shared source chip label, without the middle-dot separator the
-   * plan's copy rules do not allow ("Interview 2 (digest)"). */
-  function planSourceLabel(source: { label: string; kind: SourceKind }) {
-    return sourceChipLabel({ source }).replace(/ · digest$/, " (digest)");
-  }
 
   function isRoleId(value: string | null): value is PdSubsectionRoleId {
     return value !== null && PD_SUBSECTIONS.some((role) => role.roleId === value);
@@ -386,7 +379,7 @@
   // A step approved before (outline `approvedAt`) and opened again is
   // reopened: it is confirmed in place instead of approved and continued.
   const reopened = $derived(
-    !!activeRow && (activeRow.state === "approved" || rowApprovedAt(activeRow) !== null)
+    !!activeRow && (activeRow.state === "approved" || typeof activeRow.approvedAt === "number")
   );
   const decidedCount = $derived(
     outline?.rows.filter((row) => row.state === "approved" || row.state === "skipped").length ?? 0
@@ -434,7 +427,7 @@
       for (const source of owned.sources) {
         labels.set(
           String(source.sourceId),
-          planSourceLabel({ label: source.label, kind: source.kind })
+          seedSourceLabel({ label: source.label, kind: source.kind })
         );
       }
     }
@@ -589,7 +582,7 @@
         const found = new Set<string>();
         for (const source of result.sources) {
           const sourceId = String(source.sourceId);
-          labels[sourceId] = planSourceLabel({ label: source.label, kind: source.kind });
+          labels[sourceId] = seedSourceLabel({ label: source.label, kind: source.kind });
           found.add(sourceId);
         }
         const unrecoverable = new Set(recovery.unrecoverable);

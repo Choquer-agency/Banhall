@@ -17,7 +17,7 @@
   import AuroraMark from "$lib/components/ui/AuroraMark.svelte";
   import { isLongForSeed, MAX_EDITED_BULLET_CHARS } from "../../../../convex/lib/seedContract";
   import { describeSource, EMPTY_SOURCE_ATTRIBUTION } from "./attribution";
-  import { citationSpeakerLine, type SeedCitation } from "./dtoExtras";
+  import { citationSpeakerLine, type QuoteCitation } from "./citations";
   import { findExactQuoteSpans, segmentBullet } from "./exactQuote";
   import { MAX_CARD_TAGS, seedTagStyle } from "./seedTags";
   import SeedQuote from "./SeedQuote.svelte";
@@ -65,7 +65,7 @@
     draft?: SeedLocalDraft;
     onDraftChange: (update: SeedDraftUpdate) => void;
     /** Opens a quoted source in its transcript, where the host has a route. */
-    onOpenSource?: (citation: SeedCitation) => void;
+    onOpenSource?: (citation: QuoteCitation) => void;
     /** A revised seed shown under the seed its feedback targeted. */
     nested?: boolean;
     /** Batch history: an edited seed also lists its original wording. */

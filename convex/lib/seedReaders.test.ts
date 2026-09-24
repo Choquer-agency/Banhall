@@ -688,6 +688,16 @@ describe("Seed DTO fields for the final UI (2026-09-24)", () => {
             ? { editedBullets: ["The writer's own words."], editedBy: fixture.userId, editedAt: 2 }
             : {}),
         });
+        await ctx.db.insert("seedProvenance", {
+          seedId,
+          projectId: fixture.projectId,
+          generationId: fixture.generationId,
+          sourceId: fixture.sourceId,
+          sourceContentHash: "source-hash",
+          startOffset: 0,
+          endOffset: 1,
+          exactExcerpt: `Quoted line ${order}.`,
+        });
         ids.push(seedId);
       }
       return ids;
@@ -710,6 +720,11 @@ describe("Seed DTO fields for the final UI (2026-09-24)", () => {
     expect(edited.get(plainId)).toBe(false);
     expect(edited.get(assertedId)).toBe(false);
     expect(items.find((item) => item.seedId === assertedId)?.support).toBe("writer_asserted");
+    // Exact-quote underlines (decision 17): cited excerpts ride along, except
+    // on a hand-edited item, which is the writer's own wording.
+    const citations = new Map(items.map((item) => [item.seedId, item.provenance]));
+    expect(citations.get(plainId)).toEqual([{ sourceId: fixture.sourceId, exactExcerpt: "Quoted line 1." }]);
+    expect(citations.get(editedId)).toEqual([]);
   });
 
   it("marks frozen Summary items edited when their wording differs from the Seed", async () => {

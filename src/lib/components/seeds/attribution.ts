@@ -1,3 +1,5 @@
+import { sourceChipLabel, type SourceKind } from "$lib/brief";
+
 /** Readable frozen-source names for Seed provenance, with the state of the read
  * that produced them. A missing name is never presented as attributed: the
  * label says whether the read is still loading, failed, left names out, or
@@ -67,4 +69,28 @@ export function missingSourceIds(
     }
   }
   return [...missing];
+}
+
+/** The shared source chip label, without the middle-dot separator the seed
+ * screens' copy rules do not allow ("Interview 2 (digest)"). */
+export function seedSourceLabel(source: { label: string; kind: SourceKind }) {
+  return sourceChipLabel({ source }).replace(/ · digest$/, " (digest)");
+}
+
+/** Attribution from one `seeds:getSourceAttribution` read, for surfaces that
+ * have no recovery path of their own (the Summary). */
+export function attributionFromRead(
+  read: { generationId: string; complete: boolean; sources: ReadonlyArray<{ sourceId: string; label: string; kind: SourceKind }> } | null | undefined,
+  generationId: string,
+  failed: boolean
+): SeedSourceAttribution {
+  const owned = read && read.generationId === generationId ? read : null;
+  const labels = new Map<string, string>();
+  for (const source of owned?.sources ?? []) labels.set(String(source.sourceId), seedSourceLabel(source));
+  return {
+    labels,
+    status: failed ? "error" : owned ? (owned.complete ? "complete" : "incomplete") : "loading",
+    unrecoverableSourceIds: new Set(),
+    recoveryError: null,
+  };
 }

@@ -670,12 +670,18 @@
     return currentDocumentJson;
   }
 
+  // Bumped whenever external content replaces the document. A save queued
+  // behind an in-flight one holds the document from before that replacement,
+  // so it is dropped rather than written over the newer server content.
+  let contentEpoch = 0;
+
   function enqueueSave(json: string): Promise<void> {
     if (!onUpdate || json === lastQueuedContent) return pendingSaveChain;
     const update = onUpdate;
+    const epoch = contentEpoch;
     lastQueuedContent = json;
     lastSavedContent = json;
-    const save = pendingSaveChain.then(() => update(json));
+    const save = pendingSaveChain.then(() => (epoch === contentEpoch ? update(json) : undefined));
     pendingSaveChain = save.catch(() => {});
     return save;
   }
@@ -754,6 +760,14 @@
       if (c === lastSavedContent) return;
       const parsed = parseContent(c);
       if (parsed) {
+        // The server content wins: an autosave still waiting on its debounce,
+        // or queued behind an in-flight save, would write the replaced
+        // document back over it (for example a redraft of Not drafted
+        // Sections, a restore or an applied proposal).
+        if (saveTimeout) clearTimeout(saveTimeout);
+        saveTimeout = undefined;
+        contentEpoch += 1;
+        lastQueuedContent = null;
         ed.commands.setContent(parsed, { emitUpdate: false });
         refreshDocumentMetrics(ed);
       }

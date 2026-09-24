@@ -10,7 +10,7 @@
    */
   import { onDestroy, tick } from "svelte";
   import { describeSource, type SeedSourceAttribution } from "./attribution";
-  import { citationSpeakerLine, type SeedCitation } from "./dtoExtras";
+  import { citationSpeakerLine, type QuoteCitation } from "./citations";
 
   let {
     text,
@@ -19,9 +19,9 @@
     onOpenSource,
   }: {
     text: string;
-    citation: SeedCitation;
+    citation: QuoteCitation;
     sourceAttribution: SeedSourceAttribution;
-    onOpenSource?: (citation: SeedCitation) => void;
+    onOpenSource?: (citation: QuoteCitation) => void;
   } = $props();
 
   const uid = $props.id();

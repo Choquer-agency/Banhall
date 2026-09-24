@@ -708,6 +708,40 @@ export function frozenSeedSettings(generation: Doc<"generations">) {
   };
 }
 
+/** Cited excerpts shown as exact-quote underlines in the Summary (decision
+ * 17). A hand-edited item is the writer's own wording and carries none. At
+ * most SUMMARY_CITATIONS_PER_ITEM per item; an exhausted budget leaves the
+ * item without underlines rather than failing the page. */
+const SUMMARY_CITATIONS_PER_ITEM = 3;
+
+type SummaryCitation = { sourceId: Doc<"seedProvenance">["sourceId"]; exactExcerpt: string };
+
+async function summaryCitations(
+  ctx: QueryCtx,
+  budget: ReturnType<typeof readerBudget>,
+  seed: Doc<"seeds">,
+  edited: boolean
+): Promise<SummaryCitation[]> {
+  if (edited) return [];
+  const read = await budget.list(
+    ctx.db
+      .query("seedProvenance")
+      .withIndex("by_seedId", (q) => q.eq("seedId", seed._id)),
+    SUMMARY_CITATIONS_PER_ITEM
+  );
+  const citations: SummaryCitation[] = [];
+  for (const citation of read.rows) {
+    if (
+      citation.projectId !== seed.projectId ||
+      citation.generationId !== seed.generationId
+    ) {
+      domainError("INVALID_STATE", "Seed provenance ownership mismatch");
+    }
+    citations.push({ sourceId: citation.sourceId, exactExcerpt: citation.exactExcerpt });
+  }
+  return citations;
+}
+
 type LiveSummaryItem = {
   kind: "selection";
   seedId: Id<"seeds">;
@@ -718,6 +752,7 @@ type LiveSummaryItem = {
   /** The writer changed the wording (not derived from `support`: a
    * generated Seed can start as writer_asserted). */
   edited: boolean;
+  provenance: SummaryCitation[];
   tags: string[];
   uncertaintySeedId: Id<"seeds"> | null;
   experimentSeedIds: Id<"seeds">[];
@@ -803,11 +838,13 @@ export async function getSummaryData(
       ) {
         domainError("INVALID_STATE", "Frozen Summary ownership mismatch");
       }
+      const edited = stableSerialize(item.bullets) !== stableSerialize(seed.bullets);
       page.push({
         ...item,
         kind: "selection" as const,
         subsectionKind: item.kind,
-        edited: stableSerialize(item.bullets) !== stableSerialize(seed.bullets),
+        edited,
+        provenance: await summaryCitations(ctx, budget, seed, edited),
       });
     }
     return {
@@ -944,6 +981,7 @@ export async function getSummaryData(
       bullets: materializeFinalWording(seed, selection),
       support: selection.editedBullets ? "writer_asserted" : seed.support,
       edited: selection.editedBullets !== undefined,
+      provenance: await summaryCitations(ctx, budget, seed, selection.editedBullets !== undefined),
       tags: seed.tags,
       uncertaintySeedId: seed.uncertaintySeedId ?? null,
       experimentSeedIds: seed.experimentSeedIds ?? [],

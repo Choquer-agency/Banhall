@@ -12,7 +12,7 @@
   import Tooltip from "$lib/components/ui/Tooltip.svelte";
   import SeedCard from "./SeedCard.svelte";
   import { describeSource, EMPTY_SOURCE_ATTRIBUTION, missingSourceIds } from "./attribution";
-  import type { SeedCitation } from "./dtoExtras";
+  import type { QuoteCitation } from "./citations";
   import { APPROVED_CHIP } from "./seedTags";
   import type {
     SeedApprovalReviewData,
@@ -78,7 +78,7 @@
     /** Opens the Brief drawer from the step header More menu. */
     onOpenBrief?: () => void;
     /** Opens a quoted source in its transcript, where the host has a route. */
-    onOpenSource?: (citation: SeedCitation) => void;
+    onOpenSource?: (citation: QuoteCitation) => void;
   } = $props();
 
   type ApprovalLayout = "outline" | "bar";

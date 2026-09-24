@@ -103,7 +103,7 @@ function item(seedId: string, roleId: string, bullet: string, support = "source_
     support,
     tags: ["technical"],
     uncertaintySeedId: null,
-    experimentSeedIds: [],
+    experimentSeedIds: [], edited: false, provenance: [],
   };
 }
 
@@ -1341,7 +1341,7 @@ describe("Seed Summary Review", () => {
       expect(getComputedStyle(dialog.element() as HTMLElement).borderRadius).toBe("16px");
       // Near-black fir scrim over the Summary.
       const scrim = document.querySelector<HTMLElement>("[data-signoff-scrim]")!;
-      expect(scrim.className).toContain("bg-[#041413]/75");
+      expect(scrim.className).toContain("bg-[#010505]/75");
       expect(getComputedStyle(scrim).position).toBe("fixed");
       expect(__mutationCalls("generations:signOffSeedStage")).toEqual([]);
 
@@ -1472,11 +1472,14 @@ describe("Seed Summary Review", () => {
       const view = await render(SeedSummaryReview, { generationId, userId: "writer-1", onOpenSource });
       const quote = view.container.querySelector<HTMLElement>("[data-exact-quote]")!;
       expect(quote.textContent).toBe("running four refrigerated warehouses");
-      expect(getComputedStyle(quote).borderBottomStyle).toBe("solid");
-      const card = view.container.querySelector<HTMLElement>("[data-quote-card]")!;
-      expect(getComputedStyle(card).visibility).toBe("hidden");
+      // The plan's quote card (SeedQuote): a solid underline, and the card
+      // mounts on hover.
+      expect(getComputedStyle(quote).textDecorationLine).toContain("underline");
+      expect(getComputedStyle(quote).textDecorationStyle).toBe("solid");
+      expect(view.container.querySelector("[data-quote-card]")).toBeNull();
       await userEvent.hover(quote);
-      await expect.poll(() => getComputedStyle(card).visibility).toBe("visible");
+      await expect.poll(() => view.container.querySelector("[data-quote-card]")).not.toBeNull();
+      const card = view.container.querySelector<HTMLElement>("[data-quote-card]")!;
       expect(card.textContent).toContain("“We are running four refrigerated warehouses”");
       expect(card.textContent).toContain("Priya, line 18");
       await page.getByRole("button", { name: "Open in transcript", exact: true }).click();

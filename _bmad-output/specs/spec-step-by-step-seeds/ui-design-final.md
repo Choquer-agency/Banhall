@@ -42,7 +42,7 @@ Behaviour and data rules stay where they are: PRD `prd-Banhall-2026-09-16/prd.md
 
 ## 5. Sign-off confirm (3.4)
 
-- Scrim near-black fir `#041413` at 98% opacity over the summary.
+- Scrim near-black `#010505` at 75% opacity over the summary (as on the Paper board; the Summary stays faintly visible behind it).
 - Modal 536px, radius 16, header padding 26/24/20/28: "Sign off and generate the PD?" and "We will draft sections 242, 244 and 246 from this plan. Once you sign off, the plan is locked and later changes happen in the report."
 - Rows: green check "All 13 steps decided"; amber revert icon "2 seeds edited by hand" with "They are drafted as written, not quoted from the interview."; Aurora mark "Written by Claude Fable 5.1". Canvas note: "Takes about three minutes. You can leave this page; we will let you know when the draft is ready."
 - Footer: "Keep reviewing" (secondary) and "Sign off and generate PD" (primary). Nothing starts until the primary button is pressed.
