@@ -581,7 +581,6 @@
   // Which surface occupies the side slot (also while all are closed, so
   // exactly one is in flow at a time).
   let railView = $state<"chat" | "qa" | "details">("chat");
-  const sidePanelOpen = $derived(chatOpen || qaOpen || detailsOpen);
   let workspaceEl: HTMLDivElement | null = $state(null);
   let dragging = $state(false);
 
@@ -1389,6 +1388,24 @@
     });
   });
 
+  // Effective side-panel visibility (see sidePanelOpen): the Assistant and QA
+  // render only beside the report, so elsewhere their saved open state keeps
+  // no panel, divider or full screen on the page.
+  const sideSurfacesAvailable = $derived(Boolean(report && user && reportActionsVisible));
+  const chatShown = $derived(chatOpen && sideSurfacesAvailable);
+  const qaShown = $derived(qaOpen && sideSurfacesAvailable);
+  // The persisted open state (chatOpen, qaOpen) is a preference. A surface
+  // the page does not offer right now (Seed phases, writing, intake) takes
+  // no room: the side panel is open only for a surface that can show.
+  const sidePanelOpen = $derived(chatShown || qaShown || detailsOpen);
+  const assistantFull = $derived(chatFocus && chatShown);
+  // Whether the main pane (the tab content) is on screen: not behind
+  // Assistant full screen, and not replaced by the side panel on a narrow
+  // screen.
+  const mainPaneVisible = $derived(
+    !assistantFull && !(sidePanelOpen && mobileWorkspaceView === "assistant" && !desktopAssistant)
+  );
+
   // Panel toolbar tabs (ui-design-final.md section 2). A Step-by-step run
   // shows Plan, Summary, Report and Sources; everything else Report and
   // Sources. Tabs map onto the existing surfaces: Summary is still the
@@ -1444,6 +1461,10 @@
     ];
   });
   function selectTab(id: PanelTab["id"]) {
+    // Every tab shows main content: leave Assistant full screen, and on a
+    // narrow screen show the main pane instead of the side panel.
+    chatFocus = false;
+    mobileWorkspaceView = "report";
     if (id === "sources") {
       sourcesOpen = true;
       mobileWorkspaceView = "report";
@@ -1486,9 +1507,13 @@
     return readQaSeen(String(generation._id), qaCompletedAt);
   });
   const qaUnseen = $derived(qaSeen !== null && qaSeen !== "seen");
-  // Opening QA marks the current result seen: no notice, no dot.
+  // The QA panel is rendered and on screen: its side surface is the one in
+  // the slot, and on a narrow screen the side panel is the active pane.
+  const qaOnScreen = $derived(qaShown && railView === "qa" && sidePanelOnScreen);
+  // Showing QA marks the current result seen: no notice, no dot. A restored
+  // or kept-open preference whose panel is not on screen marks nothing.
   $effect(() => {
-    if (!qaOpen || !generation || qaCompletedAt === null || qaState !== "done") return;
+    if (!qaOnScreen || !generation || qaCompletedAt === null || qaState !== "done") return;
     const generationId = String(generation._id);
     const completedAt = qaCompletedAt;
     untrack(() => {
@@ -1506,7 +1531,7 @@
     openSidePanel("qa");
   }
   const showQaFinished = $derived(
-    reportActionsVisible && qaSeen === "unseen" && !(qaOpen && sidePanelOnScreen)
+    reportActionsVisible && qaSeen === "unseen" && !qaOnScreen
   );
 
   const topBarMoreItems = $derived.by((): TopBarMoreItem[] => {
@@ -1533,8 +1558,8 @@
 <svelte:window
   onpopstate={() => (seedSummaryRequested = new URL(window.location.href).searchParams.get("view") === "summary")}
   onkeydown={(e) => {
-    if (e.key === "Escape" && chatFocus && !replaceSession) chatFocus = false;
-    else if (e.key === "Escape" && chatOpen && !replaceSession) {
+    if (e.key === "Escape" && assistantFull && !replaceSession) chatFocus = false;
+    else if (e.key === "Escape" && chatShown && !replaceSession) {
       chatOpen = false;
       mobileWorkspaceView = "report";
     }
@@ -1721,7 +1746,7 @@
         tabs={panelTabs}
         {activeTab}
         onSelectTab={selectTab}
-        showFullWidth={reportActionsVisible && !sourcesOpen && !chatFocus}
+        showFullWidth={reportActionsVisible && !sourcesOpen && !assistantFull}
         fullWidth={workspaceMaximized}
         onToggleFullWidth={() => (workspaceMaximized = !workspaceMaximized)}
         detailsActive={detailsOpen && sidePanelOnScreen}
@@ -1731,7 +1756,7 @@
         }}
         bind:detailsButton
         showAssistant={reportActionsVisible && !!user}
-        assistantActive={chatOpen && sidePanelOnScreen}
+        assistantActive={chatShown && sidePanelOnScreen}
         onToggleAssistant={() => toggleSidePanel("chat")}
       >
         {#snippet detailsPeek()}
@@ -1749,7 +1774,7 @@
               state={qaState}
               score={qaScore}
               unseen={qaUnseen}
-              active={qaOpen && sidePanelOnScreen}
+              active={qaShown && sidePanelOnScreen}
               onToggle={() => toggleSidePanel("qa")}
             />
           {/if}
@@ -1759,8 +1784,8 @@
       <div bind:this={workspaceEl} data-project-body class="flex min-h-0 flex-1 overflow-hidden">
         <div
           data-project-main
-          inert={chatFocus}
-          class={`relative flex min-h-0 min-w-0 flex-1 flex-col ${chatFocus ? "hidden" : ""} ${sidePanelOpen && mobileWorkspaceView === "assistant" ? "max-lg:hidden" : ""}`}
+          inert={assistantFull}
+          class={`relative flex min-h-0 min-w-0 flex-1 flex-col ${assistantFull ? "hidden" : ""} ${sidePanelOpen && mobileWorkspaceView === "assistant" ? "max-lg:hidden" : ""}`}
         >
           <!-- Draft ready (board 4.4): where the writing pill was, top centre
                of the Report tab. Export and Send for review are back in the
@@ -1875,6 +1900,7 @@
             generationId={generation._id}
             {projectId}
             userId={user?._id ?? "anonymous"}
+            hostVisible={mainPaneVisible && !sourcesOpen}
             onReviewSummary={() => {
               summaryOpener = "trigger";
               setSeedSummary(true);
@@ -2258,7 +2284,7 @@
 
         <!-- Twenty-style hairline resize divider between the page and the
              side panel (pointer and keyboard). -->
-        {#if sidePanelOpen && !chatFocus}
+        {#if sidePanelOpen && !assistantFull}
           <button
             type="button"
             onmousedown={startDrag}
@@ -2293,8 +2319,8 @@
         <aside
           data-side-panel={sidePanelOpen ? railView : undefined}
           aria-label="Side panel"
-          class={`relative min-h-0 flex-col overflow-hidden bg-surface ${sidePanelOpen && (mobileWorkspaceView === "assistant" || chatFocus) ? "flex w-full flex-1" : "hidden"} lg:flex lg:flex-none lg:w-[var(--side-panel-width)] ${dragging ? "" : "lg:transition-[width] lg:duration-[325ms] lg:ease-out motion-reduce:transition-none"}`}
-          style={`--side-panel-width: ${chatFocus ? "100%" : sidePanelOpen ? `${sidePanelWidth}px` : "0px"}`}
+          class={`relative min-h-0 flex-col overflow-hidden bg-surface ${sidePanelOpen && (mobileWorkspaceView === "assistant" || assistantFull) ? "flex w-full flex-1" : "hidden"} lg:flex lg:flex-none lg:w-[var(--side-panel-width)] ${dragging ? "" : "lg:transition-[width] lg:duration-[325ms] lg:ease-out motion-reduce:transition-none"}`}
+          style={`--side-panel-width: ${assistantFull ? "100%" : sidePanelOpen ? `${sidePanelWidth}px` : "0px"}`}
         >
           {#if detailsOpen && railView === "details"}
             <div class="h-full" style={`min-width: ${SIDE_PANEL_MIN}px`}>
@@ -2356,8 +2382,8 @@
               aria-label="AI assistant"
               inert={!chatOpen}
             >
-              <div class={chatFocus ? "mx-auto flex h-full w-full max-w-[720px] flex-col" : "flex h-full flex-col"} data-assistant-column={chatFocus ? "full" : "side"}>
-                <LazyModule load={() => import("$lib/components/chat/AgentChatPanel.svelte")} label="assistant" active={chatPreferencesReady && chatOpen && railView === "chat" && (desktopAssistant || mobileWorkspaceView === "assistant" || chatFocus)}>
+              <div class={assistantFull ? "mx-auto flex h-full w-full max-w-[720px] flex-col" : "flex h-full flex-col"} data-assistant-column={assistantFull ? "full" : "side"}>
+                <LazyModule load={() => import("$lib/components/chat/AgentChatPanel.svelte")} label="assistant" active={chatPreferencesReady && chatOpen && railView === "chat" && (desktopAssistant || mobileWorkspaceView === "assistant" || assistantFull)}>
                   {#snippet children(AgentChatPanel)}
                     <AgentChatPanel
                         {projectId}
@@ -2375,7 +2401,7 @@
                         reviewingId={replaceSession?.messageId ?? null}
                         onBeforeApply={flushEditor}
                         closeInset={false}
-                        isFull={chatFocus}
+                        isFull={assistantFull}
                         onToggleFull={() => {
                           openSidePanel("chat");
                           chatFocus = !chatFocus;

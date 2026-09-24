@@ -134,6 +134,43 @@ function seedDraftingHeading(Component: typeof CurrentProjectPage | typeof Previ
     : browserPage.getByRole("heading", { name: "Generating your report", exact: true });
 }
 
+/** The host's Subsection read; `shownBatchId` is the Batch on screen. */
+function hostSubsection(shownBatchId: string | null = null) {
+  return {
+    generationId: "generation-seed-host",
+    roleId: "company_context",
+    state: "in_progress",
+    stale: false,
+    staleReason: null,
+    items: [{
+      seedId: "seed-host-1",
+      batchId: "batch-host-1",
+      roleId: "company_context",
+      bullets: ["Server workspace wording."],
+      originalBullets: ["Server workspace wording."],
+      tags: ["technical"],
+      support: "source_supported",
+      originalSupport: "source_supported",
+      selected: true,
+      edited: false,
+      revisionOfSeedId: null,
+      feedbackRequestId: null,
+      uncertaintySeedId: null,
+      experimentSeedIds: [],
+      provenance: [],
+      provenanceTruncated: false,
+      outdated: null,
+    }],
+    feedbackGroups: [],
+    shownBatchId,
+    pendingBatchId: null,
+    approvalChallenge: null,
+    seedStageVersion: 4,
+    truncated: false,
+    budget,
+  };
+}
+
 function seedHostQueries() {
   __setQueryData("projects:getProject", {
     _id: "project-seed-host",
@@ -198,39 +235,7 @@ function seedHostQueries() {
 
   __setQueryData("generations:getSeedDraftProgress", seedDraftProgress());
   __setQueryData("seeds:getOutline", hostOutline());
-  __setQueryData("seeds:getSubsection", {
-    generationId: "generation-seed-host",
-    roleId: "company_context",
-    state: "in_progress",
-    stale: false,
-    staleReason: null,
-    items: [{
-      seedId: "seed-host-1",
-      batchId: "batch-host-1",
-      roleId: "company_context",
-      bullets: ["Server workspace wording."],
-      originalBullets: ["Server workspace wording."],
-      tags: ["technical"],
-      support: "source_supported",
-      originalSupport: "source_supported",
-      selected: true,
-      edited: false,
-      revisionOfSeedId: null,
-      feedbackRequestId: null,
-      uncertaintySeedId: null,
-      experimentSeedIds: [],
-      provenance: [],
-      provenanceTruncated: false,
-      outdated: null,
-    }],
-    feedbackGroups: [],
-    shownBatchId: null,
-    pendingBatchId: null,
-    approvalChallenge: null,
-    seedStageVersion: 4,
-    truncated: false,
-    budget,
-  });
+  __setQueryData("seeds:getSubsection", hostSubsection());
   __setQueryData("seeds:getSummary", {
     page: [{
       kind: "selection",
@@ -341,6 +346,31 @@ describe("Seed project hosts", () => {
     window.history.replaceState({}, "", cleanBrowserUrl);
     seedHostQueries();
     await browserPage.viewport(1366, 900);
+  });
+
+  it("reserves no Assistant panel in Seeds and records no Batch view while the preview host shows Sources", async () => {
+    // Default preferences save the Assistant as open; Seeds offers none.
+    await render(PreviewProjectPage, {});
+    await expect.element(browserPage.getByLabelText("Seed workspace")).toBeVisible();
+    expect(document.querySelector("[data-side-panel-divider]")).toBeNull();
+    const aside = document.querySelector<HTMLElement>('aside[aria-label="Side panel"]')!;
+    expect(aside.hasAttribute("data-side-panel")).toBe(false);
+    expect(aside.getBoundingClientRect().width).toBe(0);
+
+    // A new Batch arrives while Sources is selected: the workspace stays
+    // mounted under a hidden ancestor, so nothing is recorded as viewed.
+    await browserPage.getByRole("button", { name: "Sources", exact: true }).click();
+    const workspace = browserPage.getByLabelText("Seed workspace").element();
+    __setQueryData("seeds:getSubsection", hostSubsection("batch-host-2"));
+    await new Promise((done) => setTimeout(done, 400));
+    expect(__mutationCalls("seeds:markBatchViewed")).toEqual([]);
+    expect(browserPage.getByLabelText("Seed workspace").element()).toBe(workspace);
+
+    // Back on the Plan, the Batch is on screen and its view is recorded.
+    await browserPage.getByRole("button", { name: /^Plan/ }).click();
+    await expect.poll(() => __mutationCalls("seeds:markBatchViewed")).toEqual([
+      { generationId: "generation-seed-host", roleId: "company_context", batchId: "batch-host-2", expectedSeedStageVersion: 4 },
+    ]);
   });
 
   it("routes the current host from Seeds to Summary and back without the legacy stepper", async () => {

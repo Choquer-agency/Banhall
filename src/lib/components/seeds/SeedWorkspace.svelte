@@ -26,11 +26,16 @@
     userId,
     onReviewSummary,
     onOpenSource = undefined,
+    hostVisible = true,
   }: {
     generationId: Id<"generations">;
     projectId: Id<"projects">;
     userId: string;
     onReviewSummary: () => void;
+    /** False while the host keeps this workspace mounted but hidden (another
+     * tab, the side panel on a narrow screen), so drafts survive while no
+     * Batch counts as viewed. */
+    hostVisible?: boolean;
     /** Opens a quoted source in its transcript; without it the quote card
      * shows no "Open in transcript" action. */
     onOpenSource?: (citation: QuoteCitation) => void;
@@ -321,9 +326,12 @@
   });
   // Whether the Work surface is displayed (A11): responsive changes and the
   // narrow pane switch both re-evaluate it.
-  const workVisible = $derived(largeViewport || mobilePane === "work");
+  // The host's own visibility counts too: a hidden ancestor hides Work.
+  const workVisible = $derived(hostVisible && (largeViewport || mobilePane === "work"));
   const workDisplayed = () =>
-    !!workPane && getComputedStyle(workPane).display !== "none";
+    !!workPane &&
+    getComputedStyle(workPane).display !== "none" &&
+    (typeof workPane.checkVisibility !== "function" || workPane.checkVisibility());
 
   onDestroy(() => {
     disposed = true;
