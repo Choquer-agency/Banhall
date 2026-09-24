@@ -1,4 +1,5 @@
 import type { PdSubsectionRoleId } from "../../shared/pdSubsections";
+import { isDashClean } from "../../shared/humanProse";
 
 export const SEED_TAGS = [
   "conservative",
@@ -67,6 +68,7 @@ export type SeedValidationIssueCode =
   | "INVALID_BULLET_COUNT"
   | "BULLET_TOO_LONG"
   | "BULLET_NOT_ONE_SENTENCE"
+  | "BULLET_TYPOGRAPHIC_DASH"
   | "INVALID_TAG_COUNT"
   | "INVALID_TAG"
   | "DUPLICATE_TAG"
@@ -137,9 +139,7 @@ export function countSeedBulletWords(text: string): number {
   return trimmed === "" ? 0 : trimmed.split(/\s+/u).length;
 }
 
-export function isOneSeedSentence(text: string): boolean {
-  const trimmed = text.trim();
-  if (trimmed === "") return false;
+function seedSentenceTerminators(trimmed: string): number[] {
   const terminators: number[] = [];
   for (let index = 0; index < trimmed.length; index += 1) {
     const character = trimmed[index];
@@ -149,7 +149,29 @@ export function isOneSeedSentence(text: string): boolean {
     if (character === "." && isIgnoredPeriod(trimmed, index)) continue;
     terminators.push(index);
   }
+  return terminators;
+}
+
+export function isOneSeedSentence(text: string): boolean {
+  const trimmed = text.trim();
+  if (trimmed === "") return false;
+  const terminators = seedSentenceTerminators(trimmed);
   return terminators.length === 1 && terminators[0] === trimmed.length - 1;
+}
+
+/** Hard bound on one writer-edited bullet. The 25-word and one-sentence
+ * contract applies to AI-proposed Seeds only; this only stops abuse. */
+export const MAX_EDITED_BULLET_CHARS = 600;
+
+/** True when a writer's bullet runs past the AI Seed contract: more than
+ * MAX_BULLET_WORDS words or more than one sentence. Drives the soft
+ * "Long for a seed" note; it never blocks a save. A missing final full stop
+ * alone is not "long". */
+export function isLongForSeed(text: string): boolean {
+  const trimmed = text.trim();
+  if (trimmed === "") return false;
+  if (countSeedBulletWords(trimmed) > MAX_BULLET_WORDS) return true;
+  return seedSentenceTerminators(trimmed).some((index) => index < trimmed.length - 1);
 }
 
 function parseProvenance(value: unknown): SeedCandidateProvenance | null {
@@ -357,6 +379,14 @@ export function validateSeed(args: {
       issues.push({
         code: "BULLET_NOT_ONE_SENTENCE",
         message: "Seed bullet must contain exactly one terminated sentence",
+      });
+    }
+    // dashfix (owner, 2026-09-23): the plain hyphen is the only dash in an
+    // AI-written Seed. Provenance excerpts are verbatim and not checked here.
+    if (!isDashClean(bullet)) {
+      issues.push({
+        code: "BULLET_TYPOGRAPHIC_DASH",
+        message: "Seed bullet must use the plain hyphen, not an em dash, en dash or dash stand-in",
       });
     }
   }

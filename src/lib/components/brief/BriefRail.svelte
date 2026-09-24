@@ -36,6 +36,9 @@
     storylineText: string;
     storylineOrigin: "writer" | "derived" | "edited";
     editedSinceGeneration: boolean;
+    runBriefVersion?: number | null;
+    appliesToNextGeneration?: boolean;
+    regenerationDisabled?: boolean;
     entries: BriefEntryLike[];
   };
   type InclusionView = {
@@ -299,6 +302,16 @@
     </header>
   {/if}
 
+  {#if brief?.runBriefVersion !== undefined}
+    <div class="mx-4 mt-2 rounded-lg bg-gray-50 px-3 py-2 text-data text-ink-muted">
+      <p>This generation uses Brief v{brief.runBriefVersion ?? "unknown"}.</p>
+      <p class="mt-1">Displayed Brief: v{brief.version}.</p>
+      {#if brief.appliesToNextGeneration}
+        <p class="mt-1 text-gap-text!">Your newer Brief edits apply to the next generation.</p>
+      {/if}
+    </div>
+  {/if}
+
   <p class="sr-only" aria-live="polite">
     {grouped.openQuestions.length > 0 ? "Storyline question raised" : ""}
   </p>
@@ -387,11 +400,19 @@
     {/if}
   </div>
 
-  {#if brief?.editedSinceGeneration && onRegenerate}
+  {#if brief?.editedSinceGeneration && (onRegenerate || brief.regenerationDisabled)}
     <div class="border-t border-line-soft p-4">
-      <Button variant="secondary" class="min-h-11 w-full" onclick={onRegenerate}>
+      <Button
+        variant="secondary"
+        class="min-h-11 w-full"
+        onclick={onRegenerate}
+        disabled={brief.regenerationDisabled || !onRegenerate}
+      >
         Regenerate with this Brief
       </Button>
+      {#if brief.regenerationDisabled}
+        <p class="mt-2 text-data text-ink-muted">Available after the active generation finishes.</p>
+      {/if}
     </div>
   {/if}
 </aside>

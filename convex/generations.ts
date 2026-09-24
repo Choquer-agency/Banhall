@@ -20,7 +20,10 @@ import {
   requireInternalProjectAccess,
   requireRole,
 } from "./lib/auth";
-import { requireReportEditAccess } from "./lib/roleCapabilities";
+import {
+  getReportEditAccessOrNull,
+  requireReportEditAccess,
+} from "./lib/roleCapabilities";
 import { domainError, sha256 } from "./lib/contracts";
 import {
   requireAnthropicConfigured,
@@ -36,7 +39,7 @@ import {
 } from "../shared/generationModels";
 import { randomComparePair, resolveCompareModels } from "./ai/model";
 import { findActiveGeneration } from "./lib/activeGeneration";
-import { resolveGatedWorkflow } from "./lib/gatedWorkflow";
+import { resolveGatedWorkflow, resolveSeedPhase } from "./lib/gatedWorkflow";
 import { PD_SUBSECTIONS, type PdSubsectionRoleId } from "../shared/pdSubsections";
 import {
   assertFrozenSourceBijection,
@@ -204,6 +207,16 @@ export const getLatestGeneration = query({
         .unique();
       iterativeModelLabel = firstRun?.label ?? null;
     }
+    const gatedWorkflow = resolveGatedWorkflow(generation);
+    const seedRow = gatedWorkflow === "seeds"
+      ? await ctx.db
+          .query("seedSubsections")
+          .withIndex("by_generationId", (q) =>
+            q.eq("generationId", generation._id)
+          )
+          .first()
+      : null;
+    const seedPhase = resolveSeedPhase(generation, seedRow !== null);
     return {
       selectedModelLabel,
       iterativeModelLabel,
@@ -213,6 +226,17 @@ export const getLatestGeneration = query({
       transcriptId: generation.transcriptId,
       status: generation.status,
       candidateMode: generation.candidateMode ?? "compare",
+      gatedWorkflow,
+      seedPhase,
+      seedStageError: generation.seedStageError ? SEED_INITIALIZATION_ERROR : undefined,
+      seedStageVersion: generation.seedStageVersion ?? 0,
+      summaryVersionId: generation.summaryVersionId ?? null,
+      briefVersionId: generation.briefVersionId ?? null,
+      originGenerationId: generation.originGenerationId ?? null,
+      lengthTarget: generation.lengthTarget ?? null,
+      seedCanEdit:
+        gatedWorkflow === "seeds" &&
+        (await getReportEditAccessOrNull(ctx, generation.projectId)) !== null,
       currentStep: generation.currentStep,
       // Same boundary contract as getIterativeState: raw provider text stays
       // on the row for ops; only typed copy and authored narration cross.
@@ -229,6 +253,37 @@ export const getLatestGeneration = query({
         "The generation did not complete. Try again."
       ),
       agentOutputs: generation.agentOutputs,
+    };
+  },
+});
+
+/** Report-owned Seed metadata. A newer project generation must never replace
+ * the frozen Summary that produced the report currently on screen. */
+export const getGenerationSeedView = query({
+  args: { generationId: v.id("generations") },
+  handler: async (ctx, args) => {
+    const generation = await ctx.db.get(args.generationId);
+    if (
+      !generation ||
+      !(await getInternalProjectAccessOrNull(ctx, generation.projectId))
+    ) return null;
+    const gatedWorkflow = resolveGatedWorkflow(generation);
+    const seedRow = gatedWorkflow === "seeds"
+      ? await ctx.db
+          .query("seedSubsections")
+          .withIndex("by_generationId", (q) =>
+            q.eq("generationId", generation._id)
+          )
+          .first()
+      : null;
+    return {
+      _id: generation._id,
+      gatedWorkflow,
+      seedPhase: resolveSeedPhase(generation, seedRow !== null),
+      summaryVersionId: generation.summaryVersionId ?? null,
+      seedCanEdit:
+        gatedWorkflow === "seeds" &&
+        (await getReportEditAccessOrNull(ctx, generation.projectId)) !== null,
     };
   },
 });
@@ -443,7 +498,8 @@ async function reserveGeneration(
   // Story 1 (CAP-1/2/4): frozen verbatim as a `writer_storyline`
   // generationSources row — never validated, parsed, or rejected — and used
   // as-is by the Brief stage (origin "writer"). Excluded from `inputsHash`.
-  writerSuppliedStoryline?: string
+  writerSuppliedStoryline?: string,
+  preservedGatedWorkflow?: "sections" | "seeds"
 ) {
   // "Default" in single/iterative modes resolves to the admin-set default
   // model (appSettings), persisted here so retries reuse the same model even
@@ -530,9 +586,12 @@ async function reserveGeneration(
     learningDigestIds: [],
     lengthTarget,
     candidateMode,
-    // Story 1 ships dark: persist the workflow that actually runs today.
-    // Switch new reservations to seeds only when that pipeline ships (AD-31).
-    gatedWorkflow: candidateMode === "iterative" ? "sections" : undefined,
+    // Stories 5-6 connect the shipped seed pipeline for every new gated run.
+    // Older rows keep their stored/absent section-approval workflow.
+    gatedWorkflow:
+      candidateMode === "iterative"
+        ? (preservedGatedWorkflow ?? "seeds")
+        : undefined,
     singleModelId,
     compareModelIds: persistedCompareModelIds,
     retryOfGenerationId,
@@ -676,7 +735,11 @@ export const retryGeneration = mutation({
       failed.candidateMode ?? "compare",
       persistedSingleModelId(failed.candidateMode ?? "compare", failed.singleModelId),
       failed.compareModelIds,
-      failed._id
+      failed._id,
+      undefined,
+      0,
+      undefined,
+      resolveGatedWorkflow(failed)
     );
   },
 });
@@ -3811,11 +3874,7 @@ export const getIterativeState = query({
       status: generation.status,
       candidateMode: "iterative" as const,
       gatedWorkflow: resolveGatedWorkflow(generation),
-      seedPhase: resolveGatedWorkflow(generation) === "seeds"
-        ? generation.status === "completed" ? "completed" as const
-          : generation.summaryVersionId ? generation.status === "failed" ? "draftFailed" as const : "drafting" as const
-          : seedRow ? "seeding" as const : "initializing" as const
-        : undefined,
+      seedPhase: resolveSeedPhase(generation, seedRow !== null),
       seedStageError: generation.seedStageError ? SEED_INITIALIZATION_ERROR : undefined,
       modelLabel,
       error: userSafeStoredError(

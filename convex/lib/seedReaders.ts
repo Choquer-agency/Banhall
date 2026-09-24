@@ -178,6 +178,7 @@ export async function getOutlineData(
     });
   }
   return {
+    generationId,
     rows,
     readiness: computeSeedReadiness(state),
     usage: {
@@ -407,6 +408,7 @@ export async function getSubsectionData(
   if (truncated) approvalChallenge = null;
 
   return {
+    generationId,
     roleId,
     state: row.state,
     stale: isSeedSubsectionStale(row),
@@ -686,6 +688,22 @@ export async function listBatchesData(
   };
 }
 
+/** The generation settings the Summary shows read-only beside sign-off. A
+ * recovery generation carries the origin's frozen copies of these fields. */
+export function frozenSeedSettings(generation: Doc<"generations">) {
+  return {
+    lengthTarget: generation.lengthTarget ?? "standard",
+    modelId: generation.singleModelId ?? null,
+    writerProfile: generation.writerSettings
+      ? {
+          state: generation.writerSettings.profileState,
+          source: generation.writerSettings.source,
+          fileName: generation.writerSettings.fileName ?? null,
+        }
+      : null,
+  };
+}
+
 type LiveSummaryItem = {
   kind: "selection";
   seedId: Id<"seeds">;
@@ -779,8 +797,12 @@ export async function getSummaryData(
       }),
       partial: !result.isDone || cursor !== null,
       frozen: true,
+      generationId: generation._id,
       summaryVersionId: summaryId,
+      // Shown beside the model only from version 2 on (PRD FR-21).
+      summaryVersion: version.version,
       seedStageVersion: generation.seedStageVersion ?? 0,
+      settings: frozenSeedSettings(generation),
       budget: budget.snapshot(),
     };
   }
@@ -833,8 +855,11 @@ export async function getSummaryData(
       }),
       partial: cursor !== null,
       frozen: false,
+      generationId: generation._id,
       summaryVersionId: null,
+      summaryVersion: null,
       seedStageVersion: generation.seedStageVersion ?? 0,
+      settings: frozenSeedSettings(generation),
       budget: budget.snapshot(),
     };
   }
@@ -921,8 +946,11 @@ export async function getSummaryData(
     }),
     partial: !isDone || cursor !== null,
     frozen: false,
+    generationId: generation._id,
     summaryVersionId: null,
+    summaryVersion: null,
     seedStageVersion: generation.seedStageVersion ?? 0,
+    settings: frozenSeedSettings(generation),
     budget: budget.snapshot(),
   };
 }

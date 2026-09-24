@@ -4,6 +4,7 @@ import type Anthropic from "@anthropic-ai/sdk";
 import type { GenerationClient } from "./openrouterCore";
 import type { TranscriptAnalysis } from "./analyzerAgent";
 import { generateStructured } from "./structured";
+import { HUMAN_PROSE_FOR_OWN_WORDING } from "../../shared/humanProse";
 
 export interface ChronologyEntry {
   phase: string;
@@ -49,7 +50,7 @@ Respond with ONLY valid JSON:
       "estimatedHours": "string or null (e.g. '[GAP: hours not provided]')"
     }
   ]
-}`;
+}\n\n${HUMAN_PROSE_FOR_OWN_WORDING}`;
 
 export const CHRONOLOGY_REQUEST = {
   userPrefix:

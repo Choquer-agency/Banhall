@@ -285,6 +285,10 @@ describe("briefs reads (story 4)", () => {
       _id: briefId,
       generationBriefId: briefId,
       editedSinceGeneration: false,
+      runBriefVersionId: briefId,
+      runBriefVersion: 1,
+      latestBriefVersionId: briefId,
+      appliesToNextGeneration: false,
       canEdit: true,
       storylineOrigin: "derived",
       storylineText: DERIVED_STORYLINE,
@@ -337,11 +341,24 @@ describe("briefs.saveEntryEdit (story 4)", () => {
     // Rows are never mutated: version 1 still reads as derived.
     expect((await t.run((ctx) => ctx.db.get(briefId)))!.storylineText).toBe(DERIVED_STORYLINE);
 
+    // A Seed run remains pinned to the Brief it started with. Newer edits are
+    // explicit next-generation input while the active run is awaiting input.
+    await t.run((ctx) => ctx.db.patch(generationId, {
+      gatedWorkflow: "seeds",
+      briefVersionId: briefId,
+      status: "awaiting_input",
+    }));
+
     const read = await asWriter.query(api.briefs.getBrief, { generationId });
     expect(read).toMatchObject({
       _id: editedId,
       generationBriefId: briefId,
       editedSinceGeneration: true,
+      runBriefVersionId: briefId,
+      runBriefVersion: 1,
+      latestBriefVersionId: editedId,
+      appliesToNextGeneration: true,
+      regenerationDisabled: true,
       storylineOrigin: "edited",
     });
 

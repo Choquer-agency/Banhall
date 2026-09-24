@@ -454,6 +454,67 @@ accessibility defect is copied.
   (`banhall_intake_context_ratio`). Below `lg`: explicit Work/Context
   `aria-pressed` switches, one pane visible at a time, ≥44px targets. The
   state remains honest: no chat, composer, or report is implied.
+- **Seed workspace and Summary Review.** The Seed workspace reuses the intake
+  split contract with a persistent Outline at `lg`+, independent pane
+  scrolling, a keyboard-operable separator clamped to 24–55%, and the
+  `seeds.splitRatio` browser key. Narrow layouts show one explicit Outline or
+  Work pane at a time. The action bar stays pinned below the scrolling Seed
+  cards. Summary Review is a full-width in-page state with a browser-history
+  entry. It has no separate jump list; its Section headings stay sticky within
+  the Summary scroll owner, while incomplete pagination remains visibly
+  partial. Beside Sign off it shows only the model, plus the Summary version
+  from version 2. Seed edits never block on the AI Seed's 25-word,
+  one-sentence contract; past it a quiet "Long for a seed" note appears.
+  The Brief opens in the shared right drawer from the collapsed state, so it
+  never creates a third docked pane: focus moves into the drawer, and Escape
+  or Close returns it to the Brief trigger. Choosing a Subsection from the
+  narrow Outline moves focus to the Work pane heading it reveals. Entering
+  Summary Review (trigger or browser history) moves focus to its heading;
+  leaving it returns focus to the recreated `Review Summary` or `Signed-off
+  Summary` trigger, so the non-modal transition never strands keyboard focus.
+  Cited-source names carry the state of their read: loading, unavailable
+  (with an explicit retry), pending or not retrieved, or not on record; a
+  missing name is never shown as an attributed source. An Outline read that
+  stayed within the server's safe processing limit is qualified, never
+  definitive: approved counts read `N+ (partial read)`, previews carry a
+  `Partial ·` prefix, a `Reload Outline` action is the safe recovery, and
+  readiness remains the server's. Retention copy is truthful: while browser
+  storage mirrors unsaved text the copy names the device; when it cannot, a
+  persistence notice says the text stays in the open workspace or review only,
+  and every unsaved item is one browser record of its own (`seeds.draft:` and
+  `seeds.summaryDraft:` keys ending in the item id): tabs write and remove
+  their own records only, never a shared collection, so overlapping tabs keep
+  each other's independent items. Decision controls and displayed-Batch
+  bookkeeping need a current successful Subsection read: while a subscription
+  is re-established the retained cards stay readable under a `Waiting for the
+  live read` status with their actions off. A truncated card projection
+  labels its selected count `N+ selected in the shown Seeds · complete count
+  pending` until the complete server review supplies its own count. The
+  Outline resize handle is a horizontal slider driven by pointer events (one
+  captured gesture, released on pointer up, cancel or destruction) and by
+  Left/Right/Home/End. When an accepted sign-off replaces Summary Review with
+  Seed drafting, focus moves to the generation-progress heading (the progress
+  region until that heading renders); a sign-off that completes after the host
+  was destroyed or its generation or user replaced changes nothing. A
+  report-owned frozen Summary URL never renders beside an active legacy
+  section stepper; it resolves normally once the stepper no longer owns the
+  page. Deferred focus moves (the Summary return and sign-off drafting in the
+  hosts, the narrow Outline-to-Work heading handoff, the Summary heading on
+  entry) belong to the surface, project, user, generation and transition that
+  scheduled them and are rechecked after rendering, so an obsolete callback
+  never focuses a replacement page. Summary Review tells incomplete server
+  readiness apart from decision blockers: when the server could not compute
+  readiness within its safe processing limit it says so, keeps sign-off off
+  and offers `Reload plan status`; only complete readiness lists `Blocked
+  by:` roles. A role absent from a still-incomplete Summary aggregate reads
+  `Selected items may be on pages that did not load`, never `No selected
+  items`, until the review is complete. A refused Subsection open is
+  announced only for the role, owner and request that submitted it, with a
+  `Retry` that resubmits against the current capability and stage version.
+  Stories 5–6 component captures land in a fresh per-invocation directory
+  under `.vitest-attachments/stories5-6/captures/`, reserved exclusively
+  through the `reserveCaptureDirectory` browser command, never on a fixed
+  path.
 - **Accessibility corrections shipped with this amendment** (from the same
   authenticated audit): heading names are the titles themselves with edit
   controls as adjacent siblings (`EditableText`); the Files panel is a real

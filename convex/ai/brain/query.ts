@@ -28,9 +28,9 @@ export const RETRIEVAL_BRIEF_MODEL = "claude-haiku-4-5-20251001";
 /** Transcripts can be huge; the technical meat is captured well within this. */
 export const RETRIEVAL_BRIEF_TRANSCRIPT_CAP = 120_000;
 
-export const RETRIEVAL_BRIEF_SYSTEM_PROMPT = `You extract retrieval queries from an SR&ED interview transcript. Your output is used ONLY to search a database of past approved SR&ED reports for similar passages — it is never shown to anyone and never copied into a report.
+export const RETRIEVAL_BRIEF_SYSTEM_PROMPT = `You extract retrieval queries from an SR&ED interview transcript. Your output is used ONLY to search a database of past approved SR&ED reports for similar passages. It is never shown to anyone and never copied into a report.
 
-Write in dense technical language (the database contains polished report prose, so match that register, not conversational speech). No client or person names — describe the technology, not the company.`;
+Write in dense technical language (the database contains polished report prose, so match that register, not conversational speech). No client or person names: describe the technology, not the company.`;
 
 export const RETRIEVAL_BRIEF_SCHEMA: Anthropic.Tool.InputSchema = {
   type: "object",
@@ -43,17 +43,17 @@ export const RETRIEVAL_BRIEF_SCHEMA: Anthropic.Tool.InputSchema = {
     uncertainty: {
       type: "string",
       description:
-        "1-2 sentences: the scientific/technological uncertainty — what could not be known or predicted in advance and why standard practice was insufficient.",
+        "1-2 sentences: the scientific/technological uncertainty: what could not be known or predicted in advance and why standard practice was insufficient.",
     },
     work: {
       type: "string",
       description:
-        "1-2 sentences: the systematic experimental/iterative work performed — hypotheses tested, prototypes built, analyses run.",
+        "1-2 sentences: the systematic experimental/iterative work performed: hypotheses tested, prototypes built, analyses run.",
     },
     advancement: {
       type: "string",
       description:
-        "1-2 sentences: the scientific/technological advancement sought or achieved — the new capability or knowledge gained.",
+        "1-2 sentences: the scientific/technological advancement sought or achieved: the new capability or knowledge gained.",
     },
   },
   required: ["problem", "uncertainty", "work", "advancement"],

@@ -117,7 +117,7 @@ Each line covers its content roles in the order given, in as many paragraphs as 
 - Line 242 (Scientific/Technological Uncertainty): company context → goal/problem → passive limitations of standard practice → technological objective → active uncertainties, each with a "because" clause.
 - Line 244 (Work Performed): optional prior-year status → workplan → hypothesis in if/then form with a measurable then-clause → experimentation paragraphs, each a problem → attempt → finding → adaptation → conclusion arc.
 - Line 246 (Scientific/Technological Advancement): overall advancement → knowledge-first advancement paragraphs (one per resolved uncertainty) → project status and next steps → project-goal bookend.
-- The WHY–HOW–WHY arc across the three lines; passive vs active uncertainties never blurred; advancements lead with what was LEARNED, not what was built.`;
+- The WHY-HOW-WHY arc across the three lines; passive vs active uncertainties never blurred; advancements lead with what was LEARNED, not what was built.`;
 
 // ─── Display catalog for the admin House Rules page ─────────────────────────
 
@@ -157,9 +157,9 @@ export const LOCKED_RULES: Array<{ title: string; summary: string }> = [
       "No bullet points or numbered lists; every claim traces back to the source material.",
   },
   {
-    title: "Human prose: no em dashes or dash stand-ins",
+    title: "Human prose: plain hyphens and plain language",
     summary:
-      "No em dashes, double hyphens, spaced hyphens, or en dashes used as sentence punctuation; no exclamation marks or filler qualifiers. Applies even when sentence-construction rules are waived, and is checked by a deterministic scan.",
+      "The plain hyphen is the only dash: no em dashes, en dashes (ranges and paired names use a hyphen), double hyphens or spaced hyphens. Plain, specific, honest words; no filler qualifiers, exclamation marks or sales language. Applies to every AI-written text, even when sentence-construction rules are waived, and the dash part is checked by a deterministic scan.",
   },
   {
     title: "Voice consistency in mandated-opener paragraphs",

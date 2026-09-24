@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   MAX_BULLET_WORDS,
   SEED_TAGS,
+  isLongForSeed,
   isOneSeedSentence,
   seedToolSchema,
   validateBatch,
@@ -28,6 +29,33 @@ describe("seed contract", () => {
     );
     expect(isOneSeedSentence("One sentence. A second sentence follows.")).toBe(false);
     expect(isOneSeedSentence("An unterminated bullet")).toBe(false);
+  });
+
+  it("flags a writer's bullet as long past 25 words or one sentence, never for a missing full stop", () => {
+    const words = (n: number) => Array.from({ length: n }, () => "word").join(" ");
+    expect(isLongForSeed(`${words(MAX_BULLET_WORDS)}.`)).toBe(false);
+    expect(isLongForSeed(`${words(MAX_BULLET_WORDS + 1)}.`)).toBe(true);
+    expect(isLongForSeed("One sentence. A second sentence follows.")).toBe(true);
+    expect(isLongForSeed("Dr. Rao measured 1.5 volts under load.")).toBe(false);
+    expect(isLongForSeed("An unterminated bullet")).toBe(false);
+    expect(isLongForSeed("   ")).toBe(false);
+  });
+
+  it("drops an AI Seed whose bullet uses a typographic dash or stand-in, but not a hyphen range", () => {
+    for (const bullet of [
+      "The controller held the band — even under load.",
+      "Trials ran for 10–20 minutes per zone.",
+      "The controller held the band -- even under load.",
+    ]) {
+      const result = validateSeed({ roleId: "company_context", seed: candidate([bullet]) });
+      expect(result.ok).toBe(false);
+      expect(result.issues.map((issue) => issue.code)).toContain("BULLET_TYPOGRAPHIC_DASH");
+    }
+    const clean = validateSeed({
+      roleId: "company_context",
+      seed: candidate(["Trials ran for 10-20 minutes per zone on a Newton-Raphson solver."]),
+    });
+    expect(clean.issues.map((issue) => issue.code)).not.toContain("BULLET_TYPOGRAPHIC_DASH");
   });
 
   it("enforces the exact 25-word boundary", () => {

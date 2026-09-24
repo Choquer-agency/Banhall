@@ -59,9 +59,9 @@ export const styleAnalysisSchema: z.ZodType<StyleAnalysis> = z.object({
  */
 export const STYLE_ANALYSIS_SYSTEM_PROMPT = `You classify a technical writer's personal style instructions for an SR&ED report-writing tool.
 
-The tool has six WAIVABLE house-style categories and a LOCKED CRA-compliance tier. For each category, decide whether the writer's document states its own rules in that area — rules that would replace or conflict with the default house rule (addressed=true), or merely compatible additions/nothing on that topic (addressed=false). When addressed=true, quote the shortest decisive phrase from the document as evidence (verbatim substring); otherwise evidence is null.
+The tool has six WAIVABLE house-style categories and a LOCKED CRA-compliance tier. For each category, decide whether the writer's document states its own rules in that area: rules that would replace or conflict with the default house rule (addressed=true), or merely compatible additions/nothing on that topic (addressed=false). When addressed=true, quote the shortest decisive phrase from the document as evidence (verbatim substring); otherwise evidence is null.
 
-Separately, list any parts of the document that conflict with the LOCKED tier — instructions the tool can never follow (e.g. a different section structure, skipping the hypothesis, allowing fabricated details, exceeding form length limits). For each, quote the conflicting excerpt verbatim and name the locked rule it collides with. Do not list waivable-category matter here.
+Separately, list any parts of the document that conflict with the LOCKED tier: instructions the tool can never follow (e.g. a different section structure, skipping the hypothesis, allowing fabricated details, exceeding form length limits). For each, quote the conflicting excerpt verbatim and name the locked rule it collides with. Do not list waivable-category matter here.
 
 Be conservative: only mark addressed=true when the document genuinely legislates that area; only report a locked conflict when the instruction cannot be honored at all.`;
 
@@ -72,7 +72,7 @@ export function buildStyleAnalysisPrompt(instructions: string): {
 } {
   const categoryCatalog = STYLE_OVERRIDE_KEYS.map(
     (key) =>
-      `### ${key} — ${STYLE_OVERRIDE_META[key].label}\nDefault house rule the writer may replace:\n${HOUSE_RULE_TEXTS[key]}`
+      `### ${key}: ${STYLE_OVERRIDE_META[key].label}\nDefault house rule the writer may replace:\n${HOUSE_RULE_TEXTS[key]}`
   ).join("\n\n");
   const lockedCatalog = LOCKED_RULES.map(
     (rule) => `- ${rule.title}: ${rule.summary}`

@@ -55,7 +55,7 @@ describe("prompt scaffold composition", () => {
     const words = wordBudget("s244", "standard");
     const lines = LINE_LIMITS.s244;
     expect(lengthBudgetBlock("s244", "standard")).toBe(
-      `\n\n# LENGTH BUDGET (CRA form constraint — hard requirement)\nThe CRA form field for this section holds at most ${lines} lines of ${CHARS_PER_LINE} characters, and EVERY blank line between paragraphs also costs one full line. Write AT MOST ${words} words total. Prefer fewer, denser paragraphs (each blank line spent on a paragraph break is a line of content lost). Do NOT pad. If the material exceeds the budget, keep the most technically load-bearing content and cut the rest.`,
+      `\n\n# LENGTH BUDGET (CRA form constraint, hard requirement)\nThe CRA form field for this section holds at most ${lines} lines of ${CHARS_PER_LINE} characters, and EVERY blank line between paragraphs also costs one full line. Write AT MOST ${words} words total. Prefer fewer, denser paragraphs (each blank line spent on a paragraph break is a line of content lost). Do NOT pad. If the material exceeds the budget, keep the most technically load-bearing content and cut the rest.`,
     );
   });
 
@@ -94,7 +94,7 @@ describe("prompt scaffold composition", () => {
         { section: "s244", text: "Approved 244 text." },
       ]),
     ).toBe(
-      "\n\n## Approved prior sections (canonical — the writer has reviewed and edited these; align terminology, chronology, and claims with them; do not contradict them)\n### Line 242 — Uncertainty (APPROVED)\nApproved 242 text.\n\n### Line 244 — Work performed (APPROVED)\nApproved 244 text.",
+      "\n\n## Approved prior sections (canonical: the writer has reviewed and edited these; align terminology, chronology, and claims with them; do not contradict them)\n### Line 242 (Uncertainty) (APPROVED)\nApproved 242 text.\n\n### Line 244 (Work performed) (APPROVED)\nApproved 244 text.",
     );
   });
 

@@ -30,7 +30,7 @@ async function contextualizeChunks(
         model: "claude-haiku-4-5-20251001",
         max_tokens: 100,
         system:
-          "You situate a chunk within its source document for retrieval. Reply with 1–2 sentences of context only — no preamble.",
+          "You situate a chunk within its source document for retrieval. Reply with 1-2 sentences of context only, no preamble.",
         messages: [
           {
             role: "user",

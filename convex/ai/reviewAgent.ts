@@ -47,7 +47,7 @@ const PD_REVIEW_SCHEMA = {
       type: "array",
       items: { type: "string" },
       description:
-        "Areas to improve — eligibility or audit risks, each referencing the offending passage.",
+        "Areas to improve: eligibility or audit risks, each referencing the offending passage.",
     },
     suggested_strengthening: {
       type: "array",
@@ -92,7 +92,7 @@ export const runPdReview = internalAction({
       }
       for (const doc of contextDocs) {
         parts.push(
-          `## Supporting document — ${doc.fileName} (${doc.category})\n${doc.content}`
+          `## Supporting document: ${doc.fileName} (${doc.category})\n${doc.content}`
         );
       }
 

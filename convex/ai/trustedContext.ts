@@ -136,7 +136,7 @@ export function effectiveCategory(doc: ContextDoc): ContextDocCategory {
 export const CONTEXT_SCAFFOLDS = {
   withTranscriptPrefix: "Here is the interview transcript to analyze:\n\n",
   withoutTranscript:
-    "There is NO interview transcript for this project. Analyze the attached contextual materials below as the sole source. Anything the documents do not support must be flagged as a gap — never invent interview content.",
+    "There is NO interview transcript for this project. Analyze the attached contextual materials below as the sole source. Anything the documents do not support must be flagged as a gap; never invent interview content.",
   contextHeading: "\n\n# ATTACHED CONTEXTUAL MATERIALS\n",
   documentDelimiters: {
     beginPrefix: "--- BEGIN [",

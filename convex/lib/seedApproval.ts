@@ -17,7 +17,10 @@ export type SeedApprovalChallenge = {
   contributionHashes: Array<{ roleId: PdSubsectionRoleId; contributionHash: string }>;
 };
 function processingLimit(roleId: PdSubsectionRoleId): never {
-  domainError("INVALID_INPUT", `Seed approval for ${roleId} exceeds the read budget`, { reason: "SEED_PROCESSING_LIMIT" });
+  domainError("INVALID_INPUT", `Seed approval for ${roleId} exceeds the read budget`, {
+    reason: "SEED_PROCESSING_LIMIT",
+    roleId,
+  });
 }
 export const matchesSeedExclusion = matchesClaimExclusion;
 export function seedBatchIsOutdated(state: SeedDecisionState, row: Doc<"seedSubsections">, batch: Doc<"seedBatches">): boolean {

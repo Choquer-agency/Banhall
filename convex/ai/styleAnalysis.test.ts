@@ -9,7 +9,7 @@ describe("buildStyleAnalysisPrompt", () => {
   it("includes every category's key, label context, and the locked tier", () => {
     const { system, user } = buildStyleAnalysisPrompt("Use short sentences.");
     for (const key of STYLE_OVERRIDE_KEYS) {
-      expect(user).toContain(`### ${key} —`);
+      expect(user).toContain(`### ${key}:`);
     }
     expect(user).toContain("## Locked CRA tier (never overridable)");
     expect(user).toContain("Use short sentences.");

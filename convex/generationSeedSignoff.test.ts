@@ -2,7 +2,13 @@
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { convexTest } from "convex-test";
-import { makeFunctionReference, type FunctionArgs } from "convex/server";
+import {
+  makeFunctionReference,
+  type FunctionArgs,
+  type FunctionReference,
+  type FunctionReturnType,
+  type RegisteredQuery,
+} from "convex/server";
 import { api, internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { PD_SUBSECTIONS, type PdSubsectionRoleId } from "../shared/pdSubsections";
@@ -28,7 +34,13 @@ import {
 import { currentPromptVersion } from "./ai/promptProgram";
 import { SUMMARY_PLAN_SELF_CHECK_SCHEMA } from "./ai/promptDefinitions";
 import { SECTION_246_REQUEST } from "./ai/section246Agent";
-import type { select } from "./seeds";
+import type {
+  getOutline,
+  getSourceAttribution,
+  getSourceAttributionByIds,
+  getSummary,
+  select,
+} from "./seeds";
 import type { completeAttempt, dispatch } from "./seedRuns";
 import { readSeedReadiness } from "./lib/seedReadiness";
 import schema from "./schema";
@@ -77,6 +89,26 @@ const readinessRef = makeFunctionReference<
   { generationId: Id<"generations"> },
   Awaited<ReturnType<typeof readSeedReadiness>>
 >("seeds:getReadiness");
+type QueryReferenceFromExport<Export> =
+  Export extends RegisteredQuery<infer Visibility, infer Args, infer ReturnValue>
+    ? FunctionReference<"query", Visibility, Args, Awaited<ReturnValue>>
+    : never;
+function queryReference<Export>(name: string) {
+  type Reference = QueryReferenceFromExport<Export>;
+  return makeFunctionReference<
+    "query",
+    FunctionArgs<Reference>,
+    FunctionReturnType<Reference>
+  >(name);
+}
+const getOutlineRef = queryReference<typeof getOutline>("seeds:getOutline");
+const getSourceAttributionRef = queryReference<typeof getSourceAttribution>(
+  "seeds:getSourceAttribution"
+);
+const getSourceAttributionByIdsRef = queryReference<typeof getSourceAttributionByIds>(
+  "seeds:getSourceAttributionByIds"
+);
+const getSummaryRef = queryReference<typeof getSummary>("seeds:getSummary");
 const selectRef = decisionMutation<typeof select>("seeds:select");
 const completeAttemptRef = decisionMutation<typeof completeAttempt>(
   "seedRuns:completeAttempt"
@@ -1602,6 +1634,33 @@ async function addFrozenS242Items(
 }
 
 describe("seed Summary sign-off and recovery", () => {
+  it("exposes the authorized Seed workspace phase and frozen run settings", async () => {
+    const s = await decisionFixture();
+    const latest = await s.writer.query(api.generations.getLatestGeneration, {
+      projectId: s.projectId,
+    });
+    expect(latest).toMatchObject({
+      _id: s.generationId,
+      gatedWorkflow: "seeds",
+      seedPhase: "seeding",
+      seedCanEdit: true,
+      summaryVersionId: null,
+      briefVersionId: s.briefId,
+    });
+
+    const outline = await s.writer.query(getOutlineRef, {
+      generationId: s.generationId,
+    });
+    expect(outline).toMatchObject({
+      canEdit: true,
+      workflow: "seeds",
+      frozen: {
+        briefVersionId: s.briefId,
+        summaryVersionId: null,
+      },
+    });
+  });
+
   it("carries the production initializer's frozen profile through sign-off and the first actual draft request", async () => {
     const s = await productionInitializedFixture();
     const initialized = await s.t.run(async (ctx) => {
@@ -5768,5 +5827,837 @@ describe("seed Summary sign-off and recovery", () => {
     expect(after.selections).toEqual(before.selections);
     expect(after.summaries).toEqual([]);
     expect(after.reports).toEqual([]);
+  });
+});
+
+// ─── Stories 5-6: Seed workspace read models ─────────────────────────────────
+
+type SeedFixture = Awaited<ReturnType<typeof decisionFixture>>;
+type ThrownData = { data?: unknown };
+
+/** Resolve to the thrown error; fail the test when the call is not refused. */
+async function refusal(promise: Promise<unknown>): Promise<ThrownData> {
+  return await promise.then(
+    () => {
+      throw new Error("Expected the call to be refused");
+    },
+    (error: unknown) => error as ThrownData
+  );
+}
+
+/** Fixture hygiene: leave every runAfter(0) job unrun so the row states the
+ * read models are asserted against cannot move underneath the assertions. */
+async function cancelPendingJobs(s: ReadyFixture) {
+  await s.t.run(async (ctx) => {
+    for (const job of await ctx.db.system.query("_scheduled_functions").take(50)) {
+      if (job.state.kind === "pending") await ctx.scheduler.cancel(job._id);
+    }
+  });
+}
+
+async function seedRowIds(s: ReadyFixture) {
+  return await s.t.run(async (ctx) =>
+    (await ctx.db.query("seedSubsections")
+      .withIndex("by_generationId", (q) => q.eq("generationId", s.generationId))
+      .take(PD_SUBSECTIONS.length + 1)).map((row) => row._id));
+}
+
+/** The three generation readers plus the outline, all through the owner. */
+async function seedPhaseViews(s: ReadyFixture, generationId: Id<"generations">) {
+  return {
+    latest: await s.writer.query(api.generations.getLatestGeneration, {
+      projectId: s.projectId,
+    }),
+    view: await s.writer.query(api.generations.getGenerationSeedView, { generationId }),
+    iterative: await s.writer.query(api.generations.getIterativeState, { generationId }),
+    outline: await s.writer.query(getOutlineRef, { generationId }),
+  };
+}
+
+/** The settings a generation row carries, as the Summary shows them. */
+function settingsOf(row: Doc<"generations"> | null) {
+  if (!row?.writerSettings) throw new Error("Missing frozen generation settings");
+  return {
+    lengthTarget: row.lengthTarget,
+    modelId: row.singleModelId,
+    writerProfile: {
+      state: row.writerSettings.profileState,
+      source: row.writerSettings.source,
+      fileName: row.writerSettings.fileName ?? null,
+    },
+  };
+}
+
+/** Sign off for real and run the ordered chain to completion through the
+ * real section actions and the scheduled finalizer (the chain test's path). */
+async function completeSignedOffChain(s: ReadyFixture, prefix: string) {
+  const signed = await s.writer.mutation(api.generations.signOffSeedStage, {
+    generationId: s.generationId,
+    expectedSeedStageVersion: 0,
+  });
+  configureSuccessfulSummaryFinalization(prefix);
+  await runNextSectionAction(s, s.generationId);
+  await runNextSectionAction(s, s.generationId);
+  await runNextSectionAction(s, s.generationId);
+  const finalizer = await s.t.run(async (ctx) =>
+    (await ctx.db.system.query("_scheduled_functions").take(50)).find(
+      (job) =>
+        job.name === "ai/orderedGeneration:finalizeOrderedCandidate" &&
+        job.args[0]?.generationId === s.generationId &&
+        job.state.kind === "pending"
+    ));
+  if (!finalizer) throw new Error("Missing ordered candidate finalizer");
+  await s.t.run((ctx) => ctx.scheduler.cancel(finalizer._id));
+  await s.t.action(
+    internal.ai.orderedGeneration.finalizeOrderedCandidate,
+    finalizer.args[0] as FunctionArgs<
+      typeof internal.ai.orderedGeneration.finalizeOrderedCandidate
+    >
+  );
+  return signed;
+}
+
+describe("Seed workspace read models (stories 5-6)", () => {
+  it("R1-23: reads each generation's own Seed metadata once an older run completed and a newer run was requested", async () => {
+    const s = await decisionFixture();
+    await makeReady(s);
+    const signed = await completeSignedOffChain(s, "r1-23");
+    const completed = await s.t.run(async (ctx) => ({
+      generation: await ctx.db.get(s.generationId),
+      project: await ctx.db.get(s.projectId),
+      summary: await ctx.db.get(signed.summaryVersionId),
+      report: await ctx.db.query("reports")
+        .withIndex("by_generationId", (q) => q.eq("generationId", s.generationId))
+        .unique(),
+    }));
+    expect(completed.generation).toMatchObject({
+      status: "completed",
+      summaryVersionId: signed.summaryVersionId,
+    });
+    expect(completed.project?.activeGenerationId).toBeUndefined();
+    expect(completed.summary).toMatchObject({
+      generationId: s.generationId,
+      originGenerationId: s.generationId,
+    });
+    expect(completed.report).not.toBeNull();
+    // The scheduled post-QA pass is outside this read-model contract.
+    await cancelPendingJobs(s);
+
+    // A newer run through the public request path; a transcript is the only
+    // project input the reservation needs.
+    await s.t.run((ctx) => ctx.db.insert("transcripts", {
+      projectId: s.projectId,
+      content: "A later interview about the same control-loop work.",
+      createdAt: 2,
+    }));
+    vi.stubEnv("ANTHROPIC_API_KEY", "test-key");
+    const newerId = await s.writer.mutation(api.generations.requestGeneration, {
+      projectId: s.projectId,
+      candidateMode: "iterative",
+      confirmRegeneration: true,
+    });
+    expect(newerId).not.toBe(s.generationId);
+    // The startup action stays unrun: the fresh reservation is the state
+    // under test.
+    await cancelPendingJobs(s);
+    const newerRow = await s.t.run((ctx) => ctx.db.get(newerId));
+    expect(newerRow).toMatchObject({
+      projectId: s.projectId,
+      status: "reserved",
+      gatedWorkflow: "seeds",
+    });
+    expect(newerRow?.summaryVersionId).toBeUndefined();
+
+    const older = await s.writer.query(api.generations.getGenerationSeedView, {
+      generationId: s.generationId,
+    });
+    const newer = await s.writer.query(api.generations.getGenerationSeedView, {
+      generationId: newerId,
+    });
+    expect(older).toEqual({
+      _id: s.generationId,
+      gatedWorkflow: "seeds",
+      seedPhase: "completed",
+      summaryVersionId: signed.summaryVersionId,
+      // Capability only; the stage gate is getOutline.canEdit.
+      seedCanEdit: true,
+    });
+    expect(newer).toEqual({
+      _id: newerId,
+      gatedWorkflow: "seeds",
+      seedPhase: "initializing",
+      summaryVersionId: null,
+      seedCanEdit: true,
+    });
+    // The project's latest read model now describes the newer run, so the
+    // older view above is that generation's own row and never "latest".
+    const latest = await s.writer.query(api.generations.getLatestGeneration, {
+      projectId: s.projectId,
+    });
+    expect(latest).toMatchObject({
+      _id: newerId,
+      gatedWorkflow: "seeds",
+      seedPhase: "initializing",
+      summaryVersionId: null,
+    });
+    // The report's frozen Summary still resolves through the older
+    // generation under its own identity and frozen settings.
+    const frozen = await s.writer.query(getSummaryRef, {
+      generationId: s.generationId,
+      cursor: null,
+      numItems: 50,
+    });
+    expect(frozen).toMatchObject({
+      frozen: true,
+      generationId: s.generationId,
+      summaryVersionId: signed.summaryVersionId,
+    });
+    expect(frozen.settings).toEqual(settingsOf(completed.generation));
+    expect(frozen.settings).toEqual({
+      lengthTarget: "standard",
+      modelId: "claude-sonnet-5",
+      writerProfile: { state: "missing", source: "none", fileName: null },
+    });
+  });
+
+  it("R1-23: a Summary recovery reads its own identity with the original frozen Summary and copied settings", async () => {
+    const s = await decisionFixture();
+    await makeReady(s);
+    const signed = await s.writer.mutation(api.generations.signOffSeedStage, {
+      generationId: s.generationId,
+      expectedSeedStageVersion: 0,
+    });
+    await s.t.mutation(internal.generations.failGeneration, {
+      generationId: s.generationId,
+      error: "signed Summary failed",
+    });
+    const recoveryId = await s.writer.mutation(api.generations.retryFromSummary, {
+      failedGenerationId: s.generationId,
+    });
+    expect(recoveryId).not.toBe(s.generationId);
+    // startSummaryRecovery stays unrun: the reservation is the state under test.
+    await cancelPendingJobs(s);
+    const rows = await s.t.run(async (ctx) => ({
+      origin: await ctx.db.get(s.generationId),
+      recovery: await ctx.db.get(recoveryId),
+      frozenItems: await ctx.db.query("summaryItems")
+        .withIndex("by_summaryVersionId_and_order", (q) =>
+          q.eq("summaryVersionId", signed.summaryVersionId))
+        .take(50),
+    }));
+    expect(rows.origin).toMatchObject({
+      status: "failed",
+      summaryVersionId: signed.summaryVersionId,
+    });
+    expect(rows.recovery).toMatchObject({
+      status: "reserved",
+      gatedWorkflow: "seeds",
+      summaryVersionId: signed.summaryVersionId,
+      originGenerationId: s.generationId,
+    });
+    expect(settingsOf(rows.recovery)).toEqual(settingsOf(rows.origin));
+    expect(rows.frozenItems.length).toBeGreaterThan(0);
+
+    const original = await s.writer.query(api.generations.getGenerationSeedView, {
+      generationId: s.generationId,
+    });
+    const recovery = await s.writer.query(api.generations.getGenerationSeedView, {
+      generationId: recoveryId,
+    });
+    expect(original).toEqual({
+      _id: s.generationId,
+      gatedWorkflow: "seeds",
+      seedPhase: "draftFailed",
+      summaryVersionId: signed.summaryVersionId,
+      seedCanEdit: true,
+    });
+    expect(recovery).toEqual({
+      _id: recoveryId,
+      gatedWorkflow: "seeds",
+      seedPhase: "drafting",
+      summaryVersionId: signed.summaryVersionId,
+      seedCanEdit: true,
+    });
+
+    const recovered = await s.writer.query(getSummaryRef, {
+      generationId: recoveryId,
+      versionId: signed.summaryVersionId,
+      cursor: null,
+      numItems: 50,
+    });
+    expect(recovered).toMatchObject({
+      frozen: true,
+      isDone: true,
+      generationId: recoveryId,
+      summaryVersionId: signed.summaryVersionId,
+    });
+    expect(recovered.page.map((item) => item.seedId)).toEqual(
+      rows.frozenItems.map((item) => item.seedId)
+    );
+    expect(recovered.settings).toEqual(settingsOf(rows.recovery));
+    expect(recovered.settings).toEqual({
+      lengthTarget: "standard",
+      modelId: "claude-sonnet-5",
+      writerProfile: { state: "missing", source: "none", fileName: null },
+    });
+    // The origin's own read keeps the origin identity over the same Summary.
+    const origin = await s.writer.query(getSummaryRef, {
+      generationId: s.generationId,
+      cursor: null,
+      numItems: 50,
+    });
+    expect(origin).toMatchObject({
+      frozen: true,
+      generationId: s.generationId,
+      summaryVersionId: signed.summaryVersionId,
+      settings: recovered.settings,
+    });
+    expect(origin.page.map((item) => item.seedId)).toEqual(
+      rows.frozenItems.map((item) => item.seedId)
+    );
+    const latest = await s.writer.query(api.generations.getLatestGeneration, {
+      projectId: s.projectId,
+    });
+    expect(latest).toMatchObject({
+      _id: recoveryId,
+      seedPhase: "drafting",
+      summaryVersionId: signed.summaryVersionId,
+      originGenerationId: s.generationId,
+    });
+  });
+
+  it("R1-23: getGenerationSeedView is null for a deleted generation and for callers without internal project access", async () => {
+    const s = await decisionFixture();
+    const deletedId = await s.t.run(async (ctx) => {
+      const id = await ctx.db.insert("generations", {
+        projectId: s.projectId,
+        status: "awaiting_input",
+        candidateMode: "iterative",
+        gatedWorkflow: "seeds",
+        startedAt: 1,
+      });
+      await ctx.db.delete(id);
+      return id;
+    });
+    expect(await s.writer.query(api.generations.getGenerationSeedView, {
+      generationId: deletedId,
+    })).toBeNull();
+
+    await s.t.run(async (ctx) => {
+      await ctx.db.insert("users", { authId: "roleless-seed-reader" });
+      await ctx.db.insert("users", {
+        authId: "anonymous-seed-reader",
+        role: "writer",
+        isAnonymous: true,
+      });
+    });
+    const outsiders = [
+      { name: "unauthenticated", client: s.t },
+      { name: "roleless", client: s.t.withIdentity({ subject: "roleless-seed-reader" }) },
+      { name: "anonymous", client: s.t.withIdentity({ subject: "anonymous-seed-reader" }) },
+    ];
+    for (const { name, client } of outsiders) {
+      expect(
+        await client.query(api.generations.getGenerationSeedView, {
+          generationId: s.generationId,
+        }),
+        name
+      ).toBeNull();
+    }
+    expect(await s.writer.query(api.generations.getGenerationSeedView, {
+      generationId: s.generationId,
+    })).toMatchObject({ _id: s.generationId, seedPhase: "seeding" });
+  });
+
+  it.each<{
+    name: string;
+    latestVisible: boolean;
+    close: (s: SeedFixture) => Promise<void>;
+  }>([
+    {
+      name: "cancelled by the writer through cancelIterativeGeneration",
+      latestVisible: true,
+      close: async (s) => {
+        await s.writer.mutation(api.generations.cancelIterativeGeneration, {
+          generationId: s.generationId,
+        });
+      },
+    },
+    {
+      // No production path fails an unsigned awaiting_input Seed run other
+      // than cancellation (failGeneration and the stale scan only touch
+      // reserved/running rows), so this is a lifecycle fixture in the
+      // stale-scan shape.
+      name: "marked failed (lifecycle fixture: direct status patch)",
+      latestVisible: true,
+      close: async (s) => {
+        await s.t.run((ctx) => ctx.db.patch(s.generationId, {
+          status: "failed",
+          currentStep: "Failed",
+          error: "Timed out before generation completed.",
+          completedAt: 5,
+        }));
+      },
+    },
+    {
+      name: "marked superseded (lifecycle fixture: direct status patch)",
+      latestVisible: false,
+      close: async (s) => {
+        await s.t.run((ctx) => ctx.db.patch(s.generationId, { status: "superseded" }));
+      },
+    },
+  ])("A6: an unsigned Seed run $name reads closed on every projection while its rows remain", async ({ close, latestVisible }) => {
+    const s = await decisionFixture();
+    await makeReady(s);
+    const open = await seedPhaseViews(s, s.generationId);
+    expect(open.latest).toMatchObject({
+      _id: s.generationId,
+      seedPhase: "seeding",
+      seedCanEdit: true,
+    });
+    expect(open.view).toMatchObject({ _id: s.generationId, seedPhase: "seeding" });
+    expect(open.iterative).toMatchObject({ gatedWorkflow: "seeds", seedPhase: "seeding" });
+    expect(open.outline.canEdit).toBe(true);
+    const rowIds = await seedRowIds(s);
+    expect(rowIds).toHaveLength(PD_SUBSECTIONS.length);
+
+    await close(s);
+
+    const generation = await s.t.run((ctx) => ctx.db.get(s.generationId));
+    expect(generation?.summaryVersionId).toBeUndefined();
+    expect(await seedRowIds(s)).toEqual(rowIds);
+    const closed = await seedPhaseViews(s, s.generationId);
+    if (latestVisible) {
+      expect(closed.latest).toMatchObject({
+        _id: s.generationId,
+        gatedWorkflow: "seeds",
+        seedPhase: "closed",
+        summaryVersionId: null,
+      });
+    } else {
+      expect(closed.latest).toBeNull();
+    }
+    expect(closed.view).toEqual({
+      _id: s.generationId,
+      gatedWorkflow: "seeds",
+      seedPhase: "closed",
+      summaryVersionId: null,
+      seedCanEdit: true,
+    });
+    expect(closed.iterative).toMatchObject({
+      gatedWorkflow: "seeds",
+      seedPhase: "closed",
+      status: generation?.status,
+    });
+    expect(closed.outline).toMatchObject({
+      canEdit: false,
+      workflow: "seeds",
+      frozen: { summaryVersionId: null },
+    });
+    expect(closed.outline.rows).toHaveLength(PD_SUBSECTIONS.length);
+  });
+
+  it("A6: getOutline.canEdit is false without edit capability, without the active pointer, and after sign-off", async () => {
+    const s = await decisionFixture();
+    await makeReady(s);
+    await s.t.run((ctx) => ctx.db.insert("users", {
+      authId: "unassigned-seed-reader",
+      role: "writer",
+    }));
+    const reader = s.t.withIdentity({ subject: "unassigned-seed-reader" });
+    const canEdit = async (client: typeof s.writer) =>
+      (await client.query(getOutlineRef, { generationId: s.generationId })).canEdit;
+    expect(await canEdit(s.writer)).toBe(true);
+    // An internal writer who is neither owner, assignee, manager nor admin
+    // reads the outline but cannot edit.
+    expect(await canEdit(reader)).toBe(false);
+    expect(await reader.query(api.generations.getGenerationSeedView, {
+      generationId: s.generationId,
+    })).toMatchObject({ _id: s.generationId, seedPhase: "seeding", seedCanEdit: false });
+
+    await s.t.run((ctx) => ctx.db.patch(s.projectId, { activeGenerationId: undefined }));
+    expect(await canEdit(s.writer)).toBe(false);
+    await s.t.run((ctx) => ctx.db.patch(s.projectId, { activeGenerationId: s.generationId }));
+    expect(await canEdit(s.writer)).toBe(true);
+
+    const signed = await s.writer.mutation(api.generations.signOffSeedStage, {
+      generationId: s.generationId,
+      expectedSeedStageVersion: 0,
+    });
+    const drafting = await seedPhaseViews(s, s.generationId);
+    expect(drafting.outline).toMatchObject({
+      canEdit: false,
+      workflow: "seeds",
+      frozen: { summaryVersionId: signed.summaryVersionId },
+    });
+    expect(drafting.latest).toMatchObject({
+      _id: s.generationId,
+      seedPhase: "drafting",
+      summaryVersionId: signed.summaryVersionId,
+      seedCanEdit: true,
+    });
+    expect(drafting.view).toEqual({
+      _id: s.generationId,
+      gatedWorkflow: "seeds",
+      seedPhase: "drafting",
+      summaryVersionId: signed.summaryVersionId,
+      seedCanEdit: true,
+    });
+    expect(drafting.iterative).toMatchObject({ gatedWorkflow: "seeds", seedPhase: "drafting" });
+  });
+
+  it("getSourceAttribution lists every frozen source of the generation for an authorized writer", async () => {
+    const s = await decisionFixture();
+    const inserted = await s.t.run(async (ctx) => {
+      const documentSourceId = await ctx.db.insert("generationSources", {
+        generationId: s.generationId,
+        projectId: s.projectId,
+        kind: "project_document",
+        label: "other:design-notes.pdf",
+        content: "Design notes.",
+        contentHash: "design-notes-hash",
+        truncated: false,
+        originalLength: 13,
+        capturedAt: 2,
+      });
+      const foreignProjectId = await ctx.db.insert("projects", {
+        title: "Foreign",
+        clientName: "Client",
+        ownerId: s.userId,
+        createdBy: s.userId,
+        shareToken: "foreign-attribution",
+        status: "draft",
+        createdAt: 1,
+        updatedAt: 1,
+      });
+      // Same generation id, another project: never attributed.
+      const foreignSourceId = await ctx.db.insert("generationSources", {
+        generationId: s.generationId,
+        projectId: foreignProjectId,
+        kind: "transcript",
+        label: "Foreign interview",
+        content: "Secret.",
+        contentHash: "foreign-hash",
+        truncated: false,
+        originalLength: 7,
+        capturedAt: 3,
+      });
+      return { documentSourceId, foreignSourceId };
+    });
+    const frozenRows = await s.t.run(async (ctx) =>
+      await ctx.db.query("generationSources")
+        .withIndex("by_generationId", (q) => q.eq("generationId", s.generationId))
+        .take(10));
+    expect(frozenRows).toHaveLength(3);
+
+    const attribution = await s.writer.query(getSourceAttributionRef, {
+      generationId: s.generationId,
+    });
+    expect(attribution).toEqual({
+      generationId: s.generationId,
+      sources: frozenRows
+        .filter((row) => row.projectId === s.projectId)
+        .map((row) => ({ sourceId: row._id, label: row.label, kind: row.kind })),
+      complete: true,
+    });
+    expect(attribution.sources).toEqual([
+      { sourceId: s.sourceId, label: "Interview", kind: "transcript" },
+      {
+        sourceId: inserted.documentSourceId,
+        label: "other:design-notes.pdf",
+        kind: "project_document",
+      },
+    ]);
+    expect(attribution.sources.map((source) => source.sourceId))
+      .not.toContain(inserted.foreignSourceId);
+  });
+
+  it("getSourceAttribution refuses outsiders and non-Seeds generations exactly as the other Seed reads do", async () => {
+    const s = await decisionFixture();
+    await s.t.run(async (ctx) => {
+      await ctx.db.insert("users", { authId: "roleless-attribution-reader" });
+      await ctx.db.insert("users", {
+        authId: "anonymous-attribution-reader",
+        role: "writer",
+        isAnonymous: true,
+      });
+    });
+    const outsiders = [
+      { name: "unauthenticated", code: "NOT_AUTHENTICATED", client: s.t },
+      {
+        name: "roleless",
+        code: "NOT_AUTHORIZED",
+        client: s.t.withIdentity({ subject: "roleless-attribution-reader" }),
+      },
+      {
+        name: "anonymous",
+        code: "NOT_AUTHENTICATED",
+        client: s.t.withIdentity({ subject: "anonymous-attribution-reader" }),
+      },
+    ];
+    for (const { name, code, client } of outsiders) {
+      const reference = await refusal(
+        client.query(getOutlineRef, { generationId: s.generationId })
+      );
+      const refused = await refusal(
+        client.query(getSourceAttributionRef, { generationId: s.generationId })
+      );
+      expect(refused.data, name).toMatchObject({ code });
+      expect(refused.data, name).toEqual(reference.data);
+    }
+
+    await s.t.run((ctx) => ctx.db.patch(s.generationId, { gatedWorkflow: "sections" }));
+    const legacyOutline = await refusal(
+      s.writer.query(getOutlineRef, { generationId: s.generationId })
+    );
+    const legacyAttribution = await refusal(
+      s.writer.query(getSourceAttributionRef, { generationId: s.generationId })
+    );
+    expect(legacyAttribution.data).toMatchObject({
+      code: "INVALID_STATE",
+      message: "Generation does not use Seeds",
+    });
+    expect(legacyAttribution.data).toEqual(legacyOutline.data);
+  });
+
+  it("getSourceAttributionByIds recovers only this generation's own frozen sources by exact id, deduplicated and bounded", async () => {
+    const s = await decisionFixture();
+    const inserted = await s.t.run(async (ctx) => {
+      const documentSourceId = await ctx.db.insert("generationSources", {
+        generationId: s.generationId,
+        projectId: s.projectId,
+        kind: "project_document",
+        label: "other:design-notes.pdf",
+        content: "Design notes.",
+        contentHash: "design-notes-hash",
+        truncated: false,
+        originalLength: 13,
+        capturedAt: 2,
+      });
+      const foreignProjectId = await ctx.db.insert("projects", {
+        title: "Foreign",
+        clientName: "Client",
+        ownerId: s.userId,
+        createdBy: s.userId,
+        shareToken: "foreign-attribution-by-ids",
+        status: "draft",
+        createdAt: 1,
+        updatedAt: 1,
+      });
+      // Same generation id, another project: never attributed, even by id.
+      const foreignSourceId = await ctx.db.insert("generationSources", {
+        generationId: s.generationId,
+        projectId: foreignProjectId,
+        kind: "transcript",
+        label: "Foreign interview",
+        content: "Secret.",
+        contentHash: "foreign-hash",
+        truncated: false,
+        originalLength: 7,
+        capturedAt: 3,
+      });
+      // A source that no longer exists is simply not on record.
+      const deletedSourceId = await ctx.db.insert("generationSources", {
+        generationId: s.generationId,
+        projectId: s.projectId,
+        kind: "project_document",
+        label: "gone.pdf",
+        content: "Gone.",
+        contentHash: "gone-hash",
+        truncated: false,
+        originalLength: 5,
+        capturedAt: 4,
+      });
+      await ctx.db.delete(deletedSourceId);
+      return { documentSourceId, foreignSourceId, deletedSourceId };
+    });
+
+    const recovered = await s.writer.query(getSourceAttributionByIdsRef, {
+      generationId: s.generationId,
+      sourceIds: [
+        inserted.foreignSourceId,
+        s.sourceId,
+        inserted.deletedSourceId,
+        inserted.documentSourceId,
+        s.sourceId,
+      ],
+    });
+    expect(recovered).toEqual({
+      generationId: s.generationId,
+      sources: [
+        { sourceId: s.sourceId, label: "Interview", kind: "transcript" },
+        {
+          sourceId: inserted.documentSourceId,
+          label: "other:design-notes.pdf",
+          kind: "project_document",
+        },
+      ],
+      complete: true,
+    });
+
+    // The request itself is bounded to the attribution row cap.
+    const tooMany = await s.t.run(async (ctx) => {
+      const ids = [];
+      for (let index = 0; index < 129; index += 1) {
+        ids.push(await ctx.db.insert("generationSources", {
+          generationId: s.generationId,
+          projectId: s.projectId,
+          kind: "project_document",
+          label: `bulk-${index}.pdf`,
+          content: "x",
+          contentHash: `bulk-${index}`,
+          truncated: false,
+          originalLength: 1,
+          capturedAt: 5,
+        }));
+      }
+      return ids;
+    });
+    const overflow = await refusal(
+      s.writer.query(getSourceAttributionByIdsRef, {
+        generationId: s.generationId,
+        sourceIds: tooMany,
+      })
+    );
+    expect(overflow.data).toMatchObject({
+      code: "INVALID_INPUT",
+      reason: "SEED_PROCESSING_LIMIT",
+    });
+    const atCap = await s.writer.query(getSourceAttributionByIdsRef, {
+      generationId: s.generationId,
+      sourceIds: tooMany.slice(0, 128),
+    });
+    expect(atCap.sources).toHaveLength(128);
+    expect(atCap.complete).toBe(true);
+
+    // Authorization matches every other Seed read exactly.
+    await s.t.run(async (ctx) => {
+      await ctx.db.insert("users", { authId: "roleless-recovery-reader" });
+    });
+    const outsiders = [
+      { name: "unauthenticated", client: s.t },
+      { name: "roleless", client: s.t.withIdentity({ subject: "roleless-recovery-reader" }) },
+    ];
+    for (const { name, client } of outsiders) {
+      const reference = await refusal(
+        client.query(getSourceAttributionRef, { generationId: s.generationId })
+      );
+      const refused = await refusal(
+        client.query(getSourceAttributionByIdsRef, {
+          generationId: s.generationId,
+          sourceIds: [s.sourceId],
+        })
+      );
+      expect(refused.data, name).toEqual(reference.data);
+    }
+    await s.t.run((ctx) => ctx.db.patch(s.generationId, { gatedWorkflow: "sections" }));
+    const legacy = await refusal(
+      s.writer.query(getSourceAttributionByIdsRef, {
+        generationId: s.generationId,
+        sourceIds: [s.sourceId],
+      })
+    );
+    expect(legacy.data).toMatchObject({
+      code: "INVALID_STATE",
+      message: "Generation does not use Seeds",
+    });
+  });
+
+  it("getSummary carries the queried generation's identity and run settings in the live, empty-live and frozen shapes", async () => {
+    const s = await decisionFixture();
+    await makeReady(s);
+    // Distinct from the makeReady defaults so the values are provably read
+    // from this generation's row.
+    const row = await s.t.run(async (ctx) => {
+      const current = await ctx.db.get(s.generationId);
+      if (!current?.writerSettings) throw new Error("Missing fixture settings");
+      await ctx.db.patch(s.generationId, {
+        lengthTarget: "concise",
+        writerSettings: { ...current.writerSettings, fileName: "house-rules.docx" },
+      });
+      return await ctx.db.get(s.generationId);
+    });
+    const expectedSettings = {
+      lengthTarget: "concise",
+      modelId: "claude-sonnet-5",
+      writerProfile: { state: "missing", source: "none", fileName: "house-rules.docx" },
+    };
+    expect(settingsOf(row)).toEqual(expectedSettings);
+
+    const live = await s.writer.query(getSummaryRef, {
+      generationId: s.generationId,
+      cursor: null,
+      numItems: 50,
+    });
+    expect(live).toMatchObject({
+      frozen: false,
+      generationId: s.generationId,
+      summaryVersionId: null,
+      settings: expectedSettings,
+    });
+    expect(live.page.length).toBeGreaterThan(0);
+    let cursor = live.continueCursor;
+    let isDone = live.isDone;
+    for (let guard = 0; guard < 30 && !isDone; guard += 1) {
+      const next = await s.writer.query(getSummaryRef, {
+        generationId: s.generationId,
+        cursor,
+        numItems: 50,
+      });
+      expect(next).toMatchObject({
+        frozen: false,
+        generationId: s.generationId,
+        settings: expectedSettings,
+      });
+      cursor = next.continueCursor;
+      isDone = next.isDone;
+    }
+    expect(isDone).toBe(true);
+    // The terminal cursor answers with the empty-live shape.
+    const emptyLive = await s.writer.query(getSummaryRef, {
+      generationId: s.generationId,
+      cursor,
+      numItems: 50,
+    });
+    expect(emptyLive).toMatchObject({
+      page: [],
+      isDone: true,
+      frozen: false,
+      generationId: s.generationId,
+      summaryVersionId: null,
+      settings: expectedSettings,
+    });
+
+    const signed = await s.writer.mutation(api.generations.signOffSeedStage, {
+      generationId: s.generationId,
+      expectedSeedStageVersion: 0,
+    });
+    const frozen = await s.writer.query(getSummaryRef, {
+      generationId: s.generationId,
+      cursor: null,
+      numItems: 50,
+    });
+    expect(frozen).toMatchObject({
+      frozen: true,
+      generationId: s.generationId,
+      summaryVersionId: signed.summaryVersionId,
+      settings: expectedSettings,
+    });
+    const explicit = await s.writer.query(getSummaryRef, {
+      generationId: s.generationId,
+      versionId: signed.summaryVersionId,
+      cursor: null,
+      numItems: 50,
+    });
+    expect(explicit).toMatchObject({
+      frozen: true,
+      generationId: s.generationId,
+      summaryVersionId: signed.summaryVersionId,
+      settings: expectedSettings,
+    });
+    expect(explicit.page.map((item) => item.seedId)).toEqual(
+      frozen.page.map((item) => item.seedId)
+    );
+    expect(explicit.page.length).toBeGreaterThan(0);
   });
 });

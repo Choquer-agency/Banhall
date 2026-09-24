@@ -109,12 +109,12 @@ describe("reserveGeneration freezes the project's transcripts", () => {
       const generation = await t.run((ctx) => ctx.db.get(generationId));
       expect(generation?.status).toBe("reserved");
       expect(generation?.gatedWorkflow).toBe(
-        candidateMode === "iterative" ? "sections" : undefined
+        candidateMode === "iterative" ? "seeds" : undefined
       );
       expect(await t.run((ctx) => ctx.db.query("seedSubsections").collect())).toEqual([]);
       const state = await authed.query(api.generations.getIterativeState, { generationId });
       if (candidateMode === "iterative") {
-        expect(state?.gatedWorkflow).toBe("sections");
+        expect(state?.gatedWorkflow).toBe("seeds");
         await t.run((ctx) => ctx.db.patch(generationId, { gatedWorkflow: undefined }));
         expect((await authed.query(api.generations.getIterativeState, { generationId }))
           ?.gatedWorkflow).toBe("sections");
@@ -256,6 +256,40 @@ describe("requestGeneration reads the project's transcripts (AC5)", () => {
 });
 
 describe("retries re-freeze from the project's current transcripts (AC5)", () => {
+  it.each([
+    { label: "absent legacy", gatedWorkflow: undefined, expected: "sections" },
+    { label: "explicit legacy", gatedWorkflow: "sections" as const, expected: "sections" },
+    { label: "unsigned Seed", gatedWorkflow: "seeds" as const, expected: "seeds" },
+  ])("preserves the $label iterative workflow", async ({ gatedWorkflow, expected }) => {
+    const { t, authed, projectId, transcriptIds } = await setup([
+      { content: "Retry workflow evidence" },
+    ]);
+    const failedId = await t.run(async (ctx) => {
+      const id = await ctx.db.insert("generations", {
+        projectId,
+        transcriptId: transcriptIds[0],
+        transcriptIds,
+        status: "failed",
+        requestedBy: (await ctx.db.query("users").first())!._id,
+        candidateMode: "iterative",
+        gatedWorkflow,
+        singleModelId: "claude-sonnet-5",
+        previousProjectStatus: "draft",
+        candidatesDone: 0,
+        candidatesFailed: 1,
+        startedAt: Date.now(),
+      });
+      await ctx.db.patch(projectId, { activeGenerationId: id });
+      return id;
+    });
+
+    const retryId = await authed.mutation(api.generations.retryGeneration, {
+      generationId: failedId,
+    });
+    const retry = await t.run((ctx) => ctx.db.get(retryId));
+    expect(retry?.gatedWorkflow).toBe(expected);
+  });
+
   it("retryGeneration picks up a transcript added after the failure", async () => {
     const { t, authed, projectId, transcriptIds } = await setup([
       { label: "First", position: 0, content: "Alpha body" },

@@ -150,18 +150,41 @@ describe("public seed decisions", () => {
     for (const bullets of [
       [],
       [""],
-      ["Two sentences. Another one."],
-      [Array(26).fill("word").join(" ")],
+      ["   "],
+      ["One.", "Two.", "Three."],
+      ["x".repeat(601)],
     ])
       await expect(
         s.writer.mutation(edit, { ...args(s), seedId: seed.seedId, bullets }),
-      ).rejects.toThrow(/one or two bullets/);
+      ).rejects.toThrow(/one or two non-empty bullets/);
+    expect((await dump(s)).events).toEqual([]);
     await s.writer.mutation(edit, {
       ...args(s),
       seedId: seed.seedId,
-      bullets: ["x".repeat(20000) + "."],
+      bullets: ["x".repeat(600), "y".repeat(600)],
     });
     expect((await dump(s)).events[0].editRatio).toBe(1);
+  });
+  it("never holds a writer's edit to the AI Seed's 25-word, one-sentence contract", async () => {
+    const s = await decisionFixture(),
+      seed = await addDecisionSeed(s);
+    const long = Array(40).fill("word").join(" ") + ".";
+    const twoSentences = "Baseline logging ran for six weeks. Then one zone trialled the model.";
+    const noFullStop = "Defrost-aware term added in the third iteration";
+    await s.writer.mutation(edit, {
+      ...args(s),
+      seedId: seed.seedId,
+      bullets: [long, twoSentences],
+    });
+    await s.writer.mutation(edit, {
+      ...args(s, (await dump(s)).generation?.seedStageVersion ?? 0),
+      seedId: seed.seedId,
+      bullets: [noFullStop],
+    });
+    const selection = (await dump(s)).selections.find(
+      (row: { seedId: string }) => row.seedId === seed.seedId,
+    );
+    expect(selection?.editedBullets).toEqual([noFullStop]);
   });
   it("uses one stale episode through R0 → R1 → R0 → R2 without changing consumed inputs", async () => {
     const s = await decisionFixture(),

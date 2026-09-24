@@ -165,10 +165,14 @@ const sectionRequests = [SECTION_242_REQUEST, SECTION_244_REQUEST, SECTION_246_R
 // They cover the full request objects, not values rebuilt from today's agent
 // constants. The retained baseline capture's SHA-256 is
 // 1e88981a71815a9b2c70b77c335f6ede7d6e9de5b3c632521ab543b70304ff6c.
+// Recaptured 2026-09-23 from the same fixture for the owner-directed
+// copy-skills change (dashfix + copywriting rules in RULES_HUMAN_PROSE, which
+// every section system prompt carries); previous values ad1f47f0..., 4f141cd3...,
+// 91dfb047.... Any other change to these requests is still unintended.
 const HISTORICAL_NO_PLAN_SECTION_REQUEST_HASHES = [
-  "ad1f47f05cd713226a4374221ba8d3210f28300681ae974e703e3ae250b16159",
-  "4f141cd39de27c0da4ddb56227b5944b3c05876bd6887d2a85100925d14d7a4d",
-  "91dfb047f3db406815e6d4bf660d9aad96dde2eaea2e082f35b62790c2050885",
+  "fd9a41074cffe858c192671674936878d781c6d0052dcfaa48cb9714e206166e",
+  "96663c9e78278f9e2ff3ac469dfcbf1f4f0308a8144840926fb417349036f0f5",
+  "b32eb92a63ac48ecd1c240ab11362468e5d1284a2b9d7cea7f099f990803d836",
 ] as const;
 
 async function completeRequestHash(params: GenerationMessageParams): Promise<string> {

@@ -174,6 +174,21 @@ export const getBrief = query({
       })),
       generationBriefId: generationBrief._id,
       editedSinceGeneration: latest._id !== generation.briefId,
+      runBriefVersionId: generation.briefVersionId ?? generation.briefId,
+      runBriefVersion:
+        generation.briefVersionId === latest._id || generation.briefId === latest._id
+          ? latest.version
+          : (await ctx.db.get(generation.briefVersionId ?? generation.briefId))?.version ?? null,
+      latestBriefVersionId: latest._id,
+      appliesToNextGeneration:
+        resolveGatedWorkflow(generation) === "seeds" &&
+        generation.briefVersionId !== undefined &&
+        latest._id !== generation.briefVersionId,
+      regenerationDisabled:
+        generation.status === "reserved" ||
+        generation.status === "running" ||
+        generation.status === "awaiting_selection" ||
+        generation.status === "awaiting_input",
       canEdit: (await getReportEditAccessOrNull(ctx, latest.projectId)) !== null,
     };
   },

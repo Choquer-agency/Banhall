@@ -17,7 +17,17 @@ import {
   resolveEffectiveOverrides,
   type StyleOverrides,
 } from "../../shared/styleOverrides";
-import { findDashConnectors, RULES_HUMAN_PROSE } from "../../shared/humanProse";
+import { findDashConnectors, RULES_HUMAN_PROSE, RULES_SEED_WORDING } from "../../shared/humanProse";
+import {
+  CONSISTENCY_SYSTEM_PROMPT,
+  PD_REVIEW_SYSTEM_PROMPT,
+  SELF_CHECK_SYSTEM_PROMPT,
+  SUMMARY_PLAN_SELF_CHECK_SYSTEM_PROMPT,
+} from "./prompts";
+import { COMPRESSION_REQUEST } from "./promptDefinitions";
+import { BRIEF_SYSTEM_PROMPT } from "./brief";
+import { CHRONOLOGY_SYSTEM_PROMPT } from "./chronologyAgent";
+import { buildSeedSystemPrompt } from "./trustedContext";
 
 // PSOS-49: prompt assembly under per-writer house-style waivers. A waived
 // category's rule text must be OMITTED (conflict resolved before the prompt),
@@ -581,3 +591,32 @@ describe("prompt dash hygiene", () => {
     }
   });
 });
+
+describe("copy skills reach every writing path (dashfix + copywriting, owner 2026-09-23)", () => {
+  // Every path that writes text a person reads gets the shared rules; Seeds
+  // get the one-sentence-safe variant. None may model a dash in its own text.
+  const ruled: Array<[string, string]> = [
+    ["compression", COMPRESSION_REQUEST.system],
+    ["brief", BRIEF_SYSTEM_PROMPT],
+    ["self-check", SELF_CHECK_SYSTEM_PROMPT],
+    ["summary self-check", SUMMARY_PLAN_SELF_CHECK_SYSTEM_PROMPT],
+    ["consistency", CONSISTENCY_SYSTEM_PROMPT],
+    ["pd review", PD_REVIEW_SYSTEM_PROMPT],
+    ["chronology", CHRONOLOGY_SYSTEM_PROMPT],
+    ["qa", buildQaSystemPrompt()],
+  ];
+
+  it.each(ruled)("%s carries RULES_HUMAN_PROSE and no dash of its own", (_name, prompt) => {
+    expect(prompt).toContain(RULES_HUMAN_PROSE);
+    expect(findDashConnectors(prompt.replace(RULES_HUMAN_PROSE, "")).map((hit) => hit.context)).toEqual([]);
+  });
+
+  it("the Seed system prompt carries the Seed wording rules, with or without waivers", () => {
+    for (const overrides of [{}, { bannedWords: true, sentenceConstruction: true }]) {
+      const prompt = buildSeedSystemPrompt(overrides);
+      expect(prompt).toContain(RULES_SEED_WORDING);
+      expect(findDashConnectors(prompt)).toEqual([]);
+    }
+  });
+});
+

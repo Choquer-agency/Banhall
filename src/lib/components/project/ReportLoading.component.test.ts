@@ -128,8 +128,9 @@ for (const action of ["Ask AI about this", "Research this selection"]) {
     await render(PreviewProjectPage);
     const paragraph = page.getByText("Evidence from thermal trials.", { exact: true });
     await expect.element(paragraph).toBeVisible();
-    await paragraph.click();
-    await userEvent.keyboard("{Home}{Shift>}{End}{/Shift}");
+    // The selection toolbar only opens for a mouse-made selection; a click
+    // followed by a keyboard selection raced its 50 ms mouseup window.
+    await userEvent.tripleClick(paragraph);
     await page.getByRole("button", { name: action, exact: true }).click();
     await expect.element(composer()).toBeVisible();
     await expect.element(page.getByRole("button", { name: action.startsWith("Ask") ? "Remove pasted text" : "Remove research selection", exact: true })).toBeVisible();

@@ -349,9 +349,9 @@ describe("Self-check before display (CAP-9)", () => {
         role: "user",
         content:
           "Run the Self-check on the drafted section below. Paragraphs are numbered [P1], [P2], ...; name the paragraph each verdict concerns (0 for the whole section).\n\n" +
-          "--- BEGIN [SECTION DRAFT: Line 242 — Uncertainty] ---\n" +
+          "--- BEGIN [SECTION DRAFT: Line 242 (Uncertainty)] ---\n" +
           "[P1] One legacy paragraph.\n" +
-          "--- END [SECTION DRAFT: Line 242 — Uncertainty] ---\n\n" +
+          "--- END [SECTION DRAFT: Line 242 (Uncertainty)] ---\n\n" +
           "--- BEGIN [STORYLINE] ---\nLegacy storyline.\n--- END [STORYLINE] ---\n\n" +
           "--- BEGIN [CONFIDENCE MAP] ---\n[C1] (partial) Legacy confidence.\n--- END [CONFIDENCE MAP] ---\n\n" +
           "--- BEGIN [GLOSSARY CANDIDATES (Glossary Terms not found verbatim in the section)] ---\n" +
@@ -364,10 +364,13 @@ describe("Self-check before display (CAP-9)", () => {
       }],
     });
     // Captured from baseline 20ab25e627657e716476b393fa463e828ea978c1
-    // with this nonempty Storyline/confidence/glossary/profile/rule fixture.
-    // This literal hash is independent of current prompt/schema exports.
+    // with this nonempty Storyline/confidence/glossary/profile/rule fixture,
+    // then recaptured 2026-09-23 for the owner-directed copy-skills change
+    // (shared human-prose rules on the Self-check prompt; section titles
+    // without an em dash). This literal hash is independent of current
+    // prompt/schema exports.
     expect(await completeSelfCheckRequestHash(request)).toBe(
-      "cb044a02a77bf7709d905201555fcd3503d7f310b6d87f1b65fedec85de7dfb3"
+      "4fa5d7184a93e08a953f2c5a5fdd9a7f94a667a1da247059d7dd2b1b69f478c1"
     );
   });
 

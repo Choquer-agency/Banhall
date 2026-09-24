@@ -15,6 +15,7 @@ import { internal } from "../_generated/api";
 import { v } from "convex/values";
 import { instrumentedAnthropic } from "./instrument";
 import { CANDIDATE_MODELS } from "../../shared/generationModels";
+import { HUMAN_PROSE_FOR_OWN_WORDING } from "../../shared/humanProse";
 
 const SUMMARY_MODEL =
   CANDIDATE_MODELS.find((m) => m.id.includes("haiku"))?.id ??
@@ -62,23 +63,23 @@ function extractJson(text: string): {
 // Structure contract lives in docs/changelog-guidelines.md (2026-08-12):
 // standard categorized sections (New / Improved / Fixed), combined bullets,
 // kind derived from the sections.
-const SYSTEM = `You write release notes for Banhall, an internal tool that turns SR&ED interview transcripts into CRA-ready project description reports. Your readers are SR&ED consultants and writers — smart, busy, NOT programmers.
+const SYSTEM = `You write release notes for Banhall, an internal tool that turns SR&ED interview transcripts into CRA-ready project description reports. Your readers are SR&ED consultants and writers: smart, busy, NOT programmers.
 
 You receive one day's git commit messages. Produce a JSON object:
-1. "title": a short headline for the day (max 70 chars, no dates, no jargon — e.g. "Excel uploads and a faster project setup"). Lead with the most writer-visible change.
+1. "title": a short headline for the day (max 70 chars, no dates, no jargon, e.g. "Excel uploads and a faster project setup"). Lead with the most writer-visible change.
 2. "summary": one or two plain-language sentences on what the day's work means for writers.
-3. "sections": {"new": string[], "improved": string[], "fixed": string[]} — the standard changelog categories:
+3. "sections": {"new": string[], "improved": string[], "fixed": string[]}: the standard changelog categories:
    - "new": capabilities that did not exist before.
    - "improved": existing behavior that got better (design, speed, clarity, workflow smoothness).
    - "fixed": things that were broken and now work.
    Use empty arrays for categories with nothing to report.
 
 Rules for every bullet:
-- Translate, don't transcribe. "Harden bulk uploads: cap extracted text" becomes "Large document uploads no longer get stuck — oversized files are trimmed automatically and one bad file won't sink the project."
+- Translate, don't transcribe. "Harden bulk uploads: cap extracted text" becomes "Large document uploads no longer get stuck: oversized files are trimmed automatically and one bad file won't sink the project."
 - Every bullet describes an effect a writer can see or feel, never the implementation. No file names, function names, schema/table names, model IDs, branch names, or acronyms like SDK/API/UI unless writers use them daily (PD, QA, CRA are fine).
 - COMBINE: multiple commits serving one change become ONE bullet. Ten polish commits are one "looks cleaner and reads more consistently" bullet, not ten.
-- Skip commits with zero writer-visible effect (refactors, test-only changes, tooling, debug helpers) — at most fold them into a single "Behind-the-scenes reliability work" bullet at the END of "improved".
-- Never invent changes that aren't in the commits.`;
+- Skip commits with zero writer-visible effect (refactors, test-only changes, tooling, debug helpers); at most fold them into a single "Behind-the-scenes reliability work" bullet at the END of "improved".
+- Never invent changes that aren't in the commits.\n\n${HUMAN_PROSE_FOR_OWN_WORDING}`;
 
 export const publishDay = internalAction({
   args: {

@@ -84,6 +84,25 @@ beforeEach(() => {
 });
 
 describe("BriefRail", () => {
+  it("labels the generation Brief and defers newer edits while the generation is active", async () => {
+    const { container } = await render(BriefRail, props({
+      brief: brief({
+        editedSinceGeneration: true,
+        version: 4,
+        runBriefVersion: 3,
+        appliesToNextGeneration: true,
+        regenerationDisabled: true,
+      }),
+      onRegenerate: vi.fn(),
+    }));
+
+    expect(container.textContent).toContain("This generation uses Brief v3.");
+    expect(container.textContent).toContain("Displayed Brief: v4.");
+    expect(container.textContent).toContain("Your newer Brief edits apply to the next generation.");
+    await expect.element(page.getByRole("button", { name: "Regenerate with this Brief", exact: true })).toBeDisabled();
+    expect(container.textContent).toContain("Available after the active generation finishes.");
+  });
+
   it("lists every document with exactly one status and the counted header", async () => {
     const { container } = await render(BriefRail, props());
 

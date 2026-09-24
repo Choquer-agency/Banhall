@@ -60,7 +60,7 @@ const makeProposeEdit = (bannedWordsWaived: boolean) =>
         .string()
         .min(1)
         .describe(
-          "The exact substring of the current report to replace — copied character-for-character."
+          "The exact substring of the current report to replace, copied character-for-character."
         ),
       newText: z
         .string()
@@ -383,7 +383,7 @@ const compareReferencePd = createTool({
 
 const highlightPassages = createTool({
   description:
-    "Locate passages for the writer WITHOUT changing them — the document panel scrolls to and highlights each one. Use for find/show/point-to requests only.",
+    "Locate passages for the writer WITHOUT changing them; the document panel scrolls to and highlights each one. Use for find/show/point-to requests only.",
   inputSchema: z.object({
     references: z
       .array(
@@ -412,7 +412,7 @@ const highlightPassages = createTool({
 
 const searchBrain = createTool({
   description:
-    "Search The Brain (approved past SR&ED reports in this project's industry) for reference patterns. ONLY when the writer explicitly asks to draw on past projects/reports. Returns structure/voice/phrasing exemplars — never facts for this report.",
+    "Search The Brain (approved past SR&ED reports in this project's industry) for reference patterns. ONLY when the writer explicitly asks to draw on past projects/reports. Returns structure/voice/phrasing exemplars, never facts for this report.",
   inputSchema: z.object({
     query: z
       .string()
@@ -441,7 +441,7 @@ const searchBrain = createTool({
       // never throws) — saying "no knowledge" during a Voyage outage would
       // be a lie the writer can't distinguish from an empty corpus.
       if (degraded) {
-        return "The Brain search hit a technical error just now — this is an infrastructure issue, not missing knowledge. Tell the writer to try again shortly.";
+        return "The Brain search hit a technical error just now. This is an infrastructure issue, not missing knowledge. Tell the writer to try again shortly.";
       }
       if (exemplars.length === 0) {
         return brainContext.industry
@@ -451,7 +451,7 @@ const searchBrain = createTool({
       return formatBrainExemplars(exemplars);
     } catch (err) {
       console.error("searchBrain tool failed", safeErrorDetails(err));
-      return "The Brain search hit a technical error just now — this is an infrastructure issue, not missing knowledge. Tell the writer to try again shortly.";
+      return "The Brain search hit a technical error just now. This is an infrastructure issue, not missing knowledge. Tell the writer to try again shortly.";
     }
   },
 });

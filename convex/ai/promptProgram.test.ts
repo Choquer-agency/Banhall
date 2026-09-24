@@ -275,7 +275,7 @@ function firstDraftPrompts(): string[] {
     .filter((user) => draftSectionOf(user) !== null && !isRepair(user));
 }
 const priorBlock = (section: Section) =>
-  `### ${{ "242": "Line 242 — Uncertainty", "244": "Line 244 — Work performed", "246": "Line 246 — Advancement" }[section]} (DRAFTED)\n${DRAFTS[section]}`;
+  `### ${{ "242": "Line 242 (Uncertainty)", "244": "Line 244 (Work performed)", "246": "Line 246 (Advancement)" }[section]} (DRAFTED)\n${DRAFTS[section]}`;
 
 async function generationOf(t: ReturnType<typeof convexTest>, generationId: Id<"generations">) {
   return (await t.run((ctx) => ctx.db.get(generationId))) as Doc<"generations">;

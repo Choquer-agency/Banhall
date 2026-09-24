@@ -34,6 +34,7 @@ SR&ED report generation for a consulting firm. SvelteKit 2 + Svelte 5 runes, Tai
 - Max font weight 500 in new or redesigned UI; hierarchy via size and ink color, not bold.
 - Use bits-ui/shadcn-svelte primitives over native `<select>`/`<input>` controls.
 - Active tab = primary fill + white text; inactive hover = primary wash.
+- Writing or rewriting any copy (UI text, design copy, docs, prompts, PR text, commit messages): invoke the `dashfix` skill (plain hyphen only; no em or en dashes) and the `copywriting` skill's plain-language rules. The AI's own writing (Seeds, PD prose, rewrites) gets the same rules from `shared/humanProse.ts`; change them there, not per prompt.
 
 ## Known pitfalls
 

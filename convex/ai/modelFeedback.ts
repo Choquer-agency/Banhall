@@ -11,6 +11,7 @@ import { api, internal } from "../_generated/api";
 import { v } from "convex/values";
 import { instrumentedAnthropic } from "./instrument";
 import { CANDIDATE_MODELS } from "../../shared/generationModels";
+import { HUMAN_PROSE_FOR_OWN_WORDING } from "../../shared/humanProse";
 
 const SUMMARY_MODEL =
   CANDIDATE_MODELS.find((m) => m.id.includes("haiku"))?.id ??
@@ -36,6 +37,7 @@ export const summarizeModelFeedback = action({
     const response = await client.messages.create({
       model: SUMMARY_MODEL,
       max_tokens: 300,
+      system: HUMAN_PROSE_FOR_OWN_WORDING,
       messages: [
         {
           role: "user",
