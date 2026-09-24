@@ -252,6 +252,22 @@ const citation = (index: number, sourceId: string) => ({
   endOffset: 10,
 });
 
+/** Opens the step header More menu and picks one of its actions (decision 19). */
+async function stepMenu(action: "Batch history" | "Skip step" | "Restore step" | "Brief") {
+  await page.getByRole("button", { name: "More step actions", exact: true }).click();
+  await page.getByRole("menuitem", { name: action, exact: true }).click();
+}
+
+/** Opens a card's feedback menu and picks a row. */
+async function feedbackMenu(row: string, card = page.getByRole("button", { name: "Give feedback", exact: true }).first()) {
+  await card.click();
+  await page.getByRole("menuitem", { name: row, exact: true }).click();
+}
+
+const quotesButton = () => page.getByRole("button", { name: /^Quoted lines/ });
+const outlineSwitch = () => page.getByRole("button", { name: /^Outline/ });
+const seedsSwitch = () => page.getByRole("button", { name: "Seeds", exact: true });
+
 describe("Seed workspace", () => {
   it("renders all thirteen roles, supports bounded keyboard resizing, and switches one pane on narrow screens", async () => {
     await page.viewport(1366, 900);
@@ -274,41 +290,53 @@ describe("Seed workspace", () => {
     await expect.element(page.getByRole("navigation", { name: "PD subsections" })).toBeVisible();
     expect(page.getByRole("navigation", { name: "PD subsections" }).getByRole("button").elements()).toHaveLength(13);
     await expect.element(page.getByText("41 seed requests", { exact: true })).toBeVisible();
-    // The active Outline row is primary fill with white text, title included.
+    // The active Outline row is a primary-wash fill with ink text, one line.
     const activeRow = container.querySelector<HTMLElement>('nav[aria-label="PD subsections"] button[aria-current="step"]')!;
-    expect(getComputedStyle(activeRow.querySelector<HTMLElement>(".text-body")!).color).toBe("rgb(255, 255, 255)");
+    expect(getComputedStyle(activeRow).backgroundColor).toBe("rgb(241, 250, 249)");
+    expect(getComputedStyle(activeRow).height).toBe("34px");
+    expect(activeRow.querySelector("[data-row-icon]")?.getAttribute("data-row-icon")).toBe("open");
 
-    // R3-12: the value is a horizontal width, adjusted with Left/Right, Home
-    // and End inside the 24–55% bounds, and the control keeps focus.
+    // R3-12 and decision 19: the value is the Outline's width in pixels,
+    // adjusted with Left/Right, Home and End between 240 and 400, default 300,
+    // and the control keeps focus.
     const splitter = page.getByRole("slider", { name: "Resize Seed outline" });
     await expect.element(splitter).toHaveAttribute("aria-orientation", "horizontal");
-    await expect.element(splitter).toHaveAttribute("aria-valuenow", "32");
+    await expect.element(splitter).toHaveAttribute("aria-valuemin", "240");
+    await expect.element(splitter).toHaveAttribute("aria-valuemax", "400");
+    await expect.element(splitter).toHaveAttribute("aria-valuenow", "300");
+    const outlineElement = container.querySelector<HTMLElement>('[aria-label="Seed outline"]')!.parentElement!;
+    expect(Math.round(outlineElement.getBoundingClientRect().width)).toBe(300);
     await splitter.click();
     await userEvent.keyboard("{ArrowLeft}");
-    await expect.element(splitter).toHaveAttribute("aria-valuenow", "30");
+    await expect.element(splitter).toHaveAttribute("aria-valuenow", "290");
     await userEvent.keyboard("{ArrowRight}");
-    await expect.element(splitter).toHaveAttribute("aria-valuenow", "32");
+    await expect.element(splitter).toHaveAttribute("aria-valuenow", "300");
     await userEvent.keyboard("{Home}");
-    await expect.element(splitter).toHaveAttribute("aria-valuenow", "24");
+    await expect.element(splitter).toHaveAttribute("aria-valuenow", "240");
     await userEvent.keyboard("{ArrowLeft}");
-    await expect.element(splitter).toHaveAttribute("aria-valuenow", "24");
-    expect(localStorage.getItem("seeds.splitRatio")).toBe("0.24");
+    await expect.element(splitter).toHaveAttribute("aria-valuenow", "240");
+    expect(localStorage.getItem("seeds.outlineWidth")).toBe("240");
     await userEvent.keyboard("{End}");
-    await expect.element(splitter).toHaveAttribute("aria-valuenow", "55");
-    expect(localStorage.getItem("seeds.splitRatio")).toBe("0.55");
+    await expect.element(splitter).toHaveAttribute("aria-valuenow", "400");
+    expect(localStorage.getItem("seeds.outlineWidth")).toBe("400");
     await userEvent.keyboard("{ArrowRight}");
-    await expect.element(splitter).toHaveAttribute("aria-valuenow", "55");
+    await expect.element(splitter).toHaveAttribute("aria-valuenow", "400");
     expect(document.activeElement).toBe(splitter.element());
     await userEvent.keyboard("{ArrowLeft}");
-    await expect.element(splitter).toHaveAttribute("aria-valuenow", "53");
+    await expect.element(splitter).toHaveAttribute("aria-valuenow", "390");
+    await userEvent.keyboard("{Home}");
     await userEvent.keyboard("{End}");
+    await userEvent.keyboard("{ArrowLeft}{ArrowLeft}{ArrowLeft}{ArrowLeft}{ArrowLeft}{ArrowLeft}{ArrowLeft}{ArrowLeft}{ArrowLeft}{ArrowLeft}");
+    await expect.element(splitter).toHaveAttribute("aria-valuenow", "300");
 
     await workspace.screenshot({
       path: await captures.path("seed-workspace-desktop-initial"),
     });
     const desktopScrollOwner = Array.from(container.querySelectorAll<HTMLElement>(".overflow-y-auto"))
       .find((element) => element.offsetParent !== null && element.scrollHeight > element.clientHeight)!;
-    const actionFooter = container.querySelector<HTMLElement>("footer")!;
+    // Approval is pinned in the Outline footer while the cards scroll.
+    const actionFooter = container.querySelector<HTMLElement>("[data-outline-footer]")!;
+    await expect.element(page.elementLocator(actionFooter).getByRole("button", { name: "Approve and continue", exact: true })).toBeVisible();
     const desktopDocumentScroll = window.scrollY;
     desktopScrollOwner.scrollTop = desktopScrollOwner.scrollHeight;
     await Promise.resolve();
@@ -324,11 +352,10 @@ describe("Seed workspace", () => {
     container.style.height = "844px";
     expect(Math.round(workspaceElement.getBoundingClientRect().width)).toBe(390);
     expect(Math.round(workspaceElement.getBoundingClientRect().height)).toBe(844);
-    const outlineSwitch = page.getByRole("button", { name: "Outline", exact: true });
-    const workSwitch = page.getByRole("button", { name: "Work", exact: true });
-    await expect.element(workSwitch).toHaveAttribute("aria-pressed", "true");
-    await outlineSwitch.click();
-    await expect.element(outlineSwitch).toHaveAttribute("aria-pressed", "true");
+    await expect.element(seedsSwitch()).toHaveAttribute("aria-pressed", "true");
+    await expect.element(outlineSwitch()).toHaveTextContent("Outline 0/13");
+    await outlineSwitch().click();
+    await expect.element(outlineSwitch()).toHaveAttribute("aria-pressed", "true");
     await expect.element(page.getByRole("navigation", { name: "PD subsections" })).toBeVisible();
     expect(getComputedStyle(container.querySelector("nav")!).overflowY).toBe("auto");
     const outlinePane = container.querySelector<HTMLElement>('[aria-label="Seed outline"]')!.parentElement!;
@@ -341,9 +368,10 @@ describe("Seed workspace", () => {
     await workspace.screenshot({
       path: await captures.path("seed-workspace-narrow-outline"),
     });
-    await workSwitch.click();
+    await seedsSwitch().click();
     expect(getComputedStyle(outlinePane).display).toBe("none");
     expect(getComputedStyle(workPane).display).toBe("flex");
+    const bottomBar = container.querySelector<HTMLElement>("[data-seed-bottom-bar]")!;
     const scrollOwner = Array.from(container.querySelectorAll<HTMLElement>(".overflow-y-auto"))
       .find((element) => element.offsetParent !== null && element.scrollHeight > element.clientHeight)!;
     expect(scrollOwner).toBeDefined();
@@ -351,8 +379,8 @@ describe("Seed workspace", () => {
     scrollOwner.scrollTop = scrollOwner.scrollHeight;
     await Promise.resolve();
     expect(window.scrollY).toBe(documentScroll);
-    expect(actionFooter.getBoundingClientRect().bottom).toBeLessThanOrEqual(container.getBoundingClientRect().bottom + 1);
-    await expect.element(workSwitch).toHaveAttribute("aria-pressed", "true");
+    expect(bottomBar.getBoundingClientRect().bottom).toBeLessThanOrEqual(container.getBoundingClientRect().bottom + 1);
+    await expect.element(seedsSwitch()).toHaveAttribute("aria-pressed", "true");
     await workspace.screenshot({
       path: await captures.path("seed-workspace-narrow-work-scrolled"),
     });
@@ -380,7 +408,9 @@ describe("Seed workspace", () => {
       expectedSeedStageVersion: 7,
     }]);
 
-    const approve = page.getByRole("button", { name: "Confirm and approve", exact: true });
+    // A carried or exclusion-matching selection needs the exact
+    // acknowledgment before "Approve and continue" is available.
+    const approve = page.getByRole("button", { name: "Approve and continue", exact: true });
     await expect.element(approve).toBeDisabled();
     expect(view.container.textContent).toContain("seed-carried");
     expect(view.container.textContent).toContain("goal_problem");
@@ -442,7 +472,7 @@ describe("Seed workspace", () => {
 
     document.body.innerHTML = "";
     await render(SeedSubsectionPane, paneProps(subsection(), { canEdit: false }));
-    for (const name of ["Edit", "Give feedback", "Regenerate", "Confirm and approve"]) {
+    for (const name of ["Edit", "Give feedback", "Regenerate", "Approve and continue", "Confirm and approve"]) {
       expect(page.getByRole("button", { name, exact: true }).elements()).toHaveLength(0);
     }
   });
@@ -512,10 +542,14 @@ describe("Seed workspace", () => {
     await page.getByRole("button", { name: "Load Batch history", exact: true }).click();
     await expect.element(page.getByText("Second omitted Seed.", { exact: true })).toBeVisible();
     expect(view.container.textContent).toContain("Original wording: Original historical wording.");
-    await page.getByRole("button", { name: "Evidence", exact: true }).nth(1).click();
-    await page.getByRole("button", { name: "Evidence", exact: true }).nth(2).click();
-    expect(view.container.textContent).toContain("Archived source excerpt one.");
-    expect(view.container.textContent).toContain("Archived source excerpt two.");
+    // Quotes no bullet underlines (an edited or paraphrased seed) stay
+    // reachable with their source under the card's "Quoted lines" control.
+    await quotesButton().nth(1).click();
+    await expect.poll(() => document.body.textContent).toContain("Archived source excerpt one.");
+    await userEvent.keyboard("{Escape}");
+    await quotesButton().nth(2).click();
+    await expect.poll(() => document.body.textContent).toContain("Archived source excerpt two.");
+    await userEvent.keyboard("{Escape}");
     expect(page.getByText("Available from full history", { exact: true }).elements()).toHaveLength(2);
     await page.getByRole("checkbox", { name: "Select seed", exact: true }).last().click();
     expect(__mutationCalls("seeds:select")).toContainEqual({
@@ -525,7 +559,7 @@ describe("Seed workspace", () => {
       selected: true,
       expectedSeedStageVersion: 7,
     });
-    await page.getByRole("button", { name: "Approve", exact: true }).click();
+    await page.getByRole("button", { name: "Approve and continue", exact: true }).click();
     expect(__mutationCalls("seeds:approve")).toContainEqual({
       generationId,
       roleId: "company_context",
@@ -561,11 +595,12 @@ describe("Seed workspace", () => {
     await page.getByRole("checkbox", { name: "Deselect seed" }).click();
     await page.getByRole("button", { name: "Restore original wording", exact: true }).click();
     await page.getByRole("button", { name: "Give feedback", exact: true }).click();
-    await page.getByRole("textbox", { name: "Revision instruction" }).fill("Focus on measured stability.");
-    await page.getByRole("button", { name: "Request revision", exact: true }).click();
-    await page.getByRole("button", { name: "Withdraw", exact: true }).click();
+    await page.getByRole("menuitem", { name: "Tell it what to change…", exact: true }).click();
+    await page.getByRole("textbox", { name: "Tell it what to change" }).fill("Focus on measured stability.");
+    await page.getByRole("button", { name: "Send feedback", exact: true }).click();
+    await page.getByRole("button", { name: "Withdraw feedback", exact: true }).click();
     await page.getByRole("button", { name: "Regenerate", exact: true }).click();
-    await page.getByRole("button", { name: "Skip", exact: true }).click();
+    await stepMenu("Skip step");
 
     expect(__mutationCalls("seeds:select")[0]).toMatchObject({ roleId: "prior_year_status", seedId: "seed-1", selected: false, expectedSeedStageVersion: 7 });
     expect(__mutationCalls("seeds:restoreWording")[0]).toMatchObject({ roleId: "prior_year_status", seedId: "seed-1", expectedSeedStageVersion: 7 });
@@ -579,7 +614,7 @@ describe("Seed workspace", () => {
       objective: "Describe prior-year status.",
       kind: "optional",
     }));
-    await page.getByRole("button", { name: "Restore subsection", exact: true }).click();
+    await stepMenu("Restore step");
     expect(__mutationCalls("seeds:unskip")[0]).toMatchObject({ roleId: "prior_year_status", expectedSeedStageVersion: 7 });
   });
 
@@ -588,7 +623,7 @@ describe("Seed workspace", () => {
     const delayed = new Promise<unknown>((resolve) => { release = resolve; });
     __setQueryData("seeds:listBatches", delayed);
     const view = await render(SeedSubsectionPane, paneProps(subsection()));
-    await page.getByRole("button", { name: "Load Batch history", exact: true }).click();
+    await stepMenu("Batch history");
     await view.rerender(paneProps(subsection({ roleId: "goal_problem", seedStageVersion: 8, items: [] }), {
       title: "Goal / Problem",
       objective: "Describe the goal.",
@@ -605,7 +640,7 @@ describe("Seed workspace", () => {
     });
     await Promise.resolve();
     expect(view.container.textContent).not.toContain("Do not show stale history.");
-    expect(page.getByRole("button", { name: "Load Batch history", exact: true }).elements()).toHaveLength(1);
+    expect(page.getByRole("region", { name: "Batch history" }).elements()).toHaveLength(0);
   });
 
   it("discards a late history response when the generation changes at the same role and version", async () => {
@@ -613,7 +648,7 @@ describe("Seed workspace", () => {
     const delayed = new Promise<unknown>((resolve) => { release = resolve; });
     __setQueryData("seeds:listBatches", delayed);
     const view = await render(SeedSubsectionPane, paneProps(subsection()));
-    await page.getByRole("button", { name: "Load Batch history", exact: true }).click();
+    await stepMenu("Batch history");
     await expect.poll(() => __clientQueryCalls("seeds:listBatches")).toEqual([{
       generationId,
       roleId: "company_context",
@@ -638,7 +673,7 @@ describe("Seed workspace", () => {
     await Promise.resolve();
     expect(view.container.textContent).not.toContain("Old generation history must not show.");
     await expect.element(page.getByText("Next generation wording.", { exact: true })).toBeVisible();
-    expect(page.getByRole("button", { name: "Load Batch history", exact: true }).elements()).toHaveLength(1);
+    expect(page.getByRole("region", { name: "Batch history" }).elements()).toHaveLength(0);
     expect(__clientQueryCalls("seeds:listBatches")).toHaveLength(1);
   });
 
@@ -667,7 +702,7 @@ describe("Seed workspace", () => {
     });
     await Promise.resolve();
     expect(view.container.textContent).not.toContain("Full decision review loaded.");
-    await expect.element(page.getByRole("button", { name: "Approve", exact: true })).toBeDisabled();
+    await expect.element(page.getByRole("button", { name: "Approve and continue", exact: true })).toBeDisabled();
   });
 
   it("labels a server processing refusal and keeps approval unavailable", async () => {
@@ -687,7 +722,7 @@ describe("Seed workspace", () => {
       message: "Seed approval exceeds the read budget",
     }));
     await expect.element(page.getByText("The server could not form a complete approval decision within its safe processing limit. Approval remains unavailable.", { exact: true })).toBeVisible();
-    await expect.element(page.getByRole("button", { name: "Approve", exact: true })).toBeDisabled();
+    await expect.element(page.getByRole("button", { name: "Approve and continue", exact: true })).toBeDisabled();
   });
 
   it("stops a nonadvancing history cursor with a bounded refusal and keeps approval unavailable", async () => {
@@ -705,7 +740,7 @@ describe("Seed workspace", () => {
     ]);
     expect(__clientQueryCalls("seeds:getApprovalReview")).toEqual([]);
     await expect.element(page.getByText("History is incomplete.", { exact: true })).toBeVisible();
-    await expect.element(page.getByRole("button", { name: "Approve", exact: true })).toBeDisabled();
+    await expect.element(page.getByRole("button", { name: "Approve and continue", exact: true })).toBeDisabled();
     await expect.element(page.getByRole("button", { name: "Retry Batch history", exact: true })).toBeEnabled();
   });
 
@@ -753,7 +788,7 @@ describe("Seed workspace", () => {
     await expect.element(page.getByText("First truncated-page Seed.", { exact: true })).toBeVisible();
     expect(page.getByRole("alert").elements()).toHaveLength(0);
     expect(document.body.textContent).not.toContain("History is incomplete.");
-    await expect.element(page.getByRole("button", { name: "Approve", exact: true })).toBeEnabled();
+    await expect.element(page.getByRole("button", { name: "Approve and continue", exact: true })).toBeEnabled();
     expect(__clientQueryCalls("seeds:listBatches").map((call) => (call as { cursor: string | null }).cursor))
       .toEqual([null, "resume-1", "resume-2"]);
   });
@@ -806,14 +841,16 @@ describe("Seed workspace", () => {
     }]);
 
     await page.getByRole("button", { name: "Give feedback", exact: true }).click();
-    await page.getByRole("textbox", { name: "Revision instruction" }).fill("Name the measured load bands.");
+
+    await page.getByRole("menuitem", { name: "Tell it what to change…", exact: true }).click();
+    await page.getByRole("textbox", { name: "Tell it what to change" }).fill("Name the measured load bands.");
     await view.rerender(paneProps(subsection({
       seedStageVersion: 9,
       items: [seed({ bullets: ["Remote wording from another session."] })],
     })));
-    const request = page.getByRole("button", { name: "Request revision", exact: true });
+    const request = page.getByRole("button", { name: "Send feedback", exact: true });
     await expect.element(request).toBeDisabled();
-    await expect.element(page.getByRole("textbox", { name: "Revision instruction" })).toHaveValue("Name the measured load bands.");
+    await expect.element(page.getByRole("textbox", { name: "Tell it what to change" })).toHaveValue("Name the measured load bands.");
     expect(__mutationCalls("seeds:giveFeedback")).toEqual([]);
     await page.getByRole("button", { name: "Use current decision version", exact: true }).click();
     await request.click();
@@ -836,7 +873,9 @@ describe("Seed workspace", () => {
     await render(SeedWorkspace, workspaceProps());
 
     await page.getByRole("button", { name: "Give feedback", exact: true }).last().click();
-    const instruction = page.getByRole("textbox", { name: "Revision instruction" });
+
+    await page.getByRole("menuitem", { name: "Tell it what to change…", exact: true }).click();
+    const instruction = page.getByRole("textbox", { name: "Tell it what to change" });
     await instruction.fill("Keep the second Seed's instruction.");
     await page.getByRole("button", { name: "Edit", exact: true }).first().click();
     const bullet = page.getByRole("textbox", { name: "Bullet 1" });
@@ -859,10 +898,10 @@ describe("Seed workspace", () => {
       "Submitted wording. Typed while saving.",
     ]);
 
-    await page.getByRole("button", { name: "Request revision", exact: true }).click();
+    await page.getByRole("button", { name: "Send feedback", exact: true }).click();
     await instruction.fill("Keep the second Seed's instruction. Added while requesting.");
     finishFeedback?.(undefined);
-    await expect.element(page.getByRole("button", { name: "Request revision", exact: true })).toBeEnabled();
+    await expect.element(page.getByRole("button", { name: "Send feedback", exact: true })).toBeEnabled();
     await expect.element(instruction).toHaveValue("Keep the second Seed's instruction. Added while requesting.");
     expect(storedDrafts()["seed-2"].feedback?.instruction).toBe("Keep the second Seed's instruction. Added while requesting.");
   });
@@ -881,7 +920,7 @@ describe("Seed workspace", () => {
     await render(SeedWorkspace, workspaceProps());
 
     await expect.element(page.getByText(/Your unsaved text for this Seed is kept on this device/)).toBeVisible();
-    for (const name of ["Edit", "Give feedback", "Save wording", "Request revision", "Regenerate", "Approve", "Confirm and approve", "Restore original wording"]) {
+    for (const name of ["Edit", "Give feedback", "Save wording", "Send feedback", "Regenerate", "Approve and continue", "Confirm and approve", "Restore original wording"]) {
       expect(page.getByRole("button", { name, exact: true }).elements()).toHaveLength(0);
     }
     expect(page.getByRole("textbox").elements()).toHaveLength(0);
@@ -890,12 +929,12 @@ describe("Seed workspace", () => {
 
     __setQueryData("seeds:getOutline", outline(true));
     await expect.element(page.getByRole("textbox", { name: "Bullet 1" })).toHaveValue("Restored unsaved wording.");
-    await expect.element(page.getByRole("textbox", { name: "Revision instruction" })).toHaveValue("Restored instruction.");
+    await expect.element(page.getByRole("textbox", { name: "Tell it what to change" })).toHaveValue("Restored instruction.");
     await page.getByRole("textbox", { name: "Bullet 1" }).fill("Typed before revocation.");
 
     __setQueryData("seeds:getOutline", outline(false));
     await expect.poll(() => page.getByRole("textbox").elements().length).toBe(0);
-    for (const name of ["Save wording", "Request revision", "Edit", "Give feedback"]) {
+    for (const name of ["Save wording", "Send feedback", "Edit", "Give feedback"]) {
       expect(page.getByRole("button", { name, exact: true }).elements()).toHaveLength(0);
     }
     expect(storedDrafts()["seed-1"].edit?.bulletOne).toBe("Typed before revocation.");
@@ -1048,9 +1087,15 @@ describe("Seed workspace", () => {
     await render(SeedWorkspace, workspaceProps());
     await expect.element(page.getByText("The control loop stabilized output.", { exact: true })).toBeVisible();
 
-    const trigger = page.getByRole("button", { name: "Brief", exact: true });
+    // The Brief opens from the step header More menu (decision 19); the
+    // menu's trigger is where focus returns.
+    const trigger = page.getByRole("button", { name: "More step actions", exact: true });
     const triggerElement = trigger.element() as HTMLElement;
     triggerElement.focus();
+    await userEvent.keyboard("{Enter}");
+    const briefItem = page.getByRole("menuitem", { name: "Brief", exact: true });
+    await expect.element(briefItem).toBeVisible();
+    (briefItem.element() as HTMLElement).focus();
     await userEvent.keyboard("{Enter}");
     const dialog = page.getByRole("dialog", { name: "Brief" });
     await expect.element(dialog).toBeVisible();
@@ -1068,7 +1113,7 @@ describe("Seed workspace", () => {
     await expect.poll(() => dialogElement.isConnected, { timeout: 3000 }).toBe(false);
     await expect.poll(() => document.activeElement).toBe(triggerElement);
 
-    await trigger.click();
+    await stepMenu("Brief");
     await page.getByRole("button", { name: "Close Brief", exact: true }).click();
     await expect.poll(() => document.querySelector('[role="dialog"]'), { timeout: 3000 }).toBeNull();
     await expect.poll(() => document.activeElement).toBe(triggerElement);
@@ -1086,7 +1131,7 @@ describe("Seed workspace", () => {
     const { container } = await render(SeedWorkspace, workspaceProps());
     container.style.width = "390px";
     container.style.height = "844px";
-    await page.getByRole("button", { name: "Outline", exact: true }).click();
+    await outlineSwitch().click();
     const roleButton = page.getByRole("navigation", { name: "PD subsections" }).getByRole("button", { name: /Hypothesis/ });
     (roleButton.element() as HTMLElement).focus();
     await userEvent.keyboard("{Enter}");
@@ -1096,19 +1141,22 @@ describe("Seed workspace", () => {
     await expect.poll(() => document.activeElement).toBe(heading.element());
     const focused = document.activeElement as HTMLElement;
     expect(focused.offsetParent).not.toBeNull();
-    await expect.element(page.getByRole("button", { name: "Work", exact: true })).toHaveAttribute("aria-pressed", "true");
+    await expect.element(seedsSwitch()).toHaveAttribute("aria-pressed", "true");
 
-    const outlineSwitch = page.getByRole("button", { name: "Outline", exact: true });
-    (outlineSwitch.element() as HTMLElement).focus();
+    const outlineButton = outlineSwitch();
+    (outlineButton.element() as HTMLElement).focus();
     await userEvent.keyboard("{Enter}");
-    await expect.element(outlineSwitch).toHaveAttribute("aria-pressed", "true");
+    await expect.element(outlineButton).toHaveAttribute("aria-pressed", "true");
     await expect.element(page.getByRole("navigation", { name: "PD subsections" })).toBeVisible();
-    expect(document.activeElement).toBe(outlineSwitch.element());
+    expect(document.activeElement).toBe(outlineButton.element());
   });
 
   it("names each frozen cited source beside its exact excerpt in cards and history", async () => {
     __setQueryData("seeds:getOutline", outline());
-    __setQueryData("seeds:getSubsection", subsection());
+    // One citation is quoted word for word in the first bullet; the other is
+    // not, so it stays under "Quoted lines".
+    const quoted = { ...seed().provenance[0], _id: "provenance-quoted" as Id<"seedProvenance">, exactExcerpt: "the control loop stabilized output" };
+    __setQueryData("seeds:getSubsection", subsection({ items: [seed({ provenance: [quoted, seed().provenance[0]] })] }));
     __setQueryData("seeds:getSourceAttribution", {
       generationId,
       sources: [
@@ -1129,12 +1177,23 @@ describe("Seed workspace", () => {
     });
     await render(SeedWorkspace, workspaceProps());
 
-    await page.getByRole("button", { name: "Evidence", exact: true }).click();
-    const cardEvidence = document.querySelector<HTMLElement>('[data-seed-id="seed-1"] figure')!;
-    expect(cardEvidence.querySelector("figcaption")?.textContent).toBe("Controller interview.docx");
-    expect(cardEvidence.querySelector("blockquote")?.textContent?.trim()).toBe("Measured output remained stable.");
+    const underline = page.getByRole("button", { name: "The control loop stabilized output", exact: true });
+    await underline.hover();
+    const card = page.getByRole("group", { name: "Quoted line" });
+    await expect.element(card).toBeVisible();
+    await expect.element(card).toHaveTextContent("the control loop stabilized output");
+    expect(document.querySelector("[data-quote-card] [data-quote-source]")?.textContent).toBe("Controller interview.docx");
+    // Moving the pointer away (not into the card) closes it.
+    await page.getByRole("heading", { name: "Company / Context", exact: true }).hover();
+    await expect.poll(() => document.querySelector("[data-quote-card]")).toBeNull();
 
-    await page.getByRole("button", { name: "Load Batch history", exact: true }).click();
+    await quotesButton().click();
+    const quotes = () => document.querySelector<HTMLElement>('[data-seed-quotes="seed-1"]');
+    await expect.poll(() => quotes()?.querySelector("[data-quote-source]")?.textContent).toBe("Controller interview.docx");
+    expect(quotes()?.querySelector("blockquote")?.textContent?.trim()).toBe("“Measured output remained stable.”");
+    await userEvent.keyboard("{Escape}");
+
+    await stepMenu("Batch history");
     const history = page.getByRole("region", { name: "Batch history" });
     await expect.element(history.getByText("load-test-report.pdf", { exact: true })).toBeVisible();
     await expect.element(history.getByText("Load bands held within tolerance.", { exact: true })).toBeVisible();
@@ -1167,7 +1226,7 @@ describe("Seed workspace", () => {
     releaseReview?.(historyReview("late-challenge"));
     await new Promise((resolve) => setTimeout(resolve, 50));
     expect(document.body.textContent).not.toContain("Full decision review loaded.");
-    expect(page.getByRole("button", { name: "Approve", exact: true }).elements()).toHaveLength(0);
+    expect(page.getByRole("button", { name: "Approve and continue", exact: true }).elements()).toHaveLength(0);
     expect(__clientQueryCalls("seeds:getApprovalReview")).toHaveLength(1);
     expect(__mutationCalls("seeds:approve")).toEqual([]);
   });
@@ -1197,7 +1256,7 @@ describe("Seed workspace", () => {
     let view = await render(SeedSubsectionPane, paneProps(subsection({ truncated: true, approvalChallenge: null })));
     await page.getByRole("button", { name: "Load Batch history", exact: true }).click();
     await expect.element(page.getByText("Two hundredth page Seed.", { exact: true })).toBeVisible();
-    await expect.element(page.getByRole("button", { name: "Approve", exact: true })).toBeEnabled();
+    await expect.element(page.getByRole("button", { name: "Approve and continue", exact: true })).toBeEnabled();
     expect(page.getByRole("alert").elements()).toHaveLength(0);
     expect(document.body.textContent).not.toContain("History is incomplete.");
     expect(__clientQueryCalls("seeds:listBatches")).toHaveLength(200);
@@ -1216,7 +1275,7 @@ describe("Seed workspace", () => {
     expect(__clientQueryCalls("seeds:listBatches")).toHaveLength(200);
     expect(__clientQueryCalls("seeds:getApprovalReview")).toEqual([]);
     await expect.element(page.getByText("History is incomplete.", { exact: true })).toBeVisible();
-    await expect.element(page.getByRole("button", { name: "Approve", exact: true })).toBeDisabled();
+    await expect.element(page.getByRole("button", { name: "Approve and continue", exact: true })).toBeDisabled();
     view.unmount();
   });
 
@@ -1225,7 +1284,7 @@ describe("Seed workspace", () => {
     __setQueryData("seeds:listBatches", completeHistory);
     __setQueryData("seeds:getApprovalReview", historyReview("history-challenge"));
     await render(SeedSubsectionPane, paneProps(subsection({ truncated: true, approvalChallenge: null })));
-    const approve = page.getByRole("button", { name: "Approve", exact: true });
+    const approve = page.getByRole("button", { name: "Approve and continue", exact: true });
     const loaded = page.getByText(/Full decision review loaded\./);
     await page.getByRole("button", { name: "Load Batch history", exact: true }).click();
     await expect.element(loaded).toBeVisible();
@@ -1285,9 +1344,9 @@ describe("Seed workspace", () => {
         exclusions: [],
       },
     })));
-    const approve = page.getByRole("button", { name: "Approve", exact: true });
+    const approve = page.getByRole("button", { name: "Approve and continue", exact: true });
     await expect.element(approve).toBeEnabled();
-    await page.getByRole("button", { name: "Load Batch history", exact: true }).click();
+    await stepMenu("Batch history");
     await expect.element(page.getByRole("alert")).toHaveTextContent("History read failed");
     await expect.element(approve).toBeEnabled();
     await approve.click();
@@ -1330,8 +1389,10 @@ describe("Seed workspace", () => {
     __setQueryData("seeds:getOutline", outline());
     __setQueryData("seeds:getSubsection", subsection());
     await render(SeedWorkspace, workspaceProps());
-    await page.getByRole("button", { name: "Evidence", exact: true }).click();
-    const caption = () => document.querySelector<HTMLElement>('[data-seed-id="seed-1"] figcaption');
+    // The fixture's excerpt is not quoted word for word, so it is listed
+    // with its source under the card's "Quoted lines".
+    await quotesButton().click();
+    const caption = () => document.querySelector<HTMLElement>('[data-seed-quotes="seed-1"] [data-quote-source]');
     await expect.poll(() => caption()?.textContent).toBe("Source name loading…");
     expect(caption()?.dataset.attributed).toBe("false");
 
@@ -1339,9 +1400,12 @@ describe("Seed workspace", () => {
     await expect.poll(() => caption()?.textContent).toBe("Source name unavailable");
     const notice = () => document.querySelector<HTMLElement>('[data-source-attribution="error"]');
     await expect.poll(() => notice()?.textContent ?? "").toContain("Source names could not be loaded.");
-    await expect.element(page.getByText("Measured output remained stable.", { exact: true })).toBeVisible();
+    await expect.element(page.getByText("“Measured output remained stable.”", { exact: true })).toBeVisible();
 
+    await userEvent.keyboard("{Escape}");
+    await expect.poll(() => document.querySelector("[data-seed-quotes]")).toBeNull();
     await page.getByRole("button", { name: "Retry source names", exact: true }).click();
+    await quotesButton().click();
     await expect.poll(() => __queryArgsHistory("seeds:getSourceAttribution")).toEqual([{ generationId }, "skip", { generationId }]);
     __setQueryData("seeds:getSourceAttribution", {
       generationId,
@@ -1363,8 +1427,10 @@ describe("Seed workspace", () => {
     });
     __setQueryData("seeds:getSourceAttributionByIds", rejecting(new ConvexError({ code: "INVALID_INPUT", message: "Recovery read failed" })));
     await render(SeedWorkspace, workspaceProps());
-    await page.getByRole("button", { name: "Evidence", exact: true }).click();
-    const caption = () => document.querySelector<HTMLElement>('[data-seed-id="seed-1"] figcaption');
+    // The fixture's excerpt is not quoted word for word, so it is listed
+    // with its source under the card's "Quoted lines".
+    await quotesButton().click();
+    const caption = () => document.querySelector<HTMLElement>('[data-seed-quotes="seed-1"] [data-quote-source]');
     await expect.poll(() => __clientQueryCalls("seeds:getSourceAttributionByIds")).toEqual([{ generationId, sourceIds: ["source-1"] }]);
     await expect.poll(() => caption()?.textContent).toBe("Source name not retrieved");
     expect(caption()?.dataset.attributed).toBe("false");
@@ -1379,7 +1445,10 @@ describe("Seed workspace", () => {
       sources: [{ sourceId: "source-1", label: "Controller interview.docx", kind: "transcript" }],
       complete: true,
     });
+    await userEvent.keyboard("{Escape}");
+    await expect.poll(() => document.querySelector("[data-seed-quotes]")).toBeNull();
     await page.getByRole("button", { name: "Retry source names", exact: true }).click();
+    await quotesButton().click();
     await expect.poll(() => __clientQueryCalls("seeds:getSourceAttributionByIds")).toHaveLength(2);
     await expect.poll(() => caption()?.textContent).toBe("Controller interview.docx");
     expect(caption()?.dataset.attributed).toBe("true");
@@ -1433,7 +1502,7 @@ describe("Seed workspace", () => {
     container.style.width = "390px";
     container.style.height = "844px";
     await expect.element(page.getByText("The control loop stabilized output.", { exact: true })).toBeVisible();
-    await page.getByRole("button", { name: "Outline", exact: true }).click();
+    await outlineSwitch().click();
     await expect.element(page.getByRole("navigation", { name: "PD subsections" })).toBeVisible();
 
     // A Batch arriving while the narrow Outline is displayed is not yet viewed.
@@ -1442,16 +1511,16 @@ describe("Seed workspace", () => {
     expect(__mutationCalls("seeds:markBatchViewed")).toEqual([]);
 
     // Displaying Work records it, once.
-    await page.getByRole("button", { name: "Work", exact: true }).click();
+    await seedsSwitch().click();
     const arrived = { generationId, roleId: "company_context", batchId: "batch-arrived", expectedSeedStageVersion: 7 };
     await expect.poll(() => __mutationCalls("seeds:markBatchViewed")).toEqual([arrived]);
-    await page.getByRole("button", { name: "Outline", exact: true }).click();
-    await page.getByRole("button", { name: "Work", exact: true }).click();
+    await outlineSwitch().click();
+    await seedsSwitch().click();
     await new Promise((resolve) => setTimeout(resolve, 150));
     expect(__mutationCalls("seeds:markBatchViewed")).toEqual([arrived]);
 
     // A second Batch under the hidden Work pane waits for desktop visibility.
-    await page.getByRole("button", { name: "Outline", exact: true }).click();
+    await outlineSwitch().click();
     __setQueryData("seeds:getSubsection", subsection({ shownBatchId: "batch-second" as Id<"seedBatches"> }));
     await new Promise((resolve) => setTimeout(resolve, 150));
     expect(__mutationCalls("seeds:markBatchViewed")).toEqual([arrived]);
@@ -1475,13 +1544,13 @@ describe("Seed workspace", () => {
     await expect.poll(() => __mutationCalls("seeds:markBatchViewed")).toHaveLength(1);
 
     // Work is hidden before the refused attempt's retry delay ends.
-    await page.getByRole("button", { name: "Outline", exact: true }).click();
+    await outlineSwitch().click();
     __setMutationResult("seeds:markBatchViewed", null);
     refuse?.(new ConvexError({ code: "INVALID_STATE", message: "Temporarily refused" }));
     await new Promise((resolve) => setTimeout(resolve, 700));
     expect(__mutationCalls("seeds:markBatchViewed")).toHaveLength(1);
 
-    await page.getByRole("button", { name: "Work", exact: true }).click();
+    await seedsSwitch().click();
     const viewed = { generationId, roleId: "company_context", batchId: "batch-1", expectedSeedStageVersion: 7 };
     await expect.poll(() => __mutationCalls("seeds:markBatchViewed")).toEqual([viewed, viewed]);
   });
@@ -1502,7 +1571,8 @@ describe("Seed workspace", () => {
     const bullet = page.getByRole("textbox", { name: "Bullet 1" });
     await bullet.fill("Typed without storage.");
     await page.getByRole("button", { name: "Give feedback", exact: true }).last().click();
-    await page.getByRole("textbox", { name: "Revision instruction" }).fill("Instruction without storage.");
+    await page.getByRole("menuitem", { name: "Tell it what to change…", exact: true }).click();
+    await page.getByRole("textbox", { name: "Tell it what to change" }).fill("Instruction without storage.");
     await expect.element(bullet).toHaveValue("Typed without storage.");
     await page.getByRole("button", { name: "Save wording", exact: true }).click();
     expect(__mutationCalls("seeds:edit")).toEqual([expect.objectContaining({
@@ -1511,7 +1581,7 @@ describe("Seed workspace", () => {
       expectedSeedStageVersion: 7,
     })]);
     await expect.poll(() => page.getByRole("textbox", { name: "Bullet 1" }).elements().length).toBe(0);
-    await expect.element(page.getByRole("textbox", { name: "Revision instruction" })).toHaveValue("Instruction without storage.");
+    await expect.element(page.getByRole("textbox", { name: "Tell it what to change" })).toHaveValue("Instruction without storage.");
 
     // Navigation with an unsaved draft: retention was announced as unavailable,
     // and the recreated workspace truthfully starts without it.
@@ -1545,7 +1615,8 @@ describe("Seed workspace", () => {
     await bullet.fill("Hydrated wording. Typed after storage failed.");
     await expect.poll(() => persistenceNotice()?.textContent ?? "").toContain("Unsaved Seed text stays in this open workspace only.");
     await page.getByRole("button", { name: "Give feedback", exact: true }).last().click();
-    await page.getByRole("textbox", { name: "Revision instruction" }).fill("Feedback in memory.");
+    await page.getByRole("menuitem", { name: "Tell it what to change…", exact: true }).click();
+    await page.getByRole("textbox", { name: "Tell it what to change" }).fill("Feedback in memory.");
     await expect.element(bullet).toHaveValue("Hydrated wording. Typed after storage failed.");
 
     await page.getByRole("button", { name: "Save wording", exact: true }).click();
@@ -1556,7 +1627,7 @@ describe("Seed workspace", () => {
       expectedSeedStageVersion: 7,
     })]);
     await expect.poll(() => page.getByRole("textbox", { name: "Bullet 1" }).elements().length).toBe(0);
-    await expect.element(page.getByRole("textbox", { name: "Revision instruction" })).toHaveValue("Feedback in memory.");
+    await expect.element(page.getByRole("textbox", { name: "Tell it what to change" })).toHaveValue("Feedback in memory.");
     // The saved Seed's own record was removed on its own key (removal is not
     // what the device refuses), the feedback draft was never mirrored, and no
     // other item's record was touched: the notice truthfully stays.
@@ -1567,7 +1638,7 @@ describe("Seed workspace", () => {
     // Once the device accepts writes again, the next write mirrors every
     // pending item and the notice clears.
     vi.restoreAllMocks();
-    await page.getByRole("textbox", { name: "Revision instruction" }).fill("Feedback in memory, now mirrored.");
+    await page.getByRole("textbox", { name: "Tell it what to change" }).fill("Feedback in memory, now mirrored.");
     await expect.poll(() => persistenceNotice()).toBeNull();
     expect(storedDrafts()["seed-2"].feedback?.instruction).toBe("Feedback in memory, now mirrored.");
     expect(storedDrafts()["seed-1"]).toBeUndefined();
@@ -1592,7 +1663,8 @@ describe("Seed workspace", () => {
       throw new Error("quota exceeded");
     });
     await page.getByRole("button", { name: "Give feedback", exact: true }).last().click();
-    await page.getByRole("textbox", { name: "Revision instruction" }).fill("Feedback queued first.");
+    await page.getByRole("menuitem", { name: "Tell it what to change…", exact: true }).click();
+    await page.getByRole("textbox", { name: "Tell it what to change" }).fill("Feedback queued first.");
     await expect.poll(() => persistenceNotice()?.textContent ?? "").toContain("Unsaved Seed text stays in this open workspace only.");
 
     // Saving the hydrated Seed still removes its own stored record.
@@ -1625,7 +1697,8 @@ describe("Seed workspace", () => {
     await inA.getByRole("button", { name: "Edit", exact: true }).first().click();
     await inA.getByRole("textbox", { name: "Bullet 1" }).fill("Tab A wording for seed one.");
     await inB.getByRole("button", { name: "Give feedback", exact: true }).last().click();
-    await inB.getByRole("textbox", { name: "Revision instruction" }).fill("Tab B instruction for seed two.");
+    await page.getByRole("menuitem", { name: "Tell it what to change…", exact: true }).click();
+    await inB.getByRole("textbox", { name: "Tell it what to change" }).fill("Tab B instruction for seed two.");
     expect(storedDrafts()["seed-1"].edit?.bulletOne).toBe("Tab A wording for seed one.");
     expect(storedDrafts()["seed-2"].feedback?.instruction).toBe("Tab B instruction for seed two.");
 
@@ -1639,7 +1712,7 @@ describe("Seed workspace", () => {
     tabA.unmount();
     const tabC = await render(SeedWorkspace, workspaceProps());
     const inC = page.elementLocator(tabC.container);
-    await expect.element(inC.getByRole("textbox", { name: "Revision instruction" })).toHaveValue("Tab B instruction for seed two.");
+    await expect.element(inC.getByRole("textbox", { name: "Tell it what to change" })).toHaveValue("Tab B instruction for seed two.");
     await inC.getByRole("button", { name: "Edit", exact: true }).first().click();
     await inC.getByRole("textbox", { name: "Bullet 1" }).fill("Tab C wording for seed one.");
     await inB.getByRole("button", { name: "Cancel", exact: true }).click();
@@ -1665,9 +1738,14 @@ describe("Seed workspace", () => {
     const notice = () => document.querySelector<HTMLElement>("[data-outline-partial]");
     await expect.poll(() => notice()?.textContent ?? "").toContain("counts and previews may be incomplete");
     expect(view.container.textContent).toContain("Readiness could not be fully computed within the server's safe processing limit.");
-    expect(view.container.textContent).toContain("Approved · 1+ (partial read)");
-    expect(view.container.textContent).toContain("Partial · Partial preview line");
-    expect(view.container.textContent).not.toContain("subsection(s) still need a decision");
+    // The first row's count is a lower bound: "1+" on screen, "at least 1
+    // selected, partial read" for assistive technology. Previews are gone
+    // from the single-line rows, so no partial preview can pass as complete.
+    const firstRow = () => document.querySelector<HTMLElement>('nav[aria-label="PD subsections"] button')!;
+    expect(firstRow().querySelector("[data-counts-complete]")?.textContent).toBe("1+");
+    expect(firstRow().querySelector("[data-counts-complete]")?.getAttribute("data-counts-complete")).toBe("false");
+    expect(firstRow().textContent).toContain("approved, at least 1 selected, partial read");
+    expect(view.container.textContent).not.toContain("Partial preview line");
 
     await page.getByRole("button", { name: "Reload Outline", exact: true }).click();
     await expect.poll(() => __queryArgsHistory("seeds:getOutline")).toEqual([{ generationId }, "skip", { generationId }]);
@@ -1680,10 +1758,12 @@ describe("Seed workspace", () => {
     );
     __setQueryData("seeds:getOutline", complete);
     await expect.poll(() => notice()).toBeNull();
-    await expect.element(page.getByText("Approved · 1", { exact: true })).toBeVisible();
+    await expect.poll(() => firstRow().querySelector("[data-counts-complete]")?.textContent).toBe("1");
+    expect(firstRow().textContent).toContain("approved, 1 selected");
     expect(view.container.textContent).not.toContain("partial read");
-    expect(view.container.textContent).not.toContain("Partial · ");
-    expect(view.container.textContent).toContain("1 subsection(s) still need a decision.");
+    expect(view.container.textContent).not.toContain("Readiness could not be fully computed");
+    // One of thirteen steps is decided.
+    expect(document.querySelector("[data-outline-progress]")?.textContent?.trim()).toBe("1 of 13");
   });
 
   it("announces a Subsection read failure after a successful load, withholds decisions on the retained DTO, keeps the draft and recovers on retry", async () => {
@@ -1702,7 +1782,7 @@ describe("Seed workspace", () => {
     // The retained DTO stays readable; its decision paths are off; the draft is kept.
     await expect.element(page.getByText("The control loop stabilized output.", { exact: true })).toBeVisible();
     expect(page.getByRole("textbox").elements()).toHaveLength(0);
-    for (const name of ["Edit", "Save wording", "Give feedback", "Regenerate", "Confirm and approve", "Approve"]) {
+    for (const name of ["Edit", "Save wording", "Give feedback", "Regenerate", "Confirm and approve", "Approve and continue"]) {
       expect(page.getByRole("button", { name, exact: true }).elements()).toHaveLength(0);
     }
     await expect.element(page.getByRole("checkbox", { name: "Deselect seed" })).toBeDisabled();
@@ -1753,7 +1833,7 @@ describe("Seed workspace", () => {
     await expect.element(page.getByText("The control loop stabilized output.", { exact: true })).toBeVisible();
     expect(page.getByRole("alert").elements()).toHaveLength(0);
     expect(page.getByRole("textbox").elements()).toHaveLength(0);
-    for (const name of ["Edit", "Save wording", "Give feedback", "Regenerate", "Confirm and approve", "Approve"]) {
+    for (const name of ["Edit", "Save wording", "Give feedback", "Regenerate", "Confirm and approve", "Approve and continue"]) {
       expect(page.getByRole("button", { name, exact: true }).elements()).toHaveLength(0);
     }
     await expect.element(page.getByRole("checkbox", { name: "Deselect seed" })).toBeDisabled();
@@ -1786,7 +1866,7 @@ describe("Seed workspace", () => {
     container.style.width = "390px";
     container.style.height = "844px";
     await expect.element(page.getByText("The control loop stabilized output.", { exact: true })).toBeVisible();
-    await page.getByRole("button", { name: "Outline", exact: true }).click();
+    await outlineSwitch().click();
     await expect.element(page.getByRole("navigation", { name: "PD subsections" })).toBeVisible();
 
     // A Batch arrives under the hidden Work pane, then the live read fails
@@ -1796,7 +1876,7 @@ describe("Seed workspace", () => {
     expect(__mutationCalls("seeds:markBatchViewed")).toEqual([]);
     __setQueryData("seeds:getSubsection", undefined);
     __setQueryError("seeds:getSubsection", new ConvexError({ code: "INVALID_STATE", message: "Subsection read failed" }));
-    await page.getByRole("button", { name: "Work", exact: true }).click();
+    await seedsSwitch().click();
     await expect.poll(() => document.querySelector("[data-subsection-read-error]")?.textContent ?? "").toContain("Subsection read failed");
     await expect.element(page.getByText("The control loop stabilized output.", { exact: true })).toBeVisible();
     await new Promise((resolve) => setTimeout(resolve, 300));
@@ -1844,69 +1924,71 @@ describe("Seed workspace", () => {
     view.container.style.width = "1000px";
     view.container.style.height = "800px";
     const splitter = page.getByRole("slider", { name: "Resize Seed outline" });
-    await expect.element(splitter).toHaveAttribute("aria-valuenow", "32");
+    await expect.element(splitter).toHaveAttribute("aria-valuenow", "300");
     const splitterElement = splitter.element() as HTMLElement;
     const host = splitterElement.parentElement!;
     const rect = host.getBoundingClientRect();
-    const pointer = (type: string, fraction: number, pointerId = 7) =>
+    // Pointer positions are pixels from the workspace's left edge, which is
+    // where the Outline starts.
+    const pointer = (type: string, offset: number, pointerId = 7) =>
       new PointerEvent(type, {
         pointerId,
         pointerType: "mouse",
         button: 0,
         buttons: 1,
-        clientX: rect.left + rect.width * fraction,
+        clientX: rect.left + offset,
         clientY: rect.top + 40,
         bubbles: true,
         cancelable: true,
       });
-    const storedRatio = () => Number(localStorage.getItem("seeds.splitRatio"));
+    const storedWidth = () => localStorage.getItem("seeds.outlineWidth");
 
-    splitterElement.dispatchEvent(pointer("pointerdown", 0.32));
-    window.dispatchEvent(pointer("pointermove", 0.4));
-    await expect.element(splitter).toHaveAttribute("aria-valuenow", "40");
-    expect(storedRatio()).toBeCloseTo(0.4, 5);
-    window.dispatchEvent(pointer("pointermove", 0.1));
-    await expect.element(splitter).toHaveAttribute("aria-valuenow", "24");
-    expect(localStorage.getItem("seeds.splitRatio")).toBe("0.24");
-    window.dispatchEvent(pointer("pointermove", 0.9));
-    await expect.element(splitter).toHaveAttribute("aria-valuenow", "55");
-    expect(localStorage.getItem("seeds.splitRatio")).toBe("0.55");
+    splitterElement.dispatchEvent(pointer("pointerdown", 300));
+    window.dispatchEvent(pointer("pointermove", 350));
+    await expect.element(splitter).toHaveAttribute("aria-valuenow", "350");
+    expect(storedWidth()).toBe("350");
+    window.dispatchEvent(pointer("pointermove", 100));
+    await expect.element(splitter).toHaveAttribute("aria-valuenow", "240");
+    expect(storedWidth()).toBe("240");
+    window.dispatchEvent(pointer("pointermove", 900));
+    await expect.element(splitter).toHaveAttribute("aria-valuenow", "400");
+    expect(storedWidth()).toBe("400");
     // Another pointer's movement never adjusts this gesture.
-    window.dispatchEvent(pointer("pointermove", 0.3, 9));
+    window.dispatchEvent(pointer("pointermove", 280, 9));
     await new Promise((resolve) => setTimeout(resolve, 50));
-    await expect.element(splitter).toHaveAttribute("aria-valuenow", "55");
+    await expect.element(splitter).toHaveAttribute("aria-valuenow", "400");
 
     // Release completes the gesture: later movement is inert.
-    window.dispatchEvent(pointer("pointerup", 0.9));
-    window.dispatchEvent(pointer("pointermove", 0.4));
+    window.dispatchEvent(pointer("pointerup", 900));
+    window.dispatchEvent(pointer("pointermove", 320));
     await new Promise((resolve) => setTimeout(resolve, 50));
-    await expect.element(splitter).toHaveAttribute("aria-valuenow", "55");
-    expect(localStorage.getItem("seeds.splitRatio")).toBe("0.55");
+    await expect.element(splitter).toHaveAttribute("aria-valuenow", "400");
+    expect(storedWidth()).toBe("400");
 
     // Pointer cancellation ends the gesture the same way.
-    splitterElement.dispatchEvent(pointer("pointerdown", 0.55));
-    window.dispatchEvent(pointer("pointermove", 0.3));
-    await expect.element(splitter).toHaveAttribute("aria-valuenow", "30");
-    expect(storedRatio()).toBeCloseTo(0.3, 5);
-    window.dispatchEvent(pointer("pointercancel", 0.3));
-    window.dispatchEvent(pointer("pointermove", 0.45));
+    splitterElement.dispatchEvent(pointer("pointerdown", 400));
+    window.dispatchEvent(pointer("pointermove", 300));
+    await expect.element(splitter).toHaveAttribute("aria-valuenow", "300");
+    expect(storedWidth()).toBe("300");
+    window.dispatchEvent(pointer("pointercancel", 300));
+    window.dispatchEvent(pointer("pointermove", 380));
     await new Promise((resolve) => setTimeout(resolve, 50));
-    await expect.element(splitter).toHaveAttribute("aria-valuenow", "30");
-    expect(storedRatio()).toBeCloseTo(0.3, 5);
+    await expect.element(splitter).toHaveAttribute("aria-valuenow", "300");
+    expect(storedWidth()).toBe("300");
 
     // Keyboard control is unaffected by the pointer lifecycle.
-    await splitter.click();
+    (splitterElement as HTMLElement).focus();
     await userEvent.keyboard("{ArrowRight}");
-    await expect.element(splitter).toHaveAttribute("aria-valuenow", "32");
+    await expect.element(splitter).toHaveAttribute("aria-valuenow", "310");
 
     // Destruction mid-gesture releases the listeners: movement afterwards
     // writes no preference.
-    splitterElement.dispatchEvent(pointer("pointerdown", 0.32));
-    localStorage.removeItem("seeds.splitRatio");
+    splitterElement.dispatchEvent(pointer("pointerdown", 310));
+    localStorage.removeItem("seeds.outlineWidth");
     view.unmount();
-    window.dispatchEvent(pointer("pointermove", 0.5));
+    window.dispatchEvent(pointer("pointermove", 360));
     await new Promise((resolve) => setTimeout(resolve, 50));
-    expect(localStorage.getItem("seeds.splitRatio")).toBeNull();
+    expect(localStorage.getItem("seeds.outlineWidth")).toBeNull();
   });
 
   it("qualifies a truncated projection's selected count until the complete server review supplies its own, and invalidates that count with its scope", async () => {
@@ -1925,7 +2007,7 @@ describe("Seed workspace", () => {
     const count = () => document.querySelector<HTMLElement>("[data-selected-count]");
     // The projection shows one selected card; the complete decision holds three.
     expect(count()?.dataset.selectedCount).toBe("partial");
-    expect(count()?.textContent).toContain("1+ selected in the shown Seeds");
+    expect(count()?.textContent).toContain("1+ selected in the shown seeds");
     expect(count()?.textContent).toContain("complete count pending");
     expect(document.body.textContent).not.toContain("3 selected");
 
@@ -1938,7 +2020,7 @@ describe("Seed workspace", () => {
     await page.getByRole("button", { name: "Refresh Batch history", exact: true }).click();
     await expect.element(page.getByRole("alert")).toHaveTextContent("History read failed");
     await expect.poll(() => count()?.dataset.selectedCount).toBe("partial");
-    expect(count()?.textContent).toContain("1+ selected in the shown Seeds");
+    expect(count()?.textContent).toContain("1+ selected in the shown seeds");
     __setQueryData("seeds:listBatches", completeHistory);
     await page.getByRole("button", { name: "Retry Batch history", exact: true }).click();
     await expect.poll(() => count()?.dataset.selectedCount).toBe("complete");
@@ -1952,7 +2034,7 @@ describe("Seed workspace", () => {
       items: twoCardProjection(),
     })));
     await expect.poll(() => count()?.dataset.selectedCount).toBe("partial");
-    expect(count()?.textContent).toContain("1+ selected in the shown Seeds");
+    expect(count()?.textContent).toContain("1+ selected in the shown seeds");
 
     // An untruncated projection is the complete decision count.
     await view.rerender(paneProps(subsection({
@@ -2099,7 +2181,7 @@ describe("Seed workspace", () => {
     const chooseHypothesis = async (container: HTMLElement) => {
       container.style.width = "390px";
       container.style.height = "844px";
-      await page.getByRole("button", { name: "Outline", exact: true }).click();
+      await outlineSwitch().click();
       (outlineRole(/Hypothesis/).element() as HTMLElement).focus();
       await userEvent.keyboard("{Enter}");
       // The Subsection has not arrived: focus holds on the displayed Work pane.
@@ -2138,5 +2220,443 @@ describe("Seed workspace", () => {
     expect(document.getElementById("seed-title-hypothesis")).not.toBeNull();
     expect(document.activeElement?.id).not.toBe("seed-title-hypothesis");
     expect(document.activeElement).toBe(document.body);
+  });
+});
+
+describe("Seed plan final UI (ui-design-final.md sections 3 and 11)", () => {
+  const attributed = {
+    labels: new Map([["source-1", "Controller interview.docx"]]),
+    status: "complete" as const,
+    unrecoverableSourceIds: new Set<string>(),
+    recoveryError: null,
+  };
+  /** A citation quoted word for word in the first bullet, with the optional
+   * speaker and line the backend adds when the transcript gives them. */
+  const quotedCitation = (extra: Record<string, unknown> = {}) => ({
+    ...seed().provenance[0],
+    _id: "provenance-quoted" as Id<"seedProvenance">,
+    exactExcerpt: "The control loop stabilized output",
+    ...extra,
+  }) as SeedCardData["provenance"][number];
+  const cleanChallenge = () => ({
+    ...subsection().approvalChallenge!,
+    carriedSeedIds: [],
+    exclusionEntryIds: [],
+    changedRoleIds: [],
+    shownBatchOutdated: false,
+    exclusions: [],
+  });
+
+  it("shows single-line Outline rows with state icons, faint counts, 242/244/246 groups and an n of 13 ring", async () => {
+    const rows = outline().rows.map((row) => {
+      switch (row.roleId) {
+        case "company_context": return { ...row, state: "approved", selectedCount: 2 };
+        case "goal_problem": return { ...row, state: "untouched", selectedCount: 0 };
+        case "prior_year_status": return { ...row, state: "untouched", selectedCount: 0 };
+        case "workplan": return { ...row, state: "skipped", selectedCount: 0 };
+        case "hypothesis": return { ...row, state: "generating", selectedCount: 0 };
+        case "overall_advancement": return { ...row, state: "failed", selectedCount: 0 };
+        case "specific_advancements": return { ...row, state: "approved", stale: true };
+        default: return row;
+      }
+    });
+    __setQueryData("seeds:getOutline", { ...outline(), rows });
+    __setQueryData("seeds:getSubsection", subsection());
+    const { container } = await render(SeedWorkspace, workspaceProps());
+    await expect.element(page.getByRole("navigation", { name: "PD subsections" })).toBeVisible();
+    const row = (roleTitle: RegExp) => page.getByRole("navigation", { name: "PD subsections" }).getByRole("button", { name: roleTitle }).element() as HTMLElement;
+    const icon = (roleTitle: RegExp) => row(roleTitle).querySelector("[data-row-icon]")?.getAttribute("data-row-icon");
+
+    expect(icon(/Company \/ Context/)).toBe("approved");
+    expect(icon(/Goal \/ Problem/)).toBe("untouched");
+    expect(icon(/Previous-year/)).toBe("optional");
+    expect(icon(/Work plan/)).toBe("skipped");
+    expect(icon(/Hypothesis/)).toBe("generating");
+    expect(icon(/Experimentation/)).toBe("open");
+    // Every state has an honest accessible name, not only an icon.
+    expect(row(/Company \/ Context/).textContent).toContain("approved, 2 selected");
+    expect(row(/Hypothesis/).textContent).toContain("writing seeds");
+    expect(row(/Advancement to science/).textContent).toContain("seeds failed");
+    expect(row(/Specific/).textContent).toContain("approved, stale");
+    expect(row(/Specific/).querySelector("[data-row-marker]")?.textContent?.trim()).toBe("stale");
+    // A count is faint and on the right; no preview or state line on screen.
+    expect(row(/Company \/ Context/).querySelector("[data-counts-complete]")?.textContent).toBe("2");
+    expect(container.textContent).not.toContain("Control loop evidence");
+    expect(container.textContent).not.toContain("·");
+    // Rows are one line high.
+    expect(Math.round(row(/Goal \/ Problem/).getBoundingClientRect().height)).toBe(34);
+
+    const nav = container.querySelector('nav[aria-label="PD subsections"]')!;
+    expect(Array.from(nav.querySelectorAll(":scope > p")).map((label) => label.textContent?.trim())).toEqual(["242", "244", "246"]);
+    // Approved and skipped steps are decided: 3 of 13.
+    expect(container.querySelector("[data-outline-progress]")?.textContent?.trim()).toBe("3 of 13");
+    await expect.element(page.getByRole("heading", { name: "Outline", exact: true })).toBeVisible();
+  });
+
+  it("renders the step header: mono eyebrow, chips, serif title, helper line, Regenerate with Previous batch, and a More menu", async () => {
+    const data = subsection({
+      roleId: "experimentation",
+      state: "approved",
+      shownBatchId: "batch-2" as Id<"seedBatches">,
+      // A selected seed from an earlier Batch proves a previous Batch exists.
+      items: [seed({ batchId: "batch-1" as Id<"seedBatches"> }), seed({ seedId: "seed-2" as Id<"seeds">, batchId: "batch-2" as Id<"seedBatches">, selected: true })],
+      approvalChallenge: cleanChallenge(),
+    });
+    __setQueryData("seeds:listBatches", { page: [], isDone: true, continueCursor: "done", truncated: false, budget });
+    const view = await render(SeedSubsectionPane, paneProps(data, { title: "Experimentation and iterations", kind: "multiple" }));
+
+    expect(view.container.querySelector("[data-section-eyebrow]")?.textContent).toBe("Section 244");
+    expect(getComputedStyle(view.container.querySelector<HTMLElement>("[data-section-eyebrow]")!).fontFamily).toContain("Mono");
+    await expect.element(page.getByText("Select all that apply", { exact: true })).toBeVisible();
+    expect(view.container.querySelector('[data-step-chip="approved"]')?.textContent).toBe("Approved");
+    const heading = page.getByRole("heading", { name: "Experimentation and iterations", exact: true });
+    expect(getComputedStyle(heading.element()).fontFamily).toContain("Georgia");
+    expect(Number.parseInt(getComputedStyle(heading.element()).fontWeight, 10)).toBeLessThanOrEqual(500);
+    const helper = view.container.querySelector<HTMLElement>("[data-step-helper]")!;
+    expect(helper.querySelector("svg")).not.toBeNull();
+    expect(helper.textContent).toContain("2 selected");
+    expect(helper.textContent).toContain("Underlined words are quoted from the sources.");
+    // No raw kind chip, no per-card regenerate, no dashed placeholder card.
+    expect(view.container.textContent).not.toContain("multiple");
+    expect(page.getByRole("button", { name: "Regenerate", exact: true }).elements()).toHaveLength(1);
+    expect(view.container.querySelector(".border-dashed")).toBeNull();
+
+    await page.getByRole("button", { name: "Previous batch", exact: true }).click();
+    await expect.poll(() => __clientQueryCalls("seeds:listBatches")).toHaveLength(1);
+    await expect.element(page.getByRole("region", { name: "Batch history" })).toBeVisible();
+
+    await page.getByRole("button", { name: "More step actions", exact: true }).click();
+    await expect.element(page.getByRole("menuitem", { name: "Batch history", exact: true })).toBeVisible();
+    // Skip step belongs to optional steps only; Brief needs a host.
+    expect(page.getByRole("menuitem", { name: "Skip step", exact: true }).elements()).toHaveLength(0);
+    expect(page.getByRole("menuitem", { name: "Brief", exact: true }).elements()).toHaveLength(0);
+  });
+
+  it("underlines only exact quotes and shows the quote, speaker and line, source and Open in transcript on hover and by keyboard", async () => {
+    const onOpenSource = vi.fn();
+    const citation = quotedCitation({ speaker: "Priya", line: 18 });
+    const paraphrased = { ...seed().provenance[0], _id: "provenance-paraphrase" as Id<"seedProvenance">, exactExcerpt: "Output held up well." };
+    await render(SeedSubsectionPane, paneProps(subsection({
+      items: [seed({ provenance: [citation, paraphrased] })],
+    }), { sourceAttribution: attributed, onOpenSource }));
+
+    const underlines = document.querySelectorAll<HTMLElement>("[data-exact-quote]");
+    expect(Array.from(underlines).map((element) => element.textContent)).toEqual(["The control loop stabilized output"]);
+    const underline = page.getByRole("button", { name: "The control loop stabilized output", exact: true });
+    const style = getComputedStyle(underline.element());
+    expect(style.textDecorationLine).toBe("underline");
+    expect(style.textDecorationStyle).toBe("solid");
+    expect(style.textDecorationColor).toBe("rgb(13, 172, 165)");
+
+    await underline.hover();
+    const card = page.getByRole("group", { name: "Quoted line" });
+    await expect.element(card).toBeVisible();
+    await expect.element(card).toHaveTextContent("“The control loop stabilized output”");
+    await expect.element(card).toHaveTextContent("Priya, line 18");
+    await expect.element(card).toHaveTextContent("Controller interview.docx");
+    await card.getByRole("button", { name: "Open in transcript", exact: true }).click();
+    expect(onOpenSource).toHaveBeenCalledWith(citation);
+    await expect.poll(() => document.querySelector("[data-quote-card]")).toBeNull();
+
+    // Keyboard: focus opens the card, Tab reaches its action, Escape closes
+    // it and returns focus to the quoted phrase.
+    (underline.element() as HTMLElement).focus();
+    await expect.element(card).toBeVisible();
+    await userEvent.keyboard("{Tab}");
+    expect(document.activeElement?.textContent).toBe("Open in transcript");
+    await userEvent.keyboard("{Escape}");
+    await expect.poll(() => document.querySelector("[data-quote-card]")).toBeNull();
+    expect(document.activeElement).toBe(underline.element());
+  });
+
+  it("drops underlines from an edited bullet and offers Restore original wording beside it", async () => {
+    await render(SeedSubsectionPane, paneProps(subsection({
+      items: [seed({
+        edited: true,
+        support: "writer_asserted",
+        bullets: ["The writer's own wording.", "Tests covered three load bands."],
+        provenance: [quotedCitation()],
+      })],
+    }), { sourceAttribution: attributed }));
+    expect(document.querySelectorAll("[data-exact-quote]")).toHaveLength(0);
+    await expect.element(page.getByRole("button", { name: "Restore original wording", exact: true })).toBeVisible();
+    // Honest state stays as a quiet marker, not a status chip.
+    expect(document.querySelector('[data-seed-marker="writer-asserted"]')?.textContent).toBe("Writer asserted");
+    await page.getByRole("button", { name: "Restore original wording", exact: true }).click();
+    expect(__mutationCalls("seeds:restoreWording")).toEqual([expect.objectContaining({ seedId: "seed-1", expectedSeedStageVersion: 7 })]);
+  });
+
+  it("puts the whole card in edit mode: Enter saves, Shift+Enter adds a line, Esc cancels and asks again before discarding changes", async () => {
+    await render(SeedSubsectionPane, paneProps(subsection()));
+    const card = () => document.querySelector<HTMLElement>('[data-seed-id="seed-1"]')!;
+    await page.getByRole("button", { name: "Edit", exact: true }).click();
+    expect(card().dataset.editing).toBe("true");
+    await expect.poll(() => getComputedStyle(card()).borderColor).toBe("rgb(13, 172, 165)");
+    const bullet = page.getByRole("textbox", { name: "Bullet 1" });
+    await expect.poll(() => document.activeElement).toBe(bullet.element());
+    // The pencil and bubble give way to a filled check and an outlined cross.
+    expect(page.getByRole("button", { name: "Edit", exact: true }).elements()).toHaveLength(0);
+    await expect.element(page.getByRole("button", { name: "Save wording", exact: true })).toBeVisible();
+    await expect.element(page.getByRole("button", { name: "Cancel editing", exact: true })).toBeVisible();
+    expect(document.body.textContent).not.toMatch(/\d+ words?/);
+
+    await bullet.fill("First line");
+    await userEvent.keyboard("{Shift>}{Enter}{/Shift}second line");
+    await expect.element(bullet).toHaveValue("First line\nsecond line");
+    expect(__mutationCalls("seeds:edit")).toEqual([]);
+    await userEvent.keyboard("{Enter}");
+    await expect.poll(() => __mutationCalls("seeds:edit")).toEqual([{
+      generationId,
+      roleId: "company_context",
+      seedId: "seed-1",
+      bullets: ["First line\nsecond line", "Tests covered three load bands."],
+      expectedSeedStageVersion: 7,
+    }]);
+    await expect.poll(() => page.getByRole("textbox", { name: "Bullet 1" }).elements().length).toBe(0);
+
+    // Esc on unchanged wording cancels at once.
+    await page.getByRole("button", { name: "Edit", exact: true }).click();
+    await expect.poll(() => document.activeElement).toBe(page.getByRole("textbox", { name: "Bullet 1" }).element());
+    await userEvent.keyboard("{Escape}");
+    await expect.poll(() => page.getByRole("textbox", { name: "Bullet 1" }).elements().length).toBe(0);
+
+    // Esc on changed wording asks once, then discards.
+    await page.getByRole("button", { name: "Edit", exact: true }).click();
+    await page.getByRole("textbox", { name: "Bullet 1" }).fill("Typed and then abandoned.");
+    await userEvent.keyboard("{Escape}");
+    await expect.element(page.getByText("Press Esc again to discard your changes.", { exact: true })).toBeVisible();
+    await expect.element(page.getByRole("textbox", { name: "Bullet 1" })).toHaveValue("Typed and then abandoned.");
+    await userEvent.keyboard("{Escape}");
+    await expect.poll(() => page.getByRole("textbox", { name: "Bullet 1" }).elements().length).toBe(0);
+    expect(__mutationCalls("seeds:edit")).toHaveLength(1);
+  });
+
+  it("opens the 196px feedback menu with presets and an Aurora-marked free-text row", async () => {
+    await render(SeedSubsectionPane, paneProps(subsection()));
+    await page.getByRole("button", { name: "Give feedback", exact: true }).click();
+    const menu = () => document.querySelector<HTMLElement>('[data-seed-feedback-menu="seed-1"]');
+    await expect.poll(() => menu()).not.toBeNull();
+    // The layout width; the shared menu entrance briefly scales the box.
+    expect(getComputedStyle(menu()!).width).toBe("196px");
+    expect(menu()!.textContent).toContain("Revise this seed");
+    expect(getComputedStyle(menu()!.querySelector("p")!).textTransform).toBe("uppercase");
+    expect(page.getByRole("menuitem").elements().map((item) => item.textContent?.trim())).toEqual([
+      "More specific",
+      "Shorter",
+      "Different angle",
+      "Plainer language",
+      "Tell it what to change…",
+    ]);
+    expect(menu()!.querySelector('[data-feedback-custom] [data-ai-mark="aurora"]')).not.toBeNull();
+
+    await page.getByRole("menuitem", { name: "Shorter", exact: true }).click();
+    await expect.poll(() => __mutationCalls("seeds:giveFeedback")).toEqual([expect.objectContaining({
+      seedId: "seed-1",
+      instruction: "Make this seed shorter.",
+      expectedSeedStageVersion: 7,
+    })]);
+
+    await feedbackMenu("Tell it what to change…");
+    const field = page.getByRole("textbox", { name: "Tell it what to change" });
+    await expect.poll(() => document.activeElement).toBe(field.element());
+    await field.fill("Say what was measured, not which model.");
+    await page.getByRole("button", { name: "Send feedback", exact: true }).click();
+    await expect.poll(() => __mutationCalls("seeds:giveFeedback")).toHaveLength(2);
+    expect(__mutationCalls("seeds:giveFeedback")[1]).toMatchObject({ instruction: "Say what was measured, not which model." });
+  });
+
+  it("nests revised seeds under the seed their feedback targeted, on canvas, with Withdraw feedback", async () => {
+    const revision = seed({
+      seedId: "seed-rev" as Id<"seeds">,
+      batchId: "batch-rev" as Id<"seedBatches">,
+      selected: false,
+      bullets: ["Iteration 3 measured divergence between predicted and observed temperatures."],
+      revisionOfSeedId: "seed-1" as Id<"seeds">,
+      feedbackRequestId: "feedback-1" as Id<"seedFeedbackRequests">,
+      provenance: [],
+    });
+    const group = (requestId: string, targetSeedId: string, revisedSeedIds: string[], instruction: string) => ({
+      requestId: requestId as Id<"seedFeedbackRequests">,
+      targetSeedId: targetSeedId as Id<"seeds">,
+      targetWording: ["An earlier seed that is not shown."],
+      instruction,
+      status: "active" as const,
+      batchId: null,
+      revisedSeedIds: revisedSeedIds as Id<"seeds">[],
+    });
+    await render(SeedSubsectionPane, paneProps(subsection({
+      items: [seed(), seed({ seedId: "seed-2" as Id<"seeds">, selected: false, bullets: ["Second seed."] }), revision],
+      feedbackGroups: [
+        group("feedback-1", "seed-1", ["seed-rev"], "Say what was measured."),
+        group("feedback-2", "seed-hidden", [], "Name the site."),
+      ],
+    })));
+
+    const nested = document.querySelector<HTMLElement>('[data-seed-cell="seed-1"] [data-feedback-group="feedback-1"]')!;
+    expect(nested).not.toBeNull();
+    expect(nested.querySelector('[data-seed-id="seed-rev"]')).not.toBeNull();
+    expect(nested.textContent).toContain("Revised seeds (1)");
+    expect(nested.textContent).toContain("from your feedback “Say what was measured.”");
+    expect(getComputedStyle(nested).backgroundColor).toBe("rgb(249, 252, 251)");
+    // The revision is not also a top-level card.
+    expect(document.querySelectorAll("[data-seed-column] > [data-seed-cell]")).toHaveLength(2);
+    // A group whose target is not shown is listed on its own.
+    const orphan = document.querySelector<HTMLElement>('[data-feedback-group="feedback-2"]')!;
+    expect(orphan.closest("[data-seed-cell]")).toBeNull();
+    expect(orphan.textContent).toContain("No revised seeds yet.");
+
+    await page.elementLocator(nested).getByRole("button", { name: "Withdraw feedback", exact: true }).click();
+    expect(__mutationCalls("seeds:withdrawFeedback")).toEqual([expect.objectContaining({
+      feedbackRequestId: "feedback-1",
+      expectedSeedStageVersion: 7,
+    })]);
+  });
+
+  it("approves from the Outline footer and continues to the next step, then to the Summary after the last one", async () => {
+    __setQueryData("seeds:getOutline", outline());
+    __setQueryData("seeds:getSubsection", subsection({ approvalChallenge: cleanChallenge() }));
+    __setQueryDataForArgs("seeds:getSubsection", { generationId, roleId: "goal_problem" }, subsection({
+      roleId: "goal_problem",
+      items: [seed({ seedId: "seed-goal" as Id<"seeds">, roleId: "goal_problem", bullets: ["Goal Seed wording."] })],
+      approvalChallenge: cleanChallenge(),
+    }));
+    const onReviewSummary = vi.fn();
+    const view = await render(SeedWorkspace, workspaceProps({ onReviewSummary }));
+    const footer = () => page.elementLocator(view.container.querySelector<HTMLElement>("[data-outline-footer]")!);
+    await expect.element(footer().getByRole("button", { name: "Approve and continue", exact: true })).toBeEnabled();
+    // Not ready and not reopened: approval is the only action.
+    expect(footer().getByRole("button", { name: "Review summary", exact: true }).elements()).toHaveLength(0);
+    await footer().getByRole("button", { name: "Approve and continue", exact: true }).click();
+    expect(__mutationCalls("seeds:approve")).toEqual([expect.objectContaining({ roleId: "company_context", approvalChallenge: "challenge-exact" })]);
+    await expect.element(page.getByRole("heading", { name: "Goal / Problem", exact: true })).toBeVisible();
+    await expect.poll(() => __activeQueryArgs("seeds:getSubsection")).toContainEqual({ generationId, roleId: "goal_problem" });
+    view.unmount();
+
+    // The last step, with every other step decided, continues to the Summary.
+    document.body.innerHTML = "";
+    localStorage.setItem(`seeds.openRole:writer-1:${generationId}`, "goal_improvements");
+    __setQueryData("seeds:getOutline", {
+      ...outline(),
+      rows: outline().rows.map((row) => (row.roleId === "goal_improvements" ? row : { ...row, state: "approved" })),
+    });
+    __setQueryDataForArgs("seeds:getSubsection", { generationId, roleId: "goal_improvements" }, subsection({
+      roleId: "goal_improvements",
+      items: [seed({ seedId: "seed-last" as Id<"seeds">, roleId: "goal_improvements" })],
+      approvalChallenge: cleanChallenge(),
+    }));
+    await render(SeedWorkspace, workspaceProps({ onReviewSummary }));
+    await page.getByRole("button", { name: "Approve and continue", exact: true }).click();
+    await expect.poll(() => onReviewSummary.mock.calls.length).toBe(1);
+  });
+
+  it("stacks Confirm and approve above Review summary on a reopened step and confirms it in place", async () => {
+    const rows = outline().rows.map((row) =>
+      row.roleId === "company_context" ? { ...row, state: "in_progress", approvedAt: 1_700_000_000_000 } : row
+    );
+    __setQueryData("seeds:getOutline", { ...outline(), rows });
+    __setQueryData("seeds:getSubsection", subsection({ approvalChallenge: cleanChallenge() }));
+    const onReviewSummary = vi.fn();
+    const view = await render(SeedWorkspace, workspaceProps({ onReviewSummary }));
+    const footerElement = () => view.container.querySelector<HTMLElement>("[data-outline-footer]")!;
+    const confirm = page.elementLocator(footerElement()).getByRole("button", { name: "Confirm and approve", exact: true });
+    const review = page.elementLocator(footerElement()).getByRole("button", { name: "Review summary", exact: true });
+    await expect.element(confirm).toBeEnabled();
+    await expect.element(review).toBeVisible();
+    const confirmRect = (confirm.element() as HTMLElement).getBoundingClientRect();
+    const reviewRect = (review.element() as HTMLElement).getBoundingClientRect();
+    expect(confirmRect.bottom).toBeLessThanOrEqual(reviewRect.top);
+    expect(Math.round(confirmRect.width)).toBe(Math.round(reviewRect.width));
+    expect(review.element().id).toBe("seed-review-summary-trigger");
+    // The helper line says why the step is open again.
+    expect(document.querySelector("[data-step-helper]")?.textContent).toContain("Reopened from the summary.");
+    expect(page.getByRole("button", { name: "Approve and continue", exact: true }).elements()).toHaveLength(0);
+
+    await confirm.click();
+    expect(__mutationCalls("seeds:approve")).toEqual([expect.objectContaining({ roleId: "company_context" })]);
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    // Confirmed in place: the step stays open and the Summary is one click away.
+    await expect.element(page.getByRole("heading", { name: "Company / Context", exact: true })).toBeVisible();
+    await review.click();
+    expect(onReviewSummary).toHaveBeenCalledTimes(1);
+
+    // Without `approvedAt` (older DTOs), an approved step is reopened too.
+    view.unmount();
+    document.body.innerHTML = "";
+    __setQueryData("seeds:getOutline", {
+      ...outline(),
+      rows: outline().rows.map((row) => (row.roleId === "company_context" ? { ...row, state: "approved" } : row)),
+    });
+    __setQueryData("seeds:getSubsection", subsection({ state: "approved", approvalChallenge: cleanChallenge() }));
+    await render(SeedWorkspace, workspaceProps({ onReviewSummary }));
+    await expect.element(page.getByRole("button", { name: "Confirm and approve", exact: true })).toBeVisible();
+    expect(document.querySelector('[data-step-chip="approved"]')?.textContent).toBe("Approved");
+  });
+
+  const manySeeds = () => Array.from({ length: 4 }, (_, index) => seed({
+    seedId: `seed-grid-${index}` as Id<"seeds">,
+    bullets: [`Grid seed ${index + 1} wording.`],
+  }));
+
+  it("lays out two 412px card columns at 1440 and one column with a 240px Outline at tablet width", async () => {
+    await page.viewport(1440, 900);
+    __setQueryData("seeds:getOutline", outline());
+    __setQueryData("seeds:getSubsection", subsection({ items: manySeeds() }));
+    const wide = await render(SeedWorkspace, workspaceProps());
+    wide.container.style.width = "1228px";
+    wide.container.style.height = "830px";
+    await expect.poll(() => document.querySelector("[data-seed-grid]")?.getAttribute("data-seed-grid")).toBe("two");
+    const columns = document.querySelectorAll<HTMLElement>("[data-seed-column]");
+    expect(columns).toHaveLength(2);
+    expect(Math.round(columns[0].getBoundingClientRect().width)).toBe(412);
+    expect(Math.round(columns[1].getBoundingClientRect().width)).toBe(412);
+    await expect.element(page.getByRole("slider", { name: "Resize Seed outline" })).toHaveAttribute("aria-valuenow", "300");
+    await page.getByLabelText("Seed workspace").screenshot({ path: await captures.path("seed-plan-desktop-1440") });
+    wide.unmount();
+
+    document.body.innerHTML = "";
+    await page.viewport(1024, 768);
+    const tablet = await render(SeedWorkspace, workspaceProps());
+    tablet.container.style.width = "956px";
+    tablet.container.style.height = "700px";
+    await expect.element(page.getByRole("slider", { name: "Resize Seed outline" })).toHaveAttribute("aria-valuenow", "240");
+    const outlinePane = tablet.container.querySelector<HTMLElement>('[aria-label="Seed outline"]')!.parentElement!;
+    expect(Math.round(outlinePane.getBoundingClientRect().width)).toBe(240);
+    await expect.poll(() => document.querySelector("[data-seed-grid]")?.getAttribute("data-seed-grid")).toBe("one");
+    expect(document.querySelectorAll("[data-seed-column]")).toHaveLength(1);
+    await expect.element(page.elementLocator(tablet.container.querySelector<HTMLElement>("[data-outline-footer]")!)
+      .getByRole("button", { name: "Approve and continue", exact: true })).toBeVisible();
+    await page.getByLabelText("Seed workspace").screenshot({ path: await captures.path("seed-plan-tablet-1024") });
+  });
+
+  it("gives phones a segmented Outline n/13 | Seeds switch, one column and a bottom bar with 44px regenerate and approve", async () => {
+    await page.viewport(390, 844);
+    __setQueryData("seeds:getOutline", {
+      ...outline(),
+      rows: outline().rows.map((row) => (row.order <= 2 ? { ...row, state: "approved" } : row)),
+    });
+    __setQueryData("seeds:getSubsection", subsection({ roleId: "passive_limitations", items: manySeeds(), approvalChallenge: cleanChallenge() }));
+    localStorage.setItem(`seeds.openRole:writer-1:${generationId}`, "passive_limitations");
+    const { container } = await render(SeedWorkspace, workspaceProps());
+    container.style.width = "390px";
+    container.style.height = "844px";
+    await expect.element(outlineSwitch()).toHaveTextContent("Outline 2/13");
+    await expect.element(seedsSwitch()).toHaveAttribute("aria-pressed", "true");
+    await expect.poll(() => document.querySelector("[data-seed-grid]")?.getAttribute("data-seed-grid")).toBe("one");
+    const bar = page.elementLocator(container.querySelector<HTMLElement>("[data-seed-bottom-bar]")!);
+    const regenerate = bar.getByRole("button", { name: "Regenerate", exact: true });
+    const approve = bar.getByRole("button", { name: "Approve and continue", exact: true });
+    await expect.element(approve).toBeEnabled();
+    expect(Math.round((regenerate.element() as HTMLElement).getBoundingClientRect().height)).toBe(44);
+    expect(Math.round((regenerate.element() as HTMLElement).getBoundingClientRect().width)).toBe(44);
+    expect(Math.round((approve.element() as HTMLElement).getBoundingClientRect().height)).toBe(44);
+    for (const target of [outlineSwitch(), seedsSwitch()]) {
+      expect((target.element() as HTMLElement).getBoundingClientRect().height).toBeGreaterThanOrEqual(44);
+    }
+    // The header Regenerate gives way to the bar's icon; no Outline footer.
+    expect(page.getByRole("button", { name: "Regenerate", exact: true }).elements()).toHaveLength(1);
+    expect(container.querySelector("[data-outline-footer]")).toBeNull();
+    await page.getByLabelText("Seed workspace").screenshot({ path: await captures.path("seed-plan-phone-390") });
+    await regenerate.click();
+    expect(__mutationCalls("seeds:regenerate")).toEqual([expect.objectContaining({ roleId: "passive_limitations" })]);
   });
 });

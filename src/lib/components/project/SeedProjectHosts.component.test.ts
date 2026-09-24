@@ -217,7 +217,7 @@ async function assertConnectedJourney(Component: typeof CurrentProjectPage | typ
   await browserPage.getByRole("textbox", { name: "Bullet 1" }).fill("Workspace draft survives the Summary.");
 
   // A7: keyboard entry moves focus to the Summary heading after rendering.
-  const reviewTrigger = browserPage.getByRole("button", { name: "Review Summary", exact: true });
+  const reviewTrigger = browserPage.getByRole("button", { name: "Review summary", exact: true });
   (reviewTrigger.element() as HTMLElement).focus();
   await userEvent.keyboard("{Enter}");
   await expect.element(browserPage.getByRole("heading", { name: "Summary review", exact: true })).toBeVisible();
@@ -245,7 +245,7 @@ async function assertConnectedJourney(Component: typeof CurrentProjectPage | typ
   browserUrl.searchParams.delete("view");
   window.history.replaceState({}, "", browserUrl);
 
-  // Returning by keyboard restores focus to the recreated Review Summary
+  // Returning by keyboard restores focus to the recreated Review summary
   // trigger without losing either local draft.
   const backToWorkspace = browserPage.getByRole("button", { name: "Back to plan", exact: true });
   (backToWorkspace.element() as HTMLElement).focus();
@@ -272,7 +272,7 @@ async function assertConnectedJourney(Component: typeof CurrentProjectPage | typ
     email: "writer@example.test",
   });
   await expect.element(browserPage.getByRole("textbox", { name: "Bullet 1" })).toHaveValue("Workspace draft survives the Summary.");
-  await browserPage.getByRole("button", { name: "Review Summary", exact: true }).click();
+  await browserPage.getByRole("button", { name: "Review summary", exact: true }).click();
   await browserPage.getByRole("button", { name: "Edit", exact: true }).click();
   await expect.element(browserPage.getByRole("textbox", { name: "Bullet 1" })).toHaveValue("Summary draft survives the workspace.");
   mounted.unmount();
@@ -306,10 +306,15 @@ describe("Seed project hosts", () => {
   async function assertOpenStepLink(Component: typeof CurrentProjectPage | typeof PreviewProjectPage) {
     // Board 3.3: a not-ready Summary links its open step; the workspace
     // restores that step from its own per-user, per-generation record.
+    // The plan only offers "Review summary" once it is ready (or on a reopened
+    // step), so a not-ready Summary is entered through its URL, as the Summary
+    // tab does.
     __setQueryData("seeds:getOutline", hostOutline({ ready: false, complete: true, blockingRoleIds: ["goal_problem"] }));
+    __setPageUrl("/project/project-seed-host?view=summary");
+    const browserUrl = new URL(window.location.href);
+    browserUrl.searchParams.set("view", "summary");
+    window.history.replaceState({}, "", browserUrl);
     const mounted = await render(Component, {});
-    await browserPage.getByRole("button", { name: "Review Summary", exact: true }).click();
-    await expect.poll(() => document.activeElement?.id).toBe("summary-review-title");
     await expect.element(summarySignOffButton()).toBeDisabled();
     await browserPage.getByRole("button", { name: "1 step still open: open Goal / Problem" }).click();
     await expect.element(browserPage.getByLabelText("Seed workspace")).toBeVisible();
@@ -367,7 +372,7 @@ describe("Seed project hosts", () => {
     });
     let mounted = await render(PreviewProjectPage, {});
     await expect.element(browserPage.getByLabelText("Seed workspace")).toBeVisible();
-    for (const name of ["Cancel iterative draft", "Edit", "Give feedback", "Regenerate", "Approve"]) {
+    for (const name of ["Cancel iterative draft", "Edit", "Give feedback", "Regenerate", "Approve and continue", "Confirm and approve"]) {
       expect(browserPage.getByRole("button", { name, exact: true }).elements()).toHaveLength(0);
     }
     mounted.unmount();
@@ -523,7 +528,7 @@ describe("Seed project hosts", () => {
       candidatesDone: 0,
     });
     await render(Component, {});
-    await browserPage.getByRole("button", { name: "Review Summary", exact: true }).click();
+    await browserPage.getByRole("button", { name: "Review summary", exact: true }).click();
     await confirmSummarySignOff();
     expect(__mutationCalls("generations:signOffSeedStage")).toEqual([{
       generationId: "generation-seed-host",
@@ -689,7 +694,7 @@ describe("Seed project hosts", () => {
     let mounted = await render(Component, {});
     await expect.element(browserPage.getByRole("button", { name: "Try again", exact: true })).toBeVisible();
     expect(browserPage.getByLabelText("Seed workspace").elements()).toHaveLength(0);
-    for (const name of ["Edit", "Give feedback", "Regenerate", "Approve", "Review Summary", "Cancel iterative draft", "Sign off and generate PD"]) {
+    for (const name of ["Edit", "Give feedback", "Regenerate", "Approve and continue", "Confirm and approve", "Review summary", "Cancel iterative draft", "Sign off and generate PD"]) {
       expect(browserPage.getByRole("button", { name, exact: true }).elements()).toHaveLength(0);
     }
     expect(__activeQueryArgs("seeds:getOutline")).toEqual([]);
@@ -717,7 +722,7 @@ describe("Seed project hosts", () => {
     mounted = await render(Component, {});
     await expect.element(browserPage.getByText("Older completed report.", { exact: true })).toBeVisible();
     expect(browserPage.getByLabelText("Seed workspace").elements()).toHaveLength(0);
-    for (const name of ["Edit", "Give feedback", "Regenerate", "Approve", "Review Summary", "Cancel iterative draft"]) {
+    for (const name of ["Edit", "Give feedback", "Regenerate", "Approve and continue", "Confirm and approve", "Review summary", "Cancel iterative draft"]) {
       expect(browserPage.getByRole("button", { name, exact: true }).elements()).toHaveLength(0);
     }
     mounted.unmount();
@@ -1138,7 +1143,7 @@ describe("Seed project hosts", () => {
       __setMutationResult("generations:signOffSeedStage", null);
     }
     const mounted = await render(Component, {});
-    await browserPage.getByRole("button", { name: "Review Summary", exact: true }).click();
+    await browserPage.getByRole("button", { name: "Review summary", exact: true }).click();
     // By keyboard: the bar's primary opens the confirm, whose primary starts it.
     (summarySignOffButton().element() as HTMLElement).focus();
     await userEvent.keyboard("{Enter}");
@@ -1256,7 +1261,7 @@ describe("Seed project hosts", () => {
     });
     __setMutationResult("generations:signOffSeedStage", null);
     const mounted = await render(Component, {});
-    await browserPage.getByRole("button", { name: "Review Summary", exact: true }).click();
+    await browserPage.getByRole("button", { name: "Review summary", exact: true }).click();
     await expect.poll(() => document.activeElement?.id).toBe("summary-review-title");
 
     let trigger: () => void;
@@ -1426,7 +1431,7 @@ describe("Seed project hosts", () => {
     await browserPage.getByRole("textbox", { name: "Bullet 1" }).fill("Submitted workspace wording.");
     await browserPage.getByRole("button", { name: "Save wording", exact: true }).click();
     await expect.element(browserPage.getByRole("button", { name: "Saving…", exact: true })).toBeDisabled();
-    await browserPage.getByRole("button", { name: "Review Summary", exact: true }).click();
+    await browserPage.getByRole("button", { name: "Review summary", exact: true }).click();
     await expect.element(browserPage.getByRole("heading", { name: "Summary review", exact: true })).toBeVisible();
 
     // Summary: a pending edit save, then back to the workspace.
@@ -1443,10 +1448,11 @@ describe("Seed project hosts", () => {
     await expect.element(bullet).toHaveValue("Submitted workspace wording.");
     await bullet.fill("Submitted workspace wording. Newer.");
     await browserPage.getByRole("button", { name: "Give feedback", exact: true }).last().click();
-    await browserPage.getByRole("textbox", { name: "Revision instruction" }).fill("Independent workspace instruction.");
+    await browserPage.getByRole("menuitem", { name: "Tell it what to change…", exact: true }).click();
+    await browserPage.getByRole("textbox", { name: "Tell it what to change" }).fill("Independent workspace instruction.");
 
     // The recreated Summary: newer wording plus an independent item draft.
-    await browserPage.getByRole("button", { name: "Review Summary", exact: true }).click();
+    await browserPage.getByRole("button", { name: "Review summary", exact: true }).click();
     await browserPage.getByRole("button", { name: "Edit", exact: true }).first().click();
     await expect.element(browserPage.getByRole("textbox", { name: "Bullet 1" })).toHaveValue("Submitted Summary wording.");
     await browserPage.getByRole("textbox", { name: "Bullet 1" }).fill("Submitted Summary wording. Newer.");
@@ -1461,8 +1467,8 @@ describe("Seed project hosts", () => {
     // Recreate both surfaces again: everything typed since remains.
     await browserPage.getByRole("button", { name: "Back to plan", exact: true }).click();
     await expect.element(browserPage.getByRole("textbox", { name: "Bullet 1" })).toHaveValue("Submitted workspace wording. Newer.");
-    await expect.element(browserPage.getByRole("textbox", { name: "Revision instruction" })).toHaveValue("Independent workspace instruction.");
-    await browserPage.getByRole("button", { name: "Review Summary", exact: true }).click();
+    await expect.element(browserPage.getByRole("textbox", { name: "Tell it what to change" })).toHaveValue("Independent workspace instruction.");
+    await browserPage.getByRole("button", { name: "Review summary", exact: true }).click();
     await browserPage.getByRole("button", { name: "Edit", exact: true }).first().click();
     await expect.element(browserPage.getByRole("textbox", { name: "Bullet 1" })).toHaveValue("Submitted Summary wording. Newer.");
     await browserPage.getByRole("button", { name: "Edit", exact: true }).click();
@@ -1490,7 +1496,7 @@ describe("Seed project hosts", () => {
     let accept: ((value: unknown) => void) | undefined;
     __setMutationResult("generations:signOffSeedStage", new Promise((resolve) => { accept = resolve; }));
     const mounted = await render(Component, {});
-    await browserPage.getByRole("button", { name: "Review Summary", exact: true }).click();
+    await browserPage.getByRole("button", { name: "Review summary", exact: true }).click();
     await confirmSummarySignOff();
     expect(__mutationCalls("generations:signOffSeedStage")).toEqual([{
       generationId: "generation-seed-host",

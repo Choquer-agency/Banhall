@@ -1,0 +1,166 @@
+<script lang="ts">
+  /**
+   * One exact quote inside a Seed bullet (ui-design-final.md sections 3 and
+   * 11, decision 17): a solid teal underline whose hover card shows the
+   * quoted line, the speaker and line when the transcript gives them, the
+   * source label with the state of its read, and "Open in transcript" when
+   * the host can open the source. The card sits right after the phrase in the
+   * DOM, so Tab moves from the phrase into it; focus or hover opens it, a
+   * click or Enter keeps it open, and Escape closes it and returns focus.
+   */
+  import { onDestroy, tick } from "svelte";
+  import { describeSource, type SeedSourceAttribution } from "./attribution";
+  import { citationSpeakerLine, type SeedCitation } from "./dtoExtras";
+
+  let {
+    text,
+    citation,
+    sourceAttribution,
+    onOpenSource,
+  }: {
+    text: string;
+    citation: SeedCitation;
+    sourceAttribution: SeedSourceAttribution;
+    onOpenSource?: (citation: SeedCitation) => void;
+  } = $props();
+
+  const uid = $props.id();
+  const CARD_WIDTH = 288;
+  const OPEN_DELAY_MS = 120;
+  const CLOSE_DELAY_MS = 160;
+
+  let open = $state(false);
+  let pinned = $state(false);
+  let trigger = $state<HTMLButtonElement | null>(null);
+  let card = $state<HTMLElement | null>(null);
+  let position = $state({ top: 0, left: 0 });
+  let timer: ReturnType<typeof setTimeout> | null = null;
+
+  const source = $derived(describeSource(sourceAttribution, String(citation.sourceId)));
+  const speakerLine = $derived(citationSpeakerLine(citation));
+
+  function clearTimer() {
+    if (timer) clearTimeout(timer);
+    timer = null;
+  }
+
+  function place() {
+    if (!trigger) return;
+    const rect = trigger.getBoundingClientRect();
+    const height = card?.offsetHeight ?? 120;
+    const width = Math.min(CARD_WIDTH, window.innerWidth - 16);
+    const left = Math.max(8, Math.min(rect.left, window.innerWidth - width - 8));
+    const below = rect.bottom + 6;
+    const top = below + height > window.innerHeight - 8 && rect.top - height - 6 > 8
+      ? rect.top - height - 6
+      : below;
+    position = { top, left };
+  }
+
+  async function show() {
+    clearTimer();
+    if (open) return;
+    open = true;
+    place();
+    await tick();
+    place();
+  }
+
+  // Focus handed back to the phrase by Escape must not reopen the card.
+  let refocusing = false;
+
+  function hide() {
+    clearTimer();
+    open = false;
+    pinned = false;
+  }
+
+  function scheduleShow() {
+    clearTimer();
+    timer = setTimeout(() => void show(), OPEN_DELAY_MS);
+  }
+
+  function scheduleHide() {
+    if (pinned) return;
+    clearTimer();
+    timer = setTimeout(hide, CLOSE_DELAY_MS);
+  }
+
+  $effect(() => {
+    if (!open) return;
+    const reposition = () => place();
+    window.addEventListener("scroll", reposition, true);
+    window.addEventListener("resize", reposition);
+    return () => {
+      window.removeEventListener("scroll", reposition, true);
+      window.removeEventListener("resize", reposition);
+    };
+  });
+
+  onDestroy(clearTimer);
+</script>
+
+<span
+  class="inline"
+  data-seed-quote
+  role="presentation"
+  onfocusout={(event) => {
+    const next = event.relatedTarget;
+    if (next instanceof Node && event.currentTarget.contains(next)) return;
+    hide();
+  }}
+  onkeydown={(event) => {
+    if (event.key !== "Escape" || !open) return;
+    event.preventDefault();
+    event.stopPropagation();
+    hide();
+    refocusing = true;
+    trigger?.focus();
+    refocusing = false;
+  }}
+><button
+    bind:this={trigger}
+    type="button"
+    aria-expanded={open}
+    aria-controls={`seed-quote-card-${uid}`}
+    data-exact-quote
+    class="inline cursor-default rounded-[2px] bg-transparent p-0 text-left align-baseline [color:inherit] underline decoration-primary decoration-1 underline-offset-[5px] [font:inherit] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+    onpointerenter={(event) => {
+      if (event.pointerType !== "touch") scheduleShow();
+    }}
+    onpointerleave={(event) => {
+      if (event.pointerType !== "touch") scheduleHide();
+    }}
+    onfocus={() => {
+      if (!refocusing) void show();
+    }}
+    onclick={() => {
+      if (open && pinned) {
+        hide();
+        return;
+      }
+      pinned = true;
+      void show();
+    }}
+  >{text}</button>{#if open}<span
+      bind:this={card}
+      id={`seed-quote-card-${uid}`}
+      role="group"
+      aria-label="Quoted line"
+      data-quote-card
+      class="fixed z-[90] block rounded-lg border border-line bg-surface p-3 text-left shadow-lg"
+      style={`top:${position.top}px;left:${position.left}px;width:min(${CARD_WIDTH}px, calc(100vw - 16px))`}
+      onpointerenter={clearTimer}
+      onpointerleave={scheduleHide}
+    ><span class="block text-sm leading-snug text-ink" data-quote-text>“{citation.exactExcerpt}”</span>{#if speakerLine}<span
+          class="mt-2 block text-xs text-ink-secondary"
+          data-quote-speaker>{speakerLine}</span>{/if}<span
+        class={`mt-1 block text-xs ${source.attributed ? "text-ink-muted" : "italic text-ink-muted"}`}
+        data-quote-source
+        data-attributed={source.attributed}>{source.label}</span>{#if onOpenSource}<button
+          type="button"
+          class="mt-2 block rounded text-xs font-medium text-action-primary hover:text-action-primary-hover focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+          onclick={() => {
+            hide();
+            onOpenSource(citation);
+          }}>Open in transcript</button>{/if}</span>{/if}</span>

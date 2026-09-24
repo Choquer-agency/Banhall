@@ -454,31 +454,35 @@ accessibility defect is copied.
   (`banhall_intake_context_ratio`). Below `lg`: explicit Work/Context
   `aria-pressed` switches, one pane visible at a time, ≥44px targets. The
   state remains honest: no chat, composer, or report is implied.
-- **Seed workspace and Summary Review.** The Seed workspace reuses the intake
-  split contract with a persistent Outline at `lg`+, independent pane
-  scrolling, a keyboard-operable separator clamped to 24–55%, and the
-  `seeds.splitRatio` browser key. Narrow layouts show one explicit Outline or
-  Work pane at a time. The action bar stays pinned below the scrolling Seed
-  cards. Summary Review is a full-width in-page state with a browser-history
+- **Seed workspace and Summary Review.** The Seed workspace (the Plan, final
+  UI contract `ui-design-final.md` section 3) keeps a persistent Outline at
+  `lg`+ with independent pane scrolling and a keyboard- and pointer-operable
+  Outline width of 240 to 400px (default 300px, 240px below 1280px) kept under
+  the `seeds.outlineWidth` browser key. Narrow layouts show one pane at a time
+  through a segmented `Outline n/13 | Seeds` switch. Approval is pinned: in the
+  Outline footer on desktop (`Approve and continue`, or `Confirm and approve`
+  above `Review summary` on a reopened step) and in a bottom bar with a
+  regenerate icon on phones. Seed cards sit in two 412px columns when the pane
+  is wide enough and one column otherwise. Summary Review is a full-width in-page state with a browser-history
   entry. It has no separate jump list; its Section headings stay sticky within
   the Summary scroll owner, while incomplete pagination remains visibly
   partial. Beside Sign off it shows only the model, plus the Summary version
   from version 2. Seed edits never block on the AI Seed's 25-word,
   one-sentence contract; past it a quiet "Long for a seed" note appears.
-  The Brief opens in the shared right drawer from the collapsed state, so it
-  never creates a third docked pane: focus moves into the drawer, and Escape
-  or Close returns it to the Brief trigger. Choosing a Subsection from the
+  The Brief opens in the shared right drawer from the step header More menu,
+  so it never creates a third docked pane: focus moves into the drawer, and
+  Escape or Close returns it to the More menu trigger. Choosing a Subsection from the
   narrow Outline moves focus to the Work pane heading it reveals. Entering
   Summary Review (trigger or browser history) moves focus to its heading;
-  leaving it returns focus to the recreated `Review Summary` or `Signed-off
+  leaving it returns focus to the recreated `Review summary` or `Signed-off
   Summary` trigger, so the non-modal transition never strands keyboard focus.
   Cited-source names carry the state of their read: loading, unavailable
   (with an explicit retry), pending or not retrieved, or not on record; a
   missing name is never shown as an attributed source. An Outline read that
   stayed within the server's safe processing limit is qualified, never
-  definitive: approved counts read `N+ (partial read)`, previews carry a
-  `Partial ·` prefix, a `Reload Outline` action is the safe recovery, and
-  readiness remains the server's. Retention copy is truthful: while browser
+  definitive: Outline counts read `N+` with an accessible `partial read`
+  note (rows carry no previews), a `Reload Outline` action is the safe
+  recovery, and readiness remains the server's. Retention copy is truthful: while browser
   storage mirrors unsaved text the copy names the device; when it cannot, a
   persistence notice says the text stays in the open workspace or review only,
   and every unsaved item is one browser record of its own (`seeds.draft:` and
@@ -488,7 +492,7 @@ accessibility defect is copied.
   bookkeeping need a current successful Subsection read: while a subscription
   is re-established the retained cards stay readable under a `Waiting for the
   live read` status with their actions off. A truncated card projection
-  labels its selected count `N+ selected in the shown Seeds · complete count
+  labels its selected count `N+ selected in the shown seeds, complete count
   pending` until the complete server review supplies its own count. The
   Outline resize handle is a horizontal slider driven by pointer events (one
   captured gesture, released on pointer up, cancel or destruction) and by

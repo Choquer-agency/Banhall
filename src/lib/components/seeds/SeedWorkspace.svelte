@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onDestroy, tick, untrack } from "svelte";
+  import { onDestroy, tick, untrack, type Snippet } from "svelte";
   import { useConvexClient, useMutation, useQuery } from "convex-svelte";
   import type { Id } from "../../../../convex/_generated/dataModel";
   import {
@@ -8,7 +8,7 @@
   } from "../../../../shared/pdSubsections";
   import { useStableQuery } from "$lib/stableQuery.svelte";
   import { userErrorMessage } from "$lib/errors";
-  import { sourceChipLabel } from "$lib/brief";
+  import { sourceChipLabel, type SourceKind } from "$lib/brief";
   import Button from "$lib/components/ui/Button.svelte";
   import Spinner from "$lib/components/ui/Spinner.svelte";
   import * as Drawer from "$lib/components/ui/drawer/index.js";
@@ -16,6 +16,7 @@
   import SeedOutline from "./SeedOutline.svelte";
   import SeedSubsectionPane from "./SeedSubsectionPane.svelte";
   import type { SeedSourceAttribution } from "./attribution";
+  import { rowApprovedAt, type SeedCitation } from "./dtoExtras";
   import { SEED_REVIEW_SUMMARY_TRIGGER_ID } from "./summaryFocus";
   import type { SeedDraftUpdate, SeedLocalDraft } from "./types";
   import { seedsApi } from "./api";
@@ -25,11 +26,15 @@
     projectId,
     userId,
     onReviewSummary,
+    onOpenSource = undefined,
   }: {
     generationId: Id<"generations">;
     projectId: Id<"projects">;
     userId: string;
     onReviewSummary: () => void;
+    /** Opens a quoted source in its transcript; without it the quote card
+     * shows no "Open in transcript" action. */
+    onOpenSource?: (citation: SeedCitation) => void;
   } = $props();
 
   // A failed read is retried by re-establishing the live subscriptions.
@@ -52,8 +57,14 @@
   let mobilePane = $state<"outline" | "work">("work");
   // At `lg` and above both panes are displayed; below it, only the selected one.
   let largeViewport = $state(false);
-  let splitRatio = $state(0.32);
+  // Below 1280px (tablet) the Outline defaults to 240px, otherwise 300px; a
+  // width the writer chose (240 to 400px) wins on every viewport.
+  let wideViewport = $state(true);
+  let storedOutlineWidth = $state<number | null>(null);
   let dragging = $state(false);
+  // The current step's approval actions, rendered by the Outline footer (or
+  // the phone bottom bar) while the pane that owns their state is mounted.
+  let approvalActions = $state.raw<Snippet<["outline" | "bar"]> | null>(null);
   let briefOpen = $state(false);
   // A refused open is published only for the request, owner, role and mount
   // that submitted it (R5-05): a late refusal for another role or an obsolete
@@ -73,7 +84,6 @@
   let hydratedOwner = $state<DraftOwner | null>(null);
   let workPane = $state<HTMLElement | null>(null);
   let outlinePane = $state<HTMLElement | null>(null);
-  let briefTrigger = $state<HTMLButtonElement | null>(null);
   // Set once this workspace is destroyed: no pending operation may publish,
   // request, mutate or rewrite persistence from its obsolete state afterwards.
   let disposed = false;
@@ -105,10 +115,23 @@
   let recoveryToken = 0;
   const RECOVERY_CHUNK = 32;
 
+  // Outline width (decision 19): 240 to 400px, keyboard and pointer, kept
+  // per browser.
+  const OUTLINE_WIDTH_KEY = "seeds.outlineWidth";
+  const OUTLINE_MIN = 240;
+  const OUTLINE_MAX = 400;
+  const OUTLINE_STEP = 10;
+
   const READ_FAILURE_NOTICE =
     "Editing is paused until the live read of this subsection recovers.";
   const READ_PENDING_NOTICE =
     "Editing is paused until the live read of this subsection returns.";
+
+  /** The shared source chip label, without the middle-dot separator the
+   * plan's copy rules do not allow ("Interview 2 (digest)"). */
+  function planSourceLabel(source: { label: string; kind: SourceKind }) {
+    return sourceChipLabel({ source }).replace(/ · digest$/, " (digest)");
+  }
 
   function isRoleId(value: string | null): value is PdSubsectionRoleId {
     return value !== null && PD_SUBSECTIONS.some((role) => role.roleId === value);
@@ -276,9 +299,10 @@
 
   $effect(() => {
     try {
-      const storedRatio = Number(localStorage.getItem("seeds.splitRatio"));
-      if (Number.isFinite(storedRatio) && storedRatio >= 0.24 && storedRatio <= 0.55) {
-        untrack(() => (splitRatio = storedRatio));
+      const raw = localStorage.getItem(OUTLINE_WIDTH_KEY);
+      const stored = raw === null ? Number.NaN : Number(raw);
+      if (Number.isFinite(stored) && stored >= OUTLINE_MIN && stored <= OUTLINE_MAX) {
+        untrack(() => (storedOutlineWidth = Math.round(stored)));
       }
     } catch {
       // Resizing keeps its default when browser storage is unavailable.
@@ -289,12 +313,18 @@
   // beside the Outline; below it, the selected pane is the only one shown.
   $effect(() => {
     const media = window.matchMedia("(min-width: 64rem)");
+    const wide = window.matchMedia("(min-width: 80rem)");
     const apply = () => {
       largeViewport = media.matches;
+      wideViewport = wide.matches;
     };
     apply();
     media.addEventListener("change", apply);
-    return () => media.removeEventListener("change", apply);
+    wide.addEventListener("change", apply);
+    return () => {
+      media.removeEventListener("change", apply);
+      wide.removeEventListener("change", apply);
+    };
   });
   // Whether the Work surface is displayed (A11): responsive changes and the
   // narrow pane switch both re-evaluate it.
@@ -351,6 +381,49 @@
   const activeDefinition = $derived(
     PD_SUBSECTIONS.find((definition) => definition.roleId === activeRoleId) ?? PD_SUBSECTIONS[0]
   );
+  const outlineWidth = $derived(storedOutlineWidth ?? (wideViewport ? 300 : OUTLINE_MIN));
+  const activeRow = $derived(outline?.rows.find((row) => row.roleId === activeRoleId) ?? null);
+  // A step approved before (outline `approvedAt`) and opened again is
+  // reopened: it is confirmed in place instead of approved and continued.
+  const reopened = $derived(
+    !!activeRow && (activeRow.state === "approved" || rowApprovedAt(activeRow) !== null)
+  );
+  const decidedCount = $derived(
+    outline?.rows.filter((row) => row.state === "approved" || row.state === "skipped").length ?? 0
+  );
+  // "Review summary" sits under approval when the step is reopened, when the
+  // server says every step is decided, or for a reader who cannot approve.
+  const reviewSummaryShown = $derived(
+    !!outline && (reopened || outline.readiness.ready || !outline.canEdit)
+  );
+
+  /** Lets the mounted pane hand over its approval actions; the returned
+   * function removes them only while they are still the registered ones. */
+  function registerApproval(actions: Snippet<["outline" | "bar"]>) {
+    approvalActions = actions;
+    return () => {
+      if (approvalActions === actions) approvalActions = null;
+    };
+  }
+
+  /** After "Approve and continue": the next step in order, or the first open
+   * step before it once the last is done, or the Summary when none is left. */
+  function continueAfterApproval(approvedRoleId: PdSubsectionRoleId) {
+    if (disposed || !ownerMatches() || activeRoleId !== approvedRoleId) return;
+    const order = PD_SUBSECTIONS.map((definition) => definition.roleId);
+    const index = order.indexOf(approvedRoleId);
+    const undecided = (roleId: PdSubsectionRoleId) => {
+      const row = outline?.rows.find((candidate) => candidate.roleId === roleId);
+      return !row || (row.state !== "approved" && row.state !== "skipped");
+    };
+    const next = order[index + 1] ?? order.slice(0, index).find(undecided);
+    if (next) void openRoleFromOutline(next);
+    else onReviewSummary();
+  }
+
+  function openBrief() {
+    briefOpen = true;
+  }
   // Readable names with the state of the read behind them (A8): a failed or
   // incomplete read is announced rather than showing missing names as attributed.
   const sourceAttribution = $derived.by((): SeedSourceAttribution => {
@@ -361,7 +434,7 @@
       for (const source of owned.sources) {
         labels.set(
           String(source.sourceId),
-          sourceChipLabel({ source: { label: source.label, kind: source.kind } })
+          planSourceLabel({ label: source.label, kind: source.kind })
         );
       }
     }
@@ -516,7 +589,7 @@
         const found = new Set<string>();
         for (const source of result.sources) {
           const sourceId = String(source.sourceId);
-          labels[sourceId] = sourceChipLabel({ source: { label: source.label, kind: source.kind } });
+          labels[sourceId] = planSourceLabel({ label: source.label, kind: source.kind });
           found.add(sourceId);
         }
         const unrecoverable = new Set(recovery.unrecoverable);
@@ -686,14 +759,11 @@
     retryingReads = false;
   }
 
-  function clampRatio(value: number) {
-    return Math.max(0.24, Math.min(0.55, value));
-  }
-
-  function setRatio(value: number) {
-    splitRatio = clampRatio(value);
+  function setOutlineWidth(value: number) {
+    const next = Math.round(Math.max(OUTLINE_MIN, Math.min(OUTLINE_MAX, value)));
+    storedOutlineWidth = next;
     try {
-      localStorage.setItem("seeds.splitRatio", String(splitRatio));
+      localStorage.setItem(OUTLINE_WIDTH_KEY, String(next));
     } catch {
       // Resizing remains available for this visit.
     }
@@ -721,7 +791,7 @@
     const move = (moveEvent: PointerEvent) => {
       if (moveEvent.pointerId !== pointerId) return;
       const rect = host.getBoundingClientRect();
-      if (rect.width > 0) setRatio((moveEvent.clientX - rect.left) / rect.width);
+      if (rect.width > 0) setOutlineWidth(moveEvent.clientX - rect.left);
     };
     const finish = (endEvent: PointerEvent) => {
       if (endEvent.pointerId === pointerId) endDrag();
@@ -780,7 +850,7 @@
     <p class="text-body text-gap-text!">
       {message} {userErrorMessage(cause, "The server could not return the current Seed decisions.")}
     </p>
-    <p class="mt-1 text-data text-ink-muted">
+    <p class="mt-1 text-xs text-ink-muted">
       Decisions stay unavailable until the live read recovers. {@render retention()}
     </p>
     <Button class="mt-2 min-h-11" variant="secondary" size="sm" onclick={retryReads} disabled={retryingReads}>
@@ -789,44 +859,51 @@
   </div>
 {/snippet}
 
-<section class="relative flex h-full min-h-0 flex-col overflow-hidden bg-canvas" aria-label="Seed workspace">
-  <header class="flex shrink-0 flex-wrap items-center gap-2 border-b border-line bg-surface px-4 py-2.5">
-    <div class="inline-flex rounded-lg bg-gray-100 p-1 lg:hidden" aria-label="Workspace pane">
-      <button
-        type="button"
-        aria-pressed={mobilePane === "outline"}
-        onclick={() => (mobilePane = "outline")}
-        class={`min-h-11 rounded-md px-4 text-body focus-visible:outline focus-visible:outline-2 focus-visible:outline-navy ${mobilePane === "outline" ? "bg-primary text-white" : "text-ink hover:bg-primary-wash"}`}
-      >Outline</button>
-      <button
-        type="button"
-        aria-pressed={mobilePane === "work"}
-        onclick={() => (mobilePane = "work")}
-        class={`min-h-11 rounded-md px-4 text-body focus-visible:outline focus-visible:outline-2 focus-visible:outline-navy ${mobilePane === "work" ? "bg-primary text-white" : "text-ink hover:bg-primary-wash"}`}
-      >Work</button>
-    </div>
-    <p class="order-last w-full flex-none text-body text-ink-muted lg:order-none lg:min-w-0 lg:w-auto lg:flex-1">
-      {outline?.readiness.complete === false
-        ? "Readiness could not be fully computed within the server's safe processing limit."
-        : outline?.readiness.ready
-          ? "All decisions are ready for Summary Review."
-          : `${outline?.readiness.blockingRoleIds.length ?? 13} subsection(s) still need a decision.`}
-    </p>
-    {#if outline?.usage.notice}
-      <span class="rounded-full bg-gap-bg px-2 py-1 text-label text-gap-text!">
-        {outline.usage.requests} seed requests
-      </span>
+{#snippet approvalFooter(layout: "outline" | "bar")}
+  <div class="flex flex-col gap-2" data-workspace-approval={layout}>
+    {#if approvalActions && subsection}
+      {@render approvalActions(layout)}
+    {:else if outline?.canEdit}
+      <!-- The step is still loading: its approval waits for a current read. -->
+      <Button class={`w-full ${layout === "bar" ? "h-11" : "h-9"}`} disabled>
+        {reopened ? "Confirm and approve" : "Approve and continue"}
+      </Button>
     {/if}
-    <button
-      bind:this={briefTrigger}
-      type="button"
-      aria-haspopup="dialog"
-      aria-expanded={briefOpen}
-      onclick={() => (briefOpen = true)}
-      class="inline-flex min-h-11 items-center justify-center rounded-lg border border-transparent px-4 py-2 text-sm font-medium text-ink-secondary transition-colors duration-200 ease-out hover:bg-primary-wash hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 motion-reduce:transition-none"
-    >Brief</button>
-    <Button id={SEED_REVIEW_SUMMARY_TRIGGER_ID} size="sm" onclick={onReviewSummary}>Review Summary</Button>
-  </header>
+    {#if reviewSummaryShown}
+      <Button
+        id={SEED_REVIEW_SUMMARY_TRIGGER_ID}
+        variant="secondary"
+        class={`w-full ${layout === "bar" ? "h-11" : "h-9"}`}
+        onclick={onReviewSummary}
+      >Review summary</Button>
+    {/if}
+  </div>
+{/snippet}
+
+{#snippet outlineFooter()}
+  {@render approvalFooter("outline")}
+{/snippet}
+
+<section class="relative flex h-full min-h-0 flex-col overflow-hidden bg-surface" aria-label="Seed workspace">
+  {#if !largeViewport && outline}
+    <!-- Phone and narrow layouts show one pane at a time (3.6). -->
+    <div class="shrink-0 border-b border-line-soft px-4 py-2">
+      <div class="grid grid-cols-2 gap-1 rounded-lg bg-chrome p-1" role="group" aria-label="Workspace pane">
+        <button
+          type="button"
+          aria-pressed={mobilePane === "outline"}
+          onclick={() => (mobilePane = "outline")}
+          class={`inline-flex min-h-11 items-center justify-center gap-1.5 rounded-md px-3 text-sm transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary motion-reduce:transition-none ${mobilePane === "outline" ? "bg-surface text-ink shadow-sm" : "text-ink-secondary hover:text-ink"}`}
+        >Outline <span class="text-xs text-ink-muted">{decidedCount}/{outline.rows.length}</span></button>
+        <button
+          type="button"
+          aria-pressed={mobilePane === "work"}
+          onclick={() => (mobilePane = "work")}
+          class={`inline-flex min-h-11 items-center justify-center rounded-md px-3 text-sm transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary motion-reduce:transition-none ${mobilePane === "work" ? "bg-surface text-ink shadow-sm" : "text-ink-secondary hover:text-ink"}`}
+        >Seeds</button>
+      </div>
+    </div>
+  {/if}
 
   {#if openError && openError.roleId === activeRoleId}
     <!-- The refusal belongs to the displayed role; Retry resubmits the open
@@ -846,12 +923,15 @@
   {/if}
 
   {#if outlinePartial}
-    <!-- Partial counts and previews are qualified, never definitive (A4):
-         the server still decides readiness; a reload is the safe recovery,
-         and a read that stays bounded remains an honest refusal. -->
+    <!-- Partial counts are qualified, never definitive (A4): the server
+         still decides readiness; a reload is the safe recovery, and a read
+         that stays bounded remains an honest refusal. -->
     <div role="status" data-outline-partial class="flex shrink-0 flex-wrap items-center gap-2 border-b border-line bg-gap-bg px-4 py-2 text-body text-gap-text!">
       <p class="min-w-0 flex-1">
-        The Outline was read within the server's safe processing limit, so counts and previews may be incomplete. Readiness is still decided by the server.
+        The Outline was read within the server's safe processing limit, so counts and previews may be incomplete.
+        {outline?.readiness.complete === false
+          ? "Readiness could not be fully computed within the server's safe processing limit."
+          : "Readiness is still decided by the server."}
       </p>
       <Button class="min-h-11" variant="secondary" size="sm" onclick={retryReads} disabled={retryingReads}>
         {retryingReads ? "Reloading…" : "Reload Outline"}
@@ -871,40 +951,46 @@
     <div class={`flex min-h-0 flex-1 ${dragging ? "select-none" : ""}`}>
       <div
         bind:this={outlinePane}
-        class={`${mobilePane === "outline" ? "block" : "hidden"} min-h-0 w-full flex-none border-r border-line lg:block lg:w-[var(--seed-outline-width)]`}
-        style={`--seed-outline-width: ${splitRatio * 100}%`}
+        class={`${mobilePane === "outline" ? "block" : "hidden"} min-h-0 w-full flex-none border-r border-line-soft lg:block lg:w-[var(--seed-outline-width)]`}
+        style={`--seed-outline-width: ${outlineWidth}px`}
       >
-        <SeedOutline rows={outline.rows} {activeRoleId} onOpen={openRoleFromOutline} />
+        <SeedOutline
+          rows={outline.rows}
+          {activeRoleId}
+          onOpen={openRoleFromOutline}
+          usageNotice={outline.usage.notice ? `${outline.usage.requests} seed requests` : null}
+          footer={largeViewport ? outlineFooter : undefined}
+        />
       </div>
-      <!-- The value is the Outline's width, adjusted with Left/Right, Home and
-           End, so the slider is declared horizontal. -->
+      <!-- The value is the Outline's width in pixels, adjusted with Left/Right,
+           Home and End, so the slider is declared horizontal. -->
       <button
         type="button"
         role="slider"
         aria-label="Resize Seed outline"
         aria-orientation="horizontal"
-        aria-valuemin="24"
-        aria-valuemax="55"
-        aria-valuenow={Math.round(splitRatio * 100)}
-        aria-valuetext={`Outline ${Math.round(splitRatio * 100)}% wide`}
+        aria-valuemin={OUTLINE_MIN}
+        aria-valuemax={OUTLINE_MAX}
+        aria-valuenow={outlineWidth}
+        aria-valuetext={`Outline ${outlineWidth} pixels wide`}
         onpointerdown={startDrag}
         onkeydown={(event) => {
-          if (event.key === "ArrowLeft") setRatio(splitRatio - 0.02);
-          else if (event.key === "ArrowRight") setRatio(splitRatio + 0.02);
-          else if (event.key === "Home") setRatio(0.24);
-          else if (event.key === "End") setRatio(0.55);
+          if (event.key === "ArrowLeft") setOutlineWidth(outlineWidth - OUTLINE_STEP);
+          else if (event.key === "ArrowRight") setOutlineWidth(outlineWidth + OUTLINE_STEP);
+          else if (event.key === "Home") setOutlineWidth(OUTLINE_MIN);
+          else if (event.key === "End") setOutlineWidth(OUTLINE_MAX);
           else return;
           event.preventDefault();
         }}
-        class="group hidden w-3 flex-none cursor-col-resize touch-none items-center justify-center focus-visible:outline focus-visible:outline-2 focus-visible:outline-navy lg:flex"
+        class="group relative -mx-1.5 hidden w-3 flex-none cursor-col-resize touch-none items-stretch justify-center focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary lg:flex"
       >
-        <span class="h-12 w-1 rounded-full bg-gray-300 transition-colors group-hover:bg-primary"></span>
+        <span class={`w-px transition-colors motion-reduce:transition-none ${dragging ? "bg-primary" : "bg-transparent group-hover:bg-primary group-focus-visible:bg-primary"}`}></span>
       </button>
       <div
         bind:this={workPane}
         tabindex="-1"
         aria-label="Seed work"
-        class={`${mobilePane === "work" ? "flex" : "hidden"} min-h-0 min-w-0 flex-1 flex-col outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-navy lg:flex`}
+        class={`${mobilePane === "work" ? "flex" : "hidden"} min-h-0 min-w-0 flex-1 flex-col outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary lg:flex`}
       >
         {#if subsection}
           {#if subsectionError}
@@ -928,6 +1014,8 @@
                 drafts={paneDrafts}
                 {sourceAttribution}
                 {persistence}
+                {reopened}
+                compact={!largeViewport}
                 unavailableNotice={subsectionError
                   ? READ_FAILURE_NOTICE
                   : !subsectionCurrent
@@ -936,6 +1024,10 @@
                 onDraftChange={updateDraft}
                 onRecoverSources={recoverSourceNames}
                 onRetrySources={retrySources}
+                onRegisterApproval={registerApproval}
+                onApproved={() => continueAfterApproval(subsection.roleId)}
+                onOpenBrief={openBrief}
+                {onOpenSource}
               />
             {/key}
           </div>
@@ -948,6 +1040,12 @@
             <Spinner size="sm" /> Loading subsection…
           </div>
         {/if}
+        {#if !largeViewport}
+          <!-- Phone bottom bar (3.6): regenerate and approve, 44px targets. -->
+          <div class="shrink-0 border-t border-line-soft bg-surface px-4 py-3" data-seed-bottom-bar>
+            {@render approvalFooter("bar")}
+          </div>
+        {/if}
       </div>
     </div>
   {/if}
@@ -957,8 +1055,9 @@
     <Drawer.Content
       class="z-[110] border-line bg-canvas p-3 text-ink shadow-2xl data-[vaul-drawer-direction=right]:h-dvh data-[vaul-drawer-direction=right]:max-h-dvh data-[vaul-drawer-direction=right]:w-full data-[vaul-drawer-direction=right]:max-w-[30rem] data-[vaul-drawer-direction=right]:rounded-l-xl"
       onCloseAutoFocus={(event: Event) => {
+        // Focus returns to the step header More menu that opened the Brief.
         event.preventDefault();
-        briefTrigger?.focus();
+        workPane?.querySelector<HTMLElement>("[data-step-more-trigger]")?.focus();
       }}
     >
       <Drawer.Title class="sr-only">Brief</Drawer.Title>
