@@ -4,7 +4,7 @@
   import { DropdownMenu } from "bits-ui";
   import { ArrowClockwiseIcon, CheckIcon, DotsThreeIcon, InfoIcon } from "phosphor-svelte";
   import type { Id } from "../../../../convex/_generated/dataModel";
-  import { PD_SUBSECTIONS } from "../../../../shared/pdSubsections";
+  import { PD_SUBSECTIONS, type PdSubsectionRoleId } from "../../../../shared/pdSubsections";
   import { userErrorCode, userErrorMessage } from "$lib/errors";
   import Button from "$lib/components/ui/Button.svelte";
   import Checkbox from "$lib/components/ui/Checkbox.svelte";
@@ -70,7 +70,7 @@
     /** Phone layout: approval sits in a bottom bar with a regenerate icon. */
     compact?: boolean;
     /** Called after "Approve and continue" succeeds, to move to the next step. */
-    onApproved?: () => void;
+    onApproved?: (approvedRoleId: PdSubsectionRoleId) => void;
     /** Hands the approval actions to a host that renders them elsewhere (the
      * Outline footer or the phone bottom bar). Returns an unregister function.
      * Without a host the pane renders them in its own footer. */
@@ -153,7 +153,9 @@
 
   // A destroyed pane owns no pending walk: a page or challenge that resolves
   // afterwards is dropped before it can query again or publish anything.
+  let destroyed = false;
   onDestroy(() => {
+    destroyed = true;
     historyRequest += 1;
   });
 
@@ -207,8 +209,11 @@
   async function approveCurrent() {
     const challenge = approvalChallenge;
     if (!canEdit || !challenge) return;
-    // A reopened step is confirmed in place; a first approval moves on.
+    // A reopened step is confirmed in place; a first approval moves on. The
+    // approved step is captured now: if the writer opens another step before
+    // this resolves, the continuation names the step that was approved.
     const continueAfter = !isReopened;
+    const approvedRoleId = data.roleId;
     const approved = await mutate(
       () =>
         approve({
@@ -219,7 +224,7 @@
         }),
       "Step approved."
     );
-    if (approved && continueAfter) onApproved?.();
+    if (approved && continueAfter && !destroyed) onApproved?.(approvedRoleId);
   }
 
   function regenerateCurrent() {

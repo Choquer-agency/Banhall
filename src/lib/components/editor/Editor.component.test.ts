@@ -472,6 +472,36 @@ describe("Editor autosave and external content", () => {
     expect(saved.at(-1)).toContain("Redrafted on the server.");
     expect(saved.at(-1)).toContain("New words.");
   });
+
+  it("keeps a queued edit when the echo of an older in-flight save arrives", async () => {
+    const saved: string[] = [];
+    let releaseFirst: (() => void) | undefined;
+    const result = await render(Editor, {
+      content: seedContent(),
+      onUpdate: (json: string) => {
+        saved.push(json);
+        // The first save stays in flight until released.
+        if (saved.length === 1) return new Promise<void>((resolve) => (releaseFirst = resolve));
+      },
+    });
+    await expect.poll(() => result.container.querySelector(".tiptap-editor")).not.toBeNull();
+    const editor = tiptapOf(result.container);
+    editor.commands.insertContent("First edit. ");
+    // Not awaited: save A is held in flight until released below.
+    void result.component.flushPendingSave().catch(() => {});
+    await expect.poll(() => saved.length).toBe(1);
+    const saveA = saved[0];
+    // A newer edit is queued behind the in-flight save.
+    editor.commands.insertContent("Second edit. ");
+    const flushB = result.component.flushPendingSave();
+    // The subscription echoes save A while B is still queued.
+    await result.rerender({ content: saveA });
+    releaseFirst?.();
+    await flushB;
+    await expect.poll(() => saved.length).toBe(2);
+    expect(saved[1]).toContain("Second edit.");
+    expect(result.container.textContent).toContain("Second edit.");
+  });
 });
 
 it("writes the CRA limit counts with commas and marks a Not drafted Section in place", async () => {
@@ -497,4 +527,5 @@ it("writes the CRA limit counts with commas and marks a Not drafted Section in p
   expect(marked).toHaveLength(1);
   expect(marked[0].textContent).toBe("[NOT GENERATED]");
   expect(getComputedStyle(marked[0], "::before").content).toBe('"Not drafted"');
+
 });

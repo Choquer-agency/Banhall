@@ -658,11 +658,15 @@
   let saveTimeout: ReturnType<typeof setTimeout> | undefined;
   let pendingSaveChain: Promise<void> = Promise.resolve();
   let lastQueuedContent: string | null = null;
-  // Apply external content changes (AI replace, restore, regenerate). Only the
-  // exact echo of our own last autosave is skipped — anything else is applied,
-  // so restores/replaces always reflect even right after an edit.
+  // Apply external content changes (AI replace, restore, regenerate). Echoes
+  // of our own recent autosaves are skipped; anything else is applied, so
+  // restores and replaces always reflect even right after an edit.
   let lastContent = "";
-  let lastSavedContent: string | null = null;
+  // Documents this editor queued for saving, newest last. Any of them can come
+  // back from the subscription as the echo of our own save, including an
+  // older save that was in flight while a newer edit was queued.
+  const RECENT_LOCAL_SAVES = 8;
+  let recentLocalSaves: string[] = [];
 
   function refreshDocumentMetrics(ed: Editor | CoreEditor): string {
     if (measuredDoc === ed.state.doc) return currentDocumentJson;
@@ -693,7 +697,7 @@
     const update = onUpdate;
     const epoch = contentEpoch;
     lastQueuedContent = json;
-    lastSavedContent = json;
+    recentLocalSaves = [...recentLocalSaves.filter((saved) => saved !== json), json].slice(-RECENT_LOCAL_SAVES);
     const save = pendingSaveChain.then(() => (epoch === contentEpoch ? update(json) : undefined));
     pendingSaveChain = save.catch(() => {});
     return save;
@@ -762,7 +766,7 @@
     };
   });
 
-  // Apply external content changes (see lastContent/lastSavedContent above).
+  // Apply external content changes (see lastContent/recentLocalSaves above).
   $effect(() => {
     const c = content;
     const ed = editor;
@@ -770,7 +774,7 @@
     if (c !== lastContent) {
       lastContent = c;
       // Skip re-applying the round-trip echo of our own save.
-      if (c === lastSavedContent) return;
+      if (recentLocalSaves.includes(c)) return;
       const parsed = parseContent(c);
       if (parsed) {
         // The server content wins: an autosave still waiting on its debounce,

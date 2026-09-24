@@ -2549,6 +2549,33 @@ describe("Seed plan final UI (ui-design-final.md sections 3 and 11)", () => {
     await expect.poll(() => onReviewSummary.mock.calls.length).toBe(1);
   });
 
+  it("does not advance a step the writer opened while an earlier approval was pending", async () => {
+    __setQueryData("seeds:getOutline", outline());
+    __setQueryData("seeds:getSubsection", subsection({ approvalChallenge: cleanChallenge() }));
+    __setQueryDataForArgs("seeds:getSubsection", { generationId, roleId: "goal_problem" }, subsection({
+      roleId: "goal_problem",
+      items: [seed({ seedId: "seed-goal" as Id<"seeds">, roleId: "goal_problem", bullets: ["Goal Seed wording."] })],
+      approvalChallenge: cleanChallenge(),
+    }));
+    let finishApproval: ((value: unknown) => void) | undefined;
+    __setMutationResult("seeds:approve", new Promise((resolve) => { finishApproval = resolve; }));
+    const onReviewSummary = vi.fn();
+    const view = await render(SeedWorkspace, workspaceProps({ onReviewSummary }));
+    const footer = () => page.elementLocator(view.container.querySelector<HTMLElement>("[data-outline-footer]")!);
+    await footer().getByRole("button", { name: "Approve and continue", exact: true }).click();
+    expect(__mutationCalls("seeds:approve")).toEqual([expect.objectContaining({ roleId: "company_context" })]);
+
+    // The writer opens Goal / Problem before step one's approval returns.
+    await page.getByRole("navigation", { name: "PD subsections" }).getByRole("button", { name: /Goal \/ Problem/ }).click();
+    await expect.element(page.getByRole("heading", { name: "Goal / Problem", exact: true })).toBeVisible();
+    finishApproval?.(null);
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    // Step one's continuation must not move the writer on from Goal / Problem.
+    await expect.element(page.getByRole("heading", { name: "Goal / Problem", exact: true })).toBeVisible();
+    expect(__activeQueryArgs("seeds:getSubsection")).not.toContainEqual({ generationId, roleId: "passive_limitations" });
+    expect(onReviewSummary).not.toHaveBeenCalled();
+  });
+
   it("stacks Confirm and approve above Review summary on a reopened step and confirms it in place", async () => {
     const rows = outline().rows.map((row) =>
       row.roleId === "company_context" ? { ...row, state: "in_progress", approvedAt: 1_700_000_000_000 } : row

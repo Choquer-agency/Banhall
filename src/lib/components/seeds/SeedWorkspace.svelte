@@ -1018,7 +1018,7 @@
                 onRecoverSources={recoverSourceNames}
                 onRetrySources={retrySources}
                 onRegisterApproval={registerApproval}
-                onApproved={() => continueAfterApproval(subsection.roleId)}
+                onApproved={continueAfterApproval}
                 onOpenBrief={openBrief}
                 {onOpenSource}
               />
