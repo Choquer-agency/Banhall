@@ -58,7 +58,7 @@ function seed({ seedRun = false }: { seedRun?: boolean } = {}) {
     seedPhase: seedRun ? "completed" : undefined,
     summaryVersionId: seedRun ? "summary-1" : null,
     postQaStatus: "done",
-    agentOutputs: JSON.stringify({ qa: { overall_score: 78 } }),
+    agentOutputs: JSON.stringify({ qa: { overall_score: 78, section_scores: { "242": { score: 86 }, "244": { score: 62 } } } }),
   });
   __setQueryData(
     "generations:getGenerationSeedView",
@@ -235,6 +235,21 @@ describe("PreviewProjectPage final shell", () => {
     ]);
     await page.getByRole("button", { name: "Close details", exact: true }).click();
     await expect.poll(() => document.querySelector("[data-side-panel]")?.getAttribute("data-side-panel") ?? null).toBeNull();
+  });
+
+  it("opens QA in the side slot with the quiet score line and band-coloured bars", async () => {
+    seed();
+    localStorage.setItem("banhall_chat_open", "0");
+    await render(PreviewProjectPage);
+    await expect.element(page.getByText("Evidence from thermal trials.", { exact: true })).toBeVisible();
+    await page.getByRole("button", { name: /^QA review/ }).click();
+    await expect.poll(() => document.querySelector("[data-qa-overall]")).not.toBeNull();
+    expect(document.querySelector("[data-side-panel]")?.getAttribute("data-side-panel")).toBe("qa");
+    expect(document.querySelector("[data-qa-overall]")?.textContent).toContain("78/100");
+    expect(getComputedStyle(document.querySelector<HTMLElement>("[data-qa-overall-bar]")!).backgroundColor).toBe("rgb(245, 158, 11)");
+    const aside = document.querySelector<HTMLElement>("[data-side-panel]")!;
+    await expect.poll(() => aside.getBoundingClientRect().width).toBe(400);
+    expect(document.querySelector('[data-panel-toggle="qa"]')?.getAttribute("aria-pressed")).toBe("true");
   });
 
   it("opens the Hand off view on Internal review from Send for review", async () => {

@@ -68,6 +68,7 @@
   import * as Tooltip from "$lib/components/ui/tooltip/index.js";
   import SelectInput from "$lib/components/ui/SelectInput.svelte";
   import { adjustedQaScores, issueDeduction } from "$lib/qaScoring";
+  import { qaBandColors } from "$lib/qa/qaBands";
   import { canOverrideQaSeverity } from "../../../../shared/roles";
   import { api } from "../../../../convex/_generated/api";
   import type { Id } from "../../../../convex/_generated/dataModel";
@@ -302,9 +303,6 @@
   }
 
   const overall = $derived(adjustedScores.overall);
-  const band = $derived(
-    overall >= 80 ? "text-green-600" : overall >= 60 ? "text-amber-600" : "text-red-600"
-  );
 
   // Issues/strengths per section collapse by default so the rail stays scannable.
   let openSections = $state<Record<string, boolean>>({});
@@ -401,54 +399,48 @@
 
 {#if scorecard}
   <div class="flex flex-col gap-6">
-    <!-- Score gauge -->
-    <div class="flex items-center gap-3.5">
-      <div class="relative h-14 w-14 flex-none">
-        <svg viewBox="0 0 36 36" class="h-14 w-14 -rotate-90">
-          <circle cx="18" cy="18" r="16" fill="none" class="stroke-gray-100" stroke-width="2" />
-          <circle
-            cx="18" cy="18" r="16" fill="none"
-            class={`${band} transition-[stroke-dashoffset] duration-700 ease-out`}
-            stroke="currentColor" stroke-width="2" stroke-linecap="round"
-            stroke-dasharray={2 * Math.PI * 16}
-            stroke-dashoffset={2 * Math.PI * 16 * (1 - overall / 100)}
-          />
-        </svg>
-        <div class="absolute inset-0 flex items-center justify-center">
-          <span class={`text-base font-semibold tabular-nums ${band}`}>{overall}</span>
-        </div>
-      </div>
-      <div class="min-w-0">
-        <p class="text-label">AI QA score</p>
-        <p class="mt-0.5 text-sm text-gray-600">
-          {overall >= 80 ? "Strong draft" : overall >= 60 ? "Needs attention" : "Significant issues"}
-          <span class="text-gray-400"> · /100</span>
-        </p>
-        {#if myReview}
-          <span class="mt-1 inline-flex items-center gap-1 rounded-full bg-navy/5 px-2 py-0.5 text-xs font-medium text-navy">
-            You: {myReview.score}
+    <!-- Overall score (ui-design-final.md section 8, board 2.2): a quiet
+         "78/100" line over a band-coloured bar (qaBands). -->
+    <div data-qa-overall>
+      <div class="flex items-center gap-2">
+        <p class="flex min-w-0 items-baseline gap-2">
+          <span class="text-base font-medium tabular-nums text-ink">{overall}/100</span>
+          <span class="truncate text-xs text-ink-muted">
+            AI QA score, {overall >= 80 ? "strong draft" : overall >= 60 ? "needs attention" : "significant issues"}
           </span>
+        </p>
+        {#if onRunQa}
+          <!-- Jul 17: rescan on demand; replaces the stored scorecard. -->
+          <button
+            type="button"
+            onclick={handleRunQa}
+            disabled={qaRunning}
+            title="Re-run the QA scorecard"
+            class="ml-auto inline-flex shrink-0 items-center gap-1.5 rounded-md px-2 py-1 text-xs text-ink-muted transition-colors hover:bg-primary-wash hover:text-ink disabled:opacity-60"
+          >
+            {#if qaRunning}
+              <span class="h-3 w-3 animate-spin rounded-full border-2 border-primary/30 border-t-primary motion-reduce:animate-none"></span>
+              Re-running...
+            {:else}
+              <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
+              </svg>
+              Re-run
+            {/if}
+          </button>
         {/if}
       </div>
-      {#if onRunQa}
-        <!-- Jul 17: rescan on demand — replaces the stored scorecard. -->
-        <button
-          type="button"
-          onclick={handleRunQa}
-          disabled={qaRunning}
-          title="Re-run the QA scorecard"
-          class="ml-auto inline-flex shrink-0 items-center gap-1.5 self-start rounded-md px-2 py-1 text-xs font-medium text-gray-400 transition-colors hover:bg-primary-wash hover:text-navy disabled:opacity-60"
-        >
-          {#if qaRunning}
-            <span class="h-3 w-3 animate-spin rounded-full border-2 border-primary/30 border-t-primary"></span>
-            Rescanning…
-          {:else}
-            <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
-            </svg>
-            Rescan
-          {/if}
-        </button>
+      <div class="mt-2 h-1 w-full overflow-hidden rounded-full bg-gray-100">
+        <div
+          data-qa-overall-bar
+          class="h-full rounded-full transition-[width] duration-700 ease-out motion-reduce:transition-none"
+          style={`width: ${overall}%; background: ${qaBandColors(overall).bar}`}
+        ></div>
+      </div>
+      {#if myReview}
+        <span class="mt-2 inline-flex items-center gap-1 rounded-full bg-navy/5 px-2 py-0.5 text-xs font-medium text-navy">
+          You: {myReview.score}
+        </span>
       {/if}
     </div>
 
@@ -458,7 +450,6 @@
       <div class="flex flex-col gap-3">
         {#each Object.entries(scorecard.section_scores) as [key, section] (key)}
           {@const sectionScore = adjustedScores.sections[key] ?? section.score}
-          {@const c = sectionScore >= 80 ? "bg-green-500" : sectionScore >= 60 ? "bg-amber-500" : "bg-red-500"}
           {@const noteCount = section.issues.length + section.strengths.length}
           {@const open = openSections[key] ?? false}
           {@const qaGroups = sectionQaGroups(key, section)}
@@ -472,7 +463,7 @@
             >
               <span class="text-data w-8 flex-none font-semibold text-gray-700">{key}</span>
               <div class="h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-gray-200">
-                <div class={`h-full rounded-full ${c} transition-[width] duration-700 ease-out`} style={`width: ${sectionScore}%`}></div>
+                <div class="h-full rounded-full transition-[width] duration-700 ease-out motion-reduce:transition-none" style={`width: ${sectionScore}%; background: ${qaBandColors(sectionScore).bar}`}></div>
               </div>
               <span class="text-data w-7 flex-none text-right font-semibold text-gray-700">{sectionScore}</span>
               {#if noteCount > 0}
