@@ -6049,6 +6049,22 @@ describe("Step-by-step writing: background QA, Stop and redraft (CAP-17, CAP-18)
     );
   }
 
+  /** Runs the redraft finalizer and every rerun it schedules (one consistency
+   * pass per action); returns the pass number each run carried. */
+  async function runRedraftFinalizerUntilSettled(s: ReadyFixture) {
+    const passes: number[] = [];
+    for (let run = 0; run < 5; run += 1) {
+      if ((await pendingJobs(s, "ai/orderedGeneration:finalizeSeedRedraft")).length === 0) break;
+      const args = await takeJob(s, "ai/orderedGeneration:finalizeSeedRedraft");
+      passes.push(typeof args.pass === "number" ? args.pass : 0);
+      await s.t.action(
+        internal.ai.orderedGeneration.finalizeSeedRedraft,
+        args as FunctionArgs<typeof internal.ai.orderedGeneration.finalizeSeedRedraft>
+      );
+    }
+    return passes;
+  }
+
   async function runExpiry(s: ReadyFixture) {
     const args = await takeJob(s, "generations:expireStaleRedraft");
     await s.t.mutation(
@@ -6721,7 +6737,8 @@ describe("Step-by-step writing: background QA, Stop and redraft (CAP-17, CAP-18)
     const calls = consistencyReportsWhatItSaw("FenceRedraft", async (call) => {
       if (call === 1) await writerTypes(s, "[NOT GENERATED]", "Writer typed 244 first.");
     });
-    await runRedraftFinalizer(s);
+    // The rerun is its own scheduled action, never a loop inside one.
+    expect(await runRedraftFinalizerUntilSettled(s)).toEqual([0, 1]);
 
     const stored = (await redraftNotes(s)).filter(
       (row) => !before.some((old) => old._id === row._id)
@@ -6760,7 +6777,8 @@ describe("Step-by-step writing: background QA, Stop and redraft (CAP-17, CAP-18)
     const calls = consistencyReportsWhatItSaw("ChurnRedraft", async (call) => {
       await writerTypes(s, call === 1 ? "[NOT GENERATED]" : typed[call - 2], typed[call - 1]);
     });
-    await runRedraftFinalizer(s);
+    // Each pass runs in its own action; the fourth run only writes the note.
+    expect(await runRedraftFinalizerUntilSettled(s)).toEqual([0, 1, 2, 3]);
 
     const stored = (await redraftNotes(s)).filter(
       (row) => !before.some((old) => old._id === row._id)

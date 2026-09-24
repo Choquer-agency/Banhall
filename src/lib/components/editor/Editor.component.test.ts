@@ -532,6 +532,36 @@ describe("Editor autosave and external content", () => {
     expect(container.textContent).toContain("Version A.");
   });
 
+  it("shows a restore to a document whose save finished after an external replacement", async () => {
+    const saved: string[] = [];
+    let releaseFirst: (() => void) | undefined;
+    const result = await render(Editor, {
+      content: seedContent(),
+      onUpdate: (json: string) => {
+        saved.push(json);
+        if (saved.length === 1) return new Promise<void>((resolve) => (releaseFirst = resolve));
+      },
+    });
+    await expect.poll(() => result.container.querySelector(".tiptap-editor")).not.toBeNull();
+    tiptapOf(result.container).commands.insertContent("Save A words. ");
+    void result.component.flushPendingSave().catch(() => {});
+    await expect.poll(() => saved.length).toBe(1);
+    const saveA = saved[0];
+    // External content replaces the document while save A is in flight.
+    const external = JSON.stringify({
+      type: "doc",
+      content: [{ type: "paragraph", content: [{ type: "text", text: "External content." }] }],
+    });
+    await result.rerender({ content: external });
+    await expect.poll(() => result.container.textContent).toContain("External content.");
+    releaseFirst?.();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    // A later restore to document A must be shown, not taken for an echo.
+    await result.rerender({ content: saveA });
+    await expect.poll(() => result.container.textContent).toContain("Save A words.");
+    expect(result.container.textContent).not.toContain("External content.");
+  });
+
   it("recognises the echo of a long-running save behind many queued edits", async () => {
     const saved: string[] = [];
     let releaseFirst: (() => void) | undefined;

@@ -895,10 +895,14 @@ export const finalizeSeedRedraft = internalAction({
     generationId: v.id("generations"),
     candidateRunId: v.id("generationCandidateRuns"),
     attemptStartedAt: v.number(),
+    /** Consistency passes already rerun because the report changed. */
+    pass: v.optional(v.number()),
   },
   returns: v.null(),
-  handler: async (ctx, args): Promise<null> => {
-    for (let pass = 0; ; pass += 1) {
+  handler: async (ctx, { pass = 0, ...args }): Promise<null> => {
+    // One consistency pass per action: a rerun is scheduled as a fresh
+    // action, so reruns never add up past the action time limit.
+    {
       const input = await ctx.runQuery(internal.generations.getSeedRedraftInput, args);
       if (!input) return null;
       const present = input.sections.flatMap((row) =>
@@ -953,7 +957,13 @@ export const finalizeSeedRedraft = internalAction({
         notes,
         checked: input.sections,
       });
-      if (outcome !== "report_changed") return null;
+      if (outcome === "report_changed") {
+        await ctx.scheduler.runAfter(0, internal.ai.orderedGeneration.finalizeSeedRedraft, {
+          ...args,
+          pass: pass + 1,
+        });
+      }
+      return null;
     }
   },
 });

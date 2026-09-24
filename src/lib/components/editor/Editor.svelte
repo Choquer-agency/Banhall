@@ -711,16 +711,16 @@
     const epoch = contentEpoch;
     lastQueuedContent = json;
     outstandingSaves = [...outstandingSaves, json];
+    // A save from before an external replacement never touches the tracking:
+    // the replacement already cleared it, and settling late would either mark
+    // a replaced document as ours or remove a newer save's entry.
     const save = pendingSaveChain.then(async () => {
-      if (epoch !== contentEpoch) {
-        settleOutstanding(json, false);
-        return;
-      }
+      if (epoch !== contentEpoch) return;
       try {
         await update(json);
-        settleOutstanding(json, true);
+        if (epoch === contentEpoch) settleOutstanding(json, true);
       } catch (error) {
-        settleOutstanding(json, false);
+        if (epoch === contentEpoch) settleOutstanding(json, false);
         throw error;
       }
     });
