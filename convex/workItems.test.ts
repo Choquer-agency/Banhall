@@ -4,6 +4,8 @@ import { describe, expect, it } from "vitest";
 import { api } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import schema from "./schema";
+import { workItemKindForHandoffStage } from "../shared/workItems";
+import { WORKFLOW_STAGES } from "../shared/workflowStages";
 
 const modules = import.meta.glob("./**/*.ts");
 
@@ -404,5 +406,223 @@ describe("work item authorization and project state", () => {
     await expect(f.owner.mutation(api.projectWorkflow.setWorkflowStage, {
       projectId: f.projectId, toStage: "abandoned", note: "No longer proceeding", expectedVersion: 0,
     })).resolves.toMatchObject({ status: "updated", version: 1 });
+  });
+});
+
+describe("Details panel hand off (2026-09-24 amendment)", () => {
+  type Stage =
+    | "intake" | "interview_complete" | "drafting" | "internal_review" | "edits" | "client_review"
+    | "revisions" | "ready_for_delivery" | "delivered" | "on_hold" | "abandoned";
+
+  async function handOff(
+    f: Fixture,
+    overrides: Partial<{ assigneeId: Id<"users">; stage: Stage; note: string; expectedWorkflowVersion: number; createRequestId: string }> = {},
+    actor: "owner" | "manager" | "admin" | "assignee" | "other" = "owner"
+  ) {
+    return await f[actor].mutation(api.workItems.handOff, {
+      projectId: f.projectId,
+      assigneeId: f.assigneeId,
+      stage: "drafting",
+      note: "",
+      expectedWorkflowVersion: 0,
+      createRequestId: `handoff-${Math.random()}`,
+      ...overrides,
+    });
+  }
+
+  async function stageEvents(f: Fixture) {
+    return await f.t.run((ctx) => ctx.db.query("projectEvents")
+      .withIndex("by_projectId", (q) => q.eq("projectId", f.projectId)).take(20));
+  }
+
+  it.each([
+    ["intake", "interview_followup"],
+    ["interview_complete", "interview_followup"],
+    ["internal_review", "internal_review"],
+    ["edits", "revision"],
+    ["revisions", "revision"],
+    ["client_review", "other"],
+    ["drafting", "other"],
+  ] as const)("hands off to %s as a blocking %s item", async (stage, kind) => {
+    const f = await setup();
+    const result = await handOff(f, { stage, note: "Over to you" });
+    expect(result).toMatchObject({ status: "created", workflowVersion: 1 });
+    const item = await f.t.run((ctx) => ctx.db.get(result.workItemId));
+    expect(item).toMatchObject({
+      kind, blocking: true, status: "open", assigneeId: f.assigneeId, assignerId: f.ownerId,
+      instructions: "Over to you",
+    });
+    expect(item?.dueAt).toBeUndefined();
+    expect(await f.t.run((ctx) => ctx.db.get(f.projectId))).toMatchObject({
+      workflowStage: stage, currentHandoffId: result.workItemId, workflowVersion: 1,
+    });
+    const events = await stageEvents(f);
+    if (stage === "drafting") {
+      // Same stage is not a stage change: no stage_changed event.
+      expect(events).toEqual([]);
+    } else {
+      expect(events).toEqual([
+        expect.objectContaining({ type: "stage_changed", from: "drafting", to: stage, actorId: f.ownerId }),
+      ]);
+      expect(events[0].note).toBeUndefined();
+    }
+    expect(await itemEvents(f, result.workItemId)).toEqual([
+      expect.objectContaining({ type: "created", detail: { kind, assigneeId: f.assigneeId, blocking: true } }),
+    ]);
+  });
+
+  it("derives delivery_prep for a handoff that keeps a Submitted project in place", async () => {
+    const f = await setup();
+    await f.t.run((ctx) => ctx.db.patch(f.projectId, { workflowStage: "ready_for_delivery" }));
+    const result = await handOff(f, { stage: "ready_for_delivery" });
+    expect(await f.t.run((ctx) => ctx.db.get(result.workItemId))).toMatchObject({ kind: "delivery_prep", instructions: "" });
+    expect(await stageEvents(f)).toEqual([]);
+  });
+
+  it("allows an empty note on an edge that does not need one", async () => {
+    const f = await setup();
+    const result = await handOff(f, { stage: "internal_review", note: "   " });
+    expect(await f.t.run((ctx) => ctx.db.get(result.workItemId))).toMatchObject({ instructions: "" });
+  });
+
+  it("replaces an open blocking handoff in the same mutation", async () => {
+    const f = await setup();
+    const first = await createItem(f);
+    const second = await handOff(f, {
+      assigneeId: f.otherId, stage: "internal_review", note: "Please review", expectedWorkflowVersion: 1,
+    });
+    const [previous, project] = await f.t.run(async (ctx) => [
+      await ctx.db.get(first.workItemId), await ctx.db.get(f.projectId),
+    ] as const);
+    expect(previous).toMatchObject({
+      status: "canceled", completedBy: f.ownerId, version: 1,
+      resolutionNote: "Replaced by a handoff to Taylor",
+    });
+    expect(project).toMatchObject({
+      currentHandoffId: second.workItemId, workflowStage: "internal_review", workflowVersion: 2,
+    });
+    expect(await itemEvents(f, first.workItemId)).toEqual([
+      expect.objectContaining({ type: "created" }),
+      expect.objectContaining({ type: "canceled", actorId: f.ownerId, detail: { reason: "Replaced by a handoff to Taylor" } }),
+    ]);
+    const openBlocking = await f.t.run((ctx) => ctx.db.query("workItems")
+      .withIndex("by_projectId_and_status_and_blocking", (q) =>
+        q.eq("projectId", f.projectId).eq("status", "open").eq("blocking", true))
+      .take(5));
+    expect(openBlocking.map((item) => item._id)).toEqual([second.workItemId]);
+    const oversight = await f.t.run((ctx) => ctx.db.query("workItemOversight")
+      .withIndex("by_workItemId", (q) => q.eq("workItemId", first.workItemId)).take(5));
+    expect(oversight).toEqual([]);
+  });
+
+  it("uses the note as the audit note on a note-required edge and refuses it empty", async () => {
+    const f = await setup();
+    await expect(handOff(f, { stage: "on_hold", note: "" })).rejects.toThrow(/INVALID_INPUT|reason/i);
+    expect(await f.t.run((ctx) => ctx.db.query("workItems")
+      .withIndex("by_projectId_and_status", (q) => q.eq("projectId", f.projectId)).take(5))).toEqual([]);
+    const result = await handOff(f, { stage: "on_hold", note: "Waiting on the client" });
+    expect(await f.t.run((ctx) => ctx.db.get(result.workItemId))).toMatchObject({ kind: "other", instructions: "Waiting on the client" });
+    expect(await stageEvents(f)).toEqual([
+      expect.objectContaining({ type: "stage_changed", to: "on_hold", note: "Waiting on the client" }),
+    ]);
+  });
+
+  it("refuses edges whose requirements cannot be met and leaves nothing behind", async () => {
+    const f = await setup();
+    await expect(handOff(f, { stage: "delivered", note: "Done" })).rejects.toThrow(/OUTCOME_REQUIRED|outcome/i);
+    await expect(handOff(f, { stage: "ready_for_delivery" })).rejects.toThrow(/INVALID_STATE|promoted report branch/i);
+    await expect(handOff(f, { stage: "abandoned", note: "Stop" })).rejects.toThrow(/INVALID_STATE|Abandoned/i);
+    expect(await f.t.run((ctx) => ctx.db.get(f.projectId))).toMatchObject({ workflowStage: "drafting", workflowVersion: 0 });
+    expect(await f.t.run((ctx) => ctx.db.query("workItems")
+      .withIndex("by_projectId_and_status", (q) => q.eq("projectId", f.projectId)).take(5))).toEqual([]);
+    expect(await stageEvents(f)).toEqual([]);
+  });
+
+  it.each(["edits", "ready_for_delivery"] as const)(
+    "refuses the internal-review completion edge to %s", async (stage) => {
+      const f = await setup();
+      await f.t.run((ctx) => ctx.db.patch(f.projectId, { workflowStage: "internal_review" }));
+      await expect(handOff(f, { stage })).rejects.toThrow(/INVALID_STATE|review decision/i);
+      expect(await f.t.run((ctx) => ctx.db.get(f.projectId))).toMatchObject({ workflowStage: "internal_review", workflowVersion: 0 });
+    }
+  );
+
+  it("refuses a same-stage handoff on a delivered project but lets an owner reopen it with a note", async () => {
+    const f = await setup();
+    await f.t.run((ctx) => ctx.db.patch(f.projectId, { workflowStage: "delivered" }));
+    await expect(handOff(f, { stage: "delivered", note: "More" })).rejects.toThrow(/INVALID_STATE|Reopen/i);
+    await expect(handOff(f, { stage: "revisions", note: "" })).rejects.toThrow(/INVALID_INPUT|reason/i);
+    const result = await handOff(f, { stage: "revisions", note: "Client asked for a change" });
+    expect(await f.t.run((ctx) => ctx.db.get(result.workItemId))).toMatchObject({ kind: "revision" });
+    expect(await f.t.run((ctx) => ctx.db.get(f.projectId))).toMatchObject({ workflowStage: "revisions" });
+  });
+
+  it("keeps Manager and Admin authority for reopening an abandoned project", async () => {
+    const f = await setup();
+    await f.t.run((ctx) => ctx.db.patch(f.projectId, { workflowStage: "abandoned" }));
+    await expect(handOff(f, { stage: "drafting", note: "Back on" })).rejects.toThrow(/NOT_AUTHORIZED|authority/i);
+    await expect(handOff(f, { stage: "drafting", note: "Back on" }, "manager")).resolves.toMatchObject({ status: "created" });
+  });
+
+  it("allows the Owner, a Manager and an Admin, and refuses anyone else", async () => {
+    const f = await setup();
+    const byOwner = await handOff(f, {}, "owner");
+    const byManager = await handOff(f, { expectedWorkflowVersion: 1, assigneeId: f.otherId }, "manager");
+    const byAdmin = await handOff(f, { expectedWorkflowVersion: 2, assigneeId: f.managerId }, "admin");
+    expect([byOwner.workflowVersion, byManager.workflowVersion, byAdmin.workflowVersion]).toEqual([1, 2, 3]);
+    await expect(handOff(f, { expectedWorkflowVersion: 3 }, "other")).rejects.toThrow(/NOT_AUTHORIZED|permission|owner/i);
+    await expect(f.roleless.mutation(api.workItems.handOff, {
+      projectId: f.projectId, assigneeId: f.assigneeId, stage: "drafting", note: "",
+      expectedWorkflowVersion: 3, createRequestId: "roleless",
+    })).rejects.toThrow(/NOT_AUTHORIZED|active internal role/i);
+  });
+
+  it("refuses the handoff assignee even when they hold the current handoff", async () => {
+    const f = await setup();
+    await handOff(f, { stage: "internal_review" });
+    await expect(handOff(f, { assigneeId: f.otherId, expectedWorkflowVersion: 1, stage: "internal_review" }, "assignee"))
+      .rejects.toThrow(/NOT_AUTHORIZED|permission|owner/i);
+  });
+
+  it("keeps assignees to active Consultants and Managers", async () => {
+    const f = await setup();
+    await expect(handOff(f, { assigneeId: f.adminId })).rejects.toThrow(/INVALID_INPUT|Consultant or Manager/i);
+    await expect(handOff(f, { assigneeId: f.anonymousId })).rejects.toThrow(/INVALID_INPUT|Consultant or Manager/i);
+    await expect(handOff(f, { assigneeId: f.managerId })).resolves.toMatchObject({ status: "created" });
+  });
+
+  it("is idempotent by request id and refuses a reused id with different values", async () => {
+    const f = await setup();
+    const args = { stage: "internal_review" as const, note: "Review it", createRequestId: "handoff-retry" };
+    const first = await handOff(f, args);
+    const retry = await handOff(f, args);
+    expect(retry).toEqual({ status: "noop", workItemId: first.workItemId, workflowVersion: 1 });
+    expect(await itemEvents(f, first.workItemId)).toHaveLength(1);
+    expect(await stageEvents(f)).toHaveLength(1);
+    await expect(handOff(f, { ...args, note: "Something else" })).rejects.toThrow(/INVALID_INPUT|already used/i);
+  });
+
+  it("rejects a stale workflow version", async () => {
+    const f = await setup();
+    await f.t.run((ctx) => ctx.db.patch(f.projectId, { workflowVersion: 4 }));
+    await expect(handOff(f, { expectedWorkflowVersion: 3 })).rejects.toThrow(/STALE_REVISION|changed/i);
+  });
+});
+
+describe("workItemKindForHandoffStage", () => {
+  it("derives the amendment's kind for every stage", () => {
+    expect(Object.fromEntries(WORKFLOW_STAGES.map((stage) => [stage, workItemKindForHandoffStage(stage)]))).toEqual({
+      intake: "interview_followup",
+      interview_complete: "interview_followup",
+      drafting: "other",
+      internal_review: "internal_review",
+      edits: "revision",
+      client_review: "other",
+      revisions: "revision",
+      ready_for_delivery: "delivery_prep",
+      delivered: "delivery_prep",
+      on_hold: "other",
+      abandoned: "other",
+    });
   });
 });

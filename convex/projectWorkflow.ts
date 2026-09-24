@@ -1,5 +1,5 @@
 import { v } from "convex/values";
-import type { Doc } from "./_generated/dataModel";
+import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { mutation, query } from "./_generated/server";
 import { getInternalProjectAccessOrNull } from "./lib/auth";
@@ -18,7 +18,9 @@ import {
   findWorkflowTransition,
   reviewDecisionForStage,
   type TransitionAuthority,
+  type WorkflowTransitionRule,
 } from "../shared/workflowTransitions";
+import type { WorkflowStage } from "../shared/workflowStages";
 import { MAX_WORKFLOW_NOTE_CHARS } from "../shared/workflowLabels";
 import { patchProjectWorkflowStage } from "./lib/dashboardProjection";
 import { scheduleOwnershipOversightRebuild } from "./oversight";
@@ -35,7 +37,7 @@ const transitionAuthorityValidator = v.union(
   v.literal("admin")
 );
 
-function userInitials(user: Pick<Doc<"users">, "firstName" | "lastName" | "name" | "email">) {
+export function userInitials(user: Pick<Doc<"users">, "firstName" | "lastName" | "name" | "email">) {
   const label = userDisplayLabel(user);
   const parts = label.split(/\s+/).filter(Boolean);
   return (parts.length > 1
@@ -60,7 +62,7 @@ function normalizedNote(note: string | undefined) {
   return value;
 }
 
-async function validCurrentHandoff(
+export async function validCurrentHandoff(
   ctx: Parameters<typeof getInternalProjectAccessOrNull>[0],
   project: Doc<"projects">
 ) {
@@ -237,6 +239,112 @@ export const listOwnerTransferCandidates = query({
   },
 });
 
+/**
+ * Per-edge stage policy shared by `setWorkflowStage` and `workItems.handOff`
+ * (2026-09-24 amendment): the edge must exist in the open matrix, the actor
+ * must hold one of its authorities, and a note-required edge needs a note.
+ * Callers check OCC and same-stage no-ops before calling this.
+ */
+export function requireWorkflowStageEdge(args: {
+  fromStage: WorkflowStage;
+  toStage: WorkflowStage;
+  authorities: ReadonlySet<TransitionAuthority>;
+  note: string | undefined;
+}) {
+  const transition = findWorkflowTransition(args.fromStage, args.toStage);
+  // Open matrix: undefined only for same-stage pairs, which callers noop.
+  // Kept as defense-in-depth (and TS narrowing) should the matrix narrow.
+  if (!transition) {
+    domainError("INVALID_TRANSITION", "This workflow transition is not allowed", {
+      from: args.fromStage,
+      to: args.toStage,
+    });
+  }
+  if (!transition.authorities.some((authority) => args.authorities.has(authority))) {
+    domainError("NOT_AUTHORIZED", "You do not have authority for this workflow transition");
+  }
+  const note = normalizedNote(args.note);
+  if (transition.requiresNote && !note) {
+    domainError("INVALID_INPUT", "Add a reason for this workflow transition");
+  }
+  return { transition, note };
+}
+
+/**
+ * The fail-closed requirements and the open-work rule for entering a stage.
+ * `review_decision` is not handled here: `setWorkflowStage` records it and
+ * `handOff` refuses those edges before calling this.
+ */
+export async function requireWorkflowStageRequirements(
+  ctx: MutationCtx,
+  project: Doc<"projects">,
+  transition: WorkflowTransitionRule
+) {
+  if (transition.requirements?.includes("delivery_outcome")) {
+    domainError(
+      "OUTCOME_REQUIRED",
+      "Record the exact delivered or filing outcome before marking this project delivered"
+    );
+  }
+  if (transition.requirements?.includes("promoted_branch")) {
+    domainError(
+      "INVALID_STATE",
+      "A promoted report branch is required before marking this project ready for delivery"
+    );
+  }
+  if (transition.to === "abandoned") {
+    const openWork = await ctx.db
+      .query("workItems")
+      .withIndex("by_projectId_and_status", (q) =>
+        q.eq("projectId", project._id).eq("status", "open")
+      )
+      .first();
+    if (openWork) {
+      domainError(
+        "INVALID_STATE",
+        "Complete, decline, or cancel open work before abandoning this project"
+      );
+    }
+  }
+}
+
+/**
+ * Writes one stage change: the stage patch (through the one sanctioned stage
+ * writer, which also moves the per-client stageCounts bucket) plus its
+ * immutable `stage_changed` event. `extraPatch` carries the workflow version
+ * and any pointer written in the same transaction.
+ */
+export async function writeWorkflowStageChange(
+  ctx: MutationCtx,
+  args: {
+    project: Doc<"projects">;
+    actorId: Id<"users">;
+    toStage: WorkflowStage;
+    note: string | undefined;
+    at: number;
+    extraPatch: Partial<Doc<"projects">>;
+  }
+) {
+  // Centralized stage write (B1 correction): patchProjectWorkflowStage is
+  // the ONLY sanctioned workflowStage writer. It patches stage + frozen
+  // rank and moves the per-client stageCounts bucket in the same
+  // transaction. The FROM bucket is the row's actually-occupied bucket
+  // (workflowStage ?? "legacy") - NOT the "intake" fallback used for
+  // transition authority - so a legacy row entering the workflow moves out
+  // of the "legacy" bucket. No-ops honestly while the company row is not
+  // yet backfilled (stageCounts absent) or the project is uncounted.
+  await patchProjectWorkflowStage(ctx, args.project, args.toStage, args.extraPatch);
+  await ctx.db.insert("projectEvents", {
+    projectId: args.project._id,
+    type: "stage_changed",
+    actorId: args.actorId,
+    ...(args.project.workflowStage ? { from: args.project.workflowStage } : {}),
+    to: args.toStage,
+    ...(args.note ? { note: args.note } : {}),
+    at: args.at,
+  });
+}
+
 function validateExpectedVersion(expectedVersion: number) {
   if (!Number.isInteger(expectedVersion) || expectedVersion < 0) {
     domainError("INVALID_INPUT", "Expected workflow version must be a non-negative integer");
@@ -355,23 +463,12 @@ export const setWorkflowStage = mutation({
     }
 
     assertExpectedVersion(project, args.expectedVersion);
-    const transition = findWorkflowTransition(fromStage, args.toStage);
-    // Open matrix: undefined only for same-stage pairs, which noop above.
-    // Kept as defense-in-depth (and TS narrowing) should the matrix narrow.
-    if (!transition) {
-      domainError("INVALID_TRANSITION", "This workflow transition is not allowed", {
-        from: fromStage,
-        to: args.toStage,
-      });
-    }
-    if (!transition.authorities.some((authority) => authorities.has(authority))) {
-      domainError("NOT_AUTHORIZED", "You do not have authority for this workflow transition");
-    }
-
-    const note = normalizedNote(args.note);
-    if (transition.requiresNote && !note) {
-      domainError("INVALID_INPUT", "Add a reason for this workflow transition");
-    }
+    const { transition, note } = requireWorkflowStageEdge({
+      fromStage,
+      toStage: args.toStage,
+      authorities,
+      note: args.note,
+    });
     // Review decision (2026-09-04 amendment). Checked BEFORE the fail-closed
     // requirements below so it stays observable on the `ready_for_delivery`
     // edge, which `promoted_branch` otherwise rejects on every call.
@@ -422,56 +519,20 @@ export const setWorkflowStage = mutation({
         );
       }
     }
-    if (transition.requirements?.includes("delivery_outcome")) {
-      domainError(
-        "OUTCOME_REQUIRED",
-        "Record the exact delivered or filing outcome before marking this project delivered"
-      );
-    }
-    if (transition.requirements?.includes("promoted_branch")) {
-      domainError(
-        "INVALID_STATE",
-        "A promoted report branch is required before marking this project ready for delivery"
-      );
-    }
-    if (args.toStage === "abandoned") {
-      const openWork = await ctx.db
-        .query("workItems")
-        .withIndex("by_projectId_and_status", (q) =>
-          q.eq("projectId", project._id).eq("status", "open")
-        )
-        .first();
-      if (openWork) {
-        domainError(
-          "INVALID_STATE",
-          "Complete, decline, or cancel open work before abandoning this project"
-        );
-      }
-    }
+    await requireWorkflowStageRequirements(ctx, project, transition);
 
     const now = Date.now();
     const nextVersion = version + 1;
-    // Centralized stage write (B1 correction): patchProjectWorkflowStage is
-    // the ONLY sanctioned workflowStage writer. It patches stage + frozen
-    // rank and moves the per-client stageCounts bucket in the same
-    // transaction. The FROM bucket is the row's actually-occupied bucket
-    // (workflowStage ?? "legacy") — NOT the "intake" fallback used for
-    // transition authority — so a legacy row entering the workflow moves out
-    // of the "legacy" bucket. Idempotent same-stage no-ops return above and
-    // never touch the company row. No-ops honestly while the company row is
-    // not yet backfilled (stageCounts absent) or the project is uncounted.
-    await patchProjectWorkflowStage(ctx, project, args.toStage, {
-      workflowUpdatedAt: now,
-      workflowVersion: nextVersion,
-    });
-    await ctx.db.insert("projectEvents", {
-      projectId: project._id,
-      type: "stage_changed",
+    await writeWorkflowStageChange(ctx, {
+      project,
       actorId: user._id,
-      ...(project.workflowStage ? { from: project.workflowStage } : {}),
-      to: args.toStage,
-      ...(note ? { note } : {}),
+      toStage: args.toStage,
+      note,
       at: now,
+      extraPatch: {
+        workflowUpdatedAt: now,
+        workflowVersion: nextVersion,
+      },
     });
     if (needsDecision) {
       // Fail closed: the insert is keyed off the requirement, not off the
