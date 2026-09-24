@@ -1181,6 +1181,11 @@ export default defineSchema({
     // this role before sign-off. Drafting still follows the signed plan; the
     // conflict is retained as unrepaired compliance evidence.
     confirmedExclusion: v.optional(v.boolean()),
+    // The writer changed this Seed's wording (the selection carried
+    // `editedBullets` at sign-off), even when the text matches the generated
+    // wording. Absent on rows frozen before 2026-09-24; the reader falls back
+    // to comparing wording for those.
+    edited: v.optional(v.boolean()),
   })
     .index("by_summaryVersionId_and_order", ["summaryVersionId", "order"])
     .index("by_projectId", ["projectId"]),

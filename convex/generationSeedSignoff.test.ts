@@ -109,6 +109,7 @@ const getSourceAttributionByIdsRef = queryReference<typeof getSourceAttributionB
   "seeds:getSourceAttributionByIds"
 );
 const getSummaryRef = queryReference<typeof getSummary>("seeds:getSummary");
+type SummaryPage = FunctionReturnType<typeof getSummaryRef>;
 const selectRef = decisionMutation<typeof select>("seeds:select");
 const completeAttemptRef = decisionMutation<typeof completeAttempt>(
   "seedRuns:completeAttempt"
@@ -3242,6 +3243,69 @@ describe("seed Summary sign-off and recovery", () => {
       actorUserId: s.userId,
     })).rejects.toMatchObject({
       data: { code: "INVALID_STATE", reason: "SEED_STAGE_CLOSED" },
+    });
+    vi.useRealTimers();
+  });
+
+  it("keeps a hand edit back to the original wording marked edited, without quotes, after sign-off", async () => {
+    vi.useFakeTimers();
+    const s = await decisionFixture();
+    await makeReady(s);
+    const original = "Final company_context wording.";
+    await addCompanyProvenance(s, original);
+    const companySeedId = await s.t.run(async (ctx) => {
+      const seed = await ctx.db.query("seeds")
+        .withIndex("by_generationId_and_roleId", (q) =>
+          q.eq("generationId", s.generationId).eq("roleId", "company_context"))
+        .first();
+      if (!seed) throw new Error("Missing company seed");
+      expect(seed.bullets).toEqual([original]);
+      const selection = await ctx.db.query("seedSelections")
+        .withIndex("by_seedId", (q) => q.eq("seedId", seed._id))
+        .unique();
+      if (!selection) throw new Error("Missing company selection");
+      // Edited back to the generated text without Restore: the wording
+      // matches, but the writer still owns it.
+      await ctx.db.patch(selection._id, {
+        editedBullets: [original],
+        editedBy: s.userId,
+        editedAt: 6,
+      });
+      return seed._id;
+    });
+    const companyItem = (page: SummaryPage) =>
+      page.page.find((item) => item.seedId === companySeedId);
+    const live = await s.writer.query(getSummaryRef, {
+      generationId: s.generationId,
+      cursor: null,
+      numItems: 50,
+    });
+    expect(companyItem(live)).toMatchObject({ edited: true, provenance: [] });
+
+    const result = await s.writer.mutation(api.generations.signOffSeedStage, {
+      generationId: s.generationId,
+      expectedSeedStageVersion: 0,
+    });
+    const stored = await s.t.run(async (ctx) =>
+      await ctx.db.query("summaryItems")
+        .withIndex("by_summaryVersionId_and_order", (q) =>
+          q.eq("summaryVersionId", result.summaryVersionId))
+        .take(20));
+    expect(stored.find((item) => item.seedId === companySeedId)?.edited).toBe(true);
+    expect(stored.filter((item) => item.edited === false).length).toBeGreaterThan(0);
+
+    const frozen = await s.writer.query(getSummaryRef, {
+      generationId: s.generationId,
+      versionId: result.summaryVersionId,
+      cursor: null,
+      numItems: 50,
+    });
+    expect(frozen.frozen).toBe(true);
+    expect(companyItem(frozen)).toMatchObject({
+      bullets: [original],
+      edited: true,
+      provenance: [],
+      provenanceTruncated: false,
     });
     vi.useRealTimers();
   });

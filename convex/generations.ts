@@ -2645,6 +2645,7 @@ export const signOffSeedStage = mutation({
         bullets,
         support: selection.editedBullets ? "writer_asserted" : seed.support,
         tags: seed.tags,
+        edited: selection.editedBullets !== undefined,
         ...(seed.uncertaintySeedId ? { uncertaintySeedId: seed.uncertaintySeedId } : {}),
         ...(seed.experimentSeedIds ? { experimentSeedIds: seed.experimentSeedIds } : {}),
         ...(confirmedExclusion ? { confirmedExclusion: true } : {}),
