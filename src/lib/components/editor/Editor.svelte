@@ -667,11 +667,19 @@
   // of our own recent autosaves are skipped; anything else is applied, so
   // restores and replaces always reflect even right after an edit.
   let lastContent = "";
-  // Documents this editor queued for saving, newest last. Any of them can come
-  // back from the subscription as the echo of our own save, including an
-  // older save that was in flight while a newer edit was queued.
-  const RECENT_LOCAL_SAVES = 8;
-  let recentLocalSaves: string[] = [];
+  // Saves this editor has queued or has in flight (a document can appear more
+  // than once), plus the newest save the server acknowledged. Only these can
+  // come back from the subscription as echoes of this editor's own writes.
+  // Anything else, including an older saved version being restored, is
+  // external content and replaces the document.
+  let outstandingSaves: string[] = [];
+  let lastAcknowledgedSave: string | null = null;
+
+  function settleOutstanding(json: string, acknowledged: boolean) {
+    const index = outstandingSaves.indexOf(json);
+    if (index >= 0) outstandingSaves = [...outstandingSaves.slice(0, index), ...outstandingSaves.slice(index + 1)];
+    if (acknowledged) lastAcknowledgedSave = json;
+  }
 
   function refreshDocumentMetrics(ed: Editor | CoreEditor): string {
     if (measuredDoc === ed.state.doc) return currentDocumentJson;
@@ -702,8 +710,20 @@
     const update = onUpdate;
     const epoch = contentEpoch;
     lastQueuedContent = json;
-    recentLocalSaves = [...recentLocalSaves.filter((saved) => saved !== json), json].slice(-RECENT_LOCAL_SAVES);
-    const save = pendingSaveChain.then(() => (epoch === contentEpoch ? update(json) : undefined));
+    outstandingSaves = [...outstandingSaves, json];
+    const save = pendingSaveChain.then(async () => {
+      if (epoch !== contentEpoch) {
+        settleOutstanding(json, false);
+        return;
+      }
+      try {
+        await update(json);
+        settleOutstanding(json, true);
+      } catch (error) {
+        settleOutstanding(json, false);
+        throw error;
+      }
+    });
     pendingSaveChain = save.catch(() => {});
     return save;
   }
@@ -781,7 +801,7 @@
     ed.setEditable(next, false);
   });
 
-  // Apply external content changes (see lastContent/recentLocalSaves above).
+  // Apply external content changes (see lastContent/outstandingSaves above).
   $effect(() => {
     const c = content;
     const ed = editor;
@@ -789,7 +809,7 @@
     if (c !== lastContent) {
       lastContent = c;
       // Skip re-applying the round-trip echo of our own save.
-      if (recentLocalSaves.includes(c)) return;
+      if (outstandingSaves.includes(c) || c === lastAcknowledgedSave) return;
       const parsed = parseContent(c);
       if (parsed) {
         // The server content wins: an autosave still waiting on its debounce,
@@ -800,6 +820,10 @@
         saveTimeout = undefined;
         contentEpoch += 1;
         lastQueuedContent = null;
+        // Saves from before the replacement can no longer echo as ours: a
+        // later restore to one of those documents must be shown.
+        outstandingSaves = [];
+        lastAcknowledgedSave = null;
         ed.commands.setContent(parsed, { emitUpdate: false });
         refreshDocumentMetrics(ed);
       }

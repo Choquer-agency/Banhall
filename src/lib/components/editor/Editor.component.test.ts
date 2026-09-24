@@ -516,6 +516,50 @@ describe("Editor autosave and external content", () => {
     expect(saved[1]).toContain("Second edit.");
     expect(result.container.textContent).toContain("Second edit.");
   });
+
+  it("shows a restored earlier version even when this editor saved that version before", async () => {
+    const { container, rerender, saved, component } = await mountEditor();
+    const editor = tiptapOf(container);
+    editor.commands.insertContent("Version A. ");
+    await component.flushPendingSave();
+    const versionA = saved.at(-1)!;
+    editor.commands.insertContent("Version B. ");
+    await component.flushPendingSave();
+    await rerender({ content: saved.at(-1)! });
+    // History restores version A on the server; the editor must show it.
+    await rerender({ content: versionA });
+    await expect.poll(() => container.textContent).not.toContain("Version B.");
+    expect(container.textContent).toContain("Version A.");
+  });
+
+  it("recognises the echo of a long-running save behind many queued edits", async () => {
+    const saved: string[] = [];
+    let releaseFirst: (() => void) | undefined;
+    const result = await render(Editor, {
+      content: seedContent(),
+      onUpdate: (json: string) => {
+        saved.push(json);
+        if (saved.length === 1) return new Promise<void>((resolve) => (releaseFirst = resolve));
+      },
+    });
+    await expect.poll(() => result.container.querySelector(".tiptap-editor")).not.toBeNull();
+    const editor = tiptapOf(result.container);
+    editor.commands.insertContent("Edit 0. ");
+    void result.component.flushPendingSave().catch(() => {});
+    await expect.poll(() => saved.length).toBe(1);
+    const saveA = saved[0];
+    // Ten more edits queue behind the in-flight save.
+    let lastFlush: Promise<void> = Promise.resolve();
+    for (let index = 1; index <= 10; index += 1) {
+      editor.commands.insertContent(`Edit ${index}. `);
+      lastFlush = result.component.flushPendingSave();
+    }
+    await result.rerender({ content: saveA });
+    releaseFirst?.();
+    await lastFlush;
+    await expect.poll(() => saved.at(-1) ?? "").toContain("Edit 10.");
+    expect(result.container.textContent).toContain("Edit 10.");
+  });
 });
 
 it("writes the CRA limit counts with commas and marks a Not drafted Section in place", async () => {
