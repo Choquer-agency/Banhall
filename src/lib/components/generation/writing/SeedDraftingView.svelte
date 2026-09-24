@@ -26,6 +26,7 @@
     scrollContainer = null,
     collapseAfterPx = 24,
     ringClass = "fixed bottom-9 right-9",
+    headingId = undefined,
   }: {
     progress: SeedDraftProgress;
     reportTitle: string;
@@ -40,6 +41,8 @@
     collapseAfterPx?: number;
     /** Where the collapsed ring sits; the host may re-anchor it. */
     ringClass?: string;
+    /** DOM id for the report title heading, the host's focus destination. */
+    headingId?: string;
   } = $props();
 
   // Forward-only percent (acceptance: "a border fill that only moves forward").
@@ -201,7 +204,8 @@
   {/if}
 
   <article class="flex w-full max-w-[760px] flex-col gap-[22px] pt-2" data-drafting-report>
-    <h1 class="font-serif text-[30px] font-normal leading-[36px] text-ink">{reportTitle}</h1>
+    <!-- The page's single h1 is the top bar title; the draft's title is h2. -->
+    <h2 id={headingId} tabindex="-1" class="font-serif text-[30px] font-normal leading-[36px] text-ink outline-none">{reportTitle}</h2>
 
     {#each sections as section (section.key)}
       {@const queued = section.status === "queued"}
@@ -221,7 +225,7 @@
               >Not drafted</span>
             {/if}
           </p>
-          <h2 class="font-serif text-xl font-normal leading-[26px] text-ink">{section.question}</h2>
+          <h3 class="font-serif text-xl font-normal leading-[26px] text-ink">{section.question}</h3>
         </header>
 
         {#if section.status === "done"}

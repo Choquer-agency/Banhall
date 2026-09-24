@@ -858,6 +858,31 @@ textarea.input-chromeless:focus-visible {
   margin-bottom: 0;
 }
 
+/* A Section a stopped Step-by-step draft left empty (ui-design-final.md
+   section 6, owner decision 20): the literal "[NOT GENERATED]" body shows as
+   a quiet dashed "Not drafted" marker until the writer types there or
+   "Draft the rest" fills it. */
+.ProseMirror p.not-drafted-placeholder {
+  border: 1px dashed var(--color-line);
+  border-radius: 8px;
+  padding: 6px 10px;
+  color: var(--color-ink-muted);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  line-height: 20px;
+}
+.ProseMirror p.not-drafted-placeholder::before {
+  content: "Not drafted";
+  display: inline-block;
+  margin-right: 8px;
+  padding: 0 8px;
+  border-radius: 9999px;
+  background-color: var(--color-gray-50);
+  color: var(--color-ink-secondary);
+  font-size: 11px;
+  line-height: 18px;
+}
+
 @keyframes ai-ref-pulse {
   0% {
     background-color: #ECFFB0;

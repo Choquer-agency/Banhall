@@ -30,6 +30,7 @@
 <script module lang="ts">
   import type { Node as PMNode } from "@tiptap/pm/model";
   import { Decoration, DecorationSet } from "@tiptap/pm/view";
+  import { NOT_GENERATED_PLACEHOLDER } from "../../../../convex/lib/tiptapReport";
   import type { CommentRange, FindReplaceMatch } from "$lib/components/editor/types";
   import { overflowStartOffset } from "../../../../convex/lib/lineLimits";
   import {
@@ -527,6 +528,18 @@
     if (sectionLimitMetrics) {
       decorations.push(...buildSectionLimitDecorations(doc, sectionLimitMetrics));
     }
+    // A Section a stopped Step-by-step draft left empty keeps one
+    // "[NOT GENERATED]" paragraph; mark it "Not drafted" where it sits.
+    doc.forEach((node, offset) => {
+      if (node.type.name === "paragraph" && node.textContent.trim() === NOT_GENERATED_PLACEHOLDER) {
+        decorations.push(
+          Decoration.node(offset, offset + node.nodeSize, {
+            class: "not-drafted-placeholder",
+            "data-not-drafted": "true",
+          })
+        );
+      }
+    });
     return DecorationSet.create(doc, decorations);
   }
 

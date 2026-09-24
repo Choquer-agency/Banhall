@@ -105,6 +105,35 @@ function cancelGeneration(Component: typeof CurrentProjectPage | typeof PreviewP
   });
 }
 
+/**
+ * The signed-off draft's progress read (`generations:getSeedDraftProgress`).
+ * The preview page writes a signed-off Step-by-step draft into the Report tab
+ * from it; the frozen current page keeps the centred progress card.
+ */
+function seedDraftProgress() {
+  return {
+    phase: "drafting",
+    percent: 20,
+    estimatedRemainingMs: 120_000,
+    currentSectionKey: "242",
+    stoppedAfterSectionKey: null,
+    sections: [
+      { key: "242", number: "242", title: "Technological uncertainty", question: "What scientific or technological uncertainties did you attempt to overcome?", orderIndex: 0, status: "writing", paragraphs: [], startedAt: 1, completedAt: null },
+      { key: "244", number: "244", title: "Work performed", question: "What work did you perform to overcome these uncertainties?", orderIndex: 1, status: "queued", paragraphs: [], startedAt: null, completedAt: null },
+      { key: "246", number: "246", title: "Technological advancement", question: "What scientific or technological advancements did you achieve?", orderIndex: 2, status: "queued", paragraphs: [], startedAt: null, completedAt: null },
+    ],
+  };
+}
+
+/** The Seed drafting surface's heading in each host: the preview page's
+ * writing view titles the draft with the project title; the current page's
+ * progress card says "Generating your report". */
+function seedDraftingHeading(Component: typeof CurrentProjectPage | typeof PreviewProjectPage) {
+  return Component === PreviewProjectPage
+    ? browserPage.getByRole("region", { name: "Generation progress" }).getByRole("heading", { name: "Adaptive controller", exact: true })
+    : browserPage.getByRole("heading", { name: "Generating your report", exact: true });
+}
+
 function seedHostQueries() {
   __setQueryData("projects:getProject", {
     _id: "project-seed-host",
@@ -167,6 +196,7 @@ function seedHostQueries() {
     "snapshots:listSnapshots",
   ]) __setQueryData(name, []);
 
+  __setQueryData("generations:getSeedDraftProgress", seedDraftProgress());
   __setQueryData("seeds:getOutline", hostOutline());
   __setQueryData("seeds:getSubsection", {
     generationId: "generation-seed-host",
@@ -581,7 +611,7 @@ describe("Seed project hosts", () => {
       summaryVersionId: "summary-frozen",
       seedCanEdit: true,
     });
-    await expect.element(browserPage.getByRole("heading", { name: "Generating your report", exact: true })).toBeVisible();
+    await expect.element(seedDraftingHeading(Component)).toBeVisible();
     expect(browserPage.getByRole("heading", { name: "Summary review", exact: true }).elements()).toHaveLength(0);
     expect(document.body.textContent).not.toContain("Older completed report.");
 
@@ -626,7 +656,7 @@ describe("Seed project hosts", () => {
       originGenerationId: "generation-seed-host",
       seedCanEdit: true,
     });
-    await expect.element(browserPage.getByRole("heading", { name: "Generating your report", exact: true })).toBeVisible();
+    await expect.element(seedDraftingHeading(Component)).toBeVisible();
     expect(browserPage.getByRole("heading", { name: "Summary review", exact: true }).elements()).toHaveLength(0);
     expect(browserPage.getByRole("button", { name: "Retry from this Summary", exact: true }).elements()).toHaveLength(0);
     expect(document.body.textContent).not.toContain("Older completed report.");
@@ -959,7 +989,7 @@ describe("Seed project hosts", () => {
       summaryVersionId: "summary-frozen",
       seedCanEdit: true,
     });
-    await expect.element(browserPage.getByRole("heading", { name: "Generating your report", exact: true })).toBeVisible();
+    await expect.element(seedDraftingHeading(Component)).toBeVisible();
     await expect.poll(() => document.body.textContent).not.toContain("Existing report stays visible.");
     expect(reportActions(Component).elements()).toHaveLength(0);
   }
@@ -1143,7 +1173,9 @@ describe("Seed project hosts", () => {
     // focus lands on the generation-progress heading whether the generation
     // subscription changes before or after the sign-off command resolves.
     // With the exact generation still loading (R5-15), focus first lands on
-    // the progress region and moves to the heading once it renders.
+    // the progress region and moves to the heading once it renders. In the
+    // preview host that heading is the writing view's draft title, and
+    // "loading" is its draft-progress read.
     const exactGeneration = {
       _id: "generation-seed-host",
       status: "running",
@@ -1154,6 +1186,8 @@ describe("Seed project hosts", () => {
       candidatesDone: 0,
     };
     if (progress === "loaded") __setQueryData("generations:getGeneration", exactGeneration);
+    // The preview host's writing view reads the draft progress instead.
+    else __setQueryData("generations:getSeedDraftProgress", undefined);
     let accept: ((value: unknown) => void) | undefined;
     if (ordering === "subscription-first") {
       __setMutationResult("generations:signOffSeedStage", new Promise((resolve) => { accept = resolve; }));
@@ -1201,8 +1235,9 @@ describe("Seed project hosts", () => {
       expect(browserPage.getByRole("heading", { name: "Summary review", exact: true }).elements()).toHaveLength(0);
       expect(browserPage.getByLabelText("Seed workspace").elements()).toHaveLength(0);
       __setQueryData("generations:getGeneration", exactGeneration);
+      __setQueryData("generations:getSeedDraftProgress", seedDraftProgress());
     }
-    await expect.element(browserPage.getByRole("heading", { name: "Generating your report", exact: true })).toBeVisible();
+    await expect.element(seedDraftingHeading(Component)).toBeVisible();
     await expect.poll(() => document.activeElement?.id).toBe("generation-progress-heading");
     expect(browserPage.getByRole("heading", { name: "Summary review", exact: true }).elements()).toHaveLength(0);
     expect(browserPage.getByLabelText("Seed workspace").elements()).toHaveLength(0);
@@ -1564,7 +1599,7 @@ describe("Seed project hosts", () => {
       // The replacement owner's Summary stays open; no Seed drafting focus move.
       await expect.element(browserPage.getByRole("heading", { name: "Summary review", exact: true })).toBeVisible();
       expect(browserPage.getByLabelText("Seed workspace").elements()).toHaveLength(0);
-      expect(browserPage.getByRole("heading", { name: "Generating your report", exact: true }).elements()).toHaveLength(0);
+      expect(seedDraftingHeading(Component).elements()).toHaveLength(0);
       mounted.unmount();
     }
   }

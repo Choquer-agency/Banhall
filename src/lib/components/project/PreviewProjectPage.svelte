@@ -33,8 +33,15 @@
   } from "$lib/components/seeds/summaryFocus";
   import {
     focusGenerationProgress,
+    GENERATION_PROGRESS_HEADING_ID,
     GENERATION_PROGRESS_REGION_ID,
   } from "$lib/components/generation/progressFocus";
+  import SeedDraftingView from "$lib/components/generation/writing/SeedDraftingView.svelte";
+  import StopDraftingDialog from "$lib/components/generation/writing/StopDraftingDialog.svelte";
+  import NotDraftedBanner from "$lib/components/generation/writing/NotDraftedBanner.svelte";
+  import DraftReadyToast from "$lib/components/generation/writing/DraftReadyToast.svelte";
+  import { notDraftedReportSections } from "../../../../convex/lib/tiptapReport";
+  import { PD_SECTION_HEADINGS } from "../../../../shared/pdSubsections";
   import Editor from "$lib/components/editor/Editor.svelte";
   import type {
     CommentRange,
@@ -59,8 +66,9 @@
   import ProjectTopBar, { type TopBarMoreItem } from "$lib/components/project/shell/ProjectTopBar.svelte";
   import PanelToolbar, { type PanelTab } from "$lib/components/project/shell/PanelToolbar.svelte";
   import QaToggle from "$lib/components/qa/QaToggle.svelte";
+  import QaFinishedNotice from "$lib/components/qa/QaFinishedNotice.svelte";
   import { qaSectionScores } from "$lib/qa/qaSectionScores";
-  import { markQaSeen, readQaSeen, type QaSeenState } from "$lib/qa/qaSeen";
+  import { markQaDismissed, markQaSeen, readQaSeen, type QaSeenState } from "$lib/qa/qaSeen";
   import SourcesView from "$lib/components/project/shell/SourcesView.svelte";
   import DetailsPanel from "$lib/components/project/details/DetailsPanel.svelte";
   import DetailsPopover from "$lib/components/project/details/DetailsPopover.svelte";
@@ -75,7 +83,7 @@
     type CanonicalExportReport,
     type ExportValidationResult,
   } from "$lib/exportValidation";
-  import { userErrorCode, userErrorMessage } from "$lib/errors";
+  import { userErrorCode, userErrorMessage, userErrorReason } from "$lib/errors";
   import { flushOutboxFor } from "$lib/uploads/outboxFlush";
   import { toast } from "svelte-sonner";
   import { comparePairFromSlots, type CandidateModelId } from "../../../../shared/generationModels";
@@ -1239,6 +1247,139 @@
       !showSeedDrafting
   );
 
+  // Writing view (ui-design-final.md sections 6 and 7). A signed-off
+  // Step-by-step run drafts into the Report tab: the pill, the skeleton and
+  // the corner ring replace the centred progress card for these runs only;
+  // single, compare and legacy section runs keep GenerationProgress. The
+  // same progress read serves the completed report of a signed-off run:
+  // whether a "Draft the rest" redraft is live, and when a run this page
+  // watched has just finished.
+  const writingGenerationId = $derived(
+    isSeedWorkflow && generation?.seedPhase === "drafting" && generation.summaryVersionId
+      ? generation._id
+      : null
+  );
+  const reportSeedGenerationId = $derived(
+    report &&
+      reportGenerationQ.data?.gatedWorkflow === "seeds" &&
+      reportGenerationQ.data.summaryVersionId &&
+      reportGenerationQ.data._id === report.generationId
+      ? reportGenerationQ.data._id
+      : null
+  );
+  const draftProgressGenerationId = $derived(writingGenerationId ?? reportSeedGenerationId);
+  const draftProgressQ = useQuery(api.generations.getSeedDraftProgress, () =>
+    auth.isAuthenticated && draftProgressGenerationId
+      ? { generationId: draftProgressGenerationId }
+      : "skip"
+  );
+  const draftProgress = $derived(draftProgressGenerationId ? draftProgressQ.data : undefined);
+  // `null` means the server does not treat the run as a signed-off Seed
+  // draft: the page falls back to the centred progress card.
+  const showWritingView = $derived(writingGenerationId !== null && draftProgress !== null);
+  let writingScrollEl = $state<HTMLElement | null>(null);
+
+  // A7 continued: focus that landed on the progress region while the draft
+  // progress was loading moves to the writing view's heading once it renders.
+  $effect(() => {
+    if (!showWritingView || !draftProgress) return;
+    void tick().then(() => {
+      if (hostDisposed) return;
+      if (document.activeElement?.id === GENERATION_PROGRESS_REGION_ID) focusGenerationProgress();
+    });
+  });
+
+  // Stop (FR-43, owner decision 20): the pill's Stop opens the confirmation;
+  // only its primary asks the server to stop after the Section in progress.
+  const stopDraftingMut = useMutation(api.generations.stopOrderedGeneration);
+  let stopDialogOpen = $state(false);
+  let stopError = $state<string | null>(null);
+  const writingSectionNumber = $derived.by(() => {
+    const progress = draftProgress;
+    if (!progress?.currentSectionKey) return null;
+    return progress.sections.find((section) => section.key === progress.currentSectionKey)?.number ?? null;
+  });
+  function openStopDialog() {
+    stopError = null;
+    stopDialogOpen = true;
+  }
+  async function confirmStopDrafting() {
+    const generationId = writingGenerationId;
+    if (!generationId) return;
+    stopError = null;
+    try {
+      await stopDraftingMut({ generationId });
+    } catch (error) {
+      stopError =
+        userErrorReason(error) === "DRAFT_COMPLETE"
+          ? "Every section is already drafted. The report is being put together, so there is nothing left to stop."
+          : userErrorCode(error) === "STALE_REVISION"
+            ? "This draft is no longer running."
+            : userErrorMessage(error, "The draft could not be stopped. Try again.");
+      throw error;
+    }
+  }
+
+  // "Not drafted" Sections of a stopped report: the Sections whose body is
+  // still exactly the placeholder, so a Section the writer filled by hand is
+  // never offered for redrafting.
+  const notDraftedSections = $derived.by(() => {
+    if (!report || !reportSeedGenerationId) return [];
+    return notDraftedReportSections(report.content).map((key) => ({
+      number: PD_SECTION_HEADINGS[key].number,
+      title: PD_SECTION_HEADINGS[key].title,
+    }));
+  });
+  const redraftLive = $derived(
+    reportSeedGenerationId !== null &&
+      draftProgressGenerationId === reportSeedGenerationId &&
+      draftProgress?.phase === "drafting"
+  );
+  const redraftMut = useMutation(api.generations.redraftMissingSections);
+  let redraftError = $state<string | null>(null);
+  async function draftTheRest() {
+    const generationId = reportSeedGenerationId;
+    if (!generationId) return;
+    redraftError = null;
+    try {
+      const result = await redraftMut({ generationId });
+      if (result.status === "nothing_to_draft") {
+        toast.info("Every section already has text, so there was nothing to draft.");
+      }
+    } catch (error) {
+      const code = userErrorCode(error);
+      redraftError =
+        code === "GENERATION_ACTIVE"
+          ? "Another draft is running for this project. Try again when it finishes."
+          : code === "NOT_AUTHORIZED"
+            ? "You do not have permission to edit this report, so you cannot draft the missing sections."
+            : userErrorReason(error) === "NOT_STOPPED"
+              ? "This draft was not stopped, so there are no missing sections to draft."
+              : userErrorMessage(error, "Could not start drafting the missing sections. Try again.");
+    }
+  }
+
+  // Draft ready (4.4): a run this page watched while it was writing that
+  // then completes with every Section drafted. A stopped run shows the
+  // Not drafted banner instead.
+  const watchedDrafts = new Set<string>();
+  let draftReadyFor = $state<string | null>(null);
+  $effect(() => {
+    const id = writingGenerationId ?? (redraftLive ? reportSeedGenerationId : null);
+    if (id) untrack(() => watchedDrafts.add(String(id)));
+  });
+  $effect(() => {
+    const id = reportSeedGenerationId ? String(reportSeedGenerationId) : null;
+    if (!id || !reportActionsVisible || draftProgress?.phase !== "completed") return;
+    if (generation?._id !== reportSeedGenerationId || generation?.status !== "completed") return;
+    if (notDraftedSections.length > 0) return;
+    untrack(() => {
+      if (!watchedDrafts.has(id)) return;
+      watchedDrafts.delete(id);
+      draftReadyFor = id;
+    });
+  });
+
   // Panel toolbar tabs (ui-design-final.md section 2). A Step-by-step run
   // shows Plan, Summary, Report and Sources; everything else Report and
   // Sources. Tabs map onto the existing surfaces: Summary is still the
@@ -1317,8 +1458,8 @@
     teamNeeded: () => detailsOpen && detailsView === "handoff",
   });
 
-  // QA toggle (ui-design-final.md section 7): the score comes from the
-  // stored scorecard; "seen" is
+  // QA toggle and the "QA finished" notice (ui-design-final.md section 7):
+  // the score and Section rows come from the stored scorecard; "seen" is
   // browser-local per generation and QA completion (src/lib/qa/qaSeen.ts).
   const qaScores = $derived(qaSectionScores(generation?.agentOutputs ?? null));
   const qaScore = $derived(qaScores?.overall ?? null);
@@ -1344,6 +1485,17 @@
       qaSeenTick += 1;
     });
   });
+  function dismissQaNotice() {
+    if (!generation || qaCompletedAt === null) return;
+    markQaDismissed(String(generation._id), qaCompletedAt);
+    qaSeenTick += 1;
+  }
+  function openQaFromNotice() {
+    openSidePanel("qa");
+  }
+  const showQaFinished = $derived(
+    reportActionsVisible && qaSeen === "unseen" && !(qaOpen && sidePanelOnScreen)
+  );
 
   const topBarMoreItems = $derived.by((): TopBarMoreItem[] => {
     if (!reportActionsVisible) return [];
@@ -1596,8 +1748,23 @@
         <div
           data-project-main
           inert={chatFocus}
-          class={`flex min-h-0 min-w-0 flex-1 flex-col ${chatFocus ? "hidden" : ""} ${sidePanelOpen && mobileWorkspaceView === "assistant" ? "max-lg:hidden" : ""}`}
+          class={`relative flex min-h-0 min-w-0 flex-1 flex-col ${chatFocus ? "hidden" : ""} ${sidePanelOpen && mobileWorkspaceView === "assistant" ? "max-lg:hidden" : ""}`}
         >
+          <!-- Draft ready (board 4.4): where the writing pill was, top centre
+               of the Report tab. Export and Send for review are back in the
+               top bar. -->
+          {#if draftReadyFor && reportActionsVisible && !sourcesOpen}
+            <div class="pointer-events-none absolute inset-x-0 top-4 z-30 flex justify-center px-4" data-draft-ready-host>
+              <div class="pointer-events-auto max-w-full">
+                {#key draftReadyFor}
+                  <DraftReadyToast
+                    qaRunning={generation?.postQaStatus === "running"}
+                    onClose={() => (draftReadyFor = null)}
+                  />
+                {/key}
+              </div>
+            </div>
+          {/if}
           {#if sourcesOpen}
             <div class="min-h-0 flex-1 overflow-y-auto">
               <SourcesView
@@ -1608,8 +1775,51 @@
             </div>
           {/if}
           <div class={`flex min-h-0 flex-1 flex-col ${sourcesOpen ? "hidden" : ""}`}>
-    <!-- Generation progress — no metadata header; the progress card is the page -->
-    {#if generation && (isGenerating || showFailedGeneration)}
+    {#if generation && showWritingView}
+      <!-- Writing view (ui-design-final.md section 6, boards 4.1 to 4.3): the
+           signed-off Step-by-step draft writes into the Report tab. The
+           transform makes this pane the containing block of the fixed corner
+           ring, so the ring sits in the report panel's corner. -->
+      <div class="relative flex min-h-0 flex-1 flex-col [transform:translateZ(0)]" data-writing-pane>
+        <div bind:this={writingScrollEl} class="min-h-0 flex-1 overflow-y-auto" data-writing-scroll>
+          <!-- A7: the region receives focus when Seed drafting replaces
+               Summary Review, and hands it to the draft's heading once the
+               progress read arrives. -->
+          <div
+            id={GENERATION_PROGRESS_REGION_ID}
+            role="region"
+            aria-label="Generation progress"
+            tabindex="-1"
+            class="mx-auto w-full max-w-[808px] px-6 pb-24 pt-6 outline-none"
+          >
+            {#if draftProgress}
+              {#key generation._id}
+                <SeedDraftingView
+                  progress={draftProgress}
+                  reportTitle={project.title}
+                  headingId={GENERATION_PROGRESS_HEADING_ID}
+                  scrollContainer={writingScrollEl}
+                  onStop={generation.seedCanEdit ? openStopDialog : undefined}
+                  stopDisabled={stopDialogOpen}
+                />
+              {/key}
+            {:else}
+              <p class="flex items-center justify-center gap-2 py-16 text-body text-ink-muted">
+                <Spinner size="sm" /> Loading the draft...
+              </p>
+            {/if}
+          </div>
+        </div>
+      </div>
+      <StopDraftingDialog
+        bind:open={stopDialogOpen}
+        currentSectionNumber={writingSectionNumber}
+        errorMessage={stopError}
+        onConfirm={confirmStopDrafting}
+        onCancel={() => (stopError = null)}
+      />
+    {:else if generation && (isGenerating || showFailedGeneration)}
+      <!-- Generation progress: no metadata header; the progress card is the page. -->
       <!-- `my-auto` rather than `items-center`: a centred flex child that
            overflows its scroll container cannot be scrolled back to at the top
            edge. Auto margins centre it identically while it fits, and yield
@@ -1730,6 +1940,18 @@
               data-report-width={workspaceMaximized ? "full" : "reading"}
               class={`w-full py-10 transition-[padding,max-width] duration-[325ms] ease-out motion-reduce:transition-none ${workspaceMaximized ? (sidePanelOpen ? "px-6 lg:px-12" : "px-6 lg:px-24") : "mx-auto max-w-[708px] px-6"}`}
             >
+              {#if notDraftedSections.length > 0}
+                <!-- A stopped Step-by-step draft (FR-43, owner decision 20). -->
+                <div class="mb-6">
+                  <NotDraftedBanner
+                    missingSections={notDraftedSections}
+                    onDraftRest={draftTheRest}
+                    pending={redraftLive}
+                    errorMessage={redraftError}
+                    disabled={!reportGenerationQ.data?.seedCanEdit}
+                  />
+                </div>
+              {/if}
               <!-- Editor column -->
               <Editor
                 bind:this={editorRef}
@@ -2206,6 +2428,20 @@
             </button>
           </div>
         </div>
+      </div>
+    {/if}
+
+    <!-- QA finished (board 4.5): bottom right until opened or dismissed. -->
+    {#if showQaFinished && qaScores}
+      <div class="fixed bottom-6 right-6 z-[85] max-sm:inset-x-4 max-sm:bottom-4" data-qa-finished-host>
+        <QaFinishedNotice
+          overallScore={qaScores.overall}
+          sections={qaScores.sections}
+          completedAt={qaCompletedAt}
+          onOpen={openQaFromNotice}
+          onLater={dismissQaNotice}
+          onDismiss={dismissQaNotice}
+        />
       </div>
     {/if}
 

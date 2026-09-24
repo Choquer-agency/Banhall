@@ -23,6 +23,14 @@ export function userErrorCode(error: unknown): string | null {
   return null;
 }
 
+/** The `reason` detail a domain error carries (for example "DRAFT_COMPLETE"), if any. */
+export function userErrorReason(error: unknown): string | null {
+  if (isRecord(error) && isRecord(error.data) && typeof error.data.reason === "string") {
+    return error.data.reason;
+  }
+  return null;
+}
+
 export function userErrorMessage(error: unknown, fallback: string): string {
   if (isRecord(error) && isRecord(error.data) && typeof error.data.message === "string") {
     return error.data.message;
