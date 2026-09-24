@@ -32,11 +32,11 @@
     theme: "light" | "dark";
     navigationOpen?: boolean;
     /**
-     * Desktop rail collapse state. The Attio-style rail fully leaves the
-     * canvas at width 0; its previous expanded width remains persisted. The
-     * shell owns the
-     * persisted preference; hosts bind this so their header toggle stays a
-     * plain prop wire. The mobile drawer is independent and unchanged.
+     * Desktop rail collapse state. Collapsed, the rail keeps an icons-only
+     * column (ui-design-final.md section 2, board 1.2); its expanded width
+     * stays persisted. The shell owns the persisted preference; hosts bind
+     * this so their header toggle stays a plain prop wire. The mobile drawer
+     * is independent and unchanged.
      */
     railHidden?: boolean;
     displayedView: DashboardView | null;
@@ -111,17 +111,13 @@
     <aside
       id="workspace-rail"
       data-rail-panel
-      inert={railHidden ? true : undefined}
-      aria-hidden={railHidden ? "true" : undefined}
-      class="workspace-rail-panel absolute inset-y-0 left-0 overflow-hidden border-r border-workspace-rail-line bg-workspace-rail"
-      style="width: var(--workspace-rail-width);"
+      class="workspace-rail-panel absolute inset-y-0 left-0 overflow-hidden bg-workspace-rail"
+      style={`width: ${railHidden ? "var(--workspace-rail-collapsed-width)" : "var(--workspace-rail-width)"};`}
     >
-      <!-- Fixed-width panel: the grid track and the panel translate travel
-           together, so the rail exits intact instead of being squeezed. -->
-      <div class="h-full" style="width: var(--workspace-rail-width);">
+      <div class="h-full" style={`width: ${railHidden ? "var(--workspace-rail-collapsed-width)" : "var(--workspace-rail-width)"};`}>
         <WorkspaceRail
           variant="rail"
-          collapsed={false}
+          collapsed={railHidden}
           {displayedView}
           {myWorkAvailable}
           {myWorkHref}
@@ -173,29 +169,21 @@
 </Drawer.Root>
 
 <style>
-  /* Rail column: the grid tracks the expanded width or slides fully closed.
-     `data-rail-hidden` is kept as the persisted-preference lineage.
-     The panel translates by the same distance while the grid track closes,
-     matching Attio's intact off-canvas exit instead of clipping the rail's
-     right edge. Live pointer drags suspend the track transition so the edge
-     follows the pointer 1:1. */
+  /* Rail column: the grid tracks the expanded width or the icons-only
+     collapsed width. `data-rail-hidden` is kept as the persisted-preference
+     lineage (it now means "collapsed"). Live pointer drags suspend the track
+     transition so the edge follows the pointer 1:1. */
   .workspace-shell-grid {
     --workspace-rail-col: var(--workspace-rail-width, 275px);
     transition: grid-template-columns 300ms cubic-bezier(0.16, 1, 0.3, 1);
   }
 
   .workspace-rail-panel {
-    transform: translate3d(0, 0, 0);
-    transition: transform 300ms cubic-bezier(0.16, 1, 0.3, 1);
-    will-change: transform;
+    transition: width 300ms cubic-bezier(0.16, 1, 0.3, 1);
   }
 
   .workspace-shell-grid[data-rail-hidden] {
-    --workspace-rail-col: var(--workspace-rail-collapsed-width, 0px);
-  }
-
-  .workspace-shell-grid[data-rail-hidden] .workspace-rail-panel {
-    transform: translate3d(-100%, 0, 0);
+    --workspace-rail-col: var(--workspace-rail-collapsed-width, 56px);
   }
 
   .workspace-shell-grid[data-rail-resizing] {

@@ -17,6 +17,9 @@ const tallContent = createRawSnippet(() => ({
 describe("WorkspaceChrome", () => {
   beforeEach(() => {
     vi.mocked(authClient.signOut).mockReset();
+    // A collapsed rail persisted by an earlier suite shows icons only; start
+    // from the expanded default.
+    localStorage.clear();
     __resetPage();
     __resetNavigation();
     __resetConvexStub();
