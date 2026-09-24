@@ -1071,3 +1071,53 @@ textarea.input-chromeless:focus-visible {
 .chat-markdown .text-base { font-size: 1.05em; }
 .chat-markdown .text-sm { font-size: 1em; }
 .chat-markdown .text-xs { font-size: 0.85em; }
+
+
+/* ─── Aurora AI surfaces and writing motion (ui-design-final.md §1, §6, §7) ── */
+:root {
+  --aurora-conic: conic-gradient(from 210deg at 50% 50%, #2FD2C4, #58BBF3, #8438FF, #E879F9, #86E3DA, #2FD2C4);
+  --aurora-linear: linear-gradient(90deg, #2FD2C4, #58BBF3, #8438FF, #E879F9);
+  --aurora-glint: radial-gradient(circle at 28% 22%, rgba(255, 255, 255, 0.55) 0%, transparent 38%);
+  --aurora-shadow: 0 2px 10px 1px #8438FF33;
+  --aurora-track: #E1E9E7;
+  --skeleton-line: #E8EEED;
+}
+@keyframes aurora-glint-travel {
+  from { transform: translateX(-100%); opacity: 0; }
+  30% { opacity: 1; }
+  to { transform: translateX(0); opacity: 0; }
+}
+@keyframes skeleton-shimmer {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(100%); }
+}
+@keyframes fade-rise-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes toast-drain {
+  from { transform: scaleX(1); }
+  to { transform: scaleX(0); }
+}
+@keyframes aurora-spin {
+  to { transform: rotate(360deg); }
+}
+.aurora-glint { animation: aurora-glint-travel 1.4s ease-out infinite; }
+.skeleton-shimmer { animation: skeleton-shimmer 1.6s linear infinite; }
+.fade-rise { animation: fade-rise-in 300ms ease-out both; }
+.toast-drain { transform-origin: left center; animation: toast-drain 5s linear forwards; }
+.toast-drain.is-paused { animation-play-state: paused; }
+.aurora-spin { animation: aurora-spin 0.9s linear infinite; }
+@media (prefers-reduced-motion: reduce) {
+  .aurora-glint,
+  .skeleton-shimmer,
+  .fade-rise,
+  .aurora-spin {
+    animation: none;
+  }
+  /* The drain still times the auto-close; it just is not drawn as motion. */
+  .toast-drain {
+    animation-name: toast-drain;
+    opacity: 0;
+  }
+}

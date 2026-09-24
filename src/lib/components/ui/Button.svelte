@@ -15,7 +15,7 @@
     "primary-outline":
       "border border-action-primary bg-transparent text-action-primary hover:bg-action-primary hover:text-action-primary-foreground focus-visible:ring-action-primary",
     secondary:
-      "border border-line bg-chrome text-ink hover:bg-primary-wash focus-visible:ring-primary",
+      "border border-transparent bg-chrome text-ink hover:bg-primary-wash focus-visible:ring-primary",
     ghost:
       "border border-transparent text-ink-secondary hover:bg-primary-wash hover:text-ink focus-visible:ring-primary",
     // Destructive actions take a red hover (design system rule 9). A class

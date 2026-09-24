@@ -75,8 +75,10 @@ describe("Button", () => {
     });
 
     const classes = document.body.querySelector("a")?.className ?? "";
-    for (const token of ["bg-chrome", "text-ink", "border-line", "hover:bg-primary-wash", "min-h-11"])
+    for (const token of ["bg-chrome", "text-ink", "border-transparent", "hover:bg-primary-wash", "min-h-11"])
       expect(classes).toContain(token);
+    // Secondary buttons are borderless (ui-design-final.md section 1).
+    expect(classes).not.toContain("border-line");
   });
 
   it("maps the default action to accessible brand pairs in light and dark themes", async () => {
