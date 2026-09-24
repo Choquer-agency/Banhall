@@ -6639,6 +6639,148 @@ describe("Step-by-step writing: background QA, Stop and redraft (CAP-17, CAP-18)
     expect(generation?.redraft).toMatchObject({ status: "completed", filledSections: ["242"] });
   });
 
+  /** Replace the report's last "[NOT GENERATED]" body with `text` (or, when
+   * no placeholder is left, the previous typed text) as a writer save. */
+  async function writerTypes(s: ReadyFixture, from: string, text: string) {
+    const current = await reportOf(s);
+    const at = current.content.lastIndexOf(from);
+    if (at < 0) throw new Error(`The report has no "${from}" to replace`);
+    await s.writer.mutation(api.reports.updateReportContent, {
+      reportId: current._id,
+      content: `${current.content.slice(0, at)}${text}${current.content.slice(at + from.length)}`,
+      expectedRevisionNumber: current.revisionNumber ?? 0,
+    });
+  }
+
+  /** Consistency answers that name the text they were asked about, so a
+   * stored finding shows which document it describes. `onCall` runs while
+   * the provider call is in flight. */
+  function consistencyReportsWhatItSaw(
+    prefix: string,
+    onCall: (call: number) => Promise<void>
+  ) {
+    let draft = 0;
+    let consistencyCalls = 0;
+    network.create.mockImplementation(async (params: GenerationMessageParams) => {
+      if (!params.tool_choice) {
+        draft += 1;
+        return {
+          content: [{ type: "text", text: `${prefix} draft ${draft}.` }],
+          usage: { input_tokens: 10, output_tokens: 5 },
+        };
+      }
+      const toolName = params.tool_choice.name;
+      if (toolName !== "submit_consistency_findings") {
+        throw new Error(`Unexpected tool ${toolName}`);
+      }
+      consistencyCalls += 1;
+      const call = consistencyCalls;
+      const request = JSON.stringify(params);
+      const seen = [`${prefix} draft 2.`, "Writer typed 244 first.", "Writer typed 244 again.", "Writer typed 244 a third time."]
+        .find((text) => request.includes(text)) ?? "nothing known";
+      await onCall(call);
+      return {
+        content: [{
+          type: "tool_use",
+          id: `consistency-${call}`,
+          name: toolName,
+          input: {
+            findings: [{
+              section: "244",
+              paragraph: 1,
+              sections: ["242"],
+              kind: "contradiction",
+              issue: `Call ${call} checked "${seen}"`,
+            }],
+          },
+        }],
+        usage: { input_tokens: 10, output_tokens: 5 },
+      };
+    });
+    return () => consistencyCalls;
+  }
+
+  async function redraftNotes(s: ReadyFixture) {
+    return await s.t.run(async (ctx) =>
+      (await ctx.db.query("complianceNotes")
+        .withIndex("by_generationId_and_section", (q) => q.eq("generationId", s.generationId))
+        .take(200)).filter((row) => row.instruction.startsWith("Consistency pass")));
+  }
+
+  it("reruns the redraft consistency pass when the writer saves the report while it runs, and never stores findings about the discarded draft", async () => {
+    const { s } = await stopAfterFirstSection("Fence");
+    configureSuccessfulSummaryFinalization("FenceRedraft");
+    await s.writer.mutation(api.generations.redraftMissingSections, {
+      generationId: s.generationId,
+    });
+    await runRedraftSection(s);
+    await runRedraftSection(s);
+    const before = await redraftNotes(s);
+    // The writer types into the 244 placeholder while the consistency call
+    // over the redrafted 244 is in flight.
+    const calls = consistencyReportsWhatItSaw("FenceRedraft", async (call) => {
+      if (call === 1) await writerTypes(s, "[NOT GENERATED]", "Writer typed 244 first.");
+    });
+    await runRedraftFinalizer(s);
+
+    const stored = (await redraftNotes(s)).filter(
+      (row) => !before.some((old) => old._id === row._id)
+    );
+    const text = JSON.stringify(stored);
+    // Only the rerun over the writer's text is stored.
+    expect(text).not.toContain("FenceRedraft draft 2.");
+    expect(text).not.toContain("Call 1");
+    expect(calls()).toBe(2);
+    expect(text).toContain('Call 2 checked \\"Writer typed 244 first.\\"');
+    expect(stored.filter((row) => row.source === "model")).toHaveLength(1);
+    expect(stored.filter((row) => row.source === "deterministic")).toHaveLength(1);
+
+    // The redraft still completes and fills the Sections around the writer's text.
+    const report = await reportOf(s);
+    expect(report.content).toContain("FenceRedraft draft 1.");
+    expect(report.content).toContain("Writer typed 244 first.");
+    expect(report.content).not.toContain("FenceRedraft draft 2.");
+    expect(report.content).not.toContain("[NOT GENERATED]");
+    const generation = await s.t.run((ctx) => ctx.db.get(s.generationId));
+    expect(generation?.redraft).toMatchObject({ status: "completed", filledSections: ["242"] });
+    expect(generation?.postQaStatus).toBe("running");
+    expect((await progress(s))).toMatchObject({ phase: "completed", percent: 100 });
+  });
+
+  it("stores no redraft consistency findings when the report keeps changing, and still writes the Sections", async () => {
+    const { s } = await stopAfterFirstSection("Churn");
+    configureSuccessfulSummaryFinalization("ChurnRedraft");
+    await s.writer.mutation(api.generations.redraftMissingSections, {
+      generationId: s.generationId,
+    });
+    await runRedraftSection(s);
+    await runRedraftSection(s);
+    const before = await redraftNotes(s);
+    const typed = ["Writer typed 244 first.", "Writer typed 244 again.", "Writer typed 244 a third time."];
+    const calls = consistencyReportsWhatItSaw("ChurnRedraft", async (call) => {
+      await writerTypes(s, call === 1 ? "[NOT GENERATED]" : typed[call - 2], typed[call - 1]);
+    });
+    await runRedraftFinalizer(s);
+
+    const stored = (await redraftNotes(s)).filter(
+      (row) => !before.some((old) => old._id === row._id)
+    );
+    // One pass and two reruns, then no findings: every answer was stale.
+    expect(stored.filter((row) => row.source === "model")).toEqual([]);
+    expect(calls()).toBe(3);
+    expect(stored).toHaveLength(1);
+    expect(stored[0]).toMatchObject({ outcome: "not_applied", section: "244" });
+    expect(stored[0]?.reason).toContain("the report changed");
+
+    const report = await reportOf(s);
+    expect(report.content).toContain("ChurnRedraft draft 1.");
+    expect(report.content).toContain("Writer typed 244 a third time.");
+    expect(report.content).not.toContain("[NOT GENERATED]");
+    const generation = await s.t.run((ctx) => ctx.db.get(s.generationId));
+    expect(generation?.redraft).toMatchObject({ status: "completed", filledSections: ["242"] });
+    expect(generation?.postQaStatus).toBe("running");
+  });
+
   it("refuses redraft without edit access or without a stopped draft, and fences a replaced attempt", async () => {
     const { s } = await signedOff("Refuse");
     await expect(s.writer.mutation(api.generations.redraftMissingSections, {

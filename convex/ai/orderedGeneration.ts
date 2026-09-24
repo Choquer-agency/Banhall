@@ -873,11 +873,22 @@ export const redraftSeedSection = internalAction({
   },
 });
 
+/** How many times the redraft finalizer reruns its consistency pass when the
+ * report changed while the pass ran, before it stores no findings at all. */
+const REDRAFT_CONSISTENCY_RERUNS = 2;
+
 /**
  * After the redraft's last Section: when the report now has all three
  * Sections, one consistency pass over them (the writer's current text for
  * the Sections they kept, the redrafted text for the rest); then the fenced
  * write into the report. QA follows in the background (CAP-18).
+ *
+ * The write re-checks that the report still produces the text the pass read.
+ * When the writer (or another client) saved in between, the findings would
+ * describe prose that is gone, so the pass reruns on the new text, up to
+ * REDRAFT_CONSISTENCY_RERUNS times. If the report is still changing after
+ * that, no findings are stored: the Sections are written with one note that
+ * the pass was skipped because the report changed.
  */
 export const finalizeSeedRedraft = internalAction({
   args: {
@@ -887,14 +898,25 @@ export const finalizeSeedRedraft = internalAction({
   },
   returns: v.null(),
   handler: async (ctx, args): Promise<null> => {
-    const input = await ctx.runQuery(internal.generations.getSeedRedraftInput, args);
-    if (!input) return null;
-    const present = input.sections.flatMap((row) =>
-      row.text !== null ? [{ section: row.section, text: row.text }] : []
-    );
-    let notes: ComplianceNoteDraft[] = [];
-    if (present.length === input.sections.length && present.length > 0) {
+    for (let pass = 0; ; pass += 1) {
+      const input = await ctx.runQuery(internal.generations.getSeedRedraftInput, args);
+      if (!input) return null;
+      const present = input.sections.flatMap((row) =>
+        row.text !== null ? [{ section: row.section, text: row.text }] : []
+      );
+      if (present.length !== input.sections.length || present.length === 0) {
+        // The report stays incomplete: no pass, just the write.
+        await ctx.runMutation(internal.generations.applySeedRedraft, { ...args, notes: [] });
+        return null;
+      }
       const last = input.sections[input.sections.length - 1].section;
+      if (pass > REDRAFT_CONSISTENCY_RERUNS) {
+        await ctx.runMutation(internal.generations.applySeedRedraft, {
+          ...args,
+          notes: [consistencySummaryNote(last, { ok: false, reportChanged: true })],
+        });
+        return null;
+      }
       const clientFor = chainClientFactory(
         ctx,
         {
@@ -906,6 +928,7 @@ export const finalizeSeedRedraft = internalAction({
         },
         {}
       );
+      let notes: ComplianceNoteDraft[];
       try {
         const findings = await runConsistencyPass(clientFor("generation:consistency"), {
           sections: present,
@@ -925,8 +948,12 @@ export const finalizeSeedRedraft = internalAction({
           }),
         ];
       }
+      const outcome = await ctx.runMutation(internal.generations.applySeedRedraft, {
+        ...args,
+        notes,
+        checked: input.sections,
+      });
+      if (outcome !== "report_changed") return null;
     }
-    await ctx.runMutation(internal.generations.applySeedRedraft, { ...args, notes });
-    return null;
   },
 });
