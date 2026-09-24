@@ -374,6 +374,36 @@ describe("Seed project hosts", () => {
     mounted.unmount();
   }
 
+  it("gives the preview Summary tab its own id and returns focus to the control that opened the Summary", async () => {
+    await render(PreviewProjectPage, {});
+    await expect.element(browserPage.getByLabelText("Seed workspace")).toBeVisible();
+    const trigger = browserPage.getByRole("button", { name: "Review summary", exact: true });
+    await expect.element(trigger).toBeVisible();
+    const tab = document.querySelector<HTMLButtonElement>('[data-panel-tab="summary"]')!;
+    // The tab and the workspace trigger are two controls with two ids.
+    expect(tab.id).toBe("seed-summary-tab");
+    expect(document.querySelectorAll("#seed-summary-tab")).toHaveLength(1);
+    expect(document.querySelectorAll("#seed-review-summary-trigger")).toHaveLength(1);
+    expect(document.getElementById("seed-review-summary-trigger")).toBe(trigger.element());
+    expect(document.querySelectorAll("#seed-signed-off-summary-trigger")).toHaveLength(0);
+
+    // Opened from the tab: leaving the Summary returns focus to the tab.
+    tab.focus();
+    await userEvent.keyboard("{Enter}");
+    await expect.poll(() => document.activeElement?.id).toBe("summary-review-title");
+    expect(document.querySelectorAll("#seed-summary-tab")).toHaveLength(1);
+    await browserPage.getByRole("button", { name: "Back to plan", exact: true }).click();
+    await expect.element(browserPage.getByLabelText("Seed workspace")).toBeVisible();
+    await expect.poll(() => document.activeElement?.id).toBe("seed-summary-tab");
+
+    // Opened from the workspace trigger: focus returns to that trigger.
+    (trigger.element() as HTMLElement).focus();
+    await userEvent.keyboard("{Enter}");
+    await expect.poll(() => document.activeElement?.id).toBe("summary-review-title");
+    await browserPage.getByRole("button", { name: "Back to plan", exact: true }).click();
+    await expect.poll(() => document.activeElement?.id).toBe("seed-review-summary-trigger");
+  });
+
   it("opens the Summary's open step in the current host's workspace", async () => {
     await assertOpenStepLink(CurrentProjectPage);
   });

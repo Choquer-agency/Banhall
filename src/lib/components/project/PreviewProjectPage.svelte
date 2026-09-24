@@ -28,8 +28,9 @@
   import SeedInitializationRecovery from "$lib/components/seeds/SeedInitializationRecovery.svelte";
   import { seedsApi } from "$lib/components/seeds/api";
   import {
-    focusSummaryReturnTrigger,
+    focusSummaryOpener,
     SEED_SIGNED_OFF_SUMMARY_TRIGGER_ID,
+    SEED_SUMMARY_TAB_ID,
   } from "$lib/components/seeds/summaryFocus";
   import {
     focusGenerationProgress,
@@ -1144,8 +1145,13 @@
   // callback never focuses a replacement page, and a newer transition
   // supersedes an older one still waiting to render.
   let seedFocusToken = 0;
+  // Which control opened Summary Review, so leaving it returns focus there:
+  // the panel toolbar's Summary tab, or the workspace "Review summary"
+  // trigger (also the destination after a browser-history return).
+  let summaryOpener: "tab" | "trigger" = "trigger";
   function scheduleSeedFocus(transition: "return" | "drafting") {
     const token = ++seedFocusToken;
+    const opener = summaryOpener;
     const owner = {
       projectId: String(projectId),
       userId: user?._id ?? "anonymous",
@@ -1164,7 +1170,7 @@
         // coincides with it.
         focusGenerationProgress();
       } else if (transition === "return" && !showSeedSummary) {
-        focusSummaryReturnTrigger();
+        focusSummaryOpener(opener);
       }
     });
   }
@@ -1428,7 +1434,7 @@
         disabled: !(seeding || signedOffSummaryAvailable || showSeedSummary || showSeedRecovery),
         ...(signedOffSummaryAvailable
           ? { triggerId: SEED_SIGNED_OFF_SUMMARY_TRIGGER_ID, ariaLabel: "Signed-off Summary" }
-          : {}),
+          : { triggerId: SEED_SUMMARY_TAB_ID }),
       },
       { id: "report", label: "Report", disabled: seeding },
       sources,
@@ -1442,7 +1448,10 @@
     }
     sourcesOpen = false;
     if (id === "summary") {
-      if (!showSeedSummary && !showSeedRecovery) setSeedSummary(true);
+      if (!showSeedSummary && !showSeedRecovery) {
+        summaryOpener = "tab";
+        setSeedSummary(true);
+      }
       return;
     }
     if (id === "report") mobileWorkspaceView = "report";
@@ -1863,7 +1872,10 @@
             generationId={generation._id}
             {projectId}
             userId={user?._id ?? "anonymous"}
-            onReviewSummary={() => setSeedSummary(true)}
+            onReviewSummary={() => {
+              summaryOpener = "trigger";
+              setSeedSummary(true);
+            }}
           />
         {/key}
       </div>
