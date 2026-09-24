@@ -7303,6 +7303,33 @@ export const expireStaleRedraft = internalMutation({
   },
 });
 
+/** The Section text a redraft's consistency pass checks: the document the
+ * write will produce, that is the writer's text wherever they typed and this
+ * attempt's drafts only where a placeholder remains. applySeedRedraft
+ * recomputes it to tell whether the report changed while the pass ran. */
+async function redraftCheckedSections(
+  ctx: { db: QueryCtx["db"] },
+  generationId: Id<"generations">,
+  redraft: NonNullable<Doc<"generations">["redraft"]>,
+  candidateRunId: Id<"generationCandidateRuns">
+): Promise<Array<{ section: SectionNumber; text: string | null }>> {
+  const rows = await orderedRunsForCandidate(ctx, candidateRunId);
+  const report = await reportForGeneration(ctx, generationId);
+  const redrafting = new Set<string>(redraft.sections.map(sectionKeyOf));
+  const current = prospectiveRedraftSections(report?.content ?? null, rows, redrafting);
+  return rows.map((row) => {
+    const section = sectionNumberOfRow(row);
+    return {
+      section,
+      text: current
+        ? presentReportSection(current, section)
+        : redrafting.has(row.section) && row.status === "drafted"
+          ? (row.draftText ?? null)
+          : null,
+    };
+  });
+}
+
 /** Finalizer input: the attempt's rows, the report's current Section text
  * and the frozen Brief the consistency pass checks against. */
 export const getSeedRedraftInput = internalQuery({
@@ -7323,51 +7350,68 @@ export const getSeedRedraftInput = internalQuery({
     ) {
       return null;
     }
-    const rows = await orderedRunsForCandidate(ctx, run._id);
-    const report = await reportForGeneration(ctx, generation._id);
-    const redrafting = new Set<string>(generation.redraft.sections.map(sectionKeyOf));
-    // Check the document the write will produce: the writer's text wherever
-    // they typed, this attempt's drafts only where a placeholder remains.
-    const current = prospectiveRedraftSections(report?.content ?? null, rows, redrafting);
     const { brief } = await loadBriefCheck(ctx, generation);
     return {
       model: run.model,
       projectId: generation.projectId,
       requestedBy: generation.requestedBy,
       brief,
-      sections: rows.map((row) => {
-        const section = sectionNumberOfRow(row);
-        return {
-          section,
-          text: current
-            ? presentReportSection(current, section)
-            : redrafting.has(row.section) && row.status === "drafted"
-              ? (row.draftText ?? null)
-              : null,
-        };
-      }),
+      sections: await redraftCheckedSections(ctx, generation._id, generation.redraft, run._id),
     };
   },
 });
 
 /** Store the redraft's consistency rows (when the report became complete)
- * and write the redrafted Sections into the report. */
+ * and write the redrafted Sections into the report.
+ *
+ * `checked` is the Section text the consistency pass read. When the report
+ * no longer produces that text (the writer or another client saved while the
+ * provider call ran), the findings describe prose that is gone: nothing is
+ * stored or written, the attempt's progress clock is refreshed, and the
+ * result is `report_changed` so the finalizer reruns the pass on the new
+ * text. */
 export const applySeedRedraft = internalMutation({
   args: {
     generationId: v.id("generations"),
     candidateRunId: v.id("generationCandidateRuns"),
     attemptStartedAt: v.number(),
     notes: v.array(complianceNoteDraftValidator),
+    checked: v.optional(
+      v.array(
+        v.object({ section: sectionNumberValidator, text: v.union(v.string(), v.null()) })
+      )
+    ),
   },
-  returns: v.boolean(),
-  handler: async (ctx, args): Promise<boolean> => {
+  returns: v.union(v.literal("applied"), v.literal("fenced"), v.literal("report_changed")),
+  handler: async (ctx, args): Promise<"applied" | "fenced" | "report_changed"> => {
     const fence = await redraftFence(
       ctx,
       args.generationId,
       args.candidateRunId,
       args.attemptStartedAt
     );
-    if (!fence) return false;
+    if (!fence) return "fenced";
+    const checked = args.checked;
+    if (checked) {
+      const latest = await redraftCheckedSections(
+        ctx,
+        fence.generation._id,
+        fence.redraft,
+        fence.run._id
+      );
+      const unchanged =
+        latest.length === checked.length &&
+        latest.every(
+          (row, index) =>
+            row.section === checked[index].section && row.text === checked[index].text
+        );
+      if (!unchanged) {
+        await ctx.db.patch(fence.generation._id, {
+          redraft: { ...fence.redraft, lastProgressAt: Date.now() },
+        });
+        return "report_changed";
+      }
+    }
     const owner = {
       projectId: fence.generation.projectId,
       generationId: fence.generation._id,
@@ -7380,6 +7424,6 @@ export const applySeedRedraft = internalMutation({
       await ctx.db.patch(fence.run._id, { consistencyCheckedAt: Date.now() });
     }
     await settleSeedRedraft(ctx, fence, { failed: false });
-    return true;
+    return "applied";
   },
 });

@@ -593,10 +593,15 @@ export function consistencyNoteDrafts(
   );
 }
 
-/** The pass-level row recorded on the last section in production order. */
+/** The pass-level row recorded on the last section in production order.
+ * `reportChanged`: the report kept changing while the pass ran, so its
+ * findings described text that was gone and none were stored. */
 export function consistencySummaryNote(
   section: SectionNumber,
-  outcome: { ok: true; findings: number } | { ok: false; reason: string }
+  outcome:
+    | { ok: true; findings: number }
+    | { ok: false; reason: string }
+    | { ok: false; reportChanged: true }
 ): ComplianceNoteDraft {
   return noteDraft({
     section,
@@ -606,6 +611,8 @@ export function consistencySummaryNote(
     tier: "none",
     reason: outcome.ok
       ? `consistency pass ran over the assembled draft: ${outcome.findings} finding(s)`
-      : `consistency pass call failed (${outcome.reason})`,
+      : "reportChanged" in outcome
+        ? "consistency pass skipped: the report changed while it ran, so no findings were stored"
+        : `consistency pass call failed (${outcome.reason})`,
   });
 }
