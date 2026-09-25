@@ -51,7 +51,7 @@ async function setup(contents: string[], project: { interviewer?: string; interv
   return { t, ...ids };
 }
 
-async function turnsOf(t: ReturnType<typeof convexTest>, transcriptId: Id<"transcripts">) {
+async function turnsOf(t: Awaited<ReturnType<typeof setup>>["t"], transcriptId: Id<"transcripts">) {
   return await t.run(async (ctx) =>
     ctx.db
       .query("transcriptTurns")
@@ -60,7 +60,7 @@ async function turnsOf(t: ReturnType<typeof convexTest>, transcriptId: Id<"trans
   );
 }
 
-async function speakersOf(t: ReturnType<typeof convexTest>, transcriptId: Id<"transcripts">) {
+async function speakersOf(t: Awaited<ReturnType<typeof setup>>["t"], transcriptId: Id<"transcripts">) {
   return await t.run(async (ctx) =>
     ctx.db
       .query("transcriptSpeakers")

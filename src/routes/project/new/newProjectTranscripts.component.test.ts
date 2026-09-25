@@ -21,7 +21,7 @@ import { takeProjectStart } from "$lib/workspace/projectIntentHandoff";
 const transcriptTextarea = () =>
   document.querySelector<HTMLTextAreaElement>("#transcript");
 const transcriptFileInput = () =>
-  document.querySelector<HTMLInputElement>('input[type="file"][accept=".docx"]');
+  document.querySelector<HTMLInputElement>('input[type="file"][accept=".docx,.vtt,.srt,.txt"]');
 const itemLabels = () =>
   [...document.querySelectorAll('button[aria-label^="Remove "]')].map((button) =>
     button.getAttribute("aria-label")!.replace("Remove ", "")
@@ -181,17 +181,65 @@ describe("/project/new transcript list", () => {
       .toEqual(["Day 1.docx", "Day 3.docx", "Day 4.docx"]);
   });
 
-  it("rejects a non-.docx file with the existing message", async () => {
+  it("rejects a file that is not a transcript format with a plain message", async () => {
     __setPageUrl("/project/new");
     await render(NewProjectPage, {});
 
     await expect.poll(transcriptFileInput).not.toBeNull();
-    selectFiles([new File(["notes"], "notes.txt", { type: "text/plain" })]);
+    selectFiles([new File(["notes"], "notes.pdf", { type: "application/pdf" })]);
 
     await expect
       .poll(() => document.body.textContent)
-      .toContain("Transcripts must be Word (.docx) files");
+      .toContain("Transcripts can be Word (.docx), WebVTT (.vtt), SubRip (.srt) or text (.txt) files.");
     expect(itemLabels()).toEqual([]);
+  });
+
+  it("detects each file's format, renders captions to text and sends the format", async () => {
+    __setPageUrl("/project/new");
+    __setMutationResult("projects:createProject", {
+      projectId: "project-new",
+      transcriptIds: ["transcript-a", "transcript-b"],
+    });
+    await render(NewProjectPage, {});
+
+    await expect.poll(transcriptFileInput).not.toBeNull();
+    selectFiles([
+      new File(
+        ["WEBVTT\n\n00:00:01.000 --> 00:00:03.000\n<v Dana Whitfield>What did you try?</v>\n"],
+        "Call.vtt",
+        { type: "text/vtt" }
+      ),
+      new File(["[Dana] 10:02:33\nHello there.\n\n[Priya] 10:02:37\nHi."], "Zoom.txt", { type: "text/plain" }),
+    ]);
+    await expect.poll(itemLabels).toEqual(["Call.vtt", "Zoom.txt"]);
+    const formats = [...document.querySelectorAll("[data-transcript-format]")].map((el) =>
+      el.textContent?.trim()
+    );
+    expect(formats).toEqual(["WebVTT, 7 words", "Zoom, 7 words"]);
+
+    setInputValue("#title", "Solar tracker");
+    setInputValue("#clientName", "Acme Labs");
+    await clickText("Next");
+    await expect
+      .poll(() =>
+        [...document.querySelectorAll("button")].some((button) =>
+          button.textContent?.includes("Generate Report")
+        )
+      )
+      .toBe(true);
+    await clickText("Generate Report");
+    await expect.poll(() => __mutationCalls("projects:createProject").length).toBe(1);
+    const created = __mutationCalls("projects:createProject")[0] as {
+      transcripts: Array<{ content?: string; label?: string; sourceFormat?: string }>;
+    };
+    expect(created.transcripts.map(({ content, label, sourceFormat }) => ({ content, label, sourceFormat }))).toEqual([
+      { content: "Dana Whitfield [00:00:01]: What did you try?", label: "Call.vtt", sourceFormat: "vtt" },
+      {
+        content: "[Dana] 10:02:33\nHello there.\n\n[Priya] 10:02:37\nHi.",
+        label: "Zoom.txt",
+        sourceFormat: "zoom",
+      },
+    ]);
   });
 
   it("blocks the submit with no transcript and no context document", async () => {
@@ -248,8 +296,8 @@ describe("/project/new transcript list", () => {
       transcripts: Array<{ content?: string; label?: string }>;
     };
     expect(created.transcripts).toEqual([
-      { content: "First interview body", label: "Pasted transcript 1" },
-      { content: "Second interview body", label: "Pasted transcript 2" },
+      { content: "First interview body", label: "Pasted transcript 1", sourceFormat: "paste" },
+      { content: "Second interview body", label: "Pasted transcript 2", sourceFormat: "paste" },
     ]);
 
     await expect

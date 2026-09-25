@@ -72,6 +72,12 @@
   import { qaSectionScores } from "$lib/qa/qaSectionScores";
   import { markQaDismissed, markQaSeen, readQaSeen, type QaSeenState } from "$lib/qa/qaSeen";
   import SourcesView from "$lib/components/project/shell/SourcesView.svelte";
+  import {
+    readTranscriptFile,
+    TranscriptFileError,
+    transcriptContentHash,
+    uploadTranscriptOriginal,
+  } from "$lib/transcriptUpload";
   import DetailsPanel from "$lib/components/project/details/DetailsPanel.svelte";
   import DetailsPopover from "$lib/components/project/details/DetailsPopover.svelte";
   import DetailsMore from "$lib/components/project/details/DetailsMore.svelte";
@@ -204,6 +210,62 @@
   const completeExport = useMutation(api.reports.completeExport);
   const failExport = useMutation(api.reports.failExport);
   const publishForReview = useMutation(api.projects.publishForReview);
+  // 2026-09-24 (transcript method): Add, Replace and Remove on the Sources tab.
+  const addTranscriptMut = useMutation(api.transcripts.addTranscript);
+  const replaceTranscriptMut = useMutation(api.transcripts.replaceTranscript);
+  const removeTranscriptMut = useMutation(api.transcripts.removeTranscript);
+  const generateTranscriptUploadUrl = useMutation(api.documents.generateUploadUrl);
+  let transcriptBusy = $state(false);
+
+  /** Reads a transcript file and stores it as a new or replacing row. */
+  async function storeTranscriptFile(file: File, replacing: string | null) {
+    if (transcriptBusy) return;
+    transcriptBusy = true;
+    try {
+      const read = await readTranscriptFile(file);
+      const hash = await transcriptContentHash(read.content);
+      const duplicate = transcripts.find((row) => row.contentHash === hash && row._id !== replacing);
+      if (duplicate) {
+        toast.error(`This transcript is already added (${duplicate.label}).`);
+        return;
+      }
+      const originalStorageId = await uploadTranscriptOriginal(file, () => generateTranscriptUploadUrl({}));
+      const upload = {
+        content: read.content,
+        label: read.label,
+        sourceFormat: read.format,
+        ...(originalStorageId ? { originalStorageId: originalStorageId as Id<"_storage"> } : {}),
+      };
+      if (replacing) {
+        await replaceTranscriptMut({ transcriptId: replacing as Id<"transcripts">, ...upload });
+        toast.success(`Replaced with ${file.name}`);
+      } else {
+        await addTranscriptMut({ projectId, ...upload });
+        toast.success(`Added ${file.name}`);
+      }
+    } catch (error) {
+      toast.error(
+        error instanceof TranscriptFileError
+          ? error.message
+          : userErrorMessage(error, "The transcript could not be saved.")
+      );
+    } finally {
+      transcriptBusy = false;
+    }
+  }
+
+  async function removeTranscript(transcriptId: string) {
+    if (transcriptBusy) return;
+    transcriptBusy = true;
+    try {
+      await removeTranscriptMut({ transcriptId: transcriptId as Id<"transcripts"> });
+      toast.success("Transcript removed");
+    } catch (error) {
+      toast.error(userErrorMessage(error, "The transcript could not be removed."));
+    } finally {
+      transcriptBusy = false;
+    }
+  }
   // 2026-08-11 (second) amendment: start PD-review mode from this project's
   // written report — creates the associated review project (inherited title,
   // writer, documents, transcript; report snapshot as the PD under review)
@@ -1222,6 +1284,14 @@
             (generation?.seedPhase === "initializing" || generation?.seedPhase === "drafting"))))
   );
   const awaitingSelection = $derived(generation?.status === "awaiting_selection");
+  // The server refuses transcript changes while any generation is active
+  // (convex/transcripts.ts); the Sources tab says so up front.
+  const transcriptChangesBlocked = $derived(
+    generation?.status === "reserved" ||
+      generation?.status === "running" ||
+      generation?.status === "awaiting_selection" ||
+      generation?.status === "awaiting_input"
+  );
   // A failed generation gets the progress/retry view — except in review mode,
   // where the PD review stays the main view (its own retry CTA regenerates).
   const showFailedGeneration = $derived(
@@ -1889,6 +1959,14 @@
                 transcripts={transcripts}
                 documents={documentsQ.data ?? []}
                 loading={transcriptsQ.data === undefined || documentsQ.data === undefined}
+                canEditTranscripts={!!user?.role}
+                transcriptsBlockedReason={transcriptChangesBlocked
+                  ? "Transcripts can't change while a report is generating."
+                  : null}
+                {transcriptBusy}
+                onAddTranscript={(file) => storeTranscriptFile(file, null)}
+                onReplaceTranscript={(transcriptId, file) => storeTranscriptFile(file, transcriptId)}
+                onRemoveTranscript={removeTranscript}
               />
             </div>
           {/if}

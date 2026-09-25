@@ -631,7 +631,9 @@ export default defineSchema({
     factsVersion: v.optional(v.string()),
   })
     .index("by_projectId", ["projectId"])
-    .index("by_originalStorageId", ["originalStorageId"]),
+    .index("by_originalStorageId", ["originalStorageId"])
+    // Same text in another project: its roles and facts carry over.
+    .index("by_contentHash", ["contentHash"]),
 
   // 2026-09-24 widen: one row per speaker turn of a transcript, parsed on
   // the server from the stored text (shared/transcriptParse.ts). Offsets
