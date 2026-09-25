@@ -12,13 +12,15 @@
  * byte-checked by the Seed contract or `validateCitation`.
  *
  * Owner decision 25: the spans behind a fact id are client turns only
- * (interviewer quotes are left out when the pack is frozen), and in fact
- * mode a transcript can never be cited by excerpt, so an interviewer's words
- * cannot become evidence.
+ * (interviewer and other speakers' quotes are left out when the pack is
+ * frozen; a speaker with no role yet stays citable, flagged for a check),
+ * and in fact mode a transcript can never be cited by excerpt, so an
+ * interviewer's words cannot become evidence.
  */
 import type { SeedToolInputSchema } from "./seedContract";
 import { seedToolSchema } from "./seedContract";
 import type { TranscriptFactType, TranscriptSpeakerRole } from "./transcriptValidators";
+import { isEvidenceRole, needsSpeakerCheck } from "./transcriptFacts";
 
 export type FactSpanQuote = {
   charStart: number;
@@ -26,6 +28,8 @@ export type FactSpanQuote = {
   speakerLabel?: string;
   role?: TranscriptSpeakerRole;
   startMs?: number;
+  /** The turn's speaker had no role at freeze (decision 24). */
+  needsSpeakerCheck?: boolean;
 };
 
 /** One fact id of a frozen pack and the verified spans behind it. */
@@ -131,7 +135,7 @@ export function factIndex(
     for (const span of source.factSpans) {
       const quotes = span.quotes.filter(
         (quote) =>
-          quote.role !== "interviewer" &&
+          isEvidenceRole(quote.role) &&
           Number.isInteger(quote.charStart) &&
           Number.isInteger(quote.charEnd) &&
           quote.charStart >= 0 &&
@@ -282,7 +286,13 @@ export function factModeCitations<
 export function factStamp(
   sources: readonly FactSource[],
   citation: { sourceId: string; factId?: string; startOffset: number; endOffset: number }
-): { factKey: string; role?: TranscriptSpeakerRole; startMs?: number; speaker?: string } | null {
+): {
+  factKey: string;
+  role?: TranscriptSpeakerRole;
+  startMs?: number;
+  speaker?: string;
+  needsSpeakerCheck?: boolean;
+} | null {
   if (!citation.factId) return null;
   const fact = factIndex(sources).get(citation.factId);
   if (!fact || fact.transcript.sourceId !== citation.sourceId) return null;
@@ -295,6 +305,7 @@ export function factStamp(
     ...(quote.role ? { role: quote.role } : {}),
     ...(quote.startMs !== undefined ? { startMs: quote.startMs } : {}),
     ...(quote.speakerLabel ? { speaker: quote.speakerLabel } : {}),
+    ...(quote.needsSpeakerCheck || needsSpeakerCheck(quote.role) ? { needsSpeakerCheck: true } : {}),
   };
 }
 

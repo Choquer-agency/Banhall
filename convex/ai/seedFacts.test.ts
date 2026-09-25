@@ -91,7 +91,17 @@ const FACT_SPANS = [
   {
     id: packFactId(1, "F2"),
     type: "result" as const,
-    quotes: [{ charStart: result.charStart, charEnd: result.charEnd, speakerLabel: "Priya Shah", role: "client" as const, startMs: 75_000 }],
+    // Frozen while this speaker had no role yet (decision 24).
+    quotes: [
+      {
+        charStart: result.charStart,
+        charEnd: result.charEnd,
+        speakerLabel: "Priya Shah",
+        role: "unknown" as const,
+        startMs: 75_000,
+        needsSpeakerCheck: true,
+      },
+    ],
   },
 ];
 
@@ -384,6 +394,9 @@ describe("Seeds read fact packs and cite fact ids (plan step 7)", () => {
     });
     expect(second.provenance[0].factKey).toBeUndefined();
     expect(third.provenance.map((row) => row.factKey)).toEqual(["F1-2"]);
+    // A quote whose speaker has no role yet is kept, marked for a check.
+    expect(third.provenance[0]).toMatchObject({ role: "unknown", needsSpeakerCheck: true });
+    expect(first.provenance[0].needsSpeakerCheck).toBeUndefined();
   });
 
   it("falls back to today's schema, guidance and transcript text when a transcript has no pack", async () => {

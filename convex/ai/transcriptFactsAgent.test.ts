@@ -51,6 +51,10 @@ describe("the facts contract is pinned to FACTS_VERSION", () => {
    * update BOTH literals below.
    *
    * 2026-09-24: first version (phase 3, the transcript method).
+   * 2026-09-25: version 2 (review of steps 5 and 6). Rule 1 of the system
+   * prompt also names other speakers such as a vendor or a note taker, the
+   * verifier rejects their quotes, and a cut-off citations answer drops its
+   * last line. Previous hash 2d253b48....
    */
   it("hashes the prompt, instructions, schema and request", async () => {
     const hash = await sha256(
@@ -62,8 +66,8 @@ describe("the facts contract is pinned to FACTS_VERSION", () => {
         JSON.stringify(FACTS_REQUEST),
       ].join("\n---\n")
     );
-    expect(FACTS_VERSION).toBe("1");
-    expect(hash).toBe("2d253b48759604eef40b00234f2d023d9c9eb38ac6dcd5e6889b7ba17b93a556");
+    expect(FACTS_VERSION).toBe("2");
+    expect(hash).toBe("3020782abac26e9d223266ac464fe725abb960974ac7572b586c2d128c23a76e");
   });
 });
 
@@ -116,6 +120,35 @@ describe("citations response parsing", () => {
       },
       { type: "result", claim: "71 percent on sunny days", turnIndexes: [3], quotes: ["hit 71 percent accuracy on sunny days"] },
     ]);
+  });
+
+  it("drops the last line of an answer cut off at max_tokens (review 2026-09-25)", () => {
+    const cited = (text: string, block: number) => ({
+      type: "text",
+      text,
+      citations: [
+        {
+          type: "content_block_location",
+          cited_text: text,
+          document_index: 0,
+          document_title: null,
+          start_block_index: block,
+          end_block_index: block + 1,
+        },
+      ],
+    });
+    const content = [
+      { type: "text", text: "uncertainty | " },
+      cited("net load could not be forecast fast enough", 1),
+      { type: "text", text: "\nresult | " },
+      cited("hit 71 percent accuracy on sun", 3),
+    ];
+    expect(parseCitationsResponse(content, lines).map((fact) => fact.type)).toEqual(["uncertainty", "result"]);
+    expect(parseCitationsResponse(content, lines, { truncated: true }).map((fact) => fact.type)).toEqual(["uncertainty"]);
+    // Cut right after a newline, the last written line is still dropped:
+    // a cut-off answer keeps only lines another line followed.
+    const endsClean = [...content.slice(0, 2), { type: "text", text: "\n" }];
+    expect(parseCitationsResponse(endsClean, lines, { truncated: true })).toEqual([]);
   });
 
   it("strips the turn prefix a whole-block citation carries", () => {

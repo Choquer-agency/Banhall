@@ -17,7 +17,7 @@
   import AuroraMark from "$lib/components/ui/AuroraMark.svelte";
   import { isLongForSeed, MAX_EDITED_BULLET_CHARS } from "../../../../convex/lib/seedContract";
   import { describeSource, EMPTY_SOURCE_ATTRIBUTION } from "./attribution";
-  import { citationSpeakerLine, type QuoteCitation } from "./citations";
+  import { citationSpeakerLine, SPEAKER_CHECK_NOTE, type QuoteCitation } from "./citations";
   import { findExactQuoteSpans, segmentBullet } from "./exactQuote";
   import { MAX_CARD_TAGS, seedTagStyle } from "./seedTags";
   import SeedQuote from "./SeedQuote.svelte";
@@ -526,6 +526,7 @@
                          presented as an attributed source. -->
                     <figcaption class="mt-1">
                       {#if speakerLine}<span class="block text-xs text-ink-secondary">{speakerLine}</span>{/if}
+                      {#if citation.needsSpeakerCheck}<span class="block text-xs text-ink-muted" data-quote-speaker-check>{SPEAKER_CHECK_NOTE}</span>{/if}
                       <span
                         class={source.attributed ? "block text-xs text-ink-muted" : "block text-xs italic text-ink-muted"}
                         data-quote-source

@@ -5,8 +5,9 @@
  * deterministic fact pack a generation freezes.
  *
  * Owner decisions: only client turns back a claim (25): a quote found only
- * in interviewer turns is never evidence, and a fact drawn only from them is
- * kept as context without a quote. Names reach the model as placeholders
+ * in interviewer or `other` turns is never evidence, and a fact drawn only
+ * from them is kept as context without a quote. A turn with no known role
+ * stays citable, marked for a speaker check (`isEvidenceRole`). Names reach the model as placeholders
  * (26): quotes come back through `restorePlaceholders` before they reach the
  * verifier here, which then works on the real verbatim text.
  *
@@ -21,7 +22,29 @@ import {
   type TranscriptSpeakerRole,
 } from "./transcriptValidators";
 
-export const FACTS_VERSION = "1";
+/**
+ * 2 (2026-09-25, review of steps 5 and 6): quotes in `other` turns are no
+ * longer evidence, and invented placeholder variants restore through their
+ * base token. Facts stored under 1 are extracted again on next use.
+ */
+export const FACTS_VERSION = "2";
+
+/**
+ * Owner decision 25: only the client's words back a claim. A turn whose
+ * speaker has no role yet (`unknown`, which includes every turn of a
+ * transcript without speaker labels) is still citable, but what it backs
+ * needs a speaker check (decision 24: warn, never block; the owner is
+ * confirming this rule). Interviewer and `other` turns (a vendor, a note
+ * taker) are context only.
+ */
+export function isEvidenceRole(role: TranscriptSpeakerRole | undefined): boolean {
+  return role === "client" || role === "unknown" || role === undefined;
+}
+
+/** Whether evidence from a turn with this role needs a speaker check. */
+export function needsSpeakerCheck(role: TranscriptSpeakerRole | undefined): boolean {
+  return role === "unknown" || role === undefined;
+}
 
 /** Tokens (about 4 characters each) of turn lines one extraction call reads. */
 export const FACT_WINDOW_TOKENS = 30_000;
@@ -178,7 +201,7 @@ function findTokenRun(haystack: readonly Token[], needle: readonly Token[]): num
 
 export type QuoteLocation =
   | { kind: "found"; quote: VerifiedQuote; turn: FactTurn }
-  | { kind: "interviewer_only" }
+  | { kind: "not_client_only" }
   | { kind: "not_found" }
   | { kind: "too_short" };
 
@@ -186,7 +209,8 @@ export type QuoteLocation =
  * Locates one quote in the verbatim transcript: the cited turns first, then
  * two turns either side, then every turn. Exact text wins; otherwise the
  * normalized word run maps back to verbatim offsets. A match inside an
- * interviewer turn never counts as evidence (owner decision 25). The
+ * interviewer or `other` turn never counts as evidence (owner decision 25;
+ * `isEvidenceRole`). The
  * returned excerpt is `content.slice(charStart, charEnd)` and is checked
  * byte for byte before it is returned.
  */
@@ -217,7 +241,7 @@ export function locateQuote(
     ...turns.map((_, position) => position).filter((position) => !cited.includes(position) && !near.has(position)),
   ];
 
-  let interviewerHit = false;
+  let nonClientHit = false;
   for (const position of order) {
     const turn = turns[position];
     const span = content.slice(turn.charStart, turn.charEnd);
@@ -246,13 +270,13 @@ export function locateQuote(
     }
     if (!found) continue;
     if (content.slice(found.charStart, found.charEnd) !== found.exactExcerpt) continue;
-    if (turn.role === "interviewer") {
-      interviewerHit = true;
+    if (!isEvidenceRole(turn.role)) {
+      nonClientHit = true;
       continue;
     }
     return { kind: "found", quote: found, turn };
   }
-  return interviewerHit ? { kind: "interviewer_only" } : { kind: "not_found" };
+  return nonClientHit ? { kind: "not_client_only" } : { kind: "not_found" };
 }
 
 function isFactType(type: string): type is TranscriptFactType {
@@ -275,7 +299,7 @@ function normalizeType(type: string): TranscriptFactType | null {
 
 /**
  * Keeps the facts with at least one verified quote, and facts drawn only
- * from interviewer turns as context without a quote. Everything else is
+ * from interviewer or `other` turns as context without a quote. Everything else is
  * dropped and counted. Keys are assigned after the merge, in transcript
  * order, so the same facts always get the same keys.
  */
@@ -296,10 +320,10 @@ export function verifyFacts(input: {
     const quotes: VerifiedQuote[] = [];
     const turnIndexes = new Set<number>();
     let speakerLabel: string | undefined;
-    let interviewerOnly = false;
+    let nonClientOnly = false;
     for (const quote of proposal.quotes) {
       const located = locateQuote(input.content, input.turns, quote, proposal.turnIndexes);
-      if (located.kind === "interviewer_only") interviewerOnly = true;
+      if (located.kind === "not_client_only") nonClientOnly = true;
       if (located.kind !== "found") continue;
       if (quotes.some((q) => q.charStart === located.quote.charStart && q.charEnd === located.quote.charEnd)) continue;
       quotes.push(located.quote);
@@ -307,7 +331,7 @@ export function verifyFacts(input: {
       speakerLabel ??= located.turn.speakerLabel;
     }
     if (quotes.length === 0) {
-      if (interviewerOnly) {
+      if (nonClientOnly) {
         kept.push({
           type: "context",
           claim,
@@ -435,7 +459,7 @@ function clock(ms: number | undefined): string | undefined {
 }
 
 export type FactPackOptions = {
-  /** Current speaker roles; a quote in an interviewer turn is never shown. */
+  /** Current speaker roles; a quote in an interviewer or other turn is never shown. */
   roles: ReadonlyMap<string, TranscriptSpeakerRole>;
   /** Turn index to speaker and time, for the quote's attribution. */
   turnInfo: ReadonlyMap<number, PackTurnInfo>;
@@ -461,9 +485,11 @@ export function renderFactPack(
       Number(a.key.replace(/^F/, "")) - Number(b.key.replace(/^F/, ""))
   );
   const blocks: { rank: number; text: string }[] = ordered.map((fact) => {
+    // Decision 25: an interviewer's or other speaker's quote is never shown
+    // as evidence, whatever role it had when it was extracted.
     const shown = fact.quotes.filter((quote) => {
       const speaker = quoteSpeaker(fact, quote, options.turnInfo);
-      return !speaker || options.roles.get(speaker) !== "interviewer";
+      return isEvidenceRole(speaker ? (options.roles.get(speaker) ?? "unknown") : "unknown");
     });
     const type: TranscriptFactType = shown.length === 0 && fact.quotes.length > 0 ? "context" : fact.type;
     const lines = [`[${packFactId(header.position, fact.key)}] (${type}) ${fact.claim}`];

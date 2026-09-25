@@ -11,7 +11,7 @@
    */
   import { onDestroy, tick } from "svelte";
   import { describeSource, type SeedSourceAttribution } from "./attribution";
-  import { citationSpeakerLine, type QuoteCitation } from "./citations";
+  import { citationSpeakerLine, SPEAKER_CHECK_NOTE, type QuoteCitation } from "./citations";
 
   let {
     text,
@@ -175,7 +175,9 @@
       onpointerleave={scheduleHide}
     ><span class="block text-sm leading-snug text-ink" data-quote-text>“{citation.exactExcerpt}”</span>{#if speakerLine}<span
           class="mt-2 block text-xs text-ink-secondary"
-          data-quote-speaker>{speakerLine}</span>{/if}<span
+          data-quote-speaker>{speakerLine}</span>{/if}{#if citation.needsSpeakerCheck}<span
+          class="mt-1 block text-xs text-ink-muted"
+          data-quote-speaker-check>{SPEAKER_CHECK_NOTE}</span>{/if}<span
         class={`mt-1 block text-xs ${source.attributed ? "text-ink-muted" : "italic text-ink-muted"}`}
         data-quote-source
         data-attributed={source.attributed}>{source.label}</span>{#if onOpenSource}<button

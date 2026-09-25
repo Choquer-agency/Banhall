@@ -204,6 +204,24 @@ describe("the write boundary keeps only fact spans", () => {
     ]);
   });
 
+  it("never resolves an `other` speaker's span, and flags a span whose speaker has no role (decisions 24, 25)", () => {
+    const rows = sources({
+      spans: [
+        { id: "F1-1", type: "uncertainty", quotes: [{ ...uncertaintyQuote, speakerLabel: "Vendor Rep", role: "other" }] },
+        { id: "F1-2", type: "result", quotes: [{ ...clientResult, role: "unknown", needsSpeakerCheck: true }] },
+      ],
+    });
+    const { seeds, unresolved } = resolveFactCitations(
+      [{ ...bullet("A."), provenance: [{ factId: "F1-1" }, { factId: "F1-2" }] }],
+      rows
+    );
+    expect(unresolved).toBe(1);
+    expect((seeds[0] as { provenance: Array<{ factId: string }> }).provenance.map((citation) => citation.factId)).toEqual(["F1-2"]);
+    expect(
+      factStamp(rows, { sourceId: "src-transcript", factId: "F1-2", startOffset: clientResult.charStart, endOffset: clientResult.charEnd })
+    ).toEqual({ factKey: "F1-2", role: "unknown", needsSpeakerCheck: true });
+  });
+
   it("stamps the fact id with the turn's speaker, role and time", () => {
     expect(
       factStamp(sources(), {

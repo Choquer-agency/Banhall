@@ -48,7 +48,7 @@ Fact types:
 - context: background the writer needs, such as the product, the team or the dates.
 
 Rules:
-1. Every fact must rest on the client's own words. The interviewer's questions and summaries are never evidence.
+1. Every fact must rest on the client's own words. The interviewer's questions and summaries, and the words of other speakers such as a vendor or a note taker, are never evidence.
 2. Keep names, dates, versions, numbers and units exactly as spoken.
 3. Record only what was said. Never infer, complete or repair an account.
 4. One fact per line, and each claim is one plain sentence.
@@ -136,7 +136,8 @@ const FACT_LINE = /^\s*(?:[-*]\s*)?([A-Za-z]+)\s*\|\s*(.+?)\s*$/;
  */
 export function parseCitationsResponse(
   content: readonly unknown[],
-  lines: readonly FactWindowLine[]
+  lines: readonly FactWindowLine[],
+  options: { truncated?: boolean } = {}
 ): ProposedFact[] {
   const out: CitedLine[] = [];
   let current: CitedLine = { text: "", cites: [] };
@@ -171,6 +172,12 @@ export function parseCitationsResponse(
     });
   }
   out.push(current);
+  // An answer cut off at max_tokens (review 2026-09-25): its last line may
+  // be half a claim, so it is dropped rather than stored as one.
+  if (options.truncated) {
+    while (out.length > 0 && out[out.length - 1].text.trim() === "") out.pop();
+    out.pop();
+  }
 
   const facts: ProposedFact[] = [];
   for (const line of out) {
@@ -205,7 +212,7 @@ export function citationsExtractor(
     if (response.usage) {
       onUsage?.({ inputTokens: response.usage.input_tokens, outputTokens: response.usage.output_tokens });
     }
-    return parseCitationsResponse(response.content, lines);
+    return parseCitationsResponse(response.content, lines, { truncated: response.stop_reason === "max_tokens" });
   };
 }
 

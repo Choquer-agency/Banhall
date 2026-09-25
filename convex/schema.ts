@@ -713,6 +713,11 @@ export default defineSchema({
     error: v.optional(v.string()),
     startedAt: v.number(),
     finishedAt: v.optional(v.number()),
+    // 2026-09-25 widen: the speaker labels whose words were not evidence
+    // when the facts were extracted (interviewer or other). A ready run goes
+    // stale when one of them becomes client or unknown, so the next request
+    // extracts again (review of step 5).
+    excludedLabels: v.optional(v.array(v.string())),
   })
     .index("by_transcriptId_and_sourceContentHash_and_factsVersion", [
       "transcriptId",
@@ -1223,6 +1228,9 @@ export default defineSchema({
     factKey: v.optional(v.string()),
     role: v.optional(transcriptSpeakerRoleValidator),
     startMs: v.optional(v.number()),
+    // 2026-09-25 widen: the cited turn's speaker had no role when the Seed
+    // was written, so the quote needs a speaker check (decisions 24, 25).
+    needsSpeakerCheck: v.optional(v.boolean()),
   })
     .index("by_seedId", ["seedId"])
     .index("by_projectId", ["projectId"]),
@@ -2191,6 +2199,8 @@ export default defineSchema({
               speakerLabel: v.optional(v.string()),
               role: v.optional(transcriptSpeakerRoleValidator),
               startMs: v.optional(v.number()),
+              // 2026-09-25: the turn's speaker has no role yet (decision 24).
+              needsSpeakerCheck: v.optional(v.boolean()),
             })
           ),
         })

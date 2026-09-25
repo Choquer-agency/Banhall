@@ -22,7 +22,9 @@ import { needsModelRole } from "./lib/transcriptSpeakers";
 import { projectPlaceholderMap } from "./lib/transcriptPlaceholders";
 import { FACTS_VERSION } from "./lib/transcriptFacts";
 import {
+  excludedSpeakerLabels,
   FACT_RUN_STALE_MS,
+  factRunIsCurrent,
   findFactRun,
   listFacts,
   loadFactTurns,
@@ -522,7 +524,15 @@ export const setSpeakerRole = mutation({
       confirmedBy: user._id,
       confirmedAt: Date.now(),
     });
-    await ctx.db.patch(transcript._id, { speakerStatus: await speakerStatusOf(ctx, transcript._id) });
+    // Review 2026-09-25: moving a speaker away from interviewer (or other)
+    // brings words back that the ready facts left out, so those facts are
+    // stale now (`factRunIsCurrent`) and the next request extracts again.
+    const run = await findFactRun(ctx, transcript._id, await transcriptHash(transcript));
+    const stale = run?.status === "ready" && !(await factRunIsCurrent(ctx, run));
+    await ctx.db.patch(transcript._id, {
+      speakerStatus: await speakerStatusOf(ctx, transcript._id),
+      ...(stale ? { factsStatus: "none" as const } : {}),
+    });
     return null;
   },
 });
@@ -582,13 +592,16 @@ export const factsInput = internalQuery({
           )),
         ]
       : [];
+    const turns = await loadFactTurns(ctx, transcript._id);
     return {
       projectId: project._id,
       label: transcriptLabel(transcript),
       content: transcript.content,
       sourceContentHash: await transcriptHash(transcript),
       structureReady: transcript.parserVersion !== undefined,
-      turns: await loadFactTurns(ctx, transcript._id),
+      turns,
+      // Recorded on the run, so a later role correction makes it stale.
+      excludedLabels: excludedSpeakerLabels(turns),
       placeholders,
     };
   },
@@ -605,6 +618,7 @@ export const claimFactRun = internalMutation({
     sourceContentHash: v.string(),
     model: v.string(),
     adapter: v.union(v.literal("citations"), v.literal("structured")),
+    excludedLabels: v.optional(v.array(v.string())),
   },
   returns: v.union(
     v.object({ kind: v.literal("ready") }),
@@ -617,7 +631,9 @@ export const claimFactRun = internalMutation({
     if (!transcript || (await isProjectDeleting(ctx, transcript.projectId))) return { kind: "gone" as const };
     const run = await findFactRun(ctx, transcript._id, args.sourceContentHash);
     const now = Date.now();
-    if (run?.status === "ready") return { kind: "ready" as const };
+    // A ready run whose left-out speakers have since become clients is
+    // stale: its facts are cleared and extracted again.
+    if (run && (await factRunIsCurrent(ctx, run))) return { kind: "ready" as const };
     if (run && (run.status === "running" || run.status === "queued") && now - run.startedAt < FACT_RUN_STALE_MS) {
       return { kind: "busy" as const };
     }
@@ -632,6 +648,7 @@ export const claimFactRun = internalMutation({
       status: "running",
       counts: { proposed: 0, verified: 0, dropped: 0 },
       startedAt: now,
+      ...(args.excludedLabels ? { excludedLabels: args.excludedLabels } : {}),
     });
     await ctx.db.patch(transcript._id, { factsStatus: "queued" });
     return { kind: "claimed" as const, runId };
@@ -732,7 +749,10 @@ export const requestTranscriptFacts = mutation({
     if (!(await getInternalProjectAccessOrNull(ctx, transcript.projectId))) return null;
     if ((await transcriptFactsMode(ctx)) === "off") return null;
     const run = await findFactRun(ctx, transcript._id, await transcriptHash(transcript));
-    if (run && (run.status === "ready" || Date.now() - run.startedAt < FACT_RUN_STALE_MS)) return null;
+    if (run && (await factRunIsCurrent(ctx, run))) return null;
+    // A recent attempt that is still running or just failed is left alone;
+    // a ready run made stale by a role correction is extracted again now.
+    if (run && run.status !== "ready" && Date.now() - run.startedAt < FACT_RUN_STALE_MS) return null;
     await ctx.db.patch(transcript._id, { factsStatus: "queued" });
     await ctx.scheduler.runAfter(0, internal.ai.condense.extractTranscriptFactsInBackground, {
       transcriptId: transcript._id,
@@ -763,7 +783,7 @@ export const copyTranscriptFacts = internalMutation({
     const hash = await transcriptHash(source);
     if ((await transcriptHash(target)) !== hash) return null;
     const sourceRun = await findFactRun(ctx, source._id, hash);
-    if (sourceRun?.status !== "ready") return null;
+    if (!sourceRun || !(await factRunIsCurrent(ctx, sourceRun))) return null;
     let runId = args.runId;
     if (!runId) {
       const existing = await findFactRun(ctx, target._id, hash);
@@ -778,6 +798,7 @@ export const copyTranscriptFacts = internalMutation({
         status: "running",
         counts: sourceRun.counts,
         startedAt: Date.now(),
+        ...(sourceRun.excludedLabels ? { excludedLabels: sourceRun.excludedLabels } : {}),
       });
     }
     const facts = (await listFacts(ctx, source._id)).sort((a, b) => a.key.localeCompare(b.key));

@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 import { parseTranscriptTurns } from "../../shared/transcriptParse";
 import {
   FACT_WINDOW_OVERLAP_TURNS,
+  isEvidenceRole,
   locateQuote,
+  needsSpeakerCheck,
   matchTokens,
   mergeNearDuplicates,
   modelTurns,
@@ -69,10 +71,46 @@ describe("locateQuote", () => {
   });
 
   it("never takes evidence from an interviewer turn (decision 25)", () => {
-    expect(locateQuote(CONTENT, TURNS, "So the forecast failed on cloudy days", [2]).kind).toBe("interviewer_only");
+    expect(locateQuote(CONTENT, TURNS, "So the forecast failed on cloudy days", [2]).kind).toBe("not_client_only");
     // The same words in a client turn are found there instead.
     const both = locateQuote(CONTENT, TURNS, "It was the cloud cover", [0]);
     expect(both.kind === "found" && both.turn.index).toBe(1);
+  });
+
+  it("never takes evidence from an `other` speaker, such as a vendor or a note taker (decision 25)", () => {
+    const content = [
+      "Dana Whitfield: What did the vendor say?",
+      "Vendor Rep: Our inverter firmware cannot report ramps faster than a minute.",
+      "Priya Shah: We confirmed the ramps were shorter than a minute on cloudy days.",
+    ].join("\n\n");
+    const turns = factTurns(content, { ...ROLES, "Vendor Rep": "other" });
+    expect(locateQuote(content, turns, "inverter firmware cannot report ramps faster", [1]).kind).toBe("not_client_only");
+    const verified = verifyFacts({
+      content,
+      turns,
+      proposals: [
+        { type: "context", claim: "The vendor said the firmware is slow.", turnIndexes: [1], quotes: ["inverter firmware cannot report ramps faster"] },
+        { type: "result", claim: "Ramps were shorter than a minute.", turnIndexes: [2], quotes: ["ramps were shorter than a minute"] },
+      ],
+    });
+    // The vendor's words back nothing: that fact is kept as context only.
+    expect(verified.facts.map((fact) => [fact.type, fact.quotes.length])).toEqual([
+      ["context", 0],
+      ["result", 1],
+    ]);
+  });
+
+  it("keeps a turn with no known speaker citable (every turn of an unlabelled transcript)", () => {
+    const content = "What made the forecast hard?\n\nWe couldn't forecast net load fast enough when cloud cover changed.";
+    const turns = factTurns(content);
+    expect(turns.every((turn) => turn.role === "unknown")).toBe(true);
+    const found = locateQuote(content, turns, "forecast net load fast enough", [1]);
+    expect(found.kind === "found" && found.turn.role).toBe("unknown");
+    expect(isEvidenceRole("unknown")).toBe(true);
+    expect(needsSpeakerCheck("unknown")).toBe(true);
+    expect(needsSpeakerCheck("client")).toBe(false);
+    expect(isEvidenceRole("other")).toBe(false);
+    expect(isEvidenceRole("interviewer")).toBe(false);
   });
 
   it("refuses quotes too short to back a claim, and text that is not there", () => {

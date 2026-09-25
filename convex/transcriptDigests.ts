@@ -10,10 +10,13 @@ import {
 import {
   FACT_PACK_MAX_CHARS,
   FACTS_VERSION,
+  isEvidenceRole,
+  needsSpeakerCheck,
   packFactId,
   quoteTurnInfo,
 } from "./lib/transcriptFacts";
 import {
+  factRunIsCurrent,
   findFactRun,
   FACT_RUN_STALE_MS,
   readyFactRun,
@@ -268,7 +271,7 @@ export const getFactInputs = internalQuery({
         chars: source.content.length,
         sameText,
         frozen: sources.some((row) => row.kind === "transcript_facts" && row.transcriptId === transcriptId),
-        ready: run?.status === "ready",
+        ready: run !== null && (await factRunIsCurrent(ctx, run)),
         busy:
           run !== null &&
           (run.status === "running" || run.status === "queued") &&
@@ -333,18 +336,20 @@ export const freezeFactsSource = internalMutation({
       quotes: fact.quotes.flatMap((quote) => {
         const info = quoteTurnInfo(fact, quote, turnInfo);
         const speakerLabel = info?.speakerLabel ?? fact.speakerLabel;
-        const role = speakerLabel ? roles.get(speakerLabel) : undefined;
-        // Decision 25: an interviewer's words are never evidence, and the
-        // span must still be the verbatim excerpt on the frozen row.
-        if (role === "interviewer") return [];
+        const role = speakerLabel ? (roles.get(speakerLabel) ?? "unknown") : "unknown";
+        // Decision 25: an interviewer's or other speaker's words are never
+        // evidence, and the span must still be the verbatim excerpt on the
+        // frozen row. A speaker with no role stays citable, flagged.
+        if (!isEvidenceRole(role)) return [];
         if (transcriptSource.content.slice(quote.charStart, quote.charEnd) !== quote.exactExcerpt) return [];
         return [
           {
             charStart: quote.charStart,
             charEnd: quote.charEnd,
             ...(speakerLabel ? { speakerLabel } : {}),
-            ...(role ? { role } : {}),
+            role,
             ...(info?.startMs !== undefined ? { startMs: info.startMs } : {}),
+            ...(needsSpeakerCheck(role) ? { needsSpeakerCheck: true } : {}),
           },
         ];
       }),

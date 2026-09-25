@@ -9,6 +9,7 @@ import { sha256 } from "./contracts";
 import {
   FACT_PACK_MAX_CHARS,
   FACTS_VERSION,
+  isEvidenceRole,
   renderFactPack,
   type FactPackOptions,
   type FactTurn,
@@ -68,13 +69,36 @@ export async function findFactRun(
     .first();
 }
 
-/** The ready run for this exact text under the current FACTS_VERSION. */
+/**
+ * Whether a run's facts still hold under the transcript's current speaker
+ * roles (review 2026-09-25): ready, and no speaker whose words were left
+ * out as interviewer or other at extraction has since become a client (or
+ * lost its role). Roles are baked in at extraction, so such a correction
+ * can only bring its evidence back through a new extraction.
+ */
+export async function factRunIsCurrent(ctx: Ctx, run: Doc<"transcriptFactRuns">): Promise<boolean> {
+  if (run.status !== "ready") return false;
+  if (!run.excludedLabels || run.excludedLabels.length === 0) return true;
+  const roles = await speakerRoleMap(ctx, run.transcriptId);
+  return run.excludedLabels.every((label) => !isEvidenceRole(roles.get(label) ?? "unknown"));
+}
+
+/** The labels whose words are not evidence under the given turns' roles. */
+export function excludedSpeakerLabels(turns: readonly Pick<FactTurn, "speakerLabel" | "role">[]): string[] {
+  const labels = new Set<string>();
+  for (const turn of turns) {
+    if (turn.speakerLabel && !isEvidenceRole(turn.role)) labels.add(turn.speakerLabel);
+  }
+  return [...labels].sort();
+}
+
+/** The ready, current run for this exact text under the current FACTS_VERSION. */
 export async function readyFactRun(
   ctx: Ctx,
   transcript: Doc<"transcripts">
 ): Promise<Doc<"transcriptFactRuns"> | null> {
   const run = await findFactRun(ctx, transcript._id, await transcriptHash(transcript));
-  return run?.status === "ready" ? run : null;
+  return run && (await factRunIsCurrent(ctx, run)) ? run : null;
 }
 
 export async function listFacts(ctx: Ctx, transcriptId: Id<"transcripts">): Promise<Doc<"transcriptFacts">[]> {

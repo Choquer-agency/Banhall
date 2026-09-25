@@ -151,7 +151,7 @@ describe("transcript facts evaluation harness", () => {
     expect(row.facts).toEqual({ proposed: 5, kept: 3, context: 1, dropped: 1 });
     // Five quotes proposed: three found in client turns, one only in the
     // interviewer's words, one not in the transcript at all.
-    expect(row.quotes).toEqual({ proposed: 5, verified: 3, interviewerOnly: 1, rate: 0.6 });
+    expect(row.quotes).toEqual({ proposed: 5, verified: 3, notClientOnly: 1, rate: 0.6 });
     expect(row.recall.digestItems).toBe(4);
     expect(row.recall.recalled).toBe(3);
     expect(row.recall.missed).toEqual(["uncertainty: Convergence guarantees for the negotiation under degraded communications"]);

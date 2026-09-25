@@ -432,6 +432,7 @@ export async function ensureTranscriptFacts(
     sourceContentHash: input.sourceContentHash,
     model,
     adapter,
+    excludedLabels: input.excludedLabels,
   });
   if (claim.kind !== "claimed") return claim.kind;
   try {

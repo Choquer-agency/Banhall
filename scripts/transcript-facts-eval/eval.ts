@@ -71,7 +71,12 @@ export type TranscriptEval = {
   speakers: Array<{ label: string; role: string }>;
   windows: number;
   facts: { proposed: number; kept: number; context: number; dropped: number };
-  quotes: { proposed: number; verified: number; interviewerOnly: number; rate: number };
+  /**
+   * `verified` quotes were found in a client turn or a turn whose speaker has
+   * no role yet (decision 25); `notClientOnly` were found only in
+   * interviewer or other speakers' turns, so they back nothing.
+   */
+  quotes: { proposed: number; verified: number; notClientOnly: number; rate: number };
   recall: {
     digestItems: number;
     recalled: number;
@@ -239,13 +244,13 @@ async function evaluateOne(entry: EvalTranscript, options: Required<EvalOptions>
 
   let proposedQuotes = 0;
   let verifiedQuotes = 0;
-  let interviewerOnly = 0;
+  let notClientOnly = 0;
   for (const proposal of proposals) {
     for (const quote of proposal.quotes) {
       proposedQuotes += 1;
       const located = locateQuote(content, turns, quote, proposal.turnIndexes);
       if (located.kind === "found") verifiedQuotes += 1;
-      if (located.kind === "interviewer_only") interviewerOnly += 1;
+      if (located.kind === "not_client_only") notClientOnly += 1;
     }
   }
   const verified = verifyFacts({ content, turns, proposals });
@@ -301,7 +306,7 @@ async function evaluateOne(entry: EvalTranscript, options: Required<EvalOptions>
       context: verified.facts.filter((fact) => fact.quotes.length === 0).length,
       dropped: verified.counts.dropped,
     },
-    quotes: { proposed: proposedQuotes, verified: verifiedQuotes, interviewerOnly, rate: rate(verifiedQuotes, proposedQuotes) },
+    quotes: { proposed: proposedQuotes, verified: verifiedQuotes, notClientOnly, rate: rate(verifiedQuotes, proposedQuotes) },
     recall: {
       digestItems: items.length,
       recalled,

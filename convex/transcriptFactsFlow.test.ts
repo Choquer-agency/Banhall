@@ -138,6 +138,50 @@ describe("fact extraction runs once per text and version", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
+  it("extracts again after a speaker is moved away from interviewer (review 2026-09-25)", async () => {
+    const f = await setup("long");
+    const fetchMock = vi.fn(async () => factsResponse());
+    vi.stubGlobal("fetch", fetchMock);
+    await f.writer.mutation(api.transcripts.requestTranscriptFacts, { transcriptId: f.transcriptId });
+    await f.t.finishAllScheduledFunctions(vi.runAllTimers);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const firstRun = await f.t.run(async (ctx) => (await ctx.db.query("transcriptFactRuns").collect())[0]);
+    expect(firstRun.excludedLabels).toEqual(["Dana Whitfield"]);
+
+    // Confirming the detected roles changes nothing.
+    await f.writer.mutation(api.transcripts.confirmSpeakers, { transcriptId: f.transcriptId });
+    await f.writer.mutation(api.transcripts.requestTranscriptFacts, { transcriptId: f.transcriptId });
+    await f.t.finishAllScheduledFunctions(vi.runAllTimers);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    // Dana's words were left out as the interviewer's; making her a client
+    // makes the ready facts stale, and the next request extracts again.
+    await f.writer.mutation(api.transcripts.setSpeakerRole, {
+      transcriptId: f.transcriptId,
+      label: "Dana Whitfield",
+      role: "client",
+    });
+    const list = await f.writer.query(api.transcripts.listTranscripts, { projectId: f.projectId });
+    expect(list[0].factsStatus).toBe("none");
+    await f.writer.mutation(api.transcripts.requestTranscriptFacts, { transcriptId: f.transcriptId });
+    await f.t.finishAllScheduledFunctions(vi.runAllTimers);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const runs = await f.t.run((ctx) => ctx.db.query("transcriptFactRuns").collect());
+    expect(runs.map((run) => run.status)).toEqual(["ready", "ready"]);
+    expect(runs[1].excludedLabels).toEqual([]);
+
+    // Moving a speaker to interviewer needs no new extraction: that is
+    // filtered when a pack is rendered.
+    await f.writer.mutation(api.transcripts.setSpeakerRole, {
+      transcriptId: f.transcriptId,
+      label: "Priya Shah",
+      role: "interviewer",
+    });
+    await f.writer.mutation(api.transcripts.requestTranscriptFacts, { transcriptId: f.transcriptId });
+    await f.t.finishAllScheduledFunctions(vi.runAllTimers);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
   it("does nothing while the transcript method is off", async () => {
     const f = await setup("off");
     const fetchMock = vi.fn(async () => factsResponse());
