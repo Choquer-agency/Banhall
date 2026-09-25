@@ -14,7 +14,13 @@ import {
   retryFitsDeadline,
 } from "./actionDeadline";
 import { COMPRESSION_REQUEST } from "./promptDefinitions";
-import type { AnthropicCapability } from "../lib/providerConfig";
+import { domainError } from "../lib/contracts";
+import { anthropicTransport, type AnthropicCapability } from "../lib/providerConfig";
+import {
+  markOpenRouterError,
+  openRouterAnthropicBody,
+  openRouterAnthropicCharge,
+} from "../../shared/anthropicTransport";
 import type { ActionCtx } from "../_generated/server";
 import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
@@ -42,8 +48,19 @@ export type UsageEvent = {
   /** The part of cacheCreationInputTokens written with the 1-hour TTL. */
   cacheCreation1hInputTokens?: number;
   cacheReadInputTokens?: number;
-  /** Provider-reported exact cost (OpenRouter). Anthropic path never sets it. */
+  /**
+   * Provider-reported exact cost: OpenRouter's `usage.cost`, on its chat
+   * gateway and on the Anthropic gateway's `openrouter` transport. The
+   * direct Anthropic transport never sets it.
+   */
   costUsd?: number;
+  /**
+   * Set only when an Anthropic-gateway call went through OpenRouter
+   * (owner decision 30); absent means direct to Anthropic.
+   */
+  transport?: "openrouter";
+  /** The provider OpenRouter reports serving the call (expected "Anthropic"). */
+  servedProvider?: string;
   /**
    * The provider's stop reason as reported: Anthropic `stop_reason`,
    * OpenRouter `finish_reason`. "max_tokens" or "length" marks an answer cut
@@ -488,7 +505,30 @@ async function createWithinDeadline(
   }
 }
 
-/** Anthropic client that durably records billed usage after every response. */
+/**
+ * The body sent on the `openrouter` transport: the direct body with the
+ * OpenRouter model id and the Anthropic-only provider pin. An app model id
+ * without an OpenRouter mapping fails here, before anything is sent.
+ */
+function openRouterWireBody(body: unknown): unknown {
+  const record = body && typeof body === "object" ? (body as Record<string, unknown>) : {};
+  const wire = openRouterAnthropicBody(record);
+  if (!wire) {
+    domainError(
+      "PROVIDER_NOT_CONFIGURED",
+      `Anthropic model ${String(record.model)} has no OpenRouter id (shared/anthropicTransport.ts), so it cannot run with ANTHROPIC_TRANSPORT=openrouter`
+    );
+  }
+  return wire;
+}
+
+/**
+ * Anthropic client that durably records billed usage after every response.
+ * On the `openrouter` transport (owner decision 30) the request is the same
+ * apart from the model id on the wire and the provider pin; the usage row
+ * keeps the app model id and adds OpenRouter's exact charge, the transport
+ * and the provider that served it.
+ */
 export function instrumentedAnthropic(
   ctx: ActionCtx,
   meta: ProviderCallMeta & {
@@ -501,6 +541,7 @@ export function instrumentedAnthropic(
   }
 ): Anthropic {
   assertGenerationCallSite(meta.callSite);
+  const viaOpenRouter = anthropicTransport() === "openrouter";
   const client = createAnthropicClient(
     meta.capability ?? "generation",
     meta.clientOptions
@@ -527,9 +568,10 @@ export function instrumentedAnthropic(
         await recordGenerationHandoff(ctx, meta.attribution);
         const startedAt = Date.now();
         const request = adaptAnthropicRequest(args[0]);
-        const body = meta.attribution ? cacheGenerationPrefix(request) : request;
+        const prefixed = meta.attribution ? cacheGenerationPrefix(request) : request;
+        const body = viaOpenRouter ? openRouterWireBody(prefixed) : prefixed;
         const rest = args.slice(2);
-        const response: unknown =
+        const sendRequest = async (): Promise<unknown> =>
           deadline === undefined || !defaults
             ? await Reflect.apply(originalCreate, target, [body, ...args.slice(1)])
             : await createWithinDeadline(
@@ -538,8 +580,19 @@ export function instrumentedAnthropic(
                 deadline,
                 defaults
               );
+        let response: unknown;
+        if (viaOpenRouter) {
+          try {
+            response = await sendRequest();
+          } catch (error) {
+            throw markOpenRouterError(error);
+          }
+        } else {
+          response = await sendRequest();
+        }
         const durationMs = Math.max(0, Date.now() - startedAt);
         const usage = anthropicUsage(response);
+        const charge = viaOpenRouter ? openRouterAnthropicCharge(response) : {};
         const stopReason = responseStopReason(response);
         const params = args[0];
         const model =
@@ -550,7 +603,12 @@ export function instrumentedAnthropic(
             ? params.model
             : "unknown";
         if (usage) {
-          meta.onUsage?.({ model, costUsd: estimateCostFromTable(model, usage), tokens: usage });
+          meta.onUsage?.({
+            model,
+            costUsd: charge.costUsd ?? estimateCostFromTable(model, usage),
+            ...(charge.costUsd !== undefined ? { nativeCostUsd: charge.costUsd } : {}),
+            tokens: usage,
+          });
           await scheduleUsage(ctx, {
             ...(meta.projectId ? { projectId: meta.projectId } : {}),
             ...(meta.attribution
@@ -586,6 +644,9 @@ export function instrumentedAnthropic(
               ? { cacheReadInputTokens: usage.cacheReadInputTokens }
               : {}),
             ...(stopReason ? { stopReason } : {}),
+            ...(viaOpenRouter ? { transport: "openrouter" as const } : {}),
+            ...(charge.costUsd !== undefined ? { costUsd: charge.costUsd } : {}),
+            ...(charge.servedProvider ? { servedProvider: charge.servedProvider } : {}),
           });
         }
         return response;
