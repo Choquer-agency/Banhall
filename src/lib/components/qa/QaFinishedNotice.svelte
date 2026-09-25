@@ -49,7 +49,7 @@
   aria-labelledby={titleId}
   aria-live="polite"
   data-qa-finished-notice
-  class="flex w-[340px] max-w-full flex-col overflow-hidden rounded-[14px] border border-line bg-surface shadow-[0_16px_40px_#16211F1F]"
+  class="flex w-[340px] max-w-full flex-col overflow-hidden rounded-[14px] border border-line bg-surface shadow-popover"
 >
   <header class="flex items-center gap-2 border-b border-line-soft py-2.5 pl-5 pr-3">
     <div class="flex min-w-0 flex-1 flex-col gap-0.5">
