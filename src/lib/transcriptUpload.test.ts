@@ -103,6 +103,52 @@ describe("cue-timed Teams .docx", () => {
   });
 });
 
+describe("Otter .docx", () => {
+  // Shaped after Otter's documented turn layout (name, time, then the
+  // speech), in both ways Word can hold it; not a real export.
+  const turns = [
+    ["Speaker 1", "0:00", "Thanks for joining."],
+    ["Priya Shah", "0:05", "We could not predict flow at the feeder."],
+  ] as const;
+  const footer = `<w:p><w:r><w:t>Transcribed by https://otter.ai</w:t></w:r></w:p>`;
+
+  it("reads name and time headers held as separate paragraphs", async () => {
+    const body =
+      turns
+        .map(
+          ([name, time, speech]) =>
+            `<w:p><w:r><w:t xml:space="preserve">${name}  ${time}</w:t></w:r></w:p><w:p><w:r><w:t>${escapeXml(speech)}</w:t></w:r></w:p>`
+        )
+        .join("") + footer;
+    const text = await docxTranscriptText(await docxInput(body));
+    const prepared = prepareTranscriptUpload({ fileName: "Helios.docx", text, intake: "file" });
+    expect(prepared.format).toBe("otter");
+    expect(parseTranscriptTurns(prepared.content).map((turn) => [turn.speakerLabel, turn.startMs])).toEqual([
+      ["Speaker 1", 0],
+      ["Priya Shah", 5_000],
+    ]);
+  });
+
+  it("reads a header and its speech held in one paragraph with a soft break", async () => {
+    const body =
+      turns
+        .map(
+          ([name, time, speech]) =>
+            `<w:p><w:r><w:t>${name}</w:t><w:tab/><w:t>${time}</w:t><w:br/><w:t>${escapeXml(speech)}</w:t></w:r></w:p>`
+        )
+        .join("") + footer;
+    const text = await docxTranscriptText(await docxInput(body));
+    const prepared = prepareTranscriptUpload({ fileName: "Helios.docx", text, intake: "file" });
+    expect(prepared.format).toBe("otter");
+    const parsed = parseTranscriptTurns(prepared.content);
+    expect(parsed.map((turn) => [turn.speakerLabel, turn.startMs])).toEqual([
+      ["Speaker 1", 0],
+      ["Priya Shah", 5_000],
+    ]);
+    expect(prepared.content.slice(parsed[0].charStart, parsed[0].charEnd)).toBe("Thanks for joining.");
+  });
+});
+
 describe("readTranscriptFile", () => {
   it("renders a WebVTT file to the canonical text and names its format", async () => {
     const file = new File(

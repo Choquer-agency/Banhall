@@ -101,6 +101,26 @@ describe("format detection and canonical render", () => {
     expectSpansValid(prepared.content, turns);
   });
 
+  it("renders a Zoom recording's .vtt: numbered cues with the name before a colon", () => {
+    // Shaped after Zoom's cloud recording transcript, not a real export.
+    const prepared = prepareTranscriptUpload({ fileName: "GMT20260917-Recording.transcript.vtt", text: fixture("zoom.vtt") });
+    expect(prepared.format).toBe("vtt");
+    expect(prepared.content).toBe(
+      [
+        "Dana Whitfield [00:00:01]: Thanks for joining everyone.",
+        "Priya Shah [00:00:05]: We could not predict flow at the feeder. So we built a test rig.",
+        "[00:00:12] Someone joined without a name.",
+      ].join("\n\n")
+    );
+    const turns = parseTranscriptTurns(prepared.content);
+    expect(turns.map((turn) => [turn.speakerLabel, turn.startMs])).toEqual([
+      ["Dana Whitfield", 1_000],
+      ["Priya Shah", 5_000],
+      [undefined, 12_000],
+    ]);
+    expectSpansValid(prepared.content, turns);
+  });
+
   it("renders SRT cues with multi-line text", () => {
     const prepared = prepareTranscriptUpload({ fileName: "call.srt", text: fixture("sample.srt") });
     expect(prepared.format).toBe("srt");
@@ -307,6 +327,7 @@ describe("spans", () => {
       "teams-cues-docx.txt",
       "teams-cues-paragraphs-docx.txt",
       "sample.vtt",
+      "zoom.vtt",
       "sample.srt",
       "zoom.txt",
       "meet.txt",
