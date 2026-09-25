@@ -92,3 +92,61 @@ export const EVAL_BRIEF = {
     "Distributed negotiation may not converge when communication latency spikes.",
   ],
 };
+
+// ─── Role-specific tasks (review finding 9) ─────────────────────────────────
+
+/**
+ * condense_digest: facts a digest of the Helios interview must keep. Each is
+ * matched case-insensitively anywhere in the digest's fields.
+ */
+export const CONDENSE_REQUIRED_FACTS = [
+  "Marcus Lindqvist",
+  "Verdant Grid",
+  "two-thirds",
+  "rule-based",
+  "latency",
+  "simulation",
+] as const;
+
+/**
+ * retrieval_queries: the queries search past reports by technology, so they
+ * must name no person or company, and must carry the project's technical
+ * vocabulary (at least RETRIEVAL_MIN_DOMAIN_TERMS of these, across all four).
+ */
+export const RETRIEVAL_FORBIDDEN_NAMES = ["Verdant", "Marcus", "Lindqvist", "Dana"] as const;
+export const RETRIEVAL_DOMAIN_TERMS = [
+  "voltage",
+  "forecast",
+  "microgrid",
+  "battery",
+  "latency",
+  "converg",
+  "load",
+  "solar",
+  "distributed",
+  "controller",
+] as const;
+export const RETRIEVAL_MIN_DOMAIN_TERMS = 3;
+
+/**
+ * style_classification: a settings document that legislates exactly two
+ * waivable categories, banned words and paragraph density, and nothing else.
+ */
+export const STYLE_EVAL_DOCUMENT = [
+  "My rules for every report I write:",
+  "1. Never use the words \"innovative\", \"cutting-edge\" or \"novel\" anywhere in a report.",
+  "2. Keep every paragraph to three sentences or fewer.",
+].join("\n");
+export const STYLE_EVAL_EXPECTED = ["bannedWords", "paragraphDensity"] as const;
+
+/**
+ * changelog_summary: one day of commits. Release notes must not leak the
+ * implementation terms below to writers.
+ */
+export const CHANGELOG_EVAL_WORK_DAY = "2026-09-20";
+export const CHANGELOG_EVAL_COMMITS = [
+  { subject: "Fix PD upload retry in documents.ts when the network drops", body: "Retry the upload mutation once on a dropped connection." },
+  { subject: "Add Excel timesheet import to the financial page" },
+  { subject: "Refactor providerConfig helpers", body: "No behavior change." },
+] as const;
+export const CHANGELOG_FORBIDDEN_TERMS = ["documents.ts", "providerConfig", "mutation"] as const;

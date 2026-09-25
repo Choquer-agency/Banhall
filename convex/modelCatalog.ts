@@ -19,7 +19,8 @@
  *
  * The decision logic lives in shared/modelCatalog.ts and is tested there.
  */
-import { v } from "convex/values";
+import { v, type Infer } from "convex/values";
+import { pricingFor } from "../shared/modelPricing";
 import {
   internalAction,
   internalMutation,
@@ -44,8 +45,12 @@ import {
   parseArtificialAnalysis,
   parseEndpointSupport,
   parseOpenRouterModels,
+  maxEvaluationCostUsd,
+  missingJudgeGrades,
   prefilterCandidate,
   productionErrorVerdict,
+  roleAutoSwitches,
+  UNKNOWN_EVAL_PRICE,
   promotionGates,
   refreshedFields,
   seedCatalogModels,
@@ -78,11 +83,15 @@ import {
 } from "./lib/modelRoles";
 import {
   endpointSupportValidator,
+  evalEnvelopeValidator,
+  evalPricingValidator,
+  evalTaskKindValidator,
   evalTaskResultValidator,
   frozenModelEntryValidator,
   modelFreezeValidator,
   modelRoleValidator,
   parsedModelValidator,
+  type FrozenModelEntry,
 } from "./lib/modelCatalogValidators";
 import {
   applyCatalogRefreshRef,
@@ -104,6 +113,8 @@ const FETCH_TIMEOUT_MS = 30_000;
 const CATALOG_READ_LIMIT = 2000;
 /** A running evaluation older than this died with its action. */
 const STALE_EVALUATION_MS = 30 * 60 * 1000;
+/** A queued evaluation still unclaimed after this never started. */
+const STALE_QUEUED_MS = 60 * 60 * 1000;
 /** Minutes between the evaluations one refresh schedules. */
 const EVALUATION_STAGGER_MS = 5 * 60 * 1000;
 
@@ -314,17 +325,31 @@ export const recordEndpointSupport = internalMutation({
 
 // ─── Production error rollback ──────────────────────────────────────────────
 
-async function countSince<T>(
-  iterable: AsyncIterable<T>,
-  limit: number
-): Promise<number> {
-  let count = 0;
-  for await (const _row of iterable) {
-    void _row;
-    count += 1;
-    if (count >= limit) break;
+const HOUR_MS = 60 * 60 * 1000;
+const hourStartOf = (at: number) => Math.floor(at / HOUR_MS) * HOUR_MS;
+
+/**
+ * Exact request outcomes for `model` from the hour containing `since`
+ * onward (review finding 5): hourly buckets hold both counts, so successes
+ * and failures are always read over the same window and never truncated
+ * independently. At most 25 bucket reads for a one-day window.
+ */
+export async function outcomeCountsSince(
+  ctx: QueryCtx | MutationCtx,
+  model: string,
+  since: number
+): Promise<{ successes: number; failures: number }> {
+  let successes = 0;
+  let failures = 0;
+  for await (const bucket of ctx.db
+    .query("modelCallBuckets")
+    .withIndex("by_model_and_hourStart", (q) =>
+      q.eq("model", model).gte("hourStart", hourStartOf(since))
+    )) {
+    successes += bucket.successes;
+    failures += bucket.failures;
   }
-  return count;
+  return { successes, failures };
 }
 
 /**
@@ -349,21 +374,9 @@ export async function runProductionErrorCheck(
       .first();
     if (lastEvent?.kind === "rollback") continue;
     const since = Math.max(now - AUTOMATION_THRESHOLDS.errorWindowMs, assignment.assignedAt);
-    const successes = await countSince(
-      ctx.db
-        .query("aiUsage")
-        .withIndex("by_model_and_createdAt", (q) =>
-          q.eq("model", assignment.modelId).gte("createdAt", since)
-        ),
-      1000
+    const verdict = productionErrorVerdict(
+      await outcomeCountsSince(ctx, assignment.modelId, since)
     );
-    const failures = await countSince(
-      ctx.db
-        .query("modelCallFailures")
-        .withIndex("by_model_and_at", (q) => q.eq("model", assignment.modelId).gte("at", since)),
-      1000
-    );
-    const verdict = productionErrorVerdict({ successes, failures });
     if (!verdict.rollback) continue;
     const rate = `${Math.round(verdict.errorRate * 100)} percent of ${verdict.calls} calls`;
     if (!enabled) {
@@ -407,12 +420,45 @@ export const checkProductionErrors = internalMutation({
   handler: async (ctx) => await runProductionErrorCheck(ctx, Date.now()),
 });
 
-/** Provider calls the model is answerable for (see providers.ts). */
-export const recordCallFailure = internalMutation({
-  args: { model: v.string(), callSite: v.string(), code: v.string() },
+/**
+ * One terminal outcome of one provider request (providers.ts
+ * recordingOutcomes), added to its model's hourly bucket.
+ */
+export const recordCallOutcome = internalMutation({
+  args: {
+    model: v.string(),
+    callSite: v.string(),
+    outcome: v.union(v.literal("success"), v.literal("failure")),
+    code: v.optional(v.string()),
+  },
   returns: v.null(),
   handler: async (ctx, args) => {
-    await ctx.db.insert("modelCallFailures", { ...args, at: Date.now() });
+    const hourStart = hourStartOf(Date.now());
+    const bucket = await ctx.db
+      .query("modelCallBuckets")
+      .withIndex("by_model_and_hourStart", (q) =>
+        q.eq("model", args.model).eq("hourStart", hourStart)
+      )
+      .unique();
+    const failure = args.outcome === "failure";
+    const failureFields = failure
+      ? { lastFailureCode: args.code ?? "unknown", lastFailureCallSite: args.callSite }
+      : {};
+    if (bucket) {
+      await ctx.db.patch(bucket._id, {
+        successes: bucket.successes + (failure ? 0 : 1),
+        failures: bucket.failures + (failure ? 1 : 0),
+        ...failureFields,
+      });
+    } else {
+      await ctx.db.insert("modelCallBuckets", {
+        model: args.model,
+        hourStart,
+        successes: failure ? 0 : 1,
+        failures: failure ? 1 : 0,
+        ...failureFields,
+      });
+    }
     return null;
   },
 });
@@ -476,7 +522,28 @@ export async function planEvaluationRun(
       await ctx.db.patch(stale._id, {
         status: "error",
         error: "The evaluation stopped before it finished",
-        evalCostUsd: stale.evalCostUsd ?? stale.estimatedCostUsd,
+        // Its actual spend is unknown: keep the reservation as the spend.
+        evalCostUsd: stale.evalCostUsd ?? stale.reservedCostUsd ?? stale.estimatedCostUsd,
+        reservedCostUsd: undefined,
+        completedAt: now,
+      });
+    }
+  }
+  // A queued row whose run was never scheduled (rows from before scheduling
+  // moved into this transaction), or whose run failed or was cancelled
+  // before claiming it, would mark its role busy forever: release it.
+  for (const queued of await ctx.db
+    .query("modelEvaluations")
+    .withIndex("by_status", (q) => q.eq("status", "queued"))
+    .take(20)) {
+    const job = queued.scheduledJobId ? await ctx.db.system.get(queued.scheduledJobId) : null;
+    const jobDead =
+      !job || job.state.kind === "failed" || job.state.kind === "canceled" || job.state.kind === "success";
+    if (jobDead || now - queued.createdAt > STALE_QUEUED_MS) {
+      await ctx.db.patch(queued._id, {
+        status: "error",
+        error: "The evaluation never started",
+        evalCostUsd: 0,
         completedAt: now,
       });
     }
@@ -493,8 +560,7 @@ export async function planEvaluationRun(
   const judgeRow = await catalogRow(ctx, await roleModelId(ctx, "writing"));
   const eligible: Array<EvaluationPlanItem & { incumbentModelId: string; incumbentScore: number | null }> = [];
   for (const role of MODEL_ROLES) {
-    const policy = ROLE_POLICIES[role];
-    if (!policy.autoSwitch || busyRoles.has(role)) continue;
+    if (!roleAutoSwitches(role) || busyRoles.has(role)) continue;
     const incumbentId = await roleModelId(ctx, role);
     const incumbentRow = rows.find((row) => row.modelId === incumbentId) ?? (await catalogRow(ctx, incumbentId));
     const incumbent = incumbentRow ? prefilterView(incumbentRow) : null;
@@ -526,8 +592,7 @@ export async function planEvaluationRun(
   const ids: Id<"modelEvaluations">[] = [];
   for (const item of selected) {
     const source = eligible.find((e) => e.role === item.role && e.modelId === item.modelId);
-    ids.push(
-      await ctx.db.insert("modelEvaluations", {
+    const evaluationId = await ctx.db.insert("modelEvaluations", {
         role: item.role,
         modelId: item.modelId,
         incumbentModelId: source?.incumbentModelId ?? (await roleModelId(ctx, item.role)),
@@ -539,8 +604,16 @@ export async function planEvaluationRun(
           : {}),
         estimatedCostUsd: item.estimatedCostUsd,
         createdAt: now,
-      })
+      });
+    // Scheduled in the same transaction as the row (review finding 4): a
+    // queued evaluation always has a run, or neither exists.
+    const scheduledJobId = await ctx.scheduler.runAfter(
+      ids.length * EVALUATION_STAGGER_MS,
+      runEvaluationRef,
+      { evaluationId }
     );
+    await ctx.db.patch(evaluationId, { scheduledJobId });
+    ids.push(evaluationId);
   }
   return ids;
 }
@@ -558,14 +631,54 @@ const claimedEvaluationValidator = v.object({
   candidate: frozenModelEntryValidator,
   incumbent: frozenModelEntryValidator,
   judge: frozenModelEntryValidator,
-  tasks: v.array(
-    v.union(v.literal("seed_batch"), v.literal("section_draft"), v.literal("qa_structured"))
-  ),
+  tasks: v.array(evalTaskKindValidator),
+  /** Frozen per-million prices for the usage meter, by model id. */
+  pricing: v.record(v.string(), evalPricingValidator),
+  reservedCostUsd: v.number(),
 });
 
-/** Move a queued evaluation to running and hand the action its models. */
+/**
+ * Per-million prices an evaluation meters `modelId` at: its catalog row,
+ * else the static table, else a deliberately high price so an unknown
+ * model can never look cheap (review finding 3).
+ */
+async function evalPricingFor(ctx: MutationCtx, modelId: string): Promise<Infer<typeof evalPricingValidator>> {
+  const row = await catalogRow(ctx, modelId);
+  if (row?.inputUsdPerMTok !== undefined && row.outputUsdPerMTok !== undefined) {
+    return {
+      input: row.inputUsdPerMTok,
+      output: row.outputUsdPerMTok,
+      ...(row.cacheReadUsdPerMTok !== undefined ? { cacheRead: row.cacheReadUsdPerMTok } : {}),
+      ...(row.cacheWriteUsdPerMTok !== undefined ? { cacheWrite: row.cacheWriteUsdPerMTok } : {}),
+      ...(row.cacheWrite1hUsdPerMTok !== undefined ? { cacheWrite1h: row.cacheWrite1hUsdPerMTok } : {}),
+    };
+  }
+  const table = pricingFor(modelId);
+  if (table) {
+    return {
+      input: table.input,
+      output: table.output,
+      cacheRead: table.input * table.cacheReadMultiplier,
+      cacheWrite: table.input * table.cacheWrite5mMultiplier,
+      cacheWrite1h: table.input * table.cacheWrite1hMultiplier,
+    };
+  }
+  return {
+    input: UNKNOWN_EVAL_PRICE.inputUsdPerMTok,
+    output: UNKNOWN_EVAL_PRICE.outputUsdPerMTok,
+  };
+}
+
+/**
+ * Move a queued evaluation to running and hand the action its models and
+ * frozen prices. The monthly budget is enforced here (review finding 7): the
+ * evaluation reserves the most its full request envelope can cost (every
+ * request at its maximum output, repairs and judging included) and starts
+ * only if that fits what is left of the month's budget. A budget lowered to
+ * zero therefore stops every evaluation still queued.
+ */
 export const claimEvaluation = internalMutation({
-  args: { evaluationId: v.id("modelEvaluations") },
+  args: { evaluationId: v.id("modelEvaluations"), envelope: evalEnvelopeValidator },
   returns: v.union(v.null(), claimedEvaluationValidator),
   handler: async (ctx, args) => {
     const evaluation = await ctx.db.get(args.evaluationId);
@@ -590,14 +703,45 @@ export const claimEvaluation = internalMutation({
       await roleCostCap(ctx, "writing")
     );
     if (!candidate || !incumbent || !judge) return await stop("A model is missing from the catalog");
-    await ctx.db.patch(evaluation._id, { status: "running", startedAt: now });
+    const tasks = [...ROLE_POLICIES[evaluation.role].evalTasks];
+    if (tasks.length === 0 || !roleAutoSwitches(evaluation.role)) {
+      return await stop("This role has no evaluation task of its own");
+    }
+    const pricing: Record<string, Infer<typeof evalPricingValidator>> = {};
+    for (const entry of [candidate, incumbent, judge]) {
+      pricing[entry.id] = await evalPricingFor(ctx, entry.id);
+    }
+    const priced = (entry: FrozenModelEntry) => ({
+      gateway: entry.gateway,
+      reasoning: entry.reasoning,
+      ...(entry.maxCompletionTokens !== undefined ? { maxCompletionTokens: entry.maxCompletionTokens } : {}),
+      inputUsdPerMTok: pricing[entry.id].input,
+      outputUsdPerMTok: pricing[entry.id].output,
+    });
+    const reservedCostUsd = maxEvaluationCostUsd({
+      tasks,
+      envelope: args.envelope,
+      candidate: priced(candidate),
+      incumbent: priced(incumbent),
+      judge: priced(judge),
+    });
+    const budget = await monthlyEvalBudgetUsd(ctx);
+    const committed = await evalSpendThisMonth(ctx, now, evaluation._id);
+    if (committed + reservedCostUsd > budget) {
+      return await stop(
+        `Over the monthly evaluation budget: needs up to $${reservedCostUsd.toFixed(2)}, $${Math.max(0, budget - committed).toFixed(2)} left`
+      );
+    }
+    await ctx.db.patch(evaluation._id, { status: "running", startedAt: now, reservedCostUsd });
     return {
       evaluationId: evaluation._id,
       role: evaluation.role,
       candidate,
       incumbent,
       judge,
-      tasks: [...ROLE_POLICIES[evaluation.role].evalTasks],
+      tasks,
+      pricing,
+      reservedCostUsd,
     };
   },
 });
@@ -632,13 +776,33 @@ export const completeEvaluation = internalMutation({
       },
       cap,
     });
+    // The reservation is released down to what was actually spent.
     const base = {
       candidate,
       incumbent,
       gates: decision.gates,
       evalCostUsd: args.evalCostUsd,
+      reservedCostUsd: undefined,
       completedAt: now,
     };
+    const failedOutsideRubric = decision.gates.filter(
+      (gate) => gate.gate !== "rubric" && !gate.passed
+    );
+    const missingGrades = missingJudgeGrades({
+      tasks: ROLE_POLICIES[evaluation.role].evalTasks,
+      candidate: args.candidateResults,
+      incumbent: args.incumbentResults,
+    });
+    if (failedOutsideRubric.length === 0 && missingGrades.length > 0) {
+      // Without a grade on both sides for every judged task the rubric
+      // comparison means nothing either way: never promote on it.
+      await ctx.db.patch(evaluation._id, {
+        ...base,
+        status: "incomplete",
+        outcome: `incomplete: no judge grade for ${missingGrades.join(", ")}`,
+      });
+      return "held";
+    }
     if (!decision.passed) {
       const failed = decision.gates.filter((gate) => !gate.passed).map((gate) => gate.gate);
       await ctx.db.patch(evaluation._id, {
@@ -652,7 +816,7 @@ export const completeEvaluation = internalMutation({
     const current = await roleModelId(ctx, evaluation.role);
     const blocker = !(await autoSwitchEnabled(ctx))
       ? "passed; automatic switching is off"
-      : !policy.autoSwitch
+      : !roleAutoSwitches(evaluation.role)
         ? "passed; this role never switches on its own"
         : current !== evaluation.incumbentModelId
           ? "passed; the role changed while it ran"
@@ -695,6 +859,7 @@ export const failEvaluation = internalMutation({
       status: "error",
       error: args.error.slice(0, 500),
       evalCostUsd: args.evalCostUsd,
+      reservedCostUsd: undefined,
       completedAt: Date.now(),
     });
     return null;
@@ -829,10 +994,8 @@ export const refreshCatalog = internalAction({
       }
     }
     await ctx.runMutation(checkProductionErrorsRef, {});
+    // Planning inserts and schedules each evaluation in one transaction.
     const evaluationIds = await ctx.runMutation(planEvaluationsRef, {});
-    for (const [index, evaluationId] of evaluationIds.entries()) {
-      await ctx.scheduler.runAfter(index * EVALUATION_STAGGER_MS, runEvaluationRef, { evaluationId });
-    }
     return { fetched: parsed.models.length, summary, evaluationsQueued: evaluationIds.length };
   },
 });
@@ -900,7 +1063,10 @@ export const adminState = query({
         role,
         label: policy.label,
         description: policy.description,
-        autoSwitch: policy.autoSwitch,
+        autoSwitch: roleAutoSwitches(role),
+        manualOnlyReason: roleAutoSwitches(role)
+          ? null
+          : (policy.manualOnlyReason ?? "This role has no evaluation task of its own, so an admin chooses its model."),
         modelId,
         modelLabel: labelOf(modelId) ?? modelId,
         previousModelId: assignment?.previousModelId ?? null,

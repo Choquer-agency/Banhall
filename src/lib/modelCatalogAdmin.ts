@@ -58,6 +58,7 @@ const STATUS_LABELS: Record<string, string> = {
   running: "Running",
   passed: "Passed",
   failed: "Held back",
+  incomplete: "Incomplete",
   error: "Stopped",
   candidate: "Candidate",
   enabled: "Enabled",

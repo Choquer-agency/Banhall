@@ -26,6 +26,7 @@ function adminState(overrides: Partial<ModelAdminState> = {}): ModelAdminState {
         label: "Writing",
         description: "Default model for report generation, seeds and redrafts.",
         autoSwitch: true,
+        manualOnlyReason: null,
         modelId: "x-ai/grok-4.7",
         modelLabel: "Grok 4.7",
         previousModelId: "claude-sonnet-5",
@@ -52,6 +53,7 @@ function adminState(overrides: Partial<ModelAdminState> = {}): ModelAdminState {
         label: "Chat",
         description: "The report chat assistant.",
         autoSwitch: false,
+        manualOnlyReason: "Chat streams tool calls through Anthropic's own provider and no evaluation covers a streamed chat turn yet, so an admin chooses its model.",
         modelId: "claude-sonnet-5",
         modelLabel: "Sonnet 5",
         previousModelId: null,
@@ -129,6 +131,10 @@ describe("ModelCatalogPanel", () => {
     await rollback.click();
     expect(handlers.onRollback).toHaveBeenCalledWith("writing");
     await expect.element(page.getByRole("button", { name: "Nothing to roll back" })).toBeDisabled();
+    // A role without its own evaluation task says why it never switches.
+    await expect
+      .element(page.getByTestId("manual-only-reason"))
+      .toHaveTextContent("Never switches on its own: Chat streams tool calls through Anthropic's own provider");
 
     await page.getByRole("button", { name: "History (1)" }).click();
     await expect

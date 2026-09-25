@@ -16,8 +16,15 @@ import {
   registerModelEntries,
   resetRegisteredModelEntries,
 } from "../../shared/generationModels";
-import { applyCatalogRefreshRef } from "../lib/modelCatalogRefs";
-import { clientForModel, clientForRole, resetGenerationModelCache } from "./providers";
+import { applyCatalogRefreshRef, checkProductionErrorsRef } from "../lib/modelCatalogRefs";
+import {
+  clientForModel,
+  clientForRole,
+  resetGenerationModelCache,
+  seedClientForModel,
+} from "./providers";
+import { evalClient } from "./modelEvaluation";
+import { SEED_PROMPT_PROGRAM } from "./promptDefinitions";
 import type { GenerationMessageParams } from "./openrouterCore";
 
 // Vite keys this directory's own files as "./x.ts"; convex-test resolves
@@ -217,8 +224,12 @@ describe("OpenRouter request fields", () => {
   });
 });
 
-describe("model failure recording", () => {
+describe("model outcome recording", () => {
+  const drain = async (t: Awaited<ReturnType<typeof setup>>) =>
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
+
   it("records malformed output against the model, never an auth failure", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
     const t = await setup();
     reply = () => toolReply("{not json");
     await t.action(async (ctx) => {
@@ -236,7 +247,76 @@ describe("model failure recording", () => {
         )
       ).rejects.toThrow();
     });
-    const failures = await t.run((ctx) => ctx.db.query("modelCallFailures").collect());
-    expect(failures).toMatchObject([{ model: "openai/gpt-5.6-sol", code: "malformed_output", callSite: "routing-test" }]);
+    await drain(t);
+    const buckets = await t.run((ctx) => ctx.db.query("modelCallBuckets").collect());
+    expect(buckets).toMatchObject([
+      { model: "openai/gpt-5.6-sol", successes: 0, failures: 1, lastFailureCode: "malformed_output", lastFailureCallSite: "routing-test" },
+    ]);
+    vi.useRealTimers();
+  });
+
+  it("finding 6: a billed malformed response is one failure, never also a success, so 5 of 20 rolls back", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const t = await setup();
+    await t.run(async (ctx) => {
+      await ctx.db.insert("modelRoleAssignments", {
+        role: "writing",
+        modelId: "openai/gpt-5.6-sol",
+        previousModelId: "claude-sonnet-5",
+        assignedAt: NOW - 60 * 60 * 1000,
+        assignedBy: "system",
+      });
+    });
+    let call = 0;
+    // Every response is billed (usage.cost present); every fourth carries
+    // tool JSON the gateway adapter cannot parse.
+    reply = () => {
+      call += 1;
+      return toolReply(call % 4 === 0 ? "{broken" : JSON.stringify({ ok: true }));
+    };
+    await t.action(async (ctx) => {
+      const client = clientForModel(ctx, "openai/gpt-5.6-sol", { callSite: "generation:analyzer" });
+      for (let i = 0; i < 20; i += 1) {
+        await client.messages.create(toolParams("openai/gpt-5.6-sol")).catch(() => null);
+      }
+    });
+    await drain(t);
+    // All 20 were billed...
+    expect(await t.run((ctx) => ctx.db.query("aiUsage").collect())).toHaveLength(20);
+    // ...but only 15 succeeded.
+    const [bucket] = await t.run((ctx) => ctx.db.query("modelCallBuckets").collect());
+    expect(bucket).toMatchObject({ successes: 15, failures: 5 });
+    expect(await t.mutation(checkProductionErrorsRef, {})).toEqual([
+      { role: "writing", modelId: "openai/gpt-5.6-sol", rolledBack: true },
+    ]);
+    vi.useRealTimers();
+  });
+});
+
+describe("finding 1: seed evaluations send the production seed request", () => {
+  it("gives a reasoning model the same output budget in evaluation as in production", async () => {
+    const t = await setup();
+    const reasoning = {
+      id: "x-ai/grok-4.7",
+      label: "Grok 4.7",
+      provider: "xAI",
+      gateway: "openrouter" as const,
+      reasoning: true,
+      maxCompletionTokens: 450000,
+    };
+    const params = (): GenerationMessageParams => ({
+      ...toolParams(reasoning.id),
+      max_tokens: SEED_PROMPT_PROGRAM.request.maxTokens,
+    });
+    await t.action(async (ctx) => {
+      registerModelEntries([reasoning]);
+      await seedClientForModel(ctx, reasoning.id, { callSite: "generation:seeds:company_context" }).messages.create(params());
+      await evalClient(ctx, reasoning, "seed_batch", { input: 1.6, output: 4.8 }).client.messages.create(params());
+    });
+    expect(captured).toHaveLength(2);
+    const [production, evaluation] = captured.map((request) => request.body);
+    expect(production.max_tokens).toBe(SEED_PROMPT_PROGRAM.request.maxTokens);
+    expect(evaluation.max_tokens).toBe(production.max_tokens);
+    expect(evaluation.provider).toEqual(production.provider);
   });
 });

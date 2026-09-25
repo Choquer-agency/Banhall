@@ -180,6 +180,8 @@ export async function openRouterChatCompletion(
     input.onUsage?.({
       model: usageModel,
       costUsd: usage.costUsd ?? estimateCostFromTable(usageModel, usage),
+      ...(usage.costUsd !== undefined ? { nativeCostUsd: usage.costUsd } : {}),
+      tokens: usage,
     });
     await scheduleUsage(ctx, {
       ...(input.projectId ? { projectId: input.projectId } : {}),

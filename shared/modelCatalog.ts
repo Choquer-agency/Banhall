@@ -22,6 +22,7 @@
 import {
   CANDIDATE_MODELS,
   MODEL,
+  REASONING_TOKEN_MULTIPLIER,
   type ModelEntry,
   type ModelGateway,
 } from "./generationModels";
@@ -43,7 +44,35 @@ export function isModelRole(value: string): value is ModelRole {
   return (MODEL_ROLES as readonly string[]).includes(value);
 }
 
-export type EvalTaskKind = "seed_batch" | "section_draft" | "qa_structured";
+/**
+ * One production task an evaluation runs. Each automatically switchable
+ * role is evaluated on its own task(s):
+ * - writing: seed_batch, section_draft, qa_structured (seeds, sections, QA);
+ * - structured_helper: changelog_summary (the daily release-notes JSON);
+ * - condense: condense_digest (facts and verbatim quotes kept);
+ * - retrieval_brief: retrieval_queries (four Brain queries, no names);
+ * - analysis: style_classification (the settings-document classifier).
+ */
+export const EVAL_TASK_KINDS = [
+  "seed_batch",
+  "section_draft",
+  "qa_structured",
+  "condense_digest",
+  "retrieval_queries",
+  "style_classification",
+  "changelog_summary",
+] as const;
+export type EvalTaskKind = (typeof EVAL_TASK_KINDS)[number];
+
+/** Tasks whose output the judge grades. QA is scored by its contract only. */
+export const JUDGED_EVAL_TASKS: ReadonlySet<EvalTaskKind> = new Set<EvalTaskKind>([
+  "seed_batch",
+  "section_draft",
+  "condense_digest",
+  "retrieval_queries",
+  "style_classification",
+  "changelog_summary",
+]);
 
 /**
  * Price ceiling for a role. Prices are USD per million tokens, the unit
@@ -67,6 +96,8 @@ export type RolePolicy = {
   minOutputTokens: number;
   /** Whether the daily job may evaluate and switch this role on its own. */
   autoSwitch: boolean;
+  /** Why a role never switches on its own (shown on the admin page). */
+  manualOnlyReason?: string;
   defaultCostCap: CostCap;
   evalTasks: readonly EvalTaskKind[];
   /** Roles whose model is frozen on each generation at reservation. */
@@ -97,7 +128,7 @@ export const ROLE_POLICIES: Readonly<Record<ModelRole, RolePolicy>> = {
     minOutputTokens: 8_000,
     autoSwitch: true,
     defaultCostCap: { maxInputUsdPerMTok: 1.5, maxOutputUsdPerMTok: 8, maxCostRatio: 2 },
-    evalTasks: ["seed_batch", "qa_structured"],
+    evalTasks: ["changelog_summary"],
     frozenPerGeneration: false,
   },
   chat: {
@@ -112,8 +143,10 @@ export const ROLE_POLICIES: Readonly<Record<ModelRole, RolePolicy>> = {
     minContextTokens: 200_000,
     minOutputTokens: 16_000,
     autoSwitch: false,
+    manualOnlyReason:
+      "Chat streams tool calls through Anthropic's own provider and no evaluation covers a streamed chat turn yet, so an admin chooses its model.",
     defaultCostCap: { maxInputUsdPerMTok: 5, maxOutputUsdPerMTok: 25, maxCostRatio: 2 },
-    evalTasks: ["qa_structured"],
+    evalTasks: [],
     frozenPerGeneration: false,
   },
   condense: {
@@ -125,7 +158,7 @@ export const ROLE_POLICIES: Readonly<Record<ModelRole, RolePolicy>> = {
     minOutputTokens: 16_000,
     autoSwitch: true,
     defaultCostCap: { maxInputUsdPerMTok: 3, maxOutputUsdPerMTok: 15, maxCostRatio: 2 },
-    evalTasks: ["seed_batch", "qa_structured"],
+    evalTasks: ["condense_digest"],
     frozenPerGeneration: true,
   },
   retrieval_brief: {
@@ -137,7 +170,7 @@ export const ROLE_POLICIES: Readonly<Record<ModelRole, RolePolicy>> = {
     minOutputTokens: 4_000,
     autoSwitch: true,
     defaultCostCap: { maxInputUsdPerMTok: 1.5, maxOutputUsdPerMTok: 8, maxCostRatio: 2 },
-    evalTasks: ["seed_batch", "qa_structured"],
+    evalTasks: ["retrieval_queries"],
     frozenPerGeneration: true,
   },
   analysis: {
@@ -149,10 +182,20 @@ export const ROLE_POLICIES: Readonly<Record<ModelRole, RolePolicy>> = {
     minOutputTokens: 16_000,
     autoSwitch: true,
     defaultCostCap: { maxInputUsdPerMTok: 5, maxOutputUsdPerMTok: 25, maxCostRatio: 2 },
-    evalTasks: ["seed_batch", "qa_structured"],
+    evalTasks: ["style_classification"],
     frozenPerGeneration: true,
   },
 };
+
+/**
+ * A role switches on its own only when the policy allows it AND it has its
+ * own evaluation task. A role without one stays candidate-only: its
+ * evaluations never run and it is never promoted automatically.
+ */
+export function roleAutoSwitches(role: ModelRole): boolean {
+  const policy = ROLE_POLICIES[role];
+  return policy.autoSwitch && policy.evalTasks.length > 0;
+}
 
 // ─── Thresholds ─────────────────────────────────────────────────────────────
 
@@ -653,25 +696,31 @@ export function diffCatalog(
 ): CatalogChange[] {
   const changes: CatalogChange[] = [];
   const fetchedBySlug = new Map(fetched.map((model) => [model.canonicalSlug, model]));
-  const openRouterSlugs = new Set<string>();
-  const openRouterIds = new Set<string>();
+  const fetchedById = new Map(fetched.map((model) => [model.openRouterId, model]));
+  // Canonical slugs of fetched models an OpenRouter row already accounts
+  // for, by slug or by id, so none of them is proposed as new.
+  const matchedSlugs = new Set<string>();
   for (const row of existing) {
-    if (row.gateway === "openrouter") {
-      openRouterSlugs.add(row.canonicalSlug);
-      openRouterIds.add(row.modelId);
-    }
-    const model = fetchedBySlug.get(row.canonicalSlug);
+    const currentId = row.requestId ?? row.modelId;
+    // Match on the canonical slug first. When the recorded slug drifted but
+    // the model is still listed under the same id, adopt it by id: it is the
+    // same model, never "gone" (review finding 10).
+    const model =
+      fetchedBySlug.get(row.canonicalSlug) ??
+      (row.gateway === "openrouter"
+        ? (fetchedById.get(currentId) ?? fetchedById.get(row.modelId))
+        : undefined);
     if (!model) {
       if (row.gateway === "openrouter" && row.missingSince === undefined) {
         changes.push({ kind: "gone", modelId: row.modelId });
       }
       continue;
     }
+    if (row.gateway === "openrouter") matchedSlugs.add(model.canonicalSlug);
     changes.push({ kind: "update", modelId: row.modelId, model });
     if (row.missingSince !== undefined) {
       changes.push({ kind: "returned", modelId: row.modelId });
     }
-    const currentId = row.requestId ?? row.modelId;
     if (row.gateway === "openrouter" && model.openRouterId !== currentId) {
       changes.push({
         kind: "renamed",
@@ -690,14 +739,8 @@ export function diffCatalog(
     }
   }
   for (const model of fetched) {
-    if (openRouterSlugs.has(model.canonicalSlug)) continue;
+    if (matchedSlugs.has(model.canonicalSlug)) continue;
     if (!model.supportsTools) continue;
-    // A seeded row whose recorded slug drifted is adopted by id, not
-    // duplicated.
-    if (openRouterIds.has(model.openRouterId)) {
-      changes.push({ kind: "update", modelId: model.openRouterId, model });
-      continue;
-    }
     changes.push({ kind: "new", model });
   }
   return changes;
@@ -907,7 +950,7 @@ export type EvalTaskResult = {
   schemaValid: boolean;
   /** The task's own contract (seed contract, QA shape); undefined if none. */
   contractPassed?: boolean;
-  /** Judge rubric, 1 to 10; undefined when the task produced nothing to judge. */
+  /** Judge rubric, 1 to 10; undefined when no valid grade came back. */
   rubricScore?: number;
   costUsd: number;
   error?: string;
@@ -942,6 +985,112 @@ export function summarizeEvalRun(results: readonly EvalTaskResult[]): EvalSummar
     costUsd: results.reduce((sum, result) => sum + (result.costUsd || 0), 0),
     tasks: results.length,
   };
+}
+
+/** A judge grade is usable only as a number from 1 to 10. */
+export function isValidGrade(score: unknown): score is number {
+  return typeof score === "number" && Number.isFinite(score) && score >= 1 && score <= 10;
+}
+
+/**
+ * Every judged task of the role must carry a valid grade on BOTH sides, or
+ * the evaluation is incomplete and never promotes (review finding 2): a
+ * failed judge call on one side would otherwise hand the other side a free
+ * rubric win, and a partial failure would compare different task sets.
+ * Returns the missing grades as "candidate section_draft" and so on.
+ */
+export function missingJudgeGrades(args: {
+  tasks: readonly EvalTaskKind[];
+  candidate: readonly EvalTaskResult[];
+  incumbent: readonly EvalTaskResult[];
+}): string[] {
+  const missing: string[] = [];
+  for (const [side, results] of [
+    ["candidate", args.candidate],
+    ["incumbent", args.incumbent],
+  ] as const) {
+    for (const task of args.tasks) {
+      if (!JUDGED_EVAL_TASKS.has(task)) continue;
+      const result = results.find((item) => item.task === task);
+      if (!result || !isValidGrade(result.rubricScore)) missing.push(`${side} ${task}`);
+    }
+  }
+  return missing;
+}
+
+// ─── Evaluation spending ceiling ────────────────────────────────────────────
+
+/**
+ * The most one kind of evaluation request can cost: how many requests it
+ * makes at most (repairs included), a conservative input size, the answer
+ * budget per gateway as the call site asks for it, and whether the gateway
+ * keeps that budget as is (seeds) or adds reasoning headroom.
+ */
+export type EvalRequestBound = {
+  requests: number;
+  maxInputTokens: number;
+  answerTokens: Record<ModelGateway, number>;
+  preserveMaxTokens: boolean;
+};
+
+export type EvalEnvelope = Record<EvalTaskKind | "judge", EvalRequestBound>;
+
+export type PricedModel = {
+  gateway: ModelGateway;
+  reasoning: boolean;
+  maxCompletionTokens?: number;
+  inputUsdPerMTok?: number;
+  outputUsdPerMTok?: number;
+};
+
+/** Prices assumed for a model whose price is unknown: deliberately high. */
+export const UNKNOWN_EVAL_PRICE = { inputUsdPerMTok: 30, outputUsdPerMTok: 150 } as const;
+
+/**
+ * The max_tokens a request actually carries: OpenRouter scales a reasoning
+ * model's budget by the reasoning multiplier (capped by its output limit)
+ * unless the call preserves it; direct Anthropic calls send it as is.
+ */
+export function maxRequestOutputTokens(model: PricedModel, bound: EvalRequestBound): number {
+  const answer = bound.answerTokens[model.gateway];
+  if (bound.preserveMaxTokens || !model.reasoning || model.gateway !== "openrouter") {
+    return answer;
+  }
+  const scaled = answer * REASONING_TOKEN_MULTIPLIER;
+  return model.maxCompletionTokens ? Math.min(scaled, model.maxCompletionTokens) : scaled;
+}
+
+function boundCostUsd(model: PricedModel, bound: EvalRequestBound): number {
+  const input = model.inputUsdPerMTok ?? UNKNOWN_EVAL_PRICE.inputUsdPerMTok;
+  const output = model.outputUsdPerMTok ?? UNKNOWN_EVAL_PRICE.outputUsdPerMTok;
+  return (
+    (bound.requests *
+      (bound.maxInputTokens * input + maxRequestOutputTokens(model, bound) * output)) /
+    1_000_000
+  );
+}
+
+/**
+ * The most an evaluation can spend: both models on every task at their
+ * full request envelope (repairs included) plus one judge call per judged
+ * task per side. Reserved against the monthly budget at claim time and
+ * released down to the actual spend afterwards (review finding 7).
+ */
+export function maxEvaluationCostUsd(args: {
+  tasks: readonly EvalTaskKind[];
+  envelope: EvalEnvelope;
+  candidate: PricedModel;
+  incumbent: PricedModel;
+  judge: PricedModel;
+}): number {
+  let total = 0;
+  for (const model of [args.candidate, args.incumbent]) {
+    for (const task of args.tasks) {
+      total += boundCostUsd(model, args.envelope[task]);
+      if (JUDGED_EVAL_TASKS.has(task)) total += boundCostUsd(args.judge, args.envelope.judge);
+    }
+  }
+  return total;
 }
 
 export type GateName = "schema_validity" | "contract_pass_rate" | "rubric" | "cost";

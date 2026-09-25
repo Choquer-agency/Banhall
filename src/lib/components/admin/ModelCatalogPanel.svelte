@@ -171,7 +171,9 @@
                   {role.assignedBy === "system" ? "Switched automatically" : "Set by an admin"} on {formatDate(role.assignedAt)}.
                 {/if}
                 {#if !role.autoSwitch}
-                  Never switches on its own.
+                  <span class="mt-1 block" data-testid="manual-only-reason">
+                    Never switches on its own: {role.manualOnlyReason}
+                  </span>
                 {/if}
               </p>
             </div>

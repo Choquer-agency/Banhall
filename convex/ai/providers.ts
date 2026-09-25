@@ -34,7 +34,7 @@ import type { ModelFreeze } from "../lib/modelCatalogValidators";
 import {
   generationModelsRef,
   modelEntryForCallRef,
-  recordCallFailureRef,
+  recordCallOutcomeRef,
   roleModelEntryRef,
 } from "../lib/modelCatalogRefs";
 
@@ -76,6 +76,21 @@ export const SEED_PROVIDER_MAX_RETRIES = 0;
 
 /** Per-request deadline for both seed gateways (AD-34). */
 export const SEED_PROVIDER_TIMEOUT_MS = 90_000;
+
+/**
+ * The seed gateway policy, shared by production seeds and seed evaluations
+ * so an evaluation sends exactly the request production sends. OpenRouter
+ * keeps the seed answer budget as is (no reasoning headroom).
+ */
+export const SEED_OPENROUTER_OPTIONS = {
+  maxRetries: SEED_PROVIDER_MAX_RETRIES,
+  timeoutMs: SEED_PROVIDER_TIMEOUT_MS,
+  preserveMaxTokens: true,
+} as const;
+export const SEED_ANTHROPIC_OPTIONS = {
+  maxRetries: SEED_PROVIDER_MAX_RETRIES,
+  timeout: SEED_PROVIDER_TIMEOUT_MS,
+} as const;
 
 /**
  * Worst-case count of provider calls that run one after another in wall time
@@ -208,7 +223,27 @@ export function modelFaultCode(error: unknown): string | null {
     : null;
 }
 
-function recordingFailures(
+/**
+ * Records exactly one terminal outcome per provider request, apart from
+ * billing (review finding 6): a response that was billed but could not be
+ * used (malformed tool JSON, truncation) is one failure and never also a
+ * success, which a usage-row count would have made it. Errors that say
+ * nothing about the model (billing, auth, rate limits, network) are not
+ * counted either way. A recording failure is logged and never fails the
+ * call; one small mutation per request is negligible next to the request.
+ */
+async function recordOutcome(
+  ctx: Pick<ActionCtx, "runMutation">,
+  outcome: { model: string; callSite: string; outcome: "success" | "failure"; code?: string }
+): Promise<void> {
+  try {
+    await ctx.runMutation(recordCallOutcomeRef, outcome);
+  } catch (error) {
+    console.error("model call outcome could not be recorded", error);
+  }
+}
+
+function recordingOutcomes(
   ctx: ActionCtx,
   modelId: string,
   callSite: string,
@@ -217,23 +252,17 @@ function recordingFailures(
   return {
     messages: {
       create: async (params) => {
+        const model = params.model || modelId;
+        let response: Awaited<ReturnType<GenerationClient["messages"]["create"]>>;
         try {
-          return await client.messages.create(params);
+          response = await client.messages.create(params);
         } catch (error) {
           const code = modelFaultCode(error);
-          if (code) {
-            try {
-              await ctx.runMutation(recordCallFailureRef, {
-                model: params.model || modelId,
-                callSite,
-                code,
-              });
-            } catch (recordError) {
-              console.error("model call failure could not be recorded", recordError);
-            }
-          }
+          if (code) await recordOutcome(ctx, { model, callSite, outcome: "failure", code });
           throw error;
         }
+        await recordOutcome(ctx, { model, callSite, outcome: "success" });
+        return response;
       },
     },
   };
@@ -265,7 +294,7 @@ function lazyClient(
         resolved = undefined;
         throw error;
       }));
-  return recordingFailures(ctx, modelId, meta.callSite, {
+  return recordingOutcomes(ctx, modelId, meta.callSite, {
     messages: {
       create: async (params) => (await resolve()).messages.create(params),
     },
@@ -284,19 +313,12 @@ export function seedClientForModel(
   assertGenerationCallSite(meta.callSite);
   return lazyClient(ctx, modelId, meta, () => {
     if (gatewayForModel(modelId) === "openrouter") {
-      return instrumentedOpenRouter(ctx, meta, {
-        maxRetries: SEED_PROVIDER_MAX_RETRIES,
-        timeoutMs: SEED_PROVIDER_TIMEOUT_MS,
-        preserveMaxTokens: true,
-      });
+      return instrumentedOpenRouter(ctx, meta, SEED_OPENROUTER_OPTIONS);
     }
     return instrumentedAnthropic(ctx, {
       ...meta,
       capability: "generation",
-      clientOptions: {
-        maxRetries: SEED_PROVIDER_MAX_RETRIES,
-        timeout: SEED_PROVIDER_TIMEOUT_MS,
-      },
+      clientOptions: SEED_ANTHROPIC_OPTIONS,
     }) as unknown as GenerationClient;
   });
 }
@@ -351,7 +373,7 @@ export async function clientForRole(
           ...meta,
           capability: meta.capability ?? "generation",
         }) as unknown as GenerationClient);
-  return { client: recordingFailures(ctx, entry.id, meta.callSite, client), model: entry.id };
+  return { client: recordingOutcomes(ctx, entry.id, meta.callSite, client), model: entry.id };
 }
 
 /**

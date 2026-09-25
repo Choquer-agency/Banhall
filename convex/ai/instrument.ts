@@ -6,7 +6,7 @@ import type { ActionCtx } from "../_generated/server";
 import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { PD_SUBSECTIONS } from "../../shared/pdSubsections";
-import { estimateCostFromTable } from "../../shared/modelPricing";
+import { estimateCostFromTable, type BilledTokens } from "../../shared/modelPricing";
 
 export type UsageEvent = {
   projectId?: Id<"projects">;
@@ -152,8 +152,18 @@ export function mergeSlotCounts(
   return out;
 }
 
-/** One priced response, for callers that meter their own spend (evals). */
-export type UsageTap = (usage: { model: string; costUsd: number }) => void;
+/**
+ * One billed response, for callers that meter their own spend (evals).
+ * `nativeCostUsd` is the provider's own charge when it reported one;
+ * `costUsd` is that charge or the static price-table estimate; `tokens`
+ * lets the caller re-price the response at the prices it froze.
+ */
+export type UsageTap = (usage: {
+  model: string;
+  costUsd: number;
+  nativeCostUsd?: number;
+  tokens: BilledTokens;
+}) => void;
 
 export type ProviderCallMeta = {
   callSite: string;
@@ -373,7 +383,7 @@ export function instrumentedAnthropic(
             ? params.model
             : "unknown";
         if (usage) {
-          meta.onUsage?.({ model, costUsd: estimateCostFromTable(model, usage) });
+          meta.onUsage?.({ model, costUsd: estimateCostFromTable(model, usage), tokens: usage });
           await scheduleUsage(ctx, {
             ...(meta.projectId ? { projectId: meta.projectId } : {}),
             ...(meta.attribution

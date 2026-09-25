@@ -21,6 +21,9 @@ import {
   setRoleModelRef,
 } from "./lib/modelCatalogRefs";
 import { generationPromptVersion } from "./ai/promptProgram";
+import { EVAL_ENVELOPE } from "./ai/modelEvaluation";
+import { ROLE_POLICIES, maxEvaluationCostUsd } from "../shared/modelCatalog";
+import { recordCallOutcomeRef } from "./lib/modelCatalogRefs";
 
 const modules = import.meta.glob("./**/*.ts");
 type TestConvex = ReturnType<typeof convexTest<typeof schema.tables>>;
@@ -107,7 +110,7 @@ async function runningEvaluation(t: TestConvex, modelId: string, role: "writing"
       createdAt: NOW,
     })
   );
-  const claim = await t.mutation(claimEvaluationRef, { evaluationId });
+  const claim = await t.mutation(claimEvaluationRef, { evaluationId, envelope: EVAL_ENVELOPE });
   expect(claim?.candidate.id).toBe(modelId);
   return evaluationId;
 }
@@ -349,23 +352,42 @@ describe("rollback", () => {
 });
 
 describe("production error rollback", () => {
+  /** Record outcomes through the real per-request outcome mutation. */
   async function failingCalls(t: TestConvex, model: string, successes: number, failures: number) {
-    await t.run(async (ctx) => {
-      for (let i = 0; i < successes; i += 1) {
-        await ctx.db.insert("aiUsage", {
-          callSite: "generation:section:242",
-          model,
-          inputTokens: 10,
-          outputTokens: 10,
-          costUsd: 0,
-          createdAt: NOW,
-        });
-      }
-      for (let i = 0; i < failures; i += 1) {
-        await ctx.db.insert("modelCallFailures", { model, callSite: "generation:section:242", code: "malformed_output", at: NOW });
-      }
-    });
+    const callSite = "generation:section:242";
+    for (let i = 0; i < successes; i += 1) {
+      await t.mutation(recordCallOutcomeRef, { model, callSite, outcome: "success" });
+    }
+    for (let i = 0; i < failures; i += 1) {
+      await t.mutation(recordCallOutcomeRef, { model, callSite, outcome: "failure", code: "malformed_output" });
+    }
   }
+
+  it("counts exactly above any read cap: 10,000 successes and 300 failures is 2.9 percent, no rollback", async () => {
+    const { t } = await setup();
+    await promote(t, "x-ai/grok-4.7");
+    // Hourly buckets hold both counts, so neither side is ever truncated
+    // on its own (finding 5).
+    await t.run(async (ctx) => {
+      await ctx.db.insert("modelCallBuckets", {
+        model: "x-ai/grok-4.7",
+        hourStart: Math.floor(NOW / 3_600_000) * 3_600_000,
+        successes: 10_000,
+        failures: 300,
+      });
+    });
+    expect(await t.mutation(checkProductionErrorsRef, {})).toEqual([]);
+    expect(await writingModel(t)).toBe("x-ai/grok-4.7");
+  });
+
+  it("adds each request outcome to its model's hourly bucket", async () => {
+    const { t } = await setup();
+    await failingCalls(t, "x-ai/grok-4.7", 3, 2);
+    const buckets = await t.run((ctx) => ctx.db.query("modelCallBuckets").collect());
+    expect(buckets).toMatchObject([
+      { model: "x-ai/grok-4.7", successes: 3, failures: 2, lastFailureCode: "malformed_output" },
+    ]);
+  });
 
   it("rolls back a switched model that fails over the threshold, once, and blocks it for the role", async () => {
     const { t } = await setup();
@@ -484,5 +506,195 @@ describe("models frozen per generation", () => {
     const other = await writer.mutation(api.generations.requestGeneration, { projectId, candidateMode: "single" });
     const otherVersion = await t.action(async (ctx) => await generationPromptVersion(ctx, other));
     expect(otherVersion).not.toBe(before);
+  });
+});
+
+describe("review fixes", () => {
+  it("finding 2: never promotes when the incumbent's judge grades are missing on one side", async () => {
+    const { t } = await setup();
+    const evaluationId = await runningEvaluation(t, "x-ai/grok-4.7");
+    const ungraded = incumbentResults().map(({ rubricScore: _drop, ...rest }) => rest);
+    expect(
+      await t.mutation(completeEvaluationRef, {
+        evaluationId,
+        candidateResults: results(),
+        incumbentResults: ungraded,
+        evalCostUsd: 0.2,
+      })
+    ).toBe("held");
+    const evaluation = await t.run((ctx) => ctx.db.get(evaluationId));
+    expect(evaluation?.status).toBe("incomplete");
+    expect(evaluation?.outcome).toBe(
+      "incomplete: no judge grade for incumbent seed_batch, incumbent section_draft"
+    );
+    expect(await writingModel(t)).toBe("claude-sonnet-5");
+  });
+
+  it("finding 2: a partial judge failure on either side is incomplete too", async () => {
+    const { t } = await setup();
+    for (const side of ["candidate", "incumbent"] as const) {
+      const evaluationId = await runningEvaluation(t, "x-ai/grok-4.7");
+      const partial = (side === "candidate" ? results() : incumbentResults()).map((result) =>
+        result.task === "section_draft" ? { ...result, rubricScore: undefined } : result
+      );
+      await t.mutation(completeEvaluationRef, {
+        evaluationId,
+        candidateResults: side === "candidate" ? partial : results(),
+        incumbentResults: side === "incumbent" ? partial : incumbentResults(),
+        evalCostUsd: 0.2,
+      });
+      expect((await t.run((ctx) => ctx.db.get(evaluationId)))?.outcome).toBe(
+        `incomplete: no judge grade for ${side} section_draft`
+      );
+    }
+    expect(await writingModel(t)).toBe("claude-sonnet-5");
+  });
+
+  it("finding 2: a candidate failing a gate of its own is held back, not incomplete", async () => {
+    const { t } = await setup();
+    const evaluationId = await runningEvaluation(t, "x-ai/grok-4.7");
+    await t.mutation(completeEvaluationRef, {
+      evaluationId,
+      candidateResults: results({ schemaValid: false, rubricScore: undefined }),
+      incumbentResults: incumbentResults(),
+      evalCostUsd: 0.2,
+    });
+    expect((await t.run((ctx) => ctx.db.get(evaluationId)))?.status).toBe("failed");
+  });
+
+  it("finding 4: each evaluation is scheduled in the same transaction as its row", async () => {
+    const { t } = await setup();
+    const ids = await t.mutation(planEvaluationsRef, {});
+    expect(ids.length).toBeGreaterThan(0);
+    for (const id of ids) {
+      const row = await t.run((ctx) => ctx.db.get(id));
+      expect(row?.scheduledJobId).toBeDefined();
+      const job = await t.run((ctx) => ctx.db.system.get(row!.scheduledJobId!));
+      expect(job?.name).toBe("ai/modelEvaluation:runEvaluation");
+      expect(job?.args[0]).toEqual({ evaluationId: id });
+    }
+  });
+
+  it("finding 4: a stranded queued evaluation is released and its role planned again", async () => {
+    const { t } = await setup();
+    const stranded = await t.run((ctx) =>
+      ctx.db.insert("modelEvaluations", {
+        role: "writing",
+        modelId: "x-ai/grok-4.7",
+        incumbentModelId: "claude-sonnet-5",
+        evalSetVersion: "banhall-eval/v1",
+        status: "queued",
+        estimatedCostUsd: 0.5,
+        createdAt: NOW - 1,
+      })
+    );
+    const ids = await t.mutation(planEvaluationsRef, {});
+    expect(await t.run((ctx) => ctx.db.get(stranded))).toMatchObject({
+      status: "error",
+      error: "The evaluation never started",
+      evalCostUsd: 0,
+    });
+    const planned = await t.run((ctx) => Promise.all(ids.map((id) => ctx.db.get(id))));
+    expect(planned.some((row) => row?.role === "writing")).toBe(true);
+  });
+
+  it("finding 7: claim reserves the full envelope and completion releases it to the actual spend", async () => {
+    const { t } = await setup();
+    const evaluationId = await runningEvaluation(t, "x-ai/grok-4.7");
+    const running = await t.run((ctx) => ctx.db.get(evaluationId));
+    const [grok, sonnet] = await Promise.all([row(t, "x-ai/grok-4.7"), row(t, "claude-sonnet-5")]);
+    const priced = (r: NonNullable<typeof grok>) => ({
+      gateway: r.gateway,
+      reasoning: r.reasoning,
+      maxCompletionTokens: r.maxCompletionTokens,
+      inputUsdPerMTok: r.inputUsdPerMTok,
+      outputUsdPerMTok: r.outputUsdPerMTok,
+    });
+    const expected = maxEvaluationCostUsd({
+      tasks: ROLE_POLICIES.writing.evalTasks,
+      envelope: EVAL_ENVELOPE,
+      candidate: priced(grok!),
+      incumbent: priced(sonnet!),
+      judge: priced(sonnet!),
+    });
+    expect(running?.reservedCostUsd).toBeCloseTo(expected, 10);
+    expect(expected).toBeGreaterThan(running!.estimatedCostUsd);
+    await t.mutation(completeEvaluationRef, {
+      evaluationId,
+      candidateResults: results(),
+      incumbentResults: incumbentResults(),
+      evalCostUsd: 0.2,
+    });
+    const done = await t.run((ctx) => ctx.db.get(evaluationId));
+    expect(done?.reservedCostUsd).toBeUndefined();
+    expect(done?.evalCostUsd).toBe(0.2);
+  });
+
+  it("finding 7: a budget lowered to zero, or below the envelope, stops a queued evaluation at claim", async () => {
+    const { t, admin } = await setup();
+    for (const monthlyUsd of [0, 0.6]) {
+      await admin.mutation(setEvalBudgetRef, { monthlyUsd });
+      const evaluationId = await t.run((ctx) =>
+        ctx.db.insert("modelEvaluations", {
+          role: "writing",
+          modelId: "x-ai/grok-4.7",
+          incumbentModelId: "claude-sonnet-5",
+          evalSetVersion: "banhall-eval/v1",
+          status: "queued",
+          estimatedCostUsd: 0.5,
+          createdAt: NOW,
+        })
+      );
+      expect(await t.mutation(claimEvaluationRef, { evaluationId, envelope: EVAL_ENVELOPE })).toBeNull();
+      const stopped = await t.run((ctx) => ctx.db.get(evaluationId));
+      expect(stopped?.status).toBe("error");
+      expect(stopped?.error).toMatch(/^Over the monthly evaluation budget/);
+    }
+  });
+
+  it("finding 9: every automatic role runs its own task; chat stays manual and says why", async () => {
+    const { t, admin } = await setup();
+    expect(ROLE_POLICIES.writing.evalTasks).toEqual(["seed_batch", "section_draft", "qa_structured"]);
+    expect(ROLE_POLICIES.condense.evalTasks).toEqual(["condense_digest"]);
+    expect(ROLE_POLICIES.retrieval_brief.evalTasks).toEqual(["retrieval_queries"]);
+    expect(ROLE_POLICIES.analysis.evalTasks).toEqual(["style_classification"]);
+    expect(ROLE_POLICIES.structured_helper.evalTasks).toEqual(["changelog_summary"]);
+    const state = await admin.query(adminStateRef, {});
+    const chat = state?.roles.find((role) => role.role === "chat");
+    expect(chat).toMatchObject({ autoSwitch: false });
+    expect(chat?.manualOnlyReason).toMatch(/no evaluation covers a streamed chat turn/);
+    // A chat evaluation that somehow queued never runs.
+    const evaluationId = await t.run((ctx) =>
+      ctx.db.insert("modelEvaluations", {
+        role: "chat",
+        modelId: "claude-opus-4-8",
+        incumbentModelId: "claude-sonnet-5",
+        evalSetVersion: "banhall-eval/v1",
+        status: "queued",
+        estimatedCostUsd: 0.1,
+        createdAt: NOW,
+      })
+    );
+    expect(await t.mutation(claimEvaluationRef, { evaluationId, envelope: EVAL_ENVELOPE })).toBeNull();
+    expect((await t.run((ctx) => ctx.db.get(evaluationId)))?.error).toBe(
+      "This role has no evaluation task of its own"
+    );
+  });
+
+  it("finding 10: a drifted canonical slug is adopted by id through refresh application", async () => {
+    const { t } = await setup();
+    const sol = await row(t, "openai/gpt-5.6-sol");
+    await t.run((ctx) => ctx.db.patch(sol!._id, { canonicalSlug: "openai/gpt-5.6-sol-old" }));
+    await t.mutation(applyCatalogRefreshRef, { models: parsed, fetchedAt: NOW, complete: true });
+    const adopted = await row(t, "openai/gpt-5.6-sol");
+    expect(adopted?.missingSince).toBeUndefined();
+    expect(adopted).toMatchObject({ status: "enabled", canonicalSlug: "openai/gpt-5.6-sol-20260709" });
+    expect((await notices(t)).some((m) => m.includes("no longer listed"))).toBe(false);
+    // A row already wrongly marked missing is cleared by the adoption.
+    await t.run((ctx) =>
+      ctx.db.patch(sol!._id, { canonicalSlug: "openai/gpt-5.6-sol-older", missingSince: NOW - 1, goneNoticeAt: NOW - 1 })
+    );
+    await t.mutation(applyCatalogRefreshRef, { models: parsed, fetchedAt: NOW, complete: true });
+    expect((await row(t, "openai/gpt-5.6-sol"))?.missingSince).toBeUndefined();
   });
 });

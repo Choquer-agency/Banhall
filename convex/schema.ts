@@ -592,10 +592,7 @@ export default defineSchema({
     .index("by_createdAt", ["createdAt"])
     .index("by_projectId", ["projectId"])
     .index("by_projectId_and_createdAt", ["projectId", "createdAt"])
-    .index("by_generationId", ["generationId"])
-    // 2026-09-24 widen: per-model call counts for the model catalog's
-    // production error-rate rollback.
-    .index("by_model_and_createdAt", ["model", "createdAt"]),
+    .index("by_generationId", ["generationId"]),
 
   transcripts: defineTable({
     projectId: v.id("projects"),
@@ -2967,8 +2964,16 @@ export default defineSchema({
       v.literal("running"),
       v.literal("passed"),
       v.literal("failed"),
+      // A judge grade was missing on either side: never promotes.
+      v.literal("incomplete"),
       v.literal("error")
     ),
+    // The scheduled run, written in the same transaction as the row so a
+    // queued evaluation is never left without one.
+    scheduledJobId: v.optional(v.id("_scheduled_functions")),
+    // Spend held against the monthly budget while it runs: the most its
+    // full request envelope can cost. Released to evalCostUsd at the end.
+    reservedCostUsd: v.optional(v.number()),
     benchmarkScore: v.optional(v.number()),
     incumbentBenchmarkScore: v.optional(v.number()),
     estimatedCostUsd: v.number(),
@@ -2988,16 +2993,19 @@ export default defineSchema({
     .index("by_role_and_modelId", ["role", "modelId"])
     .index("by_createdAt", ["createdAt"]),
 
-  // Provider calls that failed in a way the model is answerable for
-  // (malformed or truncated output, model refusals, unclassified errors).
-  // Billing, auth and rate-limit failures are not recorded: they say nothing
-  // about the model.
-  modelCallFailures: defineTable({
+  // Exact per-model, per-hour request outcomes for the production
+  // error-rate rollback: one terminal outcome per request, counted apart
+  // from billing (a billed malformed response is one failure, never also a
+  // success). Billing, auth, rate-limit and network failures are not
+  // counted: they say nothing about the model.
+  modelCallBuckets: defineTable({
     model: v.string(),
-    callSite: v.string(),
-    code: v.string(),
-    at: v.number(),
-  }).index("by_model_and_at", ["model", "at"]),
+    hourStart: v.number(),
+    successes: v.number(),
+    failures: v.number(),
+    lastFailureCode: v.optional(v.string()),
+    lastFailureCallSite: v.optional(v.string()),
+  }).index("by_model_and_hourStart", ["model", "hourStart"]),
 
   appSettings: defineTable({
     key: v.string(),

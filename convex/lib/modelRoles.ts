@@ -155,15 +155,28 @@ export function monthStart(now: number): number {
   return Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1);
 }
 
-/** USD spent on evaluations since the start of this UTC month. */
-export async function evalSpendThisMonth(ctx: ReadCtx, now: number): Promise<number> {
+/**
+ * USD committed to evaluations this UTC month: what finished rows actually
+ * spent, what running rows reserved (their maximum), and the planning
+ * estimate of rows still queued. `excluding` leaves one row out (the row
+ * being claimed, whose own reservation is being decided).
+ */
+export async function evalSpendThisMonth(
+  ctx: ReadCtx,
+  now: number,
+  excluding?: Id<"modelEvaluations">
+): Promise<number> {
   let spent = 0;
   for await (const evaluation of ctx.db
     .query("modelEvaluations")
     .withIndex("by_createdAt", (q) => q.gte("createdAt", monthStart(now)))) {
-    spent += evaluation.evalCostUsd ?? (evaluation.status === "queued" || evaluation.status === "running"
-      ? evaluation.estimatedCostUsd
-      : 0);
+    if (evaluation._id === excluding) continue;
+    spent +=
+      evaluation.status === "running"
+        ? (evaluation.reservedCostUsd ?? evaluation.estimatedCostUsd)
+        : evaluation.status === "queued"
+          ? evaluation.estimatedCostUsd
+          : (evaluation.evalCostUsd ?? 0);
   }
   return spent;
 }
