@@ -134,5 +134,13 @@ it("a cut-off analysis late in prepareSeedDraftingInputs fails fast instead of o
   expect(actionEnd - start).toBeLessThan(CONVEX_ACTION_LIMIT_MS);
   // The existing failure handling ran: the writer can retry the drafting context.
   const generation = await t.run((ctx) => ctx.db.get(generationId));
-  expect(generation?.draftingInputs).toMatchObject({ status: "failed", attempt: 1 });
+  // The time ran out (timed_out, not unknown), and the answer was cut off
+  // before that, so the retry asks for a shorter analysis (review
+  // 2026-09-25).
+  expect(generation?.draftingInputs).toMatchObject({
+    status: "failed",
+    attempt: 1,
+    failureCode: "timed_out",
+    shorterAnalysis: true,
+  });
 });

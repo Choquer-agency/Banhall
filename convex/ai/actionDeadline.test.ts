@@ -21,6 +21,9 @@ import {
   modelFaultCode,
   normalizeProviderError,
 } from "./providers";
+import { draftingInputsFailureCode, draftingInputsNeedShorterAnalysis } from "./iterative";
+import { OpenRouterError } from "./openrouter";
+import { OutputLimitError } from "./openrouterCore";
 
 describe("action deadline arithmetic (cutoff review P2-2)", () => {
   it("ends every request 60 s before the Convex action limit", () => {
@@ -140,5 +143,23 @@ describe("action deadline arithmetic (cutoff review P2-2)", () => {
     expect(modelFaultCode(Object.assign(new Error("OpenRouter request failed with status 502"), { status: 502 }))).toBeNull();
     expect(modelFaultCode(new Anthropic.APIConnectionTimeoutError())).toBe("unknown");
     expect(modelFaultCode(Anthropic.APIError.generate(400, undefined, "bad request", headers))).toBe("unknown");
+  });
+
+  it("stores a background step that ran out of time as timed_out, and asks for a shorter analysis when it was too long", () => {
+    expect(draftingInputsFailureCode(new ActionTimeBudgetError())).toBe("timed_out");
+    expect(draftingInputsFailureCode(new Anthropic.APIConnectionTimeoutError())).toBe("timed_out");
+    expect(draftingInputsFailureCode(new OpenRouterError("OpenRouter request timed out after 240000ms"))).toBe("timed_out");
+    expect(draftingInputsFailureCode(new OutputLimitError("cut"))).toBe("output_limit");
+    expect(draftingInputsFailureCode(Object.assign(new Error("slow down"), { status: 429 }))).toBe("rate_limited");
+
+    const shorter = (code: Parameters<typeof draftingInputsNeedShorterAnalysis>[0]["code"], sawCutOff: boolean, analyzerModel?: string) =>
+      draftingInputsNeedShorterAnalysis({ code, sawCutOff, analyzerModel });
+    expect(shorter("output_limit", false)).toBe(true);
+    expect(shorter("rate_limited", true, "claude-sonnet-5")).toBe(true);
+    expect(shorter("timed_out", false, "claude-opus-5-5")).toBe(true);
+    expect(shorter("timed_out", false, "claude-sonnet-5")).toBe(false);
+    // A timeout before the analyzer ran (retrieval) says nothing about its length.
+    expect(shorter("timed_out", false, undefined)).toBe(false);
+    expect(shorter("unknown", false, "claude-opus-5-5")).toBe(false);
   });
 });

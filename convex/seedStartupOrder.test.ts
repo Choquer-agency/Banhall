@@ -22,6 +22,7 @@ import {
 } from "./seedStartup.fixture";
 import { DRAFTING_INPUTS_LEASE_MS } from "./lib/generations/draftingInputs";
 import { ANALYZER_REQUEST } from "./ai/analyzerAgent";
+import { ActionTimeBudgetError } from "./ai/actionDeadline";
 import { decisionFixture } from "./seedDecision.fixture";
 
 const network = vi.hoisted(() => ({ create: vi.fn() }));
@@ -30,6 +31,50 @@ vi.mock("@anthropic-ai/sdk", () => ({
     messages = { create: network.create };
   },
 }));
+
+/**
+ * Brain retrieval with one real-looking hit, when a test asks for it; the
+ * production search otherwise. `hold` keeps the first search waiting.
+ */
+const brain = vi.hoisted(() => ({ hit: false, hold: undefined as Promise<void> | undefined, calls: 0 }));
+vi.mock("./ai/brain/retrieve", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./ai/brain/retrieve")>();
+  const { internalAction } = await import("./_generated/server");
+  const { v } = await import("convex/values");
+  return {
+    ...actual,
+    retrieveBrainContext: internalAction({
+      args: {
+        industry: v.optional(v.string()),
+        scienceCode: v.optional(v.string()),
+        query: v.string(),
+        k: v.optional(v.number()),
+        docType: v.optional(v.string()),
+        projectId: v.optional(v.id("projects")),
+        userId: v.optional(v.string()),
+        agentThreadId: v.optional(v.string()),
+        usageLabel: v.optional(v.string()),
+      },
+      handler: async (ctx, args) => {
+        if (!brain.hit) return await actual.searchBrainExemplars(ctx, args);
+        brain.calls += 1;
+        if (brain.calls === 1 && brain.hold) await brain.hold;
+        return {
+          degraded: false,
+          exemplars: [
+            {
+              text: "A past report tested a control loop across load bands.",
+              score: 0.9,
+              entryId: `entry-${args.usageLabel ?? "any"}`,
+              searchScore: 0.8,
+              title: "Past control loop report",
+            },
+          ],
+        };
+      },
+    }),
+  };
+});
 
 const modules = import.meta.glob("./**/*.ts");
 
@@ -44,6 +89,9 @@ const TRANSCRIPT =
   "They ran three load-band experiments and established a stable operating range.";
 
 afterEach(() => {
+  brain.hit = false;
+  brain.hold = undefined;
+  brain.calls = 0;
   vi.useRealTimers();
   vi.unstubAllEnvs();
   vi.unstubAllGlobals();
@@ -172,15 +220,26 @@ type ProviderOptions = {
   failing?: string[];
   /** Stages whose answer is cut off at the output token limit. */
   cutOff?: string[];
+  /** Stages whose first answer is cut off and every later call fails with this error. */
+  cutOffThen?: Partial<Record<string, Error>>;
 };
 
 /** A provider that answers every stage at once, unless told otherwise. */
 function configureProvider(options: ProviderOptions = {}) {
   network.create.mockReset().mockImplementation(async (params: GenerationMessageParams) => {
-    const name = params.tool_choice?.name ?? "text";
+    // A model that always thinks is sent its tool unforced (no tool_choice name).
+    const name = params.tool_choice?.name ?? params.tools?.[0]?.name ?? "text";
     const hold = options.holds?.[name];
     if (hold) await hold;
     if (options.failing?.includes(name)) throw new Error("Private provider failure text");
+    const then = options.cutOffThen?.[name];
+    if (then) {
+      const earlier = (network.create.mock.calls as Array<[GenerationMessageParams]>).filter(
+        ([call]) => (call.tool_choice?.name ?? call.tools?.[0]?.name) === name
+      ).length;
+      if (earlier > 1) throw then;
+      return { ...toolResponse(name, ANALYSIS), stop_reason: "max_tokens" };
+    }
     if (options.cutOff?.includes(name)) {
       return { ...toolResponse(name, ANALYSIS), stop_reason: "max_tokens" };
     }
@@ -329,6 +388,13 @@ function analyzerRequests(): Array<{ user: string; maxTokens: number }> {
         : (content ?? []).map((block) => ("text" in block ? block.text : "")).join("");
       return { user, maxTokens: params.max_tokens };
     });
+}
+
+/** Every analyzer request body, ids masked, in call order. */
+function analyzerBodies(): string[] {
+  return (network.create.mock.calls as Array<[GenerationMessageParams]>)
+    .filter(([params]) => (params.tool_choice?.name ?? params.tools?.[0]?.name) === "submit_transcript_analysis")
+    .map(([params]) => maskIds(JSON.stringify(params)));
 }
 
 async function outlineDrafting(s: Fixture) {
@@ -484,7 +550,7 @@ describe("reordered Step-by-step start (decision 32)", () => {
     expect(retrying.pendingPrepares).toBe(1);
     await expect(
       s.writer.mutation(api.generations.retryDraftingInputs, { generationId: s.generationId })
-    ).rejects.toThrow("not waiting for a retry");
+    ).rejects.toThrow("nothing to try again");
 
     expect(await runSeedDraftingInputs(s.t)).toEqual([{ generationId: s.generationId, attempt: 2 }]);
     const ready = await state(s);
@@ -537,6 +603,7 @@ describe("reordered Step-by-step start (decision 32)", () => {
     // The first attempt and its one repair were both cut off.
     expect(analyzerRequests()).toHaveLength(2);
     expect(analyzerRequests()[0]?.user).not.toContain("An earlier analysis of this transcript");
+    const firstBody = analyzerBodies()[0];
     const failed = await state(s);
     expect(failed.generation?.draftingInputs).toMatchObject({
       status: "failed",
@@ -562,6 +629,11 @@ describe("reordered Step-by-step start (decision 32)", () => {
     const [retry] = analyzerRequests();
     expect(retry?.maxTokens).toBe(ANALYZER_REQUEST.maxTokens);
     expect(retry?.user.endsWith(ANALYZER_REQUEST.shorterRetryNote)).toBe(true);
+    // Apart from the appended note, the retry is attempt 1's request, byte for byte.
+    const escapedNote = JSON.stringify(ANALYZER_REQUEST.shorterRetryNote).slice(1, -1);
+    const retryBody = analyzerBodies()[0];
+    expect(retryBody.split(escapedNote)).toHaveLength(2);
+    expect(await sha256Hex(retryBody.replace(escapedNote, ""))).toBe(await sha256Hex(firstBody));
     const ready = await state(s);
     expect(ready.generation?.draftingInputs).toMatchObject({ status: "ready", attempt: 2 });
     expect(ready.kinds).toEqual(["analysis", "brain_blocks", "writer_style"]);
@@ -594,6 +666,109 @@ describe("reordered Step-by-step start (decision 32)", () => {
     expect((await state(s)).generation?.draftingInputs).toMatchObject({ status: "ready", attempt: 3 });
   });
 
+  it("asks for a shorter analysis after a cut-off whose repair then fails another way", async () => {
+    vi.useFakeTimers();
+    const s = await startupFixture();
+    configureProvider({
+      cutOffThen: { submit_transcript_analysis: Object.assign(new Error("Rate limit reached"), { status: 429 }) },
+    });
+    await s.t.action(internal.ai.iterative.startIterativeGeneration, { generationId: s.generationId });
+    await runSeedDraftingInputs(s.t);
+
+    expect(analyzerRequests()).toHaveLength(2);
+    expect((await state(s)).generation?.draftingInputs).toMatchObject({
+      status: "failed",
+      attempt: 1,
+      failureCode: "rate_limited",
+      shorterAnalysis: true,
+    });
+
+    network.create.mockClear();
+    configureProvider();
+    await s.writer.mutation(api.generations.retryDraftingInputs, { generationId: s.generationId });
+    expect(await runSeedDraftingInputs(s.t)).toEqual([
+      { generationId: s.generationId, attempt: 2, shorterAnalysis: true },
+    ]);
+    expect(analyzerRequests()[0]?.user.endsWith(ANALYZER_REQUEST.shorterRetryNote)).toBe(true);
+  });
+
+  it("stores a step that ran out of time as timed_out, and asks for a shorter analysis only from a model that always thinks", async () => {
+    for (const [modelId, shorter] of [
+      ["claude-sonnet-5", false],
+      ["claude-opus-5-5", true],
+    ] as const) {
+      vi.useFakeTimers();
+      const s = await startupFixture();
+      await s.t.run((ctx) => ctx.db.patch(s.generationId, { singleModelId: modelId }));
+      configureProvider();
+      const answer = network.create.getMockImplementation()!;
+      network.create.mockImplementation(async (params: GenerationMessageParams) => {
+        if ((params.tool_choice?.name ?? params.tools?.[0]?.name) === "submit_transcript_analysis") {
+          // What the transport throws when the action's deadline cut the timeout.
+          throw new ActionTimeBudgetError();
+        }
+        return await answer(params);
+      });
+      await s.t.action(internal.ai.iterative.startIterativeGeneration, { generationId: s.generationId });
+      await runSeedDraftingInputs(s.t);
+
+      const drafting = (await state(s)).generation?.draftingInputs;
+      expect(drafting, modelId).toMatchObject({ status: "failed", attempt: 1, failureCode: "timed_out" });
+      expect(drafting?.shorterAnalysis === true, modelId).toBe(shorter);
+      expect(await outlineDrafting(s)).toEqual({ status: "failed", failureCode: "timed_out" });
+      vi.useRealTimers();
+    }
+  });
+
+  it("hands the attempt's Brain provenance and retrieval brief to its completion, and none after a cancel before the analysis", async () => {
+    vi.useFakeTimers();
+    brain.hit = true;
+    const s = await startupFixture();
+    configureProvider();
+    await s.t.action(internal.ai.iterative.startIterativeGeneration, { generationId: s.generationId });
+    await runSeedDraftingInputs(s.t);
+
+    const done = await state(s);
+    expect(done.generation?.draftingInputs).toMatchObject({ status: "ready", attempt: 1 });
+    expect(done.kinds).toEqual([
+      "analysis",
+      "brain_blocks",
+      "brain_provenance",
+      "brain_retrieval_brief",
+      "writer_style",
+    ]);
+    const provenance = await s.t.run(async (ctx) =>
+      (await ctx.db.query("generationArtifacts")
+        .withIndex("by_generationId_and_kind", (q) =>
+          q.eq("generationId", s.generationId).eq("kind", "brain_provenance"))
+        .first())?.brainProvenance ?? []
+    );
+    expect(provenance.map((entry) => entry.section).sort()).toEqual(["242", "244", "246", "analyzer"]);
+    expect(provenance[0]).toMatchObject({ score: 0.9, searchScore: 0.8, title: "Past control loop report" });
+    expect(JSON.parse(done.artifact("brain_retrieval_brief")!)).toEqual(RETRIEVAL);
+    // The analyzer read the hit.
+    expect(analyzerRequests()[0]?.user).toContain("A past report tested a control loop across load bands.");
+
+    // A cancel while retrieval runs: the attempt stops before the analysis and records nothing.
+    network.create.mockClear();
+    brain.calls = 0;
+    let release!: () => void;
+    brain.hold = new Promise<void>((resolve) => { release = resolve; });
+    const c = await startupFixture();
+    configureProvider();
+    await c.t.action(internal.ai.iterative.startIterativeGeneration, { generationId: c.generationId });
+    const attempt = await takeBackgroundAttempt(c);
+    const background = c.t.action(prepareSeedDraftingInputsRef, attempt);
+    await vi.waitFor(() => expect(brain.calls).toBe(1));
+    await c.writer.mutation(api.generations.cancelIterativeGeneration, { generationId: c.generationId });
+    release();
+    await background;
+    const cancelled = await state(c);
+    expect(cancelled.generation?.status).toBe("failed");
+    expect(cancelled.kinds).toEqual(["writer_style"]);
+    expect(analyzerRequests()).toEqual([]);
+  });
+
   it("an attempt stuck preparing with no lease check gets the expired-lease recovery", async () => {
     vi.useFakeTimers();
     const s = await startupFixture();
@@ -615,7 +790,7 @@ describe("reordered Step-by-step start (decision 32)", () => {
     expect(await outlineDrafting(s)).toEqual({ status: "preparing" });
     await expect(
       s.writer.mutation(api.generations.retryDraftingInputs, { generationId: s.generationId })
-    ).rejects.toThrow("not waiting for a retry");
+    ).rejects.toThrow("nothing to try again");
 
     // Past the lease it reads and recovers as an expired lease.
     vi.advanceTimersByTime(1000);

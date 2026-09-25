@@ -306,30 +306,33 @@ export async function completeDraftingInputsHandler(
 }
 
 /** Settle a preparing attempt as failed, with the code only. A cut-off
- * analysis makes every later attempt ask for a shorter one. */
+ * analysis, or one the attempt reports as too long (`shorter`), makes every
+ * later attempt ask for a shorter one. */
 async function settleFailed(
   ctx: MutationCtx,
   generation: Doc<"generations">,
   drafting: DraftingInputs,
-  code: DraftingInputsFailureCode | undefined
+  code: DraftingInputsFailureCode | undefined,
+  shorter = false
 ): Promise<void> {
   await transitionDraftingInputs(ctx, generation, {
     ...drafting,
     status: "failed",
     settledAt: Date.now(),
     ...(code ? { failureCode: code } : {}),
-    ...(code === "output_limit" ? { shorterAnalysis: true } : {}),
+    ...(shorter || code === "output_limit" ? { shorterAnalysis: true } : {}),
   });
 }
 
 async function failAttempt(
   ctx: MutationCtx,
   args: ObjectType<typeof draftingInputsAttemptArgs>,
-  code: DraftingInputsFailureCode | undefined
+  code: DraftingInputsFailureCode | undefined,
+  shorter = false
 ): Promise<null> {
   const generation = await currentAttempt(ctx, args.generationId, args.attempt);
   if (!generation?.draftingInputs) return null;
-  await settleFailed(ctx, generation, generation.draftingInputs, code);
+  await settleFailed(ctx, generation, generation.draftingInputs, code, shorter);
   return null;
 }
 
@@ -338,6 +341,10 @@ export const failDraftingInputsArgs = {
   ...draftingInputsAttemptArgs,
   // Optional: attempts scheduled before the code was stored report none.
   code: v.optional(draftingInputsFailureCodeValidator),
+  // The attempt's analysis was too long, whatever it finally failed with:
+  // an answer cut off before a repair that failed another way, or a
+  // timeout of a model that always thinks (review 2026-09-25).
+  shorterAnalysis: v.optional(v.boolean()),
 };
 
 /** Handler of generations.failDraftingInputs: the attempt reported failure.
@@ -346,7 +353,7 @@ export async function failDraftingInputsHandler(
   ctx: MutationCtx,
   args: ObjectType<typeof failDraftingInputsArgs>
 ): Promise<null> {
-  return await failAttempt(ctx, args, args.code);
+  return await failAttempt(ctx, args, args.code, args.shorterAnalysis === true);
 }
 
 /** Handler of generations.expireDraftingInputs: the attempt's lease ran out
@@ -387,7 +394,7 @@ export async function retryDraftingInputsHandler(
     drafting = current.draftingInputs;
   }
   if (!drafting || drafting.status !== "failed") {
-    domainError("INVALID_STATE", "The drafting context is not waiting for a retry");
+    domainError("INVALID_STATE", "The transcript analysis has not failed, so there is nothing to try again");
   }
   const attempt = drafting.attempt + 1;
   const shorterAnalysis =
@@ -411,12 +418,12 @@ export async function retryDraftingInputsHandler(
 export function requireDraftingInputsReady(generation: Doc<"generations">): void {
   const state = draftingInputsStateOf(generation.draftingInputs);
   if (state === "preparing") {
-    domainError("INVALID_STATE", "The drafting context is still being prepared", {
+    domainError("INVALID_STATE", "The transcript analysis is still running. Sign off when it finishes", {
       reason: "DRAFTING_INPUTS_PREPARING",
     });
   }
   if (state === "failed") {
-    domainError("INVALID_STATE", "The drafting context could not be prepared; retry it before sign-off", {
+    domainError("INVALID_STATE", "The transcript analysis did not finish. Try it again before you sign off", {
       reason: "DRAFTING_INPUTS_FAILED",
     });
   }
