@@ -13,7 +13,13 @@ import {
   type FactWindowExtractor,
 } from "./transcriptFactsAgent";
 import { CONDENSE_TIMEOUT_MS } from "./condenseAgent";
-import { ANTHROPIC_TIMEOUT_MS, CONVEX_ACTION_LIMIT_MS, RESERVED_NON_REQUEST_MS } from "./providers";
+import {
+  ANTHROPIC_TIMEOUT_MS,
+  CONVEX_ACTION_LIMIT_MS,
+  isCallerAbort,
+  RESERVED_NON_REQUEST_MS,
+} from "./providers";
+import Anthropic from "@anthropic-ai/sdk";
 import { FACT_WINDOW_TOKENS, planFactWindows, type FactTurn } from "../lib/transcriptFacts";
 
 afterEach(() => {
@@ -138,5 +144,19 @@ describe("calls across transcripts share one cap", () => {
     const slots = callSlots(1);
     await expect(slots.run(async () => { throw new Error("provider failed"); })).rejects.toThrow("provider failed");
     await expect(slots.run(async () => "next")).resolves.toBe("next");
+  });
+});
+
+describe("an abort is the caller's, never the model's (review 2026-09-25, P3-b)", () => {
+  it("recognizes every abort shape and nothing else", () => {
+    expect(isCallerAbort(new DOMException("gone", "AbortError"))).toBe(true);
+    expect(isCallerAbort(new DOMException("slow", "TimeoutError"))).toBe(true);
+    expect(isCallerAbort(new Anthropic.APIUserAbortError())).toBe(true);
+    const openRouter = new Error("OpenRouter request aborted by the caller");
+    openRouter.name = "AbortError";
+    expect(isCallerAbort(openRouter)).toBe(true);
+    expect(isCallerAbort(new Error("Request was aborted."))).toBe(false);
+    expect(isCallerAbort(new Error("bad window"))).toBe(false);
+    expect(isCallerAbort("AbortError")).toBe(false);
   });
 });
