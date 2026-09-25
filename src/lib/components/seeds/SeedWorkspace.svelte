@@ -977,7 +977,7 @@
 
   {#if draftingInputsFailed}
     <div role="status" data-workspace-drafting-inputs="failed" class="flex shrink-0 flex-wrap items-center gap-2 border-b border-line bg-gap-bg px-4 py-2 text-body text-gap-text!">
-      <p class="min-w-0 flex-1">{draftingInputsFailureMessage(outline?.draftingInputs?.failureCode)}</p>
+      <p class="min-w-0 flex-1">{draftingInputsFailureMessage(outline?.draftingInputs?.failureCode, !!outline?.canEdit)}</p>
       {#if outline?.canEdit}
         <Button
           class="min-h-11"

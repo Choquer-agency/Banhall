@@ -791,7 +791,7 @@
 
   const modelName = $derived(settings ? modelLabel(settings.modelId) : "");
 
-  /** Starts a new background attempt after the drafting context failed. */
+  /** Starts a new background attempt after the transcript analysis failed. */
   async function retryDraftingContext() {
     if (!mutationsAvailable || retryingDraftingInputs) return;
     retryingDraftingInputs = true;
@@ -800,7 +800,7 @@
       await retryDraftingInputs({ generationId });
     } catch (cause) {
       if (!disposed) {
-        actionError = userErrorMessage(cause, "The drafting context could not be restarted.");
+        actionError = userErrorMessage(cause, "The transcript analysis could not be restarted.");
       }
     } finally {
       if (!disposed) retryingDraftingInputs = false;
@@ -1105,7 +1105,7 @@
           <!-- The background analysis or Brain search failed. The plan is
                untouched; sign-off waits until a retry finishes. -->
           <div role="status" class="flex flex-wrap items-center gap-x-3 gap-y-2" data-summary-drafting-inputs="failed">
-            <p class="text-body text-gap-text!">{draftingInputsFailureMessage(draftingInputsFailure)}</p>
+            <p class="text-body text-gap-text!">{draftingInputsFailureMessage(draftingInputsFailure, canEdit)}</p>
             {#if canEdit}
               <Button
                 variant="secondary"
@@ -1149,7 +1149,7 @@
             class="size-4 shrink-0 animate-spin rounded-full border-2 border-primary/30 border-t-primary motion-reduce:animate-none"
             aria-hidden="true"
           ></span>
-          <p class="text-[14px] leading-5 font-medium text-ink">Preparing the drafting context…</p>
+          <p class="text-[14px] leading-5 font-medium text-ink">Preparing the transcript analysis…</p>
         </div>
       {:else if readiness?.ready && draftingInputs === "failed"}
         <div class="flex items-center gap-2.5" data-summary-status="drafting-inputs-failed">

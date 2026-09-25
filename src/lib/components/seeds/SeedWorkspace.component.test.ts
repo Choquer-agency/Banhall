@@ -527,7 +527,11 @@ describe("Seed workspace", () => {
       draftingInputs: { status: "failed", failureCode: "network" },
     });
     await render(SeedWorkspace, workspaceProps());
-    await expect.poll(() => notice()).not.toBeNull();
+    // A viewer gets a plain status, not an instruction they cannot follow.
+    await expect.poll(() => notice()?.textContent?.trim()).toBe(
+      "We couldn't finish reading the transcript for drafting. It needs another try before sign-off."
+    );
+    expect(notice()?.textContent).not.toContain("Try again");
     expect(document.querySelector("[data-workspace-drafting-retry]")).toBeNull();
   });
 
