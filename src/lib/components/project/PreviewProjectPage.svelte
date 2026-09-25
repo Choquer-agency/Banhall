@@ -2497,7 +2497,9 @@
                     <QARailPanel
                       variant="side"
                       title="QA score"
-                      lastRunAt={generation?.postQaCompletedAt ?? generation?.completedAt ?? null}
+                      lastRunAt={generation?.postQaStatus === "failed"
+                        ? null
+                        : (generation?.postQaCompletedAt ?? generation?.completedAt ?? null)}
                       open={qaOpen}
                       onClose={closeSidePanel}
                       modelName={generation?.selectedModelLabel ?? generation?.iterativeModelLabel ?? null}

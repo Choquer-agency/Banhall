@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from "svelte";
+  import { onMount, tick } from "svelte";
   import Spinner from "$lib/components/ui/Spinner.svelte";
   import { ActionButton } from "$lib/components/chat/primitives";
   import { DropdownMenu } from "bits-ui";
@@ -49,6 +49,7 @@
   let error = $state<string | null>(null);
   let editing = $state(false);
   let editedWording = $state<string[]>([]);
+  let cardEl = $state<HTMLDivElement | null>(null);
 
   // Session-local by design: remounting a proposal always returns to neutral.
   let showChanges = $state(false);
@@ -93,10 +94,13 @@
     }
   }
 
-  function startEditing() {
+  async function startEditing() {
     editedWording = changes.map((change) => change.after);
     editing = true;
     error = null;
+    // The More menu that opened this is gone; hand focus to the first field.
+    await tick();
+    cardEl?.querySelector("textarea")?.focus();
   }
 
   function cancelEditing() {
@@ -175,7 +179,7 @@
 <!-- Board 2.1 suggested-edit card: a quiet label, the serif wording, then
      Apply (primary) and Dismiss (quiet). Edit wording and Refine live in the
      card's More menu. -->
-<div class="mt-2 flex flex-col rounded-[10px] bg-gray-50 px-4 py-3.5" data-proposed-edit>
+<div bind:this={cardEl} class="mt-2 flex flex-col rounded-[10px] bg-gray-50 px-4 py-3.5" data-proposed-edit>
   <p class="text-[11px] leading-4 text-ink-muted" data-proposed-edit-label>
     {editing
       ? "Edit suggestion"
@@ -342,7 +346,9 @@
             </svg>
           </DropdownMenu.Trigger>
           <DropdownMenu.Portal>
-            <DropdownMenu.Content side="bottom" align="end" sideOffset={6} class="z-[100] w-44 rounded-xl border border-line bg-white p-1 shadow-lg">
+            <!-- The chosen action places focus (the composer or the wording
+                 field); do not hand it back to this trigger. -->
+            <DropdownMenu.Content side="bottom" align="end" sideOffset={6} onCloseAutoFocus={(event) => event.preventDefault()} class="z-[100] w-44 rounded-xl border border-line bg-white p-1 shadow-lg">
               {#if onEditWording}
                 <DropdownMenu.Item onSelect={startEditing} class="flex min-h-8 w-full items-center rounded-md px-2 text-[13px] text-ink outline-none hover:bg-primary-wash focus:bg-primary-wash">
                   Edit wording

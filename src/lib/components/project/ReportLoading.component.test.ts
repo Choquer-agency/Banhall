@@ -169,3 +169,22 @@ for (const action of ["Ask assistant", "Research this selection"]) {
     await expect.element(page.getByRole("button", { name: "Assistant", exact: true })).toHaveAttribute("aria-pressed", "true");
   });
 }
+
+it("preview: a failed QA re-run does not claim the older score was just produced", async () => {
+  await page.viewport(1440, 1000);
+  const scorecard = {
+    overall_score: 78,
+    section_scores: { "242": { score: 86, issues: [], strengths: [] }, "244": { score: 62, issues: [], strengths: [] }, "246": { score: 84, issues: [], strengths: [] } },
+    cra_compliance: {}, hallucination_risks: [], ai_language_flags: [], superlative_flags: [], gaps_requiring_client_followup: [], suggested_improvements: [],
+  };
+  __setQueryData("generations:getLatestGeneration", {
+    _id: "generation-1", projectId: "project-1", status: "completed", startedAt: 1, completedAt: 1,
+    agentOutputs: JSON.stringify({ qa: scorecard }), postQaStatus: "failed", postQaCompletedAt: Date.now(),
+  });
+  await render(PreviewProjectPage);
+  await expect.element(page.getByText("Evidence from thermal trials.", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: /^QA/ }).first().click();
+  await expect.element(page.getByText("78/100", { exact: true })).toBeVisible();
+  expect(document.querySelector("[data-qa-score-meta]")?.textContent).toBe("AI QA score");
+  await expect.element(page.getByText("The last run failed. This score is from an earlier run.", { exact: true })).toBeVisible();
+});

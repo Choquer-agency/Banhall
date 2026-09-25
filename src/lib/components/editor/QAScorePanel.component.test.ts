@@ -145,3 +145,19 @@ describe("QAScorePanel side panel (board 2.2)", () => {
     expect(onLocateGap).toHaveBeenCalledWith({ section: "244", paragraph: 2 });
   });
 });
+
+describe("QAScorePanel after a failed re-run (review f2 #1)", () => {
+  it("says the last run failed and keeps the older score's time out of the meta line", async () => {
+    const { container } = await renderSide({ rawQa: fullScorecard, postQaStatus: "failed", lastRunAt: null });
+    expect(container.querySelector("[data-qa-score-meta]")?.textContent).toBe("AI QA score");
+    expect(container.querySelector("[data-qa-last-run-failed]")?.textContent?.trim()).toBe(
+      "The last run failed. This score is from an earlier run."
+    );
+  });
+
+  it("uses muted ink, not placeholder ink, for the meta line", async () => {
+    const { container } = await renderSide({ rawQa: fullScorecard, lastRunAt: Date.now() });
+    const meta = container.querySelector<HTMLElement>("[data-qa-score-meta]")!;
+    expect(getComputedStyle(meta).color).toBe("rgb(107, 127, 123)");
+  });
+});

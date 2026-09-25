@@ -491,7 +491,7 @@
       <div class="flex min-w-0 flex-1 flex-col gap-2" data-qa-score-line>
         <p class="flex flex-wrap items-baseline gap-x-1.5 gap-y-0.5">
           <span class="text-sm leading-5 font-medium tabular-nums text-ink-secondary" data-qa-overall>{overall}/100</span>
-          <span class="text-xs leading-4 text-ink-faint">AI QA score{lastRunLabel ? `, ${lastRunLabel}` : ""}</span>
+          <span class="text-xs leading-4 text-ink-muted" data-qa-score-meta>AI QA score{lastRunLabel ? `, ${lastRunLabel}` : ""}</span>
           {#if myReview}
             <span class="ml-auto inline-flex items-center rounded-full bg-chrome px-2 py-0.5 text-[11px] text-ink-secondary">
               You: {myReview.score}
@@ -505,6 +505,12 @@
             style={`width: ${overall}%; background: ${qaBandColors(overall).bar}`}
           ></div>
         </div>
+        {#if postQaStatus === "failed"}
+          <!-- A failed re-run keeps the earlier scorecard (review f2 #1). -->
+          <p class="text-xs leading-4 text-red-700" data-qa-last-run-failed>
+            The last run failed. This score is from an earlier run.
+          </p>
+        {/if}
       </div>
       {#if onRunQa && !side}
         <!-- Jul 17: re-run on demand, replacing the stored scorecard. -->
