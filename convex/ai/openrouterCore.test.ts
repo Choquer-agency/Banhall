@@ -4,6 +4,7 @@ import {
   fromChatCompletions,
   requireTextResponse,
   openRouterUsage,
+  requestCacheWriteTtl,
   shouldRetryStatus,
   retryDelayMs,
   isAbortLikeError,
@@ -20,6 +21,32 @@ import {
 } from "../../shared/generationModels";
 
 describe("toChatCompletions", () => {
+  it("keeps cache breakpoints for Anthropic models and joins blocks for the rest", () => {
+    const content = [
+      { type: "text" as const, text: "Shared sources. ", cache_control: { type: "ephemeral" as const, ttl: "1h" as const } },
+      { type: "text" as const, text: "Role tail." },
+    ];
+    const anthropicBody = toChatCompletions({
+      model: "anthropic/claude-sonnet-5",
+      max_tokens: 100,
+      system: "Policy",
+      messages: [{ role: "user", content }],
+    });
+    expect(anthropicBody.messages[1]).toEqual({ role: "user", content });
+    expect(anthropicBody.messages[1].content).not.toBe(content);
+    for (const model of ["openai/gpt-5.6-sol", "google/gemini-3.5-flash"]) {
+      const body = toChatCompletions({
+        model,
+        max_tokens: 100,
+        messages: [{ role: "user", content }],
+      });
+      // Same bytes as the joined text, so the automatic prefix caches of
+      // these providers see one stable string.
+      expect(body.messages).toEqual([{ role: "user", content: "Shared sources. Role tail." }]);
+      expect(JSON.stringify(body)).not.toContain("cache_control");
+    }
+  });
+
   it("prepends system as a system message and passes tokens through", () => {
     const body = toChatCompletions({
       model: "claude-sonnet-5",
@@ -315,6 +342,67 @@ describe("openRouterUsage", () => {
       cacheReadInputTokens: 300,
       costUsd: 0.0123,
     });
+  });
+
+  it("subtracts cache writes too and reports them separately", () => {
+    expect(
+      openRouterUsage({
+        usage: {
+          prompt_tokens: 1000,
+          completion_tokens: 10,
+          cost: 0.01,
+          prompt_tokens_details: { cached_tokens: 600, cache_write_tokens: 300 },
+        },
+      })
+    ).toEqual({
+      inputTokens: 100,
+      outputTokens: 10,
+      cacheReadInputTokens: 600,
+      cacheCreationInputTokens: 300,
+      costUsd: 0.01,
+    });
+    // A write count past the uncached remainder is clamped, never negative.
+    expect(
+      openRouterUsage({
+        usage: {
+          prompt_tokens: 100,
+          completion_tokens: 1,
+          prompt_tokens_details: { cached_tokens: 90, cache_write_tokens: 50 },
+        },
+      })
+    ).toEqual({
+      inputTokens: 0,
+      outputTokens: 1,
+      cacheReadInputTokens: 90,
+      cacheCreationInputTokens: 10,
+    });
+  });
+
+  it("attributes cache writes to the TTL the request asked for", () => {
+    const body = {
+      usage: {
+        prompt_tokens: 1_000,
+        completion_tokens: 10,
+        prompt_tokens_details: { cached_tokens: 0, cache_write_tokens: 800 },
+      },
+    };
+    const oneHour = { messages: [{ role: "user", content: [
+      { type: "text", text: "Shared", cache_control: { type: "ephemeral", ttl: "1h" } },
+      { type: "text", text: "Tail" },
+    ] }] };
+    const fiveMinute = { messages: [{ role: "user", content: [
+      { type: "text", text: "Shared", cache_control: { type: "ephemeral" } },
+    ] }] };
+    expect(requestCacheWriteTtl(oneHour)).toBe("1h");
+    expect(requestCacheWriteTtl(fiveMinute)).toBe("5m");
+    expect(requestCacheWriteTtl({ messages: [{ role: "user", content: "plain" }] })).toBeNull();
+    expect(openRouterUsage(body, { cacheWriteTtl: requestCacheWriteTtl(oneHour) })).toMatchObject({
+      cacheCreationInputTokens: 800,
+      cacheCreation1hInputTokens: 800,
+    });
+    const fiveMinuteUsage = openRouterUsage(body, { cacheWriteTtl: requestCacheWriteTtl(fiveMinute) });
+    expect(fiveMinuteUsage).toMatchObject({ cacheCreationInputTokens: 800 });
+    expect(fiveMinuteUsage).not.toHaveProperty("cacheCreation1hInputTokens");
   });
 
   it("omits costUsd when absent and rejects missing or wholly malformed usage", () => {

@@ -22,6 +22,7 @@ import type {
 import { PD_SUBSECTIONS, type PdSubsectionRoleId } from "../shared/pdSubsections";
 import { emptyContextRevision, emptySelectionRevision } from "./lib/seedRevisions";
 import { loadSeedDispatchSnapshot } from "./lib/seedSnapshotLoader";
+import { buildSeedPrompt, seedPromptProjection } from "./ai/trustedContext";
 
 const modules = import.meta.glob("./**/*.ts");
 
@@ -334,6 +335,73 @@ describe("seed attempt transactions", () => {
       batchId: dispatched.batchId,
     });
     expect(await s.t.run((ctx) => ctx.db.query("seedBatches").take(3))).toHaveLength(1);
+  });
+
+  it("keeps every frozen source for validation and prompts with the digest only (cost phase 1)", async () => {
+    const s = await fixture();
+    const full = "Full transcript text. ".repeat(20);
+    const digest = "Condensed transcript.";
+    const ids = await s.t.run(async (ctx) => {
+      const transcriptId = await ctx.db.insert("transcripts", {
+        projectId: s.projectId,
+        content: full,
+        createdAt: 1,
+      });
+      const base = {
+        generationId: s.generationId,
+        projectId: s.projectId,
+        truncated: false,
+        capturedAt: 1,
+      };
+      const fullId = await ctx.db.insert("generationSources", {
+        ...base, kind: "transcript", label: "Long interview", transcriptId,
+        content: full, contentHash: "full-hash", originalLength: full.length,
+      });
+      const documentId = await ctx.db.insert("generationSources", {
+        ...base, kind: "project_document", label: "other:notes.md",
+        content: "Notes.", contentHash: "notes-hash", originalLength: 6,
+      });
+      // Condensing runs after reservation, so the digest row comes last.
+      const digestId = await ctx.db.insert("generationSources", {
+        ...base, kind: "transcript_digest", label: "Long interview", transcriptId,
+        content: digest, contentHash: "digest-hash", originalLength: digest.length,
+      });
+      return { fullId, documentId, digestId };
+    });
+    const dispatched = await openRole(s, "company_context");
+    if (dispatched.kind !== "dispatched") throw new Error("attempt was not dispatched");
+    const claim = await s.t.mutation(claimRef, { batchId: dispatched.batchId });
+    if (claim.kind !== "claimed") throw new Error("attempt was not claimed");
+    // The claim keeps every frozen source for provenance validation...
+    expect(claim.input.sources.map((source) => source._id)).toEqual([
+      s.sourceId,
+      ids.fullId,
+      ids.documentId,
+      ids.digestId,
+    ]);
+    // ...and the prompt reads the digest in the transcript's place.
+    const prompt = buildSeedPrompt({
+      mode: "batch",
+      objective: claim.role.objective,
+      brief: { ...claim.input.brief, entries: claim.input.briefEntries },
+      sources: claim.input.sources.map((source) => ({
+        sourceId: source._id,
+        label: source.label,
+        kind: source.kind,
+        content: source.content,
+        contentHash: source.contentHash,
+        ...(source.transcriptId ? { transcriptId: source.transcriptId } : {}),
+      })),
+      projection: seedPromptProjection(claim.context),
+      writerSettings: claim.input.writerSettings,
+      lengthTarget: claim.input.lengthTarget,
+    });
+    expect(prompt.user).not.toContain(full);
+    expect(prompt.sources.map((source) => source.sourceId)).toEqual([
+      s.sourceId,
+      ids.digestId,
+      ids.documentId,
+    ]);
   });
 
   it("stamps speaker and line on transcript citations from the frozen source", async () => {

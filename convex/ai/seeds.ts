@@ -17,7 +17,7 @@ import type {
   failAttempt,
 } from "../seedRuns";
 import type { GenerationClient } from "./openrouterCore";
-import { MalformedOutputError } from "./openrouterCore";
+import { MalformedOutputError, messageText } from "./openrouterCore";
 import { generateStructured } from "./structured";
 import {
   normalizeProviderError,
@@ -88,7 +88,7 @@ function countedClient(client: GenerationClient, onRequest: () => void): Generat
       create: async (params) => {
         assertSeedPromptWithinLimit(
           `${params.system ?? ""}${params.messages
-            .map((message) => message.content)
+            .map((message) => messageText(message.content))
             .join("")}`
         );
         onRequest();
@@ -202,6 +202,7 @@ export const generateBatch = internalAction({
           kind: source.kind,
           content: source.content,
           contentHash: source.contentHash,
+          ...(source.transcriptId ? { transcriptId: source.transcriptId } : {}),
         })),
         projection: seedPromptProjection(claim.context),
         writerSettings: claim.input.writerSettings,
@@ -219,10 +220,12 @@ export const generateBatch = internalAction({
       );
       const output = await generateStructured<ValidatedSeedBatch>(client, {
         system: request.system,
-        user: request.user,
+        user: request.userBlocks,
         toolName: SEED_PROMPT_PROGRAM.request.toolName,
         description: SEED_PROMPT_PROGRAM.request.description,
-        schema: seedToolSchema(claim.batch.roleId, mode),
+        // One schema for every role and mode keeps the cached tools
+        // prefix shared; validatedBatchSchema enforces role and mode.
+        schema: seedToolSchema(),
         maxTokens: SEED_PROMPT_PROGRAM.request.maxTokens,
         model: claim.batch.model,
         attempts: 2,

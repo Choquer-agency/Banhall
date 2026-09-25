@@ -3,135 +3,64 @@ import { internal } from "./_generated/api";
 import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { getCurrentUserOrNull } from "./lib/auth";
+import {
+  estimateCostFromTable,
+  type CostSource,
+} from "../shared/modelPricing";
 
-type ModelPricing = {
-  input: number;
-  output: number;
-  cacheCreationMultiplier: number;
-  cacheReadMultiplier: number;
-};
-
-// USD per million tokens. Anthropic's default five-minute cache writes cost
-// 1.25× base input and cache reads cost 0.1×. Voyage bills total processed
-// tokens as input and has no output/cache charge.
-const PRICING: Record<string, ModelPricing> = {
-  // Sticker price ($3/$15); the intro discount through 2026-08-31 ($2/$10)
-  // is ignored so estimates stay valid after it lapses.
-  "claude-sonnet-5": {
-    input: 3,
-    output: 15,
-    cacheCreationMultiplier: 1.25,
-    cacheReadMultiplier: 0.1,
-  },
-  // Historical rows only — no longer in the picker.
-  "claude-sonnet-4-6": {
-    input: 3,
-    output: 15,
-    cacheCreationMultiplier: 1.25,
-    cacheReadMultiplier: 0.1,
-  },
-  "claude-opus-4-8": {
-    input: 5,
-    output: 25,
-    cacheCreationMultiplier: 1.25,
-    cacheReadMultiplier: 0.1,
-  },
-  "claude-haiku-4-5-20251001": {
-    input: 1,
-    output: 5,
-    cacheCreationMultiplier: 1.25,
-    cacheReadMultiplier: 0.1,
-  },
-  "claude-haiku-4-5": {
-    input: 1,
-    output: 5,
-    cacheCreationMultiplier: 1.25,
-    cacheReadMultiplier: 0.1,
-  },
-  "voyage-3-large": {
-    input: 0.18,
-    output: 0,
-    cacheCreationMultiplier: 0,
-    cacheReadMultiplier: 0,
-  },
-  "rerank-2.5": {
-    input: 0.05,
-    output: 0,
-    cacheCreationMultiplier: 0,
-    cacheReadMultiplier: 0,
-  },
-  // OpenRouter models. FALLBACKS ONLY: OpenRouter responses
-  // carry a native usage.cost we prefer (exact billing incl. >200k-context
-  // price tiers); these entries cover rows where cost was absent. No explicit
-  // cache-write billing on this path; cache reads ≈ 0.25× input for both.
-  "openai/gpt-5.6-sol": {
-    input: 5,
-    output: 30,
-    cacheCreationMultiplier: 0,
-    cacheReadMultiplier: 0.25,
-  },
-  "openai/gpt-5.6-luna": {
-    input: 1,
-    output: 6,
-    cacheCreationMultiplier: 0,
-    cacheReadMultiplier: 0.25,
-  },
-  "perplexity/sonar-deep-research": {
-    input: 2,
-    output: 8,
-    cacheCreationMultiplier: 0,
-    cacheReadMultiplier: 0,
-  },
-  // Contextual Research routes its final reviewer through OpenRouter. Native
-  // usage.cost normally wins; this matches the direct Sonnet fallback above.
-  "anthropic/claude-sonnet-5": {
-    input: 3,
-    output: 15,
-    cacheCreationMultiplier: 0,
-    cacheReadMultiplier: 0.1,
-  },
-  "google/gemini-3.1-pro-preview": {
-    input: 2,
-    output: 12,
-    cacheCreationMultiplier: 0,
-    cacheReadMultiplier: 0.25,
-  },
-  "google/gemini-3.5-flash": {
-    input: 1.5,
-    output: 9,
-    cacheCreationMultiplier: 0,
-    cacheReadMultiplier: 0.25,
-  },
-};
-const FALLBACK_PRICING: ModelPricing = {
-  input: 3,
-  output: 15,
-  cacheCreationMultiplier: 1.25,
-  cacheReadMultiplier: 0.1,
-};
-
-function billableTokens(value: number): number {
-  return Number.isFinite(value) && value > 0 ? value : 0;
-}
-
+/**
+ * Estimated USD cost from the shared price table (`shared/modelPricing.ts`,
+ * which cites its sources). Kept as a positional wrapper for existing
+ * callers; `cacheCreation1hInputTokens` is the part of the cache writes made
+ * with the 1-hour TTL.
+ */
 export function estimateCostUsd(
   model: string,
   inputTokens: number,
   outputTokens: number,
   cacheCreationInputTokens = 0,
-  cacheReadInputTokens = 0
+  cacheReadInputTokens = 0,
+  cacheCreation1hInputTokens = 0
 ): number {
-  const pricing = PRICING[model] ?? FALLBACK_PRICING;
-  const inputCost =
-    billableTokens(inputTokens) * pricing.input +
-    billableTokens(cacheCreationInputTokens) *
-      pricing.input *
-      pricing.cacheCreationMultiplier +
-    billableTokens(cacheReadInputTokens) *
-      pricing.input *
-      pricing.cacheReadMultiplier;
-  const outputCost = billableTokens(outputTokens) * pricing.output;
-  return (inputCost + outputCost) / 1_000_000;
+  return estimateCostFromTable(model, {
+    inputTokens,
+    outputTokens,
+    cacheCreationInputTokens,
+    cacheCreation1hInputTokens,
+    cacheReadInputTokens,
+  });
+}
+
+function billableTokens(value: number): number {
+  return Number.isFinite(value) && value > 0 ? value : 0;
+}
+
+/**
+ * The cost to store for one usage event, and whether it is the provider's own
+ * figure (`native`, OpenRouter usage.cost) or computed from the price table
+ * (`estimated`, every Anthropic and Voyage call and any gateway response that
+ * carried no valid cost).
+ */
+export function resolveUsageCost(args: {
+  model: string;
+  inputTokens: number;
+  outputTokens: number;
+  cacheCreationInputTokens?: number;
+  cacheCreation1hInputTokens?: number;
+  cacheReadInputTokens?: number;
+  costUsd?: number;
+}): { costUsd: number; costSource: CostSource } {
+  if (
+    args.costUsd !== undefined &&
+    Number.isFinite(args.costUsd) &&
+    args.costUsd >= 0
+  ) {
+    return { costUsd: args.costUsd, costSource: "native" };
+  }
+  return {
+    costUsd: estimateCostFromTable(args.model, args),
+    costSource: "estimated",
+  };
 }
 
 // Manager rollout changes in one place. Both backend authorization and
@@ -162,9 +91,12 @@ const usageArgs = {
   inputTokens: v.number(),
   outputTokens: v.number(),
   cacheCreationInputTokens: v.optional(v.number()),
+  // The part of cacheCreationInputTokens written with the 1-hour TTL (billed
+  // at 2x input instead of 1.25x). Absent means every write was 5-minute.
+  cacheCreation1hInputTokens: v.optional(v.number()),
   cacheReadInputTokens: v.optional(v.number()),
   // Provider-reported exact cost (OpenRouter usage.cost). When present and
-  // valid it wins over the PRICING estimate.
+  // valid it wins over the price-table estimate.
   costUsd: v.optional(v.number()),
   createdAt: v.optional(v.number()),
 };
@@ -213,6 +145,19 @@ export const logUsage = internalMutation({
     const cacheReadInputTokens = billableTokens(
       args.cacheReadInputTokens ?? 0
     );
+    const cacheCreation1hInputTokens = Math.min(
+      billableTokens(args.cacheCreation1hInputTokens ?? 0),
+      cacheCreationInputTokens
+    );
+    const cost = resolveUsageCost({
+      model: args.model,
+      inputTokens,
+      outputTokens,
+      cacheCreationInputTokens,
+      cacheCreation1hInputTokens,
+      cacheReadInputTokens,
+      ...(args.costUsd !== undefined ? { costUsd: args.costUsd } : {}),
+    });
 
     await ctx.db.insert("aiUsage", {
       ...(projectId ? { projectId } : {}),
@@ -238,18 +183,11 @@ export const logUsage = internalMutation({
       ...(args.cacheReadInputTokens !== undefined
         ? { cacheReadInputTokens }
         : {}),
-      costUsd:
-        args.costUsd !== undefined &&
-        Number.isFinite(args.costUsd) &&
-        args.costUsd >= 0
-          ? args.costUsd
-          : estimateCostUsd(
-              args.model,
-              inputTokens,
-              outputTokens,
-              cacheCreationInputTokens,
-              cacheReadInputTokens
-            ),
+      ...(args.cacheCreation1hInputTokens !== undefined
+        ? { cacheCreation1hInputTokens }
+        : {}),
+      costUsd: cost.costUsd,
+      costSource: cost.costSource,
       createdAt: args.createdAt ?? Date.now(),
     });
     return null;

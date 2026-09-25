@@ -39,7 +39,13 @@ import {
   ANALYZER_CATEGORY_ORDER,
   ANALYZER_REQUEST,
 } from "./analyzerAgent";
-import { BRIEF_SYSTEM_PROMPT, BRIEF_REQUEST, BRIEF_SCHEMA } from "./brief";
+import {
+  BRIEF_INPUT_BUDGET,
+  BRIEF_SYSTEM_PROMPT,
+  BRIEF_REQUEST,
+  BRIEF_SCHEMA,
+  BRIEF_OMITTED_SOURCES_NOTICE,
+} from "./brief";
 import {
   ANALYSIS_TOOL_SCHEMA,
   STYLE_ANALYSIS_REQUEST,
@@ -233,11 +239,16 @@ const seedRolePromptProgram = PD_SUBSECTIONS.map((role) => ({
   kind: role.kind,
   title: role.title,
   objective: role.objective,
-  schemas: {
-    batch: seedToolSchema(role.roleId, "batch"),
-    feedback: seedToolSchema(role.roleId, "feedback"),
-  },
 }));
+
+// Cost phase 1: one provider-facing Seed schema for every role and both
+// modes, so the cached tools prefix is shared; validateBatch enforces each
+// mode's count and specific advancements' links.
+const seedProviderSchema = seedToolSchema();
+const SEED_SCHEMA_POLICY = {
+  provider: "one-schema-for-every-role-and-mode",
+  application: "validateBatch-enforces-mode-count-and-role-links",
+} as const;
 
 const derivedWordBudgets = Object.keys(LINE_LIMITS).flatMap((section) =>
   Object.keys(LENGTH_TARGETS).map((target) => ({
@@ -398,6 +409,11 @@ export const generationPromptProgram = {
       kind: "structured",
       systemTemplate: BRIEF_SYSTEM_PROMPT,
       request: BRIEF_REQUEST,
+      // Cost phase 1: digests replace their transcripts, and every source
+      // is spent in frozen order against this budget.
+      inputSelection: "digest-replaces-its-transcript",
+      contextBudget: BRIEF_INPUT_BUDGET,
+      omittedSourcesNotice: BRIEF_OMITTED_SOURCES_NOTICE,
       schema: BRIEF_SCHEMA,
       model: { kind: "candidate", fallbackModelId: MODEL },
       thinking: { kind: "omitted" },
@@ -411,9 +427,8 @@ export const generationPromptProgram = {
       styleOverridesScaffold: SEED_PROMPT_PROGRAM.styleOverrides,
       userScaffold: SEED_PROMPT_PROGRAM.user,
       request: SEED_PROMPT_PROGRAM.request,
-      schemaByRole: Object.fromEntries(
-        seedRolePromptProgram.map((role) => [role.roleId, role.schemas.batch])
-      ),
+      schema: seedProviderSchema,
+      schemaPolicy: SEED_SCHEMA_POLICY,
       model: { kind: "candidate", fallbackModelId: MODEL },
       thinking: { kind: "omitted" },
       structuredPolicy: "two-attempt-repair",
@@ -425,9 +440,8 @@ export const generationPromptProgram = {
       styleOverridesScaffold: SEED_PROMPT_PROGRAM.styleOverrides,
       userScaffold: SEED_PROMPT_PROGRAM.user,
       request: SEED_PROMPT_PROGRAM.request,
-      schemaByRole: Object.fromEntries(
-        seedRolePromptProgram.map((role) => [role.roleId, role.schemas.feedback])
-      ),
+      schema: seedProviderSchema,
+      schemaPolicy: SEED_SCHEMA_POLICY,
       model: { kind: "candidate", fallbackModelId: MODEL },
       thinking: { kind: "omitted" },
       structuredPolicy: "two-attempt-repair",
@@ -452,19 +466,22 @@ export const generationPromptProgram = {
     },
     section242: {
       kind: "text",
-      systemTemplateSet: "writing.sectionSystemTemplates.section242",
+      systemTemplateSet: "writing.sectionSharedSystemTemplates",
+      instructionTemplateSet: "writing.sectionInstructionTemplates.section242",
       request: SECTION_242_REQUEST,
       model: { kind: "candidate", fallbackModelId: MODEL },
     },
     section244: {
       kind: "text",
-      systemTemplateSet: "writing.sectionSystemTemplates.section244",
+      systemTemplateSet: "writing.sectionSharedSystemTemplates",
+      instructionTemplateSet: "writing.sectionInstructionTemplates.section244",
       request: SECTION_244_REQUEST,
       model: { kind: "candidate", fallbackModelId: MODEL },
     },
     section246: {
       kind: "text",
-      systemTemplateSet: "writing.sectionSystemTemplates.section246",
+      systemTemplateSet: "writing.sectionSharedSystemTemplates",
+      instructionTemplateSet: "writing.sectionInstructionTemplates.section246",
       request: SECTION_246_REQUEST,
       model: { kind: "candidate", fallbackModelId: MODEL },
     },
@@ -498,7 +515,8 @@ export const generationPromptProgram = {
     repair: {
       kind: "text",
       reuses: "section-agent",
-      systemTemplateSet: "writing.sectionSystemTemplates.<section>",
+      systemTemplateSet: "writing.sectionSharedSystemTemplates",
+      instructionTemplateSet: "writing.sectionInstructionTemplates.<section>",
       scaffold: ORDERED_PROMPT_SCAFFOLDS.repairGuidance,
       model: { kind: "candidate", fallbackModelId: MODEL },
       callSite: "generation:repair:<n>",

@@ -1,7 +1,10 @@
+import { PD_REVIEW_INPUT_BUDGET, buildPdReviewUserMessage } from "./reviewAgent";
 import { describe, expect, it } from "vitest";
 import {
   buildTrustedContext,
   buildSeedTrustedContext,
+  buildSeedPrompt,
+  preferDigestSources,
   buildSeedSystemPrompt,
   CHARS_PER_TOKEN,
   DEFAULT_CONTEXT_BUDGET,
@@ -15,6 +18,8 @@ import {
   type ContextDoc,
 } from "./trustedContext";
 import { CONTEXT_INPUTS_GUIDANCE } from "./prompts";
+import { SEED_PROMPT_PROGRAM } from "./promptDefinitions";
+import { SeedContextLimitError } from "../lib/seedRevisions";
 
 const budget = (overrides: Partial<ContextBudget> = {}): ContextBudget => ({
   ...DEFAULT_CONTEXT_BUDGET,
@@ -825,5 +830,164 @@ describe("describeContextCuts", () => {
     expect(describeContextCuts(report)).toBe(
       "Context budget (150,000 tokens) shortened weird name .txt."
     );
+  });
+});
+
+// ─── Cost phase 1: digest-or-full and PD review budget ───────────────────────
+
+describe("preferDigestSources", () => {
+  const row = (id: string, kind: string, transcriptId?: string) => ({ id, kind, ...(transcriptId ? { transcriptId } : {}) });
+
+  it("replaces each digested transcript with its digest, in place", () => {
+    const rows = [
+      row("t1", "transcript", "a"),
+      row("t2", "transcript", "b"),
+      row("doc", "project_document"),
+      row("story", "writer_storyline"),
+      row("d1", "transcript_digest", "a"),
+    ];
+    expect(preferDigestSources(rows).map((r) => r.id)).toEqual(["d1", "t2", "doc", "story"]);
+  });
+
+  it("keeps full text when no digest exists, and a digest whose transcript is absent", () => {
+    expect(preferDigestSources([row("t1", "transcript", "a")]).map((r) => r.id)).toEqual(["t1"]);
+    expect(preferDigestSources([row("d9", "transcript_digest", "z")]).map((r) => r.id)).toEqual(["d9"]);
+    // A digest that precedes its transcript still lands in the transcript's place.
+    expect(
+      preferDigestSources([row("d1", "transcript_digest", "a"), row("doc", "project_document"), row("t1", "transcript", "a")])
+        .map((r) => r.id)
+    ).toEqual(["doc", "d1"]);
+  });
+});
+
+describe("PD review input budget", () => {
+  const input = {
+    title: "Seal project",
+    clientName: "Client",
+    fileName: "pd.docx",
+    pdContent: "P".repeat(30),
+    transcript: "T".repeat(30),
+  };
+  const docs = [
+    { fileName: "one.md", category: "other" as const, content: "1".repeat(10) },
+    { fileName: "two.md", category: "other" as const, content: "2".repeat(10) },
+    { fileName: "three.md", category: "other" as const, content: "3".repeat(10) },
+  ];
+
+  it("spends the PD first, then the transcript, then documents, and says what it cut", () => {
+    // 4 characters per token: PD 20, transcript 20, per document 8, total 48.
+    const budget = { totalTokens: 12, pdTokens: 5, transcriptTokens: 5, perDocumentTokens: 2, maxDocuments: 12 };
+    const message = buildPdReviewUserMessage(input, docs, budget);
+    expect(message).toBe(buildPdReviewUserMessage(input, docs, budget));
+    expect(message).toContain(`## Written PD under review (pd.docx)\n${"P".repeat(20)}\n[TRUNCATED: 10 of 30 characters omitted to fit the context budget.]`);
+    expect(message).toContain(`## Interview transcript (context)\n${"T".repeat(20)}\n[TRUNCATED: 10 of 30 characters omitted`);
+    expect(message).toContain(`## Supporting document: one.md (other)\n${"1".repeat(8)}\n[TRUNCATED: 2 of 10`);
+    expect(message).not.toContain("two.md");
+    expect(message.endsWith("[2 further supporting document(s) were omitted to fit the context budget.]")).toBe(true);
+  });
+
+  it("caps the document count and leaves small reviews untouched by default", () => {
+    const capped = buildPdReviewUserMessage(input, docs, { ...PD_REVIEW_INPUT_BUDGET, maxDocuments: 1 });
+    expect(capped).toContain("one.md");
+    expect(capped).not.toContain("three.md");
+    expect(capped).toContain("[2 further supporting document(s) were omitted");
+    const whole = buildPdReviewUserMessage(input, docs);
+    expect(whole).not.toContain("TRUNCATED");
+    expect(whole).not.toContain("omitted");
+    expect(whole).toContain("3".repeat(10));
+  });
+});
+
+describe("seed source allowance near the byte limit (cost phase 1)", () => {
+  const base = {
+    mode: "batch" as const,
+    brief: { storyline: "A frozen storyline.", entries: ["Complete Brief item."] },
+    // Far past the 600,000-byte limit, so the sources are cut.
+    sources: [{ sourceId: "source-1", label: "Interview", kind: "transcript",
+      content: "Measured seal fatigue at 400 kPa across cycles. ".repeat(20_000), contentHash: "hash-1" }],
+    writerSettings: { profile: "Frozen profile.", styleOverrides: {} },
+    lengthTarget: "standard",
+  };
+
+  it("keeps the cached source block byte-identical across objectives and decisions", () => {
+    const first = buildSeedPrompt({
+      ...base,
+      objective: "Short objective.",
+      projection: { decisions: "(none)", feedback: "(none)" },
+    });
+    const second = buildSeedPrompt({
+      ...base,
+      mode: "feedback",
+      objective: `A much longer objective. ${"More words for this role. ".repeat(40)}`,
+      projection: {
+        decisions: JSON.stringify({ items: Array.from({ length: 30 }, (_, i) => ({ bullets: [`Decision ${i} wording.`] })) }),
+        feedback: "Keep the measurement precise.",
+        target: "Frozen target wording.",
+      },
+    });
+    expect(first.sources[0]).toMatchObject({ truncated: true });
+    expect(second.userBlocks[0].text).toBe(first.userBlocks[0].text);
+    expect(second.sources).toEqual(first.sources);
+    expect(second.userBlocks[1].text).not.toBe(first.userBlocks[1].text);
+  });
+
+  it("refuses a role tail over its allowance instead of moving the source cutoff", () => {
+    const reserve = SEED_PROMPT_PROGRAM.request.roleTailReserveUtf8Bytes;
+    const withDecisions = (bytes: number) =>
+      buildSeedPrompt({
+        ...base,
+        objective: "Objective.",
+        projection: { decisions: "x".repeat(bytes), feedback: "(none)" },
+      });
+    const small = withDecisions(10);
+    // A tail just inside the reservation gets the same cached block...
+    const near = withDecisions(reserve - 2_000);
+    expect(near.userBlocks[0].text).toBe(small.userBlocks[0].text);
+    expect(near.sources).toEqual(small.sources);
+    // ...and one past it is refused as a processing limit, never by
+    // shrinking the sources.
+    expect(() => withDecisions(reserve + 10_000)).toThrow(SeedContextLimitError);
+    expect(() => withDecisions(reserve + 10_000)).toThrow(/Seed role context .* its allowance is/);
+  });
+
+  it("keeps room to disclose omitted sources under a very large Brief with many sources", () => {
+    // Accepted at 215995f (2 sources kept, 126 omissions disclosed); the
+    // half-space clamp alone left the disclosure no room.
+    const build = (objective: string) => buildSeedPrompt({
+      ...base,
+      brief: { storyline: "S".repeat(590_000), entries: [] },
+      sources: Array.from({ length: 128 }, (_, i) => ({
+        sourceId: `source-${String(i).padStart(25, "0")}`,
+        label: `Interview ${i}`,
+        kind: "transcript",
+        content: "B".repeat(1_000),
+        contentHash: `hash-${i}`,
+      })),
+      objective,
+      projection: { decisions: "(none)", feedback: "(none)" },
+    });
+    const prompt = build("Objective.");
+    // The cached block still ignores the role's own text.
+    expect(build("A longer objective for another role.").userBlocks[0].text)
+      .toBe(prompt.userBlocks[0].text);
+    expect(prompt.promptBytes).toBeLessThanOrEqual(600_000);
+    expect(prompt.userBlocks[0].text).toContain("[OMITTED: frozen source excerpt ");
+    const omitted = prompt.sources.filter((source) => !source.included);
+    expect(omitted.length).toBeGreaterThan(0);
+    for (const source of omitted) expect(prompt.userBlocks[0].text).toContain(source.sourceId);
+  });
+
+  it("fits a Brief that leaves less than the reservation, with a short source (baseline boundary)", () => {
+    const prompt = buildSeedPrompt({
+      ...base,
+      brief: { storyline: "S".repeat(550_000), entries: [] },
+      sources: [{ sourceId: "source-1", label: "Interview", kind: "transcript",
+        content: "A short frozen source.", contentHash: "hash-1" }],
+      objective: "Objective.",
+      projection: { decisions: "(none)", feedback: "(none)" },
+    });
+    expect(prompt.sources[0]).toMatchObject({ included: true, truncated: false });
+    expect(prompt.promptBytes).toBeGreaterThan(550_000);
+    expect(prompt.promptBytes).toBeLessThanOrEqual(600_000);
   });
 });

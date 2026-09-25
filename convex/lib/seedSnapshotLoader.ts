@@ -246,6 +246,7 @@ export type FrozenSeedActionInput = {
       | "contentHash"
       | "truncated"
       | "originalLength"
+      | "transcriptId"
     >
   >;
   writerSettings: {
@@ -379,12 +380,16 @@ export async function loadFrozenSeedActionInput(
         endOffset: entry.endOffset,
         exactExcerpt: entry.exactExcerpt,
       })),
+    // Every frozen source, digested transcripts included: provenance
+    // validation needs them all, since a Brief citation can point at the
+    // original transcript. buildSeedPrompt picks the digest-only view.
     sources: sources.map((source) => ({
       _id: source._id,
       kind: source.kind,
       label: source.label,
       content: source.content,
       contentHash: source.contentHash,
+      ...(source.transcriptId ? { transcriptId: source.transcriptId } : {}),
       truncated: source.truncated,
       originalLength: source.originalLength,
     })),

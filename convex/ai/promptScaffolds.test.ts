@@ -1,7 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { buildTrustedContext, DEFAULT_CONTEXT_BUDGET } from "./trustedContext";
 import { CONDENSE_SCHEMA, CONDENSE_SYSTEM_PROMPT } from "./condenseAgent";
-import { BRIEF_REQUEST, BRIEF_SCHEMA, BRIEF_SYSTEM_PROMPT } from "./brief";
+import {
+  BRIEF_INPUT_BUDGET,
+  BRIEF_OMITTED_SOURCES_NOTICE,
+  BRIEF_REQUEST,
+  BRIEF_SCHEMA,
+  BRIEF_SYSTEM_PROMPT,
+} from "./brief";
 import {
   ANALYSIS_TOOL_SCHEMA,
   STYLE_ANALYSIS_REQUEST,
@@ -232,6 +238,10 @@ describe("the condense call belongs to the prompt program (AC5)", () => {
       kind: "structured",
       systemTemplate: BRIEF_SYSTEM_PROMPT,
       request: BRIEF_REQUEST,
+      // Cost phase 1: the Brief's input selection and budget are disclosed.
+      inputSelection: "digest-replaces-its-transcript",
+      contextBudget: BRIEF_INPUT_BUDGET,
+      omittedSourcesNotice: BRIEF_OMITTED_SOURCES_NOTICE,
       schema: BRIEF_SCHEMA,
       model: { kind: "candidate", fallbackModelId: generationPromptProgram.calls.brief.model.fallbackModelId },
       thinking: { kind: "omitted" },
@@ -255,13 +265,11 @@ describe("the condense call belongs to the prompt program (AC5)", () => {
       generationPromptProgram.templates.seeds.roles.find(
         (role) => role.roleId === "specific_advancements"
       )
-    ).toMatchObject({
-      objective: expect.any(String),
-      schemas: {
-        batch: expect.objectContaining({ type: "object" }),
-        feedback: expect.objectContaining({ type: "object" }),
-      },
-    });
+    ).toMatchObject({ objective: expect.any(String) });
+    // Cost phase 1: one provider schema for every role and both modes.
+    expect(generationPromptProgram.calls.seeds.schema).toBe(
+      generationPromptProgram.calls.seedFeedback.schema
+    );
     expect(generationPromptProgram.calls.seeds).toMatchObject({
       systemTemplate: SEED_PROMPT_PROGRAM.systemPolicy,
       userScaffold: SEED_PROMPT_PROGRAM.user,
@@ -297,10 +305,7 @@ describe("the condense call belongs to the prompt program (AC5)", () => {
         ...generationPromptProgram.calls,
         seeds: {
           ...generationPromptProgram.calls.seeds,
-          schemaByRole: {
-            ...generationPromptProgram.calls.seeds.schemaByRole,
-            active_uncertainties: { type: "object", required: [] },
-          },
+          schema: { type: "object", required: [] },
         },
       },
     });

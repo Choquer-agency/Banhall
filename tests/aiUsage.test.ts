@@ -1,5 +1,9 @@
+/// <reference types="vite/client" />
+import { convexTest } from "convex-test";
 import { describe, expect, test } from "vitest";
-import { estimateCostUsd } from "../convex/aiUsage";
+import { internal } from "../convex/_generated/api";
+import schema from "../convex/schema";
+import { estimateCostUsd, resolveUsageCost } from "../convex/aiUsage";
 import { voyageTokenCount } from "../convex/ai/providers";
 import { MODEL } from "../convex/ai/model";
 import { sha256 } from "../convex/lib/contracts";
@@ -24,6 +28,88 @@ describe("AI usage pricing", () => {
         1_000_000
       )
     ).toBeCloseTo(22.05, 10);
+  });
+
+  test("prices 1-hour cache writes at twice base input", () => {
+    expect(
+      estimateCostUsd("claude-sonnet-5", 0, 0, 1_000_000, 0, 1_000_000)
+    ).toBeCloseTo(4, 10);
+  });
+
+  test("a valid provider cost is native; anything else is estimated", () => {
+    const tokens = { model: "claude-sonnet-5", inputTokens: 1_000, outputTokens: 100 };
+    expect(resolveUsageCost({ ...tokens, costUsd: 0.5 })).toEqual({
+      costUsd: 0.5,
+      costSource: "native",
+    });
+    expect(resolveUsageCost({ ...tokens, costUsd: 0 })).toEqual({
+      costUsd: 0,
+      costSource: "native",
+    });
+    for (const costUsd of [undefined, -1, Number.NaN]) {
+      expect(resolveUsageCost({ ...tokens, ...(costUsd === undefined ? {} : { costUsd }) })).toEqual({
+        costUsd: (1_000 * 2 + 100 * 10) / 1_000_000,
+        costSource: "estimated",
+      });
+    }
+  });
+
+  test("logUsage stores the cost source and the 1-hour write count", async () => {
+    const t = convexTest(schema, import.meta.glob("../convex/**/*.ts"));
+    await t.mutation(internal.aiUsage.logUsage, {
+      callSite: "chat_v2",
+      model: "claude-sonnet-5",
+      inputTokens: 1_000,
+      outputTokens: 100,
+      cacheCreationInputTokens: 2_000,
+      cacheCreation1hInputTokens: 1_500,
+      cacheReadInputTokens: 10_000,
+      createdAt: 1,
+    });
+    await t.mutation(internal.aiUsage.logUsage, {
+      callSite: "generation:section:242",
+      model: "openai/gpt-5.6-sol",
+      inputTokens: 1_000,
+      outputTokens: 100,
+      cacheReadInputTokens: 0,
+      costUsd: 0.0042,
+      createdAt: 2,
+    });
+    const rows = await t.run((ctx) => ctx.db.query("aiUsage").collect());
+    const chat = rows.find((row) => row.callSite === "chat_v2");
+    const gateway = rows.find((row) => row.callSite === "generation:section:242");
+    expect(chat).toMatchObject({
+      costSource: "estimated",
+      cacheCreationInputTokens: 2_000,
+      cacheCreation1hInputTokens: 1_500,
+      cacheReadInputTokens: 10_000,
+    });
+    // $2 input: 1k uncached, 500 written at 1.25x, 1.5k at 2x, 10k read at
+    // 0.1x; $10 output: 100.
+    expect(chat?.costUsd).toBeCloseTo(
+      (1_000 * 2 + 500 * 2.5 + 1_500 * 4 + 10_000 * 0.2 + 100 * 10) / 1_000_000,
+      12
+    );
+    expect(gateway).toMatchObject({ costUsd: 0.0042, costSource: "native" });
+  });
+
+  test("prices Anthropic-through-OpenRouter cache writes when usage.cost is missing", async () => {
+    const t = convexTest(schema, import.meta.glob("../convex/**/*.ts"));
+    for (const [callSite, oneHour] of [["five-minute", 0], ["one-hour", 100_000]] as const) {
+      await t.mutation(internal.aiUsage.logUsage, {
+        callSite,
+        model: "anthropic/claude-sonnet-5",
+        inputTokens: 0,
+        outputTokens: 0,
+        cacheCreationInputTokens: 100_000,
+        ...(oneHour ? { cacheCreation1hInputTokens: oneHour } : {}),
+        createdAt: 1,
+      });
+    }
+    const rows = await t.run((ctx) => ctx.db.query("aiUsage").collect());
+    expect(rows.find((row) => row.callSite === "five-minute")).toMatchObject({ costSource: "estimated" });
+    expect(rows.find((row) => row.callSite === "five-minute")?.costUsd).toBeCloseTo(0.25, 10);
+    expect(rows.find((row) => row.callSite === "one-hour")?.costUsd).toBeCloseTo(0.4, 10);
   });
 
   test("prices Voyage corpus/query embeddings and reranking by processed tokens", () => {
@@ -273,21 +359,11 @@ describe("generation prompt program", () => {
       "iterative",
       "single",
     ]);
-    const seedRoleIds = PD_SUBSECTIONS.map(({ roleId }) => roleId).sort();
-    expect(
-      Object.keys(generationPromptProgram.calls.seeds.schemaByRole).sort()
-    ).toEqual(seedRoleIds);
-    expect(
-      Object.keys(generationPromptProgram.calls.seedFeedback.schemaByRole).sort()
-    ).toEqual(seedRoleIds);
-    for (const roleId of seedRoleIds) {
-      expect(generationPromptProgram.calls.seeds.schemaByRole[roleId]).toEqual(
-        seedToolSchema(roleId, "batch")
-      );
-      expect(
-        generationPromptProgram.calls.seedFeedback.schemaByRole[roleId]
-      ).toEqual(seedToolSchema(roleId, "feedback"));
-    }
+    // Cost phase 1: one provider schema for every role and both modes.
+    expect(generationPromptProgram.calls.seeds.schema).toEqual(seedToolSchema());
+    expect(generationPromptProgram.calls.seedFeedback.schema).toEqual(seedToolSchema());
+    expect(generationPromptProgram.templates.seeds.roles.map(({ roleId }) => roleId).sort())
+      .toEqual(PD_SUBSECTIONS.map(({ roleId }) => roleId).sort());
     const serialized = JSON.stringify(generationPromptProgram);
     expect(serialized).toContain("post-terminal-qa-and-chronology");
     expect(serialized).toContain("one-shot-ghost-candidate-pipeline");

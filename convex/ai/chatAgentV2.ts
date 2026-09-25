@@ -34,12 +34,18 @@ import {
   type StyleOverrides,
 } from "../../shared/styleOverrides";
 import { scrubBannedWordsUnlessWaived } from "../lib/reportEdits";
-import { buildChatTurnRequest, type ChatTurnContext } from "./chatEvidence";
+import {
+  CHAT_CACHE_CONTROL,
+  arrangeChatContext,
+  buildChatTurnRequest,
+  type ChatTurnContext,
+} from "./chatEvidence";
 import { MAX_PROJECT_DOCUMENT_SCAN } from "../chatV2";
 import { describeContextCuts } from "./trustedContext";
 import { preserveReasoningSignature } from "./reasoningSignature";
 import { searchBrainExemplars, formatBrainExemplars } from "./brain/retrieve";
 import { safeErrorDetails } from "../lib/safeErrorDetails";
+import { anthropicCacheWrite1hTokens } from "./instrument";
 
 // ─── Agent-based chat (BNH-10 P2) ────────────────────────────────────────────
 // Parallel-run replacement for chatAgent.ts. The @convex-dev/agent component
@@ -469,6 +475,16 @@ export const CHAT_THINKING = {
 };
 
 /**
+ * Anthropic options for every chat step: thinking as above, plus automatic
+ * prompt caching (a top-level cache_control) that follows the end of the
+ * request, so step two of a tool turn reads step one's prefix. It is the
+ * fourth breakpoint beside the three `arrangeChatContext` places.
+ */
+export const CHAT_PROVIDER_OPTIONS = {
+  anthropic: { ...CHAT_THINKING, cacheControl: CHAT_CACHE_CONTROL.toolSteps },
+};
+
+/**
  * Per-step ceiling shared by thinking, tool-call JSON, and answer text. Without
  * it the request inherits the model's 128K output ceiling, which is not a sane
  * worst case for one turn in a chat rail. Sonnet 5 defaults to high effort and
@@ -491,6 +507,80 @@ export const CHAT_CONTEXT_OPTIONS = Object.freeze(
   } satisfies ContextOptions
 );
 
+/**
+ * How many whole turns the history window drops at once when it outgrows
+ * CHAT_CONTEXT_OPTIONS.recentMessages (cost phase 1). A window that slid by
+ * one row per turn would change the first history byte on every turn once a
+ * thread passed 30 rows, so the cached history could never be read again;
+ * this one starts on a fixed turn boundary and moves only every few turns.
+ * The model still sees at most 30 rows; right after a move it sees about
+ * CHAT_HISTORY_CHUNK_TURNS turns fewer, and the window then refills.
+ */
+export const CHAT_HISTORY_CHUNK_TURNS = 4;
+/** Rows read to place the window; comfortably above the 30-row bound. */
+const CHAT_HISTORY_PROBE_ROWS = 60;
+
+/**
+ * The row count for this turn's history fetch. `rows` are the thread's
+ * non-tool rows newest first, up to and including the prompt, read with the
+ * same filters the agent library uses; `complete` says the read reached the
+ * start of the thread. The window is every row whose turn (`order`) is at or
+ * after the earliest multiple of `chunkTurns` that keeps it within
+ * `maxRows`. Returns `maxRows` itself (the plain newest-rows window) when
+ * the whole thread fits, or when no boundary does.
+ */
+export function chatHistoryWindowRows(
+  rows: ReadonlyArray<{ order: number }>,
+  options: { maxRows: number; chunkTurns: number; complete: boolean }
+): number {
+  if (rows.length === 0) return options.maxRows;
+  const orders = rows.map((row) => row.order);
+  const newest = Math.max(...orders);
+  const oldest = Math.min(...orders);
+  const countFrom = (anchor: number) =>
+    orders.filter((order) => order >= anchor).length;
+  const first = Math.floor(oldest / options.chunkTurns) * options.chunkTurns;
+  for (let anchor = first; anchor <= newest; anchor += options.chunkTurns) {
+    // A partial read cannot count the oldest turn it reached.
+    if (!options.complete && anchor <= oldest) continue;
+    const count = countFrom(anchor);
+    // The whole thread fits: the plain bound fetches exactly these rows.
+    if (options.complete && count === rows.length && count <= options.maxRows) {
+      return options.maxRows;
+    }
+    if (count <= options.maxRows) return count;
+  }
+  return options.maxRows;
+}
+
+async function chatContextOptions(
+  ctx: ActionCtx,
+  args: { agentThreadId: string; promptMessageId: string }
+): Promise<ContextOptions> {
+  try {
+    const probe = await ctx.runQuery(components.agent.messages.listMessagesByThreadId, {
+      threadId: args.agentThreadId,
+      excludeToolMessages: CHAT_CONTEXT_OPTIONS.excludeToolMessages,
+      paginationOpts: { numItems: CHAT_HISTORY_PROBE_ROWS, cursor: null },
+      upToAndIncludingMessageId: args.promptMessageId,
+      order: "desc",
+      statuses: ["success"],
+    });
+    const recentMessages = chatHistoryWindowRows(probe.page, {
+      maxRows: CHAT_CONTEXT_OPTIONS.recentMessages,
+      chunkTurns: CHAT_HISTORY_CHUNK_TURNS,
+      complete: probe.isDone,
+    });
+    return recentMessages === CHAT_CONTEXT_OPTIONS.recentMessages
+      ? CHAT_CONTEXT_OPTIONS
+      : { ...CHAT_CONTEXT_OPTIONS, recentMessages };
+  } catch (error) {
+    // The window only affects caching; the plain bound is always safe.
+    console.error("chat history window probe failed", safeErrorDetails(error));
+    return CHAT_CONTEXT_OPTIONS;
+  }
+}
+
 export const buildChatTools = (bannedWordsWaived: boolean, allowBrain = false) => ({
   proposeEdit: makeProposeEdit(bannedWordsWaived),
   proposeReplacements: makeProposeReplacements(bannedWordsWaived),
@@ -510,9 +600,15 @@ export const reportChatAgent = new Agent(components.agent, {
   tools: CHAT_TOOLS,
   // BNH-16: durably log billed usage for every model step without turning a
   // successful streamed response into a chat failure.
-  usageHandler: async (ctx, { threadId, userId, model, usage }) => {
+  usageHandler: async (ctx, { threadId, userId, model, usage, providerMetadata }) => {
     const cacheCreationInputTokens =
       usage.inputTokenDetails.cacheWriteTokens ?? 0;
+    // The AI SDK passes Anthropic's raw usage through; its cache_creation
+    // breakdown says how much of the write used the 1-hour TTL (2x input).
+    const cacheCreation1hInputTokens = Math.min(
+      anthropicCacheWrite1hTokens(providerMetadata?.anthropic?.usage) ?? 0,
+      cacheCreationInputTokens
+    );
     const cacheReadInputTokens =
       usage.inputTokenDetails.cacheReadTokens ?? 0;
     const totalInputTokens = usage.inputTokens ?? 0;
@@ -532,10 +628,13 @@ export const reportChatAgent = new Agent(components.agent, {
         model,
         inputTokens,
         outputTokens: usage.outputTokens ?? 0,
-        ...(cacheCreationInputTokens
-          ? { cacheCreationInputTokens }
+        // Always recorded, zero included, so a row with no cache activity
+        // is distinguishable from a row written before caching was tracked.
+        cacheCreationInputTokens,
+        cacheReadInputTokens,
+        ...(cacheCreation1hInputTokens
+          ? { cacheCreation1hInputTokens }
           : {}),
-        ...(cacheReadInputTokens ? { cacheReadInputTokens } : {}),
         createdAt: Date.now(),
       });
     } catch (error) {
@@ -617,7 +716,7 @@ export const streamChatReply = internalAction({
       // CAP-4: the action assembles nothing. `buildChatTurnRequest` owns the
       // whole request shape, so the system string carries only policy plus the
       // writer's own style (byte-stable across turns) and every piece of
-      // evidence travels in one ephemeral user-role message, delimited,
+      // evidence travels in ephemeral user-role messages, delimited,
       // neutralized and budgeted.
       const turn = buildChatTurnRequest({
         context,
@@ -642,6 +741,7 @@ export const streamChatReply = internalAction({
         promptMessageId: args.promptMessageId,
       });
       if (!stillActive) return;
+      const contextOptions = await chatContextOptions(ctx, args);
 
       const result = await reportChatAgent.streamText(
         ctx,
@@ -651,9 +751,10 @@ export const streamChatReply = internalAction({
           system: turn.system,
           // Ephemeral: with `promptMessageId` set the agent library saves no
           // input messages, so the evidence never enters thread history.
+          // The context handler below places them around the history.
           messages: turn.messages,
           tools: buildChatTools(styleOverrides.bannedWords, args.allowBrain === true),
-          providerOptions: { anthropic: CHAT_THINKING },
+          providerOptions: CHAT_PROVIDER_OPTIONS,
           maxOutputTokens: CHAT_MAX_OUTPUT_TOKENS,
           // Must run upstream of the agent's smoothStream — see the module
           // comment. Without it, multi-step tool turns lose the thinking
@@ -667,7 +768,11 @@ export const streamChatReply = internalAction({
         },
         {
           saveStreamDeltas: true,
-          contextOptions: CHAT_CONTEXT_OPTIONS,
+          contextOptions,
+          // Evidence head before the history, per-turn tail after the
+          // prompt: see arrangeChatContext for the cache layout.
+          contextHandler: async (_ctx, parts) =>
+            arrangeChatContext(turn.headCount, parts),
         }
       );
       await result.consumeStream();

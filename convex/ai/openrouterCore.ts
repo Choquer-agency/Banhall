@@ -23,11 +23,36 @@ export interface GenerationResponse {
 /** JSON Schema for a tool input (matches Anthropic.Tool.InputSchema). */
 export type ToolInputSchema = { type: "object"; [key: string]: unknown };
 
+/** Anthropic prompt-cache breakpoint (cost phase 1). */
+export type GenerationCacheControl = { type: "ephemeral"; ttl?: "5m" | "1h" };
+
+/**
+ * One text block of a message. A message sent as blocks carries a cache
+ * breakpoint after its shared prefix: the direct Anthropic SDK sends the
+ * blocks as they are, and the OpenRouter conversion keeps the breakpoint for
+ * Anthropic models and joins the text for every other provider, whose
+ * caching is automatic on an identical prefix.
+ */
+export type GenerationTextBlock = {
+  type: "text";
+  text: string;
+  cache_control?: GenerationCacheControl;
+};
+
+export type GenerationMessageContent = string | GenerationTextBlock[];
+
+/** A message's text as one string, whatever its shape. */
+export function messageText(content: GenerationMessageContent): string {
+  return typeof content === "string"
+    ? content
+    : content.map((block) => block.text).join("");
+}
+
 export interface GenerationMessageParams {
   model: string;
   max_tokens: number;
   system?: string;
-  messages: Array<{ role: "user" | "assistant"; content: string }>;
+  messages: Array<{ role: "user" | "assistant"; content: GenerationMessageContent }>;
   tools?: Array<{
     name: string;
     description?: string;
@@ -47,7 +72,10 @@ export interface GenerationClient {
 export type ChatCompletionsBody = {
   model: string;
   max_tokens: number;
-  messages: Array<{ role: "system" | "user" | "assistant"; content: string }>;
+  messages: Array<{
+    role: "system" | "user" | "assistant";
+    content: string | GenerationTextBlock[];
+  }>;
   usage: { include: true };
   tools?: Array<{
     type: "function";
@@ -73,7 +101,23 @@ export const OPENROUTER_CONVERSION = {
   usageRequest: { include: true },
   thinkingRule: "omit-anthropic-thinking-control",
   maxTokensRule: "apply-registered-model-reasoning-headroom",
+  // Cost phase 1: block content keeps its cache breakpoints only for
+  // Anthropic models (OpenRouter passes cache_control through to them);
+  // other providers cache an identical prefix automatically, so their
+  // blocks are joined into the same single string as before.
+  cacheControlRule: "keep-text-blocks-for-anthropic-models-else-join",
+  cacheControlModelPrefix: "anthropic/",
 } as const;
+
+function convertContent(
+  model: string,
+  content: GenerationMessageContent
+): string | GenerationTextBlock[] {
+  if (typeof content === "string") return content;
+  return model.startsWith(OPENROUTER_CONVERSION.cacheControlModelPrefix)
+    ? content.map((block) => ({ ...block }))
+    : messageText(content);
+}
 
 export function toChatCompletions(
   params: GenerationMessageParams,
@@ -93,7 +137,10 @@ export function toChatCompletions(
       params.system
         ? [{ role: OPENROUTER_CONVERSION.systemRole, content: params.system }]
         : []),
-      ...params.messages,
+      ...params.messages.map((message) => ({
+        role: message.role,
+        content: convertContent(params.model, message.content),
+      })),
     ],
     usage: OPENROUTER_CONVERSION.usageRequest,
   };
@@ -200,7 +247,11 @@ export type ChatCompletionsResponse = {
     prompt_tokens?: number;
     completion_tokens?: number;
     cost?: number;
-    prompt_tokens_details?: { cached_tokens?: number };
+    prompt_tokens_details?: {
+      cached_tokens?: number;
+      /** Tokens written to the provider cache (Anthropic models). */
+      cache_write_tokens?: number;
+    };
   };
   error?: { message?: string; code?: number };
 };
@@ -275,10 +326,41 @@ export function requireTextResponse(
  * keep token columns consistent across gateways. Cost accuracy does not depend
  * on this split — usage.cost is the provider's exact charge.
  */
-export function openRouterUsage(body: ChatCompletionsResponse): {
+/**
+ * The TTL the request asked its cache writes to use: "1h" when any breakpoint
+ * in the body asks for the 1-hour TTL, "5m" when breakpoints exist but none
+ * does, null when there are none. OpenRouter reports one write count with no
+ * TTL split, so a request mixing both is priced as 1-hour: an upper bound,
+ * never an undercount. Generation requests carry a single breakpoint.
+ */
+export function requestCacheWriteTtl(body: unknown): "1h" | "5m" | null {
+  let found: "1h" | "5m" | null = null;
+  const visit = (value: unknown): void => {
+    if (found === "1h" || !value || typeof value !== "object") return;
+    if (Array.isArray(value)) {
+      value.forEach(visit);
+      return;
+    }
+    const record = value as Record<string, unknown>;
+    const control = record.cache_control;
+    if (control && typeof control === "object") {
+      found = (control as { ttl?: unknown }).ttl === "1h" ? "1h" : (found ?? "5m");
+    }
+    for (const nested of Object.values(record)) visit(nested);
+  };
+  visit(body);
+  return found;
+}
+
+export function openRouterUsage(
+  body: ChatCompletionsResponse,
+  options: { cacheWriteTtl?: "1h" | "5m" | null } = {}
+): {
   inputTokens: number;
   outputTokens: number;
   cacheReadInputTokens: number;
+  cacheCreationInputTokens?: number;
+  cacheCreation1hInputTokens?: number;
   costUsd?: number;
 } | null {
   const usage = body.usage;
@@ -290,6 +372,9 @@ export function openRouterUsage(body: ChatCompletionsResponse): {
   const promptTokens = count(usage.prompt_tokens);
   const completionTokens = count(usage.completion_tokens);
   const cachedTokens = count(usage.prompt_tokens_details?.cached_tokens);
+  const cacheWriteTokens = count(
+    usage.prompt_tokens_details?.cache_write_tokens
+  );
   const cost = count(usage.cost);
   if (promptTokens === null && completionTokens === null) {
     return null;
@@ -299,10 +384,18 @@ export function openRouterUsage(body: ChatCompletionsResponse): {
     cachedTokens ?? 0,
     prompt
   );
+  // Cache writes are also part of prompt_tokens (Anthropic models behind
+  // OpenRouter); subtract them too so inputTokens stays the uncached count.
+  const written = Math.min(cacheWriteTokens ?? 0, prompt - cached);
   return {
-    inputTokens: prompt - cached,
+    inputTokens: prompt - cached - written,
     outputTokens: completionTokens ?? 0,
     cacheReadInputTokens: cached,
+    ...(written > 0 ? { cacheCreationInputTokens: written } : {}),
+    // TTL attribution for fallback pricing when usage.cost is missing.
+    ...(written > 0 && options.cacheWriteTtl === "1h"
+      ? { cacheCreation1hInputTokens: written }
+      : {}),
     ...(cost !== null ? { costUsd: cost } : {}),
   };
 }

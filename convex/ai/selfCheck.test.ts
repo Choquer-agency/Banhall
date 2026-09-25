@@ -121,7 +121,10 @@ function userText(params: GenerationMessageParams | Anthropic.MessageCreateParam
 }
 function draftSectionOf(user: string): Section | null {
   for (const section of ["242", "244", "246"] as const) {
-    if (user.startsWith(SECTION_REQUESTS[section].userPrefix)) return section;
+    // Since cost phase 1 the three lines share their opening block; the
+    // line's own instructions open with its task marker.
+    const request = SECTION_REQUESTS[section];
+    if (user.startsWith(request.userPrefix) && user.includes(request.taskMarker)) return section;
   }
   return null;
 }

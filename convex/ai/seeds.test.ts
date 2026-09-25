@@ -10,6 +10,7 @@ import { loadSeedDispatchSnapshot } from "../lib/seedSnapshotLoader";
 import { emptySelectionRevision } from "../lib/seedRevisions";
 import type { PdSubsectionRoleId } from "../../shared/pdSubsections";
 import { SEED_PROMPT_PROGRAM } from "./promptDefinitions";
+import { seedToolSchema } from "../lib/seedContract";
 
 const modules = Object.fromEntries(
   Object.entries(import.meta.glob("../**/*.ts")).map(([path, load]) => [
@@ -488,6 +489,9 @@ describe("seed Node action request boundary", () => {
     });
     const system = requestText(body.system);
     const user = requestText(body.messages[0].content);
+    // Cost phase 1: the role-independent schema, so every role shares the
+    // cached tools prefix.
+    expect(body.tools[0].input_schema).toEqual(seedToolSchema());
     expect(system).toContain("Return only the forced tool object");
     expect(system).not.toContain("The controller became unstable");
     expect(user).toContain("The controller became unstable");
@@ -502,6 +506,77 @@ describe("seed Node action request boundary", () => {
         .collect()
     );
     expect(seeds).toHaveLength(3);
+  });
+
+  it("keeps an original-transcript citation source_supported in digest mode (cost phase 1)", async () => {
+    const t = convexTest(schema, modules);
+    const fixture = await seedAttempt(t);
+    const excerpt = "The controller became unstable at peak load";
+    const { transcriptSourceId } = await t.run(async (ctx) => {
+      const transcriptSource = (await ctx.db
+        .query("generationSources")
+        .withIndex("by_generationId", (q) => q.eq("generationId", fixture.generationId))
+        .collect()).find((row) => row.kind === "transcript")!;
+      const transcriptId = await ctx.db.insert("transcripts", {
+        projectId: fixture.projectId,
+        content: transcriptSource.content,
+        createdAt: 1,
+      });
+      await ctx.db.patch(transcriptSource._id, { transcriptId });
+      await ctx.db.insert("generationSources", {
+        generationId: fixture.generationId,
+        projectId: fixture.projectId,
+        kind: "transcript_digest",
+        label: "Frozen interview",
+        transcriptId,
+        content: "DIGEST: controller unstable at peak load.",
+        contentHash: "sha256:digest",
+        truncated: false,
+        originalLength: 41,
+        capturedAt: 1,
+      });
+      return { transcriptSourceId: transcriptSource._id };
+    });
+    const citedSeeds = validSeeds.map((seed, index) =>
+      index === 0
+        ? {
+            ...seed,
+            // A citation reused from a Brief entry, which cites the original
+            // transcript rather than its digest.
+            provenance: [{
+              sourceId: transcriptSourceId,
+              startOffset: 0,
+              endOffset: excerpt.length,
+              exactExcerpt: excerpt,
+            }],
+          }
+        : seed
+    );
+    const requests: Request[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn<typeof fetch>(async (input, init) => {
+        requests.push(new Request(input, init));
+        return providerResponse({ seeds: citedSeeds }, 1);
+      })
+    );
+
+    await t.action(generateBatchRef, { batchId: fixture.batchId });
+
+    const body = await requests[0]!.json();
+    const user = requestText(body.messages[0].content);
+    // The prompt reads the digest only...
+    expect(user).toContain("DIGEST: controller unstable at peak load.");
+    expect(user).not.toContain("the available model could not predict");
+    // ...while validation still knows the original transcript.
+    const seeds = await t.run((ctx) =>
+      ctx.db
+        .query("seeds")
+        .withIndex("by_batchId", (q) => q.eq("batchId", fixture.batchId))
+        .collect()
+    );
+    const cited = seeds.find((seed) => seed.bullets[0] === citedSeeds[0].bullets[0]);
+    expect(cited).toMatchObject({ support: "source_supported" });
   });
 
   it("sends the dispatch-time predecessor wording after the live selection is edited", async () => {
