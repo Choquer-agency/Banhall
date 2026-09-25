@@ -340,21 +340,11 @@ describe("generation prompt program", () => {
       "iterative",
       "single",
     ]);
-    const seedRoleIds = PD_SUBSECTIONS.map(({ roleId }) => roleId).sort();
-    expect(
-      Object.keys(generationPromptProgram.calls.seeds.schemaByRole).sort()
-    ).toEqual(seedRoleIds);
-    expect(
-      Object.keys(generationPromptProgram.calls.seedFeedback.schemaByRole).sort()
-    ).toEqual(seedRoleIds);
-    for (const roleId of seedRoleIds) {
-      expect(generationPromptProgram.calls.seeds.schemaByRole[roleId]).toEqual(
-        seedToolSchema(roleId, "batch")
-      );
-      expect(
-        generationPromptProgram.calls.seedFeedback.schemaByRole[roleId]
-      ).toEqual(seedToolSchema(roleId, "feedback"));
-    }
+    // Cost phase 1: one provider schema for every role and both modes.
+    expect(generationPromptProgram.calls.seeds.schema).toEqual(seedToolSchema());
+    expect(generationPromptProgram.calls.seedFeedback.schema).toEqual(seedToolSchema());
+    expect(generationPromptProgram.templates.seeds.roles.map(({ roleId }) => roleId).sort())
+      .toEqual(PD_SUBSECTIONS.map(({ roleId }) => roleId).sort());
     const serialized = JSON.stringify(generationPromptProgram);
     expect(serialized).toContain("post-terminal-qa-and-chronology");
     expect(serialized).toContain("one-shot-ghost-candidate-pipeline");

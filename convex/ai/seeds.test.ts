@@ -10,6 +10,7 @@ import { loadSeedDispatchSnapshot } from "../lib/seedSnapshotLoader";
 import { emptySelectionRevision } from "../lib/seedRevisions";
 import type { PdSubsectionRoleId } from "../../shared/pdSubsections";
 import { SEED_PROMPT_PROGRAM } from "./promptDefinitions";
+import { seedToolSchema } from "../lib/seedContract";
 
 const modules = Object.fromEntries(
   Object.entries(import.meta.glob("../**/*.ts")).map(([path, load]) => [
@@ -488,6 +489,9 @@ describe("seed Node action request boundary", () => {
     });
     const system = requestText(body.system);
     const user = requestText(body.messages[0].content);
+    // Cost phase 1: the role-independent schema, so every role shares the
+    // cached tools prefix.
+    expect(body.tools[0].input_schema).toEqual(seedToolSchema());
     expect(system).toContain("Return only the forced tool object");
     expect(system).not.toContain("The controller became unstable");
     expect(user).toContain("The controller became unstable");

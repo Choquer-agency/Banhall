@@ -223,7 +223,9 @@ export const generateBatch = internalAction({
         user: request.userBlocks,
         toolName: SEED_PROMPT_PROGRAM.request.toolName,
         description: SEED_PROMPT_PROGRAM.request.description,
-        schema: seedToolSchema(claim.batch.roleId, mode),
+        // One schema for every role and mode keeps the cached tools
+        // prefix shared; validatedBatchSchema enforces role and mode.
+        schema: seedToolSchema(),
         maxTokens: SEED_PROMPT_PROGRAM.request.maxTokens,
         model: claim.batch.model,
         attempts: 2,

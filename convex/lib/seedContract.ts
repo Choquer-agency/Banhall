@@ -347,6 +347,15 @@ function validatedProvenance(args: {
   };
 }
 
+function withoutAdvancementLinks(candidate: SeedCandidate): SeedCandidate {
+  const {
+    uncertaintySeedId: _uncertainty,
+    experimentSeedIds: _experiments,
+    ...rest
+  } = candidate;
+  return rest;
+}
+
 export function validateSeed(args: {
   roleId: PdSubsectionRoleId;
   seed: unknown;
@@ -360,7 +369,13 @@ export function validateSeed(args: {
       issues: [{ code: "INVALID_SHAPE", message: "Seed has an invalid shape" }],
     };
   }
-  const { candidate } = parsed;
+  // Link fields belong to specific advancements only. The shared provider
+  // schema allows them on every role, so they are dropped elsewhere rather
+  // than stored on a Seed they cannot describe.
+  const candidate =
+    args.roleId === "specific_advancements"
+      ? parsed.candidate
+      : withoutAdvancementLinks(parsed.candidate);
   const issues: SeedValidationIssue[] = [];
   if (candidate.bullets.length < 1 || candidate.bullets.length > 2) {
     issues.push({
@@ -498,22 +513,25 @@ export type SeedToolInputSchema = {
   [key: string]: unknown;
 };
 
-export function seedToolSchema(
-  roleId: PdSubsectionRoleId,
-  mode: SeedBatchMode
-): SeedToolInputSchema {
-  const advancementProperties =
-    roleId === "specific_advancements"
-      ? {
-          uncertaintySeedId: { type: "string" },
-          experimentSeedIds: {
-            type: "array",
-            minItems: 1,
-            uniqueItems: true,
-            items: { type: "string" },
-          },
-        }
-      : {};
+/**
+ * The forced tool schema every Seed request sends, whatever the role or
+ * mode. Role and mode constraints live in application validation.
+ */
+export function seedToolSchema(): SeedToolInputSchema {
+  // One schema for every role and both modes (cost phase 1): the tool
+  // definition renders before the system prompt, so a role- or mode-specific
+  // schema would split the cached prefix. Link fields are optional for every
+  // role and the array spans both modes' bounds; validateBatch and
+  // validateSeed enforce the role's links and the mode's count.
+  const advancementProperties = {
+    uncertaintySeedId: { type: "string" },
+    experimentSeedIds: {
+      type: "array",
+      minItems: 1,
+      uniqueItems: true,
+      items: { type: "string" },
+    },
+  };
   return {
     type: "object",
     additionalProperties: false,
@@ -521,8 +539,8 @@ export function seedToolSchema(
     properties: {
       seeds: {
         type: "array",
-        minItems: mode === "batch" ? MIN_BATCH_SEEDS : MIN_FEEDBACK_SEEDS,
-        maxItems: mode === "batch" ? MAX_BATCH_SEEDS : MAX_FEEDBACK_SEEDS,
+        minItems: Math.min(MIN_BATCH_SEEDS, MIN_FEEDBACK_SEEDS),
+        maxItems: Math.max(MAX_BATCH_SEEDS, MAX_FEEDBACK_SEEDS),
         items: {
           type: "object",
           additionalProperties: false,

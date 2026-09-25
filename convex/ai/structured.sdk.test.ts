@@ -181,7 +181,7 @@ test("section drafts 242 and 244 share a byte-identical cached prefix at the SDK
   expect(JSON.stringify(draft242.system)).not.toContain("cache_control");
 });
 
-test("seed roles share tools, system and the cached source block; the repair keeps the prefix", async () => {
+test("every seed role and both modes share tools, system and the cached source block; the repair keeps the prefix", async () => {
   const t = convexTest(schema, modules);
   const bodies: WireBody[] = [];
   let call = 0;
@@ -194,7 +194,6 @@ test("seed roles share tools, system and the cached source block; the repair kee
       : [{ type: "tool_use", id: `tool-${call}`, name: SEED_PROMPT_PROGRAM.request.toolName, input: { seeds: [] } }]);
   }));
   const common = {
-    mode: "batch" as const,
     brief: { storyline: "A frozen storyline.", entries: ["Complete Brief item."] },
     sources: [{ sourceId: "source-1", label: "Interview", kind: "transcript",
       content: "The team measured seal fatigue at 400 kPa. ".repeat(50), contentHash: "hash-1" }],
@@ -202,27 +201,29 @@ test("seed roles share tools, system and the cached source block; the repair kee
     writerSettings: { profile: "Frozen profile.", styleOverrides: {} },
     lengthTarget: "standard",
   };
-  const roles = ["company_context", "goal_problem"] as const;
-  const requests = roles.map((roleId) => buildSeedPrompt({
-    ...common,
-    objective: PD_SUBSECTIONS.find((role) => role.roleId === roleId)?.objective ?? roleId,
-  }));
-  for (const request of requests) {
-    expect(request.userBlocks.map((block) => block.text).join("")).toBe(request.user);
+  const runs = PD_SUBSECTIONS.flatMap((role) =>
+    (["batch", "feedback"] as const).map((mode) => ({
+      roleId: role.roleId,
+      mode,
+      request: buildSeedPrompt({ ...common, mode, objective: role.objective }),
+    }))
+  );
+  for (const run of runs) {
+    expect(run.request.userBlocks.map((block) => block.text).join("")).toBe(run.request.user);
   }
   await t.action(async (ctx) => {
-    for (const [index, roleId] of roles.entries()) {
+    for (const run of runs) {
       await generateStructured(
         instrumentedAnthropic(ctx, {
-          callSite: `generation:seeds:${roleId}`,
+          callSite: `generation:${run.mode === "batch" ? "seeds" : "seedFeedback"}:${run.roleId}`,
           attribution: { generationId: "generation-seeds" as never },
         }),
         {
-          system: requests[index].system,
-          user: requests[index].userBlocks,
+          system: run.request.system,
+          user: run.request.userBlocks,
           toolName: SEED_PROMPT_PROGRAM.request.toolName,
           description: SEED_PROMPT_PROGRAM.request.description,
-          schema: seedToolSchema(roleId, "batch") as never,
+          schema: seedToolSchema() as never,
           maxTokens: SEED_PROMPT_PROGRAM.request.maxTokens,
           model: "claude-sonnet-5",
         },
@@ -230,16 +231,25 @@ test("seed roles share tools, system and the cached source block; the repair kee
     }
   });
   await t.finishAllScheduledFunctions(vi.runAllTimers);
-  // Role one: first attempt plus its repair; role two: one attempt.
-  expect(bodies).toHaveLength(3);
-  const [firstTry, repair, secondRole] = bodies;
-  expect(secondRole.tools).toEqual(firstTry.tools);
-  expect(secondRole.system).toEqual(firstTry.system);
-  expect(wireBlocks(secondRole)[0]).toEqual(wireBlocks(firstTry)[0]);
-  expect(wireBlocks(firstTry)[0].cache_control).toEqual({ type: "ephemeral", ttl: "1h" });
-  expect(wireBlocks(firstTry)[0].text).toContain("seal fatigue at 400 kPa");
-  expect(wireBlocks(firstTry)[0].text).not.toContain("SUBSECTION OBJECTIVE");
-  expect(wireBlocks(secondRole)[1]).not.toEqual(wireBlocks(firstTry)[1]);
+  // The first run spends its repair; every other run is one request.
+  expect(bodies).toHaveLength(runs.length + 1);
+  const [firstTry, repair, ...others] = bodies;
+  // One schema carries every role's fields and both modes' bounds.
+  const tools = JSON.stringify(firstTry.tools);
+  expect(tools).toContain("experimentSeedIds");
+  expect(tools).toContain('"minItems":1,"maxItems":5');
+  const firstBlock = wireBlocks(firstTry)[0];
+  expect(firstBlock.cache_control).toEqual({ type: "ephemeral", ttl: "1h" });
+  expect(firstBlock.text).toContain("seal fatigue at 400 kPa");
+  expect(firstBlock.text).not.toContain("SUBSECTION OBJECTIVE");
+  for (const other of others) {
+    // Tools render first, then system, then the cached source block: all
+    // three must be byte-identical for every role and both modes.
+    expect(JSON.stringify(other.tools)).toBe(JSON.stringify(firstTry.tools));
+    expect(other.system).toEqual(firstTry.system);
+    expect(wireBlocks(other)[0]).toEqual(firstBlock);
+  }
+  expect(new Set(others.map((body) => wireBlocks(body)[1].text)).size).toBe(others.length);
   // The repair re-sends the same blocks and appends the scaffold uncached.
   expect(wireBlocks(repair).slice(0, 2)).toEqual(wireBlocks(firstTry));
   expect(wireBlocks(repair)[2].text).toContain(STRUCTURED_OUTPUT_PROGRAM.repairScaffold.prefix.trim());
