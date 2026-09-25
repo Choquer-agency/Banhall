@@ -1384,16 +1384,17 @@
             side="top"
             align="start"
             sideOffset={8}
-            class="z-[100] w-64 rounded-xl border border-line bg-white p-1 shadow-lg"
+            class="z-[100] w-72 rounded-xl border border-line bg-white p-1 shadow-lg"
           >
             <DropdownMenu.Item
               onSelect={() => fileInputEl?.click()}
+              title="Add a document to project context"
               class="flex min-h-8 w-full items-center gap-2 rounded-md px-2 text-[13px] text-ink outline-none hover:bg-primary-wash focus:bg-primary-wash"
             >
               <svg class="size-4 shrink-0 text-ink-secondary" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8l-5-5Z M14 3v5h5 M12 12v6 M9 15h6" />
               </svg>
-              Add a document to project context
+              Add a document
             </DropdownMenu.Item>
             {#if !pendingResearch}
               <DropdownMenu.CheckboxItem
