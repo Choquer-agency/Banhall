@@ -133,7 +133,7 @@
         class={`relative overflow-hidden rounded-full p-[2px] outline-none transition-[opacity,transform] duration-200 ease-out motion-reduce:transition-none ${
           collapsed ? "pointer-events-none -translate-y-2 opacity-0" : "translate-y-0 opacity-100"
         }`}
-        style={`background:${TRACK};box-shadow:0 8px 24px #16211F14, 0 0 14px #8438FF29`}
+        style={`background:${TRACK};box-shadow:var(--shadow-toast-soft), 0 0 14px #8438FF29`}
       >
         <!-- Border progress: the Aurora fill scales from the left edge. -->
         <span
