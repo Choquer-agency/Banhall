@@ -1,5 +1,6 @@
 import type Anthropic from "@anthropic-ai/sdk";
 import { generateStructured } from "../structured";
+import type { GenerationClient } from "../openrouterCore";
 
 /**
  * Section-scoped retrieval queries for The Brain, extracted from the raw
@@ -73,7 +74,7 @@ export const RETRIEVAL_BRIEF_REQUEST = {
   toolDescription:
     "Submit the four retrieval queries extracted from the transcript.",
   maxTokens: 1024,
-  modelSelector: "fixed-retrieval-brief-model",
+  modelSelector: "frozen-retrieval-brief-role-model",
 } as const;
 
 /**
@@ -82,9 +83,11 @@ export const RETRIEVAL_BRIEF_REQUEST = {
  * — brief extraction must never break generation.
  */
 export async function buildRetrievalBrief(
-  client: Anthropic,
+  client: GenerationClient | Anthropic,
   title: string,
-  transcript: string
+  transcript: string,
+  // The retrieval_brief role's model, frozen on the generation.
+  model: string = RETRIEVAL_BRIEF_MODEL
 ): Promise<RetrievalBrief | null> {
   try {
     const brief = await generateStructured<RetrievalBrief>(client, {
@@ -94,7 +97,7 @@ export async function buildRetrievalBrief(
       description: RETRIEVAL_BRIEF_REQUEST.toolDescription,
       schema: RETRIEVAL_BRIEF_SCHEMA,
       maxTokens: RETRIEVAL_BRIEF_REQUEST.maxTokens,
-      model: RETRIEVAL_BRIEF_MODEL,
+      model,
     });
     // Guard against a model returning empty strings — worse than the fallback.
     if (!brief.problem?.trim() || !brief.uncertainty?.trim()) return null;

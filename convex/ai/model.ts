@@ -2,7 +2,9 @@ import {
   CANDIDATE_MODELS,
   MODEL,
   RANDOM_COMPARISON_GATEWAY,
+  modelById,
   type CandidateModelId,
+  type ModelEntry,
 } from "../../shared/generationModels";
 
 export { CANDIDATE_MODELS, MODEL };
@@ -37,19 +39,22 @@ export const CANDIDATE_MODE_ROUTING = {
   },
 } as const;
 
-type CandidateModel = (typeof CANDIDATE_MODELS)[number];
+type CandidateModel = ModelEntry;
 
 /**
- * Resolve a persisted compare pair to model entries: filters to known
- * CANDIDATE_MODELS ids and dedupes. Returns the two entries when exactly 2
- * distinct valid ids remain; otherwise undefined (caller decides fallback).
+ * Resolve a persisted compare pair to model entries: filters to known ids
+ * (seed, or registered from the generation's frozen catalog entries) and
+ * dedupes. Returns the two entries when exactly 2 distinct valid ids remain;
+ * otherwise undefined (caller decides fallback). `lookup` lets a mutation
+ * resolve against the catalog table instead of the runtime registry.
  */
 export function resolveCompareModels(
-  compareModelIds?: string[]
+  compareModelIds?: string[],
+  lookup: (id: string) => CandidateModel | undefined = modelById
 ): CandidateModel[] | undefined {
   if (!compareModelIds) return undefined;
   const valid = [...new Set(compareModelIds)]
-    .map((id) => CANDIDATE_MODELS.find((model) => model.id === id))
+    .map((id) => lookup(id))
     .filter((model): model is CandidateModel => model !== undefined);
   return valid.length === CANDIDATE_MODE_ROUTING.compare.explicitSelectionCount
     ? valid
@@ -57,12 +62,15 @@ export function resolveCompareModels(
 }
 
 /**
- * Two distinct random entries — Anthropic models only. A random draw must
+ * Two distinct random entries, Anthropic models only. A random draw must
  * never silently require the OpenRouter key or pick up a different cost
- * profile; OpenAI/Google models are always an explicit writer choice.
+ * profile; OpenAI/Google models are always an explicit writer choice. The
+ * pool is the models a writer may pick today (the catalog's enabled set).
  */
-export function randomComparePair(): CandidateModel[] {
-  const shuffled = CANDIDATE_MODELS.filter(
+export function randomComparePair(
+  pool: readonly CandidateModel[] = CANDIDATE_MODELS
+): CandidateModel[] {
+  const shuffled = pool.filter(
     (model) =>
       model.gateway === CANDIDATE_MODE_ROUTING.compare.randomPoolGateway
   );
@@ -75,7 +83,7 @@ export function randomComparePair(): CandidateModel[] {
 
 export function candidateModelsForMode(
   mode: CandidateMode,
-  singleModelId?: CandidateModelId,
+  singleModelId?: string,
   compareModelIds?: string[]
 ) {
   if (mode === "compare") {
@@ -85,7 +93,7 @@ export function candidateModelsForMode(
     // always persist exactly 2 ids.
     return (
       resolveCompareModels(compareModelIds) ??
-      CANDIDATE_MODELS.filter(
+      (CANDIDATE_MODELS as readonly CandidateModel[]).filter(
         (model) =>
           model.gateway === CANDIDATE_MODE_ROUTING.compare.legacyFallbackGateway
       )
@@ -96,14 +104,12 @@ export function candidateModelsForMode(
     mode === "iterative"
       ? CANDIDATE_MODE_ROUTING.iterative
       : CANDIDATE_MODE_ROUTING.single;
-  const selected = singleModelId
-    ? CANDIDATE_MODELS.find((model) => model.id === singleModelId)
-    : undefined;
+  // The selected id resolves through the registry, so a catalog model
+  // frozen on the generation (registered by the action) is honoured.
+  const selected = singleModelId ? modelById(singleModelId) : undefined;
   return [
     selected ??
-      CANDIDATE_MODELS.find(
-        (model) => model.id === routing.fallbackModelId
-      ) ??
-      CANDIDATE_MODELS[0],
+      modelById(routing.fallbackModelId) ??
+      (CANDIDATE_MODELS[0] as CandidateModel),
   ];
 }

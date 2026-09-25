@@ -11,6 +11,7 @@ import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { formatBrainExemplars } from "./brain/retrieve";
 import { buildRetrievalBrief } from "./brain/query";
+import type { GenerationClient } from "./openrouterCore";
 
 /**
  * Per-consumer Brain exemplar prompt blocks — each drafter sees exemplars of
@@ -68,7 +69,9 @@ export async function retrieveBrainBlocks(
     transcript: string;
     industry?: string | null;
     scienceCode?: string | null;
-    retrievalBriefClient: Anthropic;
+    retrievalBriefClient: GenerationClient | Anthropic;
+    /** The generation's frozen retrieval-brief model. */
+    retrievalBriefModel?: string;
     log: (line: string) => Promise<unknown>;
   }
 ): Promise<BrainExemplarBlocks> {
@@ -81,7 +84,8 @@ export async function retrieveBrainBlocks(
     const brief = await buildRetrievalBrief(
       params.retrievalBriefClient,
       params.title,
-      params.transcript
+      params.transcript,
+      params.retrievalBriefModel
     );
     const fallbackQuery = `${params.title}${BRAIN_GENERATION_QUERY_PROGRAM.fallbackTitleTranscriptSeparator}${params.transcript.slice(
       0,

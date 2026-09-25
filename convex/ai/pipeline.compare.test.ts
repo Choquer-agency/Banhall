@@ -249,7 +249,7 @@ describe("shared generation analysis", () => {
     expect(await t.run((ctx) => ctx.db.query("generationArtifacts").collect())).toEqual(before);
     expect(analyzerCalls()).toHaveLength(1);
     expect(analyzerCalls()[0][0].model).toBe(MODEL);
-    expect(analyzerCalls()[0][0].model).toBe(generationPromptProgram.calls.analyzer.model.compare.modelId);
+    expect(analyzerCalls()[0][0].model).toBe(generationPromptProgram.calls.analyzer.model.compare.legacyModelId);
     const artifacts = await t.run((ctx) => ctx.db.query("generationArtifacts").collect());
     const analyses = artifacts.filter((row) => row.kind === "analysis");
     expect(analyses).toHaveLength(1);
@@ -424,7 +424,7 @@ it("shares one analysis across Anthropic and OpenRouter candidates without chang
   await runCandidates(t);
   expect(analyzerCalls()).toHaveLength(1);
   expect(analyzerCalls()[0][0].model).toBe(MODEL);
-  expect(analyzerCalls()[0][0].model).toBe(generationPromptProgram.calls.analyzer.model.compare.modelId);
+  expect(analyzerCalls()[0][0].model).toBe(generationPromptProgram.calls.analyzer.model.compare.legacyModelId);
   expect(requests.some((request) => request.tool_choice?.function?.name === "submit_transcript_analysis")).toBe(false);
   const artifacts = await t.run((ctx) => ctx.db.query("generationArtifacts").collect());
   const analysis = JSON.parse(artifacts.find((row) => row.kind === "analysis")?.content ?? "null");

@@ -46,6 +46,7 @@ import { preserveReasoningSignature } from "./reasoningSignature";
 import { searchBrainExemplars, formatBrainExemplars } from "./brain/retrieve";
 import { safeErrorDetails } from "../lib/safeErrorDetails";
 import { anthropicCacheWrite1hTokens } from "./instrument";
+import { roleModelEntryRef } from "../lib/modelCatalogRefs";
 
 // ─── Agent-based chat (BNH-10 P2) ────────────────────────────────────────────
 // Parallel-run replacement for chatAgent.ts. The @convex-dev/agent component
@@ -742,12 +743,17 @@ export const streamChatReply = internalAction({
       });
       if (!stillActive) return;
       const contextOptions = await chatContextOptions(ctx, args);
+      // Model catalog: the chat role's current model (direct Anthropic only;
+      // the role never resolves to another gateway). A turn keeps the model
+      // it started with; the next turn picks up a switch.
+      const { entry: chatModel } = await ctx.runQuery(roleModelEntryRef, { role: "chat" });
 
       const result = await reportChatAgent.streamText(
         ctx,
         { threadId: args.agentThreadId },
         {
           promptMessageId: args.promptMessageId,
+          model: anthropic(chatModel.gateway === "anthropic" ? chatModel.id : MODEL),
           system: turn.system,
           // Ephemeral: with `promptMessageId` set the agent library saves no
           // input messages, so the evidence never enters thread history.

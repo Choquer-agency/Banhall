@@ -77,8 +77,11 @@ vi.mock("./ai/promptProgram", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./ai/promptProgram")>();
   return {
     ...actual,
-    currentPromptVersion: async () =>
-      summaryAdmissionProgram.promptVersion ?? await actual.currentPromptVersion(),
+    // Model catalog: actions stamp the per-generation version.
+    generationPromptVersion: async (
+      ...args: Parameters<typeof actual.generationPromptVersion>
+    ) =>
+      summaryAdmissionProgram.promptVersion ?? await actual.generationPromptVersion(...args),
   };
 });
 

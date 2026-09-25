@@ -110,19 +110,27 @@ export function settingsClassifierVersion(inputs: SettingsClassifierInputs): str
 }
 
 /**
- * settingsClassifierVersion applied to the real inputs. Passed to the
- * candidate query and to recordSettingsAnalysis, and nowhere else.
+ * settingsClassifierVersion applied to the real inputs for `model`. Passed
+ * to the candidate query and to recordSettingsAnalysis, and nowhere else.
+ * The model is part of the key on purpose: when the analysis role switches
+ * models, an analysis the old model cached is not served as the new one's
+ * (one fresh classification per document, then cached again).
  */
-export const SETTINGS_CLASSIFIER_VERSION = settingsClassifierVersion({
-  systemText: STYLE_ANALYSIS_SYSTEM_PROMPT,
-  userTemplate: buildStyleAnalysisPrompt("").user,
-  toolSchema: ANALYSIS_TOOL_SCHEMA,
-  toolName: STYLE_ANALYSIS_REQUEST.toolName,
-  toolDescription: STYLE_ANALYSIS_REQUEST.description,
-  maxTokens: STYLE_ANALYSIS_REQUEST.maxTokens,
-  inputCharLimit: STYLE_ANALYSIS_REQUEST.inputCharLimit,
-  model: MODEL,
-});
+export function settingsClassifierVersionFor(model: string): string {
+  return settingsClassifierVersion({
+    systemText: STYLE_ANALYSIS_SYSTEM_PROMPT,
+    userTemplate: buildStyleAnalysisPrompt("").user,
+    toolSchema: ANALYSIS_TOOL_SCHEMA,
+    toolName: STYLE_ANALYSIS_REQUEST.toolName,
+    toolDescription: STYLE_ANALYSIS_REQUEST.description,
+    maxTokens: STYLE_ANALYSIS_REQUEST.maxTokens,
+    inputCharLimit: STYLE_ANALYSIS_REQUEST.inputCharLimit,
+    model,
+  });
+}
+
+/** The classifier version on the analysis role's default model. */
+export const SETTINGS_CLASSIFIER_VERSION = settingsClassifierVersionFor(MODEL);
 
 export type ResolvedWriterSettings = {
   writerFlavor?: string;
@@ -139,6 +147,8 @@ type ResolverArgs = {
   /** Builds the instrumented client for a generation-owned call slot. */
   clientFor: (callSite: string) => GenerationClient | Anthropic;
   log: (line: string) => Promise<unknown>;
+  /** The generation's frozen analysis-role model (defaults to MODEL). */
+  model?: string;
 };
 
 function reasonOf(error: unknown): string {
@@ -156,7 +166,8 @@ async function safeLog(log: ResolverArgs["log"], line: string): Promise<void> {
 /** The categories a settings document legislates, per the PSOS-50 classifier. */
 export async function classifySettingsDocument(
   client: GenerationClient | Anthropic,
-  text: string
+  text: string,
+  model: string = MODEL
 ): Promise<StyleOverrideKey[]> {
   const { system, user } = buildStyleAnalysisPrompt(text);
   const analysis = await generateStructured<StyleAnalysis>(client, {
@@ -166,7 +177,7 @@ export async function classifySettingsDocument(
     description: STYLE_ANALYSIS_REQUEST.description,
     schema: ANALYSIS_TOOL_SCHEMA,
     maxTokens: STYLE_ANALYSIS_REQUEST.maxTokens,
-    model: MODEL,
+    model,
     validate: styleAnalysisSchema,
     // One attempt: generateReport waits on this call inside its 600 s action.
     attempts: 1,
@@ -186,11 +197,13 @@ async function logAppliedStyle(
 
 async function resolve(ctx: ResolverCtx, args: ResolverArgs): Promise<ResolvedWriterSettings> {
   const userArgs = args.requestedBy ? { userId: args.requestedBy } : {};
+  const model = args.model ?? MODEL;
+  const classifierVersion = settingsClassifierVersionFor(model);
   const candidate = await ctx.runQuery(
     internal.writerProfiles.getSettingsDocumentCandidate,
     {
       generationId: args.generationId,
-      classifierVersion: SETTINGS_CLASSIFIER_VERSION,
+      classifierVersion,
       ...userArgs,
     }
   );
@@ -214,14 +227,15 @@ async function resolve(ctx: ResolverCtx, args: ResolverArgs): Promise<ResolvedWr
       try {
         addressed = await classifySettingsDocument(
           args.clientFor(SETTINGS_CALL_SITE),
-          detected.text
+          detected.text,
+          model
         );
         waiverAnalysis = "analyzed";
         try {
           await ctx.runMutation(internal.writerProfiles.recordSettingsAnalysis, {
             projectId: args.projectId,
             contentHash: detected.contentHash,
-            classifierVersion: SETTINGS_CLASSIFIER_VERSION,
+            classifierVersion,
             addressedCategories: addressed,
           });
         } catch (error) {

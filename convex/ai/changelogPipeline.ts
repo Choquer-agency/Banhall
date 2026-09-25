@@ -13,13 +13,8 @@
 import { internalAction } from "../_generated/server";
 import { internal } from "../_generated/api";
 import { v } from "convex/values";
-import { instrumentedAnthropic } from "./instrument";
-import { CANDIDATE_MODELS } from "../../shared/generationModels";
+import { clientForRole } from "./providers";
 import { HUMAN_PROSE_FOR_OWN_WORDING } from "../../shared/humanProse";
-
-const SUMMARY_MODEL =
-  CANDIDATE_MODELS.find((m) => m.id.includes("haiku"))?.id ??
-  CANDIDATE_MODELS[0].id;
 
 /** First balanced JSON object in a string, or null. */
 function extractJson(text: string): {
@@ -106,12 +101,12 @@ export const publishDay = internalAction({
       .map((c) => `- ${c.subject}${c.body?.trim() ? `\n  ${c.body.trim().replace(/\n/g, "\n  ")}` : ""}`)
       .join("\n");
 
-    const client = instrumentedAnthropic(ctx, {
+    // Model catalog: the structured_helper role's model.
+    const { client, model } = await clientForRole(ctx, "structured_helper", {
       callSite: "changelog:daily_summary",
-      capability: "generation",
     });
     const response = await client.messages.create({
-      model: SUMMARY_MODEL,
+      model,
       max_tokens: 1200,
       system: SYSTEM,
       messages: [

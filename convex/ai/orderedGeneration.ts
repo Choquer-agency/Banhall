@@ -14,7 +14,12 @@ import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { v } from "convex/values";
 import type { FunctionReturnType } from "convex/server";
-import { clientForModel, normalizeProviderError, seedClientForModel } from "./providers";
+import {
+  clientForModel,
+  normalizeProviderError,
+  registerGenerationModels,
+  seedClientForModel,
+} from "./providers";
 import type { GenerationClient, GenerationMessageParams } from "./openrouterCore";
 import { parseTranscriptAnalysis } from "./analyzerAgent";
 import { runSection242Agent } from "./section242Agent";
@@ -61,7 +66,7 @@ import {
   type ModelVerdict,
 } from "../lib/selfCheckRules";
 import { noteDraft, type ComplianceNoteDraft } from "../lib/complianceNote";
-import { currentPromptVersion } from "./promptProgram";
+import { generationPromptVersion } from "./promptProgram";
 import type { PdSubsectionRoleId } from "../../shared/pdSubsections";
 
 const SECTION_AGENTS = {
@@ -78,7 +83,7 @@ export const startSummaryRecovery = internalAction({
     try {
       await ctx.runMutation(internal.generations.beginSummaryRecovery, {
         generationId: args.generationId,
-        promptVersion: await currentPromptVersion(),
+        promptVersion: await generationPromptVersion(ctx, args.generationId),
       });
     } catch (error) {
       const normalized = normalizeProviderError(error);
@@ -528,6 +533,8 @@ export const generateOrderedSection = internalAction({
   },
   returns: v.null(),
   handler: async (ctx, args): Promise<null> => {
+    // Model catalog: routing and output budgets read the frozen models.
+    await registerGenerationModels(ctx, args.generationId).catch(() => null);
     let claim: FunctionReturnType<
       typeof internal.generations.claimOrderedSectionRun
     >;
@@ -536,7 +543,7 @@ export const generateOrderedSection = internalAction({
         generationId: args.generationId,
         candidateRunId: args.candidateRunId,
         section: args.section,
-        promptVersion: await currentPromptVersion(),
+        promptVersion: await generationPromptVersion(ctx, args.generationId),
         payload: args.payload,
       });
     } catch (error) {
@@ -618,6 +625,8 @@ export const finalizeOrderedCandidate = internalAction({
   },
   returns: v.null(),
   handler: async (ctx, args): Promise<null> => {
+    // Model catalog: routing and output budgets read the frozen models.
+    await registerGenerationModels(ctx, args.generationId).catch(() => null);
     const complete = (
       fields: Omit<
         Parameters<typeof ctx.runMutation<typeof internal.generations.completeCandidateRun>>[1],
@@ -813,6 +822,8 @@ export const redraftSeedSection = internalAction({
   },
   returns: v.null(),
   handler: async (ctx, args): Promise<null> => {
+    // Model catalog: routing and output budgets read the frozen models.
+    await registerGenerationModels(ctx, args.generationId).catch(() => null);
     const fail = async (error: unknown) => {
       const normalized = normalizeProviderError(error);
       await ctx.runMutation(internal.generations.failRedraftSection, {
@@ -830,7 +841,7 @@ export const redraftSeedSection = internalAction({
         candidateRunId: args.candidateRunId,
         attemptStartedAt: args.attemptStartedAt,
         section: args.section,
-        promptVersion: await currentPromptVersion(),
+        promptVersion: await generationPromptVersion(ctx, args.generationId),
         payload: args.payload,
       });
     } catch (error) {
@@ -900,6 +911,8 @@ export const finalizeSeedRedraft = internalAction({
   },
   returns: v.null(),
   handler: async (ctx, { pass = 0, ...args }): Promise<null> => {
+    // Model catalog: routing and output budgets read the frozen models.
+    await registerGenerationModels(ctx, args.generationId).catch(() => null);
     // One consistency pass per action: a rerun is scheduled as a fresh
     // action, so reruns never add up past the action time limit.
     {

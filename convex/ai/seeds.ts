@@ -21,6 +21,7 @@ import { MalformedOutputError, messageText } from "./openrouterCore";
 import { generateStructured } from "./structured";
 import {
   normalizeProviderError,
+  registerGenerationModels,
   seedClientForModel,
 } from "./providers";
 import { SEED_PROMPT_PROGRAM } from "./promptDefinitions";
@@ -179,6 +180,8 @@ export const generateBatch = internalAction({
       batchId: args.batchId,
     });
     if (claim.kind !== "claimed") return null;
+    // Model catalog: the seed model routes by the generation's frozen entry.
+    await registerGenerationModels(ctx, claim.batch.generationId).catch(() => null);
 
     let requestsMade = 0;
     try {

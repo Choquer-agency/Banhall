@@ -13,17 +13,17 @@
 import { internalAction, type ActionCtx } from "../_generated/server";
 import { internal } from "../_generated/api";
 import { v } from "convex/values";
-import { instrumentedAnthropic } from "./instrument";
-import { clientForModel } from "./providers";
+import { clientForModel, registerGenerationModels } from "./providers";
+import { RETRIEVAL_BRIEF_MODEL } from "./brain/query";
 import { runAnalyzerAgent, type TranscriptAnalysis } from "./analyzerAgent";
 import { runGenerationBriefStage, deriveOrReuseBrief } from "./brief";
 import { runSection242Agent } from "./section242Agent";
 import { runSection244Agent } from "./section244Agent";
 import { runSection246Agent } from "./section246Agent";
-import { candidateModelsForMode } from "./model";
+import { MODEL, candidateModelsForMode } from "./model";
 import { normalizeProviderError } from "./providers";
 import {
-  anthropicCondenser,
+  condenserFor,
   describeGenerationFailure,
   ensureCondensedInputs,
 } from "./condense";
@@ -92,6 +92,7 @@ export const resumeSeedInitialization = internalAction({
   handler: async (ctx, args): Promise<null> => {
     const input = await ctx.runQuery(internal.generations.getGenerationInput, args);
     if (!input || input.gatedWorkflow !== "seeds") return null;
+    await registerGenerationModels(ctx, args.generationId);
     const model = candidateModelsForMode("iterative", input.singleModelId)[0];
     await finishSeedInitialization(ctx, args.generationId, input.projectId, model.id, input.requestedBy);
     return null;
@@ -123,8 +124,10 @@ export const startIterativeGeneration = internalAction({
     const genId = input.generationId;
     const projectId = input.projectId;
     const title = input.title || "Untitled Report";
+    // Model catalog: resolve the models frozen at reservation first.
+    const freeze = await registerGenerationModels(ctx, genId);
     // Iterative mode uses single-model semantics: the explicitly selected
-    // model, defaulting to Sonnet.
+    // model, defaulting to the writing role's model at reservation.
     const model = candidateModelsForMode("iterative", input.singleModelId)[0];
     // Routed by the selected model's gateway (Anthropic direct / OpenRouter).
     const clientFor = (
@@ -140,11 +143,11 @@ export const startIterativeGeneration = internalAction({
           ...(learningDigestIds?.length ? { learningDigestIds } : {}),
         },
       });
-    // The Brain's retrieval brief always runs on Anthropic Haiku — never the
-    // candidate model.
-    const briefClient = instrumentedAnthropic(ctx, {
+    // The Brain's retrieval brief runs on the retrieval_brief role's model
+    // frozen at reservation, never the candidate model.
+    const briefModel = freeze?.roles.retrieval_brief ?? RETRIEVAL_BRIEF_MODEL;
+    const briefClient = clientForModel(ctx, briefModel, {
       callSite: "generation:retrieval_brief",
-      capability: "generation",
       projectId,
       ...(input.requestedBy ? { userId: input.requestedBy } : {}),
       attribution: { generationId: genId },
@@ -171,10 +174,11 @@ export const startIterativeGeneration = internalAction({
           ctx,
           { generationId: genId, elapsedMs: Date.now() - actionStartedAt },
           log,
-          anthropicCondenser(ctx, {
+          condenserFor(ctx, {
             generationId: genId,
             projectId,
             ...(input.requestedBy ? { userId: input.requestedBy } : {}),
+            modelId: freeze?.roles.condense ?? MODEL,
           })
         );
         const condensed = await ctx.runQuery(
@@ -206,6 +210,7 @@ export const startIterativeGeneration = internalAction({
         industry: input.industry ?? null,
         scienceCode: scienceCode ?? null,
         retrievalBriefClient: briefClient,
+        retrievalBriefModel: briefModel,
         log,
       });
 
@@ -221,10 +226,11 @@ export const startIterativeGeneration = internalAction({
         generationId: genId,
         projectId,
         requestedBy: input.requestedBy,
+        // The analysis role's model frozen at reservation.
+        model: freeze?.roles.analysis ?? MODEL,
         clientFor: (callSite) =>
-          instrumentedAnthropic(ctx, {
+          clientForModel(ctx, freeze?.roles.analysis ?? MODEL, {
             callSite,
-            capability: "generation",
             projectId,
             ...(input.requestedBy ? { userId: input.requestedBy } : {}),
             attribution: { generationId: genId },
@@ -387,6 +393,8 @@ export const generateSection = internalAction({
     section: v.union(v.literal("s242"), v.literal("s244"), v.literal("s246")),
   },
   handler: async (ctx, args) => {
+    // Model catalog: routing and output budgets read the frozen models.
+    await registerGenerationModels(ctx, args.generationId).catch(() => null);
     const run = await ctx.runMutation(internal.generations.claimSectionRun, {
       generationId: args.generationId,
       section: args.section,

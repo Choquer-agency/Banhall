@@ -3,12 +3,11 @@
 import { internalAction } from "../_generated/server";
 import { internal } from "../_generated/api";
 import { v } from "convex/values";
-import { instrumentedAnthropic } from "./instrument";
+import { clientForRole } from "./providers";
 import { PD_REVIEW_SYSTEM_PROMPT } from "./prompts";
 import { generateStructured } from "./structured";
 import { pdReviewResultSchema } from "../../shared/pdReview";
 import type { z } from "zod";
-import { MODEL } from "./model";
 import type { ContextDoc } from "./analyzerAgent";
 import { normalizeProviderError } from "./providers";
 import {
@@ -166,13 +165,15 @@ export const runPdReview = internalAction({
       );
 
 
-      const anthropic = instrumentedAnthropic(ctx, {
+      // Model catalog: PD review runs on the analysis role's model.
+      const { client, model } = await clientForRole(ctx, "analysis", {
         callSite: "pd_review",
         capability: "review",
         projectId: args.projectId,
         ...(input.createdBy ? { userId: input.createdBy } : {}),
       });
-      const result = await generateStructured<PdReviewResult>(anthropic, {
+      const result = await generateStructured<PdReviewResult>(client, {
+        model,
         system: PD_REVIEW_SYSTEM_PROMPT,
         user: buildPdReviewUserMessage(input, contextDocs),
         toolName: "submit_pd_review",
@@ -189,7 +190,7 @@ export const runPdReview = internalAction({
       await ctx.runMutation(internal.pdReviews.completePdReview, {
         reviewId: args.reviewId,
         result: JSON.stringify(result),
-        model: MODEL,
+        model,
       });
     } catch (error) {
       const normalized = normalizeProviderError(error);

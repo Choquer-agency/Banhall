@@ -4,8 +4,7 @@ import { internalAction } from "../_generated/server";
 import { internal } from "../_generated/api";
 import { v } from "convex/values";
 import { z } from "zod";
-import { instrumentedAnthropic } from "./instrument";
-import { MODEL } from "./model";
+import { clientForRole } from "./providers";
 import { normalizeProviderError } from "./providers";
 
 const TIMESHEET_EXTRACTION_PROMPT = `You are a financial analyst for an SR&ED (Scientific Research & Experimental Development) consulting firm. Your job is to reconstruct timesheets from unstructured data sources.
@@ -82,13 +81,14 @@ export const processFinancialUpload = internalAction({
       });
       if (!upload) throw new Error("Financial upload project mismatch");
 
-      const anthropic = instrumentedAnthropic(ctx, {
+      // Model catalog: timesheet extraction runs on the analysis role's model.
+      const { client, model } = await clientForRole(ctx, "analysis", {
         callSite: "financial",
         capability: "financial",
         projectId: args.projectId,
       });
-      const response = await anthropic.messages.create({
-        model: MODEL,
+      const response = await client.messages.create({
+        model,
         max_tokens: 8192,
         system: TIMESHEET_EXTRACTION_PROMPT,
         messages: [

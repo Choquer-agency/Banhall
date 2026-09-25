@@ -38,13 +38,20 @@ import {
 } from "./lib/providerConfig";
 import { normalizeCraScienceCode } from "../shared/craScienceCodes";
 import {
-  CANDIDATE_MODELS,
   MODEL,
-  gatewayForModel,
-  modelById,
-  type CandidateModelId,
+  seedModelById,
+  type ModelEntry,
 } from "../shared/generationModels";
 import { randomComparePair, resolveCompareModels } from "./ai/model";
+import {
+  catalogEntry,
+  entryFromFrozen,
+  freezeModelsForGeneration,
+  generationModelFreeze,
+  isSelectableModel,
+  listSelectableModels,
+} from "./lib/modelRoles";
+import type { ModelFreeze } from "./lib/modelCatalogValidators";
 import { findActiveGeneration } from "./lib/activeGeneration";
 import { resolveGatedWorkflow, resolveSeedPhase } from "./lib/gatedWorkflow";
 import {
@@ -399,7 +406,7 @@ export const getGenerationRecovery = query({
       })
       .map((run) => ({
         model: run.model,
-        label: modelById(run.model)?.label ?? run.label ?? "Draft model",
+        label: seedModelById(run.model)?.label ?? run.label ?? "Draft model",
         status: run.status,
       }));
     return {
@@ -457,34 +464,67 @@ const candidateModeValidator = v.union(
 const singleModelIdValidator = v.string();
 
 type CandidateMode = "compare" | "single" | "iterative";
+
+/**
+ * Entries for `ids` as a mutation sees them: frozen on `freeze` when the
+ * retried generation carried one, else the catalog's selectable set. Never
+ * the runtime registry, which only actions write.
+ */
+async function modelEntriesFor(
+  ctx: MutationCtx,
+  ids: readonly string[],
+  freeze?: ModelFreeze
+): Promise<Map<string, ModelEntry>> {
+  const entries = new Map<string, ModelEntry>();
+  for (const id of new Set(ids)) {
+    const frozen = freeze?.entries.find((entry) => entry.id === id);
+    if (frozen) {
+      entries.set(id, entryFromFrozen(frozen));
+      continue;
+    }
+    if (!(await isSelectableModel(ctx, id))) continue;
+    const entry = await catalogEntry(ctx, id);
+    if (entry) entries.set(id, entry);
+  }
+  return entries;
+}
+
 /** Single and iterative modes both run exactly one explicitly chosen model
- * (defaulting to Sonnet when unset). */
-function validatedSingleModelId(
+ * (defaulting to the writing role's model when unset). */
+async function validatedSingleModelId(
+  ctx: MutationCtx,
   candidateMode: CandidateMode,
   singleModelId: string | undefined
-): CandidateModelId | undefined {
+): Promise<string | undefined> {
   if (candidateMode === "compare" || !singleModelId) return undefined;
-  const selected = CANDIDATE_MODELS.find((model) => model.id === singleModelId);
-  if (!selected) {
+  if (!(await isSelectableModel(ctx, singleModelId))) {
     domainError("INVALID_INPUT", "Select a supported generation model");
   }
-  return selected.id;
+  return singleModelId;
 }
-function persistedSingleModelId(
+/** A retry keeps its model when it is still selectable or was frozen on the
+ * generation being retried; otherwise the retry takes today's default. */
+async function persistedSingleModelId(
+  ctx: MutationCtx,
   candidateMode: CandidateMode,
-  singleModelId: string | undefined
-): CandidateModelId | undefined {
-  if (candidateMode === "compare") return undefined;
-  return CANDIDATE_MODELS.find((model) => model.id === singleModelId)?.id;
+  singleModelId: string | undefined,
+  freeze: ModelFreeze | undefined
+): Promise<string | undefined> {
+  if (candidateMode === "compare" || !singleModelId) return undefined;
+  return (await modelEntriesFor(ctx, [singleModelId], freeze)).has(singleModelId)
+    ? singleModelId
+    : undefined;
 }
 /** Mirrors validatedSingleModelId: only meaningful in compare mode; when the
  *  writer picks explicitly it must be exactly 2 distinct known model ids. */
-function validatedCompareModelIds(
+async function validatedCompareModelIds(
+  ctx: MutationCtx,
   candidateMode: CandidateMode,
   compareModelIds: string[] | undefined
-): string[] | undefined {
+): Promise<string[] | undefined> {
   if (candidateMode !== "compare" || !compareModelIds) return undefined;
-  const resolved = resolveCompareModels(compareModelIds);
+  const entries = await modelEntriesFor(ctx, compareModelIds);
+  const resolved = resolveCompareModels(compareModelIds, (id) => entries.get(id));
   if (!resolved) {
     domainError("INVALID_INPUT", "Pick exactly two models to compare");
   }
@@ -507,7 +547,7 @@ async function reserveGeneration(
   requestedBy: Id<"users">,
   lengthTarget: "concise" | "standard" | "full",
   candidateMode: CandidateMode,
-  explicitSingleModelId?: CandidateModelId,
+  explicitSingleModelId?: string,
   compareModelIds?: string[],
   retryOfGenerationId?: Id<"generations">,
   retryModelIds?: string[],
@@ -518,14 +558,15 @@ async function reserveGeneration(
   writerSuppliedStoryline?: string,
   preservedGatedWorkflow?: "sections" | "seeds"
 ) {
-  // "Default" in single/iterative modes resolves to the admin-set default
-  // model (appSettings), persisted here so retries reuse the same model even
-  // if the admin changes the setting later.
+  // "Default" in single/iterative modes resolves to the writing role's model
+  // (model catalog), persisted here so retries reuse the same model even if
+  // the role switches later.
   const singleModelId =
     candidateMode === "compare"
       ? undefined
-      : (explicitSingleModelId ??
-        ((await defaultModelId(ctx)) as CandidateModelId));
+      : (explicitSingleModelId ?? (await defaultModelId(ctx)));
+  const retried = retryOfGenerationId ? await ctx.db.get(retryOfGenerationId) : null;
+  const retriedFreeze = retried?.modelFreeze;
   const transcripts = await listProjectTranscripts(ctx, project._id);
   // Jul 17 meeting: some engagements have no interview at all (spreadsheet
   // only, drawings, a single email). A transcript-less generation is allowed
@@ -562,11 +603,13 @@ async function reserveGeneration(
 
   // Compare mode always persists its model pair so a retry reuses the exact
   // same pair (Math.random in a mutation is fine — the result is durable).
+  const compareEntries = await modelEntriesFor(ctx, compareModelIds ?? [], retriedFreeze);
   const persistedCompareModelIds =
     candidateMode === "compare"
-      ? (resolveCompareModels(compareModelIds) ?? randomComparePair()).map(
-          (model) => model.id
-        )
+      ? (
+          resolveCompareModels(compareModelIds, (id) => compareEntries.get(id)) ??
+          randomComparePair(await listSelectableModels(ctx))
+        ).map((model) => model.id)
       : undefined;
   const persistedRetryModelIds = retryModelIds?.filter((id) =>
     persistedCompareModelIds?.some((modelId) => modelId === id)
@@ -581,11 +624,25 @@ async function reserveGeneration(
     candidateMode === "compare"
       ? (persistedCompareModelIds ?? [])
       : [singleModelId ?? MODEL]; // singleModelId is always resolved here; ?? is a type guard
-  if (requestedModelIds.some((id) => gatewayForModel(id) === "openrouter")) {
+  const now = Date.now();
+  // Every model this generation will call, frozen now (owner decision 21):
+  // a retry inherits its original's freeze when it runs the same models.
+  const modelFreeze =
+    retriedFreeze &&
+    requestedModelIds.every((id) => retriedFreeze.entries.some((entry) => entry.id === id))
+      ? retriedFreeze
+      : await freezeModelsForGeneration(ctx, requestedModelIds, now);
+  if (
+    modelFreeze.entries.some(
+      (entry) =>
+        entry.gateway === "openrouter" &&
+        (requestedModelIds.includes(entry.id) ||
+          Object.values(modelFreeze.roles).includes(entry.id))
+    )
+  ) {
     requireOpenRouterConfigured();
   }
 
-  const now = Date.now();
   const frozenTranscripts = transcripts.map((row) => ({
     row,
     content: row.content.slice(0, FROZEN_TRANSCRIPT_CHARS),
@@ -610,6 +667,7 @@ async function reserveGeneration(
         ? (preservedGatedWorkflow ?? "seeds")
         : undefined,
     singleModelId,
+    modelFreeze,
     compareModelIds: persistedCompareModelIds,
     retryOfGenerationId,
     retryModelIds: persistedRetryModelIds,
@@ -721,8 +779,8 @@ export const requestGeneration = mutation({
       user._id,
       args.lengthTarget ?? "standard",
       candidateMode,
-      validatedSingleModelId(candidateMode, args.singleModelId),
-      validatedCompareModelIds(candidateMode, args.compareModelIds),
+      await validatedSingleModelId(ctx, candidateMode, args.singleModelId),
+      await validatedCompareModelIds(ctx, candidateMode, args.compareModelIds),
       undefined,
       undefined,
       0,
@@ -750,7 +808,12 @@ export const retryGeneration = mutation({
       user._id,
       failed.lengthTarget ?? "standard",
       failed.candidateMode ?? "compare",
-      persistedSingleModelId(failed.candidateMode ?? "compare", failed.singleModelId),
+      await persistedSingleModelId(
+        ctx,
+        failed.candidateMode ?? "compare",
+        failed.singleModelId,
+        failed.modelFreeze
+      ),
       failed.compareModelIds,
       failed._id,
       undefined,
@@ -845,6 +908,8 @@ export const retryFromSummary = mutation({
       summaryVersionId: failed.summaryVersionId,
       originGenerationId,
       singleModelId: failed.singleModelId,
+      // Summary recovery drafts on exactly the models the original froze.
+      ...(failed.modelFreeze ? { modelFreeze: failed.modelFreeze } : {}),
       retryOfGenerationId: failed._id,
       previousProjectStatus: project.status,
       currentStep: "Preparing Summary recovery",
@@ -944,7 +1009,12 @@ export const retryFailedCandidates = mutation({
       generation.compareModelIds ?? [
         ...new Set(runs.filter((run) => !run.ghost).map((run) => run.model)),
       ];
-    if (!resolveCompareModels(compareModelIds)) {
+    const recoveryEntries = await modelEntriesFor(
+      ctx,
+      compareModelIds,
+      generationModelFreeze(generation)
+    );
+    if (!resolveCompareModels(compareModelIds, (id) => recoveryEntries.get(id))) {
       domainError(
         "INVALID_STATE",
         "This older comparison cannot retry individual drafts. Start a fresh generation instead"
@@ -1205,7 +1275,7 @@ export const getGenerationInput = internalQuery({
       title: reportTitle,
       lengthTarget: generation.lengthTarget ?? "standard",
       candidateMode: generation.candidateMode ?? "compare",
-      singleModelId: generation.singleModelId as CandidateModelId | undefined,
+      singleModelId: generation.singleModelId,
       gatedWorkflow: resolveGatedWorkflow(generation),
       compareModelIds: generation.compareModelIds,
       retryModelIds: generation.retryModelIds,
@@ -2438,7 +2508,8 @@ async function createFrozenOrderedChain(
   scheduledJobId: Id<"_scheduled_functions">;
 }> {
   const model = generation.singleModelId ?? MODEL;
-  const candidate = modelById(model);
+  const frozen = generationModelFreeze(generation).entries.find((entry) => entry.id === model);
+  const candidate = frozen ? entryFromFrozen(frozen) : seedModelById(model);
   if (!candidate) domainError("INVALID_STATE", "Frozen generation model is unavailable");
   const now = Date.now();
   const candidateRunId = await ctx.db.insert("generationCandidateRuns", {

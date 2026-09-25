@@ -185,15 +185,16 @@ describe("prompt scaffold composition", () => {
  * moves promptVersion and is disclosed on every generation that reads them.
  */
 describe("the condense call belongs to the prompt program (AC5)", () => {
-  it("declares the call with its fixed model, schema and single-attempt policy", () => {
+  it("declares the call with its frozen condense-role model, schema and single-attempt policy", () => {
     expect(generationPromptProgram.calls.condense).toEqual({
       kind: "structured",
       systemTemplate: CONDENSE_SYSTEM_PROMPT,
       request: generationPromptProgram.calls.condense.request,
       schema: CONDENSE_SCHEMA,
       model: {
-        kind: "fixed",
-        modelId: generationPromptProgram.configuration.models.defaultModelId,
+        kind: "frozen-role",
+        role: "condense",
+        legacyModelId: generationPromptProgram.configuration.models.defaultModelId,
       },
       thinking: { kind: "omitted" },
       structuredPolicy: "single-attempt",
@@ -325,8 +326,9 @@ describe("the condense call belongs to the prompt program (AC5)", () => {
       request: STYLE_ANALYSIS_REQUEST,
       schema: ANALYSIS_TOOL_SCHEMA,
       model: {
-        kind: "fixed",
-        modelId: generationPromptProgram.configuration.models.defaultModelId,
+        kind: "frozen-role",
+        role: "analysis",
+        legacyModelId: generationPromptProgram.configuration.models.defaultModelId,
       },
       thinking: { kind: "omitted" },
       structuredPolicy: "single-attempt",

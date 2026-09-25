@@ -4,8 +4,7 @@ import { internalAction, type ActionCtx } from "../_generated/server";
 import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { v } from "convex/values";
-import { instrumentedAnthropic } from "./instrument";
-import { clientForModel } from "./providers";
+import { clientForModel, registerGenerationModels } from "./providers";
 import type { GenerationClient } from "./openrouterCore";
 import { runAnalyzerAgent, parseTranscriptAnalysis, type TranscriptAnalysis } from "./analyzerAgent";
 import { runGenerationBriefStage } from "./brief";
@@ -24,7 +23,9 @@ import { runSection244Agent } from "./section244Agent";
 import { runSection246Agent } from "./section246Agent";
 import { runQAAgent } from "./qaAgent";
 import { runChronologyAgent } from "./chronologyAgent";
-import { MODEL, CANDIDATE_MODELS, candidateModelsForMode } from "./model";
+import { MODEL, candidateModelsForMode } from "./model";
+import { modelById, type ModelEntry } from "../../shared/generationModels";
+import { RETRIEVAL_BRIEF_MODEL } from "./brain/query";
 import { normalizeProviderError } from "./providers";
 import { buildTiptapDocument } from "../lib/tiptapReport";
 import {
@@ -45,7 +46,7 @@ import {
   mapClaimToPart,
 } from "../lib/transcripts";
 import {
-  anthropicCondenser,
+  condenserFor,
   describeGenerationFailure,
   ensureCondensedInputs,
 } from "./condense";
@@ -64,7 +65,7 @@ import { waivedCategoryLabels } from "./prompts";
 import { readOrderedProfileContext } from "./writerStyle";
 import { resolveGenerationWriterSettings } from "./writerSettings";
 import { detectFirstPersonPreference } from "../../shared/humanProse";
-import { currentPromptVersion } from "./promptProgram";
+import { generationPromptVersion } from "./promptProgram";
 import { orderedProfileContextValidator } from "../lib/orderedChain";
 import {
   COMPRESSION_REQUEST,
@@ -537,7 +538,7 @@ export async function beginTrackedGeneration(
     error instanceof Error ? error.message : String(error);
   let promptVersion: string;
   try {
-    promptVersion = await currentPromptVersion();
+    promptVersion = await generationPromptVersion(ctx, generationId);
   } catch (error) {
     await ctx.runMutation(internal.generations.failGeneration, {
       generationId,
@@ -586,19 +587,22 @@ export const generateReport = internalAction({
     const title = input.title || "Untitled Report";
     const lengthTarget: LengthTarget = input.lengthTarget;
     const contextDocs = toContextDocs(input.contextDocs);
+    // Model catalog: register every model frozen at reservation before any
+    // routing decision, so a catalog-added model resolves like a seed one.
+    const freeze = await registerGenerationModels(ctx, genId);
     const candidateModels = input.retryModelIds?.length
       ? input.retryModelIds
-          .map((id) => CANDIDATE_MODELS.find((model) => model.id === id))
-          .filter((model): model is (typeof CANDIDATE_MODELS)[number] => model !== undefined)
+          .map((id) => modelById(id))
+          .filter((model): model is ModelEntry => model !== undefined)
       : candidateModelsForMode(
           input.candidateMode,
           input.singleModelId,
           input.compareModelIds
         );
     const seededCandidates = input.seededCandidates ?? 0;
-    const retrievalBriefClient = instrumentedAnthropic(ctx, {
+    const retrievalBriefModel = freeze?.roles.retrieval_brief ?? RETRIEVAL_BRIEF_MODEL;
+    const retrievalBriefClient = clientForModel(ctx, retrievalBriefModel, {
       callSite: "generation:retrieval_brief",
-      capability: "generation",
       projectId,
       ...(input.requestedBy ? { userId: input.requestedBy } : {}),
       attribution: { generationId: genId },
@@ -624,10 +628,11 @@ export const generateReport = internalAction({
           ctx,
           { generationId: genId, elapsedMs: Date.now() - actionStartedAt },
           log,
-          anthropicCondenser(ctx, {
+          condenserFor(ctx, {
             generationId: genId,
             projectId,
             ...(input.requestedBy ? { userId: input.requestedBy } : {}),
+            modelId: freeze?.roles.condense ?? MODEL,
           })
         );
         const condensed = await ctx.runQuery(
@@ -664,6 +669,7 @@ export const generateReport = internalAction({
         industry: input.industry ?? null,
         scienceCode: scienceCode ?? null,
         retrievalBriefClient,
+        retrievalBriefModel,
         log,
       });
 
@@ -700,10 +706,11 @@ export const generateReport = internalAction({
         generationId: genId,
         projectId,
         requestedBy: input.requestedBy,
+        // The analysis role's model frozen at reservation.
+        model: freeze?.roles.analysis ?? MODEL,
         clientFor: (callSite) =>
-          instrumentedAnthropic(ctx, {
+          clientForModel(ctx, freeze?.roles.analysis ?? MODEL, {
             callSite,
-            capability: "generation",
             projectId,
             ...(input.requestedBy ? { userId: input.requestedBy } : {}),
             attribution: { generationId: genId },
@@ -758,10 +765,11 @@ export const generateReport = internalAction({
         await log(`Build Order not applied: ${orderedContext.buildOrderFallbackReason}.`);
       }
 
-      // Compare analysis uses the default model, independent of pair order.
-      // Single mode preserves its selected model, as in iterative generation.
+      // Compare analysis uses the writing role's model frozen at reservation,
+      // independent of pair order. Single mode preserves its selected model,
+      // as in iterative generation.
       const analysisModel = input.candidateMode === "compare"
-        ? MODEL
+        ? (freeze?.roles.writing ?? MODEL)
         : candidateModels[0]?.id ?? MODEL;
       await log("Analyzing the transcript once for all candidate drafts.");
       const analysis = await runAnalyzerAgent(

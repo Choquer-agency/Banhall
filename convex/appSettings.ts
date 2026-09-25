@@ -1,14 +1,14 @@
 /**
- * Admin-tunable app settings (one row per key). First setting: the default
- * generation model — used whenever a writer doesn't explicitly pick a model
- * (single/iterative modes, and the "Default" picker option). Falls back to
- * the registry default (shared/generationModels MODEL) when unset.
+ * Admin-tunable app settings (one row per key). The default generation model
+ * is now the model catalog's writing role (convex/lib/modelRoles.ts): the
+ * model used whenever a writer doesn't explicitly pick one. The legacy
+ * "defaultModel" row is still honoured until the role is first assigned.
  */
 import { mutation, internalQuery, internalMutation, type QueryCtx, type MutationCtx } from "./_generated/server";
 import { v } from "convex/values";
 import { requireRole } from "./lib/auth";
 import { domainError } from "./lib/contracts";
-import { MODEL, modelById } from "../shared/generationModels";
+import { assignRoleModelByHand, roleModelId } from "./lib/modelRoles";
 import type { Doc, Id } from "./_generated/dataModel";
 import {
   DEFAULT_CONTEXT_BUDGET,
@@ -19,7 +19,6 @@ import {
   type ChatEvidenceBudget,
 } from "./ai/chatEvidence";
 
-const DEFAULT_MODEL_KEY = "defaultModel";
 const ANALYZER_CONTEXT_BUDGET_KEY = "ai.analyzerContextBudgetTokens";
 const ANALYZER_TRANSCRIPT_BUDGET_KEY = "ai.analyzerTranscriptBudgetTokens";
 const ANALYZER_DOCUMENT_BUDGET_KEY = "ai.analyzerDocumentBudgetTokens";
@@ -60,14 +59,13 @@ async function assertMyWorkReady(ctx: MutationCtx) {
   }
 }
 
+/**
+ * The default generation model: the writing role's current model. A stale
+ * assignment or setting (a retired model) falls back to the role default
+ * rather than breaking generations.
+ */
 export async function defaultModelId(ctx: QueryCtx | MutationCtx): Promise<string> {
-  const row = await ctx.db
-    .query("appSettings")
-    .withIndex("by_key", (q) => q.eq("key", DEFAULT_MODEL_KEY))
-    .unique();
-  // A stale setting (model removed from the registry) falls back to the
-  // registry default rather than breaking generations.
-  return row && modelById(row.value) ? row.value : MODEL;
+  return await roleModelId(ctx, "writing");
 }
 
 /**
@@ -208,32 +206,12 @@ export const setMyWorkRollout = mutation({
   },
 });
 
+/** Manual choice of the writing role's model (logged as a manual switch). */
 export const setDefaultModel = mutation({
   args: { modelId: v.string() },
   handler: async (ctx, args) => {
     const user = await requireRole(ctx, ["admin"]);
-    if (!modelById(args.modelId)) {
-      domainError("INVALID_INPUT", "Unknown model id");
-    }
-    const now = Date.now();
-    const existing = await ctx.db
-      .query("appSettings")
-      .withIndex("by_key", (q) => q.eq("key", DEFAULT_MODEL_KEY))
-      .unique();
-    if (existing) {
-      await ctx.db.patch(existing._id, {
-        value: args.modelId,
-        updatedBy: user._id,
-        updatedAt: now,
-      });
-    } else {
-      await ctx.db.insert("appSettings", {
-        key: DEFAULT_MODEL_KEY,
-        value: args.modelId,
-        updatedBy: user._id,
-        updatedAt: now,
-      });
-    }
+    await assignRoleModelByHand(ctx, "writing", args.modelId, user._id);
   },
 });
 

@@ -1,5 +1,4 @@
 import { query } from "./_generated/server";
-import { CANDIDATE_MODELS } from "./ai/model";
 import {
   anthropicConfiguration,
   brainConfiguration,
@@ -7,6 +6,7 @@ import {
 } from "./lib/providerConfig";
 import { defaultModelId } from "./appSettings";
 import { getCurrentUserOrNull } from "./lib/auth";
+import { catalogEntry, listSelectableModels } from "./lib/modelRoles";
 
 export const getCapabilities = query({
   args: {},
@@ -16,6 +16,15 @@ export const getCapabilities = query({
     const anthropic = anthropicConfiguration();
     const brain = brainConfiguration();
     const openrouter = openRouterConfiguration();
+    // The model catalog's selectable set (enabled rows, seed fallback), so
+    // every picker shows exactly what a writer may run today.
+    const selectable = await listSelectableModels(ctx);
+    const available = (gateway: string) =>
+      gateway === "anthropic" || openrouter.state === "configured";
+    const defaultModel = await defaultModelId(ctx);
+    const defaultEntry =
+      selectable.find((model) => model.id === defaultModel) ??
+      (await catalogEntry(ctx, defaultModel));
     return {
       generation: anthropic.state,
       review: anthropic.state,
@@ -26,16 +35,26 @@ export const getCapabilities = query({
       anthropicMessage: anthropic.message,
       brainMessage: brain.message,
       openrouterMessage: openrouter.message,
-      candidateModels: CANDIDATE_MODELS.map((model) => model.id),
+      candidateModels: selectable.map((model) => model.id),
       // Models actually runnable with the currently configured keys — pickers
       // grey out the rest.
-      availableCandidateModels: CANDIDATE_MODELS.filter(
-        (model) =>
-          model.gateway === "anthropic" || openrouter.state === "configured"
-      ).map((model) => model.id),
-      // Admin-set default generation model (appSettings), registry default
-      // when unset. Pickers label their "Default" option with this.
-      defaultModel: await defaultModelId(ctx),
+      availableCandidateModels: selectable
+        .filter((model) => available(model.gateway))
+        .map((model) => model.id),
+      // Display data for the pickers. No prices or benchmark scores: those
+      // stay on the admin-only catalog page.
+      models: selectable.map((model) => ({
+        id: model.id,
+        label: model.label,
+        provider: model.provider,
+        gateway: model.gateway,
+        description: model.description ?? "",
+        available: available(model.gateway),
+      })),
+      // The writing role's model (model catalog). Pickers label their
+      // "Default" option with it.
+      defaultModel,
+      defaultModelLabel: defaultEntry?.label ?? defaultModel,
     };
   },
 });

@@ -1,7 +1,8 @@
 "use node";
 
-import Anthropic from "@anthropic-ai/sdk";
-import { instrumentedAnthropic, scheduleUsage } from "../instrument";
+import { scheduleUsage } from "../instrument";
+import { clientForRole } from "../providers";
+import type { GenerationClient, GenerationContentBlock } from "../openrouterCore";
 import { defaultChunker } from "@convex-dev/rag";
 import { internalAction } from "../../_generated/server";
 import { internal } from "../../_generated/api";
@@ -19,7 +20,8 @@ const USE_CONTEXTUAL = process.env.BRAIN_CONTEXTUAL === "1";
  * retrieval failures ~35–49% (more with a reranker).
  */
 async function contextualizeChunks(
-  client: Anthropic,
+  client: GenerationClient,
+  model: string,
   fullDoc: string,
   chunks: string[]
 ): Promise<string[]> {
@@ -27,7 +29,7 @@ async function contextualizeChunks(
   for (const chunk of chunks) {
     try {
       const res = await client.messages.create({
-        model: "claude-haiku-4-5-20251001",
+        model,
         max_tokens: 100,
         system:
           "You situate a chunk within its source document for retrieval. Reply with 1-2 sentences of context only, no preamble.",
@@ -49,7 +51,7 @@ async function contextualizeChunks(
         ],
       });
       const ctx = res.content
-        .filter((b): b is Anthropic.TextBlock => b.type === "text")
+        .filter((b): b is Extract<GenerationContentBlock, { type: "text" }> => b.type === "text")
         .map((b) => b.text)
         .join(" ")
         .trim();
@@ -115,13 +117,15 @@ export const embedSource = internalAction({
 
     const addResult = USE_CONTEXTUAL
       ? await (async () => {
-          const client = instrumentedAnthropic(ctx, {
+          // Model catalog: the structured_helper role's model.
+          const { client, model } = await clientForRole(ctx, "structured_helper", {
             callSite: "brain:contextualize",
             brainSourceId: args.sourceId,
           });
           const rawChunks = defaultChunker(src.content);
           const chunks = await contextualizeChunks(
             client,
+            model,
             src.content,
             rawChunks
           );

@@ -8,10 +8,11 @@ import schema from "./schema";
 // hash and the begin mutation run while the row is still `reserved`, so either
 // failing has to fail the generation with the phase named. The mock is
 // scoped to this file so the provenance suite keeps the real manifest.
+// Model catalog: the version is per generation (generationPromptVersion).
 const promptVersionMock = vi.hoisted(() => vi.fn<() => Promise<string>>());
 vi.mock("./ai/promptProgram", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./ai/promptProgram")>();
-  return { ...actual, currentPromptVersion: promptVersionMock };
+  return { ...actual, generationPromptVersion: promptVersionMock };
 });
 
 const modules = import.meta.glob("./**/*.ts");

@@ -2,14 +2,17 @@
 
 import { sha256 } from "../lib/contracts";
 import {
-  CANDIDATE_MODELS,
   MODEL,
   REASONING_TOKEN_MULTIPLIER,
   SECTION_ANSWER_TOKEN_BUDGETS,
   UNKNOWN_MODEL_GATEWAY,
-  maxTokensWithReasoningHeadroom,
-  sectionAnswerTokenBudget,
 } from "../../shared/generationModels";
+import { MODEL_ROLES, ROLE_POLICIES } from "../../shared/modelCatalog";
+import type { ActionCtx } from "../_generated/server";
+import type { Id } from "../_generated/dataModel";
+import type { ModelFreeze } from "../lib/modelCatalogValidators";
+import { generationModelFreeze } from "../lib/modelRoles";
+import { generationModelsRef } from "../lib/modelCatalogRefs";
 import {
   CHARS_PER_LINE,
   LENGTH_TARGETS,
@@ -219,18 +222,40 @@ export function canonicalSerialize(value: unknown): string {
   return serialize(value, "$root");
 }
 
-const projectedModels = CANDIDATE_MODELS.map((model) => ({
-  id: model.id,
-  gateway: model.gateway,
-  reasoning: "reasoning" in model ? model.reasoning : null,
-  maxCompletionTokens:
-    "maxCompletionTokens" in model ? model.maxCompletionTokens : null,
-  sectionAnswerTokenBudget: sectionAnswerTokenBudget(model.id),
-  reasoningHeadroom: [1024, 4096, 8192].map((answerTokens) => ({
-    answerTokens,
-    requestMaxTokens: maxTokensWithReasoningHeadroom(model.id, answerTokens),
-  })),
-})).sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+/**
+ * The request-shaping part of a generation's frozen models: routing, output
+ * budgets and the gateway id. Labels, providers and price ceilings do not
+ * change a prompt and stay out, so a catalog price or score update never
+ * moves a version. Only the generation's own models are projected; the rest
+ * of the catalog can change freely (owner decision 21).
+ */
+export function projectFrozenModels(freeze: ModelFreeze) {
+  const entries = [...freeze.entries]
+    .map((entry) => {
+      const answerBudget = SECTION_ANSWER_TOKEN_BUDGETS[entry.gateway];
+      const headroom = (answerTokens: number) =>
+        entry.reasoning
+          ? Math.min(
+              answerTokens * REASONING_TOKEN_MULTIPLIER,
+              entry.maxCompletionTokens ?? Number.MAX_SAFE_INTEGER
+            )
+          : answerTokens;
+      return {
+        id: entry.id,
+        gateway: entry.gateway,
+        requestId: entry.requestId ?? entry.id,
+        reasoning: entry.reasoning,
+        maxCompletionTokens: entry.maxCompletionTokens ?? null,
+        sectionAnswerTokenBudget: answerBudget,
+        reasoningHeadroom: [1024, 4096, 8192].map((answerTokens) => ({
+          answerTokens,
+          requestMaxTokens: headroom(answerTokens),
+        })),
+      };
+    })
+    .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  return { entries, roles: freeze.roles };
+}
 
 const seedRolePromptProgram = PD_SUBSECTIONS.map((role) => ({
   roleId: role.roleId,
@@ -361,7 +386,7 @@ export const generationPromptProgram = {
       systemTemplate: RETRIEVAL_BRIEF_SYSTEM_PROMPT,
       request: RETRIEVAL_BRIEF_REQUEST,
       schema: RETRIEVAL_BRIEF_SCHEMA,
-      model: { kind: "fixed", modelId: RETRIEVAL_BRIEF_MODEL },
+      model: { kind: "frozen-role", role: "retrieval_brief", legacyModelId: RETRIEVAL_BRIEF_MODEL },
       thinking: { kind: "omitted" },
       structuredPolicy: "two-attempt-repair",
     },
@@ -370,7 +395,7 @@ export const generationPromptProgram = {
       systemTemplate: CONDENSE_SYSTEM_PROMPT,
       request: CONDENSE_REQUEST,
       schema: CONDENSE_SCHEMA,
-      model: { kind: "fixed", modelId: MODEL },
+      model: { kind: "frozen-role", role: "condense", legacyModelId: MODEL },
       thinking: { kind: "omitted" },
       // One attempt, not the repair pass: the whole generation waits on this
       // call before any drafting starts.
@@ -391,7 +416,7 @@ export const generationPromptProgram = {
       // Older queued candidates without shared analysis still select their model.
       model: {
         kind: "mode-dependent",
-        compare: { kind: "fixed", modelId: MODEL },
+        compare: { kind: "frozen-role", role: "writing", legacyModelId: MODEL },
         single: { kind: "candidate", fallbackModelId: MODEL },
         iterative: { kind: "candidate", fallbackModelId: MODEL },
         legacyCandidate: { kind: "candidate", fallbackModelId: MODEL },
@@ -455,7 +480,7 @@ export const generationPromptProgram = {
       systemTemplate: STYLE_ANALYSIS_SYSTEM_PROMPT,
       request: STYLE_ANALYSIS_REQUEST,
       schema: ANALYSIS_TOOL_SCHEMA,
-      model: { kind: "fixed", modelId: MODEL },
+      model: { kind: "frozen-role", role: "analysis", legacyModelId: MODEL },
       thinking: { kind: "omitted" },
       structuredPolicy: "single-attempt",
       callSite: "generation:settings",
@@ -583,9 +608,14 @@ export const generationPromptProgram = {
   },
   configuration: {
     models: {
+      // Model catalog: the models themselves are frozen per generation and
+      // hashed from there (generationPromptVersion), not listed here.
       defaultModelId: MODEL,
       unknownModelGateway: UNKNOWN_MODEL_GATEWAY,
-      registry: projectedModels,
+      frozenPerGeneration: "generations.modelFreeze",
+      roleDefaults: Object.fromEntries(
+        MODEL_ROLES.map((role) => [role, ROLE_POLICIES[role].defaultModelId])
+      ),
       modeRouting: CANDIDATE_MODE_ROUTING,
       randomComparisonPoolGateway:
         CANDIDATE_MODE_ROUTING.compare.randomPoolGateway,
@@ -623,7 +653,8 @@ export const generationPromptProgram = {
       namespace: BRAIN_NAMESPACE,
       filterNames: [...BRAIN_FILTER_NAMES].sort(),
       retrievalBrief: {
-        modelId: RETRIEVAL_BRIEF_MODEL,
+        modelRole: "retrieval_brief",
+        legacyModelId: RETRIEVAL_BRIEF_MODEL,
         transcriptCap: RETRIEVAL_BRIEF_TRANSCRIPT_CAP,
       },
       generationRetrievals: GENERATION_BRAIN_RETRIEVALS,
@@ -666,17 +697,47 @@ export async function hashPromptProgram(
   return `sha256:${digest}`;
 }
 
-let currentPromptVersionPromise: Promise<string> | undefined;
+const versionByModels = new Map<string, Promise<string>>();
 
-/** Memoize the deployment-level computation, including concurrent callers. */
+/**
+ * One generation's prompt version: the deployment's prompt program plus that
+ * generation's frozen models, and nothing else from the catalog. Memoized by
+ * the projected models, including concurrent callers.
+ */
+export function promptVersionForModels(freeze: ModelFreeze): Promise<string> {
+  const models = projectFrozenModels(freeze);
+  const key = canonicalSerialize(models);
+  let pending = versionByModels.get(key);
+  if (!pending) {
+    if (versionByModels.size >= 100) versionByModels.clear();
+    pending = hashPromptProgram({ program: generationPromptProgram, models }).catch(
+      (error: unknown) => {
+        // Never memoize a rejection: the next caller recomputes instead of
+        // inheriting a poisoned promise for the life of the isolate.
+        versionByModels.delete(key);
+        throw error;
+      }
+    );
+    versionByModels.set(key, pending);
+  }
+  return pending;
+}
+
+/** The prompt version of `generationId`, from its frozen models. */
+export async function generationPromptVersion(
+  ctx: Pick<ActionCtx, "runQuery">,
+  generationId: Id<"generations">
+): Promise<string> {
+  const freeze = await ctx.runQuery(generationModelsRef, { generationId });
+  if (!freeze) throw new Error("Generation not found for its prompt version");
+  return await promptVersionForModels(freeze);
+}
+
+/**
+ * The version a generation frozen on the seed defaults gets (single mode on
+ * the default model, every role on its default). Tests and tooling compare
+ * against it; runtime code always uses generationPromptVersion.
+ */
 export function currentPromptVersion(): Promise<string> {
-  currentPromptVersionPromise ??= hashPromptProgram(generationPromptProgram).catch(
-    (error: unknown) => {
-      // Never memoize a rejection: the next caller recomputes instead of
-      // inheriting a poisoned promise for the life of the isolate.
-      currentPromptVersionPromise = undefined;
-      throw error;
-    }
-  );
-  return currentPromptVersionPromise;
+  return promptVersionForModels(generationModelFreeze({ singleModelId: MODEL }));
 }
