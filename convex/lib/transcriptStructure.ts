@@ -41,13 +41,12 @@ export async function speakerRoleContext(
   project: Doc<"projects">
 ): Promise<SpeakerRoleContext> {
   const roster = await listTeamRoster(ctx);
-  const staffNames = [
-    project.interviewer,
-    project.writer,
-    ...roster.map((user) => userDisplayLabel(user)),
-  ].filter((name): name is string => !!name && name.trim().length >= 2);
-  const clientNames = (project.interviewees ?? []).filter((name) => name.trim().length >= 2);
-  return { staffNames, clientNames };
+  const named = (name: string | undefined): name is string => !!name && name.trim().length >= 2;
+  // The project record first; the roster only after it (transcriptSpeakers).
+  const staffNames = [project.interviewer, project.writer].filter(named);
+  const clientNames = (project.interviewees ?? []).filter(named);
+  const rosterNames = roster.map((user) => userDisplayLabel(user)).filter(named);
+  return { staffNames, clientNames, rosterNames };
 }
 
 export type StructureStep =
