@@ -337,6 +337,7 @@ export async function dispatchSeedAttempt(
         kind: source.kind,
         content: source.content,
         contentHash: source.contentHash,
+        ...(source.transcriptId ? { transcriptId: source.transcriptId } : {}),
       })),
       projection: seedPromptProjection(loaded.snapshot),
       writerSettings: frozen.writerSettings,

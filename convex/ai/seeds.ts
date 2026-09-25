@@ -202,6 +202,7 @@ export const generateBatch = internalAction({
           kind: source.kind,
           content: source.content,
           contentHash: source.contentHash,
+          ...(source.transcriptId ? { transcriptId: source.transcriptId } : {}),
         })),
         projection: seedPromptProjection(claim.context),
         writerSettings: claim.input.writerSettings,

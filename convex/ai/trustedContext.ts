@@ -614,6 +614,8 @@ export type SeedPromptSource = {
   kind: string;
   content: string;
   contentHash: string;
+  /** Links a transcript and its digest; see preferDigestSources. */
+  transcriptId?: string;
 };
 
 export type SeedPromptProjection = {
@@ -968,6 +970,11 @@ export function buildSeedPrompt(
 } {
   const settings = splitSeedWriterSettings(input.writerSettings);
   const system = buildSeedSystemPrompt(settings.styleOverrides);
+  // Digest mode means digests (cost phase 1): a transcript with a frozen
+  // digest reaches the prompt only as that digest, in the transcript's
+  // place, so the byte limit is never spent on both. Callers keep every
+  // frozen source for provenance validation.
+  const sources = preferDigestSources(input.sources);
   const systemBytes = utf8Bytes(system);
   const repairReserveBytes =
     utf8Bytes(STRUCTURED_OUTPUT_PROGRAM.repairScaffold.prefix) +
@@ -981,6 +988,7 @@ export function buildSeedPrompt(
   }
   const built = buildSeedTrustedContext({
     ...input,
+    sources,
     writerSettings: settings.remaining,
     maxPromptBytes:
       MAX_SEED_PROMPT_UTF8_BYTES - systemBytes - repairReserveBytes,
