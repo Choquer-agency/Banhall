@@ -150,8 +150,12 @@ export const buildTranscriptStructure = internalMutation({
   },
 });
 
-/** Transcripts one backfill page looks at. */
-const BACKFILL_PAGE_SIZE = 20;
+/**
+ * Transcripts one backfill page looks at, and the bytes it may read: a page
+ * of rows written before the per-transcript cap can be large.
+ */
+const BACKFILL_PAGE_SIZE = 10;
+const BACKFILL_MAX_BYTES_READ = 4 * 1024 * 1024;
 
 /**
  * Batched, self-rescheduling backfill of turns and heuristic speaker roles
@@ -164,9 +168,11 @@ export const backfillTranscriptStructure = internalMutation({
   args: { cursor: v.optional(v.union(v.string(), v.null())) },
   returns: v.object({ scheduled: v.number(), isDone: v.boolean() }),
   handler: async (ctx, args) => {
-    const page = await ctx.db
-      .query("transcripts")
-      .paginate({ cursor: args.cursor ?? null, numItems: BACKFILL_PAGE_SIZE });
+    const page = await ctx.db.query("transcripts").paginate({
+      cursor: args.cursor ?? null,
+      numItems: BACKFILL_PAGE_SIZE,
+      maximumBytesRead: BACKFILL_MAX_BYTES_READ,
+    });
     let scheduled = 0;
     for (const row of page.page) {
       if (row.parserVersion === TRANSCRIPT_PARSER_VERSION) continue;

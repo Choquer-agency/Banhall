@@ -4,7 +4,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { internal } from "./_generated/api";
 import schema from "./schema";
 import type { Id } from "./_generated/dataModel";
-import { TRANSCRIPT_PARSER_VERSION } from "../shared/transcriptParse";
+import { MAX_TURN_CHARS, TRANSCRIPT_PARSER_VERSION } from "../shared/transcriptParse";
+import { FROZEN_TRANSCRIPT_CHARS } from "./lib/transcripts";
 import { TURN_BATCH_SIZE } from "./lib/transcriptStructure";
 import { inferSpeakerRoles, labelNamesPerson } from "./lib/transcriptSpeakers";
 import { parseTranscriptTurns } from "../shared/transcriptParse";
@@ -25,8 +26,15 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-async function setup(contents: string[], project: { interviewer?: string; interviewees?: string[] } = {}) {
-  const t = convexTest(schema, modules);
+async function setup(
+  contents: string[],
+  project: { interviewer?: string; interviewees?: string[] } = {},
+  options: { limits?: boolean } = {}
+) {
+  // `limits` makes convex-test enforce the per-transaction limits.
+  const t = options.limits
+    ? convexTest({ schema, modules, transactionLimits: true })
+    : convexTest(schema, modules);
   const ids = await t.run(async (ctx) => {
     const writerId = await ctx.db.insert("users", { authId: "ts-writer", role: "writer", firstName: "Wren" });
     const now = Date.now();
@@ -40,15 +48,23 @@ async function setup(contents: string[], project: { interviewer?: string; interv
       updatedAt: now,
       ...project,
     });
-    const transcriptIds: Id<"transcripts">[] = [];
-    for (const [position, content] of contents.entries()) {
-      transcriptIds.push(
-        await ctx.db.insert("transcripts", { projectId, content, createdAt: now + position, position })
-      );
-    }
-    return { writerId, projectId, transcriptIds };
+    return { writerId, projectId };
   });
-  return { t, ...ids };
+  // One transaction per row, so large legacy rows fit the write limit.
+  const transcriptIds: Id<"transcripts">[] = [];
+  for (const [position, content] of contents.entries()) {
+    transcriptIds.push(
+      await t.run((ctx) =>
+        ctx.db.insert("transcripts", { projectId: ids.projectId, content, createdAt: position, position })
+      )
+    );
+  }
+  return { t, ...ids, transcriptIds };
+}
+
+/** A row written before the per-transcript cap: no blank line, no speaker. */
+function legacyRow(tag: number, length = 900_000): string {
+  return `Legacy notes ${tag}. `.repeat(Math.ceil(length / 17)).slice(0, length);
 }
 
 async function turnsOf(t: Awaited<ReturnType<typeof setup>>["t"], transcriptId: Id<"transcripts">) {
@@ -212,6 +228,36 @@ describe("backfill of turns and speaker roles", () => {
     const turns = await turnsOf(f.t, f.transcriptIds[0]);
     expect(turns.map((turn) => turn.index)).toEqual(Array.from({ length: total }, (_, i) => i));
     expect((await f.t.run((ctx) => ctx.db.get(f.transcriptIds[0])))?.parserVersion).toBe(TRANSCRIPT_PARSER_VERSION);
+  });
+
+  it("builds a row longer than the frozen slice into small turns inside that slice", async () => {
+    const f = await setup([legacyRow(1)], {}, { limits: true });
+    await f.t.mutation(internal.transcripts.buildTranscriptStructure, { transcriptId: f.transcriptIds[0] });
+    await f.t.finishAllScheduledFunctions(vi.runAllTimers);
+    const turns = await turnsOf(f.t, f.transcriptIds[0]);
+    expect(turns.length).toBeGreaterThan(1);
+    for (const turn of turns) {
+      expect(turn.charEnd).toBeLessThanOrEqual(FROZEN_TRANSCRIPT_CHARS);
+      expect(turn.cleanText.length).toBeLessThanOrEqual(MAX_TURN_CHARS);
+    }
+    expect(turns[turns.length - 1].charEnd).toBeGreaterThan(FROZEN_TRANSCRIPT_CHARS - MAX_TURN_CHARS);
+    expect((await f.t.run((ctx) => ctx.db.get(f.transcriptIds[0])))?.parserVersion).toBe(TRANSCRIPT_PARSER_VERSION);
+  });
+
+  it("backfills pages of large rows inside the read limit", async () => {
+    // Twenty rows of 900,000 characters: one page of twenty would read
+    // about 18 MB, over the 16 MiB a transaction may read.
+    const f = await setup(
+      Array.from({ length: 20 }, (_, i) => legacyRow(i)),
+      {},
+      { limits: true }
+    );
+    await f.t.mutation(internal.transcripts.backfillTranscriptStructure, {});
+    await f.t.finishAllScheduledFunctions(vi.runAllTimers);
+    for (const id of f.transcriptIds) {
+      // One row per read: twenty of them would pass the read limit here too.
+      expect((await f.t.run((ctx) => ctx.db.get(id)))?.parserVersion).toBe(TRANSCRIPT_PARSER_VERSION);
+    }
   });
 
   it("keeps a consultant's role through a parser rebuild", async () => {

@@ -12,6 +12,7 @@ import {
   type TranscriptTurn,
 } from "../../shared/transcriptParse";
 import { listTeamRoster, userDisplayLabel } from "./teamRoster";
+import { FROZEN_TRANSCRIPT_CHARS } from "./transcripts";
 import {
   inferSpeakerRoles,
   needsModelRole,
@@ -102,7 +103,7 @@ export async function buildStructureStep(
     if (stale.length === TURN_DELETE_BATCH_SIZE) return { kind: "continue", fromIndex: 0, buildId: chain };
   }
 
-  const turns = parseTranscriptTurns(transcript.content);
+  const turns = parseTranscriptTurns(frozenSlice(transcript.content));
   const batch = turns.slice(fromIndex, fromIndex + TURN_BATCH_SIZE);
   if (batch.length > 0) {
     const existing = await ctx.db
@@ -139,6 +140,18 @@ export async function buildStructureStep(
     speakerStatus: guesses.length === 0 ? "unchecked" : await speakerStatusOf(ctx, transcript._id),
   });
   return { kind: "done", needsModelRoles };
+}
+
+/**
+ * The text turns are built from: the slice a generation freezes, so every
+ * turn offset stays valid on the frozen row. Only rows written before the
+ * 500 000-character cap are longer. Never ends inside a surrogate pair.
+ */
+export function frozenSlice(content: string): string {
+  if (content.length <= FROZEN_TRANSCRIPT_CHARS) return content;
+  const code = content.charCodeAt(FROZEN_TRANSCRIPT_CHARS - 1);
+  const end = code >= 0xd800 && code <= 0xdbff ? FROZEN_TRANSCRIPT_CHARS - 1 : FROZEN_TRANSCRIPT_CHARS;
+  return content.slice(0, end);
 }
 
 function turnRow(transcript: Doc<"transcripts">, turn: TranscriptTurn) {

@@ -4,6 +4,7 @@ import {
   cleanTurnText,
   detectTranscriptFormat,
   formatTimestamp,
+  MAX_TURN_CHARS,
   normalizeTranscriptText,
   parseTranscriptTurns,
   prepareTranscriptUpload,
@@ -185,13 +186,15 @@ describe("speaker lines", () => {
     "Priya Shah   0:03",
     "<v Priya Shah>We could not.",
     "00:01:02",
+    "[00:01:02] We could not.",
+    "[00:01:02] Priya Shah: We could not.",
     "",
   ];
 
   it("agrees with speakerOfTranscriptLine on every line it names", () => {
     for (const line of cases) {
       const split = splitSpeakerLine(line);
-      const speaker = split && split.kind !== "timestamp" ? split.speaker : undefined;
+      const speaker = split && "speaker" in split ? split.speaker : undefined;
       expect(speaker, line).toBe(speakerOfTranscriptLine(line));
     }
   });
@@ -203,6 +206,83 @@ describe("speaker lines", () => {
     if (split?.kind !== "inline") return;
     expect(line.slice(split.speechOffset)).toBe("We tried it.");
     expect(split.timeMs).toBe(62_000);
+  });
+});
+
+describe("cues and turns with no speaker", () => {
+  it("keeps each unnamed SRT or VTT cue as its own turn with its time", () => {
+    const srt = prepareTranscriptUpload({
+      fileName: "call.srt",
+      text: "1\n00:00:01,000 --> 00:00:03,000\nWe could not predict flow.\n\n2\n00:00:04,500 --> 00:00:06,000\nSo we built a rig.",
+    });
+    expect(srt.content).toBe("[00:00:01] We could not predict flow.\n\n[00:00:04] So we built a rig.");
+    const turns = parseTranscriptTurns(srt.content);
+    expect(turns.map((turn) => [turn.speakerLabel, turn.startMs, turn.endMs])).toEqual([
+      [undefined, 1_000, 4_000],
+      [undefined, 4_000, undefined],
+    ]);
+    expect(srt.content.slice(turns[0].charStart, turns[0].charEnd)).toBe("We could not predict flow.");
+    expectSpansValid(srt.content, turns);
+  });
+
+  it("never folds an unnamed cue into the named speaker above it", () => {
+    const vtt = prepareTranscriptUpload({
+      fileName: "call.vtt",
+      text: [
+        "WEBVTT",
+        "",
+        "00:00:01.000 --> 00:00:02.000",
+        "<v Dana Whitfield>What did you try?",
+        "",
+        "00:00:03.000 --> 00:00:04.000",
+        "Background voice nobody named.",
+        "",
+        "00:00:05.000 --> 00:00:06.000",
+        "<v Priya Shah>A test rig.",
+      ].join("\n"),
+    });
+    const turns = parseTranscriptTurns(vtt.content);
+    expect(turns.map((turn) => [turn.speakerLabel, turn.startMs])).toEqual([
+      ["Dana Whitfield", 1_000],
+      [undefined, 3_000],
+      ["Priya Shah", 5_000],
+    ]);
+    expect(vtt.content.slice(turns[1].charStart, turns[1].charEnd)).toBe("Background voice nobody named.");
+  });
+});
+
+describe("long turns", () => {
+  it("splits speech longer than MAX_TURN_CHARS into turns of the same speaker, cut at whitespace", () => {
+    const words = Array.from({ length: 12_000 }, (_, i) => `word${i}`).join(" ");
+    const content = `Dana Whitfield [00:00:05]: ${words}\n\nPriya Shah: Short answer.`;
+    const turns = parseTranscriptTurns(content);
+    expect(turns.length).toBeGreaterThan(3);
+    const dana = turns.filter((turn) => turn.speakerLabel === "Dana Whitfield");
+    expect(dana.length).toBe(turns.length - 1);
+    expect(dana[0].startMs).toBe(5_000);
+    expect(dana.slice(1).every((turn) => turn.startMs === undefined)).toBe(true);
+    for (const turn of turns) {
+      expect(turn.charEnd - turn.charStart).toBeLessThanOrEqual(MAX_TURN_CHARS);
+      expect(turn.cleanText.length).toBeLessThanOrEqual(MAX_TURN_CHARS);
+      // Cut at whitespace: no word is split.
+      expect(content.slice(turn.charStart, turn.charEnd)).toMatch(/^word\d+|^Short/);
+    }
+    // Every word is still in exactly one turn.
+    expect(dana.map((turn) => content.slice(turn.charStart, turn.charEnd)).join(" ")).toBe(words);
+    expectSpansValid(content, turns);
+  });
+
+  it("cuts a run with no whitespace without splitting a surrogate pair", () => {
+    const content = "\u{1F600}".repeat(MAX_TURN_CHARS);
+    const turns = parseTranscriptTurns(content);
+    expect(turns.length).toBe(2);
+    for (const turn of turns) {
+      const slice = content.slice(turn.charStart, turn.charEnd);
+      expect(slice.length).toBeLessThanOrEqual(MAX_TURN_CHARS);
+      // No lone surrogate at either end.
+      expect(/[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/.test(slice)).toBe(false);
+    }
+    expect(turns.map((turn) => content.slice(turn.charStart, turn.charEnd)).join("")).toBe(content);
   });
 });
 
