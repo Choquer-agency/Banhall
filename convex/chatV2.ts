@@ -590,11 +590,12 @@ export const applyProposal = mutation({
       if (proposal.researchSessionId) {
         const session = await ctx.db.get(proposal.researchSessionId);
         if (session && session.reportId === proposal.reportId) {
-          location = locateSelection(parsed as PMNode, {
-            from: session.selectionFrom,
-            to: session.selectionTo,
-            text: session.selectedText,
-          });
+          // Made in the report editor: never part of a heading's text.
+          location = locateSelection(
+            parsed as PMNode,
+            { from: session.selectionFrom, to: session.selectionTo, text: session.selectedText },
+            { partialHeadingText: false }
+          );
         }
       } else if (proposal.promptMessageId) {
         // An Ask assistant edit: the writer's highlight decides when the

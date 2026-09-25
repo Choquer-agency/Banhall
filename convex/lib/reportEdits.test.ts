@@ -109,6 +109,13 @@ describe("stored selections", () => {
     expect(locateSelection(doc, { ...body, from: body.from - 4, to: body.to - 4 })).toBe("split");
     const only = bodyText.indexOf("was whether");
     expect(locateSelection(doc, { from: starts[2] + 1 + only - 3, to: starts[2] + 1 + only + 8, text: "was whether" })).toBe("body");
+    // Editor selections count heading text only as whole words: "Scientific" (a
+    // whole word of the 242 heading) is split with the body, "cientific" is not.
+    const word = { from: body.from + 50, to: body.from + 60, text: "Scientific" };
+    expect(locateSelection(doc, word)).toBe("section");
+    expect(locateSelection(doc, word, { partialHeadingText: false })).toBe("section");
+    expect(locateSelection(doc, { ...word, text: "cientific" }, { partialHeadingText: false })).toBe("missing");
+    expect(locateSelection(doc, { ...word, text: "cientific" })).toBe("section");
     // A two-paragraph selection as the editor sends it (blocks joined by a newline).
     const next = nodeTextOf(content[4]);
     expect(locateSelection(doc, { from: starts[2] + 1, to: starts[4] + 1 + next.length, text: `${bodyText}\n${nodeTextOf(content[3])}\n${next}` })).toBe("section");
