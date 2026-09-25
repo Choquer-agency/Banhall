@@ -827,6 +827,98 @@ describe("Seed DTO fields for the final UI (2026-09-24)", () => {
     expect(result.page.map((item) => item.provenance.length)).toEqual([0, 1, 1]);
   });
 
+  it("returns stamped speaker and line on Seed cards and live and frozen Summary items", async () => {
+    const fixture = await decisionFixture();
+    const seed = await addDecisionSeed(fixture);
+    const summaryVersionId = await fixture.t.run(async (ctx) => {
+      await ctx.db.insert("seedSelections", {
+        projectId: fixture.projectId,
+        generationId: fixture.generationId,
+        roleId: "company_context",
+        seedId: seed.seedId,
+        selected: true,
+        selectedAt: 1,
+        version: 1,
+        orderKey: "00000",
+      });
+      await ctx.db.insert("seedProvenance", {
+        seedId: seed.seedId,
+        projectId: fixture.projectId,
+        generationId: fixture.generationId,
+        sourceId: fixture.sourceId,
+        sourceContentHash: "source-hash",
+        startOffset: 0,
+        endOffset: 8,
+        exactExcerpt: "Original",
+        speaker: "Priya",
+        line: 18,
+      });
+      // A row written before stamping carries neither field.
+      await ctx.db.insert("seedProvenance", {
+        seedId: seed.seedId,
+        projectId: fixture.projectId,
+        generationId: fixture.generationId,
+        sourceId: fixture.sourceId,
+        sourceContentHash: "source-hash",
+        startOffset: 9,
+        endOffset: 15,
+        exactExcerpt: "frozen",
+      });
+      const summaryVersionId = await ctx.db.insert("summaryVersions", {
+        projectId: fixture.projectId,
+        generationId: fixture.generationId,
+        version: 1,
+        originGenerationId: fixture.generationId,
+        briefVersionId: fixture.briefId,
+        settingsHash: "settings",
+        skippedRoleIds: [],
+        readiness: true,
+        signedOffBy: fixture.userId,
+        signedOffAt: 1,
+      });
+      await ctx.db.insert("summaryItems", {
+        projectId: fixture.projectId,
+        generationId: fixture.generationId,
+        summaryVersionId,
+        roleId: "company_context",
+        kind: "standard",
+        order: 0,
+        seedId: seed.seedId,
+        bullets: ["Original frozen wording."],
+        support: "source_supported",
+        tags: ["technical"],
+        edited: false,
+      });
+      return summaryVersionId;
+    });
+
+    const subsection = await fixture.writer.query(getSubsectionRef, {
+      generationId: fixture.generationId,
+      roleId: "company_context",
+    });
+    const card = subsection.items.find((item) => item.seedId === seed.seedId);
+    expect(card?.provenance).toEqual([
+      expect.objectContaining({ exactExcerpt: "Original", speaker: "Priya", line: 18 }),
+      expect.objectContaining({ exactExcerpt: "frozen" }),
+    ]);
+    expect(card?.provenance[1]).not.toHaveProperty("speaker");
+    expect(card?.provenance[1]).not.toHaveProperty("line");
+
+    for (const versionId of [undefined, summaryVersionId]) {
+      const result: SummaryResult = await fixture.writer.query(getSummaryRef, {
+        generationId: fixture.generationId,
+        ...(versionId ? { versionId } : {}),
+        cursor: null,
+        numItems: 10,
+      });
+      const item = result.page.find((candidate) => candidate.seedId === seed.seedId);
+      expect(item?.provenance).toEqual([
+        { sourceId: fixture.sourceId, exactExcerpt: "Original", speaker: "Priya", line: 18 },
+        { sourceId: fixture.sourceId, exactExcerpt: "frozen" },
+      ]);
+    }
+  });
+
   it("keeps a fourth citation on live and frozen Summary items", async () => {
     const fixture = await decisionFixture();
     const seed = await addDecisionSeed(fixture);

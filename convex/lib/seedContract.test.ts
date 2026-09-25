@@ -4,7 +4,9 @@ import {
   SEED_TAGS,
   isLongForSeed,
   isOneSeedSentence,
+  locateCitations,
   seedToolSchema,
+  speakerOfTranscriptLine,
   validateBatch,
   validateSeed,
   type SeedCandidate,
@@ -356,5 +358,181 @@ describe("seed contract", () => {
         },
       }).ok
     ).toBe(false);
+  });
+});
+
+/** Offsets of `excerpt` in `content`, as a validated citation carries them. */
+function cite(content: string, excerpt: string, from = 0) {
+  const startOffset = content.indexOf(excerpt, from);
+  if (startOffset < 0) throw new Error(`excerpt not found: ${excerpt}`);
+  return { startOffset, endOffset: startOffset + excerpt.length };
+}
+
+describe("citation speaker and line", () => {
+  // The shape this repo's demo data and test kit use: "Label: speech" turns
+  // separated by blank lines, with the name in parentheses on role labels.
+  const interview = [
+    "Interviewer (Dana): Thanks for the time, Marcus. What did you build?",
+    "",
+    "Subject (Marcus Lindqvist, CTO): We build controllers for microgrids.",
+    "",
+    "Dana: What made that hard?",
+    "",
+    "Marcus: The standard stuff assumes a central operator.",
+    "The big unknown was whether we could forecast net load.",
+    "",
+    "We genuinely did not know if a forecast was possible.",
+  ].join("\n");
+
+  it("names the speaker of the line and counts lines from 1", () => {
+    expect(
+      locateCitations(interview, [
+        cite(interview, "Thanks for the time"),
+        cite(interview, "We build controllers"),
+        cite(interview, "What made that hard?"),
+      ])
+    ).toEqual([
+      { line: 1, speaker: "Dana" },
+      { line: 3, speaker: "Marcus Lindqvist" },
+      { line: 5, speaker: "Dana" },
+    ]);
+  });
+
+  it("carries a turn's speaker to its later lines and paragraphs (excerpt mid-turn)", () => {
+    expect(
+      locateCitations(interview, [
+        cite(interview, "forecast net load"),
+        cite(interview, "We genuinely did not know"),
+      ])
+    ).toEqual([
+      { line: 8, speaker: "Marcus" },
+      { line: 10, speaker: "Marcus" },
+    ]);
+  });
+
+  it("handles an excerpt at offset 0 that includes the label", () => {
+    const content = "Priya: We run four sites, all refrigerated.\nTom: Noted.";
+    expect(locateCitations(content, [{ startOffset: 0, endOffset: 25 }])).toEqual([
+      { line: 1, speaker: "Priya" },
+    ]);
+  });
+
+  it("counts CRLF lines the same and keeps the carriage return out of the speaker", () => {
+    const content = "Priya Shah: Hello.\r\n\r\nTom: We tested the loop.\r\nIt held.";
+    expect(
+      locateCitations(content, [cite(content, "We tested"), cite(content, "It held.")])
+    ).toEqual([
+      { line: 3, speaker: "Tom" },
+      { line: 4, speaker: "Tom" },
+    ]);
+  });
+
+  it("starts at the excerpt's first non-blank character", () => {
+    const content = "Priya: First.\n\nTom: Second line.";
+    const start = content.indexOf("\n");
+    expect(
+      locateCitations(content, [{ startOffset: start, endOffset: content.length }])
+    ).toEqual([{ line: 3, speaker: "Tom" }]);
+  });
+
+  it("reads WebVTT voice spans and ignores cue timings", () => {
+    const content = [
+      "WEBVTT",
+      "",
+      "1",
+      "00:00:01.000 --> 00:00:04.000",
+      "<v Priya Shah>We run four sites.</v>",
+      "",
+      "2",
+      "00:00:04.000 --> 00:00:09.000",
+      "<v.loud Tom>The loop oscillated.</v>",
+      "",
+      "3",
+      "00:00:09.000 --> 00:00:12.000",
+      "It still does at night.",
+    ].join("\n");
+    expect(
+      locateCitations(content, [
+        cite(content, "We run four sites."),
+        cite(content, "The loop oscillated."),
+        cite(content, "It still does"),
+      ])
+    ).toEqual([
+      { line: 5, speaker: "Priya Shah" },
+      { line: 9, speaker: "Tom" },
+      { line: 13, speaker: "Tom" },
+    ]);
+  });
+
+  it("reads name-and-timestamp headers and timestamped labels", () => {
+    const content = [
+      "Priya Shah  0:03",
+      "We run four sites.",
+      "",
+      "Speaker 2  01:15",
+      "Which ones?",
+      "[00:02:10] Tom: The coastal ones.",
+      "00:02:30 - Priya: And one inland.",
+    ].join("\n");
+    expect(
+      locateCitations(content, [
+        cite(content, "We run four sites."),
+        cite(content, "Which ones?"),
+        cite(content, "The coastal ones."),
+        cite(content, "And one inland."),
+      ])
+    ).toEqual([
+      { line: 2, speaker: "Priya Shah" },
+      { line: 5, speaker: "Speaker 2" },
+      { line: 6, speaker: "Tom" },
+      { line: 7, speaker: "Priya" },
+    ]);
+  });
+
+  it("gives only the line when the text names no speakers", () => {
+    const content = [
+      "Date: 12 March",
+      "Notes from the site visit.",
+      "Three things: the loop, the pump and the sensor.",
+      "The pump failed twice (see https://example.com: log).",
+    ].join("\n");
+    expect(
+      locateCitations(content, [
+        cite(content, "Notes from"),
+        cite(content, "the pump and"),
+        cite(content, "failed twice"),
+      ])
+    ).toEqual([{ line: 2 }, { line: 3 }, { line: 4 }]);
+  });
+
+  it("returns results in the order given, however the citations are sorted", () => {
+    const content = "Priya: One.\nTom: Two.\nPriya: Three.";
+    expect(
+      locateCitations(content, [
+        cite(content, "Three."),
+        cite(content, "One."),
+        cite(content, "Two."),
+        cite(content, "One."),
+      ])
+    ).toEqual([
+      { line: 3, speaker: "Priya" },
+      { line: 1, speaker: "Priya" },
+      { line: 2, speaker: "Tom" },
+      { line: 1, speaker: "Priya" },
+    ]);
+  });
+
+  it("recognises only name-like labels", () => {
+    expect(speakerOfTranscriptLine("Dr. Priya Shah: Yes.")).toBe("Dr. Priya Shah");
+    expect(speakerOfTranscriptLine("Ludwig van Beethoven: Yes.")).toBe("Ludwig van Beethoven");
+    expect(speakerOfTranscriptLine("Interviewer (Larry): Thanks.")).toBe("Larry");
+    expect(speakerOfTranscriptLine("Subject (CTO): Sure.")).toBe("CTO");
+    expect(speakerOfTranscriptLine("Priya Shah (00:01:02): Yes.")).toBe("Priya Shah");
+    expect(speakerOfTranscriptLine("Q: Why?")).toBeUndefined();
+    expect(speakerOfTranscriptLine("Attendees: Priya, Tom")).toBeUndefined();
+    expect(speakerOfTranscriptLine("the result was: stable")).toBeUndefined();
+    expect(speakerOfTranscriptLine("One two three four five six: too long")).toBeUndefined();
+    expect(speakerOfTranscriptLine("10:30 the meeting began")).toBeUndefined();
+    expect(speakerOfTranscriptLine("")).toBeUndefined();
   });
 });

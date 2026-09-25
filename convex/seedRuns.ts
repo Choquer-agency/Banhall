@@ -35,7 +35,9 @@ import {
 } from "./lib/seedSnapshotLoader";
 import {
   SEED_TAGS,
+  locateCitations,
   validateBatch,
+  type CitationLocation,
   type FrozenSeedSource,
   type SeedReferenceContext,
 } from "./lib/seedContract";
@@ -853,6 +855,28 @@ export const completeAttempt = internalMutation({
       });
     }
 
+    // Speaker and line are stamped now, from the frozen transcript already in
+    // hand, so readers never reread it. One pass per cited transcript;
+    // documents, digests and the storyline carry neither.
+    const locations = new Map<object, CitationLocation>();
+    const transcriptCitations = new Map<
+      string,
+      (typeof preparedSeeds)[number]["provenance"][number]["citation"][]
+    >();
+    for (const { provenance } of preparedSeeds) {
+      for (const { citation } of provenance) {
+        const list = transcriptCitations.get(citation.sourceId) ?? [];
+        list.push(citation);
+        transcriptCitations.set(citation.sourceId, list);
+      }
+    }
+    for (const source of sources) {
+      const cited = transcriptCitations.get(source._id);
+      if (!cited || source.kind !== "transcript") continue;
+      const located = locateCitations(source.content, cited);
+      cited.forEach((citation, index) => locations.set(citation, located[index]));
+    }
+
     for (let order = 0; order < preparedSeeds.length; order += 1) {
       const prepared = preparedSeeds[order];
       const seed = prepared.seed;
@@ -890,6 +914,7 @@ export const completeAttempt = internalMutation({
           startOffset: citation.startOffset,
           endOffset: citation.endOffset,
           exactExcerpt: citation.exactExcerpt,
+          ...locations.get(citation),
         });
       }
     }
