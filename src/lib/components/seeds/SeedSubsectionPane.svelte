@@ -406,53 +406,26 @@
     };
   }
   // Cards keep their ranked reading order in the page (tab and screen-reader
-  // order) and are placed on a two-column grid: each goes to the column that
-  // is shorter so far, where a seed that already carries revised seeds counts
-  // for more (board 3.2), and to the next row of that column. The plan is
-  // made once per set of cards on screen and then kept, and every card is
-  // rendered from one keyed list, so feedback sent or revised seeds landing
-  // never move a card to another parent or rebuild it. A row's two cards share
-  // one height (board 3.1); beside a seed with revised seeds, the other card
-  // keeps its own height.
+  // order) and fill the two-column grid two to a row in that same order: the
+  // n-th card goes to column n % 2 of row n / 2. Visual order therefore always
+  // equals page order, and no cell is left empty. A card's place depends only
+  // on its rank, never on feedback or revised seeds, and every card comes
+  // from one keyed list, so feedback sent or revised seeds landing never move
+  // a card to another parent or rebuild it. A row's two cards share one height
+  // (board 3.1); beside a seed with revised seeds, the other card keeps its
+  // own height.
   const hasRevisions = (item: SeedCardData) => groupsByTarget.has(String(item.seedId));
-  let columnPlan: { key: string; place: Map<string, { column: number; row: number }> } = { key: "", place: new Map() };
-  const placement = $derived.by(() => {
-    if (!twoColumns) return null;
-    const key = topLevelItems.map((item) => String(item.seedId)).join("|");
-    if (columnPlan.key !== key) {
-      const place = new Map<string, { column: number; row: number }>();
-      const weight = [0, 0];
-      const rows = [0, 0];
-      for (const item of topLevelItems) {
-        const column = weight[1] < weight[0] ? 1 : 0;
-        place.set(String(item.seedId), { column, row: rows[column] });
-        rows[column] += 1;
-        weight[column] += groupsByTarget.has(String(item.seedId)) ? 2.5 : 1;
-      }
-      columnPlan = { key, place };
-    }
-    return columnPlan.place;
-  });
-  // Cards that share a grid row with a seed carrying revised seeds.
-  const besideRevisions = $derived.by(() => {
-    const beside = new Set<string>();
-    if (!placement) return beside;
-    const byRow = new Map<number, SeedCardData[]>();
-    for (const item of topLevelItems) {
-      const spot = placement.get(String(item.seedId));
-      if (!spot) continue;
-      byRow.set(spot.row, [...(byRow.get(spot.row) ?? []), item]);
-    }
-    for (const row of byRow.values()) {
-      if (!row.some(hasRevisions)) continue;
-      for (const item of row) if (!hasRevisions(item)) beside.add(String(item.seedId));
-    }
-    return beside;
-  });
+  const rankOf = $derived(new Map(topLevelItems.map((item, index) => [String(item.seedId), index])));
+  function spotOf(item: SeedCardData) {
+    const rank = rankOf.get(String(item.seedId));
+    return rank === undefined ? null : { column: rank % 2, row: Math.floor(rank / 2) };
+  }
   function placementOf(item: SeedCardData) {
-    const spot = placement?.get(String(item.seedId));
+    if (!twoColumns) return undefined;
+    const spot = spotOf(item);
     if (!spot) return undefined;
-    const align = besideRevisions.has(String(item.seedId)) ? "align-self:start;" : "";
+    const partner = topLevelItems[spot.row * 2 + (1 - spot.column)];
+    const align = !hasRevisions(item) && !!partner && hasRevisions(partner) ? "align-self:start;" : "";
     return `grid-column:${spot.column + 1};grid-row:${spot.row + 1};${align}`;
   }
 
@@ -881,7 +854,7 @@
                so a card keeps its parent, focus and local state. -->
           <div class={`grid gap-2.5 ${twoColumns ? "grid-cols-[repeat(2,minmax(0,412px))]" : "grid-cols-1"}`}>
             {#each topLevelItems as item (item.seedId)}
-              {@render seedWithRevisions(item, false, placementOf(item), placement?.get(String(item.seedId))?.column ?? 0)}
+              {@render seedWithRevisions(item, false, placementOf(item), twoColumns ? (spotOf(item)?.column ?? 0) : 0)}
             {/each}
           </div>
         {/if}

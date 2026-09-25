@@ -3198,7 +3198,7 @@ describe("Seed plan final UI (ui-design-final.md sections 3 and 11)", () => {
     await page.getByLabelText("Seed workspace").screenshot({ path: await captures.path("seed-plan-tablet-1024") });
   });
 
-  it("nests revised seeds inside their seed's card and continues in the shorter column after it (board 3.2)", async () => {
+  it("nests revised seeds inside their seed's card and keeps placing cards two to a row after it (board 3.2)", async () => {
     await page.viewport(1440, 900);
     const revision = (index: number) => seed({
       seedId: `seed-rev-${index}` as Id<"seeds">,
@@ -3225,11 +3225,11 @@ describe("Seed plan final UI (ui-design-final.md sections 3 and 11)", () => {
     view.container.style.width = "1228px";
     view.container.style.height = "830px";
     await expect.poll(() => document.querySelector("[data-seed-grid]")?.getAttribute("data-seed-grid")).toBe("two");
-    // Cards go to the shorter column, a seed that carries revised seeds
-    // counting for more, so the fifth goes right; the page keeps ranked order.
+    // Cards fill each row left to right in ranked order, whatever revised
+    // seeds they carry, so the fifth starts the third row on the left.
     const cells = Array.from(document.querySelectorAll<HTMLElement>("[data-seed-cell][data-seed-column]"));
     expect(cells.map((cell) => cell.dataset.seedCell)).toEqual(["seed-grid-0", "seed-grid-1", "seed-grid-2", "seed-grid-3", "seed-grid-4"]);
-    expect(cells.map((cell) => cell.dataset.seedColumn)).toEqual(["0", "1", "0", "1", "1"]);
+    expect(cells.map((cell) => cell.dataset.seedColumn)).toEqual(["0", "1", "0", "1", "0"]);
     // The revised seed's row: its neighbour keeps its own height rather than
     // stretching beside the revised seeds, and the fifth card starts on the
     // next row.
@@ -3237,6 +3237,7 @@ describe("Seed plan final UI (ui-design-final.md sections 3 and 11)", () => {
     expect(Math.round(rect("seed-grid-3").top)).toBe(Math.round(rect("seed-grid-2").top));
     expect(rect("seed-grid-3").height).toBeLessThan(rect("seed-grid-2").height - 100);
     expect(Math.round(rect("seed-grid-4").top - rect("seed-grid-2").bottom)).toBe(10);
+    expect(Math.round(rect("seed-grid-4").left)).toBe(Math.round(rect("seed-grid-2").left));
     // The revised seeds sit inside the targeted seed's own card, on canvas.
     const target = document.querySelector<HTMLElement>('article[data-seed-id="seed-grid-2"]')!;
     const group = target.querySelector<HTMLElement>('[data-feedback-group="feedback-grid"]')!;
@@ -3275,6 +3276,57 @@ describe("Seed plan final UI (ui-design-final.md sections 3 and 11)", () => {
     await expect.element(page.getByRole("navigation", { name: "PD subsections" })).toBeVisible();
     expect(wide.container.querySelector("[data-seed-pane-switch]")).toBeNull();
     expect(wide.container.querySelector("[data-host-control]")).toBeNull();
+  });
+
+  it("leaves no empty cell and keeps visual order equal to page order when revised seeds exist before the cards are placed", async () => {
+    await page.viewport(1440, 900);
+    const letters = ["a", "b", "c", "d", "e", "f"];
+    const revision = (index: number) => seed({
+      seedId: `seed-rev-${index}` as Id<"seeds">,
+      selected: false,
+      bullets: [`Revised wording ${index}.`],
+      revisionOfSeedId: "seed-a" as Id<"seeds">,
+      feedbackRequestId: "feedback-a" as Id<"seedFeedbackRequests">,
+      provenance: [],
+    });
+    // A reload after feedback on the first seed: its revised seeds are
+    // already there when the cards are placed.
+    await render(SeedSubsectionPane, paneProps(subsection({
+      items: [
+        ...letters.map((letter) => seed({ seedId: `seed-${letter}` as Id<"seeds">, selected: false, bullets: [`Seed ${letter.toUpperCase()} wording.`], provenance: [] })),
+        revision(1),
+        revision(2),
+      ],
+      feedbackGroups: [{
+        requestId: "feedback-a" as Id<"seedFeedbackRequests">,
+        targetSeedId: "seed-a" as Id<"seeds">,
+        targetWording: ["Seed A wording."],
+        instruction: "Say what was measured.",
+        status: "active" as const,
+        batchId: null,
+        revisedSeedIds: ["seed-rev-1", "seed-rev-2"] as Id<"seeds">[],
+      }],
+    })));
+    await expect.poll(() => document.querySelector("[data-seed-grid]")?.getAttribute("data-seed-grid")).toBe("two");
+    const cells = Array.from(document.querySelectorAll<HTMLElement>("[data-seed-cell][data-seed-column]"));
+    const pageOrder = cells.map((cell) => cell.dataset.seedCell);
+    expect(pageOrder).toEqual(letters.map((letter) => `seed-${letter}`));
+    // Two cards on every row: rows are A B, C D, E F, with no empty cell.
+    const rows = new Map<number, string[]>();
+    for (const cell of cells) {
+      const top = Math.round(cell.getBoundingClientRect().top);
+      rows.set(top, [...(rows.get(top) ?? []), cell.dataset.seedCell!]);
+    }
+    expect([...rows.values()]).toEqual([["seed-a", "seed-b"], ["seed-c", "seed-d"], ["seed-e", "seed-f"]]);
+    // Visual order (top to bottom, left to right) is the page order.
+    const visualOrder = [...cells]
+      .sort((left, right) => {
+        const a = left.getBoundingClientRect();
+        const b = right.getBoundingClientRect();
+        return Math.round(a.top) - Math.round(b.top) || a.left - b.left;
+      })
+      .map((cell) => cell.dataset.seedCell);
+    expect(visualOrder).toEqual(pageOrder);
   });
 
   it("gives phones a segmented Outline n/13 | Seeds switch, one column and a bottom bar with 44px regenerate and approve", async () => {
