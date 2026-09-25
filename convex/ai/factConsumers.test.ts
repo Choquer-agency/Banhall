@@ -1,17 +1,11 @@
 /**
- * The other readers of verified facts (phase 3, plan step 8): the chat's
- * TRANSCRIPT FACTS block, the Brain query built from facts, and the PD
- * review's heading. Pure.
+ * The other readers of verified facts (phase 3, plan step 8): the Brain
+ * query built from facts and the PD review's heading, and report chat,
+ * which reads none. Pure.
  */
 import { describe, expect, it } from "vitest";
-import {
-  CHAT_TRANSCRIPT_FACTS_TOKENS,
-  EVIDENCE_LABELS,
-  buildChatEvidence,
-  buildChatTurnRequest,
-  chatFactsText,
-} from "./chatEvidence";
-import { CHARS_PER_TOKEN } from "./trustedContext";
+import { EVIDENCE_LABELS, buildChatTurnRequest } from "./chatEvidence";
+import { CHAT_EVIDENCE_GUIDANCE } from "./prompts";
 import { retrievalBriefFromFacts } from "./brain/query";
 import { PD_REVIEW_FACTS_HEADING, buildPdReviewUserMessage } from "./reviewAgent";
 import { buildPlaceholderMap } from "../lib/deidentify";
@@ -40,65 +34,20 @@ const PACK_TWO = pack(2, "Follow-up", [
   fact("F2", "hypothesis", "They proposed that cloud edges drive the largest ramps.", 2),
 ]);
 
-describe("the chat's TRANSCRIPT FACTS block", () => {
-  it("keeps every pack's heading and, over the cap, the highest-ranked facts in pack order", () => {
-    const whole = chatFactsText([PACK_ONE, PACK_TWO], 100_000);
-    expect(whole).toContain("Transcript 1: Kickoff");
-    expect(whole).toContain("[F2-2] (hypothesis)");
-    expect(whole).not.toContain("omitted");
-    expect(whole).not.toContain("Verified facts. Cite a fact by its id");
-
-    const capped = chatFactsText([PACK_ONE, PACK_TWO], 240);
-    expect(capped).toContain("[F1-2] (uncertainty)");
-    expect(capped).not.toContain("[F1-1] (context)");
-    expect(capped).toMatch(/\[\d more facts omitted to fit\.\]$/);
-    expect(capped.length).toBeLessThanOrEqual(240 + 40);
-    // Deterministic, so the cached head is byte-stable across turns.
-    expect(chatFactsText([PACK_ONE, PACK_TWO], 240)).toBe(capped);
-  });
-
-  it("sits in the cached head after the analysis, and leaves the head unchanged without packs", () => {
+describe("report chat never reads fact packs (decision 26, review 2026-09-25)", () => {
+  it("keeps the evidence head free of facts: chat cannot restore placeholders while it streams", () => {
     const context = {
       reportContent: null,
       agentOutputs: JSON.stringify({ analyzer: { project_goal: "Forecast net load" } }),
-      documents: [{ fileName: "plan.txt", content: "Test plan." }],
+      documents: [],
       decisions: [],
     };
-    const without = buildChatTurnRequest({ context });
-    const withFacts = buildChatTurnRequest({ context: { ...context, transcriptFacts: [PACK_ONE, PACK_TWO] } });
-    const head = String(withFacts.messages[0].content);
-    const block = `--- BEGIN [${EVIDENCE_LABELS.transcriptFacts}`;
-    expect(head.indexOf(block)).toBeGreaterThan(head.indexOf(EVIDENCE_LABELS.analysis));
-    expect(head.indexOf(block)).toBeLessThan(head.indexOf("plan.txt"));
-    expect(String(without.messages[0].content)).not.toContain(EVIDENCE_LABELS.transcriptFacts + "]");
-    expect(withFacts.messages.slice(1)).toEqual(without.messages.slice(1));
-    expect(withFacts.report.sources.find((source) => source.label === EVIDENCE_LABELS.transcriptFacts)).toMatchObject({
-      kind: "transcript",
-      trust: "client",
-      included: true,
-    });
-    // Byte-stable across turns that only change the report.
-    const later = buildChatTurnRequest({
-      context: { ...context, reportContent: JSON.stringify({ type: "doc", content: [] }), transcriptFacts: [PACK_ONE, PACK_TWO] },
-    });
-    expect(later.messages[0].content).toBe(withFacts.messages[0].content);
-  });
-
-  it("is capped at its own share of the head", () => {
-    const many = pack(
-      1,
-      "Long call",
-      Array.from({ length: 800 }, (_, index) =>
-        fact(`F${index + 1}`, "result", `Measurement ${index + 1} of the ramp forecaster held within tolerance.`, index)
-      )
-    );
-    const { report } = buildChatEvidence({
-      reportText: "Report.",
-      analysisText: "Analysis.",
-      transcriptFactsText: chatFactsText([many], CHAT_TRANSCRIPT_FACTS_TOKENS * CHARS_PER_TOKEN),
-    });
-    const facts = report.sources.find((source) => source.label === EVIDENCE_LABELS.transcriptFacts)!;
-    expect(facts.includedLength).toBeLessThanOrEqual(CHAT_TRANSCRIPT_FACTS_TOKENS * CHARS_PER_TOKEN);
+    const request = buildChatTurnRequest({ context });
+    const head = String(request.messages[0].content);
+    expect(head).not.toContain("TRANSCRIPT FACTS");
+    expect(head).not.toContain("[F1-");
+    expect(CHAT_EVIDENCE_GUIDANCE).not.toContain("TRANSCRIPT FACTS");
+    expect(Object.values(EVIDENCE_LABELS)).not.toContain("TRANSCRIPT FACTS");
   });
 });
 

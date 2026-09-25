@@ -2,9 +2,9 @@
 
 /**
  * Readers of verified facts outside the drafting pipeline (phase 3, plan
- * step 8): report chat reads the frozen packs of the report's generation,
- * and the PD review reads live packs when every transcript has them, behind
- * placeholders, with the HTTP transport stubbed.
+ * step 8): the PD review reads live packs when every transcript has them,
+ * behind placeholders, with the HTTP transport stubbed. Report chat reads
+ * none (decision 26: it streams, so it cannot restore placeholders yet).
  */
 import { convexTest } from "convex-test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -31,7 +31,7 @@ afterEach(() => {
   vi.unstubAllEnvs();
 });
 
-describe("report chat reads the frozen fact packs of its own generation", () => {
+describe("report chat reads no fact packs, even from a generation that read them (decision 26)", () => {
   async function chatFixture(t: T, packs: "all" | "partial" | "none", transcriptFacts = true) {
     return await t.run(async (ctx) => {
       const userId = await ctx.db.insert("users", { authId: "cf-writer", role: "writer" });
@@ -87,22 +87,13 @@ describe("report chat reads the frozen fact packs of its own generation", () => 
     });
   }
 
-  it("returns every pack in transcript order", async () => {
-    const t = convexTest(schema, modules);
-    const { reportId } = await chatFixture(t, "all");
-    const context = await t.query(internal.chatV2.getChatContextV2, { reportId, agentThreadId: "thread" });
-    expect(context.transcriptFacts?.map((pack) => pack.split("\n")[0])).toEqual([
-      "Transcript 1: Kickoff",
-      "Transcript 2: Follow-up",
-    ]);
-  });
-
-  it("returns none for a generation that fell back or never read facts", async () => {
-    for (const [packs, flag] of [["partial", true], ["none", true], ["all", false]] as const) {
+  it("returns none: chat cannot restore placeholders while it streams", async () => {
+    for (const [packs, flag] of [["all", true], ["partial", true], ["none", true], ["all", false]] as const) {
       const t = convexTest(schema, modules);
       const { reportId } = await chatFixture(t, packs, flag);
       const context = await t.query(internal.chatV2.getChatContextV2, { reportId, agentThreadId: "thread" });
-      expect(context.transcriptFacts).toBeUndefined();
+      expect("transcriptFacts" in context).toBe(false);
+      expect(JSON.stringify(context)).not.toContain("[F1-1]");
     }
   });
 });
