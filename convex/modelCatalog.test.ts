@@ -22,7 +22,7 @@ import {
 } from "./lib/modelCatalogRefs";
 import { generationPromptVersion } from "./ai/promptProgram";
 import { EVAL_ENVELOPE } from "./ai/modelEvaluation";
-import { MODEL_ROLES, ROLE_POLICIES, maxEvaluationCostUsd } from "../shared/modelCatalog";
+import { MODEL_ROLES, ROLE_POLICIES, chargeCeiling, maxEvaluationCostUsd, maxPriceFor } from "../shared/modelCatalog";
 import { recordCallOutcomeRef } from "./lib/modelCatalogRefs";
 import { roleAutoSwitches } from "../shared/modelCatalog";
 import reviewAgentSource from "./ai/reviewAgent.ts?raw";
@@ -618,13 +618,22 @@ describe("review fixes", () => {
     const evaluationId = await runningEvaluation(t, "x-ai/grok-4.7");
     const running = await t.run((ctx) => ctx.db.get(evaluationId));
     const [grok, sonnet] = await Promise.all([row(t, "x-ai/grok-4.7"), row(t, "claude-sonnet-5")]);
-    const priced = (r: NonNullable<typeof grok>) => ({
-      gateway: r.gateway,
-      reasoning: r.reasoning,
-      maxCompletionTokens: r.maxCompletionTokens,
-      inputUsdPerMTok: r.inputUsdPerMTok,
-      outputUsdPerMTok: r.outputUsdPerMTok,
-    });
+    // Each model at the most its requests can be charged: an OpenRouter
+    // model at its max_price (the writing cap, or its listed price if higher).
+    const priced = (r: NonNullable<typeof grok>) => {
+      const listed = { input: r.inputUsdPerMTok!, output: r.outputUsdPerMTok! };
+      const ceiling = chargeCeiling(
+        { gateway: r.gateway, maxPrice: maxPriceFor(ROLE_POLICIES.writing.defaultCostCap, r) },
+        listed
+      );
+      return {
+        gateway: r.gateway,
+        reasoning: r.reasoning,
+        maxCompletionTokens: r.maxCompletionTokens,
+        inputUsdPerMTok: ceiling.input,
+        outputUsdPerMTok: ceiling.output,
+      };
+    };
     const expected = maxEvaluationCostUsd({
       tasks: ROLE_POLICIES.writing.evalTasks,
       envelope: EVAL_ENVELOPE,
@@ -1512,5 +1521,98 @@ describe("round 7", () => {
     await dropQueued(t);
     await forgetRollbacks(t, "writing", CANDIDATE);
     expect((await plan(t)).map((item) => [item.role, item.modelId])).toEqual([["writing", CANDIDATE]]);
+  });
+});
+
+describe("round 8", () => {
+  const A = "claude-sonnet-5";
+  const B = "x-ai/grok-4.7";
+  const C = "claude-opus-4-8";
+  const minutes = (n: number) => NOW + n * 60_000;
+
+  async function outcomes(t: TestConvex, model: string, successes: number, failures: number) {
+    for (let i = 0; i < successes + failures; i += 1) {
+      await t.mutation(recordCallOutcomeRef, {
+        model,
+        callSite: "generation:section:242",
+        ...(i < failures ? { outcome: "failure" as const, code: "malformed_output" } : { outcome: "success" as const }),
+      });
+    }
+  }
+
+  it("8: the error check never rolls a role back to a model it was rolled back from", async () => {
+    const { t, admin } = await setup();
+    // 1. Writing is promoted from A to B, and B is rolled back for failing.
+    await promote(t, B);
+    vi.setSystemTime(minutes(10));
+    await outcomes(t, B, 15, 6);
+    expect(await t.mutation(checkProductionErrorsRef, {})).toEqual([{ role: "writing", modelId: B, rolledBack: true }]);
+    expect(await writingModel(t)).toBe(A);
+    // 2. An admin chooses B again by hand.
+    vi.setSystemTime(minutes(20));
+    await admin.mutation(setRoleModelRef, { role: "writing", modelId: B });
+    // 3. An evaluation against B promotes C.
+    vi.setSystemTime(minutes(30));
+    const evaluationId = await t.run((ctx) =>
+      ctx.db.insert("modelEvaluations", {
+        role: "writing",
+        modelId: C,
+        incumbentModelId: B,
+        evalSetVersion: "banhall-eval/v1",
+        status: "queued",
+        estimatedCostUsd: 0.5,
+        createdAt: minutes(30),
+      })
+    );
+    expect(await t.mutation(claimEvaluationRef, { evaluationId, envelope: EVAL_ENVELOPE })).not.toBeNull();
+    expect(
+      await t.mutation(completeEvaluationRef, {
+        evaluationId,
+        candidateResults: results(),
+        incumbentResults: incumbentResults(),
+        evalCostUsd: 0.2,
+      })
+    ).toBe("promoted");
+    expect(await t.run((ctx) => ctx.db.query("modelRoleAssignments").withIndex("by_role", (q) => q.eq("role", "writing")).unique())).toMatchObject({
+      modelId: C,
+      previousModelId: B,
+    });
+    // 4. C fails too: the role is not sent back to B; admins are told.
+    vi.setSystemTime(minutes(40));
+    await outcomes(t, C, 15, 6);
+    expect(await t.mutation(checkProductionErrorsRef, {})).toEqual([{ role: "writing", modelId: C, rolledBack: false }]);
+    expect(await writingModel(t)).toBe(C);
+    expect((await notices(t)).filter((message) => message.includes(`not rolled back to it`))).toHaveLength(1);
+
+    // Negative control: without the earlier rollback from B, the same check
+    // rolls the role back to B.
+    await forgetRollbacks(t, "writing", B);
+    expect(await t.mutation(checkProductionErrorsRef, {})).toEqual([{ role: "writing", modelId: C, rolledBack: true }]);
+    expect(await writingModel(t)).toBe(B);
+  });
+
+  it("8: a rollback still excludes a model's OpenRouter listing after OpenRouter re-dates its slug", async () => {
+    const { t, admin } = await setup();
+    const listing = "anthropic/claude-opus-4.8";
+    // Writing is rolled back from the direct model.
+    await admin.mutation(setRoleModelRef, { role: "writing", modelId: C });
+    await admin.mutation(rollbackRoleRef, { role: "writing" });
+    // OpenRouter re-dates the listing's canonical slug.
+    const redated = "anthropic/claude-4.8-opus-20261001";
+    expect((await row(t, listing))?.canonicalSlug).not.toBe(redated);
+    await t.mutation(applyCatalogRefreshRef, {
+      models: parsed.map((model) => (model.openRouterId === listing ? { ...model, canonicalSlug: redated } : model)),
+      fetchedAt: NOW,
+      complete: true,
+    });
+    // The listing is adopted by id under the new slug, and the direct row follows it.
+    expect((await row(t, listing))?.canonicalSlug).toBe(redated);
+    expect((await row(t, C))?.canonicalSlug).toBe(redated);
+    await onlyRoleCanPlan(t, "writing", listing);
+    expect((await plan(t)).some((item) => item.modelId === listing || item.modelId === C)).toBe(false);
+    // Negative control: without the rollback, the listing is planned.
+    await dropQueued(t);
+    await forgetRollbacks(t, "writing", C);
+    expect((await plan(t)).map((item) => [item.role, item.modelId])).toEqual([["writing", listing]]);
   });
 });

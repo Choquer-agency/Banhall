@@ -315,6 +315,7 @@ type WireBody = {
   tools?: Array<{ name?: string; function?: { name: string } }>;
   messages: Array<{ content: unknown }>;
   system?: unknown;
+  provider?: { max_price?: { prompt: number; completion: number } };
 };
 
 /** A fetch stub answering both gateways from the scripted fixtures. */
@@ -322,6 +323,11 @@ function stubProviders(options: {
   hits?: string[];
   bodies?: WireBody[];
   openRouterCost?: number | null;
+  /**
+   * Charge each OpenRouter request the most its own max_price allows: its
+   * input at one token per byte and its full max_tokens of output.
+   */
+  openRouterChargesMaxPrice?: boolean;
   openRouterOverrides?: Overrides;
   judgeScore?: (text: string) => number | null;
 }) {
@@ -364,6 +370,20 @@ function stubProviders(options: {
       overrides
     );
     if (openRouter) {
+      const maxPrice = body.provider?.max_price;
+      if (options.openRouterChargesMaxPrice && !maxPrice) throw new Error("An OpenRouter request without max_price");
+      const promptTokens = new TextEncoder().encode(JSON.stringify({ messages: body.messages, tools: body.tools ?? [] })).length;
+      const usage = options.openRouterChargesMaxPrice && maxPrice
+        ? {
+            prompt_tokens: promptTokens,
+            completion_tokens: body.max_tokens,
+            cost: (promptTokens * maxPrice.prompt + body.max_tokens * maxPrice.completion) / 1_000_000,
+          }
+        : {
+            prompt_tokens: 100,
+            completion_tokens: 20,
+            ...(options.openRouterCost === null ? {} : { cost: options.openRouterCost ?? 0.0003 }),
+          };
       return Response.json({
         choices: [{
           message: answer.tool
@@ -371,11 +391,7 @@ function stubProviders(options: {
             : { content: answer.text },
           finish_reason: answer.tool ? "tool_calls" : "stop",
         }],
-        usage: {
-          prompt_tokens: 100,
-          completion_tokens: 20,
-          ...(options.openRouterCost === null ? {} : { cost: options.openRouterCost ?? 0.0003 }),
-        },
+        usage,
       });
     }
     return Response.json({
@@ -474,6 +490,80 @@ describe("evaluation action", () => {
     expect(evaluation?.evalCostUsd).toBeCloseTo(3 * perCall + 3 * sonnetCall + 4 * sonnetCall, 12);
     // $0.003 against a $0.0012 incumbent is 2.5 times: over the 2x cap.
     expect(evaluation).toMatchObject({ status: "failed", outcome: "held back: cost" });
+  });
+
+  it("round 8: a provider charging up to the request's max_price never takes the month over budget", async () => {
+    const { t, evaluationId } = await setup("writing");
+    const grok = await t.run((ctx) =>
+      ctx.db.query("modelCatalog").withIndex("by_modelId", (q) => q.eq("modelId", "x-ai/grok-4.7")).first()
+    );
+    // Listed far under the writing cap: OpenRouter may still route its
+    // requests to a provider charging up to the cap, the max_price they carry.
+    await t.run((ctx) => ctx.db.patch(grok!._id, { inputUsdPerMTok: 0.3, outputUsdPerMTok: 1.2 }));
+    const cap = ROLE_POLICIES.writing.defaultCostCap;
+    const sonnet = { gateway: "anthropic" as const, reasoning: false, inputUsdPerMTok: 2, outputUsdPerMTok: 10 };
+    const reservation = (input: number, output: number) =>
+      maxEvaluationCostUsd({
+        tasks: ROLE_POLICIES.writing.evalTasks,
+        envelope: EVAL_ENVELOPE,
+        candidate: {
+          gateway: "openrouter",
+          reasoning: grok!.reasoning,
+          maxCompletionTokens: grok!.maxCompletionTokens,
+          inputUsdPerMTok: input,
+          outputUsdPerMTok: output,
+        },
+        incumbent: sonnet,
+        judge: sonnet,
+      });
+    const atListedPrice = reservation(0.3, 1.2);
+    const atCap = reservation(cap.maxInputUsdPerMTok, cap.maxOutputUsdPerMTok);
+    const setBudget = (usd: number) =>
+      t.run(async (ctx) => {
+        const userId = await ctx.db.insert("users", { authId: `budget-${usd}`, role: "admin" });
+        const existing = await ctx.db.query("appSettings").withIndex("by_key", (q) => q.eq("key", "models.evalBudgetUsdMonthly")).unique();
+        const row = { value: String(usd), updatedBy: userId, updatedAt: NOW };
+        if (existing) await ctx.db.patch(existing._id, row);
+        else await ctx.db.insert("appSettings", { key: "models.evalBudgetUsdMonthly", ...row });
+      });
+    const bodies: WireBody[] = [];
+    stubProviders({ bodies, openRouterChargesMaxPrice: true });
+
+    // A budget that covers the reservation only at the listed price: the run
+    // never starts, so nothing is sent and nothing is spent.
+    await setBudget(atListedPrice);
+    await t.action(runEvaluationRef, { evaluationId });
+    const refused = await t.run((ctx) => ctx.db.get(evaluationId));
+    expect(refused).toMatchObject({ status: "error", evalCostUsd: 0 });
+    expect(refused?.error).toMatch(/^Over the monthly evaluation budget/);
+    expect(bodies).toHaveLength(0);
+
+    // With room for the reservation at the cap it runs. The provider charges
+    // more than the listed-price reservation would have covered, and the
+    // month still ends inside the budget.
+    await setBudget(atCap);
+    const second = await t.run((ctx) =>
+      ctx.db.insert("modelEvaluations", {
+        role: "writing",
+        modelId: "x-ai/grok-4.7",
+        incumbentModelId: "claude-sonnet-5",
+        evalSetVersion: "banhall-eval/v1",
+        status: "queued",
+        estimatedCostUsd: 0.5,
+        createdAt: NOW,
+      })
+    );
+    await t.action(runEvaluationRef, { evaluationId: second });
+    const settled = await t.run((ctx) => ctx.db.get(second));
+    expect(settled?.status).not.toBe("error");
+    expect(settled!.evalCostUsd!).toBeGreaterThan(atListedPrice);
+    expect(settled!.evalCostUsd!).toBeLessThanOrEqual(atCap);
+    // Evaluation requests keep the max_price production sends for the role.
+    const openRouterBodies = bodies.filter((body) => body.model === "x-ai/grok-4.7");
+    expect(openRouterBodies.length).toBeGreaterThan(0);
+    for (const body of openRouterBodies) {
+      expect(body.provider?.max_price).toEqual({ prompt: cap.maxInputUsdPerMTok, completion: cap.maxOutputUsdPerMTok });
+    }
   });
 });
 

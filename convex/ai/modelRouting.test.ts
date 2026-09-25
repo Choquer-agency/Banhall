@@ -271,6 +271,54 @@ describe("OpenRouter request fields", () => {
     expect(captured[0].body).toMatchObject({ model: "z-ai/glm-5.3-flash" });
     expect(captured[0].body.models).toBeUndefined();
   });
+
+  it("never gives a split role its predecessor's rolled-back-from model as a fallback", async () => {
+    const t = await setup();
+    // Before the split, release notes were rolled back from mimo to glm.
+    const rollbackId = await t.run(async (ctx) => {
+      const split = await ctx.db
+        .query("modelRoleAssignments")
+        .withIndex("by_role", (q) => q.eq("role", "brain_context"))
+        .unique();
+      if (split) await ctx.db.delete(split._id);
+      await ctx.db.insert("modelRoleAssignments", {
+        role: "structured_helper",
+        modelId: "z-ai/glm-5.3-flash",
+        previousModelId: "xiaomi/mimo-v2.6-pro",
+        assignedAt: NOW,
+        assignedBy: "system",
+      });
+      return await ctx.db.insert("modelSwitchEvents", {
+        role: "structured_helper",
+        fromModelId: "xiaomi/mimo-v2.6-pro",
+        toModelId: "z-ai/glm-5.3-flash",
+        kind: "rollback",
+        reason: "production_error_rate",
+        actor: "system",
+        at: NOW,
+      });
+    });
+    // Brain context is split out of it and carries mimo as its previous model.
+    await t.mutation(applyCatalogRefreshRef, {
+      models: parseOpenRouterModels(fixture, NOW).models,
+      fetchedAt: NOW,
+      complete: false,
+    });
+    const call = () =>
+      t.action(async (ctx) => {
+        const { client, model } = await clientForRole(ctx, "brain_context", { callSite: "routing-test" });
+        expect(model).toBe("z-ai/glm-5.3-flash");
+        await client.messages.create(toolParams(model));
+      });
+    await call();
+    expect(captured[0].body).toMatchObject({ model: "z-ai/glm-5.3-flash" });
+    expect(captured[0].body.models).toBeUndefined();
+    // Negative control: without the predecessor's rollback, the same split
+    // role falls back to mimo.
+    await t.run((ctx) => ctx.db.delete(rollbackId));
+    await call();
+    expect(captured[1].body).toMatchObject({ models: ["z-ai/glm-5.3-flash", "xiaomi/mimo-v2.6-pro"] });
+  });
 });
 
 describe("model outcome recording", () => {

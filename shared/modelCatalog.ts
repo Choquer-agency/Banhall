@@ -816,6 +816,10 @@ export function isExpiringSoon(date: string | undefined, now: number): boolean {
  * rows borrow the matching OpenRouter listing for scores and expiry but are
  * never "gone": OpenRouter does not serve them.
  *
+ * When OpenRouter does re-date a slug anyway, its listing row is adopted by
+ * id (below) and a direct row that shared the old slug follows it to the new
+ * one, so the two stay one model for rollback exclusion (round 8).
+ *
  * New rows are only proposed for models that support tool calls, the one
  * capability every Banhall call path needs.
  */
@@ -830,22 +834,12 @@ export function diffCatalog(
   // Canonical slugs of fetched models an OpenRouter row already accounts
   // for, by slug or by id, so none of them is proposed as new.
   const matchedSlugs = new Set<string>();
-  for (const row of existing) {
+  // A listing row adopted by id under a new slug, by its old slug; and the
+  // direct rows no slug matched, which may follow such a listing.
+  const followedSlugs = new Map<string, ParsedModel>();
+  const unmatchedDirect: ExistingCatalogRow[] = [];
+  const matched = (row: ExistingCatalogRow, model: ParsedModel) => {
     const currentId = row.requestId ?? row.modelId;
-    // Match on the canonical slug first. When the recorded slug drifted but
-    // the model is still listed under the same id, adopt it by id: it is the
-    // same model, never "gone" (review finding 10).
-    const model =
-      fetchedBySlug.get(row.canonicalSlug) ??
-      (row.gateway === "openrouter"
-        ? (fetchedById.get(currentId) ?? fetchedById.get(row.modelId))
-        : undefined);
-    if (!model) {
-      if (row.gateway === "openrouter" && row.missingSince === undefined) {
-        changes.push({ kind: "gone", modelId: row.modelId });
-      }
-      continue;
-    }
     if (row.gateway === "openrouter") matchedSlugs.add(model.canonicalSlug);
     changes.push({ kind: "update", modelId: row.modelId, model });
     if (row.missingSince !== undefined) {
@@ -867,6 +861,32 @@ export function diffCatalog(
         daysLeft: daysUntil(model.expirationDate, now),
       });
     }
+  };
+  for (const row of existing) {
+    const currentId = row.requestId ?? row.modelId;
+    // Match on the canonical slug first. When the recorded slug drifted but
+    // the model is still listed under the same id, adopt it by id: it is the
+    // same model, never "gone" (review finding 10).
+    const model =
+      fetchedBySlug.get(row.canonicalSlug) ??
+      (row.gateway === "openrouter"
+        ? (fetchedById.get(currentId) ?? fetchedById.get(row.modelId))
+        : undefined);
+    if (!model) {
+      if (row.gateway === "openrouter" && row.missingSince === undefined) {
+        changes.push({ kind: "gone", modelId: row.modelId });
+      }
+      if (row.gateway !== "openrouter") unmatchedDirect.push(row);
+      continue;
+    }
+    if (row.gateway === "openrouter" && model.canonicalSlug !== row.canonicalSlug) {
+      followedSlugs.set(row.canonicalSlug, model);
+    }
+    matched(row, model);
+  }
+  for (const row of unmatchedDirect) {
+    const model = followedSlugs.get(row.canonicalSlug);
+    if (model) matched(row, model);
   }
   for (const model of fetched) {
     if (matchedSlugs.has(model.canonicalSlug)) continue;
@@ -1357,6 +1377,26 @@ export function maxPriceFor(
   return {
     prompt: Math.max(cap.maxInputUsdPerMTok, model.inputUsdPerMTok ?? 0),
     completion: Math.max(cap.maxOutputUsdPerMTok, model.outputUsdPerMTok ?? 0),
+  };
+}
+
+/**
+ * The most a request to `entry` can be charged per million tokens.
+ * OpenRouter may route it to any provider under its max_price, so that is
+ * the ceiling (never below the listed price); a direct request is charged
+ * the listed price. Evaluations reserve and meter lost requests at it, so a
+ * pricier provider can never take the month over its budget (round 8).
+ */
+export function chargeCeiling(
+  entry: { gateway: ModelGateway; maxPrice?: MaxPrice },
+  listed: { input: number; output: number }
+): { input: number; output: number } {
+  if (entry.gateway !== "openrouter" || !entry.maxPrice) {
+    return { input: listed.input, output: listed.output };
+  }
+  return {
+    input: Math.max(listed.input, entry.maxPrice.prompt),
+    output: Math.max(listed.output, entry.maxPrice.completion),
   };
 }
 

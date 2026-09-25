@@ -41,6 +41,7 @@ import {
   ROLE_POLICIES,
   artificialAnalysisScore,
   bestIntelligenceScore,
+  chargeCeiling,
   diffCatalog,
   estimateEvaluationCostUsd,
   parseArtificialAnalysis,
@@ -387,7 +388,9 @@ export async function outcomeCountsSince(
  * failed. With the kill switch on, admins are told instead, at most daily.
  * Never flips back after a rollback: the next switch is a human's call. A
  * split role still on its carried-over assignment counts its predecessor's
- * rollbacks from before the split (lib/modelRoles.ts lastRoleSwitch).
+ * rollbacks from before the split (lib/modelRoles.ts lastRoleSwitch). Never
+ * rolls back to a model the role was rolled back from before, even one an
+ * admin chose again since: admins are told instead (round 8).
  */
 export async function runProductionErrorCheck(
   ctx: MutationCtx,
@@ -409,7 +412,12 @@ export async function runProductionErrorCheck(
     );
     if (!verdict.rollback) continue;
     const rate = `${Math.round(verdict.errorRate * 100)} percent of ${verdict.calls} calls`;
-    if (!enabled) {
+    const held = !enabled
+      ? "Automatic switching is off, so it was not rolled back."
+      : (await rolledBackFrom(ctx, role, assignment.previousModelId))
+        ? `The role was rolled back from its previous model, ${assignment.previousModelId}, before, so it was not rolled back to it. Choose a model for the role on /admin/models.`
+        : null;
+    if (held) {
       if (
         assignment.errorNoticeAt === undefined ||
         now - assignment.errorNoticeAt >= AUTOMATION_THRESHOLDS.errorWindowMs
@@ -417,7 +425,7 @@ export async function runProductionErrorCheck(
         await ctx.db.patch(assignment._id, { errorNoticeAt: now });
         await raiseAdminNotice(
           ctx,
-          `${assignment.modelId} failed ${rate} for the ${ROLE_POLICIES[role].label} role. Automatic switching is off, so it was not rolled back.`
+          `${assignment.modelId} failed ${rate} for the ${ROLE_POLICIES[role].label} role. ${held}`
         );
       }
       results.push({ role, modelId: assignment.modelId, rolledBack: false });
@@ -724,6 +732,28 @@ async function evalPricingFor(ctx: MutationCtx, modelId: string): Promise<Infer<
   };
 }
 
+/** Gives every copy of a model id the highest max_price any copy carries. */
+function withSharedMaxPrice(entries: FrozenModelEntry[]): FrozenModelEntry[] {
+  const ceilings = new Map<string, NonNullable<FrozenModelEntry["maxPrice"]>>();
+  for (const entry of entries) {
+    if (!entry.maxPrice) continue;
+    const seen = ceilings.get(entry.id);
+    ceilings.set(
+      entry.id,
+      seen
+        ? {
+            prompt: Math.max(seen.prompt, entry.maxPrice.prompt),
+            completion: Math.max(seen.completion, entry.maxPrice.completion),
+          }
+        : entry.maxPrice
+    );
+  }
+  return entries.map((entry) => {
+    const ceiling = ceilings.get(entry.id);
+    return ceiling ? { ...entry, maxPrice: ceiling } : entry;
+  });
+}
+
 /**
  * Move a queued evaluation to running and hand the action its models and
  * frozen prices. The monthly budget is enforced here (review finding 7): the
@@ -756,14 +786,17 @@ export const claimEvaluation = internalMutation({
       return await stop("The role was rolled back from this model");
     }
     const cap = await roleCostCap(ctx, evaluation.role);
-    const candidate = await frozenEntryForModel(ctx, evaluation.modelId, cap);
-    const incumbent = await frozenEntryForModel(ctx, evaluation.incumbentModelId, cap);
-    const judge = await frozenEntryForModel(
-      ctx,
-      await roleModelId(ctx, "writing"),
-      await roleCostCap(ctx, "writing")
-    );
-    if (!candidate || !incumbent || !judge) return await stop("A model is missing from the catalog");
+    const frozen = await Promise.all([
+      frozenEntryForModel(ctx, evaluation.modelId, cap),
+      frozenEntryForModel(ctx, evaluation.incumbentModelId, cap),
+      frozenEntryForModel(ctx, await roleModelId(ctx, "writing"), await roleCostCap(ctx, "writing")),
+    ]);
+    if (frozen.some((entry) => entry === null)) return await stop("A model is missing from the catalog");
+    // Requests to one model carry one max_price whichever role it plays (the
+    // judge is the writing model, frozen at the writing cap), so every copy
+    // of a model gets the highest of its ceilings: what is reserved below is
+    // then what its requests can be charged.
+    const [candidate, incumbent, judge] = withSharedMaxPrice(frozen as FrozenModelEntry[]);
     const tasks = [...ROLE_POLICIES[evaluation.role].evalTasks];
     if (tasks.length === 0 || !roleAutoSwitches(evaluation.role)) {
       return await stop("This role has no evaluation task of its own");
@@ -772,13 +805,19 @@ export const claimEvaluation = internalMutation({
     for (const entry of [candidate, incumbent, judge]) {
       pricing[entry.id] = await evalPricingFor(ctx, entry.id);
     }
-    const priced = (entry: FrozenModelEntry) => ({
-      gateway: entry.gateway,
-      reasoning: entry.reasoning,
-      ...(entry.maxCompletionTokens !== undefined ? { maxCompletionTokens: entry.maxCompletionTokens } : {}),
-      inputUsdPerMTok: pricing[entry.id].input,
-      outputUsdPerMTok: pricing[entry.id].output,
-    });
+    // Reserved at the most each request can be charged: an OpenRouter
+    // request may be served by any provider under its max_price, which stays
+    // what production sends, so the evaluation measures the same endpoints.
+    const priced = (entry: FrozenModelEntry) => {
+      const ceiling = chargeCeiling(entry, pricing[entry.id]);
+      return {
+        gateway: entry.gateway,
+        reasoning: entry.reasoning,
+        ...(entry.maxCompletionTokens !== undefined ? { maxCompletionTokens: entry.maxCompletionTokens } : {}),
+        inputUsdPerMTok: ceiling.input,
+        outputUsdPerMTok: ceiling.output,
+      };
+    };
     const reservedCostUsd = maxEvaluationCostUsd({
       tasks,
       envelope: args.envelope,

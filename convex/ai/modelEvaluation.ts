@@ -32,6 +32,7 @@ import { registerModelEntries, SECTION_ANSWER_TOKEN_BUDGETS } from "../../shared
 import { isDashClean } from "../../shared/humanProse";
 import { matchesJsonSchema, type JsonSchema } from "../../shared/jsonSchema";
 import {
+  chargeCeiling,
   isValidGrade,
   JUDGED_EVAL_TASKS,
   type EvalEnvelope,
@@ -1119,10 +1120,12 @@ export type EvalPricing = {
 
 /**
  * The most one request can cost: its input at most one token per UTF-8 byte,
- * its output at the max_tokens the gateway will actually send.
+ * its output at the max_tokens the gateway will actually send, both at the
+ * most the request can be charged per token (an OpenRouter request's
+ * max_price, not just the listed price; round 8).
  */
 export function requestMaxCostUsd(
-  entry: Pick<FrozenModelEntry, "id" | "gateway">,
+  entry: Pick<FrozenModelEntry, "id" | "gateway" | "maxPrice">,
   params: GenerationMessageParams,
   pricing: EvalPricing,
   preserveMaxTokens: boolean
@@ -1131,7 +1134,8 @@ export function requestMaxCostUsd(
     entry.gateway === "openrouter" && !preserveMaxTokens
       ? maxTokensWithReasoningHeadroom(entry.id, params.max_tokens)
       : params.max_tokens;
-  return (requestInputBytes(params) * pricing.input + output * pricing.output) / 1_000_000;
+  const ceiling = chargeCeiling(entry, pricing);
+  return (requestInputBytes(params) * ceiling.input + output * ceiling.output) / 1_000_000;
 }
 
 /**
