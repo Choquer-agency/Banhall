@@ -1,15 +1,16 @@
 <!--
-  Details facts (ui-design-final.md section 8, board 5.1y A1 to A3): a 104px
-  label column and 34px rows. Industry, Fiscal year, Science code and Project
-  number edit in place where the viewer may edit details; Owner, Created and
-  Edited are read only. The fiscal year reads on one line as
+  Details facts (ui-design-final.md section 8, board 5.1y A1 to A3): 34px rows
+  with an 8px inset, a 104px label column and a 12px gap. Industry, Fiscal
+  year, Science code and Project number edit in place where the viewer may
+  edit details: the whole row takes the primary wash on hover and while its
+  picker is open, and a click anywhere on it opens the editor. Owner, Created
+  and Edited are read only. The fiscal year reads on one line as
   "2026 (June 30, 2026)" with its calendar icon always visible.
 -->
 <script lang="ts">
   import { tick } from "svelte";
   import { CalendarBlankIcon, CaretDownIcon, PencilSimpleIcon } from "phosphor-svelte";
   import DatePicker from "$lib/components/ui/DatePicker.svelte";
-  import EditableText from "$lib/components/project/EditableText.svelte";
   import IndustrySelect from "$lib/components/ui/IndustrySelect.svelte";
   import { industryLabel } from "$lib/industries";
   import ScienceCodePicker from "./ScienceCodePicker.svelte";
@@ -45,6 +46,10 @@
   const science = $derived(scienceCodeDisplay(data.scienceCode));
 
   let editingIndustry = $state(false);
+  let editingNumber = $state(false);
+  let savingNumber = $state(false);
+  let numberDraft = $state("");
+  let numberInput = $state<HTMLInputElement | null>(null);
   let industryHost = $state<HTMLDivElement | null>(null);
   let fieldError = $state<{ field: string; message: string } | null>(null);
   let suggestionNote = $state("");
@@ -65,6 +70,51 @@
     editingIndustry = true;
     await tick();
     industryHost?.querySelector<HTMLInputElement>("input")?.focus();
+  }
+
+  async function beginNumber() {
+    numberDraft = data.projectNumber ?? "";
+    fieldError = null;
+    editingNumber = true;
+    await tick();
+    numberInput?.focus();
+    numberInput?.select();
+  }
+
+  async function saveNumber() {
+    if (!editingNumber || savingNumber) return;
+    if (numberDraft === (data.projectNumber ?? "")) {
+      editingNumber = false;
+      return;
+    }
+    savingNumber = true;
+    fieldError = null;
+    try {
+      await onSaveProjectNumber?.(numberDraft);
+      editingNumber = false;
+    } catch (error) {
+      fieldError = {
+        field: "project-number",
+        message: error instanceof Error && error.message ? error.message : "The change could not be saved.",
+      };
+    } finally {
+      savingNumber = false;
+    }
+    if (editingNumber) {
+      await tick();
+      numberInput?.focus();
+    }
+  }
+
+  function onNumberKeydown(event: KeyboardEvent) {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      void saveNumber();
+    } else if (event.key === "Escape") {
+      event.preventDefault();
+      editingNumber = false;
+      fieldError = null;
+    }
   }
 
   async function suggest() {
@@ -89,8 +139,14 @@
     { label: "Dec 31", month: 12, day: 31 },
   ] as const;
 
+  const row = "relative grid min-h-[34px] grid-cols-[104px_minmax(0,1fr)] items-center gap-x-3 rounded-md px-2";
+  const editableRow = `${row} group/row transition-colors hover:bg-primary-wash has-[[data-state=open]]:bg-primary-wash motion-reduce:transition-none`;
+  // The value button runs to the row's right edge (so pickers align with the
+  // row) and stretches its hit area and focus ring over the whole row.
   const valueButton =
-    "group/value flex min-h-[26px] w-full min-w-0 items-center gap-2 rounded-md px-1.5 -mx-1.5 text-left transition-colors hover:bg-gray-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir data-[state=open]:bg-gray-50 pointer-coarse:min-h-11";
+    "-mr-2 flex min-h-[34px] w-[calc(100%+0.5rem)] min-w-0 items-center gap-1.5 pr-2 text-left outline-none after:absolute after:inset-0 after:rounded-md focus-visible:after:outline focus-visible:after:outline-2 focus-visible:after:-outline-offset-2 focus-visible:after:outline-fir pointer-coarse:min-h-11";
+  const hoverIcon =
+    "shrink-0 text-ink-muted opacity-0 transition-opacity group-hover/row:opacity-100 group-focus-within/row:opacity-100 [[data-state=open]_&]:opacity-100 motion-reduce:transition-none";
 </script>
 
 {#snippet notSet()}
@@ -99,136 +155,168 @@
 
 {#snippet errorFor(field: string)}
   {#if fieldError?.field === field}
-    <dd class="col-start-2 pb-1 text-xs text-red-700" role="alert">{fieldError.message}</dd>
+    <dd class="col-start-2 pb-1.5 text-xs leading-[18px] text-red-700" role="alert">{fieldError.message}</dd>
   {/if}
 {/snippet}
 
-<dl data-details-facts class="grid grid-cols-[104px_minmax(0,1fr)] items-center text-[13px]">
-  <dt class="flex min-h-[34px] items-center text-ink-muted">Industry</dt>
-  <dd data-details-fact="industry" class="flex min-h-[34px] min-w-0 items-center text-ink">
-    {#if editable && editingIndustry}
-      <div bind:this={industryHost} class="w-full">
-        <IndustrySelect
-          value={data.industry ?? ""}
-          size="sm"
-          canCreate={canCreateIndustry}
-          class="w-full"
-          onValueChange={(next) => {
-            editingIndustry = false;
-            void run("industry", async () => onSaveIndustry?.(next || null));
-          }}
-        />
-      </div>
-    {:else if editable}
-      <button type="button" class={valueButton} aria-label="Edit industry" onclick={beginIndustry}>
-        <span class="min-w-0 flex-1 truncate">
-          {#if data.industry}{industryLabel(data.industry)}{:else}{@render notSet()}{/if}
+<dl data-details-facts class="flex flex-col text-[13px] leading-[18px]">
+  <div class={editable && !editingIndustry ? editableRow : row}>
+    <dt class="text-ink-muted">Industry</dt>
+    <dd data-details-fact="industry" class="flex min-h-[34px] min-w-0 items-center text-ink">
+      {#if editable && editingIndustry}
+        <div bind:this={industryHost} class="w-full">
+          <IndustrySelect
+            value={data.industry ?? ""}
+            size="sm"
+            canCreate={canCreateIndustry}
+            class="w-full"
+            onValueChange={(next) => {
+              editingIndustry = false;
+              void run("industry", async () => onSaveIndustry?.(next || null));
+            }}
+          />
+        </div>
+      {:else if editable}
+        <button type="button" class={valueButton} aria-label="Edit industry" onclick={beginIndustry}>
+          <span class="min-w-0 flex-1 truncate">
+            {#if data.industry}{industryLabel(data.industry)}{:else}{@render notSet()}{/if}
+          </span>
+          <PencilSimpleIcon size={13} aria-hidden="true" class={hoverIcon} />
+        </button>
+      {:else}
+        <span class="truncate">{#if data.industry}{industryLabel(data.industry)}{:else}{@render notSet()}{/if}</span>
+      {/if}
+    </dd>
+    {@render errorFor("industry")}
+  </div>
+
+  <div class={editable ? editableRow : row}>
+    <dt class="text-ink-muted">Fiscal year</dt>
+    <dd data-details-fact="fiscal-year" class="flex min-h-[34px] min-w-0 items-center text-ink">
+      {#snippet fiscalValue()}
+        <span data-fiscal-year-value class="flex min-w-0 flex-1 items-center gap-1.5 truncate whitespace-nowrap">
+          {#if fiscal}
+            <span>{fiscal.year}</span> <span class="truncate text-ink-muted">({fiscal.date})</span>
+          {:else}
+            {@render notSet()}
+          {/if}
         </span>
-        <PencilSimpleIcon size={13} aria-hidden="true" class="shrink-0 text-ink-faint opacity-0 transition-opacity group-hover/value:opacity-100 group-focus-visible/value:opacity-100" />
-      </button>
-    {:else}
-      <span class="truncate">{#if data.industry}{industryLabel(data.industry)}{:else}{@render notSet()}{/if}</span>
-    {/if}
-  </dd>
-  {@render errorFor("industry")}
+        <CalendarBlankIcon size={14} aria-hidden="true" class="shrink-0 text-ink-muted" />
+      {/snippet}
+      {#if editable}
+        <DatePicker
+          value={toDateInput(data.fiscalYearEnd)}
+          heading="Year end"
+          quickPicks={QUICK_PICKS}
+          helper="The fiscal year takes the year of its end date."
+          align="end"
+          onCommit={(next) => void run("fiscal", async () => onSaveFiscalYear?.(fromDateInput(next)))}
+        >
+          {#snippet trigger({ props })}
+            <button {...props} type="button" class={valueButton} aria-label="Edit fiscal year">
+              {@render fiscalValue()}
+            </button>
+          {/snippet}
+        </DatePicker>
+      {:else}
+        <span class="flex w-full min-w-0 items-center gap-1.5">{@render fiscalValue()}</span>
+      {/if}
+    </dd>
+    {@render errorFor("fiscal")}
+  </div>
 
-  <dt class="flex min-h-[34px] items-center text-ink-muted">Fiscal year</dt>
-  <dd data-details-fact="fiscal-year" class="flex min-h-[34px] min-w-0 items-center text-ink">
-    {#snippet fiscalValue()}
-      <span data-fiscal-year-value class="min-w-0 flex-1 truncate whitespace-nowrap">
-        {#if fiscal}
-          {fiscal.year} <span class="text-ink-muted">({fiscal.date})</span>
-        {:else}
-          {@render notSet()}
-        {/if}
-      </span>
-      <CalendarBlankIcon size={15} aria-hidden="true" class="shrink-0 text-ink-muted" />
-    {/snippet}
-    {#if editable}
-      <DatePicker
-        value={toDateInput(data.fiscalYearEnd)}
-        heading="Year end"
-        quickPicks={QUICK_PICKS}
-        helper="The fiscal year takes the year of its end date."
-        align="end"
-        onCommit={(next) => void run("fiscal", async () => onSaveFiscalYear?.(fromDateInput(next)))}
-      >
-        {#snippet trigger({ props })}
-          <button {...props} type="button" class={valueButton} aria-label="Edit fiscal year">
-            {@render fiscalValue()}
-          </button>
-        {/snippet}
-      </DatePicker>
-    {:else}
-      <span class="flex w-full min-w-0 items-center gap-2">{@render fiscalValue()}</span>
+  <div class={editable ? editableRow : row}>
+    <dt class="text-ink-muted">Science code</dt>
+    <dd data-details-fact="science-code" class="flex min-h-[34px] min-w-0 items-center text-ink">
+      {#snippet scienceValue()}
+        <span class="flex min-w-0 flex-1 items-center gap-1.5">
+          {#if science}
+            <span class="min-w-0 truncate">{science.label}</span> <span class="shrink-0 font-mono text-xs leading-[18px] text-ink-muted">{science.code}</span>
+          {:else}
+            {@render notSet()}
+          {/if}
+        </span>
+      {/snippet}
+      {#if editable}
+        <ScienceCodePicker
+          value={data.scienceCode}
+          onSelect={(code) => run("science", async () => onSaveScienceCode?.(code))}
+          onSuggest={onSuggestScienceCode ? suggest : undefined}
+        >
+          {#snippet trigger({ props })}
+            <!-- The caret overlays the row end, so a full name and its code
+                 keep the whole value column until the row is hovered or open. -->
+            <button
+              {...props}
+              type="button"
+              class={`${valueButton} group-hover/row:pr-6 data-[state=open]:pr-6`}
+              aria-label="Edit science code"
+            >
+              {@render scienceValue()}
+              <CaretDownIcon size={12} aria-hidden="true" class={`absolute right-2 top-1/2 -translate-y-1/2 ${hoverIcon}`} />
+            </button>
+          {/snippet}
+        </ScienceCodePicker>
+      {:else}
+        {@render scienceValue()}
+      {/if}
+    </dd>
+    {@render errorFor("science")}
+    {#if suggestionNote}
+      <dd class="col-start-2 pb-1.5 text-xs leading-[18px] text-ink-muted" aria-live="polite">{suggestionNote}</dd>
     {/if}
-  </dd>
-  {@render errorFor("fiscal")}
+  </div>
 
-  <dt class="flex min-h-[34px] items-center text-ink-muted">Science code</dt>
-  <dd data-details-fact="science-code" class="flex min-h-[34px] min-w-0 items-center text-ink">
-    {#snippet scienceValue()}
-      <span class="min-w-0 flex-1 truncate">
-        {#if science}
-          {science.label} <span class="ml-1 font-mono text-xs text-ink-muted">{science.code}</span>
-        {:else}
-          {@render notSet()}
-        {/if}
-      </span>
-    {/snippet}
-    {#if editable}
-      <ScienceCodePicker
-        value={data.scienceCode}
-        onSelect={(code) => run("science", async () => onSaveScienceCode?.(code))}
-        onSuggest={onSuggestScienceCode ? suggest : undefined}
-      >
-        {#snippet trigger({ props })}
-          <button {...props} type="button" class={valueButton} aria-label="Edit science code">
-            {@render scienceValue()}
-            <CaretDownIcon size={12} aria-hidden="true" class="shrink-0 text-ink-faint opacity-0 transition-opacity group-hover/value:opacity-100 group-focus-visible/value:opacity-100" />
-          </button>
-        {/snippet}
-      </ScienceCodePicker>
-    {:else}
-      {@render scienceValue()}
-    {/if}
-  </dd>
-  {@render errorFor("science")}
-  {#if suggestionNote}
-    <dd class="col-start-2 pb-1 text-xs text-ink-muted" aria-live="polite">{suggestionNote}</dd>
-  {/if}
+  <div class={editable && !editingNumber ? editableRow : row}>
+    <dt class="text-ink-muted">Project number</dt>
+    <dd data-details-fact="project-number" class="flex min-h-[34px] min-w-0 items-center text-ink">
+      {#if editable && editingNumber}
+        <input
+          bind:this={numberInput}
+          bind:value={numberDraft}
+          onkeydown={onNumberKeydown}
+          onblur={() => void saveNumber()}
+          disabled={savingNumber}
+          aria-label="Edit project number"
+          placeholder="Not set"
+          class="field-control h-[26px] w-full min-w-0 rounded-md px-2 text-[13px] leading-[18px] text-ink placeholder:text-ink-faint"
+        />
+      {:else if editable}
+        <button type="button" class={valueButton} aria-label="Edit project number" onclick={beginNumber}>
+          <span class="min-w-0 flex-1 truncate">
+            {#if data.projectNumber}{data.projectNumber}{:else}{@render notSet()}{/if}
+          </span>
+          <PencilSimpleIcon size={13} aria-hidden="true" class={hoverIcon} />
+        </button>
+      {:else}
+        <span class="truncate">{#if data.projectNumber}{data.projectNumber}{:else}{@render notSet()}{/if}</span>
+      {/if}
+    </dd>
+    {@render errorFor("project-number")}
+  </div>
 
-  <dt class="flex min-h-[34px] items-center text-ink-muted">Project number</dt>
-  <dd data-details-fact="project-number" class="flex min-h-[34px] min-w-0 items-center text-ink">
-    {#if editable}
-      <EditableText
-        value={data.projectNumber ?? ""}
-        placeholder="Not set"
-        label="project number"
-        onSave={(value) => run("project-number", async () => onSaveProjectNumber?.(value))}
-      />
-    {:else}
-      <span class="truncate">{#if data.projectNumber}{data.projectNumber}{:else}{@render notSet()}{/if}</span>
-    {/if}
-  </dd>
-  {@render errorFor("project-number")}
-
-  <dt class="flex min-h-[34px] items-center text-ink-muted">Owner</dt>
-  <dd data-details-fact="owner" class="flex min-h-[34px] min-w-0 items-center gap-2 text-ink">
-    {#if data.owner}
-      <PersonAvatar initials={data.owner.initials} seed={String(data.owner.userId)} isYou={data.owner.isYou} />
-      <span class="truncate">{data.owner.label}{data.owner.isYou ? " (you)" : ""}</span>
-    {:else}
-      <span class="text-ink-faint">No owner recorded</span>
-    {/if}
-  </dd>
+  <div class={row}>
+    <dt class="text-ink-muted">Owner</dt>
+    <dd data-details-fact="owner" class="flex min-h-[34px] min-w-0 items-center gap-1.5 text-ink">
+      {#if data.owner}
+        <PersonAvatar initials={data.owner.initials} seed={String(data.owner.userId)} isYou={data.owner.isYou} />
+        <span class="truncate">{data.owner.label}{data.owner.isYou ? " (you)" : ""}</span>
+      {:else}
+        <span class="text-ink-faint">No owner recorded</span>
+      {/if}
+    </dd>
+  </div>
 </dl>
 
-<div class="my-2 border-t border-line-soft"></div>
+<div aria-hidden="true" class="mx-2 my-2.5 h-px bg-line-soft"></div>
 
-<dl class="grid grid-cols-[104px_minmax(0,1fr)] items-center text-[13px] text-ink-secondary">
-  <dt class="flex min-h-[34px] items-center text-ink-muted">Created</dt>
-  <dd data-details-fact="created" class="flex min-h-[34px] items-center">{formatCreated(data.createdAt)}</dd>
-  <dt class="flex min-h-[34px] items-center text-ink-muted">Edited</dt>
-  <dd data-details-fact="edited" class="flex min-h-[34px] items-center">{formatEdited(data.editedAt, now)}</dd>
+<dl class="flex flex-col text-[13px] leading-[18px] text-ink-secondary">
+  <div class={row}>
+    <dt class="text-ink-muted">Created</dt>
+    <dd data-details-fact="created" class="flex min-h-[34px] items-center">{formatCreated(data.createdAt)}</dd>
+  </div>
+  <div class={row}>
+    <dt class="text-ink-muted">Edited</dt>
+    <dd data-details-fact="edited" class="flex min-h-[34px] items-center">{formatEdited(data.editedAt, now)}</dd>
+  </div>
 </dl>

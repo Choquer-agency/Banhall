@@ -7,8 +7,8 @@
 -->
 <script lang="ts">
   import { Popover } from "bits-ui";
-  import StageBadge from "$lib/components/ui/StageBadge.svelte";
   import PersonAvatar from "./PersonAvatar.svelte";
+  import StageChip from "./StageChip.svelte";
   import { fiscalYearParts, formatEdited, scienceCodeDisplay } from "./detailsFormat";
   import type { DetailsPanelData } from "./types";
 
@@ -78,6 +78,9 @@
 
   const fiscal = $derived(fiscalYearParts(data?.fiscalYearEnd));
   const science = $derived(scienceCodeDisplay(data?.scienceCode));
+
+  // Board 5.2: 32px rows, a 92px label column and a 12px gap.
+  const row = "grid min-h-8 grid-cols-[92px_minmax(0,1fr)] items-center gap-x-3 px-2";
 </script>
 
 <Popover.Root bind:open>
@@ -96,38 +99,42 @@
       onpointerleave={scheduleClose}
       data-details-popover
       aria-label="Details"
-      class="z-[120] w-[360px] max-w-[calc(100vw-1.5rem)] rounded-xl border border-line bg-surface text-[13px] shadow-lg outline-none"
+      class="z-[120] w-[360px] max-w-[calc(100vw-1.5rem)] rounded-xl border border-line bg-surface px-2 pb-2.5 pt-3 text-[13px] leading-[18px] shadow-[0_16px_40px_#16211F1F] outline-none"
     >
       <Popover.Arrow>
         {#snippet child({ props })}
           <span {...props} data-details-popover-notch>
-            <span class="block size-3 translate-y-1/2 rotate-45 rounded-[2px] border-l border-t border-line bg-surface"></span>
+            <span class="block size-2.5 translate-y-1/2 rotate-45 rounded-[2px] border-l border-t border-line bg-surface"></span>
           </span>
         {/snippet}
       </Popover.Arrow>
       {#if data}
-        <div class="p-4 pb-3">
-          <p class="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
-            <StageBadge stage={data.stage} dot />
-            {#if data.currentHandoff}
-              <span class="text-ink-muted">with</span>
-              <span class="flex min-w-0 items-center gap-1.5 text-ink">
-                <PersonAvatar initials={data.currentHandoff.initials} seed={String(data.currentHandoff.assigneeId)} isYou={data.currentHandoff.isYou} />
-                <span class="truncate">{data.currentHandoff.assigneeLabel}</span>
-              </span>
-            {/if}
-          </p>
-          <dl class="mt-3 grid grid-cols-[104px_minmax(0,1fr)] gap-y-1">
-            <dt class="flex min-h-8 items-center text-ink-muted">Fiscal year</dt>
-            <dd class="flex min-h-8 items-center truncate text-ink">
-              {#if fiscal}{fiscal.year} <span class="ml-1 text-ink-muted">({fiscal.date})</span>{:else}<span class="text-ink-faint">Not set</span>{/if}
+        <p class="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 px-2 pb-1 pt-0.5">
+          <StageChip stage={data.stage} />
+          {#if data.currentHandoff}
+            <span class="text-ink-muted">with</span>
+            <span class="flex min-w-0 items-center gap-2 text-ink">
+              <PersonAvatar initials={data.currentHandoff.initials} seed={String(data.currentHandoff.assigneeId)} isYou={data.currentHandoff.isYou} />
+              <span class="truncate">{data.currentHandoff.assigneeLabel}</span>
+            </span>
+          {/if}
+        </p>
+        <dl class="mt-2.5 flex flex-col">
+          <div class={row}>
+            <dt class="text-ink-muted">Fiscal year</dt>
+            <dd class="flex min-w-0 items-center gap-1.5 whitespace-nowrap text-ink">
+              {#if fiscal}<span>{fiscal.year}</span> <span class="truncate text-ink-muted">({fiscal.date})</span>{:else}<span class="text-ink-faint">Not set</span>{/if}
             </dd>
-            <dt class="flex min-h-8 items-center text-ink-muted">Science code</dt>
-            <dd class="flex min-h-8 min-w-0 items-center text-ink">
-              {#if science}<span class="truncate">{science.label}</span> <span class="ml-1.5 font-mono text-xs text-ink-muted">{science.code}</span>{:else}<span class="text-ink-faint">Not set</span>{/if}
+          </div>
+          <div class={row}>
+            <dt class="text-ink-muted">Science code</dt>
+            <dd class="flex min-w-0 items-center gap-1.5 text-ink">
+              {#if science}<span class="min-w-0 truncate">{science.label}</span> <span class="shrink-0 font-mono text-xs text-ink-muted">{science.code}</span>{:else}<span class="text-ink-faint">Not set</span>{/if}
             </dd>
-            <dt class="flex min-h-8 items-center text-ink-muted">Owner</dt>
-            <dd class="flex min-h-8 min-w-0 items-center gap-2 text-ink">
+          </div>
+          <div class={row}>
+            <dt class="text-ink-muted">Owner</dt>
+            <dd class="flex min-w-0 items-center gap-1.5 text-ink">
               {#if data.owner}
                 <PersonAvatar initials={data.owner.initials} seed={String(data.owner.userId)} isYou={data.owner.isYou} />
                 <span class="truncate">{data.owner.label}{data.owner.isYou ? " (you)" : ""}</span>
@@ -135,18 +142,20 @@
                 <span class="text-ink-faint">No owner recorded</span>
               {/if}
             </dd>
-            <dt class="flex min-h-8 items-center text-ink-muted">Edited</dt>
-            <dd class="flex min-h-8 items-center text-ink-secondary">{formatEdited(data.editedAt, now)}</dd>
-          </dl>
-        </div>
-        <div class="flex justify-end border-t border-line-soft px-4 py-2.5">
+          </div>
+          <div class={row}>
+            <dt class="text-ink-muted">Edited</dt>
+            <dd class="flex items-center text-ink-secondary">{formatEdited(data.editedAt, now)}</dd>
+          </div>
+        </dl>
+        <div class="mt-2.5 flex justify-end border-t border-line-soft px-2 pt-1">
           <button
             type="button"
             onclick={() => {
               open = false;
               onOpenAll();
             }}
-            class="rounded-md px-1 text-[13px] text-primary-selected transition-colors hover:text-primary-dark focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir"
+            class="mt-2 rounded-md text-[13px] font-medium leading-[18px] text-primary-selected transition-colors hover:text-primary-dark focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir"
           >
             Open all details
           </button>

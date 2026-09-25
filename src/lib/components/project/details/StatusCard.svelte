@@ -9,11 +9,11 @@
 <script lang="ts">
   import { Popover } from "bits-ui";
   import { ArrowRightIcon } from "phosphor-svelte";
-  import StageBadge from "$lib/components/ui/StageBadge.svelte";
   import Button from "$lib/components/ui/Button.svelte";
   import { MAX_WORKFLOW_NOTE_CHARS } from "../../../../../shared/workflowLabels";
   import type { WorkflowStage } from "../../../../../shared/workflowStages";
   import PersonAvatar from "./PersonAvatar.svelte";
+  import StageChip from "./StageChip.svelte";
   import StageMenu from "./StageMenu.svelte";
   import { confirmLabel, reasonPrompt, stageMenuGroups, type StageMenuOption } from "./stageMenu";
   import type { DetailsPanelData } from "./types";
@@ -36,6 +36,7 @@
   } = $props();
 
   let menuOpen = $state(false);
+  let card = $state<HTMLElement | null>(null);
   let step = $state<StageMenuOption | null>(null);
   let note = $state("");
   let busy = $state(false);
@@ -86,58 +87,63 @@
   }
 </script>
 
+<!-- The fill is a gray-50 half wash: the workspace scope retints the canvas
+     token to white, and the card must read as a quiet well on the panel. -->
 <section
+  bind:this={card}
   data-details-status
   aria-label="Status"
-  class="rounded-xl border border-line-soft bg-canvas p-[14px]"
+  class="rounded-xl border border-line-soft bg-gray-50/50 p-[14px]"
 >
   {#if step}
-    <div data-stage-step={step.move} class="flex flex-col gap-2">
-      <div class="flex flex-wrap items-center gap-1.5">
-        <StageBadge stage={data.stage} dot />
-        <ArrowRightIcon size={12} aria-hidden="true" class="text-ink-muted" />
-        <StageBadge stage={step.stage} dot />
+    <div data-stage-step={step.move} class="flex flex-col gap-3">
+      <div class="flex flex-wrap items-center gap-2">
+        <StageChip stage={data.stage} />
+        <ArrowRightIcon size={14} aria-hidden="true" class="text-ink-muted" />
+        <StageChip stage={step.stage} />
       </div>
       {#if step.move === "reason"}
-        <label class="mt-1 text-[13px] text-ink" for="details-stage-reason">{reasonPrompt(data.stage, step.stage)}</label>
-        <textarea
-          id="details-stage-reason"
-          bind:value={note}
-          rows="3"
-          class="field-control w-full resize-none rounded-lg px-3 py-2 text-[13px] text-ink"
-        ></textarea>
-        <p class="text-xs text-ink-muted">Saved with the stage change so the team can see it later.</p>
-        {#if noteTooLong}
-          <p class="text-xs text-red-700" role="alert">Keep the reason under {MAX_WORKFLOW_NOTE_CHARS} characters.</p>
-        {/if}
+        <div class="flex flex-col gap-1.5">
+          <label class="text-xs font-medium leading-[18px] text-ink-secondary" for="details-stage-reason">{reasonPrompt(data.stage, step.stage)}</label>
+          <textarea
+            id="details-stage-reason"
+            bind:value={note}
+            rows="3"
+            class="field-control h-[72px] w-full resize-none rounded-lg px-2.5 py-2 text-[13px] leading-[18px] text-ink"
+          ></textarea>
+          <p class="text-xs leading-[18px] text-ink-muted">Saved with the stage change so the team can see it later.</p>
+          {#if noteTooLong}
+            <p class="text-xs text-red-700" role="alert">Keep the reason under {MAX_WORKFLOW_NOTE_CHARS} characters.</p>
+          {/if}
+        </div>
       {:else}
-        <p class="mt-1 text-[13px] leading-5 text-ink">
+        <p class="text-[13px] leading-[18px] text-ink-secondary">
           This records your review decision with the move.
         </p>
       {/if}
       {#if error}
         <p class="text-xs text-red-700" role="alert">{error}</p>
       {/if}
-      <div class="mt-1 grid grid-cols-2 gap-2">
-        <Button variant="secondary" size="xs" class="h-9" disabled={busy} onclick={() => { step = null; error = null; }}>Cancel</Button>
-        <Button size="xs" class="h-9" disabled={confirmDisabled} onclick={() => step && apply(step.stage, step.move === "reason" ? note.trim() : undefined)}>
+      <div class="grid grid-cols-2 gap-2">
+        <Button variant="secondary" size="xs" class="w-full" disabled={busy} onclick={() => { step = null; error = null; }}>Cancel</Button>
+        <Button size="xs" class="w-full" disabled={confirmDisabled} onclick={() => step && apply(step.stage, step.move === "reason" ? note.trim() : undefined)}>
           {confirmLabel(step.stage, step.move)}
         </Button>
       </div>
     </div>
   {:else}
-    <p data-details-status-line class="flex min-h-7 min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-[13px]">
-      <StageBadge stage={data.stage} dot />
+    <p data-details-status-line class="flex min-h-6 min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-[13px] leading-[18px]">
+      <StageChip stage={data.stage} />
       {#if handoff}
         <span class="text-ink-muted">with</span>
-        <span class="flex min-w-0 items-center gap-1.5 text-ink">
+        <span class="flex min-w-0 items-center gap-2 text-ink">
           <PersonAvatar initials={handoff.initials} seed={String(handoff.assigneeId)} isYou={handoff.isYou} />
           <span class="truncate">{handoff.assigneeLabel}{handoff.isYou ? " (you)" : ""}</span>
         </span>
       {/if}
     </p>
     {#if handoff?.note}
-      <p data-details-handoff-note class="mt-2 border-l-2 border-line pl-2.5 text-[13px] leading-5 text-ink-secondary">{handoff.note}</p>
+      <p data-details-handoff-note class="ml-0.5 mt-3 border-l-2 border-line pl-2 text-xs leading-[18px] text-ink-secondary">{handoff.note}</p>
     {/if}
     {#if error}
       <p class="mt-2 text-xs text-red-700" role="alert">{error}</p>
@@ -146,24 +152,32 @@
       <Popover.Root bind:open={menuOpen}>
         <Popover.Trigger disabled={!canChange || busy}>
           {#snippet child({ props })}
-            <Button {...props} variant="secondary" size="xs" class="h-9 w-full" data-details-change-stage>
+            <Button
+              {...props}
+              variant="secondary"
+              size="xs"
+              class="w-full data-[state=open]:bg-surface data-[state=open]:shadow-[inset_0_0_0_1px_var(--color-line)]"
+              data-details-change-stage
+            >
               Change stage
             </Button>
           {/snippet}
         </Popover.Trigger>
         <Popover.Portal>
+          <!-- Anchored to the card so the menu takes its full width (board 5.1y B1). -->
           <Popover.Content
+            customAnchor={card}
             side="bottom"
             align="start"
-            sideOffset={6}
+            sideOffset={4}
             collisionPadding={12}
-            class="z-[120] max-h-[min(30rem,calc(100dvh-6rem))] w-[min(18rem,calc(100vw-1.5rem))] overflow-y-auto rounded-xl border border-line bg-surface px-1 shadow-lg outline-none"
+            class="z-[120] max-h-[min(30rem,calc(100dvh-6rem))] w-[var(--bits-popover-anchor-width)] max-w-[calc(100vw-1.5rem)] overflow-y-auto rounded-xl border border-line bg-surface p-1.5 shadow-[0_16px_40px_#16211F1F] outline-none"
           >
             <StageMenu {groups} onPick={pick} />
           </Popover.Content>
         </Popover.Portal>
       </Popover.Root>
-      <Button variant="secondary" size="xs" class="h-9 w-full gap-1.5" disabled={!canHandOff || busy} onclick={onOpenHandOff} data-details-hand-off>
+      <Button variant="secondary" size="xs" class="w-full gap-1.5" disabled={!canHandOff || busy} onclick={onOpenHandOff} data-details-hand-off>
         <ArrowRightIcon size={14} aria-hidden="true" />
         Hand off
       </Button>

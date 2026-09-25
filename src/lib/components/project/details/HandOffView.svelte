@@ -10,12 +10,12 @@
 <script lang="ts">
   import { Command, Popover } from "bits-ui";
   import { CaretDownIcon, CheckIcon, MagnifyingGlassIcon } from "phosphor-svelte";
-  import StageBadge from "$lib/components/ui/StageBadge.svelte";
   import Button from "$lib/components/ui/Button.svelte";
   import { WORKFLOW_STAGE_LABELS, MAX_WORKFLOW_NOTE_CHARS } from "../../../../../shared/workflowLabels";
   import type { WorkflowStage } from "../../../../../shared/workflowStages";
   import type { TransitionAuthority } from "../../../../../shared/workflowTransitions";
   import PersonAvatar from "./PersonAvatar.svelte";
+  import StageChip from "./StageChip.svelte";
   import { firstName, nextInProgressStage } from "./detailsFormat";
   import { handOffStageOptions } from "./stageMenu";
   import type { HandOffInput, TeamMember } from "./types";
@@ -100,7 +100,12 @@
   }
 
   const fieldTrigger =
-    "field-control flex h-9 w-full items-center gap-2 rounded-lg px-2.5 text-left text-[13px] text-ink data-[state=open]:border-primary-selected";
+    "field-control flex h-9 w-full items-center gap-2 rounded-lg px-2.5 text-left text-[13px] leading-[18px] text-ink data-[state=open]:shadow-[inset_0_0_0_1px_var(--color-primary)]!";
+  const fieldLabel = "text-xs font-medium leading-[18px] text-ink-secondary";
+  const menu =
+    "z-[120] w-[var(--bits-popover-anchor-width)] min-w-56 overflow-hidden rounded-xl border border-line bg-surface shadow-[0_16px_40px_#16211F1F] outline-none";
+  const optionRow =
+    "flex min-h-[34px] w-full cursor-default items-center gap-2.5 rounded-md px-2 text-left text-[13px] leading-[18px] text-ink outline-none";
 </script>
 
 <form
@@ -112,7 +117,7 @@
   }}
 >
   <div class="flex flex-col gap-1.5">
-    <span id="hand-off-to-label" class="text-xs text-ink-muted">To</span>
+    <span id="hand-off-to-label" class={fieldLabel}>To</span>
     <Popover.Root bind:open={peopleOpen}>
       <Popover.Trigger>
         {#snippet child({ props })}
@@ -135,19 +140,21 @@
           align="start"
           sideOffset={4}
           collisionPadding={12}
-          class="z-[120] w-[var(--bits-popover-anchor-width)] min-w-64 overflow-hidden rounded-xl border border-line bg-surface shadow-lg outline-none"
+          class={menu}
         >
           <Command.Root shouldFilter={false} loop label="People">
-            <div class="relative border-b border-line-soft p-2">
-              <MagnifyingGlassIcon size={14} aria-hidden="true" class="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-ink-faint" />
-              <Command.Input
-                bind:value={query}
-                placeholder="Search people"
-                aria-label="Search people"
-                class="input-chromeless h-8 w-full rounded-md bg-transparent pl-7 pr-2 text-[13px] text-ink placeholder:text-ink-faint"
-              />
+            <div class="px-2 pb-1 pt-2">
+              <div class="field-control-shell flex h-[34px] items-center gap-2 rounded-md px-2.5">
+                <MagnifyingGlassIcon size={14} aria-hidden="true" class="pointer-events-none shrink-0 text-ink-muted" />
+                <Command.Input
+                  bind:value={query}
+                  placeholder="Search people"
+                  aria-label="Search people"
+                  class="input-chromeless h-full min-w-0 flex-1 bg-transparent text-[13px] text-ink placeholder:text-ink-muted"
+                />
+              </div>
             </div>
-            <Command.List class="max-h-64 overflow-y-auto p-1.5">
+            <Command.List class="max-h-64 overflow-y-auto px-1.5 pb-1.5">
               <Command.Viewport>
                 {#if teamLoading}
                   <p class="px-2 py-3 text-[13px] text-ink-muted" role="status">Loading the team...</p>
@@ -161,7 +168,7 @@
                         assigneeId = member.userId;
                         peopleOpen = false;
                       }}
-                      class="flex min-h-8 cursor-default items-center gap-2 rounded-md px-2 text-[13px] text-ink outline-none data-[selected]:bg-primary-wash"
+                      class={`${optionRow} data-[selected]:bg-primary-wash ${member.userId === assigneeId ? "bg-gray-50" : ""}`}
                     >
                       <PersonAvatar initials={member.initials} seed={String(member.userId)} isYou={member.isYou} />
                       <span class="min-w-0 flex-1 truncate">{member.label}{member.isYou ? " (you)" : ""}</span>
@@ -182,14 +189,14 @@
   </div>
 
   <div class="flex flex-col gap-1.5">
-    <span id="hand-off-stage-label" class="text-xs text-ink-muted">Stage</span>
+    <span id="hand-off-stage-label" class={fieldLabel}>Stage</span>
     <Popover.Root bind:open={stageOpen}>
       <Popover.Trigger>
         {#snippet child({ props })}
           <button {...props} type="button" class={fieldTrigger} aria-labelledby="hand-off-stage-label hand-off-stage-value" data-hand-off-stage>
             <span id="hand-off-stage-value" class="flex min-w-0 flex-1 items-center">
               {#if stage}
-                <StageBadge {stage} dot />
+                <StageChip {stage} size="sm" />
               {:else}
                 <span class="text-ink-faint">No stage available</span>
               {/if}
@@ -204,7 +211,7 @@
           align="start"
           sideOffset={4}
           collisionPadding={12}
-          class="z-[120] max-h-80 w-[var(--bits-popover-anchor-width)] min-w-56 overflow-y-auto rounded-xl border border-line bg-surface p-1 shadow-lg outline-none"
+          class={`${menu} max-h-80 overflow-y-auto p-1.5`}
         >
           <div role="listbox" aria-label="Stage">
             {#each stageOptions as option (option.stage)}
@@ -217,9 +224,9 @@
                   chosenStage = option.stage;
                   stageOpen = false;
                 }}
-                class="flex min-h-8 w-full items-center gap-2 rounded-md px-2 text-left text-[13px] hover:bg-primary-wash focus-visible:bg-primary-wash focus-visible:outline-none"
+                class={`${optionRow} min-h-[30px] hover:bg-primary-wash focus-visible:bg-primary-wash ${option.stage === stage ? "bg-gray-50" : ""}`}
               >
-                <StageBadge stage={option.stage} dot />
+                <span class="w-[132px] shrink-0"><StageChip stage={option.stage} size="sm" /></span>
                 <span class="min-w-0 flex-1 truncate text-xs text-ink-muted">
                   {option.current ? "keep current" : option.move === "reason" ? "asks for a reason" : ""}
                 </span>
@@ -232,7 +239,7 @@
         </Popover.Content>
       </Popover.Portal>
     </Popover.Root>
-    <p class="text-xs leading-5 text-ink-muted">
+    <p class="text-xs leading-[18px] text-ink-muted">
       {#if stage === currentStage}
         The stage stays {WORKFLOW_STAGE_LABELS[currentStage]}.
       {:else if canKeepStage}
@@ -244,12 +251,12 @@
   </div>
 
   <div class="flex flex-col gap-1.5">
-    <label for="hand-off-note" class="text-xs text-ink-muted">{noteRequired ? "Reason (required)" : "Note (optional)"}</label>
+    <label for="hand-off-note" class={fieldLabel}>{noteRequired ? "Reason (required)" : "Note (optional)"}</label>
     <textarea
       id="hand-off-note"
       bind:value={note}
       rows="3"
-      class="field-control w-full resize-none rounded-lg px-3 py-2 text-[13px] text-ink"
+      class="field-control h-[72px] w-full resize-none rounded-lg px-2.5 py-2 text-[13px] leading-[18px] text-ink"
     ></textarea>
     {#if note.length > MAX_WORKFLOW_NOTE_CHARS}
       <p class="text-xs text-red-700" role="alert">Keep the note under {MAX_WORKFLOW_NOTE_CHARS} characters.</p>
@@ -257,7 +264,7 @@
   </div>
 
   {#if assignee}
-    <p data-hand-off-helper class="text-xs text-ink-muted">
+    <p data-hand-off-helper class="text-xs leading-[18px] text-ink-muted">
       {assignee.isYou ? "You see" : `${firstName(assignee.label)} sees`} it under With you on {assignee.isYou ? "your" : "their"} home page.
     </p>
   {/if}
@@ -265,8 +272,8 @@
     <p class="text-xs text-red-700" role="alert">{error}</p>
   {/if}
 
-  <div class="grid grid-cols-2 gap-2">
-    <Button type="button" variant="secondary" size="xs" class="h-9" disabled={busy} onclick={onCancel}>Cancel</Button>
-    <Button type="submit" size="xs" class="h-9" disabled={!canSubmit} data-hand-off-submit>Hand off</Button>
+  <div class="grid grid-cols-2 gap-2 pt-1">
+    <Button type="button" variant="secondary" size="xs" class="w-full" disabled={busy} onclick={onCancel}>Cancel</Button>
+    <Button type="submit" size="xs" class="w-full" disabled={!canSubmit} data-hand-off-submit>Hand off</Button>
   </div>
 </form>

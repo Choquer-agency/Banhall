@@ -5,7 +5,7 @@
 -->
 <script lang="ts">
   import { CheckIcon } from "phosphor-svelte";
-  import StageBadge from "$lib/components/ui/StageBadge.svelte";
+  import StageChip from "./StageChip.svelte";
   import type { StageMenuGroup, StageMenuOption } from "./stageMenu";
 
   let {
@@ -51,11 +51,11 @@
   tabindex="-1"
   onkeydown={onKeydown}
   data-stage-menu
-  class="flex flex-col py-1"
+  class="flex flex-col"
 >
   {#each groups as group (group.label)}
-    <div role="group" aria-label={group.label} class="py-1">
-      <p aria-hidden="true" class="px-3 pb-1 pt-1.5 text-[11px] uppercase tracking-wide text-ink-muted">{group.label}</p>
+    <div role="group" aria-label={group.label}>
+      <p aria-hidden="true" class="px-2 pb-1 pt-2 text-[11px] font-medium uppercase leading-[18px] tracking-[0.04em] text-ink-muted">{group.label}</p>
       {#each group.options as option (option.stage)}
         <button
           type="button"
@@ -65,9 +65,10 @@
           disabled={Boolean(option.disabledReason) || option.current}
           aria-disabled={option.disabledReason ? "true" : undefined}
           onclick={() => onPick(option)}
-          class={`flex min-h-8 w-full items-center gap-2 rounded-md px-3 text-left text-[13px] outline-none transition-colors focus-visible:bg-primary-wash pointer-coarse:min-h-11 ${option.current ? "bg-gray-50" : "hover:bg-primary-wash"} ${option.disabledReason ? "cursor-default" : ""}`}
+          class={`flex min-h-[30px] w-full items-center gap-2.5 rounded-md px-2 text-left text-[13px] outline-none transition-colors focus-visible:bg-primary-wash pointer-coarse:min-h-11 ${option.current ? "bg-gray-50" : "hover:bg-primary-wash"} ${option.disabledReason ? "cursor-default" : ""}`}
         >
-          <span class={option.disabledReason ? "opacity-50" : ""}><StageBadge stage={option.stage} dot /></span>
+          <!-- A fixed chip column so the hints line up (board 5.1y B1). -->
+          <span class={`w-[132px] shrink-0 ${option.disabledReason ? "opacity-50" : ""}`}><StageChip stage={option.stage} size="sm" /></span>
           {#if option.hint}
             <span class="min-w-0 flex-1 truncate text-xs text-ink-muted">{option.hint}</span>
           {:else}

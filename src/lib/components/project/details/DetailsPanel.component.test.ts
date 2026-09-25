@@ -43,6 +43,7 @@ function mount(overrides: Partial<DetailsPanelData> = {}, props: Record<string, 
   const onHandOff = vi.fn(async () => {});
   const onSaveFiscalYear = vi.fn(async () => {});
   const onSaveScienceCode = vi.fn(async () => {});
+  const onSaveProjectNumber = vi.fn(async (_value: string) => {});
   const onClose = vi.fn();
   const screen = render(DetailsPanel, {
     data: data(overrides),
@@ -51,10 +52,11 @@ function mount(overrides: Partial<DetailsPanelData> = {}, props: Record<string, 
     onHandOff,
     onSaveFiscalYear,
     onSaveScienceCode,
+    onSaveProjectNumber,
     onClose,
     ...props,
   });
-  return { screen, onChangeStage, onHandOff, onSaveFiscalYear, onSaveScienceCode, onClose };
+  return { screen, onChangeStage, onHandOff, onSaveFiscalYear, onSaveScienceCode, onSaveProjectNumber, onClose };
 }
 
 const statusLine = () => document.querySelector<HTMLElement>("[data-details-status-line]")!;
@@ -117,6 +119,40 @@ describe("Details panel", () => {
     expect(fact("owner").textContent).toContain("Jordan Ellis (you)");
   });
 
+  it("lays the panel out on the board 5.1 grid", async () => {
+    await mount();
+    await expect.poll(() => statusLine()).not.toBeNull();
+    const panel = document.querySelector<HTMLElement>("[data-details-panel]")!.getBoundingClientRect();
+    const header = document.querySelector<HTMLElement>("[data-details-panel] header")!.getBoundingClientRect();
+    expect(Math.round(header.top - panel.top)).toBe(20);
+    expect(Math.round(header.height)).toBe(28);
+    const close = page.getByRole("button", { name: "Close details", exact: true }).element().getBoundingClientRect();
+    expect(Math.round(close.width)).toBe(26);
+    expect(Math.round(panel.right - close.right)).toBe(24);
+
+    const card = document.querySelector<HTMLElement>("[data-details-status]")!;
+    const cardBox = card.getBoundingClientRect();
+    expect(Math.round(cardBox.left - panel.left)).toBe(24);
+    expect(Math.round(cardBox.top - header.bottom)).toBe(18);
+    expect(getComputedStyle(card).paddingTop).toBe("14px");
+    const chip = statusLine().querySelector<HTMLElement>("[data-stage-badge]")!;
+    expect(Math.round(chip.getBoundingClientRect().height)).toBe(24);
+    expect(getComputedStyle(chip).borderTopLeftRadius).toBe("6px");
+    for (const name of ["Change stage", "Hand off"]) {
+      const button = page.getByRole("button", { name, exact: true }).element();
+      expect(Math.round(button.getBoundingClientRect().height)).toBe(32);
+      expect(getComputedStyle(button).fontSize).toBe("13px");
+    }
+
+    // Facts: 34px rows inset 8px, a 104px label column, values 12px after it.
+    const dt = document.querySelector<HTMLElement>("[data-details-facts] dt")!.getBoundingClientRect();
+    const value = fact("industry").getBoundingClientRect();
+    expect(Math.round(dt.left - cardBox.left)).toBe(8);
+    expect(Math.round(value.left - dt.left)).toBe(116);
+    expect(Math.round(value.height)).toBe(34);
+    expect(Math.round(value.top - cardBox.bottom)).toBe(18);
+  });
+
   it("keeps the calendar icon and plain values when details are read only", async () => {
     await mount({ permissions: { canEditDetails: false, canChangeStage: false, canHandOff: false } }, {
       changeStageReason: "Only the Owner, a Manager or an Admin can change the stage.",
@@ -160,6 +196,51 @@ describe("Details panel", () => {
     (document.querySelector("[data-command-item]") as HTMLElement).click();
     await expect.poll(() => onSaveScienceCode.mock.calls.length).toBe(1);
     expect(onSaveScienceCode).toHaveBeenCalledWith("2.02.02");
+  });
+
+  it("opens the science code picker on the current code, its field at the top of the list", async () => {
+    await mount();
+    await page.getByRole("button", { name: "Edit science code", exact: true }).click();
+    await expect.poll(() => document.querySelector("[data-science-code-current]")).not.toBeNull();
+    const current = document.querySelector<HTMLElement>("[data-science-code-current]")!;
+    await expect.poll(() => current.hasAttribute("data-selected")).toBe(true);
+    const list = current.closest<HTMLElement>("[data-command-list]")!;
+    const group = current.closest<HTMLElement>("[data-command-group]")!;
+    await expect.poll(() => list.scrollTop).toBeGreaterThan(0);
+    expect(Math.abs(group.getBoundingClientRect().top - list.getBoundingClientRect().top)).toBeLessThan(2);
+    expect(group.querySelector("[data-command-group-heading]")?.textContent?.trim()).toBe("Mechanical engineering");
+  });
+
+  it("edits the project number in place: Enter saves, Escape cancels", async () => {
+    const { onSaveProjectNumber } = await mount();
+    await expect.poll(() => fact("project-number")).not.toBeNull();
+    expect(fact("project-number").textContent?.trim()).toBe("1A");
+    await page.getByRole("button", { name: "Edit project number", exact: true }).click();
+    const input = page.getByRole("textbox", { name: "Edit project number" });
+    await expect.element(input).toHaveValue("1A");
+    await input.fill("P01-A");
+    await userEvent.keyboard("{Enter}");
+    await expect.poll(() => onSaveProjectNumber.mock.calls.length).toBe(1);
+    expect(onSaveProjectNumber).toHaveBeenCalledWith("P01-A");
+    await expect.poll(() => fact("project-number").querySelector("input")).toBeNull();
+
+    await page.getByRole("button", { name: "Edit project number", exact: true }).click();
+    await page.getByRole("textbox", { name: "Edit project number" }).fill("Z9");
+    await userEvent.keyboard("{Escape}");
+    await expect.poll(() => fact("project-number").querySelector("input")).toBeNull();
+    expect(onSaveProjectNumber).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the project number editor open with the error when the save fails", async () => {
+    const onSaveProjectNumber = vi.fn(async () => {
+      throw new Error("That project number is already in use.");
+    });
+    await mount({}, { onSaveProjectNumber });
+    await page.getByRole("button", { name: "Edit project number", exact: true }).click();
+    await page.getByRole("textbox", { name: "Edit project number" }).fill("2B");
+    await userEvent.keyboard("{Enter}");
+    await expect.element(page.getByRole("alert")).toHaveTextContent("That project number is already in use.");
+    expect(fact("project-number").querySelector("input")).not.toBeNull();
   });
 
   it("lists every stage grouped, with Submitted and Delivered disabled as not available yet", async () => {

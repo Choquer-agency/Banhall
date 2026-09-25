@@ -4,7 +4,7 @@
   check on the current code. Group headers show the field name only.
 -->
 <script lang="ts">
-  import { tick, type Snippet } from "svelte";
+  import type { Snippet } from "svelte";
   import { Command, Popover } from "bits-ui";
   import { CheckIcon, MagnifyingGlassIcon } from "phosphor-svelte";
   import AuroraMark from "$lib/components/ui/AuroraMark.svelte";
@@ -28,17 +28,27 @@
 
   let query = $state("");
   let highlighted = $state("");
+  let list = $state<HTMLElement | null>(null);
   const groups = $derived(scienceCodeGroups(query));
+
+  // Open on the current code (board 5.1y A3). The highlight is set before the
+  // list mounts, so the Command starts on it instead of the first item.
+  $effect.pre(() => {
+    if (open) highlighted = value ?? "";
+    else query = "";
+  });
+
+  // Its field then heads the list. Scroll the list itself, never the page.
   $effect(() => {
-    if (!open) {
-      query = "";
-      return;
-    }
-    // Open on the current code: highlighted and scrolled into view.
-    highlighted = value ?? "";
-    void tick().then(() =>
-      document.querySelector("[data-science-code-current]")?.scrollIntoView({ block: "center" })
-    );
+    const element = list;
+    if (!open || !element) return;
+    const frame = requestAnimationFrame(() => {
+      const current = element.querySelector<HTMLElement>("[data-science-code-current]");
+      const target = current?.closest<HTMLElement>("[data-command-group]") ?? current;
+      if (!target) return;
+      element.scrollTop += target.getBoundingClientRect().top - element.getBoundingClientRect().top;
+    });
+    return () => cancelAnimationFrame(frame);
   });
 
   function choose(code: string | null) {
@@ -47,7 +57,7 @@
   }
 
   const itemClass =
-    "flex min-h-8 w-full cursor-default items-center gap-2 rounded-md px-2 py-1 text-left text-[13px] text-ink outline-none data-[selected]:bg-primary-wash";
+    "flex min-h-[30px] w-full cursor-default items-center gap-2.5 rounded-md px-2 py-1 text-left text-[13px] leading-[18px] text-ink outline-none data-[selected]:bg-primary-wash";
 </script>
 
 <Popover.Root bind:open>
@@ -60,35 +70,37 @@
     <Popover.Content
       side="bottom"
       align="end"
-      sideOffset={6}
+      sideOffset={4}
       collisionPadding={12}
-      class="z-[120] w-[min(22rem,calc(100vw-1.5rem))] overflow-hidden rounded-xl border border-line bg-surface shadow-lg outline-none"
+      class="z-[120] w-[min(22rem,calc(100vw-1.5rem))] overflow-hidden rounded-xl border border-line bg-surface shadow-[0_16px_40px_#16211F1F] outline-none"
     >
-      <Command.Root shouldFilter={false} loop label="Science code" bind:value={highlighted} class="flex max-h-[min(24rem,calc(100dvh-8rem))] flex-col">
-        <div class="relative shrink-0 border-b border-line-soft p-2">
-          <MagnifyingGlassIcon size={14} aria-hidden="true" class="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-ink-faint" />
-          <Command.Input
-            bind:value={query}
-            placeholder="Search by name or code"
-            aria-label="Search science codes"
-            class="input-chromeless h-8 w-full rounded-md bg-transparent pl-7 pr-2 text-[13px] text-ink placeholder:text-ink-faint"
-          />
+      <Command.Root shouldFilter={false} loop disableInitialScroll label="Science code" bind:value={highlighted} class="flex max-h-[min(24rem,calc(100dvh-8rem))] flex-col">
+        <div class="shrink-0 px-2 pb-1 pt-2">
+          <div class="field-control-shell flex h-[34px] items-center gap-2 rounded-md px-2.5">
+            <MagnifyingGlassIcon size={14} aria-hidden="true" class="pointer-events-none shrink-0 text-ink-muted" />
+            <Command.Input
+              bind:value={query}
+              placeholder="Search by name or code"
+              aria-label="Search science codes"
+              class="input-chromeless h-full min-w-0 flex-1 bg-transparent text-[13px] text-ink placeholder:text-ink-muted"
+            />
+          </div>
         </div>
-        <Command.List class="min-h-0 flex-1 overflow-y-auto p-1.5">
+        <Command.List bind:ref={list} class="min-h-0 flex-1 overflow-y-auto px-1.5 pb-1.5">
           <Command.Viewport>
             {#each groups as group (group.field)}
               <Command.Group>
-                <Command.GroupHeading class="px-2 pb-1 pt-2 text-[11px] uppercase tracking-wide text-ink-muted">{group.field}</Command.GroupHeading>
+                <Command.GroupHeading class="px-2 pb-1 pt-2 text-[11px] font-medium uppercase leading-[18px] tracking-[0.04em] text-ink-muted">{group.field}</Command.GroupHeading>
                 <Command.GroupItems>
                   {#each group.items as item (item.code)}
                     <Command.Item
                       value={item.code}
                       onSelect={() => choose(item.code)}
-                      class={itemClass}
+                      class={`${itemClass} ${item.code === value ? "bg-gray-50" : ""}`}
                       aria-current={item.code === value ? "true" : undefined}
                       data-science-code-current={item.code === value ? "" : undefined}
                     >
-                      <span class="w-14 shrink-0 font-mono text-xs text-ink-muted">{item.code}</span>
+                      <span class="w-[52px] shrink-0 font-mono text-xs text-ink-muted">{item.code}</span>
                       <span class="min-w-0 flex-1">{item.label}</span>
                       {#if item.code === value}
                         <CheckIcon size={14} aria-label="Current code" class="shrink-0 text-primary-selected" />
