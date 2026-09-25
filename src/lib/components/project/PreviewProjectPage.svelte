@@ -501,12 +501,12 @@
   }
 
   function handleAskAI(selection: { from: number; to: number; text: string }) {
-    openSidePanel("chat");
+    void leaveDetailsThen(() => openSidePanel("chat"));
     pendingChatHighlight = selection;
   }
 
   function handleResearch(selection: ResearchSelection) {
-    openSidePanel("chat");
+    void leaveDetailsThen(() => openSidePanel("chat"));
     pendingChatHighlight = null;
     pendingResearch = selection;
   }
@@ -620,10 +620,18 @@
     detailsPeekOpen = false;
     openSidePanel("details");
   }
+  // Leaving an open Details panel from the host (the toolbar toggles, Ask
+  // assistant, Open QA) first lets it save a pending project number edit; a
+  // failed save keeps it open with the error instead of losing the edit.
+  let detailsPanel = $state<{ requestClose: () => Promise<boolean> } | undefined>();
+  async function leaveDetailsThen(next: () => void) {
+    if (detailsOpen && railView === "details" && detailsPanel && !(await detailsPanel.requestClose())) return;
+    next();
+  }
   // The Details (i) toggle, wherever it sits: the panel toolbar, or beside
   // the narrow Outline/Seeds switch during the seed stage (board 3.6).
   function toggleDetails() {
-    if (detailsOpen && sidePanelOnScreen) closeSidePanel();
+    if (detailsOpen && sidePanelOnScreen) void leaveDetailsThen(closeSidePanel);
     else openDetails();
   }
 
@@ -1618,7 +1626,7 @@
     qaSeenTick += 1;
   }
   function openQaFromNotice() {
-    openSidePanel("qa");
+    void leaveDetailsThen(() => openSidePanel("qa"));
   }
   const showQaFinished = $derived(
     reportActionsVisible && qaSeen === "unseen" && !qaOnScreen
@@ -1847,7 +1855,7 @@
         showAssistant={reportActionsVisible && !!user}
         showQa={reportActionsVisible && !!user}
         assistantActive={chatShown && sidePanelOnScreen}
-        onToggleAssistant={() => toggleSidePanel("chat")}
+        onToggleAssistant={() => void leaveDetailsThen(() => toggleSidePanel("chat"))}
       >
         {#snippet detailsPeek()}
           <DetailsPopover
@@ -1865,7 +1873,7 @@
               score={qaScore}
               unseen={qaUnseen}
               active={qaShown && sidePanelOnScreen}
-              onToggle={() => toggleSidePanel("qa")}
+              onToggle={() => void leaveDetailsThen(() => toggleSidePanel("qa"))}
             />
           {/if}
         {/snippet}
@@ -2458,6 +2466,7 @@
           {#if detailsOpen && railView === "details"}
             <div class="h-full" style={`min-width: ${SIDE_PANEL_MIN}px`}>
               <DetailsPanel
+                bind:this={detailsPanel}
                 data={details.data}
                 error={details.error}
                 bind:view={detailsView}

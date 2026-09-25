@@ -468,4 +468,34 @@ describe("PreviewProjectPage final shell", () => {
     expect(calls).toHaveLength(2);
     expect(calls[0].createRequestId).not.toBe(calls[1].createRequestId);
   });
+
+  describe("leaving Details from the toolbar (Details review follow-up)", () => {
+    for (const toggle of ["Assistant", "QA", "Details"] as const) {
+      it(`keeps Details open with the error when the number save fails before ${toggle}`, async () => {
+        seed();
+        __setMutationError("projects:setProjectNumber", new Error("That project number is already in use."));
+        await render(PreviewProjectPage);
+        await page.getByRole("button", { name: "Details", exact: true }).click();
+        await expect.poll(() => document.querySelector("[data-side-panel]")?.getAttribute("data-side-panel")).toBe("details");
+        await page.getByRole("button", { name: "Edit project number", exact: true }).click();
+        await page.getByRole("textbox", { name: "Edit project number" }).fill("2B");
+        await page.getByRole("button", { name: toggle === "QA" ? /^QA/ : toggle, exact: toggle !== "QA" }).first().click();
+        await expect.element(page.getByText("That project number is already in use.", { exact: false }).first()).toBeVisible();
+        expect(document.querySelector("[data-side-panel]")?.getAttribute("data-side-panel")).toBe("details");
+        expect(__mutationCalls("projects:setProjectNumber")).toHaveLength(1);
+      });
+    }
+
+    it("saves the pending number, then switches to the Assistant", async () => {
+      seed();
+      __setMutationResult("projects:setProjectNumber", null);
+      await render(PreviewProjectPage);
+      await page.getByRole("button", { name: "Details", exact: true }).click();
+      await page.getByRole("button", { name: "Edit project number", exact: true }).click();
+      await page.getByRole("textbox", { name: "Edit project number" }).fill("2B");
+      await page.getByRole("button", { name: "Assistant", exact: true }).click();
+      await expect.poll(() => document.querySelector("[data-side-panel]")?.getAttribute("data-side-panel")).toBe("chat");
+      expect(__mutationCalls("projects:setProjectNumber")).toEqual([{ projectId: "project-1", projectNumber: "2B" }]);
+    });
+  });
 });

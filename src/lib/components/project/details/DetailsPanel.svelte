@@ -106,6 +106,15 @@
   let facts = $state<{ commitPendingEdits: () => Promise<boolean> } | undefined>();
   let leaving = false;
 
+  /**
+   * For the host's toolbar toggles (i, Assistant, QA), which switch the side
+   * panel without this panel's own buttons: finish a pending edit first. False
+   * means the save failed and the panel should stay open with its error.
+   */
+  export async function requestClose(): Promise<boolean> {
+    return facts ? await facts.commitPendingEdits() : true;
+  }
+
   async function leaveDetails(next: () => void) {
     if (leaving) return;
     leaving = true;
