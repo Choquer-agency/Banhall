@@ -1,7 +1,13 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-svelte";
+import { page } from "vitest/browser";
 import { __resetConvexStub, __setQueryData } from "$lib/test/convex-svelte-stub.svelte";
 import QAScorePanel from "./QAScorePanel.svelte";
+import TooltipProviderHarness from "$lib/test/TooltipProviderHarness.svelte";
+
+function renderSide(props: Record<string, unknown>) {
+  return render(TooltipProviderHarness, { props: { panel: QAScorePanel, panelProps: { variant: "side", ...props } } });
+}
 
 const scorecard = {
   overall_score: 78,
@@ -51,5 +57,91 @@ describe("QAScorePanel (final UI contract)", () => {
     for (const element of container.querySelectorAll<HTMLElement>("*")) {
       expect(Number(getComputedStyle(element).fontWeight)).toBeLessThanOrEqual(500);
     }
+  });
+});
+
+const fullScorecard = {
+  ...scorecard,
+  section_scores: {
+    "242": { score: 86, issues: [], strengths: ["Clear framing"] },
+    "244": {
+      score: 62,
+      issues: [
+        { text: "Hypothesis is not in if/then form.", severity: "deduction", deduction: 5 },
+        { text: "96 of 100 lines used.", severity: "warning" },
+      ],
+      strengths: ["Chronology follows the interview."],
+    },
+    "246": { score: 84, issues: [], strengths: [] },
+  },
+  cra_compliance: { verbiage_present: true, why_how_why_intact: true, uncertainties_distinguished: false },
+  ai_language_flags: ["\u201cessentially\u201d in 242, paragraph 1. Remove the filler qualifier."],
+  gaps_requiring_client_followup: [
+    { section: "246", question: "Which trials failed?" },
+    { section: "244", paragraph: 2, question: "What test range was recorded?" },
+  ],
+};
+
+describe("QAScorePanel side panel (board 2.2)", () => {
+  it("draws the QA score header with Re-run and close, and no icon", async () => {
+    const onClose = vi.fn();
+    const onRunQa = vi.fn();
+    const { container } = await renderSide({
+      rawQa: fullScorecard,
+      onClose,
+      onRunQa,
+      lastRunAt: Date.now() - 2 * 60_000,
+    });
+    const header = container.querySelector<HTMLElement>("[data-qa-panel-header]")!;
+    expect(header.querySelector("h2")?.textContent).toBe("QA score");
+    expect(header.querySelector("svg path[d^='M9 12l2 2']")).toBeNull();
+    await page.getByRole("button", { name: "Close QA score", exact: true }).click();
+    expect(onClose).toHaveBeenCalledOnce();
+    await page.getByRole("button", { name: "Re-run", exact: true }).click();
+    expect(onRunQa).toHaveBeenCalledOnce();
+    expect(container.querySelector("[data-qa-score-line]")?.textContent).toContain(
+      "AI QA score, last run 2 min ago"
+    );
+  });
+
+  it("uses sentence-case group labels and tinted Issues, Warnings and Strengths rows", async () => {
+    const { container } = await renderSide({ rawQa: fullScorecard });
+    const labels = [...container.querySelectorAll("p")].map((p) => p.textContent?.trim());
+    for (const label of ["Sections", "CRA compliance", "Language flags", "Client follow-ups"]) {
+      expect(labels).toContain(label);
+    }
+    await page.getByRole("button", { name: /^244/ }).click();
+    const section = container.querySelector<HTMLElement>('[data-qa-section="244"]')!;
+    expect(section.textContent).toMatch(/Issues\s*1/);
+    expect(section.textContent).toMatch(/Warnings\s*1/);
+    expect(section.textContent).toMatch(/Strengths\s*1/);
+    const rows = [...section.querySelectorAll<HTMLElement>("li.rounded")];
+    expect(rows.map((row) => row.textContent?.trim())).toEqual([
+      "Hypothesis is not in if/then form. (\u22125)",
+      "96 of 100 lines used.",
+      "Chronology follows the interview.",
+    ]);
+    const fills = rows.map((row) => getComputedStyle(row).backgroundColor);
+    expect(new Set(fills).size).toBe(3);
+    expect(fills).not.toContain("rgba(0, 0, 0, 0)");
+  });
+
+  it("shows CRA compliance as check or cross chips in sentence case", async () => {
+    const { container } = await renderSide({ rawQa: fullScorecard });
+    const chips = [...container.querySelectorAll<HTMLElement>("[data-qa-compliance]")];
+    expect(chips.map((chip) => [chip.dataset.qaCompliance, chip.textContent?.trim().replace(/^(Met|Not met):\s*/, "")])).toEqual([
+      ["pass", "Verbiage present"],
+      ["pass", "Why, how, why intact"],
+      ["fail", "Uncertainties distinguished"],
+    ]);
+  });
+
+  it("lists client follow-ups as simple rows tagged by line and paragraph", async () => {
+    const onLocateGap = vi.fn();
+    const { container } = await renderSide({ rawQa: fullScorecard, onLocateGap });
+    const rows = [...container.querySelectorAll<HTMLElement>("[data-qa-follow-up]")];
+    expect(rows.map((row) => row.querySelector(".font-mono")?.textContent)).toEqual(["244, P2", "246"]);
+    await page.getByRole("button", { name: "Jump to paragraph" }).click();
+    expect(onLocateGap).toHaveBeenCalledWith({ section: "244", paragraph: 2 });
   });
 });

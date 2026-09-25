@@ -2448,7 +2448,9 @@
                 <LazyModule load={() => import("$lib/components/qa/QARailPanel.svelte")} label="QA score">
                   {#snippet children(QARailPanel)}
                     <QARailPanel
+                      variant="side"
                       title="QA score"
+                      lastRunAt={generation?.postQaCompletedAt ?? generation?.completedAt ?? null}
                       open={qaOpen}
                       onClose={closeSidePanel}
                       modelName={generation?.selectedModelLabel ?? generation?.iterativeModelLabel ?? null}
