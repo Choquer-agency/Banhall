@@ -801,15 +801,49 @@ describe("Seed workspace", () => {
     });
     await render(SeedSubsectionPane, paneProps(subsection({ truncated: true, approvalChallenge: null })));
     await page.getByRole("button", { name: "Load Batch history", exact: true }).click();
+    // Nonprogress is named as such, never blamed on the server's processing limit (R6-09).
     await expect.element(page.getByRole("alert")).toHaveTextContent(
-      "Batch history stopped because one Batch exceeds the safe server processing limit."
+      "Batch history stopped because the server kept returning the same page. The complete history cannot be shown, so approval stays unavailable while Seeds are omitted."
     );
+    expect(document.body.textContent).not.toContain("processing limit");
     expect(__clientQueryCalls("seeds:listBatches")).toEqual([
       { generationId, roleId: "company_context", cursor: null, numItems: 20 },
       { generationId, roleId: "company_context", cursor: "stuck-cursor", numItems: 20 },
     ]);
     expect(__clientQueryCalls("seeds:getApprovalReview")).toEqual([]);
     await expect.element(page.getByText("History is incomplete.", { exact: true })).toBeVisible();
+    await expect.element(page.getByRole("button", { name: "Approve and continue", exact: true })).toBeDisabled();
+    await expect.element(page.getByRole("button", { name: "Retry Batch history", exact: true })).toBeEnabled();
+  });
+
+  it("attributes a history stop to the server's processing limit only when a history read is refused for it (R6-09)", async () => {
+    const historyArgs = (cursor: string | null) => ({ generationId, roleId: "company_context", cursor, numItems: 20 });
+    __setQueryDataForArgs("seeds:listBatches", historyArgs(null), {
+      page: [{
+        batch: { _id: "batch-before-refusal", operation: "initial", status: "superseded" },
+        seeds: [historicalSeed("seed-before-refusal", "Loaded original.", "Loaded before the refusal.", "Loaded excerpt.")],
+      }],
+      isDone: false,
+      continueCursor: "refused-page",
+      truncated: false,
+      budget,
+    });
+    __setQueryDataForArgs("seeds:listBatches", historyArgs("refused-page"), rejecting(new ConvexError({
+      code: "INVALID_INPUT",
+      reason: "SEED_PROCESSING_LIMIT",
+      roleId: "company_context",
+      message: "Batch history exceeds the read budget",
+    })));
+    __setQueryData("seeds:getApprovalReview", historyReview("must-not-be-requested"));
+    await render(SeedSubsectionPane, paneProps(subsection({ truncated: true, approvalChallenge: null })));
+    await page.getByRole("button", { name: "Load Batch history", exact: true }).click();
+    await expect.element(page.getByRole("alert")).toHaveTextContent(
+      "Batch history stopped because the server could not read it within its safe processing limit. The complete history cannot be shown, so approval stays unavailable while Seeds are omitted."
+    );
+    // A history refusal is not a refused approval decision.
+    expect(document.body.textContent).not.toContain("complete approval decision");
+    await expect.element(page.getByText("Loaded before the refusal.", { exact: true })).toBeVisible();
+    expect(__clientQueryCalls("seeds:getApprovalReview")).toEqual([]);
     await expect.element(page.getByRole("button", { name: "Approve and continue", exact: true })).toBeDisabled();
     await expect.element(page.getByRole("button", { name: "Retry Batch history", exact: true })).toBeEnabled();
   });
@@ -1339,9 +1373,11 @@ describe("Seed workspace", () => {
     seedBoundaryPages(false);
     view = await render(SeedSubsectionPane, paneProps(subsection({ truncated: true, approvalChallenge: null })));
     await page.getByRole("button", { name: "Load Batch history", exact: true }).click();
+    // The client's own page bound is named as such (R6-09).
     await expect.element(page.getByRole("alert")).toHaveTextContent(
-      "Batch history stopped because one Batch exceeds the safe server processing limit."
+      "Batch history stopped after 200 pages, the most this view loads. The complete history cannot be shown, so approval stays unavailable while Seeds are omitted."
     );
+    expect(document.body.textContent).not.toContain("processing limit");
     expect(__clientQueryCalls("seeds:listBatches")).toHaveLength(200);
     expect(__clientQueryCalls("seeds:getApprovalReview")).toEqual([]);
     await expect.element(page.getByText("History is incomplete.", { exact: true })).toBeVisible();

@@ -83,10 +83,14 @@
 
   type ApprovalLayout = "outline" | "bar";
 
-  /** Guards a history walk against a server that cannot advance its cursor. */
+  /** Bounds one history walk; a terminal page at the bound still completes. */
   const MAX_HISTORY_PAGES = 200;
-  const HISTORY_LIMIT_MESSAGE =
-    "Batch history stopped because one Batch exceeds the safe server processing limit. The complete history cannot be shown, so approval stays unavailable while Seeds are omitted.";
+  // Each stop condition names its own cause (R6-09): only a refusal the
+  // server actually sent is attributed to its processing limit.
+  const HISTORY_INCOMPLETE = "The complete history cannot be shown, so approval stays unavailable while Seeds are omitted.";
+  const HISTORY_NONPROGRESS_MESSAGE = `Batch history stopped because the server kept returning the same page. ${HISTORY_INCOMPLETE}`;
+  const HISTORY_PAGE_BOUND_MESSAGE = `Batch history stopped after ${MAX_HISTORY_PAGES} pages, the most this view loads. ${HISTORY_INCOMPLETE}`;
+  const HISTORY_SERVER_LIMIT_MESSAGE = `Batch history stopped because the server could not read it within its safe processing limit. ${HISTORY_INCOMPLETE}`;
 
   const convex = useConvexClient();
   const selectSeed = useMutation(seedsApi.select);
@@ -262,6 +266,8 @@
     const rows: SeedBatchHistoryRow[] = [];
     const seenCursors = new Set<string>();
     let cursor: string | null = null;
+    // Which read a refusal came from: a history page or the approval review.
+    let reading: "history" | "review" = "history";
     try {
       for (let pages = 0; ; pages += 1) {
         const requestedCursor: string | null = cursor;
@@ -282,7 +288,7 @@
         // before the next request is ever made.
         if (!advanced || pages + 1 >= MAX_HISTORY_PAGES) {
           historyRows = rows;
-          historyRefusal = HISTORY_LIMIT_MESSAGE;
+          historyRefusal = advanced ? HISTORY_PAGE_BOUND_MESSAGE : HISTORY_NONPROGRESS_MESSAGE;
           return;
         }
         seenCursors.add(nextCursor);
@@ -291,6 +297,7 @@
       historyRows = rows;
       historyComplete = true;
       if (data.truncated) {
+        reading = "review";
         const review = await convex.query(seedsApi.getApprovalReview, {
           generationId,
           roleId,
@@ -302,7 +309,9 @@
     } catch (cause) {
       if (obsolete()) return;
       historyRows = rows;
-      if (isSeedProcessingLimit(cause)) {
+      if (isSeedProcessingLimit(cause) && reading === "history") {
+        historyRefusal = HISTORY_SERVER_LIMIT_MESSAGE;
+      } else if (isSeedProcessingLimit(cause)) {
         historyReviewRefused = true;
         error = "The complete decision exceeds the safe server processing limit. Approval remains unavailable.";
       } else {
