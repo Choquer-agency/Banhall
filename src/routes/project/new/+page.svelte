@@ -62,6 +62,10 @@
   import ComparePairPicker from "$lib/components/generation/ComparePairPicker.svelte";
   import SingleModelPicker from "$lib/components/generation/SingleModelPicker.svelte";
   import Tooltip from "$lib/components/ui/Tooltip.svelte";
+  import Checkbox from "$lib/components/ui/Checkbox.svelte";
+  import { SvelteMap } from "svelte/reactivity";
+  import { dashboardFiscalYear } from "../../../../shared/dashboardProjection";
+  import { previousYearReportHeader } from "../../../../shared/previousYear";
   import WorkspaceChrome from "$lib/components/workspace/WorkspaceChrome.svelte";
   import { displayName } from "$lib/displayName";
   import { takeProjectStart } from "$lib/workspace/projectIntentHandoff";
@@ -170,7 +174,9 @@
     file?: File;
     source:
       | { kind: "upload" | "paste"; content: string }
-      | { kind: "copy"; fromTranscriptId: Id<"transcripts"> };
+      // A copied row stays in the list when unticked (owner decision 35,
+      // 2026-09-25), so the writer can tick it again.
+      | { kind: "copy"; fromTranscriptId: Id<"transcripts">; included: boolean };
   };
   let transcriptItems = $state<TranscriptItem[]>([]);
   let pasteDraft = $state("");
@@ -217,6 +223,19 @@
   function removeTranscriptItem(id: string) {
     transcriptItems = transcriptItems.filter((item) => item.id !== id);
   }
+
+  function setTranscriptIncluded(id: string, included: boolean) {
+    transcriptItems = transcriptItems.map((item) =>
+      item.id === id && item.source.kind === "copy"
+        ? { ...item, source: { ...item.source, included } }
+        : item
+    );
+  }
+
+  const isTranscriptIncluded = (item: TranscriptItem) =>
+    item.source.kind !== "copy" || item.source.included;
+  // What createProject will receive: an unticked copy stays behind.
+  const includedTranscriptItems = $derived(transcriptItems.filter(isTranscriptIncluded));
 
   // Duplicate flow: /project/new?from=<projectId> prefills the wizard from an
   // existing project (setup + transcript now; documents copied on commit).
@@ -319,9 +338,57 @@
         )
       : []
   );
-  // Same grouping and order as the Context & files card; files the source
-  // kept without a category (a written PD under review, chat uploads) close
-  // the list.
+  type CopiedDocument = (typeof copiedDocuments)[number];
+
+  // Fiscal years as the server reads them (dashboardFiscalYear on the stored
+  // time), so the wizard and copyProjectContent agree on "later".
+  const sourceFiscalYear = $derived(dashboardFiscalYear(sourceProjectQ.data?.fiscalYearEnd));
+  const newFiscalYear = $derived(
+    /^\d{4}-\d{2}-\d{2}$/.test(fiscalYearEnd)
+      ? dashboardFiscalYear(new Date(`${fiscalYearEnd}T00:00:00`).getTime())
+      : null
+  );
+  const fiscalYearMovedForward = $derived(
+    sourceFiscalYear !== null && newFiscalYear !== null && newFiscalYear > sourceFiscalYear
+  );
+
+  // Owner decision 35 (2026-09-25): every copied file has a tick box, ticked
+  // by default, and anything unticked stays behind. A PD ported in for the
+  // original's own year starts unticked on a same-year duplicate. Only the
+  // writer's own choices are stored, so that default follows the fiscal year.
+  const documentChoices = new SvelteMap<string, boolean>();
+  const isPortedSameYear = (document: CopiedDocument) =>
+    document.source === "ingestion_port" && !fiscalYearMovedForward;
+  const isDocumentIncluded = (document: CopiedDocument) =>
+    documentChoices.get(document._id) ?? !isPortedSameYear(document);
+  // A leave-out list rather than a copy list: while the list is still
+  // loading it is empty, and an empty list copies everything.
+  const excludedDocumentIds = $derived(
+    copiedDocuments
+      .filter((document) => !isDocumentIncluded(document))
+      .map((document) => document._id)
+  );
+
+  // Last year's report (owner decision 35): a card duplicate in Generate PD
+  // can bring the original's report in as a Previous-year report, but only
+  // once the fiscal year moves forward. The server applies the same rule.
+  const sourceReportQ = useQuery(api.projects.getDuplicateSourceReport, () =>
+    auth.isAuthenticated && fromProjectId && generateAfterDuplicate
+      ? { projectId: fromProjectId as Id<"projects"> }
+      : "skip"
+  );
+  const offerPreviousYearReport = $derived(
+    generateAfterDuplicate &&
+      mode === "generate" &&
+      fiscalYearMovedForward &&
+      sourceReportQ.data?.hasText === true
+  );
+  let previousYearReportIncluded = $state(true);
+  const sendPreviousYearReport = $derived(offerPreviousYearReport && previousYearReportIncluded);
+
+  // Same grouping and order as the Context & files card; written PDs under
+  // review, then other files the source kept without a category (chat
+  // uploads), close the list.
   const copiedDocumentGroups = $derived.by(() => {
     const known = new Set<string>(CONTEXT_CATEGORIES.map((category) => category.id));
     const groups = CONTEXT_CATEGORIES.map((category) => ({
@@ -330,21 +397,77 @@
       files: copiedDocuments.filter((document) => document.category === category.id),
     }));
     groups.push({
-      id: "uncategorized",
-      label: "Other project files",
+      id: "review_pd",
+      label: "Written PDs reviewed",
       files: copiedDocuments.filter(
-        (document) => !document.category || !known.has(document.category)
+        (document) =>
+          document.source === "review_pd" &&
+          (!document.category || !known.has(document.category))
       ),
     });
-    return groups.filter((group) => group.files.length > 0);
+    groups.push({
+      id: "uncategorized",
+      label: "Chat and other uploads",
+      files: copiedDocuments.filter(
+        (document) =>
+          document.source !== "review_pd" &&
+          (!document.category || !known.has(document.category))
+      ),
+    });
+    return groups.filter(
+      (group) =>
+        group.files.length > 0 || (group.id === "previous_pd" && offerPreviousYearReport)
+    );
   });
-  // Copied text the AI can read counts as a source, the same test the
-  // server applies before it starts a generation.
+  const groupHasReport = (groupId: string) =>
+    groupId === "previous_pd" && offerPreviousYearReport;
+  function groupTicks(group: { id: string; files: CopiedDocument[] }) {
+    const ticks = group.files.map(isDocumentIncluded);
+    if (groupHasReport(group.id)) ticks.push(previousYearReportIncluded);
+    return ticks;
+  }
+  function setGroupIncluded(group: { id: string; files: CopiedDocument[] }, included: boolean) {
+    for (const document of group.files) documentChoices.set(document._id, included);
+    if (groupHasReport(group.id)) previousYearReportIncluded = included;
+  }
+  const copiedTotalCount = $derived(copiedDocuments.length + (offerPreviousYearReport ? 1 : 0));
+  const copiedIncludedCount = $derived(
+    copiedDocuments.length - excludedDocumentIds.length + (sendPreviousYearReport ? 1 : 0)
+  );
+  const copiedCountLabel = $derived(
+    copiedIncludedCount === copiedTotalCount
+      ? `${copiedTotalCount}`
+      : `${copiedIncludedCount} of ${copiedTotalCount}`
+  );
+  // Ticked copied text the AI can read counts as a source. Same test as the
+  // server's (non-archived, non-empty); the old report has text by definition.
   const copiedReadableCount = $derived(
-    copiedDocuments.filter((document) => !document.archived && document.sizeChars > 0).length
+    copiedDocuments.filter(
+      (document) => isDocumentIncluded(document) && !document.archived && document.sizeChars > 0
+    ).length + (sendPreviousYearReport ? 1 : 0)
+  );
+  const copiedFilesNote = $derived(
+    !generateAfterDuplicate
+      ? "Ticked files are copied when you create the project."
+      : mode === "generate"
+        ? `Ticked files are copied into the new project and read for the draft. ${
+            offerPreviousYearReport
+              ? "The old report can come along as last year's report."
+              : "The old report stays with the original."
+          }`
+        : "Ticked files are copied into the new project as context for the review. The old report stays with the original."
+  );
+  const anythingUnticked = $derived(
+    excludedDocumentIds.length > 0 ||
+      transcriptItems.some((item) => !isTranscriptIncluded(item)) ||
+      (offerPreviousYearReport && !previousYearReportIncluded)
   );
   const copySourceTitle = $derived(sourceProjectQ.data?.title ?? "the original project");
   const copyProjectContent = useAction(api.projectDuplication.copyProjectContent);
+  // Owner decision 35 (2026-09-25): a copy of a Review PD project stays a
+  // Review PD project, so Generate PD, and with it Step by step, is not
+  // offered.
+  const modeLocked = $derived(Boolean(fromProjectId) && sourceProjectQ.data?.mode === "review");
 
   let prefilled = $state(false);
   $effect(() => {
@@ -381,7 +504,7 @@
       wordCount: row.wordCount,
       charCount: row.charCount,
       ...(row.sourceFormat ? { format: row.sourceFormat } : {}),
-      source: { kind: "copy" as const, fromTranscriptId: row._id },
+      source: { kind: "copy" as const, fromTranscriptId: row._id, included: true },
     }));
   });
   let staged = $state<Staged>(emptyStaged());
@@ -500,17 +623,17 @@
 
   const draftWordCount = $derived(countWords(pasteDraft));
   const wordCount = $derived(
-    transcriptItems.reduce((total, item) => total + item.wordCount, 0) +
+    includedTranscriptItems.reduce((total, item) => total + item.wordCount, 0) +
       draftWordCount
   );
   const transcriptCharCount = $derived(
-    transcriptItems.reduce((total, item) => total + item.charCount, 0) +
+    includedTranscriptItems.reduce((total, item) => total + item.charCount, 0) +
       pasteDraft.trim().length
   );
   // Server caps, checked here so the writer hears about it before the upload
   // loop runs (convex/lib/transcripts.ts holds the one definition).
   const transcriptCountForSubmit = $derived(
-    transcriptItems.length + (pasteDraft.trim() ? 1 : 0)
+    includedTranscriptItems.length + (pasteDraft.trim() ? 1 : 0)
   );
   const transcriptsOverCap = $derived(
     transcriptCountForSubmit > MAX_TRANSCRIPTS_PER_PROJECT ||
@@ -675,7 +798,7 @@
    */
   async function transcriptArgs() {
     const items = await Promise.all(
-      transcriptItems.map(async (item) => {
+      includedTranscriptItems.map(async (item) => {
         if (item.source.kind === "copy") {
           return { fromTranscriptId: item.source.fromTranscriptId, label: item.label };
         }
@@ -754,22 +877,41 @@
       extractionLifetime.signal.throwIfAborted();
       createdProjectId = projectId;
 
-      // Duplicate flow: clone the complete project input package — support
-      // docs, archived docs, review PDs, original file bytes, and identity
-      // evidence. The transcripts were copied by reference inside
+      // Duplicate flow: clone the project input package: support docs,
+      // archived docs, review PDs, original file bytes (transcript originals
+      // included), and identity evidence, minus anything the writer
+      // unticked. The transcripts were copied by reference inside
       // createProject above, so the action never shares storage ownership
       // with the source project.
       if (fromProjectId) {
         progress = "Copying all project materials…";
-        await copyProjectContent({
-          fromProjectId: fromProjectId as Id<"projects">,
-          toProjectId: projectId,
-          ...(transcriptIds[0] ? { targetTranscriptId: transcriptIds[0] } : {}),
-          // A duplicate to draft again copies inputs only (see draftsParam).
-          ...(generateAfterDuplicate
-            ? { includeReport: false, includeReviews: copyReviews }
-            : {}),
-        });
+        try {
+          await copyProjectContent({
+            fromProjectId: fromProjectId as Id<"projects">,
+            toProjectId: projectId,
+            ...(transcriptIds[0] ? { targetTranscriptId: transcriptIds[0] } : {}),
+            // A duplicate to draft again copies inputs only (see draftsParam).
+            ...(generateAfterDuplicate
+              ? { includeReport: false, includeReviews: copyReviews }
+              : {}),
+            ...(excludedDocumentIds.length
+              ? { excludeDocumentIds: excludedDocumentIds as Id<"projectDocuments">[] }
+              : {}),
+            ...(sendPreviousYearReport ? { previousYearReport: true } : {}),
+          });
+        } catch (copyError) {
+          if (extractionLifetime.signal.aborted) return;
+          console.error(copyError);
+          // Review F1: the project exists but may lack the copied files, so
+          // never suggest drafting it. Nothing else runs.
+          toast.error(
+            `Some files from ${copySourceTitle} were not copied. Duplicate again, or add them on the project page.`
+          );
+          committing = false;
+          progress = "";
+          goto(`/project/${projectId}`);
+          return;
+        }
       }
 
       // One unreadable/oversized doc must never sink the whole project —
@@ -847,7 +989,7 @@
           const outcome = await uploadFile(
             file,
             "previous_pd",
-            `[Previous-year report — fiscal ${row.year}]\n${noteLine}\n`
+            `${previousYearReportHeader(row.year)}${noteLine}\n`
           );
           if (outcome === "stored_text") noteCarried = true;
         }
@@ -1081,18 +1223,27 @@
                   { id: "generate", label: "Generate PD", hint: "Draft a new PD from an interview transcript" },
                   { id: "review", label: "Review PD", hint: "AI feedback report on an existing written PD" },
                 ] as const as opt (opt.id)}
-                  <Tooltip text={opt.hint}>
+                  {@const locked = modeLocked && opt.id !== "review"}
+                  <!-- aria-disabled, not disabled, so the tooltip still opens. -->
+                  <Tooltip
+                    text={locked ? "A copy of a Review PD project stays a Review PD project." : opt.hint}
+                  >
                     {#snippet children({ props })}
                       <button
                         {...props}
                         type="button"
                         role="radio"
                         aria-checked={mode === opt.id}
-                        onclick={() => (mode = opt.id)}
+                        aria-disabled={locked ? "true" : undefined}
+                        onclick={() => {
+                          if (!locked) mode = opt.id;
+                        }}
                         class={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy ${
                           mode === opt.id
                             ? "bg-primary-selected text-white"
-                            : "text-gray-500 hover:bg-primary-wash hover:text-navy"
+                            : locked
+                              ? "cursor-not-allowed text-ink-faint"
+                              : "text-gray-500 hover:bg-primary-wash hover:text-navy"
                         }`}
                       >
                         {opt.label}
@@ -1330,8 +1481,8 @@
               <div class="flex items-center gap-3">
                 {#if wordCount > 0}
                   <span class="text-xs text-gray-400">
-                    {transcriptItems.length > 1
-                      ? `${transcriptItems.length} transcripts · `
+                    {includedTranscriptItems.length > 1
+                      ? `${includedTranscriptItems.length} transcripts · `
                       : ""}{wordCount.toLocaleString()} words
                   </span>
                 {/if}
@@ -1364,7 +1515,13 @@
                    Same chip grammar as the context-document rows below. -->
               <ul class="flex flex-col gap-1.5">
                 {#each transcriptItems as item (item.id)}
-                  <li class="flex items-center justify-between gap-3 rounded-xl border border-gray-200 bg-white px-4 py-3">
+                  {@const copied = item.source.kind === "copy"}
+                  {@const included = isTranscriptIncluded(item)}
+                  <li
+                    data-transcript-item
+                    data-included={included ? "true" : "false"}
+                    class="flex items-center justify-between gap-3 rounded-xl border border-gray-200 bg-white px-4 py-3"
+                  >
                     <span class="flex min-w-0 items-center gap-2.5">
                       <span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-blue-50 text-blue-500">
                         <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
@@ -1376,19 +1533,37 @@
                         <span class="block text-xs text-gray-400" data-transcript-format>
                           {item.format && item.format !== "unknown" ? `${TRANSCRIPT_FORMAT_LABELS[item.format]}, ` : ""}{item.wordCount.toLocaleString()} words
                         </span>
+                        {#if !included}
+                          <span class="block text-xs text-ink-muted" data-transcript-not-copied>Not copied</span>
+                        {/if}
                       </span>
                     </span>
-                    <button
-                      type="button"
-                      onclick={() => removeTranscriptItem(item.id)}
-                      aria-label={`Remove ${item.label}`}
-                      class="shrink-0 rounded-md px-2 py-1 text-xs font-medium text-red-700 transition-colors hover:bg-red-50"
-                    >
-                      Remove
-                    </button>
+                    {#if copied}
+                      <!-- A copied transcript is unticked, not removed, so the
+                           writer can tick it again (owner decision 35). -->
+                      <Checkbox
+                        checked={included}
+                        aria-label={`Copy ${item.label}`}
+                        onCheckedChange={(checked) => setTranscriptIncluded(item.id, checked)}
+                      />
+                    {:else}
+                      <button
+                        type="button"
+                        onclick={() => removeTranscriptItem(item.id)}
+                        aria-label={`Remove ${item.label}`}
+                        class="shrink-0 rounded-md px-2 py-1 text-xs font-medium text-red-700 transition-colors hover:bg-red-50"
+                      >
+                        Remove
+                      </button>
+                    {/if}
                   </li>
                 {/each}
               </ul>
+              {#if fiscalYearMovedForward && transcriptItems.some((item) => item.source.kind === "copy")}
+                <p data-transcripts-year-note class="text-xs text-ink-muted">
+                  These transcripts are from FY {sourceFiscalYear}. Untick any that don't cover this year's work.
+                </p>
+              {/if}
             {/if}
 
             {#if transcriptTab === "upload"}
@@ -1481,9 +1656,9 @@
               </p>
             </div>
             {#if copiedDocumentGroups.length}
-              <!-- Duplicate: the source's files, read-only. They are not
-                   staged here; the server copies them when the project is
-                   created, originals included. -->
+              <!-- Duplicate: the source's files. They are not staged here;
+                   the server copies the ticked ones when the project is
+                   created, originals included (owner decision 35). -->
               <section
                 data-copied-files
                 aria-labelledby="copied-files-title"
@@ -1493,32 +1668,65 @@
                   <h3 id="copied-files-title" class="min-w-0 truncate text-sm font-medium text-ink">
                     Files from {copySourceTitle}
                   </h3>
-                  <p class="text-xs text-ink-muted">
-                    {copiedDocuments.length} file{copiedDocuments.length === 1 ? "" : "s"}
+                  <p data-copied-files-count class="text-xs text-ink-muted">
+                    {copiedCountLabel} file{copiedTotalCount === 1 ? "" : "s"}
                   </p>
                 </div>
-                <p data-copied-files-note class="mt-0.5 text-xs text-ink-muted">
-                  {#if !generateAfterDuplicate}
-                    Copied from {copySourceTitle} when you create the project.
-                  {:else if mode === "generate"}
-                    Files from {copySourceTitle} are copied into this new project, then the report is generated from them. The old report is not copied.
-                  {:else}
-                    Files from {copySourceTitle} are copied into this new project, then the review runs on the PD you upload. The old report is not copied.
-                  {/if}
-                </p>
+                <p data-copied-files-note class="mt-0.5 text-xs text-ink-muted">{copiedFilesNote}</p>
                 <div class="mt-2.5 flex flex-col gap-2.5">
                   {#each copiedDocumentGroups as group (group.id)}
+                    {@const ticks = groupTicks(group)}
+                    {@const allTicked = ticks.every(Boolean)}
+                    {@const someTicked = ticks.some(Boolean)}
                     <div data-copied-files-group={group.id}>
-                      <p class="text-xs font-medium text-ink-muted">{group.label}</p>
-                      <ul class="mt-0.5 text-sm text-ink-secondary">
+                      <div class="flex items-center gap-2">
+                        <Checkbox
+                          checked={allTicked}
+                          indeterminate={someTicked && !allTicked}
+                          aria-label={`Copy all ${group.label}`}
+                          onCheckedChange={(checked) => setGroupIncluded(group, checked)}
+                        />
+                        <p class="text-xs font-medium text-ink-muted">{group.label}</p>
+                      </div>
+                      <ul class="mt-1 flex flex-col gap-1 text-sm text-ink-secondary">
                         {#each group.files as file (file._id)}
-                          <li class="flex min-w-0 items-baseline gap-2">
+                          {@const included = isDocumentIncluded(file)}
+                          <li
+                            data-copied-file={file._id}
+                            data-included={included ? "true" : "false"}
+                            class="flex min-w-0 items-center gap-2"
+                          >
+                            <Checkbox
+                              checked={included}
+                              aria-label={`Copy ${file.fileName}`}
+                              onCheckedChange={(checked) => documentChoices.set(file._id, checked)}
+                            />
                             <span class="min-w-0 truncate">{file.fileName}</span>
                             {#if file.archived}
-                              <span class="shrink-0 text-xs text-ink-faint">Archived</span>
+                              <span class="shrink-0 text-xs text-ink-muted">Archived, not read for the draft</span>
+                            {:else if isPortedSameYear(file)}
+                              <span class="shrink-0 text-xs text-ink-muted">
+                                {sourceFiscalYear !== null && newFiscalYear === sourceFiscalYear
+                                  ? `PD for FY ${sourceFiscalYear}, the same year as this project`
+                                  : "PD for the original's fiscal year"}
+                              </span>
                             {/if}
                           </li>
                         {/each}
+                        {#if groupHasReport(group.id)}
+                          <li
+                            data-previous-year-report
+                            data-included={previousYearReportIncluded ? "true" : "false"}
+                            class="flex min-w-0 items-center gap-2"
+                          >
+                            <Checkbox
+                              bind:checked={previousYearReportIncluded}
+                              aria-label={`Copy ${copySourceTitle} report (FY ${sourceFiscalYear})`}
+                            />
+                            <span class="min-w-0 truncate">{copySourceTitle} report (FY {sourceFiscalYear})</span>
+                            <span class="shrink-0 text-xs text-ink-muted">Made from the original's latest report</span>
+                          </li>
+                        {/if}
                       </ul>
                     </div>
                   {/each}
@@ -1627,11 +1835,8 @@
                 : "None"
             )}
             {@render row("Context items", fileCount > 0 ? `${fileCount} attached` : "None")}
-            {#if copiedDocuments.length}
-              {@render row(
-                "Copied files",
-                `${copiedDocuments.length} from ${copySourceTitle}`
-              )}
+            {#if copiedTotalCount}
+              {@render row("Copied files", `${copiedCountLabel} from ${copySourceTitle}`)}
             {/if}
           </div>
           {#if fileCount > 0}
@@ -1701,7 +1906,9 @@
           {:else}
             {#if !hasAnySource}
               <span class="text-xs text-amber-600">
-                Add a transcript or at least one context document first.
+                {fromProjectId && anythingUnticked
+                  ? `Tick a transcript or file from ${copySourceTitle}, or add your own.`
+                  : "Add a transcript or at least one context document first."}
               </span>
             {/if}
             <Button
