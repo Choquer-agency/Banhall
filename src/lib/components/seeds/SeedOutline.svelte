@@ -169,12 +169,11 @@
           <span class="sr-only">, {stateText(row)}</span>
           {#if row.stale || row.outdated}
             <span class="inline-flex shrink-0 items-center gap-1 text-[11px] leading-[14px] text-gap-text!" aria-hidden="true" data-row-marker={row.stale ? "stale" : "outdated"}>
-              <!-- The amber dot the Summary uses for an open step. -->
-              <span class="size-1.5 rounded-full bg-[#F59E0B]"></span>{row.stale ? "stale" : "outdated"}
+              <span class="size-1.5 rounded-full bg-stale-dot"></span>{row.stale ? "stale" : "outdated"}
             </span>
           {:else if count}
             <span
-              class={`shrink-0 text-[11px] leading-[14px] ${active ? "text-primary" : "text-ink-faint"}`}
+              class={`shrink-0 text-[11px] leading-[14px] ${active ? "text-primary-selected" : "text-ink-faint"}`}
               aria-hidden="true"
               data-counts-complete={row.countsComplete}
             >{count}</span>
