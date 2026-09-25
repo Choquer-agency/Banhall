@@ -107,6 +107,17 @@ export const ANALYZER_REQUEST = {
   // full answer still fits the 240 s request timeout.
   maxTokens: 16_000,
   modelSelector: "candidate-model-or-default",
+  // 2026-09-25: a Step-by-step retry after an analysis was cut off at the
+  // output limit appends this to the user message. The limit, timeouts and
+  // repair stay the same, so the retry's worst-case time is the first
+  // attempt's; the caps keep a full answer to about half the limit.
+  shorterRetryNote:
+    "\n\nAn earlier analysis of this transcript was cut off at the output token limit before it finished. " +
+    "Write a shorter analysis that fits: keep each text field to three sentences or fewer, " +
+    "list at most 8 items in each list, each one or two sentences, " +
+    "give at most 8 experiments or iterations with each field in three sentences or fewer, " +
+    "and give at most 10 useful quotes, each under 40 words. " +
+    "Keep the facts that matter most for the SR&ED claim and leave out repetition and minor detail.",
 } as const;
 
 export async function runAnalyzerAgent(
@@ -118,11 +129,15 @@ export async function runAnalyzerAgent(
   model?: string,
   // BNH-10: gold-standard reference passages retrieved from The Brain (already
   // formatted). Reference patterns only — the prompt forbids copying their facts.
-  brainExemplars: string = ""
+  brainExemplars: string = "",
+  // A retry after a cut-off analysis asks for a shorter one
+  // (ANALYZER_REQUEST.shorterRetryNote). The first request is unchanged.
+  options: { shorter?: boolean } = {}
 ): Promise<TranscriptAnalysis> {
+  const shorter = options.shorter ? ANALYZER_REQUEST.shorterRetryNote : "";
   return await generateStructured<TranscriptAnalysis>(client, {
     system: ANALYZER_SYSTEM_PROMPT,
-    user: `${userMessage}${brainExemplars}`,
+    user: `${userMessage}${brainExemplars}${shorter}`,
     toolName: ANALYZER_REQUEST.toolName,
     description: ANALYZER_REQUEST.toolDescription,
     schema: ANALYSIS_SCHEMA,

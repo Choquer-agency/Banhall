@@ -47,6 +47,7 @@ import { factIndex } from "./lib/seedFacts";
 import { runSeedDraftingInputs } from "./seedStartup.fixture";
 import schema from "./schema";
 import { agentOutputsOf } from "./lib/generationOutputs";
+import { STORYLINE_QUESTION_WITHHELD_REASON } from "./lib/storylineQuestionNote";
 import planCoverageReplayKit from "../test-data/plan-coverage-replay.json?raw";
 
 /** Self-check reasons Sonnet 5 really wrote (fictional demo project). */
@@ -4443,7 +4444,9 @@ describe("seed Summary sign-off and recovery", () => {
         outcome: "not_applied",
         repaired: false,
       });
-      expect(storylineRows[0]?.reason).toContain(`Storyline question withheld (${detail})`);
+      // Writers see plain words; the byte detail stays in the summary and log.
+      expect(storylineRows[0]?.reason).toBe(STORYLINE_QUESTION_WITHHELD_REASON);
+      expect(storylineRows[0]?.reason).not.toContain("bytes");
       for (const row of state.rows) {
         expect(row.reason).not.toContain("primer");
       }

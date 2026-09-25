@@ -479,6 +479,66 @@ describe("Seed workspace", () => {
     }
   });
 
+  it("names a cut-off transcript analysis as soon as it fails and retries it (owner decision 32)", async () => {
+    __setQueryData("seeds:getOutline", {
+      ...outline(),
+      draftingInputs: { status: "failed", failureCode: "output_limit" },
+    });
+    __setQueryData("seeds:getSubsection", subsection());
+    __setMutationResult("generations:retryDraftingInputs", null);
+    await render(SeedWorkspace, workspaceProps());
+
+    const notice = () => document.querySelector<HTMLElement>("[data-workspace-drafting-inputs=failed]");
+    await expect.poll(() => notice()?.textContent).toContain(
+      "The transcript analysis was too long to finish. Your work is saved. Try again to run a shorter analysis before you sign off."
+    );
+    expect(notice()?.getAttribute("role")).toBe("status");
+    document.querySelector<HTMLButtonElement>("[data-workspace-drafting-retry]")?.click();
+    await expect.poll(() => __mutationCalls("generations:retryDraftingInputs")).toEqual([{ generationId }]);
+
+    // The retry is running: the notice goes away.
+    __setQueryData("seeds:getOutline", { ...outline(), draftingInputs: { status: "preparing" } });
+    await expect.poll(() => notice()).toBeNull();
+  });
+
+  it("names any other analysis failure plainly, shows a refused retry, and offers no retry without edit access", async () => {
+    __setQueryData("seeds:getOutline", {
+      ...outline(),
+      draftingInputs: { status: "failed", failureCode: "network" },
+    });
+    __setQueryData("seeds:getSubsection", subsection());
+    __setMutationError("generations:retryDraftingInputs", new ConvexError({
+      code: "INVALID_STATE",
+      message: "The drafting context is not waiting for a retry",
+    }));
+    const view = await render(SeedWorkspace, workspaceProps());
+    const notice = () => document.querySelector<HTMLElement>("[data-workspace-drafting-inputs=failed]");
+    await expect.poll(() => notice()?.textContent).toContain(
+      "We couldn't finish reading the transcript for drafting. Your work is saved. Try again before you sign off."
+    );
+    document.querySelector<HTMLButtonElement>("[data-workspace-drafting-retry]")?.click();
+    await expect.poll(() => notice()?.querySelector('[role="alert"]')?.textContent).toContain(
+      "The drafting context is not waiting for a retry"
+    );
+    view.unmount();
+
+    __setQueryData("seeds:getOutline", {
+      ...outline(false),
+      draftingInputs: { status: "failed", failureCode: "network" },
+    });
+    await render(SeedWorkspace, workspaceProps());
+    await expect.poll(() => notice()).not.toBeNull();
+    expect(document.querySelector("[data-workspace-drafting-retry]")).toBeNull();
+  });
+
+  it("shows no analysis notice while it is preparing or ready", async () => {
+    __setQueryData("seeds:getOutline", { ...outline(), draftingInputs: { status: "preparing" } });
+    __setQueryData("seeds:getSubsection", subsection());
+    await render(SeedWorkspace, workspaceProps());
+    await expect.element(page.getByRole("region", { name: "Seed workspace" })).toBeVisible();
+    expect(document.querySelector("[data-workspace-drafting-inputs]")).toBeNull();
+  });
+
   it("opens the saved role and records the displayed Batch once", async () => {
     localStorage.setItem(`seeds.openRole:writer-1:${generationId}`, "hypothesis");
     __setQueryData("seeds:getOutline", outline());

@@ -181,6 +181,19 @@ export function endsWithClipMark(value: string): boolean {
 }
 
 /**
+ * Whether a stored Storyline question alternative is one the Summary
+ * Self-check clipped: it ends with the clip mark and fits the clip limit.
+ * Longer text that happens to end in "…" (a legacy question, or model text
+ * that ended with an ellipsis) was never clipped and stays usable.
+ */
+export function isClippedStorylineAlternative(value: string): boolean {
+  return (
+    endsWithClipMark(value) &&
+    jsonEscapedUtf8Bytes(value) <= MAX_SUMMARY_SELF_CHECK_QUESTION_ESCAPED_UTF8_BYTES
+  );
+}
+
+/**
  * Clip model free text to `maximum` JSON-escaped UTF-8 bytes, measured by
  * jsonEscapedUtf8Bytes. Text within the limit is returned unchanged. Longer
  * text is cut between code points (so never inside a UTF-8 sequence or a

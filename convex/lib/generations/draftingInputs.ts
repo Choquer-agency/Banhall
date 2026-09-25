@@ -29,6 +29,11 @@ import {
   brainBlocksFromWriterStyle,
   parseFrozenBrainBlocks,
 } from "../frozenWriterStyle";
+import { brainProvenanceEntryValidator, writeBrainProvenance } from "../generationOutputs";
+import {
+  draftingInputsFailureCodeValidator,
+  type DraftingInputsFailureCode,
+} from "../draftingInputsFailure";
 
 /**
  * How long an attempt may stay unanswered before it is failed. Longer than
@@ -39,7 +44,7 @@ export const DRAFTING_INPUTS_LEASE_MS = 15 * 60 * 1000;
 
 export const prepareSeedDraftingInputsRef = makeFunctionReference<
   "action",
-  { generationId: Id<"generations">; attempt: number },
+  { generationId: Id<"generations">; attempt: number; shorterAnalysis?: boolean },
   null
 >("ai/iterative:prepareSeedDraftingInputs");
 
@@ -54,10 +59,35 @@ const expireDraftingInputsRef = makeFunctionReference<
  * opened, so it reads as ready. */
 export type DraftingInputsStatus = "preparing" | "ready" | "failed";
 
-export function draftingInputsStatus(
-  generation: Pick<Doc<"generations">, "draftingInputs">
-): DraftingInputsStatus {
-  return generation.draftingInputs?.status ?? "ready";
+/** What the Seed workspace and the Summary show: the status and, after a
+ * failure, why (a normalized code, never provider text). */
+export type DraftingInputsView = {
+  status: DraftingInputsStatus;
+  failureCode?: DraftingInputsFailureCode;
+};
+
+type DraftingInputs = NonNullable<Doc<"generations">["draftingInputs"]>;
+
+/** An attempt still `preparing` after its lease: the lease check never ran
+ * (it failed, or the functions were missing after a rollback), so it gets
+ * the same recovery as an expired lease. */
+function preparingPastLease(drafting: DraftingInputs, now: number): boolean {
+  return drafting.status === "preparing" && now - drafting.startedAt >= DRAFTING_INPUTS_LEASE_MS;
+}
+
+export function draftingInputsView(
+  generation: Pick<Doc<"generations">, "draftingInputs">,
+  now: number = Date.now()
+): DraftingInputsView {
+  const drafting = generation.draftingInputs;
+  if (!drafting) return { status: "ready" };
+  if (preparingPastLease(drafting, now)) return { status: "failed", failureCode: "timed_out" };
+  return {
+    status: drafting.status,
+    ...(drafting.status === "failed" && drafting.failureCode
+      ? { failureCode: drafting.failureCode }
+      : {}),
+  };
 }
 
 async function artifactOf(
@@ -113,11 +143,13 @@ async function currentAttempt(
 async function scheduleAttempt(
   ctx: MutationCtx,
   generationId: Id<"generations">,
-  attempt: number
+  attempt: number,
+  shorterAnalysis = false
 ) {
   await ctx.scheduler.runAfter(0, prepareSeedDraftingInputsRef, {
     generationId,
     attempt,
+    ...(shorterAnalysis ? { shorterAnalysis: true } : {}),
   });
   await ctx.scheduler.runAfter(DRAFTING_INPUTS_LEASE_MS, expireDraftingInputsRef, {
     generationId,
@@ -215,6 +247,14 @@ export const completeDraftingInputsArgs = {
   // JSON of the four Brain exemplar blocks; the style comes from the
   // generation's frozen `writer_style` artifact.
   brainBlocks: v.string(),
+  // The Brain exemplars behind the blocks and the retrieval brief, written
+  // here so a stale or cancelled attempt never records provenance either.
+  brainProvenance: v.optional(
+    v.object({
+      exemplars: v.array(brainProvenanceEntryValidator),
+      brief: v.optional(v.string()),
+    })
+  ),
 };
 
 /**
@@ -247,36 +287,66 @@ export async function completeDraftingInputsHandler(
       content,
     });
   }
+  if (args.brainProvenance) {
+    await writeBrainProvenance(
+      ctx,
+      generation,
+      args.brainProvenance.exemplars,
+      args.brainProvenance.brief
+    );
+  }
   await transitionDraftingInputs(ctx, generation, {
     status: "ready",
     attempt: args.attempt,
     startedAt: generation.draftingInputs?.startedAt ?? Date.now(),
     settledAt: Date.now(),
+    ...(generation.draftingInputs?.shorterAnalysis ? { shorterAnalysis: true } : {}),
   });
   return "ready";
 }
 
+/** Settle a preparing attempt as failed, with the code only. A cut-off
+ * analysis makes every later attempt ask for a shorter one. */
+async function settleFailed(
+  ctx: MutationCtx,
+  generation: Doc<"generations">,
+  drafting: DraftingInputs,
+  code: DraftingInputsFailureCode | undefined
+): Promise<void> {
+  await transitionDraftingInputs(ctx, generation, {
+    ...drafting,
+    status: "failed",
+    settledAt: Date.now(),
+    ...(code ? { failureCode: code } : {}),
+    ...(code === "output_limit" ? { shorterAnalysis: true } : {}),
+  });
+}
+
 async function failAttempt(
   ctx: MutationCtx,
-  args: ObjectType<typeof draftingInputsAttemptArgs>
+  args: ObjectType<typeof draftingInputsAttemptArgs>,
+  code: DraftingInputsFailureCode | undefined
 ): Promise<null> {
   const generation = await currentAttempt(ctx, args.generationId, args.attempt);
   if (!generation?.draftingInputs) return null;
-  await transitionDraftingInputs(ctx, generation, {
-    ...generation.draftingInputs,
-    status: "failed",
-    settledAt: Date.now(),
-  });
+  await settleFailed(ctx, generation, generation.draftingInputs, code);
   return null;
 }
 
+/** Argument validators of generations.failDraftingInputs. */
+export const failDraftingInputsArgs = {
+  ...draftingInputsAttemptArgs,
+  // Optional: attempts scheduled before the code was stored report none.
+  code: v.optional(draftingInputsFailureCodeValidator),
+};
+
 /** Handler of generations.failDraftingInputs: the attempt reported failure.
- * No provider error or source text is stored. */
+ * Only the normalized code is stored, never provider error or source text. */
 export async function failDraftingInputsHandler(
   ctx: MutationCtx,
-  args: ObjectType<typeof draftingInputsAttemptArgs>
+  args: ObjectType<typeof failDraftingInputsArgs>
 ): Promise<null> {
-  return await failAttempt(ctx, args);
+  return await failAttempt(ctx, args, args.code);
 }
 
 /** Handler of generations.expireDraftingInputs: the attempt's lease ran out
@@ -285,14 +355,17 @@ export async function expireDraftingInputsHandler(
   ctx: MutationCtx,
   args: ObjectType<typeof draftingInputsAttemptArgs>
 ): Promise<null> {
-  return await failAttempt(ctx, args);
+  return await failAttempt(ctx, args, "timed_out");
 }
 
 /** Argument validators of generations.retryDraftingInputs. */
 export const retryDraftingInputsArgs = { generationId: v.id("generations") };
 
 /** Handler of generations.retryDraftingInputs: the writer starts a new
- * attempt after a failure. Needs the prose-edit capability, like sign-off. */
+ * attempt after a failure, or after an attempt that stayed preparing past
+ * its lease (settled here as the lease check would have). Needs the
+ * prose-edit capability, like sign-off. After a cut-off analysis the new
+ * attempt asks for a shorter one. */
 export async function retryDraftingInputsHandler(
   ctx: MutationCtx,
   args: ObjectType<typeof retryDraftingInputsArgs>
@@ -306,17 +379,26 @@ export async function retryDraftingInputsHandler(
       reason: "SEED_STAGE_CLOSED",
     });
   }
-  const drafting = generation.draftingInputs;
+  let current = generation;
+  let drafting = generation.draftingInputs;
+  if (drafting && preparingPastLease(drafting, Date.now())) {
+    await settleFailed(ctx, generation, drafting, "timed_out");
+    current = (await ctx.db.get(generation._id)) ?? generation;
+    drafting = current.draftingInputs;
+  }
   if (!drafting || drafting.status !== "failed") {
     domainError("INVALID_STATE", "The drafting context is not waiting for a retry");
   }
   const attempt = drafting.attempt + 1;
-  await transitionDraftingInputs(ctx, generation, {
+  const shorterAnalysis =
+    drafting.shorterAnalysis === true || drafting.failureCode === "output_limit";
+  await transitionDraftingInputs(ctx, current, {
     status: "preparing",
     attempt,
     startedAt: Date.now(),
+    ...(shorterAnalysis ? { shorterAnalysis: true } : {}),
   });
-  await scheduleAttempt(ctx, generation._id, attempt);
+  await scheduleAttempt(ctx, generation._id, attempt, shorterAnalysis);
   return null;
 }
 

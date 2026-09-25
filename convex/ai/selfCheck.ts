@@ -2,7 +2,7 @@
 
 import type Anthropic from "@anthropic-ai/sdk";
 import { z } from "zod";
-import { MalformedOutputError, type GenerationClient } from "./openrouterCore";
+import { MalformedOutputError, OutputLimitError, type GenerationClient } from "./openrouterCore";
 import { generateStructured, StructuredValidationError } from "./structured";
 import {
   CONSISTENCY_SYSTEM_PROMPT,
@@ -706,6 +706,10 @@ export function selfCheckFailureDiagnostic(error: unknown): string {
         ? `${issue.path} ${issue.message}`
         : `${issue.path} ${issue.code}`)
       .join("; ")}`;
+  } else if (error instanceof OutputLimitError) {
+    // Before MalformedOutputError, which it extends: a cut-off answer is not
+    // bad JSON, and with one attempt the cut-off itself is what failed.
+    diagnostic = "answer was cut off at the output limit";
   } else if (error instanceof MalformedOutputError) {
     diagnostic = "tool output was not valid JSON";
   } else if (error instanceof SeedContextLimitError) {

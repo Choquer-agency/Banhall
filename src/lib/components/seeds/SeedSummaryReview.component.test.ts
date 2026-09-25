@@ -363,10 +363,10 @@ describe("Seed Summary Review", () => {
 
     const notice = () => document.querySelector<HTMLElement>("[data-summary-drafting-inputs=failed]");
     await expect.poll(() => notice()?.textContent).toContain(
-      "We couldn't prepare the drafting context. Your Summary is saved. Try again to sign off."
+      "We couldn't finish reading the transcript for drafting. Your work is saved. Try again before you sign off."
     );
     expect(notice()?.getAttribute("role")).toBe("status");
-    await expect.element(page.getByText("Drafting context needs another try", { exact: true })).toBeVisible();
+    await expect.element(page.getByText("Transcript analysis needs another try", { exact: true })).toBeVisible();
     await expect.element(signOffButton()).toBeDisabled();
 
     await page.getByRole("button", { name: "Try again", exact: true }).click();
@@ -376,6 +376,21 @@ describe("Seed Summary Review", () => {
     __setQueryData("seeds:getOutline", outline(true, true, 12, generationId, "preparing"));
     await expect.poll(() => notice()).toBeNull();
     await expect.poll(() => document.querySelector("[data-summary-status=preparing]")).not.toBeNull();
+    await expect.element(signOffButton()).toBeDisabled();
+  });
+
+  it("names a cut-off transcript analysis on the Summary with its own message", async () => {
+    __setQueryData("seeds:getOutline", {
+      ...outline(true, true, 12, generationId, "failed"),
+      draftingInputs: { status: "failed", failureCode: "output_limit" },
+    });
+    __setQueryData("seeds:getSummary", onePage([item("seed-a", "company_context", "Complete single-page Summary.")]));
+    await render(SeedSummaryReview, { generationId, userId: "writer-1" });
+    await expect.poll(
+      () => document.querySelector<HTMLElement>("[data-summary-drafting-inputs=failed]")?.textContent
+    ).toContain(
+      "The transcript analysis was too long to finish. Your work is saved. Try again to run a shorter analysis before you sign off."
+    );
     await expect.element(signOffButton()).toBeDisabled();
   });
 

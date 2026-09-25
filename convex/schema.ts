@@ -18,6 +18,7 @@ import {
 import { admissionValidator, attemptOutcomeValidator } from "./lib/learningAdmission";
 import { styleOverridesValidator } from "./lib/styleOverrides";
 import { brainProvenanceEntryValidator } from "./lib/generationOutputs";
+import { draftingInputsFailureCodeValidator } from "./lib/draftingInputsFailure";
 import {
   sectionMetricsValidator,
   sectionQaFindingsValidator,
@@ -1119,6 +1120,12 @@ export default defineSchema({
         attempt: v.number(),
         startedAt: v.number(),
         settledAt: v.optional(v.number()),
+        // Why the attempt failed, as a normalized code only (never provider
+        // or model text). Set on `failed` only.
+        failureCode: v.optional(draftingInputsFailureCodeValidator),
+        // Set once an attempt was cut off at the analyzer's output limit:
+        // every later attempt asks for a shorter analysis.
+        shorterAnalysis: v.optional(v.boolean()),
       })
     ),
     // Story 3 (CAP-8, AD-26): the Writer Profile this generation ran under —

@@ -27,6 +27,9 @@ import { runSection244Agent } from "./section244Agent";
 import { runSection246Agent } from "./section246Agent";
 import { MODEL, candidateModelsForMode } from "./model";
 import { normalizeProviderError } from "./providers";
+import { OutputLimitError } from "./openrouterCore";
+import type { BrainProvenanceEntry } from "../lib/generationOutputs";
+import type { DraftingInputsFailureCode } from "../lib/draftingInputsFailure";
 import {
   condenserFor,
   describeGenerationFailure,
@@ -276,6 +279,14 @@ export const resumeSeedInitialization = internalAction({
   },
 });
 
+/** The stored reason for a failed background attempt: a normalized code,
+ * never provider or model text. A cut-off structured answer is checked by
+ * class first, whatever its message says. */
+export function draftingInputsFailureCode(error: unknown): DraftingInputsFailureCode {
+  if (error instanceof OutputLimitError) return "output_limit";
+  return normalizeProviderError(error).code;
+}
+
 /**
  * The background step of the reordered Step-by-step start (owner decision
  * 32, 2026-09-25): Brain retrieval and the transcript analysis, run on the
@@ -284,16 +295,24 @@ export const resumeSeedInitialization = internalAction({
  * calls, clients and inputs as before the reorder, so the provider requests
  * are unchanged. Fenced by `attempt`: a cancel, a deletion, sign-off or a
  * newer attempt stops it before its paid calls and drops its result. Any
- * failure leaves the drafting inputs failed, for the writer to retry.
+ * failure leaves the drafting inputs failed with its normalized code, for
+ * the writer to retry. `shorterAnalysis` (a retry after an analysis cut off
+ * at the output limit) appends ANALYZER_REQUEST.shorterRetryNote; every
+ * other byte of every request is unchanged.
  */
 export const prepareSeedDraftingInputs = internalAction({
-  args: { generationId: v.id("generations"), attempt: v.number() },
+  args: {
+    generationId: v.id("generations"),
+    attempt: v.number(),
+    shorterAnalysis: v.optional(v.boolean()),
+  },
   returns: v.null(),
   handler: async (ctx, args): Promise<null> => {
     // The action's deadline bounds every provider request (actionDeadline.ts).
     startActionDeadline(ctx);
+    const attemptArgs = { generationId: args.generationId, attempt: args.attempt };
     const stillCurrent = () =>
-      ctx.runQuery(internal.generations.isDraftingInputsAttemptCurrent, args);
+      ctx.runQuery(internal.generations.isDraftingInputsAttemptCurrent, attemptArgs);
     if (!(await stillCurrent())) return null;
     try {
       // Model catalog: routing and output budgets read the frozen models.
@@ -314,6 +333,8 @@ export const prepareSeedDraftingInputs = internalAction({
       // The same bounded analyzer input startup recorded (pure, from the
       // same frozen rows).
       const analyzerContext = buildAnalyzerContext(input);
+      // Written with the attempt-fenced completion, not at once.
+      let brainProvenance: { exemplars: BrainProvenanceEntry[]; brief?: string } | undefined;
       const brainBlocks = await retrieveBrainBlocks(ctx, {
         generationId: genId,
         projectId,
@@ -332,6 +353,9 @@ export const prepareSeedDraftingInputs = internalAction({
         }),
         retrievalBriefModel: briefModel,
         log,
+        recordProvenance: async (exemplars, brief) => {
+          brainProvenance = { exemplars, ...(brief !== undefined ? { brief } : {}) };
+        },
       });
       if (!(await stillCurrent())) return null;
       const analysis = await runAnalyzerAgent(
@@ -343,21 +367,20 @@ export const prepareSeedDraftingInputs = internalAction({
         }),
         analyzerContext.userMessage,
         model.id,
-        brainBlocks.analyzer
+        brainBlocks.analyzer,
+        { shorter: args.shorterAnalysis === true }
       );
       await ctx.runMutation(internal.generations.completeDraftingInputs, {
-        ...args,
+        ...attemptArgs,
         analysis: JSON.stringify(analysis),
         brainBlocks: JSON.stringify(brainBlocks),
+        ...(brainProvenance ? { brainProvenance } : {}),
       });
     } catch (error) {
       // Only the normalized code: never provider or source text.
-      console.error(
-        "drafting inputs failed for generation",
-        args.generationId,
-        normalizeProviderError(error).code
-      );
-      await ctx.runMutation(internal.generations.failDraftingInputs, args);
+      const code = draftingInputsFailureCode(error);
+      console.error("drafting inputs failed for generation", args.generationId, code);
+      await ctx.runMutation(internal.generations.failDraftingInputs, { ...attemptArgs, code });
     }
     return null;
   },
