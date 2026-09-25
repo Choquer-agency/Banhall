@@ -30,6 +30,8 @@
   --color-workspace-control: #FFFFFF;
   --shadow-workspace-control: 0 0 0 1px inset rgb(0 0 0 / 0), 0 0 2px rgb(28 40 64 / 0.18), 0 1px 3px rgb(0 0 0 / 0.04);
   --shadow-workspace-drawer: 10px 0 32px rgb(28 40 64 / 0.12);
+  /* Floating cards (menus, pickers, popovers) on the final screens. */
+  --shadow-popover: 0 16px 40px #16211F1F;
 
   /* Brand */
   --color-fir: #0A3A38;           /* fixed fir — identity/avatar surfaces; never theme-flipped */
@@ -49,6 +51,9 @@
   /* Report gap highlight (BNH editor) */
   --color-gap-bg: #FEF3C7;
   --color-gap-text: #A8500F;
+
+  /* Stale marker dot (amber, the orange score band's bar colour). */
+  --color-stale-dot: #F59E0B;
 
   /* Neutral ramp — teal-cast grays. The gray scale is REMAPPED app-wide:
      900/800 ink · 700/600 secondary · 500 muted · 400 faint/placeholder ·
