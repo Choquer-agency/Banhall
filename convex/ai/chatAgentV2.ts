@@ -10,6 +10,10 @@ import {
   type ContextOptions,
   type ToolCtx,
 } from "@convex-dev/agent";
+// The report chat assistant always calls Anthropic directly with
+// ANTHROPIC_API_KEY, whatever ANTHROPIC_TRANSPORT says (owner decision 30,
+// 2026-09-25: chat moves to OpenRouter in a later change). Its helper calls
+// (clientForRole) do follow the transport.
 import { anthropic } from "@ai-sdk/anthropic";
 import { MODEL } from "./model";
 import { buildChatSystemPromptV2 } from "./prompts";

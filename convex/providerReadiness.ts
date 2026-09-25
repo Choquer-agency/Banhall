@@ -1,6 +1,7 @@
 import { query } from "./_generated/server";
 import {
   anthropicConfiguration,
+  anthropicTransportIsDirect,
   brainConfiguration,
   openRouterConfiguration,
 } from "./lib/providerConfig";
@@ -14,13 +15,19 @@ export const getCapabilities = query({
     const user = await getCurrentUserOrNull(ctx);
     if (!user) return null;
     const anthropic = anthropicConfiguration();
+    const anthropicChat = anthropicConfiguration("chat");
+    const directAnthropic = anthropicTransportIsDirect();
     const brain = brainConfiguration();
     const openrouter = openRouterConfiguration();
     // The model catalog's selectable set (enabled rows, seed fallback), so
     // every picker shows exactly what a writer may run today.
     const selectable = await listSelectableModels(ctx);
+    // Anthropic-gateway models stay selectable on the direct transport, as
+    // before the switch; through OpenRouter (decision 30) they need its key.
     const available = (gateway: string) =>
-      gateway === "anthropic" || openrouter.state === "configured";
+      gateway === "anthropic"
+        ? directAnthropic || anthropic.state === "configured"
+        : openrouter.state === "configured";
     const defaultModel = await defaultModelId(ctx);
     const defaultEntry =
       selectable.find((model) => model.id === defaultModel) ??
@@ -28,7 +35,7 @@ export const getCapabilities = query({
     return {
       generation: anthropic.state,
       review: anthropic.state,
-      chat: anthropic.state,
+      chat: anthropicChat.state,
       financial: anthropic.state,
       brain: brain.state,
       openrouter: openrouter.state,

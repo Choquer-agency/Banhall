@@ -20,6 +20,15 @@ const app = defineApp({
     VOYAGE_API_KEY: v.optional(v.string()),
     // OpenRouter gateway for supported generation and research models.
     OPENROUTER_API_KEY: v.optional(v.string()),
+    // Owner decision 30 (2026-09-25): where Anthropic-gateway calls go.
+    // Unset or "direct" = api.anthropic.com with ANTHROPIC_API_KEY (the
+    // rollback); "openrouter" = OpenRouter's Messages endpoint pinned to
+    // Anthropic. Validated in convex/lib/providerConfig.ts.
+    ANTHROPIC_TRANSPORT: v.optional(v.string()),
+    // Optional dedicated OpenRouter key for Anthropic traffic, so its
+    // guardrail can allow the Anthropic provider only. Falls back to
+    // OPENROUTER_API_KEY.
+    OPENROUTER_ANTHROPIC_API_KEY: v.optional(v.string()),
     // Microsoft Graph app-only credentials for the OneDrive corpus sync
     // (BNH-17). Azure app registration with Files.Read.All application
     // permission + admin consent; MS_DRIVE_ID is the client's drive.

@@ -12,9 +12,16 @@ import { internal } from "../_generated/api";
 import type { ActionCtx } from "../_generated/server";
 import type { Id } from "../_generated/dataModel";
 import {
-  requireAnthropicConfigured,
+  isTransportConfigurationError,
+  requireAnthropicClientConfig,
   type AnthropicCapability,
 } from "../lib/providerConfig";
+import {
+  OPENROUTER_ANTHROPIC_BASE_URL,
+  OPENROUTER_APP_HEADERS,
+  isOpenRouterError,
+  isOpenRouterInFlightBudget,
+} from "../../shared/anthropicTransport";
 import {
   gatewayForModel,
   isKnownModel,
@@ -158,6 +165,13 @@ export const ORDERED_SECTION_ACTION_SLOTS = {
 } as const;
 
 
+/**
+ * The Anthropic SDK client on the current transport (owner decision 30).
+ * Direct is built exactly as before the switch. OpenRouter sends the key as
+ * a bearer token with `apiKey: null`: otherwise the SDK would read
+ * ANTHROPIC_API_KEY from the environment and send it to OpenRouter as
+ * `x-api-key`. Retries and timeouts are the same on both.
+ */
 export function createAnthropicClient(
   capability: AnthropicCapability,
   options: {
@@ -165,8 +179,19 @@ export function createAnthropicClient(
     timeout?: number;
   } = {}
 ): Anthropic {
+  const config = requireAnthropicClientConfig(capability);
+  if (config.transport === "openrouter") {
+    return new Anthropic({
+      baseURL: OPENROUTER_ANTHROPIC_BASE_URL,
+      apiKey: null,
+      authToken: config.authToken,
+      defaultHeaders: OPENROUTER_APP_HEADERS,
+      maxRetries: options.maxRetries ?? ANTHROPIC_MAX_RETRIES,
+      timeout: options.timeout ?? ANTHROPIC_TIMEOUT_MS,
+    });
+  }
   return new Anthropic({
-    apiKey: requireAnthropicConfigured(capability),
+    apiKey: config.apiKey,
     maxRetries: options.maxRetries ?? ANTHROPIC_MAX_RETRIES,
     timeout: options.timeout ?? ANTHROPIC_TIMEOUT_MS,
   });
@@ -249,6 +274,10 @@ async function ensureModelRegistered(
 export function modelFaultCode(error: unknown): string | null {
   if (error instanceof ActionTimeBudgetError) return null;
   if (wasStoppedByDeadline(error)) return null;
+  // The transport switch's own configuration errors (decision 30): an
+  // unknown value, a missing OpenRouter key, a model without an OpenRouter
+  // id. A missing ANTHROPIC_API_KEY on direct still counts, as before.
+  if (isTransportConfigurationError(error)) return null;
   if (error instanceof MalformedOutputError) return "malformed_output";
   const { code } = normalizeProviderError(error);
   return code === "output_limit" || code === "model_access" || code === "unknown"
@@ -696,6 +725,35 @@ export function normalizeProviderError(error: unknown): {
     status = typeof error.status === "number" ? error.status : undefined;
   }
   const message = rawMessage.toLowerCase();
+  // OpenRouter's in-flight spending budget on the Anthropic gateway's
+  // `openrouter` transport (decision 30): a 402 that says the account's
+  // concurrent spend is full, sent with Retry-After while the balance is
+  // positive (isOpenRouterInFlightBudget). It clears on its own, so it
+  // reads as a rate limit, not as billing, and the transport has already
+  // retried it once when the time allowed. Every other 402, on either
+  // gateway, stays billing.
+  if (isOpenRouterError(error) && isOpenRouterInFlightBudget(error)) {
+    return {
+      code: "rate_limited",
+      message: "The AI provider is limiting how many requests can run at once. Try again shortly.",
+    };
+  }
+  // OpenRouter's routing answers on the Anthropic transport (decision 30):
+  // 404 when the provider pin matches no endpoint (Anthropic is down for
+  // OpenRouter, or the model is not listed there), 403 when the key's
+  // guardrail blocks the provider. Neither says anything about the model.
+  if (isOpenRouterError(error) && status === 404) {
+    return {
+      code: "network",
+      message: "OpenRouter found no Anthropic endpoint for this request (Anthropic may be unavailable there, or the model is not listed).",
+    };
+  }
+  if (isOpenRouterError(error) && status === 403) {
+    return {
+      code: "authentication",
+      message: "OpenRouter refused this request; the key's guardrail or provider settings may exclude Anthropic.",
+    };
+  }
   // 402 = OpenRouter insufficient credits; message checks cover both gateways.
   if (
     status === 402 ||

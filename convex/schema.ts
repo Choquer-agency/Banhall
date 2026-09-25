@@ -612,6 +612,13 @@ export default defineSchema({
     // cut off at the output limit ("max_tokens", "length") is visible.
     // Absent on older rows and when the provider sent none.
     stopReason: v.optional(v.string()),
+    // 2026-09-25 widen (owner decision 30): "openrouter" when an
+    // Anthropic-gateway call went through OpenRouter's Messages endpoint;
+    // absent means the call went direct (or used another gateway).
+    transport: v.optional(v.literal("openrouter")),
+    // The provider OpenRouter reports serving that call (expected
+    // "Anthropic": the request pins it). Absent on direct calls.
+    servedProvider: v.optional(v.string()),
     createdAt: v.number(),
   })
     .index("by_createdAt", ["createdAt"])

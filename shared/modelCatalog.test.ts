@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 import fixture from "./__fixtures__/openrouter-models-2026-09-24.json";
 import { CANDIDATE_MODELS } from "./generationModels";
+import { isAnthropicOpenRouterModel } from "./anthropicTransport";
 import {
   AUTOMATION_THRESHOLDS,
   ROLE_POLICIES,
@@ -488,6 +489,25 @@ describe("settings, endpoints and routing", () => {
       max_price: { prompt: 5, completion: 30 },
     });
     expect(maxPriceFor(writingCap, { inputUsdPerMTok: 10, outputUsdPerMTok: 20 })).toEqual({ prompt: 10, completion: 30 });
+  });
+
+  test("pins every Anthropic model to Anthropic's own endpoint by its vendor prefix, never by a fixed list (decision 30)", () => {
+    const anthropicIds = parseOpenRouterModels(fixture, NOW).models
+      .map((model) => model.openRouterId)
+      .filter((id) => id.startsWith("anthropic/"));
+    // The fixture's catalog-only listing, not one of the four seeds.
+    expect(anthropicIds).toContain("anthropic/claude-3-haiku");
+    for (const id of anthropicIds) {
+      expect(isAnthropicOpenRouterModel(id), id).toBe(true);
+      expect(openRouterProviderPreferences({ usesTools: false, anthropicModel: isAnthropicOpenRouterModel(id) })).toEqual({
+        only: ["anthropic"],
+        allow_fallbacks: false,
+      });
+    }
+    expect(isAnthropicOpenRouterModel("~anthropic/claude-sonnet-latest")).toBe(true);
+    for (const id of ["openai/gpt-5.6-sol", "google/gemini-3.5-flash", "claude-sonnet-5", "x-ai/anthropic-like"]) {
+      expect(isAnthropicOpenRouterModel(id), id).toBe(false);
+    }
   });
 
   test("matches Artificial Analysis scores by normalized name", () => {

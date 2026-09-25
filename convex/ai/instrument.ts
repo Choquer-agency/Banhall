@@ -6,6 +6,7 @@ import {
 } from "./providers";
 import {
   ActionTimeBudgetError,
+  MAX_SDK_RETRY_BACKOFF_MS,
   actionDeadline,
   anthropicRetryDelayMs,
   isErrorOf,
@@ -14,7 +15,18 @@ import {
   retryFitsDeadline,
 } from "./actionDeadline";
 import { COMPRESSION_REQUEST } from "./promptDefinitions";
-import type { AnthropicCapability } from "../lib/providerConfig";
+import { domainError } from "../lib/contracts";
+import {
+  TRANSPORT_CONFIGURATION,
+  anthropicTransport,
+  type AnthropicCapability,
+} from "../lib/providerConfig";
+import {
+  isOpenRouterInFlightBudget,
+  markOpenRouterError,
+  openRouterAnthropicBody,
+  openRouterAnthropicCharge,
+} from "../../shared/anthropicTransport";
 import type { ActionCtx } from "../_generated/server";
 import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
@@ -42,8 +54,19 @@ export type UsageEvent = {
   /** The part of cacheCreationInputTokens written with the 1-hour TTL. */
   cacheCreation1hInputTokens?: number;
   cacheReadInputTokens?: number;
-  /** Provider-reported exact cost (OpenRouter). Anthropic path never sets it. */
+  /**
+   * Provider-reported exact cost: OpenRouter's `usage.cost`, on its chat
+   * gateway and on the Anthropic gateway's `openrouter` transport. The
+   * direct Anthropic transport never sets it.
+   */
   costUsd?: number;
+  /**
+   * Set only when an Anthropic-gateway call went through OpenRouter
+   * (owner decision 30); absent means direct to Anthropic.
+   */
+  transport?: "openrouter";
+  /** The provider OpenRouter reports serving the call (expected "Anthropic"). */
+  servedProvider?: string;
   /**
    * The provider's stop reason as reported: Anthropic `stop_reason`,
    * OpenRouter `finish_reason`. "max_tokens" or "length" marks an answer cut
@@ -488,7 +511,78 @@ async function createWithinDeadline(
   }
 }
 
-/** Anthropic client that durably records billed usage after every response. */
+/**
+ * The longest Retry-After wait the `openrouter` transport honours before
+ * retrying an in-flight spending budget 402 (sendViaOpenRouter). A longer
+ * wait fails at once with the rate-limit error.
+ */
+export const OPENROUTER_IN_FLIGHT_MAX_WAIT_MS = 60_000;
+
+/**
+ * One request on the `openrouter` transport. Its errors are marked as
+ * OpenRouter's, for normalizeProviderError. An in-flight spending budget
+ * 402 (isOpenRouterInFlightBudget) is temporary, and the SDK never retries
+ * a 402, so it is retried here once: after OpenRouter's Retry-After wait
+ * (MAX_SDK_RETRY_BACKOFF_MS when none was sent), only when that wait is at
+ * most OPENROUTER_IN_FLIGHT_MAX_WAIT_MS and still leaves a useful attempt
+ * before the action's deadline (retryFitsDeadline). Otherwise, or when the
+ * retry is refused again, it fails with the rate-limit error. Neither
+ * counts against the model. The retry sends the same body.
+ */
+async function sendViaOpenRouter(
+  send: () => Promise<unknown>,
+  deadline: number | undefined
+): Promise<unknown> {
+  try {
+    return await send();
+  } catch (error) {
+    markOpenRouterError(error);
+    if (!isOpenRouterInFlightBudget(error)) throw error;
+    const headers = isErrorOf(error, Anthropic.APIError)
+      ? (error as InstanceType<typeof Anthropic.APIError>).headers
+      : undefined;
+    const delay =
+      headers?.get("retry-after") || headers?.get("retry-after-ms")
+        ? anthropicRetryDelayMs(headers, 0, Date.now(), Math.random)
+        : MAX_SDK_RETRY_BACKOFF_MS;
+    if (delay > OPENROUTER_IN_FLIGHT_MAX_WAIT_MS || !retryFitsDeadline(deadline, Date.now(), delay)) {
+      throw error;
+    }
+    console.warn(`OpenRouter in-flight spending budget is full (402), retrying once in ${Math.round(delay)}ms`);
+    await new Promise<void>((resolve) => setTimeout(resolve, delay));
+  }
+  try {
+    return await send();
+  } catch (error) {
+    throw markOpenRouterError(error);
+  }
+}
+
+/**
+ * The body sent on the `openrouter` transport: the direct body with the
+ * OpenRouter model id and the Anthropic-only provider pin. An app model id
+ * without an OpenRouter mapping fails here, before anything is sent.
+ */
+function openRouterWireBody(body: unknown): unknown {
+  const record = body && typeof body === "object" ? (body as Record<string, unknown>) : {};
+  const wire = openRouterAnthropicBody(record);
+  if (!wire) {
+    domainError(
+      "PROVIDER_NOT_CONFIGURED",
+      `Anthropic model ${String(record.model)} has no OpenRouter id (shared/anthropicTransport.ts), so it cannot run with ANTHROPIC_TRANSPORT=openrouter`,
+      TRANSPORT_CONFIGURATION
+    );
+  }
+  return wire;
+}
+
+/**
+ * Anthropic client that durably records billed usage after every response.
+ * On the `openrouter` transport (owner decision 30) the request is the same
+ * apart from the model id on the wire and the provider pin; the usage row
+ * keeps the app model id and adds OpenRouter's exact charge, the transport
+ * and the provider that served it.
+ */
 export function instrumentedAnthropic(
   ctx: ActionCtx,
   meta: ProviderCallMeta & {
@@ -501,6 +595,7 @@ export function instrumentedAnthropic(
   }
 ): Anthropic {
   assertGenerationCallSite(meta.callSite);
+  const viaOpenRouter = anthropicTransport() === "openrouter";
   const client = createAnthropicClient(
     meta.capability ?? "generation",
     meta.clientOptions
@@ -527,9 +622,10 @@ export function instrumentedAnthropic(
         await recordGenerationHandoff(ctx, meta.attribution);
         const startedAt = Date.now();
         const request = adaptAnthropicRequest(args[0]);
-        const body = meta.attribution ? cacheGenerationPrefix(request) : request;
+        const prefixed = meta.attribution ? cacheGenerationPrefix(request) : request;
+        const body = viaOpenRouter ? openRouterWireBody(prefixed) : prefixed;
         const rest = args.slice(2);
-        const response: unknown =
+        const sendRequest = async (): Promise<unknown> =>
           deadline === undefined || !defaults
             ? await Reflect.apply(originalCreate, target, [body, ...args.slice(1)])
             : await createWithinDeadline(
@@ -538,8 +634,12 @@ export function instrumentedAnthropic(
                 deadline,
                 defaults
               );
+        const response: unknown = viaOpenRouter
+          ? await sendViaOpenRouter(sendRequest, deadline)
+          : await sendRequest();
         const durationMs = Math.max(0, Date.now() - startedAt);
         const usage = anthropicUsage(response);
+        const charge = viaOpenRouter ? openRouterAnthropicCharge(response) : {};
         const stopReason = responseStopReason(response);
         const params = args[0];
         const model =
@@ -549,8 +649,20 @@ export function instrumentedAnthropic(
           typeof params.model === "string"
             ? params.model
             : "unknown";
+        // The pin should make this impossible; if OpenRouter reports another
+        // host, say so, so a relaxed pin or account setting is visible.
+        if (charge.servedProvider && charge.servedProvider.toLowerCase() !== "anthropic") {
+          console.warn(
+            `Anthropic model ${model} was served by ${charge.servedProvider} through OpenRouter, not Anthropic; check the provider pin and the OpenRouter account's provider settings`
+          );
+        }
         if (usage) {
-          meta.onUsage?.({ model, costUsd: estimateCostFromTable(model, usage), tokens: usage });
+          meta.onUsage?.({
+            model,
+            costUsd: charge.costUsd ?? estimateCostFromTable(model, usage),
+            ...(charge.costUsd !== undefined ? { nativeCostUsd: charge.costUsd } : {}),
+            tokens: usage,
+          });
           await scheduleUsage(ctx, {
             ...(meta.projectId ? { projectId: meta.projectId } : {}),
             ...(meta.attribution
@@ -586,6 +698,9 @@ export function instrumentedAnthropic(
               ? { cacheReadInputTokens: usage.cacheReadInputTokens }
               : {}),
             ...(stopReason ? { stopReason } : {}),
+            ...(viaOpenRouter ? { transport: "openrouter" as const } : {}),
+            ...(charge.costUsd !== undefined ? { costUsd: charge.costUsd } : {}),
+            ...(charge.servedProvider ? { servedProvider: charge.servedProvider } : {}),
           });
         }
         return response;

@@ -28,6 +28,15 @@ as needed for the features you use. `env.example` lists the declared optional
 app names separately from direct environment reads and the installed auth
 library's secret. These backend settings are not frontend assignments.
 
+`ANTHROPIC_TRANSPORT` chooses where Anthropic models run. Leave it unset (or
+`direct`) to call Anthropic with `ANTHROPIC_API_KEY`. Set it to `openrouter`
+to call them through OpenRouter, pinned to Anthropic's own endpoint and billed
+to OpenRouter credits, with `OPENROUTER_ANTHROPIC_API_KEY` (or
+`OPENROUTER_API_KEY`). The report chat assistant still calls Anthropic
+directly. Before switching, turn off prompt logging and data use in the
+OpenRouter account; to roll back, set it to `direct`. The full note is under
+owner decision 30 in `docs/product-domain.md`.
+
 With `npx convex dev` running, start the app in another terminal:
 
 ```bash
