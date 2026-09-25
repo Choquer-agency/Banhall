@@ -18,7 +18,7 @@ import {
   type ProjectScopedChild,
   type ProjectScopedTable,
 } from "./lib/projectScopedTables";
-import { deleteStorageIfUnreferenced } from "./lib/storage";
+import { deleteStorageIfUnreferenced, STORAGE_REFERENCE_FIELDS } from "./lib/storage";
 import {
   getInternalProjectAccessOrNull,
   getFilingReadiness,
@@ -54,7 +54,7 @@ import { deriveStoredProcessing } from "../shared/documentStatus";
 import { canUseIndustry, industrySlug } from "../shared/industries";
 import { findActiveGeneration } from "./lib/activeGeneration";
 import { transitionGeneration } from "./lib/generationTransitions";
-import { createReadBudget } from "./lib/readBudget";
+import { createPurgeGuard, type PurgeGuard } from "./lib/purgeBudget";
 import {
   projectDashboardProjectionPatch,
   stageCountBucket,
@@ -1374,18 +1374,13 @@ export const PROJECT_PURGE_WRITE_BUDGET = 1000;
  * transaction read limit before its continuation is scheduled.
  */
 export const PROJECT_PURGE_MAX_BYTES_READ = 4 * 1024 * 1024;
-/**
- * Bytes one purge page may read across the inline children of its parents
- * (generation artifacts carry agent outputs, chain payloads and Brain
- * provenance since 2026-09-25, so light parent rows can own heavy children).
- * A maximum-size document is reserved before every child read, so the
- * children never read past this; a parent whose children do not fit stays in
- * its range and the next page (same cursor) continues with them. Worst case
- * per page: parents up to 4 MiB plus one overshoot row, children up to 6 MiB,
- * and the project row, well under Convex's 16 MiB transaction read limit;
- * deletes write no more than was read.
- */
-export const PROJECT_PURGE_CHILD_MAX_BYTES_READ = 6 * 1024 * 1024;
+// Everything else a page reads (inline children such as generation
+// artifacts, which carry agent outputs, chain payloads and Brain provenance
+// since 2026-09-25, and the second read Convex charges for every delete and
+// patch) is bounded by the page's read guard (convex/lib/purgeBudget.ts):
+// it checks the transaction's real usage before each child read and each row
+// delete or patch, and ends the page on the same cursor before any limit is
+// reached.
 const CHILD_BATCH_SIZE = 100;
 /**
  * Terminalization bounds. Generations are read by (projectId, status), so
@@ -1650,17 +1645,18 @@ async function scheduleChildCleanup(
 
 /**
  * Delete one registry row with its inline children, within `budget` writes
- * and the page's shared child read budget (`childReads`). Returns
- * `deleted: false` when a child batch filled up, the child bytes ran out, or
- * the write budget ran out; the parent then stays in its index range, so the
- * page that retries from the same cursor picks it up again.
+ * and the page's read guard. Returns `deleted: false` when a child batch
+ * filled up, the guard refused another read or delete, or the write budget
+ * ran out; the parent then stays in its index range, so the page that
+ * retries from the same cursor picks it up again (children already deleted
+ * are gone from its child range).
  */
 async function deleteRowWithChildren(
   ctx: MutationCtx,
   entry: ProjectScopedTable,
   row: GenericDocument,
   budget: number,
-  childReads: ReturnType<typeof createReadBudget>
+  guard: PurgeGuard
 ): Promise<{ deleted: boolean; writes: number }> {
   const db = ctx.db as unknown as ErasureDb;
   let writes = 0;
@@ -1670,20 +1666,45 @@ async function deleteRowWithChildren(
     if (parentKey === undefined) continue;
     const limit = Math.min(CHILD_BATCH_SIZE, budget - writes);
     if (limit <= 0) return { deleted: false, writes };
-    const children = await childReads.list(
-      db.query(child.table).withIndex(child.index, (q) => q.eq(child.field, parentKey)),
-      limit
-    );
-    for (const childRow of children.rows) {
+    if (!(await guard.canQuery())) return { deleted: false, writes };
+    // Read first, then delete: the stream is closed before any delete, and
+    // each read reserves room for its own delete.
+    const rows: GenericDocument[] = [];
+    let complete = false;
+    const stream = db
+      .query(child.table)
+      .withIndex(child.index, (q) => q.eq(child.field, parentKey))
+      [Symbol.asyncIterator]();
+    try {
+      while (await guard.canReadChild()) {
+        const next = await stream.next();
+        if (next.done) {
+          complete = true;
+          break;
+        }
+        // One row past the batch only proves more remain; it is not deleted.
+        const willDelete = rows.length < limit;
+        guard.noteChildRead(next.value, willDelete);
+        if (!willDelete) break;
+        rows.push(next.value);
+      }
+    } finally {
+      await stream.return?.();
+    }
+    for (const childRow of rows) {
       await db.delete(rowId(childRow));
+      guard.noteChildDeleted(childRow);
       writes += 1;
     }
-    // More children than one batch, or than the page's child bytes allow:
-    // keep the parent for the next page.
-    if (!children.complete) return { deleted: false, writes };
+    // More children than one batch, or than the page may read: keep the
+    // parent for the next page.
+    if (!complete) return { deleted: false, writes };
   }
   if (writes >= budget) return { deleted: false, writes };
+  const ownsBlob = entry.blob !== undefined && typeof row[entry.blob] === "string";
+  if (!(await guard.canTouchRow(row, ownsBlob))) return { deleted: false, writes };
   await db.delete(rowId(row));
+  guard.noteRowTouched(row, ownsBlob);
   writes += 1;
   if (entry.blob) {
     const storageId = row[entry.blob];
@@ -1770,16 +1791,34 @@ export const purgeProjectPage = internalMutation({
 
     let writes = 0;
     let budgetExhausted = false;
-    const childReads = createReadBudget({ maxBytes: PROJECT_PURGE_CHILD_MAX_BYTES_READ });
+    // Covers the whole transaction from here on: the project row and this
+    // page are already read, every child read and every delete or patch
+    // (Convex reads the row again) is checked before it happens.
+    const guard = createPurgeGuard({
+      readMetrics: async () => {
+        try {
+          return await ctx.meta.getTransactionMetrics();
+        } catch {
+          return null;
+        }
+      },
+      alreadyRead: [project, ...page.page],
+      blobCheckFields: STORAGE_REFERENCE_FIELDS.length,
+    });
     for (const row of page.page) {
       if (writes >= PROJECT_PURGE_WRITE_BUDGET) {
         budgetExhausted = true;
         break;
       }
       if (entry.disposition === "detach") {
+        if (!(await guard.canTouchRow(row, false))) {
+          budgetExhausted = true;
+          break;
+        }
         const patch: Record<string, undefined> = { [entry.field]: undefined };
         for (const sibling of entry.clearWith ?? []) patch[sibling] = undefined;
         await db.patch(rowId(row), patch);
+        guard.noteRowTouched(row, false);
         writes += 1;
         continue;
       }
@@ -1788,7 +1827,7 @@ export const purgeProjectPage = internalMutation({
         entry,
         row,
         PROJECT_PURGE_WRITE_BUDGET - writes,
-        childReads
+        guard
       );
       writes += result.writes;
       if (!result.deleted) {

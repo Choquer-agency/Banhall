@@ -19,7 +19,6 @@ import type { GenericDatabaseReader, GenericDataModel } from "convex/server";
 import { api, internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import {
-  PROJECT_PURGE_CHILD_MAX_BYTES_READ,
   PROJECT_PURGE_PAGE_SIZE,
   SCHEDULED_CHILD_CLEANUP_TABLES,
   purgePosition,
@@ -798,71 +797,6 @@ describe("purgeProjectPage", () => {
     expect(await s.t.run((ctx) => ctx.db.get(s.projectId))).toBeNull();
   });
 
-  it("purges generations with heavy artifacts across byte-bounded pages and leaves no rows", async () => {
-    const s = await setup();
-    const generationsEntry = entryIndexOf("generations");
-    const GENERATIONS = 30;
-    // Light generation rows, each owning about 900 KB of artifacts (the
-    // outputs, provenance and chain payloads moved there on 2026-09-25):
-    // one page of parents would read about 27 MB of children unbounded.
-    await s.t.run(async (ctx) => {
-      for (let i = 0; i < GENERATIONS; i++) {
-        const generationId = await ctx.db.insert("generations", {
-          projectId: s.projectId,
-          status: "completed",
-          startedAt: i,
-          outputsInArtifactsAt: 1,
-        });
-        await ctx.db.insert("generationArtifacts", {
-          generationId,
-          kind: "agent_outputs",
-          content: `${i}:${"o".repeat(600_000)}`,
-        });
-        await ctx.db.insert("generationArtifacts", {
-          generationId,
-          kind: "brain_retrieval_brief",
-          content: `${i}:${"b".repeat(300_000)}`,
-        });
-      }
-    });
-    await setBarrier(s);
-    const artifactBytes = () => s.t.run(async (ctx) =>
-      (await ctx.db.query("generationArtifacts").collect()).reduce((sum, row) => sum + row.content.length, 0)
-    );
-    const generationCount = () => s.t.run(async (ctx) =>
-      (await ctx.db.query("generations").withIndex("by_projectId", (q) => q.eq("projectId", s.projectId)).collect()).length
-    );
-
-    let position: ReturnType<typeof purgePosition> = purgePosition(generationsEntry, null);
-    let pages = 0;
-    while (position.table === "generations") {
-      const before = await artifactBytes();
-      await s.t.mutation(internal.projects.purgeProjectPage, { projectId: s.projectId, ...position });
-      pages += 1;
-      // Each page reads (and so deletes) no more child bytes than its budget.
-      expect(before - (await artifactBytes())).toBeLessThanOrEqual(PROJECT_PURGE_CHILD_MAX_BYTES_READ);
-      const [next, ...others] = await pendingJobs(s);
-      expect(others).toEqual([]);
-      await s.t.run((ctx) => ctx.scheduler.cancel(next._id));
-      position = next.args[0] as ReturnType<typeof purgePosition>;
-      if (pages === 1) {
-        // The first page stopped on the child byte budget, kept the parent it
-        // could not finish and continues from the same cursor.
-        expect(await generationCount()).toBeGreaterThan(0);
-        expect(position).toMatchObject({ entryIndex: generationsEntry, table: "generations", cursor: null });
-      }
-      expect(pages).toBeLessThan(100);
-    }
-    expect(pages).toBeGreaterThanOrEqual(Math.ceil((GENERATIONS * 900_000) / PROJECT_PURGE_CHILD_MAX_BYTES_READ));
-    expect(await generationCount()).toBe(0);
-    expect(await artifactBytes()).toBe(0);
-    expect(await s.t.run(async (ctx) => (await ctx.db.query("generationArtifacts").collect()).length)).toBe(0);
-
-    await s.t.mutation(internal.projects.purgeProjectPage, { projectId: s.projectId, ...position });
-    await drain(s);
-    expect(await s.t.run((ctx) => ctx.db.get(s.projectId))).toBeNull();
-  });
-
   it("restarts safely when a continuation names an entry the registry no longer has at that index", async () => {
     const s = await setup();
     await seedTranscripts(s, s.projectId, 3);
@@ -1046,5 +980,162 @@ describe("erasure deployment and late-writer regressions", () => {
     await drain(s);
     expect(await transcriptCount(s, s.projectId)).toBe(0);
     expect(await s.t.run(ctx => ctx.db.get(s.projectId))).toBeNull();
+  });
+});
+
+// ─── Transaction limits (2026-09-25 review round 2) ─────────────────────────
+// Generation rows are light since phase 4, and their artifacts carry the
+// heavy bytes; older rows backfilled by generations:backfillGenerationOutputs
+// carry their outputs twice (row field kept, artifact copy added). These
+// fixtures run the purge with Convex's transaction limits enforced, so a page
+// that reads (including the second read of every delete) or writes past a
+// limit throws instead of passing.
+
+describe("purgeProjectPage under enforced transaction limits", () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
+  const generationsEntry = entryIndexOf("generations");
+
+  async function limitedProject() {
+    const t = convexTest({ schema, modules, transactionLimits: true });
+    const projectId = await t.run(async (ctx) => {
+      const userId = await ctx.db.insert("users", { authId: "limits-creator", role: "writer" });
+      return await ctx.db.insert("projects", {
+        title: "Heavy",
+        clientName: "Heavy Co",
+        status: "draft",
+        createdBy: userId,
+        shareToken: "limits-heavy",
+        createdAt: 1,
+        updatedAt: 1,
+        deletionStartedAt: 1,
+      });
+    });
+    return { t, projectId };
+  }
+  type Limited = Awaited<ReturnType<typeof limitedProject>>;
+
+  /** One generation per transaction, so seeding stays under the write limit. */
+  async function seedGenerations(
+    f: Limited,
+    count: number,
+    shape: { rowOutputs?: number; artifacts: Array<["agent_outputs" | "analysis" | "brain_blocks" | "brain_retrieval_brief", number]> }
+  ) {
+    for (let i = 0; i < count; i++) {
+      await f.t.run(async (ctx) => {
+        const generationId = await ctx.db.insert("generations", {
+          projectId: f.projectId,
+          status: "completed",
+          startedAt: i,
+          ...(shape.rowOutputs !== undefined
+            ? { agentOutputs: `${i}:${"o".repeat(shape.rowOutputs)}`, outputsInArtifactsAt: 2 }
+            : { outputsInArtifactsAt: 1 }),
+        });
+        for (const [kind, size] of shape.artifacts) {
+          await ctx.db.insert("generationArtifacts", { generationId, kind, content: `${i}:${"c".repeat(size)}` });
+        }
+      });
+    }
+  }
+
+  /** Row counts, read in small pages: the limits apply to test reads too. */
+  async function countRows(f: Limited, table: "generations" | "generationArtifacts") {
+    let total = 0;
+    let cursor: string | null = null;
+    for (;;) {
+      const page: { page: unknown[]; isDone: boolean; continueCursor: string } = await f.t.run((ctx) =>
+        ctx.db.query(table).paginate({ cursor, numItems: 4, maximumBytesRead: 8 * (1 << 20) })
+      );
+      total += page.page.length;
+      if (page.isDone) return total;
+      cursor = page.continueCursor;
+    }
+  }
+  const counts = async (f: Limited) => ({
+    generations: await countRows(f, "generations"),
+    artifacts: await countRows(f, "generationArtifacts"),
+  });
+
+  /** Run the generations entry page by page. Every page must stay under the
+   * limits (an overrun throws here) and remove at least one row. */
+  async function purgeGenerations(f: Limited) {
+    let position: ReturnType<typeof purgePosition> = purgePosition(generationsEntry, null);
+    const pages: Array<{ generations: number; artifacts: number }> = [];
+    let before = await counts(f);
+    while (position.table === "generations") {
+      await f.t.mutation(internal.projects.purgeProjectPage, { projectId: f.projectId, ...position });
+      const after = await counts(f);
+      expect(after.generations + after.artifacts).toBeLessThan(before.generations + before.artifacts);
+      pages.push(after);
+      before = after;
+      const jobs = await f.t.run(async (ctx) =>
+        (await ctx.db.system.query("_scheduled_functions").collect()).filter((job) => job.state.kind === "pending")
+      );
+      expect(jobs).toHaveLength(1);
+      await f.t.run((ctx) => ctx.scheduler.cancel(jobs[0]._id));
+      position = jobs[0].args[0] as ReturnType<typeof purgePosition>;
+      expect(pages.length).toBeLessThan(200);
+    }
+    return { pages, next: position };
+  }
+
+  async function expectFullyPurged(f: Limited, next: ReturnType<typeof purgePosition>) {
+    expect(await counts(f)).toEqual({ generations: 0, artifacts: 0 });
+    await f.t.mutation(internal.projects.purgeProjectPage, { projectId: f.projectId, ...next });
+    await f.t.finishAllScheduledFunctions(() => vi.runAllTimers());
+    expect(await f.t.run((ctx) => ctx.db.get(f.projectId))).toBeNull();
+  }
+
+  it("backfilled older generations (outputs on the row and in an artifact copy) purge without overrunning", async () => {
+    const f = await limitedProject();
+    await seedGenerations(f, 40, {
+      rowOutputs: 200_000,
+      artifacts: [["agent_outputs", 200_000], ["analysis", 35_000], ["brain_blocks", 30_000]],
+    });
+    const { pages, next } = await purgeGenerations(f);
+    expect(pages.length).toBeGreaterThan(1);
+    await expectFullyPurged(f, next);
+  });
+
+  it("older generations with near-maximum rows and children purge without overrunning", async () => {
+    const f = await limitedProject();
+    await seedGenerations(f, 12, {
+      rowOutputs: 1_000_000,
+      artifacts: [["agent_outputs", 1_000_000], ["analysis", 1_000_000]],
+    });
+    const { pages, next } = await purgeGenerations(f);
+    expect(pages.length).toBeGreaterThan(1);
+    await expectFullyPurged(f, next);
+  });
+
+  it("one generation whose artifacts exceed a page keeps its parent until page two", async () => {
+    const f = await limitedProject();
+    await seedGenerations(f, 1, { artifacts: Array.from({ length: 8 }, () => ["agent_outputs", 1_000_000] as ["agent_outputs", number]) });
+    const { pages, next } = await purgeGenerations(f);
+    // Page one deleted some children and kept the parent with the rest.
+    expect(pages[0].generations).toBe(1);
+    expect(pages[0].artifacts).toBeGreaterThan(0);
+    expect(pages[0].artifacts).toBeLessThan(8);
+    expect(pages).toHaveLength(2);
+    await expectFullyPurged(f, next);
+  });
+
+  it("the pre-phase-4 shape (100 older generations with row outputs) purges without overrunning", async () => {
+    const f = await limitedProject();
+    await seedGenerations(f, 100, {
+      rowOutputs: 60_000,
+      artifacts: [["analysis", 35_000], ["brain_blocks", 30_000]],
+    });
+    const { next } = await purgeGenerations(f);
+    await expectFullyPurged(f, next);
+  });
+
+  it("light new generations with heavy artifacts purge without overrunning", async () => {
+    const f = await limitedProject();
+    await seedGenerations(f, 30, { artifacts: [["agent_outputs", 600_000], ["brain_retrieval_brief", 300_000]] });
+    const { pages, next } = await purgeGenerations(f);
+    expect(pages.length).toBeGreaterThan(1);
+    await expectFullyPurged(f, next);
   });
 });
