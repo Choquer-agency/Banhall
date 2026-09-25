@@ -98,6 +98,9 @@ import {
 import {
   getGenerationSourcesForBriefArgs,
   getGenerationSourcesForBriefHandler,
+  getCitationSpeakersArgs,
+  getCitationSpeakersHandler,
+  citationSpeakerValidator,
   findReusableBriefArgs,
   findReusableBriefHandler,
   stampGenerationBriefIdArgs,
@@ -389,6 +392,14 @@ export const saveIterativeArtifacts = internalMutation({
 export const getGenerationSourcesForBrief = internalQuery({
   args: getGenerationSourcesForBriefArgs,
   handler: getGenerationSourcesForBriefHandler,
+});
+
+/** Owner decision 25 for spans of this generation's frozen rows: whose
+ * words each one cites (convex/lib/citationSpeakers.ts). */
+export const getCitationSpeakers = internalQuery({
+  args: getCitationSpeakersArgs,
+  returns: v.array(citationSpeakerValidator),
+  handler: getCitationSpeakersHandler,
 });
 
 /** MAX(version) Brief for (projectId, inputsHash), regardless of origin — a

@@ -678,6 +678,9 @@ export default defineSchema({
     cleanText: v.string(),
   })
     .index("by_transcriptId_and_index", ["transcriptId", "index"])
+    // 2026-09-25: the turns a cited span touches, without reading the rest
+    // (owner decision 25 outside facts mode, convex/lib/citationSpeakers.ts).
+    .index("by_transcriptId_and_charStart", ["transcriptId", "charStart"])
     .index("by_projectId", ["projectId"]),
 
   // 2026-09-24 widen: one role per speaker label of a transcript. Roles are

@@ -43,6 +43,12 @@ export type SeedCandidate = {
 
 export type ValidatedSeedProvenance = SeedCandidateProvenance & {
   sourceContentHash: string;
+  /**
+   * Owner decision 25 outside facts mode (2026-09-25): the cited words
+   * include a speaker with no role yet. Citable; the quote card asks for a
+   * speaker check (decision 24).
+   */
+  needsSpeakerCheck?: true;
 };
 
 export type ValidatedSeedCandidate = Omit<SeedCandidate, "provenance"> & {
@@ -369,6 +375,54 @@ function validatedProvenance(args: {
             },
           ]
         : [],
+  };
+}
+
+/**
+ * The result of the transcript speaker check for one validated citation
+ * (convex/lib/citationSpeakers.ts): kept at `startOffset`/`endOffset`, which
+ * may be another place of the same words in the same row, or null when the
+ * words are only the interviewer's or another speaker's.
+ */
+export type CheckedSeedCitation = {
+  startOffset: number;
+  endOffset: number;
+  needsSpeakerCheck: boolean;
+} | null;
+
+/**
+ * Owner decision 25 outside facts mode (2026-09-25): drops each citation
+ * the speaker check rejected, moves or marks the rest, and recomputes
+ * support the way validateSeed does. A Seed left with no citation is kept
+ * as writer-asserted; nothing fails. `checked[i]` is the result for
+ * `seed.provenance[i]`. `dropped` counts every citation not kept, a
+ * duplicate of a kept place included. Pure.
+ */
+export function withCheckedSpeakers(
+  seed: ValidatedSeedCandidate,
+  checked: readonly CheckedSeedCitation[]
+): { seed: ValidatedSeedCandidate; dropped: number } {
+  const provenance: ValidatedSeedProvenance[] = [];
+  const places = new Set<string>();
+  seed.provenance.forEach((citation, index) => {
+    const result = checked[index];
+    if (!result) return;
+    // Two citations moved to the same place are one citation.
+    const place = `${citation.sourceId}|${result.startOffset}|${result.endOffset}`;
+    if (places.has(place)) return;
+    places.add(place);
+    const { needsSpeakerCheck: _previous, ...rest } = citation;
+    provenance.push({
+      ...rest,
+      startOffset: result.startOffset,
+      endOffset: result.endOffset,
+      ...(result.needsSpeakerCheck ? { needsSpeakerCheck: true as const } : {}),
+    });
+  });
+  const support = provenance.length > 0 ? "source_supported" : "writer_asserted";
+  return {
+    seed: { ...seed, provenance, support, originalSupport: support },
+    dropped: seed.provenance.length - provenance.length,
   };
 }
 
