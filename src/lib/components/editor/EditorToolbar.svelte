@@ -238,7 +238,7 @@
     bind:this={menuEl}
     bind:offsetWidth={toolbarWidth}
     data-selection-toolbar
-    class="absolute z-50 flex h-[34px] items-center gap-0.5 whitespace-nowrap rounded-md border border-line bg-surface px-1.5 font-sans shadow-[0_2px_8px_#16211F1A]"
+    class="absolute z-50 flex h-[34px] items-center gap-0.5 whitespace-nowrap rounded-md border border-line bg-surface px-1.5 font-sans shadow-toolbar"
     style={`top: ${coords.top}px; left: ${left}px; transform: translateX(-50%);`}
     onmousedown={(e) => {
       // Prevent toolbar clicks from stealing focus from the editor (the link
@@ -283,7 +283,7 @@
             <div
               role="menu"
               aria-label="Block type"
-              class="absolute left-0 top-full z-10 mt-1.5 flex w-40 flex-col rounded-md border border-line bg-surface p-1 shadow-[0_2px_8px_#16211F1A]"
+              class="absolute left-0 top-full z-10 mt-1.5 flex w-40 flex-col rounded-md border border-line bg-surface p-1 shadow-toolbar"
             >
               {#each BLOCK_TYPES as type (type.label)}
                 <button
