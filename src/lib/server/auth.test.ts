@@ -10,7 +10,7 @@ vi.mock("convex-svelte/sveltekit/server", () => ({
   },
 }));
 
-import { createAuthHandle, readConvexJwt } from "./auth";
+import { createAuthHandle, readConvexJwt, serverAuthState } from "./auth";
 
 function jar(values: Record<string, string>) {
   return { get: (name: string) => values[name] };
@@ -54,5 +54,52 @@ describe("hooks.server auth handle", () => {
 
   it("never treats the session cookie as a Convex JWT", () => {
     expect(readConvexJwt(jar({ "better-auth.session_token": "session" }), undefined)).toBeUndefined();
+  });
+});
+
+/**
+ * The first client decision on a full page load, from the cookies the browser
+ * sends. Mirrors the cookie states in the 2026-09-25 sign-out report
+ * (signout-repro.mjs baseline, jwtexpiry, crossport).
+ *
+ * - "signed-in": server state says authenticated; the page renders.
+ * - "wait": no server state; the client starts in its session check
+ *   (isLoading) and fetches a fresh JWT, so the page guards do not redirect.
+ * - "signed-out": server state says signed out; the page guards redirect to
+ *   /login at once.
+ */
+function firstDecision(prefix: string | undefined, cookies: Record<string, string>) {
+  const reader = jar(cookies);
+  const state = serverAuthState({ token: readConvexJwt(reader, prefix), cookies: reader, prefix });
+  if (state === undefined) return "wait";
+  return state.isAuthenticated ? "signed-in" : "signed-out";
+}
+
+describe("server auth state for a full page load", () => {
+  it("is signed in while the 15-minute Convex JWT cookie is present", () => {
+    expect(
+      firstDecision(undefined, { "better-auth.session_token": "s", "better-auth.convex_jwt": "j" }),
+    ).toBe("signed-in");
+    expect(serverAuthState({ token: "j", cookies: jar({}), prefix: undefined })).toEqual({ isAuthenticated: true });
+  });
+
+  it("waits for the client refresh when only the JWT has expired", () => {
+    // jwtexpiry: convex_jwt gone, 7-day session still there. Before the fix
+    // this rendered as signed out and bounced through /login.
+    expect(firstDecision(undefined, { "better-auth.session_token": "s" })).toBe("wait");
+    expect(firstDecision(undefined, { "__Secure-better-auth.session_token": "s" })).toBe("wait");
+    expect(firstDecision("banhall-e2e", { "banhall-e2e.session_token": "s" })).toBe("wait");
+  });
+
+  it("is signed out with no session cookie at all", () => {
+    expect(firstDecision(undefined, {})).toBe("signed-out");
+    expect(firstDecision("banhall-e2e", {})).toBe("signed-out");
+  });
+
+  it("does not wait on another local app's session cookie", () => {
+    // Only the cookies named for this deployment count.
+    expect(firstDecision("banhall-e2e", { "banhall-demo.session_token": "s" })).toBe("signed-out");
+    expect(firstDecision("banhall-e2e", { "better-auth.session_token": "s" })).toBe("signed-out");
+    expect(firstDecision(undefined, { "banhall-e2e.session_token": "s" })).toBe("signed-out");
   });
 });
