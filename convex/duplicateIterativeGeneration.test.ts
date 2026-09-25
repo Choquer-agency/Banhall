@@ -1,6 +1,6 @@
 /// <reference types="vite/client" />
 import { convexTest } from "convex-test";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api, internal } from "./_generated/api";
 import schema from "./schema";
 import type { Id } from "./_generated/dataModel";
@@ -29,6 +29,18 @@ const REVIEWED_PD = "The written PD a reviewer looked at last year.";
 beforeEach(() => {
   vi.stubEnv("ANTHROPIC_API_KEY", "test-anthropic-key");
   vi.stubEnv("OPENROUTER_API_KEY", "test-openrouter-key");
+  // Hold scheduled functions. createProject schedules the copied
+  // transcript's turn build and fact copy, and requestGeneration its start,
+  // at runAfter(0). Under real timers convex-test runs them while the copy
+  // action is still storing files, and its single in-memory store then
+  // fails the action's write ("Write outside of transaction"). A deployment
+  // runs them independently: the build and the copy write different
+  // fields. Nothing here reads what they write. Date stays real.
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval"] });
+});
+
+afterEach(() => {
+  vi.useRealTimers();
 });
 
 async function setup() {
