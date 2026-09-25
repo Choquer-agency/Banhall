@@ -77,7 +77,8 @@
   import { userErrorCode, userErrorMessage } from "$lib/errors";
   import { flushOutboxFor } from "$lib/uploads/outboxFlush";
   import { toast } from "svelte-sonner";
-  import { comparePairFromSlots, type CandidateModelId } from "../../../../shared/generationModels";
+  import { comparePairFromSlots } from "../../../../shared/generationModels";
+  import { pickerModels } from "$lib/modelPicker";
   import ComparePairPicker from "$lib/components/generation/ComparePairPicker.svelte";
   import SingleModelPicker from "$lib/components/generation/SingleModelPicker.svelte";
   import GhostCompareDialog from "$lib/components/generation/GhostCompareDialog.svelte";
@@ -673,7 +674,9 @@
   // the items list gates the values. Cast where the mutation needs the union.
   let lengthTarget = $state<string>("standard");
   let candidateMode = $state<"compare" | "single" | "iterative">("compare");
-  let singleModelId = $state<CandidateModelId | "">("");
+  let singleModelId = $state<string>("");
+  // Model catalog: the random compare fill draws from the selectable set.
+  const modelCapabilitiesQ = useQuery(api.providerReadiness.getCapabilities, () => ({}));
   // Compare mode runs exactly 2 models — two slots, each a model or Random.
   let compareSlotA = $state("");
   let compareSlotB = $state("");
@@ -710,7 +713,11 @@
           : {}),
         ...(candidateMode === "compare"
           ? (() => {
-              const pair = comparePairFromSlots(compareSlotA, compareSlotB);
+              const pair = comparePairFromSlots(
+                compareSlotA,
+                compareSlotB,
+                pickerModels(modelCapabilitiesQ.data)
+              );
               return pair ? { compareModelIds: pair } : {};
             })()
           : {}),

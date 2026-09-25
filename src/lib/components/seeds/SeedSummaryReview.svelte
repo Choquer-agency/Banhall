@@ -5,7 +5,7 @@
   import type { Id } from "../../../../convex/_generated/dataModel";
   import { isLongForSeed, MAX_EDITED_BULLET_CHARS } from "../../../../convex/lib/seedContract";
   import { PD_SUBSECTIONS } from "../../../../shared/pdSubsections";
-  import { SINGLE_MODEL_ITEMS } from "../../../../shared/generationModels";
+  import { modelLabelFor } from "$lib/modelPicker";
   import { userErrorCode, userErrorMessage } from "$lib/errors";
   import { reducedMotion } from "$lib/motion";
   import Button from "$lib/components/ui/Button.svelte";
@@ -459,8 +459,11 @@
         ? (summaryQ.data.summaryVersion ?? null)
         : null)
   );
+  // Model catalog: the frozen model's label from the selectable set, seed
+  // registry or id; "" never occurs (the generation always froze a model).
+  const modelCapabilitiesQ = useQuery(api.providerReadiness.getCapabilities, () => ({}));
   function modelLabel(modelId: string | null) {
-    return SINGLE_MODEL_ITEMS.find((item) => item.value === (modelId ?? ""))?.label ?? modelId ?? "";
+    return modelId ? modelLabelFor(modelId, modelCapabilitiesQ.data) : "";
   }
   // Soft note only: a writer's wording is never blocked by the AI Seed
   // contract (PRD FR-11).

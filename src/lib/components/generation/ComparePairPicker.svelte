@@ -10,7 +10,9 @@
   import ModelLogo from "./ModelLogo.svelte";
   import ModelSelectDialog from "./ModelSelectDialog.svelte";
   import ModelSelectPanel from "./ModelSelectPanel.svelte";
-  import { CANDIDATE_MODELS } from "../../../../shared/generationModels";
+  import { pickerModels } from "$lib/modelPicker";
+  import { useQuery } from "convex-svelte";
+  import { api } from "../../../../convex/_generated/api";
 
   let {
     slotA = $bindable(""),
@@ -39,10 +41,11 @@
     else slotB = id;
   }
 
+  const capabilitiesQ = useQuery(api.providerReadiness.getCapabilities, () => ({}));
   const labelFor = (id: string) =>
-    CANDIDATE_MODELS.find((m) => m.id === id)?.label ?? "";
+    pickerModels(capabilitiesQ.data).find((m) => m.id === id)?.label ?? "";
   const providerFor = (id: string) =>
-    CANDIDATE_MODELS.find((m) => m.id === id)?.provider ?? "Anthropic";
+    pickerModels(capabilitiesQ.data).find((m) => m.id === id)?.provider ?? "Anthropic";
 </script>
 
 {#snippet slotCard(id: string, which: "a" | "b")}
