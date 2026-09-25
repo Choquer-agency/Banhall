@@ -237,6 +237,21 @@ function outsideSectionHeading(doc: PMNode, pos: number, dir: 1 | -1): number {
   return dir > 0 ? doc.content.size : 0;
 }
 
+/**
+ * True when the range touches a Section heading or the report's hidden title
+ * (a level-1 heading first in the document): text no proposal may target.
+ */
+export function rangeTouchesHiddenHeading(doc: PMNode, from: number, to: number): boolean {
+  let touches = false;
+  doc.nodesBetween(Math.max(0, from), Math.min(to, doc.content.size), (node, _pos, _parent, index) => {
+    if (touches) return false;
+    const hiddenTitle = index === 0 && node.type.name === "heading" && Number(node.attrs.level) === 1;
+    if (hiddenTitle || sectionKeyForNode(node)) touches = true;
+    return false; // top-level nodes only
+  });
+  return touches;
+}
+
 /** True when the range touches a top-level Section heading. */
 export function rangeTouchesSectionHeading(doc: PMNode, from: number, to: number): boolean {
   let touches = false;
@@ -296,9 +311,15 @@ const MAC_FORWARD_KEYS = ["Alt-Delete", "Ctrl-d", "Alt-d", "Ctrl-Alt-Backspace"]
  * Plugin-level node view for `heading`, so StarterKit's Heading extension
  * (schema, commands, shortcuts) stays exactly as it is.
  */
+export type SectionHeadingRefusal = "edit" | "paste";
+
 export const ReportSectionHeadings = Extension.create<{
-  /** Called when a user edit is refused because it would change a Section heading. */
-  onRefuse: (() => void) | null;
+  /**
+   * Called when a user edit is refused because it would change a Section
+   * heading ("edit"), or when pasted content lost the Section headings it
+   * carried ("paste").
+   */
+  onRefuse: ((reason: SectionHeadingRefusal) => void) | null;
 }>({
   name: "reportSectionHeadings",
   addOptions() {
@@ -316,12 +337,13 @@ export const ReportSectionHeadings = Extension.create<{
     return shortcuts;
   },
   addProseMirrorPlugins() {
+    let pasteStripped = false;
     return [
       new Plugin({
         key: new PluginKey("reportSectionHeadings"),
         filterTransaction: (tr, state) => {
           if (userMayChange(tr, state)) return true;
-          this.options.onRefuse?.();
+          this.options.onRefuse?.("edit");
           return false;
         },
         appendTransaction: (_transactions, oldState, newState) => {
@@ -356,7 +378,19 @@ export const ReportSectionHeadings = Extension.create<{
           return newState.tr.setSelection(next).setMeta("addToHistory", false);
         },
         props: {
-          transformPasted: (slice) => withoutSectionHeadings(slice),
+          transformPasted: (slice) => {
+            const kept = withoutSectionHeadings(slice);
+            pasteStripped = kept !== slice;
+            if (pasteStripped) this.options.onRefuse?.("paste");
+            return kept;
+          },
+          // A paste that held only Section headings is left empty: do
+          // nothing, rather than delete the selection it would replace.
+          handlePaste: (_view, _event, slice) => {
+            const swallow = pasteStripped && slice.content.size === 0;
+            pasteStripped = false;
+            return swallow;
+          },
           nodeViews: {
             heading: (node, _view, _getPos, decorations) => {
               const key = sectionKeyForNode(node);

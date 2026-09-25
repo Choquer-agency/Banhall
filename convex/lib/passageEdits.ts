@@ -1,4 +1,9 @@
-import { applyReplacements, type PMNode, type ReplacePair } from "./reportEdits";
+import {
+  applyReplacements,
+  SECTION_HEADING_EDIT_REFUSED,
+  type PMNode,
+  type ReplacePair,
+} from "./reportEdits";
 
 /** Separate passage rewrites must have unique, independent targets. */
 export function applyPassageEdits(doc: PMNode, pairs: ReplacePair[]):
@@ -20,8 +25,12 @@ export function applyPassageEdits(doc: PMNode, pairs: ReplacePair[]):
     return { find: pair.find, replaceWith: marker };
   });
   for (const [i, pair] of pairs.entries()) {
-    if (!pair.find.trim() || pair.find === pair.replaceWith ||
-        applyReplacements(doc, [markedPairs[i]]).count !== 1) {
+    const probe = applyReplacements(doc, [markedPairs[i]]);
+    // Heading text is never a target, and must not steer the edit elsewhere.
+    if (pair.find.trim() && probe.skippedInHeadings > 0) {
+      return { ok: false, reason: `${SECTION_HEADING_EDIT_REFUSED} Target the prose under the heading instead.` };
+    }
+    if (!pair.find.trim() || pair.find === pair.replaceWith || probe.count !== 1) {
       return { ok: false, reason: "Each passage must identify exactly one current report location and make a change." };
     }
   }
@@ -36,5 +45,5 @@ export function applyPassageEdits(doc: PMNode, pairs: ReplacePair[]):
   const restored = applyReplacements(forward.doc, pairs.map((pair, i) => ({
     find: markedPairs[i].replaceWith, replaceWith: pair.replaceWith,
   })));
-  return { ok: true, ...restored };
+  return { ok: true, doc: restored.doc, count: restored.count };
 }

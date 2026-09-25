@@ -47,4 +47,16 @@ describe("Section headings on the server Apply path", () => {
     ]);
     expect(result.ok).toBe(false);
   });
+
+  it("reports the matches it left in headings and in the hidden title", () => {
+    const original = report();
+    const result = applyReplacements(original, [
+      { find: "work performed", replaceWith: "tasks done" },
+      { find: "Report", replaceWith: "Paper" },
+    ]);
+    // "Work Performed" in the 244 heading and "Report" in the title stay put.
+    expect(result.skippedInHeadings).toBe(2);
+    expect(headings(result.doc)).toEqual(headings(original));
+    expect(result.count).toBe(1);
+  });
 });

@@ -204,10 +204,11 @@ describe("Section heading protection (reading presentation)", () => {
   it("still undoes ordinary edits", async () => {
     const original = content();
     const { tiptap } = await mount(original);
-    tiptap.commands.focus();
-    tiptap.commands.setTextSelection(around244(tiptap.state.doc).after);
-    await userEvent.keyboard("Hello ");
+    // An ordinary edit (a command, not real key presses, so a busy runner
+    // cannot move the caret between focus and typing), then undo.
+    tiptap.commands.insertContentAt(around244(tiptap.state.doc).after, "Hello ");
     expect(tiptap.state.doc.textContent).toContain("Hello Trials");
+    expect(tiptap.can().undo()).toBe(true);
     tiptap.commands.undo();
     expectIntact(tiptap, original);
   });
@@ -384,5 +385,36 @@ describe("Section heading protection (reading presentation)", () => {
         if (platform) Object.defineProperty(Navigator.prototype, "platform", platform);
       }
     });
+  });
+
+  describe("pasted Section headings (review g1 follow-up)", () => {
+    const notice = () => document.querySelector("[data-heading-notice]")?.textContent?.trim();
+
+    it("does nothing, and says why, when the paste held only a Section heading", async () => {
+      const original = content();
+      const { tiptap } = await mount(original);
+      tiptap.commands.focus();
+      const { after } = around244(tiptap.state.doc);
+      tiptap.commands.setTextSelection({ from: after, to: after + 6 });
+      const before = tiptap.state.doc;
+      tiptap.view.pasteHTML("<h2>Line 244 — Work Performed</h2>");
+      expect(tiptap.state.doc.eq(before)).toBe(true);
+      await expect.poll(notice).toBe("Section headings were left out of the paste.");
+    });
+
+    it("says the headings were left out when a paste carried several Sections", async () => {
+      const { tiptap } = await mount();
+      tiptap.commands.focus();
+      tiptap.commands.setTextSelection(around244(tiptap.state.doc).after);
+      tiptap.view.pasteHTML("<h2>Line 242 — Scientific/Technological Uncertainty</h2><p>First body.</p><h2>Line 244 — Work Performed</h2><p>Second body.</p>");
+      expect(headingList(tiptap.state.doc).filter((text) => text.startsWith("Line 24"))).toHaveLength(3);
+      await expect.poll(notice).toBe("Section headings were left out of the paste.");
+    });
+  });
+
+  it("offers no replace-review match in the hidden report title", async () => {
+    const { component } = await mount();
+    const handle = component as unknown as { findReplaceMatches: (pairs: Array<{ find: string; replaceWith: string }>) => unknown[] };
+    expect(handle.findReplaceMatches([{ find: "Report", replaceWith: "Paper" }])).toEqual([]);
   });
 });

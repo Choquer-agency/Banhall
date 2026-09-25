@@ -7,7 +7,7 @@ import {
 } from "./lib/auth";
 import { requireReportEditAccess } from "./lib/roleCapabilities";
 import { domainError, sha256 } from "./lib/contracts";
-import { applyReplacements, type PMNode } from "./lib/reportEdits";
+import { applyReplacements, SECTION_HEADING_EDIT_REFUSED, type PMNode } from "./lib/reportEdits";
 import { pruneSnapshots, writePreEditSnapshot } from "./lib/snapshots";
 
 const COMMENTER_COLORS = [
@@ -168,6 +168,11 @@ export const acceptEdit = mutation({
     const applied = applyReplacements(document, [
       { find: comment.highlightText, replaceWith: comment.suggestedEdit },
     ]);
+    // A selection in heading text is never applied, even when the same words
+    // occur once in the body (skipping the heading would retarget it).
+    if (applied.skippedInHeadings > 0) {
+      domainError("INVALID_INPUT", SECTION_HEADING_EDIT_REFUSED);
+    }
     if (applied.count !== 1) {
       domainError(
         "STALE_REVISION",

@@ -26,6 +26,7 @@ import { requireAnthropicConfigured } from "./lib/providerConfig";
 import { pruneSnapshots, writePreEditSnapshot } from "./lib/snapshots";
 import { requireReportEditAccess } from "./lib/roleCapabilities";
 import {
+  SECTION_HEADING_EDIT_REFUSED,
   applyReplacements,
   scrubBannedWords,
   type PMNode,
@@ -538,7 +539,18 @@ export const applyProposal = mutation({
       await ctx.db.patch(args.proposalId, { state: "stale" });
       return { applied: false as const, count: 0, reason: bulkResult.reason };
     }
-    const { doc: updated, count } = bulkResult ?? applyReplacements(parsed as PMNode, pairs);
+    const direct = bulkResult ? null : applyReplacements(parsed as PMNode, pairs);
+    const { doc: updated, count } = bulkResult ?? direct!;
+    // Producer-declared single-target proposals (older research proposals
+    // predate the flag, hence the researchSessionId fallback).
+    const requireUniqueTarget =
+      proposal.requireUniqueTarget ?? proposal.researchSessionId !== undefined;
+    // Heading text is never a target: a single-passage edit that also
+    // matches it is refused rather than moved onto a lone body match.
+    if (direct && direct.skippedInHeadings > 0 && (proposal.kind === "edit" || requireUniqueTarget || count === 0)) {
+      await ctx.db.patch(args.proposalId, { state: "stale" });
+      return { applied: false as const, count: 0, reason: SECTION_HEADING_EDIT_REFUSED };
+    }
     if (count === 0) {
       await ctx.db.patch(args.proposalId, { state: "stale" });
       return {
@@ -548,10 +560,6 @@ export const applyProposal = mutation({
           "Couldn't find the original passage in the current report. This suggestion may be based on wording that was rejected or already changed.",
       };
     }
-    // Producer-declared single-target proposals (older research proposals
-    // predate the flag, hence the researchSessionId fallback).
-    const requireUniqueTarget =
-      proposal.requireUniqueTarget ?? proposal.researchSessionId !== undefined;
     if (requireUniqueTarget && count !== 1) {
       domainError(
         "STALE_REVISION",
@@ -1051,7 +1059,15 @@ export const saveProposal = internalMutation({
         return { ok: false as const, reason: "The suggestion did not include text to replace." };
       }
       for (const pair of pairs) {
-        const { count } = applyReplacements(parsed as PMNode, [pair]);
+        const { count, skippedInHeadings } = applyReplacements(parsed as PMNode, [pair]);
+        // Heading text is never a target: say so, rather than "not in the
+        // report", and never let a single edit fall onto a lone body match.
+        if (skippedInHeadings > 0 && (args.kind === "edit" || count === 0)) {
+          return {
+            ok: false as const,
+            reason: `${SECTION_HEADING_EDIT_REFUSED} Target the prose under the heading instead.`,
+          };
+        }
         if (count === 0) {
           return {
             ok: false as const,

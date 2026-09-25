@@ -80,17 +80,34 @@ export function replaceAll(
 /**
  * The "Line 242/244/246" Section headings are load-bearing: export, QA and
  * section detection find the Sections by their exact text, and the report
- * page shows them as fixed labels. No AI edit may rewrite them (review g1,
- * 2026-09-25), so every replacement pass leaves them untouched.
+ * page shows them as fixed labels. The report's own title (a level-1 heading
+ * first in the document) is hidden on the report page. No edit may rewrite
+ * either (review g1, 2026-09-25), so every replacement pass leaves them be.
  */
 function isSectionHeading(node: PMNode): boolean {
   if (node.type !== "heading") return false;
   return /^\s*(?:line|section)\s+24[246]\b/i.test(normalizeForMatch(nodeText(node)));
 }
 
+function protectedHeadings(doc: PMNode): Set<PMNode> {
+  const nodes = new Set<PMNode>();
+  const top = (doc.content as PMNode[] | undefined) ?? [];
+  top.forEach((node, index) => {
+    const level = (node.attrs as { level?: unknown } | undefined)?.level;
+    const hiddenTitle = index === 0 && node.type === "heading" && level === 1;
+    if (hiddenTitle || isSectionHeading(node)) nodes.add(node);
+  });
+  return nodes;
+}
+
+/** Plain message for an edit refused because it targets heading text. */
+export const SECTION_HEADING_EDIT_REFUSED = "Section headings can't be edited.";
+
 /**
  * BNH-27: apply find/replace pairs to a Tiptap JSON doc across ALL occurrences.
- * Section headings are skipped (see isSectionHeading).
+ * Section headings and the hidden title are skipped (see protectedHeadings);
+ * `skippedInHeadings` counts the matches left there, so a caller that needs
+ * one exact target can refuse instead of editing a lone body match.
  *
  * Pass 1 walks every text node at any depth and replaces in place — this is
  * mark-preserving and handles the common case (a phrase repeated across the
@@ -104,12 +121,18 @@ function isSectionHeading(node: PMNode): boolean {
 export function applyReplacements(
   doc: PMNode,
   pairs: ReplacePair[]
-): { doc: PMNode; count: number } {
+): { doc: PMNode; count: number; skippedInHeadings: number } {
   let count = 0;
+  const guarded = protectedHeadings(doc);
+  let skippedInHeadings = 0;
+  for (const node of guarded) {
+    const text = nodeText(node);
+    for (const { find } of pairs) skippedInHeadings += replaceAll(text, find, "").count;
+  }
 
   // ── Pass 1: per-text-node, mark-preserving, global ──
   const walk = (node: PMNode): PMNode => {
-    if (isSectionHeading(node)) return node;
+    if (guarded.has(node)) return node;
     let next = node;
     const children = next.content as PMNode[] | undefined;
     if (Array.isArray(children)) {
@@ -137,7 +160,7 @@ export function applyReplacements(
   );
   if (stillPresent.length > 0) {
     const collapse = (node: PMNode): PMNode => {
-      if (isSectionHeading(node)) return node;
+      if (guarded.has(node)) return node;
       const next = node;
       const children = next.content as PMNode[] | undefined;
       if (!Array.isArray(children)) return next;
@@ -167,7 +190,7 @@ export function applyReplacements(
     result = collapse(result);
   }
 
-  return { doc: result, count };
+  return { doc: result, count, skippedInHeadings };
 }
 
 /** Concatenate all text in a node tree (for presence checks). */
