@@ -2959,7 +2959,10 @@ export default defineSchema({
     at: v.number(),
   })
     .index("by_role_and_at", ["role", "at"])
-    .index("by_at", ["at"]),
+    .index("by_at", ["at"])
+    // Whether a role was ever rolled back from a model (up to a time), read
+    // as one row however long the role's history is.
+    .index("by_role_and_kind_and_fromModelId_and_at", ["role", "kind", "fromModelId", "at"]),
 
   // One candidate evaluated for one role against the incumbent on the fixed
   // eval set. Pending rows are queued or running; the rest carry results.

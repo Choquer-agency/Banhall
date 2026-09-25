@@ -1206,4 +1206,177 @@ describe("round 4", () => {
     expect(await t.mutation(checkProductionErrorsRef, {})).toEqual([{ role: "pd_review", modelId: C, rolledBack: true }]);
     expect((await assignmentOf(t, "pd_review"))?.modelId).toBe(A);
   });
+
+  describe("round 6", () => {
+    const D = "claude-haiku-4-5-20251001";
+
+    /** PD review becomes the only role with room under its cap, and B its best candidate on paper. */
+    async function onlyPdReviewCanPlanB(t: TestConvex) {
+      const admin = t.withIdentity({ subject: ADMIN });
+      for (const role of MODEL_ROLES) {
+        if (role === "pd_review") continue;
+        await admin.mutation(setRoleCostCapRef, { role, maxInputUsdPerMTok: 0.01, maxOutputUsdPerMTok: 0.01, maxCostRatio: 2 });
+      }
+      await t.run(async (ctx) => {
+        const opus = await ctx.db.query("modelCatalog").withIndex("by_modelId", (q) => q.eq("modelId", B)).first();
+        await ctx.db.patch(opus!._id, {
+          benchmarks: [{ source: "openrouter_aa", metric: "intelligence_index", value: 99, fetchedAt: NOW }],
+        });
+      });
+    }
+    async function plan(t: TestConvex) {
+      const ids = await t.mutation(planEvaluationsRef, {});
+      const rows = await t.run((ctx) => Promise.all(ids.map((id) => ctx.db.get(id))));
+      return rows.map((row) => ({ id: row!._id, role: row!.role, modelId: row!.modelId }));
+    }
+    /**
+     * Drops evaluations that were planned but never started: a queued one
+     * marks its role busy, and a settled one would put its model on the
+     * evaluation cooldown, which must not stand in for the rollback check.
+     */
+    async function dropQueued(t: TestConvex) {
+      await t.run(async (ctx) => {
+        for (const row of await ctx.db.query("modelEvaluations").withIndex("by_status", (q) => q.eq("status", "queued")).collect()) {
+          await ctx.db.delete(row._id);
+        }
+      });
+    }
+    /** PD review promotes the candidate its planned evaluation measured. */
+    async function promotePdReview(t: TestConvex, evaluationId: Id<"modelEvaluations">) {
+      const claim = await t.mutation(claimEvaluationRef, { evaluationId, envelope: EVAL_ENVELOPE });
+      const result = (rubricScore: number): EvalTaskResult[] => [
+        { task: "pd_review_report", structured: true, schemaValid: true, contractPassed: true, rubricScore, costUsd: 0.05 },
+      ];
+      expect(
+        await t.mutation(completeEvaluationRef, {
+          evaluationId,
+          candidateResults: result(8),
+          incumbentResults: result(7),
+          evalCostUsd: 0.1,
+        })
+      ).toBe("promoted");
+      return claim!.candidate.id;
+    }
+
+    it("6: a split role materialized before inheritedHistory existed keeps its predecessor's rollback after the upgrade", async () => {
+      // Before the upgrade: analysis rolled B back to A, and the previous
+      // version had already materialized PD review from it, without the field.
+      const t = await beforeSplit({ modelId: A, previousModelId: B, rolledBack: true });
+      const legacy = {
+        role: "pd_review" as const,
+        modelId: A,
+        previousModelId: B,
+        assignedAt: SWITCHED_AT,
+        assignedBy: "system" as const,
+        origin: "role_split" as const,
+      };
+      const { legacyId, independentId } = await t.run(async (ctx) => {
+        const adminId = (await ctx.db.query("users").first())!._id;
+        return {
+          legacyId: await ctx.db.insert("modelRoleAssignments", legacy),
+          independentId: await ctx.db.insert("modelRoleAssignments", {
+            role: "science_code",
+            modelId: D,
+            previousModelId: A,
+            assignedAt: SWITCHED_AT - 60_000,
+            assignedBy: "user",
+            assignedByUserId: adminId,
+          }),
+        };
+      });
+      const independent = await t.run((ctx) => ctx.db.get(independentId));
+
+      // A fails before anything has run since the upgrade: PD review is
+      // not sent back to the model its predecessor rolled back from.
+      await failing(t, A);
+      expect(await t.mutation(checkProductionErrorsRef, {})).toEqual([]);
+      expect((await assignmentOf(t, "pd_review"))?.modelId).toBe(A);
+
+      // The first refresh writes the field on the legacy row, and only there.
+      await t.mutation(applyCatalogRefreshRef, { models: parsed, fetchedAt: NOW, complete: false });
+      expect(await t.run((ctx) => ctx.db.get(legacyId))).toMatchObject({
+        ...legacy,
+        inheritedHistory: { role: "analysis", until: SWITCHED_AT },
+      });
+      expect(await t.run((ctx) => ctx.db.get(independentId))).toEqual(independent);
+
+      // B stays out of PD review's plans, also once its own promotion has
+      // cleared the role_split marker.
+      await onlyPdReviewCanPlanB(t);
+      const [first] = await plan(t);
+      expect(first).toMatchObject({ role: "pd_review" });
+      expect(first.modelId).not.toBe(B);
+      await promotePdReview(t, first.id);
+      expect((await assignmentOf(t, "pd_review"))?.origin).toBeUndefined();
+      expect((await plan(t)).some((item) => item.modelId === B)).toBe(false);
+    });
+
+    it("6: a predecessor's rollback stays excluded however many switches its split role makes", async () => {
+      // Analysis rolled B back to A, then was switched by hand 49 more
+      // times: that rollback is its 50th newest event at the split.
+      const t = convexTest(schema, modules);
+      const start = SWITCHED_AT - 60 * 60_000;
+      const lastAt = start + 49 * 60_000;
+      await t.run(async (ctx) => {
+        await ctx.db.insert("users", { authId: ADMIN, role: "admin" });
+        await ctx.db.insert("modelSwitchEvents", {
+          role: "analysis",
+          fromModelId: B,
+          toModelId: A,
+          kind: "rollback",
+          reason: "production_error_rate",
+          actor: "system",
+          at: start,
+        });
+        for (let i = 1; i <= 49; i += 1) {
+          await ctx.db.insert("modelSwitchEvents", {
+            role: "analysis",
+            fromModelId: i % 2 === 1 ? A : D,
+            toModelId: i % 2 === 1 ? D : A,
+            kind: "manual",
+            reason: "admin_choice",
+            actor: "user",
+            at: start + i * 60_000,
+          });
+        }
+        // The 49th switch, the last, went from A to D.
+        await ctx.db.insert("modelRoleAssignments", {
+          role: "analysis",
+          modelId: D,
+          previousModelId: A,
+          assignedAt: lastAt,
+          assignedBy: "user",
+        });
+      });
+      await t.mutation(applyCatalogRefreshRef, { models: parsed, fetchedAt: NOW, complete: false });
+      expect((await assignmentOf(t, "pd_review"))?.inheritedHistory).toEqual({ role: "analysis", until: lastAt });
+      const newestFifty = await t.run((ctx) =>
+        ctx.db
+          .query("modelSwitchEvents")
+          .withIndex("by_role_and_at", (q) => q.eq("role", "analysis").lte("at", lastAt))
+          .order("desc")
+          .take(50)
+      );
+      expect(newestFifty).toHaveLength(50);
+      expect(newestFifty.at(-1)).toMatchObject({ kind: "rollback", fromModelId: B });
+
+      await onlyPdReviewCanPlanB(t);
+      const [first] = await plan(t);
+      expect(first).toMatchObject({ role: "pd_review" });
+      expect(first.modelId).not.toBe(B);
+      // One switch of its own...
+      await promotePdReview(t, first.id);
+      expect((await plan(t)).some((item) => item.modelId === B)).toBe(false);
+      // ...and many more.
+      await dropQueued(t);
+      const admin = t.withIdentity({ subject: ADMIN });
+      for (let i = 0; i < 60; i += 1) {
+        await admin.mutation(setRoleModelRef, { role: "pd_review", modelId: i % 2 === 0 ? A : D });
+      }
+      expect(await eventsOf(t, "pd_review")).toHaveLength(61);
+      const last = await plan(t);
+      expect(last.map((item) => item.role)).toEqual(["pd_review"]);
+      expect(last.some((item) => item.modelId === B)).toBe(false);
+    });
+  });
 });

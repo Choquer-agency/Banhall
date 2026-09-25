@@ -153,14 +153,23 @@ export async function roleModelId(ctx: ReadCtx, role: ModelRole): Promise<string
  * predecessor's rollback target (when this role can run it), the switch
  * time the production error window starts from and the last error notice.
  * The predecessor's history up to its last switch is recorded once, in
- * `inheritedHistory`, which no later switch changes (round 5), and reaches
- * the role through roleSwitchHistory. Roles that already have an assignment
- * are never touched.
+ * `inheritedHistory`, which no later switch changes (round 5); it reaches
+ * the role through lastRoleSwitch and rolledBackFrom. A role that already
+ * has an assignment keeps it; one still marked "role_split" from before
+ * that field existed only gets the field, here, before any switch can
+ * clear the marker it is derived from (round 6).
  */
 export async function ensureRoleSplit(ctx: MutationCtx): Promise<number> {
   let written = 0;
   for (const [role, predecessor] of Object.entries(ROLE_PREDECESSORS) as Array<[ModelRole, ModelRole]>) {
-    if (await roleAssignment(ctx, role)) continue;
+    const existing = await roleAssignment(ctx, role);
+    if (existing) {
+      if (existing.origin === "role_split" && existing.inheritedHistory === undefined) {
+        await ctx.db.patch(existing._id, { inheritedHistory: legacyInheritedHistory(existing, predecessor) });
+        written += 1;
+      }
+      continue;
+    }
     const modelId = await roleModelId(ctx, role);
     const inherited = await roleAssignment(ctx, predecessor);
     const carried = inherited?.modelId === modelId ? inherited : null;
@@ -185,37 +194,86 @@ export async function ensureRoleSplit(ctx: MutationCtx): Promise<number> {
   return written;
 }
 
+type InheritedHistory = NonNullable<Doc<"modelRoleAssignments">["inheritedHistory"]>;
+
 /**
- * A role's switch history, newest first, at most `limit` events: its own
- * events, then, for a split role, the predecessor's events up to the split
- * (`inheritedHistory`, recorded once). Every inherited event is older than
- * every own event, so the order holds. The production error check reads the
- * newest: the role's own last switch once it has one, else the
- * predecessor's last switch before the split, so a rollback made there
- * still stops it flipping back. Evaluation planning reads all of it, so a
- * model rolled back from before the split stays out of this role's
- * evaluations after the role's own later switches too (round 5). The
- * predecessor's switches after the split are never part of it.
+ * A row materialized before `inheritedHistory` existed, still marked
+ * "role_split": its own assignment time is then still the carried switch
+ * time (or the moment it was materialized), so it is the cutoff.
  */
-export async function roleSwitchHistory(
+function legacyInheritedHistory(
+  assignment: Doc<"modelRoleAssignments">,
+  predecessor: ModelRole
+): InheritedHistory {
+  return { role: predecessor, until: assignment.assignedAt };
+}
+
+/** The predecessor history a split role inherits, if any. */
+function inheritedHistoryOf(assignment: Doc<"modelRoleAssignments"> | null): InheritedHistory | null {
+  if (!assignment) return null;
+  if (assignment.inheritedHistory) return assignment.inheritedHistory;
+  const predecessor = ROLE_PREDECESSORS[assignment.role];
+  return assignment.origin === "role_split" && predecessor
+    ? legacyInheritedHistory(assignment, predecessor)
+    : null;
+}
+
+/**
+ * The switch behind a role's current assignment, for the production error
+ * check: the role's own newest event or, for a split role with none of its
+ * own yet, its predecessor's newest event up to the split. A rollback made
+ * there before the split so still stops the check from flipping it back.
+ */
+export async function lastRoleSwitch(
   ctx: ReadCtx,
-  role: ModelRole,
-  limit: number
-): Promise<Doc<"modelSwitchEvents">[]> {
+  role: ModelRole
+): Promise<Doc<"modelSwitchEvents"> | null> {
   const own = await ctx.db
     .query("modelSwitchEvents")
     .withIndex("by_role_and_at", (q) => q.eq("role", role))
     .order("desc")
-    .take(limit);
-  if (own.length >= limit) return own;
-  const inherited = (await roleAssignment(ctx, role))?.inheritedHistory;
-  if (!inherited) return own;
-  const before = await ctx.db
+    .first();
+  if (own) return own;
+  const inherited = inheritedHistoryOf(await roleAssignment(ctx, role));
+  if (!inherited) return null;
+  return await ctx.db
     .query("modelSwitchEvents")
     .withIndex("by_role_and_at", (q) => q.eq("role", inherited.role).lte("at", inherited.until))
     .order("desc")
-    .take(limit - own.length);
-  return [...own, ...before];
+    .first();
+}
+
+/**
+ * Whether `role` was ever rolled back from `modelId`: by a rollback of its
+ * own, or, for a split role, by its predecessor's before the split. Such a
+ * model is never evaluated for the role again, however many switches come
+ * after (round 6). One indexed row per role, whatever the history length.
+ */
+export async function rolledBackFrom(
+  ctx: ReadCtx,
+  role: ModelRole,
+  modelId: string
+): Promise<boolean> {
+  const own = await ctx.db
+    .query("modelSwitchEvents")
+    .withIndex("by_role_and_kind_and_fromModelId_and_at", (q) =>
+      q.eq("role", role).eq("kind", "rollback").eq("fromModelId", modelId)
+    )
+    .first();
+  if (own) return true;
+  const inherited = inheritedHistoryOf(await roleAssignment(ctx, role));
+  if (!inherited) return false;
+  const before = await ctx.db
+    .query("modelSwitchEvents")
+    .withIndex("by_role_and_kind_and_fromModelId_and_at", (q) =>
+      q
+        .eq("role", inherited.role)
+        .eq("kind", "rollback")
+        .eq("fromModelId", modelId)
+        .lte("at", inherited.until)
+    )
+    .first();
+  return before !== null;
 }
 
 export async function roleCostCap(ctx: ReadCtx, role: ModelRole): Promise<CostCap> {
