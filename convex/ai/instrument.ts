@@ -649,6 +649,13 @@ export function instrumentedAnthropic(
           typeof params.model === "string"
             ? params.model
             : "unknown";
+        // The pin should make this impossible; if OpenRouter reports another
+        // host, say so, so a relaxed pin or account setting is visible.
+        if (charge.servedProvider && charge.servedProvider.toLowerCase() !== "anthropic") {
+          console.warn(
+            `Anthropic model ${model} was served by ${charge.servedProvider} through OpenRouter, not Anthropic; check the provider pin and the OpenRouter account's provider settings`
+          );
+        }
         if (usage) {
           meta.onUsage?.({
             model,

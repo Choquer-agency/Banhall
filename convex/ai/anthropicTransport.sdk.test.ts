@@ -434,6 +434,24 @@ test("openrouter without a reported charge falls back to the price-table estimat
   expect(taps[0]).not.toHaveProperty("nativeCostUsd");
 });
 
+test("openrouter warns, without secrets, when a provider other than Anthropic served the call", async () => {
+  useOpenRouter();
+  const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+  const t = convexTest(schema, modules);
+  const { rows } = await usageOf(t, () => anthropicReply({ provider: "Amazon Bedrock" }, OPENROUTER_USAGE));
+  expect(rows[0]).toMatchObject({ servedProvider: "Amazon Bedrock", transport: "openrouter" });
+  const served = warn.mock.calls.map((call) => String(call[0])).filter((line) => line.includes("was served by"));
+  expect(served).toEqual([
+    "Anthropic model claude-sonnet-5 was served by Amazon Bedrock through OpenRouter, not Anthropic; check the provider pin and the OpenRouter account's provider settings",
+  ]);
+  expect(JSON.stringify(warn.mock.calls)).not.toContain(OPENROUTER_KEY);
+  expect(JSON.stringify(warn.mock.calls)).not.toContain(ANTHROPIC_KEY);
+
+  warn.mockClear();
+  await usageOf(t, () => anthropicReply({ provider: "Anthropic" }, OPENROUTER_USAGE));
+  expect(warn.mock.calls.filter((call) => String(call[0]).includes("was served by"))).toEqual([]);
+});
+
 test("direct usage rows are unchanged: no transport, no provider, and any cost field is ignored", async () => {
   const t = convexTest(schema, modules);
   const { rows, taps } = await usageOf(t, () => anthropicReply({ provider: "Anthropic" }, OPENROUTER_USAGE));

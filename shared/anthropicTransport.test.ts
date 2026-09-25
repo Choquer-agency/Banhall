@@ -46,6 +46,37 @@ describe("OpenRouter model ids", () => {
     }
   });
 
+  it("maps the older app ids a retried legacy generation may carry to ids OpenRouter lists", () => {
+    // Anthropic ids in OpenRouter's public model list (GET /api/v1/models),
+    // read 2026-09-25. The 2026-09-24 fixture predates three of them.
+    const listed20260925 = new Set([
+      "anthropic/claude-opus-5.5", "anthropic/claude-fable-5.1", "anthropic/claude-opus-5",
+      "anthropic/claude-sonnet-5", "anthropic/claude-fable-5", "anthropic/claude-opus-4.8",
+      "anthropic/claude-opus-4.7", "anthropic/claude-sonnet-4.6", "anthropic/claude-opus-4.6",
+      "anthropic/claude-opus-4.5", "anthropic/claude-haiku-4.5", "anthropic/claude-sonnet-4.5",
+      "anthropic/claude-opus-4.1", "anthropic/claude-sonnet-4", "anthropic/claude-3-haiku",
+    ]);
+    const legacy = {
+      "claude-fable-5-1": "anthropic/claude-fable-5.1",
+      "claude-sonnet-4-6": "anthropic/claude-sonnet-4.6",
+      "claude-opus-5": "anthropic/claude-opus-5",
+      "claude-haiku-4-5": "anthropic/claude-haiku-4.5",
+    };
+    for (const [appId, requestId] of Object.entries(legacy)) {
+      expect(openRouterAnthropicRequestId(appId), appId).toBe(requestId);
+      expect(listed20260925.has(requestId) || catalogIds.has(requestId), requestId).toBe(true);
+    }
+    // Never mapped: OpenRouter lists no such snapshot, so it fails as configuration.
+    expect(openRouterAnthropicRequestId("claude-sonnet-4-20250514")).toBeUndefined();
+  });
+
+  it("follows OpenRouter's naming for every mapping: no date suffix, version digits joined by a dot", () => {
+    for (const [appId, requestId] of Object.entries(OPENROUTER_ANTHROPIC_REQUEST_IDS)) {
+      const expected = `anthropic/${appId.replace(/-\d{8}$/, "").replace(/(\d)-(\d)/g, "$1.$2")}`;
+      expect(requestId, appId).toBe(expected);
+    }
+  });
+
   it("uses undated anthropic/ ids and never a moving alias", () => {
     for (const requestId of Object.values(OPENROUTER_ANTHROPIC_REQUEST_IDS)) {
       expect(requestId).toMatch(/^anthropic\/claude-[a-z0-9.-]+$/);
