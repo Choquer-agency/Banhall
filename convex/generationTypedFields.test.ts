@@ -116,6 +116,17 @@ describe("strict typed conversion", () => {
     expect(toTranscriptDigestStructuredData([DIGEST_WINDOW])).toEqual([DIGEST_WINDOW]);
   });
 
+  it("keeps the Summary Self-check failure detail in the typed copy", () => {
+    const failed = {
+      ...SELF_CHECK,
+      modelCheck: "failed" as const,
+      modelCheckDetail: "ordinary verdict 3 (label confidence:C1): reason is 71 bytes, over 64",
+    };
+    expect(toSelfCheckSummaryData(failed)).toEqual(failed);
+    expect(sectionRunTypedFields({ selfCheck: JSON.stringify(failed) })).toEqual({ selfCheckData: failed });
+    expect(toSelfCheckSummaryData({ ...failed, modelCheckDetail: 5 })).toBeUndefined();
+  });
+
   it("leaves unknown keys, wrong types and malformed JSON as strings only", () => {
     expect(sectionRunTypedFields({ metrics: "{not json" })).toEqual({});
     expect(sectionRunTypedFields({ metrics: JSON.stringify({ ...METRICS, extra: 1 }) })).toEqual({});

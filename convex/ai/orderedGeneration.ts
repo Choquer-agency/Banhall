@@ -415,7 +415,10 @@ async function draftCheckedSection(input: {
     console.warn(
       `generation:selfCheck:${section}: Self-check failed (${reason}): ${detail}`
     );
-    modelCheck = { ok: false, reason, detail };
+    // The stored diagnostic belongs to the Summary check only: legacy,
+    // single and compare runs keep their Compliance Note exactly as before.
+    modelCheck =
+      claim.planChecks.length > 0 ? { ok: false, reason, detail } : { ok: false, reason };
     planVerdicts = claim.planChecks.map((check) => ({
       ...(check.itemId ? { itemId: check.itemId } : {}),
       ...(check.skippedRoleId ? { skippedRoleId: check.skippedRoleId } : {}),

@@ -42,6 +42,9 @@ export const selfCheckSummaryValidator = v.object({
   failedChecks: v.number(),
   remainingFailures: v.number(),
   modelCheck: v.union(v.literal("ok"), v.literal("failed")),
+  // Why the Summary Self-check was rejected: clause, index and byte counts
+  // or app-supplied ids only, never model text (plan coverage, 2026-09-25).
+  modelCheckDetail: v.optional(v.string()),
   planCoverage: v.optional(
     v.object({
       status: v.union(
@@ -174,18 +177,20 @@ const SELF_CHECK_KEYS = [
   "failedChecks",
   "remainingFailures",
   "modelCheck",
+  "modelCheckDetail",
   "planCoverage",
 ] as const;
 
 export function toSelfCheckSummaryData(value: unknown): SelfCheckSummaryData | undefined {
   if (!isPlainObject(value) || !onlyKeys(value, SELF_CHECK_KEYS)) return undefined;
-  const { status, repairAttempted, failedChecks, remainingFailures, modelCheck, planCoverage } = value;
+  const { status, repairAttempted, failedChecks, remainingFailures, modelCheck, modelCheckDetail, planCoverage } = value;
   if (
     (status !== "pass" && status !== "repair_attempted" && status !== "repair_failed") ||
     typeof repairAttempted !== "boolean" ||
     !isFiniteNumber(failedChecks) ||
     !isFiniteNumber(remainingFailures) ||
-    (modelCheck !== "ok" && modelCheck !== "failed")
+    (modelCheck !== "ok" && modelCheck !== "failed") ||
+    (modelCheckDetail !== undefined && typeof modelCheckDetail !== "string")
   ) {
     return undefined;
   }
@@ -214,6 +219,7 @@ export function toSelfCheckSummaryData(value: unknown): SelfCheckSummaryData | u
     failedChecks,
     remainingFailures,
     modelCheck,
+    ...(typeof modelCheckDetail === "string" ? { modelCheckDetail } : {}),
     ...(coverage ? { planCoverage: coverage } : {}),
   };
 }

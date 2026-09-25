@@ -995,8 +995,14 @@ describe("chain failure paths never strand a candidate", () => {
     const failed = notes.filter((note) => note.instruction === "Model Self-check");
     expect(failed.map((note) => note.section).sort()).toEqual(["242", "244", "246"]);
     expect(failed.every((note) => note.outcome === "not_applied" && note.reason.includes("Self-check call failed"))).toBe(true);
+    // Single, compare and legacy runs keep the note exactly as before the
+    // Summary diagnostics (2026-09-25): code only, no detail.
+    expect(failed.map((note) => note.reason)).toEqual(
+      Array(3).fill("Self-check call failed (unknown); deterministic checks only")
+    );
     const rows = await sectionRowsOf(t, generationId);
     expect(rows.map((row) => JSON.parse(row.selfCheck ?? "{}").modelCheck)).toEqual(["failed", "failed", "failed"]);
+    expect(rows.every((row) => !("modelCheckDetail" in JSON.parse(row.selfCheck ?? "{}")))).toBe(true);
   });
 
   it("a failed consistency call is recorded as advisory, still releases the last section and completes", async () => {
