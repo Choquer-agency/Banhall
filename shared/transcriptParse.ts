@@ -32,9 +32,15 @@
  * follows several one-word names ("Dana (Verdant Grid)", "Sam (Verdant
  * Grid)"), which makes it their company. Every name in a label's brackets
  * is hidden as v3 hid it; job titles and departments are not names.
+ *
+ * v6 (2026-09-25, final review): brackets are a job title only when every
+ * word is a title or department word ("VP Engineering", "Head of R&D"). A
+ * company or a person whose name holds one of those words ("Northwind
+ * Engineering", "Acme (Jonathan Head)") is hidden again, as v3 and v4 hid
+ * it. The bump makes the build store names again for rows v5 built.
  */
 
-export const TRANSCRIPT_PARSER_VERSION = "5";
+export const TRANSCRIPT_PARSER_VERSION = "6";
 
 /**
  * Longest turn, in characters of stored text. A longer run of speech (a
@@ -156,21 +162,26 @@ function nameWords(text: string): boolean {
 }
 
 /**
- * Last words that mark a company's name ("Northwind Labs", "Acme Corp"),
- * never a person's (parser v5).
+ * Last words that mark a company's name ("Northwind Labs", "Acme Corp",
+ * "Northwind Engineering"), never a person's (parser v5). The department
+ * words here end a company's name after a name word ("Pacific Research"),
+ * and a title only when every word is a title word ("VP Engineering").
  */
 const ORG_WORDS = new Set([
   "inc", "incorporated", "ltd", "limited", "llc", "corp", "corporation", "co",
   "company", "plc", "gmbh", "ulc", "lp", "llp", "technologies", "technology",
   "systems", "solutions", "group", "holdings", "labs", "laboratories",
   "industries", "international", "enterprises", "services", "software",
-  "energy", "canada",
+  "energy", "canada", "engineering", "research", "design", "development",
+  "science", "sciences", "consulting", "analytics", "robotics",
 ]);
 
 /**
  * Job titles and departments written in a label's brackets ("Priya Shah
- * (CTO)", "Raj Patel (Engineering)"). They name no one and no company, so
- * they are never hidden as one (parser v5).
+ * (CTO)", "Raj Patel (Engineering)", "Head of R&D"). Brackets are a title,
+ * naming no one and no company, only when every word is one of these or a
+ * connector: "Northwind Engineering" and "Jonathan Head" hold a name word,
+ * so they stay hidden (parser v5, review 2026-09-25).
  */
 const TITLE_WORDS = new Set([
   "ceo", "cto", "cfo", "coo", "cio", "vp", "svp", "evp", "president", "chief",
@@ -180,8 +191,11 @@ const TITLE_WORDS = new Set([
   "partner", "principal", "senior", "junior", "sales", "marketing", "finance",
   "operations", "product", "design", "designer", "hr", "legal", "it", "r&d",
   "qa", "support", "technician", "specialist", "coordinator", "consultant",
-  "advisor", "intern", "team",
+  "advisor", "intern", "team", "technology", "technical", "executive",
+  "financial", "operating", "information", "vice", "general", "program",
+  "project", "business", "data", "software", "hardware", "staff", "assistant",
 ]);
+const TITLE_CONNECTORS = new Set(["of", "and", "&"]);
 
 function lastWord(text: string): string {
   const words = text.toLowerCase().replace(/[.,]+$/, "").split(/\s+/);
@@ -189,7 +203,11 @@ function lastWord(text: string): string {
 }
 
 function isTitle(text: string): boolean {
-  return text.toLowerCase().split(/\s+/).some((word) => TITLE_WORDS.has(word.replace(/[.,]+$/, "")));
+  const words = text.toLowerCase().split(/\s+/).map((word) => word.replace(/[.,]+$/, ""));
+  return (
+    words.some((word) => TITLE_WORDS.has(word)) &&
+    words.every((word) => TITLE_WORDS.has(word) || TITLE_CONNECTORS.has(word))
+  );
 }
 
 /** A label split at its closing brackets: "Priya Shah (Acme)". */

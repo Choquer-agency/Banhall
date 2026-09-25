@@ -5,6 +5,7 @@ import {
   detectTranscriptFormat,
   formatTimestamp,
   isCueRender,
+  labelBracketNames,
   MAX_TURN_CHARS,
   normalizeTranscriptText,
   parseTranscriptTurns,
@@ -494,6 +495,40 @@ describe("speaker labels (parser v4)", () => {
     expect(names.labels).toEqual(["Priya Shah", "Raj Patel", "Tom Becker", "Ann Lee", "Marcus Lindqvist"]);
     expect(names.otherNames).toEqual(["Acme Widgets"]);
     expect(names.organizations).toEqual(["Northwind Labs"]);
+  });
+
+  it("hides a company or a person whose name holds a title word, and keeps a title made only of title words (v6)", () => {
+    const content = [
+      "Priya Shah (Northwind Engineering): We tried.",
+      "Raj Patel (Pacific Research): It held.",
+      "Ann Lee (Acme Design): It drifted.",
+      "Acme (Jonathan Head): We logged it.",
+      "Acme (Pedro Sales): Agreed.",
+      "Tom Becker (VP Engineering): Fine.",
+      "Marcus Lindqvist (Head of Research): Next.",
+      "Dana Whitfield (Senior Software Engineer): Done.",
+    ].join("\n\n");
+    expect(speakers(parseTranscriptTurns(content))).toEqual([
+      "Priya Shah",
+      "Raj Patel",
+      "Ann Lee",
+      "Jonathan Head",
+      "Pedro Sales",
+      "Tom Becker",
+      "Marcus Lindqvist",
+      "Dana Whitfield",
+    ]);
+    const names = transcriptSpeakerNames(content);
+    expect(names.otherNames).toEqual([]);
+    expect([...names.organizations].sort()).toEqual(["Acme", "Acme Design", "Northwind Engineering", "Pacific Research"]);
+    expect(labelBracketNames("Acme (Jonathan Head)")).toEqual({ people: ["Jonathan Head"], organizations: ["Acme"] });
+    expect(labelBracketNames("Priya Shah (Acme Engineering Ltd.)").organizations).toEqual(["Acme Engineering Ltd."]);
+    // A one-word name before a company with a department word stays the speaker.
+    expect(speakerOfTranscriptLine("Raj (Pacific Research): It held.")).toBe("Raj");
+    expect(labelBracketNames("Raj (Pacific Research)")).toEqual({ people: [], organizations: ["Pacific Research"] });
+    for (const title of ["VP Engineering", "Head of R&D", "Chief Technology Officer", "CTO", "Engineering"]) {
+      expect(labelBracketNames(`Priya Shah (${title})`), title).toEqual({ people: [], organizations: [] });
+    }
   });
 
   it("never reads a reply before a comma as a surname", () => {
