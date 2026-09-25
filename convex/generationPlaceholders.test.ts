@@ -77,6 +77,7 @@ describe("placeholders frozen on a generation", () => {
     expect(generation?.placeholders?.map((entry) => entry.value)).toEqual([
       "Verdant Grid Technologies Inc.",
       "Verdant Grid Technologies",
+      "Verdant Grid",
       "VERDANT GRID TECHNOLOGIES",
       "Dana Whitfield",
       "Dana",
@@ -91,6 +92,27 @@ describe("placeholders frozen on a generation", () => {
       "Marcus",
       "Lindqvist",
     ]);
+  });
+
+  it("renumbers the frozen map when a transcript already holds placeholder-style tokens", async () => {
+    const f = await setup();
+    await f.t.run(async (ctx) => {
+      await ctx.db.insert("transcripts", {
+        projectId: f.projectId,
+        content: "[PERSON_1]: A redacted earlier note about [CLIENT_1].",
+        createdAt: 2,
+        position: 1,
+      });
+    });
+    const generationId = await f.writer.mutation(api.generations.requestGeneration, {
+      projectId: f.projectId,
+      candidateMode: "single",
+    });
+    const generation = await f.t.run((ctx) => ctx.db.get(generationId));
+    const tokens = generation?.placeholders?.map((entry) => entry.token) ?? [];
+    expect(tokens[0]).toBe("[CLIENT_2]");
+    expect(tokens).not.toContain("[PERSON_1]");
+    expect(tokens).not.toContain("[CLIENT_1]");
   });
 
   it("freezes none when the emergency switch is off", async () => {

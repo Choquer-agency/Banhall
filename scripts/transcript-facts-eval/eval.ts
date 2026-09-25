@@ -17,7 +17,7 @@
  * stubbed and the CLI (scripts/transcript-facts-eval.mjs) with a real key.
  */
 import type Anthropic from "@anthropic-ai/sdk";
-import { buildPlaceholderMap, type PlaceholderMap } from "../../convex/lib/deidentify";
+import { avoidTokenCollisions, buildPlaceholderMap, type PlaceholderMap } from "../../convex/lib/deidentify";
 import {
   locateQuote,
   planFactWindows,
@@ -45,6 +45,8 @@ export type EvalTranscript = {
   name: string;
   text: string;
   fileName?: string;
+  /** The client's company name, hidden behind a placeholder (decision 26). */
+  clientName?: string;
   /** The firm's interviewer, so the role rules can place them. */
   interviewer?: string;
   interviewees?: readonly string[];
@@ -201,9 +203,13 @@ export function evalTurns(entry: EvalTranscript): { content: string; turns: Fact
     charEnd: turn.charEnd,
     cleanText: turn.cleanText,
   }));
-  const placeholders = buildPlaceholderMap({
-    people: [entry.interviewer, ...(entry.interviewees ?? []), ...guesses.map((guess) => guess.label)],
-  });
+  const placeholders = avoidTokenCollisions(
+    buildPlaceholderMap({
+      ...(entry.clientName ? { clientName: entry.clientName } : {}),
+      people: [entry.interviewer, ...(entry.interviewees ?? []), ...guesses.map((guess) => guess.label)],
+    }),
+    [content]
+  );
   return { content, turns, placeholders, speakers: guesses.map((guess) => ({ label: guess.label, role: guess.role })) };
 }
 
@@ -330,6 +336,28 @@ export async function runFactsEval(transcripts: readonly EvalTranscript[], optio
       digestUsd: sum((row) => row.cost.digestUsd),
     },
   };
+}
+
+/**
+ * Why the CLI must not make the billable calls, or null when it may
+ * (review 2026-09-25). A run on real transcripts without the client's
+ * company name would send that name to the model (decision 26), so `--yes`
+ * requires `--client`.
+ */
+export function evalRunRefusal(args: {
+  yes: boolean;
+  clientName?: string;
+  estimateUsd: number;
+  maxUsd: number;
+  apiKey?: string;
+}): string | null {
+  if (!args.yes) return null;
+  if (!args.clientName?.trim()) {
+    return "Add --client with the client's company name, so it is hidden from the model like every other name.";
+  }
+  if (args.estimateUsd > args.maxUsd) return `Estimated cost is above --max-usd ${args.maxUsd}.`;
+  if (!args.apiKey) return "Set ANTHROPIC_API_KEY for this billable evaluation.";
+  return null;
 }
 
 /**

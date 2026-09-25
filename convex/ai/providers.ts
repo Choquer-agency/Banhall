@@ -367,6 +367,32 @@ export function clientForModel(
 }
 
 /**
+ * The structured fact-extraction client (review 2026-09-25, P1): routed and
+ * instrumented like `clientForModel`, usage attributed to the generation
+ * when there is one, but WITHOUT the generation's placeholder wrapper. Fact
+ * extraction hides and restores names itself with the one map
+ * `transcripts.factsInput` builds; a second map here numbers people
+ * differently and restores one person's placeholder as another's name.
+ */
+export function factExtractionClient(
+  ctx: ActionCtx,
+  modelId: string,
+  meta: GenerationCallMeta,
+  options: { timeoutMs: number }
+): GenerationClient {
+  assertGenerationCallSite(meta.callSite);
+  const client =
+    gatewayForModel(modelId) === "openrouter"
+      ? instrumentedOpenRouter(ctx, meta, { timeoutMs: options.timeoutMs })
+      : (instrumentedAnthropic(ctx, {
+          ...meta,
+          capability: "generation",
+          clientOptions: { timeout: options.timeoutMs },
+        }) as unknown as GenerationClient);
+  return recordingFailures(ctx, modelId, meta.callSite, client);
+}
+
+/**
  * The client for a helper role outside any generation (Brain ingest,
  * learning digests, chat-side helpers, admin summaries): the role's current
  * model, with its previous model as an OpenRouter fallback when both run

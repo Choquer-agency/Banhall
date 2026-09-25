@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   contentWords,
   estimateEvalCost,
+  evalRunRefusal,
   formatReport,
   recalledBy,
   runFactsEval,
@@ -51,6 +52,9 @@ function message(content: unknown[]) {
   });
 }
 
+/** Names every request is checked for; a test may add the client's. */
+const hiddenNames = ["Marcus", "Lindqvist", "Dana", "Whitfield"];
+
 const fakeProvider = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
   const body = JSON.parse(await new Request(input, init).text()) as {
     tools?: Array<{ name: string }>;
@@ -58,7 +62,7 @@ const fakeProvider = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) 
   };
   const sent = JSON.stringify(body);
   // Owner decision 26: no name reaches the model, in either call.
-  for (const name of ["Marcus", "Lindqvist", "Dana", "Whitfield"]) {
+  for (const name of hiddenNames) {
     if (sent.includes(name)) throw new Error(`Name ${name} reached the model`);
   }
   if (body.tools?.[0]?.name === "record_transcript_digest") {
@@ -189,6 +193,41 @@ describe("transcript facts evaluation harness", () => {
     const report = await runFactsEval([entry], { client, model: "claude-sonnet-5" });
     expect(fakeProvider).toHaveBeenCalledTimes(1);
     expect(report.totals.factRecall).toBe(1);
+  });
+
+  it("hides the client's company name given with --client (review 2026-09-25)", async () => {
+    fakeProvider.mockClear();
+    hiddenNames.push("Verdant");
+    try {
+      const client = new Anthropic({ apiKey: "synthetic-eval-key", fetch: fakeProvider as unknown as typeof fetch, maxRetries: 0 });
+      const report = await runFactsEval(
+        [
+          {
+            name: "helios",
+            fileName: "helios.txt",
+            text: HELIOS,
+            clientName: "Verdant Grid Technologies Inc.",
+            interviewer: "Dana Whitfield",
+            interviewees: ["Marcus Lindqvist"],
+          },
+        ],
+        { client, model: "claude-sonnet-5" }
+      );
+      expect(fakeProvider).toHaveBeenCalledTimes(2);
+      expect(report.transcripts[0].facts.kept).toBe(3);
+    } finally {
+      hiddenNames.pop();
+    }
+  });
+
+  it("refuses the billable run without --client, over the limit or without a key", () => {
+    const base = { yes: true, clientName: "Verdant Grid", estimateUsd: 0.4, maxUsd: 1, apiKey: "key" };
+    expect(evalRunRefusal(base)).toBeNull();
+    expect(evalRunRefusal({ ...base, yes: false, clientName: undefined })).toBeNull();
+    expect(evalRunRefusal({ ...base, clientName: undefined })).toMatch(/--client/);
+    expect(evalRunRefusal({ ...base, clientName: "  " })).toMatch(/--client/);
+    expect(evalRunRefusal({ ...base, estimateUsd: 2 })).toMatch(/--max-usd 1/);
+    expect(evalRunRefusal({ ...base, apiKey: undefined })).toMatch(/ANTHROPIC_API_KEY/);
   });
 
   it("counts recall by shared content words", () => {

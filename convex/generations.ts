@@ -654,11 +654,33 @@ async function reserveGeneration(
     row,
     content: row.content.slice(0, FROZEN_TRANSCRIPT_CHARS),
   }));
+  const documents = await ctx.db
+    .query("projectDocuments")
+    .withIndex("by_projectId", (q) => q.eq("projectId", project._id))
+    .take(50);
+  const frozenDocuments = documents.flatMap((document) =>
+    document.archived || !document.content.trim()
+      ? []
+      : [{ document, content: document.content.slice(0, 200_000) }]
+  );
   // Owner decision 26: every generation-owned provider call reads
   // placeholders, never names; the map is frozen here so every call of this
-  // generation (and its cached prefixes) sees the same bytes.
+  // generation (and its cached prefixes) sees the same bytes. It is checked
+  // against every text the calls will send, so a source that already holds
+  // placeholder-style tokens never has them restored into names.
   const placeholders = (await transcriptPlaceholdersEnabled(ctx))
-    ? [...(await projectPlaceholderMap(ctx, project, transcripts.map((row) => row._id)))]
+    ? [
+        ...(await projectPlaceholderMap(
+          ctx,
+          project,
+          transcripts.map((row) => row._id),
+          [
+            ...frozenTranscripts.map((item) => item.content),
+            ...frozenDocuments.map((item) => item.content),
+            ...(writerSuppliedStoryline ? [writerSuppliedStoryline] : []),
+          ]
+        )),
+      ]
     : [];
   const inputMode = decideInputMode(
     frozenTranscripts.reduce((total, item) => total + item.content.length, 0)
@@ -717,13 +739,7 @@ async function reserveGeneration(
       capturedAt: now,
     });
   }
-  const documents = await ctx.db
-    .query("projectDocuments")
-    .withIndex("by_projectId", (q) => q.eq("projectId", project._id))
-    .take(50);
-  for (const document of documents) {
-    if (document.archived || !document.content.trim()) continue;
-    const content = document.content.slice(0, 200_000);
+  for (const { document, content } of frozenDocuments) {
     await ctx.db.insert("generationSources", {
       generationId,
       projectId: project._id,

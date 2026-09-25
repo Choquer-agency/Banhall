@@ -39,6 +39,7 @@ import { generationPromptVersion } from "./promptProgram";
 import {
   clientForModel,
   clientForRole,
+  factExtractionClient,
   registerGenerationModels,
   CONVEX_ACTION_LIMIT_MS,
   normalizeProviderError,
@@ -358,7 +359,13 @@ function extractorFor(
     },
   };
   if (gatewayForModel(model) === "anthropic") {
-    const client = instrumentedAnthropic(ctx, { ...common, capability: "generation" });
+    // Not placeholder-wrapped either: extractTranscriptFacts applies the
+    // one map to every window and every answer.
+    const client = instrumentedAnthropic(ctx, {
+      ...common,
+      capability: "generation",
+      clientOptions: { timeout: FACTS_TIMEOUT_MS },
+    });
     return {
       adapter: "citations",
       extractor: citationsExtractor(client, model, (tokens) => {
@@ -367,7 +374,15 @@ function extractorFor(
       }),
     };
   }
-  return { adapter: "structured", extractor: structuredExtractor(clientForModel(ctx, model, common), model) };
+  // Never `clientForModel` here: inside a generation it would hide names a
+  // second time with the generation's map (review 2026-09-25, P1).
+  return {
+    adapter: "structured",
+    extractor: structuredExtractor(
+      factExtractionClient(ctx, model, common, { timeoutMs: FACTS_TIMEOUT_MS }),
+      model
+    ),
+  };
 }
 
 /**
@@ -388,7 +403,10 @@ export async function ensureTranscriptFacts(
     slots?: CallSlots;
   } = {}
 ): Promise<FactsOutcome> {
-  const input = await ctx.runQuery(internal.transcripts.factsInput, { transcriptId });
+  const input = await ctx.runQuery(internal.transcripts.factsInput, {
+    transcriptId,
+    ...(caller.kind === "generation" ? { generationId: caller.generationId } : {}),
+  });
   if (!input) return "gone";
   if (!input.structureReady || input.turns.length === 0) return "failed";
   let model: string;

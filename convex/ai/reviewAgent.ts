@@ -5,6 +5,7 @@ import { internal } from "../_generated/api";
 import { v } from "convex/values";
 import { clientForRole } from "./providers";
 import { withPlaceholders } from "./placeholderClient";
+import { avoidTokenCollisions } from "../lib/deidentify";
 import { PD_REVIEW_SYSTEM_PROMPT } from "./prompts";
 import { generateStructured } from "./structured";
 import { pdReviewResultSchema } from "../../shared/pdReview";
@@ -189,7 +190,16 @@ export const runPdReview = internalAction({
       });
       // Owner decision 26 (2026-09-24): names become placeholders in the
       // request, and the review is restored before it is stored.
-      const client = withPlaceholders(roleClient, input.placeholders ?? []);
+      // Checked against every text the call sends, so a source that already
+      // holds placeholder-style tokens never has them restored into names.
+      const client = withPlaceholders(
+        roleClient,
+        avoidTokenCollisions(input.placeholders ?? [], [
+          input.pdContent,
+          input.transcript,
+          ...contextDocs.map((doc) => doc.content),
+        ])
+      );
       const result = await generateStructured<PdReviewResult>(client, {
         model,
         system: PD_REVIEW_SYSTEM_PROMPT,

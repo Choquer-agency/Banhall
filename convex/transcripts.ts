@@ -405,7 +405,14 @@ export const speakerRoleInput = internalQuery({
     return {
       projectId: project._id,
       samples,
-      placeholders: [...(await projectPlaceholderMap(ctx, project, [transcript._id]))],
+      placeholders: [
+        ...(await projectPlaceholderMap(
+          ctx,
+          project,
+          [transcript._id],
+          samples.flatMap((sample) => sample.lines)
+        )),
+      ],
     };
   },
 });
@@ -545,17 +552,35 @@ export const confirmSpeakers = mutation({
 
 /**
  * What one extraction needs: the verbatim text and its hash, the turns with
- * their current roles, and the placeholder map for the call.
+ * their current roles, and the placeholder map for the call. This map is
+ * the only one an extraction uses, inside a generation too: it hides the
+ * names in every window and restores every answer (review 2026-09-25). It
+ * covers the speakers of every transcript of the generation (or of the
+ * project, outside one), so a person who speaks in one interview and is
+ * named in another is hidden in both.
  */
 export const factsInput = internalQuery({
-  args: { transcriptId: v.id("transcripts") },
+  args: { transcriptId: v.id("transcripts"), generationId: v.optional(v.id("generations")) },
   handler: async (ctx, args) => {
     const transcript = await ctx.db.get(args.transcriptId);
     if (!transcript || transcript.content.trim() === "") return null;
     const project = await ctx.db.get(transcript.projectId);
     if (!project || project.deletionStartedAt !== undefined) return null;
+    const generation = args.generationId ? await ctx.db.get(args.generationId) : null;
+    const speakerSources = [
+      transcript._id,
+      ...((generation?.projectId === project._id ? generation.transcriptIds : undefined) ??
+        (await listProjectTranscripts(ctx, project._id)).map((row) => row._id)),
+    ];
     const placeholders = (await transcriptPlaceholdersEnabled(ctx))
-      ? [...(await projectPlaceholderMap(ctx, project, [transcript._id]))]
+      ? [
+          ...(await projectPlaceholderMap(
+            ctx,
+            project,
+            [...new Set(speakerSources)],
+            [transcript.content]
+          )),
+        ]
       : [];
     return {
       projectId: project._id,

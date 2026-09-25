@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  avoidTokenCollisions,
   buildPlaceholderMap,
   containsPlaceholderToken,
   pseudonymize,
@@ -25,6 +26,7 @@ describe("placeholder map", () => {
     expect(map).toEqual([
       { token: "[CLIENT_1]", value: "Verdant Grid Technologies Inc." },
       { token: "[CLIENT_1_SHORT]", value: "Verdant Grid Technologies" },
+      { token: "[CLIENT_1_BRAND]", value: "Verdant Grid" },
       { token: "[CLIENT_1_CAPS]", value: "VERDANT GRID TECHNOLOGIES" },
       { token: "[PERSON_1]", value: "Dana Whitfield" },
       { token: "[PERSON_1_FIRST]", value: "Dana" },
@@ -81,6 +83,44 @@ describe("pseudonymize and restore", () => {
   it("detects text that already carries a token", () => {
     expect(containsPlaceholderToken("see [PERSON_1]", map)).toBe(true);
     expect(containsPlaceholderToken("see [PERSON_99]", map)).toBe(false);
+    // A variant the map never issued still restores through its base.
+    expect(containsPlaceholderToken("see [PERSON_2_CAPS]", map)).toBe(true);
+  });
+
+  it("restores a variant the model invented through its base token (review 2026-09-25)", () => {
+    const oneWord = buildPlaceholderMap({ people: ["Priya", "Dana Whitfield"] });
+    expect(oneWord.map((entry) => entry.token)).toEqual(["[PERSON_1]", "[PERSON_2]", "[PERSON_2_FIRST]", "[PERSON_2_LAST]"]);
+    expect(restorePlaceholders("[PERSON_1_FIRST] and [PERSON_1_LAST] met [PERSON_2].", oneWord)).toBe(
+      "Priya and Priya met Dana Whitfield."
+    );
+    // No legal suffix, so no SHORT form was issued: the base name stands in.
+    expect(restorePlaceholders("[CLIENT_1_SHORT] paid.", buildPlaceholderMap({ clientName: "Acme Robotics", people: [] }))).toBe(
+      "Acme Robotics paid."
+    );
+    expect(restorePlaceholders("[PERSON_7_FIRST] stays.", oneWord)).toBe("[PERSON_7_FIRST] stays.");
+  });
+});
+
+describe("texts that already hold placeholder-style tokens (review 2026-09-25)", () => {
+  const redacted = "[PERSON_1]: We tested it. Dana Whitfield asked [PERSON_2_FIRST] about [CLIENT_1].";
+
+  it("renumbers the map past every token in the texts, so literal tokens survive the round trip", () => {
+    const safe = avoidTokenCollisions(map, [redacted]);
+    expect(safe).not.toBe(map);
+    expect(safe.map((entry) => entry.value)).toEqual(map.map((entry) => entry.value));
+    expect(safe[0]).toEqual({ token: "[CLIENT_2]", value: "Verdant Grid Technologies Inc." });
+    expect(safe.find((entry) => entry.value === "Dana Whitfield")?.token).toBe("[PERSON_3]");
+    const hidden = pseudonymize(redacted, safe);
+    expect(hidden).toBe("[PERSON_1]: We tested it. [PERSON_3] asked [PERSON_2_FIRST] about [CLIENT_1].");
+    expect(restorePlaceholders(hidden, safe)).toBe(redacted);
+    // With the plain map, the literal tokens would have become real names.
+    expect(restorePlaceholders(pseudonymize(redacted, map), map)).not.toBe(redacted);
+  });
+
+  it("keeps the same map when nothing collides, and is deterministic", () => {
+    expect(avoidTokenCollisions(map, ["No tokens here.", "[PERSON_99] is not ours."])).toBe(map);
+    expect(avoidTokenCollisions(map, [redacted])).toEqual(avoidTokenCollisions(map, [redacted]));
+    expect(avoidTokenCollisions([], [redacted])).toEqual([]);
   });
 });
 
