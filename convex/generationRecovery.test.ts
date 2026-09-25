@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api, internal } from "./_generated/api";
 import { refreshProjectGenerationActivity } from "./lib/dashboardProjection";
 import schema from "./schema";
+import { allGenerationProgress } from "./lib/generationProgress";
 
 const modules = import.meta.glob("./**/*.ts");
 const authId = "recovery-user";
@@ -565,12 +566,13 @@ describe("failStalePostQa", () => {
 
     const state = await t.run(async (ctx) => ({
       stale: await ctx.db.get(ids.staleId),
+      staleProgress: await allGenerationProgress(ctx, ids.staleId),
       legacy: await ctx.db.get(ids.legacyId),
       fresh: await ctx.db.get(ids.freshId),
       done: await ctx.db.get(ids.doneId),
     }));
     expect(state.stale?.postQaStatus).toBe("failed");
-    expect(state.stale?.progressLog?.at(-1)).toBe(
+    expect(state.staleProgress.at(-1)).toBe(
       "Post-assembly QA pass timed out — the report is unaffected. Run it again from the QA panel."
     );
     expect(state.legacy?.postQaStatus).toBe("failed");

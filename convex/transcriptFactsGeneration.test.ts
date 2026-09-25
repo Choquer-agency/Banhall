@@ -10,6 +10,7 @@ import { convexTest } from "convex-test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api, internal } from "./_generated/api";
 import schema from "./schema";
+import { allGenerationProgress } from "./lib/generationProgress";
 import type { Id } from "./_generated/dataModel";
 import { resetGenerationModelCache, resetGenerationPlaceholderCache } from "./ai/providers";
 
@@ -192,6 +193,7 @@ async function generate(f: Awaited<ReturnType<typeof setup>>) {
   await f.t.action(internal.ai.iterative.startIterativeGeneration, { generationId });
   const state = await f.t.run(async (ctx) => ({
     generation: await ctx.db.get(generationId),
+    progress: await allGenerationProgress(ctx, generationId),
     sources: await ctx.db
       .query("generationSources")
       .withIndex("by_generationId", (q) => q.eq("generationId", generationId))
@@ -274,7 +276,7 @@ describe("a generation frozen to read facts", () => {
     expect(network.calls[0].kind).toBe("facts");
     expect(network.calls.filter((call) => call.kind === "facts")).toHaveLength(1);
     expect(result.sources.some((row) => row.kind === "transcript_facts")).toBe(true);
-    expect(result.generation?.progressLog?.join("\n")).toContain("Drafting from the verified facts of 1 transcript.");
+    expect(result.progress.join("\n")).toContain("Drafting from the verified facts of 1 transcript.");
   });
 
   it("falls back to the transcript text when extraction fails, and the draft still runs", async () => {

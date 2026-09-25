@@ -66,6 +66,7 @@ import {
 } from "./ai/chatEvidence";
 import { projectRollingCostUsdUnits, usdDecimalUnits } from "./aiUsage";
 import type { Doc, Id } from "./_generated/dataModel";
+import { outputArtifact, outputsInArtifacts } from "./lib/generationOutputs";
 
 // ─── Agent-based chat plumbing (BNH-10 P2; sole pipeline since Jul 22) ───────
 // The @convex-dev/agent component owns threads/messages/stream deltas.
@@ -1710,8 +1711,14 @@ export const getChatContextV2 = internalQuery({
     const ownGeneration = report.generationId
       ? budget.charge(await ctx.db.get(report.generationId))
       : null;
-    let generation = ownGeneration;
-    if (!generation?.agentOutputs) {
+    // A generation's outputs live on its row (legacy) or, since 2026-09-25,
+    // in a generationArtifacts row, which is charged when it is read.
+    const outputsOf = async (row: Doc<"generations">) =>
+      outputsInArtifacts(row)
+        ? budget.charge(await outputArtifact(ctx, row._id, "agent_outputs"))?.content
+        : row.agentOutputs;
+    let agentOutputs = ownGeneration ? await outputsOf(ownGeneration) : undefined;
+    if (!agentOutputs) {
       const completed = budget.charge(
         await ctx.db
           .query("generations")
@@ -1721,7 +1728,10 @@ export const getChatContextV2 = internalQuery({
           .order("desc")
           .take(10)
       );
-      generation = completed.find((row) => row.agentOutputs) ?? null;
+      for (const row of completed) {
+        agentOutputs = await outputsOf(row);
+        if (agentOutputs) break;
+      }
     }
 
     const documents = budget.charge(
@@ -1765,7 +1775,7 @@ export const getChatContextV2 = internalQuery({
 
     return {
       reportContent: report.content ?? null,
-      agentOutputs: generation?.agentOutputs ?? null,
+      agentOutputs: agentOutputs ?? null,
       documents: documents
         .filter((d) => !d.archived) // BNH-24: archived docs are out of AI context
         // CAP-3/CAP-4: provenance travels with the document. Trust and the

@@ -67,6 +67,7 @@ import {
 } from "../lib/selfCheckRules";
 import { noteDraft, type ComplianceNoteDraft } from "../lib/complianceNote";
 import { generationPromptVersion } from "./promptProgram";
+import { forwardOrderedPayload } from "../lib/orderedPayloadStore";
 import type { PdSubsectionRoleId } from "../../shared/pdSubsections";
 
 const SECTION_AGENTS = {
@@ -267,6 +268,24 @@ function parseCounts(value: string | null): Record<string, number> {
     if (typeof count === "number") out[slot] = count;
   }
   return out;
+}
+
+/** The chain payload a scheduled step was handed: in its arguments (chains
+ * scheduled before 2026-09-25) or stored once and named by id. */
+async function loadChainPayload(
+  ctx: ActionCtx,
+  args: {
+    generationId: Id<"generations">;
+    payload?: OrderedPayload;
+    payloadId?: Id<"generationArtifacts">;
+  }
+): Promise<OrderedPayload | null> {
+  if (args.payload) return args.payload;
+  if (!args.payloadId) return null;
+  return await ctx.runQuery(internal.generations.getOrderedPayload, {
+    generationId: args.generationId,
+    payloadId: args.payloadId,
+  });
 }
 
 /** The claim both the ordered chain and the seed redraft draft from. */
@@ -529,12 +548,26 @@ export const generateOrderedSection = internalAction({
     generationId: v.id("generations"),
     candidateRunId: v.id("generationCandidateRuns"),
     section: sectionNumberValidator,
-    payload: orderedPayloadValidator,
+    // The chain's stored payload (2026-09-25), or the payload itself for a
+    // chain scheduled before payloads were stored.
+    payload: v.optional(orderedPayloadValidator),
+    payloadId: v.optional(v.id("generationArtifacts")),
   },
   returns: v.null(),
   handler: async (ctx, args): Promise<null> => {
     // Model catalog: routing and output budgets read the frozen models.
     await registerGenerationModels(ctx, args.generationId).catch(() => null);
+    const payloadRef = forwardOrderedPayload(args);
+    const payload = await loadChainPayload(ctx, args);
+    if (!payload) {
+      await ctx.runMutation(internal.generations.failOrderedSectionRun, {
+        generationId: args.generationId,
+        candidateRunId: args.candidateRunId,
+        section: args.section,
+        error: "unknown: Frozen ordered payload is unavailable",
+      });
+      return null;
+    }
     let claim: FunctionReturnType<
       typeof internal.generations.claimOrderedSectionRun
     >;
@@ -544,7 +577,7 @@ export const generateOrderedSection = internalAction({
         candidateRunId: args.candidateRunId,
         section: args.section,
         promptVersion: await generationPromptVersion(ctx, args.generationId),
-        payload: args.payload,
+        ...payloadRef,
       });
     } catch (error) {
       // The failed claim mutation rolls back atomically. The owning action is
@@ -564,7 +597,7 @@ export const generateOrderedSection = internalAction({
       await ctx.scheduler.runAfter(0, internal.ai.orderedGeneration.finalizeOrderedCandidate, {
         generationId: args.generationId,
         candidateRunId: args.candidateRunId,
-        payload: args.payload,
+        ...payloadRef,
       });
       return null;
     }
@@ -583,7 +616,7 @@ export const generateOrderedSection = internalAction({
     try {
       const completion = await draftCheckedSection({
         claim,
-        payload: args.payload,
+        payload,
         section: args.section,
         clientFor,
       });
@@ -593,7 +626,7 @@ export const generateOrderedSection = internalAction({
         section: args.section,
         ...completion,
         slotCounts: JSON.stringify(slotCounts),
-        payload: args.payload,
+        ...payloadRef,
       });
     } catch (error) {
       const normalized = normalizeProviderError(error);
@@ -602,7 +635,7 @@ export const generateOrderedSection = internalAction({
         candidateRunId: args.candidateRunId,
         section: args.section,
         error: `${normalized.code}: ${normalized.message}`,
-        payload: args.payload,
+        ...payloadRef,
       });
     }
     return null;
@@ -621,7 +654,8 @@ export const finalizeOrderedCandidate = internalAction({
   args: {
     generationId: v.id("generations"),
     candidateRunId: v.id("generationCandidateRuns"),
-    payload: orderedPayloadValidator,
+    payload: v.optional(orderedPayloadValidator),
+    payloadId: v.optional(v.id("generationArtifacts")),
   },
   returns: v.null(),
   handler: async (ctx, args): Promise<null> => {
@@ -638,7 +672,7 @@ export const finalizeOrderedCandidate = internalAction({
         ...fields,
       });
     try {
-      const [drafts, input] = await Promise.all([
+      const [drafts, input, payload] = await Promise.all([
         ctx.runQuery(internal.generations.getOrderedCandidateDrafts, {
           generationId: args.generationId,
           candidateRunId: args.candidateRunId,
@@ -646,8 +680,9 @@ export const finalizeOrderedCandidate = internalAction({
         ctx.runQuery(internal.generations.getGenerationInput, {
           generationId: args.generationId,
         }),
+        loadChainPayload(ctx, args),
       ]);
-      if (!drafts || !input || drafts.runStatus !== "running") {
+      if (!drafts || !input || !payload || drafts.runStatus !== "running") {
         if (drafts?.runStatus === "running") {
           await complete({ error: "Frozen generation input unavailable" });
         }
@@ -665,7 +700,6 @@ export const finalizeOrderedCandidate = internalAction({
         },
         slotCounts
       );
-      const { payload } = args;
       const analysis = parseTranscriptAnalysis(payload.analysis);
       const styleOverrides = normalizeStyleOverrides(payload.styleOverrides);
       const productionOrder = drafts.sections.map((row) => row.section);
@@ -818,12 +852,14 @@ export const redraftSeedSection = internalAction({
     candidateRunId: v.id("generationCandidateRuns"),
     attemptStartedAt: v.number(),
     section: sectionNumberValidator,
-    payload: orderedPayloadValidator,
+    payload: v.optional(orderedPayloadValidator),
+    payloadId: v.optional(v.id("generationArtifacts")),
   },
   returns: v.null(),
   handler: async (ctx, args): Promise<null> => {
     // Model catalog: routing and output budgets read the frozen models.
     await registerGenerationModels(ctx, args.generationId).catch(() => null);
+    const payloadRef = forwardOrderedPayload(args);
     const fail = async (error: unknown) => {
       const normalized = normalizeProviderError(error);
       await ctx.runMutation(internal.generations.failRedraftSection, {
@@ -834,6 +870,11 @@ export const redraftSeedSection = internalAction({
         error: `${normalized.code}: ${normalized.message}`,
       });
     };
+    const payload = await loadChainPayload(ctx, args);
+    if (!payload) {
+      await fail(new Error("Frozen ordered payload is unavailable"));
+      return null;
+    }
     let claim: SectionClaim | null;
     try {
       claim = await ctx.runMutation(internal.generations.claimRedraftSection, {
@@ -842,7 +883,7 @@ export const redraftSeedSection = internalAction({
         attemptStartedAt: args.attemptStartedAt,
         section: args.section,
         promptVersion: await generationPromptVersion(ctx, args.generationId),
-        payload: args.payload,
+        ...payloadRef,
       });
     } catch (error) {
       await fail(error);
@@ -864,7 +905,7 @@ export const redraftSeedSection = internalAction({
     try {
       const completion = await draftCheckedSection({
         claim,
-        payload: args.payload,
+        payload,
         section: args.section,
         clientFor,
       });
@@ -875,7 +916,7 @@ export const redraftSeedSection = internalAction({
         section: args.section,
         ...completion,
         slotCounts: JSON.stringify(slotCounts),
-        payload: args.payload,
+        ...payloadRef,
       });
     } catch (error) {
       await fail(error);

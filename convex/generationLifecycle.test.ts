@@ -5,6 +5,8 @@ import { api, internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import type { DomainErrorCode } from "./lib/contracts";
 import schema from "./schema";
+import { allGenerationProgress } from "./lib/generationProgress";
+import { agentOutputsOf } from "./lib/generationOutputs";
 
 const modules = import.meta.glob("./**/*.ts");
 const AUTH_ID = "lifecycle-writer";
@@ -375,6 +377,8 @@ describe("completeCandidateRun fan-in", () => {
 
     const state = await t.run(async (ctx) => ({
       generation: await ctx.db.get(generationId),
+      progress: await allGenerationProgress(ctx, generationId),
+      outputs: await agentOutputsOf(ctx, generationId),
       project: await ctx.db.get(projectId),
       candidates: await ctx.db.query("reportCandidates").collect(),
       reports: await ctx.db.query("reports").collect(),
@@ -382,7 +386,7 @@ describe("completeCandidateRun fan-in", () => {
     expect(state.generation?.status).toBe("running");
     expect(state.generation?.candidatesDone).toBe(1);
     expect(state.generation?.candidatesFailed).toBe(0);
-    expect(state.generation?.progressLog).toEqual([
+    expect(state.progress).toEqual([
       "Generation started.",
       "✓ Sonnet 5 draft ready (QA 91/100).",
     ]);
@@ -417,6 +421,8 @@ describe("completeCandidateRun fan-in", () => {
 
     const state = await t.run(async (ctx) => ({
       generation: await ctx.db.get(generationId),
+      progress: await allGenerationProgress(ctx, generationId),
+      outputs: await agentOutputsOf(ctx, generationId),
       candidates: await ctx.db.query("reportCandidates").collect(),
       reports: await ctx.db.query("reports").collect(),
     }));
@@ -449,6 +455,8 @@ describe("completeCandidateRun fan-in", () => {
 
     const state = await t.run(async (ctx) => ({
       generation: await ctx.db.get(generationId),
+      progress: await allGenerationProgress(ctx, generationId),
+      outputs: await agentOutputsOf(ctx, generationId),
       candidates: await ctx.db.query("reportCandidates").collect(),
       reports: await ctx.db.query("reports").collect(),
     }));
@@ -486,6 +494,8 @@ describe("completeCandidateRun fan-in", () => {
     const state = await t.run(async (ctx) => ({
       run: await ctx.db.get(runIds[1]),
       generation: await ctx.db.get(generationId),
+      progress: await allGenerationProgress(ctx, generationId),
+      outputs: await agentOutputsOf(ctx, generationId),
       project: await ctx.db.get(projectId),
       candidates: await ctx.db.query("reportCandidates").collect(),
     }));
@@ -494,7 +504,7 @@ describe("completeCandidateRun fan-in", () => {
     expect(state.generation?.status).toBe("awaiting_selection");
     expect(state.generation?.candidatesDone).toBe(1);
     expect(state.generation?.candidatesFailed).toBe(1);
-    expect(state.generation?.progressLog).toEqual([
+    expect(state.progress).toEqual([
       "Generation started.",
       "✗ Gemini 3.1 Pro failed: provider rejected request.",
     ]);
@@ -526,6 +536,8 @@ describe("completeCandidateRun fan-in", () => {
 
     const state = await t.run(async (ctx) => ({
       generation: await ctx.db.get(generationId),
+      progress: await allGenerationProgress(ctx, generationId),
+      outputs: await agentOutputsOf(ctx, generationId),
       project: await ctx.db.get(projectId),
       candidates: await ctx.db.query("reportCandidates").collect(),
     }));
@@ -556,6 +568,8 @@ describe("completeCandidateRun fan-in", () => {
     const state = await t.run(async (ctx) => ({
       run: await ctx.db.get(runIds[0]),
       generation: await ctx.db.get(generationId),
+      progress: await allGenerationProgress(ctx, generationId),
+      outputs: await agentOutputsOf(ctx, generationId),
       project: await ctx.db.get(projectId),
       reports: await ctx.db.query("reports").collect(),
       snapshots: await ctx.db.query("reportSnapshots").collect(),
@@ -569,7 +583,7 @@ describe("completeCandidateRun fan-in", () => {
     expect(state.generation?.candidatesDone).toBe(1);
     expect(state.generation?.candidatesFailed).toBe(0);
     expect(typeof state.generation?.completedAt).toBe("number");
-    expect(state.generation?.agentOutputs).toBe('{"section242":"a"}');
+    expect(state.outputs).toBe('{"section242":"a"}');
     expect(state.reports).toHaveLength(1);
     expect(state.reports[0]).toMatchObject({
       content: "Only draft",
@@ -603,6 +617,8 @@ describe("completeCandidateRun fan-in", () => {
     const before = await t.run(async (ctx) => ({
       run: await ctx.db.get(runIds[0]),
       generation: await ctx.db.get(generationId),
+      progress: await allGenerationProgress(ctx, generationId),
+      outputs: await agentOutputsOf(ctx, generationId),
     }));
 
     await t.mutation(internal.generations.completeCandidateRun, {
@@ -614,10 +630,16 @@ describe("completeCandidateRun fan-in", () => {
     const after = await t.run(async (ctx) => ({
       run: await ctx.db.get(runIds[0]),
       generation: await ctx.db.get(generationId),
+      progress: await allGenerationProgress(ctx, generationId),
+      outputs: await agentOutputsOf(ctx, generationId),
       candidates: await ctx.db.query("reportCandidates").collect(),
     }));
     expect(after.run).toEqual(before.run);
     expect(after.generation).toEqual(before.generation);
+    // Progress and outputs live off the row since 2026-09-25: a stale
+    // completion must not write either.
+    expect(after.progress).toEqual(before.progress);
+    expect(after.outputs).toEqual(before.outputs);
     expect(after.candidates).toHaveLength(1);
   });
 
@@ -629,6 +651,8 @@ describe("completeCandidateRun fan-in", () => {
     const before = await t.run(async (ctx) => ({
       run: await ctx.db.get(runIds[0]),
       generation: await ctx.db.get(generationId),
+      progress: await allGenerationProgress(ctx, generationId),
+      outputs: await agentOutputsOf(ctx, generationId),
     }));
 
     await t.mutation(internal.generations.completeCandidateRun, {
@@ -640,11 +664,17 @@ describe("completeCandidateRun fan-in", () => {
     const after = await t.run(async (ctx) => ({
       run: await ctx.db.get(runIds[0]),
       generation: await ctx.db.get(generationId),
+      progress: await allGenerationProgress(ctx, generationId),
+      outputs: await agentOutputsOf(ctx, generationId),
       candidates: await ctx.db.query("reportCandidates").collect(),
       reports: await ctx.db.query("reports").collect(),
     }));
     expect(after.run).toEqual(before.run);
     expect(after.generation).toEqual(before.generation);
+    // Progress and outputs live off the row since 2026-09-25: a stale
+    // completion must not write either.
+    expect(after.progress).toEqual(before.progress);
+    expect(after.outputs).toEqual(before.outputs);
     expect(after.candidates).toHaveLength(0);
     expect(after.reports).toHaveLength(0);
   });
@@ -659,6 +689,8 @@ describe("completeCandidateRun fan-in", () => {
     const before = await t.run(async (ctx) => ({
       run: await ctx.db.get(runIds[0]),
       generation: await ctx.db.get(generationId),
+      progress: await allGenerationProgress(ctx, generationId),
+      outputs: await agentOutputsOf(ctx, generationId),
       project: await ctx.db.get(projectId),
     }));
 
@@ -672,11 +704,17 @@ describe("completeCandidateRun fan-in", () => {
     const after = await t.run(async (ctx) => ({
       run: await ctx.db.get(runIds[0]),
       generation: await ctx.db.get(generationId),
+      progress: await allGenerationProgress(ctx, generationId),
+      outputs: await agentOutputsOf(ctx, generationId),
       project: await ctx.db.get(projectId),
       candidates: await ctx.db.query("reportCandidates").collect(),
     }));
     expect(after.run).toEqual(before.run);
     expect(after.generation).toEqual(before.generation);
+    // Progress and outputs live off the row since 2026-09-25: a stale
+    // completion must not write either.
+    expect(after.progress).toEqual(before.progress);
+    expect(after.outputs).toEqual(before.outputs);
     expect(after.project).toEqual(before.project);
     expect(after.candidates).toHaveLength(0);
   });
@@ -690,6 +728,8 @@ describe("completeCandidateRun fan-in", () => {
     const before = await t.run(async (ctx) => ({
       run: await ctx.db.get(runIds[0]),
       generation: await ctx.db.get(generationId),
+      progress: await allGenerationProgress(ctx, generationId),
+      outputs: await agentOutputsOf(ctx, generationId),
       project: await ctx.db.get(projectId),
     }));
 
@@ -702,12 +742,18 @@ describe("completeCandidateRun fan-in", () => {
     const after = await t.run(async (ctx) => ({
       run: await ctx.db.get(runIds[0]),
       generation: await ctx.db.get(generationId),
+      progress: await allGenerationProgress(ctx, generationId),
+      outputs: await agentOutputsOf(ctx, generationId),
       project: await ctx.db.get(projectId),
       candidates: await ctx.db.query("reportCandidates").collect(),
       reports: await ctx.db.query("reports").collect(),
     }));
     expect(after.run).toEqual(before.run);
     expect(after.generation).toEqual(before.generation);
+    // Progress and outputs live off the row since 2026-09-25: a stale
+    // completion must not write either.
+    expect(after.progress).toEqual(before.progress);
+    expect(after.outputs).toEqual(before.outputs);
     expect(after.project).toEqual(before.project);
     expect(after.candidates).toHaveLength(0);
     expect(after.reports).toHaveLength(0);
@@ -737,6 +783,8 @@ describe("completeCandidateRun fan-in", () => {
     const state = await t.run(async (ctx) => ({
       run: await ctx.db.get(runIds[0]),
       generation: await ctx.db.get(generationId),
+      progress: await allGenerationProgress(ctx, generationId),
+      outputs: await agentOutputsOf(ctx, generationId),
       project: await ctx.db.get(projectId),
       candidates: await ctx.db.query("reportCandidates").collect(),
       reports: await ctx.db.query("reports").collect(),
@@ -746,7 +794,7 @@ describe("completeCandidateRun fan-in", () => {
     expect(state.candidates[0]?.content).toBe("Ghost draft");
     expect(state.run?.candidateId).toBe(state.candidates[0]?._id);
     expect(state.generation?.status).toBe("awaiting_input");
-    expect(state.generation?.progressLog).toEqual([
+    expect(state.progress).toEqual([
       "Generation started.",
       "✓ One-shot comparison draft ready (Gemini 3.1 Pro).",
     ]);
@@ -780,6 +828,8 @@ describe("approveSectionDraft", () => {
       s242: await ctx.db.get(sectionRunIds.s242),
       s244: await ctx.db.get(sectionRunIds.s244),
       generation: await ctx.db.get(generationId),
+      progress: await allGenerationProgress(ctx, generationId),
+      outputs: await agentOutputsOf(ctx, generationId),
       project: await ctx.db.get(projectId),
       events: await ctx.db.query("sectionEditEvents").collect(),
       reports: await ctx.db.query("reports").collect(),
@@ -792,7 +842,7 @@ describe("approveSectionDraft", () => {
     expect(state.generation?.currentStep).toBe(
       "Drafting Line 244 — Work performed…"
     );
-    expect(state.generation?.progressLog).toEqual([
+    expect(state.progress).toEqual([
       "Generation started.",
       "✓ Line 242 — Uncertainty approved by the writer.",
       "Drafting Line 244 — Work performed…",
@@ -829,6 +879,8 @@ describe("approveSectionDraft", () => {
 
     const state = await t.run(async (ctx) => ({
       generation: await ctx.db.get(generationId),
+      progress: await allGenerationProgress(ctx, generationId),
+      outputs: await agentOutputsOf(ctx, generationId),
       project: await ctx.db.get(projectId),
       reports: await ctx.db.query("reports").collect(),
       snapshots: await ctx.db.query("reportSnapshots").collect(),
@@ -845,7 +897,7 @@ describe("approveSectionDraft", () => {
     // Every approved section survives, in SECTION_ORDER.
     expect(offsets.every((offset) => offset >= 0)).toBe(true);
     expect(offsets).toEqual([...offsets].sort((a, b) => a - b));
-    expect(JSON.parse(state.generation?.agentOutputs ?? "{}")).toMatchObject({
+    expect(JSON.parse(state.outputs ?? "{}")).toMatchObject({
       section242: "Uncertainty text",
       section244: "Work performed text",
       section246: "Advancement approved",
@@ -982,6 +1034,8 @@ describe("approveSectionDraft", () => {
 
     const state = await t.run(async (ctx) => ({
       generation: await ctx.db.get(generationId),
+      progress: await allGenerationProgress(ctx, generationId),
+      outputs: await agentOutputsOf(ctx, generationId),
       project: await ctx.db.get(projectId),
       ghostRun: await ctx.db.get(ghostRunId!),
       reports: await ctx.db.query("reports").collect(),
@@ -1064,6 +1118,8 @@ describe("approveSectionDraft", () => {
       s242: await ctx.db.get(sectionRunIds.s242),
       s244: await ctx.db.get(sectionRunIds.s244),
       generation: await ctx.db.get(generationId),
+      progress: await allGenerationProgress(ctx, generationId),
+      outputs: await agentOutputsOf(ctx, generationId),
       project: await ctx.db.get(projectId),
       events: await ctx.db.query("sectionEditEvents").collect(),
       reports: await ctx.db.query("reports").collect(),
@@ -1199,6 +1255,8 @@ describe("selectReportCandidate", () => {
 
     const state = await t.run(async (ctx) => ({
       generation: await ctx.db.get(generationId),
+      progress: await allGenerationProgress(ctx, generationId),
+      outputs: await agentOutputsOf(ctx, generationId),
       project: await ctx.db.get(projectId),
       reports: await ctx.db.query("reports").collect(),
       selections: await ctx.db.query("modelSelections").collect(),
@@ -1210,7 +1268,7 @@ describe("selectReportCandidate", () => {
     expect(state.generation?.status).toBe("completed");
     expect(state.generation?.currentStep).toBe("Complete");
     expect(typeof state.generation?.completedAt).toBe("number");
-    expect(state.generation?.agentOutputs).toBe('{"section242":"chosen"}');
+    expect(state.outputs).toBe('{"section242":"chosen"}');
     expect(state.project?.status).toBe("review");
     expect(state.project?.activeGenerationId).toBeUndefined();
     expect(state.selections).toHaveLength(1);
@@ -1262,6 +1320,8 @@ describe("selectReportCandidate", () => {
       reports: await ctx.db.query("reports").collect(),
       selections: await ctx.db.query("modelSelections").collect(),
       generation: await ctx.db.get(generationId),
+      progress: await allGenerationProgress(ctx, generationId),
+      outputs: await agentOutputsOf(ctx, generationId),
     }));
     expect(state.reports).toHaveLength(0);
     expect(state.selections).toHaveLength(0);
@@ -1330,6 +1390,8 @@ describe("selectReportCandidate", () => {
       reports: await ctx.db.query("reports").collect(),
       selections: await ctx.db.query("modelSelections").collect(),
       generation: await ctx.db.get(generationId),
+      progress: await allGenerationProgress(ctx, generationId),
+      outputs: await agentOutputsOf(ctx, generationId),
     }));
     expect(state.reports).toHaveLength(0);
     expect(state.selections).toHaveLength(0);
@@ -1398,6 +1460,8 @@ describe("selectReportCandidate", () => {
 
     const state = await t.run(async (ctx) => ({
       generation: await ctx.db.get(generationId),
+      progress: await allGenerationProgress(ctx, generationId),
+      outputs: await agentOutputsOf(ctx, generationId),
       project: await ctx.db.get(projectId),
       reports: await ctx.db.query("reports").collect(),
       selections: await ctx.db.query("modelSelections").collect(),
@@ -1438,6 +1502,8 @@ describe("selectReportCandidate", () => {
 
     const state = await t.run(async (ctx) => ({
       generation: await ctx.db.get(generationId),
+      progress: await allGenerationProgress(ctx, generationId),
+      outputs: await agentOutputsOf(ctx, generationId),
       project: await ctx.db.get(projectId),
       reports: await ctx.db.query("reports").collect(),
       selections: await ctx.db.query("modelSelections").collect(),

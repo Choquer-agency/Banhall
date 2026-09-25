@@ -45,6 +45,7 @@ import type { completeAttempt, dispatch } from "./seedRuns";
 import { readSeedReadiness } from "./lib/seedReadiness";
 import { factIndex } from "./lib/seedFacts";
 import schema from "./schema";
+import { agentOutputsOf } from "./lib/generationOutputs";
 
 const summaryAdmissionProgram = vi.hoisted(() => ({
   promptVersion: null as string | null,
@@ -1775,10 +1776,12 @@ describe("seed Summary sign-off and recovery", () => {
     const firstRequest = await runNextSectionAction(s, s.generationId);
     const after = await s.t.run(async (ctx) => ({
       generation: await ctx.db.get(s.generationId),
-      artifacts: await ctx.db.query("generationArtifacts")
+      artifacts: (await ctx.db.query("generationArtifacts")
         .withIndex("by_generationId_and_kind", (q) =>
           q.eq("generationId", s.generationId))
-        .take(3),
+        .take(4))
+        // The chain's stored payload (2026-09-25) is not a frozen input.
+        .filter((row) => row.kind !== "ordered_payload"),
       candidates: await ctx.db.query("generationCandidateRuns")
         .withIndex("by_generationId", (q) => q.eq("generationId", s.generationId))
         .take(3),
@@ -2799,6 +2802,7 @@ describe("seed Summary sign-off and recovery", () => {
         section: actionArgs.section,
         promptVersion: await currentPromptVersion(),
         payload: actionArgs.payload,
+        payloadId: actionArgs.payloadId,
       })).rejects.toMatchObject({
         data: {
           code: "INVALID_INPUT",
@@ -5164,7 +5168,10 @@ describe("seed Summary sign-off and recovery", () => {
     const retryArtifacts = await s.t.run(async (ctx) =>
       (await ctx.db.query("generationArtifacts")
         .withIndex("by_generationId_and_kind", (q) => q.eq("generationId", retry1))
-        .take(3)).map(({ kind, content }) => ({ kind, content })));
+        .take(4))
+        // The recovery chain's stored payload (2026-09-25) is not a copied input.
+        .filter((row) => row.kind !== "ordered_payload")
+        .map(({ kind, content }) => ({ kind, content })));
     expect(retryArtifacts).toEqual(originFrozen.artifacts);
     await s.t.mutation(internal.generations.failGeneration, {
       generationId: retry2,
@@ -5419,6 +5426,7 @@ describe("seed Summary sign-off and recovery", () => {
         .unique();
       return {
         generation: await ctx.db.get(s.generationId),
+        outputs: await agentOutputsOf(ctx, s.generationId),
         project: await ctx.db.get(s.projectId),
         candidate: await ctx.db.get(signed.candidateRunId),
         report,
@@ -5458,7 +5466,7 @@ describe("seed Summary sign-off and recovery", () => {
     expect(completed.summary).toEqual(summaryBefore);
     const reportBytes = completed.report?.content ?? "";
     for (const draft of acceptedDrafts) expect(reportBytes).toContain(draft);
-    const outputs = JSON.parse(completed.generation?.agentOutputs ?? "{}") as {
+    const outputs = JSON.parse(completed.outputs ?? "{}") as {
       section242?: string;
       section244?: string;
       section246?: string;

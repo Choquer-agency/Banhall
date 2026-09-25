@@ -2,6 +2,7 @@ import { defineSchema, defineTable } from "convex/server";
 import { briefOutcomeValidator } from "./lib/briefRender";
 import { complianceNoteDraftValidator } from "./lib/complianceNote";
 import {
+  orderedPayloadValidator,
   sectionNumberValidator,
   selfCheckRuleValidator,
   styleCategoryValidator,
@@ -16,6 +17,14 @@ import {
 } from "./lib/contracts";
 import { admissionValidator, attemptOutcomeValidator } from "./lib/learningAdmission";
 import { styleOverridesValidator } from "./lib/styleOverrides";
+import { brainProvenanceEntryValidator } from "./lib/generationOutputs";
+import {
+  sectionMetricsValidator,
+  sectionQaFindingsValidator,
+  selfCheckSummaryValidator,
+  slotCountsValidator,
+  transcriptDigestStructuredValidator,
+} from "./lib/sectionRunData";
 import { PD_SUBSECTIONS } from "../shared/pdSubsections";
 import {
   transcriptFactTypeValidator,
@@ -755,6 +764,10 @@ export default defineSchema({
     content: v.string(),
     // JSON string of the validated digest object.
     structured: v.string(),
+    // 2026-09-25 widen: the same windows typed (dual write; filled on older
+    // rows by transcriptDigests.backfillStructuredData). Readers take this
+    // first. `structured` stays written for code that predates it.
+    structuredData: v.optional(transcriptDigestStructuredValidator),
     model: v.string(),
     promptVersion: v.string(),
     charCount: v.number(),
@@ -779,7 +792,9 @@ export default defineSchema({
     blocking: v.boolean(),
   })
     .index("by_reportId_and_revisionNumber_and_contentHash_and_findingKey", ["reportId", "revisionNumber", "contentHash", "findingKey"])
-    .index("by_reportId_and_contentHash_and_check_and_message_and_blocking", ["reportId", "contentHash", "check", "message", "blocking"])
+    // 2026-09-25: replaces the index that carried the finding message text;
+    // the message is matched on the (few) rows of one check instead.
+    .index("by_reportId_and_contentHash_and_check_and_blocking", ["reportId", "contentHash", "check", "blocking"])
     .index("by_reportId_and_revisionNumber_and_contentHash_and_blocking", ["reportId", "revisionNumber", "contentHash", "blocking"]),
 
   reports: defineTable({
@@ -986,9 +1001,22 @@ export default defineSchema({
         v.literal("final")
       )
     ),
+    // Legacy home of the agent outputs JSON. Since 2026-09-25 it, and
+    // `brainProvenance` and `brainRetrievalBrief` below, live in
+    // `generationArtifacts` rows once `outputsInArtifactsAt` is set (every new
+    // generation, older ones after generations.backfillGenerationOutputs or
+    // their first output write); the row fields are then never written again
+    // and never read (convex/lib/generationOutputs.ts).
     agentOutputs: v.optional(v.string()),
+    outputsInArtifactsAt: v.optional(v.number()),
     currentStep: v.optional(v.string()),
+    // Legacy progress narration. Since 2026-09-25 new lines are rows of
+    // `generationProgress`; this array is only read (dual read) and never
+    // written again. `progressLogCopiedAt` marks a row whose array
+    // generations.backfillGenerationProgress has copied into child rows, so
+    // readers stop reading the array.
     progressLog: v.optional(v.array(v.string())),
+    progressLogCopiedAt: v.optional(v.number()),
     // BNH-21: time-estimate + milestone progress for the loading screen.
     estimatedMs: v.optional(v.number()),
     totalCandidates: v.optional(v.number()),
@@ -1014,20 +1042,7 @@ export default defineSchema({
     // into brainSources). `section` says which consumer used it (analyzer/
     // 242/244/246); searchScore/rerankScore keep the raw signals separate
     // from the final blended score.
-    brainProvenance: v.optional(
-      v.array(
-        v.object({
-          entryId: v.string(),
-          score: v.number(),
-          title: v.optional(v.string()),
-          writerName: v.optional(v.string()),
-          section: v.optional(v.string()),
-          sourceId: v.optional(v.string()),
-          searchScore: v.optional(v.number()),
-          rerankScore: v.optional(v.number()),
-        })
-      )
-    ),
+    brainProvenance: v.optional(v.array(brainProvenanceEntryValidator)),
     // The Haiku-extracted retrieval brief (JSON) behind the section queries —
     // kept for retrieval-quality evals.
     brainRetrievalBrief: v.optional(v.string()),
@@ -1089,6 +1104,19 @@ export default defineSchema({
     .index("by_status_and_startedAt", ["status", "startedAt"])
     .index("by_startedAt", ["startedAt"])
     .index("by_postQaStatus", ["postQaStatus"]),
+
+  // 2026-09-25: one row per progress narration line of a generation (the
+  // live "thinking" log), in place of the unbounded array on the generation
+  // row. `kind` is derived from the line's leading check or cross.
+  generationProgress: defineTable({
+    generationId: v.id("generations"),
+    projectId: v.id("projects"),
+    at: v.number(),
+    message: v.string(),
+    kind: v.union(v.literal("info"), v.literal("success"), v.literal("failure")),
+  })
+    .index("by_generationId_and_at", ["generationId", "at"])
+    .index("by_projectId", ["projectId"]),
 
   // ─── Step-by-step idea seeds (AD-33/39) ───────────────────────────────────
   // All eleven tables are project-scoped. Core fields are required for new
@@ -1249,6 +1277,7 @@ export default defineSchema({
     needsSpeakerCheck: v.optional(v.boolean()),
   })
     .index("by_seedId", ["seedId"])
+    .index("by_generationId_and_seedId", ["generationId", "seedId"])
     .index("by_projectId", ["projectId"]),
 
   seedSelections: defineTable({
@@ -1364,6 +1393,7 @@ export default defineSchema({
     edited: v.optional(v.boolean()),
   })
     .index("by_summaryVersionId_and_order", ["summaryVersionId", "order"])
+    .index("by_generationId", ["generationId"])
     .index("by_projectId", ["projectId"]),
 
   seedDecisionEvents: defineTable(
@@ -1447,7 +1477,8 @@ export default defineSchema({
   })
     .index("by_generationId", ["generationId"])
     .index("by_projectId", ["projectId"])
-    .index("by_user_and_candidateId", ["userId", "candidateId"]),
+    .index("by_user_and_candidateId", ["userId", "candidateId"])
+    .index("by_model_and_updatedAt", ["model", "updatedAt"]),
 
   // Logged model choices, for aggregate preference stats + recommendation.
   modelSelections: defineTable({
@@ -2165,6 +2196,13 @@ export default defineSchema({
     orderIndex: v.optional(v.number()), // position in the production order
     selfCheck: v.optional(v.string()), // SelfCheckSummary (JSON)
     slotCounts: v.optional(v.string()), // AD-27 per-slot call counts (JSON)
+    // 2026-09-25 widen: typed copies of the four JSON strings above (dual
+    // write; older rows filled by generations.backfillSectionRunData).
+    // Readers take these first and parse the string only without them.
+    metricsData: v.optional(sectionMetricsValidator),
+    qaData: v.optional(sectionQaFindingsValidator),
+    selfCheckData: v.optional(selfCheckSummaryValidator),
+    slotCountsData: v.optional(slotCountsValidator),
     queuedAt: v.number(),
     startedAt: v.optional(v.number()),
     completedAt: v.optional(v.number()),
@@ -2179,9 +2217,51 @@ export default defineSchema({
   // hot document stays light.
   generationArtifacts: defineTable({
     generationId: v.id("generations"),
-    kind: v.union(v.literal("analysis"), v.literal("brain_blocks")),
+    kind: v.union(
+      v.literal("analysis"),
+      v.literal("brain_blocks"),
+      // 2026-09-25: the ordered chain's frozen payload, persisted once per
+      // candidate chain (`candidateRunId`) and passed to the chain's
+      // scheduled actions by id instead of in their arguments.
+      v.literal("ordered_payload"),
+      // 2026-09-25: the generation's outputs, off the live generation row
+      // (convex/lib/generationOutputs.ts).
+      v.literal("agent_outputs"),
+      v.literal("brain_retrieval_brief"),
+      v.literal("brain_provenance")
+    ),
+    // JSON text for `analysis` and `brain_blocks`; empty for kinds stored in
+    // a typed field below.
     content: v.string(),
+    candidateRunId: v.optional(v.id("generationCandidateRuns")),
+    orderedPayload: v.optional(orderedPayloadValidator),
+    brainProvenance: v.optional(v.array(brainProvenanceEntryValidator)),
   }).index("by_generationId_and_kind", ["generationId", "kind"]),
+
+  // 2026-09-25: one row per settled post-assembly QA pass that captured the
+  // report revision it scored, keyed to that revision so a reader can tell a
+  // result that no longer describes the report (convex/lib/qaResults.ts).
+  // `qa` and `chronology` are the JSON the pass merged into agent outputs.
+  generationQaResults: defineTable({
+    generationId: v.id("generations"),
+    projectId: v.id("projects"),
+    reportId: v.id("reports"),
+    revisionNumber: v.number(),
+    contentHash: v.string(),
+    status: v.union(v.literal("done"), v.literal("failed")),
+    qa: v.optional(v.string()),
+    chronology: v.optional(v.string()),
+    qaScore: v.optional(v.number()),
+    attemptStartedAt: v.optional(v.number()),
+    completedAt: v.number(),
+  })
+    .index("by_reportId_and_revisionNumber_and_contentHash", [
+      "reportId",
+      "revisionNumber",
+      "contentHash",
+    ])
+    .index("by_generationId_and_completedAt", ["generationId", "completedAt"])
+    .index("by_projectId", ["projectId"]),
 
   // Immutable source text captured before candidate fan-out.
   generationSources: defineTable({

@@ -43,6 +43,7 @@ import {
   MAX_SUMMARY_SELF_CHECK_RESPONSE_UTF8_BYTES,
   serializeFrozenSummaryPlanChecks,
 } from "../lib/seedRevisions";
+import { agentOutputsOf } from "../lib/generationOutputs";
 
 const network = vi.hoisted(() => ({ create: vi.fn() }));
 vi.mock("@anthropic-ai/sdk", () => ({
@@ -276,7 +277,12 @@ async function generate(script: Script = {}) {
   const sectionRows = await t.run((ctx) =>
     ctx.db.query("generationSectionRuns").withIndex("by_generationId", (q) => q.eq("generationId", generationId)).collect()
   );
-  const generation = (await t.run((ctx) => ctx.db.get(generationId))) as Doc<"generations">;
+  // The row, with its agent outputs read the way readers read them (child
+  // rows since 2026-09-25).
+  const generation = (await t.run(async (ctx) => {
+    const row = (await ctx.db.get(generationId)) as Doc<"generations">;
+    return { ...row, agentOutputs: await agentOutputsOf(ctx, generationId) };
+  }));
   // Surface a failed candidate's own error instead of a bare status mismatch.
   const runErrors = (await t.run((ctx) => ctx.db.query("generationCandidateRuns").collect()))
     .map((run) => run.error)

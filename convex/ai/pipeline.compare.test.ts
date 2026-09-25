@@ -246,7 +246,16 @@ describe("shared generation analysis", () => {
       styleOverrides: expect.any(Object),
     });
     await runCandidates(t);
-    expect(await t.run((ctx) => ctx.db.query("generationArtifacts").collect())).toEqual(before);
+    const afterRun = await t.run((ctx) => ctx.db.query("generationArtifacts").collect());
+    // The frozen inputs are unchanged; each candidate chain stored its
+    // payload once (2026-09-25) instead of carrying it in every schedule.
+    expect(afterRun.filter((row) => row.kind !== "ordered_payload")).toEqual(before);
+    const payloads = afterRun.filter((row) => row.kind === "ordered_payload");
+    expect(payloads).toHaveLength(2);
+    expect(new Set(payloads.map((row) => row.candidateRunId)).size).toBe(2);
+    for (const row of payloads) {
+      expect(row.orderedPayload?.analysis).toBe(frozenAnalysis?.content);
+    }
     expect(analyzerCalls()).toHaveLength(1);
     expect(analyzerCalls()[0][0].model).toBe(MODEL);
     expect(analyzerCalls()[0][0].model).toBe(generationPromptProgram.calls.analyzer.model.compare.legacyModelId);

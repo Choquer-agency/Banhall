@@ -18,9 +18,11 @@ import {
   hashPromptProgram,
 } from "./ai/promptProgram";
 import schema from "./schema";
+import { allGenerationProgress } from "./lib/generationProgress";
 import { sha256 } from "./lib/contracts";
 import { buildTiptapDocument } from "./lib/tiptapReport";
 import { NO_STYLE_OVERRIDES } from "../shared/styleOverrides";
+import { agentOutputsOf } from "./lib/generationOutputs";
 
 const modules = import.meta.glob("./**/*.ts");
 const AUTH_ID = "generation-attribution-writer";
@@ -854,8 +856,8 @@ describe("generation payload provenance", () => {
       await t.action(internal.ai.postQa.runReportQa, { generationId: fixture.generationId, attemptStartedAt: fixture.now });
       expect((await t.run(ctx => ctx.db.get(fixture.generationId)))?.postQaStatus).toBe("failed");
       expect(await t.run(ctx => ctx.db.query("qaFindings").collect())).not.toEqual(expect.arrayContaining([expect.objectContaining({ check: "cra_methodology" })]));
-      const beforeRetry = await t.run(ctx => ctx.db.get(fixture.generationId));
-      expect(JSON.parse(beforeRetry?.agentOutputs ?? "{}").qa).toBeUndefined();
+      const beforeRetry = await t.run(ctx => agentOutputsOf(ctx, fixture.generationId));
+      expect(JSON.parse(beforeRetry ?? "{}").qa).toBeUndefined();
       vi.stubGlobal("fetch", successfulOpenRouterFetch([], { why_how_why_intact: true }));
       await t.withIdentity({ subject: AUTH_ID }).mutation(api.generations.requestReportQa, { generationId: fixture.generationId });
       const retry = await t.run(ctx => ctx.db.get(fixture.generationId));
@@ -2357,11 +2359,11 @@ describe("the analyzer context budget is recorded by the entry actions", () => {
       expect(documentRow.content).toBe(CANDIDATE_DOCUMENT_BODY);
       expect(documentRow.truncated).toBe(false);
 
-      const generation = await t.run((ctx) => ctx.db.get(generationId));
-      expect(generation?.progressLog).toContain(
+      const progress = await t.run((ctx) => allGenerationProgress(ctx, generationId));
+      expect(progress).toContain(
         "Using 1 frozen contextual document(s), weighted by SR&ED priority.",
       );
-      expect(generation?.progressLog).toContain(
+      expect(progress).toContain(
         "Context budget (100 tokens) shortened notes.md.",
       );
 

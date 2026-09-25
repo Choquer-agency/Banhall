@@ -1,5 +1,11 @@
 import { getConvexSize, v } from "convex/values";
+import { internal } from "./_generated/api";
 import { internalMutation, internalQuery } from "./_generated/server";
+import type { Doc } from "./_generated/dataModel";
+import {
+  transcriptDigestStructuredData,
+  type TranscriptDigestStructuredData,
+} from "./lib/sectionRunData";
 import { domainError, sha256 } from "./lib/contracts";
 import { isProjectDeleting } from "./lib/projectDeletion";
 import {
@@ -138,6 +144,9 @@ export const recordDigest = internalMutation({
       condenseVersion: CONDENSE_VERSION,
       content: args.content,
       structured: args.structured,
+      // Dual write (2026-09-25): the same windows typed, when they parse
+      // strictly; readers take this first.
+      ...structuredDataFor(args.structured),
       model: args.model,
       promptVersion: args.promptVersion,
       charCount: args.content.length,
@@ -403,5 +412,85 @@ export const renderLiveFactPack = internalQuery({
       { maxChars: FACT_PACK_MAX_CHARS }
     );
     return pack?.content ?? null;
+  },
+});
+
+// ─── 2026-09-25 widen: typed structured digests ─────────────────────────────
+
+function structuredDataFor(structured: string): {
+  structuredData?: TranscriptDigestStructuredData;
+} {
+  const structuredData = transcriptDigestStructuredData(structured);
+  return structuredData ? { structuredData } : {};
+}
+
+/** A digest's validated windows: the typed field first, else the parsed
+ * string when it converts strictly, else null. */
+export function readDigestStructured(
+  digest: Pick<Doc<"transcriptDigests">, "structured" | "structuredData">
+): TranscriptDigestStructuredData | null {
+  return digest.structuredData ?? transcriptDigestStructuredData(digest.structured) ?? null;
+}
+
+const STRUCTURED_BACKFILL_PAGE_SIZE = 50;
+/** Digest rows carry up to a few hundred KB each; one page stays well inside
+ * the transaction read limit. */
+const STRUCTURED_BACKFILL_MAX_BYTES_READ = 8 * 1024 * 1024;
+
+/**
+ * Batched, self-rescheduling backfill of `transcriptDigests.structuredData`
+ * from the `structured` string. Idempotent: rows that already carry the typed
+ * field, or whose string does not convert strictly, are left alone. Start it
+ * once with `{}` (`npx convex run transcriptDigests:backfillStructuredData '{}'`);
+ * `dryRun: true` reports one page without writing or scheduling.
+ */
+export const backfillStructuredData = internalMutation({
+  args: {
+    cursor: v.optional(v.union(v.string(), v.null())),
+    pageSize: v.optional(v.number()),
+    dryRun: v.optional(v.boolean()),
+  },
+  returns: v.object({
+    scanned: v.number(),
+    patched: v.number(),
+    unconvertible: v.number(),
+    isDone: v.boolean(),
+    continueCursor: v.string(),
+  }),
+  handler: async (ctx, args) => {
+    const pageSize = Math.min(
+      Math.max(1, Math.floor(args.pageSize ?? STRUCTURED_BACKFILL_PAGE_SIZE)),
+      STRUCTURED_BACKFILL_PAGE_SIZE
+    );
+    const page = await ctx.db.query("transcriptDigests").paginate({
+      cursor: args.cursor ?? null,
+      numItems: pageSize,
+      maximumBytesRead: STRUCTURED_BACKFILL_MAX_BYTES_READ,
+    });
+    let patched = 0;
+    let unconvertible = 0;
+    for (const row of page.page) {
+      if (row.structuredData !== undefined) continue;
+      const structuredData = transcriptDigestStructuredData(row.structured);
+      if (!structuredData) {
+        unconvertible += 1;
+        continue;
+      }
+      if (!args.dryRun) await ctx.db.patch(row._id, { structuredData });
+      patched += 1;
+    }
+    if (!page.isDone && !args.dryRun) {
+      await ctx.scheduler.runAfter(0, internal.transcriptDigests.backfillStructuredData, {
+        cursor: page.continueCursor,
+        ...(args.pageSize !== undefined ? { pageSize } : {}),
+      });
+    }
+    return {
+      scanned: page.page.length,
+      patched,
+      unconvertible,
+      isDone: page.isDone,
+      continueCursor: page.continueCursor,
+    };
   },
 });

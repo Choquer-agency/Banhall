@@ -4,6 +4,7 @@ import { requireRole } from "./lib/auth";
 import { domainError } from "./lib/contracts";
 import { learningHealthReads } from "./lib/learningHealthReads";
 import { readSeedLearningHealth } from "./lib/seedLearningHealth";
+import { outputArtifact, outputsInArtifacts } from "./lib/generationOutputs";
 
 const DAY = 86_400_000;
 export const HEALTH_LIMITS = { ped: 2000, generations: 200, outcomes: 2000, join: 20, joinBudget: 1000, passages: 2000 };
@@ -72,9 +73,19 @@ export const getHealth = query({
     let passageBudget = HEALTH_LIMITS.passages;
     const budgets = { candidates: HEALTH_LIMITS.joinBudget, reports: HEALTH_LIMITS.joinBudget, reviews: HEALTH_LIMITS.joinBudget };
     for (const generation of generations) {
-      if (generation.brainProvenance === undefined) { missingProvenanceGenerations++; continue; }
-      if (generation.brainProvenance.length === 0) { emptyProvenanceGenerations++; continue; }
-      const passages = bounded(generation.brainProvenance, passageBudget, "source passages");
+      // Since 2026-09-25 a generation's provenance lives in a
+      // generationArtifacts row once outputsInArtifactsAt is set; that read
+      // shares the byte budget. Older rows keep it on the row.
+      let brainProvenance = generation.brainProvenance;
+      if (outputsInArtifacts(generation)) {
+        const provenanceRead = await reads.one("brain provenance", () =>
+          outputArtifact(ctx, generation._id, "brain_provenance"));
+        if (provenanceRead.kind === "not-loaded") continue;
+        brainProvenance = provenanceRead.value?.brainProvenance;
+      }
+      if (brainProvenance === undefined) { missingProvenanceGenerations++; continue; }
+      if (brainProvenance.length === 0) { emptyProvenanceGenerations++; continue; }
+      const passages = bounded(brainProvenance, passageBudget, "source passages");
       passageBudget -= passages.length;
       if (!passages.length) continue;
       const used = new Set<string>();

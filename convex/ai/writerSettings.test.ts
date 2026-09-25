@@ -12,6 +12,7 @@ import { getFunctionName, type FunctionArgs } from "convex/server";
 import { api, internal } from "../_generated/api";
 import type { Doc, Id } from "../_generated/dataModel";
 import schema from "../schema";
+import { allGenerationProgress } from "../lib/generationProgress";
 import type { GenerationMessageParams } from "./openrouterCore";
 import { SECTION_242_REQUEST } from "./section242Agent";
 import { SECTION_244_REQUEST } from "./section244Agent";
@@ -382,8 +383,13 @@ function classifierCalls() {
   );
 }
 
+/** The generation row, with its progress lines read the way the queries read
+ * them (child rows since 2026-09-25, legacy array first). */
 async function generationOf(t: ReturnType<typeof convexTest>, generationId: Id<"generations">) {
-  return (await t.run((ctx) => ctx.db.get(generationId))) as Doc<"generations">;
+  return await t.run(async (ctx) => {
+    const generation = (await ctx.db.get(generationId)) as Doc<"generations">;
+    return { ...generation, progressLog: await allGenerationProgress(ctx, generationId) };
+  });
 }
 
 const NOTE_FIELDS = [
