@@ -45,6 +45,7 @@ import {
   MAX_TRANSCRIPT_HISTORY_ROWS,
   MAX_TRANSCRIPTS_PER_PROJECT,
   projectTranscriptsFrom,
+  scheduleStructureRebuildIfStale,
   requireTranscriptTextWithinCap,
   transcriptLabel,
   transcriptMetadata,
@@ -136,7 +137,9 @@ export const buildTranscriptStructure = internalMutation({
   handler: async (ctx, args) => {
     const transcript = await ctx.db.get(args.transcriptId);
     if (!transcript || (await isProjectDeleting(ctx, transcript.projectId))) return null;
-    const step = await buildStructureStep(ctx, args.transcriptId, args.fromIndex ?? 0, args.buildId);
+    const step = await buildStructureStep(ctx, args.transcriptId, args.fromIndex ?? 0, args.buildId, {
+      modelRoles: args.modelRoles === true,
+    });
     if (step.kind === "continue") {
       await ctx.scheduler.runAfter(0, internal.transcripts.buildTranscriptStructure, {
         transcriptId: args.transcriptId,
@@ -145,7 +148,9 @@ export const buildTranscriptStructure = internalMutation({
         ...(args.modelRoles ? { modelRoles: true } : {}),
       });
     }
-    if (step.kind === "done" && step.needsModelRoles && args.modelRoles) {
+    // The request is read from the row, so a build another chain took over
+    // from an upload still asks.
+    if (step.kind === "done" && step.needsModelRoles && step.modelRoles) {
       await ctx.scheduler.runAfter(0, internal.ai.condense.classifySpeakerRoles, {
         transcriptId: args.transcriptId,
       });
@@ -166,7 +171,8 @@ const BACKFILL_MAX_BYTES_READ = 4 * 1024 * 1024;
  * for every transcript row written before the transcript method. Run once
  * from the dashboard (`transcripts:backfillTranscriptStructure` with `{}`);
  * safe to run again, since rows already at the current parser version are
- * skipped. Archived and empty rows are skipped too.
+ * skipped. Archived and empty rows are skipped too, and so is a row a build
+ * already holds (an upload's, say), so the backfill never takes it over.
  */
 export const backfillTranscriptStructure = internalMutation({
   args: { cursor: v.optional(v.union(v.string(), v.null())) },
@@ -179,12 +185,7 @@ export const backfillTranscriptStructure = internalMutation({
     });
     let scheduled = 0;
     for (const row of page.page) {
-      if (row.parserVersion === TRANSCRIPT_PARSER_VERSION) continue;
-      if (row.archivedAt !== undefined || row.content.trim() === "") continue;
-      await ctx.scheduler.runAfter(0, internal.transcripts.buildTranscriptStructure, {
-        transcriptId: row._id,
-      });
-      scheduled += 1;
+      if (await scheduleStructureRebuildIfStale(ctx, row)) scheduled += 1;
     }
     if (!page.isDone) {
       // Spaced out so the builds of one page finish before the next starts.
@@ -688,9 +689,11 @@ export const factsInput = internalQuery({
       label: transcriptLabel(transcript),
       content: transcript.content,
       sourceContentHash: await transcriptHash(transcript),
-      // Ready only when every turn was built with the transcript's current
-      // parser version: never mid-rebuild (2026-09-25).
-      structureReady: transcript.parserVersion !== undefined && turnsVersion === transcript.parserVersion,
+      // Ready only when every turn was built with the current parser
+      // version: never mid-rebuild (2026-09-25), and never turns an older
+      // parser built (a stale row is rebuilt when facts are requested).
+      structureReady:
+        transcript.parserVersion === TRANSCRIPT_PARSER_VERSION && turnsVersion === TRANSCRIPT_PARSER_VERSION,
       parserVersion: transcript.parserVersion,
       turns,
       // Recorded on the run, so a later role correction makes it stale.
@@ -843,6 +846,13 @@ export const requestTranscriptFacts = mutation({
     if (!transcript || transcript.archivedAt !== undefined) return null;
     if (!(await getInternalProjectAccessOrNull(ctx, transcript.projectId))) return null;
     if ((await transcriptFactsMode(ctx)) === "off") return null;
+    // Facts read turns. Turns an older parser built, or a build still
+    // running, are not ready: rebuild if nothing holds the row, and extract
+    // on the next open rather than queue an extraction that cannot run.
+    if (transcript.parserVersion !== TRANSCRIPT_PARSER_VERSION) {
+      await scheduleStructureRebuildIfStale(ctx, transcript);
+      return null;
+    }
     const run = await findFactRun(ctx, transcript._id, await transcriptHash(transcript));
     if (run && (await factRunIsCurrent(ctx, run))) return null;
     // A recent attempt that is still running or just failed is left alone;

@@ -624,7 +624,12 @@ export default defineSchema({
     parserVersion: v.optional(v.string()),
     // The turn build chain that owns this row's rebuild. A chain that finds
     // another id here stops, so two chains never interleave their writes.
+    // The id carries its start time (`structureBuildStartedAt`).
     structureBuildId: v.optional(v.string()),
+    // An upload asked for the model's look at speakers the rules could not
+    // place. Kept on the row, so a chain that takes the build over still
+    // asks; cleared when the build finishes.
+    structureModelRoles: v.optional(v.boolean()),
     archivedAt: v.optional(v.number()),
     supersededById: v.optional(v.id("transcripts")),
     speakerStatus: v.optional(

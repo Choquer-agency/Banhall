@@ -104,6 +104,7 @@ import {
   generationTranscriptIds,
   listProjectTranscripts,
   MAX_TRANSCRIPTS_PER_PROJECT,
+  scheduleStructureRebuildIfStale,
   transcriptLabel,
   TRANSCRIPT_BUDGET_CHARS,
 } from "./lib/transcripts";
@@ -693,6 +694,11 @@ async function reserveGeneration(
   const transcriptFacts =
     transcripts.length > 0 &&
     (factsMode === "all" || (factsMode === "long" && inputMode === "digest"));
+  if (transcriptFacts) {
+    // Turns an older parser built are not read as facts: this draft falls
+    // back for them, and their rebuild starts now for the next one.
+    for (const row of transcripts) await scheduleStructureRebuildIfStale(ctx, row);
+  }
   const generationId = await ctx.db.insert("generations", {
     projectId: project._id,
     transcriptId: transcripts[0]?._id,

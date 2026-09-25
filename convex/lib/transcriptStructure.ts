@@ -13,7 +13,7 @@ import {
   type TranscriptTurn,
 } from "../../shared/transcriptParse";
 import { listTeamRoster, userDisplayLabel } from "./teamRoster";
-import { FROZEN_TRANSCRIPT_CHARS } from "./transcripts";
+import { FROZEN_TRANSCRIPT_CHARS, newStructureBuildId } from "./transcripts";
 import {
   inferSpeakerRoles,
   needsModelRole,
@@ -53,13 +53,8 @@ export type StructureStep =
   /** A newer chain took this transcript's build over; this chain stops. */
   | { kind: "superseded" }
   | { kind: "continue"; fromIndex: number; buildId: string }
-  | { kind: "done"; needsModelRoles: boolean };
-
-function newBuildId(): string {
-  const bytes = new Uint8Array(12);
-  crypto.getRandomValues(bytes);
-  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
-}
+  /** `modelRoles`: an upload asked for the model's look at speakers. */
+  | { kind: "done"; needsModelRoles: boolean; modelRoles: boolean };
 
 /**
  * One bounded step of building a transcript's turns and speakers. Call
@@ -73,12 +68,17 @@ function newBuildId(): string {
  * chain's own complete set of turns is ever marked current. A step replayed
  * within its chain inserts only the turns still missing, and a transcript
  * already at the current parser version is left alone.
+ *
+ * An upload's request for the model's look at speakers (`modelRoles`) is
+ * kept on the row (`structureModelRoles`), so the chain that finishes the
+ * build asks whichever chain it is.
  */
 export async function buildStructureStep(
   ctx: MutationCtx,
   transcriptId: Id<"transcripts">,
   fromIndex: number,
-  buildId?: string
+  buildId?: string,
+  options: { modelRoles?: boolean } = {}
 ): Promise<StructureStep> {
   const transcript = await ctx.db.get(transcriptId);
   if (!transcript || transcript.content.trim() === "") return { kind: "missing" };
@@ -86,8 +86,11 @@ export async function buildStructureStep(
 
   let chain = buildId;
   if (chain === undefined) {
-    chain = newBuildId();
-    await ctx.db.patch(transcript._id, { structureBuildId: chain });
+    chain = newStructureBuildId();
+    await ctx.db.patch(transcript._id, {
+      structureBuildId: chain,
+      ...(options.modelRoles ? { structureModelRoles: true } : {}),
+    });
     fromIndex = 0;
   } else if (transcript.structureBuildId !== chain) {
     return { kind: "superseded" };
@@ -139,9 +142,14 @@ export async function buildStructureStep(
   await ctx.db.patch(transcript._id, {
     parserVersion: TRANSCRIPT_PARSER_VERSION,
     structureBuildId: undefined,
+    structureModelRoles: undefined,
     speakerStatus: guesses.length === 0 ? "unchecked" : await speakerStatusOf(ctx, transcript._id),
   });
-  return { kind: "done", needsModelRoles };
+  return {
+    kind: "done",
+    needsModelRoles,
+    modelRoles: transcript.structureModelRoles === true || options.modelRoles === true,
+  };
 }
 
 /**

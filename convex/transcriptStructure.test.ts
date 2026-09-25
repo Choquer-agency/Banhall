@@ -1,11 +1,14 @@
 /// <reference types="vite/client" />
 import { convexTest } from "convex-test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { internal } from "./_generated/api";
+import { api, internal } from "./_generated/api";
 import schema from "./schema";
 import type { Id } from "./_generated/dataModel";
 import { MAX_TURN_CHARS, TRANSCRIPT_PARSER_VERSION } from "../shared/transcriptParse";
-import { FROZEN_TRANSCRIPT_CHARS } from "./lib/transcripts";
+import { FROZEN_TRANSCRIPT_CHARS, STRUCTURE_BUILD_STALE_MS, newStructureBuildId } from "./lib/transcripts";
+import { factRunIsCurrent } from "./lib/transcriptFactRows";
+import { FACTS_VERSION } from "./lib/transcriptFacts";
+import { sha256 } from "./lib/contracts";
 import { TURN_BATCH_SIZE } from "./lib/transcriptStructure";
 import { inferSpeakerRoles, labelNamesPerson } from "./lib/transcriptSpeakers";
 import { parseTranscriptTurns } from "../shared/transcriptParse";
@@ -315,6 +318,135 @@ describe("cue renders and other transcripts", () => {
     expect(CUE_TEXT.slice(pasted[0].charStart, pasted[0].charEnd)).toBe(
       "We built a rig.\n\n[00:00:03] We tested two options: the first failed."
     );
+  });
+});
+
+describe("the model's look at speakers after a takeover", () => {
+  const UNPLACED = Array.from({ length: 900 }, (_, i) =>
+    i % 2 === 0 ? `Speaker 1: Question number ${i}?` : `Speaker 2: Answer number ${i} about the rig and the feeder.`
+  ).join("\n");
+
+  async function classifyJobs(t: Awaited<ReturnType<typeof setup>>["t"]) {
+    return (await t.run((ctx) => ctx.db.system.query("_scheduled_functions").collect())).filter((job) =>
+      job.name.includes("classifySpeakerRoles")
+    );
+  }
+
+  it("the backfill leaves an upload's build alone, and a chain that takes it over still asks the model", async () => {
+    const f = await setup([]);
+    const writer = f.t.withIdentity({ subject: "ts-writer" });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        throw new Error("offline");
+      })
+    );
+    try {
+      const id = await writer.mutation(api.transcripts.addTranscript, { projectId: f.projectId, content: UNPLACED });
+      // The upload's chain writes its first batch.
+      vi.runOnlyPendingTimers();
+      await f.t.finishInProgressScheduledFunctions();
+      expect((await turnsOf(f.t, id)).length).toBe(TURN_BATCH_SIZE);
+      // The backfill does not start a second chain for a row a build holds.
+      expect((await f.t.mutation(internal.transcripts.backfillTranscriptStructure, {})).scheduled).toBe(0);
+      // A chain that asks nothing of the model takes the build over anyway.
+      await f.t.mutation(internal.transcripts.buildTranscriptStructure, { transcriptId: id });
+      await f.t.finishAllScheduledFunctions(vi.runAllTimers);
+      expect(await classifyJobs(f.t)).toHaveLength(1);
+      const row = await f.t.run((ctx) => ctx.db.get(id));
+      expect(row?.parserVersion).toBe(TRANSCRIPT_PARSER_VERSION);
+      expect(row?.structureModelRoles).toBeUndefined();
+      expect(row?.structureBuildId).toBeUndefined();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("a rule-only rebuild never asks the model", async () => {
+    const f = await setup([UNPLACED]);
+    await f.t.mutation(internal.transcripts.backfillTranscriptStructure, {});
+    await f.t.finishAllScheduledFunctions(vi.runAllTimers);
+    expect(await classifyJobs(f.t)).toHaveLength(0);
+  });
+});
+
+describe("turns an older parser built", () => {
+  async function olderParserRow() {
+    const f = await setup([INTERVIEW]);
+    const id = f.transcriptIds[0];
+    await f.t.mutation(internal.transcripts.buildTranscriptStructure, { transcriptId: id });
+    // As if parser version 1 had built them.
+    await f.t.run(async (ctx) => {
+      await ctx.db.patch(id, { parserVersion: "1" });
+      for (const turn of await ctx.db
+        .query("transcriptTurns")
+        .withIndex("by_transcriptId_and_index", (q) => q.eq("transcriptId", id))
+        .collect()) {
+        await ctx.db.patch(turn._id, { parserVersion: "1" });
+      }
+      await ctx.db.insert("appSettings", {
+        key: "transcripts.factsMode",
+        value: "long",
+        updatedBy: f.writerId,
+        updatedAt: 1,
+      });
+    });
+    return { f, id };
+  }
+
+  async function buildJobs(t: Awaited<ReturnType<typeof setup>>["t"]) {
+    return (await t.run((ctx) => ctx.db.system.query("_scheduled_functions").collect())).filter(
+      (job) => job.name.includes("buildTranscriptStructure") && job.state.kind === "pending"
+    );
+  }
+
+  it("are not ready for facts, and a facts request rebuilds them once", async () => {
+    const { f, id } = await olderParserRow();
+    expect((await f.t.query(internal.transcripts.factsInput, { transcriptId: id }))?.structureReady).toBe(false);
+    const writer = f.t.withIdentity({ subject: "ts-writer" });
+    await writer.mutation(api.transcripts.requestTranscriptFacts, { transcriptId: id });
+    await writer.mutation(api.transcripts.requestTranscriptFacts, { transcriptId: id });
+    expect(await buildJobs(f.t)).toHaveLength(1);
+    // No extraction is queued for turns that are not ready.
+    const extractions = (await f.t.run((ctx) => ctx.db.system.query("_scheduled_functions").collect())).filter(
+      (job) => job.name.includes("extractTranscriptFactsInBackground")
+    );
+    expect(extractions).toHaveLength(0);
+    await f.t.finishAllScheduledFunctions(vi.runAllTimers);
+    const input = await f.t.query(internal.transcripts.factsInput, { transcriptId: id });
+    expect(input?.structureReady).toBe(true);
+    expect(input?.parserVersion).toBe(TRANSCRIPT_PARSER_VERSION);
+  });
+
+  it("are rebuilt by the backfill once, and again only when their build stopped long ago", async () => {
+    const { f, id } = await olderParserRow();
+    expect((await f.t.mutation(internal.transcripts.backfillTranscriptStructure, {})).scheduled).toBe(1);
+    expect((await f.t.mutation(internal.transcripts.backfillTranscriptStructure, {})).scheduled).toBe(0);
+    // A build that never finished stops holding the row after a while.
+    await f.t.run((ctx) =>
+      ctx.db.patch(id, { structureBuildId: newStructureBuildId(Date.now() - STRUCTURE_BUILD_STALE_MS - 1) })
+    );
+    expect((await f.t.mutation(internal.transcripts.backfillTranscriptStructure, {})).scheduled).toBe(1);
+  });
+
+  it("make a ready fact run drawn from them stale", async () => {
+    const { f, id } = await olderParserRow();
+    const current = await f.t.run(async (ctx) => {
+      const runId = await ctx.db.insert("transcriptFactRuns", {
+        transcriptId: id,
+        projectId: f.projectId,
+        sourceContentHash: await sha256(INTERVIEW),
+        factsVersion: FACTS_VERSION,
+        model: "model",
+        adapter: "structured",
+        status: "ready",
+        counts: { proposed: 0, verified: 0, dropped: 0 },
+        startedAt: 1,
+        parserVersion: "1",
+      });
+      return await factRunIsCurrent(ctx, (await ctx.db.get(runId))!);
+    });
+    expect(current).toBe(false);
   });
 });
 
