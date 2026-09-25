@@ -891,6 +891,79 @@ describe("Seed project hosts", () => {
     await assertInitializationRetry(PreviewProjectPage);
   });
 
+  async function assertInitializationRetryOwnership(Component: typeof CurrentProjectPage | typeof PreviewProjectPage) {
+    // A3/A5 (R6-07): the retry checks current capability and refuses a
+    // duplicate before dispatch; its pending state and refusal belong to the
+    // generation that submitted it.
+    const initializing = (generationId: string, seedCanEdit = true) => ({
+      _id: generationId,
+      status: "running",
+      candidateMode: "iterative",
+      gatedWorkflow: "seeds",
+      seedPhase: "initializing",
+      seedStageError: "Seed preparation did not complete. Retry initialization.",
+      seedStageVersion: 0,
+      summaryVersionId: null,
+      seedCanEdit,
+    });
+    __setQueryData("generations:getGeneration", {
+      _id: "generation-seed-host",
+      status: "running",
+      currentStep: "Preparing Seed evidence",
+      startedAt: Date.now(),
+      estimatedMs: 60_000,
+      totalCandidates: 1,
+      candidatesDone: 0,
+    });
+    __setQueryData("generations:getLatestGeneration", initializing("generation-seed-host"));
+    const retryButton = () => browserPage.getByRole("button", { name: "Retry initialization", exact: true });
+    const mounted = await render(Component, {});
+    await expect.element(retryButton()).toBeEnabled();
+
+    // Capability is revoked between the interaction and its dispatch: the
+    // update is not flushed, so the click reaches the rendered button.
+    let element = retryButton().element() as HTMLElement;
+    __setQueryData("generations:getLatestGeneration", initializing("generation-seed-host", false));
+    element.click();
+    await expect.poll(() => retryButton().elements()).toHaveLength(0);
+    expect(__mutationCalls("generations:retryInitializeSeedStage")).toEqual([]);
+
+    // A duplicate interaction before the pending state renders sends one request.
+    __setQueryData("generations:getLatestGeneration", initializing("generation-seed-host"));
+    await expect.element(retryButton()).toBeEnabled();
+    let refuseOld: ((reason: unknown) => void) | undefined;
+    __setMutationResult("generations:retryInitializeSeedStage", new Promise((_resolve, reject) => { refuseOld = reject; }));
+    element = retryButton().element() as HTMLElement;
+    element.click();
+    element.click();
+    await expect.element(browserPage.getByRole("button", { name: "Retrying…", exact: true })).toBeDisabled();
+    expect(__mutationCalls("generations:retryInitializeSeedStage")).toEqual([{ generationId: "generation-seed-host" }]);
+
+    // The generation is replaced while that retry is pending: the replacement
+    // starts with its own idle retry, and the old refusal publishes nothing.
+    __setQueryData("generations:getLatestGeneration", initializing("generation-seed-replacement"));
+    await expect.element(retryButton()).toBeEnabled();
+    refuseOld?.(new ConvexError({ code: "INVALID_STATE", message: "Old generation refusal" }));
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(document.body.textContent).not.toContain("Old generation refusal");
+    await expect.element(retryButton()).toBeEnabled();
+    __setMutationResult("generations:retryInitializeSeedStage", null);
+    await retryButton().click();
+    expect(__mutationCalls("generations:retryInitializeSeedStage")).toEqual([
+      { generationId: "generation-seed-host" },
+      { generationId: "generation-seed-replacement" },
+    ]);
+    mounted.unmount();
+  }
+
+  it("owns Seed initialization retry by capability, single submission and generation in the current host (R6-07)", async () => {
+    await assertInitializationRetryOwnership(CurrentProjectPage);
+  });
+
+  it("owns Seed initialization retry by capability, single submission and generation in the preview host (R6-07)", async () => {
+    await assertInitializationRetryOwnership(PreviewProjectPage);
+  });
+
   it("keeps an explicit legacy sections generation on the section stepper", async () => {
     __setQueryData("generations:getLatestGeneration", {
       _id: "generation-seed-host",

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onDestroy, untrack } from "svelte";
   import { useMutation } from "convex-svelte";
   import { api } from "../../../../convex/_generated/api";
   import type { Id } from "../../../../convex/_generated/dataModel";
@@ -19,15 +20,41 @@
   let retrying = $state(false);
   let error = $state<string | null>(null);
 
+  // A3/A5 (R6-07): a retry belongs to the generation that submitted it and to
+  // this component's lifetime. A replaced generation starts idle, and an
+  // obsolete completion changes neither its pending state nor its refusal.
+  let request = 0;
+  let destroyed = false;
+  onDestroy(() => {
+    destroyed = true;
+    request += 1;
+  });
+  let ownedGenerationId = untrack(() => generationId);
+  $effect.pre(() => {
+    const current = generationId;
+    untrack(() => {
+      if (current === ownedGenerationId) return;
+      ownedGenerationId = current;
+      request += 1;
+      retrying = false;
+      error = null;
+    });
+  });
+
   async function retry() {
+    // Capability is rechecked at dispatch, and a duplicate interaction that
+    // lands before the pending state renders is refused.
+    if (!canEdit || retrying) return;
+    const submitted = { request: ++request, generationId };
+    const current = () => !destroyed && submitted.request === request && submitted.generationId === generationId;
     retrying = true;
     error = null;
     try {
-      await retryInitialize({ generationId });
+      await retryInitialize({ generationId: submitted.generationId });
     } catch (cause) {
-      error = userErrorMessage(cause, "Seed preparation could not be retried.");
+      if (current()) error = userErrorMessage(cause, "Seed preparation could not be retried.");
     } finally {
-      retrying = false;
+      if (current()) retrying = false;
     }
   }
 </script>

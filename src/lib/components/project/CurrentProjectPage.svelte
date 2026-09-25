@@ -1474,11 +1474,15 @@
         >
           <GenerationProgress generationId={generation._id} />
           {#if isSeedWorkflow && generation.seedStageError}
-            <SeedInitializationRecovery
-              generationId={generation._id}
-              message={generation.seedStageError}
-              canEdit={generation.seedCanEdit}
-            />
+            <!-- A5 (R6-07): a retry's pending state and refusal belong to the
+                 user and generation that submitted it. -->
+            {#key `${user?._id}:${generation._id}`}
+              <SeedInitializationRecovery
+                generationId={generation._id}
+                message={generation.seedStageError}
+                canEdit={generation.seedCanEdit}
+              />
+            {/key}
           {/if}
           {#if isGenerating && briefGenerationId}
             <!-- Story 4: the Brief fills in beside the progress card — its
