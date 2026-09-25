@@ -4,6 +4,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { api } from "./_generated/api";
 import schema from "./schema";
 import type { Id } from "./_generated/dataModel";
+import * as projectsModule from "./projects";
+import { buildTiptapDocument } from "./lib/tiptapReport";
 
 /**
  * Duplicate from a project card (2026-09-25). The card opens
@@ -117,7 +119,7 @@ async function setup() {
       updatedAt: now,
       sourceTranscriptId,
     });
-    return { userId, sourceProjectId, sourceTranscriptId, notesStorageId };
+    return { userId, sourceProjectId, sourceTranscriptId, notesStorageId, notesId, reviewedPdId };
   });
   return { t, writer: t.withIdentity({ subject: authId }), ...ids };
 }
@@ -128,15 +130,24 @@ type Fixture = Awaited<ReturnType<typeof setup>>;
  * The wizard's duplicate commit, minus the browser. `scope` is what the
  * card Duplicate passes; the plain `?from=` link passes nothing.
  */
+type CopyScope = {
+  includeReport?: boolean;
+  includeReviews?: boolean;
+  excludeDocumentIds?: Id<"projectDocuments">[];
+  previousYearReport?: boolean;
+};
+
 async function duplicateLikeTheWizard(
   f: Fixture,
-  scope: { includeReport?: boolean; includeReviews?: boolean } = {}
+  scope: CopyScope = {},
+  create: { fiscalYearEnd?: number; mode?: "generate" | "review" } = {}
 ) {
   const { projectId, transcriptIds } = await f.writer.mutation(api.projects.createProject, {
     title: "Alloy furnace (copy)",
     clientName: "Forgeworks Inc.",
     mode: "generate",
     transcripts: [{ fromTranscriptId: f.sourceTranscriptId, label: "Kickoff interview.docx" }],
+    ...create,
   });
   const copied = await f.writer.action(api.projectDuplication.copyProjectContent, {
     fromProjectId: f.sourceProjectId,
@@ -320,5 +331,358 @@ describe("dashboard rows mark a project being deleted", () => {
     expect(deleting).toMatchObject({ deleting: true });
     expect(live).toBeTruthy();
     expect(live && "deleting" in live).toBe(false);
+  });
+});
+
+/**
+ * Owner decision 35 (2026-09-25): the writer can untick copied files, the
+ * copy only writes into a project the caller has just made, a year-over-year
+ * duplicate can bring the old report in as last year's report, and
+ * transcript original files come along.
+ */
+const INPUTS_ONLY = { includeReport: false, includeReviews: false } as const;
+const FYE_2024 = Date.UTC(2024, 11, 31);
+const FYE_2025 = Date.UTC(2025, 11, 31);
+
+async function errorCode(run: () => Promise<unknown>) {
+  try {
+    await run();
+  } catch (error) {
+    const data = (error as { data?: { code?: string } }).data;
+    return data?.code ?? String(error);
+  }
+  return "no error";
+}
+
+async function newProject(f: Fixture, extra: { fiscalYearEnd?: number } = {}) {
+  const { projectId, transcriptIds } = await f.writer.mutation(api.projects.createProject, {
+    title: "Alloy furnace (copy)",
+    clientName: "Forgeworks Inc.",
+    mode: "generate",
+    transcripts: [{ fromTranscriptId: f.sourceTranscriptId, label: "Kickoff interview.docx" }],
+    ...extra,
+  });
+  return { projectId, transcriptIds };
+}
+
+describe("unticked files stay behind", () => {
+  it("leaves out the unticked files, and the evidence tied to them", async () => {
+    const f = await setup();
+    const { projectId, copied } = await duplicateLikeTheWizard(f, {
+      ...INPUTS_ONLY,
+      excludeDocumentIds: [f.notesId],
+    });
+    expect(copied).toMatchObject({ documentsCopied: 1, filesCopied: 0, evidenceCopied: 0 });
+    const rows = await projectRows(f, projectId);
+    expect(rows.documents.map((document) => document.fileName)).toEqual(["Old scoping.md"]);
+    expect(rows.evidence).toEqual([]);
+  });
+
+  it("takes a left-out written PD's reviews with it", async () => {
+    const f = await setup();
+    const { projectId, copied } = await duplicateLikeTheWizard(f, {
+      includeReport: false,
+      includeReviews: true,
+      excludeDocumentIds: [f.reviewedPdId],
+    });
+    expect(copied).toMatchObject({ documentsCopied: 2, pdReviewsCopied: 0 });
+    const rows = await projectRows(f, projectId);
+    expect(rows.reviews).toEqual([]);
+    expect(rows.documents.map((document) => document.fileName)).not.toContain("Reviewed PD.docx");
+  });
+
+  it("copies everything for an empty list", async () => {
+    const f = await setup();
+    const { projectId, copied } = await duplicateLikeTheWizard(f, {
+      ...INPUTS_ONLY,
+      excludeDocumentIds: [],
+    });
+    expect(copied).toMatchObject({ documentsCopied: 2, filesCopied: 1, evidenceCopied: 1 });
+    const rows = await projectRows(f, projectId);
+    const notes = rows.documents.find((document) => document.fileName === "Writer notes.md");
+    expect(notes?.storageId).toBeTruthy();
+    expect(notes?.storageId).not.toBe(f.notesStorageId);
+  });
+
+  it("refuses a file from another project and writes nothing", async () => {
+    const f = await setup();
+    const strayId = await f.t.run(async (ctx) => {
+      const otherProjectId = await ctx.db.insert("projects", {
+        title: "Other",
+        clientName: "Other Inc.",
+        status: "draft",
+        createdBy: f.userId,
+        ownerId: f.userId,
+        shareToken: "other-token",
+        createdAt: 1,
+        updatedAt: 1,
+      });
+      return await ctx.db.insert("projectDocuments", {
+        projectId: otherProjectId,
+        fileName: "Stray.md",
+        fileType: "md",
+        content: "Not in the source.",
+        source: "context_input",
+        uploadedBy: "Writer",
+        createdAt: 1,
+      });
+    });
+    const { projectId, transcriptIds } = await newProject(f);
+    expect(
+      await errorCode(() =>
+        f.writer.action(api.projectDuplication.copyProjectContent, {
+          fromProjectId: f.sourceProjectId,
+          toProjectId: projectId,
+          targetTranscriptId: transcriptIds[0],
+          ...INPUTS_ONLY,
+          excludeDocumentIds: [strayId],
+        })
+      )
+    ).toBe("INVALID_INPUT");
+    const rows = await projectRows(f, projectId);
+    expect(rows.documents).toEqual([]);
+    expect(rows.evidence).toEqual([]);
+  });
+
+  it("ignores a file deleted from the original meanwhile", async () => {
+    const f = await setup();
+    const deletedId = await f.t.run(async (ctx) => {
+      const id = await ctx.db.insert("projectDocuments", {
+        projectId: f.sourceProjectId,
+        fileName: "Gone.md",
+        fileType: "md",
+        content: "Deleted while the wizard was open.",
+        source: "context_input",
+        uploadedBy: "Writer",
+        createdAt: 1,
+      });
+      await ctx.db.delete(id);
+      return id;
+    });
+    const { copied } = await duplicateLikeTheWizard(f, {
+      ...INPUTS_ONLY,
+      excludeDocumentIds: [deletedId],
+    });
+    expect(copied).toMatchObject({ documentsCopied: 2 });
+  });
+});
+
+describe("the copy is internal and only fills a new project", () => {
+  it("keeps prepare and finish off the public API, and drops the legacy copy", () => {
+    for (const fn of [
+      projectsModule.prepareProjectContentCopy,
+      projectsModule.finishProjectContentCopy,
+    ]) {
+      const registered = fn as unknown as { isPublic?: boolean; isInternal?: boolean };
+      expect(registered.isInternal).toBe(true);
+      expect(registered.isPublic).not.toBe(true);
+    }
+    expect("copyProjectDocuments" in projectsModule).toBe(false);
+  });
+
+  it("refuses a second copy into the same project", async () => {
+    const f = await setup();
+    const { projectId, transcriptIds } = await duplicateLikeTheWizard(f, INPUTS_ONLY);
+    const before = await projectRows(f, projectId);
+    expect(
+      await errorCode(() =>
+        f.writer.action(api.projectDuplication.copyProjectContent, {
+          fromProjectId: f.sourceProjectId,
+          toProjectId: projectId,
+          targetTranscriptId: transcriptIds[0],
+          ...INPUTS_ONLY,
+        })
+      )
+    ).toBe("INVALID_STATE");
+    const after = await projectRows(f, projectId);
+    expect(after.documents).toHaveLength(before.documents.length);
+    expect(after.evidence).toHaveLength(before.evidence.length);
+  });
+
+  it("refuses a target that already has a report", async () => {
+    const f = await setup();
+    const { projectId } = await newProject(f);
+    await f.t.run((ctx) =>
+      ctx.db.insert("reports", {
+        projectId,
+        content: "<p>Existing.</p>",
+        version: 1,
+        generatedAt: 1,
+        updatedAt: 1,
+      })
+    );
+    expect(
+      await errorCode(() =>
+        f.writer.action(api.projectDuplication.copyProjectContent, {
+          fromProjectId: f.sourceProjectId,
+          toProjectId: projectId,
+          ...INPUTS_ONLY,
+        })
+      )
+    ).toBe("INVALID_STATE");
+    expect((await projectRows(f, projectId)).documents).toEqual([]);
+  });
+
+  it("refuses a project someone else created", async () => {
+    const f = await setup();
+    const otherTarget = await f.t.run(async (ctx) => {
+      const otherUserId = await ctx.db.insert("users", { authId: "someone-else", role: "writer" });
+      return await ctx.db.insert("projects", {
+        title: "Someone else's project",
+        clientName: "Forgeworks Inc.",
+        status: "draft",
+        createdBy: otherUserId,
+        ownerId: otherUserId,
+        shareToken: "someone-else-token",
+        createdAt: 1,
+        updatedAt: 1,
+      });
+    });
+    expect(
+      await errorCode(() =>
+        f.writer.action(api.projectDuplication.copyProjectContent, {
+          fromProjectId: f.sourceProjectId,
+          toProjectId: otherTarget,
+          ...INPUTS_ONLY,
+        })
+      )
+    ).toBe("NOT_AUTHORIZED");
+    expect((await projectRows(f, otherTarget)).documents).toEqual([]);
+  });
+});
+
+describe("last year's report", () => {
+  const REPORT = JSON.stringify(
+    buildTiptapDocument(
+      "Alloy furnace",
+      "Whether the alloy would crack under repeated heating.",
+      "We ran heating cycles on test bars.",
+      "We learned the crack threshold."
+    )
+  );
+
+  async function setupWithFiscalYear() {
+    const f = await setup();
+    await f.t.run(async (ctx) => {
+      await ctx.db.patch(f.sourceProjectId, { fiscalYearEnd: FYE_2024 });
+      const report = await ctx.db
+        .query("reports")
+        .withIndex("by_projectId", (q) => q.eq("projectId", f.sourceProjectId))
+        .first();
+      if (report) await ctx.db.patch(report._id, { content: REPORT, version: 3 });
+    });
+    return f;
+  }
+
+  it("tells the wizard the report's version and whether it has text, not the report", async () => {
+    const f = await setupWithFiscalYear();
+    expect(
+      await f.writer.query(api.projects.getDuplicateSourceReport, { projectId: f.sourceProjectId })
+    ).toEqual({ version: 3, hasText: true });
+    const { projectId } = await newProject(f);
+    expect(await f.writer.query(api.projects.getDuplicateSourceReport, { projectId })).toBeNull();
+    expect(
+      await f.t.query(api.projects.getDuplicateSourceReport, { projectId: f.sourceProjectId })
+    ).toBeNull();
+  });
+
+  it("brings the old report in as a previous-year file for a later fiscal year", async () => {
+    const f = await setupWithFiscalYear();
+    const { projectId, copied } = await duplicateLikeTheWizard(
+      f,
+      { ...INPUTS_ONLY, previousYearReport: true },
+      { fiscalYearEnd: FYE_2025 }
+    );
+    expect(copied).toMatchObject({ reportCopied: false, previousYearReportCopied: true });
+    const rows = await projectRows(f, projectId);
+    expect(rows.reports).toEqual([]);
+    const previous = rows.documents.filter((document) => document.category === "previous_pd");
+    expect(previous).toHaveLength(1);
+    expect(previous[0]).toMatchObject({
+      fileName: "Alloy furnace (report v3, FY 2024).txt",
+      fileType: "txt",
+      source: "context_input",
+      uploaderRole: "writer",
+      processingStatus: "ready",
+    });
+    expect(previous[0].storageId).toBeUndefined();
+    expect(previous[0].content.startsWith("[Previous-year report — fiscal 2024]\n\n")).toBe(true);
+    expect(previous[0].content).toContain("Whether the alloy would crack under repeated heating.");
+    expect(previous[0].content).not.toContain('"type"');
+
+    // A draft reads it as a previous-year report.
+    const generationId = await f.writer.mutation(api.generations.requestGeneration, {
+      projectId,
+      candidateMode: "iterative",
+    });
+    const labels = (await frozenSources(f, generationId))
+      .filter((source) => source.kind === "project_document")
+      .map((source) => source.label);
+    expect(labels).toContain("previous_pd:Alloy furnace (report v3, FY 2024).txt");
+  });
+
+  it.each([
+    ["the same fiscal year", { fiscalYearEnd: FYE_2024 }, INPUTS_ONLY],
+    ["no fiscal year", {}, INPUTS_ONLY],
+    ["the report copied as the report", { fiscalYearEnd: FYE_2025 }, { includeReport: true }],
+  ] as const)("is refused for %s", async (_label, create, scope) => {
+    const f = await setupWithFiscalYear();
+    const { projectId } = await newProject(f, create);
+    expect(
+      await errorCode(() =>
+        f.writer.action(api.projectDuplication.copyProjectContent, {
+          fromProjectId: f.sourceProjectId,
+          toProjectId: projectId,
+          ...scope,
+          previousYearReport: true,
+        })
+      )
+    ).toBe("INVALID_INPUT");
+    const rows = await projectRows(f, projectId);
+    expect(rows.documents).toEqual([]);
+    expect(rows.reports).toEqual([]);
+  });
+});
+
+describe("transcript original files", () => {
+  it("clones the original file of each copied transcript", async () => {
+    const f = await setup();
+    const originalStorageId = await f.t.run(async (ctx) => {
+      const storageId = await ctx.storage.store(new Blob(["docx bytes"]));
+      await ctx.db.patch(f.sourceTranscriptId, { originalStorageId: storageId });
+      return storageId;
+    });
+    const { transcriptIds, copied } = await duplicateLikeTheWizard(f, INPUTS_ONLY);
+    expect(copied).toMatchObject({ transcriptOriginalsCopied: 1 });
+    const copiedRow = await f.t.run((ctx) => ctx.db.get(transcriptIds[0]));
+    expect(copiedRow?.originalStorageId).toBeTruthy();
+    expect(copiedRow?.originalStorageId).not.toBe(originalStorageId);
+    const bytes = await f.t.run(async (ctx) => {
+      const blob = copiedRow?.originalStorageId
+        ? await ctx.storage.get(copiedRow.originalStorageId)
+        : null;
+      return blob ? await blob.text() : null;
+    });
+    expect(bytes).toBe("docx bytes");
+  });
+
+  it("clones nothing for a transcript that was left unticked", async () => {
+    const f = await setup();
+    await f.t.run(async (ctx) => {
+      const storageId = await ctx.storage.store(new Blob(["docx bytes"]));
+      await ctx.db.patch(f.sourceTranscriptId, { originalStorageId: storageId });
+    });
+    const { projectId } = await f.writer.mutation(api.projects.createProject, {
+      title: "Alloy furnace (copy)",
+      clientName: "Forgeworks Inc.",
+      mode: "generate",
+      transcripts: [],
+    });
+    const copied = await f.writer.action(api.projectDuplication.copyProjectContent, {
+      fromProjectId: f.sourceProjectId,
+      toProjectId: projectId,
+      ...INPUTS_ONLY,
+    });
+    expect(copied).toMatchObject({ transcriptOriginalsCopied: 0 });
   });
 });

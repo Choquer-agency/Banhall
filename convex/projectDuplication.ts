@@ -1,5 +1,5 @@
 import { action, type ActionCtx } from "./_generated/server";
-import { api } from "./_generated/api";
+import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import { v } from "convex/values";
 
@@ -9,17 +9,24 @@ type CopyPlan = {
     documentId: Id<"projectDocuments">;
     storageId?: Id<"_storage">;
   }>;
+  transcriptOriginals: Array<{
+    transcriptId: Id<"transcripts">;
+    storageId: Id<"_storage">;
+  }>;
   evidenceCopied: number;
   pdReviewsCopied: number;
   reportId?: Id<"reports">;
+  previousYearReportId?: Id<"projectDocuments">;
 };
 
 type CopyResult = {
   documentsCopied: number;
   filesCopied: number;
+  transcriptOriginalsCopied: number;
   evidenceCopied: number;
   pdReviewsCopied: number;
   reportCopied: boolean;
+  previousYearReportCopied: boolean;
 };
 
 /**
@@ -28,6 +35,9 @@ type CopyResult = {
  * are cloned (never shared storage ids), then the copied rows are patched
  * with their new storage ids. Used by the duplicate-wizard action below and
  * by reviewFromProject.createReviewFromProject (2026-08-11 second amendment).
+ *
+ * Both mutations are internal (owner decision 35, 2026-09-25): every storage
+ * id they attach was made here by `ctx.storage.store`.
  */
 export async function copyProjectContentBetween(
   ctx: ActionCtx,
@@ -39,44 +49,72 @@ export async function copyProjectContentBetween(
     includeReport?: boolean;
     /** Defaults to true; see projects.prepareProjectContentCopy. */
     includeReviews?: boolean;
+    excludeDocumentIds?: Id<"projectDocuments">[];
+    previousYearReport?: boolean;
+    requireFreshTarget?: boolean;
   }
 ): Promise<CopyResult> {
   const plan: CopyPlan = await ctx.runMutation(
-    api.projects.prepareProjectContentCopy,
+    internal.projects.prepareProjectContentCopy,
     args
   );
   const storageCopies: Array<{
     documentId: Id<"projectDocuments">;
     storageId: Id<"_storage">;
   }> = [];
+  const transcriptCopies: Array<{
+    transcriptId: Id<"transcripts">;
+    storageId: Id<"_storage">;
+  }> = [];
 
-  for (const document of plan.documents) {
-    if (!document.storageId) continue;
-    const blob = await ctx.storage.get(document.storageId);
-    if (!blob) continue;
-    storageCopies.push({
-      documentId: document.documentId,
-      storageId: await ctx.storage.store(blob),
+  try {
+    for (const document of plan.documents) {
+      if (!document.storageId) continue;
+      const blob = await ctx.storage.get(document.storageId);
+      if (!blob) continue;
+      storageCopies.push({
+        documentId: document.documentId,
+        storageId: await ctx.storage.store(blob),
+      });
+    }
+    // Transcript originals (.docx, .vtt, .srt) come along too.
+    for (const original of plan.transcriptOriginals) {
+      const blob = await ctx.storage.get(original.storageId);
+      if (!blob) continue;
+      transcriptCopies.push({
+        transcriptId: original.transcriptId,
+        storageId: await ctx.storage.store(blob),
+      });
+    }
+
+    await ctx.runMutation(internal.projects.finishProjectContentCopy, {
+      toProjectId: args.toProjectId,
+      storageCopies,
+      transcriptCopies,
     });
+  } catch (error) {
+    // Nothing points at a clone until finish commits, so release them rather
+    // than leave them for the storage sweep.
+    for (const copy of [...storageCopies, ...transcriptCopies]) {
+      await ctx.storage.delete(copy.storageId).catch(() => undefined);
+    }
+    throw error;
   }
-
-  await ctx.runMutation(api.projects.finishProjectContentCopy, {
-    toProjectId: args.toProjectId,
-    storageCopies,
-  });
 
   return {
     documentsCopied: plan.documents.length,
     filesCopied: storageCopies.length,
+    transcriptOriginalsCopied: transcriptCopies.length,
     evidenceCopied: plan.evidenceCopied,
     pdReviewsCopied: plan.pdReviewsCopied,
     reportCopied: plan.reportId !== undefined,
+    previousYearReportCopied: plan.previousYearReportId !== undefined,
   };
 }
 
 /**
- * Copies the complete project input package after the duplicate wizard creates
- * its destination project. Original file bytes are cloned rather than sharing
+ * Copies the project input package after the duplicate wizard creates its
+ * destination project. Original file bytes are cloned rather than sharing
  * storage ids, so deleting a document from either project cannot break the
  * other copy.
  *
@@ -84,6 +122,11 @@ export async function copyProjectContentBetween(
  * card Duplicate, 2026-09-25) passes `includeReport: false`, and
  * `includeReviews: false` unless it is a Review PD project, so the new
  * project holds only the inputs its own generation will read.
+ *
+ * Owner decision 35 (2026-09-25): the writer can untick files
+ * (`excludeDocumentIds`), a year-over-year duplicate can bring the old report
+ * in as last year's report (`previousYearReport`), and the copy only ever
+ * writes into a project the caller has just created.
  */
 export const copyProjectContent = action({
   args: {
@@ -94,8 +137,10 @@ export const copyProjectContent = action({
     targetTranscriptId: v.optional(v.id("transcripts")),
     includeReport: v.optional(v.boolean()),
     includeReviews: v.optional(v.boolean()),
+    excludeDocumentIds: v.optional(v.array(v.id("projectDocuments"))),
+    previousYearReport: v.optional(v.boolean()),
   },
   handler: async (ctx, args): Promise<CopyResult> => {
-    return await copyProjectContentBetween(ctx, args);
+    return await copyProjectContentBetween(ctx, { ...args, requireFreshTarget: true });
   },
 });
