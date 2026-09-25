@@ -42,8 +42,12 @@
  * v7 (2026-09-25, fix-g review P3-1): brackets that end in a job noun
  * ("Dana (Plant Manager)", "Priya (Mechanical Engineer)") are a title too,
  * so a first name before them stays the speaker instead of the title, and
- * the title is hidden as nothing rather than as a company or a person. The
- * bump rebuilds rows v6 built at the next backfill.
+ * the title is hidden as nothing rather than as a company or a person. A job
+ * noun ends a title only after title words and job modifiers ("Plant",
+ * "Field"), so "Acme (Jane Lead)" or "Siemens Field Engineer" stay hidden,
+ * and each comma part of a bracket is read on its own, so "Acme (Jane Smith,
+ * Engineer)" hides Jane Smith. The bump rebuilds rows v6 built at the next
+ * backfill.
  */
 
 export const TRANSCRIPT_PARSER_VERSION = "7";
@@ -220,6 +224,13 @@ const JOB_NOUNS = new Set([
   "executive", "lead", "strategist", "economist", "statistician",
 ]);
 
+/** Words that can sit before a job noun in a title ("Plant Manager", "Field Engineer"). */
+const JOB_MODIFIERS = new Set([
+  "plant", "lab", "laboratory", "mechanical", "electrical", "electronics", "chemical", "civil",
+  "process", "quality", "field", "site", "shop", "test", "testing", "manufacturing", "production",
+  "controls", "automation", "maintenance", "systems", "materials", "firmware", "embedded", "mechatronics",
+]);
+
 function lastWord(text: string): string {
   const words = text.toLowerCase().replace(/[.,]+$/, "").split(/\s+/);
   return words[words.length - 1];
@@ -232,7 +243,17 @@ function lastWord(text: string): string {
  */
 function isTitle(text: string): boolean {
   const words = text.toLowerCase().split(/\s+/).map((word) => word.replace(/[.,]+$/, ""));
-  if (JOB_NOUNS.has(words[words.length - 1])) return true;
+  // A job noun ends a title only when every word before it is a title word,
+  // a connector or a job modifier: "Plant Manager" is a title, but "Jane
+  // Lead", "Farokh Engineer" or "Siemens Field Engineer" must stay hidden.
+  if (
+    JOB_NOUNS.has(words[words.length - 1]) &&
+    words
+      .slice(0, -1)
+      .every((word) => TITLE_WORDS.has(word) || TITLE_CONNECTORS.has(word) || JOB_MODIFIERS.has(word))
+  ) {
+    return true;
+  }
   return (
     words.some((word) => TITLE_WORDS.has(word)) &&
     words.every((word) => TITLE_WORDS.has(word) || TITLE_CONNECTORS.has(word))
@@ -335,6 +356,21 @@ export function labelBracketNames(rawLabel: string): { people: string[]; organiz
   const none = { people: [], organizations: [] };
   const parts = bracketParts(rawLabel);
   if (!parts || ROLE_LABEL.test(parts.outer)) return none;
+  // Comma parts are read one at a time, so "Acme (Jane Smith, Engineer)"
+  // still hides Jane Smith: a comma used to make the whole bracket unreadable
+  // and nothing in it was hidden (review 2026-09-25, fix-g P2-2).
+  if (parts.inner.includes(",")) {
+    const people = new Set<string>();
+    const organizations = new Set<string>();
+    for (const segment of parts.inner.split(",")) {
+      const piece = segment.trim();
+      if (!piece) continue;
+      const found = labelBracketNames(`${parts.outer} (${piece})`);
+      for (const name of found.people) people.add(name);
+      for (const name of found.organizations) organizations.add(name);
+    }
+    return { people: [...people], organizations: [...organizations] };
+  }
   if (companyThenName(parts)) return { people: [parts.inner], organizations: [parts.outer] };
   const inner = parts.inner;
   if (ONLY_TIMESTAMP.test(inner) || inner.includes("/") || ROLE_LABEL.test(inner)) return none;

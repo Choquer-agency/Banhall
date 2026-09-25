@@ -570,6 +570,22 @@ describe("speaker labels (parser v4)", () => {
     expect(labelBracketNames("Acme (George Foreman)")).toEqual({ people: ["George Foreman"], organizations: ["Acme"] });
   });
 
+
+  it("hides a name or company before a job noun, and every name in comma parts (v7, fix-g review)", () => {
+    // A job noun ends a title only after title words and job modifiers.
+    expect(labelBracketNames("Acme (Jane Lead)")).toEqual({ people: ["Jane Lead"], organizations: ["Acme"] });
+    expect(labelBracketNames("Acme (Farokh Engineer)")).toEqual({ people: ["Farokh Engineer"], organizations: ["Acme"] });
+    expect(labelBracketNames("Priya Shah (Siemens Field Engineer)").people).toEqual(["Siemens Field Engineer"]);
+    expect(labelBracketNames("Acme (Jane Smith Lead Engineer)").people).toEqual(["Jane Smith Lead Engineer"]);
+    // A comma no longer makes the whole bracket unreadable.
+    expect(labelBracketNames("Acme (Jane Smith, Engineer)")).toEqual({ people: ["Jane Smith"], organizations: ["Acme"] });
+    expect(labelBracketNames("Acme (Jane Smith, VP Engineering)")).toEqual({ people: ["Jane Smith"], organizations: ["Acme"] });
+    expect(labelBracketNames("Priya Shah (Acme, she/her)")).toEqual({ people: [], organizations: ["Acme"] });
+    // Real titles stay titles.
+    for (const label of ["Dana (Plant Manager)", "Priya (Mechanical Engineer)", "Ann Lee (Senior Mechanical Engineer)"]) {
+      expect(labelBracketNames(label), label).toEqual({ people: [], organizations: [] });
+    }
+  });
   it("never reads a reply before a comma as a surname", () => {
     for (const opener of ["Correct", "Absolutely", "Agreed", "Totally", "Indeed", "Hmm"]) {
       expect(speakerOfTranscriptLine(`${opener}, Dana: we rebuilt it twice.`), opener).toBeUndefined();
