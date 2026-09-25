@@ -23,9 +23,9 @@ export const summarizeModelFeedback = action({
       model: args.model,
     });
     if (!comments.length) return "No written feedback for this model yet.";
-    // Model catalog: the structured_helper role's model, not a "haiku"
+    // Model catalog: the feedback_summary role's model, not a "haiku"
     // substring match on the registry.
-    const { client, model } = await clientForRole(ctx, "structured_helper", {
+    const { client, model } = await clientForRole(ctx, "feedback_summary", {
       callSite: "admin:model_feedback_summary",
       userId: user._id,
     });

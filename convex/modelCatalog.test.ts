@@ -22,8 +22,17 @@ import {
 } from "./lib/modelCatalogRefs";
 import { generationPromptVersion } from "./ai/promptProgram";
 import { EVAL_ENVELOPE } from "./ai/modelEvaluation";
-import { ROLE_POLICIES, maxEvaluationCostUsd } from "../shared/modelCatalog";
+import { MODEL_ROLES, ROLE_POLICIES, maxEvaluationCostUsd } from "../shared/modelCatalog";
 import { recordCallOutcomeRef } from "./lib/modelCatalogRefs";
+import { roleAutoSwitches } from "../shared/modelCatalog";
+import reviewAgentSource from "./ai/reviewAgent.ts?raw";
+import financialAgentSource from "./ai/financialAgent.ts?raw";
+import ingestSource from "./ai/brain/ingest.ts?raw";
+import learningSource from "./ai/learning.ts?raw";
+import scienceCodeSource from "./scienceCodeSuggestions.ts?raw";
+import modelFeedbackSource from "./ai/modelFeedback.ts?raw";
+import changelogSource from "./ai/changelogPipeline.ts?raw";
+import styleAnalysisSource from "./ai/styleAnalysis.ts?raw";
 
 const modules = import.meta.glob("./**/*.ts");
 type TestConvex = ReturnType<typeof convexTest<typeof schema.tables>>;
@@ -246,7 +255,7 @@ describe("evaluation planning", () => {
 
   it("respects a lowered cost cap", async () => {
     const { t, admin } = await setup();
-    for (const role of ["writing", "structured_helper", "condense", "retrieval_brief", "analysis"] as const) {
+    for (const role of MODEL_ROLES) {
       await admin.mutation(setRoleCostCapRef, { role, maxInputUsdPerMTok: 0.01, maxOutputUsdPerMTok: 0.01, maxCostRatio: 2 });
     }
     expect(await t.mutation(planEvaluationsRef, {})).toEqual([]);
@@ -696,5 +705,147 @@ describe("review fixes", () => {
     );
     await t.mutation(applyCatalogRefreshRef, { models: parsed, fetchedAt: NOW, complete: true });
     expect((await row(t, "openai/gpt-5.6-sol"))?.missingSince).toBeUndefined();
+  });
+});
+
+describe("second review", () => {
+  it("A: every call site resolves its own role; automatic roles are covered by a task each", async () => {
+    const roleOf = (source: string) =>
+      [...source.matchAll(/clientForRole\(ctx, "([a-z_]+)"/g)].map((match) => match[1]);
+    expect(roleOf(reviewAgentSource)).toEqual(["pd_review"]);
+    expect(roleOf(financialAgentSource)).toEqual(["financial_extraction"]);
+    expect(roleOf(ingestSource)).toEqual(["brain_context"]);
+    expect(roleOf(learningSource)).toEqual(["learning_digest"]);
+    expect(roleOf(scienceCodeSource)).toEqual(["science_code"]);
+    expect(roleOf(modelFeedbackSource)).toEqual(["feedback_summary"]);
+    expect(roleOf(changelogSource)).toEqual(["structured_helper"]);
+    expect(roleOf(styleAnalysisSource)).toEqual(["analysis"]);
+    const automatic = MODEL_ROLES.filter(roleAutoSwitches);
+    expect(automatic).toEqual([
+      "writing",
+      "condense",
+      "retrieval_brief",
+      "analysis",
+      "structured_helper",
+      "pd_review",
+      "financial_extraction",
+      "brain_context",
+    ]);
+    expect(ROLE_POLICIES.pd_review.evalTasks).toEqual(["pd_review_report"]);
+    expect(ROLE_POLICIES.financial_extraction.evalTasks).toEqual(["timesheet_extraction"]);
+    expect(ROLE_POLICIES.brain_context.evalTasks).toEqual(["chunk_context"]);
+    for (const role of automatic) {
+      for (const task of ROLE_POLICIES[role].evalTasks) expect(EVAL_ENVELOPE[task], `${role} ${task}`).toBeDefined();
+    }
+    // Uses without a fixture stay manual, say why, and keep today's models.
+    const { t, admin } = await setup();
+    const state = await admin.query(adminStateRef, {});
+    for (const [role, model] of [
+      ["chat", "claude-sonnet-5"],
+      ["learning_digest", "claude-sonnet-5"],
+      ["science_code", "claude-sonnet-5"],
+      ["feedback_summary", "claude-haiku-4-5-20251001"],
+      ["pd_review", "claude-sonnet-5"],
+      ["financial_extraction", "claude-sonnet-5"],
+      ["brain_context", "claude-haiku-4-5-20251001"],
+    ] as const) {
+      const entry = state?.roles.find((item) => item.role === role);
+      expect(entry?.modelId, role).toBe(model);
+      if (!roleAutoSwitches(role)) {
+        expect(entry?.autoSwitch).toBe(false);
+        expect(entry?.manualOnlyReason).toBeTruthy();
+        expect(entry?.evaluatedOn).toEqual([]);
+      } else {
+        expect(entry?.evaluatedOn.length).toBeGreaterThan(0);
+      }
+    }
+    // Manual roles are still switchable by an admin.
+    await admin.mutation(setRoleModelRef, { role: "learning_digest", modelId: "claude-opus-4-8" });
+    const learning = await t.run((ctx) =>
+      ctx.db.query("modelRoleAssignments").withIndex("by_role", (q) => q.eq("role", "learning_digest")).unique()
+    );
+    expect(learning?.modelId).toBe("claude-opus-4-8");
+  });
+
+  async function assignWriting(t: TestConvex, modelId: string, assignedAt: number) {
+    await t.run((ctx) =>
+      ctx.db.insert("modelRoleAssignments", {
+        role: "writing",
+        modelId,
+        previousModelId: "claude-sonnet-5",
+        assignedAt,
+        assignedBy: "system",
+      })
+    );
+  }
+  async function outcomesAt(t: TestConvex, at: number, model: string, successes: number, failures: number) {
+    vi.setSystemTime(at);
+    for (let i = 0; i < successes; i += 1) {
+      await t.mutation(recordCallOutcomeRef, { model, callSite: "generation:analyzer", outcome: "success" });
+    }
+    for (let i = 0; i < failures; i += 1) {
+      await t.mutation(recordCallOutcomeRef, { model, callSite: "generation:analyzer", outcome: "failure", code: "unknown" });
+    }
+  }
+
+  it("D: outcomes from before a mid-hour assignment never count", async () => {
+    const { t } = await setup();
+    const hour = Date.parse("2026-09-24T10:00:00Z");
+    await outcomesAt(t, hour + 50 * 60_000, "x-ai/grok-4.7", 15, 5);
+    await assignWriting(t, "x-ai/grok-4.7", hour + 55 * 60_000);
+    vi.setSystemTime(hour + 90 * 60_000);
+    expect(await t.mutation(checkProductionErrorsRef, {})).toEqual([]);
+    // The same failures after the assignment do count.
+    await outcomesAt(t, hour + 95 * 60_000, "x-ai/grok-4.7", 15, 5);
+    expect(await t.mutation(checkProductionErrorsRef, {})).toEqual([
+      { role: "writing", modelId: "x-ai/grok-4.7", rolledBack: true },
+    ]);
+  });
+
+  it("D: outcomes older than the rolling 24 hours never count, even in the window's first hour", async () => {
+    const { t } = await setup();
+    const now = Date.parse("2026-09-24T12:30:00Z");
+    await assignWriting(t, "x-ai/grok-4.7", now - 3 * 24 * 3_600_000);
+    // 12:10 yesterday: 20 minutes outside a window that opens at 12:30.
+    await outcomesAt(t, now - 24 * 3_600_000 - 20 * 60_000, "x-ai/grok-4.7", 15, 5);
+    // A little healthy traffic inside the window, in a full hour and the
+    // current one: counted with the stale failures it would reach 20.8
+    // percent of 24 calls and roll back.
+    await outcomesAt(t, now - 5 * 3_600_000, "x-ai/grok-4.7", 3, 0);
+    await outcomesAt(t, now - 10 * 60_000, "x-ai/grok-4.7", 1, 0);
+    vi.setSystemTime(now);
+    expect(await t.mutation(checkProductionErrorsRef, {})).toEqual([]);
+    // Inside the window the full-hour bucket and the partial hour both count.
+    await outcomesAt(t, now - 5 * 3_600_000, "x-ai/grok-4.7", 12, 5);
+    vi.setSystemTime(now);
+    expect(await t.mutation(checkProductionErrorsRef, {})).toEqual([
+      { role: "writing", modelId: "x-ai/grok-4.7", rolledBack: true },
+    ]);
+  });
+
+  it("F: a queued evaluation from last month claimed this month counts against this month's budget", async () => {
+    const { t, admin } = await setup();
+    const lastMonth = Date.parse("2026-08-31T23:00:00Z");
+    const insertQueued = () =>
+      t.run((ctx) =>
+        ctx.db.insert("modelEvaluations", {
+          role: "writing",
+          modelId: "x-ai/grok-4.7",
+          incumbentModelId: "claude-sonnet-5",
+          evalSetVersion: "banhall-eval/v1",
+          status: "queued",
+          estimatedCostUsd: 0.01,
+          createdAt: lastMonth,
+          accountedAt: lastMonth,
+        })
+      );
+    const first = await insertQueued();
+    const second = await insertQueued();
+    const claimed = await t.mutation(claimEvaluationRef, { evaluationId: first, envelope: EVAL_ENVELOPE });
+    expect(claimed).not.toBeNull();
+    const reservation = claimed!.reservedCostUsd;
+    await admin.mutation(setEvalBudgetRef, { monthlyUsd: reservation * 1.5 });
+    expect(await t.mutation(claimEvaluationRef, { evaluationId: second, envelope: EVAL_ENVELOPE })).toBeNull();
+    expect((await t.run((ctx) => ctx.db.get(second)))?.error).toMatch(/^Over the monthly evaluation budget/);
   });
 });

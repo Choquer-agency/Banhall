@@ -99,8 +99,8 @@ async function distillAdmittedRules(
   user: string,
 ): Promise<{ rules: string[] | null; model: string }> {
   try {
-    // Model catalog: learning digests run on the analysis role's model.
-    const { client, model } = await clientForRole(ctx, "analysis", {
+    // Model catalog: learning digests run on the learning_digest role's model.
+    const { client, model } = await clientForRole(ctx, "learning_digest", {
       callSite:
         kind === "qa_calibration"
           ? "learning:qa-calibration"

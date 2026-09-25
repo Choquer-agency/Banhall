@@ -170,7 +170,11 @@
                 {:else}
                   {role.assignedBy === "system" ? "Switched automatically" : "Set by an admin"} on {formatDate(role.assignedAt)}.
                 {/if}
-                {#if !role.autoSwitch}
+                {#if role.autoSwitch}
+                  <span class="mt-1 block" data-testid="auto-switch-tasks">
+                    Switches on its own after passing its evaluation on: {role.evaluatedOn.join(", ")}.
+                  </span>
+                {:else}
                   <span class="mt-1 block" data-testid="manual-only-reason">
                     Never switches on its own: {role.manualOnlyReason}
                   </span>

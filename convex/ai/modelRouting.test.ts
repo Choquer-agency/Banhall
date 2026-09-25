@@ -20,12 +20,26 @@ import { applyCatalogRefreshRef, checkProductionErrorsRef } from "../lib/modelCa
 import {
   clientForModel,
   clientForRole,
+  OUTCOME_RECORD_DEADLINE_MS,
   resetGenerationModelCache,
   seedClientForModel,
+  withOutcomeRecording,
 } from "./providers";
+import { z } from "zod";
 import { evalClient } from "./modelEvaluation";
 import { SEED_PROMPT_PROGRAM } from "./promptDefinitions";
 import type { GenerationMessageParams } from "./openrouterCore";
+import { generateStructured } from "./structured";
+
+const structuredArgs = (model: string) => ({
+  model,
+  system: "System.",
+  user: "Hello.",
+  toolName: "record",
+  description: "Record it.",
+  schema: { type: "object" as const },
+  attempts: 1,
+});
 
 // Vite keys this directory's own files as "./x.ts"; convex-test resolves
 // function names from the convex root, so map them back under "../ai/".
@@ -277,7 +291,8 @@ describe("model outcome recording", () => {
     await t.action(async (ctx) => {
       const client = clientForModel(ctx, "openai/gpt-5.6-sol", { callSite: "generation:analyzer" });
       for (let i = 0; i < 20; i += 1) {
-        await client.messages.create(toolParams("openai/gpt-5.6-sol")).catch(() => null);
+        // Every production forced-tool call goes through generateStructured.
+        await generateStructured(client, structuredArgs("openai/gpt-5.6-sol")).catch(() => null);
       }
     });
     await drain(t);
@@ -318,5 +333,99 @@ describe("finding 1: seed evaluations send the production seed request", () => {
     expect(production.max_tokens).toBe(SEED_PROMPT_PROGRAM.request.maxTokens);
     expect(evaluation.max_tokens).toBe(production.max_tokens);
     expect(evaluation.provider).toEqual(production.provider);
+  });
+});
+
+describe("second review: outcome attribution and recording", () => {
+  const drain = async (t: Awaited<ReturnType<typeof setup>>) =>
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
+  const buckets = (t: Awaited<ReturnType<typeof setup>>) =>
+    t.run((ctx) => ctx.db.query("modelCallBuckets").collect());
+
+  it("E: a fallback's answers, good or malformed, count for the fallback model", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const t = await setup();
+    await t.run(async (ctx) => {
+      await ctx.db.insert("modelRoleAssignments", {
+        role: "structured_helper",
+        modelId: "z-ai/glm-5.3-flash",
+        previousModelId: "xiaomi/mimo-v2.6-pro",
+        assignedAt: NOW,
+        assignedBy: "system",
+      });
+    });
+    let call = 0;
+    reply = () => {
+      call += 1;
+      return toolReply(call === 2 ? "{broken" : JSON.stringify({ ok: true }), "xiaomi/mimo-v2.6-pro");
+    };
+    await t.action(async (ctx) => {
+      const { client, model } = await clientForRole(ctx, "structured_helper", { callSite: "routing-test" });
+      await generateStructured(client, structuredArgs(model));
+      await generateStructured(client, structuredArgs(model)).catch(() => null);
+    });
+    await drain(t);
+    expect(await buckets(t)).toMatchObject([
+      { model: "xiaomi/mimo-v2.6-pro", successes: 1, failures: 1 },
+    ]);
+    vi.useRealTimers();
+  });
+
+  it("F: valid JSON in an unusable shape is a failure, recorded after validation", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const t = await setup();
+    reply = () => toolReply(JSON.stringify({ unexpected: true }));
+    await t.action(async (ctx) => {
+      const client = clientForModel(ctx, "openai/gpt-5.6-sol", { callSite: "routing-test" });
+      await expect(
+        generateStructured(client, {
+          ...structuredArgs("openai/gpt-5.6-sol"),
+          validate: z.object({ required: z.string() }),
+        })
+      ).rejects.toThrow(/unexpected shape/);
+      // A usable answer is the one success.
+      reply = () => toolReply(JSON.stringify({ required: "yes" }));
+      await generateStructured(client, {
+        ...structuredArgs("openai/gpt-5.6-sol"),
+        validate: z.object({ required: z.string() }),
+      });
+    });
+    await drain(t);
+    expect(await buckets(t)).toMatchObject([
+      { model: "openai/gpt-5.6-sol", successes: 1, failures: 1, lastFailureCode: "invalid_output" },
+    ]);
+    vi.useRealTimers();
+  });
+
+  it("F: a slow or failing outcome write never holds up or fails the request, and is logged", async () => {
+    vi.useFakeTimers();
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    const answer = { content: [{ type: "text" as const, text: "ok" }] };
+    const inner = { messages: { create: async () => answer } };
+    const hanging = withOutcomeRecording(
+      { runMutation: () => new Promise(() => {}) } as never,
+      "m",
+      "routing-test",
+      inner
+    );
+    const pending = hanging.messages.create({ model: "m", max_tokens: 10, messages: [{ role: "user", content: "hi" }] });
+    await vi.advanceTimersByTimeAsync(OUTCOME_RECORD_DEADLINE_MS);
+    await expect(pending).resolves.toBe(answer);
+    expect(errors).toHaveBeenCalledWith("model call outcome not recorded in time", expect.objectContaining({ model: "m" }));
+    const rejecting = withOutcomeRecording(
+      { runMutation: () => Promise.reject(new Error("write failed")) } as never,
+      "m",
+      "routing-test",
+      inner
+    );
+    await expect(
+      rejecting.messages.create({ model: "m", max_tokens: 10, messages: [{ role: "user", content: "hi" }] })
+    ).resolves.toBe(answer);
+    expect(errors).toHaveBeenCalledWith(
+      "model call outcome not recorded",
+      expect.objectContaining({ model: "m", error: "Error: write failed" })
+    );
+    errors.mockRestore();
+    vi.useRealTimers();
   });
 });

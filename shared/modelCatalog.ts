@@ -30,13 +30,25 @@ import { pricingFor } from "./modelPricing";
 
 // ─── Roles ──────────────────────────────────────────────────────────────────
 
+/**
+ * Every model role maps to the production call sites it serves. A role
+ * switches on its own only if every one of those call sites is covered by
+ * an evaluation task with its own fixture and contract; call sites without
+ * one have their own manual role (review A, 2026-09-24).
+ */
 export const MODEL_ROLES = [
   "writing",
-  "structured_helper",
-  "chat",
   "condense",
   "retrieval_brief",
   "analysis",
+  "structured_helper",
+  "pd_review",
+  "financial_extraction",
+  "brain_context",
+  "chat",
+  "learning_digest",
+  "science_code",
+  "feedback_summary",
 ] as const;
 export type ModelRole = (typeof MODEL_ROLES)[number];
 
@@ -46,12 +58,16 @@ export function isModelRole(value: string): value is ModelRole {
 
 /**
  * One production task an evaluation runs. Each automatically switchable
- * role is evaluated on its own task(s):
+ * role is evaluated on every task it serves in production:
  * - writing: seed_batch, section_draft, qa_structured (seeds, sections, QA);
- * - structured_helper: changelog_summary (the daily release-notes JSON);
  * - condense: condense_digest (facts and verbatim quotes kept);
  * - retrieval_brief: retrieval_queries (four Brain queries, no names);
- * - analysis: style_classification (the settings-document classifier).
+ * - analysis: style_classification (the settings classifier, used both in
+ *   generations and for saved writer settings);
+ * - structured_helper: changelog_summary (the daily release-notes JSON);
+ * - pd_review: pd_review_report (flags a planted ineligible claim);
+ * - financial_extraction: timesheet_extraction (known hours and eligibility);
+ * - brain_context: chunk_context (Brain contextual retrieval blurbs).
  */
 export const EVAL_TASK_KINDS = [
   "seed_batch",
@@ -61,8 +77,25 @@ export const EVAL_TASK_KINDS = [
   "retrieval_queries",
   "style_classification",
   "changelog_summary",
+  "pd_review_report",
+  "timesheet_extraction",
+  "chunk_context",
 ] as const;
 export type EvalTaskKind = (typeof EVAL_TASK_KINDS)[number];
+
+/** Plain labels for the admin page and the judge. */
+export const EVAL_TASK_LABELS: Readonly<Record<EvalTaskKind, string>> = {
+  seed_batch: "Idea seeds",
+  section_draft: "Line 242 draft",
+  qa_structured: "QA scorecard",
+  condense_digest: "Transcript digest",
+  retrieval_queries: "Retrieval queries",
+  style_classification: "Style classification",
+  changelog_summary: "Release notes",
+  pd_review_report: "PD review",
+  timesheet_extraction: "Timesheet entries",
+  chunk_context: "Chunk context",
+};
 
 /** Tasks whose output the judge grades. QA is scored by its contract only. */
 export const JUDGED_EVAL_TASKS: ReadonlySet<EvalTaskKind> = new Set<EvalTaskKind>([
@@ -72,6 +105,9 @@ export const JUDGED_EVAL_TASKS: ReadonlySet<EvalTaskKind> = new Set<EvalTaskKind
   "retrieval_queries",
   "style_classification",
   "changelog_summary",
+  "pd_review_report",
+  "timesheet_extraction",
+  "chunk_context",
 ]);
 
 /**
@@ -120,8 +156,8 @@ export const ROLE_POLICIES: Readonly<Record<ModelRole, RolePolicy>> = {
     frozenPerGeneration: true,
   },
   structured_helper: {
-    label: "Structured helper",
-    description: "Cheap structured jobs: Brain ingest, changelog, feedback summaries.",
+    label: "Release notes",
+    description: "The daily changelog summary for writers.",
     defaultModelId: HAIKU,
     gateways: ["anthropic", "openrouter"],
     minContextTokens: 128_000,
@@ -174,8 +210,8 @@ export const ROLE_POLICIES: Readonly<Record<ModelRole, RolePolicy>> = {
     frozenPerGeneration: true,
   },
   analysis: {
-    label: "Analysis",
-    description: "Learning digests, writer settings, style analysis, PD review, financials.",
+    label: "Style analysis",
+    description: "Classifies writer settings documents and saved style instructions.",
     defaultModelId: MODEL,
     gateways: ["anthropic", "openrouter"],
     minContextTokens: 200_000,
@@ -184,6 +220,84 @@ export const ROLE_POLICIES: Readonly<Record<ModelRole, RolePolicy>> = {
     defaultCostCap: { maxInputUsdPerMTok: 5, maxOutputUsdPerMTok: 25, maxCostRatio: 2 },
     evalTasks: ["style_classification"],
     frozenPerGeneration: true,
+  },
+  pd_review: {
+    label: "PD review",
+    description: "Structured feedback on an uploaded, externally written PD.",
+    defaultModelId: MODEL,
+    gateways: ["anthropic", "openrouter"],
+    minContextTokens: 200_000,
+    minOutputTokens: 16_000,
+    autoSwitch: true,
+    defaultCostCap: { maxInputUsdPerMTok: 5, maxOutputUsdPerMTok: 25, maxCostRatio: 2 },
+    evalTasks: ["pd_review_report"],
+    frozenPerGeneration: false,
+  },
+  financial_extraction: {
+    label: "Timesheet extraction",
+    description: "Reconstructs timesheets from uploaded chat, commit or spreadsheet data.",
+    defaultModelId: MODEL,
+    gateways: ["anthropic", "openrouter"],
+    minContextTokens: 200_000,
+    minOutputTokens: 16_000,
+    autoSwitch: true,
+    defaultCostCap: { maxInputUsdPerMTok: 5, maxOutputUsdPerMTok: 25, maxCostRatio: 2 },
+    evalTasks: ["timesheet_extraction"],
+    frozenPerGeneration: false,
+  },
+  brain_context: {
+    label: "Brain context",
+    description: "Situates each approved PD chunk before it is embedded in the Brain.",
+    defaultModelId: HAIKU,
+    gateways: ["anthropic", "openrouter"],
+    minContextTokens: 128_000,
+    minOutputTokens: 4_000,
+    autoSwitch: true,
+    defaultCostCap: { maxInputUsdPerMTok: 1.5, maxOutputUsdPerMTok: 8, maxCostRatio: 2 },
+    evalTasks: ["chunk_context"],
+    frozenPerGeneration: false,
+  },
+  learning_digest: {
+    label: "Learning digests",
+    description: "Distills writer and QA feedback into learned drafting rules.",
+    defaultModelId: MODEL,
+    gateways: ["anthropic", "openrouter"],
+    minContextTokens: 200_000,
+    minOutputTokens: 4_000,
+    autoSwitch: false,
+    manualOnlyReason:
+      "No fixed test can tell a good learned rule from a plausible one without real feedback history, so an admin chooses its model.",
+    defaultCostCap: { maxInputUsdPerMTok: 5, maxOutputUsdPerMTok: 25, maxCostRatio: 2 },
+    evalTasks: [],
+    frozenPerGeneration: false,
+  },
+  science_code: {
+    label: "Science code suggestion",
+    description: "Suggests the CRA field of science code for a project.",
+    defaultModelId: MODEL,
+    gateways: ["anthropic", "openrouter"],
+    minContextTokens: 200_000,
+    minOutputTokens: 1_000,
+    autoSwitch: false,
+    manualOnlyReason:
+      "More than one science code can be right for a project and the writer always confirms it, so no fixture has a single correct answer; an admin chooses its model.",
+    defaultCostCap: { maxInputUsdPerMTok: 5, maxOutputUsdPerMTok: 25, maxCostRatio: 2 },
+    evalTasks: [],
+    frozenPerGeneration: false,
+  },
+  feedback_summary: {
+    label: "Feedback summaries",
+    description: "Summarizes writers' comments on each model for this page.",
+    defaultModelId: HAIKU,
+    gateways: ["anthropic", "openrouter"],
+    minContextTokens: 128_000,
+    minOutputTokens: 1_000,
+    autoSwitch: false,
+    manualOnlyReason:
+      "An admin-only summary with no fixed right answer; an admin chooses its model.",
+    defaultCostCap: { maxInputUsdPerMTok: 1.5, maxOutputUsdPerMTok: 8, maxCostRatio: 2 },
+    evalTasks: [],
+    frozenPerGeneration: false,
   },
 };
 

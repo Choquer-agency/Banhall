@@ -232,19 +232,55 @@ export function modelFaultCode(error: unknown): string | null {
  * counted either way. A recording failure is logged and never fails the
  * call; one small mutation per request is negligible next to the request.
  */
-async function recordOutcome(
-  ctx: Pick<ActionCtx, "runMutation">,
-  outcome: { model: string; callSite: string; outcome: "success" | "failure"; code?: string }
-): Promise<void> {
+/** How long a request waits for its outcome to be recorded. */
+export const OUTCOME_RECORD_DEADLINE_MS = 2_000;
+
+type Outcome = { model: string; callSite: string; outcome: "success" | "failure"; code?: string };
+
+/**
+ * Records one outcome with a short deadline. A write that fails or runs
+ * past the deadline never fails or holds up the request: it is logged as
+ * "model call outcome not recorded" so the gap is visible in the logs.
+ */
+async function recordOutcome(ctx: Pick<ActionCtx, "runMutation">, outcome: Outcome): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
   try {
-    await ctx.runMutation(recordCallOutcomeRef, outcome);
+    const written = ctx.runMutation(recordCallOutcomeRef, outcome).then(() => "written" as const);
+    const deadline = new Promise<"late">((resolve) => {
+      timer = setTimeout(() => resolve("late"), OUTCOME_RECORD_DEADLINE_MS);
+    });
+    // A late write may still land; its eventual rejection is only logged.
+    written.catch((error: unknown) =>
+      console.error("model call outcome not recorded", { ...outcome, error: String(error) })
+    );
+    if ((await Promise.race([written, deadline])) === "late") {
+      console.error("model call outcome not recorded in time", outcome);
+    }
   } catch (error) {
-    console.error("model call outcome could not be recorded", error);
+    console.error("model call outcome not recorded", { ...outcome, error: String(error) });
+  } finally {
+    if (timer) clearTimeout(timer);
   }
 }
 
-function recordingOutcomes(
-  ctx: ActionCtx,
+/** The model that actually answered, carried on a response or an error. */
+function servedModelOf(value: unknown): string | undefined {
+  return value && typeof value === "object" && "servedModel" in value && typeof value.servedModel === "string"
+    ? value.servedModel
+    : undefined;
+}
+
+/**
+ * Wraps a client so each request records exactly one outcome for the model
+ * that actually served it (an OpenRouter fallback answer counts for the
+ * fallback, review E). Forced-tool calls defer the outcome to the caller's
+ * schema validation: the response carries `settleOutcome`, which
+ * generateStructured calls once it knows whether the output is usable
+ * (review F). Every forced-tool call in production goes through
+ * generateStructured.
+ */
+export function withOutcomeRecording(
+  ctx: Pick<ActionCtx, "runMutation">,
   modelId: string,
   callSite: string,
   client: GenerationClient
@@ -252,14 +288,31 @@ function recordingOutcomes(
   return {
     messages: {
       create: async (params) => {
-        const model = params.model || modelId;
+        const requested = params.model || modelId;
         let response: Awaited<ReturnType<GenerationClient["messages"]["create"]>>;
         try {
           response = await client.messages.create(params);
         } catch (error) {
           const code = modelFaultCode(error);
-          if (code) await recordOutcome(ctx, { model, callSite, outcome: "failure", code });
+          if (code) {
+            await recordOutcome(ctx, { model: servedModelOf(error) ?? requested, callSite, outcome: "failure", code });
+          }
           throw error;
+        }
+        const model = response.servedModel ?? requested;
+        if (params.tool_choice) {
+          let settled = false;
+          response.settleOutcome = async (result) => {
+            if (settled) return;
+            settled = true;
+            await recordOutcome(
+              ctx,
+              result.ok
+                ? { model, callSite, outcome: "success" }
+                : { model, callSite, outcome: "failure", code: result.code }
+            );
+          };
+          return response;
         }
         await recordOutcome(ctx, { model, callSite, outcome: "success" });
         return response;
@@ -294,7 +347,7 @@ function lazyClient(
         resolved = undefined;
         throw error;
       }));
-  return recordingOutcomes(ctx, modelId, meta.callSite, {
+  return withOutcomeRecording(ctx, modelId, meta.callSite, {
     messages: {
       create: async (params) => (await resolve()).messages.create(params),
     },
@@ -373,7 +426,7 @@ export async function clientForRole(
           ...meta,
           capability: meta.capability ?? "generation",
         }) as unknown as GenerationClient);
-  return { client: recordingOutcomes(ctx, entry.id, meta.callSite, client), model: entry.id };
+  return { client: withOutcomeRecording(ctx, entry.id, meta.callSite, client), model: entry.id };
 }
 
 /**

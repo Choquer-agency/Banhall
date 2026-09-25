@@ -27,6 +27,13 @@ export interface GenerationResponse {
   content: GenerationContentBlock[];
   /** Anthropic/OpenRouter completion reason, when the gateway provides one. */
   stop_reason?: string | null;
+  /** The app model id that answered, when an OpenRouter fallback did. */
+  servedModel?: string;
+  /**
+   * Forced-tool calls only: record this request's outcome once the caller
+   * has validated the tool output (set by providers.ts withOutcomeRecording).
+   */
+  settleOutcome?: (result: { ok: true } | { ok: false; code: string }) => Promise<void>;
 }
 
 /** JSON Schema for a tool input (matches Anthropic.Tool.InputSchema). */

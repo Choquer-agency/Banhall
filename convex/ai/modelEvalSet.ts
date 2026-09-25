@@ -150,3 +150,54 @@ export const CHANGELOG_EVAL_COMMITS = [
   { subject: "Refactor providerConfig helpers", body: "No behavior change." },
 ] as const;
 export const CHANGELOG_FORBIDDEN_TERMS = ["documents.ts", "providerConfig", "mutation"] as const;
+
+// ─── Tasks for the split roles (review A) ───────────────────────────────────
+
+/**
+ * pd_review_report: a PD built from the Helios sections with one planted
+ * ineligible claim (the homeowner app presented as the technological
+ * advancement). A usable review must list it as a risk.
+ */
+export const PD_REVIEW_PLANTED_CLAIM =
+  "The main advancement this year was the new homeowner dashboard app and its notifications, which customers rated highly in a satisfaction survey.";
+export const PD_REVIEW_EVAL_DOCUMENT = [
+  "Line 242: Scientific or technological uncertainty",
+  HELIOS_SECTIONS["242"],
+  "Line 244: Work performed",
+  HELIOS_SECTIONS["244"],
+  "Line 246: Scientific or technological advancement",
+  `${PD_REVIEW_PLANTED_CLAIM} ${HELIOS_SECTIONS["246"]}`,
+].join("\n\n");
+export const PD_REVIEW_PLANTED_TERMS = ["dashboard", "app", "notification", "homeowner", "satisfaction"] as const;
+
+/**
+ * timesheet_extraction: a short team chat log with a known answer. Every
+ * hour figure is stated explicitly; the app redesign is routine work and
+ * the purchase is not work at all.
+ */
+export const TIMESHEET_EVAL_FILE_TYPE = "slack";
+export const TIMESHEET_EVAL_LOG = [
+  "[2025-03-03 09:12] Priya Nair: spent 4 hours running the latency injection tests on the negotiation controller",
+  "[2025-03-03 16:40] Marcus Lindqvist: 2 hours reviewing convergence logs from Priya's tests",
+  "[2025-03-04 10:05] Priya Nair: 3 hours on the homeowner app notification redesign",
+  "[2025-03-04 11:00] Jon Park: ordered two new battery inverters for the office",
+].join("\n");
+export const TIMESHEET_EVAL_EXPECTED = [
+  { person: "Priya", date: "2025-03-03", hours: 4, sredEligible: true },
+  { person: "Marcus", date: "2025-03-03", hours: 2, sredEligible: true },
+  { person: "Priya", date: "2025-03-04", hours: 3, sredEligible: false },
+] as const;
+
+/**
+ * chunk_context: the Brain contextualizes each chunk of an approved PD.
+ * The blurb must place the chunk (company and section) in one or two short
+ * sentences with no preamble.
+ */
+export const CHUNK_EVAL_DOCUMENT = [
+  "Verdant Grid Technologies Inc. SR&ED project description, Project Helios F2025.",
+  `Line 242: ${HELIOS_SECTIONS["242"]}`,
+  `Line 244: ${HELIOS_SECTIONS["244"]}`,
+  `Line 246: ${HELIOS_SECTIONS["246"]}`,
+].join("\n\n");
+export const CHUNK_EVAL_CHUNK = HELIOS_SECTIONS["246"];
+export const CHUNK_EVAL_SECTION_TERMS = ["246", "advancement", "result"] as const;

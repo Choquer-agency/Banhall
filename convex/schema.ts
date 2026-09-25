@@ -2974,6 +2974,12 @@ export default defineSchema({
     // Spend held against the monthly budget while it runs: the most its
     // full request envelope can cost. Released to evalCostUsd at the end.
     reservedCostUsd: v.optional(v.number()),
+    // The part of evalCostUsd that is the reserved maximum of requests that
+    // were sent but never reported a charge (lost response, timeout).
+    unsettledCostUsd: v.optional(v.number()),
+    // When the row's spend counts against a monthly budget: created, then
+    // claimed, then settled. Monthly accounting reads this, not createdAt.
+    accountedAt: v.optional(v.number()),
     benchmarkScore: v.optional(v.number()),
     incumbentBenchmarkScore: v.optional(v.number()),
     estimatedCostUsd: v.number(),
@@ -2991,7 +2997,8 @@ export default defineSchema({
   })
     .index("by_status", ["status"])
     .index("by_role_and_modelId", ["role", "modelId"])
-    .index("by_createdAt", ["createdAt"]),
+    .index("by_createdAt", ["createdAt"])
+    .index("by_accountedAt", ["accountedAt"]),
 
   // Exact per-model, per-hour request outcomes for the production
   // error-rate rollback: one terminal outcome per request, counted apart
@@ -3006,6 +3013,16 @@ export default defineSchema({
     lastFailureCode: v.optional(v.string()),
     lastFailureCallSite: v.optional(v.string()),
   }).index("by_model_and_hourStart", ["model", "hourStart"]),
+
+  // The same outcomes one row per request, kept two days, so the partial
+  // hours at the edges of a window are counted to the exact millisecond.
+  modelCallOutcomes: defineTable({
+    model: v.string(),
+    at: v.number(),
+    outcome: v.union(v.literal("success"), v.literal("failure")),
+  })
+    .index("by_model_and_at", ["model", "at"])
+    .index("by_at", ["at"]),
 
   appSettings: defineTable({
     key: v.string(),

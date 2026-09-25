@@ -20,6 +20,7 @@ import {
   EVAL_ENVELOPE,
   JUDGE_TOOL,
   evalClient,
+  requestMaxCostUsd,
   runEvalSet,
   type MeteredClient,
 } from "./modelEvaluation";
@@ -29,6 +30,9 @@ import { CONDENSE_REQUEST } from "./condenseAgent";
 import { RETRIEVAL_BRIEF_REQUEST } from "./brain/query";
 import { STYLE_ANALYSIS_REQUEST } from "./styleAnalysis";
 import { CHANGELOG_SYSTEM_PROMPT } from "./changelogPipeline";
+import { PD_REVIEW_TOOL } from "./reviewAgent";
+import { TIMESHEET_EXTRACTION_PROMPT } from "./financialAgent";
+import { CONTEXTUALIZE_SYSTEM_PROMPT } from "./brain/ingest";
 import type { GenerationMessageParams, GenerationResponse } from "./openrouterCore";
 
 // Vite keys this directory's own files as "./x.ts"; convex-test resolves
@@ -91,6 +95,24 @@ const VALID_CHANGELOG = {
   },
 };
 
+const VALID_REVIEW = {
+  summary: "The PD covers a distributed microgrid controller; its 246 overstates an app as the advancement.",
+  qualitative_score: 62,
+  score_rationale: "Sound uncertainty and work, weak advancement claim.",
+  strengths: ["Line 244 describes three iterations with results."],
+  risks: ["Line 246 presents the homeowner dashboard app as the advancement; that is routine development, not a technological advancement."],
+  suggested_strengthening: ["Lead 246 with the two-thirds cut in voltage excursions."],
+};
+const VALID_TIMESHEET = {
+  entries: [
+    { personName: "Priya Nair", date: "2025-03-03", hours: 4, hoursBasis: "explicit", description: "Latency injection tests.", sredEligible: true, sredReason: "Experimental testing.", confidence: "high", source: "Slack 2025-03-03 09:12" },
+    { personName: "Marcus Lindqvist", date: "2025-03-03", hours: 2, hoursBasis: "explicit", description: "Reviewed convergence logs.", sredEligible: true, sredReason: "Analysis of results.", confidence: "high", source: "Slack 2025-03-03 16:40" },
+    { personName: "Priya Nair", date: "2025-03-04", hours: 3, hoursBasis: "explicit", description: "App notification redesign.", sredEligible: false, sredReason: "Routine development.", confidence: "high", source: "Slack 2025-03-04 10:05" },
+  ],
+};
+const VALID_CHUNK_CONTEXT =
+  "This chunk is the Line 246 advancement section of Verdant Grid Technologies' Project Helios PD, stating the simulated two-thirds cut in voltage excursions.";
+
 type Overrides = {
   seeds?: unknown;
   draft?: string;
@@ -98,6 +120,9 @@ type Overrides = {
   brief?: unknown;
   style?: unknown;
   changelog?: unknown;
+  review?: unknown;
+  timesheet?: string;
+  chunkContext?: string;
   judgeScore?: (text: string) => number | null;
 };
 
@@ -118,6 +143,8 @@ function answerFor(params: GenerationMessageParams, overrides: Overrides): { too
       return { tool, input: overrides.brief ?? VALID_BRIEF };
     case STYLE_ANALYSIS_REQUEST.toolName:
       return { tool, input: overrides.style ?? VALID_STYLE };
+    case PD_REVIEW_TOOL:
+      return { tool, input: overrides.review ?? VALID_REVIEW };
     case JUDGE_TOOL: {
       const score = overrides.judgeScore ? overrides.judgeScore(user) : 8;
       return { tool, input: score === null ? { reason: "No grade." } : { score, reason: "Scored." } };
@@ -125,6 +152,12 @@ function answerFor(params: GenerationMessageParams, overrides: Overrides): { too
   }
   if (params.system === CHANGELOG_SYSTEM_PROMPT) {
     return { text: JSON.stringify(overrides.changelog ?? VALID_CHANGELOG) };
+  }
+  if (params.system === TIMESHEET_EXTRACTION_PROMPT) {
+    return { text: overrides.timesheet ?? JSON.stringify(VALID_TIMESHEET) };
+  }
+  if (params.system === CONTEXTUALIZE_SYSTEM_PROMPT) {
+    return { text: overrides.chunkContext ?? VALID_CHUNK_CONTEXT };
   }
   return { text: overrides.draft ?? "Verdant Grid did not know whether net load could be forecast in time." };
 }
@@ -313,7 +346,15 @@ function stubProviders(options: {
       {
         model: body.model,
         max_tokens: body.max_tokens,
-        system: system ?? (text.includes("You write release notes for Banhall") ? CHANGELOG_SYSTEM_PROMPT : undefined),
+        system:
+          system ??
+          (text.includes("You write release notes for Banhall")
+            ? CHANGELOG_SYSTEM_PROMPT
+            : text.includes("You are a financial analyst for an SR&ED")
+              ? TIMESHEET_EXTRACTION_PROMPT
+              : text.includes("You situate a chunk within its source document")
+                ? CONTEXTUALIZE_SYSTEM_PROMPT
+                : undefined),
         messages: [{ role: "user", content: text }],
         ...(toolName ? { tools: [{ name: toolName, input_schema: { type: "object" } }] } : {}),
       },
@@ -477,12 +518,12 @@ describe("finding 7: the request envelope bounds every real request", () => {
       expect(own.length, task).toBeLessThanOrEqual(bound.requests);
       for (const body of own) {
         expect(body.max_tokens, task).toBeLessThanOrEqual(maxRequestOutputTokens(reasoning, bound));
-        // Characters over-count tokens several times; half of them is a safe ceiling.
-        expect(JSON.stringify(body).length / 2, task).toBeLessThanOrEqual(bound.maxInputTokens);
+        // A token is at least one byte: the request's UTF-8 size bounds its tokens.
+        expect(new TextEncoder().encode(JSON.stringify(body)).byteLength, task).toBeLessThanOrEqual(bound.maxInputTokens);
       }
       for (const body of judged) {
         expect(body.max_tokens).toBeLessThanOrEqual(maxRequestOutputTokens(reasoning, judgeBound));
-        expect(JSON.stringify(body).length / 2).toBeLessThanOrEqual(judgeBound.maxInputTokens);
+        expect(new TextEncoder().encode(JSON.stringify(body)).byteLength).toBeLessThanOrEqual(judgeBound.maxInputTokens);
       }
     }
     // The reservation for a full writing evaluation covers every request.
@@ -490,5 +531,140 @@ describe("finding 7: the request envelope bounds every real request", () => {
     expect(
       maxEvaluationCostUsd({ tasks: ROLE_POLICIES.writing.evalTasks, envelope: EVAL_ENVELOPE, candidate: priced, incumbent: priced, judge: priced })
     ).toBeGreaterThan(0);
+  });
+});
+
+describe("second review: split roles, judge bound, unsettled spend", () => {
+  it("A: PD review must flag the planted ineligible claim", async () => {
+    expect(await runOne("pd_review_report")).toMatchObject({ schemaValid: true, contractPassed: true, rubricScore: 8 });
+    expect(
+      await runOne("pd_review_report", { review: { ...VALID_REVIEW, risks: ["Line 242 could cite the forecast horizon."] } })
+    ).toMatchObject({ schemaValid: true, contractPassed: false });
+    expect(await runOne("pd_review_report", { review: { summary: "Missing fields." } })).toMatchObject({ schemaValid: false });
+  });
+
+  it("A: timesheet extraction must match the known hours and eligibility", async () => {
+    expect(await runOne("timesheet_extraction")).toMatchObject({ schemaValid: true, contractPassed: true, rubricScore: 8 });
+    const wrongEligibility = {
+      entries: VALID_TIMESHEET.entries.map((entry) => ({ ...entry, sredEligible: true })),
+    };
+    expect(await runOne("timesheet_extraction", { timesheet: JSON.stringify(wrongEligibility) })).toMatchObject({
+      contractPassed: false,
+    });
+    const invented = {
+      entries: [
+        ...VALID_TIMESHEET.entries,
+        { ...VALID_TIMESHEET.entries[0], personName: "Jon Park", date: "2025-03-04", hours: 1, description: "Ordered inverters." },
+      ],
+    };
+    expect(await runOne("timesheet_extraction", { timesheet: JSON.stringify(invented) })).toMatchObject({ contractPassed: false });
+    expect(await runOne("timesheet_extraction", { timesheet: "No JSON here." })).toMatchObject({ schemaValid: false });
+  });
+
+  it("A: Brain context names the company and section in one or two sentences, no preamble", async () => {
+    expect(await runOne("chunk_context")).toMatchObject({ contractPassed: true, rubricScore: 8 });
+    expect(await runOne("chunk_context", { chunkContext: `Here is the context. ${VALID_CHUNK_CONTEXT}` })).toMatchObject({
+      contractPassed: false,
+    });
+    expect(
+      await runOne("chunk_context", { chunkContext: "It is about control. It uses batteries. It was simulated." })
+    ).toMatchObject({ contractPassed: false });
+  });
+
+  it("B: a judge request over the reserved judge input is never sent and the grade stays missing", async () => {
+    const judge = scripted();
+    const huge = { ...VALID_DIGEST, keyQuotes: [...VALID_DIGEST.keyQuotes, "x".repeat(60_000)] };
+    const [result] = await runEvalSet({
+      tasks: ["condense_digest"],
+      model: "m",
+      makeClient: () => scripted({ digest: huge }).metered(0),
+      judge: judge.metered(0),
+      judgeModel: "j",
+    });
+    expect(judge.calls).toHaveLength(0);
+    expect(result.rubricScore).toBeUndefined();
+    // Within the bound the same task is judged.
+    const judged = scripted();
+    await runEvalSet({
+      tasks: ["condense_digest"],
+      model: "m",
+      makeClient: () => scripted().metered(0),
+      judge: judged.metered(0),
+      judgeModel: "j",
+    });
+    expect(judged.calls).toHaveLength(1);
+  });
+});
+
+describe("second review: C, a lost response keeps its reservation", () => {
+  beforeEach(() => {
+    vi.stubEnv("ANTHROPIC_API_KEY", "test-anthropic-key");
+    vi.stubEnv("OPENROUTER_API_KEY", "test-openrouter-key");
+    resetRegisteredModelEntries();
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
+    resetRegisteredModelEntries();
+  });
+
+  it("meters a request that failed without a reported charge at its maximum cost", async () => {
+    const t = convexTest(schema, modules);
+    vi.stubGlobal("fetch", vi.fn(async () => {
+      throw new TypeError("fetch failed: socket closed after the request was sent");
+    }));
+    const entry = {
+      id: "x-ai/grok-4.7",
+      label: "Grok 4.7",
+      provider: "xAI",
+      gateway: "openrouter" as const,
+      reasoning: true,
+      maxCompletionTokens: 450000,
+    };
+    const pricing = { input: 5, output: 25 };
+    const params: GenerationMessageParams = {
+      model: entry.id,
+      max_tokens: 4096,
+      system: "System.",
+      messages: [{ role: "user", content: "Draft it." }],
+    };
+    const meter = await t.action(async (ctx) => {
+      registerModelEntries([entry]);
+      const metered = evalClient(ctx, entry, "section_draft", pricing);
+      await expect(metered.client.messages.create(params)).rejects.toThrow();
+      return metered.meter;
+    });
+    expect(meter.costUsd).toBe(0);
+    expect(meter.unsettledUsd).toBeCloseTo(requestMaxCostUsd(entry, params, pricing, false), 12);
+    // 4096 answer tokens with reasoning headroom: 16,384 output tokens at $25/M.
+    expect(meter.unsettledUsd).toBeGreaterThan((16_384 * 25) / 1_000_000);
+  });
+
+  it("an evaluation whose calls were lost records their maximum as spend", async () => {
+    const t = convexTest(schema, modules);
+    await t.mutation(applyCatalogRefreshRef, {
+      models: parseOpenRouterModels(fixture, NOW).models,
+      fetchedAt: NOW,
+      complete: false,
+    });
+    const evaluationId = await t.run((ctx) =>
+      ctx.db.insert("modelEvaluations", {
+        role: "writing",
+        modelId: "x-ai/grok-4.7",
+        incumbentModelId: "claude-sonnet-5",
+        evalSetVersion: "banhall-eval/v1",
+        status: "queued",
+        estimatedCostUsd: 0.5,
+        createdAt: NOW,
+      })
+    );
+    vi.stubGlobal("fetch", vi.fn(async () => {
+      throw new TypeError("fetch failed");
+    }));
+    await t.action(runEvaluationRef, { evaluationId });
+    const evaluation = await t.run((ctx) => ctx.db.get(evaluationId));
+    expect(evaluation?.unsettledCostUsd).toBeGreaterThan(0);
+    expect(evaluation?.evalCostUsd).toBe(evaluation?.unsettledCostUsd);
+    expect(evaluation?.reservedCostUsd).toBeUndefined();
   });
 });

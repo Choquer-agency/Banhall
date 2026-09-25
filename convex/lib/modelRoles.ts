@@ -158,8 +158,11 @@ export function monthStart(now: number): number {
 /**
  * USD committed to evaluations this UTC month: what finished rows actually
  * spent, what running rows reserved (their maximum), and the planning
- * estimate of rows still queued. `excluding` leaves one row out (the row
- * being claimed, whose own reservation is being decided).
+ * estimate of rows still queued. Rows count in the month their spend was
+ * last accounted (planned, claimed or settled: `accountedAt`), so a row
+ * queued last month and claimed this month counts this month. `excluding`
+ * leaves one row out (the row being claimed, whose own reservation is
+ * being decided).
  */
 export async function evalSpendThisMonth(
   ctx: ReadCtx,
@@ -169,7 +172,7 @@ export async function evalSpendThisMonth(
   let spent = 0;
   for await (const evaluation of ctx.db
     .query("modelEvaluations")
-    .withIndex("by_createdAt", (q) => q.gte("createdAt", monthStart(now)))) {
+    .withIndex("by_accountedAt", (q) => q.gte("accountedAt", monthStart(now)))) {
     if (evaluation._id === excluding) continue;
     spent +=
       evaluation.status === "running"

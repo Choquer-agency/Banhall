@@ -36,6 +36,7 @@ import { domainError } from "./lib/contracts";
 import {
   AUTOMATION_THRESHOLDS,
   EVAL_SET_VERSION,
+  EVAL_TASK_LABELS,
   MODEL_ROLES,
   ROLE_POLICIES,
   artificialAnalysisScore,
@@ -328,27 +329,49 @@ export const recordEndpointSupport = internalMutation({
 const HOUR_MS = 60 * 60 * 1000;
 const hourStartOf = (at: number) => Math.floor(at / HOUR_MS) * HOUR_MS;
 
+/** Per-request outcome rows are kept this long (the window plus a day). */
+const OUTCOME_ROW_RETENTION_MS = 2 * AUTOMATION_THRESHOLDS.errorWindowMs;
+
 /**
- * Exact request outcomes for `model` from the hour containing `since`
- * onward (review finding 5): hourly buckets hold both counts, so successes
- * and failures are always read over the same window and never truncated
- * independently. At most 25 bucket reads for a one-day window.
+ * Exact request outcomes for `model` in [since, now] (review D): full hours
+ * inside the window come from the hourly buckets (both counts together, so
+ * neither is ever truncated on its own), and the partial hours at either
+ * edge are counted request by request, so calls before an assignment or
+ * outside the rolling window never count.
  */
 export async function outcomeCountsSince(
   ctx: QueryCtx | MutationCtx,
   model: string,
-  since: number
+  since: number,
+  now: number
 ): Promise<{ successes: number; failures: number }> {
   let successes = 0;
   let failures = 0;
+  const countRows = async (from: number, to: number) => {
+    if (to <= from) return;
+    for await (const row of ctx.db
+      .query("modelCallOutcomes")
+      .withIndex("by_model_and_at", (q) => q.eq("model", model).gte("at", from).lt("at", to))) {
+      if (row.outcome === "success") successes += 1;
+      else failures += 1;
+    }
+  };
+  const firstFullHour = Math.ceil(since / HOUR_MS) * HOUR_MS;
+  const lastFullHourEnd = hourStartOf(now);
+  if (firstFullHour >= lastFullHourEnd) {
+    await countRows(since, now + 1);
+    return { successes, failures };
+  }
+  await countRows(since, firstFullHour);
   for await (const bucket of ctx.db
     .query("modelCallBuckets")
     .withIndex("by_model_and_hourStart", (q) =>
-      q.eq("model", model).gte("hourStart", hourStartOf(since))
+      q.eq("model", model).gte("hourStart", firstFullHour).lt("hourStart", lastFullHourEnd)
     )) {
     successes += bucket.successes;
     failures += bucket.failures;
   }
+  await countRows(lastFullHourEnd, now + 1);
   return { successes, failures };
 }
 
@@ -364,6 +387,13 @@ export async function runProductionErrorCheck(
 ): Promise<Array<{ role: ModelRole; modelId: string; rolledBack: boolean }>> {
   const results: Array<{ role: ModelRole; modelId: string; rolledBack: boolean }> = [];
   const enabled = await autoSwitchEnabled(ctx);
+  // Per-request rows past the retention window are no longer read.
+  for (const old of await ctx.db
+    .query("modelCallOutcomes")
+    .withIndex("by_at", (q) => q.lt("at", now - OUTCOME_ROW_RETENTION_MS))
+    .take(500)) {
+    await ctx.db.delete(old._id);
+  }
   for (const role of MODEL_ROLES) {
     const assignment = await roleAssignment(ctx, role);
     if (!assignment?.previousModelId) continue;
@@ -375,7 +405,7 @@ export async function runProductionErrorCheck(
     if (lastEvent?.kind === "rollback") continue;
     const since = Math.max(now - AUTOMATION_THRESHOLDS.errorWindowMs, assignment.assignedAt);
     const verdict = productionErrorVerdict(
-      await outcomeCountsSince(ctx, assignment.modelId, since)
+      await outcomeCountsSince(ctx, assignment.modelId, since, now)
     );
     if (!verdict.rollback) continue;
     const rate = `${Math.round(verdict.errorRate * 100)} percent of ${verdict.calls} calls`;
@@ -433,7 +463,9 @@ export const recordCallOutcome = internalMutation({
   },
   returns: v.null(),
   handler: async (ctx, args) => {
-    const hourStart = hourStartOf(Date.now());
+    const at = Date.now();
+    const hourStart = hourStartOf(at);
+    await ctx.db.insert("modelCallOutcomes", { model: args.model, at, outcome: args.outcome });
     const bucket = await ctx.db
       .query("modelCallBuckets")
       .withIndex("by_model_and_hourStart", (q) =>
@@ -526,6 +558,7 @@ export async function planEvaluationRun(
         evalCostUsd: stale.evalCostUsd ?? stale.reservedCostUsd ?? stale.estimatedCostUsd,
         reservedCostUsd: undefined,
         completedAt: now,
+        accountedAt: now,
       });
     }
   }
@@ -545,6 +578,7 @@ export async function planEvaluationRun(
         error: "The evaluation never started",
         evalCostUsd: 0,
         completedAt: now,
+        accountedAt: now,
       });
     }
   }
@@ -604,6 +638,7 @@ export async function planEvaluationRun(
           : {}),
         estimatedCostUsd: item.estimatedCostUsd,
         createdAt: now,
+        accountedAt: now,
       });
     // Scheduled in the same transaction as the row (review finding 4): a
     // queued evaluation always has a run, or neither exists.
@@ -690,6 +725,7 @@ export const claimEvaluation = internalMutation({
         error: reason,
         evalCostUsd: 0,
         completedAt: now,
+        accountedAt: now,
       });
       return null;
     };
@@ -732,7 +768,7 @@ export const claimEvaluation = internalMutation({
         `Over the monthly evaluation budget: needs up to $${reservedCostUsd.toFixed(2)}, $${Math.max(0, budget - committed).toFixed(2)} left`
       );
     }
-    await ctx.db.patch(evaluation._id, { status: "running", startedAt: now, reservedCostUsd });
+    await ctx.db.patch(evaluation._id, { status: "running", startedAt: now, reservedCostUsd, accountedAt: now });
     return {
       evaluationId: evaluation._id,
       role: evaluation.role,
@@ -757,6 +793,8 @@ export const completeEvaluation = internalMutation({
     candidateResults: v.array(evalTaskResultValidator),
     incumbentResults: v.array(evalTaskResultValidator),
     evalCostUsd: v.number(),
+    /** Part of evalCostUsd that is reserved spend of unsettled requests. */
+    unsettledCostUsd: v.optional(v.number()),
   },
   returns: v.union(v.literal("promoted"), v.literal("held"), v.literal("ignored")),
   handler: async (ctx, args): Promise<"promoted" | "held" | "ignored"> => {
@@ -782,8 +820,10 @@ export const completeEvaluation = internalMutation({
       incumbent,
       gates: decision.gates,
       evalCostUsd: args.evalCostUsd,
+      ...(args.unsettledCostUsd ? { unsettledCostUsd: args.unsettledCostUsd } : {}),
       reservedCostUsd: undefined,
       completedAt: now,
+      accountedAt: now,
     };
     const failedOutsideRubric = decision.gates.filter(
       (gate) => gate.gate !== "rubric" && !gate.passed
@@ -848,6 +888,7 @@ export const failEvaluation = internalMutation({
     evaluationId: v.id("modelEvaluations"),
     error: v.string(),
     evalCostUsd: v.number(),
+    unsettledCostUsd: v.optional(v.number()),
   },
   returns: v.null(),
   handler: async (ctx, args) => {
@@ -859,8 +900,10 @@ export const failEvaluation = internalMutation({
       status: "error",
       error: args.error.slice(0, 500),
       evalCostUsd: args.evalCostUsd,
+      ...(args.unsettledCostUsd ? { unsettledCostUsd: args.unsettledCostUsd } : {}),
       reservedCostUsd: undefined,
       completedAt: Date.now(),
+      accountedAt: Date.now(),
     });
     return null;
   },
@@ -1064,6 +1107,7 @@ export const adminState = query({
         label: policy.label,
         description: policy.description,
         autoSwitch: roleAutoSwitches(role),
+        evaluatedOn: policy.evalTasks.map((task) => EVAL_TASK_LABELS[task]),
         manualOnlyReason: roleAutoSwitches(role)
           ? null
           : (policy.manualOnlyReason ?? "This role has no evaluation task of its own, so an admin chooses its model."),
