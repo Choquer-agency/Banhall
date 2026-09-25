@@ -17,6 +17,8 @@ export async function deleteStorageIfUnreferenced(
     .withIndex("by_storageId", (q) => q.eq("storageId", storageId)).first()) return;
   if (await ctx.db.query("ingestionItems")
     .withIndex("by_textStorageId", (q) => q.eq("textStorageId", storageId)).first()) return;
+  if (await ctx.db.query("transcripts")
+    .withIndex("by_originalStorageId", (q) => q.eq("originalStorageId", storageId)).first()) return;
 
   await ctx.storage.delete(storageId);
 }

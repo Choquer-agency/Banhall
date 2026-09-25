@@ -275,7 +275,26 @@ async function seedProjectRows(
       projectId, reason: "repair", toOwnerId: userId, status: "completed", attempts: 0, startedAt: now, updatedAt: now,
     });
     await ctx.db.insert("oversightSyncing", { viewerId: userId, projectId, rebuildId, startedAt: now });
-    const transcriptId = await ctx.db.insert("transcripts", { projectId, content: "Interview", createdAt: now });
+    // 2026-09-24: the transcript owns its uploaded original, and its derived
+    // turn, speaker, fact and fact-run rows go with the project.
+    const transcriptBlobId = await ctx.storage.store(new Blob(["original transcript bytes"]));
+    const transcriptId = await ctx.db.insert("transcripts", {
+      projectId, content: "Interview", createdAt: now, originalStorageId: transcriptBlobId,
+    });
+    await ctx.db.insert("transcriptTurns", {
+      transcriptId, projectId, parserVersion: "1", index: 0, charStart: 0, charEnd: 9, cleanText: "Interview",
+    });
+    await ctx.db.insert("transcriptSpeakers", {
+      transcriptId, projectId, label: "Priya", role: "client", roleSource: "heuristic", confidence: 0.9, turnCount: 1,
+    });
+    await ctx.db.insert("transcriptFacts", {
+      transcriptId, projectId, sourceContentHash: "h", factsVersion: "1", key: "F1-1", type: "context", claim: "c",
+      turnIndexes: [0], quotes: [], confidence: 0.5,
+    });
+    await ctx.db.insert("transcriptFactRuns", {
+      transcriptId, projectId, sourceContentHash: "h", factsVersion: "1", model: "m", status: "ready",
+      counts: { proposed: 1, verified: 1, dropped: 0 }, startedAt: now,
+    });
     await ctx.db.insert("transcriptDigests", {
       transcriptId, projectId, sourceContentHash: "h", condenseVersion: "1", content: "d", structured: "{}",
       model: "m", promptVersion: "p", charCount: 1, originalLength: 9, createdAt: now,
@@ -491,7 +510,7 @@ async function seedProjectRows(
       ragKey: `rag-${projectId}`, sourceHash: `sh-${projectId}`, sourceProjectId: projectId, createdBy: "u", createdAt: now,
     });
     return {
-      storageId, generationId, generationJobId, candidateRunId, candidateJobId, sectionRunId, reportId, documentId, agentThreadId, byRef,
+      storageId, transcriptBlobId, generationId, generationJobId, candidateRunId, candidateJobId, sectionRunId, reportId, documentId, agentThreadId, byRef,
     };
   });
 }
@@ -602,6 +621,8 @@ describe("deleteProject erasure", () => {
     expect(children.artifacts).toEqual([]);
     expect(children.turns).toEqual([]);
     expect(await blobStored(s, seeded.storageId)).toBe(false);
+    expect(await blobStored(s, seeded.transcriptBlobId)).toBe(false);
+    expect(await blobStored(s, retained.transcriptBlobId)).toBe(true);
     // Detach: every row survives with the reference (and its siblings) cleared.
     for (const entry of detachEntries) {
       expect(await rowsReferencing(s, entry, s.projectId), `${refKey(entry)} still referenced`).toEqual([]);

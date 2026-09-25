@@ -18,6 +18,11 @@ import { admissionValidator, attemptOutcomeValidator } from "./lib/learningAdmis
 import { styleOverridesValidator } from "./lib/styleOverrides";
 import { PD_SUBSECTIONS } from "../shared/pdSubsections";
 import {
+  transcriptFactTypeValidator,
+  transcriptSourceFormatValidator,
+  transcriptSpeakerRoleValidator,
+} from "./lib/transcriptValidators";
+import {
   catalogFieldsValidator,
   catalogStatusValidator,
   costComparisonValidator,
@@ -607,7 +612,112 @@ export default defineSchema({
     label: v.optional(v.string()),
     position: v.optional(v.number()),
     contentHash: v.optional(v.string()),
-  }).index("by_projectId", ["projectId"]),
+    // 2026-09-24 widen (transcript method, docs/product-domain.md): the
+    // uploaded original, what the parser detected and read, archive state
+    // for Replace and Remove, and the speaker and facts pipeline states.
+    // `content` stays verbatim and immutable; every turn and fact offset
+    // indexes into it.
+    originalStorageId: v.optional(v.id("_storage")),
+    sourceFormat: v.optional(transcriptSourceFormatValidator),
+    parserVersion: v.optional(v.string()),
+    archivedAt: v.optional(v.number()),
+    supersededById: v.optional(v.id("transcripts")),
+    speakerStatus: v.optional(
+      v.union(v.literal("unchecked"), v.literal("needs_check"), v.literal("confirmed"))
+    ),
+    factsStatus: v.optional(
+      v.union(v.literal("none"), v.literal("queued"), v.literal("ready"), v.literal("failed"))
+    ),
+    factsVersion: v.optional(v.string()),
+  })
+    .index("by_projectId", ["projectId"])
+    .index("by_originalStorageId", ["originalStorageId"]),
+
+  // 2026-09-24 widen: one row per speaker turn of a transcript, parsed on
+  // the server from the stored text (shared/transcriptParse.ts). Offsets
+  // index the transcript's verbatim `content`.
+  transcriptTurns: defineTable({
+    transcriptId: v.id("transcripts"),
+    projectId: v.id("projects"),
+    parserVersion: v.string(),
+    index: v.number(),
+    speakerLabel: v.optional(v.string()),
+    startMs: v.optional(v.number()),
+    endMs: v.optional(v.number()),
+    charStart: v.number(),
+    charEnd: v.number(),
+    cleanText: v.string(),
+  })
+    .index("by_transcriptId_and_index", ["transcriptId", "index"])
+    .index("by_projectId", ["projectId"]),
+
+  // 2026-09-24 widen: one role per speaker label of a transcript. Roles are
+  // joined to turns at render time, so a correction never rewrites turns.
+  transcriptSpeakers: defineTable({
+    transcriptId: v.id("transcripts"),
+    projectId: v.id("projects"),
+    label: v.string(),
+    role: transcriptSpeakerRoleValidator,
+    roleSource: v.union(v.literal("heuristic"), v.literal("model"), v.literal("consultant")),
+    confidence: v.number(),
+    turnCount: v.number(),
+    sampleTurnIndex: v.optional(v.number()),
+    confirmedBy: v.optional(v.id("users")),
+    confirmedAt: v.optional(v.number()),
+  })
+    .index("by_transcriptId_and_label", ["transcriptId", "label"])
+    .index("by_projectId", ["projectId"]),
+
+  // 2026-09-24 widen: verified SR&ED facts of one transcript text. Generation
+  // input only, never report prose; each quote was located in the verbatim
+  // transcript and byte-checked before the row was written.
+  transcriptFacts: defineTable({
+    transcriptId: v.id("transcripts"),
+    projectId: v.id("projects"),
+    sourceContentHash: v.string(),
+    factsVersion: v.string(),
+    key: v.string(),
+    type: transcriptFactTypeValidator,
+    claim: v.string(),
+    turnIndexes: v.array(v.number()),
+    quotes: v.array(
+      v.object({
+        charStart: v.number(),
+        charEnd: v.number(),
+        exactExcerpt: v.string(),
+        match: v.union(v.literal("exact"), v.literal("normalized")),
+      })
+    ),
+    speakerLabel: v.optional(v.string()),
+    confidence: v.number(),
+  })
+    .index("by_transcriptId_and_factsVersion", ["transcriptId", "factsVersion"])
+    .index("by_projectId", ["projectId"]),
+
+  // 2026-09-24 widen: one row per extraction of a transcript text under a
+  // FACTS_VERSION, so extraction runs once and a failure is visible.
+  transcriptFactRuns: defineTable({
+    transcriptId: v.id("transcripts"),
+    projectId: v.id("projects"),
+    sourceContentHash: v.string(),
+    factsVersion: v.string(),
+    model: v.string(),
+    adapter: v.optional(v.union(v.literal("citations"), v.literal("structured"), v.literal("copy"))),
+    status: v.union(v.literal("queued"), v.literal("running"), v.literal("ready"), v.literal("failed")),
+    counts: v.object({ proposed: v.number(), verified: v.number(), dropped: v.number() }),
+    usage: v.optional(
+      v.object({ inputTokens: v.number(), outputTokens: v.number(), costUsd: v.optional(v.number()) })
+    ),
+    error: v.optional(v.string()),
+    startedAt: v.number(),
+    finishedAt: v.optional(v.number()),
+  })
+    .index("by_transcriptId_and_sourceContentHash_and_factsVersion", [
+      "transcriptId",
+      "sourceContentHash",
+      "factsVersion",
+    ])
+    .index("by_projectId", ["projectId"]),
 
   // 2026-09-03 widen: multiple transcripts per project. Condensed stand-in for
   // one transcript, reused across generations. Keyed by the transcript, the
@@ -769,6 +879,12 @@ export default defineSchema({
     transcriptIds: v.optional(v.array(v.id("transcripts"))),
     inputMode: v.optional(v.union(v.literal("full"), v.literal("digest"))),
     digestIds: v.optional(v.array(v.id("transcriptDigests"))),
+    // 2026-09-24 widen (transcript method): whether this generation reads
+    // fact packs in place of digests or full text (the transcripts.factsMode
+    // setting applied at reservation), and the frozen, reversible name
+    // placeholder map every generation-owned provider call uses.
+    transcriptFacts: v.optional(v.boolean()),
+    placeholders: v.optional(v.array(v.object({ token: v.string(), value: v.string() }))),
     status: v.union(
       v.literal("reserved"),
       v.literal("running"),
@@ -1100,6 +1216,11 @@ export default defineSchema({
     // older rows and on citations of non-transcript sources.
     speaker: v.optional(v.string()),
     line: v.optional(v.number()),
+    // 2026-09-24 widen: stamped from the cited transcript turn when a Seed
+    // cites a verified fact.
+    factKey: v.optional(v.string()),
+    role: v.optional(transcriptSpeakerRoleValidator),
+    startMs: v.optional(v.number()),
   })
     .index("by_seedId", ["seedId"])
     .index("by_projectId", ["projectId"]),
@@ -2043,10 +2164,17 @@ export default defineSchema({
       // source row, never as live text.
       v.literal("transcript_digest"),
       // Story 1 (CAP-1/2/4): writer-supplied Storyline frozen as a source row
-      v.literal("writer_storyline")
+      v.literal("writer_storyline"),
+      // 2026-09-24 widen (transcript method): one rendered fact pack per
+      // transcript, frozen next to that transcript's full-text row. Citations
+      // always validate against the transcript row, never the pack.
+      v.literal("transcript_facts")
     ),
     transcriptId: v.optional(v.id("transcripts")),
     digestId: v.optional(v.id("transcriptDigests")),
+    // 2026-09-24 widen: the FACTS_VERSION a transcript_facts row was rendered
+    // from.
+    factsVersion: v.optional(v.string()),
     projectDocumentId: v.optional(v.id("projectDocuments")),
     label: v.string(),
     content: v.string(),

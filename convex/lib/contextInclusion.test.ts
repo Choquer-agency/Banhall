@@ -42,6 +42,21 @@ describe("assembleContextInclusion (story 4, CAP-11)", () => {
     expect(result.rows.map((row) => row.inclusion)).toEqual(["not_included", null]);
   });
 
+  it("reads a transcript read through its fact pack as condensed, over its digest, and gives the pack no row", () => {
+    const result = assembleContextInclusion({
+      sources: [
+        { _id: "t1", kind: "transcript", label: "A", transcriptId: "tr1" },
+        { _id: "g1", kind: "transcript_digest", label: "A", transcriptId: "tr1", contextBudget: budget(false, 0) },
+        { _id: "f1", kind: "transcript_facts", label: "A", transcriptId: "tr1", inclusion: "included" },
+      ],
+      unfrozenDocuments: [],
+      fallbackCap: 12,
+    });
+    expect(result.rows.map((row) => [row.kind, row.label, row.inclusion])).toEqual([
+      ["transcript", "A", "condensed"],
+    ]);
+  });
+
   it("lists archived and unreadable documents as not included with their reason", () => {
     const result = assembleContextInclusion({
       sources: [{ _id: "d1", kind: "project_document", label: "background:kept.docx", inclusion: "included" }],

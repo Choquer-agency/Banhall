@@ -60,7 +60,7 @@ export type ProjectScopedTable = {
   index?: string;
   children?: readonly ProjectScopedChild[];
   /** Field typed `v.id("_storage")` whose bytes the row owns. */
-  blob?: "storageId";
+  blob?: "storageId" | "originalStorageId";
   /**
    * `detach` only: sibling fields that describe the cleared reference (a
    * document id or timestamp of the link) and are cleared with it. The
@@ -77,9 +77,14 @@ export const PROJECT_SCOPED_TABLES = [
   { table: "oversightSyncing", field: "projectId", disposition: "delete", index: "by_projectId" },
   { table: "oversightRebuilds", field: "projectId", disposition: "delete", index: "by_projectId_and_status" },
   { table: "workItems", field: "projectId", disposition: "delete", index: "by_projectId_and_status" },
-  // Transcripts and their digests.
+  // Transcripts, their derived rows (digests; 2026-09-24 turns, speakers,
+  // facts and fact runs) and the uploaded original file.
   { table: "transcriptDigests", field: "projectId", disposition: "delete", index: "by_projectId" },
-  { table: "transcripts", field: "projectId", disposition: "delete", index: "by_projectId" },
+  { table: "transcriptFacts", field: "projectId", disposition: "delete", index: "by_projectId" },
+  { table: "transcriptFactRuns", field: "projectId", disposition: "delete", index: "by_projectId" },
+  { table: "transcriptSpeakers", field: "projectId", disposition: "delete", index: "by_projectId" },
+  { table: "transcriptTurns", field: "projectId", disposition: "delete", index: "by_projectId" },
+  { table: "transcripts", field: "projectId", disposition: "delete", index: "by_projectId", blob: "originalStorageId" },
   // Generation-owned rows, leaves first.
   { table: "sectionEditEvents", field: "projectId", disposition: "delete", index: "by_projectId" },
   { table: "complianceNotes", field: "projectId", disposition: "delete", index: "by_projectId" },

@@ -8,8 +8,11 @@
  * - A transcript read through its `transcript_digest` row takes the digest's
  *   outcome: an included digest reads `condensed`, an excluded one
  *   `not_included`.
- * - `writer_storyline` and `transcript_digest` rows never get a row of their
- *   own.
+ * - A transcript read through its `transcript_facts` row (transcript method,
+ *   2026-09-24) takes the fact pack's outcome the same way; the pack wins
+ *   over a digest of the same transcript.
+ * - `writer_storyline`, `transcript_digest` and `transcript_facts` rows never
+ *   get a row of their own.
  * - An unrecorded status is `null` (no status word), never `included`.
  * - Every attached document gets a row: one the reservation never froze is
  *   `not_included` with the reason it was skipped (CAP-17).
@@ -25,7 +28,12 @@ export type InclusionReason = "archived" | "unreadable" | "not_captured";
 
 export type InclusionSourceRow = {
   _id: string;
-  kind: "transcript" | "project_document" | "transcript_digest" | "writer_storyline";
+  kind:
+    | "transcript"
+    | "project_document"
+    | "transcript_digest"
+    | "writer_storyline"
+    | "transcript_facts";
   label: string;
   transcriptId?: string;
   inclusion?: Inclusion;
@@ -94,7 +102,13 @@ export function assembleContextInclusion(input: {
 }): ContextInclusion {
   const digestByTranscript = new Map<string, InclusionSourceRow>();
   for (const row of input.sources) {
-    if (row.kind === "transcript_digest" && row.transcriptId) {
+    if (row.kind === "transcript_digest" && row.transcriptId && !digestByTranscript.has(row.transcriptId)) {
+      digestByTranscript.set(row.transcriptId, row);
+    }
+  }
+  // A fact pack replaces the digest as the transcript's reading.
+  for (const row of input.sources) {
+    if (row.kind === "transcript_facts" && row.transcriptId) {
       digestByTranscript.set(row.transcriptId, row);
     }
   }
