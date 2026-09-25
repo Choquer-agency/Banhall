@@ -32,14 +32,15 @@
     {...restProps}
   >
     {#snippet children({ checked: isChecked, indeterminate })}
-      <span class="inline-flex items-center justify-center text-white">
+      <!-- The glyph scales with the box: 10px in the boards' 16px box. -->
+      <span class="inline-flex size-full items-center justify-center text-white">
         {#if indeterminate}
-          <svg class="size-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3.5">
+          <svg class="size-[62.5%]" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3.5" aria-hidden="true">
             <path stroke-linecap="round" d="M5 12h14" />
           </svg>
         {:else if isChecked}
-          <svg class="size-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3.5">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
+          <svg class="size-[62.5%]" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3.5" aria-hidden="true">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M5 12l5 5L20 7" />
           </svg>
         {/if}
       </span>

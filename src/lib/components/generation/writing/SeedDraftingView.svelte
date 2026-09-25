@@ -25,7 +25,7 @@
     stopDisabled = false,
     scrollContainer = null,
     collapseAfterPx = 24,
-    ringClass = "fixed bottom-9 right-9",
+    ringClass = "fixed bottom-7 right-7",
     headingId = undefined,
   }: {
     progress: SeedDraftProgress;
@@ -39,7 +39,7 @@
     scrollContainer?: HTMLElement | null;
     /** Scroll distance before a downward scroll collapses the pill. */
     collapseAfterPx?: number;
-    /** Where the collapsed ring sits; the host may re-anchor it. */
+    /** Where the collapsed ring sits (28px from the report panel corner, board 4.3); the host may re-anchor it. */
     ringClass?: string;
     /** DOM id for the report title heading, the host's focus destination. */
     headingId?: string;
@@ -102,7 +102,7 @@
   const QUEUED_LINES = ["92%", "84%", "60%"];
   const writingLineBackground = $derived(
     aurora
-      ? "linear-gradient(90deg, #2FD2C433 0%, #58BBF333 40%, #8438FF2E 100%)"
+      ? "linear-gradient(90deg, #2FD2C433 0%, #58BBF333 29%, #E879F933 61%, #8438FF2E 100%)"
       : "var(--skeleton-line)"
   );
   const writingBand = $derived(

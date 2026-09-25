@@ -43,6 +43,7 @@ function mount(overrides: Partial<DetailsPanelData> = {}, props: Record<string, 
   const onHandOff = vi.fn(async () => {});
   const onSaveFiscalYear = vi.fn(async () => {});
   const onSaveScienceCode = vi.fn(async () => {});
+  const onSaveProjectNumber = vi.fn(async (_value: string) => {});
   const onClose = vi.fn();
   const screen = render(DetailsPanel, {
     data: data(overrides),
@@ -51,14 +52,17 @@ function mount(overrides: Partial<DetailsPanelData> = {}, props: Record<string, 
     onHandOff,
     onSaveFiscalYear,
     onSaveScienceCode,
+    onSaveProjectNumber,
     onClose,
     ...props,
   });
-  return { screen, onChangeStage, onHandOff, onSaveFiscalYear, onSaveScienceCode, onClose };
+  return { screen, onChangeStage, onHandOff, onSaveFiscalYear, onSaveScienceCode, onSaveProjectNumber, onClose };
 }
 
 const statusLine = () => document.querySelector<HTMLElement>("[data-details-status-line]")!;
 const fact = (name: string) => document.querySelector<HTMLElement>(`[data-details-fact="${name}"]`)!;
+const confirmation = () => document.querySelector<HTMLElement>("[data-details-confirmation]");
+const numberInput = () => document.querySelector<HTMLInputElement>('[data-details-fact="project-number"] input');
 
 describe("Details panel", () => {
   beforeEach(async () => {
@@ -117,6 +121,40 @@ describe("Details panel", () => {
     expect(fact("owner").textContent).toContain("Jordan Ellis (you)");
   });
 
+  it("lays the panel out on the board 5.1 grid", async () => {
+    await mount();
+    await expect.poll(() => statusLine()).not.toBeNull();
+    const panel = document.querySelector<HTMLElement>("[data-details-panel]")!.getBoundingClientRect();
+    const header = document.querySelector<HTMLElement>("[data-details-panel] header")!.getBoundingClientRect();
+    expect(Math.round(header.top - panel.top)).toBe(20);
+    expect(Math.round(header.height)).toBe(28);
+    const close = page.getByRole("button", { name: "Close details", exact: true }).element().getBoundingClientRect();
+    expect(Math.round(close.width)).toBe(26);
+    expect(Math.round(panel.right - close.right)).toBe(24);
+
+    const card = document.querySelector<HTMLElement>("[data-details-status]")!;
+    const cardBox = card.getBoundingClientRect();
+    expect(Math.round(cardBox.left - panel.left)).toBe(24);
+    expect(Math.round(cardBox.top - header.bottom)).toBe(18);
+    expect(getComputedStyle(card).paddingTop).toBe("14px");
+    const chip = statusLine().querySelector<HTMLElement>("[data-stage-badge]")!;
+    expect(Math.round(chip.getBoundingClientRect().height)).toBe(24);
+    expect(getComputedStyle(chip).borderTopLeftRadius).toBe("6px");
+    for (const name of ["Change stage", "Hand off"]) {
+      const button = page.getByRole("button", { name, exact: true }).element();
+      expect(Math.round(button.getBoundingClientRect().height)).toBe(32);
+      expect(getComputedStyle(button).fontSize).toBe("13px");
+    }
+
+    // Facts: 34px rows inset 8px, a 104px label column, values 12px after it.
+    const dt = document.querySelector<HTMLElement>("[data-details-facts] dt")!.getBoundingClientRect();
+    const value = fact("industry").getBoundingClientRect();
+    expect(Math.round(dt.left - cardBox.left)).toBe(8);
+    expect(Math.round(value.left - dt.left)).toBe(116);
+    expect(Math.round(value.height)).toBe(34);
+    expect(Math.round(value.top - cardBox.bottom)).toBe(18);
+  });
+
   it("keeps the calendar icon and plain values when details are read only", async () => {
     await mount({ permissions: { canEditDetails: false, canChangeStage: false, canHandOff: false } }, {
       changeStageReason: "Only the Owner, a Manager or an Admin can change the stage.",
@@ -162,6 +200,150 @@ describe("Details panel", () => {
     expect(onSaveScienceCode).toHaveBeenCalledWith("2.02.02");
   });
 
+  it("opens the science code picker on the current code, its field at the top of the list", async () => {
+    await mount();
+    await page.getByRole("button", { name: "Edit science code", exact: true }).click();
+    await expect.poll(() => document.querySelector("[data-science-code-current]")).not.toBeNull();
+    const current = document.querySelector<HTMLElement>("[data-science-code-current]")!;
+    await expect.poll(() => current.hasAttribute("data-selected")).toBe(true);
+    const list = current.closest<HTMLElement>("[data-command-list]")!;
+    const group = current.closest<HTMLElement>("[data-command-group]")!;
+    await expect.poll(() => list.scrollTop).toBeGreaterThan(0);
+    expect(Math.abs(group.getBoundingClientRect().top - list.getBoundingClientRect().top)).toBeLessThan(2);
+    expect(group.querySelector("[data-command-group-heading]")?.textContent?.trim()).toBe("Mechanical engineering");
+  });
+
+  it("edits the project number in place: Enter saves, Escape cancels", async () => {
+    const { onSaveProjectNumber } = await mount();
+    await expect.poll(() => fact("project-number")).not.toBeNull();
+    expect(fact("project-number").textContent?.trim()).toBe("1A");
+    await page.getByRole("button", { name: "Edit project number", exact: true }).click();
+    const input = page.getByRole("textbox", { name: "Edit project number" });
+    await expect.element(input).toHaveValue("1A");
+    await input.fill("P01-A");
+    await userEvent.keyboard("{Enter}");
+    await expect.poll(() => onSaveProjectNumber.mock.calls.length).toBe(1);
+    expect(onSaveProjectNumber).toHaveBeenCalledWith("P01-A");
+    await expect.poll(() => fact("project-number").querySelector("input")).toBeNull();
+    // Focus returns to the row, so the keyboard keeps its place.
+    await expect.poll(() => document.activeElement?.getAttribute("aria-label")).toBe("Edit project number");
+
+    await page.getByRole("button", { name: "Edit project number", exact: true }).click();
+    await page.getByRole("textbox", { name: "Edit project number" }).fill("Z9");
+    await userEvent.keyboard("{Escape}");
+    await expect.poll(() => fact("project-number").querySelector("input")).toBeNull();
+    expect(onSaveProjectNumber).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the project number editor open after a failed Enter, focus in the field and the error linked", async () => {
+    const onSaveProjectNumber = vi.fn(async () => {
+      throw new Error("That project number is already in use.");
+    });
+    await mount({}, { onSaveProjectNumber });
+    await page.getByRole("button", { name: "Edit project number", exact: true }).click();
+    await page.getByRole("textbox", { name: "Edit project number" }).fill("2B");
+    await userEvent.keyboard("{Enter}");
+    await expect.element(page.getByRole("alert")).toHaveTextContent("That project number is already in use.");
+    const input = numberInput()!;
+    expect(input).not.toBeNull();
+    await expect.poll(() => document.activeElement).toBe(input);
+    expect(input.getAttribute("aria-invalid")).toBe("true");
+    const describedBy = input.getAttribute("aria-describedby");
+    expect(describedBy).toBeTruthy();
+    expect(document.getElementById(describedBy!)?.textContent).toContain("That project number is already in use.");
+    expect(onSaveProjectNumber).toHaveBeenCalledTimes(1);
+  });
+
+  it("leaves focus where the writer put it after a failed blur save, and does not retry the same number", async () => {
+    const onSaveProjectNumber = vi.fn(async () => {
+      throw new Error("That project number is already in use.");
+    });
+    await mount({}, { onSaveProjectNumber });
+    const elsewhere = document.createElement("button");
+    elsewhere.textContent = "Elsewhere";
+    document.body.append(elsewhere);
+
+    await page.getByRole("button", { name: "Edit project number", exact: true }).click();
+    await page.getByRole("textbox", { name: "Edit project number" }).fill("2B");
+    elsewhere.focus();
+    await expect.poll(() => onSaveProjectNumber.mock.calls.length).toBe(1);
+    await expect.element(page.getByRole("alert")).toHaveTextContent("That project number is already in use.");
+    // The draft and the error stay; focus is not pulled back.
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(document.activeElement).toBe(elsewhere);
+    expect(numberInput()?.value).toBe("2B");
+    expect(numberInput()?.getAttribute("aria-invalid")).toBe("true");
+
+    // Leaving again with the same number does not repeat the failing write.
+    numberInput()!.focus();
+    elsewhere.focus();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(onSaveProjectNumber).toHaveBeenCalledTimes(1);
+    expect(document.activeElement).toBe(elsewhere);
+
+    // A changed number is tried again.
+    await page.getByRole("textbox", { name: "Edit project number" }).fill("2C");
+    elsewhere.focus();
+    await expect.poll(() => onSaveProjectNumber.mock.calls.length).toBe(2);
+    expect(onSaveProjectNumber).toHaveBeenLastCalledWith("2C");
+  });
+
+  it("saves a project number edit before Close details closes the panel", async () => {
+    const onSaveProjectNumber = vi.fn(async (_value: string) => {});
+    const onClose = vi.fn();
+    await mount({}, { onSaveProjectNumber, onClose });
+    await page.getByRole("button", { name: "Edit project number", exact: true }).click();
+    await page.getByRole("textbox", { name: "Edit project number" }).fill("2B");
+    await page.getByRole("button", { name: "Close details", exact: true }).click();
+    await expect.poll(() => onClose.mock.calls.length).toBe(1);
+    expect(onSaveProjectNumber).toHaveBeenCalledTimes(1);
+    expect(onSaveProjectNumber).toHaveBeenCalledWith("2B");
+  });
+
+  it("keeps the panel open when the project number save fails on Close details", async () => {
+    const onSaveProjectNumber = vi.fn(async () => {
+      throw new Error("That project number is already in use.");
+    });
+    const onClose = vi.fn();
+    await mount({}, { onSaveProjectNumber, onClose });
+    await page.getByRole("button", { name: "Edit project number", exact: true }).click();
+    await page.getByRole("textbox", { name: "Edit project number" }).fill("2B");
+    await page.getByRole("button", { name: "Close details", exact: true }).click();
+    await expect.element(page.getByRole("alert")).toHaveTextContent("That project number is already in use.");
+    await expect.element(page.getByRole("alert")).toHaveTextContent("Fix the number, or press Escape to discard it.");
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(onClose).not.toHaveBeenCalled();
+    await expect.poll(() => document.activeElement).toBe(numberInput());
+    expect(onSaveProjectNumber).toHaveBeenCalledTimes(1);
+
+    // A second Close with the same number neither writes again nor closes.
+    await page.getByRole("button", { name: "Close details", exact: true }).click();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(onClose).not.toHaveBeenCalled();
+    expect(onSaveProjectNumber).toHaveBeenCalledTimes(1);
+
+    // Escape discards the edit; then the panel closes without a write.
+    numberInput()!.focus();
+    await userEvent.keyboard("{Escape}");
+    await expect.poll(() => numberInput()).toBeNull();
+    await page.getByRole("button", { name: "Close details", exact: true }).click();
+    await expect.poll(() => onClose.mock.calls.length).toBe(1);
+    expect(onSaveProjectNumber).toHaveBeenCalledTimes(1);
+  });
+
+  it("stays on Details when the project number save fails on Hand off", async () => {
+    const onSaveProjectNumber = vi.fn(async () => {
+      throw new Error("That project number is already in use.");
+    });
+    await mount({}, { onSaveProjectNumber });
+    await page.getByRole("button", { name: "Edit project number", exact: true }).click();
+    await page.getByRole("textbox", { name: "Edit project number" }).fill("2B");
+    await page.getByRole("button", { name: "Hand off", exact: true }).click();
+    await expect.element(page.getByRole("alert")).toHaveTextContent("Fix the number, or press Escape to discard it.");
+    expect(document.querySelector("[data-hand-off-view]")).toBeNull();
+    expect(onSaveProjectNumber).toHaveBeenCalledTimes(1);
+  });
+
   it("lists every stage grouped, with Submitted and Delivered disabled as not available yet", async () => {
     await mount();
     await page.getByRole("button", { name: "Change stage", exact: true }).click();
@@ -179,17 +361,39 @@ describe("Details panel", () => {
     expect(option("on_hold").textContent).toContain("asks for a reason");
   });
 
-  it("applies a plain move at once and confirms it with a bottom toast", async () => {
-    await render(Toaster, { position: "top-right" });
+  it("applies a plain move at once and confirms it inline at the bottom of the panel", async () => {
+    // The app-wide toaster is mounted to prove the move no longer uses it.
+    await render(Toaster, { position: "bottom-right" });
     const { onChangeStage } = await mount();
     await page.getByRole("button", { name: "Change stage", exact: true }).click();
     await expect.poll(() => document.querySelector("[data-stage-menu-option='internal_review']")).not.toBeNull();
     document.querySelector<HTMLButtonElement>("[data-stage-menu-option='internal_review']")!.click();
     await expect.poll(() => onChangeStage.mock.calls.length).toBe(1);
     expect(onChangeStage).toHaveBeenCalledWith("internal_review", undefined);
-    await expect.element(page.getByText("Moved to Internal review", { exact: true })).toBeVisible();
-    const list = page.getByText("Moved to Internal review", { exact: true }).element().closest("[data-sonner-toaster]");
-    expect(list?.getAttribute("data-y-position")).toBe("bottom");
+
+    await expect.poll(() => confirmation()?.textContent?.trim()).toBe("Moved to Internal review");
+    expect(document.querySelector("[data-sonner-toast]")).toBeNull();
+    const region = confirmation()!.closest<HTMLElement>("[data-details-confirmation-region]")!;
+    expect(region.getAttribute("role")).toBe("status");
+    expect(region.getAttribute("aria-live")).toBe("polite");
+    expect(region.closest("[data-details-panel]")).not.toBeNull();
+
+    // Board 5.1y B3: 40px tall, 24px in from the sides, 20px up from the bottom.
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    const panel = document.querySelector<HTMLElement>("[data-details-panel]")!.getBoundingClientRect();
+    const box = confirmation()!.getBoundingClientRect();
+    expect(Math.round(box.height)).toBe(40);
+    expect(Math.round(box.left - panel.left)).toBe(24);
+    expect(Math.round(panel.right - box.right)).toBe(24);
+    expect(Math.round(panel.bottom - box.bottom)).toBe(20);
+    const style = getComputedStyle(confirmation()!);
+    expect(style.fontSize).toBe("13px");
+    expect(style.borderTopLeftRadius).toBe("10px");
+    expect(confirmation()!.querySelector("svg")).not.toBeNull();
+
+    // It goes away on its own.
+    await expect.poll(() => confirmation(), { timeout: 6_000 }).toBeNull();
+    expect(region.isConnected).toBe(true);
   });
 
   it("turns the card into an inline reason step for a note-required move", async () => {
@@ -248,8 +452,12 @@ describe("Details panel", () => {
       stage: "internal_review",
       note: "Please check 244.",
     });
-    await expect.element(page.getByText("Handed off to Sam Chen", { exact: true })).toBeVisible();
     await expect.poll(() => document.querySelector("[data-hand-off-view]")).toBeNull();
+    // Board 5.1y C3: the confirmation sits inline at the bottom of the panel,
+    // in its polite live region, not in the app-wide toaster.
+    await expect.poll(() => confirmation()?.textContent?.trim()).toBe("Handed off to Sam Chen");
+    expect(confirmation()!.closest("[data-details-confirmation-region]")?.getAttribute("aria-live")).toBe("polite");
+    expect(document.querySelector("[data-sonner-toast]")).toBeNull();
   });
 
   it("lets a hand off keep the current stage and asks for a reason on a note-required stage", async () => {
@@ -350,6 +558,8 @@ describe("Details popover", () => {
     const popover = () => document.querySelector<HTMLElement>("[data-details-popover]");
     await expect.poll(() => popover()).not.toBeNull();
     expect(popover()!.getBoundingClientRect().width).toBe(360);
+    // The shared popover shadow token (--shadow-popover), not an ad-hoc value.
+    expect(getComputedStyle(popover()!).boxShadow).toContain("rgba(22, 33, 31, 0.12) 0px 16px 40px 0px");
     const text = popover()!.textContent!.replace(/\s+/g, " ");
     expect(text).toContain("Internal review with S Sam Chen");
     expect(text).toContain("2026 (June 30, 2026)");

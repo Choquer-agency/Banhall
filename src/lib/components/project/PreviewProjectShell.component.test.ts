@@ -138,7 +138,7 @@ describe("PreviewProjectPage final shell", () => {
     expect(tabs()).toEqual(["report", "sources"]);
     expect(document.querySelector('[data-panel-tab="report"]')?.getAttribute("aria-current")).toBe("page");
     expect(document.querySelector('[data-panel-tab="sources"]')?.textContent).toContain("1");
-    // Top bar: breadcrumb and title, bell, More, Export, Send for review.
+    // Top bar: breadcrumb and title, bell, Export, Send for review, More.
     const header = document.querySelector<HTMLElement>("[data-workspace-page-header]")!;
     expect(header.querySelector("h1")?.textContent).toBe("Adaptive cold storage controls");
     expect(header.textContent).toContain("Projects");
@@ -146,6 +146,10 @@ describe("PreviewProjectPage final shell", () => {
     const exportButton = page.getByRole("button", { name: "Export .docx", exact: true }).element() as HTMLElement;
     expect(exportButton.className).toContain("bg-chrome");
     expect(page.getByRole("button", { name: "Send for review", exact: true }).elements()).toHaveLength(1);
+    // The kebab closes the row in the markup as well, so tab order follows the eye.
+    const more = page.getByRole("button", { name: "More actions", exact: true }).element() as HTMLElement;
+    const send = page.getByRole("button", { name: "Send for review", exact: true }).element() as HTMLElement;
+    expect(send.compareDocumentPosition(more) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     await page.getByRole("button", { name: "More actions", exact: true }).click();
     const items = Array.from(document.querySelectorAll("[data-top-bar-more-item]")).map((item) => item.getAttribute("data-top-bar-more-item"));
     expect(items).toEqual(["ai-review", "share", "history", "financial"]);
@@ -463,5 +467,35 @@ describe("PreviewProjectPage final shell", () => {
     const calls = __mutationCalls("workItems:handOff") as Array<{ createRequestId: string }>;
     expect(calls).toHaveLength(2);
     expect(calls[0].createRequestId).not.toBe(calls[1].createRequestId);
+  });
+
+  describe("leaving Details from the toolbar (Details review follow-up)", () => {
+    for (const toggle of ["Assistant", "QA", "Details"] as const) {
+      it(`keeps Details open with the error when the number save fails before ${toggle}`, async () => {
+        seed();
+        __setMutationError("projects:setProjectNumber", new Error("That project number is already in use."));
+        await render(PreviewProjectPage);
+        await page.getByRole("button", { name: "Details", exact: true }).click();
+        await expect.poll(() => document.querySelector("[data-side-panel]")?.getAttribute("data-side-panel")).toBe("details");
+        await page.getByRole("button", { name: "Edit project number", exact: true }).click();
+        await page.getByRole("textbox", { name: "Edit project number" }).fill("2B");
+        await page.getByRole("button", { name: toggle === "QA" ? /^QA/ : toggle, exact: toggle !== "QA" }).first().click();
+        await expect.element(page.getByText("That project number is already in use.", { exact: false }).first()).toBeVisible();
+        expect(document.querySelector("[data-side-panel]")?.getAttribute("data-side-panel")).toBe("details");
+        expect(__mutationCalls("projects:setProjectNumber")).toHaveLength(1);
+      });
+    }
+
+    it("saves the pending number, then switches to the Assistant", async () => {
+      seed();
+      __setMutationResult("projects:setProjectNumber", null);
+      await render(PreviewProjectPage);
+      await page.getByRole("button", { name: "Details", exact: true }).click();
+      await page.getByRole("button", { name: "Edit project number", exact: true }).click();
+      await page.getByRole("textbox", { name: "Edit project number" }).fill("2B");
+      await page.getByRole("button", { name: "Assistant", exact: true }).click();
+      await expect.poll(() => document.querySelector("[data-side-panel]")?.getAttribute("data-side-panel")).toBe("chat");
+      expect(__mutationCalls("projects:setProjectNumber")).toEqual([{ projectId: "project-1", projectNumber: "2B" }]);
+    });
   });
 });

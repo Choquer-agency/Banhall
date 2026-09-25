@@ -12,3 +12,9 @@ export const PD_SECTION_TITLES: Record<PdSection, string> = {
 export function pdSectionNumber(section: PdSection): string {
   return section.slice(1);
 }
+
+/** A step's serif heading in the plan (boards 3.1 and 3.2): the Outline's
+ * "Company / Context" reads "Company and context" as a title. */
+export function stepHeadingTitle(title: string): string {
+  return title.replace(/ \/ (\S)/g, (_, first: string) => ` and ${first.toLowerCase()}`);
+}

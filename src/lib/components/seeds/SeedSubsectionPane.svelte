@@ -2,7 +2,7 @@
   import { onDestroy, untrack, type Snippet } from "svelte";
   import { useConvexClient, useMutation } from "convex-svelte";
   import { DropdownMenu } from "bits-ui";
-  import { ArrowClockwiseIcon, CheckIcon, DotsThreeIcon, InfoIcon } from "phosphor-svelte";
+  import { DotsThreeIcon } from "phosphor-svelte";
   import type { Id } from "../../../../convex/_generated/dataModel";
   import { PD_SUBSECTIONS, type PdSubsectionRoleId } from "../../../../shared/pdSubsections";
   import { userErrorCode, userErrorMessage } from "$lib/errors";
@@ -14,6 +14,8 @@
   import { describeSource, EMPTY_SOURCE_ATTRIBUTION, missingSourceIds } from "./attribution";
   import type { QuoteCitation } from "./citations";
   import { APPROVED_CHIP } from "./seedTags";
+  import { approvalButtonClass } from "./approvalStyles";
+  import { stepHeadingTitle } from "./sectionTitles";
   import type {
     SeedApprovalReviewData,
     SeedBatchHistoryPage,
@@ -403,11 +405,84 @@
       observer.disconnect();
     };
   }
-  const columns = $derived(
-    twoColumns
-      ? [topLevelItems.filter((_, index) => index % 2 === 0), topLevelItems.filter((_, index) => index % 2 === 1)]
-      : [topLevelItems]
-  );
+  // Cards fill the two columns in reading order, each into the column that is
+  // shorter so far, where a seed that already carries revised seeds counts
+  // for more (board 3.2). The plan is made once per set of cards on screen
+  // and then kept: feedback sent or revised seeds landing never move a card
+  // to another column, so no card is rebuilt while the writer works in it.
+  let columnPlan: { key: string; column: Map<string, number> } = { key: "", column: new Map() };
+  const layout = $derived.by(() => {
+    if (!twoColumns) return { columns: [topLevelItems] };
+    const key = topLevelItems.map((item) => String(item.seedId)).join("|");
+    if (columnPlan.key !== key) {
+      const column = new Map<string, number>();
+      const weight = [0, 0];
+      for (const item of topLevelItems) {
+        const target = weight[1] < weight[0] ? 1 : 0;
+        column.set(String(item.seedId), target);
+        weight[target] += groupsByTarget.has(String(item.seedId)) ? 2.5 : 1;
+      }
+      columnPlan = { key, column };
+    }
+    const plan = columnPlan.column;
+    return {
+      columns: [0, 1].map((index) => topLevelItems.filter((item) => (plan.get(String(item.seedId)) ?? 0) === index)),
+    };
+  });
+
+  // Row-aligned pairs share one height (board 3.1): the n-th cards of the two
+  // columns get the taller one's height, row by row, until a row holds a seed
+  // with revised seeds under it; after that the columns run on their own.
+  // Heights are read from each card's own body, so the pairing never feeds
+  // back into what it measures.
+  function equalizeRows(container: HTMLElement) {
+    let frame = 0;
+    const observed = new WeakSet<Element>();
+    const resize = new ResizeObserver(() => schedule());
+    const mutations = new MutationObserver(() => schedule());
+    mutations.observe(container, { childList: true, subtree: true });
+    function schedule() {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(apply);
+    }
+    function cellsOf(column: Element) {
+      return Array.from(column.children).map((cell) => ({
+        body: cell.querySelector<HTMLElement>(":scope > article > [data-seed-body]"),
+        revised: !!cell.querySelector(":scope > article > [data-seed-below]"),
+      }));
+    }
+    function apply() {
+      frame = 0;
+      const columns = Array.from(container.querySelectorAll(":scope > [data-seed-column]")).map(cellsOf);
+      for (const { body } of columns.flat()) {
+        if (!body) continue;
+        body.style.minHeight = "";
+        if (!observed.has(body)) {
+          observed.add(body);
+          resize.observe(body);
+        }
+      }
+      if (columns.length !== 2) return;
+      const rows = Math.min(columns[0].length, columns[1].length);
+      for (let row = 0; row < rows; row += 1) {
+        const [left, right] = [columns[0][row], columns[1][row]];
+        if (!left.body || !right.body) break;
+        const height = Math.max(left.body.getBoundingClientRect().height, right.body.getBoundingClientRect().height);
+        left.body.style.minHeight = `${height}px`;
+        right.body.style.minHeight = `${height}px`;
+        if (left.revised || right.revised) break;
+      }
+    }
+    schedule();
+    return () => {
+      cancelAnimationFrame(frame);
+      resize.disconnect();
+      mutations.disconnect();
+    };
+  }
+
+  // Step header chips (boards 3.2, 3.7): 20px pills, 11px medium text.
+  const chip = "inline-flex h-5 items-center rounded-full px-2 text-[11px] leading-[14px] font-medium";
 
   let moreOpen = $state(false);
   // "Brief" in the More menu: the drawer opens once the menu has closed (the
@@ -466,7 +541,7 @@
 </script>
 
 
-{#snippet card(item: SeedCardData, nested: boolean = false, showOriginal: boolean = false)}
+{#snippet card(item: SeedCardData, nested: boolean = false, showOriginal: boolean = false, below: Snippet | undefined = undefined)}
   <SeedCard
     generationId={String(generationId)}
     roleId={data.roleId}
@@ -481,6 +556,7 @@
     retained={persistence === "ok"}
     {unavailableNotice}
     draft={ownDraft(item.seedId)}
+    {below}
     onDraftChange={(update) => onDraftChange(item.seedId, update)}
     onSelect={(selected) =>
       mutate(
@@ -512,38 +588,39 @@
 
 {#snippet revisionGroup(group: SeedSubsectionData["feedbackGroups"][number], standalone: boolean)}
   {@const revisions = revisionsOf(group)}
+  <!-- Revised seeds sit inside the seed they revise, on canvas (board 3.2). -->
   <section
     aria-label="Revised seeds"
-    class="rounded-xl border border-line-soft bg-canvas p-3"
+    class="flex flex-col gap-2 rounded-lg border border-line-soft bg-canvas p-2.5"
     data-feedback-group={group.requestId}
     data-feedback-status={group.status}
   >
-    <div class="flex items-start justify-between gap-3">
-      <div class="min-w-0">
-        <p class="text-xs font-medium text-ink-secondary">Revised seeds ({revisions.length})</p>
-        <p class="mt-0.5 text-xs text-ink-muted">from your feedback “{group.instruction}”</p>
-        {#if standalone && group.targetWording.length}
-          <p class="mt-0.5 text-xs text-ink-muted">on “{group.targetWording.join(" ")}”</p>
+    <div class="flex flex-col gap-0.5 text-[11px] leading-[14px]">
+      <div class="flex items-start gap-3">
+        <p class="min-w-0 flex-1 font-medium text-ink-secondary">Revised seeds ({revisions.length})</p>
+        {#if group.status === "active" && canEdit}
+          <button
+            type="button"
+            class="shrink-0 rounded text-ink-muted transition-colors hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary disabled:opacity-50 pointer-coarse:min-h-11"
+            disabled={busy}
+            onclick={() => void mutate(
+              () => withdrawFeedback({ ...common(), feedbackRequestId: group.requestId }),
+              "Feedback withdrawn."
+            )}
+          >Withdraw feedback</button>
+        {:else if group.status === "withdrawn"}
+          <span class="shrink-0 text-ink-faint">Feedback withdrawn</span>
+        {:else if group.status === "suspendedBySkip"}
+          <span class="shrink-0 text-ink-faint">Paused while the step is skipped</span>
         {/if}
       </div>
-      {#if group.status === "active" && canEdit}
-        <button
-          type="button"
-          class="shrink-0 rounded text-xs text-ink-muted transition-colors hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary disabled:opacity-50 pointer-coarse:min-h-11"
-          disabled={busy}
-          onclick={() => void mutate(
-            () => withdrawFeedback({ ...common(), feedbackRequestId: group.requestId }),
-            "Feedback withdrawn."
-          )}
-        >Withdraw feedback</button>
-      {:else if group.status === "withdrawn"}
-        <span class="shrink-0 text-xs text-ink-faint">Feedback withdrawn</span>
-      {:else if group.status === "suspendedBySkip"}
-        <span class="shrink-0 text-xs text-ink-faint">Paused while the step is skipped</span>
+      <p class="text-ink-muted">from your feedback “{group.instruction}”</p>
+      {#if standalone && group.targetWording.length}
+        <p class="text-ink-muted">on “{group.targetWording.join(" ")}”</p>
       {/if}
     </div>
     {#if revisions.length === 0}
-      <p class="mt-2 flex items-center gap-2 text-xs text-ink-muted">
+      <p class="flex items-center gap-2 text-[12px] leading-4 text-ink-muted">
         {#if group.status === "active" && data.pendingBatchId && (!group.batchId || group.batchId === data.pendingBatchId)}
           <Spinner size="sm" /> Writing revised seeds…
         {:else}
@@ -551,7 +628,7 @@
         {/if}
       </p>
     {:else}
-      <div class="mt-2 space-y-2">
+      <div class="flex flex-col gap-2">
         {#each revisions as revision (revision.seedId)}
           {@render seedWithRevisions(revision, true)}
         {/each}
@@ -561,18 +638,27 @@
 {/snippet}
 
 {#snippet seedWithRevisions(item: SeedCardData, nested: boolean)}
-  <div class="flex flex-col gap-2" data-seed-cell={item.seedId}>
-    {@render card(item, nested)}
-    {#each groupsByTarget.get(String(item.seedId)) ?? [] as group (group.requestId)}
-      {@render revisionGroup(group, false)}
-    {/each}
+  {@const groups = groupsByTarget.get(String(item.seedId)) ?? []}
+  <div class="flex flex-col" data-seed-cell={item.seedId}>
+    {#if groups.length > 0}
+      {#snippet revisionsBelow()}
+        <div class="flex flex-col gap-2">
+          {#each groups as group (group.requestId)}
+            {@render revisionGroup(group, false)}
+          {/each}
+        </div>
+      {/snippet}
+      {@render card(item, nested, false, revisionsBelow)}
+    {:else}
+      {@render card(item, nested)}
+    {/if}
   </div>
 {/snippet}
 
 {#snippet approvalActions(layout: ApprovalLayout)}
   <div data-approval-actions={layout}>
     {#if canEdit}
-      <div class="flex items-center gap-2">
+      <div class={`flex items-center ${layout === "bar" ? "gap-2.5" : "gap-2"}`}>
         {#if layout === "bar" && data.state !== "skipped"}
           <Tooltip text={data.state === "failed" ? "Retry" : "Regenerate"}>
             {#snippet children({ props })}
@@ -580,15 +666,15 @@
                 {...props}
                 type="button"
                 aria-label={data.state === "failed" ? "Retry" : "Regenerate"}
-                class="inline-flex size-11 shrink-0 items-center justify-center rounded-lg bg-chrome text-ink transition-colors hover:bg-primary-wash focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary disabled:pointer-events-none disabled:opacity-50"
+                class="inline-flex size-11 shrink-0 items-center justify-center rounded-[10px] border border-line bg-chrome text-ink transition-colors hover:bg-primary-wash focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary disabled:pointer-events-none disabled:opacity-50"
                 disabled={busy || !!data.pendingBatchId}
                 onclick={regenerateCurrent}
-              ><ArrowClockwiseIcon size={18} aria-hidden="true" /></button>
+              >{@render regenerateIcon()}</button>
             {/snippet}
           </Tooltip>
         {/if}
         <Button
-          class={`w-full ${layout === "bar" ? "h-11" : "h-9"}`}
+          class={approvalButtonClass(layout)}
           disabled={approvalDisabled}
           onclick={approveCurrent}
         >{isReopened ? "Confirm and approve" : "Approve and continue"}</Button>
@@ -597,36 +683,42 @@
   </div>
 {/snippet}
 
-<section class="flex h-full min-h-0 flex-col" aria-labelledby={`seed-title-${data.roleId}`}>
-  <div class="min-h-0 flex-1 overflow-y-auto px-5 pb-8 pt-6 sm:px-10">
-    <header>
-      <div class="flex items-start justify-between gap-3">
-        <div class="flex min-w-0 flex-wrap items-center gap-2 pt-1.5">
-          <span class="font-mono text-xs text-ink-muted" data-section-eyebrow>Section {sectionNumber}</span>
+{#snippet regenerateIcon()}
+  <svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7L3 8" /><path d="M3 3v5h5" /></svg>
+{/snippet}
+
+<!-- The pane is its own size container: 16px gutters on a phone, 24px beside
+     the tablet Outline, 40px on desktop (boards 3.1, 3.5, 3.6). -->
+<section class="@container flex h-full min-h-0 flex-col" aria-labelledby={`seed-title-${data.roleId}`}>
+  <div class="min-h-0 flex-1 overflow-y-auto px-4 pb-8 @min-[600px]:px-6 @min-[880px]:px-10">
+    <header class={`flex flex-col ${compact ? "gap-2.5 pt-4" : "gap-3 pt-6"}`}>
+      <div class={`flex items-center gap-2.5 ${compact ? "min-h-[14px]" : "min-h-9"}`}>
+        <div class="flex min-w-0 flex-1 flex-wrap items-center gap-2.5">
+          <span class="font-mono text-[11px] leading-[14px] text-ink-muted" data-section-eyebrow>Section {sectionNumber}</span>
           {#if kind === "multiple"}
-            <span class="inline-flex h-5 items-center gap-1 rounded-full bg-primary-wash px-2 text-xs text-primary-selected!" data-step-chip="multiple">
-              <CheckIcon size={11} weight="bold" aria-hidden="true" />Select all that apply
+            <span class={`${chip} gap-[5px] bg-primary-wash text-primary-selected!`} data-step-chip="multiple">
+              <svg class="size-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 12l4 4L20 6" /><path d="M4 18h6" /></svg>Select all that apply
             </span>
           {:else if kind === "optional"}
-            <span class="inline-flex h-5 items-center rounded-full bg-chrome px-2 text-xs text-ink-secondary!" data-step-chip="optional">Optional</span>
+            <span class={`${chip} bg-chrome text-ink-secondary!`} data-step-chip="optional">Optional</span>
           {/if}
           {#if data.state === "approved"}
             <span
-              class="inline-flex h-5 items-center rounded-full px-2 text-xs"
+              class={chip}
               style={`background:${APPROVED_CHIP.background};color:${APPROVED_CHIP.color}`}
               data-step-chip="approved"
             >Approved</span>
           {:else if data.state === "skipped"}
-            <span class="inline-flex h-5 items-center rounded-full bg-chrome px-2 text-xs text-ink-secondary!" data-step-chip="skipped">Skipped</span>
+            <span class={`${chip} bg-chrome text-ink-secondary!`} data-step-chip="skipped">Skipped</span>
           {/if}
-          {#if data.stale}<span class="inline-flex h-5 items-center rounded-full bg-gap-bg px-2 text-xs text-gap-text!" data-step-chip="stale">Stale</span>{/if}
-          {#if data.state === "failed"}<span class="inline-flex h-5 items-center rounded-full bg-gap-bg px-2 text-xs text-gap-text!" data-step-chip="failed">Failed</span>{/if}
+          {#if data.stale}<span class={`${chip} bg-gap-bg text-gap-text!`} data-step-chip="stale">Stale</span>{/if}
+          {#if data.state === "failed"}<span class={`${chip} bg-gap-bg text-gap-text!`} data-step-chip="failed">Failed</span>{/if}
         </div>
-        <div class="flex shrink-0 items-center gap-2">
+        <div class="flex shrink-0 items-center gap-2.5">
           {#if hasPreviousBatch}
             <button
               type="button"
-              class="hidden rounded px-1 text-sm text-ink-muted transition-colors hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary sm:inline"
+              class="hidden rounded px-1 text-[12px] leading-4 text-ink-muted transition-colors hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary sm:inline"
               onclick={loadHistory}
               disabled={historyLoading}
             >Previous batch</button>
@@ -635,10 +727,10 @@
             <Button
               variant="secondary"
               size="sm"
-              class="gap-2"
+              class="h-9 gap-2"
               disabled={busy || !!data.pendingBatchId}
               onclick={regenerateCurrent}
-            ><ArrowClockwiseIcon size={15} aria-hidden="true" />{data.state === "failed" ? "Retry" : "Regenerate"}</Button>
+            >{@render regenerateIcon()}{data.state === "failed" ? "Retry" : "Regenerate"}</Button>
           {/if}
           <DropdownMenu.Root bind:open={moreOpen}>
             <Tooltip text="More">
@@ -647,7 +739,7 @@
                   {...tipProps}
                   aria-label="More step actions"
                   data-step-more-trigger
-                  class={`inline-flex size-9 items-center justify-center rounded-lg text-ink-secondary transition-colors hover:bg-chrome hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary pointer-coarse:size-11 ${moreOpen ? "bg-chrome text-ink" : ""}`}
+                  class={`inline-flex size-9 items-center justify-center rounded-lg text-ink-secondary transition-colors hover:bg-chrome hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary pointer-coarse:size-11 ${compact ? "-my-3" : ""} ${moreOpen ? "bg-chrome text-ink" : ""}`}
                 >
                   <DotsThreeIcon size={18} weight="bold" aria-hidden="true" />
                 </DropdownMenu.Trigger>
@@ -697,15 +789,24 @@
           </DropdownMenu.Root>
         </div>
       </div>
-      <h2
-        id={`seed-title-${data.roleId}`}
-        tabindex="-1"
-        class="mt-2 rounded-md font-serif text-[26px] font-normal leading-tight text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
-      >{title}</h2>
-      <p class="mt-2 max-w-3xl text-sm text-ink-muted">{objective}</p>
-      <p class="mt-3 flex items-start gap-2 text-[13px] leading-snug text-ink-secondary" data-step-helper>
-        <InfoIcon size={14} class="mt-0.5 shrink-0 text-primary" aria-hidden="true" />
-        <span>
+      <div class="flex flex-col gap-1.5">
+        <h2
+          id={`seed-title-${data.roleId}`}
+          tabindex="-1"
+          class={`rounded-md font-serif font-normal text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary ${
+            compact ? "text-[20px] leading-[26px]" : "text-[24px] leading-[30px]"
+          }`}
+        >{stepHeadingTitle(title)}</h2>
+        <p class={`max-w-3xl text-ink-muted ${compact ? "text-[12px] leading-[17px]" : "text-[13px] leading-[19px]"}`}>{objective}</p>
+      </div>
+      <p
+        class={`flex gap-2 text-ink-secondary ${
+          compact ? "items-start text-[13px] leading-[18px]" : "items-center border-b border-line-soft pb-3 text-[12px] leading-4"
+        }`}
+        data-step-helper
+      >
+        <svg class={`size-3.5 shrink-0 ${compact ? "mt-0.5 text-primary" : "text-primary-selected"}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="M12 16v-4M12 8h.01" /></svg>
+        <span class="min-w-0">
           {#if data.state === "skipped"}
             This step is skipped. Restore it from the More menu to pick seeds.
           {:else}
@@ -714,8 +815,8 @@
             {/if}
             {#if !selectedCountComplete}
               <span data-selected-count="partial" class="text-gap-text!">{selectedCount}+ selected in the shown seeds, complete count pending</span>.
-            {:else if approvalSelectedCount > 0}
-              <span data-selected-count="complete">{approvalSelectedCount} selected</span>.
+            {:else if approvalSelectedCount > 0 && !isReopened}
+              <span data-selected-count="complete">{approvalSelectedCount} {approvalSelectedCount === 1 ? "seed" : "seeds"} selected</span>.
             {/if}
             {#if !isReopened}
               {#if approvalSelectedCount === 0 && selectedCountComplete}
@@ -725,18 +826,18 @@
               {/if}
             {/if}
           {/if}
-          Underlined words are quoted from the sources.
+          <!-- The first look at a step also says how to read a quote (board 3.1). -->
+          Underlined words are quoted from the sources{!compact && !isReopened && data.state !== "skipped" && approvalSelectedCount === 0 && selectedCountComplete ? "; hover one to see the line" : ""}.
         </span>
       </p>
       {#if data.staleReason?.changedRoleIds.length}
-        <p class="mt-3 rounded-lg bg-gap-bg px-3 py-2 text-body text-gap-text!">
+        <p class="rounded-lg bg-gap-bg px-3 py-2 text-body text-gap-text!">
           Context changed in {data.staleReason.changedRoleIds.join(", ")}.
         </p>
       {/if}
-      <div class="mt-5 border-b border-line-soft"></div>
     </header>
 
-    <div class="mt-5">
+    <div class="pt-4">
       {#if error}<p role="alert" class="mb-4 rounded-lg bg-gap-bg px-3 py-2 text-body text-gap-text!">{error}</p>{/if}
       <p class="sr-only" aria-live="polite">{announcement}</p>
       {#if data.truncated && historyReviewRefused}
@@ -792,20 +893,25 @@
         </div>
       {/if}
       {#if data.pendingBatchId}
-        <div class="mb-4 flex min-h-24 items-center justify-center gap-2 rounded-xl border border-line bg-surface text-body text-ink-muted">
+        <div class="mb-2.5 flex min-h-24 items-center justify-center gap-2 rounded-[10px] border border-line bg-surface text-body text-ink-muted">
           <Spinner size="sm" /> Writing seeds…
         </div>
       {/if}
 
       <div {@attach observeWidth} data-seed-grid={twoColumns ? "two" : "one"}>
         {#if data.items.length === 0 && !data.pendingBatchId}
-          <div class="rounded-xl border border-dashed border-line p-6 text-center">
+          <div class="rounded-[10px] border border-dashed border-line p-6 text-center">
             <p class="text-body text-ink-muted">No seeds are available yet.</p>
           </div>
         {:else}
-          <div class={twoColumns ? "grid grid-cols-[repeat(2,minmax(0,412px))] items-start gap-3" : "grid grid-cols-1 gap-3"}>
-            {#each columns as column, columnIndex (columnIndex)}
-              <div class="flex min-w-0 flex-col gap-3" data-seed-column={columnIndex}>
+          <!-- One container per column for the whole batch: a card keeps its
+               parent, so its focus and local state survive new revisions. -->
+          <div
+            class={`${twoColumns ? "grid grid-cols-[repeat(2,minmax(0,412px))] items-start" : "grid grid-cols-1"} gap-2.5`}
+            {@attach equalizeRows}
+          >
+            {#each layout.columns as column, columnIndex (columnIndex)}
+              <div class="flex min-w-0 flex-col gap-2.5" data-seed-column={columnIndex}>
                 {#each column as item (item.seedId)}
                   {@render seedWithRevisions(item, false)}
                 {/each}
@@ -814,7 +920,7 @@
           </div>
         {/if}
         {#if orphanGroups.length > 0}
-          <div class="mt-3 space-y-3">
+          <div class="mt-2.5 space-y-2.5">
             {#each orphanGroups as group (group.requestId)}
               {@render revisionGroup(group, true)}
             {/each}

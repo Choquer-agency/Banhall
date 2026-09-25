@@ -95,7 +95,7 @@ describe("Workspace rail resize + hide/show", () => {
       new KeyboardEvent("keydown", { key: "ArrowLeft", shiftKey: true, bubbles: true })
     );
     await expect.poll(() => handle()?.getAttribute("aria-valuenow")).toBe(
-      String(RAIL_DEFAULT_WIDTH + 8 - 32)
+      String(Math.max(RAIL_MIN_WIDTH, RAIL_DEFAULT_WIDTH + 8 - 32))
     );
     separator.dispatchEvent(new KeyboardEvent("keydown", { key: "End", bubbles: true }));
     await expect.poll(() => handle()?.getAttribute("aria-valuenow")).toBe(String(RAIL_MAX_WIDTH));
@@ -123,7 +123,7 @@ describe("Workspace rail resize + hide/show", () => {
     expect(getComputedStyle(root).transitionProperty).toBe("none");
     // …and the live width lands on the CSS custom property directly.
     expect(root.style.getPropertyValue("--workspace-rail-width").trim()).toBe(
-      `${RAIL_MAX_WIDTH}px`
+      `${RAIL_DEFAULT_WIDTH + 24}px`
     );
 
     // Overshoot far past max: the live width clamps.

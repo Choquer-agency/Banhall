@@ -261,7 +261,8 @@
     }
   }
 
-  const rowClass = "grid min-h-[34px] grid-cols-[104px_minmax(0,1fr)] items-center gap-x-0 text-[13px]";
+  // The same 8px inset, 104px label column and 12px gap as the facts above.
+  const rowClass = "grid min-h-[34px] grid-cols-[104px_minmax(0,1fr)] items-center gap-x-3 text-[13px]";
   const quietButton =
     "rounded-md px-2 py-1 text-xs text-ink-secondary transition-colors hover:bg-gray-50 hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir pointer-coarse:min-h-11";
 </script>
@@ -272,7 +273,7 @@
   </p>
 {/snippet}
 
-<div class="flex flex-col">
+<div class="flex flex-col px-2">
   <div class={rowClass}>
     <span class="text-ink-muted">Internal title</span>
     <div class="min-w-0">
@@ -331,7 +332,7 @@
       </a>
     </div>
   {/if}
-  <div class="grid grid-cols-[104px_minmax(0,1fr)] items-start py-1.5 text-[13px]">
+  <div class="grid grid-cols-[104px_minmax(0,1fr)] items-start gap-x-3 py-1.5 text-[13px]">
     <span class="pt-1 text-ink-muted">Tags{#if tagsSaving}<span class="sr-only"> saving</span>{/if}</span>
     <div class="min-w-0">
       <TagPicker allTags={tagsQ.data ?? []} bind:selectedTagIds label={null} onChange={handleTagsChange} readonly={!canEditDetails} />
@@ -385,7 +386,7 @@
 
   {#if canManageOwner}
     <div class="mt-2">
-      <Button variant="secondary" size="xs" class="h-9" onclick={openTransfer}>Transfer owner</Button>
+      <Button variant="secondary" size="xs" onclick={openTransfer}>Transfer owner</Button>
     </div>
   {/if}
   {#if header?.ownerNeedsReview}

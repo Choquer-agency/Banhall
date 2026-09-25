@@ -136,6 +136,10 @@ describe("SeedDraftingView", () => {
     for (const line of qa("[data-skeleton-line]")) {
       expect(getComputedStyle(line).backgroundImage).toContain("linear-gradient");
     }
+    // Board 4.2: the writing lines run teal, blue, pink, violet.
+    for (const line of qa('[data-skeleton-line="writing"]')) {
+      expect(getComputedStyle(line).backgroundImage).toContain("rgba(232, 121, 249, 0.2)");
+    }
   });
 
   it("only moves the percent forward when the server value regresses", async () => {
@@ -219,6 +223,9 @@ describe("SeedDraftingView", () => {
     const box = ring.getBoundingClientRect();
     expect(Math.round(box.width)).toBe(48);
     expect(Math.round(box.height)).toBe(48);
+    // Board 4.3: 28px in from the corner of its containing block.
+    expect(Math.round(window.innerWidth - box.right)).toBe(28);
+    expect(Math.round(window.innerHeight - box.bottom)).toBe(28);
 
     await scrollTo(200);
     expect(pill.dataset.collapsed).toBe("false");

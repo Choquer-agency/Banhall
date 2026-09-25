@@ -7,7 +7,7 @@
   Active: 26px tile, #E9F1EF fill (workspace-rail-selected), fir icon.
 -->
 <script lang="ts">
-  import AuroraMark from "$lib/components/ui/AuroraMark.svelte";
+  import AuroraRingSpinner from "$lib/components/generation/writing/AuroraRingSpinner.svelte";
   import { qaBandColors } from "$lib/qa/qaBands";
 
   let {
@@ -43,6 +43,9 @@
   const fill = $derived(
     active ? "bg-workspace-rail-selected" : state === "running" ? "bg-gray-50" : "hover:bg-primary-wash"
   );
+  // Board 4.4: the running tile is 5px left, 7px right with a 5px gap; the
+  // shield alone and the score chip use 4px all round.
+  const spacing = $derived(state === "running" ? "gap-[5px] pl-[5px] pr-[7px]" : "gap-1 px-1");
 </script>
 
 <button
@@ -55,7 +58,7 @@
   data-qa-state={state}
   data-active={active ? "true" : "false"}
   onclick={() => onToggle()}
-  class={`relative flex h-[26px] min-w-[26px] shrink-0 pointer-coarse:h-11 pointer-coarse:min-w-11 items-center justify-center gap-1 rounded-md px-1 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:pointer-events-none disabled:opacity-50 motion-reduce:transition-none ${fill}`}
+  class={`relative flex h-[26px] min-w-[26px] shrink-0 pointer-coarse:h-11 pointer-coarse:min-w-11 items-center justify-center rounded-md ${spacing} transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:pointer-events-none disabled:opacity-50 motion-reduce:transition-none ${fill}`}
 >
   <svg
     viewBox="0 0 24 24"
@@ -75,7 +78,7 @@
     />
   </svg>
   {#if state === "running"}
-    <AuroraMark size={12} glyph="spinner" />
+    <AuroraRingSpinner size={12} />
   {:else if shownScore !== null && colors}
     <span
       data-qa-chip

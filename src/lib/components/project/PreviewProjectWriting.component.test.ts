@@ -388,6 +388,29 @@ describe("PreviewProjectPage writing a signed-off Step-by-step draft", () => {
     expect(document.querySelector("[data-redraft-failed]")).toBeNull();
   });
 
+  it("keeps QA finished on screen, and scrollable, while the Assistant is full screen", async () => {
+    seedDrafting();
+    completeRun(reportDoc({ "242": "Final 242.", "244": "Final 244.", "246": "Final 246." }), {
+      postQaStatus: "done",
+      postQaCompletedAt: 1_000,
+      agentOutputs: JSON.stringify({ qa: { overall_score: 78, section_scores: { "242": { score: 86 }, "244": { score: 62 }, "246": { score: 84 } } } }),
+    });
+    __setQueryData("generations:getSeedDraftProgress", progress("completed", ["done", "done", "done"], 100));
+    await render(PreviewProjectPage);
+    await expect.element(page.getByRole("heading", { name: "QA finished", exact: true })).toBeVisible();
+    const inPane = document.querySelector<HTMLElement>("[data-qa-finished-host]")!;
+    expect(getComputedStyle(inPane).overflowY).toBe("auto");
+    if (!document.querySelector('[data-side-panel="chat"]')) {
+      await page.getByRole("button", { name: "Assistant", exact: true }).click();
+    }
+    await page.getByRole("button", { name: "Expand assistant", exact: true }).click();
+    await expect.poll(() => document.querySelector("[data-project-main]")?.classList.contains("hidden")).toBe(true);
+    await expect.element(page.getByRole("heading", { name: "QA finished", exact: true })).toBeVisible();
+    const host = document.querySelector<HTMLElement>("[data-qa-finished-host]")!;
+    expect(getComputedStyle(host).position).toBe("fixed");
+    expect(window.innerWidth - host.getBoundingClientRect().right).toBe(24);
+  });
+
   it("shows QA finished bottom right until QA is opened, and keeps the dot after Later", async () => {
     seedDrafting();
     completeRun(reportDoc({ "242": "Final 242.", "244": "Final 244.", "246": "Final 246." }), {
@@ -400,8 +423,10 @@ describe("PreviewProjectPage writing a signed-off Step-by-step draft", () => {
     await expect.element(page.getByRole("heading", { name: "QA finished", exact: true })).toBeVisible();
     const notice = document.querySelector<HTMLElement>("[data-qa-finished-notice]")!;
     const rect = notice.getBoundingClientRect();
-    expect(window.innerWidth - rect.right).toBe(24);
-    expect(window.innerHeight - rect.bottom).toBe(24);
+    // Board 4.5: 24px inside the report panel's bottom right corner.
+    const panel = document.querySelector<HTMLElement>("[data-project-main]")!.getBoundingClientRect();
+    expect(panel.right - rect.right).toBe(24);
+    expect(panel.bottom - rect.bottom).toBe(24);
     expect(Array.from(notice.querySelectorAll("[data-qa-section-row]")).map((row) => row.getAttribute("data-qa-section-row"))).toEqual(["242", "244", "246"]);
     const toggle = () => document.querySelector<HTMLElement>('[data-panel-toggle="qa"]')!;
     expect(toggle().querySelector("[data-qa-unseen-dot]")).not.toBeNull();

@@ -106,7 +106,7 @@
 <svelte:window onfocus={() => (now = Date.now())} />
 
 <div data-home class="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-workspace-rail">
-  <header data-workspace-page-header data-home-top-bar class="flex h-14 shrink-0 items-center gap-2.5 px-3 sm:px-4">
+  <header data-workspace-page-header data-home-top-bar class="flex h-14 shrink-0 items-center gap-2.5 px-3 sm:px-5">
     <WorkspaceShellControls tone="light" {onOpenNavigation} {railHidden} {onToggleRail} />
     <span aria-hidden="true" class="flex size-[26px] shrink-0 items-center justify-center rounded-md bg-primary-wash text-primary">
       <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
@@ -139,7 +139,7 @@
 
   <main
     data-home-panel
-    class="mb-2 mr-2 flex min-h-0 flex-1 flex-col overflow-y-auto rounded-xl border border-workspace-rail-line bg-surface max-xl:ml-2"
+    class="mx-3 mb-3 flex min-h-0 flex-1 flex-col overflow-y-auto rounded-xl border border-workspace-rail-line bg-surface"
   >
     <div class="flex flex-1 flex-col gap-10 px-4 pb-6 pt-5 sm:px-6 xl:flex-row xl:gap-8">
       <div data-home-tables class="min-w-0 flex-1">
