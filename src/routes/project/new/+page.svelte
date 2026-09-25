@@ -1,7 +1,7 @@
 <script lang="ts">
   import { isParseAbort } from "$lib/spreadsheetClient";
   import { onDestroy } from "svelte";
-  import { goto } from "$app/navigation";
+  import { beforeNavigate, goto } from "$app/navigation";
   import { goToLogin } from "$lib/auth/goToLogin";
   import { toast } from "svelte-sonner";
   import { useAction, useMutation, useQuery } from "convex-svelte";
@@ -616,9 +616,31 @@
   let pyRows = $state<PyRow[]>([{ id: "py-0", year: baseYear, note: "", files: [] }]);
   let committing = $state(false);
   let progress = $state("");
+  // Set when the wizard itself navigates away (to the new project or to
+  // sign in), so the guard below lets that navigation through.
+  let leaving = false;
+
+  // Review D-3: leaving while the project saves would destroy the wizard
+  // mid-save (a new query remounts it) and strand a half-made project. Hold
+  // every other navigation until the save opens the project.
+  beforeNavigate((navigation) => {
+    if (!committing || leaving) return;
+    navigation.cancel();
+    if (navigation.type !== "leave") {
+      toast.info("Your project is still being saved. It opens when it is ready.");
+    }
+  });
+
+  function leaveTo(path: string) {
+    leaving = true;
+    goto(path);
+  }
 
   $effect(() => {
-    if (!auth.isLoading && !auth.isAuthenticated) goToLogin();
+    if (!auth.isLoading && !auth.isAuthenticated) {
+      leaving = true;
+      goToLogin();
+    }
   });
 
   const draftWordCount = $derived(countWords(pasteDraft));
@@ -827,6 +849,46 @@
     return items;
   }
 
+  // What the writer added here themselves, by the name the copy failure
+  // message uses for each (review D-2).
+  function ownUploadNames(): string[] {
+    const names: string[] = [];
+    for (const row of pyRows) {
+      names.push(...row.files.map((file) => file.name));
+      if (row.note.trim()) names.push(`Previous-year note (FY ${row.year})`);
+    }
+    for (const cat of CONTEXT_CATEGORIES) {
+      if (cat.id === "previous_pd") continue;
+      names.push(...staged[cat.id].files.map((file) => file.name));
+      if (staged[cat.id].text.trim()) names.push(`${cat.label} (pasted)`);
+    }
+    if (mode === "review" && pdDoc) names.push(pdDoc.name);
+    return names;
+  }
+
+  /**
+   * Review F1 and D-2: after a failed copy the project is never drafted or
+   * reviewed, but the writer's own files are still saved. Say what was not
+   * copied, and which of their own files did not make it either.
+   */
+  function copyFailedMessage(saved: string[]) {
+    const unsaved = ownUploadNames();
+    for (const name of saved) {
+      const index = unsaved.indexOf(name);
+      if (index >= 0) unsaved.splice(index, 1);
+    }
+    let message = `Some files from ${copySourceTitle} were not copied. Duplicate again, or add them on the project page.`;
+    if (unsaved.length) {
+      message += ` These files you added were not saved either: ${unsaved.join(", ")}.`;
+    } else if (saved.length) {
+      message += " The files you added here were saved.";
+    }
+    if (mode === "review" && pdDoc && saved.includes(pdDoc.name)) {
+      message += " Start the PD review on the project page once the missing files are added.";
+    }
+    return message;
+  }
+
   async function commit() {
     if (!hasAnySource) {
       toast.error(
@@ -842,6 +904,9 @@
     }
     committing = true;
     let createdProjectId: Id<"projects"> | null = null;
+    let copyFailed = false;
+    // The writer's own files saved so far, by ownUploadNames' names.
+    const savedOwn: string[] = [];
     try {
       progress = "Creating project…";
       const transcripts = await transcriptArgs();
@@ -903,14 +968,9 @@
           if (extractionLifetime.signal.aborted) return;
           console.error(copyError);
           // Review F1: the project exists but may lack the copied files, so
-          // never suggest drafting it. Nothing else runs.
-          toast.error(
-            `Some files from ${copySourceTitle} were not copied. Duplicate again, or add them on the project page.`
-          );
-          committing = false;
-          progress = "";
-          goto(`/project/${projectId}`);
-          return;
+          // it is never drafted or reviewed below. The writer's own files do
+          // not depend on the copy, so they are still saved (review D-2).
+          copyFailed = true;
         }
       }
 
@@ -962,6 +1022,7 @@
             })
           );
           extractionLifetime.signal.throwIfAborted();
+          savedOwn.push(file.name);
           return hasText ? "stored_text" : "stored_empty";
         } catch (e) {
           extractionLifetime.signal.throwIfAborted();
@@ -1009,6 +1070,7 @@
             intake: "pasted",
           });
         }
+        if (row.note.trim()) savedOwn.push(`Previous-year note (FY ${row.year})`);
       }
 
       // Other categories.
@@ -1029,6 +1091,7 @@
             category: cat.id,
             intake: "pasted",
           });
+          savedOwn.push(`${cat.label} (pasted)`);
         }
       }
 
@@ -1070,13 +1133,16 @@
           });
           throw e;
         }
+        savedOwn.push(pdDoc.name);
         if (!storageId) {
           toast.warning(`The PD text was saved, but the original file ‘${pdDoc.name}’ could not be uploaded.`);
         }
         extractionLifetime.signal.throwIfAborted();
-        progress = "Starting PD review…";
-        await startPdReview({ projectId, documentId });
-      } else if (fromProjectId && !generateAfterDuplicate) {
+        if (!copyFailed) {
+          progress = "Starting PD review…";
+          await startPdReview({ projectId, documentId });
+        }
+      } else if (copyFailed || (fromProjectId && !generateAfterDuplicate)) {
         progress = "Opening duplicate…";
       } else {
         extractionLifetime.signal.throwIfAborted();
@@ -1099,16 +1165,30 @@
             : {}),
         });
       }
+      extractionLifetime.signal.throwIfAborted();
+      if (copyFailed) {
+        toast.error(copyFailedMessage(savedOwn));
+        committing = false;
+        progress = "";
+        leaveTo(`/project/${projectId}`);
+        return;
+      }
       if (skippedFiles.length) {
         toast.error(
           `${skippedFiles.length} document(s) could not be uploaded and were skipped: ${skippedFiles.join(", ")}`
         );
       }
-      extractionLifetime.signal.throwIfAborted();
-      goto(`/project/${projectId}`);
+      leaveTo(`/project/${projectId}`);
     } catch (e) {
       if (extractionLifetime.signal.aborted || isParseAbort(e)) return;
       console.error(e);
+      if (copyFailed && createdProjectId) {
+        toast.error(copyFailedMessage(savedOwn));
+        committing = false;
+        progress = "";
+        leaveTo(`/project/${createdProjectId}`);
+        return;
+      }
       // The project may already exist at this point (createProject succeeded,
       // a later step failed). Land the writer on it rather than stranding them
       // on the wizard with work they can't see.
@@ -1125,7 +1205,7 @@
             ? "The project was created but the PD review did not start — open it and use Start PD review to retry."
             : "The project was created but generation did not start — open it and use Generate to retry."
         );
-        goto(`/project/${createdProjectId}`);
+        leaveTo(`/project/${createdProjectId}`);
       }
     }
   }
