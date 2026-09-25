@@ -2,9 +2,9 @@
 
 import { internalAction, type ActionCtx } from "../_generated/server";
 import { internal } from "../_generated/api";
-import { instrumentedAnthropic } from "./instrument";
+import { clientForRole } from "./providers";
+import type { GenerationClient } from "./openrouterCore";
 import { generateStructured } from "./structured";
-import { MODEL } from "./model";
 import {
   admitStream,
   summarizeAdmission,
@@ -61,11 +61,13 @@ interface RulesDigest {
 
 /** Distill feedback into rules; returns null when the model finds no pattern. */
 async function distillRules(
-  client: Anthropic,
+  client: GenerationClient | Anthropic,
+  model: string,
   system: string,
   user: string,
 ): Promise<string[] | null> {
   const digest = await generateStructured<RulesDigest>(client, {
+    model,
     system,
     user,
     toolName: "submit_learned_rules",
@@ -95,16 +97,16 @@ async function distillAdmittedRules(
   admission: AdmissionSnapshot,
   system: string,
   user: string,
-): Promise<string[] | null> {
+): Promise<{ rules: string[] | null; model: string }> {
   try {
-    const client = instrumentedAnthropic(ctx, {
+    // Model catalog: learning digests run on the learning_digest role's model.
+    const { client, model } = await clientForRole(ctx, "learning_digest", {
       callSite:
         kind === "qa_calibration"
           ? "learning:qa-calibration"
           : "learning:draft-style",
-      capability: "generation",
     });
-    return await distillRules(client, system, user);
+    return { rules: await distillRules(client, model, system, user), model };
   } catch (error) {
     try {
       await ctx.runMutation(internal.learning.recordDigestAttempt, {
@@ -213,7 +215,7 @@ export const generateQaCalibrationDigest = internalAction({
     )
       return;
 
-    const rules = await distillAdmittedRules(
+    const { rules, model } = await distillAdmittedRules(
       ctx,
       "qa_calibration",
       admission,
@@ -239,7 +241,7 @@ export const generateQaCalibrationDigest = internalAction({
       sourceCount: signal.length,
       feedbackCutoff: admission.feedbackCutoff,
       admission,
-      model: MODEL,
+      model,
     });
   },
 });
@@ -371,7 +373,7 @@ export const generateDraftStyleDigest = internalAction({
           2,
         )}`
       : "";
-    const rules = await distillAdmittedRules(
+    const { rules, model } = await distillAdmittedRules(
       ctx,
       "draft_style",
       admission,
@@ -402,7 +404,7 @@ export const generateDraftStyleDigest = internalAction({
       sourceCount: totalSignal,
       feedbackCutoff: admission.feedbackCutoff,
       admission,
-      model: MODEL,
+      model,
     });
   },
 });

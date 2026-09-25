@@ -1,6 +1,5 @@
 "use node";
 
-import type Anthropic from "@anthropic-ai/sdk";
 import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import type { ActionCtx } from "../_generated/server";
@@ -15,10 +14,11 @@ import {
   splitIntoWindows,
   type CondenseWindow,
 } from "./condenseAgent";
-import { instrumentedAnthropic } from "./instrument";
+import type { GenerationClient } from "./openrouterCore";
 import { MODEL } from "./model";
-import { currentPromptVersion } from "./promptProgram";
+import { generationPromptVersion } from "./promptProgram";
 import {
+  clientForModel,
   CONVEX_ACTION_LIMIT_MS,
   normalizeProviderError,
   RESERVED_NON_REQUEST_MS,
@@ -55,31 +55,38 @@ export function describeGenerationFailure(error: unknown): string {
 /** What condensation needs from the parent action: nothing but its calls. */
 export type CondenseCtx = Pick<ActionCtx, "runQuery" | "runMutation">;
 
+/** A condense unit, optionally naming the model its digests record. */
+export type BoundCondenser = CondenseWindow & { modelId?: string };
+
 /**
- * The condense unit bound to a real provider. Kept separate from
- * `ensureCondensedInputs` so the orchestration is exercisable with a stub: the
- * LLM call is the only part of this flow a test cannot run.
+ * The condense unit bound to a real provider: the generation's frozen
+ * condense-role model (model catalog), routed by its gateway. Kept separate
+ * from `ensureCondensedInputs` so the orchestration is exercisable with a
+ * stub: the LLM call is the only part of this flow a test cannot run.
  */
-export function anthropicCondenser(
+export function condenserFor(
   ctx: ActionCtx,
   meta: {
     generationId: Id<"generations">;
     projectId: Id<"projects">;
     userId?: Id<"users">;
+    /** The generation's frozen condense model. */
+    modelId: string;
   }
-): CondenseWindow {
-  let client: Anthropic | undefined;
-  return async (args) =>
+): BoundCondenser {
+  let client: GenerationClient | undefined;
+  const condense: BoundCondenser = async (args) =>
     await condenseWindow(
-      (client ??= instrumentedAnthropic(ctx, {
+      (client ??= clientForModel(ctx, meta.modelId, {
         callSite: "generation:condense",
-        capability: "generation",
         projectId: meta.projectId,
         ...(meta.userId ? { userId: meta.userId } : {}),
         attribution: { generationId: meta.generationId },
       })),
-      { ...args, modelId: MODEL }
+      { ...args, modelId: meta.modelId }
     );
+  condense.modelId = meta.modelId;
+  return condense;
 }
 
 /**
@@ -91,12 +98,18 @@ export function anthropicCondenser(
  * A digest already stored for the same bytes under the same CONDENSE_VERSION
  * is reused, so a regeneration pays nothing and a retry after a partial
  * failure pays only for what is missing.
+ *
+ * Model catalog: digests stay keyed by CONDENSE_VERSION alone, not by the
+ * condense model. A switch of the condense role therefore never invalidates
+ * a stored digest (no silent re-condensing, no churn); the model is recorded
+ * on each digest row for provenance, and a change that must re-condense
+ * everything bumps CONDENSE_VERSION deliberately.
  */
 export async function ensureCondensedInputs(
   ctx: CondenseCtx,
   args: { generationId: Id<"generations">; elapsedMs: number },
   log: (line: string) => Promise<unknown>,
-  condense: CondenseWindow
+  condense: BoundCondenser
 ): Promise<void> {
   const input = await ctx.runQuery(
     internal.transcriptDigests.getCondenseInputs,
@@ -147,7 +160,7 @@ export async function ensureCondensedInputs(
     );
   }
 
-  const promptVersion = await currentPromptVersion();
+  const promptVersion = await generationPromptVersion(ctx, args.generationId);
   const tasks = plans.flatMap((plan) =>
     plan.windows.map((text, index) => ({
       plan,
@@ -185,7 +198,7 @@ export async function ensureCondensedInputs(
           // The window objects as validated, so a reviewer can see the record
           // the rendered text was built from.
           structured: JSON.stringify(windowDigests),
-          model: MODEL,
+          model: condense.modelId ?? MODEL,
           promptVersion,
           originalLength: plan.transcript.content.length,
         }));

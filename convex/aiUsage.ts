@@ -5,8 +5,12 @@ import type { Doc, Id } from "./_generated/dataModel";
 import { getCurrentUserOrNull } from "./lib/auth";
 import {
   estimateCostFromTable,
+  pricingFor,
+  pricingFromPerMillion,
   type CostSource,
+  type ModelPricing,
 } from "../shared/modelPricing";
+import { catalogRow } from "./lib/modelRoles";
 
 /**
  * Estimated USD cost from the shared price table (`shared/modelPricing.ts`,
@@ -49,6 +53,8 @@ export function resolveUsageCost(args: {
   cacheCreation1hInputTokens?: number;
   cacheReadInputTokens?: number;
   costUsd?: number;
+  /** Catalog pricing for a model the static table does not list. */
+  catalogPricing?: ModelPricing;
 }): { costUsd: number; costSource: CostSource } {
   if (
     args.costUsd !== undefined &&
@@ -58,7 +64,7 @@ export function resolveUsageCost(args: {
     return { costUsd: args.costUsd, costSource: "native" };
   }
   return {
-    costUsd: estimateCostFromTable(args.model, args),
+    costUsd: estimateCostFromTable(args.model, args, args.catalogPricing),
     costSource: "estimated",
   };
 }
@@ -149,7 +155,23 @@ export const logUsage = internalMutation({
       billableTokens(args.cacheCreation1hInputTokens ?? 0),
       cacheCreationInputTokens
     );
+    // A model the static price table lacks (one the model catalog added) is
+    // priced from its catalog row rather than as the fallback model.
+    let catalogPricing: ModelPricing | undefined;
+    if (args.costUsd === undefined && !pricingFor(args.model)) {
+      const row = await catalogRow(ctx, args.model);
+      if (row?.inputUsdPerMTok !== undefined && row.outputUsdPerMTok !== undefined) {
+        catalogPricing = pricingFromPerMillion({
+          input: row.inputUsdPerMTok,
+          output: row.outputUsdPerMTok,
+          cacheRead: row.cacheReadUsdPerMTok,
+          cacheWrite: row.cacheWriteUsdPerMTok,
+          cacheWrite1h: row.cacheWrite1hUsdPerMTok,
+        });
+      }
+    }
     const cost = resolveUsageCost({
+      ...(catalogPricing ? { catalogPricing } : {}),
       model: args.model,
       inputTokens,
       outputTokens,

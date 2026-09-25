@@ -12,8 +12,7 @@
 import { action } from "../_generated/server";
 import { v } from "convex/values";
 import { z } from "zod";
-import { MODEL } from "./model";
-import { instrumentedAnthropic } from "./instrument";
+import { clientForRole } from "./providers";
 import { generateStructured } from "./structured";
 import {
   STYLE_OVERRIDE_KEYS,
@@ -144,20 +143,20 @@ export const analyzeMyInstructions = action({
         lockedConflicts: [],
       };
     }
-    const anthropic = instrumentedAnthropic(ctx, {
+    // Model catalog: settings analysis runs on the analysis role's model.
+    const { client, model } = await clientForRole(ctx, "analysis", {
       callSite: "settings:style_analysis",
-      capability: "generation",
       userId: identity.tokenIdentifier,
     });
     const { system, user } = buildStyleAnalysisPrompt(text);
-    return await generateStructured<StyleAnalysis>(anthropic, {
+    return await generateStructured<StyleAnalysis>(client, {
       system,
       user,
       toolName: STYLE_ANALYSIS_REQUEST.toolName,
       description: STYLE_ANALYSIS_REQUEST.description,
       schema: ANALYSIS_TOOL_SCHEMA,
       maxTokens: STYLE_ANALYSIS_REQUEST.maxTokens,
-      model: MODEL,
+      model,
       validate: styleAnalysisSchema,
     });
   },

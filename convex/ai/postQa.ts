@@ -12,7 +12,7 @@ import { internalAction } from "../_generated/server";
 import { detectFirstPersonPreference } from "../../shared/humanProse";
 import { internal } from "../_generated/api";
 import { v } from "convex/values";
-import { clientForModel } from "./providers";
+import { clientForModel, registerGenerationModels } from "./providers";
 import { runQAAgent } from "./qaAgent";
 import { runChronologyAgent } from "./chronologyAgent";
 import type { TranscriptAnalysis } from "./analyzerAgent";
@@ -25,6 +25,8 @@ import type { Id } from "../_generated/dataModel";
 export const runReportQa = internalAction({
   args: { generationId: v.id("generations"), attemptStartedAt: v.optional(v.number()) },
   handler: async (ctx, args) => {
+    // Model catalog: routing and output budgets read the frozen models.
+    await registerGenerationModels(ctx, args.generationId).catch(() => null);
     const attempt = await ctx.runQuery(internal.generations.getPostQaAttempt, {
       generationId: args.generationId,
     });

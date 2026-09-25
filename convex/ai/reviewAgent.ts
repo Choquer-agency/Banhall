@@ -3,12 +3,11 @@
 import { internalAction } from "../_generated/server";
 import { internal } from "../_generated/api";
 import { v } from "convex/values";
-import { instrumentedAnthropic } from "./instrument";
+import { clientForRole } from "./providers";
 import { PD_REVIEW_SYSTEM_PROMPT } from "./prompts";
 import { generateStructured } from "./structured";
 import { pdReviewResultSchema } from "../../shared/pdReview";
 import type { z } from "zod";
-import { MODEL } from "./model";
 import type { ContextDoc } from "./analyzerAgent";
 import { normalizeProviderError } from "./providers";
 import {
@@ -28,7 +27,10 @@ export interface PdReviewResult {
   suggested_strengthening: string[];
 }
 
-const PD_REVIEW_SCHEMA = {
+export const PD_REVIEW_TOOL = "submit_pd_review";
+export const PD_REVIEW_MAX_TOKENS = 4096;
+
+export const PD_REVIEW_SCHEMA = {
   type: "object",
   properties: {
     summary: {
@@ -166,19 +168,21 @@ export const runPdReview = internalAction({
       );
 
 
-      const anthropic = instrumentedAnthropic(ctx, {
+      // Model catalog: PD review runs on the pd_review role's model.
+      const { client, model } = await clientForRole(ctx, "pd_review", {
         callSite: "pd_review",
         capability: "review",
         projectId: args.projectId,
         ...(input.createdBy ? { userId: input.createdBy } : {}),
       });
-      const result = await generateStructured<PdReviewResult>(anthropic, {
+      const result = await generateStructured<PdReviewResult>(client, {
+        model,
         system: PD_REVIEW_SYSTEM_PROMPT,
         user: buildPdReviewUserMessage(input, contextDocs),
-        toolName: "submit_pd_review",
+        toolName: PD_REVIEW_TOOL,
         description: "Submit the structured feedback report for the written PD.",
         schema: PD_REVIEW_SCHEMA as never,
-        maxTokens: 4096,
+        maxTokens: PD_REVIEW_MAX_TOKENS,
         // Validate before storing. An unreadable result used to be saved as
         // `completed`, which rendered a blank report the writer could not
         // retry (retry only accepts `failed`). Now it lands in the catch below
@@ -189,7 +193,7 @@ export const runPdReview = internalAction({
       await ctx.runMutation(internal.pdReviews.completePdReview, {
         reviewId: args.reviewId,
         result: JSON.stringify(result),
-        model: MODEL,
+        model,
       });
     } catch (error) {
       const normalized = normalizeProviderError(error);

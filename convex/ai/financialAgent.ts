@@ -4,11 +4,10 @@ import { internalAction } from "../_generated/server";
 import { internal } from "../_generated/api";
 import { v } from "convex/values";
 import { z } from "zod";
-import { instrumentedAnthropic } from "./instrument";
-import { MODEL } from "./model";
+import { clientForRole } from "./providers";
 import { normalizeProviderError } from "./providers";
 
-const TIMESHEET_EXTRACTION_PROMPT = `You are a financial analyst for an SR&ED (Scientific Research & Experimental Development) consulting firm. Your job is to reconstruct timesheets from unstructured data sources.
+export const TIMESHEET_EXTRACTION_PROMPT = `You are a financial analyst for an SR&ED (Scientific Research & Experimental Development) consulting firm. Your job is to reconstruct timesheets from unstructured data sources.
 
 ## Your Task
 
@@ -45,7 +44,7 @@ Respond with ONLY valid JSON:
 }`;
 
 
-const extractionSchema = z.object({
+export const timesheetExtractionSchema = z.object({
   entries: z
     .array(
       z.object({
@@ -62,6 +61,22 @@ const extractionSchema = z.object({
     )
     .max(500),
 });
+
+/** The request, shared with the financial_extraction evaluation. */
+export const TIMESHEET_MAX_TOKENS = 8192;
+
+export function timesheetUserMessage(fileType: string, content: string): string {
+  return `Extract timesheet entries from this ${fileType} data:\n\n${content}`;
+}
+
+/** The entries in a model's reply, as the upload pipeline reads them. */
+export function parseTimesheetReply(text: string): z.infer<typeof timesheetExtractionSchema> {
+  const jsonMatch = text.match(/\{[\s\S]*\}/);
+  if (!jsonMatch) {
+    throw new Error("Financial agent did not return valid JSON");
+  }
+  return timesheetExtractionSchema.parse(JSON.parse(jsonMatch[0]));
+}
 
 export const processFinancialUpload = internalAction({
   args: {
@@ -82,29 +97,35 @@ export const processFinancialUpload = internalAction({
       });
       if (!upload) throw new Error("Financial upload project mismatch");
 
-      const anthropic = instrumentedAnthropic(ctx, {
+      // Model catalog: timesheet extraction runs on the financial_extraction role's model.
+      const { client, model } = await clientForRole(ctx, "financial_extraction", {
         callSite: "financial",
         capability: "financial",
         projectId: args.projectId,
+        // The outcome is settled below, once the reply parses and validates.
+        deferOutcome: true,
       });
-      const response = await anthropic.messages.create({
-        model: MODEL,
-        max_tokens: 8192,
+      const response = await client.messages.create({
+        model,
+        max_tokens: TIMESHEET_MAX_TOKENS,
         system: TIMESHEET_EXTRACTION_PROMPT,
         messages: [
           {
             role: "user",
-            content: `Extract timesheet entries from this ${upload.fileType} data:\n\n${upload.content}`,
+            content: timesheetUserMessage(upload.fileType, upload.content),
           },
         ],
       });
       const text =
         response.content[0]?.type === "text" ? response.content[0].text : "";
-      const jsonMatch = text.match(/\{[\s\S]*\}/);
-      if (!jsonMatch) {
-        throw new Error("Financial agent did not return valid JSON");
+      let result: ReturnType<typeof parseTimesheetReply>;
+      try {
+        result = parseTimesheetReply(text);
+      } catch (error) {
+        await response.settleOutcome?.({ ok: false, code: "invalid_output" });
+        throw error;
       }
-      const result = extractionSchema.parse(JSON.parse(jsonMatch[0]));
+      await response.settleOutcome?.({ ok: true });
       await ctx.runMutation(internal.financial.replaceTimesheetEntries, {
         projectId: args.projectId,
         uploadId: args.uploadId,

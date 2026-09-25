@@ -17,6 +17,16 @@ import {
 import { admissionValidator, attemptOutcomeValidator } from "./lib/learningAdmission";
 import { styleOverridesValidator } from "./lib/styleOverrides";
 import { PD_SUBSECTIONS } from "../shared/pdSubsections";
+import {
+  catalogFieldsValidator,
+  catalogStatusValidator,
+  costComparisonValidator,
+  endpointSupportValidator,
+  evalSummaryValidator,
+  gateResultValidator,
+  modelFreezeValidator,
+  modelRoleValidator,
+} from "./lib/modelCatalogValidators";
 
 const seedRoleIdValidator = v.union(
   ...PD_SUBSECTIONS.map((subsection) => v.literal(subsection.roleId))
@@ -811,6 +821,10 @@ export default defineSchema({
     ),
     seedRequestsReserved: v.optional(v.number()),
     singleModelId: v.optional(v.string()),
+    // 2026-09-24 widen (model catalog): every model this generation uses,
+    // frozen at reservation. Absent on older rows, which resolve from the
+    // seed registry exactly as before.
+    modelFreeze: v.optional(modelFreezeValidator),
     // Compare mode's persisted model pair (exactly 2 ids). Absent on legacy
     // rows, which fall back to the full candidate roster.
     compareModelIds: v.optional(v.array(v.string())),
@@ -2871,6 +2885,157 @@ export default defineSchema({
 
   // Admin-tunable app settings, one row per key. Currently: "defaultModel" —
   // the generation model used when a writer doesn't pick one explicitly.
+  // ─── Model catalog (owner decision 21, 2026-09-24) ─────────────────────────
+  // Every model the app can run or evaluate, refreshed daily from OpenRouter
+  // and seeded from shared/generationModels.ts CANDIDATE_MODELS. Benchmark
+  // scores are Artificial Analysis data: internal use only, admin reads only.
+  modelCatalog: defineTable({
+    ...catalogFieldsValidator,
+    status: catalogStatusValidator,
+    source: v.union(v.literal("seed"), v.literal("openrouter")),
+    endpointSupport: v.optional(endpointSupportValidator),
+    firstSeenAt: v.number(),
+    lastSeenAt: v.number(),
+    missingSince: v.optional(v.number()),
+    renamedFrom: v.optional(v.string()),
+    // Set when an admin notice for this row's expiry or removal was raised,
+    // so the daily job raises each notice once.
+    expiryNoticeFor: v.optional(v.string()),
+    goneNoticeAt: v.optional(v.number()),
+    updatedAt: v.number(),
+  })
+    .index("by_modelId", ["modelId"])
+    .index("by_gateway_and_canonicalSlug", ["gateway", "canonicalSlug"])
+    .index("by_status", ["status"]),
+
+  // The current model per named role, plus the model it replaced (the
+  // one-call rollback target). History lives in modelSwitchEvents.
+  modelRoleAssignments: defineTable({
+    role: modelRoleValidator,
+    modelId: v.string(),
+    previousModelId: v.optional(v.string()),
+    assignedAt: v.number(),
+    assignedBy: v.union(v.literal("system"), v.literal("user")),
+    assignedByUserId: v.optional(v.id("users")),
+    // Last admin notice about this role's production error rate, so a
+    // failing model with automatic switching off is announced once a day.
+    errorNoticeAt: v.optional(v.number()),
+    // "role_split": copied from the role this one was split out of
+    // (shared/modelCatalog ROLE_PREDECESSORS), not chosen for it. Cleared
+    // by the role's first real switch.
+    origin: v.optional(v.literal("role_split")),
+    // Written once when a split role gets its first assignment: the
+    // predecessor's switch events up to `until` stay part of this role's
+    // history, so a rollback made before the split keeps that model out of
+    // this role's evaluations. No switch ever changes it.
+    inheritedHistory: v.optional(v.object({ role: modelRoleValidator, until: v.number() })),
+  }).index("by_role", ["role"]),
+
+  // Append-only audit log of every role switch, automatic or manual.
+  modelSwitchEvents: defineTable({
+    role: modelRoleValidator,
+    fromModelId: v.optional(v.string()),
+    toModelId: v.string(),
+    kind: v.union(
+      v.literal("promotion"),
+      v.literal("rollback"),
+      v.literal("manual")
+    ),
+    reason: v.string(),
+    evaluationId: v.optional(v.id("modelEvaluations")),
+    evalResults: v.optional(
+      v.object({
+        candidate: evalSummaryValidator,
+        incumbent: evalSummaryValidator,
+        gates: v.array(gateResultValidator),
+      })
+    ),
+    costComparison: v.optional(costComparisonValidator),
+    errorRate: v.optional(
+      v.object({ calls: v.number(), failures: v.number(), errorRate: v.number() })
+    ),
+    actor: v.union(v.literal("system"), v.literal("user")),
+    actorUserId: v.optional(v.id("users")),
+    at: v.number(),
+  })
+    .index("by_role_and_at", ["role", "at"])
+    .index("by_at", ["at"])
+    // Whether a role was ever rolled back from a model (up to a time), read
+    // as one row however long the role's history is.
+    .index("by_role_and_kind_and_fromModelId_and_at", ["role", "kind", "fromModelId", "at"]),
+
+  // One candidate evaluated for one role against the incumbent on the fixed
+  // eval set. Pending rows are queued or running; the rest carry results.
+  modelEvaluations: defineTable({
+    role: modelRoleValidator,
+    modelId: v.string(),
+    incumbentModelId: v.string(),
+    evalSetVersion: v.string(),
+    status: v.union(
+      v.literal("queued"),
+      v.literal("running"),
+      v.literal("passed"),
+      v.literal("failed"),
+      // A judge grade was missing on either side: never promotes.
+      v.literal("incomplete"),
+      v.literal("error")
+    ),
+    // The scheduled run, written in the same transaction as the row so a
+    // queued evaluation is never left without one.
+    scheduledJobId: v.optional(v.id("_scheduled_functions")),
+    // Spend held against the monthly budget while it runs: the most its
+    // full request envelope can cost. Released to evalCostUsd at the end.
+    reservedCostUsd: v.optional(v.number()),
+    // The part of evalCostUsd that is the reserved maximum of requests that
+    // were sent but never reported a charge (lost response, timeout).
+    unsettledCostUsd: v.optional(v.number()),
+    // When the row's spend counts against a monthly budget: created, then
+    // claimed, then settled. Monthly accounting reads this, not createdAt.
+    accountedAt: v.optional(v.number()),
+    benchmarkScore: v.optional(v.number()),
+    incumbentBenchmarkScore: v.optional(v.number()),
+    estimatedCostUsd: v.number(),
+    candidate: v.optional(evalSummaryValidator),
+    incumbent: v.optional(evalSummaryValidator),
+    gates: v.optional(v.array(gateResultValidator)),
+    // Everything the evaluation spent: candidate, incumbent and judge.
+    evalCostUsd: v.optional(v.number()),
+    // What happened after the gates: "promoted", or why it was not.
+    outcome: v.optional(v.string()),
+    error: v.optional(v.string()),
+    createdAt: v.number(),
+    startedAt: v.optional(v.number()),
+    completedAt: v.optional(v.number()),
+  })
+    .index("by_status", ["status"])
+    .index("by_role_and_modelId", ["role", "modelId"])
+    .index("by_createdAt", ["createdAt"])
+    .index("by_accountedAt", ["accountedAt"]),
+
+  // Exact per-model, per-hour request outcomes for the production
+  // error-rate rollback: one terminal outcome per request, counted apart
+  // from billing (a billed malformed response is one failure, never also a
+  // success). Billing, auth, rate-limit and network failures are not
+  // counted: they say nothing about the model.
+  modelCallBuckets: defineTable({
+    model: v.string(),
+    hourStart: v.number(),
+    successes: v.number(),
+    failures: v.number(),
+    lastFailureCode: v.optional(v.string()),
+    lastFailureCallSite: v.optional(v.string()),
+  }).index("by_model_and_hourStart", ["model", "hourStart"]),
+
+  // The same outcomes one row per request, kept two days, so the partial
+  // hours at the edges of a window are counted to the exact millisecond.
+  modelCallOutcomes: defineTable({
+    model: v.string(),
+    at: v.number(),
+    outcome: v.union(v.literal("success"), v.literal("failure")),
+  })
+    .index("by_model_and_at", ["model", "at"])
+    .index("by_at", ["at"]),
+
   appSettings: defineTable({
     key: v.string(),
     value: v.string(),

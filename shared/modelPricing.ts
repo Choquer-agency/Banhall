@@ -141,12 +141,47 @@ export type BilledTokens = {
 };
 
 /**
+ * Pricing from per-million-token prices, as the model catalog stores them
+ * (convex `modelCatalog`). Prices a model the table above does not list,
+ * such as one the catalog discovered after this file was last edited.
+ */
+export function pricingFromPerMillion(prices: {
+  input: number;
+  output: number;
+  cacheRead?: number;
+  cacheWrite?: number;
+  cacheWrite1h?: number;
+}): ModelPricing {
+  const ratio = (value: number | undefined) =>
+    value !== undefined && prices.input > 0 ? value / prices.input : 0;
+  return {
+    input: prices.input,
+    output: prices.output,
+    cacheWrite5mMultiplier: ratio(prices.cacheWrite),
+    cacheWrite1hMultiplier: ratio(prices.cacheWrite1h),
+    cacheReadMultiplier: ratio(prices.cacheRead),
+  };
+}
+
+/**
  * Estimated USD cost of one response from the price table. Cache writes are
  * split by TTL: `cacheCreation1hInputTokens` (clamped to the total) at the
- * 1-hour multiplier, the rest at the 5-minute one.
+ * 1-hour multiplier, the rest at the 5-minute one. `override` prices a model
+ * the table does not list (the catalog's row for it).
  */
-export function estimateCostFromTable(model: string, tokens: BilledTokens): number {
-  const pricing = pricingFor(model) ?? FALLBACK_MODEL_PRICING;
+export function estimateCostFromTable(
+  model: string,
+  tokens: BilledTokens,
+  override?: ModelPricing
+): number {
+  return estimateCostWithPricing(
+    pricingFor(model) ?? override ?? FALLBACK_MODEL_PRICING,
+    tokens
+  );
+}
+
+/** Estimated USD cost of one response at exactly `pricing`. */
+export function estimateCostWithPricing(pricing: ModelPricing, tokens: BilledTokens): number {
   const cacheWrite = billable(tokens.cacheCreationInputTokens);
   const cacheWrite1h = Math.min(billable(tokens.cacheCreation1hInputTokens), cacheWrite);
   const cacheWrite5m = cacheWrite - cacheWrite1h;

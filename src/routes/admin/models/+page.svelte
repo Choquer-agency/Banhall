@@ -6,7 +6,18 @@
   import { useQuery, useMutation, useConvexClient } from "convex-svelte";
   import { useAuth } from "@mmailaender/convex-better-auth-svelte/svelte";
   import { api } from "../../../../convex/_generated/api";
-  import BuildStamp from "$lib/components/BuildStamp.svelte";
+  import ModelCatalogPanel from "$lib/components/admin/ModelCatalogPanel.svelte";
+  import { pickerModels, defaultModelIdFor } from "$lib/modelPicker";
+  import type { CostCapInput, ModelAdminRole } from "$lib/modelCatalogAdmin";
+  import { userErrorMessage } from "$lib/errors";
+  import {
+    adminStateRef,
+    requestCatalogRefreshRef,
+    rollbackRoleRef,
+    setAutoSwitchRef,
+    setEvalBudgetRef,
+    setRoleCostCapRef,
+  } from "../../../../convex/lib/modelCatalogRefs";
 
   type Stat = { model: string; label: string; count: number; pct: number };
 
@@ -28,15 +39,36 @@
 
   const stats = $derived(statsQ.data);
 
-  // Admin-set default generation model (used when a writer doesn't pick one).
-  import { CANDIDATE_MODELS } from "../../../../shared/generationModels";
+  // The writing role's model (model catalog): used when a writer doesn't
+  // pick one. Choosing here is logged as a manual switch.
   import SelectInput from "$lib/components/ui/SelectInput.svelte";
   const setDefaultModel = useMutation(api.appSettings.setDefaultModel);
   let savingDefault = $state(false);
-  const defaultModel = $derived(capabilitiesQ.data?.defaultModel ?? CANDIDATE_MODELS[0].id);
-  const availableModels = $derived(
-    new Set(capabilitiesQ.data?.availableCandidateModels ?? CANDIDATE_MODELS.map((m) => m.id as string))
-  );
+  const defaultModel = $derived(defaultModelIdFor(capabilitiesQ.data));
+  const selectableModels = $derived(pickerModels(capabilitiesQ.data));
+
+  // Model catalog (owner decision 21): admin state and actions.
+  const catalogQ = useQuery(adminStateRef, () => (auth.isAuthenticated ? {} : "skip"));
+  const setAutoSwitch = useMutation(setAutoSwitchRef);
+  const rollbackRole = useMutation(rollbackRoleRef);
+  const setRoleCostCap = useMutation(setRoleCostCapRef);
+  const setEvalBudget = useMutation(setEvalBudgetRef);
+  const requestRefresh = useMutation(requestCatalogRefreshRef);
+  let catalogBusy = $state<string | null>(null);
+  let catalogError = $state<string | null>(null);
+
+  async function runCatalogAction(key: string, action: () => Promise<unknown>) {
+    if (catalogBusy) return;
+    catalogBusy = key;
+    catalogError = null;
+    try {
+      await action();
+    } catch (error) {
+      catalogError = userErrorMessage(error, "That change did not save. Try again.");
+    } finally {
+      catalogBusy = null;
+    }
+  }
 
   async function handleDefaultChange(modelId: string) {
     if (savingDefault || modelId === defaultModel) return;
@@ -61,7 +93,7 @@
         { model }
       );
     } catch {
-      summaries[model] = "Couldn't generate the summary — try again.";
+      summaries[model] = "Couldn't write the summary. Try again.";
     } finally {
       summarizing = null;
     }
@@ -77,10 +109,10 @@
         <div>
           <div class="mb-1 flex items-center justify-between text-sm">
             <span class="font-medium text-gray-800">
-              {#if i === 0}<span class="mr-1">🏆</span>{/if}{r.label}
+              {r.label}{#if i === 0}<span class="ml-1 text-xs font-normal text-gray-500">(most picked)</span>{/if}
             </span>
             <span class="text-gray-500">
-              {r.count} pick{r.count !== 1 ? "s" : ""} · {r.pct}%
+              {r.count} pick{r.count !== 1 ? "s" : ""}, {r.pct}%
             </span>
           </div>
           <div class="h-2.5 w-full overflow-hidden rounded-full bg-chrome">
@@ -101,10 +133,28 @@
   </div>
 {:else}
   <AdminWorkspacePage
-    title="Model A/B preferences"
-    description="Which model consultants keep when shown side-by-side candidate drafts."
+    title="Models"
+    description="Which models the app runs, how they switch, and which drafts consultants prefer."
     width="compact"
   >
+      {#if catalogError}
+        <p class="mt-6 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700" role="alert">{catalogError}</p>
+      {/if}
+      {#if catalogQ.data}
+        <ModelCatalogPanel
+          admin={catalogQ.data}
+          busy={catalogBusy}
+          onToggleAutoSwitch={(enabled: boolean) =>
+            runCatalogAction("autoSwitch", () => setAutoSwitch({ enabled }))}
+          onRollback={(role: ModelAdminRole["role"]) =>
+            runCatalogAction(`rollback:${role}`, () => rollbackRole({ role }))}
+          onSaveCap={(role: ModelAdminRole["role"], cap: CostCapInput) =>
+            runCatalogAction(`cap:${role}`, () => setRoleCostCap({ role, ...cap }))}
+          onSaveBudget={(monthlyUsd: number) =>
+            runCatalogAction("budget", () => setEvalBudget({ monthlyUsd }))}
+          onRefresh={() => runCatalogAction("refresh", () => requestRefresh({}))}
+        />
+      {/if}
 
       {#if stats === undefined}
         <div class="flex min-h-[55vh] items-center justify-center">
@@ -116,21 +166,21 @@
         <!-- Default generation model (admin-set; writers get it when they don't pick) -->
         <div class="mt-6 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-gray-200 bg-white px-5 py-4">
           <div>
-            <p class="text-sm font-semibold text-gray-900">Default model</p>
+            <p class="text-sm font-medium text-gray-900">Default model</p>
             <p class="text-sm text-gray-600">
-              Used for every generation where the writer doesn't pick a model explicitly.
+              The writing role's model, used whenever a writer doesn't pick one. Choosing here is logged as a manual switch.
             </p>
           </div>
           <span class="flex items-center gap-2">
             {#if savingDefault}
-              <span class="text-xs text-gray-400">Saving…</span>
+              <span class="text-xs text-gray-400">Saving...</span>
             {/if}
             <SelectInput
               size="sm"
               value={defaultModel}
-              items={CANDIDATE_MODELS.map((m) => ({
+              items={selectableModels.map((m) => ({
                 value: m.id,
-                label: availableModels.has(m.id) ? m.label : `${m.label} (needs OpenRouter key)`,
+                label: m.available ? m.label : `${m.label} (needs OpenRouter key)`,
               }))}
               disabled={savingDefault}
               class="w-56"
@@ -147,20 +197,20 @@
             </svg>
           </span>
           <div>
-            <p class="text-sm font-semibold text-gray-900">Recommendation</p>
+            <p class="text-sm font-medium text-gray-900">Recommendation</p>
             <p class="text-sm text-gray-600">{stats.recommendation}</p>
           </div>
         </div>
 
         <div class="mt-8 grid gap-6 sm:grid-cols-2">
           <div class="rounded-2xl border border-gray-200 bg-white p-6">
-            <h2 class="mb-4 text-sm font-semibold uppercase tracking-wide text-gray-400">
+            <h2 class="text-label mb-4">
               All writers ({stats.total})
             </h2>
             {@render statBars(stats.overall, "No selections logged yet.")}
           </div>
           <div class="rounded-2xl border border-gray-200 bg-white p-6">
-            <h2 class="mb-4 text-sm font-semibold uppercase tracking-wide text-gray-400">
+            <h2 class="text-label mb-4">
               Your picks
             </h2>
             {@render statBars(stats.mine, "You haven't picked a draft yet.")}
@@ -169,10 +219,10 @@
 
         <!-- Jul 17: per-model score averages + writer feedback digest -->
         <div class="mt-8">
-          <h2 class="text-title">Writer scores & feedback</h2>
+          <h2 class="text-sm font-medium text-gray-900">Writer scores and feedback</h2>
           <p class="mt-1 text-sm text-gray-500">
-            Average 1–10 score per model from the option-selection screen, with
-            writers' one-line comments and an AI digest of the sentiment.
+            Average 1 to 10 score per model from the option-selection screen, with
+            writers' one-line comments and an AI summary of the sentiment.
           </p>
           {#if stats.scoreStats.length === 0}
             <p class="mt-4 text-sm text-gray-400">No scores logged yet.</p>
@@ -182,13 +232,13 @@
                 <div class="rounded-2xl border border-gray-200 bg-white p-5">
                   <div class="flex flex-wrap items-center justify-between gap-3">
                     <div class="flex items-baseline gap-3">
-                      <span class="text-sm font-semibold text-gray-900">{m.label}</span>
+                      <span class="text-sm font-medium text-gray-900">{m.label}</span>
                       <span class="text-xs text-gray-400">
                         {m.scoreCount} score{m.scoreCount !== 1 ? "s" : ""}
                       </span>
                     </div>
                     {#if m.avgScore !== null}
-                      <span class={`text-data text-lg font-semibold ${m.avgScore >= 7 ? "text-green-600" : m.avgScore >= 5 ? "text-amber-600" : "text-red-600"}`}>
+                      <span class={`text-data text-lg font-medium ${m.avgScore >= 7 ? "text-green-600" : m.avgScore >= 5 ? "text-amber-600" : "text-red-600"}`}>
                         {m.avgScore}<span class="text-xs font-normal text-gray-400"> /10 avg</span>
                       </span>
                     {/if}
@@ -198,14 +248,14 @@
                       {#each m.comments as c, i (i)}
                         <li class="text-sm text-gray-600">
                           <span class="text-data text-xs text-gray-400">{c.score}/10</span>
-                          — “{c.comment}”
+                          “{c.comment}”
                         </li>
                       {/each}
                     </ul>
                     <div class="mt-3">
                       {#if summaries[m.model]}
                         <div class="rounded-lg bg-primary/5 px-3.5 py-2.5 text-sm text-gray-700">
-                          <span class="mb-0.5 block text-xs font-semibold text-primary-dark">AI summary</span>
+                          <span class="mb-0.5 block text-xs font-medium text-primary-dark">AI summary</span>
                           {summaries[m.model]}
                         </div>
                       {:else}
@@ -217,7 +267,7 @@
                         >
                           {#if summarizing === m.model}
                             <span class="h-3 w-3 animate-spin rounded-full border-2 border-primary/30 border-t-primary"></span>
-                            Summarizing…
+                            Summarizing...
                           {:else}
                             Summarize feedback with AI
                           {/if}

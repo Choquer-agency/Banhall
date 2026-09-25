@@ -42,7 +42,8 @@
   import { industryLabel } from "$lib/industries";
   import { CRA_SCIENCE_CODE_ITEMS, scienceCodeLabel } from "../../../../shared/craScienceCodes";
   import { parsePdFilename } from "../../../../shared/pdFilename";
-  import { SINGLE_MODEL_ITEMS, comparePairFromSlots, comparePairLabel, type CandidateModelId } from "../../../../shared/generationModels";
+  import { comparePairFromSlots, comparePairLabel } from "../../../../shared/generationModels";
+  import { pickerModels, singleModelItemsFor } from "$lib/modelPicker";
   import ComparePairPicker from "$lib/components/generation/ComparePairPicker.svelte";
   import SingleModelPicker from "$lib/components/generation/SingleModelPicker.svelte";
   import Tooltip from "$lib/components/ui/Tooltip.svelte";
@@ -97,7 +98,10 @@
   // BNH-39: generate a new PD from a transcript, or review an existing written PD.
   let mode = $state<"generate" | "review">("generate");
   let candidateMode = $state<"compare" | "single" | "iterative">("compare");
-  let singleModelId = $state<CandidateModelId | "">("");
+  let singleModelId = $state<string>("");
+  // Model catalog: the selectable models and the writing role's default.
+  const modelCapabilitiesQ = useQuery(api.providerReadiness.getCapabilities, () => ({}));
+  const singleModelItems = $derived(singleModelItemsFor(modelCapabilitiesQ.data));
   // Compare mode runs exactly 2 models — two slots, each a model or Random.
   let compareSlotA = $state("");
   let compareSlotB = $state("");
@@ -826,7 +830,11 @@
             : {}),
           ...(candidateMode === "compare"
             ? (() => {
-                const pair = comparePairFromSlots(compareSlotA, compareSlotB);
+                const pair = comparePairFromSlots(
+                  compareSlotA,
+                  compareSlotB,
+                  pickerModels(modelCapabilitiesQ.data)
+                );
                 return pair ? { compareModelIds: pair } : {};
               })()
             : {}),
@@ -1407,12 +1415,15 @@
                     : "Single draft"
               )}
               {#if candidateMode === "compare"}
-                {@render row("Models", comparePairLabel(compareSlotA, compareSlotB))}
+                {@render row(
+                  "Models",
+                  comparePairLabel(compareSlotA, compareSlotB, pickerModels(modelCapabilitiesQ.data))
+                )}
               {/if}
               {#if candidateMode !== "compare"}
                 {@render row(
                   "Model",
-                  SINGLE_MODEL_ITEMS.find((item) => item.value === singleModelId)?.label ?? SINGLE_MODEL_ITEMS[0].label
+                  singleModelItems.find((item) => item.value === singleModelId)?.label ?? singleModelItems[0].label
                 )}
               {/if}
             {/if}

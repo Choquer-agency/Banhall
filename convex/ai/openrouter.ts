@@ -17,7 +17,10 @@ import {
   recordGenerationHandoff,
   scheduleUsage,
   type GenerationAttribution,
+  type UsageTap,
 } from "./instrument";
+import { modelById } from "../../shared/generationModels";
+import { estimateCostFromTable } from "../../shared/modelPricing";
 import {
   toChatCompletions,
   fromChatCompletions,
@@ -76,6 +79,9 @@ export async function openRouterChatCompletion(
     timeoutMs?: number;
     /** Transport retries. Defaults to the shared generation policy. */
     maxRetries?: number;
+    onUsage?: UsageTap;
+    /** App ids of fallback models sent in the body's `models` array. */
+    fallbackModels?: readonly string[];
   }
 ): Promise<ChatCompletionsResponse> {
   const apiKey = requireOpenRouterConfigured();
@@ -162,7 +168,15 @@ export async function openRouterChatCompletion(
   const usage = openRouterUsage(body, {
     cacheWriteTtl: requestCacheWriteTtl(input.body),
   });
+  // After a fallback the answer came from another model: bill that model.
+  const usageModel = servingModelId(input.model, input.fallbackModels, body.model);
   if (usage) {
+    input.onUsage?.({
+      model: usageModel,
+      costUsd: usage.costUsd ?? estimateCostFromTable(usageModel, usage),
+      ...(usage.costUsd !== undefined ? { nativeCostUsd: usage.costUsd } : {}),
+      tokens: usage,
+    });
     await scheduleUsage(ctx, {
       ...(input.projectId ? { projectId: input.projectId } : {}),
       ...(input.userId ? { userId: input.userId } : {}),
@@ -176,7 +190,7 @@ export async function openRouterChatCompletion(
           }
         : {}),
       callSite: input.callSite,
-      model: input.model,
+      model: usageModel,
       inputTokens: usage.inputTokens,
       outputTokens: usage.outputTokens,
       cacheReadInputTokens: usage.cacheReadInputTokens,
@@ -192,6 +206,23 @@ export async function openRouterChatCompletion(
   return body;
 }
 
+/**
+ * The app model id that answered: the requested model, or the fallback
+ * whose id (or request id) OpenRouter reports in the response.
+ */
+export function servingModelId(
+  requested: string,
+  fallbacks: readonly string[] | undefined,
+  answered: unknown
+): string {
+  if (!fallbacks?.length || typeof answered !== "string") return requested;
+  return (
+    [requested, ...fallbacks].find(
+      (id) => id === answered || modelById(id)?.requestId === answered
+    ) ?? requested
+  );
+}
+
 export function instrumentedOpenRouter(
   ctx: ActionCtx,
   meta: {
@@ -199,11 +230,14 @@ export function instrumentedOpenRouter(
     projectId?: Id<"projects">;
     userId?: string;
     attribution?: GenerationAttribution;
+    onUsage?: UsageTap;
   },
   options: {
     timeoutMs?: number;
     maxRetries?: number;
     preserveMaxTokens?: boolean;
+    /** Helper roles only: models to fall back to, in order. */
+    fallbackModels?: readonly string[];
   } = {}
 ): GenerationClient {
   return {
@@ -212,12 +246,23 @@ export function instrumentedOpenRouter(
         const body = await openRouterChatCompletion(ctx, {
           body: toChatCompletions(params, {
             preserveMaxTokens: options.preserveMaxTokens,
+            ...(options.fallbackModels ? { fallbackModels: options.fallbackModels } : {}),
           }),
           model: params.model,
           ...options,
           ...meta,
         });
-        return fromChatCompletions(body);
+        // Outcomes are attributed to the model that actually answered.
+        const served = servingModelId(params.model, options.fallbackModels, body.model);
+        try {
+          const response = fromChatCompletions(body);
+          return served === params.model ? response : { ...response, servedModel: served };
+        } catch (error) {
+          if (served !== params.model && error instanceof Error) {
+            Object.assign(error, { servedModel: served });
+          }
+          throw error;
+        }
       },
     },
   };

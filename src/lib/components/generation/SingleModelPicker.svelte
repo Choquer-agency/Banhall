@@ -8,7 +8,7 @@
   import { Popover } from "bits-ui";
   import ModelLogo from "./ModelLogo.svelte";
   import ModelSelectPanel from "./ModelSelectPanel.svelte";
-  import { CANDIDATE_MODELS } from "../../../../shared/generationModels";
+  import { defaultModelIdFor, pickerModels } from "$lib/modelPicker";
   import { useQuery } from "convex-svelte";
   import { api } from "../../../../convex/_generated/api";
 
@@ -23,13 +23,12 @@
   } = $props();
 
   let open = $state(false);
-  // "" resolves to the admin-set default model (falls back to registry first).
+  // "" resolves to the writing role's current model (model catalog).
   const capabilitiesQ = useQuery(api.providerReadiness.getCapabilities, () => ({}));
-  const effectiveId = $derived(
-    value || capabilitiesQ.data?.defaultModel || CANDIDATE_MODELS[0].id
-  );
+  const effectiveId = $derived(value || defaultModelIdFor(capabilitiesQ.data));
   const selected = $derived(
-    CANDIDATE_MODELS.find((m) => m.id === effectiveId) ?? CANDIDATE_MODELS[0]
+    pickerModels(capabilitiesQ.data).find((m) => m.id === effectiveId) ??
+      pickerModels(capabilitiesQ.data)[0]
   );
   const label = $derived(selected.label);
 </script>
