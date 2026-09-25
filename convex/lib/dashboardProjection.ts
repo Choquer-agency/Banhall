@@ -277,5 +277,9 @@ export function dashboardProjectRow(project: Doc<"projects">) {
       project.dashboardCompanyKey ?? dashboardCompanyKey(project.clientName),
     dashboardFiscalYearRank:
       project.dashboardFiscalYearRank ?? dashboardFiscalYearRank(project.fiscalYearEnd),
+    // A project mid-deletion can still be listed until its purge finishes;
+    // cards use this to withhold actions such as Duplicate. Only present
+    // while true, so every other row keeps its exact shape.
+    ...(project.deletionStartedAt !== undefined ? { deleting: true as const } : {}),
   };
 }

@@ -1016,12 +1016,29 @@ async function requireDuplicatePair(
   return { user, source, target };
 }
 
+/**
+ * What a content copy carries besides the project inputs. Both default to
+ * true, the full clone the old dashboard's Duplicate and the review-from-
+ * project flow rely on. A duplicate made to draft again (2026-09-25, the
+ * card Duplicate) passes `includeReport: false` so the new project starts
+ * with no report, no copied QA findings and its own draft status, and
+ * `includeReviews: false` unless it is a Review PD project.
+ */
+const copyScopeArgs = {
+  /** The source's latest report (with its QA findings and review status). */
+  includeReport: v.optional(v.boolean()),
+  /** PD reviews and the written PDs they reviewed (`review_pd` documents). */
+  includeReviews: v.optional(v.boolean()),
+};
+
 async function copyProjectInputRows(
   ctx: MutationCtx,
   args: {
     fromProjectId: Id<"projects">;
     toProjectId: Id<"projects">;
     targetTranscriptId?: Id<"transcripts">;
+    includeReport?: boolean;
+    includeReviews?: boolean;
   }
 ) {
   const { user } = await requireDuplicatePair(
@@ -1029,6 +1046,8 @@ async function copyProjectInputRows(
     args.fromProjectId,
     args.toProjectId
   );
+  const includeReport = args.includeReport ?? true;
+  const includeReviews = args.includeReviews ?? true;
   const now = Date.now();
   const documents = await ctx.db
     .query("projectDocuments")
@@ -1040,6 +1059,7 @@ async function copyProjectInputRows(
   // Copy every support document, including archived records and review-mode PDs.
   // Storage ids are filled by the action after it clones the original bytes.
   for (const doc of documents) {
+    if (!includeReviews && doc.source === "review_pd") continue;
     // A duplicate must report the same truth as its source. Rows that predate
     // PSOS-04 carry no status, so derive it from the copied content — the same
     // function the read-time fallback and the backfill use.
@@ -1099,11 +1119,13 @@ async function copyProjectInputRows(
     evidenceCopied += 1;
   }
 
-  const sourceReport = await ctx.db
-    .query("reports")
-    .withIndex("by_projectId", (q) => q.eq("projectId", args.fromProjectId))
-    .order("desc")
-    .first();
+  const sourceReport = includeReport
+    ? await ctx.db
+        .query("reports")
+        .withIndex("by_projectId", (q) => q.eq("projectId", args.fromProjectId))
+        .order("desc")
+        .first()
+    : null;
   let reportId: Id<"reports"> | undefined;
   if (sourceReport) {
     const contentHash = sourceReport.contentHash ?? (await sha256(sourceReport.content));
@@ -1129,10 +1151,12 @@ async function copyProjectInputRows(
     });
   }
 
-  const reviews = await ctx.db
-    .query("pdReviews")
-    .withIndex("by_projectId", (q) => q.eq("projectId", args.fromProjectId))
-    .take(100);
+  const reviews = includeReviews
+    ? await ctx.db
+        .query("pdReviews")
+        .withIndex("by_projectId", (q) => q.eq("projectId", args.fromProjectId))
+        .take(100)
+    : [];
   let pdReviewsCopied = 0;
   for (const review of reviews) {
     const documentId = docIdMap.get(review.documentId);
@@ -1190,6 +1214,7 @@ export const prepareProjectContentCopy = mutation({
     fromProjectId: v.id("projects"),
     toProjectId: v.id("projects"),
     targetTranscriptId: v.optional(v.id("transcripts")),
+    ...copyScopeArgs,
   },
   handler: async (ctx, args) => {
     return await copyProjectInputRows(ctx, args);
