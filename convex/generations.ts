@@ -143,6 +143,12 @@ import {
   readGenerationProgress,
 } from "./lib/generationProgress";
 import {
+  forwardOrderedPayload,
+  loadOrderedPayload,
+  persistOrderedPayload,
+  resolveOrderedPayload,
+} from "./lib/orderedPayloadStore";
+import {
   sectionRunJson,
   sectionRunMetrics,
   sectionRunQa,
@@ -179,7 +185,8 @@ const generateOrderedSectionRef = makeFunctionReference<
     generationId: Id<"generations">;
     candidateRunId: Id<"generationCandidateRuns">;
     section: SectionNumber;
-    payload: OrderedPayload;
+    payload?: OrderedPayload;
+    payloadId?: Id<"generationArtifacts">;
   },
   null
 >("ai/orderedGeneration:generateOrderedSection");
@@ -915,17 +922,26 @@ export const retryFromSummary = mutation({
     }
     // One transcript, digest and fact pack row per transcript (2026-09-24).
     const maxFrozenSources = 3 * MAX_TRANSCRIPTS_PER_PROJECT + 51;
-    const [originSources, currentSources, artifacts] = await Promise.all([
+    const [originSources, currentSources, analysisArtifacts, brainArtifacts] = await Promise.all([
       ctx.db.query("generationSources")
         .withIndex("by_generationId", (q) => q.eq("generationId", originGenerationId))
         .take(maxFrozenSources + 1),
       ctx.db.query("generationSources")
         .withIndex("by_generationId", (q) => q.eq("generationId", failed._id))
         .take(maxFrozenSources + 1),
+      // Only the two frozen drafting inputs are copied: the chain's stored
+      // payload (kind ordered_payload, 2026-09-25) belongs to the failed
+      // chain and is rebuilt for the recovery chain from these two.
       ctx.db.query("generationArtifacts")
-        .withIndex("by_generationId_and_kind", (q) => q.eq("generationId", failed._id))
-        .take(3),
+        .withIndex("by_generationId_and_kind", (q) =>
+          q.eq("generationId", failed._id).eq("kind", "analysis"))
+        .take(2),
+      ctx.db.query("generationArtifacts")
+        .withIndex("by_generationId_and_kind", (q) =>
+          q.eq("generationId", failed._id).eq("kind", "brain_blocks"))
+        .take(2),
     ]);
+    const artifacts = [...analysisArtifacts, ...brainArtifacts];
     if (
       originSources.length === 0 ||
       currentSources.length === 0 ||
@@ -2638,6 +2654,11 @@ async function createFrozenOrderedChain(
       queuedAt: now,
     });
   }
+  // Persisted once; the chain's actions receive its id (2026-09-25).
+  const payloadId = await persistOrderedPayload(ctx, generation._id, candidateRunId, {
+    ...payload,
+    summaryVersionId,
+  });
   const scheduledJobId = await ctx.scheduler.runAfter(
     0,
     generateOrderedSectionRef,
@@ -2645,7 +2666,7 @@ async function createFrozenOrderedChain(
       generationId: generation._id,
       candidateRunId,
       section: order[0],
-      payload: { ...payload, summaryVersionId },
+      payloadId,
     }
   );
   await ctx.db.patch(candidateRunId, { scheduledJobId });
@@ -5686,11 +5707,19 @@ export const createOrderedSectionRuns = internalMutation({
     await ctx.db.patch(fence.generation._id, {
       lastProgressAt: now,
     });
+    // The payload travels once, into this row; every scheduled step of the
+    // chain receives its id (2026-09-25).
+    const payloadId = await persistOrderedPayload(
+      ctx,
+      fence.generation._id,
+      fence.run._id,
+      args.payload
+    );
     await ctx.scheduler.runAfter(0, internal.ai.orderedGeneration.generateOrderedSection, {
       generationId: args.generationId,
       candidateRunId: args.candidateRunId,
       section: order[0],
-      payload: args.payload,
+      payloadId,
     });
     return true;
   },
@@ -5964,6 +5993,7 @@ export const claimOrderedSectionRun = internalMutation({
     section: sectionNumberValidator,
     promptVersion: v.optional(v.string()),
     payload: v.optional(orderedPayloadValidator),
+    payloadId: v.optional(v.id("generationArtifacts")),
   },
   handler: async (ctx, args) => {
     const row = await orderedRunForSection(ctx, args.candidateRunId, args.section);
@@ -5984,13 +6014,14 @@ export const claimOrderedSectionRun = internalMutation({
       // Capacity belongs to the program that will execute the request. A
       // prior sign-off or recovery-start admission cannot authorize a newer
       // deployment. Any rejection rolls this claim back atomically.
-      if (!args.payload) {
+      const payload = await resolveOrderedPayload(ctx, args.generationId, args);
+      if (!payload) {
         domainError("INVALID_STATE", "Frozen Summary execution payload is unavailable");
       }
       executionBrief = await assertFrozenSummaryRuntimeAdmission(
         ctx,
         fence.generation,
-        args.payload
+        payload
       );
     }
     const orderIndex = row.orderIndex ?? 0;
@@ -6127,6 +6158,28 @@ async function persistSectionNotes(
   }
 }
 
+/** A chain step must name its payload in one of the two forms. */
+function requireOrderedPayloadRef(args: {
+  payload?: OrderedPayload;
+  payloadId?: Id<"generationArtifacts">;
+}): void {
+  if (!args.payload && !args.payloadId) {
+    domainError("INVALID_INPUT", "The ordered chain step names no payload");
+  }
+}
+
+/** The chain payload a scheduled action was handed by id (2026-09-25). */
+export const getOrderedPayload = internalQuery({
+  args: {
+    generationId: v.id("generations"),
+    payloadId: v.id("generationArtifacts"),
+  },
+  returns: v.union(orderedPayloadValidator, v.null()),
+  handler: async (ctx, args) => {
+    return await loadOrderedPayload(ctx, args.generationId, args.payloadId);
+  },
+});
+
 /** A drafted Section's result columns: the JSON strings as the action sent
  * them, and their typed copies (dual write, 2026-09-25). Every typed field is
  * reset first so a redraft never keeps an earlier attempt's typed value. */
@@ -6176,10 +6229,14 @@ export const completeOrderedSectionRun = internalMutation({
     slotCounts: v.string(),
     notes: v.array(complianceNoteDraftValidator),
     storylineQuestion: v.optional(storylineQuestionValidator),
-    payload: orderedPayloadValidator,
+    // The chain's payload row (2026-09-25); `payload` for chains scheduled
+    // before it was stored. One of the two is required.
+    payload: v.optional(orderedPayloadValidator),
+    payloadId: v.optional(v.id("generationArtifacts")),
   },
   returns: v.boolean(),
   handler: async (ctx, args): Promise<boolean> => {
+    requireOrderedPayloadRef(args);
     const row = await orderedRunForSection(ctx, args.candidateRunId, args.section);
     if (!row || row.status !== "running" || row.generationId !== args.generationId) {
       return false;
@@ -6219,13 +6276,13 @@ export const completeOrderedSectionRun = internalMutation({
         generationId: args.generationId,
         candidateRunId: args.candidateRunId,
         section: sectionNumberOfRow(next),
-        payload: args.payload,
+        ...forwardOrderedPayload(args),
       });
     } else {
       await ctx.scheduler.runAfter(0, internal.ai.orderedGeneration.finalizeOrderedCandidate, {
         generationId: args.generationId,
         candidateRunId: args.candidateRunId,
-        payload: args.payload,
+        ...forwardOrderedPayload(args),
       });
     }
     return true;
@@ -6242,8 +6299,10 @@ export const failOrderedSectionRun = internalMutation({
     section: sectionNumberValidator,
     error: v.string(),
     // Present when the chain action can finalize: a stopped seed run then
-    // keeps its drafted Sections instead of failing (FR-43).
+    // keeps its drafted Sections instead of failing (FR-43). `payloadId` is
+    // the chain's stored payload (2026-09-25); `payload` the older form.
     payload: v.optional(orderedPayloadValidator),
+    payloadId: v.optional(v.id("generationArtifacts")),
   },
   returns: v.null(),
   handler: async (ctx, args) => {
@@ -6258,7 +6317,7 @@ export const failOrderedSectionRun = internalMutation({
     // does not throw away the Sections already drafted: it is marked not
     // drafted and the stopped draft is assembled from what exists.
     if (
-      args.payload &&
+      (args.payload || args.payloadId) &&
       fence.generation.stopRequestedAt !== undefined &&
       resolveGatedWorkflow(fence.generation) === "seeds" &&
       fence.generation.summaryVersionId !== undefined &&
@@ -6285,7 +6344,7 @@ export const failOrderedSectionRun = internalMutation({
       await ctx.scheduler.runAfter(0, internal.ai.orderedGeneration.finalizeOrderedCandidate, {
         generationId: args.generationId,
         candidateRunId: args.candidateRunId,
-        payload: args.payload,
+        ...forwardOrderedPayload(args),
       });
       return null;
     }
@@ -7116,10 +7175,16 @@ export const redraftMissingSections = mutation({
     });
     const attempt = { generationId: generation._id, candidateRunId: run._id, attemptStartedAt };
     if (missing.length > 0) {
+      // The chain's stored payload (the same frozen inputs), or stored now
+      // for a chain signed off before payloads were stored (2026-09-25).
+      const payloadId = await persistOrderedPayload(ctx, generation._id, run._id, {
+        ...payload,
+        summaryVersionId,
+      });
       await ctx.scheduler.runAfter(0, internal.ai.orderedGeneration.redraftSeedSection, {
         ...attempt,
         section: sectionNumberOfRow(missing[0]),
-        payload: { ...payload, summaryVersionId },
+        payloadId,
       });
     } else {
       // Every missing Section is already drafted: only the write is left.
@@ -7140,7 +7205,8 @@ export const claimRedraftSection = internalMutation({
     attemptStartedAt: v.number(),
     section: sectionNumberValidator,
     promptVersion: v.optional(v.string()),
-    payload: orderedPayloadValidator,
+    payload: v.optional(orderedPayloadValidator),
+    payloadId: v.optional(v.id("generationArtifacts")),
   },
   handler: async (ctx, args) => {
     const fence = await redraftFence(
@@ -7158,10 +7224,14 @@ export const claimRedraftSection = internalMutation({
     if (args.promptVersion && fence.generation.promptVersion !== args.promptVersion) {
       // Capacity belongs to the program that executes the request, exactly as
       // for the chain's own claim. A rejection rolls this claim back.
+      const payload = await resolveOrderedPayload(ctx, args.generationId, args);
+      if (!payload) {
+        domainError("INVALID_STATE", "Frozen Summary execution payload is unavailable");
+      }
       executionBrief = await assertFrozenSummaryRuntimeAdmission(
         ctx,
         fence.generation,
-        args.payload
+        payload
       );
     }
     const now = Date.now();
@@ -7208,10 +7278,14 @@ export const completeRedraftSection = internalMutation({
     slotCounts: v.string(),
     notes: v.array(complianceNoteDraftValidator),
     storylineQuestion: v.optional(storylineQuestionValidator),
-    payload: orderedPayloadValidator,
+    // The chain's payload row (2026-09-25); `payload` for chains scheduled
+    // before it was stored. One of the two is required.
+    payload: v.optional(orderedPayloadValidator),
+    payloadId: v.optional(v.id("generationArtifacts")),
   },
   returns: v.boolean(),
   handler: async (ctx, args): Promise<boolean> => {
+    requireOrderedPayloadRef(args);
     const fence = await redraftFence(
       ctx,
       args.generationId,
@@ -7262,7 +7336,7 @@ export const completeRedraftSection = internalMutation({
         candidateRunId: args.candidateRunId,
         attemptStartedAt: args.attemptStartedAt,
         section: nextSection,
-        payload: args.payload,
+        ...forwardOrderedPayload(args),
       });
     } else {
       await ctx.scheduler.runAfter(0, internal.ai.orderedGeneration.finalizeSeedRedraft, {

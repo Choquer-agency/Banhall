@@ -2,6 +2,7 @@ import { defineSchema, defineTable } from "convex/server";
 import { briefOutcomeValidator } from "./lib/briefRender";
 import { complianceNoteDraftValidator } from "./lib/complianceNote";
 import {
+  orderedPayloadValidator,
   sectionNumberValidator,
   selfCheckRuleValidator,
   styleCategoryValidator,
@@ -2221,8 +2222,19 @@ export default defineSchema({
   // hot document stays light.
   generationArtifacts: defineTable({
     generationId: v.id("generations"),
-    kind: v.union(v.literal("analysis"), v.literal("brain_blocks")),
+    kind: v.union(
+      v.literal("analysis"),
+      v.literal("brain_blocks"),
+      // 2026-09-25: the ordered chain's frozen payload, persisted once per
+      // candidate chain (`candidateRunId`) and passed to the chain's
+      // scheduled actions by id instead of in their arguments.
+      v.literal("ordered_payload")
+    ),
+    // JSON text for `analysis` and `brain_blocks`; empty for kinds stored in
+    // a typed field below.
     content: v.string(),
+    candidateRunId: v.optional(v.id("generationCandidateRuns")),
+    orderedPayload: v.optional(orderedPayloadValidator),
   }).index("by_generationId_and_kind", ["generationId", "kind"]),
 
   // Immutable source text captured before candidate fan-out.

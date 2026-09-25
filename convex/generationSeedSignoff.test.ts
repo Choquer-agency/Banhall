@@ -1756,10 +1756,12 @@ describe("seed Summary sign-off and recovery", () => {
     const firstRequest = await runNextSectionAction(s, s.generationId);
     const after = await s.t.run(async (ctx) => ({
       generation: await ctx.db.get(s.generationId),
-      artifacts: await ctx.db.query("generationArtifacts")
+      artifacts: (await ctx.db.query("generationArtifacts")
         .withIndex("by_generationId_and_kind", (q) =>
           q.eq("generationId", s.generationId))
-        .take(3),
+        .take(4))
+        // The chain's stored payload (2026-09-25) is not a frozen input.
+        .filter((row) => row.kind !== "ordered_payload"),
       candidates: await ctx.db.query("generationCandidateRuns")
         .withIndex("by_generationId", (q) => q.eq("generationId", s.generationId))
         .take(3),
@@ -2649,6 +2651,7 @@ describe("seed Summary sign-off and recovery", () => {
         section: actionArgs.section,
         promptVersion: await currentPromptVersion(),
         payload: actionArgs.payload,
+        payloadId: actionArgs.payloadId,
       })).rejects.toMatchObject({
         data: {
           code: "INVALID_INPUT",
@@ -5014,7 +5017,10 @@ describe("seed Summary sign-off and recovery", () => {
     const retryArtifacts = await s.t.run(async (ctx) =>
       (await ctx.db.query("generationArtifacts")
         .withIndex("by_generationId_and_kind", (q) => q.eq("generationId", retry1))
-        .take(3)).map(({ kind, content }) => ({ kind, content })));
+        .take(4))
+        // The recovery chain's stored payload (2026-09-25) is not a copied input.
+        .filter((row) => row.kind !== "ordered_payload")
+        .map(({ kind, content }) => ({ kind, content })));
     expect(retryArtifacts).toEqual(originFrozen.artifacts);
     await s.t.mutation(internal.generations.failGeneration, {
       generationId: retry2,
