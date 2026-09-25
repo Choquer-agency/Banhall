@@ -220,16 +220,6 @@
     return result;
   }
 
-  /** One Seed's stored draft, read on its own key. */
-  function readStoredDraftItem(owner: DraftOwner, seedId: string): SeedLocalDraft | null {
-    try {
-      return parseDraftItem(localStorage.getItem(draftItemKey(owner, seedId)), owner.generationId);
-    } catch {
-      persistence = "unavailable";
-      return null;
-    }
-  }
-
   // Items whose mirror write the device refused, with their latest value
   // (null = removed). They are re-applied with the next write, so the device
   // is named as keeping the text only once every item is truly mirrored.
@@ -667,11 +657,7 @@
     const owner = hydratedOwner;
     if (!owner || !ownerMatches()) return;
     if (disposed) {
-      const stored = readStoredDraftItem(owner, seedId) ?? undefined;
-      const next = update(stored);
-      if (next && next.ownerGenerationId !== owner.generationId) return;
-      if (JSON.stringify(next ?? null) === JSON.stringify(stored ?? null)) return;
-      persistDraftItem(owner, seedId, next);
+      applyObsoleteUpdate(owner, seedId, update);
       return;
     }
     const next = update(drafts[seedId]);
@@ -680,6 +666,25 @@
     if (next) drafts[seedId] = next;
     else delete drafts[seedId];
     persistDraftItem(owner, seedId, next);
+  }
+
+  /** A late change from a destroyed workspace (A2, R6-14): the update is
+   * applied to this one Seed's record as storage holds it now, and written
+   * directly, never through the `unmirrored` queue. A refused write is
+   * abandoned, so no later completion can replay it over wording written
+   * since; a retry would re-read and compare again. */
+  function applyObsoleteUpdate(owner: DraftOwner, seedId: string, update: SeedDraftUpdate) {
+    try {
+      const key = draftItemKey(owner, seedId);
+      const stored = parseDraftItem(localStorage.getItem(key), owner.generationId) ?? undefined;
+      const next = update(stored);
+      if (next && next.ownerGenerationId !== owner.generationId) return;
+      if (JSON.stringify(next ?? null) === JSON.stringify(stored ?? null)) return;
+      if (next) localStorage.setItem(key, JSON.stringify(next));
+      else localStorage.removeItem(key);
+    } catch {
+      // Abandoned: the device refused, and nothing is queued for a retry.
+    }
   }
 
   async function openRole(roleId: PdSubsectionRoleId) {

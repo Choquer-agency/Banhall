@@ -1010,6 +1010,81 @@ describe("Seed workspace", () => {
     expect(storedDrafts()["seed-2"].feedback?.instruction).toBe("Keep the second Seed's instruction. Added while requesting.");
   });
 
+  it("never replays a failed obsolete cleanup: a later late save leaves newer wording and independent drafts intact (A2, R6-14)", async () => {
+    __setQueryData("seeds:getOutline", outline());
+    __setQueryData("seeds:getSubsection", subsection({
+      items: [
+        seed(),
+        seed({ seedId: "seed-2" as Id<"seeds">, bullets: ["Second Seed wording."] }),
+        seed({ seedId: "seed-3" as Id<"seeds">, bullets: ["Third Seed wording."] }),
+      ],
+    }));
+    const cardElement = (seedId: string) => document.querySelector<HTMLElement>(`[data-seed-id="${seedId}"]`);
+    async function card(seedId: string) {
+      await expect.poll(() => cardElement(seedId)).not.toBeNull();
+      return page.elementLocator(cardElement(seedId)!);
+    }
+    const pending = () => {
+      let finish: ((value: unknown) => void) | undefined;
+      const promise = new Promise((resolve) => { finish = resolve; });
+      return { promise, finish: () => finish?.(undefined) };
+    };
+    async function editCard(seedId: string, wording: string) {
+      await (await card(seedId)).getByRole("button", { name: "Edit", exact: true }).click();
+      await (await card(seedId)).getByRole("textbox", { name: "Bullet 1" }).fill(wording);
+    }
+
+    // Two card saves are pending when the workspace is destroyed.
+    const first = await render(SeedWorkspace, workspaceProps());
+    const saveOne = pending();
+    const saveTwo = pending();
+    await editCard("seed-1", "Submitted one.");
+    __setMutationResult("seeds:edit", saveOne.promise);
+    await (await card("seed-1")).getByRole("button", { name: "Save wording", exact: true }).click();
+    await editCard("seed-2", "Submitted two.");
+    __setMutationResult("seeds:edit", saveTwo.promise);
+    await (await card("seed-2")).getByRole("button", { name: "Save wording", exact: true }).click();
+    await expect.poll(() => __mutationCalls("seeds:edit")).toHaveLength(2);
+    first.unmount();
+
+    // The first late cleanup is refused by the device.
+    const removeItem = Storage.prototype.removeItem;
+    const refused = vi.spyOn(Storage.prototype, "removeItem").mockImplementation(function (this: Storage, key: string) {
+      if (key === `${draftPrefix()}seed-1`) {
+        refused.mockRestore();
+        throw new DOMException("Storage refused", "QuotaExceededError");
+      }
+      return removeItem.call(this, key);
+    });
+    saveOne.finish();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(storedDrafts()["seed-1"].edit?.bulletOne).toBe("Submitted one.");
+
+    // The recreated workspace writes newer wording for seed 1 and an
+    // independent draft for seed 3.
+    // Its stored draft reopens seed 1 in edit mode.
+    const second = await render(SeedWorkspace, workspaceProps());
+    const one = await card("seed-1");
+    await expect.element(one.getByRole("textbox", { name: "Bullet 1" })).toHaveValue("Submitted one.");
+    await one.getByRole("textbox", { name: "Bullet 1" }).fill("Newer one after recreation.");
+    await editCard("seed-3", "Independent three.");
+    expect(storedDrafts()["seed-1"].edit?.bulletOne).toBe("Newer one after recreation.");
+
+    // Another old completion clears only its own unchanged snapshot.
+    saveTwo.finish();
+    await expect.poll(() => storedDrafts()["seed-2"]).toBeUndefined();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(storedDrafts()["seed-1"].edit?.bulletOne).toBe("Newer one after recreation.");
+    expect(storedDrafts()["seed-3"].edit?.bulletOne).toBe("Independent three.");
+
+    // A fresh recreation hydrates both exactly.
+    second.unmount();
+    await render(SeedWorkspace, workspaceProps());
+    await expect.element((await card("seed-1")).getByRole("textbox", { name: "Bullet 1" })).toHaveValue("Newer one after recreation.");
+    await expect.element((await card("seed-3")).getByRole("textbox", { name: "Bullet 1" })).toHaveValue("Independent three.");
+    expect(storedDrafts()["seed-2"]).toBeUndefined();
+  });
+
   it("suppresses every card mutation path for restored drafts and live revocation while keeping the text", async () => {
     storeDrafts({
       "seed-1": {

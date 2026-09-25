@@ -303,16 +303,6 @@
     return result;
   }
 
-  /** One item's stored draft, read on its own key. */
-  function readStoredDraftItem(store: DraftStore, seedId: string): SummaryDraft | null {
-    try {
-      return parseStoredDraft(localStorage.getItem(draftItemKey(store, seedId)), store);
-    } catch {
-      persistence = "unavailable";
-      return null;
-    }
-  }
-
   // Items whose mirror write the device refused, with their latest value
   // (null = removed). They are re-applied with the next write, so the device
   // is named as keeping the text only once every item is truly mirrored.
@@ -337,6 +327,22 @@
       }
     }
     persistence = refused ? "unavailable" : "ok";
+  }
+
+  /** Cleanup by a review that no longer owns a current collection (A2,
+   * R6-14): it removes only its own submitted snapshot, re-read and compared
+   * against storage at this moment, and never goes through the `unmirrored`
+   * queue. A refused removal is abandoned, so no later completion can replay
+   * it over wording written since. */
+  function clearObsoleteSnapshot(store: DraftStore, seedId: string, submitted: SummaryDraft) {
+    try {
+      const key = draftItemKey(store, seedId);
+      if (sameDraft(parseStoredDraft(localStorage.getItem(key), store) ?? undefined, submitted)) {
+        localStorage.removeItem(key);
+      }
+    } catch {
+      // Abandoned: the device refused, and nothing is queued for a retry.
+    }
   }
 
   $effect(() => {
@@ -560,8 +566,7 @@
         // owner changed while saving): only the submitted snapshot, still
         // unchanged in its own storage record, is cleared; newer wording and
         // independent drafts written since stay untouched.
-        const stored = readStoredDraftItem(store, owner.seedId) ?? undefined;
-        if (sameDraft(stored, submitted)) persistDraftItem(store, owner.seedId, null);
+        clearObsoleteSnapshot(store, owner.seedId, submitted);
         return;
       }
       // Clear only this Seed's unchanged submitted wording; another Seed's

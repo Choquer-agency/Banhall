@@ -1268,6 +1268,73 @@ describe("Seed Summary Review", () => {
     expect(stored()["seed-b"].bulletOne).toBe("Independent B.");
   });
 
+  it("never replays a failed obsolete cleanup: a later late save leaves newer wording and independent drafts intact (A2, R6-14)", async () => {
+    __setQueryData("seeds:getOutline", outline());
+    __setQueryData("seeds:getSummary", onePage([
+      item("seed-a", "company_context", "Server wording A."),
+      item("seed-b", "goal_problem", "Server wording B."),
+      item("seed-c", "experimentation", "Server wording C."),
+    ]));
+    const stored = () => storedSummaryDrafts();
+    const row = (seedId: string) => page.elementLocator(document.querySelector(`[data-summary-item="${seedId}"]`)!);
+    const pending = () => {
+      let finish: ((value: unknown) => void) | undefined;
+      const promise = new Promise((resolve) => { finish = resolve; });
+      return { promise, finish: () => finish?.(undefined) };
+    };
+
+    // Two saves are pending when the review is destroyed.
+    const first = await render(SeedSummaryReview, { generationId, userId: "writer-1" });
+    const saveA = pending();
+    const saveB = pending();
+    await row("seed-a").getByRole("button", { name: "Edit", exact: true }).click();
+    await page.getByRole("textbox", { name: "Bullet 1" }).fill("Submitted A.");
+    __setMutationResult("seeds:edit", saveA.promise);
+    await page.getByRole("button", { name: "Save wording", exact: true }).click();
+    await row("seed-b").getByRole("button", { name: "Edit", exact: true }).click();
+    await page.getByRole("textbox", { name: "Bullet 1" }).fill("Submitted B.");
+    __setMutationResult("seeds:edit", saveB.promise);
+    await page.getByRole("button", { name: "Save wording", exact: true }).click();
+    await expect.poll(() => __mutationCalls("seeds:edit")).toHaveLength(2);
+    first.unmount();
+
+    // The first late cleanup is refused by the device.
+    const removeItem = Storage.prototype.removeItem;
+    const refused = vi.spyOn(Storage.prototype, "removeItem").mockImplementation(function (this: Storage, key: string) {
+      if (key === `${liveDraftPrefix}seed-a`) {
+        refused.mockRestore();
+        throw new DOMException("Storage refused", "QuotaExceededError");
+      }
+      return removeItem.call(this, key);
+    });
+    saveA.finish();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(stored()["seed-a"].bulletOne).toBe("Submitted A.");
+
+    // The recreated review writes newer wording for A and an independent draft for C.
+    const second = await render(SeedSummaryReview, { generationId, userId: "writer-1" });
+    await row("seed-a").getByRole("button", { name: "Edit", exact: true }).click();
+    await page.getByRole("textbox", { name: "Bullet 1" }).fill("Newer A after recreation.");
+    await row("seed-c").getByRole("button", { name: "Edit", exact: true }).click();
+    await page.getByRole("textbox", { name: "Bullet 1" }).fill("Independent C.");
+    expect(stored()["seed-a"].bulletOne).toBe("Newer A after recreation.");
+
+    // Another old completion clears only its own unchanged snapshot.
+    saveB.finish();
+    await expect.poll(() => stored()["seed-b"]).toBeUndefined();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(stored()["seed-a"].bulletOne).toBe("Newer A after recreation.");
+    expect(stored()["seed-c"].bulletOne).toBe("Independent C.");
+
+    // A fresh recreation hydrates both exactly.
+    second.unmount();
+    await render(SeedSummaryReview, { generationId, userId: "writer-1" });
+    await row("seed-a").getByRole("button", { name: "Edit", exact: true }).click();
+    await expect.element(page.getByRole("textbox", { name: "Bullet 1" })).toHaveValue("Newer A after recreation.");
+    await row("seed-c").getByRole("button", { name: "Edit", exact: true }).click();
+    await expect.element(page.getByRole("textbox", { name: "Bullet 1" })).toHaveValue("Independent C.");
+  });
+
   describe("final UI (boards 3.3 and 3.4)", () => {
     const editedPage = () => onePage([
       withFields(item("seed-a", "company_context", "Plain server wording."), { edited: false }),
