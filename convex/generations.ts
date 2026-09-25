@@ -138,6 +138,7 @@ import {
   startDraftingInputsHandler,
   draftingInputsStatusValidator,
   draftingInputsAttemptArgs,
+  failDraftingInputsArgs,
   isDraftingInputsAttemptCurrentHandler,
   completeDraftingInputsArgs,
   completeDraftingInputsHandler,
@@ -495,7 +496,7 @@ export const completeDraftingInputs = internalMutation({
 
 /** The background attempt failed; the writer can retry it. */
 export const failDraftingInputs = internalMutation({
-  args: draftingInputsAttemptArgs,
+  args: failDraftingInputsArgs,
   returns: v.null(),
   handler: failDraftingInputsHandler,
 });

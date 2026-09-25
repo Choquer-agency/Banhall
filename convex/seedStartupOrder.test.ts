@@ -21,6 +21,7 @@ import {
   runSeedDraftingInputs,
 } from "./seedStartup.fixture";
 import { DRAFTING_INPUTS_LEASE_MS } from "./lib/generations/draftingInputs";
+import { ANALYZER_REQUEST } from "./ai/analyzerAgent";
 import { decisionFixture } from "./seedDecision.fixture";
 
 const network = vi.hoisted(() => ({ create: vi.fn() }));
@@ -169,6 +170,8 @@ type ProviderOptions = {
   holds?: Partial<Record<string, Promise<void>>>;
   /** Stages that fail with a provider error. */
   failing?: string[];
+  /** Stages whose answer is cut off at the output token limit. */
+  cutOff?: string[];
 };
 
 /** A provider that answers every stage at once, unless told otherwise. */
@@ -178,6 +181,9 @@ function configureProvider(options: ProviderOptions = {}) {
     const hold = options.holds?.[name];
     if (hold) await hold;
     if (options.failing?.includes(name)) throw new Error("Private provider failure text");
+    if (options.cutOff?.includes(name)) {
+      return { ...toolResponse(name, ANALYSIS), stop_reason: "max_tokens" };
+    }
     if (name === "submit_transcript_analysis") return toolResponse(name, ANALYSIS);
     if (name === "submit_generation_brief") return toolResponse(name, BRIEF);
     if (name === "submit_retrieval_brief") return toolResponse(name, RETRIEVAL);
@@ -312,6 +318,24 @@ async function takeBackgroundAttempt(s: Fixture) {
   });
 }
 
+/** The user message of every analyzer request, in call order. */
+function analyzerRequests(): Array<{ user: string; maxTokens: number }> {
+  return (network.create.mock.calls as Array<[GenerationMessageParams]>)
+    .filter(([params]) => params.tool_choice?.name === "submit_transcript_analysis")
+    .map(([params]) => {
+      const content = params.messages[0]?.content;
+      const user = typeof content === "string"
+        ? content
+        : (content ?? []).map((block) => ("text" in block ? block.text : "")).join("");
+      return { user, maxTokens: params.max_tokens };
+    });
+}
+
+async function outlineDrafting(s: Fixture) {
+  return (await s.writer.query(api.seeds.getOutline, { generationId: s.generationId }))
+    .draftingInputs;
+}
+
 async function outlineDraftingStatus(s: Fixture) {
   return (await s.writer.query(api.seeds.getOutline, { generationId: s.generationId }))
     .draftingInputs.status;
@@ -435,6 +459,9 @@ describe("reordered Step-by-step start (decision 32)", () => {
     });
     expect(failed.generation?.error).toBeUndefined();
     expect(JSON.stringify(failed.generation)).not.toContain("Private provider failure text");
+    // Only the normalized code is stored and shown.
+    expect(failed.generation?.draftingInputs?.failureCode).toBe("unknown");
+    expect(await outlineDrafting(s)).toEqual({ status: "failed", failureCode: "unknown" });
     expect(failed.kinds).toEqual(["writer_style"]);
     expect(await outlineDraftingStatus(s)).toBe("failed");
     // The Seeds keep working while the drafting context waits for a retry.
@@ -477,7 +504,11 @@ describe("reordered Step-by-step start (decision 32)", () => {
     expect(DRAFTING_INPUTS_LEASE_MS).toBeGreaterThan(10 * 60 * 1000);
     vi.advanceTimersByTime(DRAFTING_INPUTS_LEASE_MS);
     await s.t.finishInProgressScheduledFunctions();
-    expect((await state(s)).generation?.draftingInputs).toMatchObject({ status: "failed", attempt: 1 });
+    expect((await state(s)).generation?.draftingInputs).toMatchObject({
+      status: "failed",
+      attempt: 1,
+      failureCode: "timed_out",
+    });
 
     // The dead attempt answers late: nothing is frozen from it.
     await s.t.action(prepareSeedDraftingInputsRef, attempt);
@@ -494,6 +525,138 @@ describe("reordered Step-by-step start (decision 32)", () => {
     await s.writer.mutation(api.generations.retryDraftingInputs, { generationId: s.generationId });
     await runSeedDraftingInputs(s.t);
     expect((await state(s)).generation?.draftingInputs).toMatchObject({ status: "ready", attempt: 2 });
+  });
+
+  it("an analysis cut off at the output limit is named, and the retry asks for a shorter one", async () => {
+    vi.useFakeTimers();
+    const s = await startupFixture();
+    configureProvider({ cutOff: ["submit_transcript_analysis"] });
+    await s.t.action(internal.ai.iterative.startIterativeGeneration, { generationId: s.generationId });
+    await runSeedDraftingInputs(s.t);
+
+    // The first attempt and its one repair were both cut off.
+    expect(analyzerRequests()).toHaveLength(2);
+    expect(analyzerRequests()[0]?.user).not.toContain("An earlier analysis of this transcript");
+    const failed = await state(s);
+    expect(failed.generation?.draftingInputs).toMatchObject({
+      status: "failed",
+      attempt: 1,
+      failureCode: "output_limit",
+      shorterAnalysis: true,
+    });
+    expect(failed.kinds).toEqual(["writer_style"]);
+    expect(await outlineDrafting(s)).toEqual({ status: "failed", failureCode: "output_limit" });
+
+    // The retry keeps the same output limit and asks for a shorter analysis.
+    network.create.mockClear();
+    configureProvider();
+    await s.writer.mutation(api.generations.retryDraftingInputs, { generationId: s.generationId });
+    expect((await state(s)).generation?.draftingInputs).toMatchObject({
+      status: "preparing",
+      attempt: 2,
+      shorterAnalysis: true,
+    });
+    expect(await runSeedDraftingInputs(s.t)).toEqual([
+      { generationId: s.generationId, attempt: 2, shorterAnalysis: true },
+    ]);
+    const [retry] = analyzerRequests();
+    expect(retry?.maxTokens).toBe(ANALYZER_REQUEST.maxTokens);
+    expect(retry?.user.endsWith(ANALYZER_REQUEST.shorterRetryNote)).toBe(true);
+    const ready = await state(s);
+    expect(ready.generation?.draftingInputs).toMatchObject({ status: "ready", attempt: 2 });
+    expect(ready.kinds).toEqual(["analysis", "brain_blocks", "writer_style"]);
+  });
+
+  it("keeps asking for a shorter analysis after a later failure of another kind", async () => {
+    vi.useFakeTimers();
+    const s = await startupFixture();
+    configureProvider({ cutOff: ["submit_transcript_analysis"] });
+    await s.t.action(internal.ai.iterative.startIterativeGeneration, { generationId: s.generationId });
+    await runSeedDraftingInputs(s.t);
+
+    configureProvider({ failing: ["submit_transcript_analysis"] });
+    await s.writer.mutation(api.generations.retryDraftingInputs, { generationId: s.generationId });
+    await runSeedDraftingInputs(s.t);
+    expect((await state(s)).generation?.draftingInputs).toMatchObject({
+      status: "failed",
+      attempt: 2,
+      failureCode: "unknown",
+      shorterAnalysis: true,
+    });
+
+    network.create.mockClear();
+    configureProvider();
+    await s.writer.mutation(api.generations.retryDraftingInputs, { generationId: s.generationId });
+    expect(await runSeedDraftingInputs(s.t)).toEqual([
+      { generationId: s.generationId, attempt: 3, shorterAnalysis: true },
+    ]);
+    expect(analyzerRequests()[0]?.user).toContain("An earlier analysis of this transcript");
+    expect((await state(s)).generation?.draftingInputs).toMatchObject({ status: "ready", attempt: 3 });
+  });
+
+  it("an attempt stuck preparing with no lease check gets the expired-lease recovery", async () => {
+    vi.useFakeTimers();
+    const s = await startupFixture();
+    configureProvider();
+    await s.t.action(internal.ai.iterative.startIterativeGeneration, { generationId: s.generationId });
+    // The attempt and its lease check both disappear (a failed job, or the
+    // functions missing after a rollback).
+    await takeBackgroundAttempt(s);
+    await s.t.run(async (ctx) => {
+      for (const job of await ctx.db.system.query("_scheduled_functions").collect()) {
+        if (job.name.includes("expireDraftingInputs") && job.state.kind === "pending") {
+          await ctx.scheduler.cancel(job._id);
+        }
+      }
+    });
+
+    // Within the lease the attempt may still answer: no retry yet.
+    vi.advanceTimersByTime(DRAFTING_INPUTS_LEASE_MS - 1000);
+    expect(await outlineDrafting(s)).toEqual({ status: "preparing" });
+    await expect(
+      s.writer.mutation(api.generations.retryDraftingInputs, { generationId: s.generationId })
+    ).rejects.toThrow("not waiting for a retry");
+
+    // Past the lease it reads and recovers as an expired lease.
+    vi.advanceTimersByTime(1000);
+    expect(await outlineDrafting(s)).toEqual({ status: "failed", failureCode: "timed_out" });
+    await s.writer.mutation(api.generations.retryDraftingInputs, { generationId: s.generationId });
+    expect((await state(s)).generation?.draftingInputs).toMatchObject({ status: "preparing", attempt: 2 });
+    expect(await runSeedDraftingInputs(s.t)).toEqual([{ generationId: s.generationId, attempt: 2 }]);
+    expect((await state(s)).generation?.draftingInputs).toMatchObject({ status: "ready", attempt: 2 });
+  });
+
+  it("records Brain provenance only with the current attempt's completion", async () => {
+    vi.useFakeTimers();
+    const s = await startupFixture();
+    configureProvider();
+    await s.t.action(internal.ai.iterative.startIterativeGeneration, { generationId: s.generationId });
+    const attempt = await takeBackgroundAttempt(s);
+    const brainProvenance = {
+      exemplars: [{ entryId: "entry-1", score: 0.9, section: "242" }],
+      brief: JSON.stringify({ summary: "retrieval brief" }),
+    };
+    const complete = (attemptNumber: number) =>
+      s.t.mutation(internal.generations.completeDraftingInputs, {
+        generationId: s.generationId,
+        attempt: attemptNumber,
+        analysis: JSON.stringify(ANALYSIS),
+        brainBlocks: JSON.stringify({ analyzer: "", s242: "", s244: "", s246: "" }),
+        brainProvenance,
+      });
+
+    // A stale attempt writes nothing, provenance included.
+    expect(await complete(attempt.attempt + 1)).toBe("ignored");
+    expect((await state(s)).kinds).toEqual(["writer_style"]);
+
+    expect(await complete(attempt.attempt)).toBe("ready");
+    expect((await state(s)).kinds).toEqual([
+      "analysis",
+      "brain_blocks",
+      "brain_provenance",
+      "brain_retrieval_brief",
+      "writer_style",
+    ]);
   });
 
   it("a cancel before the background step stops it before any model call", async () => {

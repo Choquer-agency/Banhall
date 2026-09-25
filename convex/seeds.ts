@@ -17,7 +17,7 @@ import {
 } from "./lib/roleCapabilities";
 import { domainError } from "./lib/contracts";
 import { resolveGatedWorkflow } from "./lib/gatedWorkflow";
-import { draftingInputsStatus } from "./lib/generations/draftingInputs";
+import { draftingInputsView } from "./lib/generations/draftingInputs";
 import { createReadBudget, DOCUMENT_HEADROOM } from "./lib/readBudget";
 import {
   loadSeedDecisionState,
@@ -899,8 +899,9 @@ export const getOutline = query({
         editAccess.project.activeGenerationId === generation._id,
       workflow: resolveGatedWorkflow(generation),
       // Owner decision 32: the analysis and Brain retrieval prepared in the
-      // background. Sign-off needs "ready"; "failed" offers a retry.
-      draftingInputs: { status: draftingInputsStatus(generation) },
+      // background. Sign-off needs "ready"; "failed" offers a retry and says
+      // why, as a code only.
+      draftingInputs: draftingInputsView(generation),
       frozen: {
         briefVersionId: generation.briefVersionId ?? null,
         summaryVersionId: generation.summaryVersionId ?? null,
