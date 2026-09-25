@@ -562,25 +562,33 @@ function neverStarted(evaluation: Doc<"modelEvaluations">): boolean {
   );
 }
 
-async function blockedForRole(
+/**
+ * Whether `modelId` may be evaluated for `role` now and, if so, the most a
+ * claim has needed for it lately. The cooldown counts runs that started. One
+ * stopped before it started (refused at claim for the budget, released
+ * unclaimed) measured and spent nothing, so it does not cost the model its
+ * turn (round 9); a budget refusal instead records what it needed, which
+ * planning uses as the run's cost, so a candidate the budget cannot cover
+ * waits and its role tries the next one (round 10). Only rows inside the
+ * cooldown window are read.
+ */
+async function evaluationTurn(
   ctx: MutationCtx,
   role: ModelRole,
   modelId: string,
   now: number
-): Promise<boolean> {
-  // The cooldown counts runs that started. One stopped before it started
-  // (refused at claim for the budget, released unclaimed) measured and
-  // spent nothing, so it does not cost the model its turn (round 9). Only
-  // rows inside the cooldown window are read.
+): Promise<{ blocked: true } | { blocked: false; requiredCostUsd?: number }> {
+  let requiredCostUsd: number | undefined;
   for await (const evaluation of ctx.db
     .query("modelEvaluations")
     .withIndex("by_role_and_modelId", (q) => q.eq("role", role).eq("modelId", modelId))
     .order("desc")) {
     if (now - evaluation.createdAt >= AUTOMATION_THRESHOLDS.evaluationCooldownMs) break;
-    if (neverStarted(evaluation)) continue;
-    return true;
+    if (!neverStarted(evaluation)) return { blocked: true };
+    requiredCostUsd ??= evaluation.requiredCostUsd;
   }
-  return await rolledBackFrom(ctx, role, modelId);
+  if (await rolledBackFrom(ctx, role, modelId)) return { blocked: true };
+  return { blocked: false, ...(requiredCostUsd !== undefined ? { requiredCostUsd } : {}) };
 }
 
 /**
@@ -651,18 +659,20 @@ export async function planEvaluationRun(
     for (const row of rows) {
       const paper = prefilterCandidate({ role, candidate: prefilterView(row), incumbent, cap, now });
       if (!paper.ok || paper.score === null) continue;
-      if (await blockedForRole(ctx, role, row.modelId, now)) continue;
+      const turn = await evaluationTurn(ctx, role, row.modelId, now);
+      if (turn.blocked) continue;
+      const estimate = estimateEvaluationCostUsd([
+        row,
+        ...(incumbentRow ? [incumbentRow] : []),
+        ...(judgeRow ? [judgeRow] : []),
+      ]);
       eligible.push({
         role,
         modelId: row.modelId,
         score: paper.score,
         incumbentModelId: incumbentId,
         incumbentScore: paper.incumbentScore,
-        estimatedCostUsd: estimateEvaluationCostUsd([
-          row,
-          ...(incumbentRow ? [incumbentRow] : []),
-          ...(judgeRow ? [judgeRow] : []),
-        ]),
+        estimatedCostUsd: Math.max(estimate, turn.requiredCostUsd ?? 0),
       });
     }
   }
@@ -790,11 +800,12 @@ export const claimEvaluation = internalMutation({
     const evaluation = await ctx.db.get(args.evaluationId);
     if (!evaluation || evaluation.status !== "queued") return null;
     const now = Date.now();
-    const stop = async (reason: string) => {
+    const stop = async (reason: string, requiredCostUsd?: number) => {
       await ctx.db.patch(evaluation._id, {
         status: "error",
         error: reason,
         evalCostUsd: 0,
+        ...(requiredCostUsd !== undefined ? { requiredCostUsd } : {}),
         completedAt: now,
         accountedAt: now,
       });
@@ -850,7 +861,8 @@ export const claimEvaluation = internalMutation({
     const committed = await evalSpendThisMonth(ctx, now, evaluation._id);
     if (committed + reservedCostUsd > budget) {
       return await stop(
-        `Over the monthly evaluation budget: needs up to $${reservedCostUsd.toFixed(2)}, $${Math.max(0, budget - committed).toFixed(2)} left`
+        `Over the monthly evaluation budget: needs up to $${reservedCostUsd.toFixed(2)}, $${Math.max(0, budget - committed).toFixed(2)} left`,
+        reservedCostUsd
       );
     }
     await ctx.db.patch(evaluation._id, { status: "running", startedAt: now, reservedCostUsd, accountedAt: now });
@@ -1278,7 +1290,18 @@ export const setAutoSwitch = mutation({
   returns: v.null(),
   handler: async (ctx, args) => {
     const user = await requireRole(ctx, ["admin"]);
+    const wasEnabled = await autoSwitchEnabled(ctx);
     await setSetting(ctx, AUTO_SWITCH_KEY, args.enabled ? "on" : "off", user._id);
+    // Turned back on: a role held for another reason from now on is told
+    // at once, not up to a day after the "switching is off" notice (round 10).
+    if (args.enabled && !wasEnabled) {
+      for (const role of MODEL_ROLES) {
+        const assignment = await roleAssignment(ctx, role);
+        if (assignment?.errorNoticeAt !== undefined) {
+          await ctx.db.patch(assignment._id, { errorNoticeAt: undefined });
+        }
+      }
+    }
     return null;
   },
 });
