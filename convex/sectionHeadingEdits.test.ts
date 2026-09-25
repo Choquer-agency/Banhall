@@ -23,6 +23,7 @@ const NODES = [
   paragraph("The work performed in phase 2 cycled 46 coupons."),
   heading(2, "Line 246 — Scientific/Technological Advancement"),
   paragraph("The work established the limit."),
+  paragraph("The coupons survived 10,000 cycles."),
 ];
 const REPORT_DOC = JSON.stringify({ type: "doc", content: NODES });
 const HEADING_MESSAGE = "Section headings can't be edited.";
@@ -128,7 +129,10 @@ describe("client suggestions (review link, where heading text is selectable)", (
 
   it("fails closed when the stored positions no longer hold the text and a heading matches", async () => {
     const f = await setup({ text: "Work Performed", suggestion: "Experimental work", at: { from: 1, to: 15 } });
-    await expect(f.owner.mutation(api.comments.acceptEdit, { commentId: f.commentId })).rejects.toThrow(HEADING_MESSAGE);
+    // "Work Performed" is now in the 244 heading and in the body: which one was meant is unknown.
+    await expect(f.owner.mutation(api.comments.acceptEdit, { commentId: f.commentId })).rejects.toThrow(
+      "The report changed since this text was selected. Select it again."
+    );
     expect(await reportContent(f)).toBe(REPORT_DOC);
   });
 });
@@ -242,6 +246,53 @@ describe("Ask assistant with a highlight (final round, item 2)", () => {
     expect(saved).toMatchObject({ ok: false, reason: expect.stringContaining(HEADING_MESSAGE) });
   });
 
+  it("applies an edit inside a highlight that spans two paragraphs (P1)", async () => {
+    const f = await setup(bodyComment);
+    // The editor joins blocks with a newline (textBetween(from, to, "\\n")).
+    const text = `${NODES[6].content[0].text}\n${NODES[7].content[0].text}`;
+    const sent = await askWithHighlight(f, { text, from: nodeStart(6) + 1, to: nodeEnd(7) - 1 });
+    const saved = await f.t.mutation(internal.chatV2.saveProposal, {
+      agentThreadId: sent.threadId, promptMessageId: sent.messageId, kind: "edit", targetText: "10,000 cycles", newText: "12,000 cycles",
+    });
+    if (!saved.ok) throw new Error(`refused: ${"reason" in saved ? saved.reason : ""}`);
+    expect(await f.owner.mutation(api.chatV2.applyProposal, { proposalId: saved.proposalId })).toMatchObject({ applied: true });
+    expect(await reportContent(f)).toContain("survived 12,000 cycles");
+  });
+
+  it("applies the second edit from one turn after the first changed the highlighted text (P1)", async () => {
+    const f = await setup(bodyComment);
+    const text = `${NODES[6].content[0].text}\n${NODES[7].content[0].text}`;
+    const sent = await askWithHighlight(f, { text, from: nodeStart(6) + 1, to: nodeEnd(7) - 1 });
+    const edit = (targetText: string, newText: string, toolCallId: string) =>
+      f.t.mutation(internal.chatV2.saveProposal, { agentThreadId: sent.threadId, promptMessageId: sent.messageId, toolCallId, kind: "edit", targetText, newText });
+    const first = await edit("The work established the limit.", "The work set the limit.", "call-1");
+    const second = await edit("10,000 cycles", "12,000 cycles", "call-2");
+    if (!first.ok || !second.ok) throw new Error("setup proposals were refused");
+    expect(await f.owner.mutation(api.chatV2.applyProposal, { proposalId: first.proposalId })).toMatchObject({ applied: true });
+    expect(await f.owner.mutation(api.chatV2.applyProposal, { proposalId: second.proposalId })).toMatchObject({ applied: true });
+    expect(await reportContent(f)).toContain("The work set the limit.");
+    expect(await reportContent(f)).toContain("survived 12,000 cycles");
+  });
+
+  it("refuses a drifted heading highlight that now lies nearer a body match (P2)", async () => {
+    const f = await setup(bodyComment);
+    const body = selection(4, "work performed");
+    const sent = await askWithHighlight(f, { text: "Work Performed", from: body.from - 2, to: body.to - 2 });
+    const saved = await f.t.mutation(internal.chatV2.saveProposal, {
+      agentThreadId: sent.threadId, promptMessageId: sent.messageId, kind: "edit", targetText: "Work Performed", newText: "Experimental work",
+    });
+    expect(saved).toMatchObject({ ok: false, reason: expect.stringContaining("The report changed since this text was selected.") });
+  });
+
+  it("lets through a body edit whose target text is not in any heading, though the writer highlighted a heading", async () => {
+    const f = await setup(bodyComment);
+    const sent = await askWithHighlight(f, { text: "Work Performed", ...selection(3, "Work Performed") });
+    const saved = await f.t.mutation(internal.chatV2.saveProposal, {
+      agentThreadId: sent.threadId, promptMessageId: sent.messageId, kind: "edit", targetText: "work performed in phase 2", newText: "tests run in phase 2",
+    });
+    expect(saved).toMatchObject({ ok: true });
+  });
+
   it("refuses at Apply a stored edit whose turn selected the heading", async () => {
     const f = await setup(bodyComment);
     const sent = await askWithHighlight(f, { text: "Work Performed", ...selection(3, "Work Performed") });
@@ -258,11 +309,23 @@ describe("Ask assistant with a highlight (final round, item 2)", () => {
 });
 
 describe("stale stored positions (final round, item 3)", () => {
-  it("decides from the selected text nearest the old position", async () => {
+  it("decides from the selected text when it now sits only in the body", async () => {
     // Positions moved (a paragraph was added above), but the text is still in the body.
-    const f = await setup({ text: "work performed", suggestion: "tests run", at: { from: selection(4, "work performed").from - 7, to: selection(4, "work performed").to - 7 } });
+    const at = selection(4, "cycled 46 coupons");
+    const f = await setup({ text: "cycled 46 coupons", suggestion: "cycled 48 coupons", at: { from: at.from - 7, to: at.to - 7 } });
     await f.owner.mutation(api.comments.acceptEdit, { commentId: f.commentId });
-    expect(await reportContent(f)).toContain("The tests run in phase 2");
+    expect(await reportContent(f)).toContain("cycled 48 coupons");
+  });
+
+  it("refuses a drifted heading selection that now lies nearer a body match (P2)", async () => {
+    // "Work Performed" was selected in the 244 heading; text above it was then
+    // trimmed, so the old positions sit nearer the body's "work performed".
+    const body = selection(4, "work performed");
+    const f = await setup({ text: "Work Performed", suggestion: "Experimental work", at: { from: body.from - 2, to: body.to - 2 } });
+    await expect(f.owner.mutation(api.comments.acceptEdit, { commentId: f.commentId })).rejects.toThrow(
+      "The report changed since this text was selected. Select it again."
+    );
+    expect(await reportContent(f)).toBe(REPORT_DOC);
   });
 
   it("says the report changed when the selected text is gone", async () => {

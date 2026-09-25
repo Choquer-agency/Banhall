@@ -28,8 +28,9 @@ import { requireReportEditAccess } from "./lib/roleCapabilities";
 import {
   applyReplacements,
   headingEditRefusal,
+  highlightLocation,
   locateSelection,
-  targetsSelection,
+  SELECTION_GONE,
   type SelectionLocation,
   scrubBannedWords,
   type PMNode,
@@ -599,8 +600,16 @@ export const applyProposal = mutation({
         // An Ask assistant edit: the writer's highlight decides when the
         // edit targets it.
         const highlight = await turnHighlight(ctx, proposal.agentThreadId, proposal.promptMessageId);
-        if (highlight && pairs.some((pair) => targetsSelection(pair.find, highlight.text))) {
-          location = locateSelection(parsed as PMNode, highlight);
+        for (const pair of highlight ? pairs : []) {
+          const probe = applyReplacements(parsed as PMNode, [pair]);
+          const found = highlightLocation(
+            parsed as PMNode,
+            highlight!,
+            pair.find,
+            probe.skippedInHeadings + probe.skippedInTitle
+          );
+          if (found !== undefined) location = found;
+          if (found !== undefined && found !== "body") break;
         }
       }
       const refusal = headingEditRefusal(direct, location);
@@ -1128,12 +1137,16 @@ export const saveProposal = internalMutation({
         // so rather than "not in the report").
         const refusal = headingEditRefusal(
           probe,
-          highlight && targetsSelection(pair.find, highlight.text)
-            ? locateSelection(parsed as PMNode, highlight)
+          highlight
+            ? highlightLocation(parsed as PMNode, highlight, pair.find, probe.skippedInHeadings + probe.skippedInTitle)
             : undefined
         );
         if (refusal) {
-          return { ok: false as const, reason: `${refusal} Target the passage in the report prose instead.` };
+          return {
+            ok: false as const,
+            reason:
+              refusal === SELECTION_GONE ? refusal : `${refusal} Target the passage in the report prose instead.`,
+          };
         }
         if (count === 0) {
           return {

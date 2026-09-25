@@ -145,7 +145,12 @@ function textBetweenPositions(doc: PMNode, from: number, to: number): string {
 }
 
 export type StoredSelection = { from: number; to: number; text: string };
-export type SelectionLocation = "body" | ProtectedKind | "missing";
+/**
+ * "missing": the selected text is no longer in the report. "split": the
+ * stored positions no longer hold it and it now occurs both in heading or
+ * title text and in the body, so where the writer meant cannot be told.
+ */
+export type SelectionLocation = "body" | ProtectedKind | "missing" | "split";
 
 /** Plain message when a stored selection's text is no longer in the report. */
 export const SELECTION_GONE = "The report changed since this text was selected. Select it again.";
@@ -176,31 +181,41 @@ function kindAt(doc: PMNode, from: number, to: number): "body" | ProtectedKind {
   return "body";
 }
 
+/**
+ * Compare selected text with document text ignoring all whitespace: the
+ * editor joins the blocks of a selection with a newline, the server's
+ * position walk joins them with nothing.
+ */
+const compact = (text: string) => normalizeForMatch(text).replace(/\s+/g, "").toLowerCase();
+
 /** Every occurrence of `text` inside one textblock, as ProseMirror ranges. */
 function occurrences(doc: PMNode, text: string): Array<{ from: number; to: number }> {
-  const needle = normalizeForMatch(text).trim().toLowerCase();
+  const needle = compact(text);
   if (!needle) return [];
   const found: Array<{ from: number; to: number }> = [];
   const visit = (node: PMNode, start: number) => {
     const children = node.content as PMNode[] | undefined;
     if (!Array.isArray(children)) return;
     if (children.every((c) => c.type === "text" || c.type === "hardBreak")) {
+      // The block's text without whitespace, with each kept character's position.
       let joined = "";
       const positions: number[] = [];
       let pos = start + 1;
       for (const child of children) {
         if (child.type === "text" && typeof child.text === "string") {
-          for (let i = 0; i < child.text.length; i++) positions.push(pos + i);
-          joined += child.text;
+          const normalized = normalizeForMatch(child.text).toLowerCase();
+          for (let i = 0; i < normalized.length; i++) {
+            if (!/\s/.test(normalized[i])) {
+              joined += normalized[i];
+              positions.push(pos + i);
+            }
+          }
           pos += child.text.length;
         } else {
-          positions.push(pos);
-          joined += "\n";
           pos += 1;
         }
       }
-      const haystack = normalizeForMatch(joined).toLowerCase();
-      for (let at = haystack.indexOf(needle); at !== -1; at = haystack.indexOf(needle, at + 1)) {
+      for (let at = joined.indexOf(needle); at !== -1; at = joined.indexOf(needle, at + 1)) {
         found.push({ from: positions[at], to: positions[at + needle.length - 1] + 1 });
       }
       return;
@@ -222,33 +237,50 @@ function occurrences(doc: PMNode, text: string): Array<{ from: number; to: numbe
 /**
  * Where a stored editor selection sits: in a Section heading, the hidden
  * title or the body. When the positions no longer hold the selected text (the
- * report changed since), the occurrence nearest the old position decides;
- * "missing" when the text is gone.
+ * report changed since), its occurrences decide only if they are all of one
+ * kind; occurrences in both heading or title text and the body give "split",
+ * and a text no longer anywhere in one block gives "missing".
  */
 export function locateSelection(doc: PMNode, selection: StoredSelection): SelectionLocation {
   const { from, to } = selection;
-  const same = (text: string) => normalizeForMatch(text).trim().toLowerCase();
   if (
     Number.isInteger(from) &&
     Number.isInteger(to) &&
     to > from &&
-    same(textBetweenPositions(doc, from, to)) === same(selection.text)
+    compact(textBetweenPositions(doc, from, to)) === compact(selection.text)
   ) {
     return kindAt(doc, from, to);
   }
-  const candidates = occurrences(doc, selection.text);
-  if (candidates.length === 0) return "missing";
-  const nearest = candidates.reduce((best, next) =>
-    Math.abs(next.from - from) < Math.abs(best.from - from) ? next : best
-  );
-  return kindAt(doc, nearest.from, nearest.to);
+  const kinds = new Set(occurrences(doc, selection.text).map((range) => kindAt(doc, range.from, range.to)));
+  if (kinds.size === 0) return "missing";
+  if (kinds.size === 1) return [...kinds][0];
+  if (kinds.has("body")) return "split";
+  return kinds.has("section") ? "section" : "title";
 }
 
-/** True when an edit's search text overlaps the text the writer selected. */
-export function targetsSelection(find: string, selectionText: string): boolean {
-  const a = normalizeForMatch(find).trim().toLowerCase();
-  const b = normalizeForMatch(selectionText).trim().toLowerCase();
-  return !!a && !!b && (a.includes(b) || b.includes(a));
+/**
+ * The location that decides an Ask assistant edit, from the writer's
+ * highlight: undefined when the edit does not target the highlight, or when
+ * the highlighted text is gone (an earlier edit from the same turn may have
+ * changed it), so the edit falls back to the match-count rules. A heading,
+ * title or split highlight only decides for an edit whose target text
+ * actually occurs in heading or title text (`protectedMatches`); a target
+ * found only in the body cannot be a heading edit.
+ */
+export function highlightLocation(
+  doc: PMNode,
+  highlight: StoredSelection,
+  find: string,
+  protectedMatches: number
+): SelectionLocation | undefined {
+  const target = compact(find);
+  const selected = compact(highlight.text);
+  if (!target || !selected) return undefined;
+  if (!target.includes(selected) && !selected.includes(target)) return undefined;
+  const location = locateSelection(doc, highlight);
+  if (location === "missing") return undefined;
+  if (location !== "body" && protectedMatches === 0) return undefined;
+  return location;
 }
 
 export type ReplacementResult = {
@@ -276,7 +308,7 @@ export function headingEditRefusal(
   const inProtected = result.skippedInHeadings + result.skippedInTitle > 0;
   if (location === "section") return SECTION_HEADING_EDIT_REFUSED;
   if (location === "title") return REPORT_TITLE_EDIT_REFUSED;
-  if (location === "missing") return SELECTION_GONE;
+  if (location === "missing" || location === "split") return SELECTION_GONE;
   if (result.count === 0 && inProtected) return message;
   return null;
 }

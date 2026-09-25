@@ -105,7 +105,13 @@ describe("stored selections", () => {
     expect(locateSelection(doc, { ...body, text: "something else" })).toBe("missing");
     // Positions that moved: the nearest occurrence of the text decides.
     expect(locateSelection(doc, { ...heading, from: heading.from + 3, to: heading.to + 3 })).toBe("section");
-    expect(locateSelection(doc, { ...body, from: body.from - 4, to: body.to - 4 })).toBe("body");
+    // "technological uncertainty" is also in the 242 heading: drifted, it is split.
+    expect(locateSelection(doc, { ...body, from: body.from - 4, to: body.to - 4 })).toBe("split");
+    const only = bodyText.indexOf("was whether");
+    expect(locateSelection(doc, { from: starts[2] + 1 + only - 3, to: starts[2] + 1 + only + 8, text: "was whether" })).toBe("body");
+    // A two-paragraph selection as the editor sends it (blocks joined by a newline).
+    const next = nodeTextOf(content[4]);
+    expect(locateSelection(doc, { from: starts[2] + 1, to: starts[4] + 1 + next.length, text: `${bodyText}\n${nodeTextOf(content[3])}\n${next}` })).toBe("section");
     // A body selection ending at the start of the next heading line stays in the body.
     expect(locateSelection(doc, { from: starts[2] + 1, to: starts[3] + 1, text: bodyText })).toBe("body");
   });
