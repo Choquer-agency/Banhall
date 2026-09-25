@@ -83,11 +83,20 @@ export interface ChatEvidenceBudget {
  * document is cut shorter than it already was. The document COUNT is new: chat
  * previously sent every non-archived document, and a project with more than
  * `maxDocuments` of them now loses the lowest-trust ones entirely, reported in
- * the cut log. Since cost phase 1 `totalTokens` bounds the cached head only
- * (analysis plus documents), so on a document-heavy project the TOTAL binds
- * first; the report, decisions and open questions are each bounded by their
- * own cap and no longer compete with the documents.
+ * the cut log. Since cost phase 1 the total is partitioned: the per-turn
+ * tail (report, decisions, open questions) gets CHAT_TAIL_SHARE of it and
+ * the cached head (analysis, documents) the rest, so on a document-heavy
+ * project the head's share binds first and the report never competes with
+ * the documents.
  */
+/**
+ * The share of the chat evidence total reserved for the per-turn tail
+ * (report, decisions, open questions); the cached head gets the rest. A
+ * quarter of the default 60k is 15k tokens, far above a real report (the
+ * CRA form caps the three lines at about 1,400 words) plus its decisions.
+ */
+export const CHAT_TAIL_SHARE = 0.25;
+
 export const DEFAULT_CHAT_EVIDENCE_BUDGET: ChatEvidenceBudget = {
   totalTokens: 60_000,
   reportTokens: 40_000,
@@ -400,12 +409,13 @@ function spend(
  * kept, cut and dropped.
  *
  * Spend order is fixed: report, analysis, prior decisions, open questions, then documents in
- * `effectiveCategory` trust order then insertion order. Two allowances apply
- * (cost phase 1): the head (analysis, documents) shares `totalTokens`, and
- * each tail block (report, decisions, open questions) has only its own cap,
- * so nothing in the tail can move a cut in the cached head. The report is
- * never crowded out: `proposeEdit` requires a verbatim substring of it, so a
- * truncated report silently breaks every edit proposal.
+ * `effectiveCategory` trust order then insertion order. Two fixed
+ * allowances partition `totalTokens` (cost phase 1): the tail (report first,
+ * then decisions, then open questions) spends CHAT_TAIL_SHARE of it and the
+ * head (analysis, documents) the rest, so nothing in the tail can move a cut
+ * in the cached head. The report goes first in the tail because
+ * `proposeEdit` requires a verbatim substring of it, so a truncated report
+ * silently breaks every edit proposal, and documents can never crowd it out.
  *
  * Every input source appears exactly once in `report.sources`.
  */
@@ -432,14 +442,19 @@ export function buildChatEvidence(input: ChatEvidenceInput): {
   const chars = (tokens: number) => Math.max(0, tokens) * CHARS_PER_TOKEN;
 
   const totalChars = chars(budget.totalTokens);
-  // Cost phase 1: two independent allowances. The cached head (analysis,
-  // documents) spends `totalTokens` and nothing else, so its bytes depend
-  // only on its own inputs; the per-turn tail (report, decisions, open
-  // questions) is bounded by each block's own cap. With one shared pool, a
-  // small report edit or a new decision moved the documents' cut and
-  // invalidated the cached history behind them.
-  let headRemaining = totalChars;
-  const TAIL_UNBOUNDED = Number.POSITIVE_INFINITY;
+  // Cost phase 1: the configured total is partitioned into two fixed
+  // allowances that never sum past it. The per-turn tail (report,
+  // decisions, open questions) gets CHAT_TAIL_SHARE of the total, at most
+  // the sum of its blocks' caps; the cached head (analysis, documents) gets
+  // the rest. Each allowance depends only on the budget, so a report edit or
+  // a new decision can never move a cut inside the cached head, and the
+  // turn as a whole stays within `totalTokens`.
+  const tailChars = Math.min(
+    chars(budget.reportTokens + budget.decisionsTokens + budget.openQuestionsTokens),
+    Math.floor(totalChars * CHAT_TAIL_SHARE)
+  );
+  let headRemaining = totalChars - tailChars;
+  let tailRemaining = tailChars;
   const HEAD_KINDS: ReadonlySet<TrustedContextSource["kind"]> = new Set([
     "analysis",
     "document",
@@ -448,6 +463,7 @@ export function buildChatEvidence(input: ChatEvidenceInput): {
   const charge = (s: Spend): Spend => {
     sources.push(s.source);
     if (HEAD_KINDS.has(s.source.kind)) headRemaining -= s.source.includedLength;
+    else tailRemaining -= s.source.includedLength;
     return s;
   };
   /** A single-source block: its text, or the notice that it was dropped. */
@@ -462,7 +478,7 @@ export function buildChatEvidence(input: ChatEvidenceInput): {
         "internal",
         input.reportText,
         Math.min(chars(budget.reportTokens), totalChars),
-        TAIL_UNBOUNDED
+        tailRemaining
       )
     )
   );
@@ -492,7 +508,7 @@ export function buildChatEvidence(input: ChatEvidenceInput): {
           "internal",
           decisionsTextFrom(decisions),
           Math.min(chars(budget.decisionsTokens), totalChars),
-          TAIL_UNBOUNDED
+          tailRemaining
         )
       )
     );
@@ -512,7 +528,7 @@ export function buildChatEvidence(input: ChatEvidenceInput): {
           "client",
           openQuestionsTextFrom(openQuestions, input.openQuestionsOmitted),
           Math.min(chars(budget.openQuestionsTokens), totalChars),
-          TAIL_UNBOUNDED
+          tailRemaining
         )
       )
     );

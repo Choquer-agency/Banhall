@@ -7,6 +7,7 @@ import {
   chatHistoryWindowRows,
 } from "./chatAgentV2";
 import {
+  CHAT_TAIL_SHARE,
   DEFAULT_CHAT_EVIDENCE_BUDGET,
   arrangeChatContext,
   EMPTY_ANALYSIS_TEXT,
@@ -226,18 +227,19 @@ describe("chat evidence message", () => {
   });
 
   it("keeps the report whole and drops later head sources when the head allowance is exhausted", () => {
-    // Cost phase 1: the head (analysis, documents) spends `totalTokens`; the
-    // report and decisions have only their own caps.
+    // Cost phase 1: the total (1,000 tokens, 4,000 characters) splits into a
+    // tail of a quarter (report, decisions) and a head of the rest
+    // (analysis, documents).
     const reportText = "R".repeat(400);
     const { message, report } = buildChatEvidence({
       reportText,
-      analysisText: "A".repeat(400),
+      analysisText: "A".repeat(3_000),
       documents: [doc({ fileName: "late.txt", content: "Never sent.", category: "other" })],
       decisions: [{ state: "applied", target: "t", candidate: "c" }],
-      budget: budget({ totalTokens: 100 }),
+      budget: budget({ totalTokens: 1_000 }),
     });
     expect(blockBody(message, `${EVIDENCE_LABELS.report}]`)).toBe(reportText);
-    expect(blockBody(message, `${EVIDENCE_LABELS.analysis}]`)).toBe("A".repeat(400));
+    expect(blockBody(message, `${EVIDENCE_LABELS.analysis}]`)).toBe("A".repeat(3_000));
     expect(message).toContain("Canonical target from report: t");
     // The document found the head allowance spent and is reported dropped.
     expect(message).not.toContain("Never sent.");
@@ -245,6 +247,7 @@ describe("chat evidence message", () => {
       included: false,
       includedLength: 0,
     });
+    expect(report.includedTokens).toBeLessThanOrEqual(report.budget.totalTokens);
   });
 
   it("neutralizes forged markers in a body and in a file name before charging them", () => {
@@ -344,7 +347,7 @@ describe("chat evidence message", () => {
     }
   });
 
-  it("never spends more than the head allowance or a tail block's cap", () => {
+  it("never spends more than the total budget, and the tail never more than its share", () => {
     const { report } = buildChatEvidence({
       reportText: "R".repeat(5_000),
       analysisText: "A".repeat(5_000),
@@ -352,15 +355,26 @@ describe("chat evidence message", () => {
         doc({ fileName: `d${i}.txt`, content: "z".repeat(4_000), category: "other" })
       ),
       decisions: [{ state: "applied", target: "t".repeat(2_000), candidate: "c" }],
-      budget: budget({ totalTokens: 2_000, reportTokens: 1_000, decisionsTokens: 100 }),
+      budget: budget({ totalTokens: 2_000 }),
     });
-    const head = report.sources
-      .filter((s) => s.kind === "analysis" || s.kind === "document")
+    expect(report.includedTokens).toBeLessThanOrEqual(2_000);
+    const tail = report.sources
+      .filter((s) => s.kind === "report" || s.kind === "decisions" || s.kind === "openQuestions")
       .reduce((n, s) => n + s.includedLength, 0);
-    expect(head).toBeLessThanOrEqual(2_000 * CHARS_PER_TOKEN);
-    expect(report.sources.find((s) => s.kind === "report")?.includedLength).toBe(4_000);
-    expect(report.sources.find((s) => s.kind === "decisions")?.includedLength).toBe(400);
+    expect(tail).toBeLessThanOrEqual(2_000 * CHARS_PER_TOKEN * CHAT_TAIL_SHARE);
     expect(report.sources).toHaveLength(11);
+  });
+
+  it("keeps a small configured total small (1,000 tokens)", () => {
+    const { report } = buildChatEvidence({
+      reportText: "R".repeat(20_000),
+      analysisText: "A".repeat(20_000),
+      documents: [doc({ fileName: "big.txt", content: "z".repeat(20_000), category: "other" })],
+      decisions: [{ state: "applied", target: "t".repeat(20_000), candidate: "c" }],
+      openQuestions: [{ text: "q".repeat(20_000), confidence: "unresolved", sourceLabel: null }],
+      budget: budget({ totalTokens: 1_000 }),
+    });
+    expect(report.includedTokens).toBeLessThanOrEqual(1_000);
   });
 
   it("keeps the cached head byte-identical when the report or decisions change (cost phase 1)", () => {
