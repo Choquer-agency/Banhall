@@ -65,6 +65,26 @@ export async function goto(url: string | URL, _opts?: Record<string, unknown>) {
   if (gotoUpdatesPageUrl) __setPageUrl(String(url));
 }
 
+/**
+ * Closing the tab, reloading or typing a URL: Kit runs every callback with
+ * type "leave". A cancel there makes the browser ask the person to confirm.
+ * Returns whether a callback cancelled.
+ */
+export function __simulateLeave(): boolean {
+  let cancelled = false;
+  const navigation = {
+    from: { url: page.url },
+    to: null,
+    type: "leave" as const,
+    willUnload: true,
+    cancel: () => {
+      cancelled = true;
+    },
+  };
+  for (const callback of [...beforeNavigateCallbacks]) callback(navigation);
+  return cancelled;
+}
+
 export function replaceState(url: string | URL, _state?: unknown) {
   __navigationCalls.push({ kind: "replaceState", url: String(url) });
 }

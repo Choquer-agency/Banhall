@@ -1,6 +1,6 @@
 <script lang="ts">
   import { isParseAbort } from "$lib/spreadsheetClient";
-  import { onDestroy } from "svelte";
+  import { onDestroy, onMount } from "svelte";
   import { beforeNavigate, goto } from "$app/navigation";
   import { goToLogin } from "$lib/auth/goToLogin";
   import { toast } from "svelte-sonner";
@@ -73,6 +73,7 @@
   import { parseDraftModeParam } from "$lib/workspace/projectDuplicate";
   import { page } from "$app/state";
   import { createRequestId } from "$lib/requestId";
+  import { registerSaveHold, SAVE_HOLD_ESCAPE_MS } from "$lib/workspace/saveHold";
 
   const extractionLifetime = new AbortController();
   onDestroy(() => extractionLifetime.abort());
@@ -621,6 +622,8 @@
   let pyId = 1;
   let pyRows = $state<PyRow[]>([{ id: "py-0", year: baseYear, note: "", files: [] }]);
   let committing = $state(false);
+  // When the current save began, for the way out of a stalled one.
+  let commitStartedAt = 0;
   let progress = $state("");
   // Set when the wizard itself navigates away (to the new project or to
   // sign in), so the guard below lets that navigation through.
@@ -628,13 +631,32 @@
 
   // Review D-3: leaving while the project saves would destroy the wizard
   // mid-save (a new query remounts it) and strand a half-made project. Hold
-  // every other navigation until the save opens the project.
+  // every other navigation until the save opens the project. The root
+  // layout's deploy-update reload asks the same hold.
+  onMount(() => registerSaveHold(() => committing && !leaving));
   beforeNavigate((navigation) => {
     if (!committing || leaving) return;
     navigation.cancel();
-    if (navigation.type !== "leave") {
-      toast.info("Your project is still being saved. It opens when it is ready.");
+    // Closing the tab or reloading: the browser asks the writer to confirm.
+    if (navigation.type === "leave") return;
+    const target = navigation.to?.url;
+    if (target && Date.now() - commitStartedAt >= SAVE_HOLD_ESCAPE_MS) {
+      // A save this slow may have stalled (offline, for example), so the
+      // writer can go. Leaving for another page destroys the wizard, which
+      // stops the save before it starts a draft or a PD review.
+      toast.warning(
+        "Saving is taking longer than usual. If you leave now, the project may be only partly saved and its draft may not start.",
+        {
+          duration: 10_000,
+          action: {
+            label: "Leave anyway",
+            onClick: () => leaveTo(`${target.pathname}${target.search}${target.hash}`),
+          },
+        }
+      );
+      return;
     }
+    toast.info("Your project is still being saved. It opens when it is ready.");
   });
 
   function leaveTo(path: string) {
@@ -909,6 +931,7 @@
       return;
     }
     committing = true;
+    commitStartedAt = Date.now();
     let createdProjectId: Id<"projects"> | null = null;
     let copyFailed = false;
     // The writer's own files saved so far, by ownUploadNames' names.
