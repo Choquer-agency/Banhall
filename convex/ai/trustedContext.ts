@@ -316,11 +316,47 @@ export function cutToBudget(text: string, limit: number): string {
 }
 
 /**
+ * Digest mode means digests (cost phase 1). A generation over the transcript
+ * budget freezes a `transcript_digest` row per transcript next to the full
+ * `transcript` row; a consumer that read every row sent both, and one that
+ * filled a byte budget in row order spent it on the full text and cut the
+ * digests. This returns one row per source: each transcript that has a
+ * digest is replaced, in its own position, by that digest, and every other
+ * row is kept in order. Pure, so the Brief and the Seeds share one decision.
+ */
+export function preferDigestSources<
+  Row extends { kind: string; transcriptId?: string | null },
+>(rows: readonly Row[]): Row[] {
+  const digestByTranscript = new Map<string, Row>();
+  for (const row of rows) {
+    if (row.kind === "transcript_digest" && row.transcriptId) {
+      digestByTranscript.set(row.transcriptId, row);
+    }
+  }
+  const transcriptIds = new Set<string>();
+  for (const row of rows) {
+    if (row.kind === "transcript" && row.transcriptId) transcriptIds.add(row.transcriptId);
+  }
+  const out: Row[] = [];
+  for (const row of rows) {
+    const id = row.transcriptId ?? undefined;
+    if (row.kind === "transcript" && id && digestByTranscript.has(id)) {
+      out.push(digestByTranscript.get(id)!);
+      continue;
+    }
+    // A digest of a frozen transcript is placed where that transcript sits.
+    if (row.kind === "transcript_digest" && id && transcriptIds.has(id)) continue;
+    out.push(row);
+  }
+  return out;
+}
+
+/**
  * Thousands-grouped count without Intl: the notice is part of the analyzer's
  * bytes, and every candidate must rebuild the identical message regardless of
  * the runtime's ICU data.
  */
-function formatCount(n: number): string {
+export function formatCount(n: number): string {
   return String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
 }
 

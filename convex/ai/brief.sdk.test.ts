@@ -4,7 +4,9 @@ import { convexTest } from "convex-test";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { z } from "zod";
 import schema from "../schema";
+import type { Id } from "../_generated/dataModel";
 import {
+  BRIEF_INPUT_BUDGET,
   BRIEF_REQUEST,
   BRIEF_SCHEMA,
   BRIEF_SYSTEM_PROMPT,
@@ -166,6 +168,41 @@ test("serializes stable Brief source-kind tags and excludes a writer Storyline",
   );
   expect(message).not.toContain("writer_storyline");
   expect(message).not.toContain("Excluded bytes.");
+});
+
+test("reads a digested transcript through its digest only (cost phase 1)", () => {
+  const transcriptId = "transcript-1" as Id<"transcripts">;
+  const message = buildBriefUserMessage([
+    { kind: "transcript", label: "Interview", content: "FULL-TRANSCRIPT-BYTES", transcriptId },
+    { kind: "project_document", label: "Notes", content: "Document bytes." },
+    { kind: "transcript_digest", label: "Interview", content: "DIGEST-BYTES", transcriptId },
+  ]);
+  expect(message).not.toContain("FULL-TRANSCRIPT-BYTES");
+  expect(message.indexOf("DIGEST-BYTES")).toBeGreaterThan(-1);
+  // The digest takes the transcript's place, ahead of the documents.
+  expect(message.indexOf("DIGEST-BYTES")).toBeLessThan(message.indexOf("Document bytes."));
+});
+
+test("spends a deterministic budget: per-source cut with a notice, then whole sources omitted", () => {
+  const budget = { totalTokens: 10, perSourceTokens: 6 }; // 40 and 24 characters
+  const sources = [
+    { kind: "transcript", label: "A", content: "a".repeat(30) },
+    { kind: "project_document", label: "B", content: "b".repeat(20) },
+    { kind: "project_document", label: "C", content: "c".repeat(5) },
+    { kind: "project_document", label: "D", content: "" },
+  ] satisfies Parameters<typeof buildBriefUserMessage>[0];
+  const message = buildBriefUserMessage(sources, budget);
+  expect(message).toBe(buildBriefUserMessage(sources, budget));
+  // A keeps 24 of 30; B gets the remaining 16 of 20; C gets nothing.
+  expect(message).toContain(`${"a".repeat(24)}\n[TRUNCATED: 6 of 30 characters omitted to fit the context budget.]`);
+  expect(message).toContain(`${"b".repeat(16)}\n[TRUNCATED: 4 of 20 characters omitted to fit the context budget.]`);
+  expect(message).not.toContain("[C] ---");
+  // An empty source costs nothing and still shows as a block.
+  expect(message).toContain("--- BEGIN [SOURCE_KIND=project_document] [D] ---");
+  expect(message.endsWith("[1 further source(s) were omitted to fit the context budget.]")).toBe(true);
+  // The default budget never touches ordinary sources.
+  expect(buildBriefUserMessage(sources)).not.toContain("TRUNCATED");
+  expect(BRIEF_INPUT_BUDGET).toEqual({ totalTokens: 150_000, perSourceTokens: 100_000 });
 });
 
 test("serializes reconciliation instructions through the real Brief SDK and persists a representative reconciled response", async () => {

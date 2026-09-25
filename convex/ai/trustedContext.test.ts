@@ -1,7 +1,9 @@
+import { PD_REVIEW_INPUT_BUDGET, buildPdReviewUserMessage } from "./reviewAgent";
 import { describe, expect, it } from "vitest";
 import {
   buildTrustedContext,
   buildSeedTrustedContext,
+  preferDigestSources,
   buildSeedSystemPrompt,
   CHARS_PER_TOKEN,
   DEFAULT_CONTEXT_BUDGET,
@@ -825,5 +827,70 @@ describe("describeContextCuts", () => {
     expect(describeContextCuts(report)).toBe(
       "Context budget (150,000 tokens) shortened weird name .txt."
     );
+  });
+});
+
+// ─── Cost phase 1: digest-or-full and PD review budget ───────────────────────
+
+describe("preferDigestSources", () => {
+  const row = (id: string, kind: string, transcriptId?: string) => ({ id, kind, ...(transcriptId ? { transcriptId } : {}) });
+
+  it("replaces each digested transcript with its digest, in place", () => {
+    const rows = [
+      row("t1", "transcript", "a"),
+      row("t2", "transcript", "b"),
+      row("doc", "project_document"),
+      row("story", "writer_storyline"),
+      row("d1", "transcript_digest", "a"),
+    ];
+    expect(preferDigestSources(rows).map((r) => r.id)).toEqual(["d1", "t2", "doc", "story"]);
+  });
+
+  it("keeps full text when no digest exists, and a digest whose transcript is absent", () => {
+    expect(preferDigestSources([row("t1", "transcript", "a")]).map((r) => r.id)).toEqual(["t1"]);
+    expect(preferDigestSources([row("d9", "transcript_digest", "z")]).map((r) => r.id)).toEqual(["d9"]);
+    // A digest that precedes its transcript still lands in the transcript's place.
+    expect(
+      preferDigestSources([row("d1", "transcript_digest", "a"), row("doc", "project_document"), row("t1", "transcript", "a")])
+        .map((r) => r.id)
+    ).toEqual(["doc", "d1"]);
+  });
+});
+
+describe("PD review input budget", () => {
+  const input = {
+    title: "Seal project",
+    clientName: "Client",
+    fileName: "pd.docx",
+    pdContent: "P".repeat(30),
+    transcript: "T".repeat(30),
+  };
+  const docs = [
+    { fileName: "one.md", category: "other" as const, content: "1".repeat(10) },
+    { fileName: "two.md", category: "other" as const, content: "2".repeat(10) },
+    { fileName: "three.md", category: "other" as const, content: "3".repeat(10) },
+  ];
+
+  it("spends the PD first, then the transcript, then documents, and says what it cut", () => {
+    // 4 characters per token: PD 20, transcript 20, per document 8, total 48.
+    const budget = { totalTokens: 12, pdTokens: 5, transcriptTokens: 5, perDocumentTokens: 2, maxDocuments: 12 };
+    const message = buildPdReviewUserMessage(input, docs, budget);
+    expect(message).toBe(buildPdReviewUserMessage(input, docs, budget));
+    expect(message).toContain(`## Written PD under review (pd.docx)\n${"P".repeat(20)}\n[TRUNCATED: 10 of 30 characters omitted to fit the context budget.]`);
+    expect(message).toContain(`## Interview transcript (context)\n${"T".repeat(20)}\n[TRUNCATED: 10 of 30 characters omitted`);
+    expect(message).toContain(`## Supporting document: one.md (other)\n${"1".repeat(8)}\n[TRUNCATED: 2 of 10`);
+    expect(message).not.toContain("two.md");
+    expect(message.endsWith("[2 further supporting document(s) were omitted to fit the context budget.]")).toBe(true);
+  });
+
+  it("caps the document count and leaves small reviews untouched by default", () => {
+    const capped = buildPdReviewUserMessage(input, docs, { ...PD_REVIEW_INPUT_BUDGET, maxDocuments: 1 });
+    expect(capped).toContain("one.md");
+    expect(capped).not.toContain("three.md");
+    expect(capped).toContain("[2 further supporting document(s) were omitted");
+    const whole = buildPdReviewUserMessage(input, docs);
+    expect(whole).not.toContain("TRUNCATED");
+    expect(whole).not.toContain("omitted");
+    expect(whole).toContain("3".repeat(10));
   });
 });

@@ -336,6 +336,49 @@ describe("seed attempt transactions", () => {
     expect(await s.t.run((ctx) => ctx.db.query("seedBatches").take(3))).toHaveLength(1);
   });
 
+  it("reads a digested transcript through its digest only, in the transcript's place (cost phase 1)", async () => {
+    const s = await fixture();
+    const full = "Full transcript text. ".repeat(20);
+    const digest = "Condensed transcript.";
+    const ids = await s.t.run(async (ctx) => {
+      const transcriptId = await ctx.db.insert("transcripts", {
+        projectId: s.projectId,
+        content: full,
+        createdAt: 1,
+      });
+      const base = {
+        generationId: s.generationId,
+        projectId: s.projectId,
+        truncated: false,
+        capturedAt: 1,
+      };
+      const fullId = await ctx.db.insert("generationSources", {
+        ...base, kind: "transcript", label: "Long interview", transcriptId,
+        content: full, contentHash: "full-hash", originalLength: full.length,
+      });
+      const documentId = await ctx.db.insert("generationSources", {
+        ...base, kind: "project_document", label: "other:notes.md",
+        content: "Notes.", contentHash: "notes-hash", originalLength: 6,
+      });
+      // Condensing runs after reservation, so the digest row comes last.
+      const digestId = await ctx.db.insert("generationSources", {
+        ...base, kind: "transcript_digest", label: "Long interview", transcriptId,
+        content: digest, contentHash: "digest-hash", originalLength: digest.length,
+      });
+      return { fullId, documentId, digestId };
+    });
+    const dispatched = await openRole(s, "company_context");
+    if (dispatched.kind !== "dispatched") throw new Error("attempt was not dispatched");
+    const claim = await s.t.mutation(claimRef, { batchId: dispatched.batchId });
+    if (claim.kind !== "claimed") throw new Error("attempt was not claimed");
+    expect(claim.input.sources.map((source) => source._id)).toEqual([
+      s.sourceId,
+      ids.digestId,
+      ids.documentId,
+    ]);
+    expect(claim.input.sources.some((source) => source.content === full)).toBe(false);
+  });
+
   it("stamps speaker and line on transcript citations from the frozen source", async () => {
     const s = await fixture();
     const transcript = [

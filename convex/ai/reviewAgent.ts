@@ -11,6 +11,12 @@ import type { z } from "zod";
 import { MODEL } from "./model";
 import type { ContextDoc } from "./analyzerAgent";
 import { normalizeProviderError } from "./providers";
+import {
+  CHARS_PER_TOKEN,
+  cutToBudget,
+  formatCount,
+  truncationNotice,
+} from "./trustedContext";
 
 /** BNH-39: structured feedback report for an externally written PD. */
 export interface PdReviewResult {
@@ -65,6 +71,82 @@ const PD_REVIEW_SCHEMA = {
   ],
 } as const;
 
+/**
+ * Input budget for a PD review (cost phase 1). The review used to send the
+ * written PD, every transcript joined and every supporting document whole,
+ * with no bound. The PD under review is the primary input and is spent
+ * first; the transcript and the documents follow in that order. Starting
+ * values sized like the analyzer's (150k tokens overall).
+ */
+export const PD_REVIEW_INPUT_BUDGET = {
+  totalTokens: 150_000,
+  pdTokens: 60_000,
+  transcriptTokens: 60_000,
+  perDocumentTokens: 10_000,
+  maxDocuments: 12,
+} as const;
+
+export type PdReviewInputBudget = {
+  totalTokens: number;
+  pdTokens: number;
+  transcriptTokens: number;
+  perDocumentTokens: number;
+  maxDocuments: number;
+};
+
+/**
+ * The review's user message, deterministic for the same inputs. A cut keeps
+ * a prefix and says how much was dropped; documents that do not fit at all
+ * are counted in one closing line rather than silently disappearing.
+ */
+export function buildPdReviewUserMessage(
+  input: {
+    title: string;
+    clientName: string;
+    fileName: string;
+    pdContent: string;
+    transcript: string;
+  },
+  contextDocs: ReadonlyArray<Pick<ContextDoc, "fileName" | "category" | "content">>,
+  budget: PdReviewInputBudget = PD_REVIEW_INPUT_BUDGET
+): string {
+  const chars = (tokens: number) => Math.max(0, tokens) * CHARS_PER_TOKEN;
+  let remaining = chars(budget.totalTokens);
+  const spend = (text: string, capTokens: number): string | null => {
+    const kept = cutToBudget(text, Math.min(chars(capTokens), remaining));
+    if (!kept.length) return null;
+    remaining -= kept.length;
+    return kept.length < text.length
+      ? `${kept}\n${truncationNotice(text.length - kept.length, text.length)}`
+      : kept;
+  };
+  const parts = [
+    `Review the following SR&ED Project Description for "${input.title}" (client: ${input.clientName}).`,
+    `## Written PD under review (${input.fileName})\n${spend(input.pdContent, budget.pdTokens) ?? ""}`,
+  ];
+  if (input.transcript) {
+    const transcript = spend(input.transcript, budget.transcriptTokens);
+    parts.push(
+      `## Interview transcript (context)\n${transcript ?? truncationNotice(input.transcript.length, input.transcript.length)}`
+    );
+  }
+  let omitted = 0;
+  contextDocs.forEach((doc, index) => {
+    const body = index < budget.maxDocuments ? spend(doc.content, budget.perDocumentTokens) : null;
+    if (body === null) {
+      omitted += 1;
+      return;
+    }
+    parts.push(`## Supporting document: ${doc.fileName} (${doc.category})\n${body}`);
+  });
+  if (omitted > 0) {
+    parts.push(
+      `[${formatCount(omitted)} further supporting document(s) were omitted to fit the context budget.]`
+    );
+  }
+  return parts.join("\n\n");
+}
+
 export const runPdReview = internalAction({
   args: {
     reviewId: v.id("pdReviews"),
@@ -83,18 +165,6 @@ export const runPdReview = internalAction({
         { projectId: args.projectId }
       );
 
-      const parts = [
-        `Review the following SR&ED Project Description for "${input.title}" (client: ${input.clientName}).`,
-        `## Written PD under review (${input.fileName})\n${input.pdContent}`,
-      ];
-      if (input.transcript) {
-        parts.push(`## Interview transcript (context)\n${input.transcript}`);
-      }
-      for (const doc of contextDocs) {
-        parts.push(
-          `## Supporting document: ${doc.fileName} (${doc.category})\n${doc.content}`
-        );
-      }
 
       const anthropic = instrumentedAnthropic(ctx, {
         callSite: "pd_review",
@@ -104,7 +174,7 @@ export const runPdReview = internalAction({
       });
       const result = await generateStructured<PdReviewResult>(anthropic, {
         system: PD_REVIEW_SYSTEM_PROMPT,
-        user: parts.join("\n\n"),
+        user: buildPdReviewUserMessage(input, contextDocs),
         toolName: "submit_pd_review",
         description: "Submit the structured feedback report for the written PD.",
         schema: PD_REVIEW_SCHEMA as never,

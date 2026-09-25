@@ -12,6 +12,13 @@ import {
   briefDiffKey,
 } from "../generations";
 import type { GenerationClient } from "./openrouterCore";
+import {
+  CHARS_PER_TOKEN,
+  cutToBudget,
+  formatCount,
+  preferDigestSources,
+  truncationNotice,
+} from "./trustedContext";
 import { normalizeProviderError } from "./providers";
 import { generateStructured } from "./structured";
 import { briefInputsHash } from "../lib/briefInputsHash";
@@ -167,6 +174,28 @@ export const BRIEF_REQUEST = {
   maxTokens: 8192,
 } as const;
 
+/**
+ * Input budget for the Brief call (cost phase 1). The call used to send
+ * every frozen source whole, with no bound at all. Same totals as the
+ * analyzer's DEFAULT_CONTEXT_BUDGET: 150k tokens overall, at most 100k for
+ * any one source. Spent in frozen order (transcripts or their digests
+ * first), so the outcome is reproducible from the frozen rows.
+ */
+export const BRIEF_INPUT_BUDGET = {
+  totalTokens: 150_000,
+  perSourceTokens: 100_000,
+} as const;
+
+/** Said once at the end when whole sources did not fit. */
+export const BRIEF_OMITTED_SOURCES_NOTICE = {
+  prefix: "[",
+  suffix: " further source(s) were omitted to fit the context budget.]",
+} as const;
+
+export function briefOmittedSourcesNotice(count: number): string {
+  return `${BRIEF_OMITTED_SOURCES_NOTICE.prefix}${formatCount(count)}${BRIEF_OMITTED_SOURCES_NOTICE.suffix}`;
+}
+
 const strArray = { type: "array", items: { type: "string" } } as const;
 
 export const BRIEF_SCHEMA: Anthropic.Tool.InputSchema = {
@@ -263,16 +292,47 @@ const BRIEF_TASK_GUIDANCE =
  * writer, not evidence to derive Claim Exclusions/Confidence Map/Glossary
  * from, and is never fed to this call. */
 export function buildBriefUserMessage(
-  sources: Array<Pick<Doc<"generationSources">, "label" | "content" | "kind">>
+  sources: Array<
+    Pick<Doc<"generationSources">, "label" | "content" | "kind"> & {
+      transcriptId?: Id<"transcripts">;
+    }
+  >,
+  budget: { totalTokens: number; perSourceTokens: number } = BRIEF_INPUT_BUDGET
 ): string {
-  const evidence = sources.filter((s) => s.kind !== "writer_storyline");
-  const blocks = evidence
-    .map(
-      (s) =>
-        `--- BEGIN [SOURCE_KIND=${s.kind}] [${s.label.toUpperCase()}] ---\n${s.content}\n--- END [SOURCE_KIND=${s.kind}] [${s.label.toUpperCase()}] ---`
-    )
-    .join("\n\n");
-  return `${BRIEF_TASK_GUIDANCE}\n\n${blocks}`;
+  // Digest mode means digests: a transcript with a frozen digest is read
+  // through the digest only, never both.
+  const evidence = preferDigestSources(
+    sources.filter((s) => s.kind !== "writer_storyline")
+  );
+  const perSource = Math.max(0, budget.perSourceTokens) * CHARS_PER_TOKEN;
+  let remaining = Math.max(0, budget.totalTokens) * CHARS_PER_TOKEN;
+  let omitted = 0;
+  const blocks: string[] = [];
+  for (const s of evidence) {
+    const block = (body: string) =>
+      `--- BEGIN [SOURCE_KIND=${s.kind}] [${s.label.toUpperCase()}] ---\n${body}\n--- END [SOURCE_KIND=${s.kind}] [${s.label.toUpperCase()}] ---`;
+    if (!s.content.length) {
+      blocks.push(block(s.content));
+      continue;
+    }
+    // A cut keeps a prefix of the frozen text, so every quote the model
+    // takes from it is still a verbatim substring of the source.
+    const kept = cutToBudget(s.content, Math.min(perSource, remaining));
+    if (!kept.length) {
+      omitted += 1;
+      continue;
+    }
+    remaining -= kept.length;
+    blocks.push(
+      block(
+        kept.length < s.content.length
+          ? `${kept}\n${truncationNotice(s.content.length - kept.length, s.content.length)}`
+          : kept
+      )
+    );
+  }
+  if (omitted > 0) blocks.push(briefOmittedSourcesNotice(omitted));
+  return `${BRIEF_TASK_GUIDANCE}\n\n${blocks.join("\n\n")}`;
 }
 
 /** The only database access the publish path needs — an action's, or a test

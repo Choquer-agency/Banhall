@@ -39,7 +39,13 @@ import {
   ANALYZER_CATEGORY_ORDER,
   ANALYZER_REQUEST,
 } from "./analyzerAgent";
-import { BRIEF_SYSTEM_PROMPT, BRIEF_REQUEST, BRIEF_SCHEMA } from "./brief";
+import {
+  BRIEF_INPUT_BUDGET,
+  BRIEF_SYSTEM_PROMPT,
+  BRIEF_REQUEST,
+  BRIEF_SCHEMA,
+  BRIEF_OMITTED_SOURCES_NOTICE,
+} from "./brief";
 import {
   ANALYSIS_TOOL_SCHEMA,
   STYLE_ANALYSIS_REQUEST,
@@ -398,6 +404,11 @@ export const generationPromptProgram = {
       kind: "structured",
       systemTemplate: BRIEF_SYSTEM_PROMPT,
       request: BRIEF_REQUEST,
+      // Cost phase 1: digests replace their transcripts, and every source
+      // is spent in frozen order against this budget.
+      inputSelection: "digest-replaces-its-transcript",
+      contextBudget: BRIEF_INPUT_BUDGET,
+      omittedSourcesNotice: BRIEF_OMITTED_SOURCES_NOTICE,
       schema: BRIEF_SCHEMA,
       model: { kind: "candidate", fallbackModelId: MODEL },
       thinking: { kind: "omitted" },
