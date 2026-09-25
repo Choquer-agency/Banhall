@@ -4,6 +4,7 @@ import {
   OPENROUTER_ANTHROPIC_PROVIDER,
   OPENROUTER_ANTHROPIC_REQUEST_IDS,
   isOpenRouterError,
+  isOpenRouterInFlightBudget,
   markOpenRouterError,
   openRouterAnthropicBody,
   openRouterAnthropicCharge,
@@ -121,5 +122,57 @@ describe("markOpenRouterError", () => {
     expect(isOpenRouterError(new Error("y"))).toBe(false);
     expect(markOpenRouterError("text")).toBe("text");
     expect(isOpenRouterError("text")).toBe(false);
+  });
+});
+
+describe("isOpenRouterInFlightBudget", () => {
+  const withHeaders = (values: Record<string, string>) => new Headers(values);
+  const messagesEnvelope = (message: string, extra: Record<string, unknown> = {}) => ({
+    type: "error",
+    error: { type: "billing_error", message, error_type: "payment_required" },
+    request_id: null,
+    ...extra,
+  });
+
+  it("recognises a 402 with Retry-After, whatever the body says", () => {
+    expect(isOpenRouterInFlightBudget({
+      status: 402,
+      headers: withHeaders({ "retry-after": "3" }),
+      error: messagesEnvelope("Payment required"),
+    })).toBe(true);
+  });
+
+  it("recognises the documented message in the Messages envelope without the header", () => {
+    expect(isOpenRouterInFlightBudget({
+      status: 402,
+      headers: withHeaders({}),
+      error: messagesEnvelope("This request would exceed your available credits given your current in-flight requests."),
+    })).toBe(true);
+  });
+
+  it("recognises the chat-completions limit_source", () => {
+    expect(isOpenRouterInFlightBudget({
+      status: 402,
+      error: { error: { code: 402, message: "Payment required", metadata: { limit_source: "openrouter_in_flight_budget" } } },
+    })).toBe(true);
+  });
+
+  it("never treats one request larger than the whole budget, or plain lack of credits, as temporary", () => {
+    expect(isOpenRouterInFlightBudget({
+      status: 402,
+      headers: withHeaders({ "retry-after": "3" }),
+      error: messagesEnvelope("Exceeds your in-flight budget", { metadata: { reason: "weight_exceeds_budget" } }),
+    })).toBe(false);
+    expect(isOpenRouterInFlightBudget({
+      status: 402,
+      error: { error: { code: 402, message: "in-flight", metadata: { limit_source: "openrouter_credits" } } },
+    })).toBe(false);
+    expect(isOpenRouterInFlightBudget({ status: 402, headers: withHeaders({}), error: messagesEnvelope("Insufficient credits") })).toBe(false);
+  });
+
+  it("is false for any other status or value", () => {
+    expect(isOpenRouterInFlightBudget({ status: 429, headers: withHeaders({ "retry-after": "3" }) })).toBe(false);
+    expect(isOpenRouterInFlightBudget(null)).toBe(false);
+    expect(isOpenRouterInFlightBudget("402 in-flight")).toBe(false);
   });
 });

@@ -20,6 +20,7 @@ import {
   OPENROUTER_ANTHROPIC_BASE_URL,
   OPENROUTER_APP_HEADERS,
   isOpenRouterError,
+  isOpenRouterInFlightBudget,
 } from "../../shared/anthropicTransport";
 import {
   gatewayForModel,
@@ -727,13 +728,11 @@ export function normalizeProviderError(error: unknown): {
   // OpenRouter's in-flight spending budget on the Anthropic gateway's
   // `openrouter` transport (decision 30): a 402 that says the account's
   // concurrent spend is full, sent with Retry-After while the balance is
-  // positive. It clears on its own, so it reads as a rate limit, not as
-  // billing. Every other 402, on either gateway, stays billing.
-  if (
-    status === 402 &&
-    isOpenRouterError(error) &&
-    (message.includes("in_flight_budget") || message.includes("in-flight budget"))
-  ) {
+  // positive (isOpenRouterInFlightBudget). It clears on its own, so it
+  // reads as a rate limit, not as billing, and the transport has already
+  // retried it once when the time allowed. Every other 402, on either
+  // gateway, stays billing.
+  if (isOpenRouterError(error) && isOpenRouterInFlightBudget(error)) {
     return {
       code: "rate_limited",
       message: "The AI provider is limiting how many requests can run at once. Try again shortly.",

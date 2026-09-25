@@ -147,3 +147,41 @@ export function markOpenRouterError<E>(error: E): E {
 export function isOpenRouterError(error: unknown): boolean {
   return Boolean(error && typeof error === "object" && openRouterErrors.has(error));
 }
+
+/**
+ * Whether a failed request hit OpenRouter's in-flight spending budget: a 402
+ * sent while the balance is positive because running and recently finished
+ * requests fill the budget. It clears on its own. OpenRouter's docs
+ * (api_reference/limits, "In-flight spending budget"; errors-and-debugging,
+ * "Retry-After header"), read 2026-09-25:
+ *
+ * - Only this 402 carries `Retry-After`; "a 402 without the header is not a
+ *   wait-and-retry case".
+ * - The chat-completions body names it in `error.metadata.limit_source`
+ *   (`openrouter_in_flight_budget`). The Messages endpoint answers in the
+ *   Anthropic envelope, `{type: "error", error: {type: "billing_error",
+ *   message, error_type: "payment_required"}, request_id}`, where metadata
+ *   is not documented, so the documented message ("...given your current
+ *   in-flight requests...") is matched too.
+ * - `weight_exceeds_budget` (limit_source `openrouter_credits`) is one
+ *   request larger than the whole budget. Waiting does not help, so it is
+ *   never this case.
+ *
+ * Reads the SDK error's status, response headers, parsed body and message.
+ */
+export function isOpenRouterInFlightBudget(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const record = error as { status?: unknown; headers?: unknown; error?: unknown; message?: unknown };
+  if (record.status !== 402) return false;
+  let body = "";
+  try {
+    body = JSON.stringify(record.error ?? null) ?? "";
+  } catch {
+    body = "";
+  }
+  const text = `${typeof record.message === "string" ? record.message : ""} ${body}`.toLowerCase();
+  if (text.includes("weight_exceeds_budget") || text.includes("openrouter_credits")) return false;
+  const headers = record.headers as { get?: (name: string) => string | null } | undefined;
+  if (typeof headers?.get === "function" && headers.get("retry-after")) return true;
+  return text.includes("in_flight") || text.includes("in-flight");
+}

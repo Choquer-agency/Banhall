@@ -6,6 +6,7 @@ import {
 } from "./providers";
 import {
   ActionTimeBudgetError,
+  MAX_SDK_RETRY_BACKOFF_MS,
   actionDeadline,
   anthropicRetryDelayMs,
   isErrorOf,
@@ -21,6 +22,7 @@ import {
   type AnthropicCapability,
 } from "../lib/providerConfig";
 import {
+  isOpenRouterInFlightBudget,
   markOpenRouterError,
   openRouterAnthropicBody,
   openRouterAnthropicCharge,
@@ -510,6 +512,53 @@ async function createWithinDeadline(
 }
 
 /**
+ * The longest Retry-After wait the `openrouter` transport honours before
+ * retrying an in-flight spending budget 402 (sendViaOpenRouter). A longer
+ * wait fails at once with the rate-limit error.
+ */
+export const OPENROUTER_IN_FLIGHT_MAX_WAIT_MS = 60_000;
+
+/**
+ * One request on the `openrouter` transport. Its errors are marked as
+ * OpenRouter's, for normalizeProviderError. An in-flight spending budget
+ * 402 (isOpenRouterInFlightBudget) is temporary, and the SDK never retries
+ * a 402, so it is retried here once: after OpenRouter's Retry-After wait
+ * (MAX_SDK_RETRY_BACKOFF_MS when none was sent), only when that wait is at
+ * most OPENROUTER_IN_FLIGHT_MAX_WAIT_MS and still leaves a useful attempt
+ * before the action's deadline (retryFitsDeadline). Otherwise, or when the
+ * retry is refused again, it fails with the rate-limit error. Neither
+ * counts against the model. The retry sends the same body.
+ */
+async function sendViaOpenRouter(
+  send: () => Promise<unknown>,
+  deadline: number | undefined
+): Promise<unknown> {
+  try {
+    return await send();
+  } catch (error) {
+    markOpenRouterError(error);
+    if (!isOpenRouterInFlightBudget(error)) throw error;
+    const headers = isErrorOf(error, Anthropic.APIError)
+      ? (error as InstanceType<typeof Anthropic.APIError>).headers
+      : undefined;
+    const delay =
+      headers?.get("retry-after") || headers?.get("retry-after-ms")
+        ? anthropicRetryDelayMs(headers, 0, Date.now(), Math.random)
+        : MAX_SDK_RETRY_BACKOFF_MS;
+    if (delay > OPENROUTER_IN_FLIGHT_MAX_WAIT_MS || !retryFitsDeadline(deadline, Date.now(), delay)) {
+      throw error;
+    }
+    console.warn(`OpenRouter in-flight spending budget is full (402), retrying once in ${Math.round(delay)}ms`);
+    await new Promise<void>((resolve) => setTimeout(resolve, delay));
+  }
+  try {
+    return await send();
+  } catch (error) {
+    throw markOpenRouterError(error);
+  }
+}
+
+/**
  * The body sent on the `openrouter` transport: the direct body with the
  * OpenRouter model id and the Anthropic-only provider pin. An app model id
  * without an OpenRouter mapping fails here, before anything is sent.
@@ -585,16 +634,9 @@ export function instrumentedAnthropic(
                 deadline,
                 defaults
               );
-        let response: unknown;
-        if (viaOpenRouter) {
-          try {
-            response = await sendRequest();
-          } catch (error) {
-            throw markOpenRouterError(error);
-          }
-        } else {
-          response = await sendRequest();
-        }
+        const response: unknown = viaOpenRouter
+          ? await sendViaOpenRouter(sendRequest, deadline)
+          : await sendRequest();
         const durationMs = Math.max(0, Date.now() - startedAt);
         const usage = anthropicUsage(response);
         const charge = viaOpenRouter ? openRouterAnthropicCharge(response) : {};

@@ -512,35 +512,149 @@ describe("openrouter retries what the SDK retries on direct", () => {
   });
 });
 
-describe("openrouter answers that say nothing about the model are not counted", () => {
-  test("402 in-flight budget: a rate limit, not billing, and not retried by the SDK", async () => {
+/**
+ * OpenRouter's in-flight spending budget 402 on the Messages endpoint, in the
+ * documented Anthropic envelope (docs: errors-and-debugging, "Anthropic
+ * Messages"; limits, "In-flight spending budget"; read 2026-09-25). The
+ * chat-completions `error.metadata` is not documented here.
+ */
+const IN_FLIGHT_MESSAGE =
+  "This request would exceed your available credits given your current in-flight requests. Retry after in-flight requests settle, or add credits.";
+const inFlight402 = (headers: Record<string, string> = { "retry-after": "2" }) =>
+  errorReply(402, {
+    type: "error",
+    error: { type: "billing_error", message: IN_FLIGHT_MESSAGE, error_type: "payment_required" },
+    request_id: null,
+  }, headers);
+
+const RATE_LIMITED = {
+  code: "rate_limited",
+  message: "The AI provider is limiting how many requests can run at once. Try again shortly.",
+};
+
+describe("openrouter in-flight spending budget (402)", () => {
+  test("is retried once after its Retry-After wait, and the answer is used", async () => {
     useOpenRouter();
     const t = convexTest(schema, modules);
-    const { outcome, urls, outcomes } = await recordedCall(t, [
-      () => errorReply(402, {
-        error: {
-          code: 402,
-          message: "Request cost exceeds your in-flight spending budget",
-          metadata: { reason: "in_flight_budget_exhausted", limit_source: "openrouter_in_flight_budget" },
-        },
-      }, { "retry-after": "2" }),
-    ]);
+    const urls: string[] = [];
+    const replies = [() => inFlight402(), () => anthropicReply({ provider: "Anthropic" })];
+    vi.stubGlobal("fetch", vi.fn<typeof fetch>(async (input, init) => {
+      urls.push(new Request(input, init).url);
+      return replies[urls.length - 1]();
+    }));
+    const result = settle(runAction(t, async (ctx) =>
+      await withOutcomeRecording(ctx, "claude-sonnet-5", "transport-contract",
+        instrumentedAnthropic(ctx, { callSite: "transport-contract" }) as unknown as GenerationClient
+      ).messages.create(SECTION_DRAFT.params as never)
+    ));
+    await vi.advanceTimersByTimeAsync(1_900);
+    expect(urls).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(200);
+    expect((await result).ok).toBe(true);
+    expect(urls).toEqual([OPENROUTER_MESSAGES_URL, OPENROUTER_MESSAGES_URL]);
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
+    expect(await outcomeRows(t)).toMatchObject([{ model: "claude-sonnet-5", outcome: "success" }]);
+  });
+
+  test("still full after the retry: fails as a rate limit, not billing, and is not counted", async () => {
+    useOpenRouter();
+    const t = convexTest(schema, modules);
+    const { outcome, urls, outcomes } = await recordedCall(t, [() => inFlight402()]);
     expect(outcome.ok).toBe(false);
     if (outcome.ok) return;
-    expect(normalizeProviderError(outcome.error).code).toBe("rate_limited");
+    expect(normalizeProviderError(outcome.error)).toEqual(RATE_LIMITED);
+    expect(modelFaultCode(outcome.error)).toBeNull();
+    expect(urls).toHaveLength(2);
+    expect(outcomes).toEqual([]);
+  });
+
+  test("the documented message alone, without Retry-After, is recognised and retried once", async () => {
+    useOpenRouter();
+    const t = convexTest(schema, modules);
+    const { outcome, urls } = await recordedCall(t, [
+      () => inFlight402({}),
+      () => anthropicReply({ provider: "Anthropic" }),
+    ]);
+    expect(outcome.ok).toBe(true);
+    expect(urls).toHaveLength(2);
+  });
+
+  test("a Retry-After longer than a minute is not waited for: fails at once as a rate limit", async () => {
+    useOpenRouter();
+    const t = convexTest(schema, modules);
+    const { outcome, urls, outcomes } = await recordedCall(t, [() => inFlight402({ "retry-after": "90" })]);
+    expect(outcome.ok).toBe(false);
+    if (!outcome.ok) expect(normalizeProviderError(outcome.error)).toEqual(RATE_LIMITED);
     expect(urls).toHaveLength(1);
     expect(outcomes).toEqual([]);
   });
 
-  test("402 without credits stays billing", async () => {
+  test("under the action deadline: retried when a useful attempt fits after the wait", async () => {
     useOpenRouter();
     const t = convexTest(schema, modules);
-    const { outcome, outcomes } = await recordedCall(t, [
-      () => errorReply(402, anthropicError("billing_error", "Insufficient credits")),
+    const { outcome, urls } = await recordedCall(t, [
+      () => inFlight402({ "retry-after": "2" }),
+      () => anthropicReply({ provider: "Anthropic" }),
+    ], (ctx) => { startActionDeadline(ctx, Date.now() - (ACTION_REQUEST_WINDOW_MS - 100_000)); });
+    expect(outcome.ok).toBe(true);
+    expect(urls).toHaveLength(2);
+  });
+
+  test("under the action deadline: a wait that leaves no useful attempt fails at once as a rate limit", async () => {
+    useOpenRouter();
+    const t = convexTest(schema, modules);
+    const { outcome, urls, outcomes } = await recordedCall(t, [
+      () => inFlight402({ "retry-after": "2" }),
+      () => anthropicReply({ provider: "Anthropic" }),
+    ], (ctx) => { startActionDeadline(ctx, Date.now() - (ACTION_REQUEST_WINDOW_MS - 21_000)); });
+    expect(outcome.ok).toBe(false);
+    if (!outcome.ok) expect(normalizeProviderError(outcome.error)).toEqual(RATE_LIMITED);
+    expect(urls).toHaveLength(1);
+    expect(outcomes).toEqual([]);
+  });
+
+  test("one request larger than the whole budget stays billing and is not retried", async () => {
+    useOpenRouter();
+    const t = convexTest(schema, modules);
+    const { outcome, urls, outcomes } = await recordedCall(t, [
+      () => errorReply(402, {
+        type: "error",
+        error: { type: "billing_error", message: "This request's estimated cost exceeds your in-flight budget.", error_type: "payment_required" },
+        metadata: { reason: "weight_exceeds_budget", limit_source: "openrouter_credits" },
+        request_id: null,
+      }, {}),
+    ]);
+    expect(outcome.ok).toBe(false);
+    if (!outcome.ok) expect(normalizeProviderError(outcome.error).code).toBe("billing");
+    expect(urls).toHaveLength(1);
+    expect(outcomes).toEqual([]);
+  });
+
+  test("on direct, the same 402 stays billing and is not retried, as before the switch", async () => {
+    const t = convexTest(schema, modules);
+    const { outcome, urls, outcomes } = await recordedCall(t, [() => inFlight402()]);
+    expect(outcome.ok).toBe(false);
+    if (!outcome.ok) expect(normalizeProviderError(outcome.error).code).toBe("billing");
+    expect(urls).toEqual(["https://api.anthropic.com/v1/messages"]);
+    expect(outcomes).toEqual([]);
+  });
+});
+
+describe("openrouter answers that say nothing about the model are not counted", () => {
+  test("402 without credits stays billing and is not retried", async () => {
+    useOpenRouter();
+    const t = convexTest(schema, modules);
+    const { outcome, urls, outcomes } = await recordedCall(t, [
+      () => errorReply(402, {
+        type: "error",
+        error: { type: "billing_error", message: "Insufficient credits", error_type: "payment_required" },
+        request_id: null,
+      }, {}),
     ]);
     expect(outcome.ok).toBe(false);
     if (outcome.ok) return;
     expect(normalizeProviderError(outcome.error).code).toBe("billing");
+    expect(urls).toHaveLength(1);
     expect(outcomes).toEqual([]);
   });
 
