@@ -1,9 +1,10 @@
 /**
  * Harness-level witnesses for `scripts/seed-summary-history-witness.mjs`
- * (stories 5–6, R4-12 / R4-13 / R4-15 / R5-10 / R5-11 / R5-13 / R5-14):
- * output reservation, option validation, startup ownership, readiness that
- * belongs to the invocation's own server, owned-group cleanup and log-stream
- * failure routing. These run the real script as a child process with the dev
+ * (stories 5-6, R4-12 / R4-13 / R4-15 / R5-10 / R5-11 / R5-13 / R5-14 /
+ * R6-10 / R6-11 / R6-12): output reservation, option validation, startup
+ * ownership, readiness that belongs to the invocation's own server,
+ * owned-group cleanup, log-stream failure routing and cleanup outcomes
+ * (late ownership failures, surviving groups, stalled browser shutdown). These run the real script as a child process with the dev
  * server replaced by controlled stand-ins; no SvelteKit server and no evidence
  * folder are touched (every run reserves its output inside a temporary
  * directory). This suite runs under `npm test`, which never touches a
@@ -91,7 +92,9 @@ type Report = {
     group: string | null;
     unexpectedExit: { code: number | null; signal: string | null; afterReady: boolean } | null;
     logFailure: string | null;
+    ownershipFailures?: string[];
   } | null;
+  browserClose?: string;
   failed: number;
   passed: number;
   results: Array<{ host: string; name: string; ok: boolean; detail: unknown }>;
@@ -211,6 +214,10 @@ describe("seed-summary-history-witness harness", () => {
       { args: ["--stand-in-journey-ms", "Infinity"], diagnostic: "--stand-in-journey-ms must be a positive integer" },
       { args: ["--stand-in-journey-ms", "0"], diagnostic: "--stand-in-journey-ms must be a positive integer" },
       { args: ["--stand-in-journey-ms"], diagnostic: "--stand-in-journey-ms must be a positive integer" },
+      { args: ["--browser-close-timeout-ms", "0"], diagnostic: "--browser-close-timeout-ms must be a positive integer" },
+      { args: ["--browser-close-timeout-ms", "Infinity"], diagnostic: "--browser-close-timeout-ms must be a positive integer" },
+      { args: ["--stand-in-browser-close-ms", "soon", "--stand-in-journey-ms", "100"], diagnostic: "--stand-in-browser-close-ms must be a positive integer" },
+      { args: ["--stand-in-browser-close-ms", "never"], diagnostic: "--stand-in-browser-close-ms requires --stand-in-journey-ms" },
     ];
     for (const [index, { args, diagnostic }] of cases.entries()) {
       const out = join(root, `invalid-${index}`);
@@ -497,6 +504,143 @@ describe("seed-summary-history-witness harness", () => {
     expect(report.results).toEqual([
       expect.objectContaining({ host: "harness", ok: false, name: expect.stringContaining("never a witness") }),
     ]);
+    expect(report.server?.group).toBe("terminated");
+    expect(await untilGone(report.server!.pid!)).toBe(true);
+  }, 30_000);
+
+  // The stand-in hold itself is always one failed assertion (a stand-in run
+  // is never a witness), so each cleanup outcome below must add its own.
+  const standInFailure = expect.objectContaining({ host: "harness", ok: false, name: expect.stringContaining("never a witness") });
+  const healthyUntilCleanup = (detail: string) =>
+    expect.objectContaining({ host: "harness", name: "owned server stayed healthy until cleanup", ok: false, detail: expect.stringContaining(detail) });
+
+  it("fails the run when the owned server exits while the browser is closing after the final journey", async () => {
+    // R6-10: the journeys finish against a healthy server; the owned server
+    // then exits during browser shutdown, when nothing races the owned
+    // failure any more. Cleanup must still record it before the exit code.
+    const root = scratch();
+    const out = join(root, "exit-during-close");
+    const port = await freePort();
+    const result = run(
+      [
+        "--out", out, "--port", String(port), "--server-command", command(tokenServer(port, 1500)),
+        "--startup-timeout-ms", "10000", "--stand-in-journey-ms", "200", "--stand-in-browser-close-ms", "4000",
+      ],
+      root
+    );
+    expect(result.status).toBe(1);
+    const report = readReport(out);
+    expect(report.server?.ready).toBe(true);
+    expect(report.server?.unexpectedExit).toEqual(expect.objectContaining({ code: 3, afterReady: true }));
+    expect(report.browserClose).toBe("closed");
+    // Recorded exactly once, after the journeys, and not as the run's end.
+    expect(report.results).toEqual([standInFailure, healthyUntilCleanup("exited unexpectedly during the run (3)")]);
+    expect(report.failed).toBe(2);
+    expect(report.passed).toBe(0);
+    expect(report.server?.group).toBe("exited");
+    expect(await untilGone(report.server!.pid!)).toBe(true);
+  }, 30_000);
+
+  it("fails the run when the log stream fails while the browser is closing after the final journey", async () => {
+    // R6-10: a log failure during browser shutdown is reconciled after
+    // cleanup, once, and the owned group is still terminated.
+    const root = scratch();
+    const out = join(root, "log-failure-during-close");
+    const port = await freePort();
+    const result = run(
+      [
+        "--out", out, "--port", String(port), "--server-command", command(tokenServer(port, null)),
+        "--startup-timeout-ms", "10000", "--stand-in-journey-ms", "200", "--stand-in-browser-close-ms", "1500",
+        "--inject-log-failure-at-close",
+      ],
+      root
+    );
+    expect(result.status).toBe(1);
+    const report = readReport(out);
+    expect(report.server?.logFailure).toBe("injected log failure during browser close");
+    expect(report.server?.unexpectedExit).toBeNull();
+    expect(report.results).toEqual([standInFailure, healthyUntilCleanup("log stream failed: injected log failure during browser close")]);
+    expect(report.failed).toBe(2);
+    expect(report.server?.exit?.signal).toBe("SIGTERM");
+    expect(report.server?.group).toBe("terminated");
+    expect(await untilGone(report.server!.pid!)).toBe(true);
+  }, 30_000);
+
+  it("fails the run when the owned process group survives bounded escalation", async () => {
+    // R6-11: process control fails (signals are not delivered), so the owned
+    // group is still alive after SIGTERM and SIGKILL. That is a failed
+    // assertion and a nonzero exit, not an informational report field.
+    const root = scratch();
+    const out = join(root, "group-survives");
+    const port = await freePort();
+    const result = run(
+      [
+        "--out", out, "--port", String(port), "--server-command", command(tokenServer(port, null)),
+        "--startup-timeout-ms", "10000", "--stand-in-journey-ms", "200", "--inject-signal-failure",
+      ],
+      root
+    );
+    const report = readReport(out);
+    const pid = report.server!.pid!;
+    try {
+      expect(result.status).toBe(1);
+      // Bounded: the startup, the hold, then two 3 s escalation waits.
+      expect(result.elapsedMs).toBeLessThan(20_000);
+      expect(report.server?.group).toBe("survived");
+      // The survivor is observable after the run ended.
+      expect(processGone(pid)).toBe(false);
+      expect(report.results).toEqual([
+        standInFailure,
+        expect.objectContaining({
+          host: "harness",
+          name: "owned server process group terminated during cleanup",
+          ok: false,
+          detail: { pid, group: "survived" },
+        }),
+      ]);
+      expect(report.failed).toBe(2);
+    } finally {
+      try {
+        process.kill(-pid, "SIGKILL");
+      } catch {
+        // Already gone.
+      }
+    }
+    expect(await untilGone(pid)).toBe(true);
+  }, 40_000);
+
+  it("stops the owned server and reports failure when browser shutdown never finishes", async () => {
+    // R6-12: the browser close never settles. It is bounded, the owned server
+    // is still terminated on its own path, the report is written and the run
+    // exits within the cleanup bound.
+    const root = scratch();
+    const out = join(root, "close-never-finishes");
+    const port = await freePort();
+    const closeBoundMs = 1500;
+    const result = run(
+      [
+        "--out", out, "--port", String(port), "--server-command", command(tokenServer(port, null)),
+        "--startup-timeout-ms", "10000", "--stand-in-journey-ms", "200", "--stand-in-browser-close-ms", "never",
+        "--browser-close-timeout-ms", String(closeBoundMs),
+      ],
+      root
+    );
+    expect(result.status).toBe(1);
+    // Startup, the hold, the close bound and the SIGTERM grace period.
+    expect(result.elapsedMs).toBeLessThan(closeBoundMs + 3000 + 8000);
+    const report = readReport(out);
+    expect(report.browserClose).toBe("timed out");
+    expect(report.results).toEqual([
+      standInFailure,
+      expect.objectContaining({
+        host: "harness",
+        name: `browser closed within the ${closeBoundMs} ms cleanup bound`,
+        ok: false,
+        detail: { outcome: "timed out" },
+      }),
+    ]);
+    expect(report.failed).toBe(2);
+    expect(report.server?.exit?.signal).toBe("SIGTERM");
     expect(report.server?.group).toBe("terminated");
     expect(await untilGone(report.server!.pid!)).toBe(true);
   }, 30_000);
