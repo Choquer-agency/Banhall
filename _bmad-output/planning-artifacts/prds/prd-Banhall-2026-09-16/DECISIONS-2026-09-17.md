@@ -54,3 +54,16 @@ Where to look when coming back to this:
 | 25 | Can the interviewer's own words be cited as evidence? | **No.** Only client turns back a claim; interviewer turns give context and are never cited. | Phase 3. |
 | 26 | Should names be replaced by placeholders before transcripts reach a model? | **Always, for every model including Claude.** People and company names become placeholders such as [CLIENT_1] and [PERSON_2] and are restored in the output. | Phase 3. |
 | 27 | Facts only, or full transcripts too? | **Facts for long transcripts; small projects keep full text** until an evaluation on three real transcripts shows facts match quality, then they switch. | Phase 3. |
+
+## Owner decisions, 2026-09-25
+
+| # | Question (plain terms) | Answer | Applied in |
+|---|---|---|---|
+| 28 | Can a project be duplicated to run Step by step again with the same material? | **Yes, from a hover button.** Project cards and Home rows show Duplicate on hover or focus. It opens New project filled in from that project with Step by step selected and the files listed; on create it copies the transcripts and files, not the old report, and starts the chosen generation. The old plain copy link still makes a full clone. | Merged 6d078537 into `feat/seeds-5-6-ui`. |
+| 29 | Which new models should writers be able to pick? | **Opus 5.5, GPT-6 Sol and GPT-6 Luna.** Fable 5.1 is taken out. Models that reject a forced tool call (Opus 5.5) get an unforced tool choice and never disabled thinking, and stay out of random compare draws. | Merged 4e4a0804 and 7c8fae8a. |
+| 30 | Should every model go through OpenRouter? | **Yes, as the target.** Billing on OpenRouter credits; Anthropic models pinned to Anthropic's own endpoint with no fallback host; the report chat moves later; OpenRouter prompt sampling turned off in the account. The direct Anthropic path stays behind a switch for rollback. | Design in `HANDOFF-banhall-files/research/openrouter-for-all.md`; to be built. |
+| 31 | Where should today's work live for testing? | **All of it on `feat/seeds-5-6-ui`** (the branch behind the local app on port 5173), including phase 4. | Merged 9085f3ce; phase 4 backfills run on the local test deployment. |
+| 32 | Which speed changes should be built now? | **Reorder the start:** the Brief runs alongside the transcript analysis, and the analysis and Brain search move to the background and must finish before sign-off. Not now: faster compression, the Brief at upload, parallel sections. | Speed research in `HANDOFF-banhall-files/research/speed-*.md`; to be built. |
+| 33 | Should Google Gemini be used for the analysis and Brief? | **Test first.** Run Gemini 3.8 Flash, pinned to Google Vertex, side by side with Sonnet 5 on the fictional demo transcripts with pass thresholds; switch only if it passes. | To be built. |
+
+Still to confirm by the owner: the 2026-09-25 story 4 amendments (Summary Self-check limit of 16,384 bytes; long Self-check reasons clipped instead of failing plan coverage), whether Random compare should include Opus 5.5, and the duplicate scope questions in PR #22.
