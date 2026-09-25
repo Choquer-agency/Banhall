@@ -93,6 +93,7 @@
   import SingleModelPicker from "$lib/components/generation/SingleModelPicker.svelte";
   import GhostCompareDialog from "$lib/components/generation/GhostCompareDialog.svelte";
   import { displayName } from "$lib/displayName";
+  import { setProposalSectionSource } from "$lib/chat/proposalSection";
 
   const auth = useAuth();
   // New-UI shell wiring (2026-08-10): same contract WorkspaceChrome uses —
@@ -228,6 +229,8 @@
 
   const project = $derived(projectQ.data);
   const report = $derived(reportQ.data);
+  // Suggested-edit cards in the assistant name their Section ("Suggested edit for 242").
+  setProposalSectionSource(() => report?.content);
   const generation = $derived(generationQ.data);
   const transcripts = $derived(transcriptsQ.data ?? []);
   const openTranscript = $derived(openTranscriptQ.data);
