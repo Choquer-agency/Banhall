@@ -253,6 +253,26 @@ export function acceptsForcedToolChoice(id: string): boolean {
   return !FORCED_TOOL_CHOICE_REJECTED_IDS.has(id) && modelById(id)?.forcedToolChoice !== false;
 }
 
+/**
+ * Models that reject a forced tool call but may still be drawn for a Random
+ * compare slot (owner decision 34, 2026-09-25). Opus 5.5 ran a full real
+ * Step-by-step on the unforced path; Fable 5.1 and Mythos 5.1 stay out.
+ */
+const RANDOM_DRAW_APPROVED_IDS: ReadonlySet<string> = new Set(["claude-opus-5-5"]);
+
+/**
+ * Whether a Random compare slot may draw `model`. Anthropic models only: a
+ * surprise pick must never need the OpenRouter key or change the cost
+ * profile. Models that reject a forced tool call need explicit approval above.
+ */
+export function eligibleForRandomDraw(
+  model: Pick<ModelEntry, "id" | "gateway" | "forcedToolChoice">
+): boolean {
+  if (model.gateway !== RANDOM_COMPARISON_GATEWAY) return false;
+  if (RANDOM_DRAW_APPROVED_IDS.has(model.id)) return true;
+  return model.forcedToolChoice !== false && acceptsForcedToolChoice(model.id);
+}
+
 /** The one system line that replaces a forced tool call. */
 export function toolOnlyReplyLine(toolName: string | undefined): string {
   return toolName
@@ -361,10 +381,8 @@ export function singleModelItems(
 // Compare-mode picker slots: each slot holds a model id or "" (Random).
 // Both Random → undefined (server draws the pair at reserve time). One model
 // + Random → fill the open slot here so the pair persists for retries.
-// Random fills draw from Anthropic models only: a surprise OpenRouter pick
-// must never silently require the second API key or a different cost profile.
-// Models that reject a forced tool call (Opus 5.5) stay an explicit choice,
-// as in the server's random draw.
+// Random fills use the same pool as the server's random draw
+// (eligibleForRandomDraw).
 export function comparePairFromSlots(
   slotA: string,
   slotB: string,
@@ -373,13 +391,7 @@ export function comparePairFromSlots(
   const picked = [slotA, slotB].filter(Boolean);
   if (picked.length === 0) return undefined;
   if (picked.length === 2) return picked;
-  const rest = models.filter(
-    (m) =>
-      m.id !== picked[0] &&
-      m.gateway === RANDOM_COMPARISON_GATEWAY &&
-      m.forcedToolChoice !== false &&
-      !FORCED_TOOL_CHOICE_REJECTED_IDS.has(m.id)
-  );
+  const rest = models.filter((m) => m.id !== picked[0] && eligibleForRandomDraw(m));
   if (rest.length === 0) return undefined;
   return [picked[0], rest[Math.floor(Math.random() * rest.length)].id];
 }
