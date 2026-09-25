@@ -27,6 +27,7 @@ import { refreshProjectGenerationActivity } from "../dashboardProjection";
 import { internal } from "../../_generated/api";
 import { getInternalProjectAccessOrNull, requireCurrentUser } from "../auth";
 import { requireReportEditAccess } from "../roleCapabilities";
+import { writeAgentOutputs } from "../generationOutputs";
 
 /** Argument validators of generations.createCandidateRun. */
 export const createCandidateRunArgs = {
@@ -406,11 +407,11 @@ export async function settleCandidateRun(
               ]
             : []),
       ]);
+      await writeAgentOutputs(ctx, generation, candidate.agentOutputs);
       await transitionGeneration(ctx, generation, "completed", {
         candidatesDone: done,
         candidatesFailed: failed,
         currentStep: "Complete",
-        agentOutputs: candidate.agentOutputs,
         completedAt: now,
         ...(scheduleSeedQa
           ? { postQaStatus: "running" as const, postQaStartedAt: now }
@@ -695,9 +696,9 @@ export async function selectReportCandidateHandler(
     status: "review",
     updatedAt: now,
   });
+  await writeAgentOutputs(ctx, generation, candidate.agentOutputs);
   await transitionGeneration(ctx, generation, "completed", {
     currentStep: "Complete",
-    agentOutputs: candidate.agentOutputs,
     // Story 2 (AD-24): the selected candidate's own stop, if it stopped.
     stoppedAfterSection: stoppedAfterSectionOf(candidate.agentOutputs),
     completedAt: now,

@@ -22,8 +22,10 @@ import { type IterativeSection, SECTION_ORDER, getSectionRun } from "./iterative
 import { transitionPostQa } from "../generationTransitions";
 import { appendGenerationProgress } from "../generationProgress";
 import { domainError } from "../contracts";
-import { requireInternalProjectAccess } from "../auth";
+import { getInternalProjectAccessOrNull, requireInternalProjectAccess } from "../auth";
 import { internal } from "../../_generated/api";
+import { readAgentOutputs, writeAgentOutputs } from "../generationOutputs";
+import { latestQaResult, qaResultIsCurrent, recordQaResult } from "../qaResults";
 
 /** Argument validators of generations.getPostQaAttempt. */
 export const getPostQaAttemptArgs = { generationId: v.id("generations") };
@@ -156,9 +158,10 @@ export async function getPostQaInputHandler(
   // One-shot / compare generations (Jul 17: "regenerate QA panel"): the
   // analyzer output and section texts were persisted inside agentOutputs at
   // generation time — rebuild the QA input from there.
-  if (!generation.agentOutputs) return null;
+  const agentOutputs = await readAgentOutputs(ctx, generation);
+  if (!agentOutputs) return null;
   try {
-    const outputs = JSON.parse(generation.agentOutputs) as {
+    const outputs = JSON.parse(agentOutputs) as {
       analyzer?: unknown;
       section242?: string;
       section244?: string;
@@ -258,7 +261,7 @@ export async function saveReportQaHandler(
   }
   let outputs: Record<string, unknown> = {};
   try {
-    const parsed: unknown = JSON.parse(generation.agentOutputs ?? "{}");
+    const parsed: unknown = JSON.parse((await readAgentOutputs(ctx, generation)) ?? "{}");
     if (parsed && typeof parsed === "object") {
       outputs = parsed as Record<string, unknown>;
     }
@@ -285,18 +288,22 @@ export async function saveReportQaHandler(
     await appendGenerationProgress(ctx, generation, [
       "Post-assembly QA pass failed — the report is unaffected.",
     ]);
+    const completedAt = Date.now();
+    await writeAgentOutputs(ctx, generation, JSON.stringify(outputs));
+    await recordQaResult(ctx, generation, args, "failed", completedAt);
     await transitionPostQa(ctx, generation, "failed", {
-      agentOutputs: JSON.stringify(outputs),
-      postQaCompletedAt: Date.now(),
+      postQaCompletedAt: completedAt,
     });
     return;
   }
   await appendGenerationProgress(ctx, generation, [
     `✓ QA scorecard ready${args.qaScore !== undefined ? ` (${args.qaScore}/100)` : ""}.`,
   ]);
+  const completedAt = Date.now();
+  await writeAgentOutputs(ctx, generation, JSON.stringify(outputs));
+  await recordQaResult(ctx, generation, args, "done", completedAt);
   await transitionPostQa(ctx, generation, "done", {
-    agentOutputs: JSON.stringify(outputs),
-    postQaCompletedAt: Date.now(),
+    postQaCompletedAt: completedAt,
     ...(args.qaScore !== undefined ? { qaScore: args.qaScore } : {}),
   });
 }
@@ -366,4 +373,35 @@ export async function failStalePostQaHandler(
     failed += 1;
   }
   return { failed };
+}
+
+/** Argument validators of generations.getGenerationQaResult. */
+export const getGenerationQaResultArgs = { generationId: v.id("generations") };
+
+/**
+ * Handler of generations.getGenerationQaResult: the newest recorded QA result
+ * of a generation, the report revision it scored, and whether the report is
+ * still at that revision with the same bytes (`current`). Null for an
+ * outsider, a missing generation, or a generation with no recorded result
+ * (older passes, and legacy settles, recorded none).
+ */
+export async function getGenerationQaResultHandler(
+  ctx: QueryCtx,
+  args: ObjectType<typeof getGenerationQaResultArgs>
+) {
+  const generation = await ctx.db.get(args.generationId);
+  if (!generation) return null;
+  if (!(await getInternalProjectAccessOrNull(ctx, generation.projectId))) return null;
+  const result = await latestQaResult(ctx, generation._id);
+  if (!result) return null;
+  const report = await ctx.db.get(result.reportId);
+  return {
+    status: result.status,
+    reportId: result.reportId,
+    revisionNumber: result.revisionNumber,
+    contentHash: result.contentHash,
+    qaScore: result.qaScore ?? null,
+    completedAt: result.completedAt,
+    current: await qaResultIsCurrent(result, report),
+  };
 }

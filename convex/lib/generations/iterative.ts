@@ -42,6 +42,7 @@ import { sectionMetrics } from "../lineLimits";
 import { generationTranscriptIds } from "../transcripts";
 import { terminateSeedAttempts } from "../../seedRuns";
 import { bypassSeedEpisodes } from "../seedDecisionWrites";
+import { writeAgentOutputs } from "../generationOutputs";
 
 // ─── Iterative (section-by-section) generation lifecycle ─────────────────────
 //
@@ -714,9 +715,9 @@ export async function approveSectionDraftHandler(
     "✓ Report assembled from the approved sections.",
     "Running the QA scorecard and chronology in the background…",
   ]);
+  await writeAgentOutputs(ctx, generation, agentOutputs);
   await transitionGeneration(ctx, generation, "completed", {
     currentStep: "Complete",
-    agentOutputs,
     completedAt: doneAt,
     postQaStatus: "running",
     postQaStartedAt: doneAt,

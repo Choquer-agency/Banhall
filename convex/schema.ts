@@ -17,6 +17,7 @@ import {
 } from "./lib/contracts";
 import { admissionValidator, attemptOutcomeValidator } from "./lib/learningAdmission";
 import { styleOverridesValidator } from "./lib/styleOverrides";
+import { brainProvenanceEntryValidator } from "./lib/generationOutputs";
 import {
   sectionMetricsValidator,
   sectionQaFindingsValidator,
@@ -1000,7 +1001,14 @@ export default defineSchema({
         v.literal("final")
       )
     ),
+    // Legacy home of the agent outputs JSON. Since 2026-09-25 it, and
+    // `brainProvenance` and `brainRetrievalBrief` below, live in
+    // `generationArtifacts` rows once `outputsInArtifactsAt` is set (every new
+    // generation, older ones after generations.backfillGenerationOutputs or
+    // their first output write); the row fields are then never written again
+    // and never read (convex/lib/generationOutputs.ts).
     agentOutputs: v.optional(v.string()),
+    outputsInArtifactsAt: v.optional(v.number()),
     currentStep: v.optional(v.string()),
     // Legacy progress narration. Since 2026-09-25 new lines are rows of
     // `generationProgress`; this array is only read (dual read) and never
@@ -1034,20 +1042,7 @@ export default defineSchema({
     // into brainSources). `section` says which consumer used it (analyzer/
     // 242/244/246); searchScore/rerankScore keep the raw signals separate
     // from the final blended score.
-    brainProvenance: v.optional(
-      v.array(
-        v.object({
-          entryId: v.string(),
-          score: v.number(),
-          title: v.optional(v.string()),
-          writerName: v.optional(v.string()),
-          section: v.optional(v.string()),
-          sourceId: v.optional(v.string()),
-          searchScore: v.optional(v.number()),
-          rerankScore: v.optional(v.number()),
-        })
-      )
-    ),
+    brainProvenance: v.optional(v.array(brainProvenanceEntryValidator)),
     // The Haiku-extracted retrieval brief (JSON) behind the section queries —
     // kept for retrieval-quality evals.
     brainRetrievalBrief: v.optional(v.string()),
@@ -2228,14 +2223,45 @@ export default defineSchema({
       // 2026-09-25: the ordered chain's frozen payload, persisted once per
       // candidate chain (`candidateRunId`) and passed to the chain's
       // scheduled actions by id instead of in their arguments.
-      v.literal("ordered_payload")
+      v.literal("ordered_payload"),
+      // 2026-09-25: the generation's outputs, off the live generation row
+      // (convex/lib/generationOutputs.ts).
+      v.literal("agent_outputs"),
+      v.literal("brain_retrieval_brief"),
+      v.literal("brain_provenance")
     ),
     // JSON text for `analysis` and `brain_blocks`; empty for kinds stored in
     // a typed field below.
     content: v.string(),
     candidateRunId: v.optional(v.id("generationCandidateRuns")),
     orderedPayload: v.optional(orderedPayloadValidator),
+    brainProvenance: v.optional(v.array(brainProvenanceEntryValidator)),
   }).index("by_generationId_and_kind", ["generationId", "kind"]),
+
+  // 2026-09-25: one row per settled post-assembly QA pass that captured the
+  // report revision it scored, keyed to that revision so a reader can tell a
+  // result that no longer describes the report (convex/lib/qaResults.ts).
+  // `qa` and `chronology` are the JSON the pass merged into agent outputs.
+  generationQaResults: defineTable({
+    generationId: v.id("generations"),
+    projectId: v.id("projects"),
+    reportId: v.id("reports"),
+    revisionNumber: v.number(),
+    contentHash: v.string(),
+    status: v.union(v.literal("done"), v.literal("failed")),
+    qa: v.optional(v.string()),
+    chronology: v.optional(v.string()),
+    qaScore: v.optional(v.number()),
+    attemptStartedAt: v.optional(v.number()),
+    completedAt: v.number(),
+  })
+    .index("by_reportId_and_revisionNumber_and_contentHash", [
+      "reportId",
+      "revisionNumber",
+      "contentHash",
+    ])
+    .index("by_generationId_and_completedAt", ["generationId", "completedAt"])
+    .index("by_projectId", ["projectId"]),
 
   // Immutable source text captured before candidate fan-out.
   generationSources: defineTable({

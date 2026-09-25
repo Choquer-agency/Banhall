@@ -15,6 +15,7 @@ import { SEED_INITIALIZATION_ERROR } from "./seedStage";
 import { getReportEditAccessOrNull } from "../roleCapabilities";
 import { readGenerationProgress } from "../generationProgress";
 import { seedModelById } from "../../../shared/generationModels";
+import { readAgentOutputs } from "../generationOutputs";
 
 // ─── Generation status helpers ───────────────────────────────────────────────
 // ACTIVE_GENERATION_STATUSES (the project stays fenced on the generation and
@@ -147,7 +148,8 @@ export async function getLatestGenerationHandler(
       generation.error,
       "The generation did not complete. Try again."
     ),
-    agentOutputs: generation.agentOutputs,
+    // Read through the artifact rows since 2026-09-25 (dual read).
+    agentOutputs: await readAgentOutputs(ctx, generation),
   };
 }
 
@@ -235,7 +237,8 @@ export async function getGenerationHandler(
     requestedAt: generation.requestedAt,
     startedAt: generation.startedAt,
     completedAt: generation.completedAt,
-    agentOutputs: generation.agentOutputs,
+    // Read through the artifact rows since 2026-09-25 (dual read).
+    agentOutputs: await readAgentOutputs(ctx, generation),
     /** Deployment-level prompt program hash, or null for untracked rows. */
     promptVersion: tracked ? promptVersion : null,
     /** Learned-guidance ids recorded so far, or null for untracked rows. */

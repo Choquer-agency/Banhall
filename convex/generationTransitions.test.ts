@@ -389,7 +389,7 @@ describe("call sites", () => {
     }
   });
 
-  it("no Convex module writes a generation's status, post-QA or redraft state directly", () => {
+  it("no Convex module writes a generation's status, post-QA, redraft or moved fields directly", () => {
     const offenders: string[] = [];
     const walk = (dir: string): string[] =>
       fs.readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
@@ -418,7 +418,13 @@ describe("call sites", () => {
           end += 1;
         }
         const body = source.slice(call.lastIndex, end);
-        if (/\bstatus\s*:|postQaStatus|\bredraft\s*:/.test(body)) {
+        // Status and sub-states go through the transition helpers; the fields
+        // that moved to child rows on 2026-09-25 are never written to the row.
+        if (
+          /\bstatus\s*:|postQaStatus|\bredraft\s*:|\bprogressLog\s*:|\bagentOutputs\s*:|\bbrainProvenance\s*:|\bbrainRetrievalBrief\s*:/.test(
+            body
+          )
+        ) {
           const line = source.slice(0, match.index).split("\n").length;
           offenders.push(`${path.relative(__dirname, file)}:${line}`);
         }

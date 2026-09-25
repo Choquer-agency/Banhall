@@ -307,6 +307,8 @@ export async function reserveGeneration(
     ...(transcriptFacts ? { transcriptFacts: true } : {}),
     ...(placeholders.length > 0 ? { placeholders } : {}),
     status: "reserved",
+    // 2026-09-25: this generation's outputs live in generationArtifacts rows.
+    outputsInArtifactsAt: now,
     requestedAt: now,
     requestedBy,
     learningDigestIds: [],
@@ -568,6 +570,8 @@ export async function retryFromSummaryHandler(
     ...(failed.transcriptFacts !== undefined ? { transcriptFacts: failed.transcriptFacts } : {}),
     ...(failed.placeholders ? { placeholders: failed.placeholders } : {}),
     status: "reserved",
+    // 2026-09-25: this generation's outputs live in generationArtifacts rows.
+    outputsInArtifactsAt: now,
     requestedAt: now,
     requestedBy: user._id,
     learningDigestIds: failed.learningDigestIds ?? [],

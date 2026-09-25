@@ -87,6 +87,7 @@ export const PROJECT_SCOPED_TABLES = [
   { table: "transcripts", field: "projectId", disposition: "delete", index: "by_projectId", blob: "originalStorageId" },
   // Generation-owned rows, leaves first.
   { table: "generationProgress", field: "projectId", disposition: "delete", index: "by_projectId" },
+  { table: "generationQaResults", field: "projectId", disposition: "delete", index: "by_projectId" },
   { table: "sectionEditEvents", field: "projectId", disposition: "delete", index: "by_projectId" },
   { table: "complianceNotes", field: "projectId", disposition: "delete", index: "by_projectId" },
   // Step-by-step seed-stage rows (AD-33), leaves before their parents.

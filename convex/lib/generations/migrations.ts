@@ -11,6 +11,7 @@ import { missingSectionRunTypedFields } from "../sectionRunData";
 import { internal } from "../../_generated/api";
 import { isProjectDeleting } from "../projectDeletion";
 import { appendGenerationProgress } from "../generationProgress";
+import { moveOutputsToArtifacts, outputsInArtifacts } from "../generationOutputs";
 
 // ─── 2026-09-25 migrations (phase 4 generation structure) ───────────────────
 // Batched, self-rescheduling backfills in the repo's pattern (see
@@ -126,6 +127,60 @@ export async function backfillGenerationProgressHandler(
     scanned: page.page.length,
     copiedGenerations,
     copiedLines,
+    isDone: page.isDone,
+    continueCursor: page.continueCursor,
+  };
+}
+
+/** Generations per page of the outputs backfill: rows can carry large agent
+ * outputs, so pages stay small and bounded by bytes read as well. */
+const OUTPUTS_BACKFILL_PAGE_SIZE = 10;
+const OUTPUTS_BACKFILL_MAX_BYTES_READ = 8 * 1024 * 1024;
+
+/** Argument validators of generations.backfillGenerationOutputs. */
+export const backfillGenerationOutputsArgs = {
+  cursor: v.optional(v.union(v.string(), v.null())),
+  pageSize: v.optional(v.number()),
+  dryRun: v.optional(v.boolean()),
+};
+
+/**
+ * Handler of generations.backfillGenerationOutputs: move each older
+ * generation's agent outputs, Brain provenance and retrieval brief into
+ * generationArtifacts rows and stamp outputsInArtifactsAt
+ * (moveOutputsToArtifacts). The row fields are kept. Rows already stamped and
+ * projects in deletion are skipped, so a second run moves nothing.
+ */
+export async function backfillGenerationOutputsHandler(
+  ctx: MutationCtx,
+  args: ObjectType<typeof backfillGenerationOutputsArgs>
+) {
+  const pageSize = Math.min(
+    Math.max(1, Math.floor(args.pageSize ?? OUTPUTS_BACKFILL_PAGE_SIZE)),
+    OUTPUTS_BACKFILL_PAGE_SIZE
+  );
+  const page = await ctx.db.query("generations").paginate({
+    cursor: args.cursor ?? null,
+    numItems: pageSize,
+    maximumBytesRead: OUTPUTS_BACKFILL_MAX_BYTES_READ,
+  });
+  const now = Date.now();
+  let moved = 0;
+  for (const generation of page.page) {
+    if (outputsInArtifacts(generation)) continue;
+    if (await isProjectDeleting(ctx, generation.projectId)) continue;
+    if (!args.dryRun) await moveOutputsToArtifacts(ctx, generation, now);
+    moved += 1;
+  }
+  if (!page.isDone && !args.dryRun) {
+    await ctx.scheduler.runAfter(0, internal.generations.backfillGenerationOutputs, {
+      cursor: page.continueCursor,
+      ...(args.pageSize !== undefined ? { pageSize } : {}),
+    });
+  }
+  return {
+    scanned: page.page.length,
+    moved,
     isDone: page.isDone,
     continueCursor: page.continueCursor,
   };

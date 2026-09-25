@@ -14,9 +14,20 @@ import {
 import { domainError } from "./contracts";
 
 /** Every writable field of a generation row except `status`, which only
- * `transitionGeneration` sets. */
+ * `transitionGeneration` sets, and the legacy fields that moved to child
+ * rows on 2026-09-25 (progress lines, agent outputs and Brain provenance),
+ * which are never written to the row again. */
 export type GenerationPatch = Partial<
-  Omit<Doc<"generations">, "_id" | "_creationTime" | "status">
+  Omit<
+    Doc<"generations">,
+    | "_id"
+    | "_creationTime"
+    | "status"
+    | "progressLog"
+    | "agentOutputs"
+    | "brainProvenance"
+    | "brainRetrievalBrief"
+  >
 >;
 
 function postQaStateOf(value: Doc<"generations">["postQaStatus"]): PostQaState {

@@ -19,6 +19,7 @@ import { appendGenerationProgress } from "../generationProgress";
 import { writerSettingsValidator } from "../orderedChain";
 import { isProjectDeleting } from "../projectDeletion";
 import { isTerminalGenerationStatus } from "../../../shared/generationTransitions";
+import { writeAgentOutputs, writeBrainProvenance } from "../generationOutputs";
 
 /** Argument validators of generations.beginGeneration. */
 export const beginGenerationArgs = {
@@ -189,10 +190,10 @@ export async function setBrainProvenanceHandler(
   ctx: MutationCtx,
   args: ObjectType<typeof setBrainProvenanceArgs>
 ) {
-  await ctx.db.patch(args.generationId, {
-    brainProvenance: args.exemplars,
-    brainRetrievalBrief: args.brief,
-  });
+  const generation = await ctx.db.get(args.generationId);
+  if (!generation) throw new Error(`Generation ${args.generationId} not found`);
+  // Child rows (2026-09-25), not fields of the live generation row.
+  await writeBrainProvenance(ctx, generation, args.exemplars, args.brief);
 }
 
 /** Argument validators of generations.appendProgress. */
@@ -271,9 +272,11 @@ export async function updateGenerationStatusHandler(
   if (await isProjectDeleting(ctx, generation.projectId)) return;
   // Any other move the transition table does not declare for this row's
   // flow is refused (INVALID_TRANSITION) rather than written.
+  if (args.agentOutputs !== undefined) {
+    await writeAgentOutputs(ctx, generation, args.agentOutputs);
+  }
   await transitionGeneration(ctx, generation, args.status, {
     ...(args.currentStep !== undefined ? { currentStep: args.currentStep } : {}),
-    ...(args.agentOutputs !== undefined ? { agentOutputs: args.agentOutputs } : {}),
     ...(args.error !== undefined ? { error: args.error } : {}),
     ...(args.completedAt !== undefined ? { completedAt: args.completedAt } : {}),
   });

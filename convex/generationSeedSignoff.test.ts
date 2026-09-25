@@ -45,6 +45,7 @@ import type { completeAttempt, dispatch } from "./seedRuns";
 import { readSeedReadiness } from "./lib/seedReadiness";
 import { factIndex } from "./lib/seedFacts";
 import schema from "./schema";
+import { agentOutputsOf } from "./lib/generationOutputs";
 
 const summaryAdmissionProgram = vi.hoisted(() => ({
   promptVersion: null as string | null,
@@ -5275,6 +5276,7 @@ describe("seed Summary sign-off and recovery", () => {
         .unique();
       return {
         generation: await ctx.db.get(s.generationId),
+        outputs: await agentOutputsOf(ctx, s.generationId),
         project: await ctx.db.get(s.projectId),
         candidate: await ctx.db.get(signed.candidateRunId),
         report,
@@ -5314,7 +5316,7 @@ describe("seed Summary sign-off and recovery", () => {
     expect(completed.summary).toEqual(summaryBefore);
     const reportBytes = completed.report?.content ?? "";
     for (const draft of acceptedDrafts) expect(reportBytes).toContain(draft);
-    const outputs = JSON.parse(completed.generation?.agentOutputs ?? "{}") as {
+    const outputs = JSON.parse(completed.outputs ?? "{}") as {
       section242?: string;
       section244?: string;
       section246?: string;

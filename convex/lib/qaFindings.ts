@@ -5,6 +5,7 @@ import { checkBecauseClauses, sectionDeterministicFindings } from "../ai/qaCheck
 import { qaScorecardSchema } from "../../shared/qaScorecard";
 import { normalizeStyleOverrides, STYLE_OVERRIDE_KEYS, type StyleOverrides } from "../../shared/styleOverrides";
 import { extractReportSections } from "./tiptapReport";
+import { readAgentOutputs } from "./generationOutputs";
 
 function parseOverrides(raw: unknown): StyleOverrides {
   const known: Partial<StyleOverrides> = {};
@@ -60,7 +61,9 @@ export async function persistDeterministicFindings(ctx: MutationCtx, reportId: I
   if (report.generationId) {
     const generation = await ctx.db.get(report.generationId);
     try {
-      const outputs: unknown = JSON.parse(initialOutputs ?? generation?.agentOutputs ?? "{}");
+      const outputs: unknown = JSON.parse(
+        initialOutputs ?? (generation ? await readAgentOutputs(ctx, generation) : undefined) ?? "{}"
+      );
       if (outputs && typeof outputs === "object" && "styleOverrides" in outputs) {
         overrides = parseOverrides(outputs.styleOverrides);
       }

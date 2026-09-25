@@ -56,6 +56,7 @@ import { complianceNoteDraftValidator, complianceNoteRow } from "../complianceNo
 import { ORDERED_SECTION_TITLES } from "../../ai/promptDefinitions";
 import { writePreEditSnapshot } from "../snapshots";
 import { persistDeterministicFindings } from "../qaFindings";
+import { readAgentOutputs, writeAgentOutputs } from "../generationOutputs";
 
 // ─── Step-by-step writing progress, Stop and redraft (CAP-17, CAP-18) ───────
 //
@@ -805,7 +806,7 @@ export async function settleSeedRedraft(
       : rows.every((row) => row.status === "drafted");
   let outputs: Record<string, unknown> = {};
   try {
-    const parsed: unknown = JSON.parse(generation.agentOutputs ?? "{}");
+    const parsed: unknown = JSON.parse((await readAgentOutputs(ctx, generation)) ?? "{}");
     if (parsed && typeof parsed === "object") outputs = parsed as Record<string, unknown>;
   } catch {
     /* Rebuild from the Section keys below. */
@@ -825,6 +826,7 @@ export async function settleSeedRedraft(
     narration,
     ...(scheduleQa ? ["Running the QA scorecard and chronology in the background…"] : []),
   ]);
+  await writeAgentOutputs(ctx, generation, JSON.stringify(outputs));
   await transitionRedraft(ctx, generation, {
     ...redraft,
     status: outcome.failed ? "failed" : "completed",
@@ -839,7 +841,6 @@ export async function settleSeedRedraft(
       : lastDrafted
         ? sectionNumberOfRow(lastDrafted)
         : generation.stoppedAfterSection,
-    agentOutputs: JSON.stringify(outputs),
     ...(scheduleQa ? { postQaStatus: "running" as const, postQaStartedAt } : {}),
   });
   if (scheduleQa) {

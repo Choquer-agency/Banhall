@@ -27,6 +27,7 @@ import { readOrderedProfileContext } from "./pipeline";
 import { sectionMetrics } from "../lib/lineLimits";
 import { parseCanonicalReport } from "../../src/lib/reportSections";
 import { NOT_GENERATED_PLACEHOLDER } from "../lib/tiptapReport";
+import { agentOutputsOf } from "../lib/generationOutputs";
 
 const network = vi.hoisted(() => ({ create: vi.fn() }));
 vi.mock("@anthropic-ai/sdk", () => ({
@@ -286,7 +287,11 @@ const priorBlock = (section: Section) =>
 async function generationOf(t: ReturnType<typeof convexTest>, generationId: Id<"generations">) {
   return await t.run(async (ctx) => {
     const generation = (await ctx.db.get(generationId)) as Doc<"generations">;
-    return { ...generation, progressLog: await allGenerationProgress(ctx, generationId) };
+    return {
+      ...generation,
+      progressLog: await allGenerationProgress(ctx, generationId),
+      agentOutputs: await agentOutputsOf(ctx, generationId),
+    };
   });
 }
 

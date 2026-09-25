@@ -375,6 +375,9 @@ async function seedProjectRows(
     await ctx.db.insert("researchClaims", { sessionId, projectId, text: "t", evidenceKind: "external", support: "supported", sourceIds: [], createdAt: now });
     await ctx.db.insert("sectionEditEvents", { projectId, generationId, section: "s242", draftText: "d", approvedText: "a", editRatio: 0, createdAt: now });
     await ctx.db.insert("generationProgress", { projectId, generationId, at: now, message: "Queued", kind: "info" });
+    await ctx.db.insert("generationQaResults", {
+      projectId, generationId, reportId, revisionNumber: 0, contentHash: "h", status: "done", completedAt: now,
+    });
     await ctx.db.insert("complianceNotes", {
       projectId, generationId, section: "242", source: "deterministic", instruction: "i", outcome: "applied", tier: "locked", reason: "r", repaired: false,
     });

@@ -139,6 +139,8 @@ import {
   requestReportQaHandler,
   failStalePostQaArgs,
   failStalePostQaHandler,
+  getGenerationQaResultArgs,
+  getGenerationQaResultHandler,
 } from "./lib/generations/postQa";
 import {
   reapSeedBatchPageArgs,
@@ -205,6 +207,8 @@ import {
   backfillSectionRunDataHandler,
   backfillGenerationProgressArgs,
   backfillGenerationProgressHandler,
+  backfillGenerationOutputsArgs,
+  backfillGenerationOutputsHandler,
 } from "./lib/generations/migrations";
 
 // Helpers other modules import from "./generations".
@@ -1044,4 +1048,27 @@ export const backfillGenerationProgress = internalMutation({
     continueCursor: v.string(),
   }),
   handler: backfillGenerationProgressHandler,
+});
+
+/**
+ * 2026-09-25: move older generations' outputs (agent outputs, Brain
+ * provenance, retrieval brief) into generationArtifacts rows.
+ * `npx convex run generations:backfillGenerationOutputs '{}'`
+ */
+export const backfillGenerationOutputs = internalMutation({
+  args: backfillGenerationOutputsArgs,
+  returns: v.object({
+    scanned: v.number(),
+    moved: v.number(),
+    isDone: v.boolean(),
+    continueCursor: v.string(),
+  }),
+  handler: backfillGenerationOutputsHandler,
+});
+
+/** The newest recorded QA result of a generation and whether it still
+ * describes the report (2026-09-25). */
+export const getGenerationQaResult = query({
+  args: getGenerationQaResultArgs,
+  handler: getGenerationQaResultHandler,
 });
