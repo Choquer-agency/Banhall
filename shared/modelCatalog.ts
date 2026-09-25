@@ -430,7 +430,6 @@ export const SEED_CANONICAL_SLUGS: Readonly<Record<string, string>> = {
   "claude-sonnet-5": "anthropic/claude-sonnet-5-20260630",
   // Read from OpenRouter's catalog on 2026-09-25.
   "claude-opus-5-5": "anthropic/claude-opus-5.5-20260921",
-  "claude-fable-5-1": "anthropic/claude-fable-5.1-20260831",
   "openai/gpt-6-sol": "openai/gpt-6-sol-20260922",
   "openai/gpt-6-luna": "openai/gpt-6-luna-20260922",
   "claude-opus-4-8": "anthropic/claude-4.8-opus-20260528",
@@ -445,7 +444,6 @@ export const SEED_CANONICAL_SLUGS: Readonly<Record<string, string>> = {
 const ANTHROPIC_SEED_LIMITS: Readonly<Record<string, { context: number; output: number }>> = {
   "claude-sonnet-5": { context: 1_000_000, output: 128_000 },
   "claude-opus-5-5": { context: 1_000_000, output: 128_000 },
-  "claude-fable-5-1": { context: 1_000_000, output: 128_000 },
   "claude-opus-4-8": { context: 1_000_000, output: 128_000 },
   "claude-haiku-4-5-20251001": { context: 200_000, output: 64_000 },
 };

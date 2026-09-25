@@ -47,14 +47,6 @@ export const CANDIDATE_MODELS = [
     forcedToolChoice: false,
   },
   {
-    id: "claude-fable-5-1",
-    label: "Fable 5.1",
-    provider: "Anthropic",
-    gateway: "anthropic",
-    description: "Anthropic's top tier - strongest reasoning at the highest price.",
-    forcedToolChoice: false,
-  },
-  {
     id: "claude-opus-4-8",
     label: "Opus 4.8",
     provider: "Anthropic",
@@ -211,6 +203,15 @@ type AssertOpenRouterDeclaresReasoning = OpenRouterEntry extends {
 const _openRouterModelsDeclareReasoning: AssertOpenRouterDeclaresReasoning = true;
 void _openRouterModelsDeclareReasoning;
 
+/**
+ * Labels for built-in models taken out of the seed list, so older
+ * generations and role history still name them. Label only: these ids are
+ * not selectable and do not resolve through modelById.
+ */
+export const RETIRED_SEED_LABELS: Readonly<Record<string, string>> = {
+  "claude-fable-5-1": "Fable 5.1",
+};
+
 export function modelById(id: string): ModelEntry | undefined {
   return (
     runtimeEntries.get(id) ??
@@ -362,8 +363,8 @@ export function singleModelItems(
 // + Random → fill the open slot here so the pair persists for retries.
 // Random fills draw from Anthropic models only: a surprise OpenRouter pick
 // must never silently require the second API key or a different cost profile.
-// Models that reject a forced tool call (Opus 5.5, Fable 5.1) stay an
-// explicit choice, as in the server's random draw.
+// Models that reject a forced tool call (Opus 5.5) stay an explicit choice,
+// as in the server's random draw.
 export function comparePairFromSlots(
   slotA: string,
   slotB: string,

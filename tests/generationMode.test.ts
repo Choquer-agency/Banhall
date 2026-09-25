@@ -46,9 +46,9 @@ describe("generation candidate mode", () => {
     );
     // Anthropic models added to the seed later never join the legacy roster.
     const anthropic = CANDIDATE_MODELS.filter((model) => model.gateway === "anthropic");
-    expect(anthropic.map((model) => model.id)).toEqual(
-      expect.arrayContaining(["claude-opus-5-5", "claude-fable-5-1"])
-    );
+    expect(anthropic.map((model) => model.id)).toContain("claude-opus-5-5");
+    // Fable 5.1 was taken out of the selectable list (owner, 2026-09-25).
+    expect(anthropic.map((model) => model.id)).not.toContain("claude-fable-5-1");
     expect(models.some((model) => model.id === "claude-opus-5-5")).toBe(false);
     expect(models.some((model) => model.id === "claude-fable-5-1")).toBe(false);
   });

@@ -65,7 +65,7 @@ import {
   type ParsedModel,
   type PrefilterModel,
 } from "../shared/modelCatalog";
-import { seedModelById } from "../shared/generationModels";
+import { RETIRED_SEED_LABELS, seedModelById } from "../shared/generationModels";
 import {
   AUTO_SWITCH_KEY,
   EVAL_BUDGET_KEY,
@@ -177,15 +177,26 @@ async function adoptableAsSeed(
  * Insert every seed model the table does not hold yet, and enable a seed id
  * the refresh found first (adoptableAsSeed). An adopted row takes the seed's
  * label, description and reasoning and max-output declarations, and keeps
- * the provider's prices, slug and scores. Role assignments, switch events
- * and evaluations are never touched. Idempotent.
+ * the provider's prices, slug and scores. A seed row this pass retired comes
+ * back when its id is a seed again (a build rolled back, then forward); an
+ * enabled seed row whose id is no longer a seed is retired unless a role
+ * uses it. Role assignments, switch events and evaluations are never
+ * touched. Idempotent.
  */
 export async function ensureSeedCatalog(ctx: MutationCtx, now: number): Promise<number> {
   let written = 0;
-  for (const seed of seedCatalogModels(now)) {
+  const seeds = seedCatalogModels(now);
+  for (const seed of seeds) {
     const row = await catalogRow(ctx, seed.modelId);
     if (!row) {
       await ctx.db.insert("modelCatalog", { ...seed, updatedAt: now });
+      written += 1;
+      continue;
+    }
+    // Only the retire step below leaves a seed row retired without
+    // missingSince, so this undoes exactly that.
+    if (row.source === "seed" && row.status === "retired" && row.missingSince === undefined) {
+      await ctx.db.patch(row._id, { status: "enabled", updatedAt: now });
       written += 1;
       continue;
     }
@@ -203,6 +214,20 @@ export async function ensureSeedCatalog(ctx: MutationCtx, now: number): Promise<
       ...(seed.forcedToolChoice === false ? { forcedToolChoice: false } : {}),
       updatedAt: now,
     });
+    written += 1;
+  }
+  // A built-in model taken out of the seed list (Fable 5.1, owner decision
+  // 2026-09-25) must stop being selectable. Retire its enabled seed row
+  // unless a role still uses it; an assigned row stays until reassigned.
+  const seedIds = new Set(seeds.map((seed) => seed.modelId));
+  const inUse = await assignedModelIds(ctx);
+  const enabled = await ctx.db
+    .query("modelCatalog")
+    .withIndex("by_status", (q) => q.eq("status", "enabled"))
+    .take(200);
+  for (const row of enabled) {
+    if (row.source !== "seed" || seedIds.has(row.modelId) || inUse.has(row.modelId)) continue;
+    await ctx.db.patch(row._id, { status: "retired", updatedAt: now });
     written += 1;
   }
   return written;
@@ -1244,7 +1269,7 @@ export const adminState = query({
     const labelOf = (id: string | undefined) => {
       if (!id) return null;
       const row = rows.find((item) => item.modelId === id);
-      return row?.displayName ?? seedModelById(id)?.label ?? id;
+      return row?.displayName ?? seedModelById(id)?.label ?? RETIRED_SEED_LABELS[id] ?? id;
     };
     const roles = [];
     for (const role of MODEL_ROLES) {

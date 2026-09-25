@@ -488,7 +488,6 @@ describe("model registry invariants", () => {
 describe("models added 2026-09-25", () => {
   const direct = [
     { id: "claude-opus-5-5", label: "Opus 5.5" },
-    { id: "claude-fable-5-1", label: "Fable 5.1" },
   ];
   const gateway = [
     { id: "openai/gpt-6-sol", label: "GPT-6 Sol" },
@@ -505,7 +504,7 @@ describe("models added 2026-09-25", () => {
     }
   });
 
-  it("route Opus 5.5 and Fable 5.1 direct to Anthropic, budgeted like Sonnet 5", () => {
+  it("route Opus 5.5 direct to Anthropic, budgeted like Sonnet 5", () => {
     for (const { id } of direct) {
       expect(gatewayForModel(id), id).toBe("anthropic");
       expect(sectionAnswerTokenBudget(id), id).toBe(sectionAnswerTokenBudget("claude-sonnet-5"));
@@ -534,8 +533,10 @@ describe("models added 2026-09-25", () => {
   it("rejects forced tool calls only for Opus 5.5, Fable 5.1 and Mythos 5.1, by either gateway id", () => {
     expect(CANDIDATE_MODELS.filter((model) => !acceptsForcedToolChoice(model.id)).map((model) => model.id)).toEqual([
       "claude-opus-5-5",
-      "claude-fable-5-1",
     ]);
+    // Fable 5.1 is no longer a seed but keeps the rule for any row that lists it.
+    expect(acceptsForcedToolChoice("claude-fable-5-1")).toBe(false);
+    expect(modelById("claude-fable-5-1")).toBeUndefined();
     for (const id of [
       "anthropic/claude-opus-5.5",
       "anthropic/claude-fable-5.1",

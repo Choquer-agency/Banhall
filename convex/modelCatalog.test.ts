@@ -1798,7 +1798,8 @@ describe("round 10", () => {
 });
 
 describe("models added 2026-09-25 on a catalog seeded before them", () => {
-  const NEW_DIRECT = ["claude-opus-5-5", "claude-fable-5-1"];
+  // Fable 5.1 was taken out of the selectable list (owner, 2026-09-25).
+  const NEW_DIRECT = ["claude-opus-5-5"];
   const GPT6 = ["openai/gpt-6-sol", "openai/gpt-6-luna"];
   const sol = parsed.find((model) => model.openRouterId === "openai/gpt-6-sol")!;
   // The 2026-09-24 snapshot predates GPT-6 Luna; OpenRouter listed it on
@@ -1816,7 +1817,7 @@ describe("models added 2026-09-25 on a catalog seeded before them", () => {
   /**
    * The catalog as an existing deployment holds it: seeded before these
    * models existed, then refreshed, so GPT-6 Sol and Luna are OpenRouter
-   * candidates and the direct Opus 5.5 and Fable 5.1 rows do not exist.
+   * candidates and the direct Opus 5.5 row does not exist.
    */
   async function existingDeployment() {
     const context = await setup();
@@ -1858,10 +1859,12 @@ describe("models added 2026-09-25 on a catalog seeded before them", () => {
     const { t, admin, writer } = await existingDeployment();
     await admin.mutation(setRoleModelRef, { role: "writing", modelId: "claude-opus-4-8" });
     await admin.mutation(setRoleModelRef, { role: "chat", modelId: "claude-haiku-4-5-20251001" });
-    // Opus 5.5 and Fable 5.1 show from the seed before any refresh (no row
-    // yet); GPT-6 stays hidden while its row is an untouched candidate.
+    // Opus 5.5 shows from the seed before any refresh (no row yet); GPT-6
+    // stays hidden while its row is an untouched candidate. Fable 5.1 is
+    // not a seed any more.
     const before = await pickerIds(writer);
     expect(before).toEqual(expect.arrayContaining(NEW_DIRECT));
+    expect(before).not.toContain("claude-fable-5-1");
     expect(before).not.toContain("openai/gpt-6-sol");
     expect(before).not.toContain("openai/gpt-6-luna");
     const roles = await snapshot(t);
@@ -1951,5 +1954,68 @@ describe("models added 2026-09-25 on a catalog seeded before them", () => {
     const gpt = freeze.entries.find((entry) => entry.id === "openai/gpt-6-sol");
     expect(gpt).toMatchObject({ gateway: "openrouter", reasoning: true, maxCompletionTokens: 128000 });
     expect(gpt?.forcedToolChoice).toBeUndefined();
+  });
+});
+
+describe("a built-in model taken out of the seed list", () => {
+  // As a deployment that ran d52abbc2's seed would hold Fable 5.1.
+  async function withSeededFable() {
+    const context = await setup();
+    await context.t.run(async (ctx) => {
+      const opus = await ctx.db
+        .query("modelCatalog")
+        .withIndex("by_modelId", (q) => q.eq("modelId", "claude-opus-5-5"))
+        .first();
+      const { _id, _creationTime, ...fields } = opus!;
+      await ctx.db.insert("modelCatalog", {
+        ...fields,
+        modelId: "claude-fable-5-1",
+        displayName: "Fable 5.1",
+        canonicalSlug: "anthropic/claude-fable-5.1-20260831",
+        status: "enabled",
+        source: "seed",
+      });
+    });
+    return context;
+  }
+  const pickerIds = async (writer: ReturnType<TestConvex["withIdentity"]>) =>
+    ((await writer.query(api.providerReadiness.getCapabilities, {}))?.models ?? []).map((model) => model.id);
+
+  it("is retired on the next seed pass and leaves the pickers", async () => {
+    const { t, writer } = await withSeededFable();
+    expect(await pickerIds(writer)).toContain("claude-fable-5-1");
+    await t.mutation(seedCatalogRef, {});
+    expect(await row(t, "claude-fable-5-1")).toMatchObject({ status: "retired", source: "seed" });
+    expect(await pickerIds(writer)).not.toContain("claude-fable-5-1");
+    // Current seeds are untouched.
+    expect(await row(t, "claude-opus-5-5")).toMatchObject({ status: "enabled" });
+    expect(await row(t, "claude-sonnet-5")).toMatchObject({ status: "enabled" });
+  });
+
+  it("comes back when its id is a seed again", async () => {
+    const { t, writer } = await withSeededFable();
+    // Retired by a build without Opus 5.5 in its seed list, then that build
+    // is rolled forward again: simulate by retiring a current seed's row
+    // the way the retire step does.
+    await t.run(async (ctx) => {
+      const opus = await ctx.db
+        .query("modelCatalog")
+        .withIndex("by_modelId", (q) => q.eq("modelId", "claude-opus-5-5"))
+        .first();
+      await ctx.db.patch(opus!._id, { status: "retired" });
+    });
+    expect(await pickerIds(writer)).not.toContain("claude-opus-5-5");
+    await t.mutation(seedCatalogRef, {});
+    expect(await row(t, "claude-opus-5-5")).toMatchObject({ status: "enabled", source: "seed" });
+    expect(await pickerIds(writer)).toContain("claude-opus-5-5");
+    // Fable is not a seed, so it is retired, not revived.
+    expect(await row(t, "claude-fable-5-1")).toMatchObject({ status: "retired" });
+  });
+
+  it("stays enabled while a role still uses it", async () => {
+    const { t, admin } = await withSeededFable();
+    await admin.mutation(setRoleModelRef, { role: "chat", modelId: "claude-fable-5-1" });
+    await t.mutation(seedCatalogRef, {});
+    expect(await row(t, "claude-fable-5-1")).toMatchObject({ status: "enabled" });
   });
 });
