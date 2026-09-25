@@ -950,6 +950,33 @@ describe("seed source allowance near the byte limit (cost phase 1)", () => {
     expect(() => withDecisions(reserve + 10_000)).toThrow(/Seed role context .* its allowance is/);
   });
 
+  it("keeps room to disclose omitted sources under a very large Brief with many sources", () => {
+    // Accepted at 215995f (2 sources kept, 126 omissions disclosed); the
+    // half-space clamp alone left the disclosure no room.
+    const build = (objective: string) => buildSeedPrompt({
+      ...base,
+      brief: { storyline: "S".repeat(590_000), entries: [] },
+      sources: Array.from({ length: 128 }, (_, i) => ({
+        sourceId: `source-${String(i).padStart(25, "0")}`,
+        label: `Interview ${i}`,
+        kind: "transcript",
+        content: "B".repeat(1_000),
+        contentHash: `hash-${i}`,
+      })),
+      objective,
+      projection: { decisions: "(none)", feedback: "(none)" },
+    });
+    const prompt = build("Objective.");
+    // The cached block still ignores the role's own text.
+    expect(build("A longer objective for another role.").userBlocks[0].text)
+      .toBe(prompt.userBlocks[0].text);
+    expect(prompt.promptBytes).toBeLessThanOrEqual(600_000);
+    expect(prompt.userBlocks[0].text).toContain("[OMITTED: frozen source excerpt ");
+    const omitted = prompt.sources.filter((source) => !source.included);
+    expect(omitted.length).toBeGreaterThan(0);
+    for (const source of omitted) expect(prompt.userBlocks[0].text).toContain(source.sourceId);
+  });
+
   it("fits a Brief that leaves less than the reservation, with a short source (baseline boundary)", () => {
     const prompt = buildSeedPrompt({
       ...base,

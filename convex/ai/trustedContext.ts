@@ -826,6 +826,16 @@ export function buildSeedTrustedContext(input: SeedTrustedContextInput): {
   }
 
   const roleTailBytes = utf8Bytes(roleTail.join(separator));
+  /** The omission notice naming every source: the most it can ever need. */
+  const maximalOmissionNoticeBytes = () =>
+    utf8Bytes(
+      seedBlock(
+        prompt.blocks.sources,
+        `${prompt.truncation.omittedPrefix}${input.sources
+          .map((source) => source.sourceId)
+          .join(", ")}${prompt.truncation.omittedSuffix}`
+      )
+    );
   const sourceBlocksFull = input.sources.map((source) =>
     seedBlock(sourceLabel(source), neutralizeMarkers(source.content))
   );
@@ -839,22 +849,32 @@ export function buildSeedTrustedContext(input: SeedTrustedContextInput): {
     // guidance, Brief, sources, writer settings, length target), never from
     // the role's own text. `stableBytes` is what sources and the role tail
     // share. Sources that fit take their exact size and the rest goes to the
-    // role; sources that overflow leave the role its reservation, clamped to
-    // half the shared space so a very large Brief still leaves the sources
-    // room. A role tail larger than what is left is refused below; it never
-    // moves the cached source cutoff.
+    // role; sources that overflow keep the full omission disclosure, then
+    // leave the role its reservation, clamped to half of what remains so a
+    // very large Brief still leaves the sources room. A role tail larger
+    // than what is left is refused below; it never moves the cached source
+    // cutoff.
     const stableBytes = maxBytes - fixedBytes + roleTailBytes;
     const sourcesNeed =
       input.sources.length > 0
         ? fullSourceBytes
         : utf8Bytes(seedBlock(prompt.blocks.sources, prompt.empty));
-    const sourceAllowance = Math.max(
-      0,
-      Math.min(
-        sourcesNeed,
-        Math.max(stableBytes - input.roleTailReserveBytes, Math.floor(stableBytes / 2))
-      )
+    // Overflowing sources must always be able to disclose what they omit,
+    // so the maximal disclosure (every source id, generation-stable) is
+    // reserved first; the reservation and the half-space clamp apply only to
+    // what is left after it.
+    const disclosureBytes =
+      input.sources.length > 0 ? maximalOmissionNoticeBytes() + separatorBytes : 0;
+    const afterDisclosure = Math.max(0, stableBytes - disclosureBytes);
+    const overflowAllowance = Math.min(
+      stableBytes,
+      disclosureBytes +
+        Math.max(
+          afterDisclosure - input.roleTailReserveBytes,
+          Math.floor(afterDisclosure / 2)
+        )
     );
+    const sourceAllowance = Math.max(0, Math.min(sourcesNeed, overflowAllowance));
     const roleAllowance = stableBytes - sourceAllowance;
     if (roleTailBytes > roleAllowance) {
       throw new SeedContextLimitError(
@@ -868,13 +888,7 @@ export function buildSeedTrustedContext(input: SeedTrustedContextInput): {
   const reports: SeedPromptSourceReport[] = [];
   let omissionReserveBytes = 0;
   if (input.sources.length > 0 && fullSourceBytes > remaining) {
-    const maximalNotice = seedBlock(
-      prompt.blocks.sources,
-      `${prompt.truncation.omittedPrefix}${input.sources
-        .map((source) => source.sourceId)
-        .join(", ")}${prompt.truncation.omittedSuffix}`
-    );
-    omissionReserveBytes = utf8Bytes(maximalNotice) + separatorBytes;
+    omissionReserveBytes = maximalOmissionNoticeBytes() + separatorBytes;
     if (omissionReserveBytes > remaining) {
       throw new SeedContextLimitError(
         "prompt_utf8_bytes",
