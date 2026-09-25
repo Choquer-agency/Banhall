@@ -715,7 +715,13 @@ export function frozenSeedSettings(generation: Doc<"generations">) {
  * a phrase underlined on the plan keeps its underline here. When the cap or
  * the budget stops the read short, `truncated` says so; the item is never
  * silently missing citations. */
-type SummaryCitation = { sourceId: Doc<"seedProvenance">["sourceId"]; exactExcerpt: string };
+type SummaryCitation = {
+  sourceId: Doc<"seedProvenance">["sourceId"];
+  exactExcerpt: string;
+  /** Stamped when the Seed was written; absent when the source gives none. */
+  speaker?: string;
+  line?: number;
+};
 
 async function summaryCitations(
   ctx: QueryCtx,
@@ -738,7 +744,12 @@ async function summaryCitations(
     ) {
       domainError("INVALID_STATE", "Seed provenance ownership mismatch");
     }
-    provenance.push({ sourceId: citation.sourceId, exactExcerpt: citation.exactExcerpt });
+    provenance.push({
+      sourceId: citation.sourceId,
+      exactExcerpt: citation.exactExcerpt,
+      ...(citation.speaker !== undefined ? { speaker: citation.speaker } : {}),
+      ...(citation.line !== undefined ? { line: citation.line } : {}),
+    });
   }
   return { provenance, provenanceTruncated: !read.complete };
 }

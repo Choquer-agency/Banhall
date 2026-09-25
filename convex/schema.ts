@@ -1071,6 +1071,11 @@ export default defineSchema({
     startOffset: v.number(),
     endOffset: v.number(),
     exactExcerpt: v.string(),
+    // Stamped at write time from a frozen transcript source: the excerpt's
+    // 1-based line and, when the transcript names one, its speaker. Absent on
+    // older rows and on citations of non-transcript sources.
+    speaker: v.optional(v.string()),
+    line: v.optional(v.number()),
   })
     .index("by_seedId", ["seedId"])
     .index("by_projectId", ["projectId"]),

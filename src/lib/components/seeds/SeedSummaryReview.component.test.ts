@@ -1491,6 +1491,37 @@ describe("Seed Summary Review", () => {
       expect(page.getByRole("button", { name: "Open in transcript", exact: true }).elements()).toHaveLength(0);
     });
 
+    it("shows the stamped speaker and line on the quote card, and only what the transcript gives", async () => {
+      __setQueryData("seeds:getOutline", outline());
+      __setQueryData("seeds:getSummary", onePage([
+        withFields(item("seed-a", "company_context", "We run four sites across Ontario today."), {
+          provenance: [{ sourceId: "source-1", exactExcerpt: "We run four sites", speaker: "Marcus Lindqvist", line: 7 }],
+        }),
+        withFields(item("seed-b", "goal_problem", "The loop oscillated at night."), {
+          provenance: [{ sourceId: "source-1", exactExcerpt: "The loop oscillated", line: 12 }],
+        }),
+        withFields(item("seed-c", "experimentation", "The pump failed twice in March."), {
+          provenance: [{ sourceId: "source-1", exactExcerpt: "The pump failed twice" }],
+        }),
+      ]));
+      const view = await render(SeedSummaryReview, { generationId, userId: "writer-1" });
+      const cardFor = async (itemId: string) => {
+        const quote = view.container.querySelector<HTMLElement>(`[data-summary-item="${itemId}"] [data-exact-quote]`)!;
+        await userEvent.hover(quote);
+        await expect.poll(() => view.container.querySelector("[data-quote-card]")).not.toBeNull();
+        const card = view.container.querySelector<HTMLElement>("[data-quote-card]")!;
+        const speaker = card.querySelector("[data-quote-speaker]")?.textContent ?? null;
+        await userEvent.unhover(quote);
+        await expect.poll(() => view.container.querySelector("[data-quote-card]")).toBeNull();
+        return speaker;
+      };
+      expect(await cardFor("seed-a")).toBe("Marcus Lindqvist, line 7");
+      // A transcript without speaker labels gives the line alone; a source
+      // with neither shows no attribution line, never a made-up one.
+      expect(await cardFor("seed-b")).toBe("Line 12");
+      expect(await cardFor("seed-c")).toBeNull();
+    });
+
     it("links the open step instead of listing role ids, through the workspace's own open-step record", async () => {
       __setQueryData("seeds:getOutline", outline(false));
       __setQueryData("seeds:getSummary", onePage([item("seed-a", "company_context", "Plain server wording.")]));

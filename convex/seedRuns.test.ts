@@ -336,6 +336,88 @@ describe("seed attempt transactions", () => {
     expect(await s.t.run((ctx) => ctx.db.query("seedBatches").take(3))).toHaveLength(1);
   });
 
+  it("stamps speaker and line on transcript citations from the frozen source", async () => {
+    const s = await fixture();
+    const transcript = [
+      "Interviewer (Dana): What did you build?",
+      "",
+      "Priya: We run four sites, all refrigerated.",
+      "The coastal site failed twice.",
+    ].join("\r\n");
+    const document = "Scoping notes\nThe pump failed twice.";
+    const { transcriptId, documentId } = await s.t.run(async (ctx) => ({
+      transcriptId: await ctx.db.insert("generationSources", {
+        generationId: s.generationId,
+        projectId: s.projectId,
+        kind: "transcript",
+        label: "Site interview",
+        content: transcript,
+        contentHash: "transcript-hash",
+        truncated: false,
+        originalLength: transcript.length,
+        capturedAt: 1,
+      }),
+      documentId: await ctx.db.insert("generationSources", {
+        generationId: s.generationId,
+        projectId: s.projectId,
+        kind: "project_document",
+        label: "scoping:notes.docx",
+        content: document,
+        contentHash: "document-hash",
+        truncated: false,
+        originalLength: document.length,
+        capturedAt: 1,
+      }),
+    }));
+    const citation = (
+      sourceId: Id<"generationSources">,
+      content: string,
+      exactExcerpt: string
+    ) => {
+      const startOffset = content.indexOf(exactExcerpt);
+      return { sourceId, startOffset, endOffset: startOffset + exactExcerpt.length, exactExcerpt };
+    };
+    const dispatched = await openRole(s, "company_context");
+    if (dispatched.kind !== "dispatched") throw new Error("attempt was not dispatched");
+    const claim = await s.t.mutation(claimRef, { batchId: dispatched.batchId });
+    if (claim.kind !== "claimed") throw new Error("attempt was not claimed");
+    const [first, ...rest] = validBatch;
+    expect(
+      await s.t.mutation(completeRef, {
+        batchId: dispatched.batchId,
+        attemptId: claim.batch.attemptId,
+        requestsMade: 1,
+        seeds: [
+          {
+            ...first,
+            provenance: [
+              citation(transcriptId, transcript, "The coastal site failed twice."),
+              citation(transcriptId, transcript, "What did you build?"),
+              citation(documentId, document, "The pump failed twice."),
+              citation(s.sourceId, "Evidence alpha supports the work.", "Evidence alpha"),
+            ],
+          },
+          ...rest,
+        ],
+      })
+    ).toMatchObject({ kind: "completed", seeds: 3 });
+    const rows = await s.t.run((ctx) => ctx.db.query("seedProvenance").take(10));
+    const byExcerpt = new Map(rows.map((row) => [row.exactExcerpt, row]));
+    expect(byExcerpt.get("The coastal site failed twice.")).toMatchObject({
+      speaker: "Priya",
+      line: 4,
+    });
+    expect(byExcerpt.get("What did you build?")).toMatchObject({ speaker: "Dana", line: 1 });
+    // A transcript without speaker labels still gives the line.
+    expect(byExcerpt.get("Evidence alpha")).toMatchObject({ line: 1 });
+    expect(byExcerpt.get("Evidence alpha")?.speaker).toBeUndefined();
+    // Documents carry neither: their extracted lines are not what a reader sees.
+    const documentRow = byExcerpt.get("The pump failed twice.");
+    expect(documentRow).toBeDefined();
+    expect(documentRow?.speaker).toBeUndefined();
+    expect(documentRow?.line).toBeUndefined();
+  });
+
   it("deduplicates a command before the changed context and preserves terminal history", async () => {
     const s = await fixture();
     const commandId = "stable-regenerate-command";
