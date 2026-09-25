@@ -83,7 +83,7 @@ export function randomComparePair(
   pool: readonly CandidateModel[] = CANDIDATE_MODELS
 ): CandidateModel[] {
   // Models that reject a forced tool call stay an explicit choice: they
-  // run structured steps without the forced call, and Fable 5.1 costs more.
+  // run structured steps without the forced call.
   const shuffled = pool.filter(
     (model) =>
       model.gateway === CANDIDATE_MODE_ROUTING.compare.randomPoolGateway &&

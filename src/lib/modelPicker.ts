@@ -5,6 +5,7 @@
  * seed list only while that query is loading.
  */
 import {
+  RETIRED_SEED_LABELS,
   CANDIDATE_MODELS,
   MODEL,
   modelById,
@@ -51,6 +52,7 @@ export function modelLabelFor(id: string, capabilities: PickerCapabilities): str
   return (
     pickerModels(capabilities).find((model) => model.id === id)?.label ??
     modelById(id)?.label ??
+    RETIRED_SEED_LABELS[id] ??
     id
   );
 }

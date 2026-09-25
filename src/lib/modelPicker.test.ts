@@ -50,6 +50,8 @@ describe("single-model picker items", () => {
     const items = singleModelItemsFor(undefined).map((item) => item.value);
     expect(items).toEqual(expect.arrayContaining(["claude-opus-5-5", "openai/gpt-6-sol", "openai/gpt-6-luna"]));
     expect(items).not.toContain("claude-fable-5-1");
+    // Older generations frozen on Fable 5.1 still show its name.
+    expect(modelLabelFor("claude-fable-5-1", undefined)).toBe("Fable 5.1");
     // The OpenRouter listings of the direct Anthropic models are not seeds.
     expect(byId("anthropic/claude-opus-5.5")).toBeUndefined();
     expect(byId("anthropic/claude-fable-5.1")).toBeUndefined();

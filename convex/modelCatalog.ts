@@ -65,7 +65,7 @@ import {
   type ParsedModel,
   type PrefilterModel,
 } from "../shared/modelCatalog";
-import { seedModelById } from "../shared/generationModels";
+import { RETIRED_SEED_LABELS, seedModelById } from "../shared/generationModels";
 import {
   AUTO_SWITCH_KEY,
   EVAL_BUDGET_KEY,
@@ -203,6 +203,20 @@ export async function ensureSeedCatalog(ctx: MutationCtx, now: number): Promise<
       ...(seed.forcedToolChoice === false ? { forcedToolChoice: false } : {}),
       updatedAt: now,
     });
+    written += 1;
+  }
+  // A built-in model taken out of the seed list (Fable 5.1, owner decision
+  // 2026-09-25) must stop being selectable. Retire its enabled seed row
+  // unless a role still uses it; an assigned row stays until reassigned.
+  const seedIds = new Set(seedCatalogModels(now).map((seed) => seed.modelId));
+  const inUse = await assignedModelIds(ctx);
+  const enabled = await ctx.db
+    .query("modelCatalog")
+    .withIndex("by_status", (q) => q.eq("status", "enabled"))
+    .take(200);
+  for (const row of enabled) {
+    if (row.source !== "seed" || seedIds.has(row.modelId) || inUse.has(row.modelId)) continue;
+    await ctx.db.patch(row._id, { status: "retired", updatedAt: now });
     written += 1;
   }
   return written;
@@ -1244,7 +1258,7 @@ export const adminState = query({
     const labelOf = (id: string | undefined) => {
       if (!id) return null;
       const row = rows.find((item) => item.modelId === id);
-      return row?.displayName ?? seedModelById(id)?.label ?? id;
+      return row?.displayName ?? seedModelById(id)?.label ?? RETIRED_SEED_LABELS[id] ?? id;
     };
     const roles = [];
     for (const role of MODEL_ROLES) {
