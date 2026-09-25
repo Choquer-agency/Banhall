@@ -160,7 +160,7 @@ describe("transcript facts evaluation harness", () => {
     expect(text).toContain("Verified-quote rate: 60%");
     expect(text).toContain("Fact recall vs digest: 75%");
     expect(text).toContain("helios: uncertainty: Convergence guarantees");
-    expect(text).not.toMatch(/[‐-―−·]/);
+    expect(text).not.toMatch(/[\u2010-\u2015\u2212\u00b7]/);
   });
 
   it("skips condensing when a stored digest is given, and estimates before any call", async () => {
