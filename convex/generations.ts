@@ -138,6 +138,14 @@ import {
   transitionPostQa,
   transitionRedraft,
 } from "./lib/generationTransitions";
+import {
+  sectionRunJson,
+  sectionRunMetrics,
+  sectionRunQa,
+  missingSectionRunTypedFields,
+  sectionRunSelfCheck,
+  sectionRunTypedFields,
+} from "./lib/sectionRunData";
 
 // ─── Generation status helpers ───────────────────────────────────────────────
 // ACTIVE_GENERATION_STATUSES (the project stays fenced on the generation and
@@ -3539,6 +3547,11 @@ export const completeSectionRun = internalMutation({
       draftText: args.draftText,
       metrics: args.metrics,
       qa: args.qa,
+      // Dual write (2026-09-25): typed copies next to the JSON strings. A
+      // redraft replaces both, so a stale typed value never outlives them.
+      metricsData: undefined,
+      qaData: undefined,
+      ...sectionRunTypedFields({ metrics: args.metrics, qa: args.qa }),
       error: undefined,
       completedAt: Date.now(),
     });
@@ -4042,18 +4055,10 @@ export const getIterativeState = query({
     const sectionRuns = SECTION_ORDER.flatMap((section) => {
       const run = runs.find((row) => row.section === section);
       if (!run) return [];
-      let metrics: ReturnType<typeof parseSectionMeter> = null;
-      let qa: unknown = null;
-      try {
-        if (run.metrics) metrics = parseSectionMeter(JSON.parse(run.metrics));
-      } catch {
-        // Legacy/malformed metrics stay null.
-      }
-      try {
-        if (run.qa) qa = JSON.parse(run.qa);
-      } catch {
-        // Malformed QA stays null.
-      }
+      // Typed fields first, the JSON strings for rows without them;
+      // legacy or malformed values stay null.
+      const metrics = parseSectionMeter(sectionRunMetrics(run));
+      const qa = sectionRunQa(run);
       return [
         {
           section,
@@ -5369,15 +5374,28 @@ export const modelStats = query({
   },
 });
 
+/** The most comments getModelComments returns, newest first. */
+const MODEL_COMMENT_LIMIT = 50;
+/** The most score rows getModelComments reads for one model. */
+const MODEL_COMMENT_SCAN_LIMIT = 2_000;
+
 export const getModelComments = internalQuery({
   args: { model: v.string() },
   handler: async (ctx, args) => {
-    const scores = await ctx.db.query("candidateScores").collect();
-    return scores
-      .filter((s) => s.model === args.model && s.comment)
-      .sort((a, b) => b.updatedAt - a.updatedAt)
-      .slice(0, 50)
-      .map((s) => ({ comment: s.comment as string, score: s.score }));
+    // Newest first through the model's own index range, stopping at 50
+    // comments; rows without a comment are skipped, and the scan is bounded
+    // so a model with many uncommented scores cannot read without limit.
+    const comments: Array<{ comment: string; score: number }> = [];
+    let scanned = 0;
+    for await (const score of ctx.db
+      .query("candidateScores")
+      .withIndex("by_model_and_updatedAt", (q) => q.eq("model", args.model))
+      .order("desc")) {
+      scanned += 1;
+      if (score.comment) comments.push({ comment: score.comment, score: score.score });
+      if (comments.length >= MODEL_COMMENT_LIMIT || scanned >= MODEL_COMMENT_SCAN_LIMIT) break;
+    }
+    return comments;
   },
 });
 
@@ -5572,39 +5590,43 @@ function sectionNumberOfRow(row: Doc<"generationSectionRuns">): SectionNumber {
   return row.section.slice(1) as SectionNumber;
 }
 
-function selfCheckResultOf(selfCheck: string | undefined): {
+/** A Self-check summary's status and plan coverage, from the typed value or
+ * its JSON string; null when neither carries a status. */
+function selfCheckResultOf(selfCheck: unknown): {
   status: string;
   planCoverage?: "complete" | "incomplete" | "unavailable";
 } | null {
-  if (!selfCheck) return null;
-  try {
-    const parsed: unknown = JSON.parse(selfCheck);
-    if (
-      !parsed ||
-      typeof parsed !== "object" ||
-      !("status" in parsed) ||
-      typeof parsed.status !== "string"
-    ) {
+  let parsed: unknown = selfCheck;
+  if (typeof selfCheck === "string") {
+    try {
+      parsed = JSON.parse(selfCheck);
+    } catch {
       return null;
     }
-    if (
-      "planCoverage" in parsed &&
-      parsed.planCoverage &&
-      typeof parsed.planCoverage === "object" &&
-      "status" in parsed.planCoverage &&
-      (parsed.planCoverage.status === "complete" ||
-        parsed.planCoverage.status === "incomplete" ||
-        parsed.planCoverage.status === "unavailable")
-    ) {
-      return {
-        status: parsed.status,
-        planCoverage: parsed.planCoverage.status,
-      };
-    }
-    return { status: parsed.status };
-  } catch {
+  }
+  if (
+    !parsed ||
+    typeof parsed !== "object" ||
+    !("status" in parsed) ||
+    typeof parsed.status !== "string"
+  ) {
     return null;
   }
+  if (
+    "planCoverage" in parsed &&
+    parsed.planCoverage &&
+    typeof parsed.planCoverage === "object" &&
+    "status" in parsed.planCoverage &&
+    (parsed.planCoverage.status === "complete" ||
+      parsed.planCoverage.status === "incomplete" ||
+      parsed.planCoverage.status === "unavailable")
+  ) {
+    return {
+      status: parsed.status,
+      planCoverage: parsed.planCoverage.status,
+    };
+  }
+  return { status: parsed.status };
 }
 
 /** The CAS every chain write re-checks: a live non-ghost candidate run of a
@@ -6110,6 +6132,25 @@ async function persistSectionNotes(
   }
 }
 
+/** A drafted Section's result columns: the JSON strings as the action sent
+ * them, and their typed copies (dual write, 2026-09-25). Every typed field is
+ * reset first so a redraft never keeps an earlier attempt's typed value. */
+function orderedSectionResultFields(args: {
+  metrics: string;
+  selfCheck: string;
+  slotCounts: string;
+}) {
+  return {
+    metrics: args.metrics,
+    selfCheck: args.selfCheck,
+    slotCounts: args.slotCounts,
+    metricsData: undefined,
+    selfCheckData: undefined,
+    slotCountsData: undefined,
+    ...sectionRunTypedFields(args),
+  };
+}
+
 /** The progress-log label of a drafted Section's Self-check outcome. */
 function sectionCheckNarration(selfCheck: string): string {
   const result = selfCheckResultOf(selfCheck);
@@ -6154,9 +6195,7 @@ export const completeOrderedSectionRun = internalMutation({
     await ctx.db.patch(row._id, {
       status: "drafted",
       draftText: args.draftText,
-      metrics: args.metrics,
-      selfCheck: args.selfCheck,
-      slotCounts: args.slotCounts,
+      ...orderedSectionResultFields(args),
       error: undefined,
       completedAt: now,
     });
@@ -6341,9 +6380,11 @@ export const getOrderedCandidateDrafts = internalQuery({
         orderIndex: row.orderIndex ?? 0,
         status: row.status,
         draftText: row.draftText ?? null,
-        metrics: row.metrics ?? null,
-        selfCheck: row.selfCheck ?? null,
-        slotCounts: row.slotCounts ?? null,
+        // The finalizer still takes JSON strings: the stored string, or the
+        // typed value serialized for a row that only has that.
+        metrics: sectionRunJson(row, "metrics"),
+        selfCheck: sectionRunJson(row, "selfCheck"),
+        slotCounts: sectionRunJson(row, "slotCounts"),
       })),
     };
   },
@@ -6521,7 +6562,7 @@ export const getOrderedSectionDrafts = query({
         section: sectionNumberOfRow(row),
         orderIndex: row.orderIndex ?? 0,
         text: row.draftText ?? "",
-        selfCheckStatus: selfCheckResultOf(row.selfCheck)?.status ?? null,
+        selfCheckStatus: selfCheckResultOf(sectionRunSelfCheck(row))?.status ?? null,
       }));
   },
 });
@@ -7066,6 +7107,9 @@ export const redraftMissingSections = mutation({
         metrics: undefined,
         selfCheck: undefined,
         slotCounts: undefined,
+        metricsData: undefined,
+        selfCheckData: undefined,
+        slotCountsData: undefined,
         error: undefined,
         startedAt: undefined,
         completedAt: undefined,
@@ -7196,9 +7240,7 @@ export const completeRedraftSection = internalMutation({
     await ctx.db.patch(row._id, {
       status: "drafted",
       draftText: args.draftText,
-      metrics: args.metrics,
-      selfCheck: args.selfCheck,
-      slotCounts: args.slotCounts,
+      ...orderedSectionResultFields(args),
       error: undefined,
       completedAt: now,
     });
@@ -7560,5 +7602,65 @@ export const applySeedRedraft = internalMutation({
     }
     await settleSeedRedraft(ctx, fence, { failed: false });
     return "applied";
+  },
+});
+
+// ─── 2026-09-25 migrations (phase 4 generation structure) ───────────────────
+// Batched, self-rescheduling backfills in the repo's pattern (see
+// transcripts.backfillTranscriptStructure). Each is idempotent: a second run
+// patches nothing. Start each once with `{}`; `dryRun: true` reports one page
+// without writing or scheduling.
+
+const SECTION_RUN_BACKFILL_PAGE_SIZE = 100;
+const SECTION_RUN_BACKFILL_MAX_BYTES_READ = 8 * 1024 * 1024;
+
+/**
+ * Fill the typed copies (`metricsData`, `qaData`, `selfCheckData`,
+ * `slotCountsData`) of older `generationSectionRuns` rows from their JSON
+ * strings. A string that does not convert strictly is left as the only form
+ * and keeps being read through the string fallback.
+ * `npx convex run generations:backfillSectionRunData '{}'`
+ */
+export const backfillSectionRunData = internalMutation({
+  args: {
+    cursor: v.optional(v.union(v.string(), v.null())),
+    pageSize: v.optional(v.number()),
+    dryRun: v.optional(v.boolean()),
+  },
+  returns: v.object({
+    scanned: v.number(),
+    patched: v.number(),
+    isDone: v.boolean(),
+    continueCursor: v.string(),
+  }),
+  handler: async (ctx, args) => {
+    const pageSize = Math.min(
+      Math.max(1, Math.floor(args.pageSize ?? SECTION_RUN_BACKFILL_PAGE_SIZE)),
+      SECTION_RUN_BACKFILL_PAGE_SIZE
+    );
+    const page = await ctx.db.query("generationSectionRuns").paginate({
+      cursor: args.cursor ?? null,
+      numItems: pageSize,
+      maximumBytesRead: SECTION_RUN_BACKFILL_MAX_BYTES_READ,
+    });
+    let patched = 0;
+    for (const row of page.page) {
+      const fields = missingSectionRunTypedFields(row);
+      if (Object.keys(fields).length === 0) continue;
+      if (!args.dryRun) await ctx.db.patch(row._id, fields);
+      patched += 1;
+    }
+    if (!page.isDone && !args.dryRun) {
+      await ctx.scheduler.runAfter(0, internal.generations.backfillSectionRunData, {
+        cursor: page.continueCursor,
+        ...(args.pageSize !== undefined ? { pageSize } : {}),
+      });
+    }
+    return {
+      scanned: page.page.length,
+      patched,
+      isDone: page.isDone,
+      continueCursor: page.continueCursor,
+    };
   },
 });

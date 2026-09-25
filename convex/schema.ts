@@ -16,6 +16,13 @@ import {
 } from "./lib/contracts";
 import { admissionValidator, attemptOutcomeValidator } from "./lib/learningAdmission";
 import { styleOverridesValidator } from "./lib/styleOverrides";
+import {
+  sectionMetricsValidator,
+  sectionQaFindingsValidator,
+  selfCheckSummaryValidator,
+  slotCountsValidator,
+  transcriptDigestStructuredValidator,
+} from "./lib/sectionRunData";
 import { PD_SUBSECTIONS } from "../shared/pdSubsections";
 import {
   transcriptFactTypeValidator,
@@ -755,6 +762,10 @@ export default defineSchema({
     content: v.string(),
     // JSON string of the validated digest object.
     structured: v.string(),
+    // 2026-09-25 widen: the same windows typed (dual write; filled on older
+    // rows by transcriptDigests.backfillStructuredData). Readers take this
+    // first. `structured` stays written for code that predates it.
+    structuredData: v.optional(transcriptDigestStructuredValidator),
     model: v.string(),
     promptVersion: v.string(),
     charCount: v.number(),
@@ -779,7 +790,9 @@ export default defineSchema({
     blocking: v.boolean(),
   })
     .index("by_reportId_and_revisionNumber_and_contentHash_and_findingKey", ["reportId", "revisionNumber", "contentHash", "findingKey"])
-    .index("by_reportId_and_contentHash_and_check_and_message_and_blocking", ["reportId", "contentHash", "check", "message", "blocking"])
+    // 2026-09-25: replaces the index that carried the finding message text;
+    // the message is matched on the (few) rows of one check instead.
+    .index("by_reportId_and_contentHash_and_check_and_blocking", ["reportId", "contentHash", "check", "blocking"])
     .index("by_reportId_and_revisionNumber_and_contentHash_and_blocking", ["reportId", "revisionNumber", "contentHash", "blocking"]),
 
   reports: defineTable({
@@ -1249,6 +1262,7 @@ export default defineSchema({
     needsSpeakerCheck: v.optional(v.boolean()),
   })
     .index("by_seedId", ["seedId"])
+    .index("by_generationId_and_seedId", ["generationId", "seedId"])
     .index("by_projectId", ["projectId"]),
 
   seedSelections: defineTable({
@@ -1364,6 +1378,7 @@ export default defineSchema({
     edited: v.optional(v.boolean()),
   })
     .index("by_summaryVersionId_and_order", ["summaryVersionId", "order"])
+    .index("by_generationId", ["generationId"])
     .index("by_projectId", ["projectId"]),
 
   seedDecisionEvents: defineTable(
@@ -1447,7 +1462,8 @@ export default defineSchema({
   })
     .index("by_generationId", ["generationId"])
     .index("by_projectId", ["projectId"])
-    .index("by_user_and_candidateId", ["userId", "candidateId"]),
+    .index("by_user_and_candidateId", ["userId", "candidateId"])
+    .index("by_model_and_updatedAt", ["model", "updatedAt"]),
 
   // Logged model choices, for aggregate preference stats + recommendation.
   modelSelections: defineTable({
@@ -2165,6 +2181,13 @@ export default defineSchema({
     orderIndex: v.optional(v.number()), // position in the production order
     selfCheck: v.optional(v.string()), // SelfCheckSummary (JSON)
     slotCounts: v.optional(v.string()), // AD-27 per-slot call counts (JSON)
+    // 2026-09-25 widen: typed copies of the four JSON strings above (dual
+    // write; older rows filled by generations.backfillSectionRunData).
+    // Readers take these first and parse the string only without them.
+    metricsData: v.optional(sectionMetricsValidator),
+    qaData: v.optional(sectionQaFindingsValidator),
+    selfCheckData: v.optional(selfCheckSummaryValidator),
+    slotCountsData: v.optional(slotCountsValidator),
     queuedAt: v.number(),
     startedAt: v.optional(v.number()),
     completedAt: v.optional(v.number()),

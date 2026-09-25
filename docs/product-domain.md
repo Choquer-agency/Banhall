@@ -2319,6 +2319,16 @@ Technical-state amendment from the 2026-09-24 generation-structure audit (phase 
 - **Tickets:** none (phase 4 generation structure).
 - **Approval:** pending product-owner review of phase 4 before merge into the demo branch.
 
+### 2026-09-25 (second): Generation storage structure (widen, migrate, dual read)
+
+Data-model amendment from the same audit. It changes where generation data is stored, not what it means. Every step is widen and migrate only; no field is removed or made required, and no data is deleted.
+
+- **Typed JSON columns:** `generationSectionRuns` gains `metricsData`, `qaData`, `selfCheckData` and `slotCountsData`, and `transcriptDigests` gains `structuredData`: typed copies of the JSON strings next to them. New rows carry both (dual write). Readers take the typed field first and parse the string only when it is absent (dual read). A string that does not convert exactly keeps being read as a string. The strings stay written so code that predates the typed fields keeps working; they can be dropped only in a later narrow step.
+- **Indexes:** `seedProvenance.by_generationId_and_seedId`, `summaryItems.by_generationId` and `candidateScores.by_model_and_updatedAt` (model comments are read newest first from one model's range, at most 50 comments from at most 2 000 rows, instead of reading every score). The `qaFindings` index that carried the finding message text is replaced by `by_reportId_and_contentHash_and_check_and_blocking`; the message is matched on the few rows of one check.
+- **Migrations to run once, in any order:** `generations:backfillSectionRunData` and `transcriptDigests:backfillStructuredData`, each started with `{}`. Both page through their table, reschedule themselves and are idempotent (a second run patches nothing); `dryRun: true` reports one page without writing.
+- **Tests:** `convex/generationTypedFields.test.ts` (strict conversion, dual write, dual read of legacy and typed-only rows, idempotent backfills, the index-backed reads and the methodology carry-forward through the new index).
+- **Approval:** pending product-owner review of phase 4 before merge into the demo branch.
+
 ## Amendment process
 
 A change to vocabulary, an invariant, a transition edge, or a decision above requires:
