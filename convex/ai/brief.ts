@@ -583,10 +583,14 @@ export async function deriveOrReuseBrief(
         inputsHash,
       }))?._id;
   if (reusableId) {
-    if (!args.seedStartup) await ctx.runMutation(internal.generations.stampGenerationBriefId, {
-      generationId: args.generationId, briefId: reusableId,
-    });
-    return { kind: "reused", briefId: reusableId };
+    // Outside Step-by-step the stamp checks the reused Brief under owner
+    // decision 25 and may return a new version of it (review 2026-09-25).
+    const briefId = args.seedStartup
+      ? reusableId
+      : ((await ctx.runMutation(internal.generations.stampGenerationBriefId, {
+          generationId: args.generationId, briefId: reusableId,
+        })) ?? reusableId);
+    return { kind: "reused", briefId };
   }
 
   const writerSource = sources.find((s) => s.kind === "writer_storyline");

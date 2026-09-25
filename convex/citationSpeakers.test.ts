@@ -593,6 +593,89 @@ describe("Brief entries keep only client turns as evidence outside facts mode", 
     expect(brief?.droppedEntryCount).toBe(2);
   });
 
+  it("drops an interviewer-backed entry from a stored Brief when it is reused, into a new version that counts it", async () => {
+    const t = convexTest(schema, modules);
+    const f = await meridian(t, { turns: true });
+    const { brief } = await deriveBrief(t, f);
+    // As if this Brief had been derived before the check: an exclusion
+    // backed by the interviewer's question.
+    await t.run(async (ctx) =>
+      ctx.db.insert("generationBriefEntries", {
+        briefId: brief!._id,
+        projectId: f.projectId,
+        group: "claimExclusion",
+        text: "Buying an adhesive was an option.",
+        reason: "business_risk",
+        sourceId: f.sourceId,
+        sourceContentHash: await sha256(MERIDIAN),
+        ...at(QUESTION),
+        createdAt: Date.now(),
+      })
+    );
+    const fetchSpy = vi.fn();
+    vi.stubGlobal("fetch", fetchSpy);
+    const reuse = () =>
+      runAction(t, async (ctx) =>
+        deriveOrReuseBrief(ctx, briefClient(), { projectId: f.projectId, generationId: f.generationId })
+      );
+    const outcome = await reuse();
+    expect(fetchSpy).not.toHaveBeenCalled();
+    if (outcome.kind !== "reused") throw new Error(`unexpected Brief outcome ${outcome.kind}`);
+    expect(outcome.briefId).not.toBe(brief!._id);
+    const reused = await t.run(async (ctx) => ({
+      brief: await ctx.db.get(outcome.briefId),
+      generation: await ctx.db.get(f.generationId),
+      entries: await ctx.db
+        .query("generationBriefEntries")
+        .withIndex("by_briefId", (q) => q.eq("briefId", outcome.briefId))
+        .collect(),
+    }));
+    expect(reused.brief).toMatchObject({
+      version: brief!.version + 1,
+      inputsHash: brief!.inputsHash,
+      droppedEntryCount: (brief!.droppedEntryCount ?? 0) + 1,
+    });
+    expect(reused.generation?.briefId).toBe(outcome.briefId);
+    expect(reused.entries.map((entry) => entry.exactExcerpt)).not.toContain(QUESTION);
+    expect(reused.entries).toHaveLength(3);
+    // Reused again: nothing left to drop, so no further version.
+    const again = await reuse();
+    expect(again).toEqual({ kind: "reused", briefId: outcome.briefId });
+
+    // The Step-by-step start pins the checked version too.
+    await t.run(async (ctx) => {
+      await ctx.db.insert("generationBriefEntries", {
+        briefId: outcome.briefId,
+        projectId: f.projectId,
+        group: "confidenceMap",
+        text: "Supplier samples failed the peel test.",
+        confidence: "established",
+        sourceId: f.sourceId,
+        sourceContentHash: await sha256(MERIDIAN),
+        ...at(OTHER),
+        createdAt: Date.now(),
+      });
+      await ctx.db.patch(f.generationId, {
+        gatedWorkflow: "seeds",
+        status: "awaiting_input",
+        briefId: undefined,
+      });
+    });
+    const pin = await t.mutation(internal.generations.pinSeedBrief, {
+      generationId: f.generationId,
+      inputsHash: brief!.inputsHash,
+    });
+    expect(pin).not.toBe(outcome.briefId);
+    const pinnedRows = await t.run(async (ctx) =>
+      ctx.db
+        .query("generationBriefEntries")
+        .withIndex("by_briefId", (q) => q.eq("briefId", pin!))
+        .collect()
+    );
+    expect(pinnedRows.map((entry) => entry.exactExcerpt)).not.toContain(OTHER);
+    expect((await t.run((ctx) => ctx.db.get(pin!)))?.version).toBe(brief!.version + 2);
+  });
+
   it("refuses an interviewer-backed entry again when the Brief is stored", async () => {
     const t = convexTest(schema, modules);
     const f = await meridian(t, { turns: true });

@@ -16,6 +16,7 @@ import { requireSeedInitialization } from "./seedGuards";
 import { requireDraftingInputsReady, startDraftingInputsHandler } from "./draftingInputs";
 import { domainError } from "../contracts";
 import {
+  briefWithoutExcludedQuotes,
   reusableBriefForGeneration,
   readBriefEntryRowsBounded,
   MAX_BRIEF_ENTRY_ROWS,
@@ -85,9 +86,16 @@ export async function pinSeedBriefHandler(
     }
     return generation.briefId ?? generation.seedBriefPin;
   }
+  const reusable = generation.briefId
+    ? null
+    : await reusableBriefForGeneration(ctx, generation, args.inputsHash);
+  // A reused Brief drops entries backed only by the interviewer's or another
+  // speaker's words first (owner decision 25, review 2026-09-25).
   const candidate = generation.briefId
     ? await ctx.db.get(generation.briefId)
-    : await reusableBriefForGeneration(ctx, generation, args.inputsHash);
+    : reusable
+      ? await briefWithoutExcludedQuotes(ctx, reusable)
+      : null;
   if (candidate && (candidate.projectId !== generation.projectId || candidate.inputsHash !== args.inputsHash)) {
     domainError("INVALID_STATE", "Frozen Brief inputs do not match");
   }

@@ -351,19 +351,80 @@ export async function findReusableBriefHandler(
 /** Argument validators of generations.stampGenerationBriefId. */
 export const stampGenerationBriefIdArgs = { generationId: v.id("generations"), briefId: v.id("generationBriefs") };
 
-/** Handler of generations.stampGenerationBriefId. */
+/**
+ * Handler of generations.stampGenerationBriefId. Outside Step-by-step the
+ * reused Brief is checked under owner decision 25 first
+ * (`briefWithoutExcludedQuotes`), so the id stamped and returned may be a
+ * new version of it.
+ */
 export async function stampGenerationBriefIdHandler(
   ctx: MutationCtx,
   args: ObjectType<typeof stampGenerationBriefIdArgs>
-) {
+): Promise<Id<"generationBriefs"> | null> {
   const generation = await ctx.db.get(args.generationId);
-  if (!generation) return;
+  if (!generation) return null;
   if (resolveGatedWorkflow(generation) === "seeds") {
     await requireSeedInitialization(ctx, generation._id);
-    if (generation.briefId) return;
+    if (generation.briefId) return generation.briefId;
     if (generation.seedBriefPin !== args.briefId) domainError("INVALID_STATE", "Brief was not pinned at startup");
+    await ctx.db.patch(args.generationId, { briefId: args.briefId });
+    return args.briefId;
   }
-  await ctx.db.patch(args.generationId, { briefId: args.briefId });
+  const brief = await ctx.db.get(args.briefId);
+  const briefId = brief ? (await briefWithoutExcludedQuotes(ctx, brief))._id : args.briefId;
+  await ctx.db.patch(args.generationId, { briefId });
+  return briefId;
+}
+
+/**
+ * A stored Brief about to be reused, under owner decision 25 (review
+ * 2026-09-25, P2-4): Briefs derived before the check, or before a speaker's
+ * role changed, can hold entries backed only by the interviewer's or
+ * another speaker's words. Those entries are dropped into a new version of
+ * the Brief (the next version number, everything else copied as it is) and
+ * counted on it in `droppedEntryCount`, as a fresh derivation counts them.
+ * No model call and no re-derivation; a Brief with nothing to drop is
+ * returned as it is. Removed-entry markers and generated questions are
+ * copied unchecked. A Brief too large to read whole is returned unchecked.
+ */
+export async function briefWithoutExcludedQuotes(
+  ctx: MutationCtx,
+  brief: Doc<"generationBriefs">
+): Promise<Doc<"generationBriefs">> {
+  const rows = await ctx.db
+    .query("generationBriefEntries")
+    .withIndex("by_briefId", (q) => q.eq("briefId", brief._id))
+    .take(2 * MAX_BRIEF_ENTRY_ROWS + 1);
+  if (rows.length > 2 * MAX_BRIEF_ENTRY_ROWS) return brief;
+  const speakerOf = citationSpeakerReader(ctx);
+  const sources = new Map<Id<"generationSources">, Doc<"generationSources"> | null>();
+  const excluded = new Set<Id<"generationBriefEntries">>();
+  for (const row of rows) {
+    if (row.change === "removed" || row.generatedOutput) continue;
+    let source = sources.get(row.sourceId);
+    if (source === undefined) {
+      source = await ctx.db.get(row.sourceId);
+      sources.set(row.sourceId, source);
+    }
+    if (source && (await speakerOf(source, row.startOffset, row.endOffset)) === "excluded") {
+      excluded.add(row._id);
+    }
+  }
+  if (excluded.size === 0) return brief;
+  const now = Date.now();
+  const { _id, _creationTime, ...fields } = brief;
+  const briefId = await ctx.db.insert("generationBriefs", {
+    ...fields,
+    version: brief.version + 1,
+    droppedEntryCount: (brief.droppedEntryCount ?? 0) + excluded.size,
+    createdAt: now,
+  });
+  for (const row of rows) {
+    if (excluded.has(row._id)) continue;
+    const { _id: _rowId, _creationTime: _rowCreationTime, ...rowFields } = row;
+    await ctx.db.insert("generationBriefEntries", { ...rowFields, briefId, createdAt: now });
+  }
+  return (await ctx.db.get(briefId))!;
 }
 
 /** Argument validators of generations.recordBriefOutcome. */
@@ -589,8 +650,9 @@ export async function persistDerivedBriefHandler(
         "complete";
   }
   if (reusable && compatibleReusable && !seedStartup) {
-    await ctx.db.patch(args.generationId, { briefId: reusable._id });
-    return reusable._id;
+    const checked = await briefWithoutExcludedQuotes(ctx, reusable);
+    await ctx.db.patch(args.generationId, { briefId: checked._id });
+    return checked._id;
   }
 
   if (!seedStartup) {
