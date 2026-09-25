@@ -9,7 +9,7 @@ import {
 } from "./lib/roleCapabilities";
 import { computeEditDistance } from "./lib/editDistance";
 import { resolveGatedWorkflow } from "./lib/gatedWorkflow";
-import { endsWithClipMark } from "./lib/seedRevisions";
+import { isClippedStorylineAlternative } from "./lib/seedRevisions";
 // One definition per bound: the generation-side reader owns it. `generations.ts`
 // imports nothing from this file, so this direction introduces no cycle.
 import { MAX_BRIEF_ENTRY_ROWS } from "./generations";
@@ -316,7 +316,7 @@ export const saveEntryEdit = mutation({
             // A question stored before clipped questions were withheld can
             // carry a shortened alternative. It must never become the whole
             // Storyline; the writer's own text is theirs to choose.
-            if (args.alternativeText === undefined && endsWithClipMark(alternative)) {
+            if (args.alternativeText === undefined && isClippedStorylineAlternative(alternative)) {
               domainError(
                 "INVALID_INPUT",
                 "This suggested Storyline was cut short, so it can't replace your Storyline. Edit the Storyline yourself instead."

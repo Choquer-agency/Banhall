@@ -526,6 +526,26 @@ describe("briefs.saveEntryEdit (story 4)", () => {
     });
   });
 
+  it("use_evidence accepts a longer stored alternative that happens to end in an ellipsis", async () => {
+    // Over the 96-byte clip limit, so the Self-check never clipped it: a
+    // legacy question, or model text that ended with "…".
+    const legacy =
+      "The team discovered the loop's response under load was unknown, and measured it across three load bands…";
+    expect(new TextEncoder().encode(legacy).length).toBeGreaterThan(96);
+    const { t, asWriter, projectId, briefId } = await briefFixture();
+    const questionId = await insertQuestion(t, briefId, legacy);
+    const resolvedId = await asWriter.mutation(api.briefs.saveEntryEdit, {
+      projectId,
+      briefId,
+      expectedBriefVersion: 1,
+      entryId: questionId,
+      resolvedBy: "use_evidence",
+    });
+    expect(await t.run((ctx) => ctx.db.get(resolvedId))).toMatchObject({
+      storylineText: legacy,
+    });
+  });
+
   it("keep_storyline still resolves a question whose stored alternative was clipped", async () => {
     const { t, asWriter, projectId, briefId } = await briefFixture();
     const questionId = await insertQuestion(t, briefId, "A shortened alternative…");
