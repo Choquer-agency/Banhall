@@ -10,7 +10,7 @@
  *   toggle QA failure. Keeping the stub faithful means reintroducing a
  *   shallow-routing layout switch fails the component suite.
  */
-import { onDestroy } from "svelte";
+import { onDestroy, untrack } from "svelte";
 import { __setPageUrl, page } from "./app-state-stub.svelte";
 
 export type NavigationCall = {
@@ -47,17 +47,24 @@ export function __resetNavigation() {
 
 export async function goto(url: string | URL, _opts?: Record<string, unknown>) {
   // Like Kit, every mounted `beforeNavigate` callback may cancel it first.
-  let cancelled = false;
-  const navigation = {
-    from: { url: page.url },
-    to: { url: new URL(String(url), page.url) },
-    type: "goto" as const,
-    willUnload: false,
-    cancel: () => {
-      cancelled = true;
-    },
-  };
-  for (const callback of [...beforeNavigateCallbacks]) callback(navigation);
+  // Untracked: a caller's `$effect` often calls goto, and Kit never makes that
+  // effect depend on `page.url` or on what the callbacks read. Tracking them
+  // here re-ran the login page's redirect effect on every page.url update, an
+  // endless loop that hung the browser suite.
+  const cancelled = untrack(() => {
+    let cancel = false;
+    const navigation = {
+      from: { url: page.url },
+      to: { url: new URL(String(url), page.url) },
+      type: "goto" as const,
+      willUnload: false,
+      cancel: () => {
+        cancel = true;
+      },
+    };
+    for (const callback of [...beforeNavigateCallbacks]) callback(navigation);
+    return cancel;
+  });
   __navigationCalls.push({ kind: "goto", url: String(url), ...(cancelled ? { cancelled } : {}) });
   if (cancelled) return;
   // Real goto resolves the navigation (and page.url) asynchronously.
@@ -71,18 +78,20 @@ export async function goto(url: string | URL, _opts?: Record<string, unknown>) {
  * Returns whether a callback cancelled.
  */
 export function __simulateLeave(): boolean {
-  let cancelled = false;
-  const navigation = {
-    from: { url: page.url },
-    to: null,
-    type: "leave" as const,
-    willUnload: true,
-    cancel: () => {
-      cancelled = true;
-    },
-  };
-  for (const callback of [...beforeNavigateCallbacks]) callback(navigation);
-  return cancelled;
+  return untrack(() => {
+    let cancelled = false;
+    const navigation = {
+      from: { url: page.url },
+      to: null,
+      type: "leave" as const,
+      willUnload: true,
+      cancel: () => {
+        cancelled = true;
+      },
+    };
+    for (const callback of [...beforeNavigateCallbacks]) callback(navigation);
+    return cancelled;
+  });
 }
 
 export function replaceState(url: string | URL, _state?: unknown) {
