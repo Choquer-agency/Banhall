@@ -400,8 +400,10 @@ describe("PreviewProjectPage writing a signed-off Step-by-step draft", () => {
     await expect.element(page.getByRole("heading", { name: "QA finished", exact: true })).toBeVisible();
     const notice = document.querySelector<HTMLElement>("[data-qa-finished-notice]")!;
     const rect = notice.getBoundingClientRect();
-    expect(window.innerWidth - rect.right).toBe(24);
-    expect(window.innerHeight - rect.bottom).toBe(24);
+    // Board 4.5: 24px inside the report panel's bottom right corner.
+    const panel = document.querySelector<HTMLElement>("[data-project-main]")!.getBoundingClientRect();
+    expect(panel.right - rect.right).toBe(24);
+    expect(panel.bottom - rect.bottom).toBe(24);
     expect(Array.from(notice.querySelectorAll("[data-qa-section-row]")).map((row) => row.getAttribute("data-qa-section-row"))).toEqual(["242", "244", "246"]);
     const toggle = () => document.querySelector<HTMLElement>('[data-panel-toggle="qa"]')!;
     expect(toggle().querySelector("[data-qa-unseen-dot]")).not.toBeNull();

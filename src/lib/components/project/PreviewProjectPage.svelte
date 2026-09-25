@@ -1868,7 +1868,7 @@
                of the Report tab. Export and Send for review are back in the
                top bar. -->
           {#if draftReadyFor && reportActionsVisible && !sourcesOpen}
-            <div class="pointer-events-none absolute inset-x-0 top-4 z-30 flex justify-center px-4" data-draft-ready-host>
+            <div class="pointer-events-none absolute inset-x-0 top-6 z-30 flex justify-center px-4" data-draft-ready-host>
               <div class="pointer-events-auto max-w-full">
                 {#key draftReadyFor}
                   <DraftReadyToast
@@ -1877,6 +1877,20 @@
                   />
                 {/key}
               </div>
+            </div>
+          {/if}
+          <!-- QA finished (board 4.5): 24px inside the report panel's bottom
+               right corner until opened or dismissed. -->
+          {#if showQaFinished && qaScores}
+            <div class="absolute bottom-6 right-6 z-[85] max-sm:inset-x-4 max-sm:bottom-4" data-qa-finished-host>
+              <QaFinishedNotice
+                overallScore={qaScores.overall}
+                sections={qaScores.sections}
+                completedAt={qaCompletedAt}
+                onOpen={openQaFromNotice}
+                onLater={dismissQaNotice}
+                onDismiss={dismissQaNotice}
+              />
             </div>
           {/if}
           {#if sourcesOpen}
@@ -2566,20 +2580,6 @@
             </button>
           </div>
         </div>
-      </div>
-    {/if}
-
-    <!-- QA finished (board 4.5): bottom right until opened or dismissed. -->
-    {#if showQaFinished && qaScores}
-      <div class="fixed bottom-6 right-6 z-[85] max-sm:inset-x-4 max-sm:bottom-4" data-qa-finished-host>
-        <QaFinishedNotice
-          overallScore={qaScores.overall}
-          sections={qaScores.sections}
-          completedAt={qaCompletedAt}
-          onOpen={openQaFromNotice}
-          onLater={dismissQaNotice}
-          onDismiss={dismissQaNotice}
-        />
       </div>
     {/if}
 
