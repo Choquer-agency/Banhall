@@ -305,12 +305,15 @@ describe("reordered Step-by-step start (decision 32)", () => {
     await runSeedDraftingInputs(s.t);
     await openFirstRole(s);
     // Captured from the same fixture on 9bed95c0, before the reorder: the
-    // stages moved, their provider requests did not.
+    // stages moved, their provider requests did not. The Brief, analysis and
+    // retrieval brief hashes were recaptured after merging the raised output
+    // caps (16,000 / 16,000 / 2,048 tokens); with the old caps restored they
+    // match the 9bed95c0 values, so max_tokens is the only difference.
     expect(await requestHashes()).toEqual({
-      submit_generation_brief: "66095cb8cab5a57fd6c9f5e7ef84b89170d1b63d91aa96704c3977c018b0a9ba",
-      submit_retrieval_brief: "404d7fc76b249891f6afca242c872beaad15682d7f449eff60fc2f9f16e579d3",
+      submit_generation_brief: "768cad27ddf4db91f8237ad51714fdab8cdc5b0826a54a83cc3eba516c57434e",
+      submit_retrieval_brief: "5ff41dc8effa6c1d3debffd0657f07c741a25549cd8bfe83863ea1ff0e4939a5",
       submit_seed_batch: "2e71037c98d18d834150aa69c1a9903a420562310048f3ca9e5fa58181716e9a",
-      submit_transcript_analysis: "3038f5a2a8ce1fb5de9788cbaba1768a273eaacd5970fe2a91b8724eeac49623",
+      submit_transcript_analysis: "529909743af47708a90efdf4bf9fca2dcd76070b988cec16e438bc02a8195310",
     });
   });
 
@@ -633,11 +636,12 @@ describe("section approval is unchanged by the reorder", () => {
         .withIndex("by_generationId_and_kind", (q) => q.eq("generationId", s.generationId))
         .collect()).map((row) => `${row.kind}:${row.content}`).sort());
     expect(artifacts.map((row) => row.split(":")[0])).toEqual(["analysis", "brain_blocks"]);
-    // Captured from the same fixture on 9bed95c0, before the reorder.
+    // Captured from the same fixture on 9bed95c0, before the reorder, with the
+    // raised output caps applied (see the note in the test above).
     expect(await requestHashes()).toEqual({
-      submit_generation_brief: "66095cb8cab5a57fd6c9f5e7ef84b89170d1b63d91aa96704c3977c018b0a9ba",
-      submit_retrieval_brief: "404d7fc76b249891f6afca242c872beaad15682d7f449eff60fc2f9f16e579d3",
-      submit_transcript_analysis: "3038f5a2a8ce1fb5de9788cbaba1768a273eaacd5970fe2a91b8724eeac49623",
+      submit_generation_brief: "768cad27ddf4db91f8237ad51714fdab8cdc5b0826a54a83cc3eba516c57434e",
+      submit_retrieval_brief: "5ff41dc8effa6c1d3debffd0657f07c741a25549cd8bfe83863ea1ff0e4939a5",
+      submit_transcript_analysis: "529909743af47708a90efdf4bf9fca2dcd76070b988cec16e438bc02a8195310",
       text: "89121783d0eb621299c46695a2c96c1e5bc3c2fde9169e7d9cbd6e360274f2b0",
     });
     expect(await sha256Hex(JSON.stringify(artifacts))).toBe(
