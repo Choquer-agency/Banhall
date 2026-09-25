@@ -412,6 +412,107 @@ describe("placeholders frozen before the speaker build runs", () => {
     }
   });
 
+  it("hides a company or a person whose name holds a title word (Northwind Engineering, Acme (Jonathan Head))", async () => {
+    const content = [
+      "Jordan Ellis: Who built the rig?",
+      "",
+      "Priya Shah (Northwind Engineering): Our bench team.",
+      "",
+      "Raj Patel (Pacific Research): We ran the tests.",
+      "",
+      "Ann Lee (Acme Design): We drew the housing.",
+      "",
+      "Acme (Jonathan Head): I signed it off.",
+      "",
+      "Acme (Pedro Sales): I ordered the parts.",
+      "",
+      "Tom Becker (VP Engineering): The design held.",
+    ].join("\n");
+    const words = ["Northwind", "Pacific", "Acme", "Jonathan", "Head", "Pedro", "Sales", "Priya", "Patel", "Becker"];
+    for (const built of [false, true]) {
+      const f = await setupFresh(`titles-${built}`, content);
+      if (built) {
+        await f.t.mutation(internal.transcripts.buildTranscriptStructure, { transcriptId: f.transcriptId });
+        expect((await speakerLabels(f.t, f.transcriptId)).sort()).toEqual([
+          "Ann Lee",
+          "Jonathan Head",
+          "Jordan Ellis",
+          "Pedro Sales",
+          "Priya Shah",
+          "Raj Patel",
+          "Tom Becker",
+        ]);
+      }
+      const generationId = await f.writer.mutation(api.generations.requestGeneration, {
+        projectId: f.projectId,
+        candidateMode: "single",
+      });
+      const values = (await f.t.run((ctx) => ctx.db.get(generationId)))?.placeholders?.map((entry) => entry.value) ?? [];
+      for (const value of ["Northwind Engineering", "Pacific Research", "Acme Design", "Acme", "Jonathan Head", "Pedro Sales"]) {
+        expect(values, `${value} (built: ${built})`).toContain(value);
+      }
+      // A title made only of title words names no one.
+      expect(values).not.toContain("VP Engineering");
+      const bodies: string[] = [];
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+          bodies.push(await new Request(input, init).text());
+          return Response.json({
+            id: "msg_titles",
+            type: "message",
+            role: "assistant",
+            model: MODEL,
+            content: [{ type: "text", text: "ok" }],
+            stop_reason: "end_turn",
+            stop_sequence: null,
+            usage: { input_tokens: 10, output_tokens: 1 },
+          });
+        })
+      );
+      await f.t.action(async (ctx) =>
+        clientForModel(ctx, MODEL, {
+          callSite: "generation:analyzer",
+          projectId: f.projectId,
+          attribution: { generationId },
+        }).messages.create({
+          model: MODEL,
+          max_tokens: 100,
+          messages: [{ role: "user", content }],
+        })
+      );
+      expect(bodies).toHaveLength(1);
+      for (const word of words) {
+        expect(bodies[0], `${word} (built: ${built})`).not.toContain(word);
+      }
+      expect(bodies[0]).toContain("VP Engineering");
+      expect(bodies[0]).toContain("We drew the housing.");
+    }
+  });
+
+  it("keeps hiding speakers past the speaker row cap when the build's stored names are read", async () => {
+    const first = ["Avery", "Blake", "Casey", "Devon", "Emery", "Finley", "Gray", "Harper", "Indigo", "Jules", "Kendall", "Logan", "Morgan", "Noel", "Oakley"];
+    const last = ["Abbott", "Barros", "Castell", "Dunmore", "Everly", "Fairholt", "Gansett"];
+    const names = Array.from({ length: 105 }, (_, i) => `${first[i % first.length]} ${last[Math.floor(i / first.length)]}`);
+    const content = names.map((name, i) => `${name}: Line ${i} about the rig.`).join("\n\n");
+    const f = await setupFresh("past-cap", content);
+    await f.t.mutation(internal.transcripts.buildTranscriptStructure, { transcriptId: f.transcriptId });
+    await f.t.finishAllScheduledFunctions(vi.runAllTimers);
+    const row = await f.t.run((ctx) => ctx.db.get(f.transcriptId));
+    expect(row?.parserVersion).toBe(TRANSCRIPT_PARSER_VERSION);
+    expect(row?.structureBuildId).toBeUndefined();
+    // Rows stop at the cap; the labels past it are kept with the other names.
+    expect((await speakerLabels(f.t, f.transcriptId)).length).toBeGreaterThan(0);
+    expect(row?.speakerNames?.otherNames).toEqual(names.slice(100));
+
+    const generationId = await f.writer.mutation(api.generations.requestGeneration, {
+      projectId: f.projectId,
+      candidateMode: "single",
+    });
+    const values = (await f.t.run((ctx) => ctx.db.get(generationId)))?.placeholders?.map((entry) => entry.value) ?? [];
+    for (const name of names) expect(values, name).toContain(name);
+  });
+
   it("hides the speakers of a transcript whose build has not run in an extraction's map too", async () => {
     const f = await setupFresh("facts");
     await f.t.mutation(internal.transcripts.buildTranscriptStructure, { transcriptId: f.transcriptId });

@@ -4,7 +4,14 @@ import {
   ANTHROPIC_TIMEOUT_MS,
   createAnthropicClient,
 } from "./providers";
-import { ActionTimeBudgetError, actionDeadline, requestBudget } from "./actionDeadline";
+import {
+  ActionTimeBudgetError,
+  actionDeadline,
+  anthropicRetryDelayMs,
+  isErrorOf,
+  requestBudget,
+  retryFitsDeadline,
+} from "./actionDeadline";
 import { COMPRESSION_REQUEST } from "./promptDefinitions";
 import type { AnthropicCapability } from "../lib/providerConfig";
 import type { ActionCtx } from "../_generated/server";
@@ -422,20 +429,61 @@ export function adaptAnthropicRequest(params: unknown): unknown {
 }
 
 /**
- * The caller's request options (a fact extraction's `signal`, say) with the
- * deadline's timeout and retry count. A caller's own lower values win.
+ * Whether the SDK would retry this failed attempt: a connection error or a
+ * timeout, or an answer the provider marks retryable (`x-should-retry`) or
+ * sends as 408, 409, 429 or 5xx (529 overloaded included). A caller's own
+ * abort is never retried.
  */
-function withRequestBudget(
+export function isRetryableAnthropicError(error: unknown): boolean {
+  if (isErrorOf(error, Anthropic.APIUserAbortError)) return false;
+  if (isErrorOf(error, Anthropic.APIConnectionError)) return true;
+  if (!isErrorOf(error, Anthropic.APIError)) return false;
+  const apiError = error as InstanceType<typeof Anthropic.APIError>;
+  const header = apiError.headers?.get("x-should-retry");
+  if (header === "true") return true;
+  if (header === "false") return false;
+  const status = apiError.status;
+  return status === 408 || status === 409 || status === 429 || (typeof status === "number" && status >= 500);
+}
+
+/**
+ * One request under the action's deadline (actionDeadline.ts, review
+ * 2026-09-25 P2-2). The SDK is sent `maxRetries: 0` and this loop retries
+ * as the SDK would, deciding each retry when the failure happens: it is
+ * sent only when a useful attempt still fits after its wait, and each
+ * attempt's timeout is cut to the time left. A caller's own lower timeout
+ * or retry count wins. The request body is the same on every attempt.
+ */
+async function createWithinDeadline(
+  send: (options: Record<string, unknown>) => Promise<unknown>,
   options: unknown,
-  budget: { timeoutMs: number; maxRetries: number }
-): Record<string, unknown> {
+  deadline: number,
+  defaults: { timeoutMs: number; maxRetries: number }
+): Promise<unknown> {
   const own = options && typeof options === "object" ? (options as Record<string, unknown>) : {};
-  return {
-    ...own,
-    timeout: typeof own.timeout === "number" ? Math.min(own.timeout, budget.timeoutMs) : budget.timeoutMs,
-    maxRetries:
-      typeof own.maxRetries === "number" ? Math.min(own.maxRetries, budget.maxRetries) : budget.maxRetries,
-  };
+  const timeoutMs = typeof own.timeout === "number" ? Math.min(own.timeout, defaults.timeoutMs) : defaults.timeoutMs;
+  const retries =
+    typeof own.maxRetries === "number" ? Math.min(own.maxRetries, defaults.maxRetries) : defaults.maxRetries;
+  for (let attempt = 0; ; attempt += 1) {
+    const budget = requestBudget({ deadline, now: Date.now(), timeoutMs, maxRetries: 0 });
+    try {
+      return await send({ ...own, timeout: budget.timeoutMs, maxRetries: 0 });
+    } catch (error) {
+      // A timeout the deadline cut short says the action ran out of time,
+      // not that the model failed.
+      if (budget.shortened && isErrorOf(error, Anthropic.APIConnectionTimeoutError)) {
+        throw new ActionTimeBudgetError();
+      }
+      if (attempt >= retries || !isRetryableAnthropicError(error)) throw error;
+      const headers = isErrorOf(error, Anthropic.APIError)
+        ? (error as InstanceType<typeof Anthropic.APIError>).headers
+        : undefined;
+      const delay = anthropicRetryDelayMs(headers, attempt, Date.now(), Math.random);
+      if (!retryFitsDeadline(deadline, Date.now(), delay)) throw error;
+      console.warn(`Anthropic request failed (attempt ${attempt + 1}/${retries + 1}), retrying in ${Math.round(delay)}ms`);
+      await new Promise<void>((resolve) => setTimeout(resolve, delay));
+    }
+  }
 }
 
 /** Anthropic client that durably records billed usage after every response. */
@@ -462,35 +510,32 @@ export function instrumentedAnthropic(
       if (property !== "create") return Reflect.get(target, property, receiver);
       return async (...args: unknown[]) => {
         // The action's deadline (actionDeadline.ts): throws before sending
-        // when too little time is left; otherwise it may shorten this
-        // request's timeout and drop its retry. Transport options only.
+        // when too little time is left; otherwise each attempt's timeout is
+        // cut to the time left and each retry is decided when it happens
+        // (createWithinDeadline). Transport options only.
         const deadline = actionDeadline(ctx);
-        const budget =
+        const defaults =
           deadline === undefined
             ? undefined
-            : requestBudget({
-                deadline,
-                now: Date.now(),
+            : {
                 timeoutMs: meta.clientOptions?.timeout ?? ANTHROPIC_TIMEOUT_MS,
                 maxRetries: meta.clientOptions?.maxRetries ?? ANTHROPIC_MAX_RETRIES,
-              });
+              };
+        if (deadline !== undefined && defaults) requestBudget({ deadline, now: Date.now(), ...defaults });
         await recordGenerationHandoff(ctx, meta.attribution);
         const startedAt = Date.now();
         const request = adaptAnthropicRequest(args[0]);
-        const sent = [meta.attribution ? cacheGenerationPrefix(request) : request, ...args.slice(1)];
-        if (budget) sent[1] = withRequestBudget(sent[1], budget);
-        let response: unknown;
-        try {
-          response = await Reflect.apply(originalCreate, target, sent);
-        } catch (error) {
-          // A timeout the deadline cut short says the action ran out of
-          // time, not that the model failed.
-          const timeoutError = Anthropic.APIConnectionTimeoutError;
-          if (budget?.shortened && typeof timeoutError === "function" && error instanceof timeoutError) {
-            throw new ActionTimeBudgetError();
-          }
-          throw error;
-        }
+        const body = meta.attribution ? cacheGenerationPrefix(request) : request;
+        const rest = args.slice(2);
+        const response: unknown =
+          deadline === undefined || !defaults
+            ? await Reflect.apply(originalCreate, target, [body, ...args.slice(1)])
+            : await createWithinDeadline(
+                (options) => Reflect.apply(originalCreate, target, [body, options, ...rest]),
+                args[1],
+                deadline,
+                defaults
+              );
         const durationMs = Math.max(0, Date.now() - startedAt);
         const usage = anthropicUsage(response);
         const stopReason = responseStopReason(response);

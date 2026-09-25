@@ -20,7 +20,11 @@ import {
   startActionDeadline,
 } from "./providers";
 import { RETRIEVAL_BRIEF_MODEL } from "./brain/query";
-import { runAnalyzerAgent, type TranscriptAnalysis } from "./analyzerAgent";
+import Anthropic from "@anthropic-ai/sdk";
+import { ANALYZER_REQUEST, runAnalyzerAgent, type TranscriptAnalysis } from "./analyzerAgent";
+import { ActionTimeBudgetError, isErrorOf } from "./actionDeadline";
+import { OpenRouterError } from "./openrouter";
+import { alwaysThinkingMaxTokens } from "../../shared/generationModels";
 import { runGenerationBriefStage, deriveOrReuseBrief } from "./brief";
 import { runSection242Agent } from "./section242Agent";
 import { runSection244Agent } from "./section244Agent";
@@ -281,10 +285,35 @@ export const resumeSeedInitialization = internalAction({
 
 /** The stored reason for a failed background attempt: a normalized code,
  * never provider or model text. A cut-off structured answer is checked by
- * class first, whatever its message says. */
+ * class first, whatever its message says. An action that ran out of time,
+ * or a request that ran to its own timeout, is `timed_out` (review
+ * 2026-09-25). */
 export function draftingInputsFailureCode(error: unknown): DraftingInputsFailureCode {
   if (error instanceof OutputLimitError) return "output_limit";
+  if (error instanceof ActionTimeBudgetError) return "timed_out";
+  if (isErrorOf(error, Anthropic.APIConnectionTimeoutError)) return "timed_out";
+  if (error instanceof OpenRouterError && error.status === undefined && /timed out/i.test(error.message)) {
+    return "timed_out";
+  }
   return normalizeProviderError(error).code;
+}
+
+/**
+ * Whether the next attempt should ask for a shorter analysis: this one saw
+ * an answer cut off at the output limit (even when its repair then failed
+ * another way), or the analyzer of a model that always thinks ran out of
+ * time. Such a model is given four times the answer budget as thinking
+ * room, so a long analysis runs into the time limit instead of the output
+ * limit (review 2026-09-25).
+ */
+export function draftingInputsNeedShorterAnalysis(args: {
+  code: DraftingInputsFailureCode;
+  sawCutOff: boolean;
+  analyzerModel: string | undefined;
+}): boolean {
+  if (args.sawCutOff || args.code === "output_limit") return true;
+  if (args.code !== "timed_out" || args.analyzerModel === undefined) return false;
+  return alwaysThinkingMaxTokens(args.analyzerModel, ANALYZER_REQUEST.maxTokens) > ANALYZER_REQUEST.maxTokens;
 }
 
 /**
@@ -296,9 +325,10 @@ export function draftingInputsFailureCode(error: unknown): DraftingInputsFailure
  * are unchanged. Fenced by `attempt`: a cancel, a deletion, sign-off or a
  * newer attempt stops it before its paid calls and drops its result. Any
  * failure leaves the drafting inputs failed with its normalized code, for
- * the writer to retry. `shorterAnalysis` (a retry after an analysis cut off
- * at the output limit) appends ANALYZER_REQUEST.shorterRetryNote; every
- * other byte of every request is unchanged.
+ * the writer to retry. `shorterAnalysis` (a retry after an analysis that
+ * was too long, draftingInputsNeedShorterAnalysis) appends
+ * ANALYZER_REQUEST.shorterRetryNote; every other byte of every request is
+ * unchanged.
  */
 export const prepareSeedDraftingInputs = internalAction({
   args: {
@@ -314,6 +344,10 @@ export const prepareSeedDraftingInputs = internalAction({
     const stillCurrent = () =>
       ctx.runQuery(internal.generations.isDraftingInputsAttemptCurrent, attemptArgs);
     if (!(await stillCurrent())) return null;
+    // Set once the analyzer runs: what the failure path needs to decide
+    // whether the next attempt asks for a shorter analysis.
+    let analyzerModel: string | undefined;
+    let sawCutOff = false;
     try {
       // Model catalog: routing and output budgets read the frozen models.
       const freeze = await registerGenerationModels(ctx, args.generationId);
@@ -358,6 +392,7 @@ export const prepareSeedDraftingInputs = internalAction({
         },
       });
       if (!(await stillCurrent())) return null;
+      analyzerModel = model.id;
       const analysis = await runAnalyzerAgent(
         clientForModel(ctx, model.id, {
           callSite: "generation:analyzer",
@@ -368,7 +403,12 @@ export const prepareSeedDraftingInputs = internalAction({
         analyzerContext.userMessage,
         model.id,
         brainBlocks.analyzer,
-        { shorter: args.shorterAnalysis === true }
+        {
+          shorter: args.shorterAnalysis === true,
+          onCutOff: () => {
+            sawCutOff = true;
+          },
+        }
       );
       await ctx.runMutation(internal.generations.completeDraftingInputs, {
         ...attemptArgs,
@@ -379,8 +419,13 @@ export const prepareSeedDraftingInputs = internalAction({
     } catch (error) {
       // Only the normalized code: never provider or source text.
       const code = draftingInputsFailureCode(error);
+      const shorterAnalysis = draftingInputsNeedShorterAnalysis({ code, sawCutOff, analyzerModel });
       console.error("drafting inputs failed for generation", args.generationId, code);
-      await ctx.runMutation(internal.generations.failDraftingInputs, { ...attemptArgs, code });
+      await ctx.runMutation(internal.generations.failDraftingInputs, {
+        ...attemptArgs,
+        code,
+        ...(shorterAnalysis ? { shorterAnalysis: true } : {}),
+      });
     }
     return null;
   },

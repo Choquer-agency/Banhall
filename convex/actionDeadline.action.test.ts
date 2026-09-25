@@ -123,8 +123,10 @@ it("a cut-off analysis late in prepareSeedDraftingInputs fails fast instead of o
   const analyses = calls.filter(([params]) => params.tool_choice?.name === "submit_transcript_analysis");
   // One analysis request; its repair was never sent.
   expect(analyses).toHaveLength(1);
-  // The first request ran with the full defaults: time was plentiful then.
-  expect(analyses[0][1]).toEqual({ timeout: 240_000, maxRetries: 1 });
+  // The first request ran with the full timeout: time was plentiful then.
+  // The SDK is sent no retry of its own; the wrapper decides each retry
+  // against the time left when a failure happens (review 2026-09-25, P2-2).
+  expect(analyses[0][1]).toEqual({ timeout: 240_000, maxRetries: 0 });
   // The action finished inside the request window, not at the Convex limit:
   // the only time that passed is the 530 s the cut analysis took.
   expect(actionEnd - start).toBe(530_000);
@@ -132,5 +134,13 @@ it("a cut-off analysis late in prepareSeedDraftingInputs fails fast instead of o
   expect(actionEnd - start).toBeLessThan(CONVEX_ACTION_LIMIT_MS);
   // The existing failure handling ran: the writer can retry the drafting context.
   const generation = await t.run((ctx) => ctx.db.get(generationId));
-  expect(generation?.draftingInputs).toMatchObject({ status: "failed", attempt: 1 });
+  // The time ran out (timed_out, not unknown), and the answer was cut off
+  // before that, so the retry asks for a shorter analysis (review
+  // 2026-09-25).
+  expect(generation?.draftingInputs).toMatchObject({
+    status: "failed",
+    attempt: 1,
+    failureCode: "timed_out",
+    shorterAnalysis: true,
+  });
 });

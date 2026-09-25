@@ -10,7 +10,7 @@ import { factRunIsCurrent } from "./lib/transcriptFactRows";
 import { FACTS_VERSION } from "./lib/transcriptFacts";
 import { sha256 } from "./lib/contracts";
 import { TURN_BATCH_SIZE } from "./lib/transcriptStructure";
-import { inferSpeakerRoles, labelNamesPerson } from "./lib/transcriptSpeakers";
+import { MODEL_ROLE_THRESHOLD, inferSpeakerRoles, labelNamesPerson, needsModelRole } from "./lib/transcriptSpeakers";
 import { parseTranscriptTurns } from "../shared/transcriptParse";
 
 const modules = import.meta.glob("./**/*.ts");
@@ -595,6 +595,80 @@ describe("speaker role rules", () => {
     const guesses = inferSpeakerRoles(turns, { staffNames: [], clientNames: [] });
     expect(guesses.map((g) => g.role)).toEqual(["interviewer", "client"]);
     expect(guesses.every((g) => g.confidence < 0.7)).toBe(true);
+  });
+
+  it("never places a client at the threshold for sharing a first name with someone on the roster (review 2026-09-25)", () => {
+    const client = parseTranscriptTurns(
+      [
+        "Jordan Ellis: What did you set out to build?",
+        "Dana: A predictive controller for feeder voltage, which we tested on two feeders over the summer.",
+        "Jordan Ellis: What made that hard?",
+        "Dana: We could not forecast net load fast enough when cloud cover changed during the afternoon.",
+      ].join("\n\n")
+    );
+    const roles = (context: Parameters<typeof inferSpeakerRoles>[1]) =>
+      inferSpeakerRoles(client, context).map((g) => [g.label, g.role, g.confidence]);
+    // No interviewees on the project, and staff member Dana Whitfield on the roster.
+    const rosterOnly = roles({ staffNames: [], clientNames: [], rosterNames: ["Dana Whitfield"] });
+    expect(rosterOnly).toEqual([
+      ["Jordan Ellis", "interviewer", 0.6],
+      ["Dana", "client", 0.55],
+    ]);
+    // The project's own interviewer is matched first; Dana is the other speaker.
+    expect(roles({ staffNames: ["Jordan Ellis"], clientNames: [], rosterNames: ["Dana Whitfield", "Jordan Ellis"] })).toEqual([
+      ["Jordan Ellis", "interviewer", 0.95],
+      ["Dana", "client", 0.75],
+    ]);
+    // A full name on the roster alone places Jordan too.
+    expect(roles({ staffNames: [], clientNames: [], rosterNames: ["Dana Whitfield", "Jordan Ellis"] })[0]).toEqual([
+      "Jordan Ellis",
+      "interviewer",
+      0.95,
+    ]);
+    // The project's interviewees come before the roster.
+    expect(roles({ staffNames: [], clientNames: ["Dana Rao"], rosterNames: ["Dana Whitfield"] })[1]).toEqual([
+      "Dana",
+      "client",
+      0.95,
+    ]);
+
+    // A staff member who is named only by a first name still leans interviewer, below the threshold.
+    const staff = parseTranscriptTurns(
+      "Dana: What did you build?\n\nPriya Shah: A controller.\n\nDana: Why?\n\nPriya Shah: The load moved."
+    );
+    const staffGuess = inferSpeakerRoles(staff, { staffNames: [], clientNames: [], rosterNames: ["Dana Whitfield"] })[0];
+    expect(staffGuess.role).toBe("interviewer");
+    expect(staffGuess.confidence).toBeLessThan(MODEL_ROLE_THRESHOLD);
+    expect(needsModelRole(staffGuess)).toBe(true);
+    // With the full name on the label, the roster places them outright.
+    const fullStaff = parseTranscriptTurns("Dana Whitfield: What did you build?\n\nPriya Shah: A controller.");
+    expect(inferSpeakerRoles(fullStaff, { staffNames: [], clientNames: [], rosterNames: ["Dana Whitfield"] })[0]).toMatchObject({
+      role: "interviewer",
+      confidence: 0.95,
+    });
+  });
+
+  it("builds a client named like a roster member as a client whose words stay evidence", async () => {
+    const content = [
+      "Jordan Ellis: What did you set out to build?",
+      "Dana: A predictive controller for feeder voltage, which we tested on two feeders over the summer.",
+      "Jordan Ellis: What made that hard?",
+      "Dana: We could not forecast net load fast enough when cloud cover changed during the afternoon.",
+    ].join("\n\n");
+    const f = await setup([content]);
+    await f.t.run((ctx) =>
+      ctx.db.insert("users", { authId: "ts-dana", role: "writer", firstName: "Dana", lastName: "Whitfield" })
+    );
+    await f.t.mutation(internal.transcripts.buildTranscriptStructure, { transcriptId: f.transcriptIds[0] });
+    const rows = await f.t.run((ctx) =>
+      ctx.db
+        .query("transcriptSpeakers")
+        .withIndex("by_transcriptId_and_label", (q) => q.eq("transcriptId", f.transcriptIds[0]))
+        .collect()
+    );
+    const dana = rows.find((row) => row.label === "Dana");
+    expect(dana?.role).not.toBe("interviewer");
+    expect(dana?.confidence ?? 0).toBeLessThan(MODEL_ROLE_THRESHOLD);
   });
 
   it("matches a first name against a full name", () => {

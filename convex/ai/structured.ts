@@ -121,6 +121,12 @@ export async function generateStructured<T>(
      * recovery. Strict raw-boundary callers can disable that recovery.
      */
     encodedJsonRecovery?: boolean;
+    /**
+     * Called each time an answer is cut off at the output token limit, on
+     * either gateway, even when the repair then succeeds or fails another
+     * way. Request bytes are unchanged.
+     */
+    onCutOff?: () => void;
   }
 ): Promise<T> {
   const client = rawClient as GenerationClient;
@@ -169,6 +175,7 @@ export async function generateStructured<T>(
       // rejection, so it spends the same single repair attempt. Provider
       // errors (auth, billing, rate limit) are not repairable by re-prompting
       // and keep failing fast; the transport already retries rate limits.
+      if (error instanceof OutputLimitError) opts.onCutOff?.();
       if (lastAttempt || !(error instanceof MalformedOutputError)) throw error;
       validationSummary =
         error instanceof OutputLimitError
@@ -192,6 +199,7 @@ export async function generateStructured<T>(
     // complete. The same failure the OpenRouter adapter raises for
     // `finish_reason: "length"`: it spends the one repair attempt, then fails.
     if (isCutOffStopReason(res.stop_reason)) {
+      opts.onCutOff?.();
       await settle({ ok: false, code: "output_limit" });
       validationSummary = STRUCTURED_OUTPUT_PROGRAM.repairScaffold.cutOffSummary;
       console.warn(

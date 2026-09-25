@@ -1,3 +1,4 @@
+import Anthropic from "@anthropic-ai/sdk";
 import { describe, expect, it } from "vitest";
 import {
   ACTION_REQUEST_WINDOW_MS,
@@ -8,7 +9,9 @@ import {
   MIN_USEFUL_REQUEST_MS,
   RESERVED_NON_REQUEST_MS,
   actionDeadline,
+  anthropicRetryDelayMs,
   requestBudget,
+  retryFitsDeadline,
   startActionDeadline,
 } from "./actionDeadline";
 import {
@@ -18,6 +21,9 @@ import {
   modelFaultCode,
   normalizeProviderError,
 } from "./providers";
+import { draftingInputsFailureCode, draftingInputsNeedShorterAnalysis } from "./iterative";
+import { OpenRouterError } from "./openrouter";
+import { OutputLimitError } from "./openrouterCore";
 
 describe("action deadline arithmetic (cutoff review P2-2)", () => {
   it("ends every request 60 s before the Convex action limit", () => {
@@ -112,5 +118,48 @@ describe("action deadline arithmetic (cutoff review P2-2)", () => {
     expect(describeProviderFailure(other)).toBe(
       "rate_limited: The AI provider is rate-limiting requests. Try again after the limit resets."
     );
+  });
+
+  it("decides a retry against the time left after its wait (review 2026-09-25, P2-2)", () => {
+    expect(retryFitsDeadline(undefined, 0, 1_000_000)).toBe(true);
+    expect(retryFitsDeadline(100_000, 70_000, 10_000)).toBe(true);
+    expect(retryFitsDeadline(100_000, 70_000, 10_001)).toBe(false);
+    const headers = (values: Record<string, string>) => new Headers(values);
+    expect(anthropicRetryDelayMs(headers({ "retry-after-ms": "10" }), 0, 0, () => 0)).toBe(10);
+    expect(anthropicRetryDelayMs(headers({ "retry-after": "25" }), 0, 0, () => 0)).toBe(25_000);
+    expect(anthropicRetryDelayMs(headers({ "retry-after": "Thu, 01 Jan 1970 00:00:30 GMT" }), 0, 10_000, () => 0)).toBe(20_000);
+    // The SDK's backoff: 0.5 s doubling to 8 s, up to 25 percent less.
+    expect(anthropicRetryDelayMs(undefined, 0, 0, () => 0)).toBe(500);
+    expect(anthropicRetryDelayMs(undefined, 1, 0, () => 1)).toBe(750);
+    expect(anthropicRetryDelayMs(undefined, 10, 0, () => 0)).toBe(MAX_SDK_RETRY_BACKOFF_MS);
+  });
+
+  it("never counts a provider infrastructure failure against the model; a full timeout still counts", () => {
+    const headers = new Headers();
+    expect(modelFaultCode(new Anthropic.InternalServerError(500, undefined, "boom", headers))).toBeNull();
+    expect(modelFaultCode(Anthropic.APIError.generate(529, undefined, "overloaded", headers))).toBeNull();
+    expect(modelFaultCode(Anthropic.APIError.generate(408, undefined, "timeout", headers))).toBeNull();
+    expect(modelFaultCode(new Anthropic.APIConnectionError({ message: "Connection error." }))).toBeNull();
+    expect(modelFaultCode(Object.assign(new Error("OpenRouter request failed with status 502"), { status: 502 }))).toBeNull();
+    expect(modelFaultCode(new Anthropic.APIConnectionTimeoutError())).toBe("unknown");
+    expect(modelFaultCode(Anthropic.APIError.generate(400, undefined, "bad request", headers))).toBe("unknown");
+  });
+
+  it("stores a background step that ran out of time as timed_out, and asks for a shorter analysis when it was too long", () => {
+    expect(draftingInputsFailureCode(new ActionTimeBudgetError())).toBe("timed_out");
+    expect(draftingInputsFailureCode(new Anthropic.APIConnectionTimeoutError())).toBe("timed_out");
+    expect(draftingInputsFailureCode(new OpenRouterError("OpenRouter request timed out after 240000ms"))).toBe("timed_out");
+    expect(draftingInputsFailureCode(new OutputLimitError("cut"))).toBe("output_limit");
+    expect(draftingInputsFailureCode(Object.assign(new Error("slow down"), { status: 429 }))).toBe("rate_limited");
+
+    const shorter = (code: Parameters<typeof draftingInputsNeedShorterAnalysis>[0]["code"], sawCutOff: boolean, analyzerModel?: string) =>
+      draftingInputsNeedShorterAnalysis({ code, sawCutOff, analyzerModel });
+    expect(shorter("output_limit", false)).toBe(true);
+    expect(shorter("rate_limited", true, "claude-sonnet-5")).toBe(true);
+    expect(shorter("timed_out", false, "claude-opus-5-5")).toBe(true);
+    expect(shorter("timed_out", false, "claude-sonnet-5")).toBe(false);
+    // A timeout before the analyzer ran (retrieval) says nothing about its length.
+    expect(shorter("timed_out", false, undefined)).toBe(false);
+    expect(shorter("unknown", false, "claude-opus-5-5")).toBe(false);
   });
 });

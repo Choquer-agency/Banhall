@@ -41,13 +41,12 @@ export async function speakerRoleContext(
   project: Doc<"projects">
 ): Promise<SpeakerRoleContext> {
   const roster = await listTeamRoster(ctx);
-  const staffNames = [
-    project.interviewer,
-    project.writer,
-    ...roster.map((user) => userDisplayLabel(user)),
-  ].filter((name): name is string => !!name && name.trim().length >= 2);
-  const clientNames = (project.interviewees ?? []).filter((name) => name.trim().length >= 2);
-  return { staffNames, clientNames };
+  const named = (name: string | undefined): name is string => !!name && name.trim().length >= 2;
+  // The project record first; the roster only after it (transcriptSpeakers).
+  const staffNames = [project.interviewer, project.writer].filter(named);
+  const clientNames = (project.interviewees ?? []).filter(named);
+  const rosterNames = roster.map((user) => userDisplayLabel(user)).filter(named);
+  return { staffNames, clientNames, rosterNames };
 }
 
 export type StructureStep =
@@ -148,7 +147,11 @@ export async function buildStructureStep(
     parserVersion: TRANSCRIPT_PARSER_VERSION,
     structureBuildId: undefined,
     structureModelRoles: undefined,
-    speakerNames: storedSpeakerNames(text, cues),
+    speakerNames: storedSpeakerNames(
+      text,
+      cues,
+      guesses.slice(0, MAX_SPEAKERS_PER_TRANSCRIPT).map((guess) => guess.label)
+    ),
     speakerStatus:
       guesses.length === 0
         ? "unchecked"
@@ -168,15 +171,23 @@ export const MAX_STORED_SPEAKER_NAMES = 200;
 
 /**
  * The names a build keeps on the row for placeholder maps: every name the
- * labels hold besides the labels (which the speaker rows keep). Undefined
- * when there are too many, so a map parses the text instead.
+ * labels hold besides the labels the speaker rows keep (`rowLabels`). A
+ * label past the row cap (MAX_SPEAKERS_PER_TRANSCRIPT) has no row, so it is
+ * kept here with the other names (review 2026-09-25). Undefined when there
+ * are too many, so a map parses the text instead.
  */
-function storedSpeakerNames(text: string, cues: boolean): Doc<"transcripts">["speakerNames"] {
+function storedSpeakerNames(
+  text: string,
+  cues: boolean,
+  rowLabels: readonly string[]
+): Doc<"transcripts">["speakerNames"] {
   const names = transcriptSpeakerNames(text, { cues });
-  if (names.otherNames.length + names.organizations.length > MAX_STORED_SPEAKER_NAMES) return undefined;
+  const withRow = new Set(rowLabels);
+  const otherNames = [...new Set([...names.labels.filter((label) => !withRow.has(label)), ...names.otherNames])];
+  if (otherNames.length + names.organizations.length > MAX_STORED_SPEAKER_NAMES) return undefined;
   return {
     parserVersion: TRANSCRIPT_PARSER_VERSION,
-    otherNames: names.otherNames,
+    otherNames,
     organizations: names.organizations,
   };
 }

@@ -3050,7 +3050,9 @@ export default defineSchema({
     // Count of derived entries whose citation failed byte-match validation
     // and were dropped rather than inserted (Block-If: the drop is counted
     // on the Brief, the generation continues). Absent on a writer-edited
-    // version, where no re-derivation ran.
+    // version, where no re-derivation ran. A reused Brief's speaker check
+    // (briefWithoutExcludedQuotes) writes a new version that adds its own
+    // drops to the count, whatever the origin.
     droppedEntryCount: v.optional(v.number()),
     // Story 4: who last shaped `storylineText` — `writer` when typed into an
     // empty Storyline, `edited` after any other Storyline change, otherwise

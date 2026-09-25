@@ -132,7 +132,9 @@ export async function runAnalyzerAgent(
   brainExemplars: string = "",
   // A retry after a cut-off analysis asks for a shorter one
   // (ANALYZER_REQUEST.shorterRetryNote). The first request is unchanged.
-  options: { shorter?: boolean } = {}
+  // `onCutOff` hears of every answer cut off at the output limit, the
+  // repaired ones included.
+  options: { shorter?: boolean; onCutOff?: () => void } = {}
 ): Promise<TranscriptAnalysis> {
   const shorter = options.shorter ? ANALYZER_REQUEST.shorterRetryNote : "";
   return await generateStructured<TranscriptAnalysis>(client, {
@@ -144,6 +146,7 @@ export async function runAnalyzerAgent(
     maxTokens: ANALYZER_REQUEST.maxTokens,
     model,
     validate: analysisSchema,
+    ...(options.onCutOff ? { onCutOff: options.onCutOff } : {}),
   });
 }
 

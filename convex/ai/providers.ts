@@ -28,7 +28,7 @@ import {
   type ProviderCallMeta,
 } from "./instrument";
 import { COMPRESSION_REQUEST } from "./promptDefinitions";
-import { ActionTimeBudgetError } from "./actionDeadline";
+import { ActionTimeBudgetError, isErrorOf } from "./actionDeadline";
 import { instrumentedOpenRouter } from "./openrouter";
 import {
   MalformedOutputError,
@@ -236,15 +236,32 @@ async function ensureModelRegistered(
  * returned something unusable, refused, or failed in a way nobody has
  * classified. Billing, auth, rate limits and network faults say nothing
  * about the model and are not recorded. Neither is an action running out of
- * time (ActionTimeBudgetError, 2026-09-25): that is our own arithmetic.
+ * time (ActionTimeBudgetError, 2026-09-25): that is our own arithmetic. Nor
+ * is the provider's infrastructure (review 2026-09-25, P2-2): a dropped
+ * connection, or a 408, 409 or 5xx answer (529 overloaded included), which
+ * a burst of provider overload would otherwise turn into a rollback. A
+ * request that ran to its own full timeout still counts: the model was too
+ * slow for the job.
  */
 export function modelFaultCode(error: unknown): string | null {
   if (error instanceof ActionTimeBudgetError) return null;
+  if (isProviderInfrastructureFailure(error)) return null;
   if (error instanceof MalformedOutputError) return "malformed_output";
   const { code } = normalizeProviderError(error);
   return code === "output_limit" || code === "model_access" || code === "unknown"
     ? code
     : null;
+}
+
+/** A connection that failed before any answer, or a 408, 409 or 5xx answer. */
+function isProviderInfrastructureFailure(error: unknown): boolean {
+  if (isErrorOf(error, Anthropic.APIConnectionTimeoutError)) return false;
+  if (isErrorOf(error, Anthropic.APIConnectionError)) return true;
+  const status =
+    error && typeof error === "object" && "status" in error && typeof error.status === "number"
+      ? error.status
+      : undefined;
+  return status === 408 || status === 409 || (status !== undefined && status >= 500 && status < 600);
 }
 
 /**
