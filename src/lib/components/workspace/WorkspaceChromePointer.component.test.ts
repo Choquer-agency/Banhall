@@ -4,6 +4,7 @@ import { render } from "vitest-browser-svelte";
 import { createRawSnippet } from "svelte";
 import { authClient } from "$lib/authClient";
 import WorkspaceChrome from "./WorkspaceChrome.svelte";
+import ProjectBoardCard from "./ProjectBoardCard.svelte";
 import { __resetPage, __setPageUrl } from "$lib/test/app-state-stub.svelte";
 import { __resetNavigation } from "$lib/test/app-navigation-stub";
 import { __resetConvexStub, __setQueryData } from "$lib/test/convex-svelte-stub.svelte";
@@ -51,5 +52,46 @@ describe("WorkspaceChrome pointer contexts", () => {
       .toEqual(rows.map(() => pointer === "coarse" ? 44 : 32));
     await browserPage.getByRole("button", { name: "Close workspace navigation", exact: true }).click();
     await expect.poll(() => drawer.isConnected).toBe(false);
+  });
+});
+
+// Duplicate on a project card (2026-09-25): touch screens have no hover, so
+// the coarse-pointer instance must show it without one and give it a 44px
+// hit area; fine pointers keep it hidden until hover or focus.
+describe("Duplicate on a project card, per pointer", () => {
+  beforeEach(() => {
+    __resetPage();
+    __resetNavigation();
+    __resetConvexStub();
+    __setQueryData("users:getCurrentUser", { _id: "u-1", role: "writer" });
+  });
+
+  it("is always shown with a 44px target on touch, hidden until hover otherwise", async () => {
+    const pointer = inject("expectedPointer");
+    await browserPage.viewport(390, 844);
+    await render(ProjectBoardCard, {
+      row: {
+        id: "p1",
+        title: "Northline Labs narrative",
+        clientName: "Northline Labs",
+        workflowStage: "drafting",
+        legacyStatus: "draft",
+        owner: { kind: "canonical", label: "Olivia Owner" },
+        generationActivity: null,
+        updatedDate: "Jul 29, 2026",
+      },
+    });
+    await expect.poll(() => document.querySelector("[data-duplicate-project]")).not.toBeNull();
+    const button = document.querySelector<HTMLElement>("[data-duplicate-project]")!;
+    await expect.poll(() => getComputedStyle(button).opacity).toBe(pointer === "coarse" ? "1" : "0");
+    const hitArea = getComputedStyle(button, "::before");
+    const box = button.getBoundingClientRect();
+    if (pointer === "coarse") {
+      expect(hitArea.position).toBe("absolute");
+      expect(box.width + 2 * -parseFloat(hitArea.left)).toBe(44);
+      expect(box.height + 2 * -parseFloat(hitArea.top)).toBe(44);
+    } else {
+      expect(hitArea.content).toBe("none");
+    }
   });
 });
