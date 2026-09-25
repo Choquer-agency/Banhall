@@ -6,6 +6,7 @@ import {
   getInternalProjectAccessOrNull,
   requireInternalActor,
   requireInternalProjectAccess,
+  requireRole,
 } from "./lib/auth";
 import { domainError, sha256 } from "./lib/contracts";
 import { deleteStorageIfUnreferenced, isStorageReferenced } from "./lib/storage";
@@ -34,7 +35,7 @@ import {
   transcriptHash,
 } from "./lib/transcriptFactRows";
 import { transcriptFactTypeValidator } from "./lib/transcriptValidators";
-import { transcriptFactsMode, transcriptPlaceholdersEnabled } from "./appSettings";
+import { storageSweepMode, transcriptFactsMode, transcriptPlaceholdersEnabled } from "./appSettings";
 import { TRANSCRIPT_PARSER_VERSION } from "../shared/transcriptParse";
 import {
   adoptDerivedRows,
@@ -449,45 +450,191 @@ export const UNREFERENCED_STORAGE_GRACE_MS = 24 * 60 * 60 * 1000;
 /** Files one sweep transaction looks at. */
 export const STORAGE_SWEEP_PAGE_SIZE = 100;
 
+/** Sweep runs kept for admins to read; older ones are pruned. */
+export const STORAGE_SWEEP_RUNS_KEPT = 30;
+
+/** File ids one run keeps as a sample of what it found. */
+export const STORAGE_SWEEP_SAMPLE_SIZE = 20;
+
+const storageSweepResultValidator = v.union(
+  v.null(),
+  v.object({
+    runId: v.id("storageSweepRuns"),
+    mode: v.union(v.literal("report"), v.literal("delete")),
+    checked: v.number(),
+    unreferenced: v.number(),
+    deleted: v.number(),
+    isDone: v.boolean(),
+  })
+);
+
 /**
- * Deletes stored files no row holds once they are a day old. The case it
- * exists for is a transcript original whose save never ran (the tab closed
- * after the upload, the connection dropped, or the release after a refusal
- * failed): the file holds interview text that project erasure can never
- * find. It covers every file, not only transcripts: any upload that never
- * reached its row goes the same way.
+ * The daily sweep of stored files no row holds once they are a day old. The
+ * case it exists for is a transcript original whose save never ran (the tab
+ * closed after the upload, the connection dropped, or the release after a
+ * refusal failed): the file holds interview text that project erasure can
+ * never find. It looks at every file, not only transcripts.
+ *
+ * The admin setting `storage.sweepUnreferenced` (`storageSweepMode`)
+ * decides what it does:
+ * - `report` (default): counts and records what it would delete (one
+ *   `storageSweepRuns` row, a log line, and a notice on the alerts board
+ *   when the count changes) and deletes nothing;
+ * - `delete`: deletes those files as well;
+ * - `off`: does nothing.
+ * The setting is read on every page, so switching away from `delete` stops
+ * a run's deletions at once.
  *
  * Pages `_storage` oldest first, one bounded page per transaction, and
- * reschedules itself with the same cut-off until done. A file is deleted
- * only when `isStorageReferenced` finds no row holding it through any of the
+ * reschedules itself with the run's cut-off until done. A file counts only
+ * when `isStorageReferenced` finds no row holding it through any of the
  * schema's storage fields (`STORAGE_REFERENCE_FIELDS`). Runs daily
  * (`crons.ts`); safe to run again.
  */
 export const sweepUnreferencedStorage = internalMutation({
   args: {
-    before: v.optional(v.number()),
+    runId: v.optional(v.id("storageSweepRuns")),
     cursor: v.optional(v.union(v.string(), v.null())),
   },
-  returns: v.object({ checked: v.number(), deleted: v.number(), isDone: v.boolean() }),
+  returns: storageSweepResultValidator,
   handler: async (ctx, args) => {
-    const before = args.before ?? Date.now() - UNREFERENCED_STORAGE_GRACE_MS;
+    const mode = await storageSweepMode(ctx);
+    let run = args.runId ? await ctx.db.get(args.runId) : null;
+    if (args.runId && (!run || run.finishedAt !== undefined)) return null;
+    if (mode === "off") {
+      if (run) await ctx.db.patch(run._id, { finishedAt: Date.now() });
+      return null;
+    }
+    if (!run) {
+      await pruneStorageSweepRuns(ctx);
+      const now = Date.now();
+      const runId = await ctx.db.insert("storageSweepRuns", {
+        mode,
+        before: now - UNREFERENCED_STORAGE_GRACE_MS,
+        startedAt: now,
+        checked: 0,
+        unreferenced: 0,
+        unreferencedBytes: 0,
+        sampleFileIds: [],
+        deleted: 0,
+      });
+      run = (await ctx.db.get(runId))!;
+    }
+    // Deletes only while both the run and the setting say so.
+    const deleting = run.mode === "delete" && mode === "delete";
+    const before = run.before;
     const page = await ctx.db.system
       .query("_storage")
       .withIndex("by_creation_time", (q) => q.lt("_creationTime", before))
       .paginate({ cursor: args.cursor ?? null, numItems: STORAGE_SWEEP_PAGE_SIZE });
+    let unreferenced = 0;
+    let bytes = 0;
     let deleted = 0;
+    let oldest = run.oldestCreatedAt;
+    let newest = run.newestCreatedAt;
+    const sample = [...run.sampleFileIds];
     for (const file of page.page) {
       if (await isStorageReferenced(ctx, file._id)) continue;
-      await ctx.storage.delete(file._id);
-      deleted += 1;
+      unreferenced += 1;
+      bytes += file.size;
+      oldest = oldest === undefined ? file._creationTime : Math.min(oldest, file._creationTime);
+      newest = newest === undefined ? file._creationTime : Math.max(newest, file._creationTime);
+      if (sample.length < STORAGE_SWEEP_SAMPLE_SIZE) sample.push(file._id);
+      if (deleting) {
+        await ctx.storage.delete(file._id);
+        deleted += 1;
+      }
     }
+    const totals = {
+      checked: run.checked + page.page.length,
+      unreferenced: run.unreferenced + unreferenced,
+      unreferencedBytes: run.unreferencedBytes + bytes,
+      ...(oldest !== undefined ? { oldestCreatedAt: oldest } : {}),
+      ...(newest !== undefined ? { newestCreatedAt: newest } : {}),
+      sampleFileIds: sample,
+      deleted: run.deleted + deleted,
+    };
     if (!page.isDone) {
+      await ctx.db.patch(run._id, totals);
       await ctx.scheduler.runAfter(0, internal.transcripts.sweepUnreferencedStorage, {
-        before,
+        runId: run._id,
         cursor: page.continueCursor,
       });
+    } else {
+      await ctx.db.patch(run._id, { ...totals, finishedAt: Date.now() });
+      await reportStorageSweep(ctx, { ...run, ...totals });
     }
-    return { checked: page.page.length, deleted, isDone: page.isDone };
+    return {
+      runId: run._id,
+      mode: run.mode,
+      checked: page.page.length,
+      unreferenced,
+      deleted,
+      isDone: page.isDone,
+    };
+  },
+});
+
+async function pruneStorageSweepRuns(ctx: MutationCtx): Promise<void> {
+  const runs = await ctx.db
+    .query("storageSweepRuns")
+    .withIndex("by_startedAt")
+    .order("desc")
+    .take(STORAGE_SWEEP_RUNS_KEPT + 10);
+  for (const old of runs.slice(STORAGE_SWEEP_RUNS_KEPT - 1)) await ctx.db.delete(old._id);
+}
+
+function describeBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} bytes`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function describeDay(at: number | undefined): string {
+  return at === undefined ? "unknown" : new Date(at).toISOString().slice(0, 10);
+}
+
+/**
+ * The finished run's log line, and a notice on the alerts board when a
+ * report found files and the count differs from the run before, so the
+ * board gets one notice per change rather than one a day.
+ */
+async function reportStorageSweep(ctx: MutationCtx, run: Doc<"storageSweepRuns">): Promise<void> {
+  const summary =
+    `${run.unreferenced} stored ${run.unreferenced === 1 ? "file is" : "files are"} more than a day old and held by no row ` +
+    `(${describeBytes(run.unreferencedBytes)}, oldest ${describeDay(run.oldestCreatedAt)}, newest ${describeDay(run.newestCreatedAt)}).`;
+  console.log(
+    run.mode === "delete"
+      ? `Storage sweep: ${summary} Deleted ${run.deleted}.`
+      : `Storage sweep (report only): ${summary} Nothing was deleted.`
+  );
+  if (run.mode !== "report" || run.unreferenced === 0) return;
+  const previous = (
+    await ctx.db.query("storageSweepRuns").withIndex("by_startedAt").order("desc").take(STORAGE_SWEEP_RUNS_KEPT)
+  ).find((row) => row._id !== run._id && row.finishedAt !== undefined);
+  if (previous?.mode === "report" && previous.unreferenced === run.unreferenced) return;
+  await ctx.db.insert("errorReports", {
+    kind: "auto",
+    reportType: "bug",
+    message:
+      `Storage sweep (report only): ${summary} Nothing was deleted. ` +
+      `Sample: ${run.sampleFileIds.slice(0, 5).join(", ")}. ` +
+      `An admin can set storage.sweepUnreferenced to "delete" to remove them.`,
+    source: "storage-sweep",
+    url: "/alerts",
+    breadcrumbs: [],
+    status: "open",
+    createdAt: Date.now(),
+  });
+}
+
+/** The sweep's mode and its latest run, for admins. */
+export const getStorageSweepStatus = query({
+  args: {},
+  handler: async (ctx) => {
+    await requireRole(ctx, ["admin"]);
+    const latest = await ctx.db.query("storageSweepRuns").withIndex("by_startedAt").order("desc").first();
+    return { mode: await storageSweepMode(ctx), latestRun: latest };
   },
 });
 

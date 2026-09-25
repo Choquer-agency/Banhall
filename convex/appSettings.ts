@@ -327,3 +327,52 @@ export const setTranscriptMethodInternal = internalMutation({
     return null;
   },
 });
+
+// ─── Sweep of stored files no row holds (2026-09-25) ────────────────────────
+
+/**
+ * What the daily sweep of unreferenced files does
+ * (`transcripts.sweepUnreferencedStorage`): `report` (default) counts and
+ * records what it would delete and deletes nothing; `delete` deletes them;
+ * `off` does nothing. Deleting needs an admin's explicit switch.
+ */
+export const STORAGE_SWEEP_MODE_KEY = "storage.sweepUnreferenced";
+
+export type StorageSweepMode = "off" | "report" | "delete";
+
+export const storageSweepModeValidator = v.union(v.literal("off"), v.literal("report"), v.literal("delete"));
+
+/** Only an exact "delete" deletes and "off" stops it; anything else reports. */
+export async function storageSweepMode(ctx: QueryCtx | MutationCtx): Promise<StorageSweepMode> {
+  const row = await ctx.db
+    .query("appSettings")
+    .withIndex("by_key", (q) => q.eq("key", STORAGE_SWEEP_MODE_KEY))
+    .unique();
+  const value = row?.value.trim();
+  return value === "off" || value === "delete" ? value : "report";
+}
+
+/** Admin only ("Configure models, tags, Brain, and global settings"). */
+export const setStorageSweepMode = mutation({
+  args: { mode: storageSweepModeValidator },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const user = await requireRole(ctx, ["admin"]);
+    await setSetting(ctx, STORAGE_SWEEP_MODE_KEY, args.mode, user._id);
+    return null;
+  },
+});
+
+/** The same switch from the Convex dashboard, recorded against an admin. */
+export const setStorageSweepModeInternal = internalMutation({
+  args: { adminId: v.id("users"), mode: storageSweepModeValidator },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const admin = await ctx.db.get(args.adminId);
+    if (!admin || admin.role !== "admin" || admin.isAnonymous === true) {
+      throw new Error("An active administrator is required");
+    }
+    await setSetting(ctx, STORAGE_SWEEP_MODE_KEY, args.mode, admin._id);
+    return null;
+  },
+});

@@ -3223,4 +3223,27 @@ export default defineSchema({
     // master-switch key today. Optional: other settings rows never set it.
     version: v.optional(v.number()),
   }).index("by_key", ["key"]),
+
+  // 2026-09-25 (transcript method): one row per run of the daily sweep of
+  // stored files no row holds (`transcripts.sweepUnreferencedStorage`). In
+  // "report" mode (the default) it only counts what it would delete; admins
+  // read the latest run through `transcripts.getStorageSweepStatus`.
+  storageSweepRuns: defineTable({
+    mode: v.union(v.literal("report"), v.literal("delete")),
+    // Files created before this were looked at.
+    before: v.number(),
+    startedAt: v.number(),
+    finishedAt: v.optional(v.number()),
+    checked: v.number(),
+    // Files no row holds (the ones "delete" removes).
+    unreferenced: v.number(),
+    unreferencedBytes: v.number(),
+    oldestCreatedAt: v.optional(v.number()),
+    newestCreatedAt: v.optional(v.number()),
+    // A capped sample, as plain strings: a report of files no row holds,
+    // deliberately not a storage reference (a v.id("_storage") here would
+    // keep them alive).
+    sampleFileIds: v.array(v.string()),
+    deleted: v.number(),
+  }).index("by_startedAt", ["startedAt"]),
 });

@@ -3,10 +3,12 @@ import type { MutationCtx, QueryCtx } from "../_generated/server";
 
 /**
  * Every schema field that holds a file, as `table.field`. The storage
- * sweep (`transcripts.sweepUnreferencedStorage`) deletes any file older
- * than a day that none of them holds, so `isStorageReferenced` must check
- * each one; `convex/storageSweep.test.ts` walks the schema and fails on a
- * `v.id("_storage")` field missing here.
+ * sweep (`transcripts.sweepUnreferencedStorage`) counts, and once an admin
+ * switches it to "delete" deletes, any file older than a day that none of
+ * them holds, so `isStorageReferenced` must check each one.
+ * `convex/storageSweep.test.ts` walks the schema and fails on a
+ * `v.id("_storage")` field missing here, and scans the source for modules
+ * that create stored files.
  */
 export const STORAGE_REFERENCE_FIELDS = [
   "projectDocuments.storageId",
