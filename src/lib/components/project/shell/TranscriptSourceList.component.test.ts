@@ -72,7 +72,42 @@ describe("Sources tab interviews", () => {
     await userEvent.click(document.querySelector<HTMLElement>('[data-transcript-menu="t1"]')!);
     await vi.waitFor(() => expect(document.querySelector('[data-transcript-remove="t1"]')).not.toBeNull());
     await userEvent.click(document.querySelector<HTMLElement>('[data-transcript-remove="t1"]')!);
-    expect(onRemoveTranscript).toHaveBeenCalledWith("t1");
+    // Remove asks first.
+    await vi.waitFor(() => expect(document.querySelector("[data-remove-transcript-dialog]")).not.toBeNull());
+    expect(onRemoveTranscript).not.toHaveBeenCalled();
+    await userEvent.click(document.querySelector<HTMLElement>("[data-remove-transcript-confirm]")!);
+    await vi.waitFor(() => expect(onRemoveTranscript).toHaveBeenCalledWith("t1"));
+    await vi.waitFor(() => expect(document.querySelector("[data-remove-transcript-dialog]")).toBeNull());
+  });
+
+  it("asks before removing, and keeps the transcript when the writer says so", async () => {
+    const onRemoveTranscript = vi.fn();
+    await render(SourcesView, {
+      transcripts: rows,
+      documents: [],
+      canEditTranscripts: true,
+      onRemoveTranscript,
+    });
+    await userEvent.click(document.querySelector<HTMLElement>('[data-transcript-menu="t2"]')!);
+    await vi.waitFor(() => expect(document.querySelector('[data-transcript-remove="t2"]')).not.toBeNull());
+    await userEvent.click(document.querySelector<HTMLElement>('[data-transcript-remove="t2"]')!);
+    const dialog = await vi.waitFor(() => {
+      const found = document.querySelector<HTMLElement>("[data-remove-transcript-dialog]");
+      expect(found).not.toBeNull();
+      return found!;
+    });
+    expect(dialog.getAttribute("role")).toBe("dialog");
+    expect(dialog.textContent).toContain("Remove this transcript?");
+    expect(dialog.textContent).toContain("New reports for this project won't use Follow up.vtt.");
+    expect(dialog.textContent).toContain("You can't undo this, but you can add the file again.");
+    // No title or button goes past weight 500.
+    for (const el of [dialog, ...dialog.querySelectorAll<HTMLElement>("*")]) {
+      expect(Number(getComputedStyle(el).fontWeight), el.textContent ?? "").toBeLessThanOrEqual(500);
+    }
+    await userEvent.click(document.querySelector<HTMLElement>("[data-remove-transcript-cancel]")!);
+    await vi.waitFor(() => expect(document.querySelector("[data-remove-transcript-dialog]")).toBeNull());
+    await userEvent.keyboard("{Escape}");
+    expect(onRemoveTranscript).not.toHaveBeenCalled();
   });
 
   it("says why changes are refused while a report is generating", async () => {

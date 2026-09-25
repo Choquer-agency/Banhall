@@ -4,7 +4,8 @@
   Replace or Remove it, and "Add transcript". Presentational: the page reads
   the files and calls the mutations through the callbacks. Changes are
   refused while a report is generating (`blockedReason`); frozen generations
-  never read these rows.
+  never read these rows. Remove asks first: the page has no way to bring a
+  removed transcript back.
 -->
 <script module lang="ts">
   import type { TranscriptSourceFormat } from "../../../../../shared/transcriptParse";
@@ -21,8 +22,9 @@
 
 <script lang="ts">
   import type { Snippet } from "svelte";
-  import { DropdownMenu } from "bits-ui";
+  import { Dialog, DropdownMenu } from "bits-ui";
   import { DotsThreeIcon, MicrophoneIcon, PlusIcon } from "phosphor-svelte";
+  import Button from "$lib/components/ui/Button.svelte";
   import { TRANSCRIPT_ACCEPT, TRANSCRIPT_FORMAT_LABELS } from "../../../../../shared/transcriptParse";
 
   let {
@@ -58,6 +60,22 @@
     if (disabled) return;
     replacing = target;
     fileInput?.click();
+  }
+
+  // The row Remove was chosen for, while its confirmation is open.
+  let removing = $state<TranscriptListRow | null>(null);
+  let removingBusy = $state(false);
+
+  async function confirmRemove() {
+    const target = removing;
+    if (!target || removingBusy) return;
+    removingBusy = true;
+    try {
+      await onRemove?.(target._id);
+    } finally {
+      removingBusy = false;
+      removing = null;
+    }
   }
 
   async function picked(files: FileList | null) {
@@ -137,7 +155,9 @@
                     class={`${itemClass} hover:text-red-600 data-[highlighted]:text-red-600`}
                     {disabled}
                     data-transcript-remove={transcript._id}
-                    onSelect={() => onRemove?.(transcript._id)}
+                    onSelect={() => {
+                      if (!disabled) removing = transcript;
+                    }}
                   >
                     Remove
                   </DropdownMenu.Item>
@@ -149,6 +169,48 @@
       {/each}
     </ul>
   {/if}
+
+  <Dialog.Root
+    open={removing !== null}
+    onOpenChange={(open) => {
+      if (!open && !removingBusy) removing = null;
+    }}
+  >
+    <Dialog.Portal>
+      <Dialog.Overlay class="fixed inset-0 z-[110] bg-black/40" />
+      <Dialog.Content
+        data-remove-transcript-dialog
+        class="fixed left-1/2 top-1/2 z-[110] w-[calc(100%-2rem)] max-w-[440px] -translate-x-1/2 -translate-y-1/2 rounded-xl border border-line bg-surface p-6 shadow-xl"
+      >
+        <Dialog.Title class="text-base font-medium text-ink">Remove this transcript?</Dialog.Title>
+        <Dialog.Description class="mt-2 text-sm leading-relaxed text-ink-secondary">
+          New reports for this project won't use <span class="font-medium text-ink">{removing?.label}</span>.
+          Reports you already generated keep it. You can't undo this, but you can add the file again.
+        </Dialog.Description>
+        <div class="mt-6 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+          <Button
+            variant="secondary"
+            size="sm"
+            class="min-h-9"
+            disabled={removingBusy}
+            onclick={() => (removing = null)}
+            data-remove-transcript-cancel
+          >
+            Keep transcript
+          </Button>
+          <button
+            type="button"
+            class="inline-flex min-h-9 items-center justify-center rounded-lg bg-red-600 px-4 text-sm font-medium text-white transition-colors hover:bg-red-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-600 disabled:pointer-events-none disabled:opacity-50 motion-reduce:transition-none"
+            disabled={removingBusy}
+            onclick={confirmRemove}
+            data-remove-transcript-confirm
+          >
+            {removingBusy ? "Removing…" : "Remove transcript"}
+          </button>
+        </div>
+      </Dialog.Content>
+    </Dialog.Portal>
+  </Dialog.Root>
 
   <input
     bind:this={fileInput}
