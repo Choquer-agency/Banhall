@@ -219,18 +219,22 @@
     data-details-confirmation-region
     class="pointer-events-none absolute inset-x-6 bottom-5 z-10"
   >
-    {#if confirmation}
-      {#key confirmation.id}
-        <p
-          data-details-confirmation
-          in:fly|global={{ y: 4, duration: motionDuration(200) }}
-          out:fade|global={{ duration: motionDuration(300) }}
-          class="absolute inset-x-0 bottom-0 flex h-10 items-center gap-2.5 rounded-[10px] border border-line bg-surface px-3.5 text-[13px] leading-[18px] text-ink shadow-[0_8px_24px_#16211F1A]"
-        >
-          <CheckIcon size={14} weight="bold" aria-hidden="true" class="shrink-0 text-primary-selected" />
-          <span class="min-w-0 truncate">{confirmation.text}</span>
-        </p>
-      {/key}
-    {/if}
+    <!-- A one-item keyed list with local transitions: the fade plays when the
+         message changes or times out, never when the panel itself unmounts
+         (a global outro would hold the whole panel on screen while the side
+         slot switches to Assistant or QA). The shadow is board 5.1y B3's own:
+         shadow-popover is heavier and shows a hard edge where the panel clips
+         it 20px below. -->
+    {#each confirmation ? [confirmation] : [] as shown (shown.id)}
+      <p
+        data-details-confirmation
+        in:fly={{ y: 4, duration: motionDuration(200) }}
+        out:fade={{ duration: motionDuration(300) }}
+        class="absolute inset-x-0 bottom-0 flex h-10 items-center gap-2.5 rounded-[10px] border border-line bg-surface px-3.5 text-[13px] leading-[18px] text-ink shadow-[0_8px_24px_#16211F1A]"
+      >
+        <CheckIcon size={14} weight="bold" aria-hidden="true" class="shrink-0 text-primary-selected" />
+        <span class="min-w-0 truncate">{shown.text}</span>
+      </p>
+    {/each}
   </div>
 </section>
