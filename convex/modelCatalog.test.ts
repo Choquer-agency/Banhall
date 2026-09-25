@@ -23,7 +23,8 @@ import {
 import { generationPromptVersion } from "./ai/promptProgram";
 import { EVAL_ENVELOPE } from "./ai/modelEvaluation";
 import { MODEL_ROLES, ROLE_POLICIES, chargeCeiling, maxEvaluationCostUsd, maxPriceFor } from "../shared/modelCatalog";
-import { recordCallOutcomeRef } from "./lib/modelCatalogRefs";
+import { recordCallOutcomeRef, seedCatalogRef } from "./lib/modelCatalogRefs";
+import { freezeModelsForGeneration } from "./lib/modelRoles";
 import { roleAutoSwitches } from "../shared/modelCatalog";
 import reviewAgentSource from "./ai/reviewAgent.ts?raw";
 import financialAgentSource from "./ai/financialAgent.ts?raw";
@@ -1796,3 +1797,159 @@ describe("round 10", () => {
   });
 });
 
+describe("models added 2026-09-25 on a catalog seeded before them", () => {
+  const NEW_DIRECT = ["claude-opus-5-5", "claude-fable-5-1"];
+  const GPT6 = ["openai/gpt-6-sol", "openai/gpt-6-luna"];
+  const sol = parsed.find((model) => model.openRouterId === "openai/gpt-6-sol")!;
+  // The 2026-09-24 snapshot predates GPT-6 Luna; OpenRouter listed it on
+  // 2026-09-25 at $0.10/$0.50 on this slug.
+  const luna = {
+    ...sol,
+    openRouterId: "openai/gpt-6-luna",
+    modelId: "openai/gpt-6-luna",
+    canonicalSlug: "openai/gpt-6-luna-20260922",
+    displayName: "GPT-6 Luna",
+    inputUsdPerMTok: 0.1,
+    outputUsdPerMTok: 0.5,
+  };
+
+  /**
+   * The catalog as an existing deployment holds it: seeded before these
+   * models existed, then refreshed, so GPT-6 Sol and Luna are OpenRouter
+   * candidates and the direct Opus 5.5 and Fable 5.1 rows do not exist.
+   */
+  async function existingDeployment() {
+    const context = await setup();
+    const { t } = context;
+    await t.run(async (ctx) => {
+      for (const id of [...NEW_DIRECT, ...GPT6]) {
+        const existing = await ctx.db.query("modelCatalog").withIndex("by_modelId", (q) => q.eq("modelId", id)).first();
+        if (existing) await ctx.db.delete(existing._id);
+      }
+      for (const listing of [sol, luna]) {
+        const { openRouterId, ...fields } = listing;
+        await ctx.db.insert("modelCatalog", {
+          ...fields,
+          modelId: openRouterId,
+          requestId: openRouterId,
+          description: "OpenRouter's long listing text.",
+          status: "candidate",
+          source: "openrouter",
+          firstSeenAt: NOW - 86_400_000,
+          lastSeenAt: NOW - 86_400_000,
+          updatedAt: NOW - 86_400_000,
+        });
+      }
+    });
+    return context;
+  }
+
+  const snapshot = (t: TestConvex) =>
+    t.run(async (ctx) => ({
+      assignments: await ctx.db.query("modelRoleAssignments").collect(),
+      events: await ctx.db.query("modelSwitchEvents").collect(),
+      evaluations: await ctx.db.query("modelEvaluations").collect(),
+    }));
+
+  const pickerIds = async (writer: ReturnType<TestConvex["withIdentity"]>) =>
+    ((await writer.query(api.providerReadiness.getCapabilities, {}))?.models ?? []).map((model) => model.id);
+
+  it("the next refresh enables them without touching roles, and pickers list each once", async () => {
+    const { t, admin, writer } = await existingDeployment();
+    await admin.mutation(setRoleModelRef, { role: "writing", modelId: "claude-opus-4-8" });
+    await admin.mutation(setRoleModelRef, { role: "chat", modelId: "claude-haiku-4-5-20251001" });
+    // Opus 5.5 and Fable 5.1 show from the seed before any refresh (no row
+    // yet); GPT-6 stays hidden while its row is an untouched candidate.
+    const before = await pickerIds(writer);
+    expect(before).toEqual(expect.arrayContaining(NEW_DIRECT));
+    expect(before).not.toContain("openai/gpt-6-sol");
+    expect(before).not.toContain("openai/gpt-6-luna");
+    const roles = await snapshot(t);
+
+    await t.mutation(applyCatalogRefreshRef, { models: [...parsed, luna], fetchedAt: NOW, complete: true });
+
+    for (const id of NEW_DIRECT) {
+      expect(await row(t, id), id).toMatchObject({
+        status: "enabled",
+        source: "seed",
+        gateway: "anthropic",
+        forcedToolChoice: false,
+        maxOutputTokens: 128_000,
+      });
+    }
+    expect(await row(t, "claude-opus-5-5")).toMatchObject({
+      canonicalSlug: "anthropic/claude-opus-5.5-20260921",
+      inputUsdPerMTok: 4,
+      outputUsdPerMTok: 20,
+    });
+    expect((await row(t, "claude-opus-5-5"))?.benchmarks.length).toBeGreaterThan(0);
+    expect(await row(t, "openai/gpt-6-sol")).toMatchObject({
+      status: "enabled",
+      source: "seed",
+      displayName: "GPT-6 Sol",
+      description: "OpenAI's newest flagship - strong reasoning at a mid price point.",
+      reasoning: true,
+      maxCompletionTokens: 128000,
+      // The provider's own prices, slug and first sighting are kept.
+      inputUsdPerMTok: 2,
+      outputUsdPerMTok: 10,
+      canonicalSlug: "openai/gpt-6-sol-20260922",
+      firstSeenAt: NOW - 86_400_000,
+    });
+    expect(await row(t, "openai/gpt-6-luna")).toMatchObject({ status: "enabled", source: "seed", inputUsdPerMTok: 0.1 });
+    // The OpenRouter listings of the direct models stay candidates.
+    expect(await row(t, "anthropic/claude-opus-5.5")).toMatchObject({
+      status: "candidate",
+      source: "openrouter",
+      forcedToolChoice: false,
+    });
+    expect(await snapshot(t)).toEqual(roles);
+
+    const after = await pickerIds(writer);
+    for (const id of [...NEW_DIRECT, ...GPT6]) {
+      expect(after.filter((picked) => picked === id), id).toHaveLength(1);
+    }
+    expect(after).not.toContain("anthropic/claude-opus-5.5");
+    // Idempotent: nothing left to insert or adopt.
+    expect(await t.mutation(seedCatalogRef, {})).toBe(0);
+    expect(await snapshot(t)).toEqual(roles);
+  });
+
+  it("never adopts a row a role was rolled back from, or one no longer listed", async () => {
+    const { t, writer } = await existingDeployment();
+    await t.run(async (ctx) => {
+      await ctx.db.insert("modelSwitchEvents", {
+        role: "analysis",
+        fromModelId: "openai/gpt-6-luna",
+        toModelId: "claude-sonnet-5",
+        kind: "rollback",
+        reason: "production_error_rate",
+        actor: "system",
+        at: NOW - 1,
+      });
+      const solRow = await ctx.db.query("modelCatalog").withIndex("by_modelId", (q) => q.eq("modelId", "openai/gpt-6-sol")).first();
+      await ctx.db.patch(solRow!._id, { status: "retired", missingSince: NOW - 1 });
+    });
+    const events = (await snapshot(t)).events;
+    expect(await t.mutation(seedCatalogRef, {})).toBe(NEW_DIRECT.length);
+    expect(await row(t, "openai/gpt-6-luna")).toMatchObject({ status: "candidate", source: "openrouter" });
+    expect(await row(t, "openai/gpt-6-sol")).toMatchObject({ status: "retired", source: "openrouter" });
+    expect((await snapshot(t)).events).toEqual(events);
+    const picked = await pickerIds(writer);
+    expect(picked).not.toContain("openai/gpt-6-luna");
+    expect(picked).not.toContain("openai/gpt-6-sol");
+    expect(picked).toEqual(expect.arrayContaining(NEW_DIRECT));
+  });
+
+  it("freezes the forced-tool capability onto a generation that picks Opus 5.5", async () => {
+    const { t } = await setup();
+    const freeze = await t.run((ctx) => freezeModelsForGeneration(ctx, ["claude-opus-5-5", "openai/gpt-6-sol"], NOW));
+    expect(freeze.entries.find((entry) => entry.id === "claude-opus-5-5")).toMatchObject({
+      gateway: "anthropic",
+      forcedToolChoice: false,
+    });
+    const gpt = freeze.entries.find((entry) => entry.id === "openai/gpt-6-sol");
+    expect(gpt).toMatchObject({ gateway: "openrouter", reasoning: true, maxCompletionTokens: 128000 });
+    expect(gpt?.forcedToolChoice).toBeUndefined();
+  });
+});
