@@ -901,6 +901,40 @@ describe("seed Node action request boundary", () => {
     });
   });
 
+  it("accepts a Seed list the model sent as a JSON string, in one request", async () => {
+    const t = convexTest(schema, modules);
+    const fixture = await seedAttempt(t);
+    const transport = vi.fn<typeof fetch>(async () =>
+      providerResponse({ seeds: JSON.stringify(validSeeds) }, 1)
+    );
+    vi.stubGlobal("fetch", transport);
+
+    await t.action(generateBatchRef, { batchId: fixture.batchId });
+
+    expect(transport).toHaveBeenCalledTimes(1);
+    expect(await t.run((ctx) => ctx.db.get(fixture.batchId))).toMatchObject({
+      status: "shown",
+      requestsMade: 1,
+    });
+  });
+
+  it("still rejects a Seed string that is not a JSON array", async () => {
+    const t = convexTest(schema, modules);
+    const fixture = await seedAttempt(t);
+    const transport = vi.fn<typeof fetch>(async () =>
+      providerResponse({ seeds: "[not json" }, 1)
+    );
+    vi.stubGlobal("fetch", transport);
+
+    await t.action(generateBatchRef, { batchId: fixture.batchId });
+
+    expect(transport).toHaveBeenCalledTimes(2);
+    expect(await t.run((ctx) => ctx.db.get(fixture.batchId))).toMatchObject({
+      status: "failed",
+      error: "INVALID_OUTPUT",
+    });
+  });
+
   it("tells the repair attempt which Seeds failed and why, without Seed text", async () => {
     const t = convexTest(schema, modules);
     const fixture = await seedAttempt(t);

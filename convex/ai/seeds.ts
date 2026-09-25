@@ -210,6 +210,22 @@ export function seedRepairSummary(
   return summary;
 }
 
+/**
+ * Real Sonnet 5 batches sometimes send the Seed list as a JSON string inside
+ * the tool object ({ seeds: "[...]" }). structured.ts only unwraps a whole
+ * input sent as a string, so parse this one field when it holds an array;
+ * anything else is left for the schema to reject.
+ */
+function parseStringifiedSeeds(value: unknown): unknown {
+  if (typeof value !== "string" || !value.trim().startsWith("[")) return value;
+  try {
+    const parsed: unknown = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed : value;
+  } catch {
+    return value;
+  }
+}
+
 function validatedBatchSchema(args: {
   roleId: Parameters<typeof validateBatch>[0]["roleId"];
   mode: Parameters<typeof validateBatch>[0]["mode"];
@@ -232,7 +248,7 @@ function validatedBatchSchema(args: {
       active: true,
     }));
   return z
-    .object({ seeds: z.array(z.unknown()) })
+    .object({ seeds: z.preprocess(parseStringifiedSeeds, z.array(z.unknown())) })
     .transform((value, context): ValidatedSeedBatch => {
       const seeds = args.factSources
         ? resolveFactCitations(value.seeds, args.factSources).seeds
