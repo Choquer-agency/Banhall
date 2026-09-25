@@ -29,6 +29,7 @@ import {
   type ModelGateway,
 } from "./generationModels";
 import { pricingFor } from "./modelPricing";
+import { OPENROUTER_ANTHROPIC_PROVIDER } from "./anthropicTransport";
 
 // ─── Roles ──────────────────────────────────────────────────────────────────
 
@@ -1396,6 +1397,8 @@ export function validCostCap(cap: CostCap): boolean {
 export type MaxPrice = { prompt: number; completion: number };
 
 export type OpenRouterProviderPreferences = {
+  only?: readonly string[];
+  allow_fallbacks?: false;
   require_parameters?: true;
   max_price?: MaxPrice;
 };
@@ -1440,13 +1443,23 @@ export function chargeCeiling(
  * Provider preferences for one OpenRouter request. Tool and structured calls
  * require every parameter they send: model-level `supported_parameters` is a
  * union over endpoints, so without this a request can land on an endpoint
- * that silently drops the tool schema.
+ * that silently drops the tool schema. An Anthropic model (owner decision
+ * 30, 2026-09-25) is pinned to Anthropic's own endpoint with no fallback
+ * host, the same pin the Anthropic gateway's `openrouter` transport sends
+ * (OPENROUTER_ANTHROPIC_PROVIDER), whether it is a seed or a model the
+ * daily catalog found.
  */
 export function openRouterProviderPreferences(args: {
   usesTools: boolean;
   maxPrice?: MaxPrice;
+  /** The request's model is Anthropic's (isAnthropicOpenRouterModel). */
+  anthropicModel?: boolean;
 }): OpenRouterProviderPreferences | undefined {
   const preferences: OpenRouterProviderPreferences = {};
+  if (args.anthropicModel) {
+    preferences.only = OPENROUTER_ANTHROPIC_PROVIDER.only;
+    preferences.allow_fallbacks = OPENROUTER_ANTHROPIC_PROVIDER.allow_fallbacks;
+  }
   if (args.usesTools) preferences.require_parameters = true;
   if (args.maxPrice) preferences.max_price = args.maxPrice;
   return Object.keys(preferences).length > 0 ? preferences : undefined;

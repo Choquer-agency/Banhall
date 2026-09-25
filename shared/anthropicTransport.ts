@@ -46,6 +46,16 @@ export const OPENROUTER_ANTHROPIC_PROVIDER = {
   allow_fallbacks: false,
 } as const;
 
+/**
+ * Whether an OpenRouter request id names an Anthropic model: the vendor
+ * prefix OpenRouter routes on (`anthropic/`, or the `~anthropic/` moving
+ * aliases). Derived from the id, never from a fixed list, so every Anthropic
+ * model the daily catalog finds is covered too (decision 30).
+ */
+export function isAnthropicOpenRouterModel(requestId: string): boolean {
+  return /^~?anthropic\//.test(requestId);
+}
+
 /** The same app attribution headers the OpenRouter chat transport sends. */
 export const OPENROUTER_APP_HEADERS = {
   "HTTP-Referer": "https://banhall.app",

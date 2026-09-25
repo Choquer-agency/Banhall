@@ -19,6 +19,7 @@ import {
   type MaxPrice,
   type OpenRouterProviderPreferences,
 } from "../../shared/modelCatalog";
+import { isAnthropicOpenRouterModel } from "../../shared/anthropicTransport";
 
 export type GenerationContentBlock =
   | { type: "text"; text: string }
@@ -207,14 +208,22 @@ export function toChatCompletions(
       function: { name: params.tool_choice.name },
     };
   }
+  // An Anthropic model is pinned to Anthropic's own endpoint (decision 30).
+  // OpenRouter applies provider preferences to every model on the request,
+  // so a fallback on the other side of that pin is not sent: under the pin
+  // it could never be served, and without it an Anthropic fallback would
+  // run unpinned.
+  const anthropicModel = isAnthropicOpenRouterModel(body.model);
   const provider = openRouterProviderPreferences({
     usesTools: Boolean(params.tools?.length),
     maxPrice: options.maxPrice ?? modelById(params.model)?.maxPrice,
+    anthropicModel,
   });
   if (provider) body.provider = provider;
   const fallbacks = (options.fallbackModels ?? [])
     .filter((id) => id !== params.model)
-    .map(requestModelId);
+    .map(requestModelId)
+    .filter((id) => isAnthropicOpenRouterModel(id) === anthropicModel);
   if (fallbacks.length > 0) body.models = [body.model, ...fallbacks];
   return body;
 }

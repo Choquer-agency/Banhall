@@ -241,6 +241,62 @@ describe("OpenRouter request fields", () => {
     vi.useRealTimers();
   });
 
+  it("pins a catalog-found Anthropic model to Anthropic's own endpoint and drops a fallback the pin cannot serve (decision 30)", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const t = await setup();
+    // Not a seed: the daily catalog found it (fixture), as an OpenRouter row.
+    const row = await t.run((ctx) =>
+      ctx.db.query("modelCatalog").filter((q) => q.eq(q.field("modelId"), "anthropic/claude-3-haiku")).first()
+    );
+    expect(row).toMatchObject({ gateway: "openrouter", source: "openrouter", status: "candidate" });
+    await t.run(async (ctx) => {
+      await ctx.db.insert("modelRoleAssignments", {
+        role: "structured_helper",
+        modelId: "anthropic/claude-3-haiku",
+        previousModelId: "z-ai/glm-5.3-flash",
+        assignedAt: NOW,
+        assignedBy: "system",
+      });
+    });
+    await t.action(async (ctx) => {
+      const { client, model } = await clientForRole(ctx, "structured_helper", { callSite: "routing-test" });
+      expect(model).toBe("anthropic/claude-3-haiku");
+      await client.messages.create(toolParams(model));
+    });
+    expect(captured[0].url).toBe("https://openrouter.ai/api/v1/chat/completions");
+    expect(captured[0].body).toMatchObject({
+      model: "anthropic/claude-3-haiku",
+      provider: { only: ["anthropic"], allow_fallbacks: false, require_parameters: true },
+    });
+    expect(captured[0].body.provider).not.toHaveProperty("zdr");
+    // OpenRouter applies the pin to every model on the request, so a
+    // non-Anthropic fallback could never be served: it is not sent.
+    expect(captured[0].body.models).toBeUndefined();
+    vi.useRealTimers();
+  });
+
+  it("never sends an Anthropic fallback unpinned behind a non-Anthropic model", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const t = await setup();
+    await t.run(async (ctx) => {
+      await ctx.db.insert("modelRoleAssignments", {
+        role: "structured_helper",
+        modelId: "z-ai/glm-5.3-flash",
+        previousModelId: "anthropic/claude-3-haiku",
+        assignedAt: NOW,
+        assignedBy: "system",
+      });
+    });
+    await t.action(async (ctx) => {
+      const { client, model } = await clientForRole(ctx, "structured_helper", { callSite: "routing-test" });
+      await client.messages.create(toolParams(model));
+    });
+    expect(captured[0].body).toMatchObject({ model: "z-ai/glm-5.3-flash" });
+    expect(captured[0].body.models).toBeUndefined();
+    expect(captured[0].body.provider).not.toHaveProperty("only");
+    vi.useRealTimers();
+  });
+
   it("never falls back to the model a helper role was rolled back from", async () => {
     // The same assignment as above, reached by rolling back from the
     // previous model: the test above is its negative control.
