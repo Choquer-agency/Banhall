@@ -73,6 +73,7 @@ export default defineConfig({
       "@tiptap/extension-placeholder",
       "@tiptap/extension-underline",
       "@tiptap/pm/history",
+      "@tiptap/pm/model",
       "@tiptap/pm/state",
       "@tiptap/pm/view",
       "@tiptap/starter-kit",

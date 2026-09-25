@@ -3,6 +3,7 @@ import { render } from "vitest-browser-svelte";
 import { userEvent } from "vitest/browser";
 import { Editor as TiptapEditor } from "@tiptap/core";
 import type { Node as PMNode } from "@tiptap/pm/model";
+import { NodeSelection } from "@tiptap/pm/state";
 import Editor from "./Editor.svelte";
 import { buildTiptapDocument } from "../../../../convex/lib/tiptapReport";
 import { parseCanonicalReport } from "$lib/reportSections";
@@ -266,5 +267,122 @@ describe("Section heading protection (reading presentation)", () => {
     await expect.poll(() => container.querySelector("[data-block-handle]")).not.toBeNull();
     const handle = container.querySelector<HTMLElement>("[data-block-handle]")!.getBoundingClientRect();
     expect(Math.round(handle.right)).toBe(Math.round(tiptap.view.dom.getBoundingClientRect().left));
+  });
+
+  describe("drag and drop (review g1)", () => {
+    /** A position inside the second paragraph of 244, before 246. */
+    function inside244Second(doc: PMNode): number {
+      let target = -1;
+      let seen = 0;
+      let in244 = false;
+      doc.forEach((node, offset) => {
+        if (node.type.name === "heading" && node.textContent.startsWith("Line 244")) in244 = true;
+        else if (node.type.name === "heading") in244 = false;
+        else if (in244 && node.type.name === "paragraph" && ++seen === 2 && target < 0) target = offset + 6;
+      });
+      return target;
+    }
+    function drop(tiptap: TiptapEditor, dragging: { slice: unknown; move: boolean; node?: unknown }, at: number) {
+      const view = tiptap.view as unknown as { dragging: unknown; coordsAtPos: (pos: number) => { left: number; top: number } };
+      view.dragging = dragging;
+      const { left, top } = view.coordsAtPos(at);
+      tiptap.view.dom.dispatchEvent(
+        new DragEvent("drop", { bubbles: true, cancelable: true, clientX: left + 1, clientY: top + 4, dataTransfer: new DataTransfer() })
+      );
+    }
+
+    it("refuses moving a selection that spans a heading by drag and drop", async () => {
+      const original = content();
+      const { tiptap } = await mount(original);
+      tiptap.commands.focus();
+      const { before, after } = around244(tiptap.state.doc);
+      tiptap.commands.setTextSelection({ from: before - 5, to: after + 5 });
+      drop(tiptap, { slice: tiptap.state.selection.content(), move: true }, inside244Second(tiptap.state.doc));
+      expectIntact(tiptap, original);
+    });
+
+    it("does not leave a heading node-selected, and refuses dragging the heading itself", async () => {
+      const original = content();
+      const { tiptap } = await mount(original);
+      let headingPos = -1;
+      tiptap.state.doc.forEach((node, offset) => {
+        if (node.type.name === "heading" && node.textContent.startsWith("Line 244")) headingPos = offset;
+      });
+      // What a Cmd/Ctrl-click on the heading dispatches.
+      tiptap.view.dispatch(tiptap.state.tr.setSelection(NodeSelection.create(tiptap.state.doc, headingPos)));
+      expect(tiptap.state.selection instanceof NodeSelection).toBe(false);
+      expect(insideSectionHeading(tiptap)).toBe(false);
+      const node = NodeSelection.create(tiptap.state.doc, headingPos);
+      drop(tiptap, { slice: node.content(), move: true, node }, inside244Second(tiptap.state.doc));
+      expectIntact(tiptap, original);
+    });
+  });
+
+  describe("review g1 P3s", () => {
+    it("lets a writer repair a broken heading by retyping it", async () => {
+      const broken = JSON.parse(content());
+      const index = broken.content.findIndex((node: { type: string; content?: Array<{ text: string }> }) =>
+        node.type === "heading" && node.content?.[0]?.text.startsWith("Line 244"));
+      broken.content[index].content[0].text += "X";
+      const { tiptap } = await mount(JSON.stringify(broken));
+      let end = -1;
+      tiptap.state.doc.forEach((node, offset) => {
+        if (node.type.name === "heading" && node.textContent.endsWith("X")) end = offset + node.nodeSize - 1;
+      });
+      tiptap.commands.focus();
+      tiptap.commands.setTextSelection(end);
+      await userEvent.keyboard("{Backspace}");
+      expect(headingList(tiptap.state.doc)).toContain("Line 244 — Work Performed");
+      expect(parseCanonicalReport(JSON.stringify(tiptap.getJSON())).diagnostics).toEqual([]);
+    });
+
+    it("does not add marks to hidden heading text", async () => {
+      const original = content();
+      const { tiptap } = await mount(original);
+      const { before, after } = around244(tiptap.state.doc);
+      tiptap.commands.setTextSelection({ from: before - 5, to: after + 5 });
+      tiptap.chain().focus().toggleBold().run();
+      const heading = tiptap.state.doc.content.content.find((node) => node.textContent.startsWith("Line 244"))!;
+      expect(heading.firstChild?.marks ?? []).toEqual([]);
+    });
+
+    it("drops Section headings from pasted content and keeps the rest", async () => {
+      const original = content();
+      const { tiptap } = await mount(original);
+      tiptap.commands.focus();
+      tiptap.commands.setTextSelection(around244(tiptap.state.doc).after);
+      tiptap.view.pasteHTML("<h2>Line 244 — Work Performed</h2><p>Pasted paragraph.</p>");
+      expect(headingList(tiptap.state.doc)).toEqual(headingList(tiptap.schema.nodeFromJSON(JSON.parse(original))));
+      expect(tiptap.state.doc.textContent).toContain("Pasted paragraph.");
+    });
+
+    it("says why an edit was refused", async () => {
+      const { tiptap } = await mount();
+      const { before, after } = around244(tiptap.state.doc);
+      tiptap.commands.focus();
+      tiptap.commands.setTextSelection({ from: before - 5, to: after + 5 });
+      await userEvent.keyboard("{Backspace}");
+      await expect
+        .poll(() => document.querySelector("[data-heading-notice]")?.textContent?.trim())
+        .toBe("Section headings stay as they are. Edit the text under them.");
+    });
+
+    it("leaves Ctrl-d, Ctrl-h and Alt-d to the browser outside Mac and iOS", async () => {
+      const platform = Object.getOwnPropertyDescriptor(Navigator.prototype, "platform");
+      Object.defineProperty(navigator, "platform", { value: "Win32", configurable: true });
+      try {
+        const { tiptap } = await mount();
+        tiptap.commands.focus();
+        tiptap.commands.setTextSelection(around244(tiptap.state.doc).before);
+        for (const init of [{ key: "d", ctrlKey: true }, { key: "h", ctrlKey: true }, { key: "d", altKey: true }]) {
+          const event = new KeyboardEvent("keydown", { ...init, bubbles: true, cancelable: true });
+          tiptap.view.dom.dispatchEvent(event);
+          expect(event.defaultPrevented, JSON.stringify(init)).toBe(false);
+        }
+      } finally {
+        delete (navigator as unknown as { platform?: string }).platform;
+        if (platform) Object.defineProperty(Navigator.prototype, "platform", platform);
+      }
+    });
   });
 });
