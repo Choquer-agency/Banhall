@@ -62,6 +62,7 @@ function mount(overrides: Partial<DetailsPanelData> = {}, props: Record<string, 
 const statusLine = () => document.querySelector<HTMLElement>("[data-details-status-line]")!;
 const fact = (name: string) => document.querySelector<HTMLElement>(`[data-details-fact="${name}"]`)!;
 const confirmation = () => document.querySelector<HTMLElement>("[data-details-confirmation]");
+const numberInput = () => document.querySelector<HTMLInputElement>('[data-details-fact="project-number"] input');
 
 describe("Details panel", () => {
   beforeEach(async () => {
@@ -224,6 +225,8 @@ describe("Details panel", () => {
     await expect.poll(() => onSaveProjectNumber.mock.calls.length).toBe(1);
     expect(onSaveProjectNumber).toHaveBeenCalledWith("P01-A");
     await expect.poll(() => fact("project-number").querySelector("input")).toBeNull();
+    // Focus returns to the row, so the keyboard keeps its place.
+    await expect.poll(() => document.activeElement?.getAttribute("aria-label")).toBe("Edit project number");
 
     await page.getByRole("button", { name: "Edit project number", exact: true }).click();
     await page.getByRole("textbox", { name: "Edit project number" }).fill("Z9");
@@ -232,7 +235,7 @@ describe("Details panel", () => {
     expect(onSaveProjectNumber).toHaveBeenCalledTimes(1);
   });
 
-  it("keeps the project number editor open with the error when the save fails", async () => {
+  it("keeps the project number editor open after a failed Enter, focus in the field and the error linked", async () => {
     const onSaveProjectNumber = vi.fn(async () => {
       throw new Error("That project number is already in use.");
     });
@@ -241,7 +244,104 @@ describe("Details panel", () => {
     await page.getByRole("textbox", { name: "Edit project number" }).fill("2B");
     await userEvent.keyboard("{Enter}");
     await expect.element(page.getByRole("alert")).toHaveTextContent("That project number is already in use.");
-    expect(fact("project-number").querySelector("input")).not.toBeNull();
+    const input = numberInput()!;
+    expect(input).not.toBeNull();
+    await expect.poll(() => document.activeElement).toBe(input);
+    expect(input.getAttribute("aria-invalid")).toBe("true");
+    const describedBy = input.getAttribute("aria-describedby");
+    expect(describedBy).toBeTruthy();
+    expect(document.getElementById(describedBy!)?.textContent).toContain("That project number is already in use.");
+    expect(onSaveProjectNumber).toHaveBeenCalledTimes(1);
+  });
+
+  it("leaves focus where the writer put it after a failed blur save, and does not retry the same number", async () => {
+    const onSaveProjectNumber = vi.fn(async () => {
+      throw new Error("That project number is already in use.");
+    });
+    await mount({}, { onSaveProjectNumber });
+    const elsewhere = document.createElement("button");
+    elsewhere.textContent = "Elsewhere";
+    document.body.append(elsewhere);
+
+    await page.getByRole("button", { name: "Edit project number", exact: true }).click();
+    await page.getByRole("textbox", { name: "Edit project number" }).fill("2B");
+    elsewhere.focus();
+    await expect.poll(() => onSaveProjectNumber.mock.calls.length).toBe(1);
+    await expect.element(page.getByRole("alert")).toHaveTextContent("That project number is already in use.");
+    // The draft and the error stay; focus is not pulled back.
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(document.activeElement).toBe(elsewhere);
+    expect(numberInput()?.value).toBe("2B");
+    expect(numberInput()?.getAttribute("aria-invalid")).toBe("true");
+
+    // Leaving again with the same number does not repeat the failing write.
+    numberInput()!.focus();
+    elsewhere.focus();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(onSaveProjectNumber).toHaveBeenCalledTimes(1);
+    expect(document.activeElement).toBe(elsewhere);
+
+    // A changed number is tried again.
+    await page.getByRole("textbox", { name: "Edit project number" }).fill("2C");
+    elsewhere.focus();
+    await expect.poll(() => onSaveProjectNumber.mock.calls.length).toBe(2);
+    expect(onSaveProjectNumber).toHaveBeenLastCalledWith("2C");
+  });
+
+  it("saves a project number edit before Close details closes the panel", async () => {
+    const onSaveProjectNumber = vi.fn(async (_value: string) => {});
+    const onClose = vi.fn();
+    await mount({}, { onSaveProjectNumber, onClose });
+    await page.getByRole("button", { name: "Edit project number", exact: true }).click();
+    await page.getByRole("textbox", { name: "Edit project number" }).fill("2B");
+    await page.getByRole("button", { name: "Close details", exact: true }).click();
+    await expect.poll(() => onClose.mock.calls.length).toBe(1);
+    expect(onSaveProjectNumber).toHaveBeenCalledTimes(1);
+    expect(onSaveProjectNumber).toHaveBeenCalledWith("2B");
+  });
+
+  it("keeps the panel open when the project number save fails on Close details", async () => {
+    const onSaveProjectNumber = vi.fn(async () => {
+      throw new Error("That project number is already in use.");
+    });
+    const onClose = vi.fn();
+    await mount({}, { onSaveProjectNumber, onClose });
+    await page.getByRole("button", { name: "Edit project number", exact: true }).click();
+    await page.getByRole("textbox", { name: "Edit project number" }).fill("2B");
+    await page.getByRole("button", { name: "Close details", exact: true }).click();
+    await expect.element(page.getByRole("alert")).toHaveTextContent("That project number is already in use.");
+    await expect.element(page.getByRole("alert")).toHaveTextContent("Fix the number, or press Escape to discard it.");
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(onClose).not.toHaveBeenCalled();
+    await expect.poll(() => document.activeElement).toBe(numberInput());
+    expect(onSaveProjectNumber).toHaveBeenCalledTimes(1);
+
+    // A second Close with the same number neither writes again nor closes.
+    await page.getByRole("button", { name: "Close details", exact: true }).click();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(onClose).not.toHaveBeenCalled();
+    expect(onSaveProjectNumber).toHaveBeenCalledTimes(1);
+
+    // Escape discards the edit; then the panel closes without a write.
+    numberInput()!.focus();
+    await userEvent.keyboard("{Escape}");
+    await expect.poll(() => numberInput()).toBeNull();
+    await page.getByRole("button", { name: "Close details", exact: true }).click();
+    await expect.poll(() => onClose.mock.calls.length).toBe(1);
+    expect(onSaveProjectNumber).toHaveBeenCalledTimes(1);
+  });
+
+  it("stays on Details when the project number save fails on Hand off", async () => {
+    const onSaveProjectNumber = vi.fn(async () => {
+      throw new Error("That project number is already in use.");
+    });
+    await mount({}, { onSaveProjectNumber });
+    await page.getByRole("button", { name: "Edit project number", exact: true }).click();
+    await page.getByRole("textbox", { name: "Edit project number" }).fill("2B");
+    await page.getByRole("button", { name: "Hand off", exact: true }).click();
+    await expect.element(page.getByRole("alert")).toHaveTextContent("Fix the number, or press Escape to discard it.");
+    expect(document.querySelector("[data-hand-off-view]")).toBeNull();
+    expect(onSaveProjectNumber).toHaveBeenCalledTimes(1);
   });
 
   it("lists every stage grouped, with Submitted and Delivered disabled as not available yet", async () => {

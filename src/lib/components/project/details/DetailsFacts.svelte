@@ -50,8 +50,16 @@
   let savingNumber = $state(false);
   let numberDraft = $state("");
   let numberInput = $state<HTMLInputElement | null>(null);
+  let numberButton = $state<HTMLButtonElement | null>(null);
+  // The last number whose save failed; blur and close do not repeat it.
+  let failedNumber: string | null = null;
+  let numberSave: Promise<boolean> | null = null;
+  let closeBlocked = $state(false);
+  const uid = $props.id();
+  const numberErrorId = `${uid}-project-number-error`;
   let industryHost = $state<HTMLDivElement | null>(null);
   let fieldError = $state<{ field: string; message: string } | null>(null);
+  const numberError = $derived(fieldError?.field === "project-number" ? fieldError.message : null);
   let suggestionNote = $state("");
 
   async function run(field: string, action: () => Promise<unknown>) {
@@ -75,24 +83,49 @@
   async function beginNumber() {
     numberDraft = data.projectNumber ?? "";
     fieldError = null;
+    closeBlocked = false;
+    failedNumber = null;
     editingNumber = true;
     await tick();
     numberInput?.focus();
     numberInput?.select();
   }
 
-  async function saveNumber() {
-    if (!editingNumber || savingNumber) return;
+  /**
+   * What set off a project number save. Enter is an explicit save: it retries
+   * a number that failed before and keeps focus in the field on failure. A
+   * blur (the writer moved on) never pulls focus back and never repeats a
+   * write that already failed for the same number. A close (Close details or
+   * Hand off) saves first and tells the panel whether it may go on.
+   */
+  type NumberSaveSource = "enter" | "blur" | "close";
+
+  function saveNumber(source: NumberSaveSource): Promise<boolean> {
+    // One write at a time: a blur that fires while a save is running (the
+    // field is disabled, or Close details was pressed) joins that save.
+    numberSave ??= runNumberSave(source).finally(() => (numberSave = null));
+    return numberSave;
+  }
+
+  async function runNumberSave(source: NumberSaveSource): Promise<boolean> {
+    if (!editingNumber) return true;
     if (numberDraft === (data.projectNumber ?? "")) {
-      editingNumber = false;
-      return;
+      await endNumberEdit(source === "enter");
+      return true;
+    }
+    if (source !== "enter" && numberDraft === failedNumber) {
+      if (source === "close") await blockClose();
+      return false;
     }
     savingNumber = true;
     fieldError = null;
+    closeBlocked = false;
+    let saved = false;
     try {
       await onSaveProjectNumber?.(numberDraft);
-      editingNumber = false;
+      saved = true;
     } catch (error) {
+      failedNumber = numberDraft;
       fieldError = {
         field: "project-number",
         message: error instanceof Error && error.message ? error.message : "The change could not be saved.",
@@ -100,21 +133,56 @@
     } finally {
       savingNumber = false;
     }
-    if (editingNumber) {
-      await tick();
-      numberInput?.focus();
+    if (saved) {
+      failedNumber = null;
+      await endNumberEdit(source === "enter");
+      return true;
     }
+    if (source === "close") await blockClose();
+    else if (source === "enter") await focusNumberInput();
+    return false;
+  }
+
+  async function endNumberEdit(returnFocus: boolean) {
+    editingNumber = false;
+    closeBlocked = false;
+    failedNumber = null;
+    if (fieldError?.field === "project-number") fieldError = null;
+    if (returnFocus) {
+      await tick();
+      numberButton?.focus();
+    }
+  }
+
+  async function focusNumberInput() {
+    await tick();
+    numberInput?.focus();
+  }
+
+  async function blockClose() {
+    closeBlocked = true;
+    await focusNumberInput();
   }
 
   function onNumberKeydown(event: KeyboardEvent) {
     if (event.key === "Enter") {
       event.preventDefault();
-      void saveNumber();
+      void saveNumber("enter");
     } else if (event.key === "Escape") {
       event.preventDefault();
-      editingNumber = false;
-      fieldError = null;
+      void endNumberEdit(true);
     }
+  }
+
+  /**
+   * Called by the panel before it closes or switches to Hand off, so a
+   * project number edit is never lost silently: it saves (true when there is
+   * nothing left to save), and on failure the edit stays open with its error
+   * and the field takes focus.
+   */
+  export async function commitPendingEdits(): Promise<boolean> {
+    if (numberSave) await numberSave;
+    return saveNumber("close");
   }
 
   async function suggest() {
@@ -275,14 +343,16 @@
           bind:this={numberInput}
           bind:value={numberDraft}
           onkeydown={onNumberKeydown}
-          onblur={() => void saveNumber()}
+          onblur={() => void saveNumber("blur")}
           disabled={savingNumber}
           aria-label="Edit project number"
+          aria-invalid={numberError ? "true" : undefined}
+          aria-describedby={numberError ? numberErrorId : undefined}
           placeholder="Not set"
           class="field-control h-[26px] w-full min-w-0 rounded-md px-2 text-[13px] leading-[18px] text-ink placeholder:text-ink-faint"
         />
       {:else if editable}
-        <button type="button" class={valueButton} aria-label="Edit project number" onclick={beginNumber}>
+        <button bind:this={numberButton} type="button" class={valueButton} aria-label="Edit project number" onclick={beginNumber}>
           <span class="min-w-0 flex-1 truncate">
             {#if data.projectNumber}{data.projectNumber}{:else}{@render notSet()}{/if}
           </span>
@@ -292,7 +362,11 @@
         <span class="truncate">{#if data.projectNumber}{data.projectNumber}{:else}{@render notSet()}{/if}</span>
       {/if}
     </dd>
-    {@render errorFor("project-number")}
+    {#if numberError}
+      <dd id={numberErrorId} class="col-start-2 pb-1.5 text-xs leading-[18px] text-red-700" role="alert">
+        {numberError}{#if closeBlocked}{" "}Fix the number, or press Escape to discard it.{/if}
+      </dd>
+    {/if}
   </div>
 
   <div class={row}>

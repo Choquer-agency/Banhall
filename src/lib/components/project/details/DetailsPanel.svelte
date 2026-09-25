@@ -100,6 +100,23 @@
     confirm(`Handed off to ${input.assigneeLabel}`);
   }
 
+  // A project number edit is saved before the panel closes or switches to
+  // Hand off. On failure the panel stays, with the error and the field in
+  // focus, so a failed save is never lost behind a closed panel.
+  let facts = $state<{ commitPendingEdits: () => Promise<boolean> } | undefined>();
+  let leaving = false;
+
+  async function leaveDetails(next: () => void) {
+    if (leaving) return;
+    leaving = true;
+    try {
+      if (facts && !(await facts.commitPendingEdits())) return;
+      next();
+    } finally {
+      leaving = false;
+    }
+  }
+
   const iconButton =
     "flex size-[26px] shrink-0 items-center justify-center rounded-md text-ink-secondary transition-colors hover:bg-primary-wash hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir";
 </script>
@@ -122,7 +139,7 @@
     <button
       type="button"
       aria-label="Close details"
-      onclick={onClose}
+      onclick={() => void leaveDetails(onClose)}
       class={`ml-auto ${iconButton}`}
     >
       <XIcon size={14} aria-hidden="true" />
@@ -157,10 +174,10 @@
         {changeStageReason}
         {handOffReason}
         onChangeStage={changeStage}
-        onOpenHandOff={() => (view = "handoff")}
+        onOpenHandOff={() => void leaveDetails(() => (view = "handoff"))}
       />
       <div class="mt-[18px]">
-        <DetailsFacts {data} {now} {canCreateIndustry} {...savers} />
+        <DetailsFacts bind:this={facts} {data} {now} {canCreateIndustry} {...savers} />
       </div>
       {#if more}
         <div class="mt-2.5">
