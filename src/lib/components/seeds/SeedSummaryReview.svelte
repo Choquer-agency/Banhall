@@ -119,6 +119,8 @@
   let editingBase = $state<number | null>(null);
   let bulletOne = $state("");
   let bulletTwo = $state("");
+  // A one-bullet seed edits in one field until the writer asks for a second.
+  let secondBulletShown = $state(false);
   // The authoritative unsaved wording of the hydrated owner (A2). Browser
   // storage only mirrors it, one item at a time and best-effort, so navigation
   // and reloads can restore it when the device allows; Save never depends on
@@ -521,8 +523,24 @@
     persistDraftItem(store, item.seedId, draft);
     bulletOne = draft.bulletOne;
     bulletTwo = draft.bulletTwo;
+    secondBulletShown = false;
     editingBase = draft.baseSeedStageVersion;
     editingSeedId = item.seedId;
+    // The field takes focus, so the edit starts where the writer types.
+    const seedId = item.seedId;
+    void tick().then(() => {
+      if (disposed || editingSeedId !== seedId) return;
+      rootEl?.querySelector<HTMLTextAreaElement>(`[data-summary-item="${seedId}"] [data-summary-edit-first]`)?.focus();
+    });
+  }
+
+  function revealSecondBullet(seedId: string) {
+    if (editingSeedId !== seedId) return;
+    secondBulletShown = true;
+    void tick().then(() => {
+      if (disposed || editingSeedId !== seedId) return;
+      rootEl?.querySelector<HTMLTextAreaElement>(`[data-summary-item="${seedId}"] [data-summary-edit-second]`)?.focus();
+    });
   }
 
   function persistEditDraft() {
@@ -535,6 +553,7 @@
     editingBase = null;
     bulletOne = "";
     bulletTwo = "";
+    secondBulletShown = false;
   }
 
   function discardEditDraft(seedId: string) {
@@ -814,7 +833,7 @@
   >Summary review</h1>
 
   <div class="relative min-h-0 flex-1 overflow-y-auto">
-    <div class="mx-auto w-full max-w-[760px] px-4 pt-9 pb-14 sm:px-0">
+    <div class="mx-auto w-full max-w-[760px] px-4 pt-7 pb-14 sm:px-0">
       {#if outlineError}
         <!-- Separate from the Summary-page and revision states below: the
              pages on screen stay complete; only live readiness and
@@ -921,27 +940,37 @@
                       >
                         {#if editingSeedId === item.seedId && canEdit}
                           <div class="flex min-w-0 flex-1 flex-col gap-1.5">
-                            <textarea
-                              bind:value={bulletOne}
-                              oninput={(event) => { bulletOne = event.currentTarget.value; persistEditDraft(); }}
-                              onkeydown={(event) => editKeydown(event, item)}
-                              rows="1"
-                              maxlength={MAX_EDITED_BULLET_CHARS}
-                              aria-label="Bullet 1"
-                              aria-describedby={`summary-edit-hint-${item.seedId}`}
-                              class="field-control min-h-11 w-full resize-none rounded-md px-2.5 py-2 text-[14px] leading-5 text-ink [field-sizing:content]"
-                            ></textarea>
-                            <textarea
-                              bind:value={bulletTwo}
-                              oninput={(event) => { bulletTwo = event.currentTarget.value; persistEditDraft(); }}
-                              onkeydown={(event) => editKeydown(event, item)}
-                              rows="1"
-                              maxlength={MAX_EDITED_BULLET_CHARS}
-                              aria-label="Bullet 2, optional"
-                              aria-describedby={`summary-edit-hint-${item.seedId}`}
-                              placeholder="Optional second bullet"
-                              class="field-control min-h-11 w-full resize-none rounded-md px-2.5 py-2 text-[14px] leading-5 text-ink placeholder:text-ink-faint [field-sizing:content]"
-                            ></textarea>
+                            <!-- The primary field with a wash ring (board 3.3). A second
+                                 field shows when the seed has a second bullet, or on request. -->
+                            <div class="rounded-lg transition-shadow focus-within:shadow-[0_0_0_3px_var(--color-primary-wash)] motion-reduce:transition-none">
+                              <textarea
+                                bind:value={bulletOne}
+                                oninput={(event) => { bulletOne = event.currentTarget.value; persistEditDraft(); }}
+                                onkeydown={(event) => editKeydown(event, item)}
+                                rows="1"
+                                maxlength={MAX_EDITED_BULLET_CHARS}
+                                aria-label="Bullet 1"
+                                aria-describedby={`summary-edit-hint-${item.seedId}`}
+                                data-summary-edit-first
+                                class="field-control block min-h-11 w-full resize-none rounded-lg px-2.5 py-2 text-[14px] leading-5 text-ink [field-sizing:content]"
+                              ></textarea>
+                            </div>
+                            {#if secondBulletShown || item.bullets.length > 1 || bulletTwo.length > 0}
+                              <div class="rounded-lg transition-shadow focus-within:shadow-[0_0_0_3px_var(--color-primary-wash)] motion-reduce:transition-none">
+                                <textarea
+                                  bind:value={bulletTwo}
+                                  oninput={(event) => { bulletTwo = event.currentTarget.value; persistEditDraft(); }}
+                                  onkeydown={(event) => editKeydown(event, item)}
+                                  rows="1"
+                                  maxlength={MAX_EDITED_BULLET_CHARS}
+                                  aria-label="Bullet 2, optional"
+                                  aria-describedby={`summary-edit-hint-${item.seedId}`}
+                                  placeholder="Optional second bullet"
+                                  data-summary-edit-second
+                                  class="field-control block min-h-11 w-full resize-none rounded-lg px-2.5 py-2 text-[14px] leading-5 text-ink placeholder:text-ink-faint [field-sizing:content]"
+                                ></textarea>
+                              </div>
+                            {/if}
                             {#if editingStale}
                               <div class="rounded-lg bg-gap-bg px-3 py-2 text-body text-gap-text!" role="status">
                                 <p>This wording began against an older decision version. Review the current wording before saving it.</p>
@@ -961,6 +990,13 @@
                             {/if}
                             <div class="flex items-center gap-3">
                               <p id={`summary-edit-hint-${item.seedId}`} class="flex-1 text-[12px] leading-4 text-ink-muted">Enter to save, Esc to cancel</p>
+                              {#if !(secondBulletShown || item.bullets.length > 1 || bulletTwo.length > 0)}
+                                <button
+                                  type="button"
+                                  class="shrink-0 rounded text-[12px] leading-4 text-ink-muted transition-colors hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary motion-reduce:transition-none"
+                                  onclick={() => revealSecondBullet(item.seedId)}
+                                >Add a second bullet</button>
+                              {/if}
                               {#if editLong}
                                 <p class="text-[12px] leading-4 text-gap-text" aria-live="polite" data-seed-long-note>Long for a seed</p>
                               {/if}

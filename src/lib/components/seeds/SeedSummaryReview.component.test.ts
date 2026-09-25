@@ -1638,6 +1638,39 @@ describe("Seed Summary Review", () => {
       second.unmount();
     });
 
+    it("edits a one-bullet item in one focused field with a wash ring, and adds a second bullet on request (board 3.3)", async () => {
+      __setQueryData("seeds:getOutline", outline());
+      __setQueryData("seeds:getSummary", onePage([
+        item("seed-a", "company_context", "Server wording A."),
+        withFields(item("seed-b", "goal_problem", "First of two."), { bullets: ["First of two.", "Second of two."] }),
+      ]));
+      const view = await render(SeedSummaryReview, { generationId, userId: "writer-1" });
+      const itemA = () => page.elementLocator(view.container.querySelector<HTMLElement>('[data-summary-item="seed-a"]')!);
+      await itemA().getByRole("button", { name: "Edit", exact: true }).click();
+      const first = itemA().getByRole("textbox", { name: "Bullet 1" });
+      // The edit starts in the field, which carries the primary line and wash ring.
+      await expect.poll(() => document.activeElement).toBe(first.element());
+      await expect.poll(() => getComputedStyle(first.element()).boxShadow).toContain("rgb(13, 172, 165)");
+      await expect.poll(() => getComputedStyle((first.element() as HTMLElement).parentElement!).boxShadow).toContain("rgb(241, 250, 249)");
+      expect(itemA().getByRole("textbox", { name: "Bullet 2, optional" }).elements()).toHaveLength(0);
+      await itemA().getByRole("button", { name: "Add a second bullet", exact: true }).click();
+      const second = itemA().getByRole("textbox", { name: "Bullet 2, optional" });
+      await expect.poll(() => document.activeElement).toBe(second.element());
+      await second.fill("Added second bullet.");
+      await userEvent.keyboard("{Enter}");
+      expect(__mutationCalls("seeds:edit")).toEqual([expect.objectContaining({
+        seedId: "seed-a",
+        bullets: ["Server wording A.", "Added second bullet."],
+      })]);
+      await expect.poll(() => page.getByRole("textbox").elements().length).toBe(0);
+
+      // A two-bullet item opens with both fields and no extra control.
+      const itemB = page.elementLocator(view.container.querySelector<HTMLElement>('[data-summary-item="seed-b"]')!);
+      await itemB.getByRole("button", { name: "Edit", exact: true }).click();
+      await expect.element(page.getByRole("textbox", { name: "Bullet 2, optional" })).toHaveValue("Second of two.");
+      expect(page.getByRole("button", { name: "Add a second bullet", exact: true }).elements()).toHaveLength(0);
+    });
+
     it("saves on Enter, keeps Shift+Enter as a new line, and cancels on Esc with focus back on Edit", async () => {
       __setQueryData("seeds:getOutline", outline());
       __setQueryData("seeds:getSummary", onePage([item("seed-a", "company_context", "Server wording A.")]));
