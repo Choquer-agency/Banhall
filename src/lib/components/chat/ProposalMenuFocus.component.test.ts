@@ -49,8 +49,14 @@ it("leaves focus in the composer after Refine with AI chosen from the keyboard",
   const trigger = page.getByRole("button", { name: "More actions for this suggestion", exact: true });
   (trigger.element() as HTMLElement).focus();
   await userEvent.keyboard("{Enter}");
-  await expect.element(page.getByRole("menuitem", { name: "Refine with AI", exact: true })).toBeVisible();
-  (page.getByRole("menuitem", { name: "Refine with AI", exact: true }).element() as HTMLElement).focus();
+  const refine = page.getByRole("menuitem", { name: "Refine with AI", exact: true });
+  await expect.element(refine).toBeVisible();
+  // The menu moves focus to its first item as it opens. Under a loaded full
+  // suite that can land after a manual focus, so Enter picked "Edit wording".
+  // Wait for the menu's own focus, then move it and confirm before Enter.
+  await expect.poll(() => document.activeElement?.getAttribute("role")).toBe("menuitem");
+  (refine.element() as HTMLElement).focus();
+  await expect.poll(() => document.activeElement).toBe(refine.element());
   await userEvent.keyboard("{Enter}");
   await expect.element(page.getByText("Refining suggestion", { exact: true })).toBeVisible();
   await new Promise((resolve) => setTimeout(resolve, 300));

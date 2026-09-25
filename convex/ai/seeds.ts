@@ -35,10 +35,16 @@ import {
   type SeedContextSnapshot,
 } from "../lib/seedRevisions";
 import {
+  MAX_BATCH_SEEDS,
+  MAX_BULLET_WORDS,
+  MAX_FEEDBACK_SEEDS,
+  MIN_BATCH_SEEDS,
+  MIN_FEEDBACK_SEEDS,
   seedToolSchema,
   validateBatch,
   type BatchValidationResult,
   type FrozenSeedSource,
+  type SeedBatchMode,
   type SeedReference,
   type SeedValidationIssueCode,
   type ValidatedSeedCandidate,
@@ -116,61 +122,108 @@ function countedClient(client: GenerationClient, onRequest: () => void): Generat
   };
 }
 
-const SEED_ISSUE_HINTS: Partial<Record<SeedValidationIssueCode, string>> = {
-  INVALID_SHAPE: "wrong fields",
-  INVALID_BULLET_COUNT: "use one or two bullets",
-  BULLET_TOO_LONG: "a bullet is over 25 words",
-  BULLET_NOT_ONE_SENTENCE: "a bullet is not one sentence ending in a full stop",
-  BULLET_TYPOGRAPHIC_DASH: "use a plain hyphen",
-  INVALID_TAG_COUNT: "use one or two tags",
-  INVALID_TAG: "unknown tag",
-  DUPLICATE_TAG: "repeated tag",
-  INVALID_ADVANCEMENT_REFERENCE:
-    "copy uncertaintySeedId and experimentSeedIds from the frozen selections",
-  INVALID_BATCH_SIZE: "return 3 to 5 valid Seeds",
-  INSUFFICIENT_TAG_DIVERSITY: "use at least two different tags",
-  INSUFFICIENT_FORM_DIVERSITY: "mix one-bullet and two-bullet Seeds",
-};
+/**
+ * One actionable hint per validator rule, built from the validator's own
+ * limits. The Record is exhaustive, so a new issue code fails the build until
+ * it has a hint. INVALID_PROVENANCE never blocks a Seed, so it has none.
+ */
+function seedIssueHints(mode: SeedBatchMode): Record<SeedValidationIssueCode, string> {
+  const [min, max] =
+    mode === "batch"
+      ? [MIN_BATCH_SEEDS, MAX_BATCH_SEEDS]
+      : [MIN_FEEDBACK_SEEDS, MAX_FEEDBACK_SEEDS];
+  return {
+    INVALID_SHAPE: "wrong fields or tag",
+    INVALID_BULLET_COUNT: "use one or two bullets",
+    BULLET_TOO_LONG: `a bullet is over ${MAX_BULLET_WORDS} words`,
+    BULLET_NOT_ONE_SENTENCE: "a bullet is not one sentence ending in a full stop",
+    BULLET_TYPOGRAPHIC_DASH: "use a plain hyphen",
+    INVALID_TAG_COUNT: "use one or two tags",
+    INVALID_TAG: "use only the allowed tags",
+    DUPLICATE_TAG: "a tag is repeated",
+    INVALID_ADVANCEMENT_REFERENCE:
+      "copy uncertaintySeedId and experimentSeedIds from the frozen selections",
+    INVALID_PROVENANCE: "",
+    INVALID_BATCH_SIZE: `return ${min} to ${max} valid Seeds`,
+    INSUFFICIENT_TAG_DIVERSITY: "use at least two different tags",
+    INSUFFICIENT_FORM_DIVERSITY: "mix one-bullet and two-bullet Seeds",
+  };
+}
+
+const REPAIR_OMITTED = "more issues omitted";
 
 /**
- * Repair feedback the model can act on: which Seeds failed and why, never
- * Seed text. structured.ts prefixes "(root): ", so the note stays inside
- * the prompt's reserved repair bytes with that prefix included.
+ * Repair feedback the model can act on. The retry never shows the model its
+ * failed output, so the note leads with the broken rules and names the Seeds
+ * by position only; it never carries Seed text. structured.ts prefixes
+ * "(root): ", and the note stays inside the prompt's reserved repair bytes
+ * with that prefix, marking any rules it had to leave out.
  */
 export function seedRepairSummary(
   result: BatchValidationResult,
-  returned: number
+  returned: number,
+  mode: SeedBatchMode
 ): string {
+  const hints = seedIssueHints(mode);
   const maxBytes =
     SEED_PROMPT_PROGRAM.request.repairValidationSummaryMaxUtf8Bytes -
     "(root): ".length;
-  const perSeed = new Map<number, Set<string>>();
-  const batch = new Set<string>();
+  const seedsByRule = new Map<SeedValidationIssueCode, Set<number>>();
+  const batchRules = new Set<SeedValidationIssueCode>();
   for (const issue of result.issues) {
-    if (issue.code === "INVALID_PROVENANCE") continue;
-    const hint = SEED_ISSUE_HINTS[issue.code] ?? issue.code;
+    if (!hints[issue.code]) continue;
     if (issue.seedIndex === undefined) {
-      batch.add(hint);
+      batchRules.add(issue.code);
       continue;
     }
-    const hints = perSeed.get(issue.seedIndex) ?? new Set<string>();
-    hints.add(hint);
-    perSeed.set(issue.seedIndex, hints);
+    const seeds = seedsByRule.get(issue.code) ?? new Set<number>();
+    seeds.add(issue.seedIndex + 1);
+    seedsByRule.set(issue.code, seeds);
   }
+  // Variety is counted over valid Seeds only, so a variety hint can repeat
+  // what a dropped Seed already broke; it can also be the only reason the
+  // batch failed. Keep it, after the Seed rules, so the cap drops it first.
   const parts = [
-    `${result.seeds.length} of ${returned} Seeds valid`,
-    ...batch,
-    ...[...perSeed.entries()]
-      .sort(([left], [right]) => left - right)
-      .map(([index, hints]) => `Seed ${index + 1}: ${[...hints].join(", ")}`),
+    `${result.seeds.length} of ${returned} ${returned === 1 ? "Seed" : "Seeds"} valid`,
+    ...(batchRules.has("INVALID_BATCH_SIZE") ? [hints.INVALID_BATCH_SIZE] : []),
+    ...[...seedsByRule.entries()]
+      .sort(([, left], [, right]) => right.size - left.size)
+      .map(([code, seeds]) => {
+        const list = [...seeds].sort((left, right) => left - right).join(", ");
+        return `${hints[code]} (${seeds.size === 1 ? "Seed" : "Seeds"} ${list})`;
+      }),
+    ...[...batchRules]
+      .filter((code) => code !== "INVALID_BATCH_SIZE")
+      .map((code) => hints[code]),
   ];
+  const bytes = (text: string) => new TextEncoder().encode(text).byteLength;
+  const budget = maxBytes - bytes(`; ${REPAIR_OMITTED}`);
   let summary = "";
-  for (const part of parts) {
+  for (const [index, part] of parts.entries()) {
     const next = summary ? `${summary}; ${part}` : part;
-    if (new TextEncoder().encode(next).byteLength > maxBytes) break;
+    const last = index === parts.length - 1;
+    if (bytes(next) > (last ? maxBytes : budget)) {
+      return `${summary}; ${REPAIR_OMITTED}`;
+    }
     summary = next;
   }
   return summary;
+}
+
+/**
+ * Real Sonnet 5 batches sometimes send the Seed list as a JSON string inside
+ * the tool object ({ seeds: "[...]" }). structured.ts only unwraps a whole
+ * input sent as a string, so parse this one field when it holds an array;
+ * anything else is left for the schema to reject.
+ */
+function parseStringifiedSeeds(value: unknown): unknown {
+  if (typeof value !== "string" || !value.trim().startsWith("[")) return value;
+  try {
+    const parsed: unknown = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed : value;
+  } catch {
+    return value;
+  }
 }
 
 function validatedBatchSchema(args: {
@@ -195,7 +248,7 @@ function validatedBatchSchema(args: {
       active: true,
     }));
   return z
-    .object({ seeds: z.array(z.unknown()) })
+    .object({ seeds: z.preprocess(parseStringifiedSeeds, z.array(z.unknown())) })
     .transform((value, context): ValidatedSeedBatch => {
       const seeds = args.factSources
         ? resolveFactCitations(value.seeds, args.factSources).seeds
@@ -210,7 +263,7 @@ function validatedBatchSchema(args: {
       if (!result.ok) {
         context.addIssue({
           code: z.ZodIssueCode.custom,
-          message: seedRepairSummary(result, seeds.length),
+          message: seedRepairSummary(result, seeds.length, args.mode),
         });
         return z.NEVER;
       }

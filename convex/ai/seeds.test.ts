@@ -12,6 +12,7 @@ import type { PdSubsectionRoleId } from "../../shared/pdSubsections";
 import { SEED_PROMPT_PROGRAM } from "./promptDefinitions";
 import { seedToolSchema } from "../lib/seedContract";
 import { seedRepairSummary } from "./seeds";
+import type { SeedValidationIssueCode as SeedIssueCode } from "../lib/seedContract";
 
 const modules = Object.fromEntries(
   Object.entries(import.meta.glob("../**/*.ts")).map(([path, load]) => [
@@ -900,6 +901,40 @@ describe("seed Node action request boundary", () => {
     });
   });
 
+  it("accepts a Seed list the model sent as a JSON string, in one request", async () => {
+    const t = convexTest(schema, modules);
+    const fixture = await seedAttempt(t);
+    const transport = vi.fn<typeof fetch>(async () =>
+      providerResponse({ seeds: JSON.stringify(validSeeds) }, 1)
+    );
+    vi.stubGlobal("fetch", transport);
+
+    await t.action(generateBatchRef, { batchId: fixture.batchId });
+
+    expect(transport).toHaveBeenCalledTimes(1);
+    expect(await t.run((ctx) => ctx.db.get(fixture.batchId))).toMatchObject({
+      status: "shown",
+      requestsMade: 1,
+    });
+  });
+
+  it("still rejects a Seed string that is not a JSON array", async () => {
+    const t = convexTest(schema, modules);
+    const fixture = await seedAttempt(t);
+    const transport = vi.fn<typeof fetch>(async () =>
+      providerResponse({ seeds: "[not json" }, 1)
+    );
+    vi.stubGlobal("fetch", transport);
+
+    await t.action(generateBatchRef, { batchId: fixture.batchId });
+
+    expect(transport).toHaveBeenCalledTimes(2);
+    expect(await t.run((ctx) => ctx.db.get(fixture.batchId))).toMatchObject({
+      status: "failed",
+      error: "INVALID_OUTPUT",
+    });
+  });
+
   it("tells the repair attempt which Seeds failed and why, without Seed text", async () => {
     const t = convexTest(schema, modules);
     const fixture = await seedAttempt(t);
@@ -930,7 +965,7 @@ describe("seed Node action request boundary", () => {
     expect(requests).toHaveLength(2);
     const second = requestText((await requests[1]?.json()).messages[0].content);
     expect(second).toContain(
-      "Your previous tool output was invalid: (root): 1 of 3 Seeds valid; return 3 to 5 valid Seeds; use at least two different tags; Seed 2: a bullet is over 25 words; Seed 3: a bullet is over 25 words."
+      "Your previous tool output was invalid: (root): 1 of 3 Seeds valid; return 3 to 5 valid Seeds; a bullet is over 25 words (Seeds 2, 3); use at least two different tags."
     );
     expect(second.split("Your previous tool output was invalid")[1]).not.toContain("client secret");
     expect(await t.run((ctx) => ctx.db.get(fixture.batchId))).toMatchObject({
@@ -939,12 +974,161 @@ describe("seed Node action request boundary", () => {
     });
   });
 
-  it("keeps the repair note inside the reserved repair bytes", () => {
-    const issues = Array.from({ length: 5 }, (_, seedIndex) => [
-      { code: "BULLET_TOO_LONG" as const, message: "long", seedIndex },
-      { code: "INVALID_ADVANCEMENT_REFERENCE" as const, message: "links", seedIndex },
-      { code: "INVALID_PROVENANCE" as const, message: "provenance", seedIndex },
-    ]).flat();
+  it("groups the repair note by broken rule and states the mode's Seed count", () => {
+    const linkIssues = Array.from({ length: 5 }, (_, seedIndex) => ({
+      code: "INVALID_ADVANCEMENT_REFERENCE" as const,
+      message: "links",
+      seedIndex,
+    }));
+    const mixed = seedRepairSummary(
+      {
+        ok: false,
+        seeds: [],
+        dropped: 5,
+        issues: [
+          ...linkIssues,
+          { code: "BULLET_TOO_LONG", message: "long", seedIndex: 0 },
+          { code: "BULLET_TOO_LONG", message: "long", seedIndex: 3 },
+          { code: "BULLET_TYPOGRAPHIC_DASH", message: "dash", seedIndex: 4 },
+          { code: "INVALID_PROVENANCE", message: "provenance", seedIndex: 2 },
+          { code: "INVALID_BATCH_SIZE", message: "size" },
+          { code: "INSUFFICIENT_TAG_DIVERSITY", message: "tags" },
+        ],
+      },
+      5,
+      "batch"
+    );
+    expect(mixed).toBe(
+      "0 of 5 Seeds valid; return 3 to 5 valid Seeds; copy uncertaintySeedId and experimentSeedIds from the frozen selections (Seeds 1, 2, 3, 4, 5); a bullet is over 25 words (Seeds 1, 4); use a plain hyphen (Seed 5); use at least two different tags"
+    );
+
+    // A variety rule can be the only reason the batch failed, so it stays
+    // even when a Seed-level rule also dropped a Seed.
+    const dash = seedRepairSummary(
+      {
+        ok: false,
+        seeds: Array.from({ length: 4 }, () => ({}) as never),
+        dropped: 1,
+        issues: [
+          { code: "BULLET_TYPOGRAPHIC_DASH", message: "dash", seedIndex: 1 },
+          { code: "INSUFFICIENT_FORM_DIVERSITY", message: "forms" },
+        ],
+      },
+      5,
+      "batch"
+    );
+    expect(dash).toBe(
+      "4 of 5 Seeds valid; use a plain hyphen (Seed 2); mix one-bullet and two-bullet Seeds"
+    );
+
+    const feedback = seedRepairSummary(
+      {
+        ok: false,
+        seeds: [],
+        dropped: 0,
+        issues: [{ code: "INVALID_BATCH_SIZE", message: "size" }],
+      },
+      4,
+      "feedback"
+    );
+    expect(feedback).toBe("0 of 4 Seeds valid; return 1 to 3 valid Seeds");
+
+    const variety = seedRepairSummary(
+      {
+        ok: false,
+        seeds: [],
+        dropped: 0,
+        issues: [
+          { code: "INSUFFICIENT_TAG_DIVERSITY", message: "tags" },
+          { code: "INSUFFICIENT_FORM_DIVERSITY", message: "forms" },
+        ],
+      },
+      4,
+      "batch"
+    );
+    expect(variety).toBe(
+      "0 of 4 Seeds valid; use at least two different tags; mix one-bullet and two-bullet Seeds"
+    );
+  });
+
+  it("keeps a last rule that only fits without the marker, and marks one that would crowd it out", () => {
+    const at = (code: SeedIssueCode, seedIndex?: number) => ({
+      code,
+      message: code,
+      ...(seedIndex === undefined ? {} : { seedIndex }),
+    });
+    const failed = (issues: ReturnType<typeof at>[]) => ({
+      ok: false,
+      seeds: [],
+      dropped: 0,
+      issues,
+    });
+    const reserved = SEED_PROMPT_PROGRAM.request.repairValidationSummaryMaxUtf8Bytes;
+    const bytes = (summary: string) => new TextEncoder().encode(`(root): ${summary}`).byteLength;
+
+    const lastKept = seedRepairSummary(
+      failed([
+        at("BULLET_TOO_LONG", 0),
+        at("BULLET_TOO_LONG", 1),
+        at("BULLET_TOO_LONG", 2),
+        at("BULLET_NOT_ONE_SENTENCE", 0),
+        at("DUPLICATE_TAG", 0),
+        at("BULLET_TYPOGRAPHIC_DASH", 1),
+        at("INVALID_SHAPE", 3),
+        at("INVALID_BATCH_SIZE"),
+      ]),
+      4,
+      "batch"
+    );
+    expect(lastKept).toBe(
+      "0 of 4 Seeds valid; return 3 to 5 valid Seeds; a bullet is over 25 words (Seeds 1, 2, 3); a bullet is not one sentence ending in a full stop (Seed 1); a tag is repeated (Seed 1); use a plain hyphen (Seed 2); wrong fields or tag (Seed 4)"
+    );
+    // Past the room the marker needs, but inside the cap.
+    expect(bytes(lastKept)).toBeGreaterThan(reserved - "; more issues omitted".length);
+    expect(bytes(lastKept)).toBeLessThanOrEqual(reserved);
+
+    const marked = seedRepairSummary(
+      failed([
+        at("INVALID_BULLET_COUNT", 0),
+        at("INVALID_BULLET_COUNT", 1),
+        at("BULLET_TYPOGRAPHIC_DASH", 0),
+        at("INVALID_TAG_COUNT", 0),
+        at("BULLET_TOO_LONG", 1),
+        at("BULLET_TOO_LONG", 2),
+        at("INVALID_ADVANCEMENT_REFERENCE", 1),
+        at("INVALID_ADVANCEMENT_REFERENCE", 2),
+        at("INVALID_BATCH_SIZE"),
+      ]),
+      3,
+      "feedback"
+    );
+    expect(marked).toBe(
+      "0 of 3 Seeds valid; return 1 to 3 valid Seeds; use one or two bullets (Seeds 1, 2); a bullet is over 25 words (Seeds 2, 3); copy uncertaintySeedId and experimentSeedIds from the frozen selections (Seeds 2, 3); more issues omitted"
+    );
+    expect(bytes(marked)).toBeLessThanOrEqual(reserved);
+
+    expect(seedRepairSummary(failed([at("INVALID_SHAPE", 0), at("INVALID_BATCH_SIZE")]), 1, "feedback"))
+      .toBe("0 of 1 Seed valid; return 1 to 3 valid Seeds; wrong fields or tag (Seed 1)");
+  });
+
+  it("marks rules it leaves out and keeps the note inside the reserved repair bytes", () => {
+    const codes = [
+      "INVALID_SHAPE",
+      "INVALID_BULLET_COUNT",
+      "BULLET_TOO_LONG",
+      "BULLET_NOT_ONE_SENTENCE",
+      "BULLET_TYPOGRAPHIC_DASH",
+      "INVALID_TAG_COUNT",
+      "DUPLICATE_TAG",
+      "INVALID_ADVANCEMENT_REFERENCE",
+    ] as const;
+    const issues = codes.flatMap((code, rank) =>
+      Array.from({ length: codes.length - rank }, (_, seedIndex) => ({
+        code,
+        message: code,
+        seedIndex,
+      }))
+    );
     const summary = seedRepairSummary(
       {
         ok: false,
@@ -952,10 +1136,12 @@ describe("seed Node action request boundary", () => {
         dropped: 5,
         issues: [...issues, { code: "INVALID_BATCH_SIZE", message: "size" }],
       },
-      5
+      8,
+      "batch"
     );
-    expect(summary.startsWith("0 of 5 Seeds valid; return 3 to 5 valid Seeds; Seed 1: a bullet is over 25 words, copy uncertaintySeedId")).toBe(true);
-    expect(summary).not.toContain("provenance");
+    expect(summary.startsWith("0 of 8 Seeds valid; return 3 to 5 valid Seeds; wrong fields or tag (Seeds 1, 2, 3, 4, 5, 6, 7, 8)")).toBe(true);
+    expect(summary.endsWith("; more issues omitted")).toBe(true);
+    expect(summary).not.toContain("copy uncertaintySeedId");
     expect(
       new TextEncoder().encode(`(root): ${summary}`).byteLength
     ).toBeLessThanOrEqual(SEED_PROMPT_PROGRAM.request.repairValidationSummaryMaxUtf8Bytes);
