@@ -13,6 +13,7 @@ import {
   MAX_SUMMARY_SELF_CHECK_PARAGRAPH,
   MAX_SUMMARY_SELF_CHECK_QUESTION_ESCAPED_UTF8_BYTES,
   MAX_SUMMARY_SELF_CHECK_REASON_ESCAPED_UTF8_BYTES,
+  MAX_SUMMARY_SELF_CHECK_RESPONSE_UTF8_BYTES,
 } from "../lib/seedRevisions";
 import { RULES_HUMAN_PROSE, RULES_SEED_WORDING } from "../../shared/humanProse";
 
@@ -497,9 +498,19 @@ export const SUMMARY_PLAN_SELF_CHECK_SCHEMA = {
   additionalProperties: false,
 } as const;
 
+/**
+ * Output token allowance for the Summary-plan Self-check only. It equals the
+ * admitted worst-case response bytes, and a byte-level tokenizer never needs
+ * more tokens than bytes, so every admitted response fits. The legacy
+ * Self-check keeps SELF_CHECK_REQUEST.maxTokens.
+ */
+export const SUMMARY_PLAN_SELF_CHECK_MAX_TOKENS =
+  MAX_SUMMARY_SELF_CHECK_RESPONSE_UTF8_BYTES;
+
 export const SUMMARY_PLAN_SELF_CHECK_REQUEST = {
   blockLabel: "CONTENT PLAN CHECKS",
   blockSeparator: "\n",
+  maxTokens: SUMMARY_PLAN_SELF_CHECK_MAX_TOKENS,
 } as const;
 
 export const CONSISTENCY_REQUEST = {

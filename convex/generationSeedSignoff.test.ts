@@ -1197,9 +1197,28 @@ async function addCompanyProvenance(
 
 async function configureS242Ordinary(
   s: Awaited<ReturnType<typeof decisionFixture>>,
-  args: { additionalConfidence: number; writerFlavor?: string; rules: number }
+  args: {
+    additionalConfidence: number;
+    glossaryTerms?: number;
+    writerFlavor?: string;
+    rules: number;
+  }
 ): Promise<void> {
   await s.t.run(async (ctx) => {
+    for (let index = 0; index < (args.glossaryTerms ?? 0); index += 1) {
+      await ctx.db.insert("generationBriefEntries", {
+        briefId: s.briefId,
+        projectId: s.projectId,
+        group: "glossaryTerm",
+        text: `Glossary term ${index + 1}`,
+        sourceId: s.sourceId,
+        sourceContentHash: "source-hash",
+        startOffset: 0,
+        endOffset: 14,
+        exactExcerpt: "Evidence alpha",
+        createdAt: 60 + index,
+      });
+    }
     for (let index = 0; index < args.additionalConfidence; index += 1) {
       await ctx.db.insert("generationBriefEntries", {
         briefId: s.briefId,
@@ -1265,7 +1284,7 @@ async function signoffWriteFootprint(
       .take(2),
     items: await ctx.db.query("summaryItems")
       .withIndex("by_projectId", (q) => q.eq("projectId", s.projectId))
-      .take(20),
+      .take(64),
     candidates: await ctx.db.query("generationCandidateRuns")
       .withIndex("by_generationId", (q) => q.eq("generationId", s.generationId))
       .take(2),
@@ -2123,18 +2142,21 @@ describe("seed Summary sign-off and recovery", () => {
     expect(await signoffWriteFootprint(refused)).toEqual(refusedBefore);
   });
 
-  it("commits the exact reachable 4,096-byte persisted response and rolls 4,097 back with the typed reason", async () => {
+  it("commits the exact reachable 16,384-byte persisted response and rolls 16,385 back with the typed reason", async () => {
+    expect(MAX_SUMMARY_SELF_CHECK_RESPONSE_UTF8_BYTES).toBe(16_384);
     const selectedShape = {
       extraSelected: {
-        technological_objective: 1,
-        active_uncertainties: 1,
+        passive_limitations: 1,
+        technological_objective: 5,
+        active_uncertainties: 5,
       },
     } as const;
     const accepted = await decisionFixture();
     await makeReady(accepted, selectedShape);
     await configureS242Ordinary(accepted, {
-      additionalConfidence: 1,
-      rules: 1,
+      additionalConfidence: 4,
+      glossaryTerms: 3,
+      rules: 20,
     });
     const acceptedPersistedShape = await persistedFrozenPlanShape(accepted);
     const acceptedBefore = await signoffWriteFootprint(accepted);
@@ -2145,7 +2167,7 @@ describe("seed Summary sign-off and recovery", () => {
     const checks = await frozenS242OracleChecks(accepted);
     expect(PD_SUBSECTIONS.filter((role) => role.section === "s242").map((role) =>
       checks.filter((check) => check.roleId === role.roleId).length
-    )).toEqual([1, 1, 1, 2, 2]);
+    )).toEqual([1, 1, 2, 6, 6]);
     expect(new Set(checks.flatMap((check) => [
       utf8Bytes(JSON.stringify(check.itemId)),
       ...check.mergedItemIds.map((id) => utf8Bytes(JSON.stringify(id))),
@@ -2155,15 +2177,18 @@ describe("seed Summary sign-off and recovery", () => {
       .toBe(true);
     expect(reachability.reachable.has(MAX_SUMMARY_SELF_CHECK_RESPONSE_UTF8_BYTES + 1))
       .toBe(true);
+    // Receipt recomputed 2026-09-25 from the independent formula above at
+    // the 16,384-byte limit (the 4,096-byte receipt was 535 plan lengths,
+    // 14/15 enumerated/pruned rows and a 4,337-byte pruning bound).
     expect(reachability.receipt).toMatchObject({
       actualEscapedIdBytes: 34,
       ordinaryDistributions: 19_871,
       distinctOrdinaryLengths: 4_930,
-      distinctPlanLengths: 535,
-      maximumEnumeratedPlanRows: 14,
-      firstPrunedPlanRows: 15,
+      distinctPlanLengths: 41_099,
+      maximumEnumeratedPlanRows: 56,
+      firstPrunedPlanRows: 57,
       persistedPlanRowCap: MAX_SUMMARY_PLAN_VERDICTS,
-      pruningLowerBound: 4_337,
+      pruningLowerBound: 16_391,
     });
     expect(reachability.receipt.maximumEnumeratedPlanRows)
       .toBe(reachability.receipt.firstPrunedPlanRows - 1);
@@ -2171,15 +2196,19 @@ describe("seed Summary sign-off and recovery", () => {
       .toBeGreaterThan(MAX_SUMMARY_SELF_CHECK_RESPONSE_UTF8_BYTES + 1);
     const acceptedLabels = [
       "storyline",
-      "confidence:C1",
-      "confidence:C2",
-      "rule:R1",
+      ...Array.from({ length: 5 }, (_, index) => `confidence:C${index + 1}`),
+      ...Array.from({ length: 3 }, (_, index) => `glossary:G${index + 1}`),
+      ...Array.from({ length: 20 }, (_, index) => `rule:R${index + 1}`),
     ];
+    expect(acceptedLabels).toHaveLength(29);
     const acceptedOracle = literalSummaryResponseOracle({
       ordinaryLabels: acceptedLabels,
       planChecks: checks,
       includeStorylineQuestion: true,
     });
+    // The persisted Brief and frozen rules project exactly these labels.
+    expect(await projectedFixtureOutputEnvelope(accepted, "242", checks))
+      .toBe(acceptedOracle);
     const acceptedProduction = projectSummarySelfCheckWorstCaseResponse({
       ordinaryChecks: acceptedLabels.map((label) => ({
         label,
@@ -2210,12 +2239,16 @@ describe("seed Summary sign-off and recovery", () => {
     expect(acceptedAfter.sections).toHaveLength(3);
     expect(acceptedAfter.jobs).toHaveLength(1);
 
+    // Swapping one 13-byte confidence label for the 14-byte writer label
+    // adds exactly one byte and keeps the plan and ordinary count fixed.
     const refusedLabels = [
       "storyline",
-      "confidence:C1",
+      ...Array.from({ length: 4 }, (_, index) => `confidence:C${index + 1}`),
+      ...Array.from({ length: 3 }, (_, index) => `glossary:G${index + 1}`),
       "writer:profile",
-      "rule:R1",
+      ...Array.from({ length: 20 }, (_, index) => `rule:R${index + 1}`),
     ];
+    expect(refusedLabels).toHaveLength(acceptedLabels.length);
     const refusedOracle = literalSummaryResponseOracle({
       ordinaryLabels: refusedLabels,
       planChecks: checks,
@@ -2236,15 +2269,132 @@ describe("seed Summary sign-off and recovery", () => {
     const refused = await decisionFixture();
     await makeReady(refused, selectedShape);
     await configureS242Ordinary(refused, {
-      additionalConfidence: 0,
+      additionalConfidence: 3,
+      glossaryTerms: 3,
       writerFlavor: "Profile",
-      rules: 1,
+      rules: 20,
     });
     const refusedPersistedShape = await persistedFrozenPlanShape(refused);
     expect(refusedPersistedShape).toEqual(acceptedPersistedShape);
+    expect(await projectedFixtureOutputEnvelope(refused, "242", fixedWidthPlanChecks(checks)))
+      .toBe(literalSummaryResponseOracle({
+        ordinaryLabels: refusedLabels,
+        planChecks: fixedWidthPlanChecks(checks),
+        includeStorylineQuestion: true,
+      }));
     const refusedExpandedInputOracle = literalPlanChecksOracle(fixedWidthChecks);
     expect(utf8Bytes(refusedExpandedInputOracle)).toBeLessThanOrEqual(
       MAX_SUMMARY_PLAN_CHECK_INPUT_UTF8_BYTES
+    );
+    const refusedBefore = await signoffWriteFootprint(refused);
+    await expect(refused.writer.mutation(api.generations.signOffSeedStage, {
+      generationId: refused.generationId,
+      expectedSeedStageVersion: 0,
+    })).rejects.toMatchObject({
+      data: {
+        code: "INVALID_INPUT",
+        reason: "SUMMARY_CAPACITY_EXCEEDED",
+        limit: "summary_self_check_response_utf8_bytes",
+      },
+    });
+    expect(await signoffWriteFootprint(refused)).toEqual(refusedBefore);
+  });
+
+  it("admits a real Brief's ordinary checks beside a 7-item Section 242 plan and still refuses a response over the limit", async () => {
+    // Regression 2026-09-25: a real end-to-end run was refused at sign-off
+    // because 4,096 bytes fit only about four ordinary checks beside a
+    // 7-item Section 242 plan, while real Briefs carry 10 to 20.
+    const realisticOrdinary = {
+      additionalConfidence: 5,
+      glossaryTerms: 3,
+      rules: 8,
+    } as const;
+    const realisticLabels = [
+      "storyline",
+      ...Array.from({ length: 6 }, (_, index) => `confidence:C${index + 1}`),
+      ...Array.from({ length: 3 }, (_, index) => `glossary:G${index + 1}`),
+      ...Array.from({ length: 8 }, (_, index) => `rule:R${index + 1}`),
+    ];
+    expect(realisticLabels).toHaveLength(18);
+
+    const accepted = await decisionFixture();
+    await makeReady(accepted, {
+      extraSelected: { technological_objective: 1, active_uncertainties: 1 },
+    });
+    await configureS242Ordinary(accepted, realisticOrdinary);
+    const acceptedBefore = await signoffWriteFootprint(accepted);
+    await accepted.writer.mutation(api.generations.signOffSeedStage, {
+      generationId: accepted.generationId,
+      expectedSeedStageVersion: 0,
+    });
+    const checks = await frozenS242OracleChecks(accepted);
+    expect(PD_SUBSECTIONS.filter((role) => role.section === "s242").map((role) =>
+      checks.filter((check) => check.roleId === role.roleId).length
+    )).toEqual([1, 1, 1, 2, 2]);
+    const acceptedOracle = literalSummaryResponseOracle({
+      ordinaryLabels: realisticLabels,
+      planChecks: checks,
+      includeStorylineQuestion: true,
+    });
+    expect(await projectedFixtureOutputEnvelope(accepted, "242", checks))
+      .toBe(acceptedOracle);
+    expect(utf8Bytes(acceptedOracle)).toBe(8_150);
+    // The previous 4,096-byte limit refused this ordinary Brief.
+    expect(utf8Bytes(acceptedOracle)).toBeGreaterThan(4_096);
+    expect(utf8Bytes(acceptedOracle)).toBeLessThanOrEqual(
+      MAX_SUMMARY_SELF_CHECK_RESPONSE_UTF8_BYTES
+    );
+    const acceptedAfter = await signoffWriteFootprint(accepted);
+    expect(acceptedAfter).not.toEqual(acceptedBefore);
+    expect(acceptedAfter.generation).toMatchObject({ status: "running" });
+    expect(acceptedAfter.summaries).toHaveLength(1);
+    expect(acceptedAfter.events.filter((event) => event.kind === "signOff")).toHaveLength(1);
+    expect(acceptedAfter.candidates).toHaveLength(1);
+    expect(acceptedAfter.sections).toHaveLength(3);
+    expect(acceptedAfter.jobs).toHaveLength(1);
+
+    // The same Brief beside a larger Section 242 plan still crosses the
+    // limit and refuses with nothing written.
+    const refused = await decisionFixture();
+    await makeReady(refused, {
+      extraSelected: { technological_objective: 7, active_uncertainties: 8 },
+    });
+    await configureS242Ordinary(refused, realisticOrdinary);
+    const refusedShape = await persistedFrozenPlanShape(refused);
+    expect(PD_SUBSECTIONS.filter((role) => role.section === "s242").map((role) =>
+      refusedShape.core.items.filter((item) => item.roleId === role.roleId).length
+    )).toEqual([1, 1, 1, 8, 9]);
+    const idWidth = checks[0]!.itemId!.length;
+    let nextId = 0;
+    const refusedChecks: FrozenSummaryPlanCheck[] = PD_SUBSECTIONS
+      .filter((role) => role.section === "s242")
+      .flatMap((role) => {
+        const size = refusedShape.core.items
+          .filter((item) => item.roleId === role.roleId).length;
+        const ids = Array.from({ length: size }, () =>
+          `i${(nextId++).toString(36)}`.padEnd(idWidth, "i"));
+        return ids.map((itemId) => ({
+          itemId,
+          roleId: role.roleId,
+          mergedItemIds: ids,
+          instruction: "cover" as const,
+          confirmedExclusion: false,
+          support: "source_supported" as const,
+          wording: ["Wording."],
+          relationshipReferences: [],
+          sourceReferences: [],
+        }));
+      });
+    const refusedOracle = literalSummaryResponseOracle({
+      ordinaryLabels: realisticLabels,
+      planChecks: refusedChecks,
+      includeStorylineQuestion: true,
+    });
+    expect(await projectedFixtureOutputEnvelope(refused, "242", refusedChecks))
+      .toBe(refusedOracle);
+    expect(utf8Bytes(refusedOracle)).toBe(16_884);
+    expect(utf8Bytes(refusedOracle)).toBeGreaterThan(
+      MAX_SUMMARY_SELF_CHECK_RESPONSE_UTF8_BYTES
     );
     const refusedBefore = await signoffWriteFootprint(refused);
     await expect(refused.writer.mutation(api.generations.signOffSeedStage, {
@@ -2521,7 +2671,7 @@ describe("seed Summary sign-off and recovery", () => {
           generationId: targetGenerationId,
         });
       }
-      await addFrozenS242Items(s, 10);
+      await addFrozenS242Items(s, 16);
       const plan = await frozenSectionPlan(s, "s242");
       const expandedInput = literalPlanChecksOracle(plan.checks);
       const output = await projectedFixtureOutputEnvelope(s, "242", plan.checks);
@@ -2861,7 +3011,7 @@ describe("seed Summary sign-off and recovery", () => {
       generationId: s.generationId,
       error: "prepare byte-incompatible recovery",
     });
-    await addFrozenS242Items(s, 10);
+    await addFrozenS242Items(s, 16);
     const plan = await frozenSectionPlan(s, "s242");
     expect(plan.checks.length).toBeLessThanOrEqual(MAX_SUMMARY_PLAN_VERDICTS);
     expect(utf8Bytes(literalPlanChecksOracle(plan.checks))).toBeLessThanOrEqual(
@@ -4342,7 +4492,7 @@ describe("seed Summary sign-off and recovery", () => {
     });
   });
 
-  it("accepts an admitted decoded Summary control and rejects its exact 4,097-byte encoded form", async () => {
+  it("accepts an admitted decoded Summary control and rejects its exact 16,385-byte encoded form", async () => {
     const execute = async (encoded: boolean) => {
       const s = await decisionFixture();
       await makeReady(s);
@@ -4514,7 +4664,7 @@ describe("seed Summary sign-off and recovery", () => {
         }
         if (failureMode === "oversized nested extras") {
           Object.assign(planVerdicts[0] ?? {}, {
-            unknownNested: "x".repeat(4_097),
+            unknownNested: "x".repeat(MAX_SUMMARY_SELF_CHECK_RESPONSE_UTF8_BYTES + 1),
           });
         }
         const validInput = {
@@ -4524,7 +4674,7 @@ describe("seed Summary sign-off and recovery", () => {
         const input = failureMode === "oversized raw extras"
           ? {
               ...validInput,
-              unknownRoot: "x".repeat(4_097),
+              unknownRoot: "x".repeat(MAX_SUMMARY_SELF_CHECK_RESPONSE_UTF8_BYTES + 1),
             }
           : failureMode === "omitted plan verdicts"
             ? { ...validInput, planVerdicts: planVerdicts.slice(1) }

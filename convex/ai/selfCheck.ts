@@ -15,6 +15,7 @@ import {
   ORDERED_SECTION_TITLES,
   SELF_CHECK_REQUEST,
   SELF_CHECK_SCHEMA,
+  SUMMARY_PLAN_SELF_CHECK_REQUEST,
   SUMMARY_PLAN_SELF_CHECK_SCHEMA,
 } from "./promptDefinitions";
 import { sectionParagraphs } from "../lib/tiptapReport";
@@ -506,7 +507,9 @@ export async function runModelSelfCheck(
     schema: (hasSummaryPlan
       ? SUMMARY_PLAN_SELF_CHECK_SCHEMA
       : SELF_CHECK_SCHEMA) as unknown as Anthropic.Tool.InputSchema,
-    maxTokens: SELF_CHECK_REQUEST.maxTokens,
+    maxTokens: hasSummaryPlan
+      ? SUMMARY_PLAN_SELF_CHECK_REQUEST.maxTokens
+      : SELF_CHECK_REQUEST.maxTokens,
     model: input.model,
     validate: hasSummaryPlan
       ? summaryPlanSelfCheckOutputSchema
