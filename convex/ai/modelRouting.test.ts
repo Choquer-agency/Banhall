@@ -9,6 +9,7 @@
 import { convexTest } from "convex-test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import schema from "../schema";
+import { internal } from "../_generated/api";
 import fixture from "../../shared/__fixtures__/openrouter-models-2026-09-24.json";
 import { parseOpenRouterModels } from "../../shared/modelCatalog";
 import {
@@ -427,5 +428,56 @@ describe("second review: outcome attribution and recording", () => {
     );
     errors.mockRestore();
     vi.useRealTimers();
+  });
+});
+
+describe("round 3: financial extraction settles after its own validation", () => {
+  it("6: an unparseable timesheet reply is a failure and a valid one a success, end to end", async () => {
+    const t = await setup();
+    const { projectId, uploads } = await t.run(async (ctx) => {
+      const userId = await ctx.db.insert("users", { authId: "financial-writer", role: "admin" });
+      const projectId = await ctx.db.insert("projects", {
+        title: "Financial",
+        clientName: "Client",
+        status: "draft",
+        createdBy: userId,
+        shareToken: "financial-token",
+        createdAt: NOW,
+        updatedAt: NOW,
+      });
+      const upload = () =>
+        ctx.db.insert("financialUploads", {
+          projectId,
+          fileName: "log.txt",
+          fileType: "slack_export",
+          content: "[2025-03-03] Priya: 4 hours of latency tests",
+          createdAt: NOW,
+          processingStatus: "queued",
+        });
+      return { projectId, uploads: [await upload(), await upload()] };
+    });
+    const anthropicText = (text: string) =>
+      Response.json({
+        id: "msg", type: "message", role: "assistant", model: "claude-sonnet-5",
+        content: [{ type: "text", text }], stop_reason: "end_turn", stop_sequence: null,
+        usage: { input_tokens: 10, output_tokens: 10 },
+      });
+    reply = () => anthropicText("I could not find any timesheet entries.");
+    await t.action(internal.ai.financialAgent.processFinancialUpload, { projectId, uploadId: uploads[0] });
+    reply = () =>
+      anthropicText(JSON.stringify({
+        entries: [{
+          personName: "Priya", date: "2025-03-03", hours: 4, hoursBasis: "explicit",
+          description: "Latency tests.", sredEligible: true, confidence: "high", source: "Slack",
+        }],
+      }));
+    await t.action(internal.ai.financialAgent.processFinancialUpload, { projectId, uploadId: uploads[1] });
+    const [failed, done] = await t.run((ctx) => Promise.all(uploads.map((id) => ctx.db.get(id))));
+    expect(failed?.processingStatus).toBe("failed");
+    expect(done?.processingStatus).toBe("completed");
+    const buckets = await t.run((ctx) => ctx.db.query("modelCallBuckets").collect());
+    expect(buckets).toMatchObject([
+      { model: "claude-sonnet-5", successes: 1, failures: 1, lastFailureCode: "invalid_output", lastFailureCallSite: "financial" },
+    ]);
   });
 });

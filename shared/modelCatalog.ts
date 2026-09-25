@@ -302,6 +302,22 @@ export const ROLE_POLICIES: Readonly<Record<ModelRole, RolePolicy>> = {
 };
 
 /**
+ * Roles split out of an older role on 2026-09-24 (review A). Until a split
+ * role has an assignment of its own it runs what its predecessor was
+ * assigned, and convex/lib/modelRoles.ts ensureRoleSplit copies that
+ * assignment before anything can change either role, so an admin's
+ * customised choice carries over and the two then move independently.
+ */
+export const ROLE_PREDECESSORS: Readonly<Partial<Record<ModelRole, ModelRole>>> = {
+  pd_review: "analysis",
+  financial_extraction: "analysis",
+  learning_digest: "analysis",
+  science_code: "analysis",
+  brain_context: "structured_helper",
+  feedback_summary: "structured_helper",
+};
+
+/**
  * A role switches on its own only when the policy allows it AND it has its
  * own evaluation task. A role without one stays candidate-only: its
  * evaluations never run and it is never promoted automatically.

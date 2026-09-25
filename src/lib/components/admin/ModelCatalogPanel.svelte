@@ -167,6 +167,8 @@
               <p class="text-xs text-gray-500">
                 {#if role.assignedAt === null}
                   Default model, never switched.
+                {:else if role.carriedOverFrom}
+                  Carried over from {role.carriedOverFrom} when roles were split.
                 {:else}
                   {role.assignedBy === "system" ? "Switched automatically" : "Set by an admin"} on {formatDate(role.assignedAt)}.
                 {/if}

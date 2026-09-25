@@ -51,6 +51,7 @@ import {
   prefilterCandidate,
   productionErrorVerdict,
   roleAutoSwitches,
+  ROLE_PREDECESSORS,
   UNKNOWN_EVAL_PRICE,
   promotionGates,
   refreshedFields,
@@ -79,6 +80,7 @@ import {
   roleCostCap,
   roleModelId,
   assignRoleModelByHand,
+  ensureRoleSplit,
   rollbackRoleModel,
   switchRoleModel,
 } from "./lib/modelRoles";
@@ -99,6 +101,7 @@ import {
   checkProductionErrorsRef,
   endpointCheckTargetsRef,
   planEvaluationsRef,
+  pruneCallOutcomesRef,
   recordEndpointSupportRef,
   refreshCatalogRef,
   runEvaluationRef,
@@ -185,6 +188,7 @@ export const applyCatalogRefresh = internalMutation({
   handler: async (ctx, args) => {
     const now = args.fetchedAt;
     await ensureSeedCatalog(ctx, now);
+    await ensureRoleSplit(ctx);
     const rows = await ctx.db.query("modelCatalog").take(CATALOG_READ_LIMIT);
     const byModelId = new Map(rows.map((row) => [row.modelId, row]));
     const inUse = await assignedModelIds(ctx);
@@ -387,13 +391,9 @@ export async function runProductionErrorCheck(
 ): Promise<Array<{ role: ModelRole; modelId: string; rolledBack: boolean }>> {
   const results: Array<{ role: ModelRole; modelId: string; rolledBack: boolean }> = [];
   const enabled = await autoSwitchEnabled(ctx);
-  // Per-request rows past the retention window are no longer read.
-  for (const old of await ctx.db
-    .query("modelCallOutcomes")
-    .withIndex("by_at", (q) => q.lt("at", now - OUTCOME_ROW_RETENTION_MS))
-    .take(500)) {
-    await ctx.db.delete(old._id);
-  }
+  // Per-request rows past the retention window are no longer read; they
+  // are deleted in bounded batches that continue until none are left.
+  await ctx.scheduler.runAfter(0, pruneCallOutcomesRef, { before: now - OUTCOME_ROW_RETENTION_MS });
   for (const role of MODEL_ROLES) {
     const assignment = await roleAssignment(ctx, role);
     if (!assignment?.previousModelId) continue;
@@ -441,6 +441,30 @@ export async function runProductionErrorCheck(
   }
   return results;
 }
+
+/** Rows deleted per pruning transaction. */
+export const OUTCOME_PRUNE_BATCH = 500;
+
+/**
+ * Deletes per-request outcome rows older than `before`, one bounded batch
+ * per transaction, rescheduling itself while a batch comes back full so
+ * retention keeps pace with any call volume (round 3, item 3).
+ */
+export const pruneCallOutcomes = internalMutation({
+  args: { before: v.number() },
+  returns: v.number(),
+  handler: async (ctx, args): Promise<number> => {
+    const expired = await ctx.db
+      .query("modelCallOutcomes")
+      .withIndex("by_at", (q) => q.lt("at", args.before))
+      .take(OUTCOME_PRUNE_BATCH);
+    for (const row of expired) await ctx.db.delete(row._id);
+    if (expired.length === OUTCOME_PRUNE_BATCH) {
+      await ctx.scheduler.runAfter(0, pruneCallOutcomesRef, { before: args.before });
+    }
+    return expired.length;
+  },
+});
 
 export const checkProductionErrors = internalMutation({
   args: {},
@@ -582,6 +606,7 @@ export async function planEvaluationRun(
       });
     }
   }
+  await ensureRoleSplit(ctx);
   if (!(await autoSwitchEnabled(ctx))) return [];
   const pending = [
     ...(await ctx.db.query("modelEvaluations").withIndex("by_status", (q) => q.eq("status", "queued")).take(20)),
@@ -1115,6 +1140,10 @@ export const adminState = query({
         modelLabel: labelOf(modelId) ?? modelId,
         previousModelId: assignment?.previousModelId ?? null,
         previousLabel: labelOf(assignment?.previousModelId),
+        carriedOverFrom:
+          assignment?.origin === "role_split" && ROLE_PREDECESSORS[role]
+            ? ROLE_POLICIES[ROLE_PREDECESSORS[role]].label
+            : null,
         assignedAt: assignment?.assignedAt ?? null,
         assignedBy: assignment?.assignedBy ?? null,
         cap: await roleCostCap(ctx, role),

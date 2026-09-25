@@ -46,6 +46,9 @@ export const recordEndpointSupportRef = ref<typeof catalog.recordEndpointSupport
 export const checkProductionErrorsRef = ref<typeof catalog.checkProductionErrors>(
   "modelCatalog:checkProductionErrors"
 );
+export const pruneCallOutcomesRef = ref<typeof catalog.pruneCallOutcomes>(
+  "modelCatalog:pruneCallOutcomes"
+);
 export const planEvaluationsRef = ref<typeof catalog.planEvaluations>(
   "modelCatalog:planEvaluations"
 );

@@ -1140,10 +1140,10 @@ export function requestMaxCostUsd(
  * froze for this model, never at a fallback model's. Seed requests use the
  * production seed gateway policy.
  *
- * Every request is metered on its own (review C): a request that fails
+ * Every request is metered on its own (review C): a request that ends
  * without reporting a charge (a lost response, a timeout after the provider
- * already billed) keeps its maximum cost as unsettled spend instead of
- * counting as free.
+ * already billed, or an answer that simply carried no usage) keeps its
+ * maximum cost as unsettled spend instead of counting as free.
  */
 export function evalClient(
   ctx: ActionCtx,
@@ -1177,11 +1177,12 @@ export function evalClient(
           const cost = nativeCostUsd ?? estimateCostWithPricing(perMillion, tokens);
           meter.costUsd += Number.isFinite(cost) ? cost : 0;
         };
+        // Any request that ends, answered or not, without a reported charge
+        // keeps its maximum cost (round 3, item 5).
         try {
           return await gatewayClient(onUsage).messages.create(params);
-        } catch (error) {
+        } finally {
           if (!settled) meter.unsettledUsd += requestMaxCostUsd(entry, params, pricing, seed);
-          throw error;
         }
       },
     },

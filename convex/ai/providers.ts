@@ -277,13 +277,16 @@ function servedModelOf(value: unknown): string | undefined {
  * schema validation: the response carries `settleOutcome`, which
  * generateStructured calls once it knows whether the output is usable
  * (review F). Every forced-tool call in production goes through
- * generateStructured.
+ * generateStructured. A caller that validates a plain-text answer itself
+ * (financial extraction parses JSON from text) opts in with
+ * `deferOutcome` and settles after its own validation (round 3, item 6).
  */
 export function withOutcomeRecording(
   ctx: Pick<ActionCtx, "runMutation">,
   modelId: string,
   callSite: string,
-  client: GenerationClient
+  client: GenerationClient,
+  options: { deferOutcome?: boolean } = {}
 ): GenerationClient {
   return {
     messages: {
@@ -300,7 +303,7 @@ export function withOutcomeRecording(
           throw error;
         }
         const model = response.servedModel ?? requested;
-        if (params.tool_choice) {
+        if (params.tool_choice || options.deferOutcome) {
           let settled = false;
           response.settleOutcome = async (result) => {
             if (settled) return;
@@ -412,6 +415,8 @@ export async function clientForRole(
   meta: GenerationCallMeta & {
     capability?: AnthropicCapability;
     brainSourceId?: Id<"brainSources">;
+    /** The caller settles each response's outcome after its own validation. */
+    deferOutcome?: boolean;
   }
 ): Promise<{ client: GenerationClient; model: string }> {
   const { entry, fallback } = await ctx.runQuery(roleModelEntryRef, { role });
@@ -426,7 +431,12 @@ export async function clientForRole(
           ...meta,
           capability: meta.capability ?? "generation",
         }) as unknown as GenerationClient);
-  return { client: withOutcomeRecording(ctx, entry.id, meta.callSite, client), model: entry.id };
+  return {
+    client: withOutcomeRecording(ctx, entry.id, meta.callSite, client, {
+      deferOutcome: meta.deferOutcome === true,
+    }),
+    model: entry.id,
+  };
 }
 
 /**

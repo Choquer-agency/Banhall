@@ -2,7 +2,7 @@
 import { convexTest } from "convex-test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api } from "./_generated/api";
-import type { Id } from "./_generated/dataModel";
+import type { Doc, Id } from "./_generated/dataModel";
 import schema from "./schema";
 import fixture from "../shared/__fixtures__/openrouter-models-2026-09-24.json";
 import { parseOpenRouterModels, type EvalTaskResult } from "../shared/modelCatalog";
@@ -847,5 +847,142 @@ describe("second review", () => {
     await admin.mutation(setEvalBudgetRef, { monthlyUsd: reservation * 1.5 });
     expect(await t.mutation(claimEvaluationRef, { evaluationId: second, envelope: EVAL_ENVELOPE })).toBeNull();
     expect((await t.run((ctx) => ctx.db.get(second)))?.error).toMatch(/^Over the monthly evaluation budget/);
+  });
+});
+
+describe("round 3", () => {
+  const queued = (t: TestConvex, fields: Partial<Doc<"modelEvaluations">> = {}) =>
+    t.run((ctx) =>
+      ctx.db.insert("modelEvaluations", {
+        role: "writing",
+        modelId: "x-ai/grok-4.7",
+        incumbentModelId: "claude-sonnet-5",
+        evalSetVersion: "banhall-eval/v1",
+        status: "queued",
+        estimatedCostUsd: 0.01,
+        createdAt: NOW,
+        ...fields,
+      })
+    );
+
+  it("1: settled and running rows written before accountedAt still count this month", async () => {
+    const { t, admin } = await setup();
+    await admin.mutation(setEvalBudgetRef, { monthlyUsd: 20 });
+    // A completed evaluation from before the field existed spent the budget.
+    const legacyDone = await queued(t, { status: "passed", evalCostUsd: 19.99, completedAt: NOW });
+    const blocked = await queued(t);
+    expect(await t.mutation(claimEvaluationRef, { evaluationId: blocked, envelope: EVAL_ENVELOPE })).toBeNull();
+    // A running evaluation from before the field existed holds its reservation.
+    await t.run((ctx) => ctx.db.patch(legacyDone, { status: "error", evalCostUsd: 0 }));
+    await queued(t, { status: "running", reservedCostUsd: 19.99, startedAt: NOW });
+    const blockedAgain = await queued(t);
+    expect(await t.mutation(claimEvaluationRef, { evaluationId: blockedAgain, envelope: EVAL_ENVELOPE })).toBeNull();
+    expect((await t.run((ctx) => ctx.db.get(blockedAgain)))?.error).toMatch(/^Over the monthly evaluation budget/);
+  });
+
+  it("4: a reservation claimed before midnight still blocks the new month until it settles", async () => {
+    const { t, admin } = await setup();
+    const beforeMidnight = Date.parse("2026-08-31T23:59:00Z");
+    await queued(t, {
+      status: "running",
+      reservedCostUsd: 19.99,
+      createdAt: beforeMidnight,
+      startedAt: beforeMidnight,
+      accountedAt: beforeMidnight,
+    });
+    await admin.mutation(setEvalBudgetRef, { monthlyUsd: 20 });
+    const next = await queued(t);
+    expect(await t.mutation(claimEvaluationRef, { evaluationId: next, envelope: EVAL_ENVELOPE })).toBeNull();
+    expect((await t.run((ctx) => ctx.db.get(next)))?.error).toMatch(/^Over the monthly evaluation budget/);
+  });
+
+  it("2: split roles start from a customised predecessor and then move independently", async () => {
+    const t = convexTest(schema, modules);
+    await t.run(async (ctx) => {
+      const adminId = await ctx.db.insert("users", { authId: ADMIN, role: "admin" });
+      // Before the split an admin customised both old roles.
+      await ctx.db.insert("modelRoleAssignments", {
+        role: "analysis",
+        modelId: "claude-opus-4-8",
+        previousModelId: "claude-sonnet-5",
+        assignedAt: NOW - 1000,
+        assignedBy: "user",
+        assignedByUserId: adminId,
+      });
+      await ctx.db.insert("modelRoleAssignments", {
+        role: "structured_helper",
+        modelId: "openai/gpt-5.6-luna",
+        previousModelId: "claude-haiku-4-5-20251001",
+        assignedAt: NOW - 1000,
+        assignedBy: "user",
+        assignedByUserId: adminId,
+      });
+    });
+    const admin = t.withIdentity({ subject: ADMIN });
+    const modelOf = async (role: string) =>
+      (await admin.query(adminStateRef, {}))?.roles.find((item) => item.role === role)?.modelId;
+    // Right after the deploy, before anything ran: the split roles already
+    // run what the old roles were customised to.
+    for (const role of ["pd_review", "financial_extraction", "learning_digest", "science_code"]) {
+      expect(await modelOf(role), role).toBe("claude-opus-4-8");
+    }
+    for (const role of ["brain_context", "feedback_summary"]) {
+      expect(await modelOf(role), role).toBe("openai/gpt-5.6-luna");
+    }
+    // The daily refresh materializes them.
+    await t.mutation(applyCatalogRefreshRef, { models: parsed, fetchedAt: NOW, complete: false });
+    const learning = await t.run((ctx) =>
+      ctx.db.query("modelRoleAssignments").withIndex("by_role", (q) => q.eq("role", "learning_digest")).unique()
+    );
+    expect(learning).toMatchObject({ modelId: "claude-opus-4-8", origin: "role_split" });
+    expect((await admin.query(adminStateRef, {}))?.roles.find((item) => item.role === "learning_digest")?.carriedOverFrom).toBe(
+      "Style analysis"
+    );
+    // The old roles moving no longer drags the split roles along...
+    await admin.mutation(setRoleModelRef, { role: "analysis", modelId: "claude-sonnet-5" });
+    await admin.mutation(setRoleModelRef, { role: "structured_helper", modelId: "claude-haiku-4-5-20251001" });
+    expect(await modelOf("learning_digest")).toBe("claude-opus-4-8");
+    expect(await modelOf("feedback_summary")).toBe("openai/gpt-5.6-luna");
+    // ...and a later independent choice stays put.
+    await admin.mutation(setRoleModelRef, { role: "pd_review", modelId: "claude-sonnet-5" });
+    await admin.mutation(setRoleModelRef, { role: "analysis", modelId: "claude-opus-4-8" });
+    expect(await modelOf("pd_review")).toBe("claude-sonnet-5");
+  });
+
+  it("2: a switch before any refresh materializes the split first", async () => {
+    const t = convexTest(schema, modules);
+    await t.run(async (ctx) => {
+      await ctx.db.insert("users", { authId: ADMIN, role: "admin" });
+      await ctx.db.insert("modelRoleAssignments", {
+        role: "analysis",
+        modelId: "claude-opus-4-8",
+        assignedAt: NOW - 1000,
+        assignedBy: "system",
+      });
+    });
+    const admin = t.withIdentity({ subject: ADMIN });
+    await admin.mutation(setRoleModelRef, { role: "analysis", modelId: "claude-sonnet-5" });
+    expect((await admin.query(adminStateRef, {}))?.roles.find((item) => item.role === "financial_extraction")?.modelId).toBe(
+      "claude-opus-4-8"
+    );
+  });
+
+  it("3: retention deletes every expired outcome row in continuing batches and keeps recent ones", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(NOW);
+    const { t } = await setup();
+    await t.run(async (ctx) => {
+      for (let i = 0; i < 1_200; i += 1) {
+        await ctx.db.insert("modelCallOutcomes", { model: "x-ai/grok-4.7", at: NOW - 3 * 86_400_000 + i, outcome: "success" });
+      }
+      for (let i = 0; i < 10; i += 1) {
+        await ctx.db.insert("modelCallOutcomes", { model: "x-ai/grok-4.7", at: NOW - 60_000 + i, outcome: "success" });
+      }
+    });
+    await t.mutation(checkProductionErrorsRef, {});
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
+    const left = await t.run((ctx) => ctx.db.query("modelCallOutcomes").collect());
+    expect(left).toHaveLength(10);
+    expect(left.every((row) => row.at >= NOW - 60_000)).toBe(true);
   });
 });

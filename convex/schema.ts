@@ -2920,6 +2920,10 @@ export default defineSchema({
     // Last admin notice about this role's production error rate, so a
     // failing model with automatic switching off is announced once a day.
     errorNoticeAt: v.optional(v.number()),
+    // "role_split": copied from the role this one was split out of
+    // (shared/modelCatalog ROLE_PREDECESSORS), not chosen for it. Cleared
+    // by the role's first real switch.
+    origin: v.optional(v.literal("role_split")),
   }).index("by_role", ["role"]),
 
   // Append-only audit log of every role switch, automatic or manual.

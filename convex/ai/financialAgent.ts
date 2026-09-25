@@ -102,6 +102,8 @@ export const processFinancialUpload = internalAction({
         callSite: "financial",
         capability: "financial",
         projectId: args.projectId,
+        // The outcome is settled below, once the reply parses and validates.
+        deferOutcome: true,
       });
       const response = await client.messages.create({
         model,
@@ -116,7 +118,14 @@ export const processFinancialUpload = internalAction({
       });
       const text =
         response.content[0]?.type === "text" ? response.content[0].text : "";
-      const result = parseTimesheetReply(text);
+      let result: ReturnType<typeof parseTimesheetReply>;
+      try {
+        result = parseTimesheetReply(text);
+      } catch (error) {
+        await response.settleOutcome?.({ ok: false, code: "invalid_output" });
+        throw error;
+      }
+      await response.settleOutcome?.({ ok: true });
       await ctx.runMutation(internal.financial.replaceTimesheetEntries, {
         projectId: args.projectId,
         uploadId: args.uploadId,

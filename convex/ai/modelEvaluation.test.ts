@@ -668,3 +668,46 @@ describe("second review: C, a lost response keeps its reservation", () => {
     expect(evaluation?.reservedCostUsd).toBeUndefined();
   });
 });
+
+describe("round 3: an answer without usage keeps its maximum cost", () => {
+  beforeEach(() => {
+    vi.stubEnv("OPENROUTER_API_KEY", "test-openrouter-key");
+    resetRegisteredModelEntries();
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
+    resetRegisteredModelEntries();
+  });
+
+  it("5: meters a successful response that reported no usage at its maximum cost", async () => {
+    const t = convexTest(schema, modules);
+    vi.stubGlobal("fetch", vi.fn(async () =>
+      Response.json({ choices: [{ message: { content: "A draft." }, finish_reason: "stop" }] })
+    ));
+    const entry = {
+      id: "x-ai/grok-4.7",
+      label: "Grok 4.7",
+      provider: "xAI",
+      gateway: "openrouter" as const,
+      reasoning: true,
+      maxCompletionTokens: 450000,
+    };
+    const pricing = { input: 5, output: 25 };
+    const params: GenerationMessageParams = {
+      model: entry.id,
+      max_tokens: 4096,
+      system: "System.",
+      messages: [{ role: "user", content: "Draft it." }],
+    };
+    const meter = await t.action(async (ctx) => {
+      registerModelEntries([entry]);
+      const metered = evalClient(ctx, entry, "section_draft", pricing);
+      const response = await metered.client.messages.create(params);
+      expect(response.content).toEqual([{ type: "text", text: "A draft." }]);
+      return metered.meter;
+    });
+    expect(meter.costUsd).toBe(0);
+    expect(meter.unsettledUsd).toBeCloseTo(requestMaxCostUsd(entry, params, pricing, false), 12);
+  });
+});
