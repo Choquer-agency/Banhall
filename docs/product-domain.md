@@ -2242,6 +2242,20 @@ Generation-behaviour amendment for Step-by-step prose generation (PRD FR-26, FR-
 - **Tickets:** none (feature branch `feat/seeds-5-6-ui`).
 - **Approval:** product owner, 2026-09-24 (decision 20 and the FR-43 amendment).
 
+### 2026-09-24: Home tables and Continue working
+
+Presentation and read amendment for Home (`/my-work`), from the owner-approved final UI (`_bmad-output/specs/spec-step-by-step-seeds/ui-design-final.md` section 9, boards 1.1 and 1.2). It replaces the start-project composer, the shader wash and the Projects card on Home, and lifts the 2026-08-14 rule that "With you" is Home's only operational read.
+
+- **Layout:** a top bar (page icon, "Home", greeting, bell, New project) and one panel with two tables (Name, Client, Stage, Last edited) on the left and "Continue working" on the right. No due dates, no agenda, no search on Home; the repository stays on Projects.
+- **With you:** unchanged meaning and source: open work items assigned to the viewer (`myWork.listAssignedToMe`), shown once per project in due-first order. "Last edited" is the project's `updatedAt`, which the row now carries as `projectUpdatedAt`.
+- **Recently opened:** the projects this viewer opened on this device (the existing browser-local list), read live by `myWork.listRecentProjects` (at most 10 ids; malformed, missing or deleting projects drop out). With no local history the table is labelled "Recently edited" and shows the latest edited projects in the workspace (`dashboard.listFlatProjects`, sorted by update). No per-user server record of opens is added.
+- **Continue working:** the last project opened on this device, otherwise the most recently edited project with the viewer, read by `myWork.getContinueWorking`: client, fiscal year, project number, stage, edit time and the count of pending edit proposals on its latest report (bounded to the 200 newest proposals). "Resume report" opens the project. The company documents card on the board is not built: documents belong to projects and no company-level read exists.
+- **Creation:** New project in the top bar opens the existing wizard, which owns title and transcript entry.
+- **Authority:** read visibility matches the other My Work reads (`project.readInternal`). No mutation, permission or transition changes.
+- **Migration and compatibility:** none; two additive queries and one additive row field.
+- **Tests:** Convex tests for both queries and the new field; component tests for the tables, empty states, stage chips and Continue working.
+- **Approval:** product owner, 2026-09-24 (final UI contract).
+
 ## Amendment process
 
 A change to vocabulary, an invariant, a transition edge, or a decision above requires:
