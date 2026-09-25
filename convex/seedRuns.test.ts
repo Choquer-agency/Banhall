@@ -720,6 +720,51 @@ describe("seed attempt transactions", () => {
     expect(unlimited.kind).toBe("dispatched");
   });
 
+  it("tells the pane the last attempt failed until a batch is shown", async () => {
+    const s = await fixture();
+    const first = await openRole(s, "company_context");
+    if (first.kind !== "dispatched") throw new Error("attempt was not dispatched");
+    const firstBatch = await s.t.run((ctx) => ctx.db.get(first.batchId));
+    await s.t.mutation(failRef, {
+      batchId: first.batchId,
+      attemptId: firstBatch!.attemptId,
+      requestsMade: 1,
+      errorCode: "PROVIDER_FAILED",
+    });
+    const read = () =>
+      s.writer.query(api.seeds.getSubsection, {
+        generationId: s.generationId,
+        roleId: "company_context",
+      });
+    // One failure restores the prior state, so only the flag says it failed.
+    expect(await read()).toMatchObject({
+      state: "untouched",
+      items: [],
+      pendingBatchId: null,
+      lastAttemptFailed: true,
+    });
+
+    const retried = await s.t.mutation(dispatchRef, {
+      generationId: s.generationId,
+      roleId: "company_context",
+      operation: "retry",
+      commandId: "retry-after-one",
+      actorUserId: s.userId,
+    });
+    if (retried.kind !== "dispatched") throw new Error("retry was not dispatched");
+    const claim = await s.t.mutation(claimRef, { batchId: retried.batchId });
+    if (claim.kind !== "claimed") throw new Error("retry was not claimed");
+    await s.t.mutation(completeRef, {
+      batchId: retried.batchId,
+      attemptId: claim.batch.attemptId,
+      requestsMade: 1,
+      seeds: validBatch,
+    });
+    const shown = await read();
+    expect(shown.items.length).toBeGreaterThan(0);
+    expect(shown).not.toHaveProperty("lastAttemptFailed");
+  });
+
   it("cancellation terminalizes the pending attempt before clearing ownership", async () => {
     const s = await fixture();
     const dispatched = await openRole(s, "company_context");

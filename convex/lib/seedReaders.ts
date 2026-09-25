@@ -433,6 +433,9 @@ export async function getSubsectionData(
       })),
     shownBatchId: row.shownBatchId ?? null,
     pendingBatchId: row.pendingBatchId ?? null,
+    // A failed attempt restores the prior state until the third failure, so
+    // an empty step says the last attempt failed instead of "no seeds yet".
+    ...(row.consecutiveFailures > 0 ? { lastAttemptFailed: true as const } : {}),
     approvalChallenge,
     seedStageVersion: state.generation.seedStageVersion ?? 0,
     truncated,
