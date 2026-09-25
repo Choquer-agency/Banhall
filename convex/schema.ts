@@ -718,6 +718,9 @@ export default defineSchema({
     // stale when one of them becomes client or unknown, so the next request
     // extracts again (review of step 5).
     excludedLabels: v.optional(v.array(v.string())),
+    // 2026-09-25 widen: the parser version of the turns the facts index. A
+    // ready run is stale once the transcript is rebuilt with another one.
+    parserVersion: v.optional(v.string()),
   })
     .index("by_transcriptId_and_sourceContentHash_and_factsVersion", [
       "transcriptId",

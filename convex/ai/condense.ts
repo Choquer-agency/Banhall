@@ -447,6 +447,7 @@ export async function ensureTranscriptFacts(
     model,
     adapter,
     excludedLabels: input.excludedLabels,
+    ...(input.parserVersion !== undefined ? { parserVersion: input.parserVersion } : {}),
   });
   if (claim.kind !== "claimed") return claim.kind;
   try {

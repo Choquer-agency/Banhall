@@ -33,14 +33,24 @@ export async function transcriptHash(transcript: Doc<"transcripts">): Promise<st
   return transcript.contentHash ?? (await sha256(transcript.content));
 }
 
-/** Turns joined with the current speaker roles, in order. */
-export async function loadFactTurns(ctx: Ctx, transcriptId: Id<"transcripts">): Promise<FactTurn[]> {
+/**
+ * Turns joined with the current speaker roles, in order, and the one parser
+ * version they were all built with: null when there are none or when they
+ * mix versions (a rebuild in progress), so nothing extracts from half a
+ * structure (2026-09-25, parser version 2).
+ */
+export async function loadFactTurns(
+  ctx: Ctx,
+  transcriptId: Id<"transcripts">
+): Promise<{ turns: FactTurn[]; parserVersion: string | null }> {
   const roles = await speakerRoleMap(ctx, transcriptId);
-  const turns = await ctx.db
+  const rows = await ctx.db
     .query("transcriptTurns")
     .withIndex("by_transcriptId_and_index", (q) => q.eq("transcriptId", transcriptId))
     .take(MAX_FACT_TURNS);
-  return turns.map((turn) => ({
+  const versions = new Set(rows.map((turn) => turn.parserVersion));
+  const parserVersion = versions.size === 1 ? [...versions][0] : null;
+  return { turns: rows.map((turn) => ({
     index: turn.index,
     ...(turn.speakerLabel !== undefined ? { speakerLabel: turn.speakerLabel } : {}),
     role: turn.speakerLabel ? (roles.get(turn.speakerLabel) ?? "unknown") : "unknown",
@@ -48,7 +58,7 @@ export async function loadFactTurns(ctx: Ctx, transcriptId: Id<"transcripts">): 
     charStart: turn.charStart,
     charEnd: turn.charEnd,
     cleanText: turn.cleanText,
-  }));
+  })), parserVersion };
 }
 
 export async function findFactRun(
@@ -74,6 +84,10 @@ export async function findFactRun(
  */
 export async function factRunIsCurrent(ctx: Ctx, run: Doc<"transcriptFactRuns">): Promise<boolean> {
   if (run.status !== "ready") return false;
+  // Facts index turns: a run built on one parser version is stale once the
+  // transcript's turns are rebuilt with another (2026-09-25).
+  const transcript = await ctx.db.get(run.transcriptId);
+  if (!transcript || transcript.parserVersion !== run.parserVersion) return false;
   if (!run.excludedLabels || run.excludedLabels.length === 0) return true;
   const roles = await speakerRoleMap(ctx, run.transcriptId);
   return run.excludedLabels.every((label) => !isEvidenceRole(roles.get(label) ?? "unknown"));
@@ -115,7 +129,9 @@ export async function listFacts(ctx: Ctx, transcriptId: Id<"transcripts">): Prom
 export async function packTurnInfo(
   ctx: Ctx,
   transcriptId: Id<"transcripts">,
-  facts: readonly Pick<Doc<"transcriptFacts">, "turnIndexes">[]
+  facts: readonly Pick<Doc<"transcriptFacts">, "turnIndexes">[],
+  /** Only turns built with this parser version (the run's) are read. */
+  parserVersion?: string
 ): Promise<Map<number, PackTurnInfo>> {
   const wanted = new Set(facts.flatMap((fact) => fact.turnIndexes));
   const info = new Map<number, PackTurnInfo>();
@@ -130,6 +146,7 @@ export async function packTurnInfo(
     .take(MAX_FACT_TURNS);
   for (const turn of turns) {
     if (!wanted.has(turn.index) || info.has(turn.index)) continue;
+    if (parserVersion !== undefined && turn.parserVersion !== parserVersion) continue;
     info.set(turn.index, {
       ...(turn.speakerLabel !== undefined ? { speakerLabel: turn.speakerLabel } : {}),
       ...(turn.startMs !== undefined ? { startMs: turn.startMs } : {}),
@@ -167,10 +184,16 @@ export async function renderTranscriptPack(
   roles: Map<string, TranscriptSpeakerRole>;
   turnInfo: Map<number, PackTurnInfo>;
 } | null> {
-  if (!(await readyFactRun(ctx, transcript))) return null;
+  const run = await readyFactRun(ctx, transcript);
+  if (!run) return null;
   const facts = await listFacts(ctx, transcript._id);
   const roles = await speakerRoleMap(ctx, transcript._id);
-  const turnInfo = await packTurnInfo(ctx, transcript._id, facts);
+  const turnInfo = await packTurnInfo(ctx, transcript._id, facts, run.parserVersion);
+  // Never a pack that mixes the run's turns with another parser version's:
+  // every turn a quoted fact stands on must be one the run was built with.
+  if (facts.some((fact) => fact.quotes.length > 0 && fact.turnIndexes.some((index) => !turnInfo.has(index)))) {
+    return null;
+  }
   return {
     content: renderFactPack(header, toPackFacts(facts), { roles, turnInfo, ...options }),
     facts,

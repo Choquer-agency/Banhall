@@ -592,13 +592,16 @@ export const factsInput = internalQuery({
           )),
         ]
       : [];
-    const turns = await loadFactTurns(ctx, transcript._id);
+    const { turns, parserVersion: turnsVersion } = await loadFactTurns(ctx, transcript._id);
     return {
       projectId: project._id,
       label: transcriptLabel(transcript),
       content: transcript.content,
       sourceContentHash: await transcriptHash(transcript),
-      structureReady: transcript.parserVersion !== undefined,
+      // Ready only when every turn was built with the transcript's current
+      // parser version: never mid-rebuild (2026-09-25).
+      structureReady: transcript.parserVersion !== undefined && turnsVersion === transcript.parserVersion,
+      parserVersion: transcript.parserVersion,
       turns,
       // Recorded on the run, so a later role correction makes it stale.
       excludedLabels: excludedSpeakerLabels(turns),
@@ -619,6 +622,7 @@ export const claimFactRun = internalMutation({
     model: v.string(),
     adapter: v.union(v.literal("citations"), v.literal("structured")),
     excludedLabels: v.optional(v.array(v.string())),
+    parserVersion: v.optional(v.string()),
   },
   returns: v.union(
     v.object({ kind: v.literal("ready") }),
@@ -649,6 +653,7 @@ export const claimFactRun = internalMutation({
       counts: { proposed: 0, verified: 0, dropped: 0 },
       startedAt: now,
       ...(args.excludedLabels ? { excludedLabels: args.excludedLabels } : {}),
+      ...(args.parserVersion !== undefined ? { parserVersion: args.parserVersion } : {}),
     });
     await ctx.db.patch(transcript._id, { factsStatus: "queued" });
     return { kind: "claimed" as const, runId };
@@ -799,6 +804,8 @@ export const copyTranscriptFacts = internalMutation({
         counts: sourceRun.counts,
         startedAt: Date.now(),
         ...(sourceRun.excludedLabels ? { excludedLabels: sourceRun.excludedLabels } : {}),
+        // Stale on the copy if its turns are built with another version.
+        ...(sourceRun.parserVersion !== undefined ? { parserVersion: sourceRun.parserVersion } : {}),
       });
     }
     const facts = (await listFacts(ctx, source._id)).sort((a, b) => a.key.localeCompare(b.key));

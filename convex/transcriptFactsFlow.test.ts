@@ -182,6 +182,78 @@ describe("fact extraction runs once per text and version", () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
+  it("keys facts on the parser version of the turns they index (2026-09-25)", async () => {
+    const f = await setup("long");
+    const fetchMock = vi.fn(async () => factsResponse());
+    vi.stubGlobal("fetch", fetchMock);
+    await f.writer.mutation(api.transcripts.requestTranscriptFacts, { transcriptId: f.transcriptId });
+    await f.t.finishAllScheduledFunctions(vi.runAllTimers);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const { transcript, run } = await f.t.run(async (ctx) => ({
+      transcript: (await ctx.db.get(f.transcriptId))!,
+      run: (await ctx.db.query("transcriptFactRuns").collect())[0],
+    }));
+    expect(run.parserVersion).toBe(transcript.parserVersion);
+
+    // A rebuild in progress: some turns already carry a newer parser version
+    // while the transcript still names the old one. Nothing extracts from
+    // half a structure, and no pack mixes the two.
+    await f.t.run(async (ctx) => {
+      const turns = await ctx.db
+        .query("transcriptTurns")
+        .withIndex("by_transcriptId_and_index", (q) => q.eq("transcriptId", f.transcriptId))
+        .collect();
+      await ctx.db.patch(turns[turns.length - 1]._id, { parserVersion: "rebuilt" });
+    });
+    const midRebuild = await f.t.query(internal.transcripts.factsInput, { transcriptId: f.transcriptId });
+    expect(midRebuild?.structureReady).toBe(false);
+    const generationId = await f.t.run(async (ctx) => {
+      const generationId = await ctx.db.insert("generations", {
+        projectId: f.projectId,
+        transcriptId: f.transcriptId,
+        transcriptIds: [f.transcriptId],
+        transcriptFacts: true,
+        status: "running",
+        startedAt: 1,
+      });
+      await ctx.db.insert("generationSources", {
+        generationId,
+        projectId: f.projectId,
+        kind: "transcript",
+        transcriptId: f.transcriptId,
+        label: "call.txt",
+        content: CONTENT,
+        contentHash: await sha256(CONTENT),
+        truncated: false,
+        originalLength: CONTENT.length,
+        capturedAt: 1,
+      });
+      return generationId;
+    });
+    expect(await f.t.mutation(internal.transcriptDigests.freezeFactsSource, { generationId, transcriptId: f.transcriptId })).toBeNull();
+
+    // The rebuild finishes: the facts, built on the old turns, are stale and
+    // the next request extracts again on the new ones.
+    await f.t.run(async (ctx) => {
+      const turns = await ctx.db
+        .query("transcriptTurns")
+        .withIndex("by_transcriptId_and_index", (q) => q.eq("transcriptId", f.transcriptId))
+        .collect();
+      for (const turn of turns) await ctx.db.patch(turn._id, { parserVersion: "rebuilt" });
+      await ctx.db.patch(f.transcriptId, { parserVersion: "rebuilt" });
+    });
+    expect(await f.t.mutation(internal.transcriptDigests.freezeFactsSource, { generationId, transcriptId: f.transcriptId })).toBeNull();
+    await f.writer.mutation(api.transcripts.requestTranscriptFacts, { transcriptId: f.transcriptId });
+    await f.t.finishAllScheduledFunctions(vi.runAllTimers);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const runs = await f.t.run((ctx) => ctx.db.query("transcriptFactRuns").collect());
+    expect(runs.map((row) => [row.status, row.parserVersion])).toEqual([
+      ["ready", transcript.parserVersion],
+      ["ready", "rebuilt"],
+    ]);
+    expect(await f.t.mutation(internal.transcriptDigests.freezeFactsSource, { generationId, transcriptId: f.transcriptId })).not.toBeNull();
+  });
+
   it("does nothing while the transcript method is off", async () => {
     const f = await setup("off");
     const fetchMock = vi.fn(async () => factsResponse());
