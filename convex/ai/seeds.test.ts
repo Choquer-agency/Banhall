@@ -11,6 +11,7 @@ import { emptySelectionRevision } from "../lib/seedRevisions";
 import type { PdSubsectionRoleId } from "../../shared/pdSubsections";
 import { SEED_PROMPT_PROGRAM } from "./promptDefinitions";
 import { seedToolSchema } from "../lib/seedContract";
+import { seedRepairSummary } from "./seeds";
 
 const modules = Object.fromEntries(
   Object.entries(import.meta.glob("../**/*.ts")).map(([path, load]) => [
@@ -897,6 +898,67 @@ describe("seed Node action request boundary", () => {
       status: "shown",
       requestsMade: 2,
     });
+  });
+
+  it("tells the repair attempt which Seeds failed and why, without Seed text", async () => {
+    const t = convexTest(schema, modules);
+    const fixture = await seedAttempt(t);
+    const longBullet =
+      "The client secret team measured every zone of the warehouse many times over many weeks to learn how the coupled zones behaved under changing loads through the whole working day.";
+    const requests: Request[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn<typeof fetch>(async (input, init) => {
+        requests.push(new Request(input, init));
+        return requests.length === 1
+          ? providerResponse(
+              {
+                seeds: [
+                  validSeeds[0],
+                  { ...validSeeds[1], bullets: [longBullet] },
+                  { ...validSeeds[2], bullets: [longBullet] },
+                ],
+              },
+              1
+            )
+          : providerResponse({ seeds: validSeeds }, 2);
+      })
+    );
+
+    await t.action(generateBatchRef, { batchId: fixture.batchId });
+
+    expect(requests).toHaveLength(2);
+    const second = requestText((await requests[1]?.json()).messages[0].content);
+    expect(second).toContain(
+      "Your previous tool output was invalid: (root): 1 of 3 Seeds valid; return 3 to 5 valid Seeds; use at least two different tags; Seed 2: a bullet is over 25 words; Seed 3: a bullet is over 25 words."
+    );
+    expect(second.split("Your previous tool output was invalid")[1]).not.toContain("client secret");
+    expect(await t.run((ctx) => ctx.db.get(fixture.batchId))).toMatchObject({
+      status: "shown",
+      requestsMade: 2,
+    });
+  });
+
+  it("keeps the repair note inside the reserved repair bytes", () => {
+    const issues = Array.from({ length: 5 }, (_, seedIndex) => [
+      { code: "BULLET_TOO_LONG" as const, message: "long", seedIndex },
+      { code: "INVALID_ADVANCEMENT_REFERENCE" as const, message: "links", seedIndex },
+      { code: "INVALID_PROVENANCE" as const, message: "provenance", seedIndex },
+    ]).flat();
+    const summary = seedRepairSummary(
+      {
+        ok: false,
+        seeds: [],
+        dropped: 5,
+        issues: [...issues, { code: "INVALID_BATCH_SIZE", message: "size" }],
+      },
+      5
+    );
+    expect(summary.startsWith("0 of 5 Seeds valid; return 3 to 5 valid Seeds; Seed 1: a bullet is over 25 words, copy uncertaintySeedId")).toBe(true);
+    expect(summary).not.toContain("provenance");
+    expect(
+      new TextEncoder().encode(`(root): ${summary}`).byteLength
+    ).toBeLessThanOrEqual(SEED_PROMPT_PROGRAM.request.repairValidationSummaryMaxUtf8Bytes);
   });
 
   it("fails with a sanitized code after two invalid requests and never sends a third", async () => {
