@@ -326,11 +326,41 @@ export function requireTextResponse(
  * keep token columns consistent across gateways. Cost accuracy does not depend
  * on this split — usage.cost is the provider's exact charge.
  */
-export function openRouterUsage(body: ChatCompletionsResponse): {
+/**
+ * The TTL the request asked its cache writes to use: "1h" when any breakpoint
+ * in the body asks for the 1-hour TTL, "5m" when breakpoints exist but none
+ * does, null when there are none. OpenRouter reports one write count with no
+ * TTL split, so a request mixing both is priced as 1-hour: an upper bound,
+ * never an undercount. Generation requests carry a single breakpoint.
+ */
+export function requestCacheWriteTtl(body: unknown): "1h" | "5m" | null {
+  let found: "1h" | "5m" | null = null;
+  const visit = (value: unknown): void => {
+    if (found === "1h" || !value || typeof value !== "object") return;
+    if (Array.isArray(value)) {
+      value.forEach(visit);
+      return;
+    }
+    const record = value as Record<string, unknown>;
+    const control = record.cache_control;
+    if (control && typeof control === "object") {
+      found = (control as { ttl?: unknown }).ttl === "1h" ? "1h" : (found ?? "5m");
+    }
+    for (const nested of Object.values(record)) visit(nested);
+  };
+  visit(body);
+  return found;
+}
+
+export function openRouterUsage(
+  body: ChatCompletionsResponse,
+  options: { cacheWriteTtl?: "1h" | "5m" | null } = {}
+): {
   inputTokens: number;
   outputTokens: number;
   cacheReadInputTokens: number;
   cacheCreationInputTokens?: number;
+  cacheCreation1hInputTokens?: number;
   costUsd?: number;
 } | null {
   const usage = body.usage;
@@ -362,6 +392,10 @@ export function openRouterUsage(body: ChatCompletionsResponse): {
     outputTokens: completionTokens ?? 0,
     cacheReadInputTokens: cached,
     ...(written > 0 ? { cacheCreationInputTokens: written } : {}),
+    // TTL attribution for fallback pricing when usage.cost is missing.
+    ...(written > 0 && options.cacheWriteTtl === "1h"
+      ? { cacheCreation1hInputTokens: written }
+      : {}),
     ...(cost !== null ? { costUsd: cost } : {}),
   };
 }

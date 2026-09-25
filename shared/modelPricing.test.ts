@@ -74,3 +74,30 @@ describe("model price table", () => {
     ).toBeCloseTo(2, 10);
   });
 });
+
+describe("Anthropic models through OpenRouter without a native cost", () => {
+  test("price cache writes at Anthropic's 5-minute and 1-hour rates", () => {
+    // 100k Sonnet 5 tokens written: $0.25 at 5 minutes, $0.40 at 1 hour.
+    expect(
+      estimateCostFromTable("anthropic/claude-sonnet-5", {
+        inputTokens: 0,
+        outputTokens: 0,
+        cacheCreationInputTokens: 100_000,
+      })
+    ).toBeCloseTo(0.25, 10);
+    expect(
+      estimateCostFromTable("anthropic/claude-sonnet-5", {
+        inputTokens: 0,
+        outputTokens: 0,
+        cacheCreationInputTokens: 100_000,
+        cacheCreation1hInputTokens: 100_000,
+      })
+    ).toBeCloseTo(0.4, 10);
+  });
+
+  test("resolve other anthropic/ ids to the direct Anthropic entry", () => {
+    expect(pricingFor("anthropic/claude-opus-4.8")).toBe(MODEL_PRICING["claude-opus-4-8"]);
+    expect(pricingFor("anthropic/claude-haiku-4.5")).toBe(MODEL_PRICING["claude-haiku-4-5"]);
+    expect(pricingFor("anthropic/claude-unknown")).toBeNull();
+  });
+});

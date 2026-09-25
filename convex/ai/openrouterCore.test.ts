@@ -4,6 +4,7 @@ import {
   fromChatCompletions,
   requireTextResponse,
   openRouterUsage,
+  requestCacheWriteTtl,
   shouldRetryStatus,
   retryDelayMs,
   isAbortLikeError,
@@ -375,6 +376,33 @@ describe("openRouterUsage", () => {
       cacheReadInputTokens: 90,
       cacheCreationInputTokens: 10,
     });
+  });
+
+  it("attributes cache writes to the TTL the request asked for", () => {
+    const body = {
+      usage: {
+        prompt_tokens: 1_000,
+        completion_tokens: 10,
+        prompt_tokens_details: { cached_tokens: 0, cache_write_tokens: 800 },
+      },
+    };
+    const oneHour = { messages: [{ role: "user", content: [
+      { type: "text", text: "Shared", cache_control: { type: "ephemeral", ttl: "1h" } },
+      { type: "text", text: "Tail" },
+    ] }] };
+    const fiveMinute = { messages: [{ role: "user", content: [
+      { type: "text", text: "Shared", cache_control: { type: "ephemeral" } },
+    ] }] };
+    expect(requestCacheWriteTtl(oneHour)).toBe("1h");
+    expect(requestCacheWriteTtl(fiveMinute)).toBe("5m");
+    expect(requestCacheWriteTtl({ messages: [{ role: "user", content: "plain" }] })).toBeNull();
+    expect(openRouterUsage(body, { cacheWriteTtl: requestCacheWriteTtl(oneHour) })).toMatchObject({
+      cacheCreationInputTokens: 800,
+      cacheCreation1hInputTokens: 800,
+    });
+    const fiveMinuteUsage = openRouterUsage(body, { cacheWriteTtl: requestCacheWriteTtl(fiveMinute) });
+    expect(fiveMinuteUsage).toMatchObject({ cacheCreationInputTokens: 800 });
+    expect(fiveMinuteUsage).not.toHaveProperty("cacheCreation1hInputTokens");
   });
 
   it("omits costUsd when absent and rejects missing or wholly malformed usage", () => {
