@@ -636,6 +636,10 @@ describe("completeCandidateRun fan-in", () => {
     }));
     expect(after.run).toEqual(before.run);
     expect(after.generation).toEqual(before.generation);
+    // Progress and outputs live off the row since 2026-09-25: a stale
+    // completion must not write either.
+    expect(after.progress).toEqual(before.progress);
+    expect(after.outputs).toEqual(before.outputs);
     expect(after.candidates).toHaveLength(1);
   });
 
@@ -667,6 +671,10 @@ describe("completeCandidateRun fan-in", () => {
     }));
     expect(after.run).toEqual(before.run);
     expect(after.generation).toEqual(before.generation);
+    // Progress and outputs live off the row since 2026-09-25: a stale
+    // completion must not write either.
+    expect(after.progress).toEqual(before.progress);
+    expect(after.outputs).toEqual(before.outputs);
     expect(after.candidates).toHaveLength(0);
     expect(after.reports).toHaveLength(0);
   });
@@ -703,6 +711,10 @@ describe("completeCandidateRun fan-in", () => {
     }));
     expect(after.run).toEqual(before.run);
     expect(after.generation).toEqual(before.generation);
+    // Progress and outputs live off the row since 2026-09-25: a stale
+    // completion must not write either.
+    expect(after.progress).toEqual(before.progress);
+    expect(after.outputs).toEqual(before.outputs);
     expect(after.project).toEqual(before.project);
     expect(after.candidates).toHaveLength(0);
   });
@@ -738,6 +750,10 @@ describe("completeCandidateRun fan-in", () => {
     }));
     expect(after.run).toEqual(before.run);
     expect(after.generation).toEqual(before.generation);
+    // Progress and outputs live off the row since 2026-09-25: a stale
+    // completion must not write either.
+    expect(after.progress).toEqual(before.progress);
+    expect(after.outputs).toEqual(before.outputs);
     expect(after.project).toEqual(before.project);
     expect(after.candidates).toHaveLength(0);
     expect(after.reports).toHaveLength(0);

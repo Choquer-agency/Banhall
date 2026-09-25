@@ -54,6 +54,7 @@ import { deriveStoredProcessing } from "../shared/documentStatus";
 import { canUseIndustry, industrySlug } from "../shared/industries";
 import { findActiveGeneration } from "./lib/activeGeneration";
 import { transitionGeneration } from "./lib/generationTransitions";
+import { createReadBudget } from "./lib/readBudget";
 import {
   projectDashboardProjectionPatch,
   stageCountBucket,
@@ -1373,6 +1374,18 @@ export const PROJECT_PURGE_WRITE_BUDGET = 1000;
  * transaction read limit before its continuation is scheduled.
  */
 export const PROJECT_PURGE_MAX_BYTES_READ = 4 * 1024 * 1024;
+/**
+ * Bytes one purge page may read across the inline children of its parents
+ * (generation artifacts carry agent outputs, chain payloads and Brain
+ * provenance since 2026-09-25, so light parent rows can own heavy children).
+ * A maximum-size document is reserved before every child read, so the
+ * children never read past this; a parent whose children do not fit stays in
+ * its range and the next page (same cursor) continues with them. Worst case
+ * per page: parents up to 4 MiB plus one overshoot row, children up to 6 MiB,
+ * and the project row, well under Convex's 16 MiB transaction read limit;
+ * deletes write no more than was read.
+ */
+export const PROJECT_PURGE_CHILD_MAX_BYTES_READ = 6 * 1024 * 1024;
 const CHILD_BATCH_SIZE = 100;
 /**
  * Terminalization bounds. Generations are read by (projectId, status), so
@@ -1636,16 +1649,18 @@ async function scheduleChildCleanup(
 }
 
 /**
- * Delete one registry row with its inline children, within `budget` writes.
- * Returns `deleted: false` when a child batch filled up or the budget ran
- * out; the parent then stays in its index range, so the page that retries
- * from the same cursor picks it up again.
+ * Delete one registry row with its inline children, within `budget` writes
+ * and the page's shared child read budget (`childReads`). Returns
+ * `deleted: false` when a child batch filled up, the child bytes ran out, or
+ * the write budget ran out; the parent then stays in its index range, so the
+ * page that retries from the same cursor picks it up again.
  */
 async function deleteRowWithChildren(
   ctx: MutationCtx,
   entry: ProjectScopedTable,
   row: GenericDocument,
-  budget: number
+  budget: number,
+  childReads: ReturnType<typeof createReadBudget>
 ): Promise<{ deleted: boolean; writes: number }> {
   const db = ctx.db as unknown as ErasureDb;
   let writes = 0;
@@ -1655,15 +1670,17 @@ async function deleteRowWithChildren(
     if (parentKey === undefined) continue;
     const limit = Math.min(CHILD_BATCH_SIZE, budget - writes);
     if (limit <= 0) return { deleted: false, writes };
-    const children = await db
-      .query(child.table)
-      .withIndex(child.index, (q) => q.eq(child.field, parentKey))
-      .take(limit);
-    for (const childRow of children) {
+    const children = await childReads.list(
+      db.query(child.table).withIndex(child.index, (q) => q.eq(child.field, parentKey)),
+      limit
+    );
+    for (const childRow of children.rows) {
       await db.delete(rowId(childRow));
       writes += 1;
     }
-    if (children.length === limit) return { deleted: false, writes };
+    // More children than one batch, or than the page's child bytes allow:
+    // keep the parent for the next page.
+    if (!children.complete) return { deleted: false, writes };
   }
   if (writes >= budget) return { deleted: false, writes };
   await db.delete(rowId(row));
@@ -1753,6 +1770,7 @@ export const purgeProjectPage = internalMutation({
 
     let writes = 0;
     let budgetExhausted = false;
+    const childReads = createReadBudget({ maxBytes: PROJECT_PURGE_CHILD_MAX_BYTES_READ });
     for (const row of page.page) {
       if (writes >= PROJECT_PURGE_WRITE_BUDGET) {
         budgetExhausted = true;
@@ -1769,7 +1787,8 @@ export const purgeProjectPage = internalMutation({
         ctx,
         entry,
         row,
-        PROJECT_PURGE_WRITE_BUDGET - writes
+        PROJECT_PURGE_WRITE_BUDGET - writes,
+        childReads
       );
       writes += result.writes;
       if (!result.deleted) {
