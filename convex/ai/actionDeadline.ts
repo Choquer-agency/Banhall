@@ -163,3 +163,11 @@ export function anthropicRetryDelayMs(
   const seconds = Math.min(0.5 * 2 ** retryIndex, MAX_SDK_RETRY_BACKOFF_MS / 1000);
   return seconds * (1 - random() * 0.25) * 1000;
 }
+
+/**
+ * `error instanceof errorClass`, false when the class is missing (a test's
+ * mocked SDK exports only the client).
+ */
+export function isErrorOf(error: unknown, errorClass: unknown): boolean {
+  return typeof errorClass === "function" && error instanceof errorClass;
+}

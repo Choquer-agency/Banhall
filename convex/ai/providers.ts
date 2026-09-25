@@ -28,7 +28,7 @@ import {
   type ProviderCallMeta,
 } from "./instrument";
 import { COMPRESSION_REQUEST } from "./promptDefinitions";
-import { ActionTimeBudgetError } from "./actionDeadline";
+import { ActionTimeBudgetError, isErrorOf } from "./actionDeadline";
 import { instrumentedOpenRouter } from "./openrouter";
 import {
   MalformedOutputError,
@@ -255,8 +255,8 @@ export function modelFaultCode(error: unknown): string | null {
 
 /** A connection that failed before any answer, or a 408, 409 or 5xx answer. */
 function isProviderInfrastructureFailure(error: unknown): boolean {
-  if (error instanceof Anthropic.APIConnectionTimeoutError) return false;
-  if (error instanceof Anthropic.APIConnectionError) return true;
+  if (isErrorOf(error, Anthropic.APIConnectionTimeoutError)) return false;
+  if (isErrorOf(error, Anthropic.APIConnectionError)) return true;
   const status =
     error && typeof error === "object" && "status" in error && typeof error.status === "number"
       ? error.status

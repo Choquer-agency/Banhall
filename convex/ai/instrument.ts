@@ -8,6 +8,7 @@ import {
   ActionTimeBudgetError,
   actionDeadline,
   anthropicRetryDelayMs,
+  isErrorOf,
   requestBudget,
   retryFitsDeadline,
 } from "./actionDeadline";
@@ -434,13 +435,14 @@ export function adaptAnthropicRequest(params: unknown): unknown {
  * abort is never retried.
  */
 export function isRetryableAnthropicError(error: unknown): boolean {
-  if (error instanceof Anthropic.APIUserAbortError) return false;
-  if (error instanceof Anthropic.APIConnectionError) return true;
-  if (!(error instanceof Anthropic.APIError)) return false;
-  const header = error.headers?.get("x-should-retry");
+  if (isErrorOf(error, Anthropic.APIUserAbortError)) return false;
+  if (isErrorOf(error, Anthropic.APIConnectionError)) return true;
+  if (!isErrorOf(error, Anthropic.APIError)) return false;
+  const apiError = error as InstanceType<typeof Anthropic.APIError>;
+  const header = apiError.headers?.get("x-should-retry");
   if (header === "true") return true;
   if (header === "false") return false;
-  const status = error.status;
+  const status = apiError.status;
   return status === 408 || status === 409 || status === 429 || (typeof status === "number" && status >= 500);
 }
 
@@ -469,11 +471,13 @@ async function createWithinDeadline(
     } catch (error) {
       // A timeout the deadline cut short says the action ran out of time,
       // not that the model failed.
-      if (budget.shortened && error instanceof Anthropic.APIConnectionTimeoutError) {
+      if (budget.shortened && isErrorOf(error, Anthropic.APIConnectionTimeoutError)) {
         throw new ActionTimeBudgetError();
       }
       if (attempt >= retries || !isRetryableAnthropicError(error)) throw error;
-      const headers = error instanceof Anthropic.APIError ? error.headers : undefined;
+      const headers = isErrorOf(error, Anthropic.APIError)
+        ? (error as InstanceType<typeof Anthropic.APIError>).headers
+        : undefined;
       const delay = anthropicRetryDelayMs(headers, attempt, Date.now(), Math.random);
       if (!retryFitsDeadline(deadline, Date.now(), delay)) throw error;
       console.warn(`Anthropic request failed (attempt ${attempt + 1}/${retries + 1}), retrying in ${Math.round(delay)}ms`);
