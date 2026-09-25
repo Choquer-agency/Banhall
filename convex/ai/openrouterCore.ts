@@ -360,6 +360,22 @@ export function fromChatCompletions(
  * The stop reason makes the next provider failure actionable instead of an
  * undiagnosable "empty response".
  */
+/**
+ * The first text block's text, or "" when there is none. A reply can open
+ * with a thinking block (Opus 5.5 and Fable 5.1 always think; Sonnet 5 does
+ * when thinking is left unset), so never read only content[0].
+ */
+export function firstResponseText(response: {
+  content: ReadonlyArray<{ type: string }>;
+}): string {
+  for (const block of response.content) {
+    if (block.type === "text" && "text" in block && typeof block.text === "string") {
+      return block.text;
+    }
+  }
+  return "";
+}
+
 export function requireTextResponse(
   response: GenerationResponse,
   label: string

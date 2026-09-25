@@ -3,6 +3,7 @@ import {
   toChatCompletions,
   fromChatCompletions,
   requireTextResponse,
+  firstResponseText,
   openRouterUsage,
   requestCacheWriteTtl,
   shouldRetryStatus,
@@ -573,5 +574,23 @@ describe("models added 2026-09-25", () => {
     const blocks = toolRequestForModel("claude-fable-5-1", { type: "any" }, [{ type: "text", text: "Cached." }]);
     expect(blocks.system).toEqual([{ type: "text", text: "Cached." }, { type: "text", text: toolOnlyReplyLine(undefined) }]);
     expect(toolRequestForModel("anthropic/claude-opus-5.5", forced, undefined).system).toBe(toolOnlyReplyLine("record"));
+  });
+});
+
+describe("firstResponseText", () => {
+  it("skips a leading thinking block and returns the first text block", () => {
+    expect(
+      firstResponseText({
+        content: [
+          { type: "thinking", thinking: "planning the cut" },
+          { type: "text", text: "Compressed section." },
+        ],
+      } as never)
+    ).toBe("Compressed section.");
+  });
+
+  it("returns an empty string when the reply has no text block", () => {
+    expect(firstResponseText({ content: [{ type: "thinking", thinking: "only thoughts" }] } as never)).toBe("");
+    expect(firstResponseText({ content: [] })).toBe("");
   });
 });

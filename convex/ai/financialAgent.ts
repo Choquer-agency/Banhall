@@ -6,6 +6,7 @@ import { v } from "convex/values";
 import { z } from "zod";
 import { clientForRole } from "./providers";
 import { normalizeProviderError } from "./providers";
+import { firstResponseText } from "./openrouterCore";
 
 export const TIMESHEET_EXTRACTION_PROMPT = `You are a financial analyst for an SR&ED (Scientific Research & Experimental Development) consulting firm. Your job is to reconstruct timesheets from unstructured data sources.
 
@@ -117,7 +118,7 @@ export const processFinancialUpload = internalAction({
         ],
       });
       const text =
-        response.content[0]?.type === "text" ? response.content[0].text : "";
+        firstResponseText(response);
       let result: ReturnType<typeof parseTimesheetReply>;
       try {
         result = parseTimesheetReply(text);
