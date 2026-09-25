@@ -18,6 +18,7 @@ import {
 import { admissionValidator, attemptOutcomeValidator } from "./lib/learningAdmission";
 import { styleOverridesValidator } from "./lib/styleOverrides";
 import { brainProvenanceEntryValidator } from "./lib/generationOutputs";
+import { draftingInputsFailureCodeValidator } from "./lib/draftingInputsFailure";
 import {
   sectionMetricsValidator,
   sectionQaFindingsValidator,
@@ -606,6 +607,11 @@ export default defineSchema({
     // (OpenRouter usage.cost), "estimated" when it came from
     // shared/modelPricing.ts. Absent on rows written before the field.
     costSource: v.optional(v.union(v.literal("native"), v.literal("estimated"))),
+    // 2026-09-25 widen: why the provider stopped, as it reported it
+    // (Anthropic `stop_reason`, OpenRouter `finish_reason`), so an answer
+    // cut off at the output limit ("max_tokens", "length") is visible.
+    // Absent on older rows and when the provider sent none.
+    stopReason: v.optional(v.string()),
     createdAt: v.number(),
   })
     .index("by_createdAt", ["createdAt"])
@@ -639,8 +645,23 @@ export default defineSchema({
     // place. Kept on the row, so a chain that takes the build over still
     // asks; cleared when the build finishes.
     structureModelRoles: v.optional(v.boolean()),
+    // 2026-09-25 widen (review): the names the speaker labels hold besides
+    // the labels themselves, written by the build with `parserVersion`, so a
+    // placeholder map built at generation start reads them instead of
+    // parsing the text again. Absent when too many to keep; then the text
+    // is parsed.
+    speakerNames: v.optional(
+      v.object({
+        parserVersion: v.string(),
+        otherNames: v.array(v.string()),
+        organizations: v.array(v.string()),
+      })
+    ),
     archivedAt: v.optional(v.number()),
     supersededById: v.optional(v.id("transcripts")),
+    // 2026-09-25 widen (duplicate copy scope): the row a duplicate copied
+    // this one from, so only that row's original file comes along with it.
+    copiedFromTranscriptId: v.optional(v.id("transcripts")),
     speakerStatus: v.optional(
       v.union(v.literal("unchecked"), v.literal("needs_check"), v.literal("confirmed"))
     ),
@@ -673,6 +694,9 @@ export default defineSchema({
     cleanText: v.string(),
   })
     .index("by_transcriptId_and_index", ["transcriptId", "index"])
+    // 2026-09-25: the turns a cited span touches, without reading the rest
+    // (owner decision 25 outside facts mode, convex/lib/citationSpeakers.ts).
+    .index("by_transcriptId_and_charStart", ["transcriptId", "charStart"])
     .index("by_projectId", ["projectId"]),
 
   // 2026-09-24 widen: one role per speaker label of a transcript. Roles are
@@ -1081,6 +1105,30 @@ export default defineSchema({
         completedAt: v.optional(v.number()),
         filledSections: v.optional(v.array(sectionNumberValidator)),
         error: v.optional(v.string()),
+      })
+    ),
+    // 2026-09-25 (owner decision 32): the analysis and Brain retrieval a
+    // Step-by-step generation prepares in the background while the writer
+    // works the Seeds. Sign-off needs `ready`. `attempt` fences every write,
+    // so a stale action cannot settle a newer attempt. Written only through
+    // transitionDraftingInputs; absent on generations started before the
+    // reorder, which froze both inputs before their seed stage opened.
+    draftingInputs: v.optional(
+      v.object({
+        status: v.union(
+          v.literal("preparing"),
+          v.literal("ready"),
+          v.literal("failed")
+        ),
+        attempt: v.number(),
+        startedAt: v.number(),
+        settledAt: v.optional(v.number()),
+        // Why the attempt failed, as a normalized code only (never provider
+        // or model text). Set on `failed` only.
+        failureCode: v.optional(draftingInputsFailureCodeValidator),
+        // Set once an attempt was cut off at the analyzer's output limit:
+        // every later attempt asks for a shorter analysis.
+        shorterAnalysis: v.optional(v.boolean()),
       })
     ),
     // Story 3 (CAP-8, AD-26): the Writer Profile this generation ran under —
@@ -2228,10 +2276,15 @@ export default defineSchema({
       // (convex/lib/generationOutputs.ts).
       v.literal("agent_outputs"),
       v.literal("brain_retrieval_brief"),
-      v.literal("brain_provenance")
+      v.literal("brain_provenance"),
+      // 2026-09-25 (owner decision 32): the frozen writer style (the
+      // `brain_blocks` shape without `blocks`), saved before the seed stage
+      // opens so Seeds never wait for Brain retrieval. `brain_blocks` still
+      // carries the same style next to the blocks for every drafting reader.
+      v.literal("writer_style")
     ),
-    // JSON text for `analysis` and `brain_blocks`; empty for kinds stored in
-    // a typed field below.
+    // JSON text for `analysis`, `brain_blocks` and `writer_style`; empty for
+    // kinds stored in a typed field below.
     content: v.string(),
     candidateRunId: v.optional(v.id("generationCandidateRuns")),
     orderedPayload: v.optional(orderedPayloadValidator),
@@ -2997,7 +3050,9 @@ export default defineSchema({
     // Count of derived entries whose citation failed byte-match validation
     // and were dropped rather than inserted (Block-If: the drop is counted
     // on the Brief, the generation continues). Absent on a writer-edited
-    // version, where no re-derivation ran.
+    // version, where no re-derivation ran. A reused Brief's speaker check
+    // (briefWithoutExcludedQuotes) writes a new version that adds its own
+    // drops to the count, whatever the origin.
     droppedEntryCount: v.optional(v.number()),
     // Story 4: who last shaped `storylineText` — `writer` when typed into an
     // empty Storyline, `edited` after any other Storyline change, otherwise

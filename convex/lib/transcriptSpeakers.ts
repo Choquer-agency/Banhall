@@ -22,10 +22,15 @@ export type SpeakerRoleGuess = {
 };
 
 export type SpeakerRoleContext = {
-  /** The project's interviewer and every firm staff name (roster). */
+  /** The project's own interviewer and writer (the project record). */
   staffNames: readonly string[];
   /** The project's client-side participants. */
   clientNames: readonly string[];
+  /**
+   * Every firm staff name (the roster), matched only after the project
+   * record. A client can share a first name with anyone on it.
+   */
+  rosterNames?: readonly string[];
 };
 
 const INTERVIEWER_HINT = /\b(interviewer|consultant|host|moderator|banhall)\b/i;
@@ -94,11 +99,49 @@ function collectStats(turns: readonly TranscriptTurn[]): Stats[] {
   return [...byLabel.values()].sort((a, b) => a.firstIndex - b.firstIndex);
 }
 
+const HONORIFICS = ["dr", "mr", "mrs", "ms", "prof"];
+
+/**
+ * A name's parts, split at spaces and commas but not hyphens: a compound
+ * given name ("Jean-Philippe") is one part. Case, accents, hyphens and
+ * apostrophes are normalized; initials ("W.") and honorifics are dropped.
+ */
+function nameParts(name: string): string[] {
+  return name
+    .toLowerCase()
+    .normalize("NFKD")
+    .replace(/[̀-ͯ]/g, "")
+    .split(/[^\p{L}\p{N}'’‐‑-]+/u)
+    .map((part) => part.replace(/['’‐‑-]/g, ""))
+    .filter((part) => part.length >= 2 && !HONORIFICS.includes(part));
+}
+
+/**
+ * Whether a label names this person in full ("Dana Whitfield", "Whitfield,
+ * Dana"): the label and the name both have at least two parts, and every
+ * part of the name is in the label. A given name alone ("Jean-Philippe" or
+ * "Mary Anne" for Jean-Philippe Roy or Mary Anne Smith) is not, and a
+ * one-word name ("Dana", "Dana W.") never matches in full (fix-e review
+ * P2-1).
+ */
+function labelNamesPersonFully(label: string, name: string): boolean {
+  const labelParts = nameParts(label);
+  const parts = nameParts(name);
+  return labelParts.length >= 2 && parts.length >= 2 && parts.every((part) => labelParts.includes(part));
+}
+
+/** A roster match on a first name alone: a guess below the model threshold. */
+const ROSTER_FIRST_NAME_CONFIDENCE = 0.6;
+
 /**
  * Rule-based roles for every speaker label, in order of first appearance.
- * Names on the project record and the roster win; then label hints such as
- * "Interviewer (Dana)"; then, for what is left, question share, talk share
- * and who spoke first.
+ * Names on the project record win; then a full name on the firm roster;
+ * then label hints such as "Interviewer (Dana)"; then, for what is left,
+ * question share, talk share and who spoke first. A label that matches the
+ * roster by a first name alone ("Dana" and staff member "Dana Whitfield")
+ * is never placed at or above MODEL_ROLE_THRESHOLD on that match alone: a
+ * client can share a first name with anyone at the firm, and a role at the
+ * threshold leaves their words out of the evidence (review 2026-09-25).
  */
 export function inferSpeakerRoles(
   turns: readonly TranscriptTurn[],
@@ -108,13 +151,25 @@ export function inferSpeakerRoles(
   const totalWords = stats.reduce((sum, s) => sum + s.words, 0) || 1;
   const guesses = new Map<string, { role: TranscriptSpeakerRole; confidence: number }>();
 
+  const rosterFirstNameOnly = new Set<string>();
   for (const s of stats) {
     const names = [s.label, ...s.rawLabels];
-    const staff = context.staffNames.some((name) => names.some((label) => labelNamesPerson(label, name)));
-    const client = context.clientNames.some((name) => names.some((label) => labelNamesPerson(label, name)));
+    const matches = (people: readonly string[] | undefined, full = false) =>
+      (people ?? []).some((name) =>
+        names.some((label) => (full ? labelNamesPersonFully(label, name) : labelNamesPerson(label, name)))
+      );
+    const staff = matches(context.staffNames);
+    const client = matches(context.clientNames);
     if (staff !== client) {
       guesses.set(s.label, { role: staff ? "interviewer" : "client", confidence: 0.95 });
       continue;
+    }
+    if (!staff && !client) {
+      if (matches(context.rosterNames, true)) {
+        guesses.set(s.label, { role: "interviewer", confidence: 0.95 });
+        continue;
+      }
+      if (matches(context.rosterNames)) rosterFirstNameOnly.add(s.label);
     }
     const interviewerHint = s.rawLabels.some((raw) => INTERVIEWER_HINT.test(raw));
     const clientHint = s.rawLabels.some((raw) => CLIENT_HINT.test(raw));
@@ -155,6 +210,20 @@ export function inferSpeakerRoles(
           confidence: talkShare(s) >= 0.1 ? 0.55 : 0.3,
         });
       }
+    }
+  }
+
+  // A first-name roster match only leans a label toward interviewer: it
+  // lifts a weak interviewer guess, or places a label nothing else could,
+  // always below the threshold. Evidence free of that ambiguity (a label
+  // hint, or the other of two speakers placed from the project record)
+  // keeps its own confidence.
+  for (const label of rosterFirstNameOnly) {
+    const guess = guesses.get(label);
+    if (!guess || guess.role === "unknown") {
+      guesses.set(label, { role: "interviewer", confidence: ROSTER_FIRST_NAME_CONFIDENCE });
+    } else if (guess.role === "interviewer" && guess.confidence < ROSTER_FIRST_NAME_CONFIDENCE) {
+      guesses.set(label, { role: "interviewer", confidence: ROSTER_FIRST_NAME_CONFIDENCE });
     }
   }
 

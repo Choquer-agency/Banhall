@@ -43,6 +43,7 @@ import {
 import {
   jsonEscapedUtf8Bytes,
   MAX_SUMMARY_SELF_CHECK_GUIDANCE_ESCAPED_UTF8_BYTES,
+  MAX_SUMMARY_SELF_CHECK_QUESTION_ESCAPED_UTF8_BYTES,
   MAX_SUMMARY_SELF_CHECK_REASON_ESCAPED_UTF8_BYTES,
   MAX_SUMMARY_SELF_CHECK_RESPONSE_UTF8_BYTES,
   projectSummaryOrdinaryChecks,
@@ -1712,6 +1713,101 @@ describe("Summary plan coverage replay (recorded Opus 244 case)", () => {
     });
   });
 
+  const REPLAY_QUESTION = {
+    question: "Should the Storyline name the primer and cure hold?",
+    sectionClaim: "The primer and the 40°C hold removed primer-layer failure.",
+    storylineAlternative: "Low-temperature bonds held their strength once a primer and cure hold were added.",
+    confidenceEntry: 1,
+  };
+  const LONG_QUESTION_TEXT =
+    "The section shows that bonds cured at 60°C kept their lap shear strength through 200 cycles only after the silane primer and the 2-hour 40°C hold were added, which the Storyline never says.";
+
+  it.each(["question", "sectionClaim", "storylineAlternative"] as const)(
+    "withholds the Storyline question when its %s needed clipping, and keeps full coverage",
+    async (field) => {
+      const response = {
+        ...replayResponse(),
+        storylineQuestion: { ...REPLAY_QUESTION, [field]: LONG_QUESTION_TEXT },
+      };
+      const sentBytes = jsonEscapedUtf8Bytes(LONG_QUESTION_TEXT);
+      expect(sentBytes).toBeGreaterThan(MAX_SUMMARY_SELF_CHECK_QUESTION_ESCAPED_UTF8_BYTES);
+      expect(new TextEncoder().encode(JSON.stringify(response)).byteLength)
+        .toBeLessThanOrEqual(MAX_SUMMARY_SELF_CHECK_RESPONSE_UTF8_BYTES);
+      const client = replayClient(response);
+      const result = await runModelSelfCheck(client as GenerationClient, replayInput());
+
+      expect(client.messages.create).toHaveBeenCalledTimes(1);
+      // Coverage is complete and unchanged: only the optional question goes.
+      expect(result.planVerdicts.map((verdict) => verdict.outcome))
+        .toEqual(["applied", "applied", "applied", "applied"]);
+      expect(result.planVerdicts.map((verdict) => verdict.paragraphIndex))
+        .toEqual([0, 0, 1, 2]);
+      expect(result.verdicts).toHaveLength(10);
+      expect(result.storylineQuestion).toBeNull();
+      expect(result.storylineQuestionWithheld).toBe(
+        `${field} is ${sentBytes} escaped bytes, limit ${MAX_SUMMARY_SELF_CHECK_QUESTION_ESCAPED_UTF8_BYTES}`
+      );
+      // The recorded reason never carries the model's own words.
+      expect(result.storylineQuestionWithheld).not.toContain(LONG_QUESTION_TEXT.slice(0, 20));
+    }
+  );
+
+  it("keeps clipped repair text in memory for the repair and stores only the clipped text", async () => {
+    const longGuidance =
+      "Add one sentence to paragraph 2 that names the silane primer and the 2-hour 40°C hold, and keep the rest of the paragraph as it is.";
+    const shortGuidance = "Name the primer in paragraph 2.";
+    const response = replayResponse();
+    const recorded = planCoverageReplay.recordedReasons;
+    const longReason = recorded.find((reason) =>
+      jsonEscapedUtf8Bytes(reason) > MAX_SUMMARY_SELF_CHECK_REASON_ESCAPED_UTF8_BYTES) ?? "";
+    expect(jsonEscapedUtf8Bytes(longGuidance))
+      .toBeGreaterThan(MAX_SUMMARY_SELF_CHECK_GUIDANCE_ESCAPED_UTF8_BYTES);
+    Object.assign(response.planVerdicts[0], {
+      outcome: "not_applied",
+      reason: longReason,
+      repairGuidance: longGuidance,
+    });
+    Object.assign(response.planVerdicts[1], {
+      outcome: "not_applied",
+      reason: longReason,
+      repairGuidance: shortGuidance,
+    });
+    Object.assign(response.verdicts[1], { outcome: "not_applied", reason: longReason });
+    const result = await runModelSelfCheck(
+      replayClient(response) as GenerationClient,
+      replayInput()
+    );
+
+    const [clipped, inLimit, applied] = result.planVerdicts;
+    expect(clipped?.repairGuidance?.endsWith("…")).toBe(true);
+    expect(jsonEscapedUtf8Bytes(clipped?.repairGuidance ?? ""))
+      .toBeLessThanOrEqual(MAX_SUMMARY_SELF_CHECK_GUIDANCE_ESCAPED_UTF8_BYTES);
+    expect(clipped?.repairText).toBe(longGuidance);
+    // In-limit guidance is what the repair uses, so no copy is kept.
+    expect(inLimit?.repairGuidance).toBe(shortGuidance);
+    expect(inLimit).not.toHaveProperty("repairText");
+    expect(applied?.outcome).toBe("applied");
+    expect(applied).not.toHaveProperty("repairText");
+    // An ordinary verdict without guidance repairs from its whole reason.
+    expect(result.verdicts[1]?.reason.endsWith("…")).toBe(true);
+    expect(result.verdicts[1]?.repairText).toBe(longReason.trim());
+    expect(result.verdicts[0]).not.toHaveProperty("repairText");
+  });
+
+  it("keeps an in-limit Storyline question exactly as the model wrote it", async () => {
+    const response = { ...replayResponse(), storylineQuestion: REPLAY_QUESTION };
+    const client = replayClient(response);
+    const result = await runModelSelfCheck(client as GenerationClient, replayInput());
+    expect(result.storylineQuestion).toEqual({
+      question: REPLAY_QUESTION.question,
+      sectionClaim: REPLAY_QUESTION.sectionClaim,
+      storylineAlternative: REPLAY_QUESTION.storylineAlternative,
+      confidenceEntryIndex: 0,
+    });
+    expect(result).not.toHaveProperty("storylineQuestionWithheld");
+    expect(result.planVerdicts.every((verdict) => verdict.outcome === "applied")).toBe(true);
+  });
+
   it.each([
     {
       name: "a wrong item id",
@@ -1719,6 +1815,21 @@ describe("Summary plan coverage replay (recorded Opus 244 case)", () => {
         response.planVerdicts[1].itemId = "not-a-signed-off-item";
       },
       detail: "plan verdict 2: itemId of 21 escaped bytes matches no plan check",
+    },
+    {
+      // Neither reference: no unrelated item may be named in the reason.
+      name: "a plan verdict with no reference",
+      mutate: (response: ReturnType<typeof replayResponse>) => {
+        Reflect.deleteProperty(response.planVerdicts[1], "itemId");
+      },
+      detail: "plan verdict 2: needs exactly one non-empty itemId or skippedRoleId",
+    },
+    {
+      name: "a plan verdict with an empty itemId",
+      mutate: (response: ReturnType<typeof replayResponse>) => {
+        response.planVerdicts[2].itemId = "";
+      },
+      detail: "plan verdict 3: needs exactly one non-empty itemId or skippedRoleId",
     },
     {
       name: "empty mergedItemIds",
@@ -1763,6 +1874,31 @@ describe("Summary plan coverage replay (recorded Opus 244 case)", () => {
       expect(diagnostic).not.toContain(reason.slice(0, 24));
     }
     expect(diagnostic).not.toContain("not-a-signed-off-item");
+  });
+
+  it("names an answer cut off at the output limit as that, not as invalid JSON", async () => {
+    const response = replayResponse();
+    const client = {
+      messages: {
+        create: vi.fn(async (params: GenerationMessageParams) => ({
+          content: [{
+            type: "tool_use" as const,
+            id: "plan-coverage-cut-off",
+            name: params.tool_choice?.name ?? "submit_self_check",
+            input: response,
+          }],
+          stop_reason: "max_tokens",
+          usage: { input_tokens: 1, output_tokens: 1 },
+        })),
+      },
+    };
+    const error = await runModelSelfCheck(client as GenerationClient, replayInput())
+      .then(() => null, (caught: unknown) => caught);
+    // One call: the Summary Self-check has no repair attempt.
+    expect(client.messages.create).toHaveBeenCalledTimes(1);
+    const { OutputLimitError } = await import("./openrouterCore");
+    expect(error).toBeInstanceOf(OutputLimitError);
+    expect(selfCheckFailureDiagnostic(error)).toBe("answer was cut off at the output limit");
   });
 
   it("describes failures without a checked response by their kind only", async () => {

@@ -434,7 +434,7 @@ describe("project duplication", () => {
     });
 
     const result = await asActor(t, "owner").mutation(
-      api.projects.prepareProjectContentCopy,
+      internal.projects.prepareProjectContentCopy,
       {
         fromProjectId: projectId,
         toProjectId: destinationProjectId,
@@ -510,10 +510,9 @@ describe("project duplication", () => {
 });
 
 describe("copied running PD reviews", () => {
-  const copyEntries = [
-    api.projects.prepareProjectContentCopy,
-    api.projects.copyProjectDocuments,
-  ];
+  // The legacy public copyProjectDocuments is gone (owner decision 35,
+  // 2026-09-25); the internal prepare mutation is the one row copy.
+  const copyEntries = [internal.projects.prepareProjectContentCopy];
   const copyTime = 1_800_000_000_000;
 
   async function fixture() {

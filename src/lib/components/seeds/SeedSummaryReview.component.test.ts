@@ -58,7 +58,13 @@ function storeSummaryDrafts(drafts: Record<string, StoredSummaryDraft>) {
   }
 }
 
-function outline(ready = true, canEdit = true, seedStageVersion = 12, owner: Id<"generations"> = generationId) {
+function outline(
+  ready = true,
+  canEdit = true,
+  seedStageVersion = 12,
+  owner: Id<"generations"> = generationId,
+  draftingInputs: "preparing" | "ready" | "failed" = "ready"
+) {
   return {
     generationId: owner,
     rows: PD_SUBSECTIONS.map((definition) => ({
@@ -85,6 +91,8 @@ function outline(ready = true, canEdit = true, seedStageVersion = 12, owner: Id<
     budget,
     canEdit,
     workflow: "seeds",
+    // Owner decision 32: the background analysis and Brain search.
+    draftingInputs: { status: draftingInputs },
     frozen: {
       briefVersionId: "brief-version-3",
       summaryVersionId: null,
@@ -321,6 +329,122 @@ describe("Seed Summary Review", () => {
       generationId,
       expectedSeedStageVersion: 13,
     }]);
+  });
+
+  it("waits calmly for the transcript analysis before offering sign-off, then offers it (owner decision 32)", async () => {
+    __setQueryData("seeds:getOutline", outline(true, true, 12, generationId, "preparing"));
+    __setQueryData("seeds:getSummary", onePage([item("seed-a", "company_context", "Complete single-page Summary.")]));
+    await render(SeedSummaryReview, { generationId, userId: "writer-1" });
+    await expect.element(page.getByText("Complete single-page Summary.", { exact: true })).toBeVisible();
+
+    const preparing = () => document.querySelector<HTMLElement>("[data-summary-status=preparing]");
+    await expect.poll(() => preparing()?.textContent?.trim()).toBe("Preparing the transcript analysis…");
+    expect(preparing()?.getAttribute("role")).toBe("status");
+    expect(preparing()?.querySelector(".animate-spin")).not.toBeNull();
+    expect(document.querySelector("[data-summary-status=ready]")).toBeNull();
+    expect(document.body.textContent).not.toMatch(/[\u2013\u2014]/);
+    await expect.element(signOffButton()).toBeDisabled();
+    expect(page.getByRole("alert").elements()).toHaveLength(0);
+
+    __setQueryData("seeds:getOutline", outline(true, true, 12, generationId, "ready"));
+    await expect.element(signOffButton()).toBeEnabled();
+    await expect.poll(() => preparing()).toBeNull();
+    await expect.element(page.getByText("Ready to sign off", { exact: true })).toBeVisible();
+    await confirmSignOff();
+    expect(__mutationCalls("generations:signOffSeedStage")).toEqual([{ generationId, expectedSeedStageVersion: 12 }]);
+  });
+
+  it("names a failed transcript analysis and retries it, with sign-off off meanwhile (owner decision 32)", async () => {
+    __setQueryData("seeds:getOutline", outline(true, true, 12, generationId, "failed"));
+    __setQueryData("seeds:getSummary", onePage([item("seed-a", "company_context", "Complete single-page Summary.")]));
+    __setMutationResult("generations:retryDraftingInputs", null);
+    await render(SeedSummaryReview, { generationId, userId: "writer-1" });
+    await expect.element(page.getByText("Complete single-page Summary.", { exact: true })).toBeVisible();
+
+    const notice = () => document.querySelector<HTMLElement>("[data-summary-drafting-inputs=failed]");
+    await expect.poll(() => notice()?.textContent).toContain(
+      "We couldn't finish reading the transcript for drafting. Your work is saved. Try again before you sign off."
+    );
+    expect(notice()?.getAttribute("role")).toBeNull();
+    expect(document.querySelector("[data-summary-drafting-inputs-announcement]")?.textContent).toBe(
+      "We couldn't finish reading the transcript for drafting. Your work is saved. Try again before you sign off."
+    );
+    await expect.element(page.getByText("Transcript analysis needs another try", { exact: true })).toBeVisible();
+    await expect.element(signOffButton()).toBeDisabled();
+
+    await page.getByRole("button", { name: "Try again", exact: true }).click();
+    expect(__mutationCalls("generations:retryDraftingInputs")).toEqual([{ generationId }]);
+
+    // The retry is running again: the calm preparing state replaces the notice.
+    __setQueryData("seeds:getOutline", outline(true, true, 12, generationId, "preparing"));
+    await expect.poll(() => notice()).toBeNull();
+    expect(document.querySelector("[data-summary-drafting-inputs-announcement]")?.textContent).toBe("");
+    await expect.poll(() => document.querySelector("[data-summary-status=preparing]")).not.toBeNull();
+    await expect.element(signOffButton()).toBeDisabled();
+  });
+
+  it("names a cut-off transcript analysis on the Summary with its own message", async () => {
+    __setQueryData("seeds:getOutline", {
+      ...outline(true, true, 12, generationId, "failed"),
+      draftingInputs: { status: "failed", failureCode: "output_limit" },
+    });
+    __setQueryData("seeds:getSummary", onePage([item("seed-a", "company_context", "Complete single-page Summary.")]));
+    await render(SeedSummaryReview, { generationId, userId: "writer-1" });
+    await expect.poll(
+      () => document.querySelector<HTMLElement>("[data-summary-drafting-inputs=failed]")?.textContent
+    ).toContain(
+      "The transcript analysis was too long to finish. Your work is saved. Try again to run a shorter analysis before you sign off."
+    );
+    await expect.element(signOffButton()).toBeDisabled();
+  });
+
+  it("shows a failed transcript analysis while steps are still open, and a refused retry as an alert", async () => {
+    __setQueryData("seeds:getOutline", outline(false, true, 12, generationId, "failed"));
+    __setQueryData("seeds:getSummary", onePage([item("seed-a", "company_context", "Complete single-page Summary.")]));
+    __setMutationError("generations:retryDraftingInputs", new ConvexError({
+      code: "INVALID_STATE",
+      message: "The drafting context is not waiting for a retry",
+    }));
+    await render(SeedSummaryReview, { generationId, userId: "writer-1" });
+    await expect.poll(() => document.querySelector("[data-summary-drafting-inputs=failed]")).not.toBeNull();
+    // The open step stays the bar's status; the failure has its own row.
+    expect(document.querySelector("[data-summary-readiness=blocked]")).not.toBeNull();
+    await page.getByRole("button", { name: "Try again", exact: true }).click();
+    await expect.element(page.getByRole("alert")).toHaveTextContent("The drafting context is not waiting for a retry");
+  });
+
+  it("tells a viewer without edit access that the analysis failed, without asking them to try again", async () => {
+    __setQueryData("seeds:getOutline", {
+      ...outline(true, false, 12, generationId, "failed"),
+      draftingInputs: { status: "failed", failureCode: "output_limit" },
+    });
+    __setQueryData("seeds:getSummary", onePage([item("seed-a", "company_context", "Complete single-page Summary.")]));
+    await render(SeedSummaryReview, { generationId, userId: "viewer-1" });
+    const notice = () => document.querySelector<HTMLElement>("[data-summary-drafting-inputs=failed]");
+    await expect.poll(() => notice()?.textContent?.trim()).toBe(
+      "The transcript analysis was too long to finish. It needs another try before sign-off."
+    );
+    expect(notice()?.textContent).not.toContain("Try again");
+    expect(page.getByRole("button", { name: "Try again", exact: true }).elements()).toHaveLength(0);
+  });
+
+  it("falls back to a plain message when a retry fails without a reason", async () => {
+    __setQueryData("seeds:getOutline", outline(true, true, 12, generationId, "failed"));
+    __setQueryData("seeds:getSummary", onePage([item("seed-a", "company_context", "Complete single-page Summary.")]));
+    __setMutationError("generations:retryDraftingInputs", new Error("Server Error"));
+    await render(SeedSummaryReview, { generationId, userId: "writer-1" });
+    await page.getByRole("button", { name: "Try again", exact: true }).click();
+    await expect.element(page.getByRole("alert")).toHaveTextContent("The transcript analysis could not be restarted.");
+    expect(document.body.textContent).not.toContain("drafting context");
+  });
+
+  it("offers no transcript-analysis retry on a read-only signed-off Summary", async () => {
+    __setQueryData("seeds:getOutline", outline(true, false, 12, generationId, "failed"));
+    __setQueryData("seeds:getSummary", onePage([item("seed-a", "company_context", "Complete single-page Summary.")]));
+    await render(SeedSummaryReview, { generationId, userId: "writer-1", readOnly: true, versionId });
+    await expect.element(page.getByText("Complete single-page Summary.", { exact: true })).toBeVisible();
+    expect(document.querySelector("[data-summary-drafting-inputs=failed]")).toBeNull();
+    expect(page.getByRole("button", { name: "Try again", exact: true }).elements()).toHaveLength(0);
   });
 
   it("keeps a completely loaded review valid after a refused sign-off and retries with the same revision", async () => {

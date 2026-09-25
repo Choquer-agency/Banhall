@@ -9,6 +9,7 @@
 import { convexTest } from "convex-test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api, internal } from "./_generated/api";
+import { runSeedDraftingInputs } from "./seedStartup.fixture";
 import schema from "./schema";
 import { allGenerationProgress } from "./lib/generationProgress";
 import type { Id } from "./_generated/dataModel";
@@ -188,9 +189,11 @@ async function generate(f: Awaited<ReturnType<typeof setup>>) {
     projectId: f.projectId,
     candidateMode: "iterative",
   });
-  // The reserved entry action, run to its end: analysis, Brief and the seed
-  // stage. Nothing else scheduled is needed here.
+  // The reserved entry action, run to its end (the Brief and the seed
+  // stage), then the analysis and Brain retrieval it scheduled in the
+  // background (owner decision 32). Nothing else scheduled is needed here.
   await f.t.action(internal.ai.iterative.startIterativeGeneration, { generationId });
+  await runSeedDraftingInputs(f.t);
   const state = await f.t.run(async (ctx) => ({
     generation: await ctx.db.get(generationId),
     progress: await allGenerationProgress(ctx, generationId),

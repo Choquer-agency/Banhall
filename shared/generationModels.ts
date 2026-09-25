@@ -253,6 +253,65 @@ export function acceptsForcedToolChoice(id: string): boolean {
   return !FORCED_TOOL_CHOICE_REJECTED_IDS.has(id) && modelById(id)?.forcedToolChoice !== false;
 }
 
+/**
+ * The output cap of the Claude models whose thinking is always on (Opus 5.5,
+ * Fable 5.1 and Mythos 5.1 all allow 128K output tokens). An entry that
+ * declares `maxCompletionTokens` uses its own cap instead.
+ */
+export const ALWAYS_THINKING_MAX_OUTPUT_TOKENS = 128_000;
+
+/**
+ * Whether a frozen or seed entry names a Claude model whose thinking is
+ * always on, sent over the direct Anthropic gateway. Reads only the fixed id
+ * rule and the entry's own flag, never the runtime registry, so queries and
+ * mutations may call it (the prompt program projection does).
+ */
+export function entryAlwaysThinks(
+  entry: Pick<ModelEntry, "id" | "gateway" | "forcedToolChoice">
+): boolean {
+  return (
+    entry.gateway === "anthropic" &&
+    (FORCED_TOOL_CHOICE_REJECTED_IDS.has(entry.id) || entry.forcedToolChoice === false)
+  );
+}
+
+/**
+ * The max_tokens the direct Anthropic gateway sends to a model whose
+ * thinking is always on (2026-09-25, cutoff review P2-1). On that gateway a
+ * model that rejects forced tool calls is exactly such a model (see
+ * FORCED_TOOL_CHOICE_REJECTED_IDS), and its thinking is billed from the same
+ * max_tokens as the answer: a 4,096-token judge answer was spent on thinking
+ * and cut off. Like an OpenRouter reasoning model
+ * (maxTokensWithReasoningHeadroom), the answer budget is multiplied by
+ * REASONING_TOKEN_MULTIPLIER, within the model's output cap. Every other
+ * model gets `maxTokens` back unchanged.
+ */
+export function alwaysThinkingMaxTokens(id: string, maxTokens: number): number {
+  if (acceptsForcedToolChoice(id)) return maxTokens;
+  const cap = modelById(id)?.maxCompletionTokens ?? ALWAYS_THINKING_MAX_OUTPUT_TOKENS;
+  return Math.max(maxTokens, Math.min(maxTokens * REASONING_TOKEN_MULTIPLIER, cap));
+}
+
+/**
+ * Models that reject a forced tool call but may still be drawn for a Random
+ * compare slot (owner decision 34, 2026-09-25). Opus 5.5 ran a full real
+ * Step-by-step on the unforced path; Fable 5.1 and Mythos 5.1 stay out.
+ */
+const RANDOM_DRAW_APPROVED_IDS: ReadonlySet<string> = new Set(["claude-opus-5-5"]);
+
+/**
+ * Whether a Random compare slot may draw `model`. Anthropic models only: a
+ * surprise pick must never need the OpenRouter key or change the cost
+ * profile. Models that reject a forced tool call need explicit approval above.
+ */
+export function eligibleForRandomDraw(
+  model: Pick<ModelEntry, "id" | "gateway" | "forcedToolChoice">
+): boolean {
+  if (model.gateway !== RANDOM_COMPARISON_GATEWAY) return false;
+  if (RANDOM_DRAW_APPROVED_IDS.has(model.id)) return true;
+  return model.forcedToolChoice !== false && acceptsForcedToolChoice(model.id);
+}
+
 /** The one system line that replaces a forced tool call. */
 export function toolOnlyReplyLine(toolName: string | undefined): string {
   return toolName
@@ -361,10 +420,8 @@ export function singleModelItems(
 // Compare-mode picker slots: each slot holds a model id or "" (Random).
 // Both Random → undefined (server draws the pair at reserve time). One model
 // + Random → fill the open slot here so the pair persists for retries.
-// Random fills draw from Anthropic models only: a surprise OpenRouter pick
-// must never silently require the second API key or a different cost profile.
-// Models that reject a forced tool call (Opus 5.5) stay an explicit choice,
-// as in the server's random draw.
+// Random fills use the same pool as the server's random draw
+// (eligibleForRandomDraw).
 export function comparePairFromSlots(
   slotA: string,
   slotB: string,
@@ -373,13 +430,7 @@ export function comparePairFromSlots(
   const picked = [slotA, slotB].filter(Boolean);
   if (picked.length === 0) return undefined;
   if (picked.length === 2) return picked;
-  const rest = models.filter(
-    (m) =>
-      m.id !== picked[0] &&
-      m.gateway === RANDOM_COMPARISON_GATEWAY &&
-      m.forcedToolChoice !== false &&
-      !FORCED_TOOL_CHOICE_REJECTED_IDS.has(m.id)
-  );
+  const rest = models.filter((m) => m.id !== picked[0] && eligibleForRandomDraw(m));
   if (rest.length === 0) return undefined;
   return [picked[0], rest[Math.floor(Math.random() * rest.length)].id];
 }

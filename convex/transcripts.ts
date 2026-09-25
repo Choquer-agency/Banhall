@@ -1,4 +1,4 @@
-import { internalMutation, internalQuery, mutation, query, type MutationCtx } from "./_generated/server";
+import { internalMutation, internalQuery, mutation, query, type MutationCtx, type QueryCtx } from "./_generated/server";
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
@@ -707,7 +707,7 @@ export const speakerRoleInput = internalQuery({
         ...(await projectPlaceholderMap(
           ctx,
           project,
-          [transcript._id],
+          [transcript],
           samples.flatMap((sample) => sample.lines)
         )),
       ],
@@ -857,6 +857,33 @@ export const confirmSpeakers = mutation({
 // ─── Facts (2026-09-24; owner decisions 25 to 27) ───────────────────────────
 
 /**
+ * The transcripts whose speakers an extraction hides: this one, then every
+ * transcript of the generation (its frozen list, archived rows included) or
+ * of the project, each once.
+ */
+async function speakerSourceTranscripts(
+  ctx: QueryCtx,
+  transcript: Doc<"transcripts">,
+  projectId: Id<"projects">,
+  generation: Doc<"generations"> | null
+): Promise<Doc<"transcripts">[]> {
+  const others =
+    generation?.projectId === projectId && generation.transcriptIds
+      ? (await Promise.all(generation.transcriptIds.map((id) => ctx.db.get(id)))).filter(
+          (row): row is Doc<"transcripts"> => row !== null
+        )
+      : await listProjectTranscripts(ctx, projectId);
+  const seen = new Set<Id<"transcripts">>([transcript._id]);
+  const out = [transcript];
+  for (const row of others) {
+    if (seen.has(row._id)) continue;
+    seen.add(row._id);
+    out.push(row);
+  }
+  return out;
+}
+
+/**
  * What one extraction needs: the verbatim text and its hash, the turns with
  * their current roles, and the placeholder map for the call. This map is
  * the only one an extraction uses, inside a generation too: it hides the
@@ -873,17 +900,12 @@ export const factsInput = internalQuery({
     const project = await ctx.db.get(transcript.projectId);
     if (!project || project.deletionStartedAt !== undefined) return null;
     const generation = args.generationId ? await ctx.db.get(args.generationId) : null;
-    const speakerSources = [
-      transcript._id,
-      ...((generation?.projectId === project._id ? generation.transcriptIds : undefined) ??
-        (await listProjectTranscripts(ctx, project._id)).map((row) => row._id)),
-    ];
     const placeholders = (await transcriptPlaceholdersEnabled(ctx))
       ? [
           ...(await projectPlaceholderMap(
             ctx,
             project,
-            [...new Set(speakerSources)],
+            await speakerSourceTranscripts(ctx, transcript, project._id, generation),
             [transcript.content]
           )),
         ]

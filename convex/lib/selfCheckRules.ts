@@ -3,6 +3,7 @@ import {
   normalizeExclusionMatch,
 } from "./claimExclusionMatcher";
 import { LINE_LIMITS, WORD_CAPS, sectionMetrics } from "./lineLimits";
+import { STORYLINE_QUESTION_WITHHELD_REASON } from "./storylineQuestionNote";
 import { sectionParagraphs } from "./tiptapReport";
 import { matchGlossaryTerms } from "./glossaryMatcher";
 import {
@@ -41,6 +42,11 @@ export type ModelVerdict = {
   outcome: "applied" | "not_applied";
   reason: string;
   repairGuidance?: string;
+  /**
+   * Summary only, in memory only: the unclipped guidance or reason the one
+   * repair call uses when clipping shortened the stored text. Never stored.
+   */
+  repairText?: string;
 };
 
 /** One finding from the assembled-draft consistency pass. */
@@ -419,7 +425,7 @@ export function repairIssues(
     .map((entry) => entry.guidance ?? entry.row.reason);
   for (const verdict of verdicts) {
     if (verdict.outcome !== "not_applied") continue;
-    const fix = verdict.repairGuidance?.trim() || verdict.reason;
+    const fix = verdict.repairText ?? (verdict.repairGuidance?.trim() || verdict.reason);
     const where =
       verdict.paragraphIndex === undefined
         ? "Whole section"
@@ -453,6 +459,11 @@ export function assembleSectionNotes(input: {
   modelCheck: { ok: true } | { ok: false; reason: string; detail?: string };
   /** `recorded`: a storylineQuestion entry is inserted on the Brief. */
   storylineQuestion: { question: string; recorded: boolean } | null;
+  /**
+   * Summary only: why the model's Storyline question was withheld (field
+   * names and byte counts, never model text). Absent everywhere else.
+   */
+  storylineQuestionWithheld?: string;
   repair: { attempted: boolean; succeeded: boolean; failureReason?: string };
   finalText: string;
 }): { rows: ComplianceNoteDraft[]; summary: SelfCheckSummary } {
@@ -537,6 +548,20 @@ export function assembleSectionNotes(input: {
       })
     );
   }
+  if (input.storylineQuestionWithheld) {
+    rows.push(
+      noteDraft({
+        section,
+        paragraphIndex: 0,
+        source: "model",
+        instruction: "Storyline",
+        outcome: "not_applied",
+        tier: "none",
+        // Plain words only: the byte detail stays in the summary and the log.
+        reason: STORYLINE_QUESTION_WITHHELD_REASON,
+      })
+    );
+  }
   if (!input.modelCheck.ok) {
     rows.push(
       noteDraft({
@@ -570,6 +595,9 @@ export function assembleSectionNotes(input: {
       modelCheck: input.modelCheck.ok ? "ok" : "failed",
       ...(!input.modelCheck.ok && input.modelCheck.detail
         ? { modelCheckDetail: input.modelCheck.detail }
+        : {}),
+      ...(input.storylineQuestionWithheld
+        ? { storylineQuestionWithheld: input.storylineQuestionWithheld }
         : {}),
     },
   };

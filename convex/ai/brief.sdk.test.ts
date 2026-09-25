@@ -329,7 +329,7 @@ test("serializes reconciliation instructions through the real Brief SDK and pers
   expect(request.method).toBe("POST");
   expect(request.headers.get("x-api-key")).toBe("synthetic-brief-sdk-key");
   const requestBody = requestBodySchema.parse(await request.json());
-  expect(requestBody.max_tokens).toBe(8192);
+  expect(requestBody.max_tokens).toBe(16_000);
   expect(requestBody).toEqual({
     model,
     max_tokens: BRIEF_REQUEST.maxTokens,

@@ -20,6 +20,8 @@
   import { approvalButtonClass } from "./approvalStyles";
   import type { SeedDraftUpdate, SeedLocalDraft } from "./types";
   import { seedsApi } from "./api";
+  import { api } from "../../../../convex/_generated/api";
+  import { draftingInputsFailureMessage } from "./draftingInputs";
 
   let {
     generationId,
@@ -58,6 +60,7 @@
   );
   const convex = useConvexClient();
   const openSeeds = useMutation(seedsApi.open);
+  const retryDraftingInputs = useMutation(api.generations.retryDraftingInputs);
   const markBatchViewed = useMutation(seedsApi.markBatchViewed);
 
   type DraftOwner = { userId: string; generationId: string };
@@ -357,6 +360,34 @@
       : null
   );
   const outlineError = $derived(outline ? null : (outlineQ.error ?? null));
+  // Owner decision 32: the transcript analysis runs in the background while
+  // the writer works the Seeds. A failure shows here as soon as it happens,
+  // not only on the Summary, with the same retry.
+  const draftingInputsFailed = $derived(outline?.draftingInputs?.status === "failed");
+  const draftingInputsNotice = $derived(
+    draftingInputsFailed
+      ? draftingInputsFailureMessage(outline?.draftingInputs?.failureCode, !!outline?.canEdit)
+      : ""
+  );
+  let retryingDraftingInputs = $state(false);
+  let draftingInputsRetryError = $state<string | null>(null);
+  $effect(() => {
+    if (!draftingInputsFailed) draftingInputsRetryError = null;
+  });
+  async function retryDraftingContext() {
+    if (!outline?.canEdit || retryingDraftingInputs) return;
+    retryingDraftingInputs = true;
+    draftingInputsRetryError = null;
+    try {
+      await retryDraftingInputs({ generationId });
+    } catch (cause) {
+      if (!disposed) {
+        draftingInputsRetryError = userErrorMessage(cause, "The transcript analysis could not be restarted.");
+      }
+    } finally {
+      if (!disposed) retryingDraftingInputs = false;
+    }
+  }
   // A current Subsection read failure is announced even while the stable
   // query wrapper still holds the prior successful DTO (A4): that DTO stays
   // readable, but no decision may be taken on it until a live read returns.
@@ -947,6 +978,28 @@
     <p role="status" data-workspace-persistence="unavailable" class="shrink-0 border-b border-line bg-gap-bg px-4 py-2 text-body text-gap-text!">
       Unsaved Seed text stays in this open workspace only. This device cannot keep it across navigation or reload.
     </p>
+  {/if}
+
+  <!-- Always rendered, so a screen reader hears the failure when it arrives:
+       a live region inserted already filled is often not announced. -->
+  <p class="sr-only" aria-live="polite" data-workspace-drafting-inputs-announcement>{draftingInputsNotice}</p>
+  {#if draftingInputsFailed}
+    <div data-workspace-drafting-inputs="failed" class="flex shrink-0 flex-wrap items-center gap-2 border-b border-line bg-gap-bg px-4 py-2 text-body text-gap-text!">
+      <p class="min-w-0 flex-1">{draftingInputsNotice}</p>
+      {#if outline?.canEdit}
+        <Button
+          class="min-h-11"
+          variant="secondary"
+          size="sm"
+          data-workspace-drafting-retry
+          onclick={retryDraftingContext}
+          disabled={retryingDraftingInputs}
+        >{retryingDraftingInputs ? "Trying again…" : "Try again"}</Button>
+      {/if}
+      {#if draftingInputsRetryError}
+        <p role="alert" class="w-full">{draftingInputsRetryError}</p>
+      {/if}
+    </div>
   {/if}
 
   {#if outlinePartial}

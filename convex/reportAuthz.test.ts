@@ -513,6 +513,21 @@ describe("inherited query and action blast radius", () => {
         ),
         `${label}: copyProjectContent`
       ).toBe(code);
+      // The duplicate scope arguments (owner decision 35) change nothing
+      // about who may copy: the access checks run before any of them.
+      expect(
+        await errorCode(() =>
+          actor.action(api.projectDuplication.copyProjectContent, {
+            fromProjectId: f.projectId,
+            toProjectId: f.destinationProjectId,
+            includeReport: false,
+            includeReviews: false,
+            excludeDocumentIds: [],
+            previousYearReport: true,
+          })
+        ),
+        `${label}: copyProjectContent with scope`
+      ).toBe(code);
       expect(
         await errorCode(() =>
           actor.action(api.reviewFromProject.createReviewFromProject, {

@@ -329,7 +329,8 @@ export async function insertTranscriptRow(
  *
  * 2026-09-24: turns are rebuilt from the copied text (deterministic, no model
  * call), and the source's confirmed or model-placed speaker roles come along
- * (`adoptDerivedRows`). The original file stays with the source row.
+ * (`adoptDerivedRows`). The original file stays with the source row; the
+ * content copy clones it later, found through `copiedFromTranscriptId`.
  */
 export async function copyTranscriptRow(
   ctx: MutationCtx,
@@ -344,6 +345,7 @@ export async function copyTranscriptRow(
     contentHash: source.contentHash ?? (await sha256(source.content)),
     createdAt: Date.now(),
     ...(source.sourceFormat ? { sourceFormat: source.sourceFormat } : {}),
+    copiedFromTranscriptId: source._id,
   });
   await adoptDerivedRows(ctx, transcriptId, source);
   await scheduleTranscriptStructure(ctx, transcriptId);

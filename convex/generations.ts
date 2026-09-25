@@ -3,9 +3,9 @@
  * paths (api.generations.*, internal.generations.*). Each wrapper declares its
  * validators and delegates to a handler in convex/lib/generations/, split by
  * concern (2026-09-25, phase 4): projection, reservation, inputs, lifecycle,
- * candidates, iterative, brief, seedStage, chain, redraft, postQa, reapers,
- * scoring and migrations. Status writes go through transitionGeneration
- * (convex/lib/generationTransitions.ts).
+ * candidates, iterative, brief, seedStage, draftingInputs, chain, redraft,
+ * postQa, reapers, scoring and migrations. Status writes go through
+ * transitionGeneration (convex/lib/generationTransitions.ts).
  */
 import { query, mutation, internalMutation, internalQuery } from "./_generated/server";
 import {
@@ -98,6 +98,9 @@ import {
 import {
   getGenerationSourcesForBriefArgs,
   getGenerationSourcesForBriefHandler,
+  getCitationSpeakersArgs,
+  getCitationSpeakersHandler,
+  citationSpeakerValidator,
   findReusableBriefArgs,
   findReusableBriefHandler,
   stampGenerationBriefIdArgs,
@@ -128,6 +131,22 @@ import {
   retryInitializeSeedStageArgs,
   retryInitializeSeedStageHandler,
 } from "./lib/generations/seedStage";
+import {
+  saveWriterStyleArgs,
+  saveWriterStyleHandler,
+  startDraftingInputsArgs,
+  startDraftingInputsHandler,
+  draftingInputsStatusValidator,
+  draftingInputsAttemptArgs,
+  failDraftingInputsArgs,
+  isDraftingInputsAttemptCurrentHandler,
+  completeDraftingInputsArgs,
+  completeDraftingInputsHandler,
+  failDraftingInputsHandler,
+  expireDraftingInputsHandler,
+  retryDraftingInputsArgs,
+  retryDraftingInputsHandler,
+} from "./lib/generations/draftingInputs";
 import {
   getPostQaAttemptArgs,
   getPostQaAttemptHandler,
@@ -391,6 +410,14 @@ export const getGenerationSourcesForBrief = internalQuery({
   handler: getGenerationSourcesForBriefHandler,
 });
 
+/** Owner decision 25 for spans of this generation's frozen rows: whose
+ * words each one cites (convex/lib/citationSpeakers.ts). */
+export const getCitationSpeakers = internalQuery({
+  args: getCitationSpeakersArgs,
+  returns: v.array(citationSpeakerValidator),
+  handler: getCitationSpeakersHandler,
+});
+
 /** MAX(version) Brief for (projectId, inputsHash), regardless of origin — a
  * writer-edited version is reused too (CAP-4: "the next generation with the
  * same inputsHash reuses that version"). */
@@ -433,6 +460,59 @@ export const retryInitializeSeedStage = mutation({
   args: retryInitializeSeedStageArgs,
   returns: v.null(),
   handler: retryInitializeSeedStageHandler,
+});
+
+// ─── Reordered start (owner decision 32, 2026-09-25) ─────────────────────────
+// The Brief and the writer style open the seed stage; the analysis and Brain
+// retrieval are prepared in the background and must be ready before sign-off.
+
+/** Freeze the writer style Seeds read (`writer_style`), once, at startup. */
+export const saveWriterStyle = internalMutation({
+  args: saveWriterStyleArgs,
+  returns: v.null(),
+  handler: saveWriterStyleHandler,
+});
+
+/** Schedule attempt 1 of the background analysis and Brain retrieval. */
+export const startDraftingInputs = internalMutation({
+  args: startDraftingInputsArgs,
+  returns: v.union(draftingInputsStatusValidator, v.null()),
+  handler: startDraftingInputsHandler,
+});
+
+/** Whether a background attempt still counts (checked before paid calls). */
+export const isDraftingInputsAttemptCurrent = internalQuery({
+  args: draftingInputsAttemptArgs,
+  returns: v.boolean(),
+  handler: isDraftingInputsAttemptCurrentHandler,
+});
+
+/** Freeze the analysis and Brain blocks and mark the drafting inputs ready. */
+export const completeDraftingInputs = internalMutation({
+  args: completeDraftingInputsArgs,
+  returns: v.union(v.literal("ready"), v.literal("ignored")),
+  handler: completeDraftingInputsHandler,
+});
+
+/** The background attempt failed; the writer can retry it. */
+export const failDraftingInputs = internalMutation({
+  args: failDraftingInputsArgs,
+  returns: v.null(),
+  handler: failDraftingInputsHandler,
+});
+
+/** The background attempt's lease ran out without an answer. */
+export const expireDraftingInputs = internalMutation({
+  args: draftingInputsAttemptArgs,
+  returns: v.null(),
+  handler: expireDraftingInputsHandler,
+});
+
+/** The writer retries preparing the drafting context after a failure. */
+export const retryDraftingInputs = mutation({
+  args: retryDraftingInputsArgs,
+  returns: v.null(),
+  handler: retryDraftingInputsHandler,
 });
 
 /** Reuse path: stamp the reused Brief onto this generation. No new version,

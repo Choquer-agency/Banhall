@@ -12,6 +12,7 @@ import type { Id } from "../_generated/dataModel";
 import { formatBrainExemplars } from "./brain/retrieve";
 import { buildRetrievalBrief, retrievalBriefFromFacts } from "./brain/query";
 import type { PlaceholderMap } from "../lib/deidentify";
+import type { BrainProvenanceEntry } from "../lib/generationOutputs";
 import type { GenerationClient } from "./openrouterCore";
 
 /**
@@ -81,6 +82,15 @@ export async function retrieveBrainBlocks(
     /** The generation's frozen name map, dropped from queries built from facts. */
     placeholders?: PlaceholderMap;
     log: (line: string) => Promise<unknown>;
+    /**
+     * Records the exemplars and the retrieval brief. By default they are
+     * written at once; the Step-by-step background step collects them and
+     * writes them with its attempt-fenced completion instead.
+     */
+    recordProvenance?: (
+      exemplars: BrainProvenanceEntry[],
+      brief: string | undefined
+    ) => Promise<unknown>;
   }
 ): Promise<BrainExemplarBlocks> {
   const brainBlocks: BrainExemplarBlocks = { ...EMPTY_BRAIN_BLOCKS };
@@ -160,11 +170,16 @@ export async function retrieveBrainBlocks(
     }
 
     if (provenance.length > 0) {
-      await ctx.runMutation(internal.generations.setBrainProvenance, {
-        generationId: params.generationId,
-        exemplars: provenance,
-        brief: brief ? JSON.stringify(brief) : undefined,
-      });
+      const briefJson = brief ? JSON.stringify(brief) : undefined;
+      if (params.recordProvenance) {
+        await params.recordProvenance(provenance, briefJson);
+      } else {
+        await ctx.runMutation(internal.generations.setBrainProvenance, {
+          generationId: params.generationId,
+          exemplars: provenance,
+          brief: briefJson,
+        });
+      }
       const perSection = ["242", "244", "246"]
         .map((s) => `${s}: ${provenance.filter((p) => p.section === s).length}`)
         .join(", ");

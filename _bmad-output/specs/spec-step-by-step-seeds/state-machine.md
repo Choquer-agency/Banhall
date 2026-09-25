@@ -7,7 +7,7 @@ Diagrams for CAP-1, CAP-3, CAP-8, CAP-9, CAP-12 and CAP-13. The rules are in SPE
 ```mermaid
 stateDiagram-v2
   [*] --> reserved: requestGeneration (gatedWorkflow=seeds)
-  reserved --> running: startIterativeGeneration (analysis, Brief)
+  reserved --> running: startIterativeGeneration (writer style, Brief)
   running --> awaiting_input: initializeSeedStage (13 Subsection rows)
   awaiting_input --> awaiting_input: seed stage (batches, decisions)
   awaiting_input --> running: generations.signOffSeedStage (Summary frozen)
@@ -17,6 +17,21 @@ stateDiagram-v2
   failed --> [*]
   completed --> [*]
   note right of failed: Retry = new generation carrying summaryVersionId, no seed stage
+```
+
+Amended 2026-09-25 (owner approved, decision 32): the Brief and the frozen writer style open the seed stage; the analysis and Brain retrieval run in the background and sign-off waits for them. They are tracked on `generations.draftingInputs`; the generation's own status moves are unchanged.
+
+## Drafting inputs (amended 2026-09-25, decision 32)
+
+```mermaid
+stateDiagram-v2
+  [*] --> none: seed stage opened before the reorder (reads as ready)
+  none --> preparing: startDraftingInputs or initializeSeedStage (attempt 1, background action scheduled)
+  none --> ready: startDraftingInputs or initializeSeedStage (both inputs already frozen)
+  preparing --> ready: completeDraftingInputs (analysis + brain_blocks frozen)
+  preparing --> failed: failDraftingInputs / expireDraftingInputs (15-minute lease)
+  failed --> preparing: retryDraftingInputs (writer, attempt + 1)
+  note right of ready: signOffSeedStage refuses preparing and failed
 ```
 
 ## Subsection state

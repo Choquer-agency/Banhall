@@ -2,7 +2,7 @@
  * The generation state machine, declared once (docs/product-domain.md,
  * amendment 2026-09-25 "Generation transition table").
  *
- * Three machines live on one `generations` row:
+ * Four machines live on one `generations` row:
  *
  * 1. `status`, the technical lifecycle. Which moves are legal depends on the
  *    generation's flow: compare, single, section approval, or the two seed
@@ -12,6 +12,9 @@
  *    does not list with `INVALID_TRANSITION`.
  * 2. `postQaStatus`, the background QA pass over a finished report.
  * 3. `redraft.status`, "Draft the rest" on a stopped Step-by-step draft.
+ * 4. `draftingInputs.status`, the analysis and Brain retrieval a Step-by-step
+ *    generation prepares in the background before sign-off (amendment
+ *    2026-09-25 (third), owner decision 32).
  *
  * The table is data, not code paths: `sites` names every call site that makes
  * the move, so a new code path that needs a new move has to add it here (and
@@ -377,4 +380,77 @@ export function isRedraftTransitionAllowed(from: RedraftState, to: RedraftState)
 export const REDRAFT_REQUIRES: { status: GenerationStatus; flow: GenerationFlow } = {
   status: "completed",
   flow: "seed_drafting",
+};
+
+// ─── Drafting inputs (`draftingInputs.status`) ───────────────────────────────
+
+/**
+ * The analysis and Brain retrieval a Step-by-step generation prepares in the
+ * background while the writer works the Seeds (owner decision 32,
+ * 2026-09-25). Sign-off needs `ready`. `none` is an absent `draftingInputs`:
+ * a generation started before the reorder, which froze both inputs before
+ * its seed stage opened.
+ */
+export const DRAFTING_INPUTS_STATES = ["none", "preparing", "ready", "failed"] as const;
+export type DraftingInputsState = (typeof DRAFTING_INPUTS_STATES)[number];
+
+export type DraftingInputsTransition = {
+  from: DraftingInputsState;
+  to: DraftingInputsState;
+  sites: readonly string[];
+  note: string;
+};
+
+export const DRAFTING_INPUTS_TRANSITIONS: readonly DraftingInputsTransition[] = [
+  {
+    from: "none",
+    to: "preparing",
+    sites: ["generations.startDraftingInputs", "generations.initializeSeedStage"],
+    note: "Startup (or a seed-stage retry after a startup that died first) schedules the background analysis and Brain retrieval (attempt 1).",
+  },
+  {
+    from: "none",
+    to: "ready",
+    sites: ["generations.startDraftingInputs", "generations.initializeSeedStage"],
+    note: "Both inputs were already frozen (the pre-reorder startup), so nothing runs in the background.",
+  },
+  {
+    from: "preparing",
+    to: "ready",
+    sites: ["generations.completeDraftingInputs"],
+    note: "The current attempt froze the analysis and Brain blocks.",
+  },
+  {
+    from: "preparing",
+    to: "failed",
+    sites: [
+      "generations.failDraftingInputs",
+      "generations.expireDraftingInputs",
+      "generations.retryDraftingInputs",
+    ],
+    note: "The current attempt failed, or its lease ran out without an answer (a writer's retry settles an attempt stuck past its lease the same way before starting the next one).",
+  },
+  {
+    from: "failed",
+    to: "preparing",
+    sites: ["generations.retryDraftingInputs"],
+    note: "The writer retries; a new attempt starts.",
+  },
+];
+
+export function isDraftingInputsTransitionAllowed(
+  from: DraftingInputsState,
+  to: DraftingInputsState
+): boolean {
+  return DRAFTING_INPUTS_TRANSITIONS.some((edge) => edge.from === from && edge.to === to);
+}
+
+/** Drafting inputs change only on a seed-stage row before sign-off, while
+ * it is still active. */
+export const DRAFTING_INPUTS_REQUIRE: {
+  flow: GenerationFlow;
+  statuses: readonly GenerationStatus[];
+} = {
+  flow: "seed_stage",
+  statuses: ["running", "awaiting_input"],
 };

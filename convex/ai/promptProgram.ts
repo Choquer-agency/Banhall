@@ -2,8 +2,10 @@
 
 import { sha256 } from "../lib/contracts";
 import {
+  ALWAYS_THINKING_MAX_OUTPUT_TOKENS,
   MODEL,
   REASONING_TOKEN_MULTIPLIER,
+  entryAlwaysThinks,
   SECTION_ANSWER_TOKEN_BUDGETS,
   UNKNOWN_MODEL_GATEWAY,
 } from "../../shared/generationModels";
@@ -250,13 +252,24 @@ export function projectFrozenModels(freeze: ModelFreeze) {
   const entries = [...freeze.entries]
     .map((entry) => {
       const answerBudget = SECTION_ANSWER_TOKEN_BUDGETS[entry.gateway];
+      // 2026-09-25 (cutoff review P2-1): the direct gateway gives a model
+      // whose thinking is always on the same multiplied budget, within its
+      // output cap (instrument.ts adaptAnthropicRequest).
       const headroom = (answerTokens: number) =>
         entry.reasoning
           ? Math.min(
               answerTokens * REASONING_TOKEN_MULTIPLIER,
               entry.maxCompletionTokens ?? Number.MAX_SAFE_INTEGER
             )
-          : answerTokens;
+          : entryAlwaysThinks(entry)
+            ? Math.max(
+                answerTokens,
+                Math.min(
+                  answerTokens * REASONING_TOKEN_MULTIPLIER,
+                  entry.maxCompletionTokens ?? ALWAYS_THINKING_MAX_OUTPUT_TOKENS
+                )
+              )
+            : answerTokens;
       return {
         id: entry.id,
         gateway: entry.gateway,
@@ -358,12 +371,21 @@ export const generationPromptProgram = {
           "assemble-approved-sections",
           "post-terminal-qa-and-chronology",
         ],
+        // Owner decision 32 (2026-09-25): the Brief runs beside the frozen
+        // writer style and opens the seed stage; the retrieval brief, the
+        // Brain searches and the analyzer run in the background (their
+        // provider requests unchanged) and must finish before sign-off.
         seeds: [
-          "retrieval-brief-with-fallback-query",
-          "four-sequential-brain-searches-with-optional-rerank",
-          "frozen-analyzer-brain-style-artifacts",
+          "frozen-writer-style-artifact",
           "brief",
           "seed-stage-human-gate",
+          {
+            backgroundUntilSignOff: [
+              "retrieval-brief-with-fallback-query",
+              "four-sequential-brain-searches-with-optional-rerank",
+              "frozen-analyzer-brain-style-artifacts",
+            ],
+          },
           "ordered-section-chain-after-sign-off",
           "post-terminal-qa-and-chronology",
         ],

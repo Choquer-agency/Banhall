@@ -6,6 +6,7 @@ import {
   internalMutation,
   internalQuery,
   type MutationCtx,
+  type QueryCtx,
 } from "./_generated/server";
 import { v } from "convex/values";
 import type { GenericDatabaseWriter, GenericDataModel, GenericDocument } from "convex/server";
@@ -50,7 +51,9 @@ import {
 import { WORKFLOW_TRANSITIONS } from "../shared/workflowTransitions";
 import { workflowStageRank } from "../shared/workflowStages";
 import { normalizeCraScienceCode } from "../shared/craScienceCodes";
-import { deriveStoredProcessing } from "../shared/documentStatus";
+import { deriveProcessingStatus, deriveStoredProcessing } from "../shared/documentStatus";
+import { previousYearReportHeader } from "../shared/previousYear";
+import { extractPlainText } from "./lib/reportEdits";
 import { canUseIndustry, industrySlug } from "../shared/industries";
 import { findActiveGeneration } from "./lib/activeGeneration";
 import { transitionGeneration } from "./lib/generationTransitions";
@@ -63,6 +66,7 @@ import {
 } from "./lib/dashboardProjection";
 import {
   dashboardCompanyKey,
+  dashboardFiscalYear,
   dashboardFiscalYearRank,
 } from "../shared/dashboardProjection";
 import {
@@ -70,6 +74,7 @@ import {
   MAX_TRANSCRIPTS_PER_PROJECT,
   copyTranscriptRow,
   insertTranscriptRow,
+  listProjectTranscripts,
   projectTranscriptPromptText,
   requireTranscriptTextWithinCap,
   validatedOriginalStorage,
@@ -679,6 +684,29 @@ export const getProject = query({
 });
 
 /**
+ * Whether a duplicate can bring the original's report in as last year's
+ * report (owner decision 35, 2026-09-25): the latest report's version and
+ * whether it has readable text. The report itself stays on the server.
+ */
+export const getDuplicateSourceReport = query({
+  args: { projectId: v.id("projects") },
+  returns: v.union(v.null(), v.object({ version: v.number(), hasText: v.boolean() })),
+  handler: async (ctx, args) => {
+    if (!(await getInternalProjectAccessOrNull(ctx, args.projectId))) return null;
+    const report = await ctx.db
+      .query("reports")
+      .withIndex("by_projectId", (q) => q.eq("projectId", args.projectId))
+      .order("desc")
+      .first();
+    if (!report) return null;
+    return {
+      version: report.version ?? 1,
+      hasText: extractPlainText(report.content).trim().length > 0,
+    };
+  },
+});
+
+/**
  * Owner decision (2026-09-15): the project pages only offer metadata
  * controls to people the single-project metadata mutations will accept —
  * the Owner, a collaborator with an open work item, a Manager or an Admin
@@ -1004,6 +1032,15 @@ type ProjectDocumentCopy = {
   storageId?: Id<"_storage">;
 };
 
+/** A copied transcript and the source original file its bytes come from. */
+type TranscriptOriginalCopy = {
+  transcriptId: Id<"transcripts">;
+  storageId: Id<"_storage">;
+};
+
+/** Most files a duplicate may leave behind, the same bound as the copy read. */
+const MAX_EXCLUDED_DOCUMENTS = 250;
+
 async function requireDuplicatePair(
   ctx: MutationCtx,
   fromProjectId: Id<"projects">,
@@ -1019,37 +1056,245 @@ async function requireDuplicatePair(
 }
 
 /**
- * What a content copy carries besides the project inputs. Both default to
- * true, the full clone the old dashboard's Duplicate and the review-from-
- * project flow rely on. A duplicate made to draft again (2026-09-25, the
- * card Duplicate) passes `includeReport: false` so the new project starts
- * with no report, no copied QA findings and its own draft status, and
- * `includeReviews: false` unless it is a Review PD project.
+ * The public duplicate copy writes only into a project the caller has just
+ * made (owner decision 35, 2026-09-25): created by them, with no report and
+ * no files yet. The wizard copies before it uploads its own staged files, so
+ * a fresh duplicate always passes, and running the copy a second time is
+ * refused instead of copying every row again.
+ */
+async function requireFreshCopyTarget(
+  ctx: MutationCtx,
+  user: Doc<"users">,
+  target: Doc<"projects">
+) {
+  if (target.createdBy !== user._id) {
+    domainError("NOT_AUTHORIZED", "Files can only be copied into a project you just created");
+  }
+  const [report, document, evidence] = await Promise.all([
+    ctx.db
+      .query("reports")
+      .withIndex("by_projectId", (q) => q.eq("projectId", target._id))
+      .first(),
+    ctx.db
+      .query("projectDocuments")
+      .withIndex("by_projectId", (q) => q.eq("projectId", target._id))
+      .first(),
+    ctx.db
+      .query("projectIdentityEvidence")
+      .withIndex("by_projectId", (q) => q.eq("projectId", target._id))
+      .first(),
+  ]);
+  if (report || document || evidence) {
+    domainError(
+      "INVALID_STATE",
+      "Files can only be copied into a new project that has no report or files yet"
+    );
+  }
+  // A draft already running would read the project half copied, and a
+  // copied report would land beside the one it is writing.
+  if (
+    await findActiveGeneration(ctx, target, [
+      "reserved",
+      "running",
+      "awaiting_selection",
+      "awaiting_input",
+    ])
+  ) {
+    domainError(
+      "INVALID_STATE",
+      "Files can only be copied into a new project that is not drafting yet"
+    );
+  }
+}
+
+/**
+ * The transcript the copied report cites must be one of the new project's
+ * own, never a row from another project.
+ */
+async function requireTargetTranscript(
+  ctx: MutationCtx,
+  toProjectId: Id<"projects">,
+  transcriptId: Id<"transcripts"> | undefined
+) {
+  if (!transcriptId) return;
+  const transcript = await ctx.db.get(transcriptId);
+  if (!transcript || transcript.projectId !== toProjectId) {
+    domainError("INVALID_INPUT", "The transcript is not in the new project");
+  }
+}
+
+/**
+ * What a content copy carries besides the project inputs. Both includes
+ * default to true, the full clone the old dashboard's Duplicate and the
+ * review-from-project flow rely on. A duplicate made to draft again
+ * (2026-09-25, the card Duplicate) passes `includeReport: false` so the new
+ * project starts with no report, no copied QA findings and its own draft
+ * status, and `includeReviews: false` unless it is a Review PD project.
+ *
+ * Owner decision 35 (2026-09-25) adds two more. Each can only narrow the
+ * copy or add one file the server builds itself; neither can widen what a
+ * caller reaches.
  */
 const copyScopeArgs = {
   /** The source's latest report (with its QA findings and review status). */
   includeReport: v.optional(v.boolean()),
   /** PD reviews and the written PDs they reviewed (`review_pd` documents). */
   includeReviews: v.optional(v.boolean()),
+  /**
+   * Source files the writer unticked. A leave-out list, so an empty or
+   * missing list copies everything. Ids for files deleted since are ignored;
+   * an id from another project is refused.
+   */
+  excludeDocumentIds: v.optional(v.array(v.id("projectDocuments"))),
+  /**
+   * Bring the source's latest report in as a Previous-year report. Only for
+   * a new project with a later fiscal year than the source, and only when the
+   * report itself is not copied.
+   */
+  previousYearReport: v.optional(v.boolean()),
 };
 
-async function copyProjectInputRows(
+type CopyScope = {
+  fromProjectId: Id<"projects">;
+  toProjectId: Id<"projects">;
+  targetTranscriptId?: Id<"transcripts">;
+  includeReport?: boolean;
+  includeReviews?: boolean;
+  excludeDocumentIds?: Id<"projectDocuments">[];
+  previousYearReport?: boolean;
+  requireFreshTarget?: boolean;
+};
+
+async function excludedDocumentSet(
+  ctx: MutationCtx,
+  fromProjectId: Id<"projects">,
+  ids: Id<"projectDocuments">[] | undefined
+) {
+  const excluded = new Set<Id<"projectDocuments">>(ids ?? []);
+  if (excluded.size > MAX_EXCLUDED_DOCUMENTS) {
+    domainError("INVALID_INPUT", "Too many files to leave out");
+  }
+  for (const id of excluded) {
+    const document = await ctx.db.get(id);
+    // Deleted in the original while the wizard was open: nothing to skip.
+    if (!document) continue;
+    if (document.projectId !== fromProjectId) {
+      domainError("INVALID_INPUT", "A file to leave out is not in the original project");
+    }
+  }
+  return excluded;
+}
+
+/**
+ * The previous-year report a year-over-year duplicate brings in: the source's
+ * latest report as plain text, filed under Previous-year reports with the
+ * same first line the wizard writes above an uploaded previous-year file.
+ */
+async function insertPreviousYearReport(
   ctx: MutationCtx,
   args: {
-    fromProjectId: Id<"projects">;
-    toProjectId: Id<"projects">;
-    targetTranscriptId?: Id<"transcripts">;
-    includeReport?: boolean;
-    includeReviews?: boolean;
+    user: Doc<"users">;
+    source: Doc<"projects">;
+    target: Doc<"projects">;
+    includeReport: boolean;
+    now: number;
   }
-) {
-  const { user } = await requireDuplicatePair(
+): Promise<Id<"projectDocuments"> | undefined> {
+  const { user, source, target } = args;
+  if (args.includeReport) {
+    domainError(
+      "INVALID_INPUT",
+      "The old report can come along as the report or as last year's report, not both"
+    );
+  }
+  if ((target.mode ?? "generate") === "review") {
+    domainError("INVALID_INPUT", "A Review PD project does not take last year's report");
+  }
+  const sourceYear = dashboardFiscalYear(source.fiscalYearEnd);
+  const targetYear = dashboardFiscalYear(target.fiscalYearEnd);
+  if (sourceYear === null || targetYear === null || targetYear <= sourceYear) {
+    domainError(
+      "INVALID_INPUT",
+      "Set a later fiscal year to bring the old report in as last year's report"
+    );
+  }
+  const report = await ctx.db
+    .query("reports")
+    .withIndex("by_projectId", (q) => q.eq("projectId", source._id))
+    .order("desc")
+    .first();
+  if (!report) return undefined;
+  const text = extractPlainText(report.content).trim();
+  if (!text) return undefined;
+
+  const fileName = `${source.title} (report v${report.version ?? 1}, FY ${sourceYear}).txt`;
+  const content = `${previousYearReportHeader(sourceYear)}\n${text}`;
+  const derived = deriveProcessingStatus({
+    fileName,
+    content,
+    extractionFailed: false,
+    intake: "file",
+  });
+  return await ctx.db.insert("projectDocuments", {
+    projectId: target._id,
+    fileName,
+    fileType: "txt",
+    content,
+    category: "previous_pd",
+    // A context file, so Replace on the Files panel treats it like one.
+    source: "context_input",
+    processingStatus: derived.status,
+    processingDetail: derived.detail,
+    uploadedBy: userDisplayLabel(user),
+    // CAP-3: the acting internal user chose to bring this report in.
+    ...(user.role ? { uploaderRole: user.role } : {}),
+    createdAt: args.now,
+  });
+}
+
+/**
+ * Copied transcripts carry the text but not the uploaded file. Pair each
+ * transcript of the new project that was copied from a row of the source
+ * project (`copiedFromTranscriptId`, set by `copyTranscriptRow`) with that
+ * row's original, so the action can clone the file too. Pasted text that
+ * only matches a source transcript is not a copy and gets no file, and a
+ * transcript the writer left unticked was never created, so it has nothing
+ * to pair with.
+ *
+ * Its own query rather than part of prepare, so the copy transaction does
+ * not also read every transcript of both projects: only the new project's
+ * active rows are read here, plus the one source row each copy came from.
+ */
+async function transcriptOriginalCopies(
+  ctx: QueryCtx,
+  fromProjectId: Id<"projects">,
+  toProjectId: Id<"projects">
+): Promise<TranscriptOriginalCopy[]> {
+  const copies: TranscriptOriginalCopy[] = [];
+  for (const row of await listProjectTranscripts(ctx, toProjectId)) {
+    if (row.originalStorageId || !row.copiedFromTranscriptId) continue;
+    const source = await ctx.db.get(row.copiedFromTranscriptId);
+    if (!source?.originalStorageId || source.projectId !== fromProjectId) continue;
+    // The file must be the one this text came from; `copyTranscriptRow`
+    // hashes a source row that predates stored hashes the same way.
+    const sourceHash = source.contentHash ?? (await sha256(source.content));
+    if (sourceHash !== row.contentHash) continue;
+    copies.push({ transcriptId: row._id, storageId: source.originalStorageId });
+  }
+  return copies;
+}
+
+async function copyProjectInputRows(ctx: MutationCtx, args: CopyScope) {
+  const { user, source, target } = await requireDuplicatePair(
     ctx,
     args.fromProjectId,
     args.toProjectId
   );
+  if (args.requireFreshTarget) await requireFreshCopyTarget(ctx, user, target);
+  await requireTargetTranscript(ctx, args.toProjectId, args.targetTranscriptId);
   const includeReport = args.includeReport ?? true;
   const includeReviews = args.includeReviews ?? true;
+  const excluded = await excludedDocumentSet(ctx, args.fromProjectId, args.excludeDocumentIds);
   const now = Date.now();
   const documents = await ctx.db
     .query("projectDocuments")
@@ -1062,6 +1307,9 @@ async function copyProjectInputRows(
   // Storage ids are filled by the action after it clones the original bytes.
   for (const doc of documents) {
     if (!includeReviews && doc.source === "review_pd") continue;
+    // Unticked in the wizard. Evidence and PD reviews tied to it drop out
+    // below through `docIdMap`.
+    if (excluded.has(doc._id)) continue;
     // A duplicate must report the same truth as its source. Rows that predate
     // PSOS-04 carry no status, so derive it from the copied content — the same
     // function the read-time fallback and the backfill use.
@@ -1093,6 +1341,10 @@ async function copyProjectInputRows(
       ...(doc.storageId ? { storageId: doc.storageId } : {}),
     });
   }
+
+  const previousYearReportId = args.previousYearReport
+    ? await insertPreviousYearReport(ctx, { user, source, target, includeReport, now })
+    : undefined;
 
   const evidence = await ctx.db
     .query("projectIdentityEvidence")
@@ -1206,24 +1458,45 @@ async function copyProjectInputRows(
     evidenceCopied,
     pdReviewsCopied,
     ...(reportId ? { reportId } : {}),
+    ...(previousYearReportId ? { previousYearReportId } : {}),
   };
 }
 
-// Called by projectDuplication:copyProjectContent. This mutation creates the
-// destination rows atomically; the action then clones any original file bytes.
-export const prepareProjectContentCopy = mutation({
+// Called only by projectDuplication.copyProjectContentBetween. This mutation
+// creates the destination rows atomically; the action then clones any
+// original file bytes. Internal since owner decision 35 (2026-09-25): the
+// storage ids it hands out must never reach a client.
+export const prepareProjectContentCopy = internalMutation({
   args: {
     fromProjectId: v.id("projects"),
     toProjectId: v.id("projects"),
     targetTranscriptId: v.optional(v.id("transcripts")),
     ...copyScopeArgs,
+    /** Set by the public duplicate action; see requireFreshCopyTarget. */
+    requireFreshTarget: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
     return await copyProjectInputRows(ctx, args);
   },
 });
 
-export const finishProjectContentCopy = mutation({
+// Called only by projectDuplication.copyProjectContentBetween, after
+// prepare: which copied transcripts have an original file to clone.
+export const planTranscriptOriginalCopies = internalQuery({
+  args: {
+    fromProjectId: v.id("projects"),
+    toProjectId: v.id("projects"),
+  },
+  handler: async (ctx, args) => {
+    await requireInternalProjectAccess(ctx, args.fromProjectId);
+    await requireInternalProjectAccess(ctx, args.toProjectId);
+    return await transcriptOriginalCopies(ctx, args.fromProjectId, args.toProjectId);
+  },
+});
+
+// Internal: it attaches storage ids, so only the copy action, which made
+// every one of them a moment ago with `ctx.storage.store`, may call it.
+export const finishProjectContentCopy = internalMutation({
   args: {
     toProjectId: v.id("projects"),
     storageCopies: v.array(
@@ -1231,6 +1504,14 @@ export const finishProjectContentCopy = mutation({
         documentId: v.id("projectDocuments"),
         storageId: v.id("_storage"),
       })
+    ),
+    transcriptCopies: v.optional(
+      v.array(
+        v.object({
+          transcriptId: v.id("transcripts"),
+          storageId: v.id("_storage"),
+        })
+      )
     ),
   },
   handler: async (ctx, args) => {
@@ -1242,23 +1523,20 @@ export const finishProjectContentCopy = mutation({
       }
       await ctx.db.patch(copy.documentId, { storageId: copy.storageId });
     }
+    for (const copy of args.transcriptCopies ?? []) {
+      const transcript = await ctx.db.get(copy.transcriptId);
+      if (!transcript || transcript.projectId !== args.toProjectId) {
+        domainError("INVALID_INPUT", "Copied transcript does not belong to this project");
+      }
+      // One file per transcript: a row that gained an original meanwhile
+      // keeps it, and the spare clone is released.
+      if (transcript.originalStorageId) {
+        await ctx.storage.delete(copy.storageId);
+        continue;
+      }
+      await ctx.db.patch(copy.transcriptId, { originalStorageId: copy.storageId });
+    }
     return null;
-  },
-});
-
-/** Legacy text-only entry point retained for older clients during rollout. */
-export const copyProjectDocuments = mutation({
-  args: {
-    fromProjectId: v.id("projects"),
-    toProjectId: v.id("projects"),
-  },
-  handler: async (ctx, args) => {
-    const result = await copyProjectInputRows(ctx, args);
-    return {
-      copied: result.documents.length,
-      evidenceCopied: result.evidenceCopied,
-      pdReviewsCopied: result.pdReviewsCopied,
-    };
   },
 });
 

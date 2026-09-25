@@ -65,7 +65,7 @@ import {
   type ParsedModel,
   type PrefilterModel,
 } from "../shared/modelCatalog";
-import { RETIRED_SEED_LABELS, seedModelById } from "../shared/generationModels";
+import { RETIRED_SEED_LABELS, entryAlwaysThinks, seedModelById } from "../shared/generationModels";
 import {
   AUTO_SWITCH_KEY,
   EVAL_BUDGET_KEY,
@@ -920,6 +920,7 @@ export const claimEvaluation = internalMutation({
       return {
         gateway: entry.gateway,
         reasoning: entry.reasoning,
+        alwaysThinks: entryAlwaysThinks(entry),
         ...(entry.maxCompletionTokens !== undefined ? { maxCompletionTokens: entry.maxCompletionTokens } : {}),
         inputUsdPerMTok: ceiling.input,
         outputUsdPerMTok: ceiling.output,

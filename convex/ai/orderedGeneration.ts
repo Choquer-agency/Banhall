@@ -16,9 +16,11 @@ import { v } from "convex/values";
 import type { FunctionReturnType } from "convex/server";
 import {
   clientForModel,
+  describeProviderFailure,
   normalizeProviderError,
   registerGenerationModels,
   seedClientForModel,
+  startActionDeadline,
 } from "./providers";
 import type { GenerationClient, GenerationMessageParams } from "./openrouterCore";
 import { parseTranscriptAnalysis } from "./analyzerAgent";
@@ -388,6 +390,7 @@ async function draftCheckedSection(input: {
 
   let verdicts: ModelVerdict[] = [];
   let storylineQuestion: ModelSelfCheckResult["storylineQuestion"] = null;
+  let storylineQuestionWithheld: string | undefined;
   let planVerdicts: ModelSelfCheckResult["planVerdicts"] = [];
   let modelCheck: { ok: true } | { ok: false; reason: string; detail?: string } = { ok: true };
   try {
@@ -405,7 +408,13 @@ async function draftCheckedSection(input: {
     });
     verdicts = result.verdicts;
     storylineQuestion = result.storylineQuestion;
+    storylineQuestionWithheld = result.storylineQuestionWithheld;
     planVerdicts = result.planVerdicts;
+    if (storylineQuestionWithheld) {
+      console.warn(
+        `generation:selfCheck:${section}: Storyline question withheld: ${storylineQuestionWithheld}`
+      );
+    }
   } catch (error) {
     // An unrepaired or unrun check never blocks the section (Never-rule);
     // the failure is recorded in the Compliance Note instead, with a short
@@ -438,7 +447,7 @@ async function draftCheckedSection(input: {
         return verdict.outcome === "not_applied" &&
           verdict.actionableRepair !== false &&
           !expected?.confirmedExclusion
-          ? [verdict.repairGuidance ?? verdict.reason]
+          ? [verdict.repairText ?? verdict.repairGuidance ?? verdict.reason]
           : [];
       })
     : [];
@@ -488,6 +497,7 @@ async function draftCheckedSection(input: {
     storylineQuestion: storylineQuestion
       ? { question: storylineQuestion.question, recorded: evidence !== undefined }
       : null,
+    ...(storylineQuestionWithheld ? { storylineQuestionWithheld } : {}),
     repair,
     finalText,
   });
@@ -569,6 +579,8 @@ export const generateOrderedSection = internalAction({
   },
   returns: v.null(),
   handler: async (ctx, args): Promise<null> => {
+    // The action's deadline bounds every provider request (actionDeadline.ts).
+    startActionDeadline(ctx);
     // Model catalog: routing and output budgets read the frozen models.
     await registerGenerationModels(ctx, args.generationId).catch(() => null);
     const payloadRef = forwardOrderedPayload(args);
@@ -597,12 +609,11 @@ export const generateOrderedSection = internalAction({
       // The failed claim mutation rolls back atomically. The owning action is
       // still responsible for terminalizing its live signed-off chain so the
       // immutable Summary can be retried.
-      const normalized = normalizeProviderError(error);
       await ctx.runMutation(internal.generations.failOrderedSectionRun, {
         generationId: args.generationId,
         candidateRunId: args.candidateRunId,
         section: args.section,
-        error: `${normalized.code}: ${normalized.message}`,
+        error: describeProviderFailure(error),
       });
       return null;
     }
@@ -643,12 +654,11 @@ export const generateOrderedSection = internalAction({
         ...payloadRef,
       });
     } catch (error) {
-      const normalized = normalizeProviderError(error);
       await ctx.runMutation(internal.generations.failOrderedSectionRun, {
         generationId: args.generationId,
         candidateRunId: args.candidateRunId,
         section: args.section,
-        error: `${normalized.code}: ${normalized.message}`,
+        error: describeProviderFailure(error),
         ...payloadRef,
       });
     }
@@ -673,6 +683,8 @@ export const finalizeOrderedCandidate = internalAction({
   },
   returns: v.null(),
   handler: async (ctx, args): Promise<null> => {
+    // The action's deadline bounds every provider request (actionDeadline.ts).
+    startActionDeadline(ctx);
     // Model catalog: routing and output budgets read the frozen models.
     await registerGenerationModels(ctx, args.generationId).catch(() => null);
     const complete = (
@@ -846,8 +858,7 @@ export const finalizeOrderedCandidate = internalAction({
         ...(stoppedAfterSection ? { stoppedAfterSection } : {}),
       });
     } catch (error) {
-      const normalized = normalizeProviderError(error);
-      await complete({ error: `${normalized.code}: ${normalized.message}` });
+      await complete({ error: describeProviderFailure(error) });
     }
     return null;
   },
@@ -871,17 +882,18 @@ export const redraftSeedSection = internalAction({
   },
   returns: v.null(),
   handler: async (ctx, args): Promise<null> => {
+    // The action's deadline bounds every provider request (actionDeadline.ts).
+    startActionDeadline(ctx);
     // Model catalog: routing and output budgets read the frozen models.
     await registerGenerationModels(ctx, args.generationId).catch(() => null);
     const payloadRef = forwardOrderedPayload(args);
     const fail = async (error: unknown) => {
-      const normalized = normalizeProviderError(error);
       await ctx.runMutation(internal.generations.failRedraftSection, {
         generationId: args.generationId,
         candidateRunId: args.candidateRunId,
         attemptStartedAt: args.attemptStartedAt,
         section: args.section,
-        error: `${normalized.code}: ${normalized.message}`,
+        error: describeProviderFailure(error),
       });
     };
     const payload = await loadChainPayload(ctx, args);
@@ -966,6 +978,8 @@ export const finalizeSeedRedraft = internalAction({
   },
   returns: v.null(),
   handler: async (ctx, { pass = 0, ...args }): Promise<null> => {
+    // The action's deadline bounds every provider request (actionDeadline.ts).
+    startActionDeadline(ctx);
     // Model catalog: routing and output budgets read the frozen models.
     await registerGenerationModels(ctx, args.generationId).catch(() => null);
     // One consistency pass per action: a rerun is scheduled as a fresh

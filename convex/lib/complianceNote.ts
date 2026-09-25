@@ -126,6 +126,11 @@ export type SelfCheckSummary = {
    * position and byte counts, or the failure kind. Never model text.
    */
   modelCheckDetail?: string;
+  /**
+   * Why the Summary Self-check's Storyline question was withheld: the fields
+   * that needed clipping, with byte counts. Never model text.
+   */
+  storylineQuestionWithheld?: string;
   /** Final durable Summary-plan evidence, separate from prose repair state. */
   planCoverage?: {
     status: "complete" | "incomplete" | "unavailable";

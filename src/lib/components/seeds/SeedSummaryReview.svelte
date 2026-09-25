@@ -4,6 +4,7 @@
   import { api } from "../../../../convex/_generated/api";
   import type { Id } from "../../../../convex/_generated/dataModel";
   import { isLongForSeed, MAX_EDITED_BULLET_CHARS } from "../../../../convex/lib/seedContract";
+  import { DRAFTING_INPUTS_FAILED_STATUS, draftingInputsFailureMessage } from "./draftingInputs";
   import { PD_SUBSECTIONS } from "../../../../shared/pdSubsections";
   import { modelLabelFor } from "$lib/modelPicker";
   import { userErrorCode, userErrorMessage } from "$lib/errors";
@@ -105,6 +106,7 @@
   const editSeed = useMutation(seedsApi.edit);
   const signOff = useMutation(api.generations.signOffSeedStage);
   const retryFromSummary = useMutation(api.generations.retryFromSummary);
+  const retryDraftingInputs = useMutation(api.generations.retryDraftingInputs);
 
   let view = $state<LoadedSummary | null>(null);
   let loading = $state(false);
@@ -113,6 +115,7 @@
   let retryingLoad = $state(false);
   let retryingOutline = $state(false);
   let busy = $state(false);
+  let retryingDraftingInputs = $state(false);
   let savingSeedIds = $state<string[]>([]);
   let editingSeedId = $state<string | null>(null);
   // The stage version the open edit began against, mirrored from its draft.
@@ -438,6 +441,16 @@
   // Outline is unavailable the editor stays visible but its actions are off.
   const mutationsAvailable = $derived(canEdit && !!outline);
   const readiness = $derived(outline?.readiness);
+  // Owner decision 32: the analysis and Brain search run in the background
+  // while the writer works the Seeds; drafting needs them, so sign-off waits
+  // for "ready". A missing value is an older server: nothing to wait for.
+  const draftingInputs = $derived(outline?.draftingInputs?.status ?? "ready");
+  const draftingInputsFailure = $derived(outline?.draftingInputs?.failureCode);
+  const draftingInputsNotice = $derived(
+    !readOnly && draftingInputs === "failed"
+      ? draftingInputsFailureMessage(draftingInputsFailure, canEdit)
+      : ""
+  );
   // Incomplete server readiness is a bounded-processing limitation, not a
   // role decision blocker (A4): the server names it, this review never
   // derives it. The messages are the server's own, when it reports them.
@@ -626,7 +639,11 @@
   // Sign-off is offered only for the exact, completely loaded Summary that is
   // still the server's current, ready one (A1).
   const canSignOffNow = $derived(
-    !busy && mutationsAvailable && reviewedCurrentVersion && (readiness?.ready ?? false)
+    !busy &&
+      mutationsAvailable &&
+      reviewedCurrentVersion &&
+      (readiness?.ready ?? false) &&
+      draftingInputs === "ready"
   );
   // The confirm stays valid only while the Summary it was opened for is
   // still the one on screen and still current.
@@ -778,6 +795,22 @@
   }
 
   const modelName = $derived(settings ? modelLabel(settings.modelId) : "");
+
+  /** Starts a new background attempt after the transcript analysis failed. */
+  async function retryDraftingContext() {
+    if (!mutationsAvailable || retryingDraftingInputs) return;
+    retryingDraftingInputs = true;
+    actionError = null;
+    try {
+      await retryDraftingInputs({ generationId });
+    } catch (cause) {
+      if (!disposed) {
+        actionError = userErrorMessage(cause, "The transcript analysis could not be restarted.");
+      }
+    } finally {
+      if (!disposed) retryingDraftingInputs = false;
+    }
+  }
 
   async function retryDraft() {
     if (!canRecover || busy) return;
@@ -1070,9 +1103,29 @@
   </div>
 
   <footer class="shrink-0 border-t border-line bg-surface">
-    {#if actionError || (!readOnly && readiness && !readiness.ready && readinessIncomplete)}
+    <!-- Always rendered, so a screen reader hears the failure when it
+         arrives: a live region inserted already filled is often missed. -->
+    <p class="sr-only" aria-live="polite" data-summary-drafting-inputs-announcement>{draftingInputsNotice}</p>
+    {#if actionError || (!readOnly && readiness && !readiness.ready && readinessIncomplete) || (!readOnly && draftingInputs === "failed")}
       <div class="flex flex-col gap-2 border-b border-line-soft px-4 py-3 sm:px-6">
         {#if actionError}<p role="alert" class="text-body text-gap-text!">{actionError}</p>{/if}
+        {#if !readOnly && draftingInputs === "failed"}
+          <!-- The background analysis or Brain search failed. The plan is
+               untouched; sign-off waits until a retry finishes. -->
+          <div class="flex flex-wrap items-center gap-x-3 gap-y-2" data-summary-drafting-inputs="failed">
+            <p class="text-body text-gap-text!">{draftingInputsNotice}</p>
+            {#if canEdit}
+              <Button
+                variant="secondary"
+                size="sm"
+                class="min-h-9"
+                data-summary-drafting-retry
+                onclick={retryDraftingContext}
+                disabled={retryingDraftingInputs || !mutationsAvailable}
+              >{retryingDraftingInputs ? "Trying again…" : "Try again"}</Button>
+            {/if}
+          </div>
+        {/if}
         {#if !readOnly && readiness && !readiness.ready && readinessIncomplete}
           <!-- The server could not read the complete decision set within its
                safe processing limit, so whether the plan is ready is unknown:
@@ -1095,6 +1148,22 @@
     <div class="flex min-h-[68px] flex-wrap items-center gap-x-3.5 gap-y-2 px-4 py-3 sm:px-6">
       {#if readOnly}
         <p class="text-[14px] leading-5 font-medium text-ink" data-summary-status="signed-off">Signed-off plan</p>
+      {:else if readiness?.ready && draftingInputs === "preparing"}
+        <!-- Every step is decided; the background analysis and Brain search
+             (owner decision 32) are still finishing. Sign-off opens by
+             itself when they are done. -->
+        <div class="flex items-center gap-2.5" role="status" data-summary-status="preparing">
+          <span
+            class="size-4 shrink-0 animate-spin rounded-full border-2 border-primary/30 border-t-primary motion-reduce:animate-none"
+            aria-hidden="true"
+          ></span>
+          <p class="text-[14px] leading-5 font-medium text-ink">Preparing the transcript analysis…</p>
+        </div>
+      {:else if readiness?.ready && draftingInputs === "failed"}
+        <div class="flex items-center gap-2.5" data-summary-status="drafting-inputs-failed">
+          <span class="size-2 shrink-0 rounded-full bg-stale-dot" aria-hidden="true"></span>
+          <p class="text-[14px] leading-5 font-medium text-ink">{DRAFTING_INPUTS_FAILED_STATUS}</p>
+        </div>
       {:else if readiness?.ready}
         <div class="flex items-center gap-2.5" data-summary-status="ready">
           <span class="flex size-5 shrink-0 items-center justify-center rounded-full" style="background:#DCFCE7" aria-hidden="true">

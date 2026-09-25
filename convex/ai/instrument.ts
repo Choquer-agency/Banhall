@@ -1,5 +1,18 @@
 import Anthropic from "@anthropic-ai/sdk";
-import { createAnthropicClient } from "./providers";
+import {
+  ANTHROPIC_MAX_RETRIES,
+  ANTHROPIC_TIMEOUT_MS,
+  createAnthropicClient,
+} from "./providers";
+import {
+  ActionTimeBudgetError,
+  actionDeadline,
+  anthropicRetryDelayMs,
+  isErrorOf,
+  markStoppedByDeadline,
+  requestBudget,
+  retryFitsDeadline,
+} from "./actionDeadline";
 import { COMPRESSION_REQUEST } from "./promptDefinitions";
 import type { AnthropicCapability } from "../lib/providerConfig";
 import type { ActionCtx } from "../_generated/server";
@@ -7,7 +20,11 @@ import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { PD_SUBSECTIONS } from "../../shared/pdSubsections";
 import { estimateCostFromTable, type BilledTokens } from "../../shared/modelPricing";
-import { acceptsForcedToolChoice, toolRequestForModel } from "../../shared/generationModels";
+import {
+  acceptsForcedToolChoice,
+  alwaysThinkingMaxTokens,
+  toolRequestForModel,
+} from "../../shared/generationModels";
 
 export type UsageEvent = {
   projectId?: Id<"projects">;
@@ -27,6 +44,12 @@ export type UsageEvent = {
   cacheReadInputTokens?: number;
   /** Provider-reported exact cost (OpenRouter). Anthropic path never sets it. */
   costUsd?: number;
+  /**
+   * The provider's stop reason as reported: Anthropic `stop_reason`,
+   * OpenRouter `finish_reason`. "max_tokens" or "length" marks an answer cut
+   * off at the output limit.
+   */
+  stopReason?: string;
   createdAt?: number;
 };
 
@@ -287,6 +310,15 @@ function anthropicUsage(response: unknown): {
   };
 }
 
+/** The response's stop reason, when it is a non-empty string. */
+export function responseStopReason(response: unknown): string | undefined {
+  if (!response || typeof response !== "object" || !("stop_reason" in response)) {
+    return undefined;
+  }
+  const reason = response.stop_reason;
+  return typeof reason === "string" && reason.length > 0 ? reason : undefined;
+}
+
 function hasCacheControl(value: unknown): boolean {
   return value !== null && typeof value === "object" && "cache_control" in value;
 }
@@ -355,6 +387,12 @@ function cacheGenerationPrefix(params: unknown): unknown {
  * - `thinking: {type: "disabled"}` (the section drafts) is dropped and the
  *   effort set to "low", the closest the API allows to no thinking; an
  *   explicit budget (`{type: "enabled"}`) is dropped and adaptive runs.
+ * - `max_tokens` gains room for the thinking (2026-09-25, cutoff review
+ *   P2-1): thinking is billed from the same output budget as the answer, so
+ *   a 4,096-token judge answer (QA, Self-check, consistency, chronology) was
+ *   cut off before it finished. The answer budget is multiplied like an
+ *   OpenRouter reasoning model's, within the model's output cap
+ *   (alwaysThinkingMaxTokens). The caller's answer limits are unchanged.
  * Every other model's request passes through as the same object. Runs
  * before cacheGenerationPrefix, so the system line is part of the cached
  * prefix.
@@ -364,6 +402,9 @@ export function adaptAnthropicRequest(params: unknown): unknown {
   const request = params as Record<string, unknown>;
   if (typeof request.model !== "string" || acceptsForcedToolChoice(request.model)) return params;
   const adapted: Record<string, unknown> = { ...request };
+  if (typeof adapted.max_tokens === "number") {
+    adapted.max_tokens = alwaysThinkingMaxTokens(request.model, adapted.max_tokens);
+  }
   const thinking = adapted.thinking;
   if (thinking && typeof thinking === "object" && "type" in thinking && thinking.type !== "adaptive") {
     delete adapted.thinking;
@@ -386,6 +427,65 @@ export function adaptAnthropicRequest(params: unknown): unknown {
     adapted.system = tools.system;
   }
   return adapted;
+}
+
+/**
+ * Whether the SDK would retry this failed attempt: a connection error or a
+ * timeout, or an answer the provider marks retryable (`x-should-retry`) or
+ * sends as 408, 409, 429 or 5xx (529 overloaded included). A caller's own
+ * abort is never retried.
+ */
+export function isRetryableAnthropicError(error: unknown): boolean {
+  if (isErrorOf(error, Anthropic.APIUserAbortError)) return false;
+  if (isErrorOf(error, Anthropic.APIConnectionError)) return true;
+  if (!isErrorOf(error, Anthropic.APIError)) return false;
+  const apiError = error as InstanceType<typeof Anthropic.APIError>;
+  const header = apiError.headers?.get("x-should-retry");
+  if (header === "true") return true;
+  if (header === "false") return false;
+  const status = apiError.status;
+  return status === 408 || status === 409 || status === 429 || (typeof status === "number" && status >= 500);
+}
+
+/**
+ * One request under the action's deadline (actionDeadline.ts, review
+ * 2026-09-25 P2-2). The SDK is sent `maxRetries: 0` and this loop retries
+ * as the SDK would, deciding each retry when the failure happens: it is
+ * sent only when a useful attempt still fits after its wait, and each
+ * attempt's timeout is cut to the time left. A caller's own lower timeout
+ * or retry count wins. The request body is the same on every attempt.
+ */
+async function createWithinDeadline(
+  send: (options: Record<string, unknown>) => Promise<unknown>,
+  options: unknown,
+  deadline: number,
+  defaults: { timeoutMs: number; maxRetries: number }
+): Promise<unknown> {
+  const own = options && typeof options === "object" ? (options as Record<string, unknown>) : {};
+  const timeoutMs = typeof own.timeout === "number" ? Math.min(own.timeout, defaults.timeoutMs) : defaults.timeoutMs;
+  const retries =
+    typeof own.maxRetries === "number" ? Math.min(own.maxRetries, defaults.maxRetries) : defaults.maxRetries;
+  for (let attempt = 0; ; attempt += 1) {
+    const budget = requestBudget({ deadline, now: Date.now(), timeoutMs, maxRetries: 0 });
+    try {
+      return await send({ ...own, timeout: budget.timeoutMs, maxRetries: 0 });
+    } catch (error) {
+      // A timeout the deadline cut short says the action ran out of time,
+      // not that the model failed.
+      if (budget.shortened && isErrorOf(error, Anthropic.APIConnectionTimeoutError)) {
+        throw new ActionTimeBudgetError();
+      }
+      if (attempt >= retries || !isRetryableAnthropicError(error)) throw error;
+      const headers = isErrorOf(error, Anthropic.APIError)
+        ? (error as InstanceType<typeof Anthropic.APIError>).headers
+        : undefined;
+      const delay = anthropicRetryDelayMs(headers, attempt, Date.now(), Math.random);
+      // The time ran out before the retry: not counted against the model.
+      if (!retryFitsDeadline(deadline, Date.now(), delay)) throw markStoppedByDeadline(error);
+      console.warn(`Anthropic request failed (attempt ${attempt + 1}/${retries + 1}), retrying in ${Math.round(delay)}ms`);
+      await new Promise<void>((resolve) => setTimeout(resolve, delay));
+    }
+  }
 }
 
 /** Anthropic client that durably records billed usage after every response. */
@@ -411,16 +511,36 @@ export function instrumentedAnthropic(
     get(target, property, receiver) {
       if (property !== "create") return Reflect.get(target, property, receiver);
       return async (...args: unknown[]) => {
+        // The action's deadline (actionDeadline.ts): throws before sending
+        // when too little time is left; otherwise each attempt's timeout is
+        // cut to the time left and each retry is decided when it happens
+        // (createWithinDeadline). Transport options only.
+        const deadline = actionDeadline(ctx);
+        const defaults =
+          deadline === undefined
+            ? undefined
+            : {
+                timeoutMs: meta.clientOptions?.timeout ?? ANTHROPIC_TIMEOUT_MS,
+                maxRetries: meta.clientOptions?.maxRetries ?? ANTHROPIC_MAX_RETRIES,
+              };
+        if (deadline !== undefined && defaults) requestBudget({ deadline, now: Date.now(), ...defaults });
         await recordGenerationHandoff(ctx, meta.attribution);
         const startedAt = Date.now();
         const request = adaptAnthropicRequest(args[0]);
-        const response: unknown = await Reflect.apply(
-          originalCreate,
-          target,
-          [meta.attribution ? cacheGenerationPrefix(request) : request, ...args.slice(1)]
-        );
+        const body = meta.attribution ? cacheGenerationPrefix(request) : request;
+        const rest = args.slice(2);
+        const response: unknown =
+          deadline === undefined || !defaults
+            ? await Reflect.apply(originalCreate, target, [body, ...args.slice(1)])
+            : await createWithinDeadline(
+                (options) => Reflect.apply(originalCreate, target, [body, options, ...rest]),
+                args[1],
+                deadline,
+                defaults
+              );
         const durationMs = Math.max(0, Date.now() - startedAt);
         const usage = anthropicUsage(response);
+        const stopReason = responseStopReason(response);
         const params = args[0];
         const model =
           params &&
@@ -465,6 +585,7 @@ export function instrumentedAnthropic(
             ...(usage.cacheReadInputTokens !== undefined
               ? { cacheReadInputTokens: usage.cacheReadInputTokens }
               : {}),
+            ...(stopReason ? { stopReason } : {}),
           });
         }
         return response;

@@ -33,6 +33,13 @@ import {
   type ChatCompletionsResponse,
   type GenerationClient,
 } from "./openrouterCore";
+import {
+  ActionTimeBudgetError,
+  MIN_USEFUL_REQUEST_MS,
+  actionDeadline,
+  markStoppedByDeadline,
+  requestBudget,
+} from "./actionDeadline";
 
 export type { GenerationClient } from "./openrouterCore";
 
@@ -113,18 +120,39 @@ export async function openRouterChatCompletion(
   }
 ): Promise<ChatCompletionsResponse> {
   const apiKey = requireOpenRouterConfigured();
-  const timeoutMs = input.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  const defaultTimeoutMs = input.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const maxAttempts = (input.maxRetries ?? OPENROUTER_MAX_RETRIES) + 1;
+  // The action's deadline (actionDeadline.ts): throws before sending when
+  // too little time is left. Each attempt's timeout is cut to the time left,
+  // and a retry is sent only if a useful attempt still fits after its delay.
+  // Transport only: the body is never touched.
+  const deadline = actionDeadline(ctx);
+  // Reads the clock only under a deadline, so an action without one runs
+  // exactly as before.
+  const attemptBudget = () =>
+    requestBudget({
+      deadline,
+      now: deadline === undefined ? 0 : Date.now(),
+      timeoutMs: defaultTimeoutMs,
+      maxRetries: 0,
+    });
+  const retryFits = (delayMs: number) =>
+    deadline === undefined || deadline - Date.now() - delayMs >= MIN_USEFUL_REQUEST_MS;
+  attemptBudget();
   await recordGenerationHandoff(ctx, input.attribution);
   const startedAt = Date.now();
   let response!: Response;
   let text!: string;
+  // Set when the deadline refused a retry the status called for.
+  let retryStoppedByDeadline = false;
   // Bounded retry with backoff for transient gateway failures (429/5xx/
   // network). Retry decisions and delays are pure functions in
   // openrouterCore.ts; this loop only executes them.
   for (let attempt = 0; ; attempt += 1) {
     // A caller that gave up is never sent a (re)try (review 2026-09-25, P3-b).
     if (input.signal?.aborted) throw callerAbortError();
+    const budget = attemptBudget();
+    const timeoutMs = budget.timeoutMs;
     try {
       response = await fetch(OPENROUTER_URL, {
         method: "POST",
@@ -146,12 +174,16 @@ export async function openRouterChatCompletion(
       // never retried; only this attempt's own timer is a timeout.
       if (input.signal?.aborted) throw callerAbortError();
       if (isAbortLikeError(error)) {
+        // Cut short by the action's deadline: the time ran out, not the model.
+        if (budget.shortened) throw new ActionTimeBudgetError();
         throw new OpenRouterError(
           `OpenRouter request timed out after ${timeoutMs}ms`
         );
       }
       if (attempt + 1 >= maxAttempts) throw error;
       const delay = retryDelayMs(attempt, null, Math.random);
+      // The time ran out before the retry: not counted against the model.
+      if (!retryFits(delay)) throw markStoppedByDeadline(error);
       console.warn(
         `OpenRouter fetch failed (attempt ${attempt + 1}/${maxAttempts}), retrying in ${delay}ms:`,
         error instanceof Error ? error.message : String(error)
@@ -162,7 +194,15 @@ export async function openRouterChatCompletion(
     // Read as text first: gateway errors are not always JSON (HTML error
     // pages, plaintext proxy failures), and discarding that body left
     // status-only errors that were impossible to diagnose.
-    text = await response.text();
+    try {
+      text = await response.text();
+    } catch (error) {
+      // The body read runs under the same attempt timer.
+      if (isAbortLikeError(error) && budget.shortened && !input.signal?.aborted) {
+        throw new ActionTimeBudgetError();
+      }
+      throw error;
+    }
     if (
       response.ok ||
       attempt + 1 >= maxAttempts ||
@@ -175,6 +215,10 @@ export async function openRouterChatCompletion(
       response.headers.get("retry-after"),
       Math.random
     );
+    if (!retryFits(delay)) {
+      retryStoppedByDeadline = true;
+      break;
+    }
     console.warn(
       `OpenRouter returned ${response.status} (attempt ${attempt + 1}/${maxAttempts}), retrying in ${delay}ms`
     );
@@ -189,12 +233,13 @@ export async function openRouterChatCompletion(
   const body = (raw ?? {}) as ChatCompletionsResponse;
   if (!response.ok) {
     const detail = body.error?.message ?? text.trim().slice(0, 300);
-    throw new OpenRouterError(
+    const failure = new OpenRouterError(
       `OpenRouter request failed with status ${response.status}${
         detail ? `: ${detail}` : ""
       }`,
       response.status
     );
+    throw retryStoppedByDeadline ? markStoppedByDeadline(failure) : failure;
   }
   // Mirrors instrumentedAnthropic: a successful response is never turned into
   // an app failure by usage logging.
@@ -203,6 +248,11 @@ export async function openRouterChatCompletion(
   });
   // After a fallback the answer came from another model: bill that model.
   const usageModel = servingModelId(input.model, input.fallbackModels, body.model);
+  // The raw finish reason ("length" is a cut-off answer), recorded even when
+  // fromChatCompletions then refuses the response.
+  const finishReason = body.choices?.[0]?.finish_reason;
+  const stopReason =
+    typeof finishReason === "string" && finishReason.length > 0 ? finishReason : undefined;
   if (usage) {
     input.onUsage?.({
       model: usageModel,
@@ -234,6 +284,7 @@ export async function openRouterChatCompletion(
         ? { cacheCreation1hInputTokens: usage.cacheCreation1hInputTokens }
         : {}),
       ...(usage.costUsd !== undefined ? { costUsd: usage.costUsd } : {}),
+      ...(stopReason ? { stopReason } : {}),
     });
   }
   return body;

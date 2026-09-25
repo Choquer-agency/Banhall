@@ -165,7 +165,7 @@ const KNOWN_SERVER_STORAGE_WRITERS: Record<string, string> = {
   "./http.ts": "ingestionItems.storageId (ingestion.attachUpload)",
   "./ingestionSync.ts": "ingestionItems.storageId and textStorageId (ingestion.markItemProcessed)",
   "./ingestionPort.ts": "projectDocuments.storageId (the copied original)",
-  "./projectDuplication.ts": "projectDocuments.storageId (projects.finishProjectContentCopy)",
+  "./projectDuplication.ts": "projectDocuments.storageId and transcripts.originalStorageId (projects.finishProjectContentCopy)",
   "./documents.ts": "generateUploadUrl: the browser uploads, then saves the id (below)",
 };
 

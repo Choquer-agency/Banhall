@@ -13,8 +13,10 @@ import { type SectionNumber, type OrderedPayload, sectionKeyOf } from "../ordere
 import { v, type ObjectType } from "convex/values";
 import type { MutationCtx, QueryCtx } from "../../_generated/server";
 import { requireSeedInitialization } from "./seedGuards";
+import { requireDraftingInputsReady, startDraftingInputsHandler } from "./draftingInputs";
 import { domainError } from "../contracts";
 import {
+  briefWithoutExcludedQuotes,
   reusableBriefForGeneration,
   readBriefEntryRowsBounded,
   MAX_BRIEF_ENTRY_ROWS,
@@ -84,9 +86,16 @@ export async function pinSeedBriefHandler(
     }
     return generation.briefId ?? generation.seedBriefPin;
   }
+  const reusable = generation.briefId
+    ? null
+    : await reusableBriefForGeneration(ctx, generation, args.inputsHash);
+  // A reused Brief drops entries backed only by the interviewer's or another
+  // speaker's words first (owner decision 25, review 2026-09-25).
   const candidate = generation.briefId
     ? await ctx.db.get(generation.briefId)
-    : await reusableBriefForGeneration(ctx, generation, args.inputsHash);
+    : reusable
+      ? await briefWithoutExcludedQuotes(ctx, reusable)
+      : null;
   if (candidate && (candidate.projectId !== generation.projectId || candidate.inputsHash !== args.inputsHash)) {
     domainError("INVALID_STATE", "Frozen Brief inputs do not match");
   }
@@ -114,13 +123,22 @@ export async function adjustSeedRequestsReserved(ctx: MutationCtx, generationId:
   await ctx.db.patch(generationId, { seedRequestsReserved: next });
 }
 
+/**
+ * What the seed stage needs before it opens: the frozen writer settings and
+ * the frozen writer style Seeds read. Owner decision 32 (2026-09-25): the
+ * style is its own `writer_style` artifact, frozen before the analysis and
+ * Brain retrieval, which run in the background and are sign-off
+ * preconditions instead. A generation started before the reorder carries
+ * the style inside `brain_blocks`.
+ */
 export async function requireFrozenSeedArtifacts(ctx: MutationCtx, generation: Doc<"generations">) {
   if (!generation.writerSettings) domainError("INVALID_STATE", "Frozen writer settings are unavailable");
-  for (const kind of ["analysis", "brain_blocks"] as const) {
+  for (const kind of ["writer_style", "brain_blocks"] as const) {
     const artifact = await ctx.db.query("generationArtifacts")
-      .withIndex("by_generationId_and_kind", q => q.eq("generationId", generation._id).eq("kind", kind)).unique();
-    if (!artifact) domainError("INVALID_STATE", "Frozen initialization artifacts are unavailable");
+      .withIndex("by_generationId_and_kind", q => q.eq("generationId", generation._id).eq("kind", kind)).first();
+    if (artifact) return;
   }
+  domainError("INVALID_STATE", "Frozen initialization artifacts are unavailable");
 }
 
 /** Argument validators of generations.initializeSeedStage. */
@@ -147,6 +165,13 @@ export async function initializeSeedStageHandler(
   const brief = await ctx.db.get(generation.briefId);
   if (!brief || brief.projectId !== generation.projectId || brief.inputsHash !== generation.seedBriefInputsHash) {
     domainError("INVALID_STATE", "Frozen Brief is unavailable");
+  }
+  // Owner decision 32: an open seed stage always has its drafting inputs
+  // under way. Startup starts them before this; a retry after a startup that
+  // died before that starts them here, and a generation that froze both
+  // inputs the old way is ready at once.
+  if (generation.draftingInputs === undefined) {
+    await startDraftingInputsHandler(ctx, { generationId: generation._id });
   }
   const currentContextRevision = await emptyContextRevision();
   const selectionRevision = await emptySelectionRevision();
@@ -382,6 +407,9 @@ export async function signOffSeedStageHandler(
   }
   const state = readiness.state;
   if (!state) domainError("INVALID_STATE", "Seed readiness state is unavailable");
+  // Owner decision 32: the analysis and Brain retrieval run in the
+  // background during the seed stage; drafting needs both.
+  requireDraftingInputsReady(generation);
   if (!generation.briefVersionId || !generation.writerSettings) {
     domainError("INVALID_STATE", "Frozen Brief and settings are required for sign-off");
   }

@@ -283,6 +283,43 @@ describe("BriefRail", () => {
     );
   });
 
+  it("does not offer a clipped alternative as the Storyline, and still offers Keep", async () => {
+    const question = entry({
+      group: "storylineQuestion",
+      text: "Section 244 shows the loop failed under load.",
+      question: {
+        questionText: "Does the section's evidence override the Storyline?",
+        alternativeText: "The team discovered the loop's response under load was unknown, so the…",
+      },
+    });
+    const rail = props({ brief: brief({ entries: [question] }) });
+    const { container } = await render(BriefRail, rail);
+    expect(page.getByRole("button", { name: "Use the section's evidence" }).elements()).toHaveLength(0);
+    expect(container.querySelector("[data-question-alternative-clipped]")?.textContent).toContain(
+      "The suggested new Storyline was cut short, so it can't replace yours."
+    );
+    await page.getByRole("button", { name: "Keep the Storyline" }).click();
+    expect(rail.onResolveQuestion).toHaveBeenCalledWith(
+      expect.objectContaining({ _id: question._id }),
+      "keep_storyline"
+    );
+  });
+
+  it("offers a longer alternative that happens to end in an ellipsis", async () => {
+    const question = entry({
+      group: "storylineQuestion",
+      text: "Section 244 shows the loop failed under load.",
+      question: {
+        questionText: "Does the section's evidence override the Storyline?",
+        alternativeText:
+          "The team discovered the loop's response under load was unknown, and measured it across three load bands…",
+      },
+    });
+    const { container } = await render(BriefRail, props({ brief: brief({ entries: [question] }) }));
+    expect(page.getByRole("button", { name: "Use the section's evidence" }).elements()).toHaveLength(1);
+    expect(container.querySelector("[data-question-alternative-clipped]")).toBeNull();
+  });
+
   it("shows the no-profile line and the save offer, and dismisses the offer", async () => {
     const rail = props({
       writerSettings: {

@@ -21,6 +21,8 @@ import {
   buildFrozenSummaryPlan,
   canonicalizeSeedSnapshot,
   clipJsonEscapedUtf8,
+  endsWithClipMark,
+  isClippedStorylineAlternative,
   completeContextRevision,
   contextRevision,
   contributionHashes,
@@ -1020,7 +1022,21 @@ describe("clipJsonEscapedUtf8 (Summary Self-check free text)", () => {
         expect(jsonEscapedUtf8Bytes(clipped)).toBeGreaterThan(maximum / 2);
         expect(clipped.endsWith("…")).toBe(true);
         expect(reason.startsWith(clipped.slice(0, -1))).toBe(true);
+        // The Brief refuses such a fragment as a whole Storyline.
+        expect(endsWithClipMark(clipped)).toBe(true);
+        expect(endsWithClipMark(`${clipped} `)).toBe(true);
       }
     }
+    expect(endsWithClipMark(reasons[2] ?? "")).toBe(false);
+  });
+
+  it("counts a Storyline alternative as clipped only within the 96-byte clip limit", () => {
+    const reason =
+      "P3 states this as an uncertainty ('was insufficient', 'not established'), consistent with the Storyline's framing.";
+    const clipped = clipJsonEscapedUtf8(reason, 96);
+    expect(isClippedStorylineAlternative(clipped)).toBe(true);
+    // Longer text ending in an ellipsis was never clipped.
+    expect(isClippedStorylineAlternative(`${reason}…`)).toBe(false);
+    expect(isClippedStorylineAlternative(reason)).toBe(false);
   });
 });

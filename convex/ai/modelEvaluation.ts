@@ -112,7 +112,10 @@ import {
   CONTEXTUALIZE_SYSTEM_PROMPT,
   contextualizeMessages,
 } from "./brain/ingest";
-import { maxTokensWithReasoningHeadroom } from "../../shared/generationModels";
+import {
+  alwaysThinkingMaxTokens,
+  maxTokensWithReasoningHeadroom,
+} from "../../shared/generationModels";
 import {
   CHANGELOG_EVAL_COMMITS,
   CHANGELOG_EVAL_WORK_DAY,
@@ -1130,10 +1133,14 @@ export function requestMaxCostUsd(
   pricing: EvalPricing,
   preserveMaxTokens: boolean
 ): number {
+  // The direct gateway adds thinking room for a model whose thinking is
+  // always on (instrument.ts adaptAnthropicRequest), seed requests included.
   const output =
-    entry.gateway === "openrouter" && !preserveMaxTokens
-      ? maxTokensWithReasoningHeadroom(entry.id, params.max_tokens)
-      : params.max_tokens;
+    entry.gateway === "openrouter"
+      ? preserveMaxTokens
+        ? params.max_tokens
+        : maxTokensWithReasoningHeadroom(entry.id, params.max_tokens)
+      : alwaysThinkingMaxTokens(entry.id, params.max_tokens);
   const ceiling = chargeCeiling(entry, pricing);
   return (requestInputBytes(params) * ceiling.input + output * ceiling.output) / 1_000_000;
 }

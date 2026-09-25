@@ -290,7 +290,9 @@ test("Opus 5.5: the real SDK sends `auto` and one system line, never a forced to
   expect(value).toEqual({ summary: "Criterion met", accepted: true });
   expect(bodies).toEqual([{
     model: "claude-opus-5-5",
-    max_tokens: 256,
+    // Thinking room (cutoff review P2-1): the 256-token answer budget times
+    // REASONING_TOKEN_MULTIPLIER, since Opus 5.5 always thinks.
+    max_tokens: 1024,
     system: `${options.system}\n\n${TOOL_ONLY_LINE}`,
     tools: [{ name: options.toolName, description: options.description, input_schema: toolSchema }],
     tool_choice: { type: "auto", disable_parallel_tool_use: true },
@@ -359,14 +361,16 @@ test("section drafts never send disabled thinking to Opus 5.5 or Fable 5.1; Sonn
     expect(flagged.thinking).toBeUndefined();
     expect(flagged.output_config).toEqual({ effort: "low" });
     expect(flagged.tool_choice).toBeUndefined();
-    expect(flagged.max_tokens).toBe(8192);
+    // The 8,192-token section answer budget plus room for the thinking.
+    expect(flagged.max_tokens).toBe(32768);
   }
   expect(sonnet.thinking).toEqual({ type: "disabled" });
   expect(sonnet.output_config).toBeUndefined();
-  // Apart from the model and the dropped thinking control, the request is the
-  // one Sonnet 5 gets.
-  const { thinking: _sonnetThinking, model: _sonnetModel, ...sonnetRest } = sonnet;
-  const { output_config: _opusEffort, model: _opusModel, ...opusRest } = opus;
-  void _sonnetThinking; void _sonnetModel; void _opusEffort; void _opusModel;
+  expect(sonnet.max_tokens).toBe(8192);
+  // Apart from the model, the dropped thinking control and the thinking
+  // room, the request is the one Sonnet 5 gets.
+  const { thinking: _sonnetThinking, model: _sonnetModel, max_tokens: _sonnetMax, ...sonnetRest } = sonnet;
+  const { output_config: _opusEffort, model: _opusModel, max_tokens: _opusMax, ...opusRest } = opus;
+  void _sonnetThinking; void _sonnetModel; void _opusEffort; void _opusModel; void _sonnetMax; void _opusMax;
   expect(opusRest).toEqual(sonnetRest);
 });

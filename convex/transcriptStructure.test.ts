@@ -10,7 +10,7 @@ import { factRunIsCurrent } from "./lib/transcriptFactRows";
 import { FACTS_VERSION } from "./lib/transcriptFacts";
 import { sha256 } from "./lib/contracts";
 import { TURN_BATCH_SIZE } from "./lib/transcriptStructure";
-import { inferSpeakerRoles, labelNamesPerson } from "./lib/transcriptSpeakers";
+import { MODEL_ROLE_THRESHOLD, inferSpeakerRoles, labelNamesPerson, needsModelRole } from "./lib/transcriptSpeakers";
 import { parseTranscriptTurns } from "../shared/transcriptParse";
 
 const modules = import.meta.glob("./**/*.ts");
@@ -286,6 +286,125 @@ describe("backfill of turns and speaker roles", () => {
     expect((await turnsOf(f.t, f.transcriptIds[0])).length).toBe(4);
   });
 
+  /**
+   * As if an older parser had built the transcript with these speaker rows
+   * (review 2026-09-25, P2-1): the turns are marked old and the rows replaced.
+   */
+  async function asBuiltByOlderParser(
+    f: Awaited<ReturnType<typeof setup>>,
+    rows: Array<{ label: string; role: "interviewer" | "client" | "other"; roleSource: "consultant" | "model" | "heuristic"; confidence: number }>
+  ) {
+    await f.t.mutation(internal.transcripts.buildTranscriptStructure, { transcriptId: f.transcriptIds[0] });
+    await f.t.run(async (ctx) => {
+      for (const row of await ctx.db
+        .query("transcriptSpeakers")
+        .withIndex("by_transcriptId_and_label", (q) => q.eq("transcriptId", f.transcriptIds[0]))
+        .collect()) {
+        await ctx.db.delete(row._id);
+      }
+      for (const row of rows) {
+        await ctx.db.insert("transcriptSpeakers", {
+          transcriptId: f.transcriptIds[0],
+          projectId: f.projectId,
+          turnCount: 1,
+          ...row,
+          ...(row.roleSource === "consultant" ? { confirmedBy: f.writerId, confirmedAt: 5 } : {}),
+        });
+      }
+      await ctx.db.patch(f.transcriptIds[0], { parserVersion: "3", speakerStatus: "confirmed" });
+    });
+    await f.t.mutation(internal.transcripts.backfillTranscriptStructure, {});
+    await f.t.finishAllScheduledFunctions(vi.runAllTimers);
+    return {
+      speakers: await speakersOf(f.t, f.transcriptIds[0]),
+      transcript: await f.t.run((ctx) => ctx.db.get(f.transcriptIds[0])),
+    };
+  }
+
+  it("carries a consultant's role on a label the new parser reads differently to the new label", async () => {
+    const f = await setup([
+      [
+        "Dana Whitfield: What did you build?",
+        "Priya Shah (Guest): A predictive controller.",
+        "Dana Whitfield: What made it hard?",
+        "Priya Shah (Guest): The forecast lagged.",
+      ].join("\n\n"),
+    ]);
+    const fetchSpy = vi.fn();
+    vi.stubGlobal("fetch", fetchSpy);
+    try {
+      // v3 read "Priya Shah (Guest)" as "Guest"; a consultant set it and Dana.
+      const { speakers, transcript } = await asBuiltByOlderParser(f, [
+        { label: "Dana Whitfield", role: "interviewer", roleSource: "consultant", confidence: 1 },
+        { label: "Guest", role: "client", roleSource: "consultant", confidence: 1 },
+      ]);
+      expect(speakers.map((row) => [row.label, row.role, row.roleSource, row.confidence, row.confirmedBy])).toEqual([
+        ["Dana Whitfield", "interviewer", "consultant", 1, f.writerId],
+        ["Priya Shah", "client", "consultant", 1, f.writerId],
+      ]);
+      expect(transcript?.speakerStatus).toBe("confirmed");
+    } finally {
+      vi.unstubAllGlobals();
+    }
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("gives each person of a label the new parser splits the old role as a guess to check", async () => {
+    const f = await setup([
+      [
+        "Jordan Ellis (he/him): What did you test?",
+        "Raj Patel (he/him): We tested four low-temperature adhesives and two held.",
+        "Priya Shah (she/her): The second one held at 120C.",
+      ].join("\n\n"),
+    ]);
+    // v3 merged Jordan and Raj into "he/him"; the model called it client.
+    const { speakers, transcript } = await asBuiltByOlderParser(f, [
+      { label: "he/him", role: "client", roleSource: "model", confidence: 0.8 },
+      { label: "she/her", role: "client", roleSource: "consultant", confidence: 1 },
+    ]);
+    const byLabel = new Map(speakers.map((row) => [row.label, row]));
+    // One old label, one new: kept as it was.
+    expect(byLabel.get("Priya Shah")).toMatchObject({ role: "client", roleSource: "consultant", confidence: 1 });
+    // One old label, two new people: the old answer, as a guess below the
+    // model threshold where the rules could not place them.
+    for (const label of ["Jordan Ellis", "Raj Patel"]) {
+      expect(byLabel.get(label), label).toMatchObject({ role: "client", roleSource: "heuristic", confidence: 0.6 });
+    }
+    expect(transcript?.speakerStatus).toBe("needs_check");
+  });
+
+  it("keeps a new rule's confident role over a split old role", async () => {
+    const f = await setup(
+      [
+        [
+          "Jordan Ellis (he/him): What did you test?",
+          "Raj Patel (he/him): We tested four low-temperature adhesives and two held.",
+        ].join("\n\n"),
+      ],
+      { interviewer: "Jordan Ellis", interviewees: ["Raj Patel"] }
+    );
+    const { speakers } = await asBuiltByOlderParser(f, [
+      { label: "he/him", role: "interviewer", roleSource: "consultant", confidence: 1 },
+    ]);
+    expect(speakers.map((row) => [row.label, row.role, row.roleSource])).toEqual([
+      ["Jordan Ellis", "interviewer", "heuristic"],
+      ["Raj Patel", "client", "heuristic"],
+    ]);
+  });
+
+  it("marks the transcript for a speaker check when a consultant's role has no label left to go to", async () => {
+    const f = await setup([INTERVIEW]);
+    const { speakers, transcript } = await asBuiltByOlderParser(f, [
+      { label: "Dana Whitfield", role: "interviewer", roleSource: "consultant", confidence: 1 },
+      { label: "Priya Shah", role: "client", roleSource: "consultant", confidence: 1 },
+      // A heading an older parser read as a speaker.
+      { label: "Result", role: "client", roleSource: "consultant", confidence: 1 },
+    ]);
+    expect(speakers.map((row) => row.label)).toEqual(["Dana Whitfield", "Priya Shah"]);
+    expect(speakers.every((row) => row.roleSource === "consultant")).toBe(true);
+    expect(transcript?.speakerStatus).toBe("needs_check");
+  });
+
   it("skips a project that is being deleted", async () => {
     const f = await setup([INTERVIEW]);
     await f.t.run(async (ctx) => ctx.db.patch(f.projectId, { deletionStartedAt: Date.now() }));
@@ -476,6 +595,128 @@ describe("speaker role rules", () => {
     const guesses = inferSpeakerRoles(turns, { staffNames: [], clientNames: [] });
     expect(guesses.map((g) => g.role)).toEqual(["interviewer", "client"]);
     expect(guesses.every((g) => g.confidence < 0.7)).toBe(true);
+  });
+
+  it("never places a client at the threshold for sharing a first name with someone on the roster (review 2026-09-25)", () => {
+    const client = parseTranscriptTurns(
+      [
+        "Jordan Ellis: What did you set out to build?",
+        "Dana: A predictive controller for feeder voltage, which we tested on two feeders over the summer.",
+        "Jordan Ellis: What made that hard?",
+        "Dana: We could not forecast net load fast enough when cloud cover changed during the afternoon.",
+      ].join("\n\n")
+    );
+    const roles = (context: Parameters<typeof inferSpeakerRoles>[1]) =>
+      inferSpeakerRoles(client, context).map((g) => [g.label, g.role, g.confidence]);
+    // No interviewees on the project, and staff member Dana Whitfield on the roster.
+    const rosterOnly = roles({ staffNames: [], clientNames: [], rosterNames: ["Dana Whitfield"] });
+    expect(rosterOnly).toEqual([
+      ["Jordan Ellis", "interviewer", 0.6],
+      ["Dana", "client", 0.55],
+    ]);
+    // The project's own interviewer is matched first; Dana is the other speaker.
+    expect(roles({ staffNames: ["Jordan Ellis"], clientNames: [], rosterNames: ["Dana Whitfield", "Jordan Ellis"] })).toEqual([
+      ["Jordan Ellis", "interviewer", 0.95],
+      ["Dana", "client", 0.75],
+    ]);
+    // A full name on the roster alone places Jordan too.
+    expect(roles({ staffNames: [], clientNames: [], rosterNames: ["Dana Whitfield", "Jordan Ellis"] })[0]).toEqual([
+      "Jordan Ellis",
+      "interviewer",
+      0.95,
+    ]);
+    // The project's interviewees come before the roster.
+    expect(roles({ staffNames: [], clientNames: ["Dana Rao"], rosterNames: ["Dana Whitfield"] })[1]).toEqual([
+      "Dana",
+      "client",
+      0.95,
+    ]);
+
+    // A staff member who is named only by a first name still leans interviewer, below the threshold.
+    const staff = parseTranscriptTurns(
+      "Dana: What did you build?\n\nPriya Shah: A controller.\n\nDana: Why?\n\nPriya Shah: The load moved."
+    );
+    const staffGuess = inferSpeakerRoles(staff, { staffNames: [], clientNames: [], rosterNames: ["Dana Whitfield"] })[0];
+    expect(staffGuess.role).toBe("interviewer");
+    expect(staffGuess.confidence).toBeLessThan(MODEL_ROLE_THRESHOLD);
+    expect(needsModelRole(staffGuess)).toBe(true);
+    // With the full name on the label, the roster places them outright.
+    const fullStaff = parseTranscriptTurns("Dana Whitfield: What did you build?\n\nPriya Shah: A controller.");
+    expect(inferSpeakerRoles(fullStaff, { staffNames: [], clientNames: [], rosterNames: ["Dana Whitfield"] })[0]).toMatchObject({
+      role: "interviewer",
+      confidence: 0.95,
+    });
+  });
+
+  it("places a speaker from the roster outright only when the label holds the whole name (fix-e review P2-1)", () => {
+    const interview = (client: string) =>
+      parseTranscriptTurns(
+        [
+          "Jordan: What did you set out to build?",
+          `${client}: A predictive controller for feeder voltage, which we tested on two feeders over the summer.`,
+          "Jordan: What made that hard?",
+          `${client}: We could not forecast net load fast enough when cloud cover changed during the afternoon.`,
+        ].join("\n\n")
+      );
+    const roles = (client: string, rosterNames: string[]) =>
+      inferSpeakerRoles(interview(client), { staffNames: [], clientNames: [], rosterNames }).map((g) => [
+        g.label,
+        g.role,
+        g.confidence,
+      ]);
+    // A compound first name, a one-word roster name, a roster initial, and a
+    // bracketed company after a one-word roster name: never a full name, so
+    // the client is at most a first-name lean and nobody is placed at the
+    // threshold on the roster match.
+    for (const [client, roster] of [
+      ["Jean-Philippe", "Jean-Philippe Roy"],
+      ["Mary Anne", "Mary Anne Smith"],
+      ["Dana Rao", "Dana"],
+      ["Dana Rao", "Dana W."],
+      ["Dana (Acme)", "Dana"],
+    ] as const) {
+      const guesses = roles(client, [roster]);
+      const label = client.replace(/\s*\(.*\)$/, "");
+      expect(guesses.map(([name]) => name), `${client} / ${roster}`).toEqual(["Jordan", label]);
+      for (const [name, role, confidence] of guesses) {
+        expect(
+          role === "unknown" || (confidence as number) < MODEL_ROLE_THRESHOLD,
+          `${name} placed ${role} at ${confidence} (${client} / ${roster})`
+        ).toBe(true);
+      }
+    }
+    // The whole two-part name on the label, however it is written, still places the speaker outright.
+    for (const label of ["Jean-Philippe Roy", "Roy, Jean-Philippe", "Jean-Philippe ROY", "Dr. Jean-Philippe Roy"]) {
+      expect(roles(label, ["Jean-Philippe Roy"])[1], label).toEqual([
+        expect.any(String),
+        "interviewer",
+        0.95,
+      ]);
+    }
+    expect(roles("Dana Whitfield", ["Dana Whitfield"])[1]).toEqual(["Dana Whitfield", "interviewer", 0.95]);
+  });
+
+  it("builds a client named like a roster member as a client whose words stay evidence", async () => {
+    const content = [
+      "Jordan Ellis: What did you set out to build?",
+      "Dana: A predictive controller for feeder voltage, which we tested on two feeders over the summer.",
+      "Jordan Ellis: What made that hard?",
+      "Dana: We could not forecast net load fast enough when cloud cover changed during the afternoon.",
+    ].join("\n\n");
+    const f = await setup([content]);
+    await f.t.run((ctx) =>
+      ctx.db.insert("users", { authId: "ts-dana", role: "writer", firstName: "Dana", lastName: "Whitfield" })
+    );
+    await f.t.mutation(internal.transcripts.buildTranscriptStructure, { transcriptId: f.transcriptIds[0] });
+    const rows = await f.t.run((ctx) =>
+      ctx.db
+        .query("transcriptSpeakers")
+        .withIndex("by_transcriptId_and_label", (q) => q.eq("transcriptId", f.transcriptIds[0]))
+        .collect()
+    );
+    const dana = rows.find((row) => row.label === "Dana");
+    expect(dana?.role).not.toBe("interviewer");
+    expect(dana?.confidence ?? 0).toBeLessThan(MODEL_ROLE_THRESHOLD);
   });
 
   it("matches a first name against a full name", () => {
