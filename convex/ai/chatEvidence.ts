@@ -83,8 +83,10 @@ export interface ChatEvidenceBudget {
  * document is cut shorter than it already was. The document COUNT is new: chat
  * previously sent every non-archived document, and a project with more than
  * `maxDocuments` of them now loses the lowest-trust ones entirely, reported in
- * the cut log. 12 documents x 5k plus the report and analysis shares sum past
- * the total, so on a document-heavy project the TOTAL binds first.
+ * the cut log. Since cost phase 1 `totalTokens` bounds the cached head only
+ * (analysis plus documents), so on a document-heavy project the TOTAL binds
+ * first; the report, decisions and open questions are each bounded by their
+ * own cap and no longer compete with the documents.
  */
 export const DEFAULT_CHAT_EVIDENCE_BUDGET: ChatEvidenceBudget = {
   totalTokens: 60_000,
@@ -347,7 +349,7 @@ function omissionBody(source: TrustedContextSource): string | null {
 }
 
 /**
- * Charge one source against the remaining total. Neutralization happens BEFORE
+ * Charge one source against its remaining allowance. Neutralization happens BEFORE
  * the cut and before charging: a forged marker grows when its dashes are
  * spaced out, and the budget must bound the bytes actually sent, not the bytes
  * the client wrote.
@@ -398,10 +400,12 @@ function spend(
  * kept, cut and dropped.
  *
  * Spend order is fixed: report, analysis, prior decisions, open questions, then documents in
- * `effectiveCategory` trust order then insertion order. The report goes first
- * because `proposeEdit` requires a verbatim substring of it, so a truncated
- * report silently breaks every edit proposal. Render order puts the documents
- * before the decisions so the decisions sit closest to the writer's turn.
+ * `effectiveCategory` trust order then insertion order. Two allowances apply
+ * (cost phase 1): the head (analysis, documents) shares `totalTokens`, and
+ * each tail block (report, decisions, open questions) has only its own cap,
+ * so nothing in the tail can move a cut in the cached head. The report is
+ * never crowded out: `proposeEdit` requires a verbatim substring of it, so a
+ * truncated report silently breaks every edit proposal.
  *
  * Every input source appears exactly once in `report.sources`.
  */
@@ -428,11 +432,22 @@ export function buildChatEvidence(input: ChatEvidenceInput): {
   const chars = (tokens: number) => Math.max(0, tokens) * CHARS_PER_TOKEN;
 
   const totalChars = chars(budget.totalTokens);
-  let remaining = totalChars;
+  // Cost phase 1: two independent allowances. The cached head (analysis,
+  // documents) spends `totalTokens` and nothing else, so its bytes depend
+  // only on its own inputs; the per-turn tail (report, decisions, open
+  // questions) is bounded by each block's own cap. With one shared pool, a
+  // small report edit or a new decision moved the documents' cut and
+  // invalidated the cached history behind them.
+  let headRemaining = totalChars;
+  const TAIL_UNBOUNDED = Number.POSITIVE_INFINITY;
+  const HEAD_KINDS: ReadonlySet<TrustedContextSource["kind"]> = new Set([
+    "analysis",
+    "document",
+  ]);
 
   const charge = (s: Spend): Spend => {
     sources.push(s.source);
-    remaining -= s.source.includedLength;
+    if (HEAD_KINDS.has(s.source.kind)) headRemaining -= s.source.includedLength;
     return s;
   };
   /** A single-source block: its text, or the notice that it was dropped. */
@@ -447,7 +462,7 @@ export function buildChatEvidence(input: ChatEvidenceInput): {
         "internal",
         input.reportText,
         Math.min(chars(budget.reportTokens), totalChars),
-        remaining
+        TAIL_UNBOUNDED
       )
     )
   );
@@ -461,7 +476,7 @@ export function buildChatEvidence(input: ChatEvidenceInput): {
         "client",
         input.analysisText,
         Math.min(chars(budget.analysisTokens), totalChars),
-        remaining
+        headRemaining
       )
     )
   );
@@ -477,7 +492,7 @@ export function buildChatEvidence(input: ChatEvidenceInput): {
           "internal",
           decisionsTextFrom(decisions),
           Math.min(chars(budget.decisionsTokens), totalChars),
-          remaining
+          TAIL_UNBOUNDED
         )
       )
     );
@@ -497,7 +512,7 @@ export function buildChatEvidence(input: ChatEvidenceInput): {
           "client",
           openQuestionsTextFrom(openQuestions, input.openQuestionsOmitted),
           Math.min(chars(budget.openQuestionsTokens), totalChars),
-          remaining
+          TAIL_UNBOUNDED
         )
       )
     );
@@ -539,7 +554,7 @@ export function buildChatEvidence(input: ChatEvidenceInput): {
         docTrust(doc),
         doc.content,
         perDocChars,
-        remaining,
+        headRemaining,
         extra
       )
     );
