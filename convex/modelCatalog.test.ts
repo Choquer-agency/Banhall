@@ -1798,7 +1798,8 @@ describe("round 10", () => {
 });
 
 describe("models added 2026-09-25 on a catalog seeded before them", () => {
-  const NEW_DIRECT = ["claude-opus-5-5", "claude-fable-5-1"];
+  // Fable 5.1 was taken out of the selectable list (owner, 2026-09-25).
+  const NEW_DIRECT = ["claude-opus-5-5"];
   const GPT6 = ["openai/gpt-6-sol", "openai/gpt-6-luna"];
   const sol = parsed.find((model) => model.openRouterId === "openai/gpt-6-sol")!;
   // The 2026-09-24 snapshot predates GPT-6 Luna; OpenRouter listed it on
@@ -1862,6 +1863,7 @@ describe("models added 2026-09-25 on a catalog seeded before them", () => {
     // yet); GPT-6 stays hidden while its row is an untouched candidate.
     const before = await pickerIds(writer);
     expect(before).toEqual(expect.arrayContaining(NEW_DIRECT));
+    expect(before).not.toContain("claude-fable-5-1");
     expect(before).not.toContain("openai/gpt-6-sol");
     expect(before).not.toContain("openai/gpt-6-luna");
     const roles = await snapshot(t);

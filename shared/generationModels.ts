@@ -47,14 +47,6 @@ export const CANDIDATE_MODELS = [
     forcedToolChoice: false,
   },
   {
-    id: "claude-fable-5-1",
-    label: "Fable 5.1",
-    provider: "Anthropic",
-    gateway: "anthropic",
-    description: "Anthropic's top tier - strongest reasoning at the highest price.",
-    forcedToolChoice: false,
-  },
-  {
     id: "claude-opus-4-8",
     label: "Opus 4.8",
     provider: "Anthropic",

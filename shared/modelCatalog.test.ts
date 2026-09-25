@@ -178,7 +178,7 @@ describe("catalog seed", () => {
     expect(sonnet.canonicalSlug).toBe("anthropic/claude-sonnet-5-20260630");
   });
 
-  test("seeds Opus 5.5, Fable 5.1, GPT-6 Sol and GPT-6 Luna with prices, limits and OpenRouter slugs", () => {
+  test("seeds Opus 5.5, GPT-6 Sol and GPT-6 Luna with prices, limits and OpenRouter slugs, and not Fable 5.1", () => {
     const seeds = seedCatalogModels(NOW);
     const seed = (id: string) => seeds.find((s) => s.modelId === id)!;
     expect(seed("claude-opus-5-5")).toMatchObject({
@@ -197,17 +197,8 @@ describe("catalog seed", () => {
       status: "enabled",
       source: "seed",
     });
-    expect(seed("claude-fable-5-1")).toMatchObject({
-      gateway: "anthropic",
-      displayName: "Fable 5.1",
-      forcedToolChoice: false,
-      canonicalSlug: "anthropic/claude-fable-5.1-20260831",
-      inputUsdPerMTok: 10,
-      outputUsdPerMTok: 50,
-      cacheReadUsdPerMTok: 0.25,
-      contextLength: 1_000_000,
-      maxOutputTokens: 128_000,
-    });
+    // Fable 5.1 was taken out of the selectable list (owner, 2026-09-25).
+    expect(seed("claude-fable-5-1")).toBeUndefined();
     expect(seed("openai/gpt-6-sol")).toMatchObject({
       gateway: "openrouter",
       displayName: "GPT-6 Sol",
@@ -230,7 +221,7 @@ describe("catalog seed", () => {
       maxCompletionTokens: 128000,
     });
     // Each clears the writing role's output floor for automatic switches.
-    for (const id of ["claude-opus-5-5", "claude-fable-5-1", "openai/gpt-6-sol", "openai/gpt-6-luna"]) {
+    for (const id of ["claude-opus-5-5", "openai/gpt-6-sol", "openai/gpt-6-luna"]) {
       expect(seed(id).maxOutputTokens, id).toBeGreaterThanOrEqual(ROLE_POLICIES.writing.minOutputTokens);
     }
   });
