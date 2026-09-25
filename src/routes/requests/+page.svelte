@@ -4,7 +4,7 @@
   import WorkspaceChrome from "$lib/components/workspace/WorkspaceChrome.svelte";
   import WorkspaceGate from "$lib/workspace/WorkspaceGate.svelte";
   import Spinner from "$lib/components/ui/Spinner.svelte";
-  import { goto } from "$app/navigation";
+  import { goToLogin } from "$lib/auth/goToLogin";
   import { useQuery, useMutation } from "convex-svelte";
   import { useAuth } from "@mmailaender/convex-better-auth-svelte/svelte";
   import { api } from "../../../convex/_generated/api";
@@ -17,7 +17,7 @@
 
   $effect(() => {
     if (!auth.isLoading && !auth.isAuthenticated) {
-      goto("/login", { replaceState: true });
+      goToLogin();
     }
   });
 

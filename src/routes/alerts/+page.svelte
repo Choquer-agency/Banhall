@@ -5,7 +5,7 @@
   import WorkspaceGate from "$lib/workspace/WorkspaceGate.svelte";
   import Spinner from "$lib/components/ui/Spinner.svelte";
   import Checkbox from "$lib/components/ui/Checkbox.svelte";
-  import { goto } from "$app/navigation";
+  import { goToLogin } from "$lib/auth/goToLogin";
   import { useStableQuery } from "$lib/stableQuery.svelte";
   import { useAuth } from "@mmailaender/convex-better-auth-svelte/svelte";
   import { api } from "../../../convex/_generated/api";
@@ -41,7 +41,7 @@
 
   $effect(() => {
     if (!auth.isLoading && !auth.isAuthenticated) {
-      goto("/login", { replaceState: true });
+      goToLogin();
     }
   });
 </script>
