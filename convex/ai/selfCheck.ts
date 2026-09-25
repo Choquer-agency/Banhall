@@ -522,6 +522,15 @@ function assertCompleteSummaryOutput(args: {
       : verdict.skippedRoleId
         ? `skip:${verdict.skippedRoleId}`
         : "";
+    // Check the reference before looking up its plan check: with no usable
+    // reference, the lookup would match an unrelated item's undefined
+    // skippedRoleId and the diagnostic would name that item.
+    if ((verdict.itemId !== undefined) === (verdict.skippedRoleId !== undefined) || !ref) {
+      throw new SummarySelfCheckRejection(
+        "Summary Self-check returned an invalid plan verdict",
+        `plan verdict ${index + 1}: needs exactly one non-empty itemId or skippedRoleId`
+      );
+    }
     const expected = planChecks.find((check) =>
       verdict.itemId
         ? check.itemId === verdict.itemId
@@ -538,9 +547,6 @@ function assertCompleteSummaryOutput(args: {
             : ""
         }: ${detail}`
       );
-    if ((verdict.itemId !== undefined) === (verdict.skippedRoleId !== undefined) || !ref) {
-      throw invalid("needs exactly one non-empty itemId or skippedRoleId");
-    }
     if (!expected) {
       const field = verdict.itemId ? "itemId" : "skippedRoleId";
       throw invalid(

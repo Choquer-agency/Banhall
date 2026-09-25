@@ -1721,6 +1721,21 @@ describe("Summary plan coverage replay (recorded Opus 244 case)", () => {
       detail: "plan verdict 2: itemId of 21 escaped bytes matches no plan check",
     },
     {
+      // Neither reference: no unrelated item may be named in the reason.
+      name: "a plan verdict with no reference",
+      mutate: (response: ReturnType<typeof replayResponse>) => {
+        Reflect.deleteProperty(response.planVerdicts[1], "itemId");
+      },
+      detail: "plan verdict 2: needs exactly one non-empty itemId or skippedRoleId",
+    },
+    {
+      name: "a plan verdict with an empty itemId",
+      mutate: (response: ReturnType<typeof replayResponse>) => {
+        response.planVerdicts[2].itemId = "";
+      },
+      detail: "plan verdict 3: needs exactly one non-empty itemId or skippedRoleId",
+    },
+    {
       name: "empty mergedItemIds",
       mutate: (response: ReturnType<typeof replayResponse>) => {
         response.planVerdicts[0].mergedItemIds = [];
