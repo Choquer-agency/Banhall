@@ -5,7 +5,13 @@ import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { v } from "convex/values";
 import { clientForModel, registerGenerationModels } from "./providers";
-import { firstResponseText, type GenerationClient } from "./openrouterCore";
+import {
+  OutputLimitError,
+  firstResponseText,
+  isCutOffStopReason,
+  type GenerationClient,
+  type GenerationResponse,
+} from "./openrouterCore";
 import { runAnalyzerAgent, parseTranscriptAnalysis, type TranscriptAnalysis } from "./analyzerAgent";
 import { runGenerationBriefStage } from "./brief";
 import {
@@ -108,20 +114,28 @@ export async function compressSection(
 ): Promise<string> {
   const m = sectionMetrics(text, section);
   const words = Math.round(wordBudget(section, target) * squeeze);
-  const response = await anthropic.messages.create({
-    model: modelId,
-    max_tokens: COMPRESSION_REQUEST.maxTokens,
-    system: COMPRESSION_REQUEST.system,
-    messages: [
-      {
-        role: "user",
-        content: `${COMPRESSION_REQUEST.userScaffold.prefix}${m.lines}${COMPRESSION_REQUEST.userScaffold.linesToWords}${m.words}${COMPRESSION_REQUEST.userScaffold.wordsToLimit}${m.limit}${COMPRESSION_REQUEST.userScaffold.limitToChars}${CHARS_PER_LINE}${COMPRESSION_REQUEST.userScaffold.charsToTarget}${words}${COMPRESSION_REQUEST.userScaffold.targetToText}${text}`,
-      },
-    ],
-  });
+  let response: GenerationResponse;
+  try {
+    response = await anthropic.messages.create({
+      model: modelId,
+      max_tokens: COMPRESSION_REQUEST.maxTokens,
+      system: COMPRESSION_REQUEST.system,
+      messages: [
+        {
+          role: "user",
+          content: `${COMPRESSION_REQUEST.userScaffold.prefix}${m.lines}${COMPRESSION_REQUEST.userScaffold.linesToWords}${m.words}${COMPRESSION_REQUEST.userScaffold.wordsToLimit}${m.limit}${COMPRESSION_REQUEST.userScaffold.limitToChars}${CHARS_PER_LINE}${COMPRESSION_REQUEST.userScaffold.charsToTarget}${words}${COMPRESSION_REQUEST.userScaffold.targetToText}${text}`,
+        },
+      ],
+    });
+  } catch (error) {
+    // The OpenRouter adapter throws on a cut-off answer; treat it exactly
+    // like the direct Anthropic cut-off below instead of failing the section.
+    if (error instanceof OutputLimitError) return text;
+    throw error;
+  }
   // A reply cut off at the token limit (thinking shares the budget on Opus
   // 5.5 and Fable 5.1) is a partial section; keep the original instead.
-  if (response.stop_reason === "max_tokens") return text;
+  if (isCutOffStopReason(response.stop_reason)) return text;
   const out = firstResponseText(response).trim();
   return out || text;
 }

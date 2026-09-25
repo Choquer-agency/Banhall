@@ -3,6 +3,8 @@ import type { z } from "zod";
 import { MODEL } from "./model";
 import {
   MalformedOutputError,
+  OutputLimitError,
+  isCutOffStopReason,
   type GenerationClient,
   type GenerationMessageContent,
   type GenerationResponse,
@@ -15,6 +17,11 @@ export const STRUCTURED_OUTPUT_PROGRAM = {
     suffix:
       ". Return the complete tool object and include every required field.",
     runtimeSentinel: "{{runtime.validationSummary}}",
+    // 2026-09-25: the validation summary for an answer the provider stopped
+    // at the output token limit, on either gateway. The repair runs with the
+    // same limit, so it asks for a shorter answer.
+    cutOffSummary:
+      "it was cut off at the output token limit before it finished, so write a shorter answer",
   },
   request: {
     defaultMaxTokens: 8192,
@@ -74,7 +81,9 @@ function unwrapEncodedJson(value: unknown, depth = 0): unknown {
  * Get structured JSON from the model via tool-use. On Anthropic the API
  * returns the tool input already parsed and schema-valid. On OpenRouter the
  * adapter parses function-call arguments and throws a clean provider error on
- * malformed/truncated JSON (surfaces as a failed candidate run).
+ * malformed/truncated JSON (surfaces as a failed candidate run). An answer
+ * either gateway stopped at `max_tokens` is cut off and never accepted: it
+ * spends the repair attempt, then fails with OutputLimitError.
  *
  * Pass `validate` to enforce the shape at this boundary. The provider's JSON
  * Schema is advisory — a model can and does return values that violate it, and
@@ -161,7 +170,10 @@ export async function generateStructured<T>(
       // errors (auth, billing, rate limit) are not repairable by re-prompting
       // and keep failing fast; the transport already retries rate limits.
       if (lastAttempt || !(error instanceof MalformedOutputError)) throw error;
-      validationSummary = error.message;
+      validationSummary =
+        error instanceof OutputLimitError
+          ? STRUCTURED_OUTPUT_PROGRAM.repairScaffold.cutOffSummary
+          : error.message;
       console.warn(
         `${opts.toolName}: retrying after malformed provider output — ${error.message}`
       );
@@ -173,6 +185,24 @@ export async function generateStructured<T>(
     // a failure of the model that answered (providers.ts).
     const settle = async (result: { ok: true } | { ok: false; code: string }) =>
       await res.settleOutcome?.(result);
+
+    // An answer stopped at the output token limit is cut off, even when the
+    // partial tool input would pass validation: most schemas default their
+    // trailing lists to empty, so a cut analysis or Brief used to be saved as
+    // complete. The same failure the OpenRouter adapter raises for
+    // `finish_reason: "length"`: it spends the one repair attempt, then fails.
+    if (isCutOffStopReason(res.stop_reason)) {
+      await settle({ ok: false, code: "output_limit" });
+      validationSummary = STRUCTURED_OUTPUT_PROGRAM.repairScaffold.cutOffSummary;
+      console.warn(
+        `${opts.toolName}: answer cut off at the output token limit (stop reason: ${res.stop_reason})`
+      );
+      if (!lastAttempt) continue;
+      throw new OutputLimitError(
+        `${opts.toolName}: response was truncated at the max_tokens limit before completing`
+      );
+    }
+
     const block = res.content.find((item) => item.type === "tool_use");
     if (!block || block.type !== "tool_use") {
       await settle({ ok: false, code: "no_tool_output" });

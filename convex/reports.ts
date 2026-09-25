@@ -17,6 +17,7 @@ import {
   sha256,
 } from "./lib/contracts";
 import { isProjectDeleting } from "./lib/projectDeletion";
+import { citationSpeakerReader, evidenceSpan } from "./lib/citationSpeakers";
 import { extractPlainText } from "./lib/reportEdits";
 import { computeEditDistance } from "./lib/editDistance";
 import { normalizeCraScienceCode } from "../shared/craScienceCodes";
@@ -124,6 +125,43 @@ export const createProvenance = internalMutation({
         }
       }
     }
+    // Owner decision 25 (2026-09-25): a quote that is only the interviewer's
+    // or another speaker's words never backs a claim. It moves to another
+    // place of the same words in the same transcript row that is not, or it
+    // is dropped, and a claim left with no source is unsupported. Rows
+    // without stored speaker turns, and digests, keep today's byte check.
+    const speakerOf = citationSpeakerReader(ctx);
+    const claims: typeof args.claims = [];
+    for (const claim of args.claims) {
+      const sources: typeof claim.sources = [];
+      for (const citation of claim.sources) {
+        const source = checkedSources.get(citation.generationSourceId);
+        const kept = source ? await evidenceSpan(speakerOf, source, citation) : null;
+        if (!kept) continue;
+        if (kept.startOffset === citation.startOffset) {
+          sources.push(citation);
+          continue;
+        }
+        // Moved: the old place's speaker and time stamps no longer apply.
+        const {
+          speaker: _speaker,
+          timestampStart: _timestampStart,
+          timestampEnd: _timestampEnd,
+          ...rest
+        } = citation;
+        sources.push({ ...rest, startOffset: kept.startOffset, endOffset: kept.endOffset });
+      }
+      claims.push(
+        sources.length === claim.sources.length &&
+          sources.every((citation, index) => citation === claim.sources[index])
+          ? claim
+          : {
+              ...claim,
+              sources,
+              ...(sources.length === 0 ? { state: "unsupported" as const } : {}),
+            }
+      );
+    }
     const generation = args.generationId
       ? await ctx.db.get(args.generationId)
       : null;
@@ -135,7 +173,7 @@ export const createProvenance = internalMutation({
       digestIds: args.digestIds,
       contentHash,
       status: "needs_review",
-      claims: args.claims,
+      claims,
       createdAt: Date.now(),
       createdBy: generation?.requestedBy,
     });

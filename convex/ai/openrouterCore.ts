@@ -285,6 +285,29 @@ export class MalformedOutputError extends Error {
   }
 }
 
+/**
+ * The provider stopped the answer at its output token limit (Anthropic
+ * `stop_reason: "max_tokens"`, OpenRouter `finish_reason: "length"`), so what
+ * came back is cut off, not complete. A malformed-output failure like any
+ * other: it spends the structured repair attempt and is never kept as a
+ * finished answer. The message keeps the "truncated at the max_tokens limit"
+ * wording normalizeProviderError classifies as `output_limit`.
+ */
+export class OutputLimitError extends MalformedOutputError {
+  constructor(message: string) {
+    super(message);
+    this.name = "OutputLimitError";
+  }
+}
+
+/**
+ * Whether a response's stop reason says the answer was cut off at the
+ * output token limit, on either gateway.
+ */
+export function isCutOffStopReason(reason: string | null | undefined): boolean {
+  return reason === "max_tokens" || reason === "length";
+}
+
 export type ChatCompletionsResponse = {
   /** The model that actually answered (differs only after a fallback). */
   model?: string;
@@ -324,7 +347,7 @@ export function fromChatCompletions(
   // model-generated JSON string. A truncated response would JSON.parse-fail
   // confusingly, so surface length truncation as its own error first.
   if (choice.finish_reason === "length") {
-    throw new MalformedOutputError(
+    throw new OutputLimitError(
       "OpenRouter response was truncated at the max_tokens limit before completing"
     );
   }
@@ -375,11 +398,21 @@ export function firstResponseText(response: {
  * Read the first text block even when a reasoning/tool block comes first.
  * The stop reason makes the next provider failure actionable instead of an
  * undiagnosable "empty response".
+ *
+ * An answer cut off at the output token limit is refused the way the
+ * OpenRouter adapter refuses one (OutputLimitError): a section draft that
+ * stops mid-sentence is never delivered as finished text. The caller keeps
+ * what it had (a repair keeps the draft it was fixing) or fails the step.
  */
 export function requireTextResponse(
   response: GenerationResponse,
   label: string
 ): string {
+  if (isCutOffStopReason(response.stop_reason)) {
+    throw new OutputLimitError(
+      `${label} response was truncated at the max_tokens limit before completing`
+    );
+  }
   const text = response.content.find(
     (block): block is Extract<GenerationContentBlock, { type: "text" }> =>
       block.type === "text"

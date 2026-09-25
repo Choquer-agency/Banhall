@@ -13,6 +13,7 @@ import { MODEL } from "./ai/model";
 import { buildSeedPrompt, seedPromptProjection } from "./ai/trustedContext";
 import { domainError } from "./lib/contracts";
 import { reconcileRestoredSeedApproval } from "./lib/seedDecisionWrites";
+import { checkSeedSpeakers, citationSpeakerReader } from "./lib/citationSpeakers";
 import { resolveGatedWorkflow } from "./lib/gatedWorkflow";
 import {
   SEED_ATTEMPT_LEASE_MS,
@@ -867,7 +868,26 @@ export const completeAttempt = internalMutation({
       });
     }
 
-    const preparedSeeds = validation.seeds.map((seed) => ({
+    // Owner decision 25 outside facts mode (2026-09-25): a transcript
+    // citation of only the interviewer's or another speaker's words is
+    // dropped (a Seed left with none stays, writer-asserted), and one of a
+    // speaker with no role yet is marked for a speaker check. Facts mode
+    // already cites verified client spans only. Transcripts without stored
+    // turns keep today's byte check alone.
+    let checkedSeeds = validation.seeds;
+    if (!factMode) {
+      const speakerChecked = await checkSeedSpeakers(
+        citationSpeakerReader(ctx),
+        validation.seeds,
+        new Map(sources.map((source) => [source._id as string, source]))
+      );
+      checkedSeeds = speakerChecked.seeds;
+      if (speakerChecked.dropped > 0) {
+        console.warn(`Seed batch ${batch._id}: ${speakerChecked.dropped} citation(s) of interviewer or other speakers' words were dropped`);
+      }
+    }
+
+    const preparedSeeds = checkedSeeds.map((seed) => ({
       seed,
       uncertaintySeedId: seed.uncertaintySeedId
         ? ctx.db.normalizeId("seeds", seed.uncertaintySeedId)
@@ -957,6 +977,7 @@ export const completeAttempt = internalMutation({
           endOffset: citation.endOffset,
           exactExcerpt: citation.exactExcerpt,
           ...locations.get(citation),
+          ...(citation.needsSpeakerCheck ? { needsSpeakerCheck: true } : {}),
           ...(factMode ? factStamp(factSources, citation) : null),
         });
       }

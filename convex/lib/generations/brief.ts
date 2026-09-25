@@ -20,6 +20,7 @@ import {
 import { appendGenerationProgress } from "../generationProgress";
 import { isProjectDeleting } from "../projectDeletion";
 import { validateCitation } from "../citations";
+import { citationSpeakerReader, type CitationSpeaker } from "../citationSpeakers";
 import { resolveFrozenSourceId } from "../seedRevisions";
 
 // ─── Story 1 (CAP-1/2/4): Generation Brief internal helpers ────────────────
@@ -244,6 +245,61 @@ export async function getGenerationSourcesForBriefHandler(
   args: ObjectType<typeof getGenerationSourcesForBriefArgs>
 ) {
   return await readBriefSourceRows(ctx, args.generationId);
+}
+
+/** Spans one `getCitationSpeakers` call may ask about. */
+export const MAX_CITATION_SPEAKER_SPANS = 2_000;
+
+export const citationSpeakerValidator = v.union(
+  v.literal("client"),
+  v.literal("needs_check"),
+  v.literal("excluded"),
+  v.literal("unchecked")
+);
+
+export const getCitationSpeakersArgs = {
+  generationId: v.id("generations"),
+  spans: v.array(
+    v.object({
+      sourceId: v.id("generationSources"),
+      startOffset: v.number(),
+      endOffset: v.number(),
+    })
+  ),
+};
+
+/**
+ * Handler of generations.getCitationSpeakers: owner decision 25 for spans of
+ * this generation's frozen rows, in order (convex/lib/citationSpeakers.ts).
+ * A row of another generation, or one that is not a transcript, answers
+ * `unchecked`.
+ */
+export async function getCitationSpeakersHandler(
+  ctx: QueryCtx,
+  args: ObjectType<typeof getCitationSpeakersArgs>
+): Promise<CitationSpeaker[]> {
+  if (args.spans.length > MAX_CITATION_SPEAKER_SPANS) {
+    return domainError(
+      "INVALID_INPUT",
+      `At most ${MAX_CITATION_SPEAKER_SPANS} citation spans can be checked at once`
+    );
+  }
+  const speakerOf = citationSpeakerReader(ctx);
+  const sources = new Map<Id<"generationSources">, Doc<"generationSources"> | null>();
+  const verdicts: CitationSpeaker[] = [];
+  for (const span of args.spans) {
+    let source = sources.get(span.sourceId);
+    if (source === undefined) {
+      source = await ctx.db.get(span.sourceId);
+      sources.set(span.sourceId, source);
+    }
+    verdicts.push(
+      source && source.generationId === args.generationId
+        ? await speakerOf(source, span.startOffset, span.endOffset)
+        : "unchecked"
+    );
+  }
+  return verdicts;
 }
 
 /** Latest stored Brief for one reusable input key, regardless of origin. */
@@ -543,6 +599,10 @@ export async function persistDerivedBriefHandler(
   const validatedEntries: Array<
     (typeof args.entries)[number]
   > = [];
+  // Owner decision 25 (2026-09-25): an entry whose quote is only the
+  // interviewer's or another speaker's words is dropped here too, whatever
+  // the derivation chose (defense in depth, like the byte check).
+  const speakerOf = citationSpeakerReader(ctx);
   // One read per distinct cited source, however many entries cite it.
   const sources = new Map<Id<"generationSources">, Doc<"generationSources"> | null>();
   for (const entry of args.entries) {
@@ -558,7 +618,8 @@ export async function persistDerivedBriefHandler(
       !source ||
       source.projectId !== args.projectId ||
       source.generationId !== args.generationId ||
-      !validateCitation(source, entry)
+      !validateCitation(source, entry) ||
+      (await speakerOf(source, entry.startOffset, entry.endOffset)) === "excluded"
     ) {
       droppedEntryCount += 1;
       continue;

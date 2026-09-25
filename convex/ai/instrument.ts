@@ -27,6 +27,12 @@ export type UsageEvent = {
   cacheReadInputTokens?: number;
   /** Provider-reported exact cost (OpenRouter). Anthropic path never sets it. */
   costUsd?: number;
+  /**
+   * The provider's stop reason as reported: Anthropic `stop_reason`,
+   * OpenRouter `finish_reason`. "max_tokens" or "length" marks an answer cut
+   * off at the output limit.
+   */
+  stopReason?: string;
   createdAt?: number;
 };
 
@@ -287,6 +293,15 @@ function anthropicUsage(response: unknown): {
   };
 }
 
+/** The response's stop reason, when it is a non-empty string. */
+export function responseStopReason(response: unknown): string | undefined {
+  if (!response || typeof response !== "object" || !("stop_reason" in response)) {
+    return undefined;
+  }
+  const reason = response.stop_reason;
+  return typeof reason === "string" && reason.length > 0 ? reason : undefined;
+}
+
 function hasCacheControl(value: unknown): boolean {
   return value !== null && typeof value === "object" && "cache_control" in value;
 }
@@ -421,6 +436,7 @@ export function instrumentedAnthropic(
         );
         const durationMs = Math.max(0, Date.now() - startedAt);
         const usage = anthropicUsage(response);
+        const stopReason = responseStopReason(response);
         const params = args[0];
         const model =
           params &&
@@ -465,6 +481,7 @@ export function instrumentedAnthropic(
             ...(usage.cacheReadInputTokens !== undefined
               ? { cacheReadInputTokens: usage.cacheReadInputTokens }
               : {}),
+            ...(stopReason ? { stopReason } : {}),
           });
         }
         return response;

@@ -10,6 +10,8 @@ import {
   retryDelayMs,
   isAbortLikeError,
   MalformedOutputError,
+  OutputLimitError,
+  isCutOffStopReason,
   RETRY_MAX_DELAY_MS,
 } from "./openrouterCore";
 import {
@@ -225,10 +227,42 @@ describe("fromChatCompletions", () => {
 
     expect(() =>
       requireTextResponse(
-        { content: [], stop_reason: "max_tokens" },
+        { content: [], stop_reason: "refusal" },
         "Section 244 agent"
       )
-    ).toThrow(/stop reason: max_tokens/);
+    ).toThrow(/stop reason: refusal/);
+  });
+
+  it("refuses a text answer cut off at the output limit, on either gateway's stop reason", () => {
+    for (const stop_reason of ["max_tokens", "length"]) {
+      let caught: unknown;
+      try {
+        requireTextResponse(
+          { content: [{ type: "text", text: "The team tested the seal at" }], stop_reason },
+          "Section 244 agent"
+        );
+      } catch (error) {
+        caught = error;
+      }
+      expect(caught).toBeInstanceOf(OutputLimitError);
+      expect(caught).toBeInstanceOf(MalformedOutputError);
+      expect(String(caught)).toContain(
+        "Section 244 agent response was truncated at the max_tokens limit before completing"
+      );
+    }
+  });
+
+  it("marks OpenRouter length truncation as a cut-off answer", () => {
+    expect(() =>
+      fromChatCompletions({
+        choices: [{ message: { content: "partial" }, finish_reason: "length" }],
+      })
+    ).toThrow(OutputLimitError);
+    expect(isCutOffStopReason("max_tokens")).toBe(true);
+    expect(isCutOffStopReason("length")).toBe(true);
+    for (const reason of ["end_turn", "tool_use", "stop", "tool_calls", null, undefined]) {
+      expect(isCutOffStopReason(reason)).toBe(false);
+    }
   });
 
   it("throws on empty responses with the provider message when present", () => {

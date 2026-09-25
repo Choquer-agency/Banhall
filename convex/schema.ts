@@ -606,6 +606,11 @@ export default defineSchema({
     // (OpenRouter usage.cost), "estimated" when it came from
     // shared/modelPricing.ts. Absent on rows written before the field.
     costSource: v.optional(v.union(v.literal("native"), v.literal("estimated"))),
+    // 2026-09-25 widen: why the provider stopped, as it reported it
+    // (Anthropic `stop_reason`, OpenRouter `finish_reason`), so an answer
+    // cut off at the output limit ("max_tokens", "length") is visible.
+    // Absent on older rows and when the provider sent none.
+    stopReason: v.optional(v.string()),
     createdAt: v.number(),
   })
     .index("by_createdAt", ["createdAt"])
@@ -673,6 +678,9 @@ export default defineSchema({
     cleanText: v.string(),
   })
     .index("by_transcriptId_and_index", ["transcriptId", "index"])
+    // 2026-09-25: the turns a cited span touches, without reading the rest
+    // (owner decision 25 outside facts mode, convex/lib/citationSpeakers.ts).
+    .index("by_transcriptId_and_charStart", ["transcriptId", "charStart"])
     .index("by_projectId", ["projectId"]),
 
   // 2026-09-24 widen: one role per speaker label of a transcript. Roles are

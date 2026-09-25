@@ -26,7 +26,13 @@ import {
   BRIEF_OUTCOME_DETAIL_CHARS,
   type BriefOutcome,
 } from "../lib/briefRender";
-import { citeQuote, type Citation, type FrozenSource } from "../lib/citations";
+import {
+  citeQuote,
+  quoteOccurrences,
+  type Citation,
+  type FrozenSource,
+} from "../lib/citations";
+import type { CitationSpeaker } from "../lib/citationSpeakers";
 import { citeFactQuote, readsFactPacks } from "../lib/seedFacts";
 import {
   flaggedGlossaryTerms,
@@ -172,7 +178,9 @@ export const BRIEF_REQUEST = {
   toolName: "submit_generation_brief",
   toolDescription:
     "Submit the derived Generation Brief: Storyline, Claim Exclusions, Confidence Map, Glossary Terms.",
-  maxTokens: 8192,
+  // 2026-09-25: raised from 8,192; a real Brief used 8,007 of it, so a
+  // slightly larger project would have been cut off (see ANALYZER_REQUEST).
+  maxTokens: 16_000,
 } as const;
 
 /**
@@ -496,6 +504,42 @@ export type BriefStageAttempt =
   | { kind: "derived" | "reused"; briefId: Id<"generationBriefs"> }
   | { kind: "no_evidence" };
 
+/** Places of one quote tried under owner decision 25 before it is dropped. */
+const MAX_QUOTE_PLACES = 8;
+/** Spans per `getCitationSpeakers` call; it accepts at most 2,000. */
+const CITATION_SPEAKER_BATCH = 1_000;
+
+/**
+ * Owner decision 25 verdicts for candidate places on transcript rows, one
+ * query per batch. Places on any other row are not asked about and read as
+ * `unchecked` (no entry in the map).
+ */
+async function citationSpeakersFor(
+  ctx: BriefPublishCtx,
+  generationId: Id<"generations">,
+  sources: ReadonlyArray<{ _id: Id<"generationSources">; kind: string }>,
+  places: readonly Citation[]
+): Promise<Map<Citation, CitationSpeaker>> {
+  const transcriptRows = new Set<string>(
+    sources.filter((source) => source.kind === "transcript").map((source) => source._id)
+  );
+  const asked = places.filter((place) => transcriptRows.has(place.sourceId));
+  const verdicts = new Map<Citation, CitationSpeaker>();
+  for (let at = 0; at < asked.length; at += CITATION_SPEAKER_BATCH) {
+    const batch = asked.slice(at, at + CITATION_SPEAKER_BATCH);
+    const answers = await ctx.runQuery(internal.generations.getCitationSpeakers, {
+      generationId,
+      spans: batch.map(({ sourceId, startOffset, endOffset }) => ({
+        sourceId,
+        startOffset,
+        endOffset,
+      })),
+    });
+    batch.forEach((place, index) => verdicts.set(place, answers[index]));
+  }
+  return verdicts;
+}
+
 /**
  * The stage: compute inputsHash, reuse the stored Brief when inputs are
  * unchanged, otherwise run one structured call and persist the result.
@@ -546,7 +590,12 @@ export async function deriveOrReuseBrief(
     (s) => s.kind !== "writer_storyline" && s.kind !== "transcript" && s.kind !== "transcript_facts" && s.kind !== "transcript_digest"
   );
   const cite = (quote: string): Citation | null => {
-    if (!factMode) return citeQuote(evidenceSources, quote);
+    if (!factMode) {
+      // `places` and `firstEvidence` (decision 25, below) are filled once
+      // the model has answered, before the first cite() call.
+      const candidates = places.get(quote);
+      return candidates ? firstEvidence(candidates) : citeQuote(evidenceSources, quote);
+    }
     const fact = citeFactQuote(
       sources.map((s) => ({
         sourceId: s._id,
@@ -576,6 +625,54 @@ export async function deriveOrReuseBrief(
     buildBriefUserMessage(sources),
     model
   );
+
+  // Owner decision 25 (2026-09-25): a quote that is only the interviewer's
+  // or another speaker's words never backs an entry. Each quote is cited at
+  // its first place, as before, unless the stored speaker turns say that
+  // place is not evidence; then the next place with the same words wins,
+  // and a quote with none is dropped and counted. Transcripts without
+  // stored turns, documents and digests keep the first place. Facts mode
+  // already cites verified client spans; its glossary matches are checked.
+  const places = new Map<string, Citation[]>();
+  if (!factMode) {
+    const quotes = [
+      ...(writerSource ? [] : output.storylineClaims.map((claim) => claim.quote)),
+      ...output.claimExclusions.map((exclusion) => exclusion.quote),
+      ...output.confidenceMap.map((fact) => fact.quote),
+      ...output.glossaryTerms.flatMap((term) => (term.quote ? [term.quote] : [])),
+    ];
+    for (const quote of quotes) {
+      if (!places.has(quote)) {
+        places.set(quote, quoteOccurrences(evidenceSources, quote, MAX_QUOTE_PLACES));
+      }
+    }
+  }
+  const glossaryMatches = matchGlossaryTermsAcrossSources(
+    output.glossaryTerms,
+    evidenceSources
+  );
+  const glossaryPlaces = glossaryMatches.map((match) => {
+    const first: Citation = {
+      sourceId: match.sourceId,
+      sourceContentHash: match.sourceContentHash,
+      startOffset: match.startOffset,
+      endOffset: match.endOffset,
+      exactExcerpt: match.text,
+    };
+    return [
+      first,
+      ...quoteOccurrences(evidenceSources, match.text, MAX_QUOTE_PLACES).filter(
+        (place) =>
+          place.sourceId !== first.sourceId || place.startOffset !== first.startOffset
+      ),
+    ];
+  });
+  const speakerAt = await citationSpeakersFor(ctx, args.generationId, sources, [
+    ...[...places.values()].flat(),
+    ...glossaryPlaces.flat(),
+  ]);
+  const firstEvidence = (candidates: readonly Citation[]): Citation | null =>
+    candidates.find((place) => speakerAt.get(place) !== "excluded") ?? null;
 
   const candidateEntries: CandidateEntry[] = [];
   // Block-If: "a derived entry's citation fails the byte-match — the entry
@@ -638,21 +735,22 @@ export async function deriveOrReuseBrief(
       exactExcerpt: citation.exactExcerpt,
     });
   }
-  const glossaryMatches = matchGlossaryTermsAcrossSources(
-    output.glossaryTerms,
-    evidenceSources
-  );
-  for (const match of glossaryMatches) {
+  glossaryMatches.forEach((match, index) => {
+    const citation = firstEvidence(glossaryPlaces[index]);
+    if (!citation) {
+      upstreamDroppedEntryCount += 1;
+      return;
+    }
     candidateEntries.push({
       group: "glossaryTerm",
       text: match.canonicalTerm,
-      sourceId: match.sourceId,
-      sourceContentHash: match.sourceContentHash,
-      startOffset: match.startOffset,
-      endOffset: match.endOffset,
-      exactExcerpt: match.text,
+      sourceId: citation.sourceId,
+      sourceContentHash: citation.sourceContentHash,
+      startOffset: citation.startOffset,
+      endOffset: citation.endOffset,
+      exactExcerpt: citation.exactExcerpt,
     });
-  }
+  });
   // Model classification, flagged candidates only (Boundaries: "model
   // classification only classifies candidates the matcher flags"). A term
   // the rule-based matcher already found above never reaches this branch —
