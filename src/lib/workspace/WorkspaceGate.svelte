@@ -22,7 +22,7 @@
   // - Access exposes preview to project.readInternal callers in every
   //   environment; operations inside retain their own capability checks.
   import { goto } from "$app/navigation";
-  import { resolve } from "$app/paths";
+  import { goToLogin } from "$lib/auth/goToLogin";
   import { page } from "$app/state";
   import { useQuery } from "convex-svelte";
   import { useAuth } from "@mmailaender/convex-better-auth-svelte/svelte";
@@ -62,7 +62,7 @@
 
   $effect(() => {
     if (!auth.isLoading && !auth.isAuthenticated) {
-      void goto(resolve("/login"), { replaceState: true });
+      void goToLogin();
     }
   });
 

@@ -7,8 +7,9 @@
   import Spinner from "$lib/components/ui/Spinner.svelte";
 
   import { goto } from "$app/navigation";
-  import { resolve } from "$app/paths";
-  import { onMount } from "svelte";
+  import { page } from "$app/state";
+  import { onMount, untrack } from "svelte";
+  import { afterLoginPath } from "$lib/auth/next";
 
   const auth = useAuth();
 
@@ -38,9 +39,13 @@
   // cannot remount or flash the large brand panel.
   let entering = $state(false);
 
+  // Signed in: return to the page that sent the visitor here (`?next=`, same
+  // origin only), else the dashboard. The URL is read untracked so the
+  // navigation itself cannot re-run this effect.
   $effect(() => {
     if (!auth.isLoading && auth.isAuthenticated) {
-      void goto(resolve("/dashboard"), { replaceState: true });
+      const search = untrack(() => page.url.searchParams);
+      void goto(afterLoginPath(search), { replaceState: true });
     }
   });
 

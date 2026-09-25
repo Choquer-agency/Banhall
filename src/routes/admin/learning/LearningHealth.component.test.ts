@@ -15,6 +15,8 @@ import {
 const DAY = 86_400_000;
 const NOW = Date.UTC(2026, 8, 5, 12);
 const QUERY = "learningHealth:getHealth";
+// Signed-out redirects carry the page as `next` (src/lib/auth/next.ts).
+const LOGIN = "/login?next=%2Fadmin%2Flearning";
 const READ_BYTES = 8 * 1024 * 1024;
 const DOCUMENT_HEADROOM = 1024 * 1024 + 4096;
 type Health = FunctionReturnType<typeof api.learningHealth.getHealth>;
@@ -415,7 +417,7 @@ describe("/admin/learning actual page", () => {
       expect(document.body.textContent).not.toContain("Thermal uncertainty reference");
       expect(document.body.textContent).not.toContain("private access error");
       expect(document.body.textContent).toContain(state === "user error" ? "Administrator access could not be checked" : "Checking administrator access");
-      expect(__navigationCalls.some(call => call.url === "/login")).toBe(false);
+      expect(__navigationCalls.some(call => call.url.startsWith("/login"))).toBe(false);
       if (state === "stale user") __setQueryStale("users:getCurrentUser", false);
       else if (state === "user error") __setQueryData("users:getCurrentUser", { role: "admin", isAnonymous: false });
       else __setAuthState({ isLoading: false });
@@ -445,13 +447,13 @@ describe("/admin/learning actual page", () => {
     expect(__isQueryActive(QUERY)).toBe(false);
     expect(__isQueryActive("users:getCurrentUser")).toBe(false);
     expect(document.body.textContent).not.toContain("Thermal uncertainty reference");
-    await expect.poll(() => __navigationCalls.some(call => call.url === "/login")).toBe(true);
+    await expect.poll(() => __navigationCalls.some(call => call.url === LOGIN)).toBe(true);
   });
 
   it("redirects an unauthenticated visitor without subscribing to internal data", async () => {
     __setAuthState({ isAuthenticated: false });
     render(LearningPage);
-    await expect.poll(() => __navigationCalls.some((call) => call.url === "/login")).toBe(true);
+    await expect.poll(() => __navigationCalls.some((call) => call.url === LOGIN)).toBe(true);
     expect(__isQueryActive(QUERY)).toBe(false);
     expect(__isQueryActive("users:getCurrentUser")).toBe(false);
   });
