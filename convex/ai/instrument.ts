@@ -15,7 +15,11 @@ import {
 } from "./actionDeadline";
 import { COMPRESSION_REQUEST } from "./promptDefinitions";
 import { domainError } from "../lib/contracts";
-import { anthropicTransport, type AnthropicCapability } from "../lib/providerConfig";
+import {
+  TRANSPORT_CONFIGURATION,
+  anthropicTransport,
+  type AnthropicCapability,
+} from "../lib/providerConfig";
 import {
   markOpenRouterError,
   openRouterAnthropicBody,
@@ -516,7 +520,8 @@ function openRouterWireBody(body: unknown): unknown {
   if (!wire) {
     domainError(
       "PROVIDER_NOT_CONFIGURED",
-      `Anthropic model ${String(record.model)} has no OpenRouter id (shared/anthropicTransport.ts), so it cannot run with ANTHROPIC_TRANSPORT=openrouter`
+      `Anthropic model ${String(record.model)} has no OpenRouter id (shared/anthropicTransport.ts), so it cannot run with ANTHROPIC_TRANSPORT=openrouter`,
+      TRANSPORT_CONFIGURATION
     );
   }
   return wire;

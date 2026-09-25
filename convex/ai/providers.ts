@@ -11,8 +11,8 @@ import Anthropic from "@anthropic-ai/sdk";
 import { internal } from "../_generated/api";
 import type { ActionCtx } from "../_generated/server";
 import type { Id } from "../_generated/dataModel";
-import { ConvexError } from "convex/values";
 import {
+  isTransportConfigurationError,
   requireAnthropicClientConfig,
   type AnthropicCapability,
 } from "../lib/providerConfig";
@@ -273,24 +273,15 @@ async function ensureModelRegistered(
 export function modelFaultCode(error: unknown): string | null {
   if (error instanceof ActionTimeBudgetError) return null;
   if (wasStoppedByDeadline(error)) return null;
-  // A missing key or an unknown transport or model mapping (decision 30)
-  // is our configuration, not the model.
-  if (isProviderNotConfigured(error)) return null;
+  // The transport switch's own configuration errors (decision 30): an
+  // unknown value, a missing OpenRouter key, a model without an OpenRouter
+  // id. A missing ANTHROPIC_API_KEY on direct still counts, as before.
+  if (isTransportConfigurationError(error)) return null;
   if (error instanceof MalformedOutputError) return "malformed_output";
   const { code } = normalizeProviderError(error);
   return code === "output_limit" || code === "model_access" || code === "unknown"
     ? code
     : null;
-}
-
-/** A PROVIDER_NOT_CONFIGURED domain error (convex/lib/providerConfig.ts). */
-function isProviderNotConfigured(error: unknown): boolean {
-  return (
-    error instanceof ConvexError &&
-    typeof error.data === "object" &&
-    error.data !== null &&
-    (error.data as { code?: unknown }).code === "PROVIDER_NOT_CONFIGURED"
-  );
 }
 
 /**
@@ -733,11 +724,16 @@ export function normalizeProviderError(error: unknown): {
     status = typeof error.status === "number" ? error.status : undefined;
   }
   const message = rawMessage.toLowerCase();
-  // OpenRouter's in-flight spending budget (decision 30): a 402 that says
-  // the account's concurrent spend is full, sent with Retry-After while the
-  // balance is positive. It clears on its own, so it reads as a rate limit,
-  // not as billing.
-  if (status === 402 && (message.includes("in_flight_budget") || message.includes("in-flight budget"))) {
+  // OpenRouter's in-flight spending budget on the Anthropic gateway's
+  // `openrouter` transport (decision 30): a 402 that says the account's
+  // concurrent spend is full, sent with Retry-After while the balance is
+  // positive. It clears on its own, so it reads as a rate limit, not as
+  // billing. Every other 402, on either gateway, stays billing.
+  if (
+    status === 402 &&
+    isOpenRouterError(error) &&
+    (message.includes("in_flight_budget") || message.includes("in-flight budget"))
+  ) {
     return {
       code: "rate_limited",
       message: "The AI provider is limiting how many requests can run at once. Try again shortly.",

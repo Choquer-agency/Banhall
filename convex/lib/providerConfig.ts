@@ -1,3 +1,4 @@
+import { ConvexError } from "convex/values";
 import { env } from "../_generated/server";
 import { domainError } from "./contracts";
 import {
@@ -26,6 +27,28 @@ const TRANSPORT_VALUES_MESSAGE =
   'ANTHROPIC_TRANSPORT must be "direct" or "openrouter" (unset means "direct")';
 
 /**
+ * Marks the PROVIDER_NOT_CONFIGURED errors the transport switch itself
+ * raises: an unknown ANTHROPIC_TRANSPORT value, a missing OpenRouter key
+ * under `openrouter`, an app model id with no OpenRouter id. Only these are
+ * kept out of the rollback error rate (isTransportConfigurationError). A
+ * missing ANTHROPIC_API_KEY on the direct transport is unmarked and counts
+ * exactly as it did before the switch existed.
+ */
+export const TRANSPORT_CONFIGURATION = { setting: "ANTHROPIC_TRANSPORT" } as const;
+
+/** Whether `error` is one of the transport switch's own configuration errors. */
+export function isTransportConfigurationError(error: unknown): boolean {
+  if (!(error instanceof ConvexError)) return false;
+  const data: unknown = error.data;
+  return (
+    typeof data === "object" &&
+    data !== null &&
+    (data as { code?: unknown }).code === "PROVIDER_NOT_CONFIGURED" &&
+    (data as { setting?: unknown }).setting === TRANSPORT_CONFIGURATION.setting
+  );
+}
+
+/**
  * Where Anthropic-gateway requests go: `direct` (api.anthropic.com, the
  * default and the rollback) or `openrouter` (OpenRouter's Messages endpoint
  * pinned to Anthropic). Read at each client build, so a changed value
@@ -34,7 +57,7 @@ const TRANSPORT_VALUES_MESSAGE =
  */
 export function anthropicTransport(): AnthropicTransport {
   const transport = parseAnthropicTransport(transportEnv.ANTHROPIC_TRANSPORT);
-  if (!transport) domainError("PROVIDER_NOT_CONFIGURED", TRANSPORT_VALUES_MESSAGE);
+  if (!transport) domainError("PROVIDER_NOT_CONFIGURED", TRANSPORT_VALUES_MESSAGE, TRANSPORT_CONFIGURATION);
   return transport;
 }
 
@@ -140,7 +163,8 @@ export function requireAnthropicClientConfig(
     if (!authToken) {
       domainError(
         "PROVIDER_NOT_CONFIGURED",
-        `Anthropic models run through OpenRouter on this deployment, but OpenRouter is not configured for ${capability} (set OPENROUTER_ANTHROPIC_API_KEY or OPENROUTER_API_KEY)`
+        `Anthropic models run through OpenRouter on this deployment, but OpenRouter is not configured for ${capability} (set OPENROUTER_ANTHROPIC_API_KEY or OPENROUTER_API_KEY)`,
+        TRANSPORT_CONFIGURATION
       );
     }
     return { transport: "openrouter", authToken };
