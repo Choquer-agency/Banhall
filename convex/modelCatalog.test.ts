@@ -1992,6 +1992,26 @@ describe("a built-in model taken out of the seed list", () => {
     expect(await row(t, "claude-sonnet-5")).toMatchObject({ status: "enabled" });
   });
 
+  it("comes back when its id is a seed again", async () => {
+    const { t, writer } = await withSeededFable();
+    // Retired by a build without Opus 5.5 in its seed list, then that build
+    // is rolled forward again: simulate by retiring a current seed's row
+    // the way the retire step does.
+    await t.run(async (ctx) => {
+      const opus = await ctx.db
+        .query("modelCatalog")
+        .withIndex("by_modelId", (q) => q.eq("modelId", "claude-opus-5-5"))
+        .first();
+      await ctx.db.patch(opus!._id, { status: "retired" });
+    });
+    expect(await pickerIds(writer)).not.toContain("claude-opus-5-5");
+    await t.mutation(seedCatalogRef, {});
+    expect(await row(t, "claude-opus-5-5")).toMatchObject({ status: "enabled", source: "seed" });
+    expect(await pickerIds(writer)).toContain("claude-opus-5-5");
+    // Fable is not a seed, so it is retired, not revived.
+    expect(await row(t, "claude-fable-5-1")).toMatchObject({ status: "retired" });
+  });
+
   it("stays enabled while a role still uses it", async () => {
     const { t, admin } = await withSeededFable();
     await admin.mutation(setRoleModelRef, { role: "chat", modelId: "claude-fable-5-1" });
