@@ -345,3 +345,50 @@ describe("accepting a suggestion twice (final round, item 4)", () => {
     expect(await reportContent(f)).toBe(after);
   });
 });
+
+describe("final narrow fixes", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.stubEnv("ANTHROPIC_API_KEY", "test-anthropic-key");
+  });
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.useRealTimers();
+  });
+
+  it("P2-a: refuses a heading-text edit from a drifted highlight that crossed the heading", async () => {
+    const f = await setup(bodyComment);
+    // Dragged from the 242 body past the 244 heading: it holds the heading's
+    // text, not the body's "work performed". The writer then typed above, so
+    // the stored positions drifted and the two-block text is not found.
+    const text = `${NODES[2].content[0].text}\n${NODES[3].content[0].text}`;
+    const sent = await f.owner.mutation(api.chatV2.sendMessage, {
+      reportId: f.reportId, content: "Rewrite this.", newThread: true,
+      highlight: { text, from: nodeStart(2) + 1 + 5, to: nodeEnd(3) - 1 + 5 },
+    });
+    const saved = await f.t.mutation(internal.chatV2.saveProposal, {
+      agentThreadId: sent.threadId, promptMessageId: sent.messageId, kind: "edit", targetText: "Work Performed", newText: "Experimental work",
+    });
+    expect(saved).toMatchObject({ ok: false, reason: expect.stringContaining("The report changed since this text was selected.") });
+    expect(await reportContent(f)).toBe(REPORT_DOC);
+  });
+
+  it("P2-b: applies a drifted research edit on \"46\" though \"Line 246\" contains it", async () => {
+    const f = await setup(bodyComment);
+    const at = selection(4, "46");
+    const id = await researchProposal(f, "46", { from: at.from + 3, to: at.to + 3 }, "48");
+    expect(await f.owner.mutation(api.chatV2.applyProposal, { proposalId: id })).toMatchObject({ applied: true });
+    expect(await reportContent(f)).toContain("cycled 48 coupons");
+    expect(await proposalState(f, id)).toBe("applied");
+  });
+
+  it("P2-b: still refuses a drifted research selection of a whole heading's text", async () => {
+    const f = await setup(bodyComment);
+    const whole = NODES[3].content[0].text;
+    const id = await researchProposal(f, whole, { from: nodeStart(3) + 1 + 4, to: nodeEnd(3) - 1 + 4 }, "Line 244 — Experiments");
+    expect(await f.owner.mutation(api.chatV2.applyProposal, { proposalId: id })).toMatchObject({ applied: false, reason: HEADING_MESSAGE });
+    expect(await proposalState(f, id)).toBe("stale");
+    expect(await reportContent(f)).toBe(REPORT_DOC);
+  });
+});
+

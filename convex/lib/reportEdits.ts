@@ -240,8 +240,20 @@ function occurrences(doc: PMNode, text: string): Array<{ from: number; to: numbe
  * report changed since), its occurrences decide only if they are all of one
  * kind; occurrences in both heading or title text and the body give "split",
  * and a text no longer anywhere in one block gives "missing".
+ *
+ * `partialHeadingText: false` is for selections made in the report editor
+ * (research, Ask assistant). The reading view never selects part of a
+ * heading's text, and the classic view selects whole words, so an occurrence
+ * inside a heading or the title then counts only when it covers that
+ * heading's whole text or whole words of it: "46" inside "Line 246" does
+ * not, "Work Performed" does. The review link keeps the default: every
+ * occurrence counts.
  */
-export function locateSelection(doc: PMNode, selection: StoredSelection): SelectionLocation {
+export function locateSelection(
+  doc: PMNode,
+  selection: StoredSelection,
+  { partialHeadingText = true }: { partialHeadingText?: boolean } = {}
+): SelectionLocation {
   const { from, to } = selection;
   if (
     Number.isInteger(from) &&
@@ -251,7 +263,20 @@ export function locateSelection(doc: PMNode, selection: StoredSelection): Select
   ) {
     return kindAt(doc, from, to);
   }
-  const kinds = new Set(occurrences(doc, selection.text).map((range) => kindAt(doc, range.from, range.to)));
+  const ranges = topLevelRanges(doc);
+  const kinds = new Set<"body" | ProtectedKind>();
+  for (const found of occurrences(doc, selection.text)) {
+    const kind = kindAt(doc, found.from, found.to);
+    if (kind !== "body" && !partialHeadingText) {
+      const heading = ranges.find((range) => range.kind && found.from < range.to - 1 && found.to > range.from + 1);
+      if (!heading) continue;
+      const before = textBetweenPositions(doc, heading.from + 1, found.from);
+      const after = textBetweenPositions(doc, found.to, heading.to - 1);
+      const wordBounded = !/[\p{L}\p{N}]$/u.test(before) && !/^[\p{L}\p{N}]/u.test(after);
+      if (!wordBounded) continue;
+    }
+    kinds.add(kind);
+  }
   if (kinds.size === 0) return "missing";
   if (kinds.size === 1) return [...kinds][0];
   if (kinds.has("body")) return "split";
@@ -260,12 +285,12 @@ export function locateSelection(doc: PMNode, selection: StoredSelection): Select
 
 /**
  * The location that decides an Ask assistant edit, from the writer's
- * highlight: undefined when the edit does not target the highlight, or when
- * the highlighted text is gone (an earlier edit from the same turn may have
- * changed it), so the edit falls back to the match-count rules. A heading,
- * title or split highlight only decides for an edit whose target text
- * actually occurs in heading or title text (`protectedMatches`); a target
- * found only in the body cannot be a heading edit.
+ * highlight: undefined when the edit does not target the highlight. A
+ * heading, title, split or missing highlight only decides for an edit whose
+ * target text actually occurs in heading or title text (`protectedMatches`):
+ * a body-only target falls back to the match-count rules (so the second edit
+ * from a turn applies after the first changed the highlighted text), while a
+ * heading-text target of a highlight that can no longer be placed is refused.
  */
 export function highlightLocation(
   doc: PMNode,
@@ -277,8 +302,9 @@ export function highlightLocation(
   const selected = compact(highlight.text);
   if (!target || !selected) return undefined;
   if (!target.includes(selected) && !selected.includes(target)) return undefined;
-  const location = locateSelection(doc, highlight);
-  if (location === "missing") return undefined;
+  // "missing" stays a refusal for a target that also occurs in heading or
+  // title text; a body-only target falls back to the match-count rules.
+  const location = locateSelection(doc, highlight, { partialHeadingText: false });
   if (location !== "body" && protectedMatches === 0) return undefined;
   return location;
 }
