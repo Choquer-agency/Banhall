@@ -59,7 +59,7 @@ export function isTranscriptFileName(fileName: string): boolean {
 // ─── Speaker labels (moved from convex/lib/seedContract.ts) ────────────────
 
 const TIMESTAMP = String.raw`[\[(]?\d{1,2}:\d{2}(?::\d{2})?(?:[.,]\d{1,3})?[\])]?`;
-const LEADING_TIMESTAMP = new RegExp(String.raw`^${TIMESTAMP}\s*(?:[-–—]\s*)?`);
+const LEADING_TIMESTAMP = new RegExp(String.raw`^${TIMESTAMP}\s*(?:[-\u2013\u2014]\s*)?`);
 const TRAILING_TIMESTAMP = new RegExp(String.raw`\s+${TIMESTAMP}$`);
 const ONLY_TIMESTAMP = new RegExp(String.raw`^${TIMESTAMP}$`);
 /** WebVTT voice span: `<v Priya Shah>` or `<v.loud Priya>`. */
