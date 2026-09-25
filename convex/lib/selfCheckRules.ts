@@ -3,6 +3,7 @@ import {
   normalizeExclusionMatch,
 } from "./claimExclusionMatcher";
 import { LINE_LIMITS, WORD_CAPS, sectionMetrics } from "./lineLimits";
+import { STORYLINE_QUESTION_WITHHELD_REASON } from "./storylineQuestionNote";
 import { sectionParagraphs } from "./tiptapReport";
 import { matchGlossaryTerms } from "./glossaryMatcher";
 import {
@@ -556,7 +557,8 @@ export function assembleSectionNotes(input: {
         instruction: "Storyline",
         outcome: "not_applied",
         tier: "none",
-        reason: `Storyline question withheld (${input.storylineQuestionWithheld}): shortened text must not replace the Storyline, so the Brief does not offer it (not repaired)`,
+        // Plain words only: the byte detail stays in the summary and the log.
+        reason: STORYLINE_QUESTION_WITHHELD_REASON,
       })
     );
   }
