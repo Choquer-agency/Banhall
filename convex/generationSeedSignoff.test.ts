@@ -7658,6 +7658,72 @@ describe("Seed workspace read models (stories 5-6)", () => {
     });
   });
 
+  it("getSourceAttributionByIds never attributes a source frozen for another generation of the same project (R6-15)", async () => {
+    const s = await decisionFixture();
+    const inserted = await s.t.run(async (ctx) => {
+      // A second Seed run of the SAME authorized project, with its own frozen source.
+      const otherGenerationId = await ctx.db.insert("generations", {
+        projectId: s.projectId,
+        status: "awaiting_input",
+        candidateMode: "iterative",
+        gatedWorkflow: "seeds",
+        startedAt: 2,
+        previousProjectStatus: "draft",
+        seedStageVersion: 0,
+        seedRequestsReserved: 0,
+        promptVersion: `sha256:${"b".repeat(64)}`,
+        writerSettings: {
+          profileState: "missing",
+          source: "none",
+          matchesProfile: false,
+          savedProfileSuperseded: false,
+          waiverAnalysis: "none",
+          truncated: false,
+        },
+      });
+      const otherGenerationSourceId = await ctx.db.insert("generationSources", {
+        generationId: otherGenerationId,
+        projectId: s.projectId,
+        kind: "transcript",
+        label: "Other run interview",
+        content: "Another run's frozen source.",
+        contentHash: "other-run-hash",
+        truncated: false,
+        originalLength: 28,
+        capturedAt: 6,
+      });
+      return { otherGenerationId, otherGenerationSourceId };
+    });
+
+    // The first generation, asked for both ids, returns only its own source.
+    const recovered = await s.writer.query(getSourceAttributionByIdsRef, {
+      generationId: s.generationId,
+      sourceIds: [inserted.otherGenerationSourceId, s.sourceId],
+    });
+    expect(recovered).toEqual({
+      generationId: s.generationId,
+      sources: [{ sourceId: s.sourceId, label: "Interview", kind: "transcript" }],
+      complete: true,
+    });
+
+    // The other generation, asked for both ids, likewise returns only its own.
+    const other = await s.writer.query(getSourceAttributionByIdsRef, {
+      generationId: inserted.otherGenerationId,
+      sourceIds: [s.sourceId, inserted.otherGenerationSourceId],
+    });
+    expect(other).toEqual({
+      generationId: inserted.otherGenerationId,
+      sources: [
+        {
+          sourceId: inserted.otherGenerationSourceId,
+          label: "Other run interview",
+          kind: "transcript",
+        },
+      ],
+      complete: true,
+    });
+  });
+
   it("getSummary carries the queried generation's identity and run settings in the live, empty-live and frozen shapes", async () => {
     const s = await decisionFixture();
     await makeReady(s);

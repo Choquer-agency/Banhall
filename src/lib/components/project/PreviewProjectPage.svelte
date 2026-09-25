@@ -1094,8 +1094,9 @@
     isSeedWorkflow && generation?.seedPhase === "seeding" && !seedSummaryOpen
   );
   // A legacy section-approval run owns the main surface for its whole active
-  // life (running or awaiting input); a report-owned frozen Summary URL never
-  // renders beside it and becomes reachable again once the stepper is gone (A10).
+  // life (running or awaiting input), and a compare run owns it while it
+  // awaits candidate selection; a report-owned frozen Summary URL never
+  // renders beside either and becomes reachable again once it ends (A10, R6-05).
   const showIterativeStepper = $derived(
     isIterative && !isSeedWorkflow &&
       (generation?.status === "running" || generation?.status === "awaiting_input")
@@ -1104,6 +1105,7 @@
     seedSummaryRequested &&
       ((isSeedWorkflow && generation?.seedPhase === "seeding") ||
         (!showIterativeStepper &&
+          generation?.status !== "awaiting_selection" &&
           !(isSeedWorkflow &&
             (generation?.seedPhase === "initializing" ||
               generation?.seedPhase === "drafting" ||
@@ -1945,11 +1947,15 @@
         >
           <GenerationProgress generationId={generation._id} />
           {#if isSeedWorkflow && generation.seedStageError}
-            <SeedInitializationRecovery
-              generationId={generation._id}
-              message={generation.seedStageError}
-              canEdit={generation.seedCanEdit}
-            />
+            <!-- A5 (R6-07): a retry's pending state and refusal belong to the
+                 user and generation that submitted it. -->
+            {#key `${user?._id}:${generation._id}`}
+              <SeedInitializationRecovery
+                generationId={generation._id}
+                message={generation.seedStageError}
+                canEdit={generation.seedCanEdit}
+              />
+            {/key}
           {/if}
           {#if !report}
             <!-- Uploads that failed on the way in have no other home while a

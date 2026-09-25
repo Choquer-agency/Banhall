@@ -32,19 +32,31 @@
 //   run, and cleanup assesses and terminates the group independently of the
 //   direct child's exit, with bounded SIGTERM → SIGKILL escalation. A failing
 //   log stream ends the run through the same failure and cleanup path.
+// - CLEANUP OUTCOMES (R6-10 / R6-11 / R6-12): browser shutdown is bounded by
+//   `--browser-close-timeout-ms` (default 30000) and server cleanup runs even
+//   when it stalls. An ownership failure that arrives during cleanup, an owned
+//   group that survives escalation and a browser that does not close in time
+//   are each recorded as a failed assertion before the report and the exit
+//   code are settled.
 //
 // Usage: node scripts/seed-summary-history-witness.mjs [--out <dir>] [--port <n>] [--headed]
-//        [--startup-timeout-ms <n>] [--reserve-only] [--server-command <json array>]
-//        [--inject-log-failure] [--stand-in-journey-ms <n>]
+//        [--startup-timeout-ms <n>] [--browser-close-timeout-ms <n>] [--reserve-only]
+//        [--server-command <json array>] [--inject-log-failure] [--stand-in-journey-ms <n>]
+//        [--stand-in-browser-close-ms <n|never>] [--inject-log-failure-at-close]
+//        [--inject-signal-failure]
 // `--out` names either a fresh directory (reserved exclusively) or an existing
 // directory that receives a freshly reserved run directory inside it; a path
 // that exists and is not a directory is refused (exit 2). Without `--out`, a
 // run directory is reserved under SEED_WITNESS_EVIDENCE_ROOT (default: the
-// loop-05 evidence folder). `--port`, `--startup-timeout-ms` and
-// `--stand-in-journey-ms` must be positive integers (the port at most 65535);
+// loop-05 evidence folder). `--port`, `--startup-timeout-ms`,
+// `--browser-close-timeout-ms` and `--stand-in-journey-ms` must be positive
+// integers (the port at most 65535);
 // anything else is refused with a diagnostic before anything is reserved or
-// spawned (exit 2). `--reserve-only`, `--server-command`, `--inject-log-failure`
-// and `--stand-in-journey-ms` exist for the harness's own tests
+// spawned (exit 2). `--reserve-only`, `--server-command`, `--inject-log-failure`,
+// `--stand-in-journey-ms`, `--stand-in-browser-close-ms` (a stand-in for
+// browser shutdown; needs `--stand-in-journey-ms`), `--inject-log-failure-at-close`
+// and `--inject-signal-failure` (group signals are not delivered) exist for the
+// harness's own tests
 // (src/lib/test/seedSummaryHistoryWitness.harness.test.ts), which run under
 // `npm test` and therefore never launch a browser: `--stand-in-journey-ms`
 // replaces the browser journeys with a hold of that length, raced against the
@@ -98,17 +110,32 @@ function serverCommandOption(raw) {
 
 let port;
 let startupTimeoutMs;
+let browserCloseTimeoutMs;
 let serverCommandOverride;
 let standInJourneyMs;
+let standInBrowserCloseMs;
 try {
   port = positiveInteger("--port", option("--port", "3107"));
   if (port > 65535) throw new Error(`--port must be at most 65535, received ${port}`);
   startupTimeoutMs = positiveInteger("--startup-timeout-ms", option("--startup-timeout-ms", "180000"));
+  // R6-12: browser shutdown is bounded, so a stalled close can never hold
+  // back server cleanup or the report.
+  browserCloseTimeoutMs = positiveInteger("--browser-close-timeout-ms", option("--browser-close-timeout-ms", "30000"));
   // Harness self-tests only: a JSON array that replaces the dev-server command.
   serverCommandOverride = serverCommandOption(option("--server-command", null));
   // Harness self-tests only: a browser-free hold in place of the journeys.
   const standIn = option("--stand-in-journey-ms", null);
   standInJourneyMs = standIn === null ? null : positiveInteger("--stand-in-journey-ms", standIn);
+  // Harness self-tests only: a browser-free stand-in for browser shutdown
+  // that takes this long, or never finishes ("never").
+  const standInClose = option("--stand-in-browser-close-ms", null);
+  standInBrowserCloseMs =
+    standInClose === null || standInClose === "never"
+      ? standInClose
+      : positiveInteger("--stand-in-browser-close-ms", standInClose);
+  if (standInBrowserCloseMs !== null && standInJourneyMs === null) {
+    throw new Error("--stand-in-browser-close-ms requires --stand-in-journey-ms");
+  }
 } catch (error) {
   console.error(`seed-summary-history-witness: ${error.message}`);
   process.exit(2);
@@ -118,6 +145,12 @@ const reserveOnly = flag("--reserve-only");
 // Harness self-tests only: fails the dev-server log stream once the owned
 // server is ready, to prove the failure reaches cleanup and the report.
 const injectLogFailure = flag("--inject-log-failure");
+// Harness self-tests only: fails the log stream while the stand-in browser is
+// closing, after the last journey, to prove a late failure still fails the run.
+const injectLogFailureAtClose = flag("--inject-log-failure-at-close");
+// Harness self-tests only: process-group signals are not delivered, so the
+// owned group outlives bounded escalation, to prove survival fails the run.
+const injectSignalFailure = flag("--inject-signal-failure");
 const serverCommand = serverCommandOverride ?? [
   join(root, "node_modules/.bin/vite"),
   "dev", "--config", "vite.integration.config.ts",
@@ -421,6 +454,7 @@ function groupAlive(pid) {
 }
 
 function signalGroup(pid, signal) {
+  if (injectSignalFailure) return false;
   try {
     process.kill(-pid, signal);
     return true;
@@ -517,6 +551,11 @@ async function startServer() {
     group: null,
     unexpectedExit: null,
     logFailure: null,
+    // Every ownership failure in arrival order (R6-10). One that ended the
+    // run is marked recorded there; any other, including one that arrives
+    // during cleanup when nothing races `ownedFailure` any more, is recorded
+    // as a failed assertion before the report and the exit code are fixed.
+    ownershipFailures: [],
     ownedFailure,
     exited: Promise.resolve(),
     closeLog: async () => {
@@ -526,9 +565,13 @@ async function startServer() {
     },
   };
   serverProcess = server;
+  const failOwned = (error) => {
+    server.ownershipFailures.push({ error, recorded: false });
+    rejectOwned(error);
+  };
   log.on("error", (error) => {
     server.logFailure = error.message;
-    rejectOwned(new Error(`dev-server log stream failed: ${error.message}`));
+    failOwned(new Error(`dev-server log stream failed: ${error.message}`));
   });
   let child;
   try {
@@ -550,11 +593,11 @@ async function startServer() {
   // Spawn errors (a missing binary) and exits arrive asynchronously; both are
   // observed through the owned-failure promise, never as an unhandled
   // rejection. An exit requested by cleanup is not a failure.
-  child.once("error", (error) => rejectOwned(new Error(`dev server could not be spawned: ${error.message}`)));
+  child.once("error", (error) => failOwned(new Error(`dev server could not be spawned: ${error.message}`)));
   child.once("exit", (code, signal) => {
     if (server.stopped) return;
     server.unexpectedExit = { code, signal, at: new Date().toISOString(), afterReady: server.ready };
-    rejectOwned(new Error(
+    failOwned(new Error(
       server.ready
         ? `dev server exited unexpectedly during the run (${code ?? signal}); see ${logPath}`
         : `dev server exited early (${code ?? signal}); see ${logPath}`
@@ -1037,6 +1080,25 @@ async function concurrentTabsJourney(browser, host, surface) {
 
 let browser;
 let exitCode = 1;
+let runCompleted = false;
+
+/** Browser shutdown within a bound (R6-12): a close that fails or never
+ * settles is reported, never awaited past the bound. */
+async function closeBrowserWithin(timeoutMs) {
+  if (!browser) return "none";
+  let timer;
+  const outcome = await Promise.race([
+    Promise.resolve()
+      .then(() => browser.close())
+      .then(() => "closed", (error) => `failed: ${error?.message ?? String(error)}`),
+    new Promise((resolveTimeout) => {
+      timer = setTimeout(() => resolveTimeout("timed out"), timeoutMs);
+    }),
+  ]);
+  clearTimeout(timer);
+  return outcome;
+}
+
 try {
   await startServer();
   if (injectLogFailure) serverProcess.log.destroy(new Error("injected log failure"));
@@ -1044,6 +1106,17 @@ try {
   // readiness, a failed log) ends the run before a browser is launched.
   await owned(sleep(50));
   if (standInJourneyMs !== null) {
+    // Harness self-tests only: a browser-free stand-in for shutdown, which
+    // takes the given time or never finishes, optionally failing the log
+    // stream while it runs.
+    if (standInBrowserCloseMs !== null) {
+      browser = {
+        close: async () => {
+          if (injectLogFailureAtClose) serverProcess.log.destroy(new Error("injected log failure during browser close"));
+          await (standInBrowserCloseMs === "never" ? new Promise(() => {}) : sleep(standInBrowserCloseMs));
+        },
+      };
+    }
     // Harness self-tests only: the journeys' place in the run, raced against
     // the owned server like every journey, without launching a browser. It
     // exercised no journey, so it is recorded as a failed witness.
@@ -1061,14 +1134,44 @@ try {
       await owned(concurrentTabsJourney(browser, host, "summary"));
     }
   }
-  exitCode = failures === 0 ? 0 : 1;
+  runCompleted = true;
 } catch (error) {
   console.error(error);
   results.push({ host: "harness", name: "run completed", ok: false, detail: String(error) });
   failures += 1;
+  // The ownership failure that ended the run is now recorded; it is not
+  // counted again below.
+  const ended = serverProcess?.ownershipFailures.find((failure) => failure.error === error);
+  if (ended) ended.recorded = true;
 } finally {
-  if (browser) await browser.close().catch(() => {});
-  await stopServer();
+  // Server cleanup runs on its own path: however browser shutdown ends, the
+  // owned group is stopped.
+  let browserClose = "none";
+  try {
+    browserClose = await closeBrowserWithin(browserCloseTimeoutMs);
+  } finally {
+    await stopServer();
+  }
+  // Cleanup outcomes are assertions, settled before the report and the exit
+  // code: a browser that did not close within the bound (R6-12), an ownership
+  // failure nothing recorded yet, such as an owned-server exit or a log
+  // failure during browser shutdown (R6-10), and an owned group that outlived
+  // bounded escalation (R6-11).
+  if (browserClose !== "none" && browserClose !== "closed") {
+    check("harness", `browser closed within the ${browserCloseTimeoutMs} ms cleanup bound`, false, { outcome: browserClose });
+  }
+  for (const failure of serverProcess?.ownershipFailures ?? []) {
+    if (failure.recorded) continue;
+    failure.recorded = true;
+    check("harness", "owned server stayed healthy until cleanup", false, failure.error.message);
+  }
+  if (serverProcess?.group === "survived") {
+    check("harness", "owned server process group terminated during cleanup", false, {
+      pid: serverProcess.pid,
+      group: serverProcess.group,
+    });
+  }
+  exitCode = runCompleted && failures === 0 ? 0 : 1;
   const report = {
     at: new Date().toISOString(),
     command: `node scripts/seed-summary-history-witness.mjs --out ${out} --port ${port}`,
@@ -1090,8 +1193,10 @@ try {
           group: serverProcess.group,
           unexpectedExit: serverProcess.unexpectedExit,
           logFailure: serverProcess.logFailure,
+          ownershipFailures: serverProcess.ownershipFailures.map((failure) => failure.error.message),
         }
       : null,
+    browserClose,
     passed: results.filter((r) => r.ok).length,
     failed: failures,
     results,

@@ -17,6 +17,7 @@ import {
   __setQueryError,
 } from "$lib/test/convex-svelte-stub.svelte";
 import { captureOwner } from "$lib/test/captureOwner";
+import { reactiveValue } from "$lib/test/reactiveValue.svelte";
 import SeedWorkspace from "./SeedWorkspace.svelte";
 import SeedSubsectionPane from "./SeedSubsectionPane.svelte";
 import SeedCard from "./SeedCard.svelte";
@@ -618,6 +619,75 @@ describe("Seed workspace", () => {
     expect(__mutationCalls("seeds:unskip")[0]).toMatchObject({ roleId: "prior_year_status", expectedSeedStageVersion: 7 });
   });
 
+  it("rechecks edit capability at dispatch, so a revocation landing before an interaction dispatches sends nothing (A3, R6-08)", async () => {
+    __setQueryData("seeds:listBatches", {
+      page: [{
+        batch: { _id: "batch-old-1", operation: "initial", status: "superseded" },
+        seeds: [historicalSeed("seed-old-1", "Old original.", "Old history wording.", "Old excerpt.")],
+      }],
+      isDone: true,
+      continueCursor: "done",
+      truncated: false,
+      budget,
+    });
+    const capability = reactiveValue(true);
+    const onDraftChange = vi.fn();
+    const withCapability = (props: Record<string, unknown>) =>
+      Object.defineProperty(props, "canEdit", { get: () => capability.value, enumerable: true, configurable: true });
+    const feedbackGroup = {
+      requestId: "feedback-1" as Id<"seedFeedbackRequests">,
+      targetSeedId: "seed-1" as Id<"seeds">,
+      targetWording: ["The control loop stabilized output."],
+      instruction: "Make the evidence more specific.",
+      status: "active" as const,
+      batchId: null,
+      revisedSeedIds: [],
+    };
+    const optional = { title: "Previous-year status", objective: "Describe prior-year status.", kind: "optional", onDraftChange };
+    const view = await render(SeedSubsectionPane, withCapability(paneProps(subsection({
+      roleId: "prior_year_status",
+      items: [seed({ roleId: "prior_year_status", edited: true })],
+      feedbackGroups: [feedbackGroup],
+    }), optional)));
+    await stepMenu("Batch history");
+    await expect.element(page.getByText("Old history wording.", { exact: true })).toBeVisible();
+
+    // The capability changes without a flush, so the click still reaches the
+    // control the pane rendered while the writer could edit.
+    async function revokeThenDispatch(control: () => ReturnType<typeof page.getByRole>, open?: () => Promise<void>) {
+      capability.value = true;
+      await open?.();
+      await expect.element(control()).toBeVisible();
+      const element = control().element() as HTMLElement;
+      capability.value = false;
+      element.click();
+      await expect.poll(() => control().elements()).toHaveLength(0);
+    }
+    await revokeThenDispatch(() => page.getByRole("button", { name: "Restore original wording", exact: true }));
+    await revokeThenDispatch(() => page.getByRole("button", { name: "Withdraw feedback", exact: true }));
+    await revokeThenDispatch(() => page.getByRole("button", { name: "Regenerate", exact: true }));
+    await revokeThenDispatch(() => page.getByRole("button", { name: "Restore this Batch", exact: true }));
+    await revokeThenDispatch(
+      () => page.getByRole("menuitem", { name: "Skip step", exact: true }),
+      () => page.getByRole("button", { name: "More step actions", exact: true }).click()
+    );
+    view.unmount();
+
+    await render(SeedSubsectionPane, withCapability(paneProps(
+      subsection({ roleId: "prior_year_status", state: "skipped", items: [] }),
+      optional
+    )));
+    await revokeThenDispatch(
+      () => page.getByRole("menuitem", { name: "Restore step", exact: true }),
+      () => page.getByRole("button", { name: "More step actions", exact: true }).click()
+    );
+
+    for (const name of ["restoreWording", "withdrawFeedback", "regenerate", "retry", "restoreBatch", "skip", "unskip"]) {
+      expect(__mutationCalls(`seeds:${name}`), name).toEqual([]);
+    }
+    expect(onDraftChange).not.toHaveBeenCalled();
+  });
+
   it("discards a history response when the role/version scope changes while it is loading", async () => {
     let release: ((value: unknown) => void) | undefined;
     const delayed = new Promise<unknown>((resolve) => { release = resolve; });
@@ -731,15 +801,49 @@ describe("Seed workspace", () => {
     });
     await render(SeedSubsectionPane, paneProps(subsection({ truncated: true, approvalChallenge: null })));
     await page.getByRole("button", { name: "Load Batch history", exact: true }).click();
+    // Nonprogress is named as such, never blamed on the server's processing limit (R6-09).
     await expect.element(page.getByRole("alert")).toHaveTextContent(
-      "Batch history stopped because one Batch exceeds the safe server processing limit."
+      "Batch history stopped because the server kept returning the same page. The complete history cannot be shown, so approval stays unavailable while Seeds are omitted."
     );
+    expect(document.body.textContent).not.toContain("processing limit");
     expect(__clientQueryCalls("seeds:listBatches")).toEqual([
       { generationId, roleId: "company_context", cursor: null, numItems: 20 },
       { generationId, roleId: "company_context", cursor: "stuck-cursor", numItems: 20 },
     ]);
     expect(__clientQueryCalls("seeds:getApprovalReview")).toEqual([]);
     await expect.element(page.getByText("History is incomplete.", { exact: true })).toBeVisible();
+    await expect.element(page.getByRole("button", { name: "Approve and continue", exact: true })).toBeDisabled();
+    await expect.element(page.getByRole("button", { name: "Retry Batch history", exact: true })).toBeEnabled();
+  });
+
+  it("attributes a history stop to the server's processing limit only when a history read is refused for it (R6-09)", async () => {
+    const historyArgs = (cursor: string | null) => ({ generationId, roleId: "company_context", cursor, numItems: 20 });
+    __setQueryDataForArgs("seeds:listBatches", historyArgs(null), {
+      page: [{
+        batch: { _id: "batch-before-refusal", operation: "initial", status: "superseded" },
+        seeds: [historicalSeed("seed-before-refusal", "Loaded original.", "Loaded before the refusal.", "Loaded excerpt.")],
+      }],
+      isDone: false,
+      continueCursor: "refused-page",
+      truncated: false,
+      budget,
+    });
+    __setQueryDataForArgs("seeds:listBatches", historyArgs("refused-page"), rejecting(new ConvexError({
+      code: "INVALID_INPUT",
+      reason: "SEED_PROCESSING_LIMIT",
+      roleId: "company_context",
+      message: "Batch history exceeds the read budget",
+    })));
+    __setQueryData("seeds:getApprovalReview", historyReview("must-not-be-requested"));
+    await render(SeedSubsectionPane, paneProps(subsection({ truncated: true, approvalChallenge: null })));
+    await page.getByRole("button", { name: "Load Batch history", exact: true }).click();
+    await expect.element(page.getByRole("alert")).toHaveTextContent(
+      "Batch history stopped because the server could not read it within its safe processing limit. The complete history cannot be shown, so approval stays unavailable while Seeds are omitted."
+    );
+    // A history refusal is not a refused approval decision.
+    expect(document.body.textContent).not.toContain("complete approval decision");
+    await expect.element(page.getByText("Loaded before the refusal.", { exact: true })).toBeVisible();
+    expect(__clientQueryCalls("seeds:getApprovalReview")).toEqual([]);
     await expect.element(page.getByRole("button", { name: "Approve and continue", exact: true })).toBeDisabled();
     await expect.element(page.getByRole("button", { name: "Retry Batch history", exact: true })).toBeEnabled();
   });
@@ -904,6 +1008,81 @@ describe("Seed workspace", () => {
     await expect.element(page.getByRole("button", { name: "Send feedback", exact: true })).toBeEnabled();
     await expect.element(instruction).toHaveValue("Keep the second Seed's instruction. Added while requesting.");
     expect(storedDrafts()["seed-2"].feedback?.instruction).toBe("Keep the second Seed's instruction. Added while requesting.");
+  });
+
+  it("never replays a failed obsolete cleanup: a later late save leaves newer wording and independent drafts intact (A2, R6-14)", async () => {
+    __setQueryData("seeds:getOutline", outline());
+    __setQueryData("seeds:getSubsection", subsection({
+      items: [
+        seed(),
+        seed({ seedId: "seed-2" as Id<"seeds">, bullets: ["Second Seed wording."] }),
+        seed({ seedId: "seed-3" as Id<"seeds">, bullets: ["Third Seed wording."] }),
+      ],
+    }));
+    const cardElement = (seedId: string) => document.querySelector<HTMLElement>(`[data-seed-id="${seedId}"]`);
+    async function card(seedId: string) {
+      await expect.poll(() => cardElement(seedId)).not.toBeNull();
+      return page.elementLocator(cardElement(seedId)!);
+    }
+    const pending = () => {
+      let finish: ((value: unknown) => void) | undefined;
+      const promise = new Promise((resolve) => { finish = resolve; });
+      return { promise, finish: () => finish?.(undefined) };
+    };
+    async function editCard(seedId: string, wording: string) {
+      await (await card(seedId)).getByRole("button", { name: "Edit", exact: true }).click();
+      await (await card(seedId)).getByRole("textbox", { name: "Bullet 1" }).fill(wording);
+    }
+
+    // Two card saves are pending when the workspace is destroyed.
+    const first = await render(SeedWorkspace, workspaceProps());
+    const saveOne = pending();
+    const saveTwo = pending();
+    await editCard("seed-1", "Submitted one.");
+    __setMutationResult("seeds:edit", saveOne.promise);
+    await (await card("seed-1")).getByRole("button", { name: "Save wording", exact: true }).click();
+    await editCard("seed-2", "Submitted two.");
+    __setMutationResult("seeds:edit", saveTwo.promise);
+    await (await card("seed-2")).getByRole("button", { name: "Save wording", exact: true }).click();
+    await expect.poll(() => __mutationCalls("seeds:edit")).toHaveLength(2);
+    first.unmount();
+
+    // The first late cleanup is refused by the device.
+    const removeItem = Storage.prototype.removeItem;
+    const refused = vi.spyOn(Storage.prototype, "removeItem").mockImplementation(function (this: Storage, key: string) {
+      if (key === `${draftPrefix()}seed-1`) {
+        refused.mockRestore();
+        throw new DOMException("Storage refused", "QuotaExceededError");
+      }
+      return removeItem.call(this, key);
+    });
+    saveOne.finish();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(storedDrafts()["seed-1"].edit?.bulletOne).toBe("Submitted one.");
+
+    // The recreated workspace writes newer wording for seed 1 and an
+    // independent draft for seed 3.
+    // Its stored draft reopens seed 1 in edit mode.
+    const second = await render(SeedWorkspace, workspaceProps());
+    const one = await card("seed-1");
+    await expect.element(one.getByRole("textbox", { name: "Bullet 1" })).toHaveValue("Submitted one.");
+    await one.getByRole("textbox", { name: "Bullet 1" }).fill("Newer one after recreation.");
+    await editCard("seed-3", "Independent three.");
+    expect(storedDrafts()["seed-1"].edit?.bulletOne).toBe("Newer one after recreation.");
+
+    // Another old completion clears only its own unchanged snapshot.
+    saveTwo.finish();
+    await expect.poll(() => storedDrafts()["seed-2"]).toBeUndefined();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(storedDrafts()["seed-1"].edit?.bulletOne).toBe("Newer one after recreation.");
+    expect(storedDrafts()["seed-3"].edit?.bulletOne).toBe("Independent three.");
+
+    // A fresh recreation hydrates both exactly.
+    second.unmount();
+    await render(SeedWorkspace, workspaceProps());
+    await expect.element((await card("seed-1")).getByRole("textbox", { name: "Bullet 1" })).toHaveValue("Newer one after recreation.");
+    await expect.element((await card("seed-3")).getByRole("textbox", { name: "Bullet 1" })).toHaveValue("Independent three.");
+    expect(storedDrafts()["seed-2"]).toBeUndefined();
   });
 
   it("suppresses every card mutation path for restored drafts and live revocation while keeping the text", async () => {
@@ -1269,9 +1448,11 @@ describe("Seed workspace", () => {
     seedBoundaryPages(false);
     view = await render(SeedSubsectionPane, paneProps(subsection({ truncated: true, approvalChallenge: null })));
     await page.getByRole("button", { name: "Load Batch history", exact: true }).click();
+    // The client's own page bound is named as such (R6-09).
     await expect.element(page.getByRole("alert")).toHaveTextContent(
-      "Batch history stopped because one Batch exceeds the safe server processing limit."
+      "Batch history stopped after 200 pages, the most this view loads. The complete history cannot be shown, so approval stays unavailable while Seeds are omitted."
     );
+    expect(document.body.textContent).not.toContain("processing limit");
     expect(__clientQueryCalls("seeds:listBatches")).toHaveLength(200);
     expect(__clientQueryCalls("seeds:getApprovalReview")).toEqual([]);
     await expect.element(page.getByText("History is incomplete.", { exact: true })).toBeVisible();
@@ -1452,6 +1633,47 @@ describe("Seed workspace", () => {
     await expect.poll(() => __clientQueryCalls("seeds:getSourceAttributionByIds")).toHaveLength(2);
     await expect.poll(() => caption()?.textContent).toBe("Controller interview.docx");
     expect(caption()?.dataset.attributed).toBe("true");
+    expect(notice()).toBeNull();
+  });
+
+  it("explains a successful but incomplete name recovery, offers an explicit retry, then shows the recovered attribution (A8, R6-16)", async () => {
+    __setQueryData("seeds:getOutline", outline());
+    __setQueryData("seeds:getSubsection", subsection());
+    __setQueryData("seeds:getSourceAttribution", {
+      generationId,
+      sources: [{ sourceId: "source-other", label: "Other.docx", kind: "transcript" }],
+      complete: false,
+    });
+    // The recovery read succeeds, but its own processing budget ran out
+    // before it reached the requested source.
+    __setQueryData("seeds:getSourceAttributionByIds", { generationId, sources: [], complete: false });
+    await render(SeedWorkspace, workspaceProps());
+    await quotesButton().click();
+    const caption = () => document.querySelector<HTMLElement>('[data-seed-quotes="seed-1"] [data-quote-source]');
+    await expect.poll(() => __clientQueryCalls("seeds:getSourceAttributionByIds")).toEqual([{ generationId, sourceIds: ["source-1"] }]);
+    await expect.poll(() => caption()?.textContent).toBe("Source name not retrieved");
+    expect(caption()?.dataset.attributed).toBe("false");
+    const notice = () => document.querySelector<HTMLElement>('[data-source-attribution="incomplete"]');
+    await expect.poll(() => notice()?.textContent ?? "").toContain(
+      "Some source names could not be retrieved within the server's safe processing limit."
+    );
+    await expect.element(page.getByText("“Measured output remained stable.”", { exact: true })).toBeVisible();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(__clientQueryCalls("seeds:getSourceAttributionByIds")).toHaveLength(1);
+
+    __setQueryData("seeds:getSourceAttributionByIds", {
+      generationId,
+      sources: [{ sourceId: "source-1", label: "Controller interview.docx", kind: "transcript" }],
+      complete: true,
+    });
+    await userEvent.keyboard("{Escape}");
+    await expect.poll(() => document.querySelector("[data-seed-quotes]")).toBeNull();
+    await page.getByRole("button", { name: "Retry source names", exact: true }).click();
+    await quotesButton().click();
+    await expect.poll(() => __clientQueryCalls("seeds:getSourceAttributionByIds")).toHaveLength(2);
+    await expect.poll(() => caption()?.textContent).toBe("Controller interview.docx");
+    expect(caption()?.dataset.attributed).toBe("true");
+    await expect.element(page.getByText("“Measured output remained stable.”", { exact: true })).toBeVisible();
     expect(notice()).toBeNull();
   });
 
