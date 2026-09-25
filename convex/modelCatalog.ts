@@ -335,6 +335,12 @@ export const recordEndpointSupport = internalMutation({
 
 const HOUR_MS = 60 * 60 * 1000;
 const hourStartOf = (at: number) => Math.floor(at / HOUR_MS) * HOUR_MS;
+/**
+ * The daily check reaches a role at a slightly different time each day, so
+ * "at most daily" allows an hour of slack: a notice a few minutes short of
+ * 24 hours after the last one still goes out (round 9).
+ */
+const ERROR_NOTICE_MARGIN_MS = HOUR_MS;
 
 /** Per-request outcome rows are kept this long (the window plus a day). */
 const OUTCOME_ROW_RETENTION_MS = 2 * AUTOMATION_THRESHOLDS.errorWindowMs;
@@ -420,7 +426,7 @@ export async function runProductionErrorCheck(
     if (held) {
       if (
         assignment.errorNoticeAt === undefined ||
-        now - assignment.errorNoticeAt >= AUTOMATION_THRESHOLDS.errorWindowMs
+        now - assignment.errorNoticeAt >= AUTOMATION_THRESHOLDS.errorWindowMs - ERROR_NOTICE_MARGIN_MS
       ) {
         await ctx.db.patch(assignment._id, { errorNoticeAt: now });
         await raiseAdminNotice(
@@ -547,18 +553,33 @@ function prefilterView(row: Doc<"modelCatalog">): PrefilterModel {
   };
 }
 
+/** Stopped before it started: nothing was measured and nothing spent. */
+function neverStarted(evaluation: Doc<"modelEvaluations">): boolean {
+  return (
+    evaluation.status === "error" &&
+    evaluation.startedAt === undefined &&
+    (evaluation.evalCostUsd ?? 0) === 0
+  );
+}
+
 async function blockedForRole(
   ctx: MutationCtx,
   role: ModelRole,
   modelId: string,
   now: number
 ): Promise<boolean> {
-  const recent = await ctx.db
+  // The cooldown counts runs that started. One stopped before it started
+  // (refused at claim for the budget, released unclaimed) measured and
+  // spent nothing, so it does not cost the model its turn (round 9). Only
+  // rows inside the cooldown window are read.
+  for await (const evaluation of ctx.db
     .query("modelEvaluations")
     .withIndex("by_role_and_modelId", (q) => q.eq("role", role).eq("modelId", modelId))
-    .order("desc")
-    .first();
-  if (recent && now - recent.createdAt < AUTOMATION_THRESHOLDS.evaluationCooldownMs) return true;
+    .order("desc")) {
+    if (now - evaluation.createdAt >= AUTOMATION_THRESHOLDS.evaluationCooldownMs) break;
+    if (neverStarted(evaluation)) continue;
+    return true;
+  }
   return await rolledBackFrom(ctx, role, modelId);
 }
 
