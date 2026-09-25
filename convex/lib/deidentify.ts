@@ -95,3 +95,220 @@ export function deidentify(
   }
   return out;
 }
+
+// ─── Reversible name placeholders (owner decision 26, 2026-09-24) ──────────
+//
+// Before a transcript reaches any model (Claude included), the names held on
+// the project record and the speaker labels that look like names become
+// placeholders such as [CLIENT_1] and [PERSON_2]; every output is restored
+// before it is stored or shown. Unlike `deidentify` above this is exact and
+// reversible: each token stands for exactly one surface string, matched
+// case-sensitively, so restore(pseudonymize(text)) === text for any text
+// that does not already contain a token. Verbatim quotes a model returns are
+// restored before they are located, so citation offsets and byte checks see
+// the real transcript.
+
+export type PlaceholderEntry = { token: string; value: string };
+export type PlaceholderMap = readonly PlaceholderEntry[];
+
+/** Capitalized words that are also first names; never replaced alone. */
+const COMMON_FIRST_WORDS = new Set([
+  "Will", "May", "Mark", "Grant", "Bill", "Pat", "Sue", "Rob", "Art", "Joy",
+  "Hope", "Faith", "Victor", "Chase", "Frank", "Guy", "Max", "Rich", "Summer",
+  "Dawn", "Page", "Drew", "Ray", "Don", "Jack", "Case", "Chip", "Dean", "Grace",
+]);
+
+/** Speaker labels that name no one. */
+const GENERIC_LABEL = /^(?:speaker|participant|person|guest|unknown|interviewer|interviewee|subject|client|host|moderator|q|a)(?:\s*\d+)?$/i;
+
+const LEGAL_SUFFIX = /[,\s]+(?:inc|incorporated|ltd|limited|llc|corp|corporation|co|company|plc|gmbh|ulc|lp|llp)\.?$/i;
+
+/**
+ * A trailing descriptor people drop when they say a company's name
+ * ("Verdant Grid Technologies" is "Verdant Grid" in an interview). Only
+ * stripped when at least two words remain, so a brand is never reduced to
+ * one ordinary capitalized word.
+ */
+const COMPANY_DESCRIPTOR = /\s+(?:technologies|technology|systems|solutions|group|holdings|labs|laboratories|industries|international|enterprises|services|software|energy|canada)$/i;
+
+function cleanName(name: string | undefined): string | undefined {
+  const trimmed = name?.trim().replace(/\s+/g, " ");
+  return trimmed && trimmed.length >= 3 ? trimmed : undefined;
+}
+
+/**
+ * The placeholder map for one project (and, inside a generation, frozen on
+ * the generation). Deterministic for the same inputs: the client first, then
+ * people in the order given, each with its full name and single-name forms.
+ * Speaker labels that look generic ("Speaker 2", "Interviewer") are skipped.
+ */
+export function buildPlaceholderMap(input: {
+  clientName?: string;
+  /** Other organizations to hide (none on the record today). */
+  companies?: readonly string[];
+  /** Interviewer, writer, interviewees, then speaker labels. */
+  people: readonly (string | undefined)[];
+}): PlaceholderMap {
+  const entries: PlaceholderEntry[] = [];
+  const taken = new Set<string>();
+  const add = (token: string, value: string | undefined) => {
+    if (!value || value.length < 3 || taken.has(value)) return;
+    taken.add(value);
+    entries.push({ token, value });
+  };
+
+  const companies = [input.clientName, ...(input.companies ?? [])]
+    .map(cleanName)
+    .filter((name): name is string => !!name);
+  companies.forEach((company, index) => {
+    const n = index + 1;
+    add(`[CLIENT_${n}]`, company);
+    const short = company.replace(LEGAL_SUFFIX, "").trim();
+    if (short !== company) add(`[CLIENT_${n}_SHORT]`, short);
+    // 2026-09-25 (review of decision 26): the name as people say it.
+    const brand = (short || company).replace(COMPANY_DESCRIPTOR, "").trim();
+    if (brand !== (short || company) && brand.split(" ").length >= 2) add(`[CLIENT_${n}_BRAND]`, brand);
+    const upper = (short || company).toUpperCase();
+    if (upper !== short && upper !== company && /\p{L}{3,}/u.test(upper)) add(`[CLIENT_${n}_CAPS]`, upper);
+  });
+
+  let person = 0;
+  const seenPeople = new Set<string>();
+  for (const raw of input.people) {
+    const name = cleanName(raw);
+    if (!name || GENERIC_LABEL.test(name)) continue;
+    if (!/^\p{Lu}/u.test(name)) continue;
+    const key = name.toLowerCase();
+    if (seenPeople.has(key) || taken.has(name)) continue;
+    seenPeople.add(key);
+    person += 1;
+    add(`[PERSON_${person}]`, name);
+    const words = name.split(" ").filter((word) => !/^(?:dr|mr|mrs|ms|prof)\.?$/i.test(word));
+    if (words.length >= 2) {
+      const first = words[0];
+      const last = words[words.length - 1];
+      if (first.length >= 3 && /^\p{Lu}/u.test(first) && !COMMON_FIRST_WORDS.has(first)) {
+        add(`[PERSON_${person}_FIRST]`, first);
+      }
+      if (last.length >= 3 && /^\p{Lu}/u.test(last) && !COMMON_FIRST_WORDS.has(last)) {
+        add(`[PERSON_${person}_LAST]`, last);
+      }
+    }
+  }
+  return entries;
+}
+
+const TOKEN = /\[(?:CLIENT|PERSON)_\d+(?:_[A-Z]+)?\]/g;
+
+const matcherCache = new WeakMap<PlaceholderMap, { find: RegExp; byValue: Map<string, string> }>();
+
+function matcherFor(map: PlaceholderMap) {
+  let cached = matcherCache.get(map);
+  if (!cached) {
+    const values = [...map].map((entry) => entry.value).sort((a, b) => b.length - a.length);
+    const alternation = values.map(escapeRegExp).join("|");
+    cached = {
+      // Same boundaries as `deidentify`: a name never replaces the inside of
+      // another word, and punctuation at a name's edge stays part of it.
+      find: new RegExp(`(?<![\\p{L}\\p{N}])(?:${alternation})(?![\\p{L}\\p{N}])`, "gu"),
+      byValue: new Map(map.map((entry) => [entry.value, entry.token])),
+    };
+    matcherCache.set(map, cached);
+  }
+  return cached;
+}
+
+/** Names become their placeholders. Exact-case matches only; one pass. */
+export function pseudonymize(text: string, map: PlaceholderMap): string {
+  if (map.length === 0 || text === "") return text;
+  const { find, byValue } = matcherFor(map);
+  find.lastIndex = 0;
+  return text.replace(find, (match) => byValue.get(match) ?? match);
+}
+
+const TOKEN_PARTS = /^\[(CLIENT|PERSON)_(\d+)(?:_([A-Z]+))?\]$/;
+
+/**
+ * The name a token stands for. A variant the map never issued (a model
+ * writing `[PERSON_2_FIRST]` for a one-word name, or `[CLIENT_1_CAPS]`)
+ * falls back to its base token's name: the first or last word of it for
+ * FIRST and LAST, the whole name otherwise (review 2026-09-25). A token
+ * whose base is not in the map stays as written.
+ */
+function tokenValue(token: string, byToken: ReadonlyMap<string, string>): string | undefined {
+  const exact = byToken.get(token);
+  if (exact !== undefined) return exact;
+  const parts = TOKEN_PARTS.exec(token);
+  if (!parts || !parts[3]) return undefined;
+  const base = byToken.get(`[${parts[1]}_${parts[2]}]`);
+  if (base === undefined) return undefined;
+  const words = base.split(" ");
+  if (parts[3] === "FIRST") return words[0];
+  if (parts[3] === "LAST") return words[words.length - 1];
+  return base;
+}
+
+/** Placeholders become the names they stand for; unknown tokens stay. */
+export function restorePlaceholders(text: string, map: PlaceholderMap): string {
+  if (map.length === 0 || text === "" || !text.includes("[")) return text;
+  const byToken = new Map(map.map((entry) => [entry.token, entry.value]));
+  return text.replace(TOKEN, (token) => tokenValue(token, byToken) ?? token);
+}
+
+/** `restorePlaceholders` over every string inside a JSON-like value. */
+export function restorePlaceholdersDeep<T>(value: T, map: PlaceholderMap): T {
+  if (map.length === 0) return value;
+  const walk = (item: unknown): unknown => {
+    if (typeof item === "string") return restorePlaceholders(item, map);
+    if (Array.isArray(item)) return item.map(walk);
+    if (item && typeof item === "object") {
+      return Object.fromEntries(Object.entries(item).map(([key, nested]) => [key, walk(nested)]));
+    }
+    return item;
+  };
+  return walk(value) as T;
+}
+
+/**
+ * Whether a text already carries a token this map would restore: one of its
+ * own tokens, or a variant whose base is one (round trip unsafe).
+ */
+export function containsPlaceholderToken(text: string, map: PlaceholderMap): boolean {
+  if (map.length === 0) return false;
+  const byToken = new Map(map.map((entry) => [entry.token, entry.value]));
+  for (const match of text.matchAll(TOKEN)) if (tokenValue(match[0], byToken) !== undefined) return true;
+  return false;
+}
+
+/**
+ * The map to use for texts that may already hold placeholder-style tokens,
+ * such as a transcript redacted by hand with `[PERSON_1]` (review
+ * 2026-09-25). Restoring would turn those literal tokens into real names,
+ * so when any text carries a token this map would restore, every token is
+ * renumbered past the highest number of its kind found in the texts. The
+ * source's own tokens then stay literal both ways. Deterministic in the map
+ * and the texts; the same map comes back when nothing collides.
+ */
+export function avoidTokenCollisions(map: PlaceholderMap, texts: readonly string[]): PlaceholderMap {
+  if (map.length === 0) return map;
+  const highest = { CLIENT: 0, PERSON: 0 };
+  let collides = false;
+  for (const text of texts) {
+    if (!text.includes("[")) continue;
+    if (!collides && containsPlaceholderToken(text, map)) collides = true;
+    for (const match of text.matchAll(TOKEN)) {
+      const parts = TOKEN_PARTS.exec(match[0]);
+      if (!parts) continue;
+      const kind = parts[1] as keyof typeof highest;
+      highest[kind] = Math.max(highest[kind], Number(parts[2]));
+    }
+  }
+  if (!collides) return map;
+  return map.map((entry) => {
+    const parts = TOKEN_PARTS.exec(entry.token);
+    if (!parts) return entry;
+    const kind = parts[1] as keyof typeof highest;
+    const number = Number(parts[2]) + highest[kind];
+    return { token: `[${kind}_${number}${parts[3] ? `_${parts[3]}` : ""}]`, value: entry.value };
+  });
+}

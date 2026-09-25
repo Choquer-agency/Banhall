@@ -69,14 +69,29 @@ import {
   copyTranscriptRow,
   insertTranscriptRow,
   projectTranscriptPromptText,
+  requireTranscriptTextWithinCap,
+  validatedOriginalStorage,
 } from "./lib/transcripts";
+import { transcriptSourceFormatValidator } from "./lib/transcriptValidators";
+import type { TranscriptSourceFormat } from "../shared/transcriptParse";
 
 type TranscriptInput =
-  | { content: string; label?: string }
+  | {
+      content: string;
+      label?: string;
+      sourceFormat?: TranscriptSourceFormat;
+      originalStorageId?: Id<"_storage">;
+    }
   | { fromTranscriptId: Id<"transcripts">; label?: string };
 
 type ResolvedTranscript =
-  | { kind: "content"; content: string; label?: string }
+  | {
+      kind: "content";
+      content: string;
+      label?: string;
+      sourceFormat?: TranscriptSourceFormat;
+      originalStorageId?: Id<"_storage">;
+    }
   | { kind: "copy"; source: Doc<"transcripts"> };
 
 /**
@@ -97,6 +112,7 @@ async function resolveTranscriptInputs(
     );
   }
   const resolved: ResolvedTranscript[] = [];
+  const originals = new Set<string>();
   for (const input of inputs) {
     if ("fromTranscriptId" in input) {
       const source = await ctx.db.get(input.fromTranscriptId);
@@ -109,7 +125,32 @@ async function resolveTranscriptInputs(
       continue;
     }
     if (input.content.trim() === "") continue;
-    resolved.push({ kind: "content", content: input.content, label: input.label });
+    // 2026-09-24: one transcript may not exceed the frozen slice, and the
+    // same text twice is refused rather than stored twice.
+    requireTranscriptTextWithinCap(input.content);
+    if (
+      resolved.some((item) =>
+        item.kind === "content" ? item.content === input.content : item.source.content === input.content
+      )
+    ) {
+      domainError("INVALID_INPUT", `${input.label ?? "This transcript"} is already added`);
+    }
+    if (input.originalStorageId) {
+      // One file backs one transcript; no row holds it yet either.
+      if (originals.has(input.originalStorageId)) {
+        domainError("INVALID_INPUT", "The uploaded transcript file is already in use. Upload it again.");
+      }
+      originals.add(input.originalStorageId);
+    }
+    resolved.push({
+      kind: "content",
+      content: input.content,
+      label: input.label,
+      ...(input.sourceFormat ? { sourceFormat: input.sourceFormat } : {}),
+      ...(input.originalStorageId
+        ? { originalStorageId: await validatedOriginalStorage(ctx, input.originalStorageId) }
+        : {}),
+    });
   }
   const totalChars = resolved.reduce(
     (total, item) =>
@@ -801,7 +842,13 @@ export const createProject = mutation({
     // round-trips a megabyte of interview through the client.
     transcripts: v.array(
       v.union(
-        v.object({ content: v.string(), label: v.optional(v.string()) }),
+        v.object({
+          content: v.string(),
+          label: v.optional(v.string()),
+          // 2026-09-24: the detected format and the uploaded original file.
+          sourceFormat: v.optional(transcriptSourceFormatValidator),
+          originalStorageId: v.optional(v.id("_storage")),
+        }),
         v.object({
           fromTranscriptId: v.id("transcripts"),
           label: v.optional(v.string()),
@@ -935,6 +982,10 @@ export const createProject = mutation({
               content: transcript.content,
               label: transcript.label,
               position,
+              ...(transcript.sourceFormat ? { sourceFormat: transcript.sourceFormat } : {}),
+              ...(transcript.originalStorageId
+                ? { originalStorageId: transcript.originalStorageId }
+                : {}),
             });
       if (transcriptId) transcriptIds.push(transcriptId);
     }

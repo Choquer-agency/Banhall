@@ -721,6 +721,8 @@ type SummaryCitation = {
   /** Stamped when the Seed was written; absent when the source gives none. */
   speaker?: string;
   line?: number;
+  /** 2026-09-25: the cited turn's speaker had no role (decision 24). */
+  needsSpeakerCheck?: boolean;
 };
 
 async function summaryCitations(
@@ -749,6 +751,7 @@ async function summaryCitations(
       exactExcerpt: citation.exactExcerpt,
       ...(citation.speaker !== undefined ? { speaker: citation.speaker } : {}),
       ...(citation.line !== undefined ? { line: citation.line } : {}),
+      ...(citation.needsSpeakerCheck ? { needsSpeakerCheck: true } : {}),
     });
   }
   return { provenance, provenanceTruncated: !read.complete };

@@ -42,6 +42,20 @@
   import { industryLabel } from "$lib/industries";
   import { CRA_SCIENCE_CODE_ITEMS, scienceCodeLabel } from "../../../../shared/craScienceCodes";
   import { parsePdFilename } from "../../../../shared/pdFilename";
+  import {
+    isTranscriptFileName,
+    TRANSCRIPT_ACCEPT,
+    TRANSCRIPT_FORMAT_LABELS,
+    type TranscriptSourceFormat,
+  } from "../../../../shared/transcriptParse";
+  import {
+    readPastedTranscript,
+    readTranscriptFile,
+    releaseOriginalsOnFailure,
+    TRANSCRIPT_FILE_TYPES_COPY,
+    TranscriptFileError,
+    uploadTranscriptOriginal,
+  } from "$lib/transcriptUpload";
   import { comparePairFromSlots, comparePairLabel } from "../../../../shared/generationModels";
   import { pickerModels, singleModelItemsFor } from "$lib/modelPicker";
   import ComparePairPicker from "$lib/components/generation/ComparePairPicker.svelte";
@@ -67,6 +81,7 @@
   const startPdReview = useMutation(api.pdReviews.startPdReview);
   const uploadDocument = useMutation(api.documents.uploadDocument);
   const generateUploadUrl = useMutation(api.documents.generateUploadUrl);
+  const discardTranscriptOriginals = useMutation(api.transcripts.discardTranscriptOriginals);
   const recordUploadAttempts = useMutation(api.uploadAttempts.recordUploadAttempts);
   const user = useQuery(api.users.getCurrentUser, () =>
     auth.isAuthenticated ? {} : "skip"
@@ -147,6 +162,10 @@
     label: string;
     wordCount: number;
     charCount: number;
+    // 2026-09-24: the detected format, and the file its text came from (its
+    // original bytes are uploaded with the project).
+    format?: TranscriptSourceFormat;
+    file?: File;
     source:
       | { kind: "upload" | "paste"; content: string }
       | { kind: "copy"; fromTranscriptId: Id<"transcripts"> };
@@ -165,7 +184,8 @@
   function addTextTranscript(
     kind: "upload" | "paste",
     label: string,
-    content: string
+    content: string,
+    extra: { format?: TranscriptSourceFormat; file?: File } = {}
   ) {
     transcriptItems = [
       ...transcriptItems,
@@ -174,6 +194,7 @@
         label,
         wordCount: countWords(content),
         charCount: content.length,
+        ...extra,
         source: { kind, content },
       },
     ];
@@ -184,7 +205,10 @@
     if (!text) return;
     const pastedCount =
       transcriptItems.filter((item) => item.source.kind === "paste").length + 1;
-    addTextTranscript("paste", `Pasted transcript ${pastedCount}`, text);
+    const pasted = readPastedTranscript(text);
+    addTextTranscript("paste", `Pasted transcript ${pastedCount}`, pasted.content, {
+      format: pasted.format,
+    });
     pasteDraft = "";
   }
 
@@ -296,6 +320,7 @@
       label: row.label,
       wordCount: row.wordCount,
       charCount: row.charCount,
+      ...(row.sourceFormat ? { format: row.sourceFormat } : {}),
       source: { kind: "copy" as const, fromTranscriptId: row._id },
     }));
   });
@@ -307,32 +332,26 @@
   let parsingTranscript = $state<string | null>(null);
   let transcriptFileError = $state("");
 
-  // Jul 17 meeting: transcripts are Teams exports — .docx only. Anything else
-  // belongs in the supporting-document slots below; the copy-paste tab stays
-  // as the fallback for the rare non-Teams interview (Google Meet etc.).
-  // Each imported file becomes a row in the list; the extracted text is kept
-  // behind the scenes instead of being dumped into a textarea.
+  // Transcripts arrive as Teams or Otter .docx, WebVTT, SubRip or text
+  // exports (2026-09-24, the transcript method). Anything else belongs in the
+  // supporting-document slots below; the paste tab stays as the fallback.
+  // Each imported file becomes a row in the list with its detected format;
+  // the extracted text is kept behind the scenes.
   async function handleTranscriptFiles(files: File[]) {
-    const accepted = files.filter((file) =>
-      file.name.toLowerCase().endsWith(".docx")
-    );
+    const accepted = files.filter((file) => isTranscriptFileName(file.name));
     transcriptFileError =
       accepted.length === files.length
         ? ""
-        : `Transcripts must be Word (.docx) files — Teams exports are. Put other documents in the context slots below, or paste the transcript text instead.`;
+        : `${TRANSCRIPT_FILE_TYPES_COPY} Put other documents in the context slots below, or paste the transcript text instead.`;
     for (const file of accepted) {
       parsingTranscript = file.name;
       try {
-        const parsed = await parseFileToText(file, { signal: extractionLifetime.signal });
-        const text = parsed.content.trim();
-        if (!text) {
-          transcriptFileError = `Couldn't extract any text from ${file.name}.`;
-        } else {
-          addTextTranscript("upload", file.name, text);
-          toast.success(`Imported ${file.name}`);
-        }
-      } catch {
-        transcriptFileError = `Couldn't read ${file.name}. Try another file.`;
+        const read = await readTranscriptFile(file);
+        addTextTranscript("upload", read.label, read.content, { format: read.format, file });
+        toast.success(`Imported ${file.name}`);
+      } catch (error) {
+        transcriptFileError =
+          error instanceof TranscriptFileError ? error.message : `Couldn't read ${file.name}. Try another file.`;
       } finally {
         parsingTranscript = null;
       }
@@ -586,18 +605,38 @@
     }
   }
 
-  /** The transcript list as createProject takes it, paste draft included. */
-  function transcriptArgs() {
-    const items = transcriptItems.map((item) =>
-      item.source.kind === "copy"
-        ? { fromTranscriptId: item.source.fromTranscriptId, label: item.label }
-        : { content: item.source.content, label: item.label }
+  /**
+   * The transcript list as createProject takes it, paste draft included.
+   * Each uploaded file's original bytes go to storage first; a failed upload
+   * only drops the original, never the transcript.
+   */
+  async function transcriptArgs() {
+    const items = await Promise.all(
+      transcriptItems.map(async (item) => {
+        if (item.source.kind === "copy") {
+          return { fromTranscriptId: item.source.fromTranscriptId, label: item.label };
+        }
+        const originalStorageId = item.file
+          ? await uploadTranscriptOriginal(item.file, () => generateUploadUrl({}))
+          : null;
+        return {
+          content: item.source.content,
+          label: item.label,
+          ...(item.format ? { sourceFormat: item.format } : {}),
+          ...(originalStorageId ? { originalStorageId: originalStorageId as Id<"_storage"> } : {}),
+        };
+      })
     );
     const draft = pasteDraft.trim();
     if (draft) {
       const pastedCount =
         transcriptItems.filter((item) => item.source.kind === "paste").length + 1;
-      items.push({ content: draft, label: `Pasted transcript ${pastedCount}` });
+      const pasted = readPastedTranscript(draft);
+      items.push({
+        content: pasted.content,
+        label: `Pasted transcript ${pastedCount}`,
+        sourceFormat: pasted.format,
+      });
     }
     return items;
   }
@@ -619,26 +658,36 @@
     let createdProjectId: Id<"projects"> | null = null;
     try {
       progress = "Creating project…";
-      const { projectId, transcriptIds } = await createProject({
-        title: title.trim(),
-        ...(sredTitle.trim() ? { sredTitle: sredTitle.trim() } : {}),
-        clientName: clientName.trim(),
-        ...(interviewerUserId
-          ? { interviewerUserId: interviewerUserId as Id<"users"> }
-          : {}),
-        ...(interviewees.length ? { interviewees } : {}),
-        ...(selectedTagIds.length
-          ? { tagIds: selectedTagIds as Id<"tags">[] }
-          : {}),
-        ...(fiscalYearEnd
-          ? { fiscalYearEnd: new Date(`${fiscalYearEnd}T00:00:00`).getTime() }
-          : {}),
-        ...(industry ? { industry } : {}),
-        ...(scienceCode ? { scienceCode } : {}),
-        ...(projectNumber.trim() ? { projectNumber: projectNumber.trim() } : {}),
-        mode,
-        transcripts: transcriptArgs(),
-      });
+      const transcripts = await transcriptArgs();
+      const originals = transcripts.flatMap((item) =>
+        "originalStorageId" in item && item.originalStorageId ? [item.originalStorageId] : []
+      );
+      // A refused createProject releases the transcript originals it was
+      // given; nothing else would ever point to them.
+      const { projectId, transcriptIds } = await releaseOriginalsOnFailure(
+        originals,
+        (storageIds) => discardTranscriptOriginals({ storageIds: storageIds as Id<"_storage">[] }),
+        () => createProject({
+          title: title.trim(),
+          ...(sredTitle.trim() ? { sredTitle: sredTitle.trim() } : {}),
+          clientName: clientName.trim(),
+          ...(interviewerUserId
+            ? { interviewerUserId: interviewerUserId as Id<"users"> }
+            : {}),
+          ...(interviewees.length ? { interviewees } : {}),
+          ...(selectedTagIds.length
+            ? { tagIds: selectedTagIds as Id<"tags">[] }
+            : {}),
+          ...(fiscalYearEnd
+            ? { fiscalYearEnd: new Date(`${fiscalYearEnd}T00:00:00`).getTime() }
+            : {}),
+          ...(industry ? { industry } : {}),
+          ...(scienceCode ? { scienceCode } : {}),
+          ...(projectNumber.trim() ? { projectNumber: projectNumber.trim() } : {}),
+          mode,
+          transcripts,
+        })
+      );
       extractionLifetime.signal.throwIfAborted();
       createdProjectId = projectId;
 
@@ -1256,7 +1305,9 @@
                       </span>
                       <span class="min-w-0">
                         <span class="block truncate text-sm font-medium text-gray-800">{item.label}</span>
-                        <span class="block text-xs text-gray-400">{item.wordCount.toLocaleString()} words</span>
+                        <span class="block text-xs text-gray-400" data-transcript-format>
+                          {item.format && item.format !== "unknown" ? `${TRANSCRIPT_FORMAT_LABELS[item.format]}, ` : ""}{item.wordCount.toLocaleString()} words
+                        </span>
                       </span>
                     </span>
                     <button
@@ -1308,7 +1359,7 @@
                       : "Drag the transcript here, or click to browse"}
                   </span>
                   <span class="text-[11px] text-primary-dark/60">
-                    Word (.docx) — the Teams export
+                    Teams or Otter .docx, .vtt, .srt or .txt
                   </span>
                 {/if}
               </button>
@@ -1335,7 +1386,7 @@
             <input
               bind:this={transcriptInput}
               type="file"
-              accept=".docx"
+              accept={TRANSCRIPT_ACCEPT}
               multiple
               class="hidden"
               onchange={(e) => {

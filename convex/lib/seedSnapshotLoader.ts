@@ -247,6 +247,7 @@ export type FrozenSeedActionInput = {
       | "truncated"
       | "originalLength"
       | "transcriptId"
+      | "factSpans"
     >
   >;
   writerSettings: {
@@ -392,6 +393,9 @@ export async function loadFrozenSeedActionInput(
       ...(source.transcriptId ? { transcriptId: source.transcriptId } : {}),
       truncated: source.truncated,
       originalLength: source.originalLength,
+      // 2026-09-24 (transcript method): the verified spans behind each fact
+      // id of a frozen pack, which a Seed citing a fact resolves to.
+      ...(source.factSpans ? { factSpans: source.factSpans } : {}),
     })),
     writerSettings: {
       profile: args.generation.writerSettings,

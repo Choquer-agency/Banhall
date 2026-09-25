@@ -44,11 +44,14 @@ import { sha256 } from "../lib/contracts";
 import {
   describeTranscriptInput,
   mapClaimToPart,
+  type TranscriptCitation,
 } from "../lib/transcripts";
+import type { FactQuoteCitation } from "../lib/seedFacts";
 import {
   condenserFor,
   describeGenerationFailure,
   ensureCondensedInputs,
+  ensureFactInputs,
 } from "./condense";
 import { normalizeCraScienceCode } from "../../shared/craScienceCodes";
 import {
@@ -296,16 +299,56 @@ export type ProvenanceDraft = {
   section: "242" | "244" | "246";
   claimText: string;
   sourceQuote?: string;
+  /**
+   * 2026-09-24 (transcript method, plan step 8): the quote's own span on
+   * the frozen transcript row when it came from a verified fact, so it is
+   * cited where the fact was verified, never at another occurrence.
+   */
+  citation?: TranscriptCitation;
 };
 
+/** A verified fact quote on its frozen transcript row (getGenerationInput). */
+export type FactQuote = Pick<
+  FactQuoteCitation,
+  "sourceId" | "sourceContentHash" | "startOffset" | "endOffset" | "exactExcerpt"
+>;
+
+/**
+ * Pairs each paragraph of the drafted sections with the quote that shares
+ * the most words with it. The pool is the analyzer's useful quotes found
+ * verbatim in the transcript text, or, when the generation reads fact packs,
+ * the packs' verified client quotes (plan step 8), each with its citation.
+ */
 export function provenanceDrafts(
   sections: Array<{ section: ProvenanceDraft["section"]; text: string }>,
   transcript: string,
-  usefulQuotes: string[]
+  usefulQuotes: string[],
+  factQuotes?: readonly FactQuote[]
 ): ProvenanceDraft[] {
-  const exactQuotes = usefulQuotes
-    .map((quote) => quote.trim().replace(/^['"]|['"]$/g, ""))
-    .filter((quote) => quote.length >= 20 && transcript.includes(quote));
+  const citations = new Map<string, TranscriptCitation>();
+  if (factQuotes) {
+    for (const quote of factQuotes) {
+      if (quote.exactExcerpt.length < 20 || citations.has(quote.exactExcerpt)) continue;
+      citations.set(quote.exactExcerpt, {
+        generationSourceId: quote.sourceId as Id<"generationSources">,
+        sourceContentHash: quote.sourceContentHash,
+        exactExcerpt: quote.exactExcerpt,
+        startOffset: quote.startOffset,
+        endOffset: quote.endOffset,
+      });
+    }
+  }
+  const exactQuotes = factQuotes
+    ? [...citations.keys()]
+    : usefulQuotes
+        .map((quote) => quote.trim().replace(/^['"]|['"]$/g, ""))
+        .filter((quote) => quote.length >= 20 && transcript.includes(quote));
+  // Each quote is tokenized once, not once per paragraph (review 2026-09-25,
+  // P3-8): in fact mode the pool can hold thousands of quotes.
+  const quoteTokens = exactQuotes.map((quote) => ({
+    quote,
+    tokens: new Set(quote.toLowerCase().match(/[a-z0-9]{4,}/g) ?? []),
+  }));
   const drafts: ProvenanceDraft[] = [];
   for (const { section, text } of sections) {
     const paragraphs = text
@@ -319,10 +362,9 @@ export function provenanceDrafts(
       );
       let sourceQuote: string | undefined;
       let bestOverlap = 1;
-      for (const quote of exactQuotes) {
-        const quoteTokens = new Set(quote.toLowerCase().match(/[a-z0-9]{4,}/g) ?? []);
+      for (const { quote, tokens } of quoteTokens) {
         let overlap = 0;
-        for (const token of quoteTokens) {
+        for (const token of tokens) {
           if (claimTokens.has(token)) overlap += 1;
         }
         if (overlap > bestOverlap) {
@@ -330,11 +372,13 @@ export function provenanceDrafts(
           sourceQuote = quote;
         }
       }
+      const citation = sourceQuote ? citations.get(sourceQuote) : undefined;
       drafts.push({
         claimId: `${section}-${index + 1}`,
         section,
         claimText,
         sourceQuote,
+        ...(citation ? { citation } : {}),
       });
     });
   }
@@ -353,14 +397,23 @@ export async function recordCandidateProvenance(
       transcriptId?: Id<"transcripts">;
       transcriptIds?: Id<"transcripts">[];
       digestIds?: Id<"transcriptDigests">[];
+      /** Present when the generation reads fact packs. */
+      transcriptReading?: "facts" | "digest" | "full";
+      transcriptRows?: Parameters<typeof mapClaimToPart>[0];
     };
     content: string;
     claimDrafts: ProvenanceDraft[];
   }
 ) {
+  // Reading fact packs, a claim cites the frozen transcript row, never the
+  // pack (plan step 8); every other generation cites what it read, as before.
+  const parts =
+    args.input.transcriptReading === "facts" && args.input.transcriptRows
+      ? args.input.transcriptRows
+      : args.input.transcriptParts;
   const claims = await Promise.all(
     args.claimDrafts.map(async (claim) => {
-      const citation = mapClaimToPart(args.input.transcriptParts, claim);
+      const citation = claim.citation ?? mapClaimToPart(parts, claim);
       return {
         claimId: claim.claimId,
         section: claim.section,
@@ -421,7 +474,10 @@ export async function runPipelineForModel(
   // Story 1 (CAP-1/2/4): the stored Brief, rendered as an AD-11 delimited
   // data block. "" when the generation has no Brief (not yet derived, or
   // derivation failed — Brief is read-only guidance, never generation-fatal).
-  briefBlock: string = ""
+  briefBlock: string = "",
+  // 2026-09-24 (plan step 8): the verified fact quotes a generation reading
+  // fact packs cites from; absent otherwise.
+  factQuotes?: readonly FactQuote[]
 ): Promise<{
   content: string;
   agentOutputs: string;
@@ -501,7 +557,8 @@ export async function runPipelineForModel(
       { section: "246", text: section246 },
     ],
     transcript,
-    analysis.useful_quotes
+    analysis.useful_quotes,
+    factQuotes
   );
   return {
     content: JSON.stringify(doc),
@@ -623,7 +680,22 @@ export const generateReport = internalAction({
       // Over-budget transcript sets are reduced to stored digests and frozen
       // as their own source rows before anything reads the transcript text;
       // the re-read below returns the digest parts every later step cites.
-      if (input.inputMode === "digest") {
+      // 2026-09-24 (transcript method, decision 27): a generation frozen to
+      // read fact packs extracts and freezes them first; any gap falls back
+      // to today's path below.
+      const factsReady = input.transcriptFacts
+        ? await ensureFactInputs(
+            ctx,
+            {
+              generationId: genId,
+              elapsedMs: Date.now() - actionStartedAt,
+              modelId: freeze?.roles.condense ?? MODEL,
+              ...(input.requestedBy ? { userId: input.requestedBy } : {}),
+            },
+            log
+          )
+        : false;
+      if (!factsReady && input.inputMode === "digest") {
         await ensureCondensedInputs(
           ctx,
           { generationId: genId, elapsedMs: Date.now() - actionStartedAt },
@@ -635,6 +707,8 @@ export const generateReport = internalAction({
             modelId: freeze?.roles.condense ?? MODEL,
           })
         );
+      }
+      if (factsReady || input.inputMode === "digest") {
         const condensed = await ctx.runQuery(
           internal.generations.getGenerationInput,
           { generationId: args.generationId }
@@ -668,6 +742,11 @@ export const generateReport = internalAction({
         transcript,
         industry: input.industry ?? null,
         scienceCode: scienceCode ?? null,
+        // Plan step 8: reading fact packs, the retrieval brief comes from
+        // their claims with no call.
+        ...(input.transcriptReading === "facts"
+          ? { factPacks: input.transcriptParts.map((part) => part.content), placeholders: input.placeholders }
+          : {}),
         retrievalBriefClient,
         retrievalBriefModel,
         log,
@@ -981,7 +1060,8 @@ export const generateCandidate = internalAction({
           args.writerFlavor,
           normalizeStyleOverrides(args.styleOverrides),
           sharedAnalysis,
-          briefBlock
+          briefBlock,
+          input.factQuotes
         );
       const provenanceId = await recordCandidateProvenance(ctx, {
         projectId: run.projectId,

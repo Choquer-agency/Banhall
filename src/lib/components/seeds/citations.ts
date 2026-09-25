@@ -10,7 +10,16 @@ export type QuoteCitation = {
   exactExcerpt: string;
   speaker?: string;
   line?: number;
+  /**
+   * The quoted turn's speaker had no confirmed role when the Seed was
+   * written (owner decisions 24 and 25): the quote is shown with a gray
+   * "Needs a check" note, never hidden or blocked.
+   */
+  needsSpeakerCheck?: boolean;
 };
+
+/** The note under a quote whose speaker is not confirmed yet. */
+export const SPEAKER_CHECK_NOTE = "Needs a check: speaker not confirmed";
 
 /** "Priya, line 18", "Priya", "Line 18", or null; never a made-up attribution. */
 export function citationSpeakerLine(citation: QuoteCitation): string | null {

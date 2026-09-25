@@ -42,24 +42,35 @@ export async function getInternalProjectAccessOrNull(
   return { project, user };
 }
 
-export async function requireInternalProjectAccess(
-  ctx: Ctx,
-  projectId: Id<"projects">,
-  options: { allowDeleting?: boolean } = {}
-) {
+/**
+ * The actor half of `requireInternalProjectAccess`, for a mutation that must
+ * look a row up before it knows the project: run it first, so an ineligible
+ * caller cannot probe whether the row exists.
+ */
+export async function requireInternalActor(ctx: Ctx) {
   const user = await requireCurrentUser(ctx);
   // Same actor eligibility as getInternalProjectAccessOrNull, so the throwing
   // and nullable helpers can never disagree about who counts as an internal
   // actor. Anonymous auth records are not internal users even when a role
   // field is somehow present, and a mapped user without a role is not
-  // authorized. Both run before the project lookup so an ineligible caller
-  // cannot probe project existence.
+  // authorized.
   if (user.isAnonymous === true) {
     domainError("NOT_AUTHENTICATED", "Authentication required");
   }
   if (!user.role) {
     domainError("NOT_AUTHORIZED", "An active internal role is required");
   }
+  return user;
+}
+
+export async function requireInternalProjectAccess(
+  ctx: Ctx,
+  projectId: Id<"projects">,
+  options: { allowDeleting?: boolean } = {}
+) {
+  // The actor checks run before the project lookup so an ineligible caller
+  // cannot probe project existence.
+  const user = await requireInternalActor(ctx);
   const project = await ctx.db.get(projectId);
   if (!project) domainError("NOT_FOUND", "Project not found");
   if (project.deletionStartedAt !== undefined && !options.allowDeleting) {

@@ -1589,6 +1589,35 @@ describe("Seed Summary Review", () => {
       expect(await cardFor("seed-c")).toBeNull();
     });
 
+    it("notes a quote whose speaker is not confirmed, in gray, without hiding it (decision 24)", async () => {
+      __setQueryData("seeds:getOutline", outline());
+      __setQueryData("seeds:getSummary", onePage([
+        withFields(item("seed-a", "company_context", "We run four sites across Ontario today."), {
+          provenance: [{ sourceId: "source-1", exactExcerpt: "We run four sites", line: 7, needsSpeakerCheck: true }],
+        }),
+        withFields(item("seed-b", "goal_problem", "The loop oscillated at night."), {
+          provenance: [{ sourceId: "source-1", exactExcerpt: "The loop oscillated", speaker: "Priya", line: 12 }],
+        }),
+      ]));
+      const view = await render(SeedSummaryReview, { generationId, userId: "writer-1" });
+      const noteFor = async (itemId: string) => {
+        const quote = view.container.querySelector<HTMLElement>(`[data-summary-item="${itemId}"] [data-exact-quote]`)!;
+        await userEvent.hover(quote);
+        await expect.poll(() => view.container.querySelector("[data-quote-card]")).not.toBeNull();
+        const card = view.container.querySelector<HTMLElement>("[data-quote-card]")!;
+        const note = card.querySelector<HTMLElement>("[data-quote-speaker-check]");
+        const result = note ? { text: note.textContent, weight: Number(getComputedStyle(note).fontWeight) } : null;
+        expect(card.querySelector("[data-quote-text]")?.textContent).toMatch(/^“.+”$/);
+        await userEvent.unhover(quote);
+        await expect.poll(() => view.container.querySelector("[data-quote-card]")).toBeNull();
+        return result;
+      };
+      const flagged = await noteFor("seed-a");
+      expect(flagged?.text).toBe("Needs a check: speaker not confirmed");
+      expect(flagged?.weight).toBeLessThanOrEqual(500);
+      expect(await noteFor("seed-b")).toBeNull();
+    });
+
     it("links the open step instead of listing role ids, through the workspace's own open-step record", async () => {
       __setQueryData("seeds:getOutline", outline(false));
       __setQueryData("seeds:getSummary", onePage([item("seed-a", "company_context", "Plain server wording.")]));

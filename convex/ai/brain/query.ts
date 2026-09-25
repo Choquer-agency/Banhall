@@ -1,6 +1,7 @@
 import type Anthropic from "@anthropic-ai/sdk";
 import { generateStructured } from "../structured";
 import type { GenerationClient } from "../openrouterCore";
+import { pseudonymize, type PlaceholderMap } from "../../lib/deidentify";
 
 /**
  * Section-scoped retrieval queries for The Brain, extracted from the raw
@@ -106,4 +107,58 @@ export async function buildRetrievalBrief(
     console.error("brain retrieval-brief extraction failed; using fallback query", err);
     return null;
   }
+}
+
+/** Characters one query part built from facts may hold. */
+export const RETRIEVAL_BRIEF_FACT_PART_CHARS = 800;
+
+const PACK_FACT_LINE =
+  /^\[F\d{1,3}-\d{1,5}\] \((uncertainty|hypothesis|experiment|result|advancement|context)\) (.+)$/gm;
+const PLACEHOLDER_TOKEN = /\[(?:CLIENT|PERSON)_\d+(?:_[A-Z]+)?\]/g;
+
+/**
+ * The retrieval brief of a generation that reads fact packs (2026-09-24,
+ * plan step 8), built from the frozen packs' own claims with no model call:
+ * uncertainty facts give the 242 query, experiments and hypotheses the 244
+ * one, advancements (or results) the 246 one. Names are dropped first
+ * (owner decision 26): the queries leave the app for the embedding service,
+ * and they should match on the technology, never the client. Deterministic
+ * in the packs. Null when the packs hold no uncertainty, so the caller makes
+ * today's call instead.
+ */
+export function retrievalBriefFromFacts(
+  packs: readonly string[],
+  placeholders: PlaceholderMap = []
+): RetrievalBrief | null {
+  const byType = new Map<string, string[]>();
+  for (const pack of packs) {
+    for (const match of pack.matchAll(PACK_FACT_LINE)) {
+      const claim = pseudonymize(match[2], placeholders)
+        .replace(PLACEHOLDER_TOKEN, "")
+        .replace(/\s+/g, " ")
+        .replace(/\s+([.,;:])/g, "$1")
+        .trim();
+      if (!claim) continue;
+      byType.set(match[1], [...(byType.get(match[1]) ?? []), claim]);
+    }
+  }
+  const of = (type: string) => byType.get(type) ?? [];
+  const join = (claims: readonly string[]) => {
+    const kept: string[] = [];
+    let used = 0;
+    for (const claim of claims) {
+      if (used + claim.length + 1 > RETRIEVAL_BRIEF_FACT_PART_CHARS) break;
+      kept.push(claim);
+      used += claim.length + 1;
+    }
+    return kept.join(" ");
+  };
+  const uncertainty = join(of("uncertainty"));
+  if (!uncertainty) return null;
+  return {
+    problem: join([...of("uncertainty").slice(0, 2), ...of("experiment").slice(0, 1), ...of("advancement").slice(0, 1)]),
+    uncertainty,
+    work: join([...of("experiment"), ...of("hypothesis")]) || uncertainty,
+    advancement: join(of("advancement")) || join(of("result")) || uncertainty,
+  };
 }

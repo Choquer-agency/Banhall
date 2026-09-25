@@ -8,6 +8,7 @@
 // sites (brain, learning, financial, review) stay on instrumentedAnthropic.
 
 import Anthropic from "@anthropic-ai/sdk";
+import { internal } from "../_generated/api";
 import type { ActionCtx } from "../_generated/server";
 import type { Id } from "../_generated/dataModel";
 import {
@@ -28,8 +29,10 @@ import {
 } from "./instrument";
 import { COMPRESSION_REQUEST } from "./promptDefinitions";
 import { instrumentedOpenRouter } from "./openrouter";
-import { MalformedOutputError, type GenerationClient } from "./openrouterCore";
+import { MalformedOutputError, type GenerationClient, type GenerationResponse } from "./openrouterCore";
 import { entryFromFrozen } from "../lib/modelRoles";
+import type { PlaceholderMap } from "../lib/deidentify";
+import { withPlaceholders } from "./placeholderClient";
 import type { ModelFreeze } from "../lib/modelCatalogValidators";
 import {
   generationModelsRef,
@@ -332,9 +335,42 @@ type GenerationCallMeta = {
   onUsage?: ProviderCallMeta["onUsage"];
 };
 
+/** A generation's placeholder map never changes, so one read per isolate. */
+const placeholderCache = new Map<string, Promise<PlaceholderMap>>();
+
+/** Test seam: forget cached placeholder maps (ids repeat across tests). */
+export function resetGenerationPlaceholderCache(): void {
+  placeholderCache.clear();
+}
+
+/**
+ * Owner decision 26: the placeholder map frozen on the generation, so every
+ * generation-owned call reads placeholders instead of names and every
+ * response is restored before the caller sees it.
+ */
+async function generationPlaceholders(
+  ctx: RunQueryCtx,
+  generationId: Id<"generations">
+): Promise<PlaceholderMap> {
+  let pending = placeholderCache.get(generationId);
+  if (!pending) {
+    if (placeholderCache.size >= FREEZE_CACHE_LIMIT) placeholderCache.clear();
+    pending = ctx
+      .runQuery(internal.generations.getGenerationPlaceholders, { generationId })
+      .catch((error: unknown) => {
+        placeholderCache.delete(generationId);
+        throw error;
+      });
+    placeholderCache.set(generationId, pending);
+  }
+  return await pending;
+}
+
 /**
  * A client whose gateway is decided on first use, after the model's entry is
  * registered. Construction stays synchronous for every existing call site.
+ * A generation-owned client also hides names behind the generation's frozen
+ * placeholders (decision 26).
  */
 function lazyClient(
   ctx: ActionCtx,
@@ -343,9 +379,14 @@ function lazyClient(
   build: () => GenerationClient
 ): GenerationClient {
   let resolved: Promise<GenerationClient> | undefined;
+  const generationId = meta.attribution?.generationId;
   const resolve = () =>
-    (resolved ??= ensureModelRegistered(ctx, modelId, meta.attribution?.generationId)
-      .then(build)
+    (resolved ??= ensureModelRegistered(ctx, modelId, generationId)
+      .then(async () => {
+        const client = build();
+        if (!generationId) return client;
+        return withPlaceholders(client, await generationPlaceholders(ctx, generationId));
+      })
       .catch((error: unknown) => {
         resolved = undefined;
         throw error;
@@ -401,6 +442,46 @@ export function clientForModel(
       capability: "generation",
     }) as unknown as GenerationClient;
   });
+}
+
+/**
+ * The structured fact-extraction client (review 2026-09-25, P1): routed and
+ * instrumented like `clientForModel`, usage attributed to the generation
+ * when there is one, but WITHOUT the generation's placeholder wrapper. Fact
+ * extraction hides and restores names itself with the one map
+ * `transcripts.factsInput` builds; a second map here numbers people
+ * differently and restores one person's placeholder as another's name.
+ */
+export function factExtractionClient(
+  ctx: ActionCtx,
+  modelId: string,
+  meta: GenerationCallMeta,
+  options: { timeoutMs: number; signal?: AbortSignal }
+): GenerationClient {
+  assertGenerationCallSite(meta.callSite);
+  let client: GenerationClient;
+  if (gatewayForModel(modelId) === "openrouter") {
+    client = instrumentedOpenRouter(ctx, meta, {
+      timeoutMs: options.timeoutMs,
+      ...(options.signal ? { signal: options.signal } : {}),
+    });
+  } else {
+    const anthropic = instrumentedAnthropic(ctx, {
+      ...meta,
+      capability: "generation",
+      clientOptions: { timeout: options.timeoutMs },
+    });
+    client = {
+      messages: {
+        create: async (params) =>
+          (await anthropic.messages.create(
+            params as Anthropic.MessageCreateParamsNonStreaming,
+            options.signal ? { signal: options.signal } : undefined
+          )) as unknown as GenerationResponse,
+      },
+    };
+  }
+  return withOutcomeRecording(ctx, modelId, meta.callSite, client);
 }
 
 /**

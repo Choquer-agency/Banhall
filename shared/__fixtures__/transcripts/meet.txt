@@ -1,0 +1,9 @@
+Meeting transcript - Helios review
+
+00:00:00
+Dana Whitfield: Thanks for joining.
+Priya Shah: We could not predict flow at the feeder.
+
+00:05:00
+Dana Whitfield: What did you try?
+Priya Shah: A gradient boosted model, which failed on cloudy days.

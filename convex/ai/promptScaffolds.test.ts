@@ -47,6 +47,9 @@ import {
   SUMMARY_ORDINARY_LABEL_PROJECTION_VERSION,
   SUMMARY_PLAN_SERIALIZER_VERSION,
 } from "../lib/seedRevisions";
+import { seedToolSchemaForFacts } from "../lib/seedFacts";
+import { FACTS_SCHEMA, FACTS_SYSTEM_PROMPT } from "./transcriptFactsAgent";
+import { FACTS_VERSION } from "../lib/transcriptFacts";
 
 /**
  * Story 10 split the inline prompt templates into fragment tables that both
@@ -240,7 +243,9 @@ describe("the condense call belongs to the prompt program (AC5)", () => {
       systemTemplate: BRIEF_SYSTEM_PROMPT,
       request: BRIEF_REQUEST,
       // Cost phase 1: the Brief's input selection and budget are disclosed.
-      inputSelection: "digest-replaces-its-transcript",
+      // 2026-09-24 (transcript method): fact packs first, then digests.
+      inputSelection: "fact-pack-else-digest-replaces-its-transcript",
+      factModeCitations: "quote-located-in-a-verified-fact-span-on-the-transcript-row",
       contextBudget: BRIEF_INPUT_BUDGET,
       omittedSourcesNotice: BRIEF_OMITTED_SOURCES_NOTICE,
       schema: BRIEF_SCHEMA,
@@ -312,6 +317,43 @@ describe("the condense call belongs to the prompt program (AC5)", () => {
     });
     expect(changedObjective).not.toBe(current);
     expect(changedSchema).not.toBe(current);
+  });
+
+  it("declares the fact-mode Seed schema and guidance (2026-09-24, transcript method)", async () => {
+    expect(generationPromptProgram.calls.seeds.factSchema).toEqual(seedToolSchemaForFacts());
+    expect(generationPromptProgram.calls.seedFeedback.factSchema).toBe(
+      generationPromptProgram.calls.seeds.factSchema
+    );
+    expect(SEED_PROMPT_PROGRAM.user.factGuidance).toContain("cite it by its factId");
+    expect(SEED_PROMPT_PROGRAM.user.factGuidance).toContain(
+      "Never cite a transcript by excerpt or by character offsets."
+    );
+    // The same link rules as the offsets guidance.
+    expect(SEED_PROMPT_PROGRAM.user.factGuidance).toContain(
+      "When there are no frozen experiment selections, omit both link fields."
+    );
+    expect(generationPromptProgram.calls.transcriptFacts).toMatchObject({
+      systemTemplate: FACTS_SYSTEM_PROMPT,
+      adapters: { openrouter: { schema: FACTS_SCHEMA } },
+      model: { kind: "frozen-role", role: "condense" },
+      callSite: "generation:facts",
+    });
+    expect(generationPromptProgram.configuration.transcriptFacts.factsVersion).toBe(FACTS_VERSION);
+    const current = await hashPromptProgram(generationPromptProgram);
+    const changedGuidance = await hashPromptProgram({
+      ...generationPromptProgram,
+      templates: {
+        ...generationPromptProgram.templates,
+        seeds: {
+          ...generationPromptProgram.templates.seeds,
+          scaffolds: {
+            ...SEED_PROMPT_PROGRAM,
+            user: { ...SEED_PROMPT_PROGRAM.user, factGuidance: "Changed." },
+          },
+        },
+      },
+    });
+    expect(changedGuidance).not.toBe(current);
   });
 
   it("declares the settings-document classifier with the PSOS-50 prompt, request and schema verbatim (story 3, AD-27)", async () => {

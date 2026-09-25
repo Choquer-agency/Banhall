@@ -1,4 +1,6 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { toast } from "svelte-sonner";
+import { ConvexError } from "convex/values";
 import { render } from "vitest-browser-svelte";
 import JSZip from "jszip";
 import NewProjectPage from "./+page.svelte";
@@ -7,6 +9,7 @@ import { __resetNavigation } from "$lib/test/app-navigation-stub";
 import {
   __mutationCalls,
   __resetConvexStub,
+  __setMutationError,
   __setMutationResult,
   __setQueryData,
 } from "$lib/test/convex-svelte-stub.svelte";
@@ -21,7 +24,7 @@ import { takeProjectStart } from "$lib/workspace/projectIntentHandoff";
 const transcriptTextarea = () =>
   document.querySelector<HTMLTextAreaElement>("#transcript");
 const transcriptFileInput = () =>
-  document.querySelector<HTMLInputElement>('input[type="file"][accept=".docx"]');
+  document.querySelector<HTMLInputElement>('input[type="file"][accept=".docx,.vtt,.srt,.txt"]');
 const itemLabels = () =>
   [...document.querySelectorAll('button[aria-label^="Remove "]')].map((button) =>
     button.getAttribute("aria-label")!.replace("Remove ", "")
@@ -91,6 +94,41 @@ async function docxFile(name: string, words: string[]) {
     `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:r><w:t>${words.join(
       " "
     )}</w:t></w:r></w:p></w:body></w:document>`
+  );
+  const blob = await zip.generateAsync({ type: "blob" });
+  return new File([blob], name, {
+    type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  });
+}
+
+/**
+ * A cue-timed Teams export: one paragraph per cue with soft line breaks
+ * between the timing, the name and the speech, the run layout of a real
+ * export (github.com/endjin/TeamsTranscript, transcript-01.docx).
+ */
+async function teamsCueDocx(name: string) {
+  const cues = [
+    ["0:0:0.0 --&gt; 0:0:3.520", "Dana Whitfield", "Thanks for joining."],
+    ["0:0:3.520 --&gt; 0:0:9.100", "Priya Shah", "We could not predict flow at the feeder."],
+  ];
+  const body = cues
+    .map(
+      ([timing, speaker, speech]) =>
+        `<w:p><w:r><w:t>${timing}</w:t></w:r><w:r><w:br/><w:t>${speaker}</w:t></w:r><w:r><w:br/></w:r><w:r><w:t>${speech}</w:t></w:r></w:p>`
+    )
+    .join("");
+  const zip = new JSZip();
+  zip.file(
+    "[Content_Types].xml",
+    `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>`
+  );
+  zip.file(
+    "_rels/.rels",
+    `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>`
+  );
+  zip.file(
+    "word/document.xml",
+    `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>${body}</w:body></w:document>`
   );
   const blob = await zip.generateAsync({ type: "blob" });
   return new File([blob], name, {
@@ -181,17 +219,65 @@ describe("/project/new transcript list", () => {
       .toEqual(["Day 1.docx", "Day 3.docx", "Day 4.docx"]);
   });
 
-  it("rejects a non-.docx file with the existing message", async () => {
+  it("rejects a file that is not a transcript format with a plain message", async () => {
     __setPageUrl("/project/new");
     await render(NewProjectPage, {});
 
     await expect.poll(transcriptFileInput).not.toBeNull();
-    selectFiles([new File(["notes"], "notes.txt", { type: "text/plain" })]);
+    selectFiles([new File(["notes"], "notes.pdf", { type: "application/pdf" })]);
 
     await expect
       .poll(() => document.body.textContent)
-      .toContain("Transcripts must be Word (.docx) files");
+      .toContain("Transcripts can be Word (.docx), WebVTT (.vtt), SubRip (.srt) or text (.txt) files.");
     expect(itemLabels()).toEqual([]);
+  });
+
+  it("detects each file's format, renders captions to text and sends the format", async () => {
+    __setPageUrl("/project/new");
+    __setMutationResult("projects:createProject", {
+      projectId: "project-new",
+      transcriptIds: ["transcript-a", "transcript-b"],
+    });
+    await render(NewProjectPage, {});
+
+    await expect.poll(transcriptFileInput).not.toBeNull();
+    selectFiles([
+      new File(
+        ["WEBVTT\n\n00:00:01.000 --> 00:00:03.000\n<v Dana Whitfield>What did you try?</v>\n"],
+        "Call.vtt",
+        { type: "text/vtt" }
+      ),
+      new File(["[Dana] 10:02:33\nHello there.\n\n[Priya] 10:02:37\nHi."], "Zoom.txt", { type: "text/plain" }),
+    ]);
+    await expect.poll(itemLabels).toEqual(["Call.vtt", "Zoom.txt"]);
+    const formats = [...document.querySelectorAll("[data-transcript-format]")].map((el) =>
+      el.textContent?.trim()
+    );
+    expect(formats).toEqual(["WebVTT, 7 words", "Zoom, 7 words"]);
+
+    setInputValue("#title", "Solar tracker");
+    setInputValue("#clientName", "Acme Labs");
+    await clickText("Next");
+    await expect
+      .poll(() =>
+        [...document.querySelectorAll("button")].some((button) =>
+          button.textContent?.includes("Generate Report")
+        )
+      )
+      .toBe(true);
+    await clickText("Generate Report");
+    await expect.poll(() => __mutationCalls("projects:createProject").length).toBe(1);
+    const created = __mutationCalls("projects:createProject")[0] as {
+      transcripts: Array<{ content?: string; label?: string; sourceFormat?: string }>;
+    };
+    expect(created.transcripts.map(({ content, label, sourceFormat }) => ({ content, label, sourceFormat }))).toEqual([
+      { content: "Dana Whitfield [00:00:01]: What did you try?", label: "Call.vtt", sourceFormat: "vtt" },
+      {
+        content: "[Dana] 10:02:33\nHello there.\n\n[Priya] 10:02:37\nHi.",
+        label: "Zoom.txt",
+        sourceFormat: "zoom",
+      },
+    ]);
   });
 
   it("blocks the submit with no transcript and no context document", async () => {
@@ -248,8 +334,8 @@ describe("/project/new transcript list", () => {
       transcripts: Array<{ content?: string; label?: string }>;
     };
     expect(created.transcripts).toEqual([
-      { content: "First interview body", label: "Pasted transcript 1" },
-      { content: "Second interview body", label: "Pasted transcript 2" },
+      { content: "First interview body", label: "Pasted transcript 1", sourceFormat: "paste" },
+      { content: "Second interview body", label: "Pasted transcript 2", sourceFormat: "paste" },
     ]);
 
     await expect
@@ -258,6 +344,95 @@ describe("/project/new transcript list", () => {
     expect(
       __mutationCalls("generations:requestGeneration")[0]
     ).not.toHaveProperty("transcriptId");
+  });
+});
+
+describe("/project/new transcript originals", () => {
+  // Each uploaded file answers with a storage id named after it.
+  let upload: ReturnType<typeof vi.fn<typeof fetch>>;
+
+  beforeEach(() => {
+    __setPageUrl("/project/new");
+    __setMutationResult("documents:generateUploadUrl", "https://upload.test/transcript");
+    __setMutationResult("transcripts:discardTranscriptOriginals", null);
+    upload = vi.fn<typeof fetch>().mockImplementation(async (_url, init) =>
+      Response.json({ storageId: `storage-${(init?.body as File).name}` })
+    );
+    vi.stubGlobal("fetch", upload);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  async function submit() {
+    setInputValue("#title", "Solar tracker");
+    setInputValue("#clientName", "Acme Labs");
+    await clickText("Next");
+    await expect
+      .poll(() =>
+        [...document.querySelectorAll("button")].some((button) => button.textContent?.includes("Generate Report"))
+      )
+      .toBe(true);
+    await clickText("Generate Report");
+  }
+
+  it("uploads each file's original and reads a Teams cue export with its speakers", async () => {
+    __setMutationResult("projects:createProject", {
+      projectId: "project-new",
+      transcriptIds: ["transcript-a", "transcript-b"],
+    });
+    await render(NewProjectPage, {});
+    await expect.poll(transcriptFileInput).not.toBeNull();
+    selectFiles([
+      await teamsCueDocx("Helios.docx"),
+      new File(["Dana: What did you try?\n\nPriya: A test rig."], "Follow up.txt", { type: "text/plain" }),
+    ]);
+    await expect.poll(itemLabels).toEqual(["Helios.docx", "Follow up.txt"]);
+    await submit();
+    await expect.poll(() => __mutationCalls("projects:createProject").length).toBe(1);
+    const created = __mutationCalls("projects:createProject")[0] as {
+      transcripts: Array<{ content?: string; sourceFormat?: string; originalStorageId?: string }>;
+    };
+    expect(created.transcripts).toEqual([
+      {
+        content:
+          "Dana Whitfield [00:00:00]: Thanks for joining.\n\nPriya Shah [00:00:03]: We could not predict flow at the feeder.",
+        label: "Helios.docx",
+        sourceFormat: "teams_docx",
+        originalStorageId: "storage-Helios.docx",
+      },
+      {
+        content: "Dana: What did you try?\n\nPriya: A test rig.",
+        label: "Follow up.txt",
+        sourceFormat: "txt",
+        originalStorageId: "storage-Follow up.txt",
+      },
+    ]);
+    expect(__mutationCalls("transcripts:discardTranscriptOriginals")).toEqual([]);
+  });
+
+  it("releases the uploaded originals when the project is refused", async () => {
+    __setMutationError(
+      "projects:createProject",
+      new ConvexError({ code: "INVALID_INPUT", message: "Combined transcript text is too large" })
+    );
+    const error = vi.spyOn(toast, "error");
+    await render(NewProjectPage, {});
+    await expect.poll(transcriptFileInput).not.toBeNull();
+    selectFiles([
+      new File(["Dana: First."], "One.txt", { type: "text/plain" }),
+      new File(["Dana: Second."], "Two.txt", { type: "text/plain" }),
+    ]);
+    await expect.poll(itemLabels).toEqual(["One.txt", "Two.txt"]);
+    await submit();
+    await expect.poll(() => __mutationCalls("transcripts:discardTranscriptOriginals").length).toBe(1);
+    expect(__mutationCalls("transcripts:discardTranscriptOriginals")[0]).toEqual({
+      storageIds: ["storage-One.txt", "storage-Two.txt"],
+    });
+    await expect.poll(() => error.mock.calls.map((call) => call[0])).toContain("Combined transcript text is too large");
+    expect(__mutationCalls("generations:requestGeneration")).toEqual([]);
   });
 });
 

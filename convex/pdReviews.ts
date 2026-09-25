@@ -13,7 +13,14 @@ import {
 import { domainError, sha256 } from "./lib/contracts";
 import { isProjectDeleting } from "./lib/projectDeletion";
 import { requireAnthropicConfigured } from "./lib/providerConfig";
-import { projectTranscriptPromptText } from "./lib/transcripts";
+import {
+  buildTranscriptPromptText,
+  listProjectTranscripts,
+  transcriptLabel,
+} from "./lib/transcripts";
+import { liveFactPacksApply } from "./lib/transcriptFactRows";
+import { projectPlaceholderMap } from "./lib/transcriptPlaceholders";
+import { transcriptFactsMode, transcriptPlaceholdersEnabled } from "./appSettings";
 /**
  * BNH-39: PD review mode. A review-mode project uploads an existing written PD
  * (stored in projectDocuments, source "review_pd"); these functions run the AI
@@ -259,6 +266,13 @@ export const getReviewInput = internalQuery({
     if (!review) return null;
     const doc = await ctx.db.get(review.documentId);
     const project = await ctx.db.get(review.projectId);
+    const rows = await listProjectTranscripts(ctx, review.projectId);
+    // Owner decision 26: the review call reads placeholders, not names. The
+    // action checks the map against every text it sends.
+    const placeholders =
+      project && (await transcriptPlaceholdersEnabled(ctx))
+        ? [...(await projectPlaceholderMap(ctx, project, rows.map((row) => row._id)))]
+        : [];
     return {
       pdContent: doc?.content ?? "",
       // Usage attribution: the user who started (or retried) this review.
@@ -266,7 +280,16 @@ export const getReviewInput = internalQuery({
       fileName: review.sourceFileName,
       title: project?.title ?? "Untitled",
       clientName: project?.clientName ?? "",
-      transcript: await projectTranscriptPromptText(ctx, review.projectId),
+      transcript: buildTranscriptPromptText(
+        rows.map((row) => ({ label: transcriptLabel(row), content: row.content }))
+      ),
+      // 2026-09-24 (transcript method, plan step 8): under transcripts.factsMode
+      // the action tries the verified fact packs of these transcripts, one
+      // query each, in place of the text the budget would cut.
+      factPacks: liveFactPacksApply(rows, await transcriptFactsMode(ctx))
+        ? rows.map((row, index) => ({ transcriptId: row._id, position: index + 1, label: transcriptLabel(row) }))
+        : [],
+      placeholders,
     };
   },
 });

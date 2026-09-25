@@ -43,6 +43,7 @@ import type {
 } from "./seeds";
 import type { completeAttempt, dispatch } from "./seedRuns";
 import { readSeedReadiness } from "./lib/seedReadiness";
+import { factIndex } from "./lib/seedFacts";
 import schema from "./schema";
 
 const summaryAdmissionProgram = vi.hoisted(() => ({
@@ -2331,6 +2332,78 @@ describe("seed Summary sign-off and recovery", () => {
       omit_repeated_merge: "e62250d2a28d0110b214efe1665a4b6393cb50e939aad3864b5d059f13b68545",
       short_reason: "e376f9cf32b700b43281bed0464f639cfb8a1b9a2b50a51af411396d10ece0b3",
     });
+  });
+
+  it("copies fact packs and their spans to Summary recovery, so fact ids still resolve (review 2026-09-25)", async () => {
+    const s = await decisionFixture();
+    const excerpt = "Evidence alpha";
+    await s.t.run(async (ctx) => {
+      const source = (await ctx.db.get(s.sourceId))!;
+      const transcriptId = await ctx.db.insert("transcripts", {
+        projectId: s.projectId,
+        content: source.content,
+        createdAt: 1,
+      });
+      await ctx.db.patch(s.sourceId, { transcriptId });
+      await ctx.db.patch(s.generationId, { transcriptId, transcriptIds: [transcriptId], transcriptFacts: true });
+      await ctx.db.insert("generationSources", {
+        generationId: s.generationId,
+        projectId: s.projectId,
+        kind: "transcript_facts",
+        transcriptId,
+        label: "Interview",
+        content: "Transcript 1: Interview\n\n[F1-1] (result) Evidence alpha was observed.",
+        contentHash: "pack-hash",
+        truncated: false,
+        originalLength: 60,
+        capturedAt: 1,
+        factsVersion: "2",
+        factSpans: [
+          {
+            id: "F1-1",
+            type: "result",
+            quotes: [{ charStart: 0, charEnd: excerpt.length, speakerLabel: "Priya", role: "client" }],
+          },
+        ],
+      });
+    });
+    await makeReady(s);
+    await s.writer.mutation(api.generations.signOffSeedStage, {
+      generationId: s.generationId,
+      expectedSeedStageVersion: 0,
+    });
+    await s.t.mutation(internal.generations.failGeneration, {
+      generationId: s.generationId,
+      error: "prepare Summary recovery",
+    });
+    const recoveryId = await s.writer.mutation(api.generations.retryFromSummary, {
+      failedGenerationId: s.generationId,
+    });
+    const recovered = await s.t.run(async (ctx) => ({
+      generation: await ctx.db.get(recoveryId),
+      sources: await ctx.db
+        .query("generationSources")
+        .withIndex("by_generationId", (q) => q.eq("generationId", recoveryId))
+        .collect(),
+    }));
+    expect(recovered.generation?.transcriptFacts).toBe(true);
+    const pack = recovered.sources.find((row) => row.kind === "transcript_facts")!;
+    const transcript = recovered.sources.find((row) => row.kind === "transcript")!;
+    expect(pack.factSpans).toEqual([
+      { id: "F1-1", type: "result", quotes: [{ charStart: 0, charEnd: excerpt.length, speakerLabel: "Priya", role: "client" }] },
+    ]);
+    const facts = factIndex(
+      recovered.sources.map((row) => ({
+        sourceId: row._id,
+        kind: row.kind,
+        content: row.content,
+        transcriptId: row.transcriptId,
+        factSpans: row.factSpans,
+      }))
+    );
+    const fact = facts.get("F1-1")!;
+    expect(fact.transcript.sourceId).toBe(transcript._id);
+    expect(transcript.content.slice(fact.span.quotes[0].charStart, fact.span.quotes[0].charEnd)).toBe(excerpt);
   });
 
   it("rolls back an oversized recovery claim, then the owning action terminalizes the chain without a provider call", async () => {

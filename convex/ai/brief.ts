@@ -16,7 +16,7 @@ import {
   CHARS_PER_TOKEN,
   cutToBudget,
   formatCount,
-  preferDigestSources,
+  preferFactSources,
   truncationNotice,
 } from "./trustedContext";
 import { normalizeProviderError } from "./providers";
@@ -26,7 +26,8 @@ import {
   BRIEF_OUTCOME_DETAIL_CHARS,
   type BriefOutcome,
 } from "../lib/briefRender";
-import { citeQuote, type FrozenSource } from "../lib/citations";
+import { citeQuote, type Citation, type FrozenSource } from "../lib/citations";
+import { citeFactQuote, readsFactPacks } from "../lib/seedFacts";
 import {
   flaggedGlossaryTerms,
   matchGlossaryTermsAcrossSources,
@@ -300,8 +301,9 @@ export function buildBriefUserMessage(
   budget: { totalTokens: number; perSourceTokens: number } = BRIEF_INPUT_BUDGET
 ): string {
   // Digest mode means digests: a transcript with a frozen digest is read
-  // through the digest only, never both.
-  const evidence = preferDigestSources(
+  // through the digest only, never both. 2026-09-24 (transcript method):
+  // with a fact pack for every transcript, the packs take their places.
+  const evidence = preferFactSources(
     sources.filter((s) => s.kind !== "writer_storyline")
   );
   const perSource = Math.max(0, budget.perSourceTokens) * CHARS_PER_TOKEN;
@@ -528,9 +530,45 @@ export async function deriveOrReuseBrief(
   }
 
   const writerSource = sources.find((s) => s.kind === "writer_storyline");
+  // 2026-09-24 (transcript method, plan step 8): a Brief derived from fact
+  // packs cites what the packs show on the frozen transcript row, inside a
+  // verified client span (owner decision 25), and a document by its own
+  // text; a pack or digest row is never cited. Otherwise, as before, a
+  // quote cites the first frozen source that holds it.
+  const factMode = readsFactPacks(sources);
   const evidenceSources: FrozenSource[] = sources.filter(
-    (s) => s.kind !== "writer_storyline"
+    (s) =>
+      s.kind !== "writer_storyline" &&
+      s.kind !== "transcript_facts" &&
+      !(factMode && s.kind === "transcript_digest")
   );
+  const documentSources: FrozenSource[] = sources.filter(
+    (s) => s.kind !== "writer_storyline" && s.kind !== "transcript" && s.kind !== "transcript_facts" && s.kind !== "transcript_digest"
+  );
+  const cite = (quote: string): Citation | null => {
+    if (!factMode) return citeQuote(evidenceSources, quote);
+    const fact = citeFactQuote(
+      sources.map((s) => ({
+        sourceId: s._id,
+        kind: s.kind,
+        content: s.content,
+        contentHash: s.contentHash,
+        transcriptId: s.transcriptId,
+        factSpans: s.factSpans,
+      })),
+      quote
+    );
+    if (fact) {
+      return {
+        sourceId: fact.sourceId as Id<"generationSources">,
+        sourceContentHash: fact.sourceContentHash,
+        exactExcerpt: fact.exactExcerpt,
+        startOffset: fact.startOffset,
+        endOffset: fact.endOffset,
+      };
+    }
+    return citeQuote(documentSources, quote);
+  };
 
   const model = args.model ?? MODEL;
   const output = await runBriefAgent(
@@ -550,7 +588,7 @@ export async function deriveOrReuseBrief(
   // cited entries — stored verbatim on the Brief row itself.
   if (!writerSource) {
     for (const claim of output.storylineClaims) {
-      const citation = citeQuote(evidenceSources, claim.quote);
+      const citation = cite(claim.quote);
       if (!citation) {
         upstreamDroppedEntryCount += 1;
         continue;
@@ -567,7 +605,7 @@ export async function deriveOrReuseBrief(
     }
   }
   for (const exclusion of output.claimExclusions) {
-    const citation = citeQuote(evidenceSources, exclusion.quote);
+    const citation = cite(exclusion.quote);
     if (!citation) {
       upstreamDroppedEntryCount += 1;
       continue;
@@ -584,7 +622,7 @@ export async function deriveOrReuseBrief(
     });
   }
   for (const fact of output.confidenceMap) {
-    const citation = citeQuote(evidenceSources, fact.quote);
+    const citation = cite(fact.quote);
     if (!citation) {
       upstreamDroppedEntryCount += 1;
       continue;
@@ -636,7 +674,7 @@ export async function deriveOrReuseBrief(
     );
     if (!classified?.quote) continue;
     classifiedCanonicalTerms.add(canonicalTerm);
-    const citation = citeQuote(evidenceSources, classified.quote);
+    const citation = cite(classified.quote);
     if (!citation) {
       upstreamDroppedEntryCount += 1;
       continue;

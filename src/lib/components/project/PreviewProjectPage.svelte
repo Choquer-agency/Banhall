@@ -72,6 +72,14 @@
   import { qaSectionScores } from "$lib/qa/qaSectionScores";
   import { markQaDismissed, markQaSeen, readQaSeen, type QaSeenState } from "$lib/qa/qaSeen";
   import SourcesView from "$lib/components/project/shell/SourcesView.svelte";
+  import TranscriptSpeakersPopover from "$lib/components/project/shell/TranscriptSpeakersPopover.svelte";
+  import {
+    readTranscriptFile,
+    releaseOriginalsOnFailure,
+    TranscriptFileError,
+    transcriptContentHash,
+    uploadTranscriptOriginal,
+  } from "$lib/transcriptUpload";
   import DetailsPanel from "$lib/components/project/details/DetailsPanel.svelte";
   import DetailsPopover from "$lib/components/project/details/DetailsPopover.svelte";
   import DetailsMore from "$lib/components/project/details/DetailsMore.svelte";
@@ -155,8 +163,14 @@
     if (choice !== "default") return choice;
     return projectQ.data?.mode === "review" ? null : (transcripts?.[0]?._id ?? null);
   });
+  // 2026-09-24 (transcript method): opening a transcript queues its fact
+  // extraction in the background; the server ignores it when the method is
+  // off or the facts already exist.
+  const requestTranscriptFacts = useMutation(api.transcripts.requestTranscriptFacts);
   function toggleTranscript(transcriptId: Id<"transcripts">) {
-    openChoice = openTranscriptId === transcriptId ? null : transcriptId;
+    const opening = openTranscriptId !== transcriptId;
+    openChoice = opening ? transcriptId : null;
+    if (opening) void requestTranscriptFacts({ transcriptId }).catch(() => {});
   }
 
   // Metadata only above; the body of the one open transcript below. A project
@@ -205,6 +219,106 @@
   const completeExport = useMutation(api.reports.completeExport);
   const failExport = useMutation(api.reports.failExport);
   const publishForReview = useMutation(api.projects.publishForReview);
+  // 2026-09-24 (transcript method): Add, Replace and Remove on the Sources tab.
+  const addTranscriptMut = useMutation(api.transcripts.addTranscript);
+  const replaceTranscriptMut = useMutation(api.transcripts.replaceTranscript);
+  const removeTranscriptMut = useMutation(api.transcripts.removeTranscript);
+  const discardTranscriptOriginalsMut = useMutation(api.transcripts.discardTranscriptOriginals);
+  const generateTranscriptUploadUrl = useMutation(api.documents.generateUploadUrl);
+  let transcriptBusy = $state(false);
+
+  /**
+   * Reads a transcript file and stores it as a new or replacing row. The
+   * duplicate check leaves out the row being replaced, as the server does.
+   * When the server refuses the change, the original file uploaded for it
+   * is released again.
+   */
+  async function storeTranscriptFile(file: File, replacing: string | null) {
+    if (transcriptBusy) return;
+    transcriptBusy = true;
+    try {
+      const read = await readTranscriptFile(file);
+      const hash = await transcriptContentHash(read.content);
+      const duplicate = transcripts.find((row) => row.contentHash === hash && row._id !== replacing);
+      if (duplicate) {
+        toast.error(`This transcript is already added (${duplicate.label}).`);
+        return;
+      }
+      const originalStorageId = await uploadTranscriptOriginal(file, () => generateTranscriptUploadUrl({}));
+      const upload = {
+        content: read.content,
+        label: read.label,
+        sourceFormat: read.format,
+        ...(originalStorageId ? { originalStorageId: originalStorageId as Id<"_storage"> } : {}),
+      };
+      await releaseOriginalsOnFailure(
+        originalStorageId ? [originalStorageId] : [],
+        (storageIds) => discardTranscriptOriginalsMut({ storageIds: storageIds as Id<"_storage">[] }),
+        () =>
+          replacing
+            ? replaceTranscriptMut({ transcriptId: replacing as Id<"transcripts">, ...upload })
+            : addTranscriptMut({ projectId, ...upload })
+      );
+      toast.success(replacing ? `Replaced with ${file.name}` : `Added ${file.name}`);
+    } catch (error) {
+      toast.error(
+        error instanceof TranscriptFileError
+          ? error.message
+          : userErrorMessage(error, "The transcript could not be saved.")
+      );
+    } finally {
+      transcriptBusy = false;
+    }
+  }
+
+  // Speakers popover: one transcript's speaker rows, subscribed only while
+  // its popover is open.
+  let speakersOpenFor = $state<string | null>(null);
+  const speakersQ = useQuery(api.transcripts.getTranscriptSpeakers, () =>
+    speakersOpenFor ? { transcriptId: speakersOpenFor as Id<"transcripts"> } : "skip"
+  );
+  const setSpeakerRoleMut = useMutation(api.transcripts.setSpeakerRole);
+  const confirmSpeakersMut = useMutation(api.transcripts.confirmSpeakers);
+  let speakersBusy = $state(false);
+
+  async function setSpeakerRole(
+    transcriptId: string,
+    label: string,
+    role: "interviewer" | "client" | "other"
+  ) {
+    speakersBusy = true;
+    try {
+      await setSpeakerRoleMut({ transcriptId: transcriptId as Id<"transcripts">, label, role });
+    } catch (error) {
+      toast.error(userErrorMessage(error, "The speaker's role could not be saved."));
+    } finally {
+      speakersBusy = false;
+    }
+  }
+
+  async function confirmSpeakers(transcriptId: string) {
+    speakersBusy = true;
+    try {
+      await confirmSpeakersMut({ transcriptId: transcriptId as Id<"transcripts"> });
+    } catch (error) {
+      toast.error(userErrorMessage(error, "The speakers could not be confirmed."));
+    } finally {
+      speakersBusy = false;
+    }
+  }
+
+  async function removeTranscript(transcriptId: string) {
+    if (transcriptBusy) return;
+    transcriptBusy = true;
+    try {
+      await removeTranscriptMut({ transcriptId: transcriptId as Id<"transcripts"> });
+      toast.success("Transcript removed");
+    } catch (error) {
+      toast.error(userErrorMessage(error, "The transcript could not be removed."));
+    } finally {
+      transcriptBusy = false;
+    }
+  }
   // 2026-08-11 (second) amendment: start PD-review mode from this project's
   // written report — creates the associated review project (inherited title,
   // writer, documents, transcript; report snapshot as the PD under review)
@@ -1239,6 +1353,14 @@
             (generation?.seedPhase === "initializing" || generation?.seedPhase === "drafting"))))
   );
   const awaitingSelection = $derived(generation?.status === "awaiting_selection");
+  // The server refuses transcript changes while any generation is active
+  // (convex/transcripts.ts); the Sources tab says so up front.
+  const transcriptChangesBlocked = $derived(
+    generation?.status === "reserved" ||
+      generation?.status === "running" ||
+      generation?.status === "awaiting_selection" ||
+      generation?.status === "awaiting_input"
+  );
   // A failed generation gets the progress/retry view — except in review mode,
   // where the PD review stays the main view (its own retry CTA regenerates).
   const showFailedGeneration = $derived(
@@ -1921,6 +2043,15 @@
                 transcripts={transcripts}
                 documents={documentsQ.data ?? []}
                 loading={transcriptsQ.data === undefined || documentsQ.data === undefined}
+                canEditTranscripts={!!user?.role}
+                transcriptsBlockedReason={transcriptChangesBlocked
+                  ? "Transcripts can't change while a report is generating."
+                  : null}
+                {transcriptBusy}
+                onAddTranscript={(file) => storeTranscriptFile(file, null)}
+                onReplaceTranscript={(transcriptId, file) => storeTranscriptFile(file, transcriptId)}
+                onRemoveTranscript={removeTranscript}
+                transcriptSpeakers={transcriptSpeakersChip}
               />
             </div>
           {/if}
@@ -2878,3 +3009,19 @@
   </div>
   </WorkspaceShell>
 {/if}
+
+{#snippet transcriptSpeakersChip(row: { _id: string; label: string; speakerStatus?: "unchecked" | "needs_check" | "confirmed" })}
+  <TranscriptSpeakersPopover
+    transcriptId={row._id}
+    transcriptLabel={row.label}
+    status={row.speakerStatus}
+    speakers={speakersOpenFor === row._id ? (speakersQ.data ?? undefined) : undefined}
+    busy={speakersBusy}
+    onOpenChange={(open) => {
+      if (open) speakersOpenFor = row._id;
+      else if (speakersOpenFor === row._id) speakersOpenFor = null;
+    }}
+    onSetRole={(label, role) => setSpeakerRole(row._id, label, role)}
+    onConfirm={() => confirmSpeakers(row._id)}
+  />
+{/snippet}

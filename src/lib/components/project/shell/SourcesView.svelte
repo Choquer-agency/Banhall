@@ -6,9 +6,11 @@
   out of AI context.
 -->
 <script lang="ts">
-  import { FileTextIcon, MicrophoneIcon } from "phosphor-svelte";
+  import type { Snippet } from "svelte";
+  import { FileTextIcon } from "phosphor-svelte";
+  import TranscriptSourceList, { type TranscriptListRow } from "./TranscriptSourceList.svelte";
 
-  type TranscriptRow = { _id: string; label: string; wordCount: number; createdAt: number };
+  type TranscriptRow = TranscriptListRow;
   type DocumentRow = {
     _id: string;
     fileName: string;
@@ -23,10 +25,25 @@
     transcripts,
     documents,
     loading = false,
+    canEditTranscripts = false,
+    transcriptsBlockedReason = null,
+    transcriptBusy = false,
+    onAddTranscript,
+    onReplaceTranscript,
+    onRemoveTranscript,
+    transcriptSpeakers,
   }: {
     transcripts: TranscriptRow[];
     documents: DocumentRow[];
     loading?: boolean;
+    // 2026-09-24 (transcript method): Add, Replace and Remove on the Sources tab.
+    canEditTranscripts?: boolean;
+    transcriptsBlockedReason?: string | null;
+    transcriptBusy?: boolean;
+    onAddTranscript?: (file: File) => void | Promise<void>;
+    onReplaceTranscript?: (transcriptId: string, file: File) => void | Promise<void>;
+    onRemoveTranscript?: (transcriptId: string) => void | Promise<void>;
+    transcriptSpeakers?: Snippet<[TranscriptRow]>;
   } = $props();
 
   const active = $derived(documents.filter((doc) => !doc.archived));
@@ -47,24 +64,20 @@
       <div class="skeleton-shimmer h-10 rounded-lg"></div>
       <div class="skeleton-shimmer h-10 rounded-lg"></div>
     </div>
-  {:else if transcripts.length === 0 && documents.length === 0}
+  {:else if transcripts.length === 0 && documents.length === 0 && !canEditTranscripts}
     <p class="mt-6 text-[13px] text-ink-secondary">No sources yet. Add a transcript or document to this project.</p>
   {:else}
-    {#if transcripts.length > 0}
-      <section class="mt-6" aria-labelledby="sources-transcripts">
-        <h3 id="sources-transcripts" class="text-xs uppercase tracking-wide text-ink-muted">Interviews</h3>
-        <ul class="mt-2 divide-y divide-line-soft border-y border-line-soft">
-          {#each transcripts as transcript (transcript._id)}
-            <li class="flex min-h-11 items-center gap-3 py-2 text-[13px]">
-              <MicrophoneIcon size={16} aria-hidden="true" class="shrink-0 text-ink-muted" />
-              <span class="min-w-0 flex-1 truncate text-ink">{transcript.label}</span>
-              {#if transcript.wordCount > 0}
-                <span class="shrink-0 text-xs text-ink-muted">{transcript.wordCount.toLocaleString()} words</span>
-              {/if}
-            </li>
-          {/each}
-        </ul>
-      </section>
+    {#if transcripts.length > 0 || canEditTranscripts}
+      <TranscriptSourceList
+        {transcripts}
+        canEdit={canEditTranscripts}
+        blockedReason={transcriptsBlockedReason}
+        busy={transcriptBusy}
+        onAdd={onAddTranscript}
+        onReplace={onReplaceTranscript}
+        onRemove={onRemoveTranscript}
+        speakers={transcriptSpeakers}
+      />
     {/if}
     {#if active.length > 0}
       <section class="mt-6" aria-labelledby="sources-documents">

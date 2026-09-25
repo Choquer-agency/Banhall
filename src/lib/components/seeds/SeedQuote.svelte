@@ -11,7 +11,7 @@
    */
   import { onDestroy, tick } from "svelte";
   import { describeSource, type SeedSourceAttribution } from "./attribution";
-  import { citationSpeakerLine, type QuoteCitation } from "./citations";
+  import { citationSpeakerLine, SPEAKER_CHECK_NOTE, type QuoteCitation } from "./citations";
 
   let {
     text,
@@ -173,7 +173,9 @@
       style={`top:${position.top}px;left:${position.left}px;width:min(${CARD_WIDTH}px, calc(100vw - 16px))`}
       onpointerenter={clearTimer}
       onpointerleave={scheduleHide}
-    ><span class="block font-serif text-[13px] leading-[18px] text-ink" data-quote-text>“{citation.exactExcerpt}”</span><span
+    ><span class="block font-serif text-[13px] leading-[18px] text-ink" data-quote-text>“{citation.exactExcerpt}”</span>{#if citation.needsSpeakerCheck}<span
+        class="block text-[11px] leading-[14px] text-ink-muted"
+        data-quote-speaker-check>{SPEAKER_CHECK_NOTE}</span>{/if}<span
         class="flex items-end gap-3 text-[11px] leading-[14px]"
       ><span class="min-w-0 flex-1 text-ink-faint">{#if speakerLine && source.attributed}<span
               data-quote-speaker>{speakerLine}</span> in <span

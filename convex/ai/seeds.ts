@@ -41,6 +41,12 @@ import {
   type SeedReference,
   type ValidatedSeedCandidate,
 } from "../lib/seedContract";
+import {
+  readsFactPacks,
+  resolveFactCitations,
+  seedToolSchemaForFacts,
+  type FactSource,
+} from "../lib/seedFacts";
 
 type ValidatedSeedBatch = {
   seeds: ValidatedSeedCandidate[];
@@ -114,6 +120,12 @@ function validatedBatchSchema(args: {
   generationId: string;
   snapshot: SeedContextSnapshot;
   sources: readonly FrozenSeedSource[];
+  /**
+   * 2026-09-24 (transcript method): set when every transcript is read
+   * through its fact pack. Fact ids and document excerpts are resolved to
+   * offsets on frozen rows before the Seed contract byte-checks them.
+   */
+  factSources?: readonly FactSource[];
 }): z.ZodType<ValidatedSeedBatch> {
   const references: SeedReference[] = args.snapshot.items
     .filter((item) => item.kind === "selection")
@@ -126,10 +138,13 @@ function validatedBatchSchema(args: {
   return z
     .object({ seeds: z.array(z.unknown()) })
     .transform((value, context): ValidatedSeedBatch => {
+      const seeds = args.factSources
+        ? resolveFactCitations(value.seeds, args.factSources).seeds
+        : value.seeds;
       const result = validateBatch({
         roleId: args.roleId,
         mode: args.mode,
-        seeds: value.seeds,
+        seeds,
         referenceContext: { generationId: args.generationId, references },
         frozenSources: args.sources,
       });
@@ -192,6 +207,19 @@ export const generateBatch = internalAction({
         content: source.content,
         contentHash: source.contentHash,
       }));
+      // Transcript method (plan step 7): with a fact pack frozen for every
+      // transcript, Seeds read the packs and cite fact ids.
+      const factMode = readsFactPacks(claim.input.sources);
+      const factSources: FactSource[] | undefined = factMode
+        ? claim.input.sources.map((source) => ({
+            sourceId: source._id,
+            kind: source.kind,
+            content: source.content,
+            contentHash: source.contentHash,
+            ...(source.transcriptId ? { transcriptId: source.transcriptId } : {}),
+            ...(source.factSpans ? { factSpans: source.factSpans } : {}),
+          }))
+        : undefined;
       const request = buildSeedPrompt({
         mode,
         objective: claim.role.objective,
@@ -227,8 +255,9 @@ export const generateBatch = internalAction({
         toolName: SEED_PROMPT_PROGRAM.request.toolName,
         description: SEED_PROMPT_PROGRAM.request.description,
         // One schema for every role and mode keeps the cached tools
-        // prefix shared; validatedBatchSchema enforces role and mode.
-        schema: seedToolSchema(),
+        // prefix shared; validatedBatchSchema enforces role and mode. A
+        // generation that reads fact packs uses the fact schema for all.
+        schema: factMode ? seedToolSchemaForFacts() : seedToolSchema(),
         maxTokens: SEED_PROMPT_PROGRAM.request.maxTokens,
         model: claim.batch.model,
         attempts: 2,
@@ -238,6 +267,7 @@ export const generateBatch = internalAction({
           generationId: claim.batch.generationId,
           snapshot: claim.context,
           sources,
+          ...(factSources ? { factSources } : {}),
         }),
       });
 
@@ -249,6 +279,7 @@ export const generateBatch = internalAction({
           startOffset: citation.startOffset,
           endOffset: citation.endOffset,
           exactExcerpt: citation.exactExcerpt,
+          ...(factMode && citation.factId ? { factId: citation.factId } : {}),
         })),
         ...(seed.uncertaintySeedId
           ? {

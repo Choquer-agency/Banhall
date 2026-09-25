@@ -20,7 +20,12 @@ export type EntryGroup =
   | "claimExclusion"
   | "confidenceMap"
   | "glossaryTerm";
-export type SourceKind = "transcript" | "project_document" | "transcript_digest" | "writer_storyline";
+export type SourceKind =
+  | "transcript"
+  | "project_document"
+  | "transcript_digest"
+  | "writer_storyline"
+  | "transcript_facts";
 
 export const INCLUSION_WORDS: Record<Inclusion, string> = {
   included: "included",

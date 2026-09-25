@@ -80,7 +80,13 @@ import {
 } from "./lib/seedDecisionState";
 import { matchesSeedExclusion } from "./lib/seedApproval";
 import { isProjectDeleting } from "./lib/projectDeletion";
-import { analyzerContextBudget, defaultModelId } from "./appSettings";
+import {
+  analyzerContextBudget,
+  defaultModelId,
+  transcriptFactsMode,
+  transcriptPlaceholdersEnabled,
+} from "./appSettings";
+import { projectPlaceholderMap } from "./lib/transcriptPlaceholders";
 import { sourceInclusion } from "./ai/trustedContext";
 import {
   assembleContextInclusion,
@@ -102,6 +108,7 @@ import {
   TRANSCRIPT_BUDGET_CHARS,
 } from "./lib/transcripts";
 import { validateCitation } from "./lib/citations";
+import { factQuotePool } from "./lib/seedFacts";
 import {
   briefOutcomeValidator,
   describeBriefOutcome,
@@ -647,13 +654,52 @@ async function reserveGeneration(
     row,
     content: row.content.slice(0, FROZEN_TRANSCRIPT_CHARS),
   }));
+  const documents = await ctx.db
+    .query("projectDocuments")
+    .withIndex("by_projectId", (q) => q.eq("projectId", project._id))
+    .take(50);
+  const frozenDocuments = documents.flatMap((document) =>
+    document.archived || !document.content.trim()
+      ? []
+      : [{ document, content: document.content.slice(0, 200_000) }]
+  );
+  // Owner decision 26: every generation-owned provider call reads
+  // placeholders, never names; the map is frozen here so every call of this
+  // generation (and its cached prefixes) sees the same bytes. It is checked
+  // against every text the calls will send, so a source that already holds
+  // placeholder-style tokens never has them restored into names.
+  const placeholders = (await transcriptPlaceholdersEnabled(ctx))
+    ? [
+        ...(await projectPlaceholderMap(
+          ctx,
+          project,
+          transcripts.map((row) => row._id),
+          [
+            ...frozenTranscripts.map((item) => item.content),
+            ...frozenDocuments.map((item) => item.content),
+            ...(writerSuppliedStoryline ? [writerSuppliedStoryline] : []),
+          ]
+        )),
+      ]
+    : [];
+  const inputMode = decideInputMode(
+    frozenTranscripts.reduce((total, item) => total + item.content.length, 0)
+  );
+  // Owner decision 27: fact packs for long transcripts (`long`), small
+  // projects too only once the offline evaluation passes (`all`). Frozen
+  // here; with facts missing or failed the generation falls back to today's
+  // digest or full-text path.
+  const factsMode = await transcriptFactsMode(ctx);
+  const transcriptFacts =
+    transcripts.length > 0 &&
+    (factsMode === "all" || (factsMode === "long" && inputMode === "digest"));
   const generationId = await ctx.db.insert("generations", {
     projectId: project._id,
     transcriptId: transcripts[0]?._id,
     transcriptIds: transcripts.map((row) => row._id),
-    inputMode: decideInputMode(
-      frozenTranscripts.reduce((total, item) => total + item.content.length, 0)
-    ),
+    inputMode,
+    ...(transcriptFacts ? { transcriptFacts: true } : {}),
+    ...(placeholders.length > 0 ? { placeholders } : {}),
     status: "reserved",
     requestedAt: now,
     requestedBy,
@@ -693,13 +739,7 @@ async function reserveGeneration(
       capturedAt: now,
     });
   }
-  const documents = await ctx.db
-    .query("projectDocuments")
-    .withIndex("by_projectId", (q) => q.eq("projectId", project._id))
-    .take(50);
-  for (const document of documents) {
-    if (document.archived || !document.content.trim()) continue;
-    const content = document.content.slice(0, 200_000);
+  for (const { document, content } of frozenDocuments) {
     await ctx.db.insert("generationSources", {
       generationId,
       projectId: project._id,
@@ -854,7 +894,8 @@ export const retryFromSummary = mutation({
     if (!summary || summary.originGenerationId !== originGenerationId) {
       domainError("INVALID_STATE", "Frozen Summary lineage is unavailable");
     }
-    const maxFrozenSources = 2 * MAX_TRANSCRIPTS_PER_PROJECT + 51;
+    // One transcript, digest and fact pack row per transcript (2026-09-24).
+    const maxFrozenSources = 3 * MAX_TRANSCRIPTS_PER_PROJECT + 51;
     const [originSources, currentSources, artifacts] = await Promise.all([
       ctx.db.query("generationSources")
         .withIndex("by_generationId", (q) => q.eq("generationId", originGenerationId))
@@ -896,6 +937,9 @@ export const retryFromSummary = mutation({
       transcriptIds: failed.transcriptIds,
       inputMode: failed.inputMode,
       digestIds: failed.digestIds,
+      // Summary recovery reads the same fact packs and placeholders.
+      ...(failed.transcriptFacts !== undefined ? { transcriptFacts: failed.transcriptFacts } : {}),
+      ...(failed.placeholders ? { placeholders: failed.placeholders } : {}),
       status: "reserved",
       requestedAt: now,
       requestedBy: user._id,
@@ -934,6 +978,10 @@ export const retryFromSummary = mutation({
         kind: current.kind,
         transcriptId: current.transcriptId,
         digestId: current.digestId,
+        factsVersion: current.factsVersion,
+        // The spans index the transcript row copied next to it, whose text
+        // is identical, so every fact id still resolves.
+        ...(current.factSpans ? { factSpans: current.factSpans } : {}),
         projectDocumentId: current.projectDocumentId,
         label: current.label,
         content: current.content,
@@ -1199,6 +1247,19 @@ export const unionLearningDigestIds = internalMutation({
   },
 });
 
+/**
+ * The placeholder map frozen on a generation (owner decision 26); empty for
+ * generations reserved before it or with the emergency switch off.
+ */
+export const getGenerationPlaceholders = internalQuery({
+  args: { generationId: v.id("generations") },
+  returns: v.array(v.object({ token: v.string(), value: v.string() })),
+  handler: async (ctx, args) => {
+    const generation = await ctx.db.get(args.generationId);
+    return generation?.placeholders ?? [];
+  },
+});
+
 export const getGenerationInput = internalQuery({
   args: { generationId: v.id("generations") },
   handler: async (ctx, args) => {
@@ -1229,7 +1290,7 @@ export const getGenerationInput = internalQuery({
       // context documents. A tighter bound would drop the digest rows of a
       // many-transcript project — the case digest mode exists for — and hand
       // the model the over-budget full text instead.
-      .take(2 * MAX_TRANSCRIPTS_PER_PROJECT + 51);
+      .take(3 * MAX_TRANSCRIPTS_PER_PROJECT + 51);
     const transcriptIds = generationTranscriptIds(generation);
     const inputMode = generation.inputMode ?? "full";
     const toPart = (source: Doc<"generationSources">) => ({
@@ -1255,13 +1316,53 @@ export const getGenerationInput = internalQuery({
       orderedDigests.length === transcriptIds.length
         ? orderedDigests
         : undefined;
+    // 2026-09-24 (transcript method): a generation that froze a fact pack for
+    // every transcript reads the packs; with any pack missing it reads what
+    // it read before (digests over the budget, full text under it).
+    const factRows = sources.filter((source) => source.kind === "transcript_facts");
+    const orderedFacts = (transcriptIds ?? []).flatMap((id) => {
+      const row = factRows.find((source) => source.transcriptId === id);
+      return row ? [row] : [];
+    });
+    const factParts =
+      generation.transcriptFacts === true &&
+      transcriptIds !== undefined &&
+      transcriptIds.length > 0 &&
+      orderedFacts.length === transcriptIds.length
+        ? orderedFacts
+        : undefined;
+    const fullTranscriptRows = sources.filter((source) => source.kind === "transcript");
     // Insertion order is reservation order, which is the project's transcript
     // order; every offset the pipeline cites is relative to one of these rows.
-    const transcriptParts = (
-      digestParts ?? sources.filter((source) => source.kind === "transcript")
-    ).map(toPart);
+    const transcriptParts = (factParts ?? digestParts ?? fullTranscriptRows).map(toPart);
+    // Plan step 8: reading facts, report claims cite the packs' verified
+    // client quotes on the frozen transcript rows, never the packs.
+    const factQuotes = factParts
+      ? factQuotePool(
+          sources.map((source) => ({
+            sourceId: source._id,
+            kind: source.kind,
+            content: source.content,
+            contentHash: source.contentHash,
+            transcriptId: source.transcriptId,
+            factSpans: source.factSpans,
+          }))
+        )
+      : undefined;
     return {
       inputMode,
+      transcriptFacts: generation.transcriptFacts === true,
+      // What `transcriptParts` holds: fact packs, digests or full text.
+      transcriptReading: factParts ? ("facts" as const) : digestParts ? ("digest" as const) : ("full" as const),
+      // Reading fact packs only: the frozen full-text transcript rows, which
+      // claims read from a pack cite (decision 25 and the provenance
+      // contract). Left out otherwise, so no other generation carries the
+      // full text twice (review 2026-09-25, P3-3).
+      ...(factParts ? { transcriptRows: fullTranscriptRows.map(toPart) } : {}),
+      ...(factQuotes ? { factQuotes } : {}),
+      // Owner decision 26: the frozen name map, for work that leaves the
+      // app without a model call (the Brain query built from facts).
+      placeholders: generation.placeholders ?? [],
       digestIds: generation.digestIds,
       generationId: generation._id,
       projectId: project._id,
@@ -2060,7 +2161,7 @@ export const saveIterativeArtifacts = internalMutation({
 
 /**
  * Frozen `generationSources` rows one Brief derivation may read. The
- * structural maximum is 92 (`2 * MAX_TRANSCRIPTS_PER_PROJECT + 52`, see
+ * structural maximum is 112 (`3 * MAX_TRANSCRIPTS_PER_PROJECT + 52`, see
  * `convex/writerProfiles.ts:585-587`), so this is slack rather than a real
  * ceiling — it exists only so the read is bounded and provably complete.
  */

@@ -353,6 +353,9 @@ describe("generation prompt program", () => {
       "selfCheck",
       // Story 3 (CAP-8): the settings-document style classifier.
       "settingsAnalysis",
+      // 2026-09-24 (transcript method): fact extraction inside a generation
+      // that reads fact packs and finds a transcript without ready facts.
+      "transcriptFacts",
     ]);
     expect(Object.keys(generationPromptProgram.topology.modes).sort()).toEqual([
       "compare",
