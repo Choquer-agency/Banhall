@@ -203,6 +203,11 @@ export async function openRouterChatCompletion(
   });
   // After a fallback the answer came from another model: bill that model.
   const usageModel = servingModelId(input.model, input.fallbackModels, body.model);
+  // The raw finish reason ("length" is a cut-off answer), recorded even when
+  // fromChatCompletions then refuses the response.
+  const finishReason = body.choices?.[0]?.finish_reason;
+  const stopReason =
+    typeof finishReason === "string" && finishReason.length > 0 ? finishReason : undefined;
   if (usage) {
     input.onUsage?.({
       model: usageModel,
@@ -234,6 +239,7 @@ export async function openRouterChatCompletion(
         ? { cacheCreation1hInputTokens: usage.cacheCreation1hInputTokens }
         : {}),
       ...(usage.costUsd !== undefined ? { costUsd: usage.costUsd } : {}),
+      ...(stopReason ? { stopReason } : {}),
     });
   }
   return body;

@@ -104,6 +104,10 @@ const usageArgs = {
   // Provider-reported exact cost (OpenRouter usage.cost). When present and
   // valid it wins over the price-table estimate.
   costUsd: v.optional(v.number()),
+  // The provider's stop reason as reported (Anthropic `stop_reason`,
+  // OpenRouter `finish_reason`). "max_tokens" or "length" marks an answer
+  // cut off at the output limit.
+  stopReason: v.optional(v.string()),
   createdAt: v.optional(v.number()),
 };
 
@@ -210,6 +214,7 @@ export const logUsage = internalMutation({
         : {}),
       costUsd: cost.costUsd,
       costSource: cost.costSource,
+      ...(args.stopReason ? { stopReason: args.stopReason } : {}),
       createdAt: args.createdAt ?? Date.now(),
     });
     return null;

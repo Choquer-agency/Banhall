@@ -606,6 +606,11 @@ export default defineSchema({
     // (OpenRouter usage.cost), "estimated" when it came from
     // shared/modelPricing.ts. Absent on rows written before the field.
     costSource: v.optional(v.union(v.literal("native"), v.literal("estimated"))),
+    // 2026-09-25 widen: why the provider stopped, as it reported it
+    // (Anthropic `stop_reason`, OpenRouter `finish_reason`), so an answer
+    // cut off at the output limit ("max_tokens", "length") is visible.
+    // Absent on older rows and when the provider sent none.
+    stopReason: v.optional(v.string()),
     createdAt: v.number(),
   })
     .index("by_createdAt", ["createdAt"])
