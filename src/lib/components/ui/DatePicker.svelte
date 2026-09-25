@@ -121,47 +121,50 @@
     {/snippet}
   </Popover.Trigger>
   <Popover.Portal>
+    <!-- Board 5.1y A2: 312px calendar card, 40px day columns, a 30px
+         primary tile on the picked day, round quick-pick chips. -->
     <Popover.Content
       side="bottom"
       {align}
-      sideOffset={6}
-      class="z-[120] rounded-xl border border-gray-200 bg-white p-3 shadow-lg"
+      sideOffset={4}
+      class="z-[120] w-[312px] max-w-[calc(100vw-2rem)] rounded-xl border border-line bg-white p-1.5 shadow-[0_16px_40px_#16211F1F]"
     >
+      <div class="flex flex-col gap-2 p-2">
       <Calendar.Root
         type="single"
         value={parsed}
         bind:placeholder={shownMonth}
         {onValueChange}
         weekdayFormat="short"
-        class="select-none"
+        class="flex select-none flex-col gap-2"
       >
         {#snippet children({ months, weekdays })}
-          <Calendar.Header class="mb-2 flex items-center justify-between gap-2">
+          <Calendar.Header class="flex items-center gap-1">
             {#if heading}
-              <span class="mr-auto text-xs text-ink-muted">{heading}</span>
+              <span class="mr-auto min-w-0 flex-1 truncate text-xs leading-[18px] font-medium text-ink-muted">{heading}</span>
             {/if}
             <Calendar.PrevButton
-              class="flex h-7 w-7 items-center justify-center rounded-md text-gray-500 transition-colors hover:bg-primary-wash hover:text-navy"
+              class="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-ink-secondary transition-colors hover:bg-primary-wash hover:text-ink"
             >
-              <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7" />
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="m15 18-6-6 6-6" />
               </svg>
             </Calendar.PrevButton>
-            <Calendar.Heading class="text-sm font-semibold text-navy" />
+            <Calendar.Heading class={`text-[13px] leading-[18px] font-medium text-ink ${heading ? "" : "flex-1 text-center"}`} />
             <Calendar.NextButton
-              class="flex h-7 w-7 items-center justify-center rounded-md text-gray-500 transition-colors hover:bg-primary-wash hover:text-navy"
+              class="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-ink-secondary transition-colors hover:bg-primary-wash hover:text-ink"
             >
-              <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" />
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="m9 18 6-6-6-6" />
               </svg>
             </Calendar.NextButton>
           </Calendar.Header>
           {#each months as month (month.value.toString())}
-            <Calendar.Grid class="w-full border-collapse space-y-1">
+            <Calendar.Grid class="w-full border-collapse">
               <Calendar.GridHead>
-                <Calendar.GridRow class="flex justify-between">
+                <Calendar.GridRow class="flex">
                   {#each weekdays as day (day)}
-                    <Calendar.HeadCell class="w-8 text-center text-[11px] font-medium text-gray-400">
+                    <Calendar.HeadCell class="w-10 shrink-0 text-center text-[11px] leading-[18px] font-normal text-ink-muted">
                       {day.slice(0, 2)}
                     </Calendar.HeadCell>
                   {/each}
@@ -169,16 +172,16 @@
               </Calendar.GridHead>
               <Calendar.GridBody>
                 {#each month.weeks as weekDates (weekDates[0].toString())}
-                  <Calendar.GridRow class="flex justify-between">
+                  <Calendar.GridRow class="mt-0 flex">
                     {#each weekDates as date (date.toString())}
-                      <Calendar.Cell {date} month={month.value} class="p-0">
+                      <Calendar.Cell {date} month={month.value} class="flex h-8 w-10 shrink-0 items-center justify-center p-0">
                         <Calendar.Day
-                          class="flex h-8 w-8 items-center justify-center rounded-md text-xs text-gray-700 transition-colors
+                          class="flex h-[30px] w-[30px] items-center justify-center rounded-lg text-[13px] leading-[18px] text-ink transition-colors
                             hover:bg-primary-wash
                             data-disabled:pointer-events-none data-disabled:text-gray-300
                             data-outside-month:pointer-events-none data-outside-month:text-transparent
-                            data-selected:bg-primary-selected data-selected:font-semibold data-selected:text-white
-                            data-today:font-semibold data-today:not-data-selected:text-primary-dark"
+                            data-selected:bg-primary-selected data-selected:font-medium data-selected:text-white
+                            data-today:font-medium data-today:not-data-selected:text-primary-dark"
                         />
                       </Calendar.Cell>
                     {/each}
@@ -190,12 +193,14 @@
         {/snippet}
       </Calendar.Root>
       {#if quickPicks.length > 0}
-        <div data-date-quick-picks class="mt-3 flex flex-wrap gap-1.5 border-t border-line-soft pt-3">
+        <div class="h-px shrink-0 bg-line-soft" aria-hidden="true"></div>
+        <div data-date-quick-picks class="flex flex-wrap gap-1.5">
           {#each quickPicks as pick (pick.label)}
+            {@const current = parsed && parsed.month === pick.month && parsed.day === pick.day}
             <button
               type="button"
               onclick={() => pickQuick(pick.month, pick.day)}
-              class={`h-7 rounded-md px-2.5 text-xs transition-colors hover:bg-primary-wash focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir ${parsed && parsed.month === pick.month && parsed.day === pick.day ? "bg-workspace-rail-selected text-fir" : "bg-chrome text-ink"}`}
+              class={`h-[26px] rounded-full px-2.5 text-xs leading-[18px] transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir ${current ? "bg-primary-wash font-medium text-primary-selected" : "bg-gray-50 text-ink-secondary hover:bg-primary-wash hover:text-ink"}`}
             >
               {pick.label}
             </button>
@@ -203,8 +208,9 @@
         </div>
       {/if}
       {#if helper}
-        <p class="mt-2 text-xs text-ink-muted">{helper}</p>
+        <p class="text-xs leading-[18px] text-ink-muted">{helper}</p>
       {/if}
+      </div>
     </Popover.Content>
   </Popover.Portal>
 </Popover.Root>
