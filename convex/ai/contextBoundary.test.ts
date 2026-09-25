@@ -175,14 +175,18 @@ const chat = (context: Partial<ChatTurnContext>): Built => {
   const request = buildChatTurnRequest({
     context: { ...emptyChatContext, ...context },
   });
-  // Every assertion below runs against this one string. If the builder ever
-  // prepends a message or switches to a content-parts array, the cast would
-  // silently point them at the wrong bytes, so the shape is checked first.
-  expect(request.messages).toHaveLength(1);
-  expect(request.messages[0].role).toBe("user");
-  expect(typeof request.messages[0].content).toBe("string");
+  // Every assertion below runs against the joined evidence. Since cost
+  // phase 1 the evidence is split into a cached head (stable context, then
+  // the report) and a per-turn tail; each part must still be a plain
+  // user-role string, or the cast would point at the wrong bytes.
+  expect(request.messages.length).toBeGreaterThanOrEqual(1);
+  expect(request.headCount).toBeGreaterThanOrEqual(1);
+  for (const message of request.messages) {
+    expect(message.role).toBe("user");
+    expect(typeof message.content).toBe("string");
+  }
   return {
-    message: request.messages[0].content as string,
+    message: request.messages.map((message) => message.content as string).join("\n\n"),
     system: request.system,
   };
 };

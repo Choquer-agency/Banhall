@@ -414,9 +414,13 @@ describe("bounded chat context", () => {
     if (!call) throw new Error("streamText call missing");
     expect(call[1]).toEqual({ threadId: result.threadId });
     expect(call[2]).toMatchObject({ promptMessageId: result.messageId });
+    // Under 30 rows the history window is the plain bound, so the frozen
+    // options object itself goes through. The context handler places the
+    // evidence around the history for prompt caching.
     expect(call[3]).toEqual({
       saveStreamDeltas: true,
       contextOptions: CHAT_CONTEXT_OPTIONS,
+      contextHandler: expect.any(Function),
     });
     expect(call[3]?.contextOptions).toBe(CHAT_CONTEXT_OPTIONS);
 
@@ -500,12 +504,11 @@ describe("bounded chat context", () => {
     const call = streamText.mock.calls[0];
     if (!call) throw new Error("streamText call missing");
     const system = String(call[2]?.system ?? "");
-    const messages = call[2]?.messages ?? [];
-    expect(messages).toHaveLength(1);
-    const evidence = String(
-      (messages[0] as { role: string; content: unknown }).content
-    );
-    expect((messages[0] as { role: string }).role).toBe("user");
+    const messages = (call[2]?.messages ?? []) as Array<{ role: string; content: unknown }>;
+    // Cached head (stable context, report) plus the per-turn tail.
+    expect(messages).toHaveLength(3);
+    expect(messages.every((message) => message.role === "user")).toBe(true);
+    const evidence = messages.map((message) => String(message.content)).join("\n\n");
 
     // Not one byte of client evidence carries system authority.
     for (const secret of [reportBody, analyzerFinding, documentBody, decisionTarget]) {

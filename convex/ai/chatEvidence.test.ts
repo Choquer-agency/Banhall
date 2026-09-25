@@ -1,6 +1,14 @@
+import { createAnthropic } from "@ai-sdk/anthropic";
+import { streamText, type ModelMessage } from "ai";
 import { describe, expect, it } from "vitest";
 import {
+  CHAT_PROVIDER_OPTIONS,
+  buildChatTools,
+  chatHistoryWindowRows,
+} from "./chatAgentV2";
+import {
   DEFAULT_CHAT_EVIDENCE_BUDGET,
+  arrangeChatContext,
   EMPTY_ANALYSIS_TEXT,
   EMPTY_REPORT_TEXT,
   EVIDENCE_LABELS,
@@ -53,6 +61,11 @@ function blockBody(message: string, line: string): string {
   return message.slice(start + open.length, stop);
 }
 
+/** Every evidence message of a turn, in the order they are sent. */
+function evidenceOf(turn: { messages: Array<{ content: unknown }> }): string {
+  return turn.messages.map((message) => String(message.content)).join("\n\n");
+}
+
 describe("chat evidence message", () => {
   it("puts every source between provenance markers, in order", () => {
     const { message, report } = buildChatEvidence({
@@ -72,12 +85,15 @@ describe("chat evidence message", () => {
     expect(message.startsWith(`${EVIDENCE_LABELS.heading}\n${CHAT_EVIDENCE_GUIDANCE}`)).toBe(
       true
     );
+    // Render order runs from least to most volatile for prompt caching: the
+    // stable context, then the report, then the per-turn decisions.
     const order = [
-      begin(EVIDENCE_LABELS.report),
       begin(EVIDENCE_LABELS.analysis),
       EVIDENCE_LABELS.documentsHeading,
       begin("PREVIOUS-YEAR REPORT] prior.pdf"),
       begin("OTHER SUPPORTING MATERIAL] misc.txt"),
+      begin(EVIDENCE_LABELS.report),
+      EVIDENCE_LABELS.turnHeading,
       begin(EVIDENCE_LABELS.decisions),
     ].map((needle) => message.indexOf(needle));
     expect(order.every((i) => i > -1)).toBe(true);
@@ -316,12 +332,13 @@ describe("chat evidence message", () => {
   it("names every block label the guidance and the system prompt rely on", () => {
     // The guidance and the system prompt hard-code the labels in prose. If a
     // label constant changes, the prose must move with it.
-    const { heading, documentsHeading, ...blockLabels } = EVIDENCE_LABELS;
+    const { heading, documentsHeading, turnHeading, ...blockLabels } = EVIDENCE_LABELS;
     for (const label of Object.values(blockLabels)) {
       expect(CHAT_EVIDENCE_GUIDANCE).toContain(label);
     }
     expect(CHAT_EVIDENCE_GUIDANCE).toContain(documentsHeading.replace(/^# /, ""));
     expect(buildChatSystemPromptV2()).toContain(heading.replace(/^# /, ""));
+    expect(buildChatSystemPromptV2()).toContain(turnHeading.replace(/^# /, ""));
     for (const label of Object.values(ANALYZER_CATEGORY_LABELS)) {
       expect(CHAT_EVIDENCE_GUIDANCE).toContain(label);
     }
@@ -418,7 +435,7 @@ describe("chat evidence message", () => {
         },
       });
       expect(
-        blockBody(String(turn.messages[0]?.content), `${EVIDENCE_LABELS.analysis}]`)
+        blockBody(evidenceOf(turn), `${EVIDENCE_LABELS.analysis}]`)
       ).toBe(EMPTY_ANALYSIS_TEXT);
     }
   });
@@ -474,9 +491,11 @@ describe("chat turn request", () => {
 
   it("keeps all four evidence texts out of the system string", () => {
     const turn = buildChatTurnRequest({ context: context() });
-    expect(turn.messages).toHaveLength(1);
-    expect(turn.messages[0]?.role).toBe("user");
-    const evidence = String(turn.messages[0]?.content);
+    // Head (stable context, report) plus the per-turn tail, all user-role.
+    expect(turn.messages).toHaveLength(3);
+    expect(turn.headCount).toBe(2);
+    expect(turn.messages.every((message) => message.role === "user")).toBe(true);
+    const evidence = evidenceOf(turn);
     for (const text of [
       "The report body.",
       "ANALYZER-ONLY-STRING",
@@ -508,7 +527,7 @@ describe("chat turn request", () => {
       }),
     });
     expect(a.system).toBe(b.system);
-    expect(a.messages[0]).not.toEqual(b.messages[0]);
+    expect(a.messages).not.toEqual(b.messages);
   });
 
   it("keeps the writer's preferences in the system string and out of the evidence", () => {
@@ -520,7 +539,7 @@ describe("chat turn request", () => {
     });
     expect(turn.system).toContain("WRITER'S PERSONAL STYLE PREFERENCES");
     expect(turn.system).toContain("Prefer first person plural.");
-    expect(String(turn.messages[0]?.content)).not.toContain("Prefer first person plural.");
+    expect(evidenceOf(turn)).not.toContain("Prefer first person plural.");
     // Compatible preferences still apply when the house rules stay enabled.
     expect(
       buildChatTurnRequest({
@@ -539,7 +558,7 @@ describe("chat turn request", () => {
         decisions: [],
       }),
     });
-    const evidence = String(turn.messages[0]?.content);
+    const evidence = evidenceOf(turn);
     expect(blockBody(evidence, `${EVIDENCE_LABELS.report}]`)).toBe(EMPTY_REPORT_TEXT);
     expect(blockBody(evidence, `${EVIDENCE_LABELS.analysis}]`)).toBe(EMPTY_ANALYSIS_TEXT);
   });
@@ -549,7 +568,7 @@ describe("chat turn request", () => {
       context: context({ evidenceBudget: budget({ maxDocuments: 0 }) }),
     });
     expect(turn.report.budget.maxDocuments).toBe(0);
-    expect(String(turn.messages[0]?.content)).not.toContain("a.txt] ---");
+    expect(evidenceOf(turn)).not.toContain("a.txt] ---");
   });
 });
 
@@ -720,7 +739,7 @@ describe("open questions block", () => {
         openQuestionsOmitted: { count: 0, exact: false },
       },
     });
-    expect(String(turn.messages[0]?.content)).toContain(
+    expect(evidenceOf(turn)).toContain(
       "this list is incomplete, not empty"
     );
     // And an exact empty scan still renders nothing (byte-stability).
@@ -734,7 +753,7 @@ describe("open questions block", () => {
         openQuestionsOmitted: { count: 0, exact: true },
       },
     });
-    expect(String(exactEmpty.messages[0]?.content)).not.toContain(
+    expect(evidenceOf(exactEmpty)).not.toContain(
       begin(EVIDENCE_LABELS.openQuestions)
     );
   });
@@ -749,7 +768,7 @@ describe("open questions block", () => {
       openQuestionsOmitted: { count: 3, exact: true },
     };
     const turn = buildChatTurnRequest({ context });
-    expect(String(turn.messages[0]?.content)).toContain(
+    expect(evidenceOf(turn)).toContain(
       "Listing 2 of 5 open questions; 3 more are not shown."
     );
   });
@@ -773,10 +792,228 @@ describe("open questions block", () => {
     expect(with_.system).toBe(without.system);
     // And the facts travel only in the user-role message.
     expect(with_.system).not.toContain("fatigue cycles");
-    expect(String(with_.messages[0]?.content)).toContain("fatigue cycles");
+    expect(evidenceOf(with_)).toContain("fatigue cycles");
     // An empty list from the query leaves the message byte-identical too.
     expect(
-      buildChatTurnRequest({ context: { ...base, openQuestions: [] } }).messages[0]
-    ).toEqual(without.messages[0]);
+      buildChatTurnRequest({ context: { ...base, openQuestions: [] } }).messages
+    ).toEqual(without.messages);
+  });
+});
+
+// ─── // Cost phase 1: chat prompt caching, proven on the real request the AI SDK's
+// Anthropic provider sends. Everything is real except the HTTP transport,
+// which captures the JSON body and answers with a minimal SSE stream.
+
+const MODEL = "claude-sonnet-5";
+
+function sse(events: Array<Record<string, unknown>>): Response {
+  const body = events
+    .map((event) => `event: ${String(event.type)}\ndata: ${JSON.stringify(event)}\n\n`)
+    .join("");
+  return new Response(body, {
+    status: 200,
+    headers: { "content-type": "text/event-stream" },
+  });
+}
+
+const reply = () =>
+  sse([
+    {
+      type: "message_start",
+      message: {
+        id: "msg_test",
+        type: "message",
+        role: "assistant",
+        model: MODEL,
+        content: [],
+        stop_reason: null,
+        usage: { input_tokens: 10, output_tokens: 0 },
+      },
+    },
+    { type: "content_block_start", index: 0, content_block: { type: "text", text: "" } },
+    { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "Done." } },
+    { type: "content_block_stop", index: 0 },
+    {
+      type: "message_delta",
+      delta: { stop_reason: "end_turn", stop_sequence: null },
+      usage: { output_tokens: 2 },
+    },
+    { type: "message_stop" },
+  ]);
+
+type Block = { type: string; text?: string; cache_control?: unknown };
+type Body = {
+  tools?: unknown;
+  system?: unknown;
+  thinking?: unknown;
+  cache_control?: unknown;
+  messages: Array<{ role: string; content: Block[] }>;
+};
+
+async function send(args: {
+  context: ChatTurnContext;
+  history: ModelMessage[];
+  prompt: string;
+}): Promise<Body> {
+  const bodies: Body[] = [];
+  const anthropic = createAnthropic({
+    apiKey: "test-key",
+    fetch: async (_input, init) => {
+      bodies.push(JSON.parse(String(init?.body)) as Body);
+      return reply();
+    },
+  });
+  const turn = buildChatTurnRequest({ context: args.context });
+  const messages = arrangeChatContext(turn.headCount, {
+    search: [],
+    recent: args.history,
+    inputMessages: turn.messages,
+    inputPrompt: [{ role: "user", content: args.prompt }],
+    existingResponses: [],
+  });
+  const result = streamText({
+    model: anthropic(MODEL),
+    system: turn.system,
+    messages,
+    tools: buildChatTools(false),
+    providerOptions: CHAT_PROVIDER_OPTIONS,
+  });
+  await result.consumeStream();
+  expect(bodies).toHaveLength(1);
+  return bodies[0];
+}
+
+const reportDoc = (text: string) =>
+  JSON.stringify({ type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text }] }] });
+
+const baseContext: ChatTurnContext = {
+  reportContent: reportDoc(`The limitations to standard practice were that ${"the seal model ".repeat(400)}.`),
+  agentOutputs: JSON.stringify({ analyzer: { uncertainties: ["seal fatigue".repeat(200)] } }),
+  documents: [{ fileName: "notes.md", content: "Writer direction. ".repeat(300), category: "writer_notes", uploaderRole: "writer" }],
+  decisions: [{ state: "pending", target: "old", candidate: "new" }],
+};
+
+/** Every content block in render order, with its message index. */
+function blocks(body: Body): Array<Block & { role: string }> {
+  return body.messages.flatMap((message) =>
+    message.content.map((block) => ({ ...block, role: message.role }))
+  );
+}
+
+const unmarked = (block: Block) => {
+  const { cache_control: _ignored, ...rest } = block;
+  return rest;
+};
+
+describe("chat prompt caching at the Anthropic HTTP boundary", () => {
+  it("marks the evidence head and the prompt at 1h and caches tool steps automatically", async () => {
+    const body = await send({ context: baseContext, history: [], prompt: "Tighten paragraph 3." });
+    expect(body.cache_control).toEqual({ type: "ephemeral" });
+    const all = blocks(body);
+    const marked = all.filter((block) => block.cache_control);
+    // Stable context, report, writer's message: three explicit breakpoints,
+    // plus the automatic one, is Anthropic's limit of four.
+    expect(marked.map((block) => block.cache_control)).toEqual([
+      { type: "ephemeral", ttl: "1h" },
+      { type: "ephemeral", ttl: "1h" },
+      { type: "ephemeral", ttl: "1h" },
+    ]);
+    expect(marked[0].text).toMatch(/^# EVIDENCE FOR THIS TURN\n/);
+    expect(marked[0].text).toContain("--- BEGIN [TRANSCRIPT ANALYSIS] ---");
+    expect(marked[0].text).not.toContain("CURRENT REPORT] ---");
+    expect(marked[1].text).toMatch(/^--- BEGIN \[CURRENT REPORT\] ---/);
+    expect(marked[2].text).toBe("Tighten paragraph 3.");
+    // The per-turn tail follows the writer's message and is never marked.
+    const last = all.at(-1);
+    expect(last?.text).toMatch(/^# EVIDENCE FOR THIS TURN, CONTINUED/);
+    expect(last?.cache_control).toBeUndefined();
+    // Nothing volatile in the system prompt: it carries no evidence.
+    expect(JSON.stringify(body.system)).not.toContain("seal model");
+  });
+
+  it("repeats the previous turn byte for byte up to and including its prompt", async () => {
+    const first = await send({ context: baseContext, history: [], prompt: "Tighten paragraph 3." });
+    const second = await send({
+      // A new pending decision changes the tail only.
+      context: {
+        ...baseContext,
+        decisions: [
+          ...baseContext.decisions,
+          { state: "rejected", target: "older", candidate: "newer" },
+        ],
+      },
+      history: [
+        { role: "user", content: "Tighten paragraph 3." },
+        { role: "assistant", content: [{ type: "text", text: "Proposed a tighter paragraph 3." }] },
+      ],
+      prompt: "Now paragraph 4.",
+    });
+    expect(second.tools).toEqual(first.tools);
+    expect(second.system).toEqual(first.system);
+    expect(second.thinking).toEqual(first.thinking);
+
+    const before = blocks(first);
+    const after = blocks(second);
+    const promptIndex = before.findIndex((block) => block.text === "Tighten paragraph 3.");
+    expect(promptIndex).toBeGreaterThan(0);
+    const prefix = (list: typeof before) => list.slice(0, promptIndex + 1).map(unmarked);
+    expect(JSON.stringify(prefix(after))).toBe(JSON.stringify(prefix(before)));
+
+    // The new breakpoint (this turn's prompt) sits within Anthropic's
+    // 20-block lookback of the previous one, so the read lands.
+    const newMark = after.findIndex((block) => block.text === "Now paragraph 4.");
+    expect(after[newMark].cache_control).toEqual({ type: "ephemeral", ttl: "1h" });
+    expect(newMark - promptIndex).toBeLessThanOrEqual(20);
+    // And only the tail differs after it.
+    expect(after.at(-1)?.text).toContain("[Edit 2: REJECTED]");
+  });
+
+  it("keeps the evidence head cached when only the report changes", async () => {
+    const first = await send({ context: baseContext, history: [], prompt: "Q" });
+    const second = await send({
+      context: { ...baseContext, reportContent: reportDoc("An applied edit changed the report.") },
+      history: [],
+      prompt: "Q",
+    });
+    expect(blocks(second)[0]).toEqual(blocks(first)[0]);
+    expect(blocks(second)[1]).not.toEqual(blocks(first)[1]);
+  });
+});
+
+describe("chat history window", () => {
+  const rows = (orders: number[]) => orders.map((order) => ({ order }));
+  const turns = (count: number, rowsPerTurn: number) =>
+    Array.from({ length: count }, (_, turn) =>
+      Array.from({ length: rowsPerTurn }, () => turn)
+    )
+      .flat()
+      .reverse();
+
+  it("uses the plain bound while the whole thread fits", () => {
+    expect(chatHistoryWindowRows(rows(turns(5, 3)), { maxRows: 30, chunkTurns: 4, complete: true })).toBe(30);
+  });
+
+  it("drops whole chunks of turns, so the window start holds for several turns", () => {
+    const options = { maxRows: 30, chunkTurns: 4, complete: true };
+    // 3 rows a turn; the prompt of the newest turn is its only row so far.
+    const at = (turnCount: number) => {
+      const history = turns(turnCount - 1, 3);
+      return chatHistoryWindowRows([{ order: turnCount - 1 }, ...rows(history)], options);
+    };
+    const firstKept = (turnCount: number) => turnCount - 1 - Math.floor((at(turnCount) - 1) / 3);
+    const starts = [11, 12, 13, 14, 15].map(firstKept);
+    // The first kept turn is a multiple of 4 and moves once, not every turn.
+    expect(starts.every((start) => start % 4 === 0)).toBe(true);
+    expect(new Set(starts).size).toBeLessThanOrEqual(2);
+    for (const count of [11, 12, 13, 14, 15]) expect(at(count)).toBeLessThanOrEqual(30);
+  });
+
+  it("never counts the oldest turn of a partial read, and falls back to the bound", () => {
+    expect(
+      chatHistoryWindowRows(rows(turns(20, 3).slice(0, 60)), { maxRows: 30, chunkTurns: 4, complete: false })
+    ).toBeLessThanOrEqual(30);
+    // One enormous turn cannot fit any boundary: the plain bound applies.
+    expect(chatHistoryWindowRows(rows(Array(40).fill(7)), { maxRows: 30, chunkTurns: 4, complete: true })).toBe(30);
+    expect(chatHistoryWindowRows([], { maxRows: 30, chunkTurns: 4, complete: true })).toBe(30);
   });
 });

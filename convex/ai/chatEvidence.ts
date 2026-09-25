@@ -8,9 +8,12 @@
 //
 // This module owns the whole request shape instead. The system string keeps
 // only policy plus the writer's own style, which makes it byte-stable for a
-// given writer across every turn of every thread; ALL evidence moves into one
-// ephemeral user-role message whose blocks are delimited, neutralized and
+// given writer across every turn of every thread; ALL evidence moves into
+// ephemeral user-role messages whose blocks are delimited, neutralized and
 // budgeted by the same primitives the analyzer uses (`./trustedContext`).
+// Since cost phase 1 those messages are split for prompt caching: a head
+// before the conversation history and a per-turn tail after the writer's
+// message (`arrangeChatContext`).
 //
 // This module deliberately runs in the default Convex runtime, with no Node
 // directive and no Node built-ins, because `convex/chatV2.ts` (a query module)
@@ -106,6 +109,8 @@ export const EVIDENCE_LABELS = {
   // contract, not a caption.
   openQuestions: "OPEN QUESTIONS FOR THE CLIENT",
   documentsHeading: "# ATTACHED CONTEXT DOCUMENTS",
+  // Heads the per-turn evidence sent after the writer's newest message.
+  turnHeading: "# EVIDENCE FOR THIS TURN, CONTINUED",
 } as const;
 
 /** What the old inline builders emitted when a source was empty. Unchanged. */
@@ -400,7 +405,16 @@ function spend(
  * Every input source appears exactly once in `report.sources`.
  */
 export function buildChatEvidence(input: ChatEvidenceInput): {
+  /** Every evidence block in render order: `head`, then `tail`. */
   message: string;
+  /**
+   * The evidence sent BEFORE the conversation history, as two cacheable
+   * blocks: the stable context (guidance, analysis, documents), then the
+   * current report. See `arrangeChatContext`.
+   */
+  head: { stable: string; report: string | null };
+  /** Per-turn evidence (decisions, open questions), or null when none. */
+  tail: string | null;
   report: ChatEvidenceReport;
 } {
   const budget = input.budget ?? DEFAULT_CHAT_EVIDENCE_BUDGET;
@@ -546,16 +560,23 @@ export function buildChatEvidence(input: ChatEvidenceInput): {
     `[${count} further attached document(s) were omitted to fit the context budget.]`;
 
   // ── Assembly ──────────────────────────────────────────────────────────────
+  // Render order is split for prompt caching (see `arrangeChatContext`): what
+  // changes least goes first. The stable block (guidance, analysis,
+  // documents) changes only when the project's inputs do; the report changes
+  // when an edit is applied; decisions and open questions change almost every
+  // turn, so they travel after the writer's message where they never break
+  // the cached prefix. Spend order above is unchanged, so the budget keeps
+  // exactly the same bytes as before.
+  //
   // The guidance is emitted on EVERY turn, even with nothing else included:
   // it is what makes the markers mean anything at all.
-  const parts: string[] = [`${EVIDENCE_LABELS.heading}\n${CHAT_EVIDENCE_GUIDANCE}`];
-  if (reportBody !== null) parts.push(labelledBlock(EVIDENCE_LABELS.report, reportBody));
+  const stableParts: string[] = [`${EVIDENCE_LABELS.heading}\n${CHAT_EVIDENCE_GUIDANCE}`];
   if (analysisBody !== null) {
-    parts.push(labelledBlock(EVIDENCE_LABELS.analysis, analysisBody));
+    stableParts.push(labelledBlock(EVIDENCE_LABELS.analysis, analysisBody));
   }
   if (documentBlocks.length) {
     const rendered = documentBlocks.join("\n\n");
-    parts.push(
+    stableParts.push(
       `${EVIDENCE_LABELS.documentsHeading}\n${rendered}${
         droppedDocuments ? `\n\n${furtherOmittedNotice(droppedDocuments)}` : ""
       }`
@@ -563,23 +584,34 @@ export function buildChatEvidence(input: ChatEvidenceInput): {
   } else if (droppedDocuments) {
     // Documents WERE supplied and the budget kept none of them: keep the
     // heading with a notice rather than implying the project has no documents.
-    parts.push(
+    stableParts.push(
       `${EVIDENCE_LABELS.documentsHeading}\n${omittedMaterialsNotice(droppedDocuments)}`
     );
   }
+  const reportPart =
+    reportBody === null ? null : labelledBlock(EVIDENCE_LABELS.report, reportBody);
+  const tailParts: string[] = [];
   if (decisionsBody !== null) {
-    parts.push(labelledBlock(EVIDENCE_LABELS.decisions, decisionsBody));
+    tailParts.push(labelledBlock(EVIDENCE_LABELS.decisions, decisionsBody));
   }
   // Rendered after the decisions, exactly where the system prompt's converge
   // guard points. Omitted entirely when there is nothing open, so a project
-  // with no Brief sends the same bytes it sent before this block existed.
+  // with no Brief sends no block for it.
   if (openQuestionsBody !== null) {
-    parts.push(labelledBlock(EVIDENCE_LABELS.openQuestions, openQuestionsBody));
+    tailParts.push(labelledBlock(EVIDENCE_LABELS.openQuestions, openQuestionsBody));
   }
+  const stable = stableParts.join("\n\n");
+  const tail = tailParts.length
+    ? [EVIDENCE_LABELS.turnHeading, ...tailParts].join("\n\n")
+    : null;
 
   const includedChars = sources.reduce((n, s) => n + s.includedLength, 0);
   return {
-    message: parts.join("\n\n"),
+    message: [stable, reportPart, tail]
+      .filter((part): part is string => part !== null)
+      .join("\n\n"),
+    head: { stable, report: reportPart },
+    tail,
     report: {
       budget,
       includedTokens: tokensForChars(includedChars),
@@ -588,17 +620,60 @@ export function buildChatEvidence(input: ChatEvidenceInput): {
   };
 }
 
+/**
+ * Anthropic prompt-cache policy for one chat request (cost phase 1).
+ *
+ * A request renders as tools, system, then messages, and a cache entry is a
+ * byte-identical prefix. `arrangeChatContext` orders the messages from least
+ * to most volatile and marks three breakpoints; a fourth, automatic one
+ * (`CHAT_PROVIDER_OPTIONS`) follows the tail across tool steps.
+ *
+ * TTL: in the 2026-07-09 to 2026-09-22 usage export, 30% of consecutive
+ * chat calls in a thread started more than 5 minutes apart (17% more than
+ * 10 minutes, 5% more than 30). Reads refresh an entry, so the 1-hour TTL
+ * keeps the report, the documents and the history warm across a writer's
+ * pauses. Its 2x write is repaid by the second read at 0.1x; the 5-minute
+ * TTL would re-write about 45k tokens at 1.25x on every third turn. The
+ * tool-step tail is re-read within seconds, so it keeps the 5-minute TTL
+ * (1-hour entries must precede 5-minute ones, which this order satisfies).
+ */
+export const CHAT_CACHE_CONTROL = {
+  context: { type: "ephemeral", ttl: "1h" },
+  toolSteps: { type: "ephemeral" },
+} as const;
+
+const cached = (message: ModelMessage): ModelMessage =>
+  ({
+    ...message,
+    providerOptions: {
+      ...message.providerOptions,
+      anthropic: {
+        ...message.providerOptions?.anthropic,
+        cacheControl: CHAT_CACHE_CONTROL.context,
+      },
+    },
+  }) as ModelMessage;
+
 export interface ChatTurnRequest {
   system: string;
+  /**
+   * Every ephemeral evidence message, `headCount` head messages first. Passed
+   * to the agent as `messages`; `arrangeChatContext` moves the tail after the
+   * writer's message.
+   */
   messages: ModelMessage[];
+  /** How many of `messages` go before the conversation history. */
+  headCount: number;
   report: ChatEvidenceReport;
 }
 
 /**
- * The whole shape of one chat request: a writer-only system string and one
- * ephemeral user-role evidence message. The message is passed as `messages`,
- * never saved: with `promptMessageId` set the agent library saves no input
- * messages, so nothing new lands in thread history or in the UI.
+ * The whole shape of one chat request: a writer-only system string plus the
+ * ephemeral user-role evidence messages. The messages are passed as
+ * `messages`, never saved: with `promptMessageId` set the agent library
+ * saves no input messages, so nothing new lands in thread history or in the
+ * UI. The head (stable context, then the report) carries cache breakpoints;
+ * the tail (decisions, open questions) is left unmarked.
  */
 export function buildChatTurnRequest(args: {
   context: ChatTurnContext;
@@ -614,7 +689,7 @@ export function buildChatTurnRequest(args: {
     ? extractPlainText(args.context.reportContent)
     : "";
   const budget = args.budget ?? args.context.evidenceBudget;
-  const { message, report } = buildChatEvidence({
+  const { head, tail, report } = buildChatEvidence({
     reportText: extracted.trim() ? extracted : EMPTY_REPORT_TEXT,
     analysisText: analysisTextFrom(args.context.agentOutputs),
     documents: args.context.documents,
@@ -632,9 +707,59 @@ export function buildChatTurnRequest(args: {
       : {}),
     ...(budget ? { budget } : {}),
   });
+  const headMessages = [head.stable, head.report]
+    .filter((text): text is string => text !== null)
+    .map((content) => cached({ role: "user", content }));
   return {
     system: buildChatSystem(styleOverrides, args.customInstructions),
-    messages: [{ role: "user", content: message }],
+    messages: [
+      ...headMessages,
+      ...(tail === null ? [] : [{ role: "user" as const, content: tail }]),
+    ],
+    headCount: headMessages.length,
     report,
   };
+}
+
+/** The pieces the agent library hands its context handler. */
+export interface ChatContextParts {
+  search: ModelMessage[];
+  recent: ModelMessage[];
+  inputMessages: ModelMessage[];
+  inputPrompt: ModelMessage[];
+  existingResponses: ModelMessage[];
+}
+
+/**
+ * Order one chat request for prompt caching:
+ *
+ *   evidence head (stable context, report)  [cached, 1h, one mark each]
+ *   conversation history, then the writer's newest message  [cached, 1h]
+ *   evidence tail (decisions, open questions)
+ *   this turn's earlier tool steps  [automatic 5-minute breakpoint]
+ *
+ * The history is stored and append-only, so the next turn's prefix repeats
+ * this one byte for byte up to and including this prompt, and the mark on
+ * the prompt is where the next turn's read lands. Anything that changes
+ * every turn (the tail) sits after that mark. The library's default order
+ * put the evidence after the history, so nothing past the system prompt
+ * could ever be read back.
+ */
+export function arrangeChatContext(
+  headCount: number,
+  parts: ChatContextParts
+): ModelMessage[] {
+  const head = parts.inputMessages.slice(0, headCount);
+  const tail = parts.inputMessages.slice(headCount);
+  const prompt = parts.inputPrompt.map((message, index, all) =>
+    index === all.length - 1 ? cached(message) : message
+  );
+  return [
+    ...head,
+    ...parts.search,
+    ...parts.recent,
+    ...prompt,
+    ...tail,
+    ...parts.existingResponses,
+  ];
 }
