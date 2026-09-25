@@ -631,15 +631,48 @@
   // assistant, Open QA) first lets it save a pending project number edit; a
   // failed save keeps it open with the error instead of losing the edit.
   let detailsPanel = $state<{ requestClose: () => Promise<boolean> } | undefined>();
+  // The Assistant's pinned composer, measured, so a corner notice can sit above it.
+  let assistantComposerHeight = $state(0);
+  // One leave at a time: a second click while the save runs is ignored, so
+  // two toggles cannot open and at once close a panel (review g2 B5).
+  let leavingDetails = false;
   async function leaveDetailsThen(next: () => void) {
-    if (detailsOpen && railView === "details" && detailsPanel && !(await detailsPanel.requestClose())) return;
-    next();
+    if (leavingDetails) return;
+    const panel = detailsOpen && railView === "details" ? detailsPanel : undefined;
+    // Nothing to save: act at once (synchronously, as callers expect).
+    if (!panel) {
+      next();
+      return;
+    }
+    leavingDetails = true;
+    try {
+      if (await panel.requestClose()) {
+        next();
+      } else if (!sidePanelOnScreen) {
+        // The failed save sits in a panel a phone tab moved off screen:
+        // bring it back so the writer sees the error (review g2 B4).
+        mobileWorkspaceView = "assistant";
+      }
+    } finally {
+      leavingDetails = false;
+    }
   }
   // The Details (i) toggle, wherever it sits: the panel toolbar, or beside
-  // the narrow Outline/Seeds switch during the seed stage (board 3.6).
-  function toggleDetails() {
-    if (detailsOpen && sidePanelOnScreen) void leaveDetailsThen(closeSidePanel);
+  // the narrow Outline/Seeds switch during the seed stage (board 3.6). On a
+  // narrow screen the toggle moves between those two places, so keyboard
+  // focus follows it to the one now shown (review g2 B9).
+  async function toggleDetails() {
+    const focused = document.activeElement;
+    const fromToggle =
+      focused instanceof HTMLElement && (focused === detailsButton || focused.hasAttribute("data-seed-details-toggle"));
+    if (detailsOpen && sidePanelOnScreen) await leaveDetailsThen(closeSidePanel);
     else openDetails();
+    await tick();
+    if (!fromToggle || (focused.isConnected && focused.getClientRects().length > 0)) return;
+    const counterpart = [detailsButton, document.querySelector<HTMLElement>("[data-seed-details-toggle]")].find(
+      (element): element is HTMLElement => !!element && element !== focused && element.isConnected && element.getClientRects().length > 0
+    );
+    counterpart?.focus();
   }
 
   // Send any upload failures this user queued while offline. Page-level rather
@@ -1496,19 +1529,16 @@
   // the page does not offer right now (Seed phases, writing, intake) takes
   // no room: the side panel is open only for a surface that can show.
   const sidePanelOpen = $derived(chatShown || qaShown || detailsOpen);
-  // Board 3.6: below the large breakpoint the seed stage puts the Details
-  // toggle beside the Outline/Seeds switch, so the toolbar drops its own.
-  // While the panel covers the narrow screen, the toolbar toggle returns so
-  // it can be closed where the seed workspace is hidden.
-  const seedDetailsInPaneSwitch = $derived(
-    showSeedWorkspace && !desktopAssistant && !(detailsOpen && sidePanelOnScreen)
-  );
   const assistantFull = $derived(chatFocus && chatShown);
   // Whether the main pane (the tab content) is on screen: not behind
   // Assistant full screen, and not replaced by the side panel on a narrow
   // screen.
   const mainPaneVisible = $derived(
     !assistantFull && !(sidePanelOpen && mobileWorkspaceView === "assistant" && !desktopAssistant)
+  );
+  // The Assistant's composer is on screen where the corner notice would sit.
+  const noticeAboveComposer = $derived(
+    railView === "chat" && chatShown && assistantComposerHeight > 0 && !mainPaneVisible
   );
 
   // Panel toolbar tabs (ui-design-final.md section 2). A Step-by-step run
@@ -1519,6 +1549,20 @@
   const seeding = $derived(isSeedWorkflow && generation?.seedPhase === "seeding");
   const seedOutlineQ = useQuery(seedsApi.getOutline, () =>
     auth.isAuthenticated && seeding && generation ? { generationId: generation._id } : "skip"
+  );
+  // Board 3.6: below the large breakpoint the seed stage puts the Details
+  // toggle beside the Outline/Seeds switch, so the toolbar drops its own.
+  // While the panel covers the narrow screen, the toolbar toggle returns so
+  // it can be closed where the seed workspace is hidden.
+  // The pane switch exists only while the seed workspace shows its Outline
+  // (not on Sources, not while the Outline loads); the toolbar keeps the
+  // toggle otherwise (review g2 B8).
+  const seedDetailsInPaneSwitch = $derived(
+    showSeedWorkspace &&
+      !sourcesOpen &&
+      seedOutlineQ.data?.generationId === generation?._id &&
+      !desktopAssistant &&
+      !(detailsOpen && sidePanelOnScreen)
   );
   const planReady = $derived(Boolean(seeding && seedOutlineQ.data?.readiness?.ready));
   const signedOffSummaryAvailable = $derived(
@@ -1823,7 +1867,7 @@
             data-send-for-review
             disabled={!details.data?.permissions.canHandOff}
             title={details.data && !details.data.permissions.canHandOff ? (details.handOffReason ?? undefined) : undefined}
-            onclick={() => openDetails("handoff", "internal_review")}
+            onclick={() => void leaveDetailsThen(() => openDetails("handoff", "internal_review"))}
           >
             Send for review
           </Button>
@@ -2553,6 +2597,7 @@
                         reviewingId={replaceSession?.messageId ?? null}
                         onBeforeApply={flushEditor}
                         closeInset={false}
+                        bind:composerHeight={assistantComposerHeight}
                         isFull={assistantFull}
                         onToggleFull={() => {
                           openSidePanel("chat");
@@ -2640,7 +2685,15 @@
     <!-- QA finished while the report pane is off screen (Assistant full
          screen, or the side panel on a phone): the window corner instead. -->
     {#if showQaFinished && qaScores && !mainPaneVisible}
-      <div class="fixed bottom-6 right-6 z-[85] max-h-[calc(100dvh-3rem)] overflow-y-auto max-sm:inset-x-4 max-sm:bottom-4" data-qa-finished-host>
+      <!-- Over the Assistant (full screen, or the phone side panel) it sits
+           above the composer so it never covers Send (review g2 B7). -->
+      <div
+        class="fixed bottom-6 right-6 z-[85] max-h-[calc(100dvh-3rem)] overflow-y-auto max-sm:inset-x-4 max-sm:bottom-4"
+        style={noticeAboveComposer
+          ? `bottom: calc(${assistantComposerHeight}px + 1.5rem); max-height: calc(100dvh - ${assistantComposerHeight}px - 3rem)`
+          : undefined}
+        data-qa-finished-host
+      >
         {@render qaFinishedNotice()}
       </div>
     {/if}

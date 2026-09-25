@@ -59,6 +59,45 @@
     "flex size-8 shrink-0 items-center justify-center rounded-lg text-ink-secondary transition-colors hover:bg-primary-wash hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir data-[state=open]:bg-primary-wash pointer-coarse:size-11";
 </script>
 
+{#snippet moreMenu(placement: "desktop" | "phone")}
+  <DropdownMenu.Root>
+    <DropdownMenu.Trigger aria-label="More actions" class={`${iconButton} ${placement === "phone" ? "sm:hidden" : "max-sm:hidden"}`} data-top-bar-more={placement}>
+      {#if placement === "phone"}
+        <DotsThreeVerticalIcon size={18} weight="bold" aria-hidden="true" />
+      {:else}
+        <DotsThreeIcon size={18} weight="bold" aria-hidden="true" />
+      {/if}
+    </DropdownMenu.Trigger>
+    <DropdownMenu.Portal>
+      <DropdownMenu.Content
+        side="bottom"
+        align="end"
+        sideOffset={6}
+        class="z-[100] min-w-48 rounded-xl border border-line bg-surface p-1 shadow-lg outline-none"
+      >
+        {#each moreItems as item (item.id)}
+          {#if item.href}
+            <DropdownMenu.Item disabled={item.disabled} class="rounded-md text-[13px] text-ink outline-none data-[highlighted]:bg-primary-wash data-[disabled]:opacity-50">
+              {#snippet child({ props })}
+                <a {...props} href={item.href} data-top-bar-more-item={item.id} class="flex h-8 w-full items-center rounded-md px-2.5 text-[13px] text-ink outline-none data-[highlighted]:bg-primary-wash">{item.label}</a>
+              {/snippet}
+            </DropdownMenu.Item>
+          {:else}
+            <DropdownMenu.Item
+              disabled={item.disabled}
+              onSelect={item.onSelect}
+              data-top-bar-more-item={item.id}
+              class="flex h-8 w-full cursor-default items-center rounded-md px-2.5 text-[13px] text-ink outline-none data-[highlighted]:bg-primary-wash data-[disabled]:opacity-50"
+            >
+              {item.label}
+            </DropdownMenu.Item>
+          {/if}
+        {/each}
+      </DropdownMenu.Content>
+    </DropdownMenu.Portal>
+  </DropdownMenu.Root>
+{/snippet}
+
 <header data-workspace-page-header class="flex h-14 shrink-0 items-center gap-2 px-3 sm:px-5">
   <!-- Phone (board 3.6): a back chevron to Projects replaces the menu button
        and the breadcrumb; from 640px the workspace controls return. -->
@@ -98,43 +137,16 @@
         <span aria-hidden="true" class="absolute right-1.5 top-1.5 size-1.5 rounded-full bg-primary"></span>
       {/if}
     </a>
+    <!-- Desktop keeps Send for review at the right edge (board 2.1); the
+         phone puts a vertical kebab at the far right (board 3.6). Each sits
+         in the markup where it shows, so tab order matches the eye; the
+         other is display:none. -->
+    {#if moreItems.length > 0}
+      {@render moreMenu("desktop")}
+    {/if}
     {@render actions?.()}
     {#if moreItems.length > 0}
-      <DropdownMenu.Root>
-        <!-- The kebab closes the row in markup too, so tab order matches what
-             the eye sees; on a phone (board 3.6) it is vertical. -->
-        <DropdownMenu.Trigger aria-label="More actions" class={iconButton} data-top-bar-more>
-          <DotsThreeIcon size={18} weight="bold" aria-hidden="true" class="max-sm:hidden" />
-          <DotsThreeVerticalIcon size={18} weight="bold" aria-hidden="true" class="sm:hidden" />
-        </DropdownMenu.Trigger>
-        <DropdownMenu.Portal>
-          <DropdownMenu.Content
-            side="bottom"
-            align="end"
-            sideOffset={6}
-            class="z-[100] min-w-48 rounded-xl border border-line bg-surface p-1 shadow-lg outline-none"
-          >
-            {#each moreItems as item (item.id)}
-              {#if item.href}
-                <DropdownMenu.Item disabled={item.disabled} class="rounded-md text-[13px] text-ink outline-none data-[highlighted]:bg-primary-wash data-[disabled]:opacity-50">
-                  {#snippet child({ props })}
-                    <a {...props} href={item.href} data-top-bar-more-item={item.id} class="flex h-8 w-full items-center rounded-md px-2.5 text-[13px] text-ink outline-none data-[highlighted]:bg-primary-wash">{item.label}</a>
-                  {/snippet}
-                </DropdownMenu.Item>
-              {:else}
-                <DropdownMenu.Item
-                  disabled={item.disabled}
-                  onSelect={item.onSelect}
-                  data-top-bar-more-item={item.id}
-                  class="flex h-8 w-full cursor-default items-center rounded-md px-2.5 text-[13px] text-ink outline-none data-[highlighted]:bg-primary-wash data-[disabled]:opacity-50"
-                >
-                  {item.label}
-                </DropdownMenu.Item>
-              {/if}
-            {/each}
-          </DropdownMenu.Content>
-        </DropdownMenu.Portal>
-      </DropdownMenu.Root>
+      {@render moreMenu("phone")}
     {/if}
   </div>
 </header>
