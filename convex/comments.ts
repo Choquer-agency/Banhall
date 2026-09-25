@@ -7,7 +7,7 @@ import {
 } from "./lib/auth";
 import { requireReportEditAccess } from "./lib/roleCapabilities";
 import { domainError, sha256 } from "./lib/contracts";
-import { applyReplacements, SECTION_HEADING_EDIT_REFUSED, type PMNode } from "./lib/reportEdits";
+import { applyReplacements, headingEditRefusal, locateSelection, type PMNode } from "./lib/reportEdits";
 import { pruneSnapshots, writePreEditSnapshot } from "./lib/snapshots";
 
 const COMMENTER_COLORS = [
@@ -168,11 +168,18 @@ export const acceptEdit = mutation({
     const applied = applyReplacements(document, [
       { find: comment.highlightText, replaceWith: comment.suggestedEdit },
     ]);
-    // A selection in heading text is never applied, even when the same words
-    // occur once in the body (skipping the heading would retarget it).
-    if (applied.skippedInHeadings > 0) {
-      domainError("INVALID_INPUT", SECTION_HEADING_EDIT_REFUSED);
-    }
+    // The review link shows heading text, so the client's stored selection
+    // decides: in a Section heading or the title it is refused (the body
+    // match must not be edited instead); in the body it applies there.
+    const refusal = headingEditRefusal(
+      applied,
+      locateSelection(document, {
+        from: comment.highlightFrom,
+        to: comment.highlightTo,
+        text: comment.highlightText,
+      })
+    );
+    if (refusal) domainError("INVALID_INPUT", refusal);
     if (applied.count !== 1) {
       domainError(
         "STALE_REVISION",

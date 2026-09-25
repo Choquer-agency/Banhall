@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyReplacements, type PMNode } from "./reportEdits";
+import { applyReplacements, locateSelection, type PMNode } from "./reportEdits";
 import { applyPassageEdits } from "./passageEdits";
 import { buildTiptapDocument, extractReportSections } from "./tiptapReport";
 
@@ -55,8 +55,53 @@ describe("Section headings on the server Apply path", () => {
       { find: "Report", replaceWith: "Paper" },
     ]);
     // "Work Performed" in the 244 heading and "Report" in the title stay put.
-    expect(result.skippedInHeadings).toBe(2);
+    expect(result.skippedInHeadings).toBe(1);
+    expect(result.skippedInTitle).toBe(1);
     expect(headings(result.doc)).toEqual(headings(original));
     expect(result.count).toBe(1);
+  });
+
+  it("applies a replacement that contains its own search text once", () => {
+    const doc = { type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: "The loop is stable under load." }] }] };
+    const result = applyReplacements(doc, [{ find: "stable", replaceWith: "stable and repeatable" }]);
+    expect(result.count).toBe(1);
+    expect(nodeTextOf(result.doc)).toBe("The loop is stable and repeatable under load.");
+  });
+
+  it("still replaces a passage split across inline marks, once", () => {
+    const doc = { type: "doc", content: [{ type: "paragraph", content: [
+      { type: "text", text: "The team " },
+      { type: "text", text: "tested", marks: [{ type: "bold" }] },
+      { type: "text", text: " the alloy." },
+    ] }] };
+    const result = applyReplacements(doc, [{ find: "team tested the alloy", replaceWith: "team tested the alloy twice" }]);
+    expect(result.count).toBe(1);
+    expect(nodeTextOf(result.doc)).toBe("The team tested the alloy twice.");
+  });
+});
+
+const nodeTextOf = (node: PMNode): string =>
+  typeof node.text === "string" ? node.text : ((node.content as PMNode[] | undefined) ?? []).map(nodeTextOf).join("");
+
+describe("stored selections", () => {
+  it("locates a selection in the body, a Section heading or the title, and notices stale positions", () => {
+    const doc = report();
+    const content = doc.content as PMNode[];
+    // Positions as ProseMirror counts them: each block opens and closes.
+    let pos = 0;
+    const starts: number[] = [];
+    for (const node of content) {
+      starts.push(pos);
+      pos += 2 + nodeTextOf(node).length;
+    }
+    const title = { from: starts[0] + 1, to: starts[0] + 7, text: "Report" };
+    const heading = { from: starts[1] + 1 + 11, to: starts[1] + 1 + 11 + 36, text: "Scientific/Technological Uncertainty" };
+    const bodyText = nodeTextOf(content[2]);
+    const at = bodyText.indexOf("technological uncertainty");
+    const body = { from: starts[2] + 1 + at, to: starts[2] + 1 + at + 25, text: "technological uncertainty" };
+    expect(locateSelection(doc, title)).toBe("title");
+    expect(locateSelection(doc, heading)).toBe("section");
+    expect(locateSelection(doc, body)).toBe("body");
+    expect(locateSelection(doc, { ...body, text: "something else" })).toBeNull();
   });
 });

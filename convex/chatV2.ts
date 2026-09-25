@@ -26,8 +26,10 @@ import { requireAnthropicConfigured } from "./lib/providerConfig";
 import { pruneSnapshots, writePreEditSnapshot } from "./lib/snapshots";
 import { requireReportEditAccess } from "./lib/roleCapabilities";
 import {
-  SECTION_HEADING_EDIT_REFUSED,
   applyReplacements,
+  headingEditRefusal,
+  locateSelection,
+  type SelectionLocation,
   scrubBannedWords,
   type PMNode,
 } from "./lib/reportEdits";
@@ -545,11 +547,26 @@ export const applyProposal = mutation({
     // predate the flag, hence the researchSessionId fallback).
     const requireUniqueTarget =
       proposal.requireUniqueTarget ?? proposal.researchSessionId !== undefined;
-    // Heading text is never a target: a single-passage edit that also
-    // matches it is refused rather than moved onto a lone body match.
-    if (direct && direct.skippedInHeadings > 0 && (proposal.kind === "edit" || requireUniqueTarget || count === 0)) {
-      await ctx.db.patch(args.proposalId, { state: "stale" });
-      return { applied: false as const, count: 0, reason: SECTION_HEADING_EDIT_REFUSED };
+    // Heading and title text is never edited. A research edit carries the
+    // writer's selection, which decides; any other edit is refused only when
+    // heading or title text is its sole match.
+    if (direct) {
+      let location: SelectionLocation | null | undefined;
+      if (proposal.researchSessionId) {
+        const session = await ctx.db.get(proposal.researchSessionId);
+        if (session && session.reportId === proposal.reportId) {
+          location = locateSelection(parsed as PMNode, {
+            from: session.selectionFrom,
+            to: session.selectionTo,
+            text: session.selectedText,
+          });
+        }
+      }
+      const refusal = headingEditRefusal(direct, location);
+      if (refusal) {
+        await ctx.db.patch(args.proposalId, { state: "stale" });
+        return { applied: false as const, count: 0, reason: refusal };
+      }
     }
     if (count === 0) {
       await ctx.db.patch(args.proposalId, { state: "stale" });
@@ -1059,14 +1076,14 @@ export const saveProposal = internalMutation({
         return { ok: false as const, reason: "The suggestion did not include text to replace." };
       }
       for (const pair of pairs) {
-        const { count, skippedInHeadings } = applyReplacements(parsed as PMNode, [pair]);
-        // Heading text is never a target: say so, rather than "not in the
-        // report", and never let a single edit fall onto a lone body match.
-        if (skippedInHeadings > 0 && (args.kind === "edit" || count === 0)) {
-          return {
-            ok: false as const,
-            reason: `${SECTION_HEADING_EDIT_REFUSED} Target the prose under the heading instead.`,
-          };
+        const probe = applyReplacements(parsed as PMNode, [pair]);
+        const { count } = probe;
+        // Heading and title text is never edited. When it is the only match,
+        // say so rather than "not in the report"; text that also has one body
+        // match is taken as that body passage.
+        const refusal = headingEditRefusal(probe);
+        if (refusal) {
+          return { ok: false as const, reason: `${refusal} Target the passage in the report prose instead.` };
         }
         if (count === 0) {
           return {
@@ -1078,7 +1095,7 @@ export const saveProposal = internalMutation({
         if (args.kind === "edit" && count !== 1) {
           return {
             ok: false as const,
-            reason: `The proposed target matches ${count} places. Include more surrounding words so it identifies exactly one passage.`,
+            reason: `The proposed target matches ${count} places in the report prose. Include more surrounding words so it matches only the one passage you mean.`,
           };
         }
       }

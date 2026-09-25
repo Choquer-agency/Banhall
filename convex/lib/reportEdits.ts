@@ -89,108 +89,183 @@ function isSectionHeading(node: PMNode): boolean {
   return /^\s*(?:line|section)\s+24[246]\b/i.test(normalizeForMatch(nodeText(node)));
 }
 
-function protectedHeadings(doc: PMNode): Set<PMNode> {
-  const nodes = new Set<PMNode>();
+type ProtectedKind = "section" | "title";
+
+/** The top-level nodes no edit may touch: the Section headings and the hidden title. */
+function protectedHeadings(doc: PMNode): Map<PMNode, ProtectedKind> {
+  const nodes = new Map<PMNode, ProtectedKind>();
   const top = (doc.content as PMNode[] | undefined) ?? [];
   top.forEach((node, index) => {
     const level = (node.attrs as { level?: unknown } | undefined)?.level;
-    const hiddenTitle = index === 0 && node.type === "heading" && level === 1;
-    if (hiddenTitle || isSectionHeading(node)) nodes.add(node);
+    if (index === 0 && node.type === "heading" && level === 1) nodes.set(node, "title");
+    else if (isSectionHeading(node)) nodes.set(node, "section");
   });
   return nodes;
 }
 
-/** Plain message for an edit refused because it targets heading text. */
+/** Plain messages for an edit refused because it targets heading text. */
 export const SECTION_HEADING_EDIT_REFUSED = "Section headings can't be edited.";
+export const REPORT_TITLE_EDIT_REFUSED = "The report title can't be edited.";
+
+const LEAF_NODE_TYPES = new Set(["hardBreak", "horizontalRule", "image"]);
+
+/** A node's size in ProseMirror positions (what editor selections count in). */
+function nodeSize(node: PMNode): number {
+  if (node.type === "text" && typeof node.text === "string") return node.text.length;
+  const children = node.content as PMNode[] | undefined;
+  if (!Array.isArray(children) || children.length === 0) {
+    return LEAF_NODE_TYPES.has(node.type as string) ? 1 : 2;
+  }
+  return 2 + children.reduce((sum, child) => sum + nodeSize(child), 0);
+}
+
+/** Text of the document between two ProseMirror positions. */
+function textBetweenPositions(doc: PMNode, from: number, to: number): string {
+  let out = "";
+  const visit = (node: PMNode, start: number) => {
+    if (node.type === "text" && typeof node.text === "string") {
+      const end = start + node.text.length;
+      if (end > from && start < to) out += node.text.slice(Math.max(0, from - start), Math.min(node.text.length, to - start));
+      return;
+    }
+    const children = node.content as PMNode[] | undefined;
+    if (!Array.isArray(children)) return;
+    let pos = start + 1;
+    for (const child of children) {
+      visit(child, pos);
+      pos += nodeSize(child);
+    }
+  };
+  let pos = 0;
+  for (const child of (doc.content as PMNode[] | undefined) ?? []) {
+    visit(child, pos);
+    pos += nodeSize(child);
+  }
+  return out;
+}
+
+export type StoredSelection = { from: number; to: number; text: string };
+export type SelectionLocation = "body" | ProtectedKind;
+
+/**
+ * Where a stored editor selection sits: in a Section heading, the hidden
+ * title or the body. Null when the positions no longer hold the selected
+ * text (the report changed since), so the caller cannot rely on them.
+ */
+export function locateSelection(doc: PMNode, selection: StoredSelection): SelectionLocation | null {
+  const { from, to } = selection;
+  if (!Number.isInteger(from) || !Number.isInteger(to) || to <= from) return null;
+  const same = (text: string) => normalizeForMatch(text).trim().toLowerCase();
+  if (same(textBetweenPositions(doc, from, to)) !== same(selection.text)) return null;
+  const guarded = protectedHeadings(doc);
+  let pos = 0;
+  for (const node of (doc.content as PMNode[] | undefined) ?? []) {
+    const end = pos + nodeSize(node);
+    const kind = guarded.get(node);
+    if (kind && from < end && to > pos) return kind;
+    pos = end;
+  }
+  return "body";
+}
+
+export type ReplacementResult = {
+  doc: PMNode;
+  count: number;
+  /** Matches left in Section headings, which are never edited. */
+  skippedInHeadings: number;
+  /** Matches left in the hidden report title, which is never edited. */
+  skippedInTitle: number;
+};
+
+/**
+ * Why a single-target edit must be refused because of heading or title text,
+ * or null. With a stored selection (a research edit, a client suggestion) the
+ * selection decides: in a heading or the title it is refused, in the body it
+ * may apply to the body match. Positions that no longer hold the text fail
+ * closed when heading or title text matches. Without a stored selection (an
+ * AI edit) a heading or title match only matters when it is the only match.
+ */
+export function headingEditRefusal(
+  result: ReplacementResult,
+  location?: SelectionLocation | null
+): string | null {
+  const message = result.skippedInHeadings > 0 ? SECTION_HEADING_EDIT_REFUSED : REPORT_TITLE_EDIT_REFUSED;
+  const inProtected = result.skippedInHeadings + result.skippedInTitle > 0;
+  if (location === "section") return SECTION_HEADING_EDIT_REFUSED;
+  if (location === "title") return REPORT_TITLE_EDIT_REFUSED;
+  if (location === null && inProtected) return message;
+  if (result.count === 0 && inProtected) return message;
+  return null;
+}
 
 /**
  * BNH-27: apply find/replace pairs to a Tiptap JSON doc across ALL occurrences.
- * Section headings and the hidden title are skipped (see protectedHeadings);
- * `skippedInHeadings` counts the matches left there, so a caller that needs
- * one exact target can refuse instead of editing a lone body match.
+ * Section headings and the hidden title are skipped (see protectedHeadings),
+ * and the matches left there are counted so single-target callers can refuse
+ * an edit aimed at them (headingEditRefusal).
  *
- * Pass 1 walks every text node at any depth and replaces in place — this is
- * mark-preserving and handles the common case (a phrase repeated across the
- * document, e.g. third-person → first-person pronouns).
- *
- * Pass 2 is a fallback for any pair whose `find` still survives because it spans
- * multiple inline nodes (e.g. a passage broken by a [GAP:] highlight or bold
- * run). For those, we rebuild the affected block's inline text as a single text
- * node so the replacement still lands instead of throwing.
+ * Each block is matched once, against its original text. Where every match
+ * sits inside one text node the replacement keeps the marks; where a match
+ * spans inline nodes (a passage broken by a [GAP:] highlight or a bold run)
+ * the block's inline text is rebuilt as a single text node so the
+ * replacement still lands. Matching the original text means a replacement
+ * that contains its own search text is applied once, never again to its own
+ * output (review 2026-09-25).
  */
-export function applyReplacements(
-  doc: PMNode,
-  pairs: ReplacePair[]
-): { doc: PMNode; count: number; skippedInHeadings: number } {
+export function applyReplacements(doc: PMNode, pairs: ReplacePair[]): ReplacementResult {
   let count = 0;
   const guarded = protectedHeadings(doc);
   let skippedInHeadings = 0;
-  for (const node of guarded) {
+  let skippedInTitle = 0;
+  for (const [node, kind] of guarded) {
     const text = nodeText(node);
-    for (const { find } of pairs) skippedInHeadings += replaceAll(text, find, "").count;
+    for (const { find } of pairs) {
+      const found = replaceAll(text, find, "").count;
+      if (kind === "section") skippedInHeadings += found;
+      else skippedInTitle += found;
+    }
   }
 
-  // ── Pass 1: per-text-node, mark-preserving, global ──
+  const replaceInText = (text: string): { text: string; count: number } => {
+    let out = text;
+    let found = 0;
+    for (const { find, replaceWith } of pairs) {
+      const r = replaceAll(out, find, replaceWith);
+      out = r.text;
+      found += r.count;
+    }
+    return { text: out, count: found };
+  };
+
   const walk = (node: PMNode): PMNode => {
     if (guarded.has(node)) return node;
-    let next = node;
-    const children = next.content as PMNode[] | undefined;
-    if (Array.isArray(children)) {
-      next = { ...next, content: children.map(walk) };
-    }
-    if (next.type === "text" && typeof next.text === "string") {
-      let text = next.text as string;
-      for (const { find, replaceWith } of pairs) {
-        const r = replaceAll(text, find, replaceWith);
-        text = r.text;
-        count += r.count;
+    const children = node.content as PMNode[] | undefined;
+    if (!Array.isArray(children)) return node;
+    const inlineOnly = children.every((c) => c.type === "text" || c.type === "hardBreak");
+    if (inlineOnly && children.some((c) => c.type === "text")) {
+      // Per text node: keeps marks.
+      let perNode = 0;
+      const replaced = children.map((child) => {
+        if (child.type !== "text" || typeof child.text !== "string") return child;
+        const r = replaceInText(child.text);
+        perNode += r.count;
+        return r.text === child.text ? child : { ...child, text: r.text };
+      });
+      // Across the block's original text: finds matches that span nodes.
+      const joined = children.map((c) => (c.type === "text" ? ((c.text as string) ?? "") : "\n")).join("");
+      const whole = replaceInText(joined);
+      if (whole.count > perNode) {
+        count += whole.count;
+        return { ...node, content: [{ type: "text", text: whole.text }] };
       }
-      if (text !== next.text) next = { ...next, text };
+      count += perNode;
+      return perNode > 0 ? { ...node, content: replaced } : node;
     }
-    return next;
+    const next = children.map(walk);
+    return next.some((child, i) => child !== children[i]) ? { ...node, content: next } : node;
   };
-  let result = walk(doc);
-
-  // ── Pass 2: block-level fallback for finds that span inline nodes ──
-  // Check presence on normalized text so punctuation differences don't hide a
-  // cross-node match.
-  const normResultText = normalizeForMatch(nodeText(result)).toLowerCase();
-  const stillPresent = pairs.filter((p) =>
-    normResultText.includes(normalizeForMatch(p.find).toLowerCase())
-  );
-  if (stillPresent.length > 0) {
-    const collapse = (node: PMNode): PMNode => {
-      if (guarded.has(node)) return node;
-      const next = node;
-      const children = next.content as PMNode[] | undefined;
-      if (!Array.isArray(children)) return next;
-
-      // A block whose children are all inline text/breaks can be flattened.
-      const inlineOnly = children.every(
-        (c) => c.type === "text" || c.type === "hardBreak"
-      );
-      if (inlineOnly && children.some((c) => c.type === "text")) {
-        let text = children
-          .map((c) => (c.type === "text" ? ((c.text as string) ?? "") : "\n"))
-          .join("");
-        let changed = false;
-        for (const { find, replaceWith } of stillPresent) {
-          const r = replaceAll(text, find, replaceWith);
-          if (r.count > 0) {
-            text = r.text;
-            count += r.count;
-            changed = true;
-          }
-        }
-        if (changed) return { ...next, content: [{ type: "text", text }] };
-        return next;
-      }
-      return { ...next, content: children.map(collapse) };
-    };
-    result = collapse(result);
-  }
-
-  return { doc: result, count, skippedInHeadings };
+  const result = walk(doc);
+  return { doc: result, count, skippedInHeadings, skippedInTitle };
 }
 
 /** Concatenate all text in a node tree (for presence checks). */

@@ -1,6 +1,6 @@
 import {
   applyReplacements,
-  SECTION_HEADING_EDIT_REFUSED,
+  headingEditRefusal,
   type PMNode,
   type ReplacePair,
 } from "./reportEdits";
@@ -26,9 +26,11 @@ export function applyPassageEdits(doc: PMNode, pairs: ReplacePair[]):
   });
   for (const [i, pair] of pairs.entries()) {
     const probe = applyReplacements(doc, [markedPairs[i]]);
-    // Heading text is never a target, and must not steer the edit elsewhere.
-    if (pair.find.trim() && probe.skippedInHeadings > 0) {
-      return { ok: false, reason: `${SECTION_HEADING_EDIT_REFUSED} Target the prose under the heading instead.` };
+    // A passage whose only match is Section heading or title text: say so.
+    // Text that also has one body match applies to the body passage.
+    const refusal = pair.find.trim() ? headingEditRefusal(probe) : null;
+    if (refusal) {
+      return { ok: false, reason: `${refusal} Target the passage in the report prose instead.` };
     }
     if (!pair.find.trim() || pair.find === pair.replaceWith || probe.count !== 1) {
       return { ok: false, reason: "Each passage must identify exactly one current report location and make a change." };

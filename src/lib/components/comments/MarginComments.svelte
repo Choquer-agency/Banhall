@@ -3,6 +3,7 @@
   import { api } from "../../../../convex/_generated/api";
   import type { Id } from "../../../../convex/_generated/dataModel";
   import CommentInput from "./CommentInput.svelte";
+  import { userErrorMessage } from "$lib/errors";
   import type { EditorHandle } from "$lib/components/editor/types";
 
   let {
@@ -40,6 +41,18 @@
   const addComment = useMutation(api.comments.addComment);
   const resolveComment = useMutation(api.comments.resolveComment);
   const acceptEdit = useMutation(api.comments.acceptEdit);
+  // A refused accept (a stale, ambiguous or heading selection) is shown on
+  // its card instead of failing silently.
+  let acceptErrors = $state<Record<string, string>>({});
+  async function accept(commentId: Id<"comments">) {
+    const { [commentId]: _cleared, ...rest } = acceptErrors;
+    acceptErrors = rest;
+    try {
+      await acceptEdit({ commentId });
+    } catch (error) {
+      acceptErrors = { ...acceptErrors, [commentId]: userErrorMessage(error, "The suggested edit could not be applied.") };
+    }
+  }
   type Commenter = NonNullable<typeof commentersQ.data>[number];
 
   let positions = $state(new Map<string, number>());
@@ -323,7 +336,7 @@
                     type="button"
                     onclick={(e) => {
                       e.stopPropagation();
-                      acceptEdit({ commentId: comment._id });
+                      void accept(comment._id);
                     }}
                     class="rounded bg-primary px-2 py-0.5 text-[10px] font-medium text-white hover:bg-primary-dark transition-colors"
                   >
@@ -340,6 +353,9 @@
                     Dismiss
                   </button>
                 </div>
+                {#if acceptErrors[comment._id]}
+                  <p class="mt-1 text-[11px] leading-4 text-red-700" role="alert">{acceptErrors[comment._id]}</p>
+                {/if}
               {/if}
             </div>
           {/if}
