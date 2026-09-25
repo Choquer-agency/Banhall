@@ -8,7 +8,7 @@ import {
   requireInternalProjectAccess,
 } from "./lib/auth";
 import { domainError, sha256 } from "./lib/contracts";
-import { deleteStorageIfUnreferenced } from "./lib/storage";
+import { deleteStorageIfUnreferenced, isStorageReferenced } from "./lib/storage";
 import { findActiveGeneration } from "./lib/activeGeneration";
 import {
   transcriptSourceFormatValidator,
@@ -437,6 +437,57 @@ export const discardTranscriptOriginals = mutation({
       await deleteStorageIfUnreferenced(ctx, storageId);
     }
     return null;
+  },
+});
+
+/**
+ * Files younger than this are left alone by `sweepUnreferencedStorage`: an
+ * upload whose save has not run yet is still on its way to its row.
+ */
+export const UNREFERENCED_STORAGE_GRACE_MS = 24 * 60 * 60 * 1000;
+
+/** Files one sweep transaction looks at. */
+export const STORAGE_SWEEP_PAGE_SIZE = 100;
+
+/**
+ * Deletes stored files no row holds once they are a day old. The case it
+ * exists for is a transcript original whose save never ran (the tab closed
+ * after the upload, the connection dropped, or the release after a refusal
+ * failed): the file holds interview text that project erasure can never
+ * find. It covers every file, not only transcripts: any upload that never
+ * reached its row goes the same way.
+ *
+ * Pages `_storage` oldest first, one bounded page per transaction, and
+ * reschedules itself with the same cut-off until done. A file is deleted
+ * only when `isStorageReferenced` finds no row holding it through any of the
+ * schema's storage fields (`STORAGE_REFERENCE_FIELDS`). Runs daily
+ * (`crons.ts`); safe to run again.
+ */
+export const sweepUnreferencedStorage = internalMutation({
+  args: {
+    before: v.optional(v.number()),
+    cursor: v.optional(v.union(v.string(), v.null())),
+  },
+  returns: v.object({ checked: v.number(), deleted: v.number(), isDone: v.boolean() }),
+  handler: async (ctx, args) => {
+    const before = args.before ?? Date.now() - UNREFERENCED_STORAGE_GRACE_MS;
+    const page = await ctx.db.system
+      .query("_storage")
+      .withIndex("by_creation_time", (q) => q.lt("_creationTime", before))
+      .paginate({ cursor: args.cursor ?? null, numItems: STORAGE_SWEEP_PAGE_SIZE });
+    let deleted = 0;
+    for (const file of page.page) {
+      if (await isStorageReferenced(ctx, file._id)) continue;
+      await ctx.storage.delete(file._id);
+      deleted += 1;
+    }
+    if (!page.isDone) {
+      await ctx.scheduler.runAfter(0, internal.transcripts.sweepUnreferencedStorage, {
+        before,
+        cursor: page.continueCursor,
+      });
+    }
+    return { checked: page.page.length, deleted, isDone: page.isDone };
   },
 });
 
