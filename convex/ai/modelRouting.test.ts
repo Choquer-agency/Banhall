@@ -563,3 +563,84 @@ describe("round 3: financial extraction settles after its own validation", () =>
     ]);
   });
 });
+
+describe("models that reject forced tool calls at the OpenRouter boundary", () => {
+  const drain = async (t: Awaited<ReturnType<typeof setup>>) =>
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
+
+  it("sends Opus 5.5 on OpenRouter `auto` and one system line, and repairs a text-only answer", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const t = await setup();
+    let call = 0;
+    reply = () => {
+      call += 1;
+      return call === 1
+        ? Response.json({
+            choices: [{ message: { content: "Here is the record." }, finish_reason: "stop" }],
+            usage: { prompt_tokens: 10, completion_tokens: 5, cost: 0.001 },
+          })
+        : toolReply(JSON.stringify({ ok: true }));
+    };
+    const value = await t.action(async (ctx) =>
+      generateStructured(clientForModel(ctx, "anthropic/claude-opus-5.5", { callSite: "routing-test" }), {
+        ...structuredArgs("anthropic/claude-opus-5.5"),
+        attempts: 2,
+      })
+    );
+    expect(value).toEqual({ ok: true });
+    // The text-only answer spent the one repair attempt.
+    expect(captured).toHaveLength(2);
+    for (const request of captured) {
+      expect(request.body.tool_choice).toBe("auto");
+      expect(request.body.messages).toContainEqual({
+        role: "system",
+        content: "System.\n\nReply only by calling the record tool, exactly once. A tool call is the only valid reply.",
+      });
+      expect(JSON.stringify(request.body)).not.toContain('"function":{"name":"record"}}');
+      expect(request.body.thinking).toBeUndefined();
+    }
+    const repair = captured[1].body.messages as Array<{ role: string; content: string }>;
+    expect(repair.at(-1)?.content).toContain("the required tool was not called");
+    await drain(t);
+    const buckets = await t.run((ctx) => ctx.db.query("modelCallBuckets").collect());
+    expect(buckets).toMatchObject([
+      { model: "anthropic/claude-opus-5.5", successes: 1, failures: 1, lastFailureCode: "no_tool_output" },
+    ]);
+    vi.useRealTimers();
+  });
+});
+
+describe("GPT-6 at the OpenRouter boundary", () => {
+  const drain = async (t: Awaited<ReturnType<typeof setup>>) =>
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
+
+  it("sends GPT-6 Sol its forced named function, reasoning headroom and native cost", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const t = await setup();
+    reply = () => toolReply(JSON.stringify({ ok: true }), "openai/gpt-6-sol");
+    const value = await t.action(async (ctx) =>
+      generateStructured(clientForModel(ctx, "openai/gpt-6-sol", { callSite: "routing-test" }), {
+        ...structuredArgs("openai/gpt-6-sol"),
+        maxTokens: 4096,
+      })
+    );
+    expect(value).toEqual({ ok: true });
+    expect(captured).toHaveLength(1);
+    expect(captured[0].url).toBe("https://openrouter.ai/api/v1/chat/completions");
+    expect(captured[0].body).toMatchObject({
+      model: "openai/gpt-6-sol",
+      // Reasoning headroom: 4096 x 4, under the 128,000 cap.
+      max_tokens: 16384,
+      tool_choice: { type: "function", function: { name: "record" } },
+      messages: [
+        { role: "system", content: "System." },
+        { role: "user", content: "Hello." },
+      ],
+      provider: { require_parameters: true },
+    });
+    await drain(t);
+    const usage = await t.run((ctx) => ctx.db.query("aiUsage").collect());
+    expect(usage).toMatchObject([{ model: "openai/gpt-6-sol", costUsd: 0.001, costSource: "native" }]);
+    vi.useRealTimers();
+  });
+});

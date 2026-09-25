@@ -13,13 +13,17 @@
  *   scheduled rise to $3/$15 was cancelled, so the old $3/$15 estimate
  *   overstated every Sonnet 5 row by half.
  *   Cache writes cost 1.25x base input for the 5-minute TTL and 2x for the
- *   1-hour TTL. Cache reads cost 0.1x, except Opus 5.5 (0.05x).
+ *   1-hour TTL. Cache reads cost 0.1x, except Opus 5.5 (0.05x, $0.20) and
+ *   Fable 5.1 (0.025x, $0.25). Opus 5.5 ($4/$20) and Fable 5.1 ($10/$50)
+ *   match OpenRouter's listing for them, re-read 2026-09-25.
  * - Voyage (voyage-3-large $0.18, rerank-2.5 $0.05, input only): kept from
  *   the earlier table, not re-read on this date.
  * - OpenRouter models: FALLBACKS ONLY. OpenRouter returns the exact charge in
  *   `usage.cost`, which is recorded as a native cost and always wins. These
  *   rows price only a response that carried no cost, and are kept from the
  *   earlier table unverified; a row priced from them is marked estimated.
+ *   GPT-6 Sol ($2/$10) and GPT-6 Luna ($0.10/$0.50), cache reads 0.1x, were
+ *   read from OpenRouter's model list on 2026-09-25.
  */
 
 export type ModelPricing = {
@@ -71,6 +75,7 @@ const gateway = (
 
 export const MODEL_PRICING: Readonly<Record<string, ModelPricing>> = {
   // Anthropic direct.
+  "claude-fable-5-1": anthropic(10, 50, 0.025),
   "claude-opus-5-5": anthropic(4, 20, 0.05),
   "claude-opus-5": anthropic(5, 25),
   "claude-opus-4-8": anthropic(5, 25),
@@ -82,6 +87,8 @@ export const MODEL_PRICING: Readonly<Record<string, ModelPricing>> = {
   "voyage-3-large": inputOnly(0.18),
   "rerank-2.5": inputOnly(0.05),
   // OpenRouter fallbacks (native usage.cost wins).
+  "openai/gpt-6-sol": gateway(2, 10, 0.1),
+  "openai/gpt-6-luna": gateway(0.1, 0.5, 0.1),
   "openai/gpt-5.6-sol": gateway(5, 30, 0.25),
   "openai/gpt-5.6-luna": gateway(1, 6, 0.25),
   "google/gemini-3.1-pro-preview": gateway(2, 12, 0.25),

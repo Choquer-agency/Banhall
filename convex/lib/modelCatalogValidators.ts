@@ -71,6 +71,11 @@ export const catalogFieldsValidator = {
   reasoningEfforts: v.array(v.string()),
   supportsTools: v.boolean(),
   supportsToolChoice: v.boolean(),
+  /**
+   * False when the model rejects a forced tool call (shared/generationModels.ts
+   * acceptsForcedToolChoice); absent means it accepts one.
+   */
+  forcedToolChoice: v.optional(v.boolean()),
   supportsStructuredOutputs: v.boolean(),
   supportsReasoning: v.boolean(),
   expirationDate: v.optional(v.string()),
@@ -97,6 +102,8 @@ export const frozenModelEntryValidator = v.object({
   maxCompletionTokens: v.optional(v.number()),
   requestId: v.optional(v.string()),
   maxPrice: v.optional(maxPriceValidator),
+  /** False when the model rejects a forced tool call; absent otherwise. */
+  forcedToolChoice: v.optional(v.boolean()),
 });
 export type FrozenModelEntry = Infer<typeof frozenModelEntryValidator>;
 

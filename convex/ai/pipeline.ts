@@ -5,7 +5,7 @@ import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { v } from "convex/values";
 import { clientForModel, registerGenerationModels } from "./providers";
-import type { GenerationClient } from "./openrouterCore";
+import { firstResponseText, type GenerationClient } from "./openrouterCore";
 import { runAnalyzerAgent, parseTranscriptAnalysis, type TranscriptAnalysis } from "./analyzerAgent";
 import { runGenerationBriefStage } from "./brief";
 import {
@@ -119,7 +119,10 @@ export async function compressSection(
       },
     ],
   });
-  const out = response.content[0]?.type === "text" ? response.content[0].text.trim() : "";
+  // A reply cut off at the token limit (thinking shares the budget on Opus
+  // 5.5 and Fable 5.1) is a partial section; keep the original instead.
+  if (response.stop_reason === "max_tokens") return text;
+  const out = firstResponseText(response).trim();
   return out || text;
 }
 

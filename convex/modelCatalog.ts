@@ -148,15 +148,64 @@ async function assignedModelIds(ctx: QueryCtx | MutationCtx): Promise<Set<string
 
 // ─── Seed and refresh ───────────────────────────────────────────────────────
 
-/** Insert every seed model the table does not hold yet. Idempotent. */
-export async function ensureSeedCatalog(ctx: MutationCtx, now: number): Promise<number> {
-  let inserted = 0;
-  for (const seed of seedCatalogModels(now)) {
-    if (await catalogRow(ctx, seed.modelId)) continue;
-    await ctx.db.insert("modelCatalog", { ...seed, updatedAt: now });
-    inserted += 1;
+type SeedRow = ReturnType<typeof seedCatalogModels>[number];
+
+/**
+ * Whether an existing row may become the seed row for its id. A seed added
+ * after the daily refresh already listed the same id from OpenRouter (GPT-6
+ * Sol and Luna, 2026-09-25) sits in the table as an OpenRouter candidate,
+ * which pickers hide. It is adopted only while nobody has acted on it: still
+ * a candidate (every model a role moves to is enabled by switchRoleModel,
+ * and an enabled row never goes back to candidate), still listed, on the
+ * seed's gateway, and never rolled back from by any role under any of its
+ * ids.
+ */
+async function adoptableAsSeed(
+  ctx: MutationCtx,
+  row: Doc<"modelCatalog">,
+  seed: SeedRow
+): Promise<boolean> {
+  if (row.source !== "openrouter" || row.status !== "candidate") return false;
+  if (row.gateway !== seed.gateway || row.missingSince !== undefined) return false;
+  for (const role of MODEL_ROLES) {
+    if (await rolledBackFrom(ctx, role, row.modelId)) return false;
   }
-  return inserted;
+  return true;
+}
+
+/**
+ * Insert every seed model the table does not hold yet, and enable a seed id
+ * the refresh found first (adoptableAsSeed). An adopted row takes the seed's
+ * label, description and reasoning and max-output declarations, and keeps
+ * the provider's prices, slug and scores. Role assignments, switch events
+ * and evaluations are never touched. Idempotent.
+ */
+export async function ensureSeedCatalog(ctx: MutationCtx, now: number): Promise<number> {
+  let written = 0;
+  for (const seed of seedCatalogModels(now)) {
+    const row = await catalogRow(ctx, seed.modelId);
+    if (!row) {
+      await ctx.db.insert("modelCatalog", { ...seed, updatedAt: now });
+      written += 1;
+      continue;
+    }
+    if (!(await adoptableAsSeed(ctx, row, seed))) continue;
+    await ctx.db.patch(row._id, {
+      status: "enabled",
+      source: "seed",
+      displayName: seed.displayName,
+      provider: seed.provider,
+      ...(seed.description ? { description: seed.description } : {}),
+      reasoning: seed.reasoning,
+      ...(seed.maxCompletionTokens !== undefined
+        ? { maxCompletionTokens: seed.maxCompletionTokens }
+        : {}),
+      ...(seed.forcedToolChoice === false ? { forcedToolChoice: false } : {}),
+      updatedAt: now,
+    });
+    written += 1;
+  }
+  return written;
 }
 
 export const seedCatalog = internalMutation({
@@ -546,6 +595,7 @@ function prefilterView(row: Doc<"modelCatalog">): PrefilterModel {
     maxOutputTokens: row.maxOutputTokens,
     supportsTools: row.supportsTools,
     supportsStructuredOutputs: row.supportsStructuredOutputs,
+    ...(row.forcedToolChoice === false ? { forcedToolChoice: false } : {}),
     endpointSupport: row.endpointSupport,
     expirationDate: row.expirationDate,
     benchmarks: row.benchmarks,

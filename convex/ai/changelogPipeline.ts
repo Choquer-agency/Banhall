@@ -15,6 +15,7 @@ import { internal } from "../_generated/api";
 import { v } from "convex/values";
 import { clientForRole } from "./providers";
 import { HUMAN_PROSE_FOR_OWN_WORDING } from "../../shared/humanProse";
+import { firstResponseText } from "./openrouterCore";
 
 /** First balanced JSON object in a string, or null. */
 export function extractJson(text: string): {
@@ -127,7 +128,7 @@ export const publishDay = internalAction({
       ],
     });
     const text =
-      response.content[0]?.type === "text" ? response.content[0].text : "";
+      firstResponseText(response);
     // Non-greedy brace matching fails on nested strings; instead scan for the
     // first balanced object. Vague commit subjects ("july 9 changes") can also
     // make the model decline — fall back to a plain listing rather than fail.

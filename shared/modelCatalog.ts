@@ -21,6 +21,7 @@
  */
 import {
   CANDIDATE_MODELS,
+  FORCED_TOOL_CHOICE_REJECTED_IDS,
   MODEL,
   REASONING_TOKEN_MULTIPLIER,
   type ModelEntry,
@@ -395,6 +396,8 @@ export type CatalogFields = {
   reasoningEfforts: string[];
   supportsTools: boolean;
   supportsToolChoice: boolean;
+  /** False when the model rejects a forced tool call; absent otherwise. */
+  forcedToolChoice?: boolean;
   supportsStructuredOutputs: boolean;
   supportsReasoning: boolean;
   expirationDate?: string;
@@ -425,6 +428,11 @@ export type CatalogModel = CatalogFields & {
  */
 export const SEED_CANONICAL_SLUGS: Readonly<Record<string, string>> = {
   "claude-sonnet-5": "anthropic/claude-sonnet-5-20260630",
+  // Read from OpenRouter's catalog on 2026-09-25.
+  "claude-opus-5-5": "anthropic/claude-opus-5.5-20260921",
+  "claude-fable-5-1": "anthropic/claude-fable-5.1-20260831",
+  "openai/gpt-6-sol": "openai/gpt-6-sol-20260922",
+  "openai/gpt-6-luna": "openai/gpt-6-luna-20260922",
   "claude-opus-4-8": "anthropic/claude-4.8-opus-20260528",
   "claude-haiku-4-5-20251001": "anthropic/claude-4.5-haiku-20251001",
   "openai/gpt-5.6-sol": "openai/gpt-5.6-sol-20260709",
@@ -436,6 +444,8 @@ export const SEED_CANONICAL_SLUGS: Readonly<Record<string, string>> = {
 /** Seed maximum output for direct Anthropic models (published limits). */
 const ANTHROPIC_SEED_LIMITS: Readonly<Record<string, { context: number; output: number }>> = {
   "claude-sonnet-5": { context: 1_000_000, output: 128_000 },
+  "claude-opus-5-5": { context: 1_000_000, output: 128_000 },
+  "claude-fable-5-1": { context: 1_000_000, output: 128_000 },
   "claude-opus-4-8": { context: 1_000_000, output: 128_000 },
   "claude-haiku-4-5-20251001": { context: 200_000, output: 64_000 },
 };
@@ -478,6 +488,7 @@ export function seedCatalogModels(now: number): CatalogModel[] {
       reasoningEfforts: [],
       supportsTools: true,
       supportsToolChoice: true,
+      ...(entry.forcedToolChoice === false ? { forcedToolChoice: false } : {}),
       supportsStructuredOutputs: true,
       supportsReasoning: entry.reasoning === true,
       benchmarks: [],
@@ -501,6 +512,7 @@ export function entryFromCatalog(
     | "reasoning"
     | "maxCompletionTokens"
     | "requestId"
+    | "forcedToolChoice"
   >
 ): ModelEntry {
   return {
@@ -516,6 +528,7 @@ export function entryFromCatalog(
     ...(row.requestId && row.requestId !== row.modelId
       ? { requestId: row.requestId }
       : {}),
+    ...(row.forcedToolChoice === false ? { forcedToolChoice: false } : {}),
   };
 }
 
@@ -626,6 +639,9 @@ export function parseOpenRouterModel(model: RawModel, fetchedAt: number): Parsed
     reasoningEfforts: stringArray(reasoning?.supported_efforts),
     supportsTools: params.includes("tools"),
     supportsToolChoice: params.includes("tool_choice"),
+    // OpenRouter lists `tool_choice` for these too; only a fixed rule can
+    // tell that a forced call is rejected.
+    ...(FORCED_TOOL_CHOICE_REJECTED_IDS.has(id) ? { forcedToolChoice: false } : {}),
     supportsStructuredOutputs:
       params.includes("structured_outputs") || params.includes("response_format"),
     supportsReasoning,
@@ -958,6 +974,7 @@ export type PrefilterModel = Pick<
   | "maxOutputTokens"
   | "supportsTools"
   | "supportsStructuredOutputs"
+  | "forcedToolChoice"
   | "endpointSupport"
   | "expirationDate"
   | "benchmarks"
@@ -996,6 +1013,15 @@ export function prefilterCandidate(args: {
   if (!policy.gateways.includes(candidate.gateway)) reasons.push("gateway not allowed for role");
   if (!candidate.supportsTools || !candidate.supportsStructuredOutputs) {
     reasons.push("missing tools or structured outputs");
+  }
+  // Such a model answers structured calls through `auto` plus a system line
+  // (toolRequestForModel), not the forced call the incumbent gets, so an
+  // evaluation would not compare like with like: an admin chooses it.
+  if (
+    candidate.forcedToolChoice === false ||
+    FORCED_TOOL_CHOICE_REJECTED_IDS.has(candidate.modelId)
+  ) {
+    reasons.push("rejects forced tool calls");
   }
   if (
     candidate.endpointSupport &&

@@ -3,6 +3,7 @@ import {
   toChatCompletions,
   fromChatCompletions,
   requireTextResponse,
+  firstResponseText,
   openRouterUsage,
   requestCacheWriteTtl,
   shouldRetryStatus,
@@ -16,9 +17,19 @@ import {
   PROVIDER_LOGOS,
   gatewayForModel,
   comparePairFromSlots,
+  isKnownModel,
   maxTokensWithReasoningHeadroom,
+  modelById,
+  registerModelEntries,
+  requestModelId,
+  resetRegisteredModelEntries,
   sectionAnswerTokenBudget,
+  seedModelById,
+  acceptsForcedToolChoice,
+  toolOnlyReplyLine,
+  toolRequestForModel,
 } from "../../shared/generationModels";
+import { pricingFor } from "../../shared/modelPricing";
 
 describe("toChatCompletions", () => {
   it("keeps cache breakpoints for Anthropic models and joins blocks for the rest", () => {
@@ -471,5 +482,115 @@ describe("model registry invariants", () => {
       expect(pair).toHaveLength(2);
       expect(gatewayForModel(pair![1])).toBe("anthropic");
     }
+  });
+});
+
+describe("models added 2026-09-25", () => {
+  const direct = [
+    { id: "claude-opus-5-5", label: "Opus 5.5" },
+    { id: "claude-fable-5-1", label: "Fable 5.1" },
+  ];
+  const gateway = [
+    { id: "openai/gpt-6-sol", label: "GPT-6 Sol" },
+    { id: "openai/gpt-6-luna", label: "GPT-6 Luna" },
+  ];
+
+  it("resolve from the seed without a catalog read", () => {
+    for (const { id, label } of [...direct, ...gateway]) {
+      expect(isKnownModel(id), id).toBe(true);
+      expect(modelById(id)?.label, id).toBe(label);
+      expect(seedModelById(id)?.id, id).toBe(id);
+      expect(requestModelId(id), id).toBe(id);
+      expect(pricingFor(id), id).not.toBeNull();
+    }
+  });
+
+  it("route Opus 5.5 and Fable 5.1 direct to Anthropic, budgeted like Sonnet 5", () => {
+    for (const { id } of direct) {
+      expect(gatewayForModel(id), id).toBe("anthropic");
+      expect(sectionAnswerTokenBudget(id), id).toBe(sectionAnswerTokenBudget("claude-sonnet-5"));
+      // Direct Anthropic entries declare no reasoning headroom, like Sonnet 5.
+      expect(modelById(id)?.reasoning, id).toBeUndefined();
+      expect(modelById(id)?.maxCompletionTokens, id).toBeUndefined();
+      expect(maxTokensWithReasoningHeadroom(id, 8192), id).toBe(8192);
+      expect(modelById(id)?.forcedToolChoice, id).toBe(false);
+      expect(acceptsForcedToolChoice(id), id).toBe(false);
+    }
+  });
+
+  it("route GPT-6 Sol and Luna through OpenRouter with reasoning headroom", () => {
+    for (const { id } of gateway) {
+      expect(gatewayForModel(id), id).toBe("openrouter");
+      expect(sectionAnswerTokenBudget(id), id).toBe(4096);
+      expect(modelById(id)).toMatchObject({ provider: "OpenAI", reasoning: true, maxCompletionTokens: 128000 });
+      expect(maxTokensWithReasoningHeadroom(id, 4096), id).toBe(16384);
+      expect(maxTokensWithReasoningHeadroom(id, 40000), id).toBe(128000);
+      // OpenAI reasoning models accept a forced named function (assumed;
+      // verified only through the stubbed boundary).
+      expect(acceptsForcedToolChoice(id), id).toBe(true);
+    }
+  });
+
+  it("rejects forced tool calls only for Opus 5.5, Fable 5.1 and Mythos 5.1, by either gateway id", () => {
+    expect(CANDIDATE_MODELS.filter((model) => !acceptsForcedToolChoice(model.id)).map((model) => model.id)).toEqual([
+      "claude-opus-5-5",
+      "claude-fable-5-1",
+    ]);
+    for (const id of [
+      "anthropic/claude-opus-5.5",
+      "anthropic/claude-fable-5.1",
+      "anthropic/claude-mythos-5.1",
+      "claude-mythos-5-1",
+    ]) {
+      expect(acceptsForcedToolChoice(id), id).toBe(false);
+    }
+    for (const id of ["claude-sonnet-5", "anthropic/claude-sonnet-5", "claude-opus-4-8", "some-legacy-model"]) {
+      expect(acceptsForcedToolChoice(id), id).toBe(true);
+    }
+    // A catalog model registered from its frozen entry carries the flag.
+    try {
+      registerModelEntries([
+        { id: "vendor/new-model", label: "New", provider: "Vendor", gateway: "openrouter", reasoning: true, forcedToolChoice: false },
+      ]);
+      expect(acceptsForcedToolChoice("vendor/new-model")).toBe(false);
+    } finally {
+      resetRegisteredModelEntries();
+    }
+  });
+
+  it("decides the tool setting in one place and leaves accepting models untouched", () => {
+    const forced = { type: "tool", name: "record" };
+    const same = toolRequestForModel("claude-sonnet-5", forced, "System.");
+    expect(same.toolChoice).toBe(forced);
+    expect(same.system).toBe("System.");
+    expect(toolRequestForModel("claude-opus-5-5", undefined, "System.")).toEqual({ toolChoice: undefined, system: "System." });
+    expect(toolRequestForModel("claude-opus-5-5", forced, "System.")).toEqual({
+      toolChoice: { type: "auto", disable_parallel_tool_use: true },
+      system: `System.\n\n${toolOnlyReplyLine("record")}`,
+    });
+    expect(toolOnlyReplyLine("record")).toBe(
+      "Reply only by calling the record tool, exactly once. A tool call is the only valid reply."
+    );
+    const blocks = toolRequestForModel("claude-fable-5-1", { type: "any" }, [{ type: "text", text: "Cached." }]);
+    expect(blocks.system).toEqual([{ type: "text", text: "Cached." }, { type: "text", text: toolOnlyReplyLine(undefined) }]);
+    expect(toolRequestForModel("anthropic/claude-opus-5.5", forced, undefined).system).toBe(toolOnlyReplyLine("record"));
+  });
+});
+
+describe("firstResponseText", () => {
+  it("skips a leading thinking block and returns the first text block", () => {
+    expect(
+      firstResponseText({
+        content: [
+          { type: "thinking", thinking: "planning the cut" },
+          { type: "text", text: "Compressed section." },
+        ],
+      } as never)
+    ).toBe("Compressed section.");
+  });
+
+  it("returns an empty string when the reply has no text block", () => {
+    expect(firstResponseText({ content: [{ type: "thinking", thinking: "only thoughts" }] } as never)).toBe("");
+    expect(firstResponseText({ content: [] })).toBe("");
   });
 });

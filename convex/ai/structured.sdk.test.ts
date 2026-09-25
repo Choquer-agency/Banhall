@@ -255,3 +255,118 @@ test("every seed role and both modes share tools, system and the cached source b
   expect(wireBlocks(repair)[2].text).toContain(STRUCTURED_OUTPUT_PROGRAM.repairScaffold.prefix.trim());
   expect(wireBlocks(repair)[2].cache_control).toBeUndefined();
 });
+
+// ─── Models added 2026-09-25: Opus 5.5 and Fable 5.1 reject forced tools ─────
+
+const TOOL_ONLY_LINE =
+  "Reply only by calling the submit_assessment tool, exactly once. A tool call is the only valid reply.";
+
+test("Opus 5.5: the real SDK sends `auto` and one system line, never a forced tool; usage is priced at $4/$20", async () => {
+  const t = convexTest(schema, modules);
+  const bodies: Record<string, unknown>[] = [];
+  vi.stubGlobal("fetch", vi.fn<typeof fetch>(async (input, init) => {
+    const request = new Request(input, init);
+    expect(request.url).toBe("https://api.anthropic.com/v1/messages");
+    bodies.push(await request.json() as Record<string, unknown>);
+    return Response.json({
+      id: "msg_opus55",
+      type: "message",
+      role: "assistant",
+      model: "claude-opus-5-5",
+      content: [
+        { type: "thinking", thinking: "", signature: "sig-synthetic" },
+        { type: "tool_use", id: "tool_opus55", name: options.toolName, input: { summary: "Criterion met", accepted: true } },
+      ],
+      stop_reason: "tool_use",
+      stop_sequence: null,
+      usage: { input_tokens: 1_000_000, output_tokens: 100_000 },
+    });
+  }));
+  const value = await t.action(async (ctx) => generateStructured(
+    instrumentedAnthropic(ctx, { callSite: "sdk-contract" }), { ...options, model: "claude-opus-5-5" },
+  ));
+  await t.finishAllScheduledFunctions(vi.runAllTimers);
+
+  expect(value).toEqual({ summary: "Criterion met", accepted: true });
+  expect(bodies).toEqual([{
+    model: "claude-opus-5-5",
+    max_tokens: 256,
+    system: `${options.system}\n\n${TOOL_ONLY_LINE}`,
+    tools: [{ name: options.toolName, description: options.description, input_schema: toolSchema }],
+    tool_choice: { type: "auto", disable_parallel_tool_use: true },
+    messages: [{ role: "user", content: options.user }],
+  }]);
+  const usage = await t.run((ctx) => ctx.db.query("aiUsage").collect());
+  expect(usage).toHaveLength(1);
+  expect(usage[0]).toMatchObject({ model: "claude-opus-5-5", costSource: "estimated" });
+  expect(usage[0].costUsd).toBeCloseTo(4 + 0.1 * 20, 10);
+});
+
+test("Fable 5.1: a text-only answer spends the one repair, and both requests stay unforced", async () => {
+  const t = convexTest(schema, modules);
+  const bodies: Array<{ tool_choice?: unknown; system?: unknown; messages: Array<{ content: unknown }> }> = [];
+  vi.stubGlobal("fetch", vi.fn<typeof fetch>(async (input, init) => {
+    bodies.push(await new Request(input, init).json() as (typeof bodies)[number]);
+    return anthropicReply(bodies.length === 1
+      ? [{ type: "text", text: "The criterion was met." }]
+      : [{ type: "tool_use", id: "tool_fable", name: options.toolName, input: { summary: "Met", accepted: true } }],
+    "claude-fable-5-1");
+  }));
+  const value = await t.action(async (ctx) => generateStructured(
+    instrumentedAnthropic(ctx, { callSite: "sdk-contract" }), { ...options, model: "claude-fable-5-1" },
+  ));
+  await t.finishAllScheduledFunctions(vi.runAllTimers);
+
+  expect(value).toEqual({ summary: "Met", accepted: true });
+  expect(bodies).toHaveLength(2);
+  for (const body of bodies) {
+    expect(body.tool_choice).toEqual({ type: "auto", disable_parallel_tool_use: true });
+    expect(body.system).toBe(`${options.system}\n\n${TOOL_ONLY_LINE}`);
+  }
+  expect(String(bodies[1].messages[0].content)).toContain("the required tool was not called");
+});
+
+test("section drafts never send disabled thinking to Opus 5.5 or Fable 5.1; Sonnet 5 is unchanged", async () => {
+  const t = convexTest(schema, modules);
+  const bodies: Array<Record<string, unknown>> = [];
+  vi.stubGlobal("fetch", vi.fn<typeof fetch>(async (input, init) => {
+    const body = await new Request(input, init).json() as Record<string, unknown>;
+    bodies.push(body);
+    return anthropicReply([
+      { type: "thinking", thinking: "", signature: "sig-synthetic" },
+      { type: "text", text: "Drafted paragraph." },
+    ], String(body.model));
+  }));
+  const { runSection242Agent } = await import("./section242Agent");
+  const { runSection246Agent } = await import("./section246Agent");
+  const analysis = { uncertainties: ["Seal fatigue under cyclic load."] } as never;
+  const drafts = await t.action(async (ctx) => {
+    const client = instrumentedAnthropic(ctx, {
+      callSite: "generation:section:242",
+      attribution: { generationId: "generation-new-models" as never },
+    }) as never;
+    return [
+      await runSection242Agent(client, analysis, "claude-opus-5-5"),
+      await runSection246Agent(client, analysis, "claude-fable-5-1"),
+      await runSection242Agent(client, analysis, "claude-sonnet-5"),
+    ];
+  });
+  await t.finishAllScheduledFunctions(vi.runAllTimers);
+
+  expect(drafts).toEqual(["Drafted paragraph.", "Drafted paragraph.", "Drafted paragraph."]);
+  const [opus, fable, sonnet] = bodies;
+  for (const flagged of [opus, fable]) {
+    expect(flagged.thinking).toBeUndefined();
+    expect(flagged.output_config).toEqual({ effort: "low" });
+    expect(flagged.tool_choice).toBeUndefined();
+    expect(flagged.max_tokens).toBe(8192);
+  }
+  expect(sonnet.thinking).toEqual({ type: "disabled" });
+  expect(sonnet.output_config).toBeUndefined();
+  // Apart from the model and the dropped thinking control, the request is the
+  // one Sonnet 5 gets.
+  const { thinking: _sonnetThinking, model: _sonnetModel, ...sonnetRest } = sonnet;
+  const { output_config: _opusEffort, model: _opusModel, ...opusRest } = opus;
+  void _sonnetThinking; void _sonnetModel; void _opusEffort; void _opusModel;
+  expect(opusRest).toEqual(sonnetRest);
+});

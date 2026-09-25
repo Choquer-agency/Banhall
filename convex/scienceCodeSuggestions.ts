@@ -8,6 +8,7 @@ import {
   normalizeCraScienceCode,
   scienceCodeLabel,
 } from "../shared/craScienceCodes";
+import { firstResponseText } from "./ai/openrouterCore";
 
 const MAX_CONTEXT_CHARS = 80_000;
 
@@ -58,7 +59,7 @@ export const suggest = action({
       ],
     });
     const output =
-      response.content[0]?.type === "text" ? response.content[0].text : "";
+      firstResponseText(response);
     const code = normalizeCraScienceCode(output);
     return code ? { code, label: scienceCodeLabel(code) } : null;
   },
