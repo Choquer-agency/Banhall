@@ -36,6 +36,31 @@ describe("/login", () => {
     signInEmail.mockReset();
   });
 
+  it("tells people on an untrusted address to use the usual address, not to check their password", async () => {
+    // Signing in from 127.0.0.1 or a LAN address: Better Auth answers 403.
+    signInEmail.mockResolvedValue({
+      data: null,
+      error: { status: 403, statusText: "Forbidden", code: "INVALID_ORIGIN", message: "Invalid origin" },
+    });
+    render(LoginPage);
+    await submit("writer@banhall.com", "correct horse battery");
+
+    await expect.poll(alertText).toBe("Open Banhall at its usual address to sign in.");
+    expect(document.body.textContent).not.toContain("email address and password");
+    expect(__navigationCalls).toEqual([]);
+  });
+
+  it("keeps the password message for wrong credentials", async () => {
+    signInEmail.mockResolvedValue({
+      data: null,
+      error: { status: 401, statusText: "Unauthorized", code: "INVALID_EMAIL_OR_PASSWORD", message: "Invalid email or password" },
+    });
+    render(LoginPage);
+    await submit("writer@banhall.com", "wrong password");
+
+    await expect.poll(alertText).toBe("Check your @banhall.com email address and password.");
+  });
+
   it("returns a signed-in visitor to the page in next", async () => {
     __setPageUrl("/login?next=%2Fproject%2Fp1%3Ftab%3Dreport");
     __setAuthState({ isAuthenticated: true });
