@@ -4,6 +4,7 @@
   import { api } from "../../../../convex/_generated/api";
   import type { Id } from "../../../../convex/_generated/dataModel";
   import { isLongForSeed, MAX_EDITED_BULLET_CHARS } from "../../../../convex/lib/seedContract";
+  import { DRAFTING_INPUTS_FAILED_STATUS, draftingInputsFailureMessage } from "./draftingInputs";
   import { PD_SUBSECTIONS } from "../../../../shared/pdSubsections";
   import { modelLabelFor } from "$lib/modelPicker";
   import { userErrorCode, userErrorMessage } from "$lib/errors";
@@ -444,6 +445,7 @@
   // while the writer works the Seeds; drafting needs them, so sign-off waits
   // for "ready". A missing value is an older server: nothing to wait for.
   const draftingInputs = $derived(outline?.draftingInputs?.status ?? "ready");
+  const draftingInputsFailure = $derived(outline?.draftingInputs?.failureCode);
   // Incomplete server readiness is a bounded-processing limitation, not a
   // role decision blocker (A4): the server names it, this review never
   // derives it. The messages are the server's own, when it reports them.
@@ -1103,9 +1105,7 @@
           <!-- The background analysis or Brain search failed. The plan is
                untouched; sign-off waits until a retry finishes. -->
           <div role="status" class="flex flex-wrap items-center gap-x-3 gap-y-2" data-summary-drafting-inputs="failed">
-            <p class="text-body text-gap-text!">
-              We couldn't prepare the drafting context. Your Summary is saved. Try again to sign off.
-            </p>
+            <p class="text-body text-gap-text!">{draftingInputsFailureMessage(draftingInputsFailure)}</p>
             {#if canEdit}
               <Button
                 variant="secondary"
@@ -1154,7 +1154,7 @@
       {:else if readiness?.ready && draftingInputs === "failed"}
         <div class="flex items-center gap-2.5" data-summary-status="drafting-inputs-failed">
           <span class="size-2 shrink-0 rounded-full bg-stale-dot" aria-hidden="true"></span>
-          <p class="text-[14px] leading-5 font-medium text-ink">Drafting context needs another try</p>
+          <p class="text-[14px] leading-5 font-medium text-ink">{DRAFTING_INPUTS_FAILED_STATUS}</p>
         </div>
       {:else if readiness?.ready}
         <div class="flex items-center gap-2.5" data-summary-status="ready">
