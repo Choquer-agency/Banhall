@@ -1,4 +1,9 @@
-import { applyReplacements, type PMNode, type ReplacePair } from "./reportEdits";
+import {
+  applyReplacements,
+  headingEditRefusal,
+  type PMNode,
+  type ReplacePair,
+} from "./reportEdits";
 
 /** Separate passage rewrites must have unique, independent targets. */
 export function applyPassageEdits(doc: PMNode, pairs: ReplacePair[]):
@@ -20,8 +25,14 @@ export function applyPassageEdits(doc: PMNode, pairs: ReplacePair[]):
     return { find: pair.find, replaceWith: marker };
   });
   for (const [i, pair] of pairs.entries()) {
-    if (!pair.find.trim() || pair.find === pair.replaceWith ||
-        applyReplacements(doc, [markedPairs[i]]).count !== 1) {
+    const probe = applyReplacements(doc, [markedPairs[i]]);
+    // A passage whose only match is Section heading or title text: say so.
+    // Text that also has one body match applies to the body passage.
+    const refusal = pair.find.trim() ? headingEditRefusal(probe) : null;
+    if (refusal) {
+      return { ok: false, reason: `${refusal} Target the passage in the report prose instead.` };
+    }
+    if (!pair.find.trim() || pair.find === pair.replaceWith || probe.count !== 1) {
       return { ok: false, reason: "Each passage must identify exactly one current report location and make a change." };
     }
   }
@@ -36,5 +47,5 @@ export function applyPassageEdits(doc: PMNode, pairs: ReplacePair[]):
   const restored = applyReplacements(forward.doc, pairs.map((pair, i) => ({
     find: markedPairs[i].replaceWith, replaceWith: pair.replaceWith,
   })));
-  return { ok: true, ...restored };
+  return { ok: true, doc: restored.doc, count: restored.count };
 }

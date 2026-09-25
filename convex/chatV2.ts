@@ -27,6 +27,11 @@ import { pruneSnapshots, writePreEditSnapshot } from "./lib/snapshots";
 import { requireReportEditAccess } from "./lib/roleCapabilities";
 import {
   applyReplacements,
+  headingEditRefusal,
+  highlightLocation,
+  locateSelection,
+  SELECTION_GONE,
+  type SelectionLocation,
   scrubBannedWords,
   type PMNode,
 } from "./lib/reportEdits";
@@ -308,6 +313,21 @@ async function assertChatAdmission(
   }
 }
 
+/** The report text the writer highlighted for a prompt, when the turn stored it. */
+async function turnHighlight(
+  ctx: QueryCtx,
+  agentThreadId: string,
+  promptMessageId: string
+): Promise<{ text: string; from: number; to: number } | undefined> {
+  const turn = await ctx.db
+    .query("chatTurns")
+    .withIndex("by_agentThreadId_and_promptMessageId", (q) =>
+      q.eq("agentThreadId", agentThreadId).eq("promptMessageId", promptMessageId)
+    )
+    .unique();
+  return turn?.highlight;
+}
+
 export const sendMessage = mutation({
   args: {
     reportId: v.id("reports"),
@@ -395,6 +415,23 @@ export const sendMessage = mutation({
       message: { role: "user", content: `${args.content}${excerpt}${refinement}` },
     });
 
+    // Keep the highlight's positions on the turn, so a proposal aimed at it
+    // is judged by where it sits. A regenerated prompt carries the excerpt in
+    // its text only: reuse the positions an earlier turn stored for it.
+    let highlight = args.highlight
+      ? { text: args.highlight.text, from: args.highlight.from, to: args.highlight.to }
+      : undefined;
+    const quoted = !highlight
+      ? /\[Writer highlighted this excerpt from the report\]:\n"""([\s\S]*?)"""/.exec(args.content)?.[1]
+      : undefined;
+    if (quoted) {
+      const earlier = await ctx.db
+        .query("chatTurns")
+        .withIndex("by_agentThreadId_and_order", (q) => q.eq("agentThreadId", agentThreadId))
+        .order("desc")
+        .take(50);
+      highlight = earlier.find((turn) => turn.highlight?.text === quoted)?.highlight;
+    }
     await ctx.db.insert("chatTurns", {
       userId,
       agentThreadId,
@@ -402,6 +439,7 @@ export const sendMessage = mutation({
       order: message.order,
       status: "queued",
       stepCount: 0,
+      ...(highlight ? { highlight } : {}),
     });
 
     await ctx.scheduler.runAfter(0, internal.ai.chatAgentV2.streamChatReply, {
@@ -538,7 +576,48 @@ export const applyProposal = mutation({
       await ctx.db.patch(args.proposalId, { state: "stale" });
       return { applied: false as const, count: 0, reason: bulkResult.reason };
     }
-    const { doc: updated, count } = bulkResult ?? applyReplacements(parsed as PMNode, pairs);
+    const direct = bulkResult ? null : applyReplacements(parsed as PMNode, pairs);
+    const { doc: updated, count } = bulkResult ?? direct!;
+    // Producer-declared single-target proposals (older research proposals
+    // predate the flag, hence the researchSessionId fallback).
+    const requireUniqueTarget =
+      proposal.requireUniqueTarget ?? proposal.researchSessionId !== undefined;
+    // Heading and title text is never edited. A research edit carries the
+    // writer's selection, which decides; any other edit is refused only when
+    // heading or title text is its sole match.
+    if (direct) {
+      let location: SelectionLocation | undefined;
+      if (proposal.researchSessionId) {
+        const session = await ctx.db.get(proposal.researchSessionId);
+        if (session && session.reportId === proposal.reportId) {
+          location = locateSelection(parsed as PMNode, {
+            from: session.selectionFrom,
+            to: session.selectionTo,
+            text: session.selectedText,
+          });
+        }
+      } else if (proposal.promptMessageId) {
+        // An Ask assistant edit: the writer's highlight decides when the
+        // edit targets it.
+        const highlight = await turnHighlight(ctx, proposal.agentThreadId, proposal.promptMessageId);
+        for (const pair of highlight ? pairs : []) {
+          const probe = applyReplacements(parsed as PMNode, [pair]);
+          const found = highlightLocation(
+            parsed as PMNode,
+            highlight!,
+            pair.find,
+            probe.skippedInHeadings + probe.skippedInTitle
+          );
+          if (found !== undefined) location = found;
+          if (found !== undefined && found !== "body") break;
+        }
+      }
+      const refusal = headingEditRefusal(direct, location);
+      if (refusal) {
+        await ctx.db.patch(args.proposalId, { state: "stale" });
+        return { applied: false as const, count: 0, reason: refusal };
+      }
+    }
     if (count === 0) {
       await ctx.db.patch(args.proposalId, { state: "stale" });
       return {
@@ -548,10 +627,6 @@ export const applyProposal = mutation({
           "Couldn't find the original passage in the current report. This suggestion may be based on wording that was rejected or already changed.",
       };
     }
-    // Producer-declared single-target proposals (older research proposals
-    // predate the flag, hence the researchSessionId fallback).
-    const requireUniqueTarget =
-      proposal.requireUniqueTarget ?? proposal.researchSessionId !== undefined;
     if (requireUniqueTarget && count !== 1) {
       domainError(
         "STALE_REVISION",
@@ -1023,6 +1098,9 @@ export const saveProposal = internalMutation({
 
     const pairs = proposalPairs(args);
     const items = args.items ?? [];
+    const highlight = args.promptMessageId
+      ? await turnHighlight(ctx, args.agentThreadId, args.promptMessageId)
+      : undefined;
     // DW-135 (AD-28 amendment, approved 2026-09-14): a Coordinated Revision may
     // carry zero edits when every finding is blocked or conflicting. The rule
     // is the same one the tool's schema applies, re-checked here over the item
@@ -1051,7 +1129,25 @@ export const saveProposal = internalMutation({
         return { ok: false as const, reason: "The suggestion did not include text to replace." };
       }
       for (const pair of pairs) {
-        const { count } = applyReplacements(parsed as PMNode, [pair]);
+        const probe = applyReplacements(parsed as PMNode, [pair]);
+        const { count } = probe;
+        // Heading and title text is never edited. An edit aimed at the text
+        // the writer highlighted is judged by where the highlight sits; any
+        // other edit only when heading or title text is its sole match (say
+        // so rather than "not in the report").
+        const refusal = headingEditRefusal(
+          probe,
+          highlight
+            ? highlightLocation(parsed as PMNode, highlight, pair.find, probe.skippedInHeadings + probe.skippedInTitle)
+            : undefined
+        );
+        if (refusal) {
+          return {
+            ok: false as const,
+            reason:
+              refusal === SELECTION_GONE ? refusal : `${refusal} Target the passage in the report prose instead.`,
+          };
+        }
         if (count === 0) {
           return {
             ok: false as const,
@@ -1062,7 +1158,7 @@ export const saveProposal = internalMutation({
         if (args.kind === "edit" && count !== 1) {
           return {
             ok: false as const,
-            reason: `The proposed target matches ${count} places. Include more surrounding words so it identifies exactly one passage.`,
+            reason: `The proposed target matches ${count} places in the report prose. Include more surrounding words so it matches only the one passage you mean.`,
           };
         }
       }
