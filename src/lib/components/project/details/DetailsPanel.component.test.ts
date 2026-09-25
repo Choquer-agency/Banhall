@@ -61,6 +61,7 @@ function mount(overrides: Partial<DetailsPanelData> = {}, props: Record<string, 
 
 const statusLine = () => document.querySelector<HTMLElement>("[data-details-status-line]")!;
 const fact = (name: string) => document.querySelector<HTMLElement>(`[data-details-fact="${name}"]`)!;
+const confirmation = () => document.querySelector<HTMLElement>("[data-details-confirmation]");
 
 describe("Details panel", () => {
   beforeEach(async () => {
@@ -260,17 +261,39 @@ describe("Details panel", () => {
     expect(option("on_hold").textContent).toContain("asks for a reason");
   });
 
-  it("applies a plain move at once and confirms it with a bottom toast", async () => {
-    await render(Toaster, { position: "top-right" });
+  it("applies a plain move at once and confirms it inline at the bottom of the panel", async () => {
+    // The app-wide toaster is mounted to prove the move no longer uses it.
+    await render(Toaster, { position: "bottom-right" });
     const { onChangeStage } = await mount();
     await page.getByRole("button", { name: "Change stage", exact: true }).click();
     await expect.poll(() => document.querySelector("[data-stage-menu-option='internal_review']")).not.toBeNull();
     document.querySelector<HTMLButtonElement>("[data-stage-menu-option='internal_review']")!.click();
     await expect.poll(() => onChangeStage.mock.calls.length).toBe(1);
     expect(onChangeStage).toHaveBeenCalledWith("internal_review", undefined);
-    await expect.element(page.getByText("Moved to Internal review", { exact: true })).toBeVisible();
-    const list = page.getByText("Moved to Internal review", { exact: true }).element().closest("[data-sonner-toaster]");
-    expect(list?.getAttribute("data-y-position")).toBe("bottom");
+
+    await expect.poll(() => confirmation()?.textContent?.trim()).toBe("Moved to Internal review");
+    expect(document.querySelector("[data-sonner-toast]")).toBeNull();
+    const region = confirmation()!.closest<HTMLElement>("[data-details-confirmation-region]")!;
+    expect(region.getAttribute("role")).toBe("status");
+    expect(region.getAttribute("aria-live")).toBe("polite");
+    expect(region.closest("[data-details-panel]")).not.toBeNull();
+
+    // Board 5.1y B3: 40px tall, 24px in from the sides, 20px up from the bottom.
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    const panel = document.querySelector<HTMLElement>("[data-details-panel]")!.getBoundingClientRect();
+    const box = confirmation()!.getBoundingClientRect();
+    expect(Math.round(box.height)).toBe(40);
+    expect(Math.round(box.left - panel.left)).toBe(24);
+    expect(Math.round(panel.right - box.right)).toBe(24);
+    expect(Math.round(panel.bottom - box.bottom)).toBe(20);
+    const style = getComputedStyle(confirmation()!);
+    expect(style.fontSize).toBe("13px");
+    expect(style.borderTopLeftRadius).toBe("10px");
+    expect(confirmation()!.querySelector("svg")).not.toBeNull();
+
+    // It goes away on its own.
+    await expect.poll(() => confirmation(), { timeout: 6_000 }).toBeNull();
+    expect(region.isConnected).toBe(true);
   });
 
   it("turns the card into an inline reason step for a note-required move", async () => {
@@ -329,8 +352,12 @@ describe("Details panel", () => {
       stage: "internal_review",
       note: "Please check 244.",
     });
-    await expect.element(page.getByText("Handed off to Sam Chen", { exact: true })).toBeVisible();
     await expect.poll(() => document.querySelector("[data-hand-off-view]")).toBeNull();
+    // Board 5.1y C3: the confirmation sits inline at the bottom of the panel,
+    // in its polite live region, not in the app-wide toaster.
+    await expect.poll(() => confirmation()?.textContent?.trim()).toBe("Handed off to Sam Chen");
+    expect(confirmation()!.closest("[data-details-confirmation-region]")?.getAttribute("aria-live")).toBe("polite");
+    expect(document.querySelector("[data-sonner-toast]")).toBeNull();
   });
 
   it("lets a hand off keep the current stage and asks for a reason on a note-required stage", async () => {

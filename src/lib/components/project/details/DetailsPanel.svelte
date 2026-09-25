@@ -4,13 +4,15 @@
   title or client; the page already shows both. Status card, facts, then a
   quiet "More" disclosure the host fills (SR&ED title, tags, project type,
   other work items, transfer owner, activity). Hand off switches the panel to
-  its own view with a back arrow. Successful moves and handoffs confirm with
-  a bottom toast.
+  its own view with a back arrow. Successful moves and handoffs confirm inline
+  at the bottom of the panel (board 5.1y B3 and C3) through a polite live
+  region, then the confirmation fades on its own.
 -->
 <script lang="ts">
   import type { Snippet } from "svelte";
-  import { CaretLeftIcon, XIcon } from "phosphor-svelte";
-  import { toast } from "svelte-sonner";
+  import { fade, fly } from "svelte/transition";
+  import { CaretLeftIcon, CheckIcon, XIcon } from "phosphor-svelte";
+  import { motionDuration } from "$lib/motion";
   import Disclosure from "$lib/components/ui/Disclosure.svelte";
   import DisclosureChevron from "$lib/components/ui/DisclosureChevron.svelte";
   import { WORKFLOW_STAGE_LABELS } from "../../../../../shared/workflowLabels";
@@ -65,24 +67,44 @@
     return () => clearInterval(timer);
   });
 
+  // Inline confirmation (board 5.1y B3 and C3): shown for a few seconds, a
+  // newer one replaces it. Errors keep their inline paths in the card and view.
+  const CONFIRMATION_MS = 4000;
+  let confirmation = $state<{ id: number; text: string } | null>(null);
+  let confirmationCount = 0;
+
+  function confirm(text: string) {
+    confirmationCount += 1;
+    confirmation = { id: confirmationCount, text };
+  }
+
+  $effect(() => {
+    const shown = confirmation;
+    if (!shown) return;
+    const timer = setTimeout(() => {
+      if (confirmation?.id === shown.id) confirmation = null;
+    }, CONFIRMATION_MS);
+    return () => clearTimeout(timer);
+  });
+
   async function changeStage(stage: WorkflowStage, note?: string) {
     await onChangeStage(stage, note);
     now = Date.now();
-    toast.success(`Moved to ${WORKFLOW_STAGE_LABELS[stage]}`, { position: "bottom-right" });
+    confirm(`Moved to ${WORKFLOW_STAGE_LABELS[stage]}`);
   }
 
   async function handOff(input: HandOffInput) {
     await onHandOff(input);
     now = Date.now();
     view = "details";
-    toast.success(`Handed off to ${input.assigneeLabel}`, { position: "bottom-right" });
+    confirm(`Handed off to ${input.assigneeLabel}`);
   }
 
   const iconButton =
     "flex size-[26px] shrink-0 items-center justify-center rounded-md text-ink-secondary transition-colors hover:bg-primary-wash hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir";
 </script>
 
-<section data-details-panel aria-labelledby={`${componentId}-title`} class="flex h-full min-h-0 flex-col bg-surface">
+<section data-details-panel aria-labelledby={`${componentId}-title`} class="relative flex h-full min-h-0 flex-col bg-surface">
   <header class="mt-5 flex h-7 shrink-0 items-center gap-2 px-6">
     {#if view === "handoff"}
       <button
@@ -161,6 +183,28 @@
           </Disclosure>
         </div>
       {/if}
+    {/if}
+  </div>
+
+  <!-- The live region stays mounted so screen readers hear each new message. -->
+  <div
+    role="status"
+    aria-live="polite"
+    data-details-confirmation-region
+    class="pointer-events-none absolute inset-x-6 bottom-5 z-10"
+  >
+    {#if confirmation}
+      {#key confirmation.id}
+        <p
+          data-details-confirmation
+          in:fly|global={{ y: 4, duration: motionDuration(200) }}
+          out:fade|global={{ duration: motionDuration(300) }}
+          class="absolute inset-x-0 bottom-0 flex h-10 items-center gap-2.5 rounded-[10px] border border-line bg-surface px-3.5 text-[13px] leading-[18px] text-ink shadow-[0_8px_24px_#16211F1A]"
+        >
+          <CheckIcon size={14} weight="bold" aria-hidden="true" class="shrink-0 text-primary-selected" />
+          <span class="min-w-0 truncate">{confirmation.text}</span>
+        </p>
+      {/key}
     {/if}
   </div>
 </section>
