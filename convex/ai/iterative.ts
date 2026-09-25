@@ -227,6 +227,11 @@ export const startIterativeGeneration = internalAction({
         transcript,
         industry: input.industry ?? null,
         scienceCode: scienceCode ?? null,
+        // Plan step 8: reading fact packs, the retrieval brief comes from
+        // their claims with no call.
+        ...(input.transcriptReading === "facts"
+          ? { factPacks: input.transcriptParts.map((part) => part.content), placeholders: input.placeholders }
+          : {}),
         retrievalBriefClient: briefClient,
         retrievalBriefModel: briefModel,
         log,

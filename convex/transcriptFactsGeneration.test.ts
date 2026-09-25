@@ -141,7 +141,9 @@ function stubNetwork(network: Network) {
           ],
           claimExclusions: [],
           confidenceMap: [
-            { text: "Accuracy numbers.", quote: "The model hit 71 percent accuracy on sunny days", confidence: "established" },
+            { text: "Accuracy numbers.", quote: "hit 71 percent accuracy on sunny days", confidence: "established" },
+            // Outside every verified span (the interviewer's question): never cited.
+            { text: "The difficulty.", quote: "What made the forecast hard?", confidence: "partial" },
           ],
           glossaryTerms: [],
         });
@@ -245,6 +247,22 @@ describe("a generation frozen to read facts", () => {
     expect(analyzerText).not.toContain("What made the forecast hard?");
     expect(analyzerText).not.toContain("Priya");
     expect(transcriptRow.content).toBe(CONTENT);
+    const brief = network.calls.find((call) => call.kind === "submit_generation_brief")!;
+    const briefText = text(brief.body.messages[0].content);
+    expect(briefText).toContain("SOURCE_KIND=transcript_facts");
+    expect(briefText).not.toContain("What made the forecast hard?");
+    // Plan step 8: the retrieval brief is built from the facts, no call.
+    expect(network.calls.map((call) => call.kind)).not.toContain("submit_retrieval_brief");
+
+    // Brief quotes read from the pack cite the frozen transcript row, inside
+    // a verified client span.
+    const cited = result.entries.filter((entry) => entry.group !== "glossaryTerm");
+    expect(cited.map((entry) => entry.group).sort()).toEqual(["confidenceMap", "storyline"]);
+    expect(cited.map((entry) => entry.exactExcerpt)).not.toContain("What made the forecast hard?");
+    for (const entry of cited) {
+      expect(entry.sourceId).toBe(transcriptRow._id);
+      expect(transcriptRow.content.slice(entry.startOffset, entry.endOffset)).toBe(entry.exactExcerpt);
+    }
     expect(result.subsections).toHaveLength(13);
   });
 
@@ -267,6 +285,8 @@ describe("a generation frozen to read facts", () => {
     expect(result.sources.some((row) => row.kind === "transcript_facts")).toBe(false);
     const analyzer = network.calls.find((call) => call.kind === "submit_transcript_analysis")!;
     expect(text(analyzer.body.messages[0].content)).toContain("What made the forecast hard?");
+    // Today's path: the retrieval brief call runs as before.
+    expect(network.calls.map((call) => call.kind)).toContain("submit_retrieval_brief");
     expect(result.subsections).toHaveLength(13);
   });
 

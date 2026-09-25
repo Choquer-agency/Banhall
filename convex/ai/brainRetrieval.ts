@@ -10,7 +10,8 @@ import type { ActionCtx } from "../_generated/server";
 import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { formatBrainExemplars } from "./brain/retrieve";
-import { buildRetrievalBrief } from "./brain/query";
+import { buildRetrievalBrief, retrievalBriefFromFacts } from "./brain/query";
+import type { PlaceholderMap } from "../lib/deidentify";
 import type { GenerationClient } from "./openrouterCore";
 
 /**
@@ -72,6 +73,13 @@ export async function retrieveBrainBlocks(
     retrievalBriefClient: GenerationClient | Anthropic;
     /** The generation's frozen retrieval-brief model. */
     retrievalBriefModel?: string;
+    /**
+     * 2026-09-24 (plan step 8): the frozen fact packs of a generation that
+     * reads them. The brief is then built from their claims, with no call.
+     */
+    factPacks?: readonly string[];
+    /** The generation's frozen name map, dropped from queries built from facts. */
+    placeholders?: PlaceholderMap;
     log: (line: string) => Promise<unknown>;
   }
 ): Promise<BrainExemplarBlocks> {
@@ -81,12 +89,14 @@ export async function retrieveBrainBlocks(
     scienceCode: params.scienceCode ?? null,
   };
   try {
-    const brief = await buildRetrievalBrief(
-      params.retrievalBriefClient,
-      params.title,
-      params.transcript,
-      params.retrievalBriefModel
-    );
+    const brief =
+      (params.factPacks ? retrievalBriefFromFacts(params.factPacks, params.placeholders) : null) ??
+      (await buildRetrievalBrief(
+        params.retrievalBriefClient,
+        params.title,
+        params.transcript,
+        params.retrievalBriefModel
+      ));
     const fallbackQuery = `${params.title}${BRAIN_GENERATION_QUERY_PROGRAM.fallbackTitleTranscriptSeparator}${params.transcript.slice(
       0,
       BRAIN_FALLBACK_TRANSCRIPT_CHARS

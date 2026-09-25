@@ -33,6 +33,7 @@ import {
 import { getEffectiveWriterStyle } from "./writerProfiles";
 import { selectedCandidateRunId } from "./complianceNotes";
 import { applyPassageEdits } from "./lib/passageEdits";
+import { generationTranscriptIds, MAX_TRANSCRIPTS_PER_PROJECT } from "./lib/transcripts";
 import {
   MAX_COMPLETION_REPORT_FINDINGS,
   completionReportAnchorIssues,
@@ -1585,6 +1586,34 @@ async function openQuestionsFor(
   return { questions: open, omitted: { count: omitted, exact: complete } };
 }
 
+/**
+ * The frozen fact packs of the generation that produced this report, in
+ * transcript order, when that generation read them (plan step 8): it was
+ * frozen to read facts and froze a pack for every transcript. Anything
+ * less, or a read the budget stopped, is no packs at all, so the chat head
+ * never shows a partial set as the whole.
+ */
+async function factPacksFor(
+  ctx: QueryCtx,
+  generation: Doc<"generations"> | null,
+  budget: ReturnType<typeof chatReadBudget>
+): Promise<string[]> {
+  if (!generation || generation.transcriptFacts !== true) return [];
+  const transcriptIds = generationTranscriptIds(generation) ?? [];
+  if (transcriptIds.length === 0) return [];
+  const { rows, complete } = await budget.list(
+    ctx.db
+      .query("generationSources")
+      .withIndex("by_generationId_and_kind", (q) =>
+        q.eq("generationId", generation._id).eq("kind", "transcript_facts")
+      ),
+    MAX_TRANSCRIPTS_PER_PROJECT + 1
+  );
+  if (!complete) return [];
+  const packs = transcriptIds.map((id) => rows.find((row) => row.transcriptId === id));
+  return packs.every((pack) => pack !== undefined) ? packs.map((pack) => pack!.content) : [];
+}
+
 /** Grounding context for streamChatReply — thread history stays componentside. */
 export const getChatContextV2 = internalQuery({
   args: { reportId: v.id("reports"), agentThreadId: v.string() },
@@ -1665,6 +1694,9 @@ export const getChatContextV2 = internalQuery({
       }));
 
     const openQuestions = await openQuestionsFor(ctx, ownGeneration, budget);
+    // Plan step 8: `ownGeneration`, never the analysis fallback, for the same
+    // reason as the open questions.
+    const transcriptFacts = await factPacksFor(ctx, ownGeneration, budget);
 
     return {
       reportContent: report.content ?? null,
@@ -1681,6 +1713,7 @@ export const getChatContextV2 = internalQuery({
           ...(d.uploaderRole ? { uploaderRole: d.uploaderRole } : {}),
         })),
       decisions,
+      ...(transcriptFacts.length > 0 ? { transcriptFacts } : {}),
       // CAP-14: the unresolved and unreliable Confidence Map facts of THIS
       // report's Brief. The trigger is a question, so under the prompt's own
       // routing the assistant must answer without calling a tool; the facts

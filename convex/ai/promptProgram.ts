@@ -111,6 +111,7 @@ import {
   RETRIEVAL_BRIEF_SCHEMA,
   RETRIEVAL_BRIEF_SYSTEM_PROMPT,
   RETRIEVAL_BRIEF_TRANSCRIPT_CAP,
+  RETRIEVAL_BRIEF_FACT_PART_CHARS,
 } from "./brain/query";
 import {
   BRAIN_EMBEDDING_DIMENSION,
@@ -461,7 +462,11 @@ export const generationPromptProgram = {
       request: BRIEF_REQUEST,
       // Cost phase 1: digests replace their transcripts, and every source
       // is spent in frozen order against this budget.
-      inputSelection: "digest-replaces-its-transcript",
+      // 2026-09-24 (transcript method): a fact pack for every transcript
+      // replaces transcripts and digests; quotes then cite the transcript
+      // row inside a verified client span.
+      inputSelection: "fact-pack-else-digest-replaces-its-transcript",
+      factModeCitations: "quote-located-in-a-verified-fact-span-on-the-transcript-row",
       contextBudget: BRIEF_INPUT_BUDGET,
       omittedSourcesNotice: BRIEF_OMITTED_SOURCES_NOTICE,
       schema: BRIEF_SCHEMA,
@@ -716,6 +721,10 @@ export const generationPromptProgram = {
         modelRole: "retrieval_brief",
         legacyModelId: RETRIEVAL_BRIEF_MODEL,
         transcriptCap: RETRIEVAL_BRIEF_TRANSCRIPT_CAP,
+        // 2026-09-24 (transcript method, plan step 8): a generation reading
+        // fact packs builds the brief from their claims with no call.
+        factMode: "built-from-frozen-fact-claims-without-a-call-names-dropped",
+        factPartChars: RETRIEVAL_BRIEF_FACT_PART_CHARS,
       },
       generationRetrievals: GENERATION_BRAIN_RETRIEVALS,
       generationQuery: BRAIN_GENERATION_QUERY_PROGRAM,

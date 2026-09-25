@@ -4,6 +4,7 @@ import { internalAction } from "../_generated/server";
 import { internal } from "../_generated/api";
 import { v } from "convex/values";
 import { clientForRole } from "./providers";
+import { withPlaceholders } from "./placeholderClient";
 import { PD_REVIEW_SYSTEM_PROMPT } from "./prompts";
 import { generateStructured } from "./structured";
 import { pdReviewResultSchema } from "../../shared/pdReview";
@@ -85,6 +86,14 @@ export const PD_REVIEW_INPUT_BUDGET = {
   maxDocuments: 12,
 } as const;
 
+/**
+ * 2026-09-24 (transcript method, plan step 8): the heading over the verified
+ * fact packs that replace the transcript text when every transcript has
+ * them. Each pack quotes the client verbatim.
+ */
+export const PD_REVIEW_FACTS_HEADING =
+  "## Verified interview facts (context; quotes are verbatim from the transcripts)";
+
 export type PdReviewInputBudget = {
   totalTokens: number;
   pdTokens: number;
@@ -105,6 +114,8 @@ export function buildPdReviewUserMessage(
     fileName: string;
     pdContent: string;
     transcript: string;
+    /** `facts` when `transcript` holds the verified fact packs (plan step 8). */
+    transcriptKind?: "text" | "facts";
   },
   contextDocs: ReadonlyArray<Pick<ContextDoc, "fileName" | "category" | "content">>,
   budget: PdReviewInputBudget = PD_REVIEW_INPUT_BUDGET
@@ -125,8 +136,12 @@ export function buildPdReviewUserMessage(
   ];
   if (input.transcript) {
     const transcript = spend(input.transcript, budget.transcriptTokens);
+    const heading =
+      input.transcriptKind === "facts"
+        ? PD_REVIEW_FACTS_HEADING
+        : "## Interview transcript (context)";
     parts.push(
-      `## Interview transcript (context)\n${transcript ?? truncationNotice(input.transcript.length, input.transcript.length)}`
+      `${heading}\n${transcript ?? truncationNotice(input.transcript.length, input.transcript.length)}`
     );
   }
   let omitted = 0;
@@ -166,12 +181,15 @@ export const runPdReview = internalAction({
 
 
       // Model catalog: PD review runs on the analysis role's model.
-      const { client, model } = await clientForRole(ctx, "analysis", {
+      const { client: roleClient, model } = await clientForRole(ctx, "analysis", {
         callSite: "pd_review",
         capability: "review",
         projectId: args.projectId,
         ...(input.createdBy ? { userId: input.createdBy } : {}),
       });
+      // Owner decision 26 (2026-09-24): names become placeholders in the
+      // request, and the review is restored before it is stored.
+      const client = withPlaceholders(roleClient, input.placeholders ?? []);
       const result = await generateStructured<PdReviewResult>(client, {
         model,
         system: PD_REVIEW_SYSTEM_PROMPT,

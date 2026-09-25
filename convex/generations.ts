@@ -108,6 +108,7 @@ import {
   TRANSCRIPT_BUDGET_CHARS,
 } from "./lib/transcripts";
 import { validateCitation } from "./lib/citations";
+import { factQuotePool } from "./lib/seedFacts";
 import {
   briefOutcomeValidator,
   describeBriefOutcome,
@@ -1318,6 +1319,20 @@ export const getGenerationInput = internalQuery({
     // Insertion order is reservation order, which is the project's transcript
     // order; every offset the pipeline cites is relative to one of these rows.
     const transcriptParts = (factParts ?? digestParts ?? fullTranscriptRows).map(toPart);
+    // Plan step 8: reading facts, report claims cite the packs' verified
+    // client quotes on the frozen transcript rows, never the packs.
+    const factQuotes = factParts
+      ? factQuotePool(
+          sources.map((source) => ({
+            sourceId: source._id,
+            kind: source.kind,
+            content: source.content,
+            contentHash: source.contentHash,
+            transcriptId: source.transcriptId,
+            factSpans: source.factSpans,
+          }))
+        )
+      : undefined;
     return {
       inputMode,
       transcriptFacts: generation.transcriptFacts === true,
@@ -1327,6 +1342,10 @@ export const getGenerationInput = internalQuery({
       // pack or a digest still cite the transcript itself (decision 25 and
       // the provenance contract).
       transcriptRows: fullTranscriptRows.map(toPart),
+      ...(factQuotes ? { factQuotes } : {}),
+      // Owner decision 26: the frozen name map, for work that leaves the
+      // app without a model call (the Brain query built from facts).
+      placeholders: generation.placeholders ?? [],
       digestIds: generation.digestIds,
       generationId: generation._id,
       projectId: project._id,

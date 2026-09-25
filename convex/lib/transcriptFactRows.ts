@@ -7,6 +7,7 @@ import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
 import { sha256 } from "./contracts";
 import {
+  FACT_PACK_MAX_CHARS,
   FACTS_VERSION,
   renderFactPack,
   type FactPackOptions,
@@ -15,6 +16,11 @@ import {
   type PackTurnInfo,
 } from "./transcriptFacts";
 import { speakerRoleMap } from "./transcriptStructure";
+import {
+  listProjectTranscripts,
+  transcriptLabel,
+  TRANSCRIPT_BUDGET_CHARS,
+} from "./transcripts";
 import type { TranscriptSpeakerRole } from "./transcriptValidators";
 
 type Ctx = QueryCtx | MutationCtx;
@@ -151,4 +157,35 @@ export async function renderTranscriptPack(
     roles,
     turnInfo,
   };
+}
+
+/**
+ * The live fact packs of a project's transcripts, for readers outside a
+ * generation (the PD review; plan step 8). The transcripts.factsMode rule
+ * of a generation applies: `all` always, `long` only over the transcript
+ * budget, `off` never. Null, meaning "read the transcripts as today", unless
+ * every transcript has ready facts for its current text.
+ */
+export async function liveProjectFactPacks(
+  ctx: Ctx,
+  projectId: Id<"projects">,
+  mode: "off" | "long" | "all"
+): Promise<string[] | null> {
+  if (mode === "off") return null;
+  const rows = await listProjectTranscripts(ctx, projectId);
+  if (rows.length === 0) return null;
+  const chars = rows.reduce((total, row) => total + row.content.length, 0);
+  if (mode === "long" && chars <= TRANSCRIPT_BUDGET_CHARS) return null;
+  const packs: string[] = [];
+  for (const [index, row] of rows.entries()) {
+    const pack = await renderTranscriptPack(
+      ctx,
+      row,
+      { position: index + 1, label: transcriptLabel(row) },
+      { maxChars: FACT_PACK_MAX_CHARS }
+    );
+    if (!pack) return null;
+    packs.push(pack.content);
+  }
+  return packs;
 }

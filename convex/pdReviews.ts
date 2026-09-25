@@ -13,7 +13,10 @@ import {
 import { domainError, sha256 } from "./lib/contracts";
 import { isProjectDeleting } from "./lib/projectDeletion";
 import { requireAnthropicConfigured } from "./lib/providerConfig";
-import { projectTranscriptPromptText } from "./lib/transcripts";
+import { listProjectTranscripts, projectTranscriptPromptText } from "./lib/transcripts";
+import { liveProjectFactPacks } from "./lib/transcriptFactRows";
+import { projectPlaceholderMap } from "./lib/transcriptPlaceholders";
+import { transcriptFactsMode, transcriptPlaceholdersEnabled } from "./appSettings";
 /**
  * BNH-39: PD review mode. A review-mode project uploads an existing written PD
  * (stored in projectDocuments, source "review_pd"); these functions run the AI
@@ -259,6 +262,21 @@ export const getReviewInput = internalQuery({
     if (!review) return null;
     const doc = await ctx.db.get(review.documentId);
     const project = await ctx.db.get(review.projectId);
+    // 2026-09-24 (transcript method, plan step 8): under transcripts.factsMode
+    // the verified fact packs replace the transcript text the budget would
+    // cut, when every transcript has ready facts; otherwise today's text.
+    const packs = await liveProjectFactPacks(ctx, review.projectId, await transcriptFactsMode(ctx));
+    // Owner decision 26: the review call reads placeholders, not names.
+    const placeholders =
+      project && (await transcriptPlaceholdersEnabled(ctx))
+        ? [
+            ...(await projectPlaceholderMap(
+              ctx,
+              project,
+              (await listProjectTranscripts(ctx, project._id)).map((row) => row._id)
+            )),
+          ]
+        : [];
     return {
       pdContent: doc?.content ?? "",
       // Usage attribution: the user who started (or retried) this review.
@@ -266,7 +284,9 @@ export const getReviewInput = internalQuery({
       fileName: review.sourceFileName,
       title: project?.title ?? "Untitled",
       clientName: project?.clientName ?? "",
-      transcript: await projectTranscriptPromptText(ctx, review.projectId),
+      transcript: packs ? packs.join("\n\n") : await projectTranscriptPromptText(ctx, review.projectId),
+      transcriptKind: packs ? ("facts" as const) : ("text" as const),
+      placeholders,
     };
   },
 });

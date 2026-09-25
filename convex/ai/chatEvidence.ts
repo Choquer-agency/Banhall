@@ -120,10 +120,60 @@ export const EVIDENCE_LABELS = {
   // CAP-14: named by `buildChatSystemPromptV2`'s converge guard, so it is a
   // contract, not a caption.
   openQuestions: "OPEN QUESTIONS FOR THE CLIENT",
+  // 2026-09-24 (transcript method, plan step 8): the frozen fact packs of a
+  // generation that read them. Only rendered for such a generation.
+  transcriptFacts: "TRANSCRIPT FACTS",
   documentsHeading: "# ATTACHED CONTEXT DOCUMENTS",
   // Heads the per-turn evidence sent after the writer's newest message.
   turnHeading: "# EVIDENCE FOR THIS TURN, CONTINUED",
 } as const;
+
+/**
+ * The TRANSCRIPT FACTS block's cap (plan step 8): 10k tokens of the cached
+ * head, before the documents. Over it, facts are kept by type rank.
+ */
+export const CHAT_TRANSCRIPT_FACTS_TOKENS = 10_000;
+
+const FACT_TYPE_RANK: Record<string, number> = {
+  uncertainty: 0,
+  hypothesis: 1,
+  experiment: 2,
+  result: 3,
+  advancement: 4,
+  context: 5,
+};
+
+/**
+ * The TRANSCRIPT FACTS body from a generation's frozen fact packs, at most
+ * `maxChars`: every pack's heading line, then its facts, keeping the
+ * highest-ranked types (uncertainty first, context last) in their pack
+ * order when they do not all fit. Deterministic in the packs, so the cached
+ * chat head stays byte-stable across turns.
+ */
+export function chatFactsText(packs: readonly string[], maxChars: number): string {
+  const heads: string[] = [];
+  const blocks: Array<{ pack: number; order: number; rank: number; text: string }> = [];
+  packs.forEach((pack, index) => {
+    const parts = pack.split("\n\n");
+    heads.push((parts[0] ?? "").split("\n")[0]);
+    parts.slice(1).forEach((part, order) => {
+      const match = /^\[F\d{1,3}-\d{1,5}\] \((\w+)\)/.exec(part);
+      if (match) blocks.push({ pack: index, order, rank: FACT_TYPE_RANK[match[1]] ?? 9, text: part });
+    });
+  });
+  let used = heads.reduce((total, head) => total + head.length + 2, 0);
+  const kept = new Set<(typeof blocks)[number]>();
+  for (const block of [...blocks].sort((a, b) => a.rank - b.rank || a.pack - b.pack || a.order - b.order)) {
+    if (used + block.text.length + 2 > maxChars) continue;
+    used += block.text.length + 2;
+    kept.add(block);
+  }
+  const sections = heads.map((head, index) =>
+    [head, ...blocks.filter((block) => block.pack === index && kept.has(block)).map((block) => block.text)].join("\n\n")
+  );
+  const omitted = blocks.length - kept.size;
+  return [...sections, ...(omitted > 0 ? [`[${omitted} more facts omitted to fit.]`] : [])].join("\n\n");
+}
 
 /** What the old inline builders emitted when a source was empty. Unchanged. */
 export const EMPTY_REPORT_TEXT = "(no report content available)";
@@ -165,6 +215,8 @@ export interface ChatOpenQuestionsOmitted {
 export interface ChatEvidenceInput {
   reportText: string;
   analysisText: string;
+  /** The TRANSCRIPT FACTS body (chatFactsText); absent without fact packs. */
+  transcriptFactsText?: string;
   documents?: ChatEvidenceDoc[];
   decisions?: ChatEvidenceDecision[];
   openQuestions?: ChatOpenQuestion[];
@@ -178,6 +230,11 @@ export interface ChatTurnContext {
   agentOutputs: string | null;
   documents: ChatEvidenceDoc[];
   decisions: ChatEvidenceDecision[];
+  /**
+   * The frozen fact packs of the report's generation, when it read them
+   * (plan step 8). Absent or empty otherwise, and the head is unchanged.
+   */
+  transcriptFacts?: string[];
   /** Absent on every turn whose generation has no Brief. */
   openQuestions?: ChatOpenQuestion[];
   openQuestionsOmitted?: ChatOpenQuestionsOmitted;
@@ -408,7 +465,8 @@ function spend(
  * Build the single user-role evidence message plus a report of what the budget
  * kept, cut and dropped.
  *
- * Spend order is fixed: report, analysis, prior decisions, open questions, then documents in
+ * Spend order is fixed: report, analysis, transcript facts (only for a
+ * generation that read fact packs), prior decisions, open questions, then documents in
  * `effectiveCategory` trust order then insertion order. Two fixed
  * allowances partition `totalTokens` (cost phase 1): the tail (report first,
  * then decisions, then open questions) spends CHAT_TAIL_SHARE of it and the
@@ -457,6 +515,7 @@ export function buildChatEvidence(input: ChatEvidenceInput): {
   let tailRemaining = tailChars;
   const HEAD_KINDS: ReadonlySet<TrustedContextSource["kind"]> = new Set([
     "analysis",
+    "transcript",
     "document",
   ]);
 
@@ -496,6 +555,23 @@ export function buildChatEvidence(input: ChatEvidenceInput): {
       )
     )
   );
+
+  // ── Transcript facts (plan step 8; after the analysis, before documents) ─
+  let factsBody: string | null = null;
+  if (input.transcriptFactsText) {
+    factsBody = soloBody(
+      charge(
+        spend(
+          "transcript",
+          EVIDENCE_LABELS.transcriptFacts,
+          "client",
+          input.transcriptFactsText,
+          Math.min(chars(CHAT_TRANSCRIPT_FACTS_TOKENS), totalChars),
+          headRemaining
+        )
+      )
+    );
+  }
 
   // ── Prior decisions (spent before documents, rendered after) ──────────────
   let decisionsBody: string | null = null;
@@ -609,6 +685,9 @@ export function buildChatEvidence(input: ChatEvidenceInput): {
   const stableParts: string[] = [`${EVIDENCE_LABELS.heading}\n${CHAT_EVIDENCE_GUIDANCE}`];
   if (analysisBody !== null) {
     stableParts.push(labelledBlock(EVIDENCE_LABELS.analysis, analysisBody));
+  }
+  if (factsBody !== null) {
+    stableParts.push(labelledBlock(EVIDENCE_LABELS.transcriptFacts, factsBody));
   }
   if (documentBlocks.length) {
     const rendered = documentBlocks.join("\n\n");
@@ -730,6 +809,14 @@ export function buildChatTurnRequest(args: {
   const { head, tail, report } = buildChatEvidence({
     reportText: extracted.trim() ? extracted : EMPTY_REPORT_TEXT,
     analysisText: analysisTextFrom(args.context.agentOutputs),
+    ...(args.context.transcriptFacts?.length
+      ? {
+          transcriptFactsText: chatFactsText(
+            args.context.transcriptFacts,
+            CHAT_TRANSCRIPT_FACTS_TOKENS * CHARS_PER_TOKEN
+          ),
+        }
+      : {}),
     documents: args.context.documents,
     decisions: args.context.decisions,
     ...(openQuestionsBlockNeeded(

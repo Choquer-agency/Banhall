@@ -2241,7 +2241,10 @@ export default defineSchema({
     ),
   })
     .index("by_generationId", ["generationId"])
-    .index("by_projectId_and_generationId", ["projectId", "generationId"]),
+    .index("by_projectId_and_generationId", ["projectId", "generationId"])
+    // 2026-09-24 widen (transcript method, plan step 8): chat reads a
+    // generation's fact packs without reading its full transcripts.
+    .index("by_generationId_and_kind", ["generationId", "kind"]),
 
   // Immutable claim-to-source bundle for one exact report content hash.
   reportProvenance: defineTable({

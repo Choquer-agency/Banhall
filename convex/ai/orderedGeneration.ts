@@ -760,7 +760,7 @@ export const finalizeOrderedCandidate = internalAction({
         generationId: args.generationId,
         input,
         content,
-        claimDrafts: provenanceDrafts(drafted, input.transcript, analysis.useful_quotes),
+        claimDrafts: provenanceDrafts(drafted, input.transcript, analysis.useful_quotes, input.factQuotes),
       });
       const callBudget = summarizeSlotUsage(
         mergeSlotCounts(...drafts.sections.map((row) => parseCounts(row.slotCounts)), slotCounts)

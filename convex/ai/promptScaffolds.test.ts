@@ -243,7 +243,9 @@ describe("the condense call belongs to the prompt program (AC5)", () => {
       systemTemplate: BRIEF_SYSTEM_PROMPT,
       request: BRIEF_REQUEST,
       // Cost phase 1: the Brief's input selection and budget are disclosed.
-      inputSelection: "digest-replaces-its-transcript",
+      // 2026-09-24 (transcript method): fact packs first, then digests.
+      inputSelection: "fact-pack-else-digest-replaces-its-transcript",
+      factModeCitations: "quote-located-in-a-verified-fact-span-on-the-transcript-row",
       contextBudget: BRIEF_INPUT_BUDGET,
       omittedSourcesNotice: BRIEF_OMITTED_SOURCES_NOTICE,
       schema: BRIEF_SCHEMA,
