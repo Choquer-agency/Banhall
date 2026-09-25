@@ -1616,3 +1616,84 @@ describe("round 8", () => {
     expect((await plan(t)).map((item) => [item.role, item.modelId])).toEqual([["writing", listing]]);
   });
 });
+
+describe("round 9", () => {
+  const B = "x-ai/grok-4.7";
+  const C = "claude-opus-4-8";
+  const HOUR = 3_600_000;
+
+  async function failing(t: TestConvex, model: string) {
+    for (let i = 0; i < 21; i += 1) {
+      await t.mutation(recordCallOutcomeRef, {
+        model,
+        callSite: "generation:section:242",
+        ...(i < 6 ? { outcome: "failure" as const, code: "malformed_output" } : { outcome: "success" as const }),
+      });
+    }
+  }
+  const heldNotices = async (t: TestConvex, model: string) =>
+    (await notices(t)).filter((message) => message.startsWith(`Model catalog: ${model} failed`) && message.includes("not rolled back"));
+
+  it("9: a run refused at claim for the budget does not cost its candidate its turn", async () => {
+    const { t, admin } = await setup();
+    await onlyRoleCanPlan(t, "writing", C);
+    const [first] = await plan(t);
+    expect(first).toMatchObject({ role: "writing", modelId: C });
+    // Near the end of the month there is room for the planning estimate but
+    // not for the reservation the claim makes.
+    await admin.mutation(setEvalBudgetRef, { monthlyUsd: (await t.run((ctx) => ctx.db.get(first.id)))!.estimatedCostUsd });
+    expect(await t.mutation(claimEvaluationRef, { evaluationId: first.id, envelope: EVAL_ENVELOPE })).toBeNull();
+    const refused = await t.run((ctx) => ctx.db.get(first.id));
+    expect(refused).toMatchObject({ status: "error", evalCostUsd: 0 });
+    expect(refused?.error).toMatch(/^Over the monthly evaluation budget/);
+    expect(refused?.startedAt).toBeUndefined();
+    // With budget again, the next day's plan picks the same candidate.
+    vi.setSystemTime(NOW + 24 * HOUR);
+    await admin.mutation(setEvalBudgetRef, { monthlyUsd: 20 });
+    const [second] = await plan(t);
+    expect(second).toMatchObject({ role: "writing", modelId: C });
+    // Negative control: a run that started and spent does hold its turn.
+    await t.run((ctx) =>
+      ctx.db.patch(second.id, { status: "error", startedAt: NOW + 24 * HOUR, evalCostUsd: 0.4, error: "The evaluation stopped before it finished" })
+    );
+    expect((await plan(t)).some((item) => item.modelId === C)).toBe(false);
+  });
+
+  it("9: a held rollback is announced every day, even when the daily check runs a little earlier", async () => {
+    const { t, admin } = await setup();
+    await promote(t, B);
+    await admin.mutation(setAutoSwitchRef, { enabled: false });
+    await failing(t, B);
+    await t.mutation(checkProductionErrorsRef, {});
+    expect(await heldNotices(t, B)).toHaveLength(1);
+    // Negative control: a second check the same day stays quiet.
+    vi.setSystemTime(NOW + 2 * HOUR);
+    await t.mutation(checkProductionErrorsRef, {});
+    expect(await heldNotices(t, B)).toHaveLength(1);
+    // The next day's check reaches the role ten minutes earlier than today's.
+    vi.setSystemTime(NOW + 24 * HOUR - 10 * 60_000);
+    await failing(t, B);
+    await t.mutation(checkProductionErrorsRef, {});
+    expect(await heldNotices(t, B)).toHaveLength(2);
+  });
+
+  it("9: a notice about a replaced model never silences one about the model that replaced it", async () => {
+    const { t, admin } = await setup();
+    await promote(t, B);
+    await admin.mutation(setAutoSwitchRef, { enabled: false });
+    await failing(t, B);
+    await t.mutation(checkProductionErrorsRef, {});
+    expect(await heldNotices(t, B)).toHaveLength(1);
+    // An admin switches writing to C by hand, and C fails as well.
+    vi.setSystemTime(NOW + HOUR);
+    await admin.mutation(setRoleModelRef, { role: "writing", modelId: C });
+    vi.setSystemTime(NOW + 2 * HOUR);
+    await failing(t, C);
+    expect(await t.mutation(checkProductionErrorsRef, {})).toEqual([{ role: "writing", modelId: C, rolledBack: false }]);
+    expect(await heldNotices(t, C)).toHaveLength(1);
+    // Negative control: C's own notice still limits C to one a day.
+    vi.setSystemTime(NOW + 3 * HOUR);
+    await t.mutation(checkProductionErrorsRef, {});
+    expect(await heldNotices(t, C)).toHaveLength(1);
+  });
+});
