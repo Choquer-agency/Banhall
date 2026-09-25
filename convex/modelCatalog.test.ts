@@ -1697,3 +1697,95 @@ describe("round 9", () => {
     expect(await heldNotices(t, C)).toHaveLength(1);
   });
 });
+
+describe("round 10", () => {
+  const TOP = "claude-opus-4-8";
+  const HOUR = 3_600_000;
+
+  it("10: a candidate the budget cannot cover waits, its role tries the next one, and it runs once the budget allows", async () => {
+    const { t, admin } = await setup();
+    await onlyRoleCanPlan(t, "writing", TOP);
+    const [first] = await plan(t);
+    expect(first).toMatchObject({ role: "writing", modelId: TOP });
+    // The admin sets a budget that covers the planning estimate but never
+    // the reservation the claim needs.
+    const budget = (await t.run((ctx) => ctx.db.get(first.id)))!.estimatedCostUsd;
+    await admin.mutation(setEvalBudgetRef, { monthlyUsd: budget });
+    expect(await t.mutation(claimEvaluationRef, { evaluationId: first.id, envelope: EVAL_ENVELOPE })).toBeNull();
+    const refused = await t.run((ctx) => ctx.db.get(first.id));
+    expect(refused?.requiredCostUsd).toBeGreaterThan(budget);
+
+    // Negative control: without the recorded requirement, the next day's
+    // plan picks the same candidate again.
+    vi.setSystemTime(NOW + 24 * HOUR);
+    await t.run((ctx) => ctx.db.patch(first.id, { requiredCostUsd: undefined }));
+    expect((await plan(t)).map((item) => item.modelId)).toEqual([TOP]);
+    await dropQueued(t);
+    await t.run((ctx) => ctx.db.patch(first.id, { requiredCostUsd: refused!.requiredCostUsd }));
+
+    // With it, the same plan passes over it for a writing candidate that fits.
+    const [next] = await plan(t);
+    expect(next.role).toBe("writing");
+    expect(next.modelId).not.toBe(TOP);
+    expect((await t.run((ctx) => ctx.db.get(next.id)))!.estimatedCostUsd).toBeLessThanOrEqual(budget);
+
+    // Once the budget allows, the first candidate is planned and starts.
+    await dropQueued(t);
+    await admin.mutation(setEvalBudgetRef, { monthlyUsd: 20 });
+    const [again] = await plan(t);
+    expect(again).toMatchObject({ role: "writing", modelId: TOP });
+    expect((await t.run((ctx) => ctx.db.get(again.id)))!.estimatedCostUsd).toBe(refused!.requiredCostUsd);
+    expect(await t.mutation(claimEvaluationRef, { evaluationId: again.id, envelope: EVAL_ENVELOPE })).not.toBeNull();
+  });
+
+  it("10: turning automatic switching back on lets a role held for another reason be announced at once", async () => {
+    const { t, admin } = await setup();
+    const A = "claude-sonnet-5";
+    const B = "x-ai/grok-4.7";
+    // Writing was rolled back from B, an admin chose B again, and C was
+    // promoted over it: C's previous model is one the role rolled back from.
+    await t.run(async (ctx) => {
+      const events: Array<[Doc<"modelSwitchEvents">["kind"], string, string, number]> = [
+        ["rollback", B, A, NOW - 3 * HOUR],
+        ["manual", A, B, NOW - 2 * HOUR],
+        ["promotion", B, TOP, NOW - HOUR],
+      ];
+      for (const [kind, fromModelId, toModelId, at] of events) {
+        await ctx.db.insert("modelSwitchEvents", { role: "writing", fromModelId, toModelId, kind, reason: kind, actor: "system", at });
+      }
+      await ctx.db.insert("modelRoleAssignments", {
+        role: "writing",
+        modelId: TOP,
+        previousModelId: B,
+        assignedAt: NOW - HOUR,
+        assignedBy: "system",
+      });
+    });
+    const told = async (reason: string) =>
+      (await notices(t)).filter((message) => message.startsWith(`Model catalog: ${TOP} failed`) && message.includes(reason));
+    await admin.mutation(setAutoSwitchRef, { enabled: false });
+    for (let i = 0; i < 21; i += 1) {
+      await t.mutation(recordCallOutcomeRef, {
+        model: TOP,
+        callSite: "generation:section:242",
+        ...(i < 6 ? { outcome: "failure" as const, code: "malformed_output" } : { outcome: "success" as const }),
+      });
+    }
+    await t.mutation(checkProductionErrorsRef, {});
+    expect(await told("Automatic switching is off")).toHaveLength(1);
+
+    // The admin turns switching back on and refreshes: the role is now held
+    // because B was rolled back from, and that is announced right away.
+    vi.setSystemTime(NOW + 10 * 60_000);
+    await admin.mutation(setAutoSwitchRef, { enabled: true });
+    expect(await t.mutation(checkProductionErrorsRef, {})).toEqual([{ role: "writing", modelId: TOP, rolledBack: false }]);
+    expect(await told("not rolled back to it")).toHaveLength(1);
+
+    // Negative control: saving the setting while it is already on clears
+    // nothing, so a later check the same day stays quiet.
+    vi.setSystemTime(NOW + HOUR);
+    await admin.mutation(setAutoSwitchRef, { enabled: true });
+    await t.mutation(checkProductionErrorsRef, {});
+    expect(await told("not rolled back to it")).toHaveLength(1);
+  });
+});

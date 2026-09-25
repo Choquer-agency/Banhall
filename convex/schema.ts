@@ -2989,6 +2989,10 @@ export default defineSchema({
     // The part of evalCostUsd that is the reserved maximum of requests that
     // were sent but never reported a charge (lost response, timeout).
     unsettledCostUsd: v.optional(v.number()),
+    // Set when the claim refused the run for the monthly budget: the
+    // reservation it needed. Planning treats the candidate as costing at
+    // least this, so it waits until the budget can cover it.
+    requiredCostUsd: v.optional(v.number()),
     // When the row's spend counts against a monthly budget: created, then
     // claimed, then settled. Monthly accounting reads this, not createdAt.
     accountedAt: v.optional(v.number()),
