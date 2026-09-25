@@ -1,4 +1,4 @@
-import { v } from "convex/values";
+import { getConvexSize, v } from "convex/values";
 import { internalMutation, internalQuery } from "./_generated/server";
 import { domainError, sha256 } from "./lib/contracts";
 import { isProjectDeleting } from "./lib/projectDeletion";
@@ -232,6 +232,9 @@ export const freezeDigestSource = internalMutation({
 
 // ─── Fact packs (2026-09-24, the transcript method) ────────────────────────
 
+/** Bytes one frozen pack row may take, well under Convex's 1 MiB document limit. */
+export const MAX_FACT_PACK_ROW_BYTES = 900_000;
+
 /**
  * The frozen transcripts of a generation that reads fact packs, in frozen
  * order, with what each still needs: whether the row was frozen whole
@@ -330,7 +333,11 @@ export const freezeFactsSource = internalMutation({
     );
     if (!pack) return null;
     const { roles, turnInfo } = pack;
-    const factSpans = pack.facts.map((fact) => ({
+    // Only the facts the pack shows (a pack past its character cap leaves
+    // the lowest-ranked out): nothing may cite a fact no model ever saw, and
+    // the row stays bounded (review 2026-09-25, P3-2).
+    const shown = new Set([...pack.content.matchAll(/^\[(F\d{1,3}-\d{1,5})\] /gm)].map((match) => match[1]));
+    const factSpans = pack.facts.filter((fact) => shown.has(packFactId(position, fact.key))).map((fact) => ({
       id: packFactId(position, fact.key),
       type: fact.type,
       quotes: fact.quotes.flatMap((quote) => {
@@ -354,10 +361,10 @@ export const freezeFactsSource = internalMutation({
         ];
       }),
     }));
-    await ctx.db.insert("generationSources", {
+    const row = {
       generationId: generation._id,
       projectId: generation.projectId,
-      kind: "transcript_facts",
+      kind: "transcript_facts" as const,
       transcriptId: transcript._id,
       label: transcriptSource.label,
       content: pack.content,
@@ -367,7 +374,12 @@ export const freezeFactsSource = internalMutation({
       capturedAt: Date.now(),
       factsVersion: FACTS_VERSION,
       factSpans,
-    });
+    };
+    // A document holds at most 1 MiB; a pack that would not fit (non-Latin
+    // text near the character cap) is not frozen, and the draft reads the
+    // transcripts the usual way.
+    if (getConvexSize(row) > MAX_FACT_PACK_ROW_BYTES) return null;
+    await ctx.db.insert("generationSources", row);
     return pack.content.length;
   },
 });

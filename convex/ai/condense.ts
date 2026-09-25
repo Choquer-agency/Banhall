@@ -12,11 +12,12 @@ import {
   extractTranscriptFacts,
   FACTS_CONCURRENCY,
   FACTS_TIMEOUT_MS,
+  factWindowCount,
   structuredExtractor,
   type CallSlots,
   type FactWindowExtractor,
 } from "./transcriptFactsAgent";
-import { FACT_WINDOW_TOKENS } from "../lib/transcriptFacts";
+import type { FunctionReturnType } from "convex/server";
 import { instrumentedAnthropic } from "./instrument";
 import { gatewayForModel, registerModelEntries } from "../../shared/generationModels";
 import { entryFromFrozen } from "../lib/modelRoles";
@@ -43,6 +44,7 @@ import {
   registerGenerationModels,
   CONVEX_ACTION_LIMIT_MS,
   normalizeProviderError,
+  ANTHROPIC_TIMEOUT_MS,
   RESERVED_NON_REQUEST_MS,
 } from "./providers";
 
@@ -375,15 +377,23 @@ function extractorFor(
     };
   }
   // Never `clientForModel` here: inside a generation it would hide names a
-  // second time with the generation's map (review 2026-09-25, P1).
+  // second time with the generation's map (review 2026-09-25, P1). One
+  // client per call, so each call's abort signal reaches its request.
   return {
     adapter: "structured",
     extractor: structuredExtractor(
-      factExtractionClient(ctx, model, common, { timeoutMs: FACTS_TIMEOUT_MS }),
+      (signal) =>
+        factExtractionClient(ctx, model, common, {
+          timeoutMs: FACTS_TIMEOUT_MS,
+          ...(signal ? { signal } : {}),
+        }),
       model
     ),
   };
 }
+
+/** What `transcripts.factsInput` returns for a transcript that exists. */
+export type FactsInput = NonNullable<FunctionReturnType<typeof internal.transcripts.factsInput>>;
 
 /**
  * Extracts one transcript's facts once per text and FACTS_VERSION, unless a
@@ -401,12 +411,16 @@ export async function ensureTranscriptFacts(
     log?: (line: string) => Promise<unknown>;
     /** Shared with the other transcripts of the same generation. */
     slots?: CallSlots;
+    /** Already read by the caller (ensureFactInputs counts its windows). */
+    input?: FactsInput;
   } = {}
 ): Promise<FactsOutcome> {
-  const input = await ctx.runQuery(internal.transcripts.factsInput, {
-    transcriptId,
-    ...(caller.kind === "generation" ? { generationId: caller.generationId } : {}),
-  });
+  const input =
+    options.input ??
+    (await ctx.runQuery(internal.transcripts.factsInput, {
+      transcriptId,
+      ...(caller.kind === "generation" ? { generationId: caller.generationId } : {}),
+    }));
   if (!input) return "gone";
   if (!input.structureReady || input.turns.length === 0) return "failed";
   let model: string;
@@ -492,7 +506,9 @@ export const extractTranscriptFactsInBackground = internalAction({
   returns: v.null(),
   handler: async (ctx, args) => {
     try {
-      await ensureTranscriptFacts(ctx, args.transcriptId, { kind: "background" });
+      // Each call is bounded like one inside a generation, so an action that
+      // is killed never leaves a run "running" behind for long.
+      await ensureTranscriptFacts(ctx, args.transcriptId, { kind: "background" }, { timeoutMs: FACTS_TIMEOUT_MS });
     } catch (error) {
       console.warn("Background fact extraction failed", describeGenerationFailure(error));
     }
@@ -500,20 +516,24 @@ export const extractTranscriptFactsInBackground = internalAction({
   },
 });
 
-/** Extraction calls one transcript of `chars` characters makes (an upper estimate). */
-export function estimateFactWindows(chars: number): number {
-  return Math.max(1, Math.ceil(chars / (FACT_WINDOW_TOKENS * 4)));
-}
+/**
+ * Time kept free after extraction for the work the same action still does
+ * (review 2026-09-25, P2-1): the analyzer and the Brief run after it, and a
+ * draft that runs out of time is killed, not saved. One full analyzer
+ * attempt (the Anthropic call timeout) covers a typical analyzer and Brief.
+ */
+export const FACTS_AFTER_EXTRACTION_RESERVE_MS = ANTHROPIC_TIMEOUT_MS;
 
-/** Condense calls one transcript makes (splitIntoWindows cuts at blank lines). */
-export function estimateCondenseWindows(chars: number): number {
-  return Math.ceil(chars / CONDENSE_WINDOW_CHARS) + (chars > CONDENSE_WINDOW_CHARS ? 1 : 0);
+/** What extraction and today's fallback may spend, `elapsedMs` into the action. */
+export function factsTimeLeft(elapsedMs: number): number {
+  return CONVEX_ACTION_LIMIT_MS - elapsedMs - RESERVED_NON_REQUEST_MS - FACTS_AFTER_EXTRACTION_RESERVE_MS;
 }
 
 /**
  * Whether extracting `factWindows` and then, should that fail, condensing
- * `fallbackWindows` both fit the time left. Extraction inside a generation
- * must never cost the writer the draft: today's path has to fit after it.
+ * `fallbackWindows` both fit `remainingMs` (see factsTimeLeft). Extraction
+ * inside a generation must never cost the writer the draft: today's path,
+ * the analyzer and the Brief have to fit after it.
  */
 export function factsFitBudget(args: {
   factWindows: number;
@@ -533,10 +553,12 @@ export function factsFitBudget(args: {
  * transcript has its pack; false sends the caller down today's path
  * (digests over the budget, full text under it). That happens when a
  * transcript was cut at freeze or changed since, when another extraction
- * of it is still running, when an extraction fails, and when extracting
- * plus today's path would not fit the action's time; in that last case the
- * missing transcripts are queued for background extraction, so the next
- * draft finds their facts ready. Never throws for a provider failure.
+ * of it is still running, when an extraction fails or a pack cannot be
+ * frozen, and when extracting plus today's path would not fit the action's
+ * time; in that last case the missing transcripts are queued for background
+ * extraction, so the next draft finds their facts ready. The time check
+ * counts the exact windows each extraction and each fallback condense makes
+ * (review 2026-09-25, P3-1). Never throws for a provider failure.
  */
 export async function ensureFactInputs(
   ctx: ActionCtx,
@@ -561,17 +583,32 @@ export async function ensureFactInputs(
     await log("Verified facts are still being prepared for a transcript, so this draft reads the transcripts the usual way.");
     return false;
   }
-  const fits = factsFitBudget({
-    factWindows: missing.reduce((count, transcript) => count + estimateFactWindows(transcript.chars), 0),
-    fallbackWindows:
-      input.inputMode === "digest"
-        ? input.transcripts
-            .filter((transcript) => !transcript.digestStored)
-            .reduce((count, transcript) => count + estimateCondenseWindows(transcript.chars), 0)
-        : 0,
-    remainingMs: CONVEX_ACTION_LIMIT_MS - args.elapsedMs - RESERVED_NON_REQUEST_MS,
-  });
-  if (!fits) {
+  const inputs = await Promise.all(
+    missing.map((transcript) =>
+      ctx.runQuery(internal.transcripts.factsInput, {
+        transcriptId: transcript.transcriptId,
+        generationId: args.generationId,
+      })
+    )
+  );
+  if (inputs.some((item) => !item || !item.structureReady || item.turns.length === 0)) {
+    await log("A transcript is not ready to be read as verified facts, so this draft reads the transcripts the usual way.");
+    return false;
+  }
+  const factWindows = inputs.reduce((count, item) => count + factWindowCount(item!.turns), 0);
+  let fallbackWindows = 0;
+  if (input.inputMode === "digest" && input.transcripts.some((transcript) => !transcript.digestStored)) {
+    const condense = await ctx.runQuery(internal.transcriptDigests.getCondenseInputs, {
+      generationId: args.generationId,
+    });
+    const stored = new Set(input.transcripts.filter((transcript) => transcript.digestStored).map((row) => row.transcriptId));
+    for (const transcript of condense?.transcripts ?? []) {
+      if (!stored.has(transcript.transcriptId)) {
+        fallbackWindows += splitIntoWindows(transcript.content, CONDENSE_WINDOW_CHARS).length;
+      }
+    }
+  }
+  if (!factsFitBudget({ factWindows, fallbackWindows, remainingMs: factsTimeLeft(args.elapsedMs) })) {
     for (const transcript of missing) {
       await ctx.scheduler.runAfter(0, internal.ai.condense.extractTranscriptFactsInBackground, {
         transcriptId: transcript.transcriptId,
@@ -586,7 +623,7 @@ export async function ensureFactInputs(
   // calls in flight in total: the same arithmetic the check above used.
   const slots = callSlots(FACTS_CONCURRENCY);
   const outcomes = await Promise.all(
-    missing.map((transcript) =>
+    missing.map((transcript, index) =>
       ensureTranscriptFacts(
         ctx,
         transcript.transcriptId,
@@ -596,18 +633,29 @@ export async function ensureFactInputs(
           modelId: args.modelId,
           ...(args.userId ? { userId: args.userId } : {}),
         },
-        { timeoutMs: FACTS_TIMEOUT_MS, log, slots }
+        { timeoutMs: FACTS_TIMEOUT_MS, log, slots, input: inputs[index]! }
       )
     )
   );
   if (outcomes.some((outcome) => outcome !== "ready")) return false;
   for (const transcript of input.transcripts) {
     if (transcript.frozen) continue;
-    const frozen = await ctx.runMutation(internal.transcriptDigests.freezeFactsSource, {
-      generationId: args.generationId,
-      transcriptId: transcript.transcriptId,
-    });
-    if (frozen === null) return false;
+    // A pack that cannot be frozen (too large for one row, or a failed
+    // write) sends the draft down today's path; it never fails it.
+    let frozen: number | null;
+    try {
+      frozen = await ctx.runMutation(internal.transcriptDigests.freezeFactsSource, {
+        generationId: args.generationId,
+        transcriptId: transcript.transcriptId,
+      });
+    } catch (error) {
+      console.warn("A fact pack could not be frozen", describeGenerationFailure(error));
+      frozen = null;
+    }
+    if (frozen === null) {
+      await log("A transcript's verified facts could not be frozen, so this draft reads the transcripts the usual way.");
+      return false;
+    }
   }
   await log(
     `Drafting from the verified facts of ${input.transcripts.length} transcript${input.transcripts.length === 1 ? "" : "s"}.`

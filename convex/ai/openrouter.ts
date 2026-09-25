@@ -46,6 +46,18 @@ const DEFAULT_TIMEOUT_MS = 180_000;
 const sleep = (ms: number) =>
   new Promise<void>((resolve) => setTimeout(resolve, ms));
 
+/** One attempt's signal: its own timeout, and the caller's abort if given. */
+function attemptSignal(timeoutMs: number, caller: AbortSignal | undefined): AbortSignal {
+  const timeout = AbortSignal.timeout(timeoutMs);
+  if (!caller) return timeout;
+  const combined = new AbortController();
+  const abort = (source: AbortSignal) => () => combined.abort(source.reason);
+  if (caller.aborted) combined.abort(caller.reason);
+  caller.addEventListener("abort", abort(caller), { once: true });
+  timeout.addEventListener("abort", abort(timeout), { once: true });
+  return combined.signal;
+}
+
 /** Error shaped like the Anthropic SDK's (status + message) so
  *  normalizeProviderError classifies both gateways the same way. */
 export class OpenRouterError extends Error {
@@ -82,6 +94,11 @@ export async function openRouterChatCompletion(
     onUsage?: UsageTap;
     /** App ids of fallback models sent in the body's `models` array. */
     fallbackModels?: readonly string[];
+    /**
+     * Aborts the request (and every retry) when the caller gives up, such
+     * as a fact extraction past its time limit (2026-09-25).
+     */
+    signal?: AbortSignal;
   }
 ): Promise<ChatCompletionsResponse> {
   const apiKey = requireOpenRouterConfigured();
@@ -106,7 +123,7 @@ export async function openRouterChatCompletion(
           ...(input.headers ?? {}),
         },
         body: JSON.stringify(input.body),
-        signal: AbortSignal.timeout(timeoutMs),
+        signal: attemptSignal(timeoutMs, input.signal),
       });
     } catch (error) {
       // A timed-out attempt already spent its full time budget — retrying it
@@ -225,6 +242,8 @@ export function instrumentedOpenRouter(
     preserveMaxTokens?: boolean;
     /** Helper roles only: models to fall back to, in order. */
     fallbackModels?: readonly string[];
+    /** Aborts every request of this client (see openRouterChatCompletion). */
+    signal?: AbortSignal;
   } = {}
 ): GenerationClient {
   return {

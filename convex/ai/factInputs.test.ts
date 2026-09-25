@@ -1,30 +1,114 @@
-import { describe, expect, it } from "vitest";
-import { estimateCondenseWindows, estimateFactWindows, factsFitBudget } from "./condense";
-import { callSlots, FACTS_CONCURRENCY, FACTS_TIMEOUT_MS } from "./transcriptFactsAgent";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import {
+  FACTS_AFTER_EXTRACTION_RESERVE_MS,
+  factsFitBudget,
+  factsTimeLeft,
+} from "./condense";
+import {
+  callSlots,
+  extractTranscriptFacts,
+  FACTS_CONCURRENCY,
+  FACTS_TIMEOUT_MS,
+  factWindowCount,
+  type FactWindowExtractor,
+} from "./transcriptFactsAgent";
 import { CONDENSE_TIMEOUT_MS } from "./condenseAgent";
-import { CONVEX_ACTION_LIMIT_MS, RESERVED_NON_REQUEST_MS } from "./providers";
+import { ANTHROPIC_TIMEOUT_MS, CONVEX_ACTION_LIMIT_MS, RESERVED_NON_REQUEST_MS } from "./providers";
+import { FACT_WINDOW_TOKENS, planFactWindows, type FactTurn } from "../lib/transcriptFacts";
 
-const available = CONVEX_ACTION_LIMIT_MS - RESERVED_NON_REQUEST_MS;
+afterEach(() => {
+  vi.useRealTimers();
+});
 
-describe("extraction inside a generation never costs the draft (plan step 7)", () => {
-  it("counts windows from the frozen text length", () => {
-    expect(estimateFactWindows(1)).toBe(1);
-    expect(estimateFactWindows(120_000)).toBe(1);
-    expect(estimateFactWindows(120_001)).toBe(2);
-    expect(estimateCondenseWindows(100_000)).toBe(1);
-    // splitIntoWindows cuts at blank lines, so a long text may need one more.
-    expect(estimateCondenseWindows(400_000)).toBe(4);
+describe("extraction inside a generation never costs the draft (review 2026-09-25, P2-1)", () => {
+  it("keeps time for the analyzer and the Brief that run after extraction", () => {
+    expect(FACTS_AFTER_EXTRACTION_RESERVE_MS).toBe(ANTHROPIC_TIMEOUT_MS);
+    expect(factsTimeLeft(0)).toBe(CONVEX_ACTION_LIMIT_MS - RESERVED_NON_REQUEST_MS - ANTHROPIC_TIMEOUT_MS);
+    expect(factsTimeLeft(20_000)).toBe(factsTimeLeft(0) - 20_000);
   });
 
-  it("fits only when extraction and today's fallback both fit the time left", () => {
-    // One wave of extraction and one of condensing.
-    expect(factsFitBudget({ factWindows: 4, fallbackWindows: 4, remainingMs: available })).toBe(true);
-    expect(FACTS_TIMEOUT_MS + CONDENSE_TIMEOUT_MS).toBeLessThanOrEqual(available);
-    // Three waves of extraction alone fit, but not with a fallback wave after.
-    expect(factsFitBudget({ factWindows: 12, fallbackWindows: 0, remainingMs: available })).toBe(true);
-    expect(factsFitBudget({ factWindows: 12, fallbackWindows: 1, remainingMs: available })).toBe(false);
-    // Nothing to extract always fits.
+  it("counts extraction, today's fallback and the work after it against the action", () => {
+    const left = factsTimeLeft(0);
+    // Two waves of extraction fit; a third wave (the reviewed case: 12
+    // windows with digests already stored) no longer does.
+    expect(factsFitBudget({ factWindows: 8, fallbackWindows: 0, remainingMs: left })).toBe(true);
+    expect(factsFitBudget({ factWindows: 12, fallbackWindows: 0, remainingMs: left })).toBe(false);
+    // One wave of extraction and one wave of condensing fit; two of
+    // extraction with a condense wave after them do not.
+    expect(factsFitBudget({ factWindows: 4, fallbackWindows: 4, remainingMs: left })).toBe(true);
+    expect(factsFitBudget({ factWindows: 8, fallbackWindows: 1, remainingMs: left })).toBe(false);
+    // Whatever fits leaves the reserve and the non-request slack untouched.
+    const worstFit = 2 * FACTS_TIMEOUT_MS;
+    expect(worstFit + FACTS_AFTER_EXTRACTION_RESERVE_MS + RESERVED_NON_REQUEST_MS).toBeLessThanOrEqual(CONVEX_ACTION_LIMIT_MS);
+    expect(FACTS_TIMEOUT_MS + CONDENSE_TIMEOUT_MS).toBeLessThanOrEqual(left);
+    // Nothing to extract always fits; late in the action nothing else does.
     expect(factsFitBudget({ factWindows: 0, fallbackWindows: 0, remainingMs: 0 })).toBe(true);
+    expect(factsFitBudget({ factWindows: 1, fallbackWindows: 0, remainingMs: factsTimeLeft(400_000) })).toBe(false);
+  });
+
+  it("counts the windows planFactWindows really makes, not characters over the window size (P3-1)", () => {
+    // 2,500 short turns under 120,000 characters: each turn is charged its
+    // text plus 24 for the line prefix, so this needs two windows.
+    const turns: FactTurn[] = Array.from({ length: 2_500 }, (_, index) => ({
+      index,
+      role: "client",
+      charStart: index * 47,
+      charEnd: index * 47 + 45,
+      cleanText: `Short answer number ${String(index).padStart(5, "0")} about ramps.`,
+    }));
+    const chars = turns.reduce((total, turn) => total + turn.cleanText.length, 0);
+    expect(chars).toBeLessThan(FACT_WINDOW_TOKENS * 4);
+    expect(factWindowCount(turns)).toBe(planFactWindows(turns).length);
+    expect(factWindowCount(turns)).toBeGreaterThanOrEqual(2);
+  });
+});
+
+describe("abandoned calls stop (review 2026-09-25, #8)", () => {
+  const turns: FactTurn[] = Array.from({ length: 3 }, (_, index) => ({
+    index,
+    role: "client",
+    charStart: index * 50,
+    charEnd: index * 50 + 40,
+    cleanText: `Client turn ${index} about the ramp forecaster.`,
+  }));
+  const content = turns.map((turn) => turn.cleanText.padEnd(48, " ")).join("\n\n");
+
+  it("aborts a call that runs past its time limit", async () => {
+    let aborted: AbortSignal | undefined;
+    const extractWindow: FactWindowExtractor = (_lines, signal) => {
+      aborted = signal;
+      return new Promise(() => {});
+    };
+    await expect(
+      extractTranscriptFacts({ content, turns, placeholders: [], extractWindow, timeoutMs: 20 })
+    ).rejects.toThrow("ran past its time limit");
+    expect(aborted?.aborted).toBe(true);
+  });
+
+  it("starts no new window, and aborts the ones in flight, after one fails", async () => {
+    const many: FactTurn[] = Array.from({ length: 40 }, (_, index) => ({
+      index,
+      role: "client",
+      charStart: index * 10,
+      charEnd: index * 10 + 8,
+      cleanText: `${index} ${"x".repeat(20_000)}`,
+    }));
+    const windows = planFactWindows(many).length;
+    expect(windows).toBeGreaterThan(4);
+    const started: AbortSignal[] = [];
+    let call = 0;
+    const extractWindow: FactWindowExtractor = async (_lines, signal) => {
+      started.push(signal!);
+      call += 1;
+      if (call === 1) throw new Error("provider failed");
+      return await new Promise((_, reject) => signal!.addEventListener("abort", () => reject(new Error("aborted"))));
+    };
+    await expect(
+      extractTranscriptFacts({ content: "x".repeat(400), turns: many, placeholders: [], extractWindow, concurrency: 2 })
+    ).rejects.toThrow("provider failed");
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    expect(started.length).toBeLessThan(windows);
+    expect(started.slice(1).every((signal) => signal.aborted)).toBe(true);
   });
 });
 

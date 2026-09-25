@@ -29,7 +29,7 @@ import {
 } from "./instrument";
 import { COMPRESSION_REQUEST } from "./promptDefinitions";
 import { instrumentedOpenRouter } from "./openrouter";
-import { MalformedOutputError, type GenerationClient } from "./openrouterCore";
+import { MalformedOutputError, type GenerationClient, type GenerationResponse } from "./openrouterCore";
 import { entryFromFrozen } from "../lib/modelRoles";
 import type { PlaceholderMap } from "../lib/deidentify";
 import { withPlaceholders } from "./placeholderClient";
@@ -378,17 +378,31 @@ export function factExtractionClient(
   ctx: ActionCtx,
   modelId: string,
   meta: GenerationCallMeta,
-  options: { timeoutMs: number }
+  options: { timeoutMs: number; signal?: AbortSignal }
 ): GenerationClient {
   assertGenerationCallSite(meta.callSite);
-  const client =
-    gatewayForModel(modelId) === "openrouter"
-      ? instrumentedOpenRouter(ctx, meta, { timeoutMs: options.timeoutMs })
-      : (instrumentedAnthropic(ctx, {
-          ...meta,
-          capability: "generation",
-          clientOptions: { timeout: options.timeoutMs },
-        }) as unknown as GenerationClient);
+  let client: GenerationClient;
+  if (gatewayForModel(modelId) === "openrouter") {
+    client = instrumentedOpenRouter(ctx, meta, {
+      timeoutMs: options.timeoutMs,
+      ...(options.signal ? { signal: options.signal } : {}),
+    });
+  } else {
+    const anthropic = instrumentedAnthropic(ctx, {
+      ...meta,
+      capability: "generation",
+      clientOptions: { timeout: options.timeoutMs },
+    });
+    client = {
+      messages: {
+        create: async (params) =>
+          (await anthropic.messages.create(
+            params as Anthropic.MessageCreateParamsNonStreaming,
+            options.signal ? { signal: options.signal } : undefined
+          )) as unknown as GenerationResponse,
+      },
+    };
+  }
   return recordingFailures(ctx, modelId, meta.callSite, client);
 }
 

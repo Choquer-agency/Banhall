@@ -95,8 +95,16 @@ export const FACTS_CONCURRENCY = 4;
 
 export type FactWindowLine = { turnIndex: number; text: string };
 
-/** One window's proposals, still carrying placeholders. */
-export type FactWindowExtractor = (lines: readonly FactWindowLine[]) => Promise<ProposedFact[]>;
+/**
+ * One window's proposals, still carrying placeholders. `signal` aborts the
+ * request when the window runs past its time limit or another window of
+ * the same extraction failed, so an abandoned call stops billing (review
+ * 2026-09-25).
+ */
+export type FactWindowExtractor = (
+  lines: readonly FactWindowLine[],
+  signal?: AbortSignal
+) => Promise<ProposedFact[]>;
 
 // ─── (a) Anthropic citations mode ──────────────────────────────────────────
 
@@ -207,8 +215,8 @@ export function citationsExtractor(
   model: string,
   onUsage?: (usage: { inputTokens: number; outputTokens: number }) => void
 ): FactWindowExtractor {
-  return async (lines) => {
-    const response = await client.messages.create(citationsRequest(model, lines));
+  return async (lines, signal) => {
+    const response = await client.messages.create(citationsRequest(model, lines), signal ? { signal } : undefined);
     if (response.usage) {
       onUsage?.({ inputTokens: response.usage.input_tokens, outputTokens: response.usage.output_tokens });
     }
@@ -235,9 +243,16 @@ export function structuredUserMessage(lines: readonly FactWindowLine[]): string 
   return `${FACTS_STRUCTURED_INSTRUCTION}\n\n${lines.map((line) => line.text).join("\n")}`;
 }
 
-export function structuredExtractor(client: GenerationClient | Anthropic, model: string): FactWindowExtractor {
-  return async (lines) => {
-    const result = await generateStructured(client, {
+/**
+ * `client` may be a factory taking the call's abort signal, so a gateway
+ * without per-call options (GenerationClient) can still cancel the request.
+ */
+export function structuredExtractor(
+  client: GenerationClient | Anthropic | ((signal?: AbortSignal) => GenerationClient),
+  model: string
+): FactWindowExtractor {
+  return async (lines, signal) => {
+    const result = await generateStructured(typeof client === "function" ? client(signal) : client, {
       system: FACTS_SYSTEM_PROMPT,
       user: structuredUserMessage(lines),
       toolName: FACTS_REQUEST.toolName,
@@ -261,28 +276,63 @@ export function structuredExtractor(client: GenerationClient | Anthropic, model:
 
 // ─── Orchestration ─────────────────────────────────────────────────────────
 
-async function mapWithConcurrency<T, R>(items: readonly T[], limit: number, run: (item: T) => Promise<R>): Promise<R[]> {
+/**
+ * Runs `run` over `items`, at most `limit` at once. After the first failure
+ * `stop` aborts, and no worker starts another item.
+ */
+async function mapWithConcurrency<T, R>(
+  items: readonly T[],
+  limit: number,
+  run: (item: T) => Promise<R>,
+  stop?: AbortController
+): Promise<R[]> {
   const results = new Array<R>(items.length);
   let next = 0;
   const worker = async () => {
-    for (let index = next++; index < items.length; index = next++) results[index] = await run(items[index]);
+    for (let index = next++; index < items.length; index = next++) {
+      if (stop?.signal.aborted) throw new Error("Fact extraction stopped after a failed window");
+      try {
+        results[index] = await run(items[index]);
+      } catch (error) {
+        stop?.abort();
+        throw error;
+      }
+    }
   };
   await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
   return results;
 }
 
-async function withTimeout<T>(promise: Promise<T>, ms: number | undefined): Promise<T> {
-  if (!ms) return await promise;
+/**
+ * Runs one call with its own abort signal, aborted when `ms` passes or when
+ * `parent` aborts. Rejects at the time limit whether or not the transport
+ * honours the signal.
+ */
+async function withTimeout<T>(
+  call: (signal: AbortSignal) => Promise<T>,
+  ms: number | undefined,
+  parent?: AbortSignal
+): Promise<T> {
+  const controller = new AbortController();
+  const onParentAbort = () => controller.abort(parent?.reason);
+  if (parent?.aborted) controller.abort(parent.reason);
+  else parent?.addEventListener("abort", onParentAbort, { once: true });
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
+    const pending = call(controller.signal);
+    if (!ms) return await pending;
     return await Promise.race([
-      promise,
+      pending,
       new Promise<never>((_, reject) => {
-        timer = setTimeout(() => reject(new Error("Fact extraction ran past its time limit")), ms);
+        timer = setTimeout(() => {
+          controller.abort(new Error("Fact extraction ran past its time limit"));
+          reject(new Error("Fact extraction ran past its time limit"));
+        }, ms);
       }),
     ]);
   } finally {
     if (timer) clearTimeout(timer);
+    parent?.removeEventListener("abort", onParentAbort);
   }
 }
 
@@ -333,15 +383,30 @@ export async function extractTranscriptFacts(args: {
   slots?: CallSlots;
 }): Promise<{ facts: VerifiedFact[]; counts: FactCounts; windows: number }> {
   const windows = planFactWindows(args.turns);
+  // One failed window fails the extraction, so the calls still in flight are
+  // aborted and no new one starts (review 2026-09-25).
+  const stop = new AbortController();
   const call = (window: readonly FactTurn[]) =>
     withTimeout(
-      args.extractWindow(
-        window.map((turn) => ({ turnIndex: turn.index, text: renderTurnLine(turn, args.placeholders) }))
-      ),
-      args.timeoutMs
+      (signal) =>
+        args.extractWindow(
+          window.map((turn) => ({ turnIndex: turn.index, text: renderTurnLine(turn, args.placeholders) })),
+          signal
+        ),
+      args.timeoutMs,
+      stop.signal
     );
-  const proposals = await mapWithConcurrency(windows, args.concurrency ?? FACTS_CONCURRENCY, async (window) =>
-    args.slots ? args.slots.run(() => call(window)) : call(window)
+  const proposals = await mapWithConcurrency(
+    windows,
+    args.concurrency ?? FACTS_CONCURRENCY,
+    async (window) => {
+      if (!args.slots) return await call(window);
+      return await args.slots.run(async () => {
+        if (stop.signal.aborted) throw new Error("Fact extraction stopped after a failed window");
+        return await call(window);
+      });
+    },
+    stop
   );
   const restored = proposals.flat().map((fact) => ({
     ...fact,
