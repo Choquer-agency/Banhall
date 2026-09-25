@@ -986,3 +986,182 @@ describe("round 3", () => {
     expect(left.every((row) => row.at >= NOW - 60_000)).toBe(true);
   });
 });
+
+describe("round 4", () => {
+  const A = "claude-sonnet-5";
+  const B = "claude-opus-4-8";
+  const SWITCHED_AT = NOW - 2 * 3_600_000;
+  const NOTICED_AT = SWITCHED_AT + 60_000;
+  const ANALYSIS_CHILDREN = ["pd_review", "financial_extraction", "learning_digest", "science_code"] as const;
+
+  const assignmentOf = (t: TestConvex, role: Doc<"modelRoleAssignments">["role"]) =>
+    t.run((ctx) =>
+      ctx.db.query("modelRoleAssignments").withIndex("by_role", (q) => q.eq("role", role)).unique()
+    );
+  const eventsOf = (t: TestConvex, role: Doc<"modelSwitchEvents">["role"]) =>
+    t.run((ctx) =>
+      ctx.db.query("modelSwitchEvents").withIndex("by_role_and_at", (q) => q.eq("role", role)).collect()
+    );
+
+  /** A deployment from before the split: only the old roles have assignments. */
+  async function beforeSplit(analysis: { modelId: string; previousModelId: string; rolledBack: boolean }) {
+    const t = convexTest(schema, modules);
+    await t.run(async (ctx) => {
+      await ctx.db.insert("users", { authId: ADMIN, role: "admin" });
+      const promotedAt = analysis.rolledBack ? SWITCHED_AT - 3_600_000 : SWITCHED_AT;
+      await ctx.db.insert("modelSwitchEvents", {
+        role: "analysis",
+        fromModelId: A,
+        toModelId: B,
+        kind: "promotion",
+        reason: "evaluation_passed",
+        actor: "system",
+        at: promotedAt,
+      });
+      if (analysis.rolledBack) {
+        await ctx.db.insert("modelSwitchEvents", {
+          role: "analysis",
+          fromModelId: B,
+          toModelId: A,
+          kind: "rollback",
+          reason: "production_error_rate",
+          actor: "system",
+          at: SWITCHED_AT,
+        });
+      }
+      await ctx.db.insert("modelRoleAssignments", {
+        role: "analysis",
+        modelId: analysis.modelId,
+        previousModelId: analysis.previousModelId,
+        assignedAt: SWITCHED_AT,
+        assignedBy: "system",
+        errorNoticeAt: NOTICED_AT,
+      });
+    });
+    return t;
+  }
+
+  /** 6 of 21 calls fail (28.6 percent), an hour after the switch. */
+  async function failing(t: TestConvex, model: string) {
+    vi.setSystemTime(NOW - 3_600_000);
+    for (let i = 0; i < 15; i += 1) {
+      await t.mutation(recordCallOutcomeRef, { model, callSite: "pd-review", outcome: "success" });
+    }
+    for (let i = 0; i < 6; i += 1) {
+      await t.mutation(recordCallOutcomeRef, { model, callSite: "pd-review", outcome: "failure", code: "malformed_output" });
+    }
+    vi.setSystemTime(NOW);
+  }
+
+  it("4: split roles carried over from a failing switched predecessor roll back with it on the first refresh", async () => {
+    // Before the deploy: analysis was promoted from A to B, and an admin
+    // had already given science code suggestions a model of their own.
+    const t = await beforeSplit({ modelId: B, previousModelId: A, rolledBack: false });
+    const independentId = await t.run(async (ctx) => {
+      const adminId = (await ctx.db.query("users").first())!._id;
+      return await ctx.db.insert("modelRoleAssignments", {
+        role: "science_code",
+        modelId: "claude-haiku-4-5-20251001",
+        previousModelId: A,
+        assignedAt: SWITCHED_AT - 60_000,
+        assignedBy: "user",
+        assignedByUserId: adminId,
+      });
+    });
+    const independent = await t.run((ctx) => ctx.db.get(independentId));
+    await failing(t, B);
+
+    // The daily job: the refresh materializes the split, then the
+    // production error check runs.
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) =>
+      String(input).endsWith("/api/v1/models")
+        ? Response.json(fixture)
+        : Response.json({ data: { endpoints: [] } })
+    ));
+    await t.action(refreshCatalogRef, {});
+
+    expect(await assignmentOf(t, "analysis")).toMatchObject({ modelId: A, previousModelId: B });
+    for (const role of ["pd_review", "financial_extraction", "learning_digest"] as const) {
+      expect(await assignmentOf(t, role), role).toMatchObject({ modelId: A, previousModelId: B });
+      expect((await assignmentOf(t, role))?.origin, role).toBeUndefined();
+      expect(await eventsOf(t, role), role).toMatchObject([
+        { kind: "rollback", reason: "production_error_rate", fromModelId: B, toModelId: A, actor: "system" },
+      ]);
+    }
+    // Both automatic split roles are among them.
+    expect(roleAutoSwitches("pd_review") && roleAutoSwitches("financial_extraction")).toBe(true);
+    // The role an admin had already assigned is untouched.
+    expect(await t.run((ctx) => ctx.db.get(independentId))).toEqual(independent);
+    expect(await eventsOf(t, "science_code")).toEqual([]);
+    // Nothing flips back afterwards.
+    expect(await t.mutation(checkProductionErrorsRef, {})).toEqual([]);
+  });
+
+  it("4: materializing keeps the predecessor's rollback target, switch time and last notice", async () => {
+    const t = await beforeSplit({ modelId: B, previousModelId: A, rolledBack: false });
+    await t.mutation(applyCatalogRefreshRef, { models: parsed, fetchedAt: NOW, complete: false });
+    for (const role of ANALYSIS_CHILDREN) {
+      expect(await assignmentOf(t, role), role).toMatchObject({
+        modelId: B,
+        previousModelId: A,
+        assignedAt: SWITCHED_AT,
+        errorNoticeAt: NOTICED_AT,
+        assignedBy: "system",
+        origin: "role_split",
+      });
+    }
+    const admin = t.withIdentity({ subject: ADMIN });
+    const pdReview = (await admin.query(adminStateRef, {}))?.roles.find((item) => item.role === "pd_review");
+    expect(pdReview).toMatchObject({ carriedOverFrom: "Style analysis", previousModelId: A });
+  });
+
+  it("4: a predecessor rolled back by hand before any refresh leaves its split roles watched", async () => {
+    const t = await beforeSplit({ modelId: B, previousModelId: A, rolledBack: false });
+    await failing(t, B);
+    const admin = t.withIdentity({ subject: ADMIN });
+    await admin.mutation(rollbackRoleRef, { role: "analysis" });
+    expect(await t.mutation(checkProductionErrorsRef, {})).toEqual(
+      ANALYSIS_CHILDREN.map((role) => ({ role, modelId: B, rolledBack: true }))
+    );
+    for (const role of ANALYSIS_CHILDREN) {
+      expect((await assignmentOf(t, role))?.modelId, role).toBe(A);
+    }
+  });
+
+  it("4: a split role never flips back after a rollback its predecessor made before the split", async () => {
+    // Before the deploy: analysis was rolled back from B to A.
+    const t = await beforeSplit({ modelId: A, previousModelId: B, rolledBack: true });
+    await t.mutation(applyCatalogRefreshRef, { models: parsed, fetchedAt: NOW, complete: false });
+    for (const role of ANALYSIS_CHILDREN) {
+      expect(await assignmentOf(t, role), role).toMatchObject({
+        modelId: A,
+        previousModelId: B,
+        assignedAt: SWITCHED_AT,
+        origin: "role_split",
+      });
+    }
+    // A now fails too: no role goes back to the model it was rolled back from.
+    await failing(t, A);
+    expect(await t.mutation(checkProductionErrorsRef, {})).toEqual([]);
+    for (const role of ANALYSIS_CHILDREN) {
+      expect((await assignmentOf(t, role))?.modelId, role).toBe(A);
+    }
+    // Nor is B evaluated again for them, though it is PD review's best
+    // candidate on paper and the only role left with room under its cap.
+    const admin = t.withIdentity({ subject: ADMIN });
+    for (const role of MODEL_ROLES) {
+      if (role === "pd_review") continue;
+      await admin.mutation(setRoleCostCapRef, { role, maxInputUsdPerMTok: 0.01, maxOutputUsdPerMTok: 0.01, maxCostRatio: 2 });
+    }
+    await t.run(async (ctx) => {
+      const opus = await ctx.db.query("modelCatalog").withIndex("by_modelId", (q) => q.eq("modelId", B)).first();
+      await ctx.db.patch(opus!._id, {
+        benchmarks: [{ source: "openrouter_aa", metric: "intelligence_index", value: 99, fetchedAt: NOW }],
+      });
+    });
+    const planned = await t.mutation(planEvaluationsRef, {});
+    const queued = await t.run((ctx) => Promise.all(planned.map((id) => ctx.db.get(id))));
+    expect(queued.map((evaluation) => evaluation?.role)).toEqual(["pd_review"]);
+    expect(queued.some((evaluation) => evaluation?.modelId === B)).toBe(false);
+  });
+});

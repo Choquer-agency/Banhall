@@ -81,6 +81,7 @@ import {
   roleModelId,
   assignRoleModelByHand,
   ensureRoleSplit,
+  roleSwitchHistory,
   rollbackRoleModel,
   switchRoleModel,
 } from "./lib/modelRoles";
@@ -383,7 +384,9 @@ export async function outcomeCountsSince(
  * Roll back a switched role whose model is failing: over the last day (or
  * since the switch, if later), more than the threshold share of its calls
  * failed. With the kill switch on, admins are told instead, at most daily.
- * Never flips back after a rollback: the next switch is a human's call.
+ * Never flips back after a rollback: the next switch is a human's call. A
+ * split role still on its carried-over assignment counts its predecessor's
+ * rollbacks from before the split (lib/modelRoles.ts roleSwitchHistory).
  */
 export async function runProductionErrorCheck(
   ctx: MutationCtx,
@@ -397,11 +400,7 @@ export async function runProductionErrorCheck(
   for (const role of MODEL_ROLES) {
     const assignment = await roleAssignment(ctx, role);
     if (!assignment?.previousModelId) continue;
-    const lastEvent = await ctx.db
-      .query("modelSwitchEvents")
-      .withIndex("by_role_and_at", (q) => q.eq("role", role))
-      .order("desc")
-      .first();
+    const [lastEvent] = await roleSwitchHistory(ctx, role, 1);
     if (lastEvent?.kind === "rollback") continue;
     const since = Math.max(now - AUTOMATION_THRESHOLDS.errorWindowMs, assignment.assignedAt);
     const verdict = productionErrorVerdict(
@@ -551,11 +550,7 @@ async function blockedForRole(
     .order("desc")
     .first();
   if (recent && now - recent.createdAt < AUTOMATION_THRESHOLDS.evaluationCooldownMs) return true;
-  const events = await ctx.db
-    .query("modelSwitchEvents")
-    .withIndex("by_role_and_at", (q) => q.eq("role", role))
-    .order("desc")
-    .take(50);
+  const events = await roleSwitchHistory(ctx, role, 50);
   return events.some((event) => event.kind === "rollback" && event.fromModelId === modelId);
 }
 
