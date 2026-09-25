@@ -410,7 +410,23 @@
   );
 
   let moreOpen = $state(false);
-  let briefRequested = false;
+  // "Brief" in the More menu: the drawer opens once the menu has closed (the
+  // menu's close-focus callback does not fire on every close, so it cannot
+  // be the trigger), and that close must not pull focus back to the menu
+  // button over the drawer, which takes focus itself.
+  let briefRequested = $state(false);
+  let keepFocusOnClose = false;
+  $effect(() => {
+    // A fresh menu starts with the default focus return.
+    if (moreOpen) keepFocusOnClose = false;
+  });
+  $effect(() => {
+    if (moreOpen || !briefRequested) return;
+    briefRequested = false;
+    setTimeout(() => {
+      if (!destroyed) onOpenBrief?.();
+    }, 0);
+  });
 
   // The approval actions render wherever the host puts them; the snippet
   // keeps reading this pane's own state, so every gate stays here.
@@ -647,10 +663,9 @@
                 onCloseAutoFocus={(event) => {
                   // The Brief drawer takes focus itself; the menu must not
                   // pull it back to the trigger as it closes.
-                  if (!briefRequested) return;
-                  briefRequested = false;
+                  if (!keepFocusOnClose) return;
+                  keepFocusOnClose = false;
                   event.preventDefault();
-                  onOpenBrief?.();
                 }}
               >
                 {#if canEdit && kind === "optional"}
@@ -672,6 +687,7 @@
                   <DropdownMenu.Item
                     class="flex h-9 w-full cursor-default items-center rounded-md px-2.5 text-sm text-ink outline-none data-[highlighted]:bg-gray-50 pointer-coarse:h-11"
                     onSelect={() => {
+                      keepFocusOnClose = true;
                       briefRequested = true;
                     }}
                   >Brief</DropdownMenu.Item>

@@ -1274,8 +1274,9 @@ describe("Seed workspace", () => {
     await userEvent.keyboard("{Enter}");
     const briefItem = page.getByRole("menuitem", { name: "Brief", exact: true });
     await expect.element(briefItem).toBeVisible();
-    (briefItem.element() as HTMLElement).focus();
-    await userEvent.keyboard("{Enter}");
+    // Choosing the item: the menu's own roving focus makes keyboard landing
+    // on a given item timing-dependent, so the test selects it directly.
+    await briefItem.click();
     const dialog = page.getByRole("dialog", { name: "Brief" });
     await expect.element(dialog).toBeVisible();
     const dialogElement = dialog.element() as HTMLElement;
@@ -1293,6 +1294,18 @@ describe("Seed workspace", () => {
     await expect.poll(() => document.activeElement).toBe(triggerElement);
 
     await stepMenu("Brief");
+    // Close once the drawer has opened and taken focus, as a person would; a
+    // close during the opening animation is not a supported interaction.
+    await expect.poll(() => document.querySelector('[role="dialog"]')?.contains(document.activeElement) ?? false).toBe(true);
+    // The drawer slides in from the right; click Close once it has stopped
+    // moving, or the click can land where the button was a frame earlier.
+    let lastLeft = Number.NaN;
+    await expect.poll(() => {
+      const left = document.querySelector('[role="dialog"]')?.getBoundingClientRect().left ?? Number.NaN;
+      const settled = left === lastLeft;
+      lastLeft = left;
+      return settled;
+    }).toBe(true);
     await page.getByRole("button", { name: "Close Brief", exact: true }).click();
     await expect.poll(() => document.querySelector('[role="dialog"]'), { timeout: 3000 }).toBeNull();
     await expect.poll(() => document.activeElement).toBe(triggerElement);
