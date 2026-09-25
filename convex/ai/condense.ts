@@ -6,6 +6,17 @@ import type { Id } from "../_generated/dataModel";
 import { internalAction, type ActionCtx } from "../_generated/server";
 import { classifySpeakerRolesCall } from "./speakerRolesAgent";
 import { withPlaceholders } from "./placeholderClient";
+import {
+  citationsExtractor,
+  extractTranscriptFacts,
+  structuredExtractor,
+  type FactWindowExtractor,
+} from "./transcriptFactsAgent";
+import { instrumentedAnthropic } from "./instrument";
+import { gatewayForModel, registerModelEntries } from "../../shared/generationModels";
+import { entryFromFrozen } from "../lib/modelRoles";
+import { roleModelEntryRef } from "../lib/modelCatalogRefs";
+import type { VerifiedFact } from "../lib/transcriptFacts";
 import { CONDENSE_WINDOW_CHARS } from "../lib/transcripts";
 import {
   CONDENSE_CONCURRENCY,
@@ -23,6 +34,7 @@ import { generationPromptVersion } from "./promptProgram";
 import {
   clientForModel,
   clientForRole,
+  registerGenerationModels,
   CONVEX_ACTION_LIMIT_MS,
   normalizeProviderError,
   RESERVED_NON_REQUEST_MS,
@@ -297,6 +309,162 @@ export const classifySpeakerRoles = internalAction({
       });
     } catch (error) {
       console.warn("Speaker roles were left to the rules", describeGenerationFailure(error));
+    }
+    return null;
+  },
+});
+
+// ─── Transcript facts (2026-09-24, the transcript method) ──────────────────
+
+/** Facts written by one mutation. */
+const FACT_WRITE_BATCH = 200;
+
+export type FactsOutcome = "ready" | "busy" | "failed" | "gone";
+
+/** Where an extraction runs: in the background, or inside a generation. */
+export type FactsCaller =
+  | { kind: "background"; userId?: Id<"users"> }
+  | {
+      kind: "generation";
+      generationId: Id<"generations">;
+      /** The generation's frozen condense model. */
+      modelId: string;
+      userId?: Id<"users">;
+    };
+
+/**
+ * The extractor for a model: Anthropic's citations mode on the direct
+ * gateway, the structured adapter everywhere else.
+ */
+function extractorFor(
+  ctx: ActionCtx,
+  model: string,
+  meta: { projectId: Id<"projects">; caller: FactsCaller },
+  usage: { inputTokens: number; outputTokens: number; costUsd: number }
+): { extractor: FactWindowExtractor; adapter: "citations" | "structured" } {
+  const callSite = meta.caller.kind === "generation" ? "generation:facts" : "transcript:facts";
+  const common = {
+    callSite,
+    projectId: meta.projectId,
+    ...(meta.caller.userId ? { userId: meta.caller.userId } : {}),
+    ...(meta.caller.kind === "generation" ? { attribution: { generationId: meta.caller.generationId } } : {}),
+    onUsage: (tap: { costUsd: number }) => {
+      usage.costUsd += tap.costUsd;
+    },
+  };
+  if (gatewayForModel(model) === "anthropic") {
+    const client = instrumentedAnthropic(ctx, { ...common, capability: "generation" });
+    return {
+      adapter: "citations",
+      extractor: citationsExtractor(client, model, (tokens) => {
+        usage.inputTokens += tokens.inputTokens;
+        usage.outputTokens += tokens.outputTokens;
+      }),
+    };
+  }
+  return { adapter: "structured", extractor: structuredExtractor(clientForModel(ctx, model, common), model) };
+}
+
+/**
+ * Extracts one transcript's facts once per text and FACTS_VERSION, unless a
+ * ready run already has them. Every request carries placeholders, never
+ * names (decision 26); quotes are verified against the verbatim text before
+ * anything is stored. A failure is recorded on the run and returned, never
+ * thrown: callers fall back to today's path.
+ */
+export async function ensureTranscriptFacts(
+  ctx: ActionCtx,
+  transcriptId: Id<"transcripts">,
+  caller: FactsCaller,
+  options: { timeoutMs?: number; log?: (line: string) => Promise<unknown> } = {}
+): Promise<FactsOutcome> {
+  const input = await ctx.runQuery(internal.transcripts.factsInput, { transcriptId });
+  if (!input) return "gone";
+  if (!input.structureReady || input.turns.length === 0) return "failed";
+  let model: string;
+  if (caller.kind === "generation") {
+    await registerGenerationModels(ctx, caller.generationId);
+    model = caller.modelId;
+  } else {
+    const { entry } = await ctx.runQuery(roleModelEntryRef, { role: "condense" });
+    registerModelEntries([entryFromFrozen(entry)]);
+    model = entry.id;
+  }
+  const usage = { inputTokens: 0, outputTokens: 0, costUsd: 0 };
+  let chosen: ReturnType<typeof extractorFor>;
+  try {
+    chosen = extractorFor(ctx, model, { projectId: input.projectId, caller }, usage);
+  } catch (error) {
+    console.warn("Fact extraction has no provider", describeGenerationFailure(error));
+    return "failed";
+  }
+  const { extractor, adapter } = chosen;
+  const claim = await ctx.runMutation(internal.transcripts.claimFactRun, {
+    transcriptId,
+    sourceContentHash: input.sourceContentHash,
+    model,
+    adapter,
+  });
+  if (claim.kind !== "claimed") return claim.kind;
+  try {
+    await options.log?.(`Extracting verified facts from "${input.label}".`);
+    const result = await extractTranscriptFacts({
+      content: input.content,
+      turns: input.turns,
+      placeholders: input.placeholders,
+      extractWindow: extractor,
+      ...(options.timeoutMs ? { timeoutMs: options.timeoutMs } : {}),
+    });
+    await writeFacts(ctx, claim.runId, result.facts);
+    await ctx.runMutation(internal.transcripts.completeFactRun, {
+      runId: claim.runId,
+      counts: result.counts,
+      usage: {
+        inputTokens: usage.inputTokens,
+        outputTokens: usage.outputTokens,
+        ...(usage.costUsd > 0 ? { costUsd: usage.costUsd } : {}),
+      },
+    });
+    await options.log?.(
+      `Kept ${result.counts.verified} verified facts from "${input.label}" (${result.counts.dropped} dropped without a quote found in the transcript).`
+    );
+    return "ready";
+  } catch (error) {
+    await ctx.runMutation(internal.transcripts.failFactRun, {
+      runId: claim.runId,
+      error: describeGenerationFailure(error),
+    });
+    await options.log?.(`Facts could not be extracted from "${input.label}"; using today's transcript path.`);
+    return "failed";
+  }
+}
+
+async function writeFacts(ctx: ActionCtx, runId: Id<"transcriptFactRuns">, facts: readonly VerifiedFact[]) {
+  for (let start = 0; start < facts.length; start += FACT_WRITE_BATCH) {
+    await ctx.runMutation(internal.transcripts.recordFactBatch, {
+      runId,
+      facts: facts.slice(start, start + FACT_WRITE_BATCH).map((fact) => ({
+        key: fact.key,
+        type: fact.type,
+        claim: fact.claim,
+        turnIndexes: fact.turnIndexes,
+        quotes: fact.quotes,
+        ...(fact.speakerLabel ? { speakerLabel: fact.speakerLabel } : {}),
+        confidence: fact.confidence,
+      })),
+    });
+  }
+}
+
+/** Background extraction, queued when a consultant opens a transcript. */
+export const extractTranscriptFactsInBackground = internalAction({
+  args: { transcriptId: v.id("transcripts") },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    try {
+      await ensureTranscriptFacts(ctx, args.transcriptId, { kind: "background" });
+    } catch (error) {
+      console.warn("Background fact extraction failed", describeGenerationFailure(error));
     }
     return null;
   },

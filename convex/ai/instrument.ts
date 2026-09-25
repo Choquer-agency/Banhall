@@ -50,6 +50,9 @@ export const GENERATION_CALL_SLOTS = [
   "analyzer",
   "retrieval_brief",
   "condense",
+  // 2026-09-24 (transcript method): fact extraction inside a generation, at
+  // most once per transcript text and FACTS_VERSION.
+  "facts",
   "brief",
   // Story 3 (CAP-8): the settings-document style classifier, at most once
   // per (projectId, contentHash); a cache hit makes no call.

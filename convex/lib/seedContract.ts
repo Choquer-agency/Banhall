@@ -309,8 +309,23 @@ function validatedProvenance(args: {
   );
   const provenance: ValidatedSeedProvenance[] = [];
   let invalid = args.malformedProvenance;
-  for (const citation of args.candidate.provenance) {
-    const source = byId.get(citation.sourceId);
+  for (const original of args.candidate.provenance) {
+    const source = byId.get(original.sourceId);
+    // 2026-09-24 (owner decision 26): the model reads placeholders, not
+    // names, so offsets it counts drift from the frozen text. Offsets were
+    // never trustworthy from a model; a verbatim excerpt at the wrong offsets
+    // is located in its own source and still byte-checked below.
+    const citation =
+      source &&
+      source.content.slice(original.startOffset, original.endOffset) !== original.exactExcerpt &&
+      original.exactExcerpt !== "" &&
+      source.content.includes(original.exactExcerpt)
+        ? {
+            ...original,
+            startOffset: source.content.indexOf(original.exactExcerpt),
+            endOffset: source.content.indexOf(original.exactExcerpt) + original.exactExcerpt.length,
+          }
+        : original;
     const offsetsValid =
       Number.isInteger(citation.startOffset) &&
       Number.isInteger(citation.endOffset) &&

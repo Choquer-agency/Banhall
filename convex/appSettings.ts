@@ -245,3 +245,85 @@ export const setChatAdmissionLimits = mutation({
     return null;
   },
 });
+
+// ─── Transcript method (2026-09-24; owner decisions 26 and 27) ─────────────
+
+/** Where fact packs replace digests or full text. Default: today's path. */
+export const TRANSCRIPT_FACTS_MODE_KEY = "transcripts.factsMode";
+/** Emergency switch for name placeholders; on unless an admin turns it off. */
+export const TRANSCRIPT_PLACEHOLDERS_KEY = "transcripts.placeholders";
+
+export type TranscriptFactsMode = "off" | "long" | "all";
+
+const transcriptFactsModeValidator = v.union(v.literal("off"), v.literal("long"), v.literal("all"));
+
+/**
+ * `off` (default): today's path, digests over the budget and full text
+ * under it. `long`: fact packs replace digests for projects over the budget
+ * (decision 27). `all`: small projects read fact packs too, once the offline
+ * evaluation shows they match (scripts/transcript-facts-eval.mjs). Any other
+ * stored value reads as `off`.
+ */
+export async function transcriptFactsMode(ctx: QueryCtx | MutationCtx): Promise<TranscriptFactsMode> {
+  const row = await ctx.db
+    .query("appSettings")
+    .withIndex("by_key", (q) => q.eq("key", TRANSCRIPT_FACTS_MODE_KEY))
+    .unique();
+  const value = row?.value.trim();
+  return value === "long" || value === "all" ? value : "off";
+}
+
+/**
+ * Owner decision 26: placeholders always, for every model. The setting only
+ * exists as an emergency switch; anything but "off" means on.
+ */
+export async function transcriptPlaceholdersEnabled(ctx: QueryCtx | MutationCtx): Promise<boolean> {
+  const row = await ctx.db
+    .query("appSettings")
+    .withIndex("by_key", (q) => q.eq("key", TRANSCRIPT_PLACEHOLDERS_KEY))
+    .unique();
+  return row?.value.trim() !== "off";
+}
+
+async function writeTranscriptMethod(
+  ctx: MutationCtx,
+  args: { factsMode?: TranscriptFactsMode; placeholders?: boolean },
+  userId: Id<"users">
+) {
+  if (args.factsMode !== undefined) await setSetting(ctx, TRANSCRIPT_FACTS_MODE_KEY, args.factsMode, userId);
+  if (args.placeholders !== undefined) {
+    await setSetting(ctx, TRANSCRIPT_PLACEHOLDERS_KEY, args.placeholders ? "on" : "off", userId);
+  }
+}
+
+/** Admin only ("Configure models, tags, Brain, and global settings"). */
+export const setTranscriptMethod = mutation({
+  args: {
+    factsMode: v.optional(transcriptFactsModeValidator),
+    placeholders: v.optional(v.boolean()),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const user = await requireRole(ctx, ["admin"]);
+    await writeTranscriptMethod(ctx, args, user._id);
+    return null;
+  },
+});
+
+/** The same switch from the Convex dashboard, recorded against an admin. */
+export const setTranscriptMethodInternal = internalMutation({
+  args: {
+    adminId: v.id("users"),
+    factsMode: v.optional(transcriptFactsModeValidator),
+    placeholders: v.optional(v.boolean()),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const admin = await ctx.db.get(args.adminId);
+    if (!admin || admin.role !== "admin" || admin.isAnonymous === true) {
+      throw new Error("An active administrator is required");
+    }
+    await writeTranscriptMethod(ctx, args, admin._id);
+    return null;
+  },
+});

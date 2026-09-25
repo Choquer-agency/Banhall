@@ -8,6 +8,7 @@
 // sites (brain, learning, financial, review) stay on instrumentedAnthropic.
 
 import Anthropic from "@anthropic-ai/sdk";
+import { internal } from "../_generated/api";
 import type { ActionCtx } from "../_generated/server";
 import type { Id } from "../_generated/dataModel";
 import {
@@ -30,6 +31,8 @@ import { COMPRESSION_REQUEST } from "./promptDefinitions";
 import { instrumentedOpenRouter } from "./openrouter";
 import { MalformedOutputError, type GenerationClient } from "./openrouterCore";
 import { entryFromFrozen } from "../lib/modelRoles";
+import type { PlaceholderMap } from "../lib/deidentify";
+import { withPlaceholders } from "./placeholderClient";
 import type { ModelFreeze } from "../lib/modelCatalogValidators";
 import {
   generationModelsRef,
@@ -247,9 +250,42 @@ type GenerationCallMeta = {
   onUsage?: ProviderCallMeta["onUsage"];
 };
 
+/** A generation's placeholder map never changes, so one read per isolate. */
+const placeholderCache = new Map<string, Promise<PlaceholderMap>>();
+
+/** Test seam: forget cached placeholder maps (ids repeat across tests). */
+export function resetGenerationPlaceholderCache(): void {
+  placeholderCache.clear();
+}
+
+/**
+ * Owner decision 26: the placeholder map frozen on the generation, so every
+ * generation-owned call reads placeholders instead of names and every
+ * response is restored before the caller sees it.
+ */
+async function generationPlaceholders(
+  ctx: RunQueryCtx,
+  generationId: Id<"generations">
+): Promise<PlaceholderMap> {
+  let pending = placeholderCache.get(generationId);
+  if (!pending) {
+    if (placeholderCache.size >= FREEZE_CACHE_LIMIT) placeholderCache.clear();
+    pending = ctx
+      .runQuery(internal.generations.getGenerationPlaceholders, { generationId })
+      .catch((error: unknown) => {
+        placeholderCache.delete(generationId);
+        throw error;
+      });
+    placeholderCache.set(generationId, pending);
+  }
+  return await pending;
+}
+
 /**
  * A client whose gateway is decided on first use, after the model's entry is
  * registered. Construction stays synchronous for every existing call site.
+ * A generation-owned client also hides names behind the generation's frozen
+ * placeholders (decision 26).
  */
 function lazyClient(
   ctx: ActionCtx,
@@ -258,9 +294,14 @@ function lazyClient(
   build: () => GenerationClient
 ): GenerationClient {
   let resolved: Promise<GenerationClient> | undefined;
+  const generationId = meta.attribution?.generationId;
   const resolve = () =>
-    (resolved ??= ensureModelRegistered(ctx, modelId, meta.attribution?.generationId)
-      .then(build)
+    (resolved ??= ensureModelRegistered(ctx, modelId, generationId)
+      .then(async () => {
+        const client = build();
+        if (!generationId) return client;
+        return withPlaceholders(client, await generationPlaceholders(ctx, generationId));
+      })
       .catch((error: unknown) => {
         resolved = undefined;
         throw error;

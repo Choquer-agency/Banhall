@@ -161,8 +161,14 @@
     if (choice !== "default") return choice;
     return projectQ.data?.mode === "review" ? null : (transcripts?.[0]?._id ?? null);
   });
+  // 2026-09-24 (transcript method): opening a transcript queues its fact
+  // extraction in the background; the server ignores it when the method is
+  // off or the facts already exist.
+  const requestTranscriptFacts = useMutation(api.transcripts.requestTranscriptFacts);
   function toggleTranscript(transcriptId: Id<"transcripts">) {
-    openChoice = openTranscriptId === transcriptId ? null : transcriptId;
+    const opening = openTranscriptId !== transcriptId;
+    openChoice = opening ? transcriptId : null;
+    if (opening) void requestTranscriptFacts({ transcriptId }).catch(() => {});
   }
 
   // Metadata only above; the body of the one open transcript below. A project

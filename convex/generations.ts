@@ -80,7 +80,13 @@ import {
 } from "./lib/seedDecisionState";
 import { matchesSeedExclusion } from "./lib/seedApproval";
 import { isProjectDeleting } from "./lib/projectDeletion";
-import { analyzerContextBudget, defaultModelId } from "./appSettings";
+import {
+  analyzerContextBudget,
+  defaultModelId,
+  transcriptFactsMode,
+  transcriptPlaceholdersEnabled,
+} from "./appSettings";
+import { projectPlaceholderMap } from "./lib/transcriptPlaceholders";
 import { sourceInclusion } from "./ai/trustedContext";
 import {
   assembleContextInclusion,
@@ -647,6 +653,12 @@ async function reserveGeneration(
     row,
     content: row.content.slice(0, FROZEN_TRANSCRIPT_CHARS),
   }));
+  // Owner decision 26: every generation-owned provider call reads
+  // placeholders, never names; the map is frozen here so every call of this
+  // generation (and its cached prefixes) sees the same bytes.
+  const placeholders = (await transcriptPlaceholdersEnabled(ctx))
+    ? [...(await projectPlaceholderMap(ctx, project, transcripts.map((row) => row._id)))]
+    : [];
   const generationId = await ctx.db.insert("generations", {
     projectId: project._id,
     transcriptId: transcripts[0]?._id,
@@ -654,6 +666,7 @@ async function reserveGeneration(
     inputMode: decideInputMode(
       frozenTranscripts.reduce((total, item) => total + item.content.length, 0)
     ),
+    ...(placeholders.length > 0 ? { placeholders } : {}),
     status: "reserved",
     requestedAt: now,
     requestedBy,
@@ -896,6 +909,9 @@ export const retryFromSummary = mutation({
       transcriptIds: failed.transcriptIds,
       inputMode: failed.inputMode,
       digestIds: failed.digestIds,
+      // Summary recovery reads the same fact packs and placeholders.
+      ...(failed.transcriptFacts !== undefined ? { transcriptFacts: failed.transcriptFacts } : {}),
+      ...(failed.placeholders ? { placeholders: failed.placeholders } : {}),
       status: "reserved",
       requestedAt: now,
       requestedBy: user._id,
@@ -934,6 +950,7 @@ export const retryFromSummary = mutation({
         kind: current.kind,
         transcriptId: current.transcriptId,
         digestId: current.digestId,
+        factsVersion: current.factsVersion,
         projectDocumentId: current.projectDocumentId,
         label: current.label,
         content: current.content,
@@ -1196,6 +1213,19 @@ export const unionLearningDigestIds = internalMutation({
       await ctx.db.patch(generation._id, { learningDigestIds: next });
     }
     return null;
+  },
+});
+
+/**
+ * The placeholder map frozen on a generation (owner decision 26); empty for
+ * generations reserved before it or with the emergency switch off.
+ */
+export const getGenerationPlaceholders = internalQuery({
+  args: { generationId: v.id("generations") },
+  returns: v.array(v.object({ token: v.string(), value: v.string() })),
+  handler: async (ctx, args) => {
+    const generation = await ctx.db.get(args.generationId);
+    return generation?.placeholders ?? [];
   },
 });
 

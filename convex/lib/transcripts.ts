@@ -336,8 +336,8 @@ const ADOPT_SPEAKER_LIMIT = 100;
 /**
  * Carries what was learned about a transcript's text to a new row holding the
  * same text: speaker roles a consultant confirmed or the model placed, and
- * (once facts exist, see `transcriptFacts.scheduleFactsCopy`) its verified
- * facts. No model call. Rule-based roles are not copied; the rebuild derives
+ * its verified facts (`transcripts.copyTranscriptFacts`, scheduled). No
+ * model call. Rule-based roles are not copied; the rebuild derives
  * them again against the new project's names.
  */
 export async function adoptDerivedRows(
@@ -351,6 +351,11 @@ export async function adoptDerivedRows(
     .query("transcriptSpeakers")
     .withIndex("by_transcriptId_and_label", (q) => q.eq("transcriptId", source._id))
     .take(ADOPT_SPEAKER_LIMIT);
+  // Ready facts of the same text come along in the background, batched.
+  await ctx.scheduler.runAfter(0, internal.transcripts.copyTranscriptFacts, {
+    fromTranscriptId: source._id,
+    toTranscriptId: transcriptId,
+  });
   for (const row of speakers) {
     if (row.roleSource === "heuristic") continue;
     await ctx.db.insert("transcriptSpeakers", {

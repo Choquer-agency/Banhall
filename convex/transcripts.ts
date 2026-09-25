@@ -20,6 +20,17 @@ import {
 } from "./lib/transcriptStructure";
 import { needsModelRole } from "./lib/transcriptSpeakers";
 import { projectPlaceholderMap } from "./lib/transcriptPlaceholders";
+import { FACTS_VERSION } from "./lib/transcriptFacts";
+import {
+  FACT_RUN_STALE_MS,
+  findFactRun,
+  listFacts,
+  loadFactTurns,
+  MAX_FACTS_PER_TRANSCRIPT,
+  transcriptHash,
+} from "./lib/transcriptFactRows";
+import { transcriptFactTypeValidator } from "./lib/transcriptValidators";
+import { transcriptFactsMode, transcriptPlaceholdersEnabled } from "./appSettings";
 import { TRANSCRIPT_PARSER_VERSION } from "../shared/transcriptParse";
 import {
   adoptDerivedRows,
@@ -526,6 +537,240 @@ export const confirmSpeakers = mutation({
       });
     }
     await ctx.db.patch(transcript._id, { speakerStatus: await speakerStatusOf(ctx, transcript._id) });
+    return null;
+  },
+});
+
+// ─── Facts (2026-09-24; owner decisions 25 to 27) ───────────────────────────
+
+/**
+ * What one extraction needs: the verbatim text and its hash, the turns with
+ * their current roles, and the placeholder map for the call.
+ */
+export const factsInput = internalQuery({
+  args: { transcriptId: v.id("transcripts") },
+  handler: async (ctx, args) => {
+    const transcript = await ctx.db.get(args.transcriptId);
+    if (!transcript || transcript.content.trim() === "") return null;
+    const project = await ctx.db.get(transcript.projectId);
+    if (!project || project.deletionStartedAt !== undefined) return null;
+    const placeholders = (await transcriptPlaceholdersEnabled(ctx))
+      ? [...(await projectPlaceholderMap(ctx, project, [transcript._id]))]
+      : [];
+    return {
+      projectId: project._id,
+      label: transcriptLabel(transcript),
+      content: transcript.content,
+      sourceContentHash: await transcriptHash(transcript),
+      structureReady: transcript.parserVersion !== undefined,
+      turns: await loadFactTurns(ctx, transcript._id),
+      placeholders,
+    };
+  },
+});
+
+/**
+ * Claims one extraction of this exact text under the current FACTS_VERSION.
+ * `ready` means facts exist and nothing needs to run; `busy` means another
+ * run started recently. A claim clears facts a failed or stale run left.
+ */
+export const claimFactRun = internalMutation({
+  args: {
+    transcriptId: v.id("transcripts"),
+    sourceContentHash: v.string(),
+    model: v.string(),
+    adapter: v.union(v.literal("citations"), v.literal("structured")),
+  },
+  returns: v.union(
+    v.object({ kind: v.literal("ready") }),
+    v.object({ kind: v.literal("busy") }),
+    v.object({ kind: v.literal("gone") }),
+    v.object({ kind: v.literal("claimed"), runId: v.id("transcriptFactRuns") })
+  ),
+  handler: async (ctx, args) => {
+    const transcript = await ctx.db.get(args.transcriptId);
+    if (!transcript || (await isProjectDeleting(ctx, transcript.projectId))) return { kind: "gone" as const };
+    const run = await findFactRun(ctx, transcript._id, args.sourceContentHash);
+    const now = Date.now();
+    if (run?.status === "ready") return { kind: "ready" as const };
+    if (run && (run.status === "running" || run.status === "queued") && now - run.startedAt < FACT_RUN_STALE_MS) {
+      return { kind: "busy" as const };
+    }
+    for (const fact of await listFacts(ctx, transcript._id)) await ctx.db.delete(fact._id);
+    const runId = await ctx.db.insert("transcriptFactRuns", {
+      transcriptId: transcript._id,
+      projectId: transcript.projectId,
+      sourceContentHash: args.sourceContentHash,
+      factsVersion: FACTS_VERSION,
+      model: args.model,
+      adapter: args.adapter,
+      status: "running",
+      counts: { proposed: 0, verified: 0, dropped: 0 },
+      startedAt: now,
+    });
+    await ctx.db.patch(transcript._id, { factsStatus: "queued" });
+    return { kind: "claimed" as const, runId };
+  },
+});
+
+const factValidator = v.object({
+  key: v.string(),
+  type: transcriptFactTypeValidator,
+  claim: v.string(),
+  turnIndexes: v.array(v.number()),
+  quotes: v.array(
+    v.object({
+      charStart: v.number(),
+      charEnd: v.number(),
+      exactExcerpt: v.string(),
+      match: v.union(v.literal("exact"), v.literal("normalized")),
+    })
+  ),
+  speakerLabel: v.optional(v.string()),
+  confidence: v.number(),
+});
+
+/** Writes one batch of verified facts for a claimed run. */
+export const recordFactBatch = internalMutation({
+  args: { runId: v.id("transcriptFactRuns"), facts: v.array(factValidator) },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const run = await ctx.db.get(args.runId);
+    if (!run || run.status !== "running") return null;
+    const transcript = await ctx.db.get(run.transcriptId);
+    if (!transcript || (await isProjectDeleting(ctx, transcript.projectId))) return null;
+    for (const fact of args.facts.slice(0, MAX_FACTS_PER_TRANSCRIPT)) {
+      // The verifier already byte-checked every quote; the stored text is
+      // the ground truth, so check once more against it before writing.
+      if (fact.quotes.some((quote) => transcript.content.slice(quote.charStart, quote.charEnd) !== quote.exactExcerpt)) {
+        continue;
+      }
+      await ctx.db.insert("transcriptFacts", {
+        transcriptId: transcript._id,
+        projectId: transcript.projectId,
+        sourceContentHash: run.sourceContentHash,
+        factsVersion: run.factsVersion,
+        ...fact,
+      });
+    }
+    return null;
+  },
+});
+
+export const completeFactRun = internalMutation({
+  args: {
+    runId: v.id("transcriptFactRuns"),
+    counts: v.object({ proposed: v.number(), verified: v.number(), dropped: v.number() }),
+    usage: v.optional(
+      v.object({ inputTokens: v.number(), outputTokens: v.number(), costUsd: v.optional(v.number()) })
+    ),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const run = await ctx.db.get(args.runId);
+    if (!run || run.status !== "running") return null;
+    await ctx.db.patch(run._id, {
+      status: "ready",
+      counts: args.counts,
+      ...(args.usage ? { usage: args.usage } : {}),
+      finishedAt: Date.now(),
+    });
+    const transcript = await ctx.db.get(run.transcriptId);
+    if (transcript) await ctx.db.patch(transcript._id, { factsStatus: "ready", factsVersion: run.factsVersion });
+    return null;
+  },
+});
+
+export const failFactRun = internalMutation({
+  args: { runId: v.id("transcriptFactRuns"), error: v.string() },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const run = await ctx.db.get(args.runId);
+    if (!run || run.status !== "running") return null;
+    await ctx.db.patch(run._id, { status: "failed", error: args.error.slice(0, 500), finishedAt: Date.now() });
+    const transcript = await ctx.db.get(run.transcriptId);
+    if (transcript) await ctx.db.patch(transcript._id, { factsStatus: "failed" });
+    return null;
+  },
+});
+
+/**
+ * A consultant opened a transcript: extract its facts in the background if
+ * the transcript method is on and they do not exist yet. Silent otherwise.
+ */
+export const requestTranscriptFacts = mutation({
+  args: { transcriptId: v.id("transcripts") },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const transcript = await ctx.db.get(args.transcriptId);
+    if (!transcript || transcript.archivedAt !== undefined) return null;
+    if (!(await getInternalProjectAccessOrNull(ctx, transcript.projectId))) return null;
+    if ((await transcriptFactsMode(ctx)) === "off") return null;
+    const run = await findFactRun(ctx, transcript._id, await transcriptHash(transcript));
+    if (run && (run.status === "ready" || Date.now() - run.startedAt < FACT_RUN_STALE_MS)) return null;
+    await ctx.db.patch(transcript._id, { factsStatus: "queued" });
+    await ctx.scheduler.runAfter(0, internal.ai.condense.extractTranscriptFactsInBackground, {
+      transcriptId: transcript._id,
+    });
+    return null;
+  },
+});
+
+/** Facts one copy step writes. */
+const FACT_COPY_BATCH = 200;
+
+/**
+ * Copies ready facts from another row holding the same text (a duplicated
+ * project, or the same transcript added to another project). No model call.
+ * Bounded batches, rescheduling itself; idempotent through the run row.
+ */
+export const copyTranscriptFacts = internalMutation({
+  args: {
+    fromTranscriptId: v.id("transcripts"),
+    toTranscriptId: v.id("transcripts"),
+    offset: v.optional(v.number()),
+    runId: v.optional(v.id("transcriptFactRuns")),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const [source, target] = await Promise.all([ctx.db.get(args.fromTranscriptId), ctx.db.get(args.toTranscriptId)]);
+    if (!source || !target || (await isProjectDeleting(ctx, target.projectId))) return null;
+    const hash = await transcriptHash(source);
+    if ((await transcriptHash(target)) !== hash) return null;
+    const sourceRun = await findFactRun(ctx, source._id, hash);
+    if (sourceRun?.status !== "ready") return null;
+    let runId = args.runId;
+    if (!runId) {
+      const existing = await findFactRun(ctx, target._id, hash);
+      if (existing?.status === "ready" || existing?.status === "running") return null;
+      runId = await ctx.db.insert("transcriptFactRuns", {
+        transcriptId: target._id,
+        projectId: target.projectId,
+        sourceContentHash: hash,
+        factsVersion: FACTS_VERSION,
+        model: sourceRun.model,
+        adapter: "copy",
+        status: "running",
+        counts: sourceRun.counts,
+        startedAt: Date.now(),
+      });
+    }
+    const facts = (await listFacts(ctx, source._id)).sort((a, b) => a.key.localeCompare(b.key));
+    const offset = args.offset ?? 0;
+    for (const fact of facts.slice(offset, offset + FACT_COPY_BATCH)) {
+      const { _id, _creationTime, transcriptId: _t, projectId: _p, ...rest } = fact;
+      await ctx.db.insert("transcriptFacts", { ...rest, transcriptId: target._id, projectId: target.projectId });
+    }
+    if (offset + FACT_COPY_BATCH < facts.length) {
+      await ctx.scheduler.runAfter(0, internal.transcripts.copyTranscriptFacts, {
+        ...args,
+        offset: offset + FACT_COPY_BATCH,
+        runId,
+      });
+      return null;
+    }
+    await ctx.db.patch(runId, { status: "ready", finishedAt: Date.now() });
+    await ctx.db.patch(target._id, { factsStatus: "ready", factsVersion: FACTS_VERSION });
     return null;
   },
 });
