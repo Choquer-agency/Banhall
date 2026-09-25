@@ -2095,7 +2095,7 @@
                     {#each [
                       { id: "compare", label: "Compare" },
                       { id: "single", label: "Single draft" },
-                      { id: "iterative", label: "Section by section" },
+                      { id: "iterative", label: "Step by step" },
                     ] as const as opt (opt.id)}
                       <button
                         type="button"

@@ -1915,6 +1915,7 @@
               status={generation.status}
               candidatesDone={generation.candidatesDone ?? 0}
               candidatesFailed={generation.candidatesFailed ?? 0}
+              surface="light"
             />
           </span>
         {/if}
@@ -2452,7 +2453,7 @@
                       {#each [
                         { id: "compare", label: "Compare" },
                         { id: "single", label: "Single draft" },
-                        { id: "iterative", label: "Section by section" },
+                        { id: "iterative", label: "Step by step" },
                       ] as const as opt (opt.id)}
                         <button
                           type="button"
