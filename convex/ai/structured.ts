@@ -31,6 +31,24 @@ export const STRUCTURED_OUTPUT_PROGRAM = {
 } as const;
 
 /**
+ * The final validation failure of a structured call. The message is the same
+ * as before; `issues` adds each failing path and zod issue code so a caller
+ * can record why without storing model text. A custom issue also keeps its
+ * message, which the schema author wrote.
+ */
+export class StructuredValidationError extends Error {
+  readonly issues: ReadonlyArray<{ path: string; code: string; message?: string }>;
+  constructor(
+    message: string,
+    issues: ReadonlyArray<{ path: string; code: string; message?: string }>
+  ) {
+    super(message);
+    this.name = "StructuredValidationError";
+    this.issues = issues;
+  }
+}
+
+/**
  * Models sometimes wrap their tool output in a JSON string — occasionally more
  * than once. A chronology table came back as `{ entries: "{\"entries\":[…]}" }`,
  * which the UI then called `.filter()` on and took the whole report page down.
@@ -198,8 +216,13 @@ export async function generateStructured<T>(
       JSON.stringify(parsed.error.issues.slice(0, 10))
     );
     if (!lastAttempt) continue;
-    throw new Error(
-      `${opts.toolName}: model returned an unexpected shape — ${validationSummary}`
+    throw new StructuredValidationError(
+      `${opts.toolName}: model returned an unexpected shape: ${validationSummary}`,
+      parsed.error.issues.slice(0, 10).map((issue) => ({
+        path: issue.path.map(String).join(".") || "(root)",
+        code: issue.code,
+        ...(issue.code === "custom" ? { message: issue.message } : {}),
+      }))
     );
   }
 

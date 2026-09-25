@@ -34,7 +34,12 @@ import {
   provenanceDrafts,
   recordCandidateProvenance,
 } from "./pipeline";
-import { runConsistencyPass, runModelSelfCheck, type ModelSelfCheckResult } from "./selfCheck";
+import {
+  runConsistencyPass,
+  runModelSelfCheck,
+  selfCheckFailureDiagnostic,
+  type ModelSelfCheckResult,
+} from "./selfCheck";
 import {
   generationSlotOf,
   mergeSlotCounts,
@@ -365,7 +370,7 @@ async function draftCheckedSection(input: {
   let verdicts: ModelVerdict[] = [];
   let storylineQuestion: ModelSelfCheckResult["storylineQuestion"] = null;
   let planVerdicts: ModelSelfCheckResult["planVerdicts"] = [];
-  let modelCheck: { ok: true } | { ok: false; reason: string } = { ok: true };
+  let modelCheck: { ok: true } | { ok: false; reason: string; detail?: string } = { ok: true };
   try {
     const result = await runModelSelfCheck(clientFor(`generation:selfCheck:${section}`), {
       section,
@@ -384,8 +389,14 @@ async function draftCheckedSection(input: {
     planVerdicts = result.planVerdicts;
   } catch (error) {
     // An unrepaired or unrun check never blocks the section (Never-rule);
-    // the failure is recorded in the Compliance Note instead.
-    modelCheck = { ok: false, reason: normalizeProviderError(error).code };
+    // the failure is recorded in the Compliance Note instead, with a short
+    // diagnostic that names the failed clause but carries no model text.
+    const reason = normalizeProviderError(error).code;
+    const detail = selfCheckFailureDiagnostic(error);
+    console.warn(
+      `generation:selfCheck:${section}: Self-check failed (${reason}): ${detail}`
+    );
+    modelCheck = { ok: false, reason, detail };
     planVerdicts = claim.planChecks.map((check) => ({
       ...(check.itemId ? { itemId: check.itemId } : {}),
       ...(check.skippedRoleId ? { skippedRoleId: check.skippedRoleId } : {}),

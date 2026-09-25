@@ -121,6 +121,11 @@ export type SelfCheckSummary = {
   remainingFailures: number;
   /** Whether the structured model Self-check call returned verdicts. */
   modelCheck: "ok" | "failed";
+  /**
+   * Why a failed model Self-check failed: the rejected clause with its
+   * position and byte counts, or the failure kind. Never model text.
+   */
+  modelCheckDetail?: string;
   /** Final durable Summary-plan evidence, separate from prose repair state. */
   planCoverage?: {
     status: "complete" | "incomplete" | "unavailable";

@@ -450,7 +450,7 @@ export function assembleSectionNotes(input: {
   before: DeterministicSelfCheck;
   after: DeterministicSelfCheck | null;
   verdicts: ModelVerdict[];
-  modelCheck: { ok: true } | { ok: false; reason: string };
+  modelCheck: { ok: true } | { ok: false; reason: string; detail?: string };
   /** `recorded`: a storylineQuestion entry is inserted on the Brief. */
   storylineQuestion: { question: string; recorded: boolean } | null;
   repair: { attempted: boolean; succeeded: boolean; failureReason?: string };
@@ -545,7 +545,9 @@ export function assembleSectionNotes(input: {
         instruction: "Model Self-check",
         outcome: "not_applied",
         tier: "none",
-        reason: `Self-check call failed (${input.modelCheck.reason}); deterministic checks only`,
+        reason: `Self-check call failed (${input.modelCheck.reason}${
+          input.modelCheck.detail ? `: ${input.modelCheck.detail}` : ""
+        }); deterministic checks only`,
       })
     );
   }
@@ -566,6 +568,9 @@ export function assembleSectionNotes(input: {
       failedChecks,
       remainingFailures,
       modelCheck: input.modelCheck.ok ? "ok" : "failed",
+      ...(!input.modelCheck.ok && input.modelCheck.detail
+        ? { modelCheckDetail: input.modelCheck.detail }
+        : {}),
     },
   };
 }

@@ -2,8 +2,8 @@
 
 import type Anthropic from "@anthropic-ai/sdk";
 import { z } from "zod";
-import type { GenerationClient } from "./openrouterCore";
-import { generateStructured } from "./structured";
+import { MalformedOutputError, type GenerationClient } from "./openrouterCore";
+import { generateStructured, StructuredValidationError } from "./structured";
 import {
   CONSISTENCY_SYSTEM_PROMPT,
   SELF_CHECK_SYSTEM_PROMPT,
@@ -29,6 +29,7 @@ import type {
   ModelVerdict,
 } from "../lib/selfCheckRules";
 import {
+  clipJsonEscapedUtf8,
   jsonEscapedUtf8Bytes,
   MAX_SUMMARY_ORDINARY_VERDICTS,
   MAX_SUMMARY_PLAN_VERDICTS,
@@ -40,6 +41,7 @@ import {
   MAX_SUMMARY_SELF_CHECK_REASON_ESCAPED_UTF8_BYTES,
   MAX_SUMMARY_SELF_CHECK_RESPONSE_UTF8_BYTES,
   projectSummaryOrdinaryChecks,
+  SeedContextLimitError,
   serializeFrozenSummaryPlanChecks,
   summarySelfCheckWorstCaseResponse,
   type FrozenSummaryPlanCheck,
@@ -170,6 +172,58 @@ const decodedSummaryPlanSelfCheckOutputSchema = z.object({
   planVerdicts: z.array(summaryPlanVerdictOutputSchema),
   storylineQuestion: summaryStorylineQuestionOutputSchema,
 }).strict();
+
+/**
+ * Real reasons run 90 to 280 bytes while the reservations allow 64 (reason)
+ * and 96 (guidance, Storyline question fields). Over-long free text is
+ * clipped to its reservation here, after placeholder restoration and after
+ * the raw response was measured against the whole-response limit, so the
+ * stored evidence keeps the per-field limits the sign-off capacity proof
+ * reserved. Labels, ids, counts and paragraphs are never clipped: the
+ * completeness assertion still rejects them.
+ */
+export function clipSummarySelfCheckFreeText(raw: RawSelfCheck): RawSelfCheck {
+  const clip = (value: string, maximum: number) => clipJsonEscapedUtf8(value, maximum);
+  const guidance = (value: string | undefined) =>
+    value === undefined
+      ? {}
+      : { repairGuidance: clip(value, MAX_SUMMARY_SELF_CHECK_GUIDANCE_ESCAPED_UTF8_BYTES) };
+  const question = raw.storylineQuestion;
+  return {
+    ...raw,
+    verdicts: raw.verdicts.map((verdict) => ({
+      ...verdict,
+      reason: clip(verdict.reason, MAX_SUMMARY_SELF_CHECK_REASON_ESCAPED_UTF8_BYTES),
+      ...guidance(verdict.repairGuidance),
+    })),
+    ...(raw.planVerdicts
+      ? {
+          planVerdicts: raw.planVerdicts.map((verdict) => ({
+            ...verdict,
+            reason: clip(verdict.reason, MAX_SUMMARY_SELF_CHECK_REASON_ESCAPED_UTF8_BYTES),
+            ...guidance(verdict.repairGuidance),
+          })),
+        }
+      : {}),
+    ...(question
+      ? {
+          storylineQuestion: {
+            ...question,
+            question: clip(question.question, MAX_SUMMARY_SELF_CHECK_QUESTION_ESCAPED_UTF8_BYTES),
+            sectionClaim: clip(
+              question.sectionClaim,
+              MAX_SUMMARY_SELF_CHECK_QUESTION_ESCAPED_UTF8_BYTES
+            ),
+            storylineAlternative: clip(
+              question.storylineAlternative,
+              MAX_SUMMARY_SELF_CHECK_QUESTION_ESCAPED_UTF8_BYTES
+            ),
+          },
+        }
+      : {}),
+  };
+}
+
 const summaryPlanSelfCheckOutputSchema: z.ZodType<RawSelfCheck> = z.unknown()
   .superRefine((value, ctx) => {
     let serialized: string | undefined;
@@ -178,19 +232,21 @@ const summaryPlanSelfCheckOutputSchema: z.ZodType<RawSelfCheck> = z.unknown()
     } catch {
       serialized = undefined;
     }
-    if (
-      serialized === undefined ||
-      new TextEncoder().encode(serialized).byteLength >
-        MAX_SUMMARY_SELF_CHECK_RESPONSE_UTF8_BYTES
-    ) {
+    const bytes = serialized === undefined
+      ? undefined
+      : new TextEncoder().encode(serialized).byteLength;
+    if (bytes === undefined || bytes > MAX_SUMMARY_SELF_CHECK_RESPONSE_UTF8_BYTES) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        message: "Summary Self-check response exceeds its UTF-8 byte budget",
+        message: bytes === undefined
+          ? "Summary Self-check response exceeds its UTF-8 byte budget (not serializable)"
+          : `Summary Self-check response exceeds its UTF-8 byte budget (${bytes} bytes, limit ${MAX_SUMMARY_SELF_CHECK_RESPONSE_UTF8_BYTES})`,
       });
     }
   })
   .transform(normalizeInvalidPlanParagraphs)
-  .pipe(decodedSummaryPlanSelfCheckOutputSchema);
+  .pipe(decodedSummaryPlanSelfCheckOutputSchema)
+  .transform(clipSummarySelfCheckFreeText);
 
 type RawFinding = {
   section: SectionNumber;
@@ -362,6 +418,26 @@ function withinSummaryNumberReservation(value: number): boolean {
     JSON.stringify(value).length <= String(MAX_SUMMARY_SELF_CHECK_PARAGRAPH).length;
 }
 
+/**
+ * A whole-check rejection of the Summary Self-check. `diagnostic` names the
+ * clause, the verdict position, and the byte counts, numbers, labels or plan
+ * ids involved. Labels and ids are only ever the ones this app supplied, never
+ * text the model wrote, so the diagnostic is safe to store and log.
+ */
+export class SummarySelfCheckRejection extends Error {
+  readonly diagnostic: string;
+  constructor(summary: string, diagnostic: string) {
+    super(`${summary}: ${diagnostic}`);
+    this.name = "SummarySelfCheckRejection";
+    this.diagnostic = diagnostic;
+  }
+}
+
+function overLimit(field: string, value: string, maximum: number): string | null {
+  const bytes = jsonEscapedUtf8Bytes(value);
+  return bytes > maximum ? `${field} is ${bytes} escaped bytes, limit ${maximum}` : null;
+}
+
 function assertCompleteSummaryOutput(args: {
   raw: RawSelfCheck;
   ordinaryChecks: readonly SummaryOrdinaryCheck[];
@@ -375,48 +451,72 @@ function assertCompleteSummaryOutput(args: {
     planChecks,
     includeStorylineQuestion: args.allowStorylineQuestion,
   });
+  const rawPlans = raw.planVerdicts ?? [];
   if (
     raw.verdicts.length > MAX_SUMMARY_ORDINARY_VERDICTS ||
-    (raw.planVerdicts?.length ?? 0) > MAX_SUMMARY_PLAN_VERDICTS
+    rawPlans.length > MAX_SUMMARY_PLAN_VERDICTS
   ) {
-    throw new Error("Summary Self-check returned too many verdicts");
+    throw new SummarySelfCheckRejection(
+      "Summary Self-check returned too many verdicts",
+      `${raw.verdicts.length} ordinary (limit ${MAX_SUMMARY_ORDINARY_VERDICTS}), ` +
+        `${rawPlans.length} plan (limit ${MAX_SUMMARY_PLAN_VERDICTS})`
+    );
   }
   const ordinaryByLabel = new Map(ordinaryChecks.map((check) => [check.label, check]));
   if (raw.verdicts.length !== ordinaryByLabel.size) {
-    throw new Error("Summary Self-check omitted an ordinary verdict");
+    throw new SummarySelfCheckRejection(
+      "Summary Self-check omitted an ordinary verdict",
+      `${raw.verdicts.length} ordinary verdicts for ${ordinaryByLabel.size} labels`
+    );
   }
   const seenLabels = new Set<string>();
-  for (const verdict of raw.verdicts) {
+  raw.verdicts.forEach((verdict, index) => {
     const expected = ordinaryByLabel.get(verdict.instruction);
+    const invalid = (detail: string) =>
+      new SummarySelfCheckRejection(
+        "Summary Self-check returned an invalid ordinary verdict",
+        `ordinary verdict ${index + 1}${expected ? ` (${expected.label})` : ""}: ${detail}`
+      );
+    if (!expected) {
+      throw invalid(
+        `label of ${jsonEscapedUtf8Bytes(verdict.instruction)} escaped bytes matches no supplied label`
+      );
+    }
+    if (expected.check !== verdict.check) {
+      throw invalid(`check ${verdict.check}, expected ${expected.check}`);
+    }
+    if (seenLabels.has(verdict.instruction)) throw invalid("label repeats");
     if (
-      !expected ||
-      expected.check !== verdict.check ||
-      seenLabels.has(verdict.instruction) ||
       !Number.isInteger(verdict.paragraph) ||
       verdict.paragraph < 0 ||
       verdict.paragraph > args.actualParagraphCount ||
-      !withinSummaryNumberReservation(verdict.paragraph) ||
-      !boundedEscaped(
-        verdict.instruction,
-        MAX_SUMMARY_SELF_CHECK_LABEL_ESCAPED_UTF8_BYTES
-      ) ||
-      !boundedEscaped(verdict.reason, MAX_SUMMARY_SELF_CHECK_REASON_ESCAPED_UTF8_BYTES) ||
-      (verdict.repairGuidance !== undefined &&
-        !boundedEscaped(
-          verdict.repairGuidance,
-          MAX_SUMMARY_SELF_CHECK_GUIDANCE_ESCAPED_UTF8_BYTES
-        ))
+      !withinSummaryNumberReservation(verdict.paragraph)
     ) {
-      throw new Error("Summary Self-check returned an invalid ordinary verdict");
+      throw invalid(
+        `paragraph ${String(verdict.paragraph)} is not a whole number from 0 to ${args.actualParagraphCount}`
+      );
     }
+    const fieldProblem =
+      overLimit("label", verdict.instruction, MAX_SUMMARY_SELF_CHECK_LABEL_ESCAPED_UTF8_BYTES) ??
+      overLimit("reason", verdict.reason, MAX_SUMMARY_SELF_CHECK_REASON_ESCAPED_UTF8_BYTES) ??
+      (verdict.repairGuidance === undefined
+        ? null
+        : overLimit(
+            "repairGuidance",
+            verdict.repairGuidance,
+            MAX_SUMMARY_SELF_CHECK_GUIDANCE_ESCAPED_UTF8_BYTES
+          ));
+    if (fieldProblem) throw invalid(fieldProblem);
     seenLabels.add(verdict.instruction);
-  }
-  const rawPlans = raw.planVerdicts ?? [];
+  });
   if (rawPlans.length !== planChecks.length) {
-    throw new Error("Summary Self-check omitted a plan verdict");
+    throw new SummarySelfCheckRejection(
+      "Summary Self-check omitted a plan verdict",
+      `${rawPlans.length} plan verdicts for ${planChecks.length} plan checks`
+    );
   }
   const seenPlanRefs = new Set<string>();
-  for (const verdict of rawPlans) {
+  rawPlans.forEach((verdict, index) => {
     const ref = verdict.itemId
       ? `item:${verdict.itemId}`
       : verdict.skippedRoleId
@@ -427,53 +527,130 @@ function assertCompleteSummaryOutput(args: {
         ? check.itemId === verdict.itemId
         : check.skippedRoleId === verdict.skippedRoleId
     );
+    const invalid = (detail: string) =>
+      new SummarySelfCheckRejection(
+        "Summary Self-check returned an invalid plan verdict",
+        `plan verdict ${index + 1}${
+          expected
+            ? expected.itemId
+              ? ` (item ${expected.itemId})`
+              : ` (Skip ${expected.skippedRoleId})`
+            : ""
+        }: ${detail}`
+      );
+    if ((verdict.itemId !== undefined) === (verdict.skippedRoleId !== undefined) || !ref) {
+      throw invalid("needs exactly one non-empty itemId or skippedRoleId");
+    }
+    if (!expected) {
+      const field = verdict.itemId ? "itemId" : "skippedRoleId";
+      throw invalid(
+        `${field} of ${jsonEscapedUtf8Bytes(verdict.itemId ?? verdict.skippedRoleId ?? "")} escaped bytes matches no plan check`
+      );
+    }
+    if (seenPlanRefs.has(ref)) throw invalid("plan reference repeats");
     if (
-      !ref ||
-      !expected ||
-      seenPlanRefs.has(ref) ||
-      (verdict.paragraph !== undefined &&
-        !withinSummaryNumberReservation(verdict.paragraph)) ||
-      (verdict.itemId !== undefined) === (verdict.skippedRoleId !== undefined) ||
-      JSON.stringify(verdict.mergedItemIds) !== JSON.stringify(expected.mergedItemIds) ||
-      !boundedEscaped(
+      verdict.paragraph !== undefined &&
+      !withinSummaryNumberReservation(verdict.paragraph)
+    ) {
+      throw invalid("paragraph is past the numeric limit");
+    }
+    if (JSON.stringify(verdict.mergedItemIds) !== JSON.stringify(expected.mergedItemIds)) {
+      throw invalid(
+        `mergedItemIds has ${verdict.mergedItemIds.length} ids, expected ` +
+          (expected.mergedItemIds.length
+            ? `[${expected.mergedItemIds.join(", ")}] in that order`
+            : "none")
+      );
+    }
+    const fieldProblem =
+      overLimit(
+        "id",
         verdict.itemId ?? verdict.skippedRoleId ?? "",
         MAX_SUMMARY_SELF_CHECK_ID_ESCAPED_UTF8_BYTES
-      ) ||
-      verdict.mergedItemIds.some((id) =>
-        !boundedEscaped(id, MAX_SUMMARY_SELF_CHECK_ID_ESCAPED_UTF8_BYTES)) ||
-      !boundedEscaped(verdict.reason, MAX_SUMMARY_SELF_CHECK_REASON_ESCAPED_UTF8_BYTES) ||
-      (verdict.repairGuidance !== undefined &&
-        !boundedEscaped(
-          verdict.repairGuidance,
-          MAX_SUMMARY_SELF_CHECK_GUIDANCE_ESCAPED_UTF8_BYTES
-        ))
-    ) {
-      throw new Error("Summary Self-check returned an invalid plan verdict");
-    }
+      ) ??
+      verdict.mergedItemIds
+        .map((id) => overLimit("merged id", id, MAX_SUMMARY_SELF_CHECK_ID_ESCAPED_UTF8_BYTES))
+        .find((problem) => problem !== null) ??
+      overLimit("reason", verdict.reason, MAX_SUMMARY_SELF_CHECK_REASON_ESCAPED_UTF8_BYTES) ??
+      (verdict.repairGuidance === undefined
+        ? null
+        : overLimit(
+            "repairGuidance",
+            verdict.repairGuidance,
+            MAX_SUMMARY_SELF_CHECK_GUIDANCE_ESCAPED_UTF8_BYTES
+          ));
+    if (fieldProblem) throw invalid(fieldProblem);
     seenPlanRefs.add(ref);
-  }
+  });
   if (raw.storylineQuestion) {
+    const question = raw.storylineQuestion;
+    const invalid = (detail: string) =>
+      new SummarySelfCheckRejection(
+        "Summary Self-check returned an invalid Storyline question",
+        `Storyline question: ${detail}`
+      );
+    if (!args.allowStorylineQuestion) {
+      throw invalid("returned without both a Storyline and a Confidence Map");
+    }
+    const fieldProblem =
+      overLimit("question", question.question, MAX_SUMMARY_SELF_CHECK_QUESTION_ESCAPED_UTF8_BYTES) ??
+      overLimit(
+        "sectionClaim",
+        question.sectionClaim,
+        MAX_SUMMARY_SELF_CHECK_QUESTION_ESCAPED_UTF8_BYTES
+      ) ??
+      overLimit(
+        "storylineAlternative",
+        question.storylineAlternative,
+        MAX_SUMMARY_SELF_CHECK_QUESTION_ESCAPED_UTF8_BYTES
+      );
+    if (fieldProblem) throw invalid(fieldProblem);
     if (
-      !args.allowStorylineQuestion ||
-      !boundedEscaped(
-        raw.storylineQuestion.question,
-        MAX_SUMMARY_SELF_CHECK_QUESTION_ESCAPED_UTF8_BYTES
-      ) ||
-      !boundedEscaped(
-        raw.storylineQuestion.sectionClaim,
-        MAX_SUMMARY_SELF_CHECK_QUESTION_ESCAPED_UTF8_BYTES
-      ) ||
-      !boundedEscaped(
-        raw.storylineQuestion.storylineAlternative,
-        MAX_SUMMARY_SELF_CHECK_QUESTION_ESCAPED_UTF8_BYTES
-      ) ||
-      !Number.isInteger(raw.storylineQuestion.confidenceEntry) ||
-      raw.storylineQuestion.confidenceEntry < 0 ||
-      !withinSummaryNumberReservation(raw.storylineQuestion.confidenceEntry)
+      !Number.isInteger(question.confidenceEntry) ||
+      question.confidenceEntry < 0 ||
+      !withinSummaryNumberReservation(question.confidenceEntry)
     ) {
-      throw new Error("Summary Self-check returned an invalid Storyline question");
+      throw invalid(
+        `confidenceEntry ${String(question.confidenceEntry)} is not a whole number from 0 to ${MAX_SUMMARY_SELF_CHECK_PARAGRAPH}`
+      );
     }
   }
+}
+
+const MAX_SELF_CHECK_DIAGNOSTIC_CHARS = 300;
+
+/**
+ * A short reason for a failed Self-check call that is safe to store in the
+ * Compliance Note and the section summary, and to log. It keeps the Summary
+ * rejection clause, validation paths and codes, or a fixed description of the
+ * failure kind. It never copies model text or provider messages.
+ */
+export function selfCheckFailureDiagnostic(error: unknown): string {
+  let diagnostic: string;
+  if (error instanceof SummarySelfCheckRejection) {
+    diagnostic = error.diagnostic;
+  } else if (error instanceof StructuredValidationError) {
+    diagnostic = `response failed validation: ${error.issues
+      .slice(0, 3)
+      .map((issue) => issue.message
+        ? `${issue.path} ${issue.message}`
+        : `${issue.path} ${issue.code}`)
+      .join("; ")}`;
+  } else if (error instanceof MalformedOutputError) {
+    diagnostic = "tool output was not valid JSON";
+  } else if (error instanceof SeedContextLimitError) {
+    diagnostic = `request refused before the call: ${error.limit}`;
+  } else if (
+    error instanceof Error &&
+    error.message.endsWith("model did not return structured output")
+  ) {
+    diagnostic = "no tool output";
+  } else {
+    diagnostic = "no response to check";
+  }
+  return diagnostic.length > MAX_SELF_CHECK_DIAGNOSTIC_CHARS
+    ? `${diagnostic.slice(0, MAX_SELF_CHECK_DIAGNOSTIC_CHARS - 1)}…`
+    : diagnostic;
 }
 
 function exactPlanParagraphIndex(
