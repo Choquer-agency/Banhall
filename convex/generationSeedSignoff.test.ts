@@ -3719,6 +3719,97 @@ describe("seed Summary sign-off and recovery", () => {
     )).toBe(true);
   });
 
+  it("gives the one repair the unclipped guidance while storing only the clipped text", async () => {
+    const s = await decisionFixture();
+    await makeReady(s);
+    await s.writer.mutation(api.generations.signOffSeedStage, {
+      generationId: s.generationId,
+      expectedSeedStageVersion: 0,
+    });
+    const planReason =
+      "The section never names the signed-off advancement, and paragraph 1 only describes the method without its outcome.";
+    const planGuidance =
+      "Add one sentence to paragraph 1 that names the signed-off advancement and states the measured outcome, keeping the existing method description unchanged.";
+    const ordinaryReason =
+      "Paragraph 1 describes routine testing instead of the uncertainty the Storyline says the team pursued, so the Storyline is not reflected.";
+    let repairedItemId: string | undefined;
+    network.create.mockImplementation(async (params: GenerationMessageParams) => {
+      if (!params.tool_choice) {
+        return {
+          content: [{
+            type: "text",
+            text: providerUser(params).includes("Self-check repair")
+              ? "The repaired technical work and results were recorded."
+              : "Technical work and results were recorded.",
+          }],
+          usage: { input_tokens: 10, output_tokens: 5 },
+        };
+      }
+      const checks = providerPlanChecks(params);
+      repairedItemId = checks.find((check) => check.itemId && !check.confirmedExclusion)?.itemId;
+      return {
+        content: [{
+          type: "tool_use",
+          id: "unclipped-repair",
+          name: params.tool_choice.name,
+          input: {
+            verdicts: providerOrdinaryVerdicts(params).map((verdict, index) =>
+              index === 0
+                ? { ...verdict, outcome: "not_applied", reason: ordinaryReason }
+                : verdict),
+            planVerdicts: checks.map((check) => ({
+              ...(check.itemId ? { itemId: check.itemId } : {}),
+              ...(check.skippedRoleId ? { skippedRoleId: check.skippedRoleId } : {}),
+              mergedItemIds: [...check.mergedItemIds],
+              paragraph: 1,
+              ...(check.itemId === repairedItemId
+                ? { outcome: "not_applied", reason: planReason, repairGuidance: planGuidance }
+                : check.confirmedExclusion
+                  ? { outcome: "not_applied", reason: "Confirmed conflict." }
+                  : { outcome: "applied", reason: "Covered." }),
+            })),
+          },
+        }],
+        usage: { input_tokens: 10, output_tokens: 5 },
+      };
+    });
+    expect(utf8Bytes(planGuidance)).toBeGreaterThan(96);
+    expect(utf8Bytes(planReason)).toBeGreaterThan(64);
+    expect(utf8Bytes(ordinaryReason)).toBeGreaterThan(64);
+
+    await runNextSectionAction(s, s.generationId);
+    expect(repairedItemId).toBeDefined();
+    const requests = network.create.mock.calls.map(([params]) =>
+      params as GenerationMessageParams);
+    expect(requests.filter((params) =>
+      params.tool_choice?.name === "submit_self_check")).toHaveLength(1);
+    const repairs = requests.filter((params) =>
+      !params.tool_choice && providerUser(params).includes("Self-check repair"));
+    expect(repairs).toHaveLength(1);
+    // The repair works from the model's whole instruction, not a fragment.
+    expect(providerUser(repairs[0]!)).toContain(planGuidance);
+    expect(providerUser(repairs[0]!)).toContain(`Paragraph 1: ${ordinaryReason}`);
+
+    const rows = await s.t.run(async (ctx) =>
+      await ctx.db.query("complianceNotes")
+        .withIndex("by_generationId_and_section", (q) =>
+          q.eq("generationId", s.generationId).eq("section", "246"))
+        .take(30));
+    const planRow = rows.find((row) => row.planRef?.itemId === repairedItemId);
+    expect(planRow).toMatchObject({ outcome: "not_applied", repaired: true });
+    expect(planRow?.reason.endsWith("…")).toBe(true);
+    expect(utf8Bytes(planRow?.reason ?? "")).toBeLessThanOrEqual(64);
+    const ordinaryRow = rows.find((row) =>
+      row.source === "model" && row.instruction === "Storyline" && !row.planRef);
+    expect(ordinaryRow?.reason).toMatch(/^Paragraph 1 describes routine testing[^;]*…; repaired/);
+    // Stored text stays clipped: the whole wording lives only in the request.
+    for (const row of rows) {
+      expect(row.reason).not.toContain(planGuidance.slice(40));
+      expect(row.reason).not.toContain(planReason.slice(60));
+      expect(row.reason).not.toContain(ordinaryReason.slice(80));
+    }
+  });
+
   it("keeps deterministic repair eligible when the Summary Self-check is unavailable", async () => {
     const s = await decisionFixture();
     await makeReady(s);

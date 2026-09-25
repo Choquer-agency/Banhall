@@ -60,6 +60,12 @@ import {
 
 const MODEL_CHECKS = ["storyline", "confidence", "glossary", "instruction"] as const;
 
+/**
+ * Summary only, in memory only: a verdict's free text as the model sent it,
+ * kept when clipping shortened it so the one repair call can use the whole
+ * instruction. Bounded by the raw response limit; never stored.
+ */
+type UnclippedFreeText = { reason: string; repairGuidance?: string };
 type RawVerdict = {
   paragraph: number;
   check: ModelCheckKind;
@@ -67,6 +73,7 @@ type RawVerdict = {
   outcome: "applied" | "not_applied";
   reason: string;
   repairGuidance?: string;
+  unclipped?: UnclippedFreeText;
 };
 type RawStorylineQuestion = {
   question: string;
@@ -92,6 +99,7 @@ type RawPlanVerdict = {
   outcome: "applied" | "not_applied";
   reason: string;
   repairGuidance?: string;
+  unclipped?: UnclippedFreeText;
 };
 
 const verdictsOutputSchema = z
@@ -187,6 +195,9 @@ const decodedSummaryPlanSelfCheckOutputSchema = z.object({
  * reserved. Labels, ids, counts and paragraphs are never clipped: the
  * completeness assertion still rejects them.
  *
+ * A verdict whose reason or guidance was clipped also keeps its text as sent,
+ * in memory only, so the one repair call works from the whole instruction.
+ *
  * A Storyline question with any clipped field is still clipped here, so the
  * completeness assertion checks it as before, but it is marked: its
  * alternative can replace the whole Storyline, so runModelSelfCheck withholds
@@ -194,10 +205,27 @@ const decodedSummaryPlanSelfCheckOutputSchema = z.object({
  */
 export function clipSummarySelfCheckFreeText(raw: RawSelfCheck): RawSelfCheck {
   const clip = (value: string, maximum: number) => clipJsonEscapedUtf8(value, maximum);
-  const guidance = (value: string | undefined) =>
-    value === undefined
-      ? {}
-      : { repairGuidance: clip(value, MAX_SUMMARY_SELF_CHECK_GUIDANCE_ESCAPED_UTF8_BYTES) };
+  const freeText = <T extends { reason: string; repairGuidance?: string }>(verdict: T) => {
+    const reason = clip(verdict.reason, MAX_SUMMARY_SELF_CHECK_REASON_ESCAPED_UTF8_BYTES);
+    const repairGuidance = verdict.repairGuidance === undefined
+      ? undefined
+      : clip(verdict.repairGuidance, MAX_SUMMARY_SELF_CHECK_GUIDANCE_ESCAPED_UTF8_BYTES);
+    const unclipped: UnclippedFreeText | undefined =
+      reason !== verdict.reason || repairGuidance !== verdict.repairGuidance
+        ? {
+            reason: verdict.reason,
+            ...(verdict.repairGuidance === undefined
+              ? {}
+              : { repairGuidance: verdict.repairGuidance }),
+          }
+        : undefined;
+    return {
+      ...verdict,
+      reason,
+      ...(repairGuidance === undefined ? {} : { repairGuidance }),
+      ...(unclipped ? { unclipped } : {}),
+    };
+  };
   const question = raw.storylineQuestion;
   const questionClipped = question
     ? [
@@ -216,20 +244,8 @@ export function clipSummarySelfCheckFreeText(raw: RawSelfCheck): RawSelfCheck {
     : "";
   return {
     ...raw,
-    verdicts: raw.verdicts.map((verdict) => ({
-      ...verdict,
-      reason: clip(verdict.reason, MAX_SUMMARY_SELF_CHECK_REASON_ESCAPED_UTF8_BYTES),
-      ...guidance(verdict.repairGuidance),
-    })),
-    ...(raw.planVerdicts
-      ? {
-          planVerdicts: raw.planVerdicts.map((verdict) => ({
-            ...verdict,
-            reason: clip(verdict.reason, MAX_SUMMARY_SELF_CHECK_REASON_ESCAPED_UTF8_BYTES),
-            ...guidance(verdict.repairGuidance),
-          })),
-        }
-      : {}),
+    verdicts: raw.verdicts.map(freeText),
+    ...(raw.planVerdicts ? { planVerdicts: raw.planVerdicts.map(freeText) } : {}),
     ...(question
       ? {
           storylineQuestion: {
@@ -436,8 +452,25 @@ export type ModelSelfCheckResult = {
     repairGuidance?: string;
     /** False when a local evidence downgrade is not a prose defect. */
     actionableRepair?: boolean;
+    /** In memory only: see ModelVerdict.repairText. Never stored. */
+    repairText?: string;
   }>;
 };
+
+/**
+ * Summary only: the text the one repair call should use for a `not_applied`
+ * verdict whose reason or guidance was clipped, when it differs from the
+ * stored `stored` text. Kept in memory only; bounded by the raw response limit.
+ */
+function unclippedRepairText(
+  verdict: { outcome: "applied" | "not_applied"; unclipped?: UnclippedFreeText } | undefined,
+  stored: string
+): string | undefined {
+  if (verdict?.outcome !== "not_applied" || !verdict.unclipped) return undefined;
+  const full =
+    verdict.unclipped.repairGuidance?.trim() || verdict.unclipped.reason.trim();
+  return full && full !== stored ? full : undefined;
+}
 
 function boundedEscaped(value: string, maximum: number): boolean {
   return jsonEscapedUtf8Bytes(value) <= maximum;
@@ -743,23 +776,32 @@ export async function runModelSelfCheck(
   }
   const verdicts: ModelVerdict[] = raw.verdicts
     .slice(0, SELF_CHECK_REQUEST.maxVerdicts)
-    .map((verdict) => ({
-      paragraphIndex: hasSummaryPlan
-        ? verdict.paragraph === 0
-          ? undefined
-          : verdict.paragraph - 1
-        : clampParagraph(verdict.paragraph, count, true),
-      check: verdict.check,
-      instruction: hasSummaryPlan
-        ? ordinaryChecks.find((check) => check.label === verdict.instruction)?.instruction ??
-          `${verdict.check} check`
-        : verdict.instruction.trim() || `${verdict.check} check`,
-      outcome: verdict.outcome,
-      reason: verdict.reason.trim(),
-      ...(verdict.repairGuidance?.trim()
-        ? { repairGuidance: verdict.repairGuidance.trim() }
-        : {}),
-    }));
+    .map((verdict) => {
+      const repairText = hasSummaryPlan
+        ? unclippedRepairText(
+            verdict,
+            verdict.repairGuidance?.trim() || verdict.reason.trim()
+          )
+        : undefined;
+      return {
+        paragraphIndex: hasSummaryPlan
+          ? verdict.paragraph === 0
+            ? undefined
+            : verdict.paragraph - 1
+          : clampParagraph(verdict.paragraph, count, true),
+        check: verdict.check,
+        instruction: hasSummaryPlan
+          ? ordinaryChecks.find((check) => check.label === verdict.instruction)?.instruction ??
+            `${verdict.check} check`
+          : verdict.instruction.trim() || `${verdict.check} check`,
+        outcome: verdict.outcome,
+        reason: verdict.reason.trim(),
+        ...(verdict.repairGuidance?.trim()
+          ? { repairGuidance: verdict.repairGuidance.trim() }
+          : {}),
+        ...(repairText ? { repairText } : {}),
+      };
+    });
   // A clipped Storyline question is withheld: "Use the section's evidence"
   // would make its shortened alternative the whole Storyline. The coverage
   // verdicts above are complete and stay.
@@ -784,6 +826,13 @@ export async function runModelSelfCheck(
         : undefined;
       const applied = verdict?.outcome === "applied" && paragraphIndex !== undefined;
       const evidenceDowngraded = verdict?.outcome === "applied" && !applied;
+      // Only a model not_applied verdict repairs, and it is never downgraded.
+      const repairText = unclippedRepairText(
+        verdict,
+        verdict?.repairGuidance?.trim() ||
+          verdict?.reason.trim() ||
+          "Plan verdict was not applied."
+      );
       return {
         ...(expected.itemId ? { itemId: expected.itemId } : {}),
         ...(expected.skippedRoleId ? { skippedRoleId: expected.skippedRoleId } : {}),
@@ -804,6 +853,7 @@ export async function runModelSelfCheck(
           : verdict?.outcome === "not_applied"
             ? { actionableRepair: true }
             : {}),
+        ...(repairText ? { repairText } : {}),
       };
     }),
     storylineQuestion: question?.question.trim()

@@ -1752,6 +1752,48 @@ describe("Summary plan coverage replay (recorded Opus 244 case)", () => {
     }
   );
 
+  it("keeps clipped repair text in memory for the repair and stores only the clipped text", async () => {
+    const longGuidance =
+      "Add one sentence to paragraph 2 that names the silane primer and the 2-hour 40°C hold, and keep the rest of the paragraph as it is.";
+    const shortGuidance = "Name the primer in paragraph 2.";
+    const response = replayResponse();
+    const recorded = planCoverageReplay.recordedReasons;
+    const longReason = recorded.find((reason) =>
+      jsonEscapedUtf8Bytes(reason) > MAX_SUMMARY_SELF_CHECK_REASON_ESCAPED_UTF8_BYTES) ?? "";
+    expect(jsonEscapedUtf8Bytes(longGuidance))
+      .toBeGreaterThan(MAX_SUMMARY_SELF_CHECK_GUIDANCE_ESCAPED_UTF8_BYTES);
+    Object.assign(response.planVerdicts[0], {
+      outcome: "not_applied",
+      reason: longReason,
+      repairGuidance: longGuidance,
+    });
+    Object.assign(response.planVerdicts[1], {
+      outcome: "not_applied",
+      reason: longReason,
+      repairGuidance: shortGuidance,
+    });
+    Object.assign(response.verdicts[1], { outcome: "not_applied", reason: longReason });
+    const result = await runModelSelfCheck(
+      replayClient(response) as GenerationClient,
+      replayInput()
+    );
+
+    const [clipped, inLimit, applied] = result.planVerdicts;
+    expect(clipped?.repairGuidance?.endsWith("…")).toBe(true);
+    expect(jsonEscapedUtf8Bytes(clipped?.repairGuidance ?? ""))
+      .toBeLessThanOrEqual(MAX_SUMMARY_SELF_CHECK_GUIDANCE_ESCAPED_UTF8_BYTES);
+    expect(clipped?.repairText).toBe(longGuidance);
+    // In-limit guidance is what the repair uses, so no copy is kept.
+    expect(inLimit?.repairGuidance).toBe(shortGuidance);
+    expect(inLimit).not.toHaveProperty("repairText");
+    expect(applied?.outcome).toBe("applied");
+    expect(applied).not.toHaveProperty("repairText");
+    // An ordinary verdict without guidance repairs from its whole reason.
+    expect(result.verdicts[1]?.reason.endsWith("…")).toBe(true);
+    expect(result.verdicts[1]?.repairText).toBe(longReason.trim());
+    expect(result.verdicts[0]).not.toHaveProperty("repairText");
+  });
+
   it("keeps an in-limit Storyline question exactly as the model wrote it", async () => {
     const response = { ...replayResponse(), storylineQuestion: REPLAY_QUESTION };
     const client = replayClient(response);

@@ -41,6 +41,11 @@ export type ModelVerdict = {
   outcome: "applied" | "not_applied";
   reason: string;
   repairGuidance?: string;
+  /**
+   * Summary only, in memory only: the unclipped guidance or reason the one
+   * repair call uses when clipping shortened the stored text. Never stored.
+   */
+  repairText?: string;
 };
 
 /** One finding from the assembled-draft consistency pass. */
@@ -419,7 +424,7 @@ export function repairIssues(
     .map((entry) => entry.guidance ?? entry.row.reason);
   for (const verdict of verdicts) {
     if (verdict.outcome !== "not_applied") continue;
-    const fix = verdict.repairGuidance?.trim() || verdict.reason;
+    const fix = verdict.repairText ?? (verdict.repairGuidance?.trim() || verdict.reason);
     const where =
       verdict.paragraphIndex === undefined
         ? "Whole section"

@@ -445,7 +445,7 @@ async function draftCheckedSection(input: {
         return verdict.outcome === "not_applied" &&
           verdict.actionableRepair !== false &&
           !expected?.confirmedExclusion
-          ? [verdict.repairGuidance ?? verdict.reason]
+          ? [verdict.repairText ?? verdict.repairGuidance ?? verdict.reason]
           : [];
       })
     : [];
