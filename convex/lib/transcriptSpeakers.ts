@@ -99,12 +99,35 @@ function collectStats(turns: readonly TranscriptTurn[]): Stats[] {
   return [...byLabel.values()].sort((a, b) => a.firstIndex - b.firstIndex);
 }
 
+const HONORIFICS = ["dr", "mr", "mrs", "ms", "prof"];
+
 /**
- * Whether a label names this person by more than one word ("Dana Whitfield",
- * "Whitfield, Dana"), not a first name alone.
+ * A name's parts, split at spaces and commas but not hyphens: a compound
+ * given name ("Jean-Philippe") is one part. Case, accents, hyphens and
+ * apostrophes are normalized; initials ("W.") and honorifics are dropped.
+ */
+function nameParts(name: string): string[] {
+  return name
+    .toLowerCase()
+    .normalize("NFKD")
+    .replace(/[̀-ͯ]/g, "")
+    .split(/[^\p{L}\p{N}'’‐‑-]+/u)
+    .map((part) => part.replace(/['’‐‑-]/g, ""))
+    .filter((part) => part.length >= 2 && !HONORIFICS.includes(part));
+}
+
+/**
+ * Whether a label names this person in full ("Dana Whitfield", "Whitfield,
+ * Dana"): the label and the name both have at least two parts, and every
+ * part of the name is in the label. A given name alone ("Jean-Philippe" or
+ * "Mary Anne" for Jean-Philippe Roy or Mary Anne Smith) is not, and a
+ * one-word name ("Dana", "Dana W.") never matches in full (fix-e review
+ * P2-1).
  */
 function labelNamesPersonFully(label: string, name: string): boolean {
-  return tokens(label).length >= 2 && labelNamesPerson(label, name);
+  const labelParts = nameParts(label);
+  const parts = nameParts(name);
+  return labelParts.length >= 2 && parts.length >= 2 && parts.every((part) => labelParts.includes(part));
 }
 
 /** A roster match on a first name alone: a guess below the model threshold. */
