@@ -296,7 +296,7 @@ describe("BriefRail", () => {
     const { container } = await render(BriefRail, rail);
     expect(page.getByRole("button", { name: "Use the section's evidence" }).elements()).toHaveLength(0);
     expect(container.querySelector("[data-question-alternative-clipped]")?.textContent).toContain(
-      "This suggestion was cut short, so it can't replace your Storyline."
+      "The suggested new Storyline was cut short, so it can't replace yours."
     );
     await page.getByRole("button", { name: "Keep the Storyline" }).click();
     expect(rail.onResolveQuestion).toHaveBeenCalledWith(

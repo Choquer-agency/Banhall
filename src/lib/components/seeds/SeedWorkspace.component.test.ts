@@ -492,7 +492,9 @@ describe("Seed workspace", () => {
     await expect.poll(() => notice()?.textContent).toContain(
       "The transcript analysis was too long to finish. Your work is saved. Try again to run a shorter analysis before you sign off."
     );
-    expect(notice()?.getAttribute("role")).toBe("status");
+    expect(
+      document.querySelector("[data-workspace-drafting-inputs-announcement]")?.textContent
+    ).toContain("The transcript analysis was too long to finish.");
     document.querySelector<HTMLButtonElement>("[data-workspace-drafting-retry]")?.click();
     await expect.poll(() => __mutationCalls("generations:retryDraftingInputs")).toEqual([{ generationId }]);
 
@@ -541,6 +543,28 @@ describe("Seed workspace", () => {
     await render(SeedWorkspace, workspaceProps());
     await expect.element(page.getByRole("region", { name: "Seed workspace" })).toBeVisible();
     expect(document.querySelector("[data-workspace-drafting-inputs]")).toBeNull();
+  });
+
+  it("announces an analysis failure through a live region that was already on the page", async () => {
+    __setQueryData("seeds:getOutline", { ...outline(), draftingInputs: { status: "preparing" } });
+    __setQueryData("seeds:getSubsection", subsection());
+    await render(SeedWorkspace, workspaceProps());
+    await expect.element(page.getByRole("region", { name: "Seed workspace" })).toBeVisible();
+    const announcement = document.querySelector<HTMLElement>("[data-workspace-drafting-inputs-announcement]");
+    expect(announcement?.getAttribute("aria-live")).toBe("polite");
+    expect(announcement?.textContent).toBe("");
+
+    __setQueryData("seeds:getOutline", {
+      ...outline(),
+      draftingInputs: { status: "failed", failureCode: "network" },
+    });
+    await expect.poll(() => announcement?.textContent).toBe(
+      "We couldn't finish reading the transcript for drafting. Your work is saved. Try again before you sign off."
+    );
+    // The same node, not a new one inserted with its text.
+    expect(document.querySelector("[data-workspace-drafting-inputs-announcement]")).toBe(announcement);
+    // The visible notice is not a second live region, so it is not read twice.
+    expect(document.querySelector("[data-workspace-drafting-inputs=failed]")?.getAttribute("role")).toBeNull();
   });
 
   it("opens the saved role and records the displayed Batch once", async () => {

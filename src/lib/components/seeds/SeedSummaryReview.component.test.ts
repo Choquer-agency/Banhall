@@ -365,7 +365,10 @@ describe("Seed Summary Review", () => {
     await expect.poll(() => notice()?.textContent).toContain(
       "We couldn't finish reading the transcript for drafting. Your work is saved. Try again before you sign off."
     );
-    expect(notice()?.getAttribute("role")).toBe("status");
+    expect(notice()?.getAttribute("role")).toBeNull();
+    expect(document.querySelector("[data-summary-drafting-inputs-announcement]")?.textContent).toBe(
+      "We couldn't finish reading the transcript for drafting. Your work is saved. Try again before you sign off."
+    );
     await expect.element(page.getByText("Transcript analysis needs another try", { exact: true })).toBeVisible();
     await expect.element(signOffButton()).toBeDisabled();
 
@@ -375,6 +378,7 @@ describe("Seed Summary Review", () => {
     // The retry is running again: the calm preparing state replaces the notice.
     __setQueryData("seeds:getOutline", outline(true, true, 12, generationId, "preparing"));
     await expect.poll(() => notice()).toBeNull();
+    expect(document.querySelector("[data-summary-drafting-inputs-announcement]")?.textContent).toBe("");
     await expect.poll(() => document.querySelector("[data-summary-status=preparing]")).not.toBeNull();
     await expect.element(signOffButton()).toBeDisabled();
   });
