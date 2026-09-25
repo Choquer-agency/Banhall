@@ -1818,7 +1818,7 @@
       {/snippet}
     </ProjectTopBar>
 
-    <div data-project-card class="mb-2 mr-2 flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-workspace-rail-line bg-surface max-xl:ml-2">
+    <div data-project-card class="mx-3 mb-3 flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-workspace-rail-line bg-surface">
       <PanelToolbar
         tabs={panelTabs}
         {activeTab}

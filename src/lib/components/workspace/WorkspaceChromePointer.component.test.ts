@@ -48,7 +48,7 @@ describe("WorkspaceChrome pointer contexts", () => {
     const rows = Array.from(drawer.querySelectorAll<HTMLElement>(".workspace-rail-row"));
     expect(rows.length).toBeGreaterThanOrEqual(2);
     await expect.poll(() => rows.map((row) => row.getBoundingClientRect().height))
-      .toEqual(rows.map(() => pointer === "coarse" ? 44 : 28));
+      .toEqual(rows.map(() => pointer === "coarse" ? 44 : 32));
     await browserPage.getByRole("button", { name: "Close workspace navigation", exact: true }).click();
     await expect.poll(() => drawer.isConnected).toBe(false);
   });

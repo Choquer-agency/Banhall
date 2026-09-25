@@ -19,11 +19,13 @@
   /* Attio-informed workspace chrome. These are intentionally separate from
      the public-app shell tokens: the product rail is a pale, flat navigation
      surface while fir remains the identity and action colour. */
-  --color-workspace-rail: #FBFBFB;
+  /* Boards 1.1 and 1.2 (ui-design-final.md section 2): the rail and the frame
+     around the work panel share the gray-50 wash; the panel is white. */
+  --color-workspace-rail: #F3F7F6;
   --color-workspace-subrail: #F7F8FA;
   --color-workspace-subrail-hover: #EEF0F3;   /* second rail (page sub-nav): near-rail gray, subtly off the white content (Linear/Notion settings pattern) */
-  --color-workspace-rail-line: #EEEFF1;
-  --color-workspace-rail-hover: #F5F5F5;
+  --color-workspace-rail-line: #E9F0EF;
+  --color-workspace-rail-hover: #EDF3F2;
   --color-workspace-rail-selected: #E9F1EF;
   --color-workspace-control: #FFFFFF;
   --shadow-workspace-control: 0 0 0 1px inset rgb(0 0 0 / 0), 0 0 2px rgb(28 40 64 / 0.18), 0 1px 3px rgb(0 0 0 / 0.04);

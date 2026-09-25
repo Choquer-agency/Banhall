@@ -64,10 +64,9 @@ describe("WorkspaceRail", () => {
     const myWork = navLink("Home");
     expect(projects?.getAttribute("aria-current")).toBe("page");
     expect(projects?.className).toContain("bg-workspace-rail-selected");
-    // Final UI type rule: weight tops out at 500.
-    expect(projects?.className).toContain("font-medium");
+    // Board 1.1: the active row is the #E9F1EF wash with fir ink, regular weight.
     expect(projects?.className).not.toContain("font-semibold");
-    expect(projects?.className).toContain("text-ink");
+    expect(projects?.className).toContain("text-fir");
     expect(projects?.className).toContain("rounded-md");
     expect(projects?.className).not.toContain("text-primary");
     expect(myWork?.getAttribute("aria-current")).toBeNull();
@@ -202,7 +201,8 @@ describe("WorkspaceRail", () => {
     expect(document.querySelector("[data-rail-flag-issue]")).not.toBeNull();
     expect(navLink("Settings")?.getAttribute("href")).toBe("/settings");
     expect(document.querySelector('button[aria-label="Sign out"]')).not.toBeNull();
-    expect(document.querySelector("[data-rail-account-actions]")?.className).toContain("rounded-md");
+    // Board 1.1: a 44px identity row under a hairline.
+    expect(document.querySelector("[data-rail-account-actions]")?.className).toContain("h-11");
   });
 
   it("shows developer utilities directly for flagged accounts without an accordion", async () => {
@@ -246,9 +246,9 @@ describe("WorkspaceRail", () => {
 
     const home = navLink("Home");
     expect(home?.className).toContain("workspace-rail-row");
-    expect(home?.className).toContain(variant === "drawer" ? "min-h-11" : "h-7");
+    expect(home?.className).toContain(variant === "drawer" ? "min-h-11" : "h-8");
     expect(home).toBeDefined();
-    expect(home!.getBoundingClientRect().height).toBe(variant === "drawer" ? 44 : 28);
+    expect(home!.getBoundingClientRect().height).toBe(variant === "drawer" ? 44 : 32);
     try {
       await cdp().send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-reduced-motion", value: "no-preference" }] });
       expect(window.matchMedia("(prefers-reduced-motion: no-preference)").matches).toBe(true);

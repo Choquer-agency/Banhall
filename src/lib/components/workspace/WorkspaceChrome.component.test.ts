@@ -35,7 +35,8 @@ describe("WorkspaceChrome", () => {
     const main = root.querySelector<HTMLElement>("main")!;
     const aside = root.querySelector<HTMLElement>("aside")!;
     expect(Math.round(root.getBoundingClientRect().height)).toBe(window.innerHeight);
-    expect(getComputedStyle(aside).backgroundColor).toBe("rgb(251, 251, 251)");
+    // Board 1.1: the rail shares the gray-50 wash (#F3F7F6).
+    expect(getComputedStyle(aside).backgroundColor).toBe("rgb(243, 247, 246)");
     expect(main.scrollHeight).toBeGreaterThan(main.clientHeight);
     main.scrollTop = 300;
     expect(main.scrollTop).toBeGreaterThan(0);

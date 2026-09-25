@@ -288,7 +288,7 @@
               <div class="h-[26px] w-[26px] animate-pulse rounded-md bg-chrome motion-reduce:animate-none"></div>
               <div class="h-4 w-24 animate-pulse rounded bg-chrome motion-reduce:animate-none"></div>
             </div>
-            <div class="mb-2 mr-2 flex-1 rounded-xl border border-workspace-rail-line bg-surface p-6 max-xl:ml-2">
+            <div class="mx-3 mb-3 flex-1 rounded-xl border border-workspace-rail-line bg-surface p-6">
               <div class="h-[26px] w-32 animate-pulse rounded-md bg-chrome motion-reduce:animate-none"></div>
               <div class="mt-6 h-32 animate-pulse rounded-lg bg-chrome/40 motion-reduce:animate-none"></div>
             </div>

@@ -59,7 +59,7 @@
     "flex size-8 shrink-0 items-center justify-center rounded-lg text-ink-secondary transition-colors hover:bg-primary-wash hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir data-[state=open]:bg-primary-wash pointer-coarse:size-11";
 </script>
 
-<header data-workspace-page-header class="flex h-14 shrink-0 items-center gap-2 px-3 sm:px-4">
+<header data-workspace-page-header class="flex h-14 shrink-0 items-center gap-2 px-3 sm:px-5">
   <!-- Phone (board 3.6): a back chevron to Projects replaces the menu button
        and the breadcrumb; from 640px the workspace controls return. -->
   <a

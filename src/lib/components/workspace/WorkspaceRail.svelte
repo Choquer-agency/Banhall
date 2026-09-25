@@ -103,21 +103,22 @@
   // primary and utility navigation without opening into an overfull column.
   let adminOpen = $state(untrack(() => variant === "rail"));
 
-  // Attio-density: 28px rows on desktop, 44px minimum in the touch drawer.
+  // Board 1.1: 32px rows on desktop, 44px minimum in the touch drawer.
   // A drawer opened in a narrow desktop window returns to the compact rail
   // rhythm through the fine-pointer media rule below.
   // Labels carry translate-y-[0.5px]: Geist caps sit ~0.5px above the
   // 16px Phosphor glyphs when both are flex-centred, which reads as text
   // floating high. Measured at 1x and 2x DPR (2026-08-22).
-  const rowHeight = $derived(variant === "rail" ? "h-7" : "min-h-11");
+  // Board 1.1: 32px rows, 13px labels in secondary ink, 15px icons.
+  const rowHeight = $derived(variant === "rail" ? "h-8" : "min-h-11");
   const rowBase = $derived(
-    `${rowHeight} workspace-rail-row flex w-full items-center gap-2 rounded-md pl-2 pr-1 [&>svg]:shrink-0 text-left text-sm font-normal leading-5 tracking-[-0.01em] transition-colors duration-150 ease-out focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir motion-reduce:transition-none`
+    `${rowHeight} workspace-rail-row flex w-full items-center gap-2 rounded-md pl-2 pr-1 [&>svg]:shrink-0 text-left text-[13px] font-normal leading-[19px] transition-colors duration-150 ease-out focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir motion-reduce:transition-none`
   );
   // Collapsed rail (board 1.2): 32px icon tiles with a tooltip each.
   const iconRow =
-    "workspace-rail-row relative flex h-8 w-8 items-center justify-center rounded-md transition-colors duration-150 ease-out focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir motion-reduce:transition-none";
-  const idleRow = "text-ink hover:bg-workspace-rail-hover";
-  const selectedRow = "bg-workspace-rail-selected font-medium text-ink";
+    "workspace-rail-row relative flex h-[34px] w-[34px] items-center justify-center rounded-[7px] transition-colors duration-150 ease-out focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir motion-reduce:transition-none";
+  const idleRow = "text-ink-secondary hover:bg-workspace-rail-hover hover:text-ink";
+  const selectedRow = "bg-workspace-rail-selected text-fir";
 
   const ADMIN_LINKS = [
     { href: "/admin/brain", label: "The Brain", icon: "brain", tone: "bg-blue-500" },
@@ -158,7 +159,7 @@
           >
             {@render icon()}
             {#if opts.badge}
-              <span class={`absolute -right-0.5 -top-0.5 flex h-3.5 min-w-3.5 items-center justify-center rounded-full px-0.5 text-[0.5625rem] font-medium leading-none text-white ${opts.badgeTone ?? "bg-primary"}`}>{opts.badge}</span>
+              <span class={`absolute right-0 top-0 flex h-[15px] min-w-[15px] items-center justify-center rounded-full px-1 text-[9px] font-medium leading-none text-white ${opts.badgeTone ?? "bg-primary-selected"}`}>{opts.badge}</span>
             {/if}
           </a>
         {:else}
@@ -187,7 +188,7 @@
       {@render icon()}
       <span class="min-w-0 translate-y-[0.5px] truncate">{opts.label}</span>
       {#if opts.badge}
-        <span class={`ml-auto flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full px-1 text-[0.625rem] font-medium leading-none text-white ${opts.badgeTone ?? "bg-primary"}`}>{opts.badge}</span>
+        <span class={`ml-auto flex h-[18px] min-w-5 shrink-0 items-center justify-center rounded-full px-1.5 text-[10px] font-medium leading-3 text-white ${opts.badgeTone ?? "bg-primary-selected"}`}>{opts.badge}</span>
       {/if}
     </a>
   {:else}
@@ -198,14 +199,14 @@
   {/if}
 {/snippet}
 
-{#snippet houseIcon()}<HouseIcon size={16} weight="regular" aria-hidden="true" />{/snippet}
-{#snippet folderIcon()}<FolderSimpleIcon size={16} weight="regular" aria-hidden="true" />{/snippet}
-{#snippet megaphoneIcon()}<MegaphoneIcon size={16} weight="regular" aria-hidden="true" />{/snippet}
-{#snippet gearIcon()}<GearSixIcon size={16} weight="regular" aria-hidden="true" />{/snippet}
-{#snippet flagIcon()}<FlagIcon size={16} weight="regular" aria-hidden="true" />{/snippet}
-{#snippet bellIcon()}<BellIcon size={16} weight="regular" aria-hidden="true" />{/snippet}
-{#snippet bulbIcon()}<LightbulbIcon size={16} weight="regular" aria-hidden="true" />{/snippet}
-{#snippet escapeIcon()}<ArrowSquareOutIcon size={16} weight="regular" aria-hidden="true" />{/snippet}
+{#snippet houseIcon()}<HouseIcon size={collapsed ? 17 : 15} weight="regular" aria-hidden="true" />{/snippet}
+{#snippet folderIcon()}<FolderSimpleIcon size={collapsed ? 17 : 15} weight="regular" aria-hidden="true" />{/snippet}
+{#snippet megaphoneIcon()}<MegaphoneIcon size={collapsed ? 17 : 15} weight="regular" aria-hidden="true" />{/snippet}
+{#snippet gearIcon()}<GearSixIcon size={collapsed ? 17 : 15} weight="regular" aria-hidden="true" />{/snippet}
+{#snippet flagIcon()}<FlagIcon size={collapsed ? 17 : 15} weight="regular" aria-hidden="true" />{/snippet}
+{#snippet bellIcon()}<BellIcon size={collapsed ? 17 : 15} weight="regular" aria-hidden="true" />{/snippet}
+{#snippet bulbIcon()}<LightbulbIcon size={collapsed ? 17 : 15} weight="regular" aria-hidden="true" />{/snippet}
+{#snippet escapeIcon()}<ArrowSquareOutIcon size={collapsed ? 17 : 15} weight="regular" aria-hidden="true" />{/snippet}
 
 <nav
   aria-label="Workspace"
@@ -223,9 +224,9 @@
           class="flex min-w-0 flex-1 items-center gap-2 rounded-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-fir"
           class:flex-none={collapsed}
         >
-          <span data-rail-workspace-mark class="flex h-7 w-7 shrink-0 items-center justify-center rounded-[6px] bg-fir text-[0.75rem] font-medium text-white" aria-hidden="true">B</span>
+          <span data-rail-workspace-mark class={`flex shrink-0 items-center justify-center bg-fir font-medium text-white ${collapsed ? "h-7 w-7 rounded-[6px] text-[11px] leading-[14px]" : "h-5 w-5 rounded-[5px] text-[10px] leading-3"}`} aria-hidden="true">B</span>
           {#if !collapsed}
-            <span class="min-w-0 flex-1 truncate text-sm font-medium text-ink">Banhall</span>
+            <span class="min-w-0 flex-1 truncate text-[13px] font-medium leading-[19px] text-ink">Banhall</span>
           {/if}
         </a>
         {#if !collapsed}
@@ -267,9 +268,9 @@
 
     <div data-rail-scroll class="scrollbar-hidden flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain">
       {#if !collapsed}
-        <p class="px-4 pb-1 pt-1 text-xs text-ink-muted">Workspace</p>
+        <p class="px-4 pb-1 pt-1.5 text-[11px] leading-4 text-ink-muted">Workspace</p>
       {/if}
-      <div class={`flex flex-col gap-1 ${collapsed ? "items-center px-0" : "px-2"}`}>
+      <div class={`flex flex-col ${collapsed ? "items-center gap-1 px-0" : "px-2"}`}>
         {@render row({
           href: myWorkHref,
           label: "Home",
@@ -366,11 +367,11 @@
         <div class="min-h-4 flex-1" aria-hidden="true"></div>
       {/if}
 
-      <div data-rail-utilities class={collapsed ? "mb-1 flex flex-col items-center gap-1" : "mt-5 px-2"}>
+      <div data-rail-utilities class={collapsed ? "mb-1 flex flex-col items-center gap-1" : "px-2"}>
         {#if !collapsed}
-          <p class="px-2 pb-1 text-xs text-ink-muted">Other</p>
+          <p class="px-2 pb-1 pt-4 text-[11px] leading-4 text-ink-muted">Other</p>
         {/if}
-        <div class={`flex flex-col gap-1 ${collapsed ? "items-center" : ""}`}>
+        <div class={`flex flex-col ${collapsed ? "items-center gap-1" : ""}`}>
           {@render row({
             href: resolve("/changelog"),
             label: "What's new",
@@ -427,22 +428,22 @@
     </div>
   </div>
 
-  <div class={`border-t border-workspace-rail-line pt-2 ${collapsed ? "px-0" : "px-2"}`}>
+  <div class={collapsed ? "border-t border-workspace-rail-line px-0 pt-2" : "px-2"}>
     <!-- Identity at the bottom: who is signed in, with sign-out beside it. -->
     <div
       data-rail-account-actions
       data-rail-identity
-      class={`flex items-center rounded-md ${collapsed ? "flex-col gap-1" : "gap-2 pl-1.5"}`}
+      class={`flex items-center ${collapsed ? "flex-col gap-1" : "h-11 gap-2 border-t border-workspace-rail-line pl-1.5"}`}
     >
       <span
         aria-hidden={collapsed ? undefined : "true"}
         title={collapsed ? `${userName}, ${userRole}` : undefined}
-        class="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-fir text-[0.6875rem] font-medium text-white"
+        class={`flex shrink-0 items-center justify-center rounded-full bg-fir font-medium text-white ${collapsed ? "h-7 w-7 text-[0.6875rem]" : "h-6 w-6 text-[10px]"}`}
       >{userInitials}</span>
       {#if !collapsed}
         <span class="min-w-0 flex-1">
-          <span class="block truncate text-sm font-medium leading-4 text-ink">{userName}</span>
-          <span class="block truncate text-[0.6875rem] leading-4 text-ink-muted">{userRole}, Banhall</span>
+          <span class="block truncate text-xs font-medium leading-4 text-ink">{userName}</span>
+          <span class="block truncate text-[10px] leading-[14px] text-ink-secondary">{userRole}, Banhall</span>
         </span>
       {/if}
       <UserMenu
@@ -461,8 +462,8 @@
      devices retain the 44px targets supplied by the base drawer classes. */
   @media (pointer: fine) {
     :global([data-workspace-drawer] .workspace-rail-row) {
-      height: 1.75rem;
-      min-height: 1.75rem;
+      height: 2rem;
+      min-height: 2rem;
     }
   }
 </style>

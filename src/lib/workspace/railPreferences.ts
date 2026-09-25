@@ -7,15 +7,15 @@
  * server-side or domain concern.
  *
  * Contract:
- * - width clamps to [RAIL_MIN_WIDTH, RAIL_MAX_WIDTH]; default 275 (the
- *   authenticated Attio rail's measured width).
+ * - width clamps to [RAIL_MIN_WIDTH, RAIL_MAX_WIDTH]; default 200 (the
+ *   owner-approved rail of ui-design-final.md, boards 1.1 and 1.2).
  * - hidden is independent of width: showing the rail restores the previously
  *   persisted expanded width.
  * - parse is fail-closed: any malformed/foreign value yields the defaults.
  */
 
-export const RAIL_MIN_WIDTH = 240;
-export const RAIL_DEFAULT_WIDTH = 275;
+export const RAIL_MIN_WIDTH = 180;
+export const RAIL_DEFAULT_WIDTH = 200;
 export const RAIL_MAX_WIDTH = 288;
 
 /**
@@ -29,7 +29,13 @@ export const RAIL_COLLAPSED_WIDTH = 56;
 export const RAIL_KEYBOARD_STEP = 8;
 export const RAIL_KEYBOARD_STEP_LARGE = 32;
 
-export const RAIL_PREFERENCES_KEY = "banhall.workspaceRail";
+/**
+ * v2 (2026-09-25): the default width moved from 275px to the boards' 200px.
+ * Every browser had persisted the old default, so widths saved under the
+ * legacy key are dropped; only the collapsed choice carries over.
+ */
+export const RAIL_PREFERENCES_KEY = "banhall.workspaceRail.v2";
+export const LEGACY_RAIL_PREFERENCES_KEY = "banhall.workspaceRail";
 
 export type RailPreferences = {
   /** Expanded rail width in px, always within [min, max]. */
@@ -75,7 +81,12 @@ export function serializeRailPreferences(preferences: RailPreferences): string {
 
 export function loadRailPreferences(): RailPreferences {
   try {
-    return parseRailPreferences(localStorage.getItem(RAIL_PREFERENCES_KEY));
+    const current = localStorage.getItem(RAIL_PREFERENCES_KEY);
+    if (current === null) {
+      const legacy = parseRailPreferences(localStorage.getItem(LEGACY_RAIL_PREFERENCES_KEY));
+      return { width: RAIL_DEFAULT_WIDTH, hidden: legacy.hidden };
+    }
+    return parseRailPreferences(current);
   } catch {
     // Storage blocked (private mode, embedded contexts) — session-only prefs.
     return defaultRailPreferences();
