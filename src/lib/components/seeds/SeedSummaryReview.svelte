@@ -1103,7 +1103,7 @@
         {@const count = blockingRoleIds.length}
         {@const stepLabel = `${count} ${count === 1 ? "step" : "steps"} still open`}
         <div class="flex items-center gap-2.5" data-summary-readiness="blocked">
-          <span class="size-2 shrink-0 rounded-full bg-[#F59E0B]" aria-hidden="true"></span>
+          <span class="size-2 shrink-0 rounded-full bg-stale-dot" aria-hidden="true"></span>
           {#if canOpenStep}
             <button
               type="button"
