@@ -1,10 +1,106 @@
+import { readFileSync } from "node:fs";
+import JSZip from "jszip";
 import { describe, expect, it } from "vitest";
+import { parseTranscriptTurns, prepareTranscriptUpload } from "../../shared/transcriptParse";
 import {
+  docxTranscriptText,
   readPastedTranscript,
   readTranscriptFile,
   transcriptContentHash,
   TranscriptFileError,
 } from "./transcriptUpload";
+
+const CUES = [
+  ["0:0:0.0 --> 0:0:3.520", "Dana Whitfield", "Thanks for joining."],
+  ["0:0:3.520 --> 0:0:9.100", "Priya Shah", "We could not predict flow at the feeder."],
+  ["0:0:9.100 --> 0:0:12.0", "Priya Shah", "So we built a test rig."],
+] as const;
+
+function escapeXml(text: string): string {
+  return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+/** A Word package holding `body` as its document body, as mammoth's Node build reads it. */
+async function docxInput(body: string): Promise<{ buffer: Uint8Array }> {
+  const zip = new JSZip();
+  zip.file(
+    "[Content_Types].xml",
+    `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>`
+  );
+  zip.file(
+    "_rels/.rels",
+    `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>`
+  );
+  zip.file(
+    "word/document.xml",
+    `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>${body}</w:body></w:document>`
+  );
+  return { buffer: await zip.generateAsync({ type: "uint8array" }) };
+}
+
+/**
+ * The cue-timed Teams export as Teams writes it: one paragraph per cue, with
+ * soft line breaks (`w:br`) between the timing, the name and the speech. The
+ * run layout copies a real export (the Apache-2.0 sample in
+ * github.com/endjin/TeamsTranscript, Artefacts/Transcripts/transcript-01.docx).
+ */
+function teamsCueBody(): string {
+  return CUES.map(
+    ([timing, name, speech]) =>
+      `<w:p><w:r><w:t>${escapeXml(timing)}</w:t></w:r><w:r><w:br/><w:t>${escapeXml(name)}</w:t></w:r><w:r><w:br/></w:r><w:r><w:t>${escapeXml(speech)}</w:t></w:r></w:p>`
+  ).join("");
+}
+
+/** The same cues with the timing, the name and the speech each in its own paragraph. */
+function paragraphCueBody(): string {
+  return CUES.flatMap((cue) => cue.map((text) => `<w:p><w:r><w:t>${escapeXml(text)}</w:t></w:r></w:p>`)).join("");
+}
+
+function fixture(name: string): string {
+  return readFileSync(new URL(`../../shared/__fixtures__/transcripts/${name}`, import.meta.url), "utf8");
+}
+
+const CANONICAL_CUES =
+  "Dana Whitfield [00:00:00]: Thanks for joining.\n\nPriya Shah [00:00:03]: We could not predict flow at the feeder. So we built a test rig.";
+
+describe("cue-timed Teams .docx", () => {
+  it("keeps the soft line breaks of a Teams export, so every cue keeps its speaker", async () => {
+    const text = await docxTranscriptText(await docxInput(teamsCueBody()));
+    const prepared = prepareTranscriptUpload({ fileName: "Helios.docx", text, intake: "file" });
+    expect(prepared.format).toBe("teams_docx");
+    expect(prepared.content).toBe(CANONICAL_CUES);
+    expect(parseTranscriptTurns(prepared.content).map((turn) => [turn.speakerLabel, turn.startMs])).toEqual([
+      ["Dana Whitfield", 0],
+      ["Priya Shah", 3_000],
+    ]);
+  });
+
+  it("reads cues whose timing, name and speech are separate paragraphs", async () => {
+    const text = await docxTranscriptText(await docxInput(paragraphCueBody()));
+    const prepared = prepareTranscriptUpload({ fileName: "Helios.docx", text, intake: "file" });
+    expect(prepared.format).toBe("teams_docx");
+    expect(prepared.content).toBe(CANONICAL_CUES);
+  });
+
+  it("the parser fixtures are the exact text extraction gives for both layouts", async () => {
+    expect(await docxTranscriptText(await docxInput(teamsCueBody()))).toBe(fixture("teams-cues-docx.txt"));
+    expect(await docxTranscriptText(await docxInput(paragraphCueBody()))).toBe(
+      fixture("teams-cues-paragraphs-docx.txt")
+    );
+  });
+
+  it("changes nothing but soft line breaks: tabs, paragraphs, tables and page breaks read as before", async () => {
+    const body =
+      `<w:p><w:r><w:t>Dana Whitfield</w:t></w:r><w:r><w:tab/><w:t>0:03</w:t></w:r></w:p>` +
+      `<w:p><w:r><w:t>Thanks.</w:t></w:r><w:r><w:br w:type="page"/><w:t>Next</w:t></w:r></w:p>` +
+      `<w:p></w:p>` +
+      `<w:tbl><w:tr><w:tc><w:p><w:r><w:t>Cell</w:t></w:r></w:p></w:tc></w:tr></w:tbl>`;
+    const mammoth = await import("mammoth");
+    const input = await docxInput(body);
+    const raw = (await mammoth.extractRawText(input as unknown as Parameters<typeof mammoth.extractRawText>[0])).value;
+    expect(await docxTranscriptText(input)).toBe(raw);
+  });
+});
 
 describe("readTranscriptFile", () => {
   it("renders a WebVTT file to the canonical text and names its format", async () => {

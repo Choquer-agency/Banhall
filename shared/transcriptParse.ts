@@ -296,8 +296,14 @@ function cueText(raw: string): string {
 
 type Cue = { startMs?: number; speaker?: string; text: string };
 
-/** Cues of a WebVTT or SRT file (also a Teams .docx that kept cue timings). */
-function parseCues(text: string): Cue[] {
+/**
+ * Cues of a WebVTT or SRT file (also a Teams .docx that kept cue timings).
+ * A blank line ends a VTT or SRT cue. In a Word document every paragraph
+ * ends in a blank line once extracted, so a Teams cue whose timing, name and
+ * speech are separate paragraphs runs to the next timing line instead
+ * (`acrossBlankLines`).
+ */
+function parseCues(text: string, options: { acrossBlankLines?: boolean } = {}): Cue[] {
   const cues: Cue[] = [];
   const all = lines(text);
   let index = 0;
@@ -309,8 +315,12 @@ function parseCues(text: string): Cue[] {
     }
     const body: string[] = [];
     index += 1;
-    while (index < all.length && all[index].trim() !== "" && !CUE_TIMING.test(all[index])) {
-      body.push(all[index]);
+    while (index < all.length && !CUE_TIMING.test(all[index])) {
+      if (all[index].trim() === "") {
+        if (!options.acrossBlankLines) break;
+      } else {
+        body.push(all[index]);
+      }
       index += 1;
     }
     // An SRT or VTT cue id line directly before the next timing is not text.
@@ -373,12 +383,10 @@ export function renderCuesCanonical(cues: readonly Cue[]): string {
  */
 export function normalizeTranscriptText(format: TranscriptSourceFormat, text: string): string {
   const unified = text.replace(/^﻿/, "").replace(/\r\n?/g, "\n");
-  const cueTimed =
-    format === "vtt" ||
-    format === "srt" ||
-    (format === "teams_docx" && countMatching(lines(unified), (line) => CUE_TIMING.test(line)) >= 2);
-  if (cueTimed) {
-    const rendered = renderCuesCanonical(parseCues(unified));
+  const teamsCues =
+    format === "teams_docx" && countMatching(lines(unified), (line) => CUE_TIMING.test(line)) >= 2;
+  if (format === "vtt" || format === "srt" || teamsCues) {
+    const rendered = renderCuesCanonical(parseCues(unified, { acrossBlankLines: teamsCues }));
     if (rendered.trim() !== "") return rendered;
   }
   return unified.replace(/[ \t]+$/gm, "").trim();

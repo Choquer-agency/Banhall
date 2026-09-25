@@ -29,11 +29,59 @@ export type ReadTranscript = {
 
 export class TranscriptFileError extends Error {}
 
+/** The parts of a mammoth document element the text walk reads. */
+type DocxNode = { type: string; value?: string; breakType?: string; children?: DocxNode[] };
+
+/**
+ * mammoth's raw text walk (node_modules/mammoth/lib/raw-text.js) with one
+ * change: a soft line break (`w:br`) reads as a newline. `extractRawText`
+ * drops it, and a cue-timed Teams export writes each cue as one paragraph
+ * with soft breaks between the timing, the speaker's name and the speech, so
+ * the three were glued into one line and no cue kept its speaker:
+ * "0:0:0.0 --> 0:0:3.520Dana WhitfieldThanks for joining.". Everything else
+ * reads as before:
+ * paragraphs end in a blank line, tabs read as tabs, page and column breaks
+ * read as nothing.
+ */
+function docxNodeText(node: DocxNode): string {
+  if (node.type === "text") return node.value ?? "";
+  if (node.type === "tab") return "\t";
+  if (node.type === "break") return node.breakType === "line" ? "\n" : "";
+  const tail = node.type === "paragraph" ? "\n\n" : "";
+  return (node.children ?? []).map(docxNodeText).join("") + tail;
+}
+
+/**
+ * The text of a transcript .docx with its soft line breaks kept
+ * (`docxNodeText`). mammoth hands the document tree to `transformDocument`
+ * before it builds HTML; the walk reads the tree there, the HTML is thrown
+ * away and images are never read. The browser passes `arrayBuffer`;
+ * mammoth's Node build (tests) takes `buffer`.
+ */
+export async function docxTranscriptText(
+  input: { arrayBuffer: ArrayBuffer } | { buffer: Uint8Array }
+): Promise<string> {
+  const mammoth = await import("mammoth");
+  const mammothInput = input as Parameters<typeof mammoth.extractRawText>[0];
+  let text: string | undefined;
+  try {
+    await mammoth.convertToHtml(mammothInput, {
+      transformDocument: (document: DocxNode) => {
+        text = docxNodeText(document);
+        return document;
+      },
+      convertImage: mammoth.images.imgElement(async () => ({ src: "" })),
+    });
+  } catch {
+    text = undefined;
+  }
+  // Never worse than before: if the walk could not run, read as before.
+  return text ?? (await mammoth.extractRawText(mammothInput)).value;
+}
+
 async function extractText(file: File): Promise<string> {
   if (file.name.toLowerCase().endsWith(".docx")) {
-    const mammoth = await import("mammoth");
-    const result = await mammoth.extractRawText({ arrayBuffer: await file.arrayBuffer() });
-    return result.value;
+    return await docxTranscriptText({ arrayBuffer: await file.arrayBuffer() });
   }
   return await file.text();
 }

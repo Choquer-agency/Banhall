@@ -60,12 +60,27 @@ describe("format detection and canonical render", () => {
     expectSpansValid(prepared.content, turns);
   });
 
-  it("renders a cue-timed Teams .docx to the canonical form", () => {
-    const prepared = prepareTranscriptUpload({ fileName: "t.docx", text: fixture("teams-cues-docx.txt") });
-    expect(prepared.format).toBe("teams_docx");
-    expect(prepared.content).toBe(
-      "Dana Whitfield [00:00:00]: Thanks for joining.\n\nPriya Shah [00:00:03]: We could not predict flow at the feeder. So we built a test rig."
-    );
+  it("renders a cue-timed Teams .docx to the canonical form, in both paragraph layouts", () => {
+    // The fixtures are the exact text src/lib/transcriptUpload.ts extracts
+    // (src/lib/transcriptUpload.test.ts checks it): a Teams export's soft
+    // line breaks kept inside one paragraph per cue, and the timing, name and
+    // speech as separate paragraphs, each ending in a blank line.
+    for (const name of ["teams-cues-docx.txt", "teams-cues-paragraphs-docx.txt"]) {
+      const prepared = prepareTranscriptUpload({ fileName: "t.docx", text: fixture(name) });
+      expect(prepared.format, name).toBe("teams_docx");
+      expect(prepared.content, name).toBe(
+        "Dana Whitfield [00:00:00]: Thanks for joining.\n\nPriya Shah [00:00:03]: We could not predict flow at the feeder. So we built a test rig."
+      );
+      expect(speakers(parseTranscriptTurns(prepared.content)), name).toEqual(["Dana Whitfield", "Priya Shah"]);
+    }
+  });
+
+  it("still ends a VTT or SRT cue at a blank line", () => {
+    const prepared = prepareTranscriptUpload({
+      fileName: "call.srt",
+      text: "1\n00:00:01,000 --> 00:00:02,000\nDana: Hi.\n\nA stray line outside any cue.\n\n2\n00:00:03,000 --> 00:00:04,000\nPriya: Hello.",
+    });
+    expect(prepared.content).toBe("Dana [00:00:01]: Hi.\n\nPriya [00:00:03]: Hello.");
   });
 
   it("renders WebVTT voices and colon labels, decoding entities and joining a speaker's cues", () => {
@@ -210,6 +225,7 @@ describe("spans", () => {
     for (const name of [
       "teams-docx.txt",
       "teams-cues-docx.txt",
+      "teams-cues-paragraphs-docx.txt",
       "sample.vtt",
       "sample.srt",
       "zoom.txt",
