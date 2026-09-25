@@ -1650,7 +1650,7 @@
                           <!-- The whole row toggles the tick box (review D-6). -->
                           <Label.Root
                             for={`copy-transcript-${item.id}`}
-                            class={`block cursor-pointer truncate text-sm font-medium text-gray-800 ${STRETCHED_LABEL}`}
+                            class={`block truncate text-sm font-medium text-gray-800 ${STRETCHED_LABEL}`}
                           >{item.label}</Label.Root>
                         {:else}
                           <span class="block truncate text-sm font-medium text-gray-800">{item.label}</span>
@@ -1819,7 +1819,7 @@
                         </span>
                         <Label.Root
                           for={`copy-group-${group.id}`}
-                          class={`cursor-pointer text-xs font-medium text-ink-muted ${STRETCHED_LABEL}`}
+                          class={`text-xs font-medium text-ink-muted ${STRETCHED_LABEL}`}
                         >{group.label}</Label.Root>
                       </div>
                       <ul class="mt-1 flex flex-col gap-1 text-sm text-ink-secondary">
@@ -1840,7 +1840,7 @@
                             </span>
                             <Label.Root
                               for={`copy-file-${file._id}`}
-                              class={`flex min-w-0 cursor-pointer ${STRETCHED_LABEL}`}
+                              class={`flex min-w-0 ${STRETCHED_LABEL}`}
                             ><span class="min-w-0 truncate">{file.fileName}</span></Label.Root>
                             {#if file.archived}
                               <span class="shrink-0 text-xs text-ink-muted">Archived, not read for the draft</span>
@@ -1868,7 +1868,7 @@
                             </span>
                             <Label.Root
                               for="copy-previous-year-report"
-                              class={`flex min-w-0 cursor-pointer ${STRETCHED_LABEL}`}
+                              class={`flex min-w-0 ${STRETCHED_LABEL}`}
                             ><span class="min-w-0 truncate">{copySourceTitle} report (FY {sourceFiscalYear})</span></Label.Root>
                             <span class="shrink-0 text-xs text-ink-muted">Made from the original's latest report</span>
                           </li>
