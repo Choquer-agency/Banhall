@@ -223,7 +223,11 @@ async function briefCount(t: TestConvex, projectId: Id<"projects">) {
   ).length;
 }
 
-async function insertQuestion(t: TestConvex, briefId: Id<"generationBriefs">) {
+async function insertQuestion(
+  t: TestConvex,
+  briefId: Id<"generationBriefs">,
+  alternativeText = "The team discovered the loop's response under load was unknown."
+) {
   return await t.run(async (ctx) => {
     const brief = (await ctx.db.get(briefId))!;
     const evidence = (
@@ -244,7 +248,7 @@ async function insertQuestion(t: TestConvex, briefId: Id<"generationBriefs">) {
       exactExcerpt: evidence.exactExcerpt,
       question: {
         questionText: "Does the section's evidence override the Storyline?",
-        alternativeText: "The team discovered the loop's response under load was unknown.",
+        alternativeText,
       },
       createdAt: Date.now(),
     });
@@ -481,6 +485,62 @@ describe("briefs.saveEntryEdit (story 4)", () => {
       storylineText: "The team discovered the loop's response under load was unknown.",
       storylineOrigin: "edited",
     });
+  });
+
+  it("use_evidence refuses a stored alternative the Self-check clipped, and the other choices still work", async () => {
+    // A question stored before clipped questions were withheld: its
+    // alternative is a shortened fragment ending in the clip mark.
+    const clipped = "The team discovered the loop's response under load was unknown, so the…";
+    const { t, asWriter, projectId, briefId } = await briefFixture();
+    const questionId = await insertQuestion(t, briefId, clipped);
+    const before = await briefCount(t, projectId);
+    const entriesBefore = await entriesOf(t, briefId);
+    expect(
+      await errorCode(() =>
+        asWriter.mutation(api.briefs.saveEntryEdit, {
+          projectId,
+          briefId,
+          expectedBriefVersion: 1,
+          entryId: questionId,
+          resolvedBy: "use_evidence",
+        })
+      )
+    ).toBe("INVALID_INPUT");
+    expect(await briefCount(t, projectId)).toBe(before);
+    expect(await entriesOf(t, briefId)).toEqual(entriesBefore);
+    expect(await t.run((ctx) => ctx.db.get(briefId))).toMatchObject({
+      storylineText: DERIVED_STORYLINE,
+    });
+
+    // The writer's own replacement text is theirs to choose.
+    const ownId = await asWriter.mutation(api.briefs.saveEntryEdit, {
+      projectId,
+      briefId,
+      expectedBriefVersion: 1,
+      entryId: questionId,
+      resolvedBy: "use_evidence",
+      alternativeText: "The loop's response under load was unknown until the team measured it.",
+    });
+    expect(await t.run((ctx) => ctx.db.get(ownId))).toMatchObject({
+      storylineText: "The loop's response under load was unknown until the team measured it.",
+    });
+  });
+
+  it("keep_storyline still resolves a question whose stored alternative was clipped", async () => {
+    const { t, asWriter, projectId, briefId } = await briefFixture();
+    const questionId = await insertQuestion(t, briefId, "A shortened alternative…");
+    const keptId = await asWriter.mutation(api.briefs.saveEntryEdit, {
+      projectId,
+      briefId,
+      expectedBriefVersion: 1,
+      entryId: questionId,
+      resolvedBy: "keep_storyline",
+    });
+    expect(await t.run((ctx) => ctx.db.get(keptId))).toMatchObject({
+      storylineText: DERIVED_STORYLINE,
+    });
+    const question = (await entriesOf(t, keptId)).find((entry) => entry.group === "storylineQuestion")!;
+    expect(question.question?.resolvedBy).toBe("keep_storyline");
   });
 
   it("keep_storyline resolves the question and leaves the Storyline", async () => {

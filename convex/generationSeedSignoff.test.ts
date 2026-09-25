@@ -3719,6 +3719,97 @@ describe("seed Summary sign-off and recovery", () => {
     )).toBe(true);
   });
 
+  it("gives the one repair the unclipped guidance while storing only the clipped text", async () => {
+    const s = await decisionFixture();
+    await makeReady(s);
+    await s.writer.mutation(api.generations.signOffSeedStage, {
+      generationId: s.generationId,
+      expectedSeedStageVersion: 0,
+    });
+    const planReason =
+      "The section never names the signed-off advancement, and paragraph 1 only describes the method without its outcome.";
+    const planGuidance =
+      "Add one sentence to paragraph 1 that names the signed-off advancement and states the measured outcome, keeping the existing method description unchanged.";
+    const ordinaryReason =
+      "Paragraph 1 describes routine testing instead of the uncertainty the Storyline says the team pursued, so the Storyline is not reflected.";
+    let repairedItemId: string | undefined;
+    network.create.mockImplementation(async (params: GenerationMessageParams) => {
+      if (!params.tool_choice) {
+        return {
+          content: [{
+            type: "text",
+            text: providerUser(params).includes("Self-check repair")
+              ? "The repaired technical work and results were recorded."
+              : "Technical work and results were recorded.",
+          }],
+          usage: { input_tokens: 10, output_tokens: 5 },
+        };
+      }
+      const checks = providerPlanChecks(params);
+      repairedItemId = checks.find((check) => check.itemId && !check.confirmedExclusion)?.itemId;
+      return {
+        content: [{
+          type: "tool_use",
+          id: "unclipped-repair",
+          name: params.tool_choice.name,
+          input: {
+            verdicts: providerOrdinaryVerdicts(params).map((verdict, index) =>
+              index === 0
+                ? { ...verdict, outcome: "not_applied", reason: ordinaryReason }
+                : verdict),
+            planVerdicts: checks.map((check) => ({
+              ...(check.itemId ? { itemId: check.itemId } : {}),
+              ...(check.skippedRoleId ? { skippedRoleId: check.skippedRoleId } : {}),
+              mergedItemIds: [...check.mergedItemIds],
+              paragraph: 1,
+              ...(check.itemId === repairedItemId
+                ? { outcome: "not_applied", reason: planReason, repairGuidance: planGuidance }
+                : check.confirmedExclusion
+                  ? { outcome: "not_applied", reason: "Confirmed conflict." }
+                  : { outcome: "applied", reason: "Covered." }),
+            })),
+          },
+        }],
+        usage: { input_tokens: 10, output_tokens: 5 },
+      };
+    });
+    expect(utf8Bytes(planGuidance)).toBeGreaterThan(96);
+    expect(utf8Bytes(planReason)).toBeGreaterThan(64);
+    expect(utf8Bytes(ordinaryReason)).toBeGreaterThan(64);
+
+    await runNextSectionAction(s, s.generationId);
+    expect(repairedItemId).toBeDefined();
+    const requests = network.create.mock.calls.map(([params]) =>
+      params as GenerationMessageParams);
+    expect(requests.filter((params) =>
+      params.tool_choice?.name === "submit_self_check")).toHaveLength(1);
+    const repairs = requests.filter((params) =>
+      !params.tool_choice && providerUser(params).includes("Self-check repair"));
+    expect(repairs).toHaveLength(1);
+    // The repair works from the model's whole instruction, not a fragment.
+    expect(providerUser(repairs[0]!)).toContain(planGuidance);
+    expect(providerUser(repairs[0]!)).toContain(`Paragraph 1: ${ordinaryReason}`);
+
+    const rows = await s.t.run(async (ctx) =>
+      await ctx.db.query("complianceNotes")
+        .withIndex("by_generationId_and_section", (q) =>
+          q.eq("generationId", s.generationId).eq("section", "246"))
+        .take(30));
+    const planRow = rows.find((row) => row.planRef?.itemId === repairedItemId);
+    expect(planRow).toMatchObject({ outcome: "not_applied", repaired: true });
+    expect(planRow?.reason.endsWith("…")).toBe(true);
+    expect(utf8Bytes(planRow?.reason ?? "")).toBeLessThanOrEqual(64);
+    const ordinaryRow = rows.find((row) =>
+      row.source === "model" && row.instruction === "Storyline" && !row.planRef);
+    expect(ordinaryRow?.reason).toMatch(/^Paragraph 1 describes routine testing[^;]*…; repaired/);
+    // Stored text stays clipped: the whole wording lives only in the request.
+    for (const row of rows) {
+      expect(row.reason).not.toContain(planGuidance.slice(40));
+      expect(row.reason).not.toContain(planReason.slice(60));
+      expect(row.reason).not.toContain(ordinaryReason.slice(80));
+    }
+  });
+
   it("keeps deterministic repair eligible when the Summary Self-check is unavailable", async () => {
     const s = await decisionFixture();
     await makeReady(s);
@@ -4163,6 +4254,140 @@ describe("seed Summary sign-off and recovery", () => {
     )).toBe(true);
     expect(progress.some((line) => line.includes("plan coverage unavailable"))).toBe(false);
   });
+
+  it.each([
+    { field: "question" as const },
+    { field: "sectionClaim" as const },
+    { field: "storylineAlternative" as const },
+    { field: null },
+  ])(
+    "withholds a Storyline question whose $field needed clipping and keeps complete coverage",
+    async ({ field }) => {
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+      const s = await decisionFixture();
+      await makeReady(s);
+      await s.writer.mutation(api.generations.signOffSeedStage, {
+        generationId: s.generationId,
+        expectedSeedStageVersion: 0,
+      });
+      const longText =
+        "The section shows the bonds kept their strength only after the primer and the cure hold were added, which the Storyline never says.";
+      const question = {
+        question: "Should the Storyline name the primer?",
+        sectionClaim: "The primer removed primer-layer failure.",
+        storylineAlternative: "Bonds held their strength once a primer was added.",
+        confidenceEntry: 1,
+        ...(field ? { [field]: longText } : {}),
+      };
+      network.create.mockImplementation(async (params: GenerationMessageParams) => {
+        if (!params.tool_choice) {
+          return {
+            content: [{ type: "text", text: "Technical work and results were recorded." }],
+            usage: { input_tokens: 10, output_tokens: 5 },
+          };
+        }
+        const checks = providerPlanChecks(params);
+        return {
+          content: [{
+            type: "tool_use",
+            id: "storyline-question",
+            name: params.tool_choice.name,
+            input: {
+              verdicts: providerOrdinaryVerdicts(params),
+              planVerdicts: checks.map((check) => ({
+                ...(check.itemId ? { itemId: check.itemId } : {}),
+                ...(check.skippedRoleId ? { skippedRoleId: check.skippedRoleId } : {}),
+                mergedItemIds: [...check.mergedItemIds],
+                paragraph: 1,
+                outcome: "applied",
+                reason: "Covered.",
+              })),
+              storylineQuestion: question,
+            },
+          }],
+          usage: { input_tokens: 10, output_tokens: 5 },
+        };
+      });
+
+      // Section 246 drafts first; Section 242, with no conflict, is second.
+      await runNextSectionAction(s, s.generationId);
+      await runNextSectionAction(s, s.generationId);
+      expect(network.create.mock.calls.filter(([params]) =>
+        (params as GenerationMessageParams).tool_choice?.name === "submit_self_check"
+      )).toHaveLength(1);
+      const state = await s.t.run(async (ctx) => ({
+        run: (await ctx.db.query("generationSectionRuns")
+          .withIndex("by_generationId", (q) => q.eq("generationId", s.generationId))
+          .take(4)).find((row) => row.section === "s242"),
+        rows: await ctx.db.query("complianceNotes")
+          .withIndex("by_generationId_and_section", (q) =>
+            q.eq("generationId", s.generationId).eq("section", "242"))
+          .take(30),
+        questions: await ctx.db.query("generationBriefEntries")
+          .withIndex("by_briefId_and_generatedOutput", (q) =>
+            q.eq("briefId", s.briefId).eq("generatedOutput", true))
+          .take(10),
+      }));
+      const summary = JSON.parse(state.run?.selfCheck ?? "{}");
+      // The complete coverage verdicts stay whatever happens to the question.
+      expect(summary).toMatchObject({
+        status: "pass",
+        modelCheck: "ok",
+        planCoverage: { status: "complete" },
+      });
+      expect(summary.modelCheckDetail).toBeUndefined();
+      const planRows = state.rows.filter((row) => row.planRef);
+      expect(planRows.length).toBeGreaterThan(0);
+      expect(planRows.every((row) => row.outcome === "applied")).toBe(true);
+      // The ordinary storyline verdict row shares the instruction name.
+      const storylineRows = state.rows.filter((row) =>
+        row.instruction === "Storyline" && row.reason.startsWith("Storyline question"));
+      expect(storylineRows).toHaveLength(1);
+
+      if (!field) {
+        // In-limit: stored and offered exactly as before, once per Section.
+        expect(state.questions).toHaveLength(2);
+        expect(state.questions[1]).toMatchObject({
+          group: "storylineQuestion",
+          text: question.sectionClaim,
+          question: {
+            questionText: question.question,
+            alternativeText: question.storylineAlternative,
+          },
+        });
+        expect(summary).not.toHaveProperty("storylineQuestionWithheld");
+        expect(storylineRows[0]?.reason).toBe(
+          `Storyline question raised in the Brief: ${question.question} (the section's evidence is stronger than the Storyline's basis; not repaired)`
+        );
+        expect(state.run?.selfCheckData).toEqual(summary);
+        return;
+      }
+
+      // Clipped: neither stored nor offered, and the reason is recorded.
+      const detail = `${field} is ${utf8Bytes(longText)} escaped bytes, limit 96`;
+      expect(state.questions).toHaveLength(0);
+      expect(summary.storylineQuestionWithheld).toBe(detail);
+      expect(state.run?.selfCheckData).toEqual(summary);
+      expect(storylineRows[0]).toMatchObject({
+        source: "model",
+        outcome: "not_applied",
+        repaired: false,
+      });
+      expect(storylineRows[0]?.reason).toContain(`Storyline question withheld (${detail})`);
+      for (const row of state.rows) {
+        expect(row.reason).not.toContain("primer");
+      }
+      expect(warn.mock.calls.some(([message]) =>
+        typeof message === "string" &&
+        message.includes("generation:selfCheck:242") &&
+        message.includes(detail)
+      )).toBe(true);
+      const visible = await s.writer.query(api.briefs.listBriefEntries, {
+        briefId: s.briefId,
+      });
+      expect(visible?.some((entry) => entry.group === "storylineQuestion")).toBe(false);
+    }
+  );
 
   it.each([
     {

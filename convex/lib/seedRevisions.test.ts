@@ -21,6 +21,7 @@ import {
   buildFrozenSummaryPlan,
   canonicalizeSeedSnapshot,
   clipJsonEscapedUtf8,
+  endsWithClipMark,
   completeContextRevision,
   contextRevision,
   contributionHashes,
@@ -1020,7 +1021,11 @@ describe("clipJsonEscapedUtf8 (Summary Self-check free text)", () => {
         expect(jsonEscapedUtf8Bytes(clipped)).toBeGreaterThan(maximum / 2);
         expect(clipped.endsWith("…")).toBe(true);
         expect(reason.startsWith(clipped.slice(0, -1))).toBe(true);
+        // The Brief refuses such a fragment as a whole Storyline.
+        expect(endsWithClipMark(clipped)).toBe(true);
+        expect(endsWithClipMark(`${clipped} `)).toBe(true);
       }
     }
+    expect(endsWithClipMark(reasons[2] ?? "")).toBe(false);
   });
 });

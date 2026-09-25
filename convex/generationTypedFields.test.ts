@@ -127,6 +127,17 @@ describe("strict typed conversion", () => {
     expect(toSelfCheckSummaryData({ ...failed, modelCheckDetail: 5 })).toBeUndefined();
   });
 
+  it("keeps the reason a Storyline question was withheld in the typed copy", () => {
+    const withheld = {
+      ...SELF_CHECK,
+      storylineQuestionWithheld: "storylineAlternative is 131 escaped bytes, limit 96",
+    };
+    expect(toSelfCheckSummaryData(withheld)).toEqual(withheld);
+    expect(sectionRunTypedFields({ selfCheck: JSON.stringify(withheld) }))
+      .toEqual({ selfCheckData: withheld });
+    expect(toSelfCheckSummaryData({ ...withheld, storylineQuestionWithheld: 5 })).toBeUndefined();
+  });
+
   it("leaves unknown keys, wrong types and malformed JSON as strings only", () => {
     expect(sectionRunTypedFields({ metrics: "{not json" })).toEqual({});
     expect(sectionRunTypedFields({ metrics: JSON.stringify({ ...METRICS, extra: 1 }) })).toEqual({});
