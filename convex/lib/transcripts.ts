@@ -33,11 +33,18 @@ export const MAX_TRANSCRIPT_CHARS = FROZEN_TRANSCRIPT_CHARS;
 export const MAX_TRANSCRIPT_FILE_BYTES = 25 * 1024 * 1024;
 
 /**
- * Rows (active and archived) one project's transcript reads walk. Replace
- * archives rather than deletes, so the history is bounded here and Add and
- * Replace refuse once a project reaches it.
+ * Rows one project's transcript history may hold, active and archived.
+ * Replace archives rather than deletes, so Add and Replace refuse once a
+ * project reaches it. Archived rows are counted on the project
+ * (`projects.archivedTranscriptCount`), never read, to enforce it.
  */
-export const MAX_TRANSCRIPT_ROWS_READ = 200;
+export const MAX_TRANSCRIPT_HISTORY_ROWS = 200;
+
+/**
+ * Active rows one project read takes: the 20 transcripts plus room for the
+ * empty placeholder rows older creation paths wrote.
+ */
+export const MAX_ACTIVE_TRANSCRIPT_ROWS_READ = 50;
 
 /**
  * Combined frozen transcript characters above which a generation condenses
@@ -118,13 +125,32 @@ export async function listProjectTranscripts(
   ctx: Ctx,
   projectId: Id<"projects">
 ): Promise<Doc<"transcripts">[]> {
-  const rows = await ctx.db
-    .query("transcripts")
-    .withIndex("by_projectId", (q) => q.eq("projectId", projectId))
-    .take(MAX_TRANSCRIPT_ROWS_READ);
+  return projectTranscriptsFrom(await listActiveTranscriptRows(ctx, projectId));
+}
 
-  // Archived rows (Replace and Remove, 2026-09-24) stay for the generations
-  // that froze them but are not the project's transcripts any more.
+/**
+ * Every row of a project that is not archived, empty placeholder rows
+ * included, in index order. Archived rows (Replace and Remove, 2026-09-24)
+ * stay whole for the generations that froze them but are not the project's
+ * transcripts any more, and they are never read here: the index range stops
+ * at `archivedAt` absent, so a project's reads do not grow with its history.
+ */
+export async function listActiveTranscriptRows(
+  ctx: Ctx,
+  projectId: Id<"projects">
+): Promise<Doc<"transcripts">[]> {
+  return await ctx.db
+    .query("transcripts")
+    .withIndex("by_projectId_and_archivedAt", (q) =>
+      q.eq("projectId", projectId).eq("archivedAt", undefined)
+    )
+    .take(MAX_ACTIVE_TRANSCRIPT_ROWS_READ);
+}
+
+/** A project's transcripts out of its active rows, as `listProjectTranscripts` returns them. */
+export function projectTranscriptsFrom(
+  rows: readonly Doc<"transcripts">[]
+): Doc<"transcripts">[] {
   return rows
     .filter((row) => row.content.trim() !== "" && row.archivedAt === undefined)
     .sort(compareTranscripts)

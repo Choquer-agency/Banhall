@@ -7,6 +7,7 @@ import type { Id } from "./_generated/dataModel";
 import {
   MAX_TRANSCRIPT_CHARS,
   MAX_TRANSCRIPT_FILE_BYTES,
+  MAX_TRANSCRIPT_HISTORY_ROWS,
   MAX_TRANSCRIPTS_PER_PROJECT,
 } from "./lib/transcripts";
 import { deleteStorageIfUnreferenced } from "./lib/storage";
@@ -19,8 +20,12 @@ afterEach(() => vi.useRealTimers());
 const FIRST = "Dana Whitfield: What did you build?\n\nPriya Shah: A predictive controller.";
 const SECOND = "Dana Whitfield: What failed?\n\nPriya Shah: The forecast on cloudy days.";
 
-async function setup() {
-  const t = convexTest(schema, modules);
+async function setup(options: { limits?: boolean } = {}) {
+  // `limits` makes convex-test enforce Convex's per-transaction read and
+  // write limits (16 MiB read), as the deployment does.
+  const t = options.limits
+    ? convexTest({ schema, modules, transactionLimits: true })
+    : convexTest(schema, modules);
   const ids = await t.run(async (ctx) => {
     const writerId = await ctx.db.insert("users", { authId: "in-writer", role: "writer", firstName: "Wren" });
     await ctx.db.insert("users", { authId: "in-other", role: "writer", firstName: "Otto" });
@@ -278,6 +283,86 @@ describe("replaceTranscript and removeTranscript", () => {
     await f.writer.mutation(api.transcripts.removeTranscript, { transcriptId: f.firstId });
     expect(await f.writer.query(api.transcripts.listTranscripts, { projectId: f.projectId })).toEqual([]);
     expect((await f.t.run((ctx) => ctx.db.get(f.firstId)))?.archivedAt).toBeTypeOf("number");
+  });
+});
+
+/** Distinct text at the per-transcript cap. */
+function bigTranscript(tag: number): string {
+  return `Dana Whitfield: Transcript ${tag} line. `.repeat(20_000).slice(0, MAX_TRANSCRIPT_CHARS);
+}
+
+describe("archived transcript history", () => {
+  it("keeps project reads and changes working after many replacements of large transcripts", async () => {
+    const f = await setup({ limits: true });
+    // Four active transcripts at the per-transcript cap: the project sits at
+    // the 2,000,000-character combined cap.
+    const active: Id<"transcripts">[] = [f.firstId];
+    await f.t.run(async (ctx) => {
+      await ctx.db.patch(f.firstId, { content: bigTranscript(0) });
+    });
+    for (let i = 1; i < 4; i += 1) {
+      active.push(
+        await f.t.run((ctx) =>
+          ctx.db.insert("transcripts", {
+            projectId: f.projectId,
+            content: bigTranscript(i),
+            position: i,
+            createdAt: i,
+          })
+        )
+      );
+    }
+    // Thirty replacements archive thirty rows of 500,000 characters each:
+    // about 15 MB of archived text, more than one transaction may read.
+    let current = active[0];
+    for (let i = 0; i < 30; i += 1) {
+      current = await f.writer.mutation(api.transcripts.replaceTranscript, {
+        transcriptId: current,
+        content: bigTranscript(100 + i),
+      });
+    }
+    const list = await f.writer.query(api.transcripts.listTranscripts, { projectId: f.projectId });
+    expect(list.map((row) => row._id)).toEqual([current, ...active.slice(1)]);
+    expect(list.map((row) => row.position)).toEqual([0, 1, 2, 3]);
+
+    // Remove, Add and Replace still work, and the Sources list follows.
+    await f.writer.mutation(api.transcripts.removeTranscript, { transcriptId: active[3] });
+    const added = await f.writer.mutation(api.transcripts.addTranscript, {
+      projectId: f.projectId,
+      content: bigTranscript(999),
+    });
+    const replaced = await f.writer.mutation(api.transcripts.replaceTranscript, {
+      transcriptId: added,
+      content: SECOND,
+    });
+    const after = await f.writer.query(api.transcripts.listTranscripts, { projectId: f.projectId });
+    expect(after.map((row) => row._id)).toEqual([current, active[1], active[2], replaced]);
+    expect((await f.t.run((ctx) => ctx.db.get(f.projectId)))?.archivedTranscriptCount).toBe(32);
+  });
+
+  it("counts archived rows on the project and refuses Add and Replace at the history cap", async () => {
+    const f = await setup();
+    const second = await f.writer.mutation(api.transcripts.addTranscript, { projectId: f.projectId, content: SECOND });
+    const third = await f.writer.mutation(api.transcripts.replaceTranscript, {
+      transcriptId: second,
+      content: "Dana Whitfield: A third interview.",
+    });
+    await f.writer.mutation(api.transcripts.removeTranscript, { transcriptId: third });
+    // Removing a row that is already archived counts nothing.
+    await f.writer.mutation(api.transcripts.removeTranscript, { transcriptId: third });
+    expect((await f.t.run((ctx) => ctx.db.get(f.projectId)))?.archivedTranscriptCount).toBe(2);
+
+    // One active row and 199 archived ones: one more row would pass the cap.
+    await f.t.run((ctx) => ctx.db.patch(f.projectId, { archivedTranscriptCount: MAX_TRANSCRIPT_HISTORY_ROWS - 1 }));
+    await expect(
+      f.writer.mutation(api.transcripts.addTranscript, { projectId: f.projectId, content: SECOND })
+    ).rejects.toThrow(/transcript history limit/);
+    await expect(
+      f.writer.mutation(api.transcripts.replaceTranscript, { transcriptId: f.firstId, content: SECOND })
+    ).rejects.toThrow(/transcript history limit/);
+    // Remove writes no row, so it still works at the cap.
+    await f.writer.mutation(api.transcripts.removeTranscript, { transcriptId: f.firstId });
+    expect(await f.writer.query(api.transcripts.listTranscripts, { projectId: f.projectId })).toEqual([]);
   });
 });
 
