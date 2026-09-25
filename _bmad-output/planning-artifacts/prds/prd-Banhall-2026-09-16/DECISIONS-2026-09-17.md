@@ -68,4 +68,9 @@ Where to look when coming back to this:
 | 34 | Should Random compare draws include Opus 5.5? | **Yes.** Random draws use Sonnet 5, Opus 4.8, Haiku 4.5 and Opus 5.5. Other models that reject a forced tool call (Fable 5.1, Mythos 5.1) stay out, and OpenAI and Google models stay an explicit choice. Replaces the random-draw part of decision 29. | Branch `ui/random-opus`. |
 | 35 | What should Duplicate bring over? | **Every file from the source project** (all transcripts and supporting documents), each one untickable on the New project screen before create. Duplicating a Review PD project stays Review PD and does not offer Step by step. | Research in `HANDOFF-banhall-files/research/2026-09-25-decisions/`; to be built. |
 
-Still to confirm by the owner: the 2026-09-25 story 4 amendments (Summary Self-check limit of 16,384 bytes; long Self-check reasons clipped instead of failing plan coverage), and whether Duplicate should bring the old report along as a previous-year document.
+Still to confirm by the owner (each is recorded in `docs/product-domain.md` and marked pending):
+- the 2026-09-25 story 4 amendments: the Summary Self-check limit of 16,384 bytes, and long Self-check reasons clipped instead of failing plan coverage (a clipped Storyline question is now withheld, per review);
+- a failure caused by an action's own time limit does not count toward automatic model rollback (decision 21); every other failure that outlasts its retries still counts;
+- a retry of a transcript analysis that was too long asks for a shorter analysis, so its request differs from the first attempt's;
+- the Duplicate wording for a stalled save ("Leave anyway") and for a failed copy;
+- Duplicate defaults chosen by the lead from the research: the old report offered only when the fiscal year moves forward, ported PDs unticked on a same-year duplicate, Financial page uploads left behind, and Review PD blocked for Step by step in the wizard only.
