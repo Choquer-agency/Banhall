@@ -2,6 +2,7 @@
   import { isParseAbort } from "$lib/spreadsheetClient";
   import { onDestroy } from "svelte";
   import { goto } from "$app/navigation";
+  import { goToLogin } from "$lib/auth/goToLogin";
   import { toast } from "svelte-sonner";
   import { useAction, useMutation, useQuery } from "convex-svelte";
   import { useAuth } from "@mmailaender/convex-better-auth-svelte/svelte";
@@ -494,7 +495,7 @@
   let progress = $state("");
 
   $effect(() => {
-    if (!auth.isLoading && !auth.isAuthenticated) goto("/login", { replaceState: true });
+    if (!auth.isLoading && !auth.isAuthenticated) goToLogin();
   });
 
   const draftWordCount = $derived(countWords(pasteDraft));

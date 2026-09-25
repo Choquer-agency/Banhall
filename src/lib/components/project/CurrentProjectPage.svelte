@@ -9,7 +9,8 @@
 
 <script lang="ts">
   import { onDestroy, tick, untrack } from "svelte";
-  import { goto, pushState } from "$app/navigation";
+  import { pushState } from "$app/navigation";
+  import { goToLogin } from "$lib/auth/goToLogin";
   import { page } from "$app/state";
   import { useConvexClient, useQuery, useMutation } from "convex-svelte";
   import { useAuth } from "@mmailaender/convex-better-auth-svelte/svelte";
@@ -595,7 +596,7 @@
 
   $effect(() => {
     if (!auth.isLoading && !auth.isAuthenticated) {
-      goto("/login", { replaceState: true });
+      goToLogin();
     }
   });
   $effect(() => {

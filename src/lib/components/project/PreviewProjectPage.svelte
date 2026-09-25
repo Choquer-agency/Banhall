@@ -10,6 +10,7 @@
 <script lang="ts">
   import { onDestroy, tick, untrack } from "svelte";
   import { goto, pushState } from "$app/navigation";
+  import { goToLogin } from "$lib/auth/goToLogin";
   import { resolve } from "$app/paths";
   import WorkspaceShell from "$lib/components/workspace/WorkspaceShell.svelte";
   import { page } from "$app/state";
@@ -911,7 +912,7 @@
 
   $effect(() => {
     if (!auth.isLoading && !auth.isAuthenticated) {
-      goto("/login", { replaceState: true });
+      goToLogin();
     }
   });
   $effect(() => {

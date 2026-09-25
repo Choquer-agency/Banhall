@@ -11,6 +11,7 @@ import { components, internal } from "./_generated/api";
 import type { DataModel } from "./_generated/dataModel";
 import authConfig from "./auth.config";
 import { normalizeEmail } from "./lib/email";
+import { customAuthCookiePrefix } from "../shared/authCookies";
 
 const authFunctions: AuthFunctions = internal.auth;
 
@@ -25,6 +26,14 @@ const trustedOrigins = [
 ]
   .map((origin) => origin.trim())
   .filter(Boolean);
+
+// Optional per-deployment cookie names (shared/authCookies.ts). Local apps on
+// different localhost ports share one cookie jar, so each local deployment
+// sets its own BETTER_AUTH_COOKIE_PREFIX, and the SvelteKit app that talks to
+// it sets the same value. Unset (production), no `advanced` option is passed
+// and Better Auth keeps its default `better-auth.*` names. Read from
+// process.env like SITE_URL and BETTER_AUTH_TRUSTED_ORIGINS.
+const cookiePrefix = customAuthCookiePrefix(process.env.BETTER_AUTH_COOKIE_PREFIX);
 
 export const authComponent = createClient<DataModel>(components.betterAuth, {
   authFunctions,
@@ -114,6 +123,7 @@ export const createAuth = (ctx: GenericCtx<DataModel>) =>
   betterAuth({
     baseURL: process.env.SITE_URL,
     trustedOrigins,
+    ...(cookiePrefix ? { advanced: { cookiePrefix } } : {}),
     database: authComponent.adapter(ctx),
     emailAndPassword: {
       enabled: true,

@@ -39,6 +39,29 @@ matching `PUBLIC_CONVEX_URL` and `PUBLIC_CONVEX_SITE_URL` settings.
 `PUBLIC_BUILD_TIME` is an optional timestamp you supply at build/deploy time;
 blank or invalid values hide the stamp.
 
+### Several local apps at once
+
+Browsers share cookies across every port on `localhost`. Two Banhall apps
+running at once, such as a test app on 5173 and the demo on 5175, overwrite
+each other's sign-in. Give each Convex deployment its own cookie names with
+`BETTER_AUTH_COOKIE_PREFIX`:
+
+| Apps | Value |
+| --- | --- |
+| Apps on the e2e deployment | `banhall-e2e` |
+| The demo app | `banhall-demo` |
+
+Set the value in two places, and keep them the same: on the Convex deployment,
+and in that checkout's `.env.local` so the SvelteKit server reads the same
+cookies. Restart the app after changing `.env.local`. Apps that use the same
+Convex deployment share one sign-in. Changing the value signs that app out
+once. Use letters, digits, dots, underscores and hyphens only.
+
+Leave it unset in production and on preview deployments. Unset keeps the
+default `better-auth.*` cookie names, so nobody is signed out. Open local apps
+at `http://localhost:<port>`; `127.0.0.1` and LAN addresses are not trusted
+for sign-in.
+
 ## Verification
 
 Install Node 24 (pinned in `.nvmrc`, with npm), PowerShell 7 (`pwsh`), and Git. Install this checkout's lockfile dependencies, then run:

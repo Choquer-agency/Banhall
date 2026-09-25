@@ -1,9 +1,8 @@
 <script lang="ts">
   import AdminWorkspacePage from "$lib/components/admin/AdminWorkspacePage.svelte";
-  import { resolve } from "$app/paths";
   import Spinner from "$lib/components/ui/Spinner.svelte";
   import { Tabs } from "bits-ui";
-  import { goto } from "$app/navigation";
+  import { goToLogin } from "$lib/auth/goToLogin";
   import { useQuery } from "convex-svelte";
   import { useStableQuery } from "$lib/stableQuery.svelte";
   import { useAuth } from "@mmailaender/convex-better-auth-svelte/svelte";
@@ -52,7 +51,7 @@
 
   $effect(() => {
     if (!auth.isLoading && !auth.isAuthenticated) {
-      goto(resolve("/login"), { replaceState: true });
+      goToLogin();
     }
   });
 

@@ -4,7 +4,7 @@
   // experience) or the inline nav column (current experience) and the child
   // page owns only its own content.
   import type { Snippet } from "svelte";
-  import { goto } from "$app/navigation";
+  import { goToLogin } from "$lib/auth/goToLogin";
   import { page } from "$app/state";
   import { resolve } from "$app/paths";
   import { useAuth } from "@mmailaender/convex-better-auth-svelte/svelte";
@@ -21,7 +21,7 @@
   const auth = useAuth();
   $effect(() => {
     if (!auth.isLoading && !auth.isAuthenticated) {
-      goto("/login", { replaceState: true });
+      goToLogin();
     }
   });
 

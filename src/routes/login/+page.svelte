@@ -7,14 +7,16 @@
   import Spinner from "$lib/components/ui/Spinner.svelte";
 
   import { goto } from "$app/navigation";
-  import { resolve } from "$app/paths";
-  import { onMount } from "svelte";
+  import { page } from "$app/state";
+  import { onMount, untrack } from "svelte";
+  import { afterLoginPath } from "$lib/auth/next";
+  import { SignInError, signInErrorMessage } from "$lib/auth/signInError";
 
   const auth = useAuth();
 
   async function signInEmail(email: string, password: string) {
     const { error } = await authClient.signIn.email({ email, password });
-    if (error) throw new Error(error.message ?? "Sign-in failed");
+    if (error) throw new SignInError(error);
   }
 
   let email = $state("");
@@ -38,9 +40,13 @@
   // cannot remount or flash the large brand panel.
   let entering = $state(false);
 
+  // Signed in: return to the page that sent the visitor here (`?next=`, same
+  // origin only), else the dashboard. The URL is read untracked so the
+  // navigation itself cannot re-run this effect.
   $effect(() => {
     if (!auth.isLoading && auth.isAuthenticated) {
-      void goto(resolve("/dashboard"), { replaceState: true });
+      const search = untrack(() => page.url.searchParams);
+      void goto(afterLoginPath(search), { replaceState: true });
     }
   });
 
@@ -67,9 +73,11 @@
       }, 10_000);
     } catch (err) {
       console.error("Auth error:", err);
-      error = navigator.onLine
-        ? "Check your @banhall.com email address and password."
-        : "You're offline. Reconnect and try signing in again.";
+      // Only credential failures blame the password; an origin rejection
+      // (127.0.0.1 or a LAN address) says to use the usual address.
+      error = signInErrorMessage(err instanceof SignInError ? err : null, {
+        online: navigator.onLine,
+      });
       submitting = false;
     }
   }
