@@ -14,15 +14,29 @@ import {
   requireAnthropicConfigured,
   type AnthropicCapability,
 } from "../lib/providerConfig";
-import { gatewayForModel } from "../../shared/generationModels";
+import {
+  gatewayForModel,
+  isKnownModel,
+  registerModelEntries,
+} from "../../shared/generationModels";
+import type { ModelRole } from "../../shared/modelCatalog";
 import {
   assertGenerationCallSite,
   instrumentedAnthropic,
   type GenerationAttribution,
+  type ProviderCallMeta,
 } from "./instrument";
 import { COMPRESSION_REQUEST } from "./promptDefinitions";
 import { instrumentedOpenRouter } from "./openrouter";
-import type { GenerationClient } from "./openrouterCore";
+import { MalformedOutputError, type GenerationClient } from "./openrouterCore";
+import { entryFromFrozen } from "../lib/modelRoles";
+import type { ModelFreeze } from "../lib/modelCatalogValidators";
+import {
+  generationModelsRef,
+  modelEntryForCallRef,
+  recordCallFailureRef,
+  roleModelEntryRef,
+} from "../lib/modelCatalogRefs";
 
 
 // ─── Provider time budget (CAP-6) ────────────────────────────────────────────
@@ -121,6 +135,143 @@ export function createAnthropicClient(
   });
 }
 
+// ─── Model catalog resolution (owner decision 21) ───────────────────────────
+//
+// Routing, output budgets and labels read the synchronous registry in
+// shared/generationModels.ts. Seed models are always there; a model the
+// catalog added later is registered here from the entry frozen on the
+// generation (or the entry a role resolves to) before its first call.
+
+type RunQueryCtx = Pick<ActionCtx, "runQuery">;
+
+/** A generation's freeze never changes, so one read per isolate suffices. */
+const freezeCache = new Map<string, Promise<ModelFreeze | null>>();
+const FREEZE_CACHE_LIMIT = 200;
+
+/** Test seam: forget cached generation freezes (ids repeat across tests). */
+export function resetGenerationModelCache(): void {
+  freezeCache.clear();
+}
+
+/**
+ * Register every model frozen on `generationId` and return the freeze.
+ * Generation actions call this before their first provider call so a model
+ * the catalog added after this deployment routes, budgets and prices
+ * exactly as it did at reservation.
+ */
+export async function registerGenerationModels(
+  ctx: RunQueryCtx,
+  generationId: Id<"generations">
+): Promise<ModelFreeze | null> {
+  let pending = freezeCache.get(generationId);
+  if (!pending) {
+    if (freezeCache.size >= FREEZE_CACHE_LIMIT) freezeCache.clear();
+    pending = ctx.runQuery(generationModelsRef, { generationId }).catch((error: unknown) => {
+      freezeCache.delete(generationId);
+      throw error;
+    });
+    freezeCache.set(generationId, pending);
+  }
+  const freeze = await pending;
+  if (freeze) registerModelEntries(freeze.entries.map(entryFromFrozen));
+  return freeze;
+}
+
+async function ensureModelRegistered(
+  ctx: RunQueryCtx,
+  modelId: string,
+  generationId: Id<"generations"> | undefined
+): Promise<void> {
+  if (generationId) {
+    const freeze = await registerGenerationModels(ctx, generationId);
+    if (freeze?.entries.some((entry) => entry.id === modelId)) return;
+  }
+  if (isKnownModel(modelId)) return;
+  const entry = await ctx.runQuery(modelEntryForCallRef, {
+    modelId,
+    ...(generationId ? { generationId } : {}),
+  });
+  if (entry) registerModelEntries([entryFromFrozen(entry)]);
+}
+
+/**
+ * The failure codes the production error-rate rollback counts: the model
+ * returned something unusable, refused, or failed in a way nobody has
+ * classified. Billing, auth, rate limits and network faults say nothing
+ * about the model and are not recorded.
+ */
+export function modelFaultCode(error: unknown): string | null {
+  if (error instanceof MalformedOutputError) return "malformed_output";
+  const { code } = normalizeProviderError(error);
+  return code === "output_limit" || code === "model_access" || code === "unknown"
+    ? code
+    : null;
+}
+
+function recordingFailures(
+  ctx: ActionCtx,
+  modelId: string,
+  callSite: string,
+  client: GenerationClient
+): GenerationClient {
+  return {
+    messages: {
+      create: async (params) => {
+        try {
+          return await client.messages.create(params);
+        } catch (error) {
+          const code = modelFaultCode(error);
+          if (code) {
+            try {
+              await ctx.runMutation(recordCallFailureRef, {
+                model: params.model || modelId,
+                callSite,
+                code,
+              });
+            } catch (recordError) {
+              console.error("model call failure could not be recorded", recordError);
+            }
+          }
+          throw error;
+        }
+      },
+    },
+  };
+}
+
+type GenerationCallMeta = {
+  callSite: string;
+  projectId?: Id<"projects">;
+  userId?: string;
+  attribution?: GenerationAttribution;
+  onUsage?: ProviderCallMeta["onUsage"];
+};
+
+/**
+ * A client whose gateway is decided on first use, after the model's entry is
+ * registered. Construction stays synchronous for every existing call site.
+ */
+function lazyClient(
+  ctx: ActionCtx,
+  modelId: string,
+  meta: GenerationCallMeta,
+  build: () => GenerationClient
+): GenerationClient {
+  let resolved: Promise<GenerationClient> | undefined;
+  const resolve = () =>
+    (resolved ??= ensureModelRegistered(ctx, modelId, meta.attribution?.generationId)
+      .then(build)
+      .catch((error: unknown) => {
+        resolved = undefined;
+        throw error;
+      }));
+  return recordingFailures(ctx, modelId, meta.callSite, {
+    messages: {
+      create: async (params) => (await resolve()).messages.create(params),
+    },
+  });
+}
+
 /**
  * Seed-only client policy. `generateStructured` owns the one repair request,
  * so neither gateway may add a hidden transport retry.
@@ -128,29 +279,26 @@ export function createAnthropicClient(
 export function seedClientForModel(
   ctx: ActionCtx,
   modelId: string,
-  meta: {
-    callSite: string;
-    projectId?: Id<"projects">;
-    userId?: string;
-    attribution?: GenerationAttribution;
-  }
+  meta: GenerationCallMeta
 ): GenerationClient {
   assertGenerationCallSite(meta.callSite);
-  if (gatewayForModel(modelId) === "openrouter") {
-    return instrumentedOpenRouter(ctx, meta, {
-      maxRetries: SEED_PROVIDER_MAX_RETRIES,
-      timeoutMs: SEED_PROVIDER_TIMEOUT_MS,
-      preserveMaxTokens: true,
-    });
-  }
-  return instrumentedAnthropic(ctx, {
-    ...meta,
-    capability: "generation",
-    clientOptions: {
-      maxRetries: SEED_PROVIDER_MAX_RETRIES,
-      timeout: SEED_PROVIDER_TIMEOUT_MS,
-    },
-  }) as unknown as GenerationClient;
+  return lazyClient(ctx, modelId, meta, () => {
+    if (gatewayForModel(modelId) === "openrouter") {
+      return instrumentedOpenRouter(ctx, meta, {
+        maxRetries: SEED_PROVIDER_MAX_RETRIES,
+        timeoutMs: SEED_PROVIDER_TIMEOUT_MS,
+        preserveMaxTokens: true,
+      });
+    }
+    return instrumentedAnthropic(ctx, {
+      ...meta,
+      capability: "generation",
+      clientOptions: {
+        maxRetries: SEED_PROVIDER_MAX_RETRIES,
+        timeout: SEED_PROVIDER_TIMEOUT_MS,
+      },
+    }) as unknown as GenerationClient;
+  });
 }
 
 /**
@@ -161,23 +309,65 @@ export function seedClientForModel(
 export function clientForModel(
   ctx: ActionCtx,
   modelId: string,
-  meta: {
-    callSite: string;
-    projectId?: Id<"projects">;
-    userId?: string;
-    attribution?: GenerationAttribution;
-  }
+  meta: GenerationCallMeta
 ): GenerationClient {
   assertGenerationCallSite(meta.callSite);
-  if (gatewayForModel(modelId) === "openrouter") {
-    return instrumentedOpenRouter(ctx, meta);
+  return lazyClient(ctx, modelId, meta, () => {
+    if (gatewayForModel(modelId) === "openrouter") {
+      return instrumentedOpenRouter(ctx, meta);
+    }
+    // Anthropic's response is a superset of GenerationResponse (extra block
+    // variants like thinking); safe to narrow: agents only read text/tool_use.
+    return instrumentedAnthropic(ctx, {
+      ...meta,
+      capability: "generation",
+    }) as unknown as GenerationClient;
+  });
+}
+
+/**
+ * The client for a helper role outside any generation (Brain ingest,
+ * learning digests, chat-side helpers, admin summaries): the role's current
+ * model, with its previous model as an OpenRouter fallback when both run
+ * there. Returns the model id to put in the request.
+ */
+export async function clientForRole(
+  ctx: ActionCtx,
+  role: ModelRole,
+  meta: GenerationCallMeta & {
+    capability?: AnthropicCapability;
+    brainSourceId?: Id<"brainSources">;
   }
-  // Anthropic's response is a superset of GenerationResponse (extra block
-  // variants like thinking) — safe to narrow: agents only read text/tool_use.
-  return instrumentedAnthropic(ctx, {
-    ...meta,
-    capability: "generation",
-  }) as unknown as GenerationClient;
+): Promise<{ client: GenerationClient; model: string }> {
+  const { entry, fallback } = await ctx.runQuery(roleModelEntryRef, { role });
+  registerModelEntries([
+    entryFromFrozen(entry),
+    ...(fallback ? [entryFromFrozen(fallback)] : []),
+  ]);
+  const client =
+    entry.gateway === "openrouter"
+      ? instrumentedOpenRouter(ctx, meta, fallback ? { fallbackModels: [fallback.id] } : {})
+      : (instrumentedAnthropic(ctx, {
+          ...meta,
+          capability: meta.capability ?? "generation",
+        }) as unknown as GenerationClient);
+  return { client: recordingFailures(ctx, entry.id, meta.callSite, client), model: entry.id };
+}
+
+/**
+ * The client for a role inside a generation: the model frozen for that role
+ * at reservation, never the role's current model.
+ */
+export async function clientForFrozenRole(
+  ctx: ActionCtx,
+  generationId: Id<"generations">,
+  role: keyof ModelFreeze["roles"],
+  meta: GenerationCallMeta
+): Promise<{ client: GenerationClient; model: string }> {
+  const freeze = await registerGenerationModels(ctx, generationId);
+  const model = freeze?.roles[role];
+  if (!model) throw new Error(`Generation ${generationId} has no frozen ${role} model`);
+  return { client: clientForModel(ctx, model, meta), model };
 }
 
 /** Exact billed token count returned by Voyage embedding/rerank responses. */

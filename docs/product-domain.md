@@ -2256,6 +2256,18 @@ Presentation and read amendment for Home (`/my-work`), from the owner-approved f
 - **Tests:** Convex tests for both queries and the new field; component tests for the tables, empty states, stage chips and Continue working.
 - **Approval:** product owner, 2026-09-24 (final UI contract).
 
+### 2026-09-24: Automatic model catalog and role switching
+
+- **Decision:** owner decision 21 (`_bmad-output/planning-artifacts/prds/prd-Banhall-2026-09-16/DECISIONS-2026-09-17.md`): a daily job keeps the app on the best current models and switches them on its own, with guardrails.
+- **Vocabulary:** a *model role* is a named job the app gives a model: `writing` (default generation model, seeds and redrafts), `structured_helper`, `chat`, `condense`, `retrieval_brief` and `analysis`. The *model catalog* is every model the app can run or evaluate (`modelCatalog`), seeded from `CANDIDATE_MODELS` and refreshed daily from OpenRouter.
+- **New actor:** the system may switch a role's model, but only when a candidate passes every evaluation gate (100 percent valid structured output, contract pass rate at least the current model's, judged rubric at least the current model's plus 0.5, cost within the role's cap) or when the role's switched model fails more than 20 percent of at least 20 calls in a day (rollback). Every switch writes an immutable `modelSwitchEvents` row and an admin notice on the alerts board.
+- **Invariants:** a generation freezes every model it uses at reservation (`generations.modelFreeze`); retries and Summary recovery inherit that freeze; a running generation never reads a role again. `promptVersion` hashes only the generation's frozen models, so other catalog changes never move it. Condense digests stay keyed by `CONDENSE_VERSION`, not by model. Model switching never touches report prose, so agents-propose/humans-apply is unchanged.
+- **Authority:** Admin only (the existing "Configure models" right): the kill switch (`models.autoSwitch`, which stops every automatic switch and rollback), per-role cost caps, the monthly evaluation budget, manual role assignment and one-call rollback on `/admin/models`. Chat accepts direct Anthropic models only.
+- **Confidentiality:** Artificial Analysis scores are internal: shown only on the admin page with the attribution line, never on a client surface or API.
+- **Migration and compatibility:** additive tables (`modelCatalog`, `modelRoleAssignments`, `modelSwitchEvents`, `modelEvaluations`, `modelCallFailures`), an optional `generations.modelFreeze`, and an `aiUsage` index. No backfill: rows without a freeze resolve from the seed exactly as before. The legacy `defaultModel` setting is honoured until the writing role is first assigned.
+- **Tests:** fixture-driven catalog parsing and diffing, prefilter and promotion gates, kill switch, cost cap, rollback, production error rollback, frozen models per generation, prompt version stability, OpenRouter request fields at the HTTP boundary, and the admin page component.
+- **Approval:** product owner, 2026-09-24 (decision 21).
+
 ## Amendment process
 
 A change to vocabulary, an invariant, a transition edge, or a decision above requires:

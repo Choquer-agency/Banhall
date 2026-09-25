@@ -8,7 +8,16 @@
  * to OpenRouter chat-completions and the response back to Anthropic-shaped
  * content blocks, so the agents run unchanged on either gateway.
  */
-import { maxTokensWithReasoningHeadroom } from "../../shared/generationModels";
+import {
+  maxTokensWithReasoningHeadroom,
+  modelById,
+  requestModelId,
+} from "../../shared/generationModels";
+import {
+  openRouterProviderPreferences,
+  type MaxPrice,
+  type OpenRouterProviderPreferences,
+} from "../../shared/modelCatalog";
 
 export type GenerationContentBlock =
   | { type: "text"; text: string }
@@ -86,6 +95,10 @@ export type ChatCompletionsBody = {
     };
   }>;
   tool_choice?: { type: "function"; function: { name: string } };
+  /** Provider routing: require_parameters on tool calls, max_price. */
+  provider?: OpenRouterProviderPreferences;
+  /** Fallback models, tried in order after `model` (helper roles only). */
+  models?: string[];
 };
 
 export const OPENROUTER_CONVERSION = {
@@ -107,6 +120,15 @@ export const OPENROUTER_CONVERSION = {
   // blocks are joined into the same single string as before.
   cacheControlRule: "keep-text-blocks-for-anthropic-models-else-join",
   cacheControlModelPrefix: "anthropic/",
+  // Model catalog (2026-09-24): the gateway id comes from the registered
+  // entry (an OpenRouter rename moves it), tool calls require every
+  // parameter they send, the price ceiling is the frozen or role cap, and
+  // fallbacks are only ever sent for helper roles, never for a frozen
+  // generation model.
+  modelIdRule: "registered-request-id-else-model",
+  providerRequireParametersRule: "tool-calls",
+  maxPriceRule: "registered-entry-max-price",
+  fallbackModelsRule: "explicit-helper-role-fallbacks-only",
 } as const;
 
 function convertContent(
@@ -121,10 +143,16 @@ function convertContent(
 
 export function toChatCompletions(
   params: GenerationMessageParams,
-  options: { preserveMaxTokens?: boolean } = {}
+  options: {
+    preserveMaxTokens?: boolean;
+    /** Overrides the registered entry's price ceiling. */
+    maxPrice?: MaxPrice;
+    /** App model ids to fall back to, in order. */
+    fallbackModels?: readonly string[];
+  } = {}
 ): ChatCompletionsBody {
   const body: ChatCompletionsBody = {
-    model: params.model,
+    model: requestModelId(params.model),
     // Agents budget max_tokens for the answer alone (the Anthropic-correct
     // number). On OpenRouter, a reasoning model's thinking tokens come out of
     // the same budget, so scale it here rather than inflating every agent's
@@ -163,6 +191,15 @@ export function toChatCompletions(
       function: { name: params.tool_choice.name },
     };
   }
+  const provider = openRouterProviderPreferences({
+    usesTools: Boolean(params.tools?.length),
+    maxPrice: options.maxPrice ?? modelById(params.model)?.maxPrice,
+  });
+  if (provider) body.provider = provider;
+  const fallbacks = (options.fallbackModels ?? [])
+    .filter((id) => id !== params.model)
+    .map(requestModelId);
+  if (fallbacks.length > 0) body.models = [body.model, ...fallbacks];
   return body;
 }
 
@@ -233,6 +270,8 @@ export class MalformedOutputError extends Error {
 }
 
 export type ChatCompletionsResponse = {
+  /** The model that actually answered (differs only after a fallback). */
+  model?: string;
   choices?: Array<{
     message?: {
       content?: string | null;

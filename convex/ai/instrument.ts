@@ -6,6 +6,7 @@ import type { ActionCtx } from "../_generated/server";
 import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { PD_SUBSECTIONS } from "../../shared/pdSubsections";
+import { estimateCostFromTable } from "../../shared/modelPricing";
 
 export type UsageEvent = {
   projectId?: Id<"projects">;
@@ -151,11 +152,15 @@ export function mergeSlotCounts(
   return out;
 }
 
+/** One priced response, for callers that meter their own spend (evals). */
+export type UsageTap = (usage: { model: string; costUsd: number }) => void;
+
 export type ProviderCallMeta = {
   callSite: string;
   projectId?: Id<"projects">;
   userId?: string;
   attribution?: GenerationAttribution;
+  onUsage?: UsageTap;
 };
 
 /**
@@ -368,6 +373,7 @@ export function instrumentedAnthropic(
             ? params.model
             : "unknown";
         if (usage) {
+          meta.onUsage?.({ model, costUsd: estimateCostFromTable(model, usage) });
           await scheduleUsage(ctx, {
             ...(meta.projectId ? { projectId: meta.projectId } : {}),
             ...(meta.attribution

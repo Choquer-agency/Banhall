@@ -1,5 +1,6 @@
 import { cronJobs } from "convex/server";
 import { internal } from "./_generated/api";
+import { refreshCatalogRef } from "./lib/modelCatalogRefs";
 
 const crons = cronJobs();
 
@@ -55,6 +56,15 @@ crons.interval(
   "resume stalled My work backfills",
   { minutes: 5 },
   internal.myWorkBackfill.sweepStalled
+);
+
+// Model catalog (owner decision 21): refresh from OpenRouter, flag expiring
+// or removed models, roll back failing switches and queue at most two
+// evaluations. After the learning digests, still outside working hours.
+crons.cron(
+  "refresh model catalog",
+  "45 8 * * *",
+  refreshCatalogRef
 );
 
 export default crons;

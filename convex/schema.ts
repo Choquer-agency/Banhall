@@ -17,6 +17,16 @@ import {
 import { admissionValidator, attemptOutcomeValidator } from "./lib/learningAdmission";
 import { styleOverridesValidator } from "./lib/styleOverrides";
 import { PD_SUBSECTIONS } from "../shared/pdSubsections";
+import {
+  catalogFieldsValidator,
+  catalogStatusValidator,
+  costComparisonValidator,
+  endpointSupportValidator,
+  evalSummaryValidator,
+  gateResultValidator,
+  modelFreezeValidator,
+  modelRoleValidator,
+} from "./lib/modelCatalogValidators";
 
 const seedRoleIdValidator = v.union(
   ...PD_SUBSECTIONS.map((subsection) => v.literal(subsection.roleId))
@@ -582,7 +592,10 @@ export default defineSchema({
     .index("by_createdAt", ["createdAt"])
     .index("by_projectId", ["projectId"])
     .index("by_projectId_and_createdAt", ["projectId", "createdAt"])
-    .index("by_generationId", ["generationId"]),
+    .index("by_generationId", ["generationId"])
+    // 2026-09-24 widen: per-model call counts for the model catalog's
+    // production error-rate rollback.
+    .index("by_model_and_createdAt", ["model", "createdAt"]),
 
   transcripts: defineTable({
     projectId: v.id("projects"),
@@ -811,6 +824,10 @@ export default defineSchema({
     ),
     seedRequestsReserved: v.optional(v.number()),
     singleModelId: v.optional(v.string()),
+    // 2026-09-24 widen (model catalog): every model this generation uses,
+    // frozen at reservation. Absent on older rows, which resolve from the
+    // seed registry exactly as before.
+    modelFreeze: v.optional(modelFreezeValidator),
     // Compare mode's persisted model pair (exactly 2 ids). Absent on legacy
     // rows, which fall back to the full candidate roster.
     compareModelIds: v.optional(v.array(v.string())),
@@ -2871,6 +2888,117 @@ export default defineSchema({
 
   // Admin-tunable app settings, one row per key. Currently: "defaultModel" —
   // the generation model used when a writer doesn't pick one explicitly.
+  // ─── Model catalog (owner decision 21, 2026-09-24) ─────────────────────────
+  // Every model the app can run or evaluate, refreshed daily from OpenRouter
+  // and seeded from shared/generationModels.ts CANDIDATE_MODELS. Benchmark
+  // scores are Artificial Analysis data: internal use only, admin reads only.
+  modelCatalog: defineTable({
+    ...catalogFieldsValidator,
+    status: catalogStatusValidator,
+    source: v.union(v.literal("seed"), v.literal("openrouter")),
+    endpointSupport: v.optional(endpointSupportValidator),
+    firstSeenAt: v.number(),
+    lastSeenAt: v.number(),
+    missingSince: v.optional(v.number()),
+    renamedFrom: v.optional(v.string()),
+    // Set when an admin notice for this row's expiry or removal was raised,
+    // so the daily job raises each notice once.
+    expiryNoticeFor: v.optional(v.string()),
+    goneNoticeAt: v.optional(v.number()),
+    updatedAt: v.number(),
+  })
+    .index("by_modelId", ["modelId"])
+    .index("by_gateway_and_canonicalSlug", ["gateway", "canonicalSlug"])
+    .index("by_status", ["status"]),
+
+  // The current model per named role, plus the model it replaced (the
+  // one-call rollback target). History lives in modelSwitchEvents.
+  modelRoleAssignments: defineTable({
+    role: modelRoleValidator,
+    modelId: v.string(),
+    previousModelId: v.optional(v.string()),
+    assignedAt: v.number(),
+    assignedBy: v.union(v.literal("system"), v.literal("user")),
+    assignedByUserId: v.optional(v.id("users")),
+    // Last admin notice about this role's production error rate, so a
+    // failing model with automatic switching off is announced once a day.
+    errorNoticeAt: v.optional(v.number()),
+  }).index("by_role", ["role"]),
+
+  // Append-only audit log of every role switch, automatic or manual.
+  modelSwitchEvents: defineTable({
+    role: modelRoleValidator,
+    fromModelId: v.optional(v.string()),
+    toModelId: v.string(),
+    kind: v.union(
+      v.literal("promotion"),
+      v.literal("rollback"),
+      v.literal("manual")
+    ),
+    reason: v.string(),
+    evaluationId: v.optional(v.id("modelEvaluations")),
+    evalResults: v.optional(
+      v.object({
+        candidate: evalSummaryValidator,
+        incumbent: evalSummaryValidator,
+        gates: v.array(gateResultValidator),
+      })
+    ),
+    costComparison: v.optional(costComparisonValidator),
+    errorRate: v.optional(
+      v.object({ calls: v.number(), failures: v.number(), errorRate: v.number() })
+    ),
+    actor: v.union(v.literal("system"), v.literal("user")),
+    actorUserId: v.optional(v.id("users")),
+    at: v.number(),
+  })
+    .index("by_role_and_at", ["role", "at"])
+    .index("by_at", ["at"]),
+
+  // One candidate evaluated for one role against the incumbent on the fixed
+  // eval set. Pending rows are queued or running; the rest carry results.
+  modelEvaluations: defineTable({
+    role: modelRoleValidator,
+    modelId: v.string(),
+    incumbentModelId: v.string(),
+    evalSetVersion: v.string(),
+    status: v.union(
+      v.literal("queued"),
+      v.literal("running"),
+      v.literal("passed"),
+      v.literal("failed"),
+      v.literal("error")
+    ),
+    benchmarkScore: v.optional(v.number()),
+    incumbentBenchmarkScore: v.optional(v.number()),
+    estimatedCostUsd: v.number(),
+    candidate: v.optional(evalSummaryValidator),
+    incumbent: v.optional(evalSummaryValidator),
+    gates: v.optional(v.array(gateResultValidator)),
+    // Everything the evaluation spent: candidate, incumbent and judge.
+    evalCostUsd: v.optional(v.number()),
+    // What happened after the gates: "promoted", or why it was not.
+    outcome: v.optional(v.string()),
+    error: v.optional(v.string()),
+    createdAt: v.number(),
+    startedAt: v.optional(v.number()),
+    completedAt: v.optional(v.number()),
+  })
+    .index("by_status", ["status"])
+    .index("by_role_and_modelId", ["role", "modelId"])
+    .index("by_createdAt", ["createdAt"]),
+
+  // Provider calls that failed in a way the model is answerable for
+  // (malformed or truncated output, model refusals, unclassified errors).
+  // Billing, auth and rate-limit failures are not recorded: they say nothing
+  // about the model.
+  modelCallFailures: defineTable({
+    model: v.string(),
+    callSite: v.string(),
+    code: v.string(),
+    at: v.number(),
+  }).index("by_model_and_at", ["model", "at"]),
+
   appSettings: defineTable({
     key: v.string(),
     value: v.string(),

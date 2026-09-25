@@ -17,7 +17,10 @@ import {
   recordGenerationHandoff,
   scheduleUsage,
   type GenerationAttribution,
+  type UsageTap,
 } from "./instrument";
+import { modelById } from "../../shared/generationModels";
+import { estimateCostFromTable } from "../../shared/modelPricing";
 import {
   toChatCompletions,
   fromChatCompletions,
@@ -75,6 +78,9 @@ export async function openRouterChatCompletion(
     timeoutMs?: number;
     /** Transport retries. Defaults to the shared generation policy. */
     maxRetries?: number;
+    onUsage?: UsageTap;
+    /** App ids of fallback models sent in the body's `models` array. */
+    fallbackModels?: readonly string[];
   }
 ): Promise<ChatCompletionsResponse> {
   const apiKey = requireOpenRouterConfigured();
@@ -159,7 +165,19 @@ export async function openRouterChatCompletion(
   // Mirrors instrumentedAnthropic: a successful response is never turned into
   // an app failure by usage logging.
   const usage = openRouterUsage(body);
+  // After a fallback the answer came from another model: bill that model.
+  const answered =
+    input.fallbackModels?.length && typeof body.model === "string"
+      ? [input.model, ...input.fallbackModels].find(
+          (id) => id === body.model || modelById(id)?.requestId === body.model
+        )
+      : undefined;
+  const usageModel = answered ?? input.model;
   if (usage) {
+    input.onUsage?.({
+      model: usageModel,
+      costUsd: usage.costUsd ?? estimateCostFromTable(usageModel, usage),
+    });
     await scheduleUsage(ctx, {
       ...(input.projectId ? { projectId: input.projectId } : {}),
       ...(input.userId ? { userId: input.userId } : {}),
@@ -173,7 +191,7 @@ export async function openRouterChatCompletion(
           }
         : {}),
       callSite: input.callSite,
-      model: input.model,
+      model: usageModel,
       inputTokens: usage.inputTokens,
       outputTokens: usage.outputTokens,
       cacheReadInputTokens: usage.cacheReadInputTokens,
@@ -193,11 +211,14 @@ export function instrumentedOpenRouter(
     projectId?: Id<"projects">;
     userId?: string;
     attribution?: GenerationAttribution;
+    onUsage?: UsageTap;
   },
   options: {
     timeoutMs?: number;
     maxRetries?: number;
     preserveMaxTokens?: boolean;
+    /** Helper roles only: models to fall back to, in order. */
+    fallbackModels?: readonly string[];
   } = {}
 ): GenerationClient {
   return {
@@ -206,6 +227,7 @@ export function instrumentedOpenRouter(
         const body = await openRouterChatCompletion(ctx, {
           body: toChatCompletions(params, {
             preserveMaxTokens: options.preserveMaxTokens,
+            ...(options.fallbackModels ? { fallbackModels: options.fallbackModels } : {}),
           }),
           model: params.model,
           ...options,
