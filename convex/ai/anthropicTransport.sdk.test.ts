@@ -151,8 +151,13 @@ const CITATIONS_WINDOW = {
   },
 } as const;
 
-/** The same QA request inside an action that runs under its deadline. */
+/**
+ * The same QA request inside an action under its deadline, late enough
+ * (100 s left) that the attempt's timeout is cut below the 240 s default,
+ * so the pinned bytes show the deadline path ran (`x-stainless-timeout`).
+ */
 const QA_UNDER_DEADLINE = { ...OPUS_STRUCTURED, deadline: true } as const;
+const DEADLINE_LEFT_MS = 100_000;
 
 const REQUESTS = { SECTION_DRAFT, SEED_BATCH, OPUS_STRUCTURED, CITATIONS_WINDOW, QA_UNDER_DEADLINE } as const;
 type RequestName = keyof typeof REQUESTS;
@@ -208,7 +213,7 @@ async function send(t: TestConvex, name: RequestName): Promise<Wire> {
   }));
   const request: { callSite: string; attributed: boolean; params: unknown; deadline?: boolean } = REQUESTS[name];
   await runAction(t, async (ctx) => {
-    if (request.deadline) startActionDeadline(ctx);
+    if (request.deadline) startActionDeadline(ctx, Date.now() - (ACTION_REQUEST_WINDOW_MS - DEADLINE_LEFT_MS));
     const client = instrumentedAnthropic(ctx, {
       callSite: request.callSite,
       ...(request.attributed ? { attribution: { generationId: "generation-wire" as never } } : {}),
@@ -221,14 +226,18 @@ async function send(t: TestConvex, name: RequestName): Promise<Wire> {
 
 /**
  * sha256 of `JSON.stringify(wire)` for each request on the direct path,
- * captured at b8e97f0a, before the transport switch existed.
+ * captured at b8e97f0a, before the transport switch existed. The hash
+ * covers every header but the platform ones, including
+ * `x-stainless-package-version`, so an @anthropic-ai/sdk upgrade changes
+ * every hash: recapture them all on the commit before the upgrade (with
+ * the upgraded SDK) and check that nothing but that header moved.
  */
 const DIRECT_WIRE_HASHES: Record<RequestName, string> = {
   SECTION_DRAFT: "d29f8da09347b348bc2b4e8fbc21860890aae8312e3ff46ee3a1fcb256cac77b",
   SEED_BATCH: "b9b8701e6576a5a90dcaea83abad2f5a7175864c287ad62c59ef7536a0064a9c",
   OPUS_STRUCTURED: "5589bb048cf2343f1f80c515a3b45fde7b63bc836a8f10994f732b0c89d3bdb3",
   CITATIONS_WINDOW: "d3199ca251ac3802d2b97e53007f879243e82a36a8159ae77df534b112746e15",
-  QA_UNDER_DEADLINE: "5589bb048cf2343f1f80c515a3b45fde7b63bc836a8f10994f732b0c89d3bdb3",
+  QA_UNDER_DEADLINE: "b3f8e2c05f9a7b890d68be27d02ee70e7c2ec845bfcab5d08bc3a066e571ec1b",
 };
 
 test.each(Object.keys(REQUESTS) as RequestName[])(
@@ -240,9 +249,15 @@ test.each(Object.keys(REQUESTS) as RequestName[])(
     expect(wire.headers["x-api-key"]).toBe(ANTHROPIC_KEY);
     expect(wire.headers.authorization).toBeUndefined();
     expect(JSON.parse(wire.body)).not.toHaveProperty("provider");
+    // The deadline case's attempt timeout was cut to the time left.
+    expect(wire.headers["x-stainless-timeout"]).toBe(name === "QA_UNDER_DEADLINE" ? String(DEADLINE_LEFT_MS / 1000) : "240");
     expect({ name, hash: await sha256(JSON.stringify(wire)) }).toEqual({ name, hash: DIRECT_WIRE_HASHES[name] });
   }
 );
+
+test("the deadline case's pinned bytes differ from the same request without a deadline", () => {
+  expect(DIRECT_WIRE_HASHES.QA_UNDER_DEADLINE).not.toBe(DIRECT_WIRE_HASHES.OPUS_STRUCTURED);
+});
 
 test("direct when set explicitly: every request keeps its pinned bytes", async () => {
   vi.stubEnv("ANTHROPIC_TRANSPORT", "direct");
