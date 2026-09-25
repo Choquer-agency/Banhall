@@ -137,15 +137,81 @@ describe("backfill of turns and speaker roles", () => {
     // One step only: the first batch is written, the rest is scheduled.
     await f.t.mutation(internal.transcripts.buildTranscriptStructure, { transcriptId: f.transcriptIds[0] });
     expect((await turnsOf(f.t, f.transcriptIds[0])).length).toBe(TURN_BATCH_SIZE);
-    // Replaying the first batch after the partial run changes nothing.
-    await f.t.mutation(internal.transcripts.buildTranscriptStructure, {
-      transcriptId: f.transcriptIds[0],
-      fromIndex: TURN_BATCH_SIZE,
-    });
+    // Replaying a step of the same chain inserts only what is missing.
+    const buildId = (await f.t.run((ctx) => ctx.db.get(f.transcriptIds[0])))?.structureBuildId;
+    expect(buildId).toBeTypeOf("string");
+    for (let replay = 0; replay < 2; replay += 1) {
+      await f.t.mutation(internal.transcripts.buildTranscriptStructure, {
+        transcriptId: f.transcriptIds[0],
+        fromIndex: TURN_BATCH_SIZE,
+        buildId,
+      });
+    }
+    expect((await turnsOf(f.t, f.transcriptIds[0])).length).toBe(TURN_BATCH_SIZE * 2);
     await f.t.finishAllScheduledFunctions(vi.runAllTimers);
     const turns = await turnsOf(f.t, f.transcriptIds[0]);
     expect(turns.length).toBe(TURN_BATCH_SIZE * 2 + 17);
     expect(new Set(turns.map((turn) => turn.index)).size).toBe(turns.length);
+  });
+
+  it("never marks a transcript current with turns missing when two build chains overlap", async () => {
+    // 900 turns: more than one delete batch (500) and three insert batches.
+    const total = 900;
+    const lines = Array.from({ length: total }, (_, i) => `${i % 2 === 0 ? "Dana" : "Priya"}: Turn number ${i}.`).join(
+      "\n"
+    );
+    const f = await setup([lines]);
+    const id = f.transcriptIds[0];
+    // Chain A (an upload) writes turns 0 to 399, then 400 to 799.
+    await f.t.mutation(internal.transcripts.buildTranscriptStructure, { transcriptId: id });
+    vi.runOnlyPendingTimers();
+    await f.t.finishInProgressScheduledFunctions();
+    expect((await turnsOf(f.t, id)).length).toBe(TURN_BATCH_SIZE * 2);
+    // Chain B (the backfill, run while A is still going) starts from zero.
+    await f.t.mutation(internal.transcripts.buildTranscriptStructure, { transcriptId: id });
+    // Both chains run to the end, interleaved.
+    await f.t.finishAllScheduledFunctions(vi.runAllTimers);
+
+    const turns = await turnsOf(f.t, id);
+    const row = await f.t.run((ctx) => ctx.db.get(id));
+    expect(row?.parserVersion).toBe(TRANSCRIPT_PARSER_VERSION);
+    expect(row?.structureBuildId).toBeUndefined();
+    expect(turns.length).toBe(total);
+    expect(turns.map((turn) => turn.index)).toEqual(Array.from({ length: total }, (_, i) => i));
+  });
+
+  it("stops a chain whose build another chain took over, without writing", async () => {
+    const lines = Array.from({ length: 450 }, (_, i) => `${i % 2 === 0 ? "Dana" : "Priya"}: Turn ${i}.`).join("\n");
+    const f = await setup([lines]);
+    const id = f.transcriptIds[0];
+    await f.t.mutation(internal.transcripts.buildTranscriptStructure, { transcriptId: id });
+    const first = (await f.t.run((ctx) => ctx.db.get(id)))?.structureBuildId;
+    await f.t.mutation(internal.transcripts.buildTranscriptStructure, { transcriptId: id });
+    const second = (await f.t.run((ctx) => ctx.db.get(id)))?.structureBuildId;
+    expect(second).not.toBe(first);
+    const before = (await turnsOf(f.t, id)).map((turn) => turn._id);
+    // The first chain's next step finds the other chain's id and stops.
+    await f.t.mutation(internal.transcripts.buildTranscriptStructure, {
+      transcriptId: id,
+      fromIndex: TURN_BATCH_SIZE,
+      buildId: first,
+    });
+    expect((await turnsOf(f.t, id)).map((turn) => turn._id)).toEqual(before);
+    expect((await f.t.run((ctx) => ctx.db.get(id)))?.parserVersion).toBeUndefined();
+  });
+
+  it("converges when the backfill runs twice over a long transcript", async () => {
+    const total = 1_234;
+    const lines = Array.from({ length: total }, (_, i) => `${i % 2 === 0 ? "Dana" : "Priya"}: Turn ${i}.`).join("\n");
+    const f = await setup([lines]);
+    await f.t.mutation(internal.transcripts.backfillTranscriptStructure, {});
+    vi.runOnlyPendingTimers();
+    await f.t.finishInProgressScheduledFunctions();
+    await f.t.mutation(internal.transcripts.backfillTranscriptStructure, {});
+    await f.t.finishAllScheduledFunctions(vi.runAllTimers);
+    const turns = await turnsOf(f.t, f.transcriptIds[0]);
+    expect(turns.map((turn) => turn.index)).toEqual(Array.from({ length: total }, (_, i) => i));
+    expect((await f.t.run((ctx) => ctx.db.get(f.transcriptIds[0])))?.parserVersion).toBe(TRANSCRIPT_PARSER_VERSION);
   });
 
   it("keeps a consultant's role through a parser rebuild", async () => {

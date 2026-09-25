@@ -625,6 +625,9 @@ export default defineSchema({
     originalStorageId: v.optional(v.id("_storage")),
     sourceFormat: v.optional(transcriptSourceFormatValidator),
     parserVersion: v.optional(v.string()),
+    // The turn build chain that owns this row's rebuild. A chain that finds
+    // another id here stops, so two chains never interleave their writes.
+    structureBuildId: v.optional(v.string()),
     archivedAt: v.optional(v.number()),
     supersededById: v.optional(v.id("transcripts")),
     speakerStatus: v.optional(

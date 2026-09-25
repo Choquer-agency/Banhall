@@ -114,7 +114,9 @@ export const getTranscriptContent = query({
  * Builds one transcript's turns and rule-based speaker roles from its stored
  * text, one bounded batch per run, rescheduling itself until done. No model
  * call. Idempotent: a transcript already at the current parser version is
- * left alone, and a replayed batch inserts only what is missing.
+ * left alone, and a replayed batch inserts only what is missing. A call
+ * without `buildId` starts a new chain, which takes the build over from any
+ * chain still running for the same transcript (`buildStructureStep`).
  */
 export const buildTranscriptStructure = internalMutation({
   args: {
@@ -123,16 +125,19 @@ export const buildTranscriptStructure = internalMutation({
     // New intake asks the model about speakers the rules could not place;
     // the backfill never does (no model call).
     modelRoles: v.optional(v.boolean()),
+    // The chain this step belongs to; absent on a chain's first step.
+    buildId: v.optional(v.string()),
   },
   returns: v.null(),
   handler: async (ctx, args) => {
     const transcript = await ctx.db.get(args.transcriptId);
     if (!transcript || (await isProjectDeleting(ctx, transcript.projectId))) return null;
-    const step = await buildStructureStep(ctx, args.transcriptId, args.fromIndex ?? 0);
+    const step = await buildStructureStep(ctx, args.transcriptId, args.fromIndex ?? 0, args.buildId);
     if (step.kind === "continue") {
       await ctx.scheduler.runAfter(0, internal.transcripts.buildTranscriptStructure, {
         transcriptId: args.transcriptId,
         fromIndex: step.fromIndex,
+        buildId: step.buildId,
         ...(args.modelRoles ? { modelRoles: true } : {}),
       });
     }
