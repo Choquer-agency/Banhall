@@ -64,6 +64,7 @@
   import WorkspaceChrome from "$lib/components/workspace/WorkspaceChrome.svelte";
   import { displayName } from "$lib/displayName";
   import { takeProjectStart } from "$lib/workspace/projectIntentHandoff";
+  import { parseDraftModeParam } from "$lib/workspace/projectDuplicate";
   import { page } from "$app/state";
   import { createRequestId } from "$lib/requestId";
 
@@ -220,6 +221,18 @@
   // existing project (setup + transcript now; documents copied on commit).
   const fromProjectId = page.url.searchParams.get("from");
 
+  // Duplicate from a project card or row (2026-09-25): `drafts=<mode>`
+  // preselects that Drafts mode (only an exact Drafts mode id counts;
+  // anything else is ignored). A duplicate that carries it is a duplicate to
+  // draft again: the copy brings the inputs (transcripts, files and their
+  // originals, identity evidence) but not the old report, nor PD reviews
+  // unless this is a Review PD project, and then the selected generation or
+  // review starts exactly as for a new project. The plain `?from=` link (the
+  // old dashboard's Duplicate) stays a full clone that starts nothing.
+  const draftsParam = parseDraftModeParam(page.url.searchParams.get("drafts"));
+  const generateAfterDuplicate = Boolean(fromProjectId && draftsParam);
+  if (draftsParam && !fromProjectId) candidateMode = draftsParam;
+
   // Home's large start-project prompt is navigation/prefill, not generation:
   // it hands a short editable intent across one immediate client-side route
   // transition. Duplicate remains the richer source and therefore wins.
@@ -287,6 +300,49 @@
       ? { projectId: fromProjectId as Id<"projects"> }
       : "skip"
   );
+  // What the copy will bring along besides the transcripts: the source's
+  // files, listed read-only so the writer sees them before creating. The
+  // copy itself still happens on commit (projectDuplication.copyProjectContent).
+  const sourceDocumentsQ = useQuery(api.documents.listDocuments, () =>
+    auth.isAuthenticated && fromProjectId
+      ? { projectId: fromProjectId as Id<"projects"> }
+      : "skip"
+  );
+  // A duplicate to draft again leaves PD reviews and the written PDs they
+  // reviewed behind unless it is a Review PD project.
+  const copyReviews = $derived(!generateAfterDuplicate || mode === "review");
+  const copiedDocuments = $derived(
+    fromProjectId
+      ? (sourceDocumentsQ.data ?? []).filter(
+          (document) => copyReviews || document.source !== "review_pd"
+        )
+      : []
+  );
+  // Same grouping and order as the Context & files card; files the source
+  // kept without a category (a written PD under review, chat uploads) close
+  // the list.
+  const copiedDocumentGroups = $derived.by(() => {
+    const known = new Set<string>(CONTEXT_CATEGORIES.map((category) => category.id));
+    const groups = CONTEXT_CATEGORIES.map((category) => ({
+      id: category.id as string,
+      label: category.label,
+      files: copiedDocuments.filter((document) => document.category === category.id),
+    }));
+    groups.push({
+      id: "uncategorized",
+      label: "Other project files",
+      files: copiedDocuments.filter(
+        (document) => !document.category || !known.has(document.category)
+      ),
+    });
+    return groups.filter((group) => group.files.length > 0);
+  });
+  // Copied text the AI can read counts as a source, the same test the
+  // server applies before it starts a generation.
+  const copiedReadableCount = $derived(
+    copiedDocuments.filter((document) => !document.archived && document.sizeChars > 0).length
+  );
+  const copySourceTitle = $derived(sourceProjectQ.data?.title ?? "the original project");
   const copyProjectContent = useAction(api.projectDuplication.copyProjectContent);
 
   let prefilled = $state(false);
@@ -300,6 +356,9 @@
     industry = source.industry ?? "";
     scienceCode = source.scienceCode ?? "";
     mode = source.mode ?? "generate";
+    // Drafts modes belong to Generate PD. A review project stays a review
+    // project; its Drafts choice only shows if the writer switches mode.
+    if (draftsParam) candidateMode = draftsParam;
     interviewerUserId = source.interviewerUserId ?? "";
     interviewees = source.interviewees ?? [];
     selectedTagIds = (source.tagIds ?? []) as string[];
@@ -533,7 +592,10 @@
       pyNoteOnlyCount
   );
   const hasAnySource = $derived(
-    mode === "review" || transcriptCountForSubmit > 0 || textualFileCount > 0
+    mode === "review" ||
+      transcriptCountForSubmit > 0 ||
+      textualFileCount > 0 ||
+      copiedReadableCount > 0
   );
 
   function goNext() {
@@ -702,6 +764,10 @@
           fromProjectId: fromProjectId as Id<"projects">,
           toProjectId: projectId,
           ...(transcriptIds[0] ? { targetTranscriptId: transcriptIds[0] } : {}),
+          // A duplicate to draft again copies inputs only (see draftsParam).
+          ...(generateAfterDuplicate
+            ? { includeReport: false, includeReviews: copyReviews }
+            : {}),
         });
       }
 
@@ -828,8 +894,9 @@
         // Runs for duplicates too. This was `if (fromProjectId) ... else if`,
         // which silently discarded the staged PD on a duplicated review
         // project — no review_pd upload, no review, and the project page had
-        // nothing to show (the 2026-08-07 stranded-review flag). Duplicates
-        // still skip auto-generation below; only the review start is shared.
+        // nothing to show (the 2026-08-07 stranded-review flag). Plain
+        // duplicates still skip auto-generation below; only the review start
+        // is shared. Card duplicates (`drafts`) generate like new projects.
         // BNH-39: store the written PD (no category — it must NOT feed a later
         // generation as context; the review agent reads it directly).
         progress = `Uploading ${pdDoc.name}…`;
@@ -866,7 +933,7 @@
         extractionLifetime.signal.throwIfAborted();
         progress = "Starting PD review…";
         await startPdReview({ projectId, documentId });
-      } else if (fromProjectId) {
+      } else if (fromProjectId && !generateAfterDuplicate) {
         progress = "Opening duplicate…";
       } else {
         extractionLifetime.signal.throwIfAborted();
@@ -1412,6 +1479,51 @@
                 All optional · {fileCount} item{fileCount === 1 ? "" : "s"} attached
               </p>
             </div>
+            {#if copiedDocumentGroups.length}
+              <!-- Duplicate: the source's files, read-only. They are not
+                   staged here; the server copies them when the project is
+                   created, originals included. -->
+              <section
+                data-copied-files
+                aria-labelledby="copied-files-title"
+                class="mt-2.5 rounded-xl border border-line bg-surface px-4 py-3"
+              >
+                <div class="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5">
+                  <h3 id="copied-files-title" class="min-w-0 truncate text-sm font-medium text-ink">
+                    Files from {copySourceTitle}
+                  </h3>
+                  <p class="text-xs text-ink-muted">
+                    {copiedDocuments.length} file{copiedDocuments.length === 1 ? "" : "s"}
+                  </p>
+                </div>
+                <p data-copied-files-note class="mt-0.5 text-xs text-ink-muted">
+                  {#if !generateAfterDuplicate}
+                    Copied from {copySourceTitle} when you create the project.
+                  {:else if mode === "generate"}
+                    Files from {copySourceTitle} are copied into this new project, then the report is generated from them. The old report is not copied.
+                  {:else}
+                    Files from {copySourceTitle} are copied into this new project, then the review runs on the PD you upload. The old report is not copied.
+                  {/if}
+                </p>
+                <div class="mt-2.5 flex flex-col gap-2.5">
+                  {#each copiedDocumentGroups as group (group.id)}
+                    <div data-copied-files-group={group.id}>
+                      <p class="text-xs font-medium text-ink-muted">{group.label}</p>
+                      <ul class="mt-0.5 text-sm text-ink-secondary">
+                        {#each group.files as file (file._id)}
+                          <li class="flex min-w-0 items-baseline gap-2">
+                            <span class="min-w-0 truncate">{file.fileName}</span>
+                            {#if file.archived}
+                              <span class="shrink-0 text-xs text-ink-faint">Archived</span>
+                            {/if}
+                          </li>
+                        {/each}
+                      </ul>
+                    </div>
+                  {/each}
+                </div>
+              </section>
+            {/if}
             <div class="card mt-2.5 divide-y divide-gray-100 overflow-hidden">
               {#each CONTEXT_CATEGORIES as cat (cat.id)}
                 {#if cat.id === "previous_pd"}
@@ -1514,6 +1626,12 @@
                 : "None"
             )}
             {@render row("Context items", fileCount > 0 ? `${fileCount} attached` : "None")}
+            {#if copiedDocuments.length}
+              {@render row(
+                "Copied files",
+                `${copiedDocuments.length} from ${copySourceTitle}`
+              )}
+            {/if}
           </div>
           {#if fileCount > 0}
             <div class="card p-4">

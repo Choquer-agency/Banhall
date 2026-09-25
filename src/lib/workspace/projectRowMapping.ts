@@ -44,6 +44,8 @@ export type DashboardProjectionRow = {
     blocking: boolean;
     dueAt?: number | null;
   };
+  /** Present (true) only while the project is being deleted. */
+  deleting?: boolean;
 };
 
 function workItemKindLabel(kind: string): string {
@@ -103,5 +105,6 @@ export function toProjectsTableRow(project: DashboardProjectionRow): ProjectsTab
               : formatProjectDate(project.currentHandoff.dueAt),
         }
       : undefined,
+    ...(project.deleting ? { deleting: true } : {}),
   };
 }

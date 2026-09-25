@@ -44,6 +44,8 @@
       kindLabel: string;
       dueDate?: string;
     };
+    /** The project is mid-deletion (server-projected); hides Duplicate. */
+    deleting?: boolean;
   };
 
   export type ProjectsTableColumns = Record<ProjectColumnId, boolean>;

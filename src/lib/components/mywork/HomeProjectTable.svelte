@@ -10,6 +10,7 @@
   import { resolve } from "$app/paths";
   import { CaretDownIcon } from "phosphor-svelte";
   import HomeStageChip from "$lib/components/mywork/HomeStageChip.svelte";
+  import DuplicateProjectButton from "$lib/components/workspace/DuplicateProjectButton.svelte";
   import { formatEdited } from "$lib/components/project/details/detailsFormat";
   import { clientInitial, clientTone, type HomeRow } from "$lib/mywork/homeRows";
   import { setProjectPagingContext } from "$lib/workspace/projectPagingContext";
@@ -112,7 +113,7 @@
           </thead>
           <tbody>
             {#each rows as row (row.projectId)}
-              <tr data-home-row={row.projectId} class="relative h-11 border-b border-line-soft transition-colors hover:bg-primary-wash motion-reduce:transition-none">
+              <tr data-home-row={row.projectId} class="group/project relative h-11 border-b border-line-soft transition-colors hover:bg-primary-wash motion-reduce:transition-none">
                 <td class="pl-2 pr-3">
                   <div class="flex min-w-0 items-center gap-2">
                     <span
@@ -128,6 +129,7 @@
                       onclick={stashContext}
                       class="min-w-0 truncate text-[13px] font-medium leading-[18px] text-ink outline-none after:absolute after:inset-0 after:content-[''] focus-visible:after:outline focus-visible:after:outline-2 focus-visible:after:-outline-offset-2 focus-visible:after:outline-fir"
                     >{row.title}</a>
+                    <DuplicateProjectButton projectId={row.projectId} projectTitle={row.title} deleting={row.deleting} class="ml-auto" />
                   </div>
                 </td>
                 <td class="pr-3 max-sm:hidden">

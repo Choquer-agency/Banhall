@@ -1,9 +1,9 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { page as browserPage } from "vitest/browser";
+import { page as browserPage, userEvent } from "vitest/browser";
 import { render } from "vitest-browser-svelte";
 import HomeView from "./HomeView.svelte";
 import { __resetPage, __setPageUrl } from "$lib/test/app-state-stub.svelte";
-import { __resetNavigation } from "$lib/test/app-navigation-stub";
+import { __navigationCalls, __resetNavigation } from "$lib/test/app-navigation-stub";
 import {
   __activeQueryArgs,
   __isQueryActive,
@@ -313,6 +313,76 @@ describe("Home", () => {
     }
     expect(document.body.textContent).not.toContain("\u00b7");
     expect(document.body.textContent).not.toMatch(/[\u2013\u2014]/);
+  });
+
+  it("offers Duplicate on a row on hover, opening the wizard for that project", async () => {
+    seed();
+    __setQueryData("users:getCurrentUser", { _id: "u-1", firstName: "Jordan", role: "writer" });
+    __setPaginatedRows("myWork:listAssignedToMe", [
+      assigned("a"),
+      assigned("b", { projectTitle: "Adaptive cold storage controls" }),
+    ]);
+    __setPaginatedRows("dashboard:listFlatProjects", []);
+    await mount();
+
+    const duplicate = () =>
+      document.querySelector<HTMLButtonElement>('[data-home-row="proj-b"] [data-duplicate-project="proj-b"]');
+    await expect.poll(duplicate).not.toBeNull();
+    const row = document.querySelector<HTMLElement>('[data-home-row="proj-b"]')!;
+    const link = row.querySelector<HTMLAnchorElement>("a")!;
+    const button = duplicate()!;
+    expect(button.getAttribute("aria-label")).toBe("Duplicate Adaptive cold storage controls");
+    expect(getComputedStyle(button).opacity).toBe("0");
+
+    await userEvent.hover(row);
+    await expect.poll(() => getComputedStyle(button).opacity).toBe("1");
+    // Rows keep their 44px height, and the button sits above the row link.
+    expect(row.getBoundingClientRect().height).toBe(44);
+    const box = button.getBoundingClientRect();
+    const hit = document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2);
+    expect(hit && button.contains(hit)).toBe(true);
+
+    const linkClicks: Event[] = [];
+    link.addEventListener("click", (event) => {
+      linkClicks.push(event);
+      event.preventDefault();
+    });
+    await userEvent.click(button);
+    await expect.poll(() => __navigationCalls.length).toBe(1);
+    expect(__navigationCalls[0]).toEqual({
+      kind: "goto",
+      url: "/project/new?from=proj-b&drafts=iterative",
+    });
+    expect(linkClicks).toHaveLength(0);
+
+    // Focus inside a row shows it too.
+    await userEvent.unhover(row);
+    const other = document.querySelector<HTMLElement>('[data-home-row="proj-a"]')!;
+    const otherButton = other.querySelector<HTMLButtonElement>("[data-duplicate-project]")!;
+    other.querySelector<HTMLAnchorElement>("a")!.focus();
+    await expect.poll(() => getComputedStyle(otherButton).opacity).toBe("1");
+  });
+
+  it("offers no Duplicate without a role or on a project being deleted", async () => {
+    seed();
+    __setPaginatedRows("myWork:listAssignedToMe", [assigned("a")]);
+    __setPaginatedRows("dashboard:listFlatProjects", [
+      { _id: "proj-e1", title: "Edited elsewhere", clientName: "Alder Research", workflowStage: "revisions", updatedAt: Date.now() - 5 * MINUTE },
+    ]);
+    const roleless = await mount([]);
+    await expect.poll(() => rowTitles("home-recent")).toEqual(["Edited elsewhere"]);
+    expect(document.querySelector("[data-duplicate-project]")).toBeNull();
+    roleless.unmount();
+
+    __setQueryData("users:getCurrentUser", { _id: "u-1", firstName: "Jordan", role: "writer" });
+    __setPaginatedRows("dashboard:listFlatProjects", [
+      { _id: "proj-e1", title: "Edited elsewhere", clientName: "Alder Research", workflowStage: "revisions", updatedAt: Date.now() - 5 * MINUTE },
+      { _id: "proj-e2", title: "Being deleted", clientName: "Alder Research", workflowStage: "intake", updatedAt: Date.now() - 6 * MINUTE, deleting: true },
+    ]);
+    await mount([]);
+    await expect.poll(() => rowTitles("home-recent")).toEqual(["Edited elsewhere", "Being deleted"]);
+    await expect.poll(() => document.querySelector('[data-duplicate-project="proj-e1"]')).not.toBeNull();
+    expect(document.querySelector('[data-duplicate-project="proj-e2"]')).toBeNull();
   });
 
   it("stacks Continue working under the tables on a phone and hides the extra columns", async () => {

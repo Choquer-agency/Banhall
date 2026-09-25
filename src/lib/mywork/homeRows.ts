@@ -13,6 +13,8 @@ export type HomeRow = {
   stage: WorkflowStage;
   /** Project edit time; null when the source row does not carry it. */
   editedAt: number | null;
+  /** Present (true) only while the project is being deleted. */
+  deleting?: boolean;
 };
 
 type AssignedItem = {
@@ -69,6 +71,7 @@ type FlatProject = {
   clientName: string;
   workflowStage?: WorkflowStage;
   updatedAt: number;
+  deleting?: boolean;
 };
 
 export function flatProjectRows(rows: readonly FlatProject[]): HomeRow[] {
@@ -78,6 +81,7 @@ export function flatProjectRows(rows: readonly FlatProject[]): HomeRow[] {
     clientName: row.clientName,
     stage: row.workflowStage ?? "intake",
     editedAt: row.updatedAt,
+    ...(row.deleting ? { deleting: true } : {}),
   }));
 }
 

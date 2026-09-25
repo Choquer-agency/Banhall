@@ -35,6 +35,10 @@ export async function copyProjectContentBetween(
     fromProjectId: Id<"projects">;
     toProjectId: Id<"projects">;
     targetTranscriptId?: Id<"transcripts">;
+    /** Defaults to true; see projects.prepareProjectContentCopy. */
+    includeReport?: boolean;
+    /** Defaults to true; see projects.prepareProjectContentCopy. */
+    includeReviews?: boolean;
   }
 ): Promise<CopyResult> {
   const plan: CopyPlan = await ctx.runMutation(
@@ -75,6 +79,11 @@ export async function copyProjectContentBetween(
  * its destination project. Original file bytes are cloned rather than sharing
  * storage ids, so deleting a document from either project cannot break the
  * other copy.
+ *
+ * The plain duplicate is a full clone. A duplicate made to draft again (the
+ * card Duplicate, 2026-09-25) passes `includeReport: false`, and
+ * `includeReviews: false` unless it is a Review PD project, so the new
+ * project holds only the inputs its own generation will read.
  */
 export const copyProjectContent = action({
   args: {
@@ -83,6 +92,8 @@ export const copyProjectContent = action({
     // Absent when the duplicate carries no transcript at all: the report copy
     // simply has no source transcript to cite.
     targetTranscriptId: v.optional(v.id("transcripts")),
+    includeReport: v.optional(v.boolean()),
+    includeReviews: v.optional(v.boolean()),
   },
   handler: async (ctx, args): Promise<CopyResult> => {
     return await copyProjectContentBetween(ctx, args);
