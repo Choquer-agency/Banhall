@@ -254,6 +254,45 @@ export function acceptsForcedToolChoice(id: string): boolean {
 }
 
 /**
+ * The output cap of the Claude models whose thinking is always on (Opus 5.5,
+ * Fable 5.1 and Mythos 5.1 all allow 128K output tokens). An entry that
+ * declares `maxCompletionTokens` uses its own cap instead.
+ */
+export const ALWAYS_THINKING_MAX_OUTPUT_TOKENS = 128_000;
+
+/**
+ * Whether a frozen or seed entry names a Claude model whose thinking is
+ * always on, sent over the direct Anthropic gateway. Reads only the fixed id
+ * rule and the entry's own flag, never the runtime registry, so queries and
+ * mutations may call it (the prompt program projection does).
+ */
+export function entryAlwaysThinks(
+  entry: Pick<ModelEntry, "id" | "gateway" | "forcedToolChoice">
+): boolean {
+  return (
+    entry.gateway === "anthropic" &&
+    (FORCED_TOOL_CHOICE_REJECTED_IDS.has(entry.id) || entry.forcedToolChoice === false)
+  );
+}
+
+/**
+ * The max_tokens the direct Anthropic gateway sends to a model whose
+ * thinking is always on (2026-09-25, cutoff review P2-1). On that gateway a
+ * model that rejects forced tool calls is exactly such a model (see
+ * FORCED_TOOL_CHOICE_REJECTED_IDS), and its thinking is billed from the same
+ * max_tokens as the answer: a 4,096-token judge answer was spent on thinking
+ * and cut off. Like an OpenRouter reasoning model
+ * (maxTokensWithReasoningHeadroom), the answer budget is multiplied by
+ * REASONING_TOKEN_MULTIPLIER, within the model's output cap. Every other
+ * model gets `maxTokens` back unchanged.
+ */
+export function alwaysThinkingMaxTokens(id: string, maxTokens: number): number {
+  if (acceptsForcedToolChoice(id)) return maxTokens;
+  const cap = modelById(id)?.maxCompletionTokens ?? ALWAYS_THINKING_MAX_OUTPUT_TOKENS;
+  return Math.max(maxTokens, Math.min(maxTokens * REASONING_TOKEN_MULTIPLIER, cap));
+}
+
+/**
  * Models that reject a forced tool call but may still be drawn for a Random
  * compare slot (owner decision 34, 2026-09-25). Opus 5.5 ran a full real
  * Step-by-step on the unforced path; Fable 5.1 and Mythos 5.1 stay out.

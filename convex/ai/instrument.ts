@@ -7,7 +7,11 @@ import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { PD_SUBSECTIONS } from "../../shared/pdSubsections";
 import { estimateCostFromTable, type BilledTokens } from "../../shared/modelPricing";
-import { acceptsForcedToolChoice, toolRequestForModel } from "../../shared/generationModels";
+import {
+  acceptsForcedToolChoice,
+  alwaysThinkingMaxTokens,
+  toolRequestForModel,
+} from "../../shared/generationModels";
 
 export type UsageEvent = {
   projectId?: Id<"projects">;
@@ -370,6 +374,12 @@ function cacheGenerationPrefix(params: unknown): unknown {
  * - `thinking: {type: "disabled"}` (the section drafts) is dropped and the
  *   effort set to "low", the closest the API allows to no thinking; an
  *   explicit budget (`{type: "enabled"}`) is dropped and adaptive runs.
+ * - `max_tokens` gains room for the thinking (2026-09-25, cutoff review
+ *   P2-1): thinking is billed from the same output budget as the answer, so
+ *   a 4,096-token judge answer (QA, Self-check, consistency, chronology) was
+ *   cut off before it finished. The answer budget is multiplied like an
+ *   OpenRouter reasoning model's, within the model's output cap
+ *   (alwaysThinkingMaxTokens). The caller's answer limits are unchanged.
  * Every other model's request passes through as the same object. Runs
  * before cacheGenerationPrefix, so the system line is part of the cached
  * prefix.
@@ -379,6 +389,9 @@ export function adaptAnthropicRequest(params: unknown): unknown {
   const request = params as Record<string, unknown>;
   if (typeof request.model !== "string" || acceptsForcedToolChoice(request.model)) return params;
   const adapted: Record<string, unknown> = { ...request };
+  if (typeof adapted.max_tokens === "number") {
+    adapted.max_tokens = alwaysThinkingMaxTokens(request.model, adapted.max_tokens);
+  }
   const thinking = adapted.thinking;
   if (thinking && typeof thinking === "object" && "type" in thinking && thinking.type !== "adaptive") {
     delete adapted.thinking;
