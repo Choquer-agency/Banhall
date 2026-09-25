@@ -15,6 +15,7 @@ import {
   type PackTurnInfo,
 } from "./transcriptFacts";
 import { speakerRoleMap } from "./transcriptStructure";
+import type { TranscriptSpeakerRole } from "./transcriptValidators";
 
 type Ctx = QueryCtx | MutationCtx;
 
@@ -79,21 +80,31 @@ export async function listFacts(ctx: Ctx, transcriptId: Id<"transcripts">): Prom
     .take(MAX_FACTS_PER_TRANSCRIPT);
 }
 
-/** Turn attribution for the turns the facts reference. */
+/**
+ * Turn attribution for the turns the facts reference. One index range from
+ * the first to the last referenced turn, not one read per turn: a long
+ * transcript's facts can name thousands of turns, past what one transaction
+ * may read range by range.
+ */
 export async function packTurnInfo(
   ctx: Ctx,
   transcriptId: Id<"transcripts">,
   facts: readonly Pick<Doc<"transcriptFacts">, "turnIndexes">[]
 ): Promise<Map<number, PackTurnInfo>> {
-  const indexes = [...new Set(facts.flatMap((fact) => fact.turnIndexes))].sort((a, b) => a - b);
+  const wanted = new Set(facts.flatMap((fact) => fact.turnIndexes));
   const info = new Map<number, PackTurnInfo>();
-  for (const index of indexes) {
-    const turn = await ctx.db
-      .query("transcriptTurns")
-      .withIndex("by_transcriptId_and_index", (q) => q.eq("transcriptId", transcriptId).eq("index", index))
-      .first();
-    if (!turn) continue;
-    info.set(index, {
+  if (wanted.size === 0) return info;
+  const first = Math.min(...wanted);
+  const last = Math.max(...wanted);
+  const turns = await ctx.db
+    .query("transcriptTurns")
+    .withIndex("by_transcriptId_and_index", (q) =>
+      q.eq("transcriptId", transcriptId).gte("index", first).lte("index", last)
+    )
+    .take(MAX_FACT_TURNS);
+  for (const turn of turns) {
+    if (!wanted.has(turn.index) || info.has(turn.index)) continue;
+    info.set(turn.index, {
       ...(turn.speakerLabel !== undefined ? { speakerLabel: turn.speakerLabel } : {}),
       ...(turn.startMs !== undefined ? { startMs: turn.startMs } : {}),
       charStart: turn.charStart,
@@ -114,13 +125,22 @@ export function toPackFacts(rows: readonly Doc<"transcriptFacts">[]): PackFact[]
   }));
 }
 
-/** One transcript's fact pack under the current roles, or null without ready facts. */
+/**
+ * One transcript's fact pack under the current roles, or null without
+ * ready facts, with the rows, roles and turn attribution it was rendered
+ * from so a caller freezing it reads nothing twice.
+ */
 export async function renderTranscriptPack(
   ctx: Ctx,
   transcript: Doc<"transcripts">,
   header: { position: number; label: string },
   options: Pick<FactPackOptions, "maxChars"> = {}
-): Promise<{ content: string; facts: Doc<"transcriptFacts">[] } | null> {
+): Promise<{
+  content: string;
+  facts: Doc<"transcriptFacts">[];
+  roles: Map<string, TranscriptSpeakerRole>;
+  turnInfo: Map<number, PackTurnInfo>;
+} | null> {
   if (!(await readyFactRun(ctx, transcript))) return null;
   const facts = await listFacts(ctx, transcript._id);
   const roles = await speakerRoleMap(ctx, transcript._id);
@@ -128,5 +148,7 @@ export async function renderTranscriptPack(
   return {
     content: renderFactPack(header, toPackFacts(facts), { roles, turnInfo, ...options }),
     facts,
+    roles,
+    turnInfo,
   };
 }

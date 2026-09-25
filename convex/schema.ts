@@ -2175,8 +2175,27 @@ export default defineSchema({
     transcriptId: v.optional(v.id("transcripts")),
     digestId: v.optional(v.id("transcriptDigests")),
     // 2026-09-24 widen: the FACTS_VERSION a transcript_facts row was rendered
-    // from.
+    // from, and the evidence behind each fact id in the pack: the verbatim
+    // spans (client turns only, decision 25) in the transcript row frozen
+    // next to it, with the speaker, role and time stamped at freeze.
     factsVersion: v.optional(v.string()),
+    factSpans: v.optional(
+      v.array(
+        v.object({
+          id: v.string(),
+          type: transcriptFactTypeValidator,
+          quotes: v.array(
+            v.object({
+              charStart: v.number(),
+              charEnd: v.number(),
+              speakerLabel: v.optional(v.string()),
+              role: v.optional(transcriptSpeakerRoleValidator),
+              startMs: v.optional(v.number()),
+            })
+          ),
+        })
+      )
+    ),
     projectDocumentId: v.optional(v.id("projectDocuments")),
     label: v.string(),
     content: v.string(),

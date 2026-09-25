@@ -27,6 +27,12 @@ export const FACTS_VERSION = "1";
 export const FACT_WINDOW_TOKENS = 30_000;
 /** Turns repeated at the start of the next window, so no fact is cut in two. */
 export const FACT_WINDOW_OVERLAP_TURNS = 3;
+/**
+ * Characters one frozen fact pack may hold (2026-09-24, plan step 7). A
+ * pack past it keeps its highest-ranked facts (renderFactPack); the row,
+ * with the spans behind every fact id, stays far below a document's 1 MiB.
+ */
+export const FACT_PACK_MAX_CHARS = 250_000;
 /** A quote shorter than this says too little to back a claim. */
 export const MIN_QUOTE_WORDS = 3;
 export const MIN_QUOTE_CHARS = 12;

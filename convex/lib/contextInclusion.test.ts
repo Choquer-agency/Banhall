@@ -57,6 +57,19 @@ describe("assembleContextInclusion (story 4, CAP-11)", () => {
     ]);
   });
 
+  it("ignores a fact pack the analyzer never read (an extraction that stopped part way)", () => {
+    const result = assembleContextInclusion({
+      sources: [
+        { _id: "t1", kind: "transcript", label: "A", transcriptId: "tr1" },
+        { _id: "g1", kind: "transcript_digest", label: "A", transcriptId: "tr1", contextBudget: budget(true, 900) },
+        { _id: "f1", kind: "transcript_facts", label: "A", transcriptId: "tr1" },
+      ],
+      unfrozenDocuments: [],
+      fallbackCap: 12,
+    });
+    expect(result.rows.map((row) => [row.label, row.inclusion])).toEqual([["A", "condensed"]]);
+  });
+
   it("lists archived and unreadable documents as not included with their reason", () => {
     const result = assembleContextInclusion({
       sources: [{ _id: "d1", kind: "project_document", label: "background:kept.docx", inclusion: "included" }],

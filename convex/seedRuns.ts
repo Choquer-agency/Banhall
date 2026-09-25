@@ -45,6 +45,12 @@ import {
   adjustSeedRequestsReserved,
   bumpSeedStageVersion,
 } from "./generations";
+import {
+  factModeCitations,
+  factStamp,
+  readsFactPacks,
+  type FactSource,
+} from "./lib/seedFacts";
 
 const seedRoleIdValidator = v.union(
   ...PD_SUBSECTIONS.map((subsection) => v.literal(subsection.roleId))
@@ -66,6 +72,9 @@ const seedCandidateValidator = v.object({
       startOffset: v.number(),
       endOffset: v.number(),
       exactExcerpt: v.string(),
+      // 2026-09-24 (transcript method): the fact a transcript citation was
+      // resolved from; checked against the frozen spans below.
+      factId: v.optional(v.string()),
     })
   ),
   uncertaintySeedId: v.optional(v.id("seeds")),
@@ -791,13 +800,41 @@ export const completeAttempt = internalMutation({
       content: source.content,
       contentHash: source.contentHash,
     }));
+    // Transcript method (plan step 7, owner decision 25): with a fact pack
+    // for every transcript, a transcript row is cited only at a verified
+    // span of the fact the citation names, and a pack or digest row never.
+    // Other generations keep today's rule and carry no fact ids.
+    const factSources: FactSource[] = sources.map((source) => ({
+      sourceId: source._id,
+      kind: source.kind,
+      content: source.content,
+      contentHash: source.contentHash,
+      ...(source.transcriptId ? { transcriptId: source.transcriptId } : {}),
+      ...(source.factSpans ? { factSpans: source.factSpans } : {}),
+    }));
+    const factMode = readsFactPacks(sources);
+    let factDropped = 0;
+    const candidateSeeds = args.seeds.map((seed) => {
+      if (!factMode) {
+        return {
+          ...seed,
+          provenance: seed.provenance.map(({ factId: _factId, ...citation }) => citation),
+        };
+      }
+      const { kept, dropped } = factModeCitations(seed.provenance, factSources);
+      factDropped += dropped;
+      return { ...seed, provenance: kept };
+    });
     const validation = validateBatch({
       roleId: batch.roleId,
       mode: batch.operation === "feedback" ? "feedback" : "batch",
-      seeds: args.seeds,
+      seeds: candidateSeeds,
       referenceContext,
       frozenSources,
     });
+    if (factDropped > 0) {
+      console.warn(`Seed batch ${batch._id}: ${factDropped} citation(s) outside the frozen fact spans were dropped`);
+    }
     if (!validation.ok) {
       return await failSeedAttempt(ctx, {
         batch,
@@ -858,7 +895,9 @@ export const completeAttempt = internalMutation({
 
     // Speaker and line are stamped now, from the frozen transcript already in
     // hand, so readers never reread it. One pass per cited transcript;
-    // documents, digests and the storyline carry neither.
+    // documents, digests and the storyline carry neither. A citation that
+    // came from a fact also gets the fact id and its turn's speaker, role
+    // and time (2026-09-24, transcript method).
     const locations = new Map<object, CitationLocation>();
     const transcriptCitations = new Map<
       string,
@@ -916,6 +955,7 @@ export const completeAttempt = internalMutation({
           endOffset: citation.endOffset,
           exactExcerpt: citation.exactExcerpt,
           ...locations.get(citation),
+          ...(factMode ? factStamp(factSources, citation) : null),
         });
       }
     }

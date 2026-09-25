@@ -140,6 +140,22 @@ import {
 import { OPENROUTER_CONVERSION } from "./openrouterCore";
 import { PD_SUBSECTIONS } from "../../shared/pdSubsections";
 import { seedToolSchema } from "../lib/seedContract";
+import { seedToolSchemaForFacts } from "../lib/seedFacts";
+import {
+  FACTS_CITATIONS_INSTRUCTION,
+  FACTS_CONCURRENCY,
+  FACTS_REQUEST,
+  FACTS_SCHEMA,
+  FACTS_STRUCTURED_INSTRUCTION,
+  FACTS_SYSTEM_PROMPT,
+  FACTS_TIMEOUT_MS,
+} from "./transcriptFactsAgent";
+import {
+  FACT_PACK_MAX_CHARS,
+  FACT_WINDOW_OVERLAP_TURNS,
+  FACT_WINDOW_TOKENS,
+  FACTS_VERSION,
+} from "../lib/transcriptFacts";
 
 export const PROMPT_PROGRAM_CONTRACT_ID =
   "banhall.generation-prompt-program/v1";
@@ -270,9 +286,18 @@ const seedRolePromptProgram = PD_SUBSECTIONS.map((role) => ({
 // modes, so the cached tools prefix is shared; validateBatch enforces each
 // mode's count and specific advancements' links.
 const seedProviderSchema = seedToolSchema();
+// 2026-09-24 (transcript method, plan step 7): a generation that froze a
+// fact pack for every transcript sends this schema instead, for every role
+// and mode, with SEED_PROMPT_PROGRAM.user.factGuidance.
+const seedFactProviderSchema = seedToolSchemaForFacts();
 const SEED_SCHEMA_POLICY = {
   provider: "one-schema-for-every-role-and-mode",
   application: "validateBatch-enforces-mode-count-and-role-links",
+  factMode: {
+    selectedBy: "every-frozen-transcript-has-a-fact-pack",
+    sources: "fact-pack-replaces-its-transcript-and-digest",
+    citations: "fact-id-or-document-excerpt-resolved-to-verified-offsets",
+  },
 } as const;
 
 const derivedWordBudgets = Object.keys(LINE_LIMITS).flatMap((section) =>
@@ -453,6 +478,7 @@ export const generationPromptProgram = {
       userScaffold: SEED_PROMPT_PROGRAM.user,
       request: SEED_PROMPT_PROGRAM.request,
       schema: seedProviderSchema,
+      factSchema: seedFactProviderSchema,
       schemaPolicy: SEED_SCHEMA_POLICY,
       model: { kind: "candidate", fallbackModelId: MODEL },
       thinking: { kind: "omitted" },
@@ -466,6 +492,7 @@ export const generationPromptProgram = {
       userScaffold: SEED_PROMPT_PROGRAM.user,
       request: SEED_PROMPT_PROGRAM.request,
       schema: seedProviderSchema,
+      factSchema: seedFactProviderSchema,
       schemaPolicy: SEED_SCHEMA_POLICY,
       model: { kind: "candidate", fallbackModelId: MODEL },
       thinking: { kind: "omitted" },
@@ -478,6 +505,24 @@ export const generationPromptProgram = {
     // document costs one call the first time a classifier version sees it
     // and none after. One attempt, not the repair pass: generateReport waits
     // on it inside its 600 s action.
+    // 2026-09-24 (transcript method, plan steps 6 and 7): fact extraction on
+    // the frozen condense model, inside a generation that reads fact packs
+    // and finds a transcript without ready facts. At most once per
+    // transcript text and FACTS_VERSION; stored facts are reused after that.
+    transcriptFacts: {
+      kind: "adapter-per-gateway",
+      systemTemplate: FACTS_SYSTEM_PROMPT,
+      adapters: {
+        anthropic: { kind: "citations", instruction: FACTS_CITATIONS_INSTRUCTION },
+        openrouter: { kind: "structured", instruction: FACTS_STRUCTURED_INSTRUCTION, schema: FACTS_SCHEMA },
+      },
+      request: FACTS_REQUEST,
+      model: { kind: "frozen-role", role: "condense", legacyModelId: MODEL },
+      thinking: { kind: "omitted" },
+      placeholders: "names-replaced-before-every-call-and-restored-after",
+      verification: "every-quote-located-verbatim-client-turns-only",
+      callSite: "generation:facts",
+    },
     settingsAnalysis: {
       kind: "structured",
       systemTemplate: STYLE_ANALYSIS_SYSTEM_PROMPT,
@@ -651,6 +696,18 @@ export const generationPromptProgram = {
       condenseVersion: CONDENSE_VERSION,
       condenseTimeoutMs: CONDENSE_TIMEOUT_MS,
       condenseConcurrency: CONDENSE_CONCURRENCY,
+    },
+    // 2026-09-24 (transcript method): how facts are windowed, versioned and
+    // frozen. Whether a generation reads them is the transcripts.factsMode
+    // setting, frozen per generation (generations.transcriptFacts).
+    transcriptFacts: {
+      factsVersion: FACTS_VERSION,
+      windowTokens: FACT_WINDOW_TOKENS,
+      windowOverlapTurns: FACT_WINDOW_OVERLAP_TURNS,
+      timeoutMs: FACTS_TIMEOUT_MS,
+      concurrency: FACTS_CONCURRENCY,
+      packMaxChars: FACT_PACK_MAX_CHARS,
+      fallback: "digest-or-full-text-when-any-pack-is-missing",
     },
     brain: {
       namespace: BRAIN_NAMESPACE,

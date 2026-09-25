@@ -26,6 +26,7 @@ import {
   condenserFor,
   describeGenerationFailure,
   ensureCondensedInputs,
+  ensureFactInputs,
 } from "./condense";
 import { retrieveBrainBlocks } from "./brainRetrieval";
 import { describeTranscriptInput } from "../lib/transcripts";
@@ -169,7 +170,22 @@ export const startIterativeGeneration = internalAction({
       // Over-budget transcript sets are reduced to stored digests and frozen
       // as their own source rows before anything reads the transcript text;
       // the re-read below returns the digest parts every later step cites.
-      if (input.inputMode === "digest") {
+      // 2026-09-24 (transcript method, decision 27): a generation frozen to
+      // read fact packs extracts and freezes them first; any gap falls back
+      // to today's path below.
+      const factsReady = input.transcriptFacts
+        ? await ensureFactInputs(
+            ctx,
+            {
+              generationId: genId,
+              elapsedMs: Date.now() - actionStartedAt,
+              modelId: freeze?.roles.condense ?? MODEL,
+              ...(input.requestedBy ? { userId: input.requestedBy } : {}),
+            },
+            log
+          )
+        : false;
+      if (!factsReady && input.inputMode === "digest") {
         await ensureCondensedInputs(
           ctx,
           { generationId: genId, elapsedMs: Date.now() - actionStartedAt },
@@ -181,6 +197,8 @@ export const startIterativeGeneration = internalAction({
             modelId: freeze?.roles.condense ?? MODEL,
           })
         );
+      }
+      if (factsReady || input.inputMode === "digest") {
         const condensed = await ctx.runQuery(
           internal.generations.getGenerationInput,
           { generationId: args.generationId }

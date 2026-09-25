@@ -583,9 +583,10 @@ const settingsCandidateValidator = v.object({
   contentHash: v.string(),
 });
 
-// Every frozen source a generation can hold: one transcript and one digest
-// row per transcript, 50 context documents, and a writer Storyline.
-const MAX_GENERATION_SOURCES = 2 * MAX_TRANSCRIPTS_PER_PROJECT + 52;
+// Every frozen source a generation can hold: one transcript, one digest and
+// (2026-09-24) one fact pack row per transcript, 50 context documents, and
+// a writer Storyline.
+const MAX_GENERATION_SOURCES = 3 * MAX_TRANSCRIPTS_PER_PROJECT + 52;
 
 /** A cached waiver analysis at exactly this classifier version, or null. */
 async function readSettingsAnalysis(

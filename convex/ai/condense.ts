@@ -7,11 +7,16 @@ import { internalAction, type ActionCtx } from "../_generated/server";
 import { classifySpeakerRolesCall } from "./speakerRolesAgent";
 import { withPlaceholders } from "./placeholderClient";
 import {
+  callSlots,
   citationsExtractor,
   extractTranscriptFacts,
+  FACTS_CONCURRENCY,
+  FACTS_TIMEOUT_MS,
   structuredExtractor,
+  type CallSlots,
   type FactWindowExtractor,
 } from "./transcriptFactsAgent";
+import { FACT_WINDOW_TOKENS } from "../lib/transcriptFacts";
 import { instrumentedAnthropic } from "./instrument";
 import { gatewayForModel, registerModelEntries } from "../../shared/generationModels";
 import { entryFromFrozen } from "../lib/modelRoles";
@@ -376,7 +381,12 @@ export async function ensureTranscriptFacts(
   ctx: ActionCtx,
   transcriptId: Id<"transcripts">,
   caller: FactsCaller,
-  options: { timeoutMs?: number; log?: (line: string) => Promise<unknown> } = {}
+  options: {
+    timeoutMs?: number;
+    log?: (line: string) => Promise<unknown>;
+    /** Shared with the other transcripts of the same generation. */
+    slots?: CallSlots;
+  } = {}
 ): Promise<FactsOutcome> {
   const input = await ctx.runQuery(internal.transcripts.factsInput, { transcriptId });
   if (!input) return "gone";
@@ -414,6 +424,7 @@ export async function ensureTranscriptFacts(
       placeholders: input.placeholders,
       extractWindow: extractor,
       ...(options.timeoutMs ? { timeoutMs: options.timeoutMs } : {}),
+      ...(options.slots ? { slots: options.slots } : {}),
     });
     await writeFacts(ctx, claim.runId, result.facts);
     await ctx.runMutation(internal.transcripts.completeFactRun, {
@@ -469,3 +480,118 @@ export const extractTranscriptFactsInBackground = internalAction({
     return null;
   },
 });
+
+/** Extraction calls one transcript of `chars` characters makes (an upper estimate). */
+export function estimateFactWindows(chars: number): number {
+  return Math.max(1, Math.ceil(chars / (FACT_WINDOW_TOKENS * 4)));
+}
+
+/** Condense calls one transcript makes (splitIntoWindows cuts at blank lines). */
+export function estimateCondenseWindows(chars: number): number {
+  return Math.ceil(chars / CONDENSE_WINDOW_CHARS) + (chars > CONDENSE_WINDOW_CHARS ? 1 : 0);
+}
+
+/**
+ * Whether extracting `factWindows` and then, should that fail, condensing
+ * `fallbackWindows` both fit the time left. Extraction inside a generation
+ * must never cost the writer the draft: today's path has to fit after it.
+ */
+export function factsFitBudget(args: {
+  factWindows: number;
+  fallbackWindows: number;
+  remainingMs: number;
+}): boolean {
+  const waves = (windows: number, concurrency: number) => Math.ceil(windows / concurrency);
+  const factMs = waves(args.factWindows, FACTS_CONCURRENCY) * FACTS_TIMEOUT_MS;
+  const fallbackMs = waves(args.fallbackWindows, CONDENSE_CONCURRENCY) * CONDENSE_TIMEOUT_MS;
+  return factMs + fallbackMs <= args.remainingMs;
+}
+
+/**
+ * A generation that reads fact packs (`generations.transcriptFacts`, owner
+ * decision 27): extracts what is missing on the generation's frozen condense
+ * model, then freezes one pack per transcript. Returns true only when every
+ * transcript has its pack; false sends the caller down today's path
+ * (digests over the budget, full text under it). That happens when a
+ * transcript was cut at freeze or changed since, when another extraction
+ * of it is still running, when an extraction fails, and when extracting
+ * plus today's path would not fit the action's time; in that last case the
+ * missing transcripts are queued for background extraction, so the next
+ * draft finds their facts ready. Never throws for a provider failure.
+ */
+export async function ensureFactInputs(
+  ctx: ActionCtx,
+  args: {
+    generationId: Id<"generations">;
+    elapsedMs: number;
+    modelId: string;
+    userId?: Id<"users">;
+  },
+  log: (line: string) => Promise<unknown>
+): Promise<boolean> {
+  const input = await ctx.runQuery(internal.transcriptDigests.getFactInputs, {
+    generationId: args.generationId,
+  });
+  if (!input || !input.transcriptFacts || input.transcripts.length === 0) return false;
+  if (input.transcripts.some((transcript) => transcript.truncated || !transcript.sameText)) {
+    await log("A transcript cannot be read as verified facts in this draft, so it reads the transcripts the usual way.");
+    return false;
+  }
+  const missing = input.transcripts.filter((transcript) => !transcript.frozen && !transcript.ready);
+  if (missing.some((transcript) => transcript.busy)) {
+    await log("Verified facts are still being prepared for a transcript, so this draft reads the transcripts the usual way.");
+    return false;
+  }
+  const fits = factsFitBudget({
+    factWindows: missing.reduce((count, transcript) => count + estimateFactWindows(transcript.chars), 0),
+    fallbackWindows:
+      input.inputMode === "digest"
+        ? input.transcripts
+            .filter((transcript) => !transcript.digestStored)
+            .reduce((count, transcript) => count + estimateCondenseWindows(transcript.chars), 0)
+        : 0,
+    remainingMs: CONVEX_ACTION_LIMIT_MS - args.elapsedMs - RESERVED_NON_REQUEST_MS,
+  });
+  if (!fits) {
+    for (const transcript of missing) {
+      await ctx.scheduler.runAfter(0, internal.ai.condense.extractTranscriptFactsInBackground, {
+        transcriptId: transcript.transcriptId,
+      });
+    }
+    await log(
+      "Extracting verified facts would not fit this draft's time limit, so it reads the transcripts the usual way. Facts are being prepared for the next draft."
+    );
+    return false;
+  }
+  // Every missing transcript at once, never more than FACTS_CONCURRENCY
+  // calls in flight in total: the same arithmetic the check above used.
+  const slots = callSlots(FACTS_CONCURRENCY);
+  const outcomes = await Promise.all(
+    missing.map((transcript) =>
+      ensureTranscriptFacts(
+        ctx,
+        transcript.transcriptId,
+        {
+          kind: "generation",
+          generationId: args.generationId,
+          modelId: args.modelId,
+          ...(args.userId ? { userId: args.userId } : {}),
+        },
+        { timeoutMs: FACTS_TIMEOUT_MS, log, slots }
+      )
+    )
+  );
+  if (outcomes.some((outcome) => outcome !== "ready")) return false;
+  for (const transcript of input.transcripts) {
+    if (transcript.frozen) continue;
+    const frozen = await ctx.runMutation(internal.transcriptDigests.freezeFactsSource, {
+      generationId: args.generationId,
+      transcriptId: transcript.transcriptId,
+    });
+    if (frozen === null) return false;
+  }
+  await log(
+    `Drafting from the verified facts of ${input.transcripts.length} transcript${input.transcripts.length === 1 ? "" : "s"}.`
+  );
+  return true;
+}

@@ -279,6 +279,32 @@ async function withTimeout<T>(promise: Promise<T>, ms: number | undefined): Prom
   }
 }
 
+/**
+ * A cap on calls in flight shared by every transcript extracted together
+ * (2026-09-24, plan step 7). A freed slot passes straight to the next
+ * waiting call, so the cap holds however calls interleave. The time limit
+ * of a call starts when it gets its slot, never while it waits.
+ */
+export type CallSlots = { run<T>(task: () => Promise<T>): Promise<T> };
+
+export function callSlots(limit: number): CallSlots {
+  let active = 0;
+  const waiting: (() => void)[] = [];
+  return {
+    async run<T>(task: () => Promise<T>): Promise<T> {
+      if (active < limit) active += 1;
+      else await new Promise<void>((resolve) => waiting.push(resolve));
+      try {
+        return await task();
+      } finally {
+        const next = waiting.shift();
+        if (next) next();
+        else active -= 1;
+      }
+    },
+  };
+}
+
 /** Windows one transcript's extraction makes, for the time-budget check. */
 export function factWindowCount(turns: readonly FactTurn[]): number {
   return planFactWindows(turns).length;
@@ -296,15 +322,19 @@ export async function extractTranscriptFacts(args: {
   extractWindow: FactWindowExtractor;
   concurrency?: number;
   timeoutMs?: number;
+  /** Shared with other transcripts extracted at the same time. */
+  slots?: CallSlots;
 }): Promise<{ facts: VerifiedFact[]; counts: FactCounts; windows: number }> {
   const windows = planFactWindows(args.turns);
-  const proposals = await mapWithConcurrency(windows, args.concurrency ?? FACTS_CONCURRENCY, async (window) =>
+  const call = (window: readonly FactTurn[]) =>
     withTimeout(
       args.extractWindow(
         window.map((turn) => ({ turnIndex: turn.index, text: renderTurnLine(turn, args.placeholders) }))
       ),
       args.timeoutMs
-    )
+    );
+  const proposals = await mapWithConcurrency(windows, args.concurrency ?? FACTS_CONCURRENCY, async (window) =>
+    args.slots ? args.slots.run(() => call(window)) : call(window)
   );
   const restored = proposals.flat().map((fact) => ({
     ...fact,

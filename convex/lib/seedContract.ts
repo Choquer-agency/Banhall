@@ -25,6 +25,12 @@ export type SeedCandidateProvenance = {
   startOffset: number;
   endOffset: number;
   exactExcerpt: string;
+  /**
+   * 2026-09-24 (transcript method): the verified fact a transcript citation
+   * was resolved from (convex/lib/seedFacts.ts). Offsets are still what
+   * validation byte-checks; the id only says where they came from.
+   */
+  factId?: string;
 };
 
 export type SeedCandidate = {
@@ -190,6 +196,7 @@ function parseProvenance(value: unknown): SeedCandidateProvenance | null {
     startOffset: value.startOffset,
     endOffset: value.endOffset,
     exactExcerpt: value.exactExcerpt,
+    ...(typeof value.factId === "string" ? { factId: value.factId } : {}),
   };
 }
 
