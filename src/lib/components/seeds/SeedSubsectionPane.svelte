@@ -406,40 +406,80 @@
     };
   }
   // Cards fill the two columns in reading order, each into the column that is
-  // shorter so far; a seed carrying revised seeds counts for more (board
-  // 3.2). Leading rows whose cards carry no revisions form a true grid, so
-  // the two cards of a row share one height (board 3.1); after the first
-  // revised seed the columns continue on their own.
-  const hasRevisions = (item: SeedCardData) => groupsByTarget.has(String(item.seedId));
-  const cardWeight = (item: SeedCardData) =>
-    1 + (groupsByTarget.get(String(item.seedId)) ?? []).reduce(
-      (total, group) => total + 0.5 + 0.8 * revisionsOf(group).length,
-      0
-    );
+  // shorter so far, where a seed that already carries revised seeds counts
+  // for more (board 3.2). The plan is made once per set of cards on screen
+  // and then kept: feedback sent or revised seeds landing never move a card
+  // to another column, so no card is rebuilt while the writer works in it.
+  let columnPlan: { key: string; column: Map<string, number> } = { key: "", column: new Map() };
   const layout = $derived.by(() => {
-    if (!twoColumns) return { rows: [] as SeedCardData[][], columns: [topLevelItems] };
-    const columns: SeedCardData[][] = [[], []];
-    const weight = [0, 0];
-    for (const item of topLevelItems) {
-      const target = weight[1] < weight[0] ? 1 : 0;
-      columns[target].push(item);
-      weight[target] += cardWeight(item);
+    if (!twoColumns) return { columns: [topLevelItems] };
+    const key = topLevelItems.map((item) => String(item.seedId)).join("|");
+    if (columnPlan.key !== key) {
+      const column = new Map<string, number>();
+      const weight = [0, 0];
+      for (const item of topLevelItems) {
+        const target = weight[1] < weight[0] ? 1 : 0;
+        column.set(String(item.seedId), target);
+        weight[target] += groupsByTarget.has(String(item.seedId)) ? 2.5 : 1;
+      }
+      columnPlan = { key, column };
     }
-    let aligned = 0;
-    while (
-      aligned < columns[0].length &&
-      aligned < columns[1].length &&
-      !hasRevisions(columns[0][aligned]) &&
-      !hasRevisions(columns[1][aligned])
-    ) {
-      aligned += 1;
-    }
+    const plan = columnPlan.column;
     return {
-      rows: Array.from({ length: aligned }, (_, index) => [columns[0][index], columns[1][index]]),
-      columns: [columns[0].slice(aligned), columns[1].slice(aligned)],
+      columns: [0, 1].map((index) => topLevelItems.filter((item) => (plan.get(String(item.seedId)) ?? 0) === index)),
     };
   });
-  const remainderShown = $derived(layout.columns.some((column) => column.length > 0));
+
+  // Row-aligned pairs share one height (board 3.1): the n-th cards of the two
+  // columns get the taller one's height, row by row, until a row holds a seed
+  // with revised seeds under it; after that the columns run on their own.
+  // Heights are read from each card's own body, so the pairing never feeds
+  // back into what it measures.
+  function equalizeRows(container: HTMLElement) {
+    let frame = 0;
+    const observed = new WeakSet<Element>();
+    const resize = new ResizeObserver(() => schedule());
+    const mutations = new MutationObserver(() => schedule());
+    mutations.observe(container, { childList: true, subtree: true });
+    function schedule() {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(apply);
+    }
+    function cellsOf(column: Element) {
+      return Array.from(column.children).map((cell) => ({
+        body: cell.querySelector<HTMLElement>(":scope > article > [data-seed-body]"),
+        revised: !!cell.querySelector(":scope > article > [data-seed-below]"),
+      }));
+    }
+    function apply() {
+      frame = 0;
+      const columns = Array.from(container.querySelectorAll(":scope > [data-seed-column]")).map(cellsOf);
+      for (const { body } of columns.flat()) {
+        if (!body) continue;
+        body.style.minHeight = "";
+        if (!observed.has(body)) {
+          observed.add(body);
+          resize.observe(body);
+        }
+      }
+      if (columns.length !== 2) return;
+      const rows = Math.min(columns[0].length, columns[1].length);
+      for (let row = 0; row < rows; row += 1) {
+        const [left, right] = [columns[0][row], columns[1][row]];
+        if (!left.body || !right.body) break;
+        const height = Math.max(left.body.getBoundingClientRect().height, right.body.getBoundingClientRect().height);
+        left.body.style.minHeight = `${height}px`;
+        right.body.style.minHeight = `${height}px`;
+        if (left.revised || right.revised) break;
+      }
+    }
+    schedule();
+    return () => {
+      cancelAnimationFrame(frame);
+      resize.disconnect();
+      mutations.disconnect();
+    };
+  }
 
   // Step header chips (boards 3.2, 3.7): 20px pills, 11px medium text.
   const chip = "inline-flex h-5 items-center rounded-full px-2 text-[11px] leading-[14px] font-medium";
@@ -864,31 +904,20 @@
             <p class="text-body text-ink-muted">No seeds are available yet.</p>
           </div>
         {:else}
-          {#if layout.rows.length > 0}
-            <!-- Row-aligned pairs share one height (board 3.1). -->
-            <div class="grid grid-cols-[repeat(2,minmax(0,412px))] gap-2.5" data-seed-rows>
-              {#each layout.rows as row, rowIndex (rowIndex)}
-                {#each row as item (item.seedId)}
+          <!-- One container per column for the whole batch: a card keeps its
+               parent, so its focus and local state survive new revisions. -->
+          <div
+            class={`${twoColumns ? "grid grid-cols-[repeat(2,minmax(0,412px))] items-start" : "grid grid-cols-1"} gap-2.5`}
+            {@attach equalizeRows}
+          >
+            {#each layout.columns as column, columnIndex (columnIndex)}
+              <div class="flex min-w-0 flex-col gap-2.5" data-seed-column={columnIndex}>
+                {#each column as item (item.seedId)}
                   {@render seedWithRevisions(item, false)}
                 {/each}
-              {/each}
-            </div>
-          {/if}
-          {#if remainderShown}
-            <div
-              class={`${twoColumns ? "grid grid-cols-[repeat(2,minmax(0,412px))] items-start" : "grid grid-cols-1"} gap-2.5 ${
-                layout.rows.length > 0 ? "mt-2.5" : ""
-              }`}
-            >
-              {#each layout.columns as column, columnIndex (columnIndex)}
-                <div class="flex min-w-0 flex-col gap-2.5" data-seed-column={columnIndex}>
-                  {#each column as item (item.seedId)}
-                    {@render seedWithRevisions(item, false)}
-                  {/each}
-                </div>
-              {/each}
-            </div>
-          {/if}
+              </div>
+            {/each}
+          </div>
         {/if}
         {#if orphanGroups.length > 0}
           <div class="mt-2.5 space-y-2.5">

@@ -2724,6 +2724,122 @@ describe("Seed plan final UI (ui-design-final.md sections 3 and 11)", () => {
     expect(__mutationCalls("seeds:giveFeedback")[1]).toMatchObject({ instruction: "Say what was measured, not which model." });
   });
 
+  it("keeps Restore original wording and the right edge of Send feedback clickable on a selected card", async () => {
+    // A selected, hand-edited seed whose edited bullet is its last, one-line bullet.
+    await render(SeedSubsectionPane, paneProps(subsection({
+      items: [seed({
+        selected: true,
+        edited: true,
+        bullets: ["Short edited wording."],
+        originalBullets: ["The original wording."],
+        support: "writer_asserted",
+        provenance: [],
+      })],
+    })));
+    // A real pointer click: nothing may sit over the control, visible or not.
+    await page.getByRole("button", { name: "Restore original wording", exact: true }).click({ timeout: 2000 });
+    await expect.poll(() => __mutationCalls("seeds:restoreWording")).toEqual([expect.objectContaining({ seedId: "seed-1" })]);
+
+    await feedbackMenu("Tell it what to change…");
+    const field = page.getByRole("textbox", { name: "Tell it what to change" });
+    await field.fill("Name the measured load bands.");
+    // The menu has finished closing; only the card itself is under the pointer.
+    await expect.poll(() => document.querySelector("[data-seed-feedback-menu]")).toBeNull();
+    const send = page.getByRole("button", { name: "Send feedback", exact: true });
+    const box = (send.element() as HTMLElement).getBoundingClientRect();
+    // Inside its bottom-right corner, where a floating tools row would sit.
+    await send.click({ position: { x: box.width - 8, y: box.height - 6 }, timeout: 2000 });
+    await expect.poll(() => __mutationCalls("seeds:giveFeedback")).toEqual([
+      expect.objectContaining({ seedId: "seed-1", instruction: "Name the measured load bands." }),
+    ]);
+  });
+
+  it("reveals a card's tools only for its own hover or focus, never for a revised seed inside it or the reverse", async () => {
+    const revision = seed({
+      seedId: "seed-rev" as Id<"seeds">,
+      selected: false,
+      bullets: ["Revised wording."],
+      revisionOfSeedId: "seed-1" as Id<"seeds">,
+      feedbackRequestId: "feedback-1" as Id<"seedFeedbackRequests">,
+      provenance: [],
+    });
+    await render(SeedSubsectionPane, paneProps(subsection({
+      items: [seed({ selected: true, provenance: [] }), revision],
+      feedbackGroups: [{
+        requestId: "feedback-1" as Id<"seedFeedbackRequests">,
+        targetSeedId: "seed-1" as Id<"seeds">,
+        targetWording: ["The control loop stabilized output."],
+        instruction: "Say what was measured.",
+        status: "active" as const,
+        batchId: null,
+        revisedSeedIds: ["seed-rev"] as Id<"seeds">[],
+      }],
+    })));
+    const parent = document.querySelector<HTMLElement>('article[data-seed-id="seed-1"]')!;
+    const nested = document.querySelector<HTMLElement>('article[data-seed-id="seed-rev"]')!;
+    const toolsOf = (card: HTMLElement) => card.querySelector<HTMLElement>(":scope > [data-seed-body] [data-seed-footer]")!;
+    const shown = (card: HTMLElement) => getComputedStyle(toolsOf(card)).opacity === "1" && getComputedStyle(toolsOf(card)).pointerEvents === "auto";
+    // Both float in their tag rows, hidden and not clickable until hover.
+    expect(toolsOf(parent).dataset.seedFooter).toBe("tags");
+    expect(toolsOf(nested).dataset.seedFooter).toBe("tags");
+    expect(getComputedStyle(toolsOf(parent)).pointerEvents).toBe("none");
+
+    await userEvent.hover(nested.querySelector<HTMLElement>("[data-seed-body]")!);
+    await expect.poll(() => shown(nested)).toBe(true);
+    expect(shown(parent)).toBe(false);
+
+    await userEvent.hover(parent.querySelector<HTMLElement>(":scope > [data-seed-body] li")!);
+    await expect.poll(() => shown(parent)).toBe(true);
+    await expect.poll(() => shown(nested)).toBe(false);
+  });
+
+  it("keeps every card in place, with its focus and unsaved wording, when revised seeds land on another card", async () => {
+    await page.viewport(1440, 900);
+    const letters = ["a", "b", "c", "d", "e", "f"];
+    const cards = () => letters.map((letter) => seed({
+      seedId: `seed-${letter}` as Id<"seeds">,
+      selected: false,
+      bullets: [`Seed ${letter.toUpperCase()} wording.`],
+      provenance: [],
+    }));
+    const revision = (index: number) => seed({
+      seedId: `seed-rev-${index}` as Id<"seeds">,
+      selected: false,
+      bullets: [`Revised wording ${index}.`],
+      revisionOfSeedId: "seed-c" as Id<"seeds">,
+      feedbackRequestId: "feedback-c" as Id<"seedFeedbackRequests">,
+      provenance: [],
+    });
+    const view = await render(SeedSubsectionPane, paneProps(subsection({ items: cards() })));
+    await expect.poll(() => document.querySelector("[data-seed-grid]")?.getAttribute("data-seed-grid")).toBe("two");
+    const cardF = document.querySelector<HTMLElement>('article[data-seed-id="seed-f"]')!;
+    await page.elementLocator(cardF).getByRole("button", { name: "Edit", exact: true }).click();
+    const fieldF = cardF.querySelector<HTMLTextAreaElement>('textarea[aria-label="Bullet 1"]')!;
+    await page.elementLocator(fieldF).fill("Writer is typing in F");
+    fieldF.focus();
+    expect(document.activeElement).toBe(fieldF);
+
+    // The writer's feedback on C lands as two revised seeds.
+    await view.rerender(paneProps(subsection({
+      items: [...cards(), revision(1), revision(2)],
+      feedbackGroups: [{
+        requestId: "feedback-c" as Id<"seedFeedbackRequests">,
+        targetSeedId: "seed-c" as Id<"seeds">,
+        targetWording: ["Seed C wording."],
+        instruction: "Say what was measured.",
+        status: "active" as const,
+        batchId: null,
+        revisedSeedIds: ["seed-rev-1", "seed-rev-2"] as Id<"seeds">[],
+      }],
+    })));
+    await expect.poll(() => document.querySelectorAll('article[data-seed-id^="seed-rev-"]').length).toBe(2);
+    // F was neither moved nor rebuilt: same node, same field, focus and text kept.
+    expect(document.querySelector('article[data-seed-id="seed-f"]')).toBe(cardF);
+    expect(cardF.isConnected).toBe(true);
+    expect(document.activeElement).toBe(fieldF);
+    expect(fieldF.value).toBe("Writer is typing in F");
+  });
+
   it("nests revised seeds under the seed their feedback targeted, on canvas, with Withdraw feedback", async () => {
     const revision = seed({
       seedId: "seed-rev" as Id<"seeds">,
@@ -2924,8 +3040,9 @@ describe("Seed plan final UI (ui-design-final.md sections 3 and 11)", () => {
     // Cards: 10px radius, 14/16 padding, 16px checkbox, 11px medium tags, 14/20 bullets.
     const card = view.container.querySelector<HTMLElement>('article[data-seed-id="seed-1"]')!;
     expect(getComputedStyle(card).borderRadius).toBe("10px");
-    expect(getComputedStyle(card).paddingTop).toBe("14px");
-    expect(getComputedStyle(card).paddingLeft).toBe("16px");
+    const cardBody = card.querySelector<HTMLElement>(":scope > [data-seed-body]")!;
+    expect(getComputedStyle(cardBody).paddingTop).toBe("14px");
+    expect(getComputedStyle(cardBody).paddingLeft).toBe("16px");
     expect(Math.round(card.querySelector<HTMLElement>('[role="checkbox"]')!.getBoundingClientRect().width)).toBe(16);
     const tag = card.querySelector<HTMLElement>("[data-seed-tag]")!;
     expect(getComputedStyle(tag).fontSize).toBe("11px");
@@ -2934,12 +3051,20 @@ describe("Seed plan final UI (ui-design-final.md sections 3 and 11)", () => {
     const bullet = card.querySelector<HTMLElement>("li")!;
     expect(getComputedStyle(bullet).fontSize).toBe("14px");
     expect(getComputedStyle(bullet).lineHeight).toBe("20px");
-    // An unselected card keeps its tools in the flow; a selected one floats
-    // them over its corner, hidden until hover (board 3.2).
+    // An unselected card keeps its tools in a row at its foot; a selected one
+    // keeps them at the end of its tag row, hidden and not clickable until
+    // hover (board 3.2), in space the tag row keeps free.
+    expect(card.querySelector<HTMLElement>("[data-seed-footer]")!.dataset.seedFooter).toBe("foot");
     expect(getComputedStyle(card.querySelector<HTMLElement>("[data-seed-footer]")!).position).toBe("static");
     const selectedFooter = view.container.querySelector<HTMLElement>('article[data-seed-id="seed-2"] [data-seed-footer]')!;
+    expect(selectedFooter.dataset.seedFooter).toBe("tags");
     expect(getComputedStyle(selectedFooter).position).toBe("absolute");
     expect(getComputedStyle(selectedFooter).opacity).toBe("0");
+    expect(getComputedStyle(selectedFooter).pointerEvents).toBe("none");
+    const tagRow = view.container.querySelector<HTMLElement>('article[data-seed-id="seed-2"] [data-seed-tag-row]')!;
+    // Quoted lines, Edit and Give feedback: 36px each.
+    expect(selectedFooter.querySelectorAll("button")).toHaveLength(3);
+    expect(getComputedStyle(tagRow).paddingRight).toBe("108px");
 
     // A disabled approval is a gray-50 fill with faint ink, not a faded primary.
     const approve = page.elementLocator(view.container.querySelector<HTMLElement>("[data-outline-footer]")!)
@@ -2977,17 +3102,19 @@ describe("Seed plan final UI (ui-design-final.md sections 3 and 11)", () => {
     wide.container.style.width = "1228px";
     wide.container.style.height = "830px";
     await expect.poll(() => document.querySelector("[data-seed-grid]")?.getAttribute("data-seed-grid")).toBe("two");
-    // Seeds without revisions form row-aligned pairs of 412px cards that
-    // share one height (board 3.1).
-    const cards = Array.from(document.querySelectorAll<HTMLElement>("[data-seed-rows] > [data-seed-cell] > article"));
-    expect(cards.map((card) => card.dataset.seedId)).toEqual(["seed-grid-0", "seed-grid-1", "seed-grid-2", "seed-grid-3"]);
-    for (const card of cards) expect(Math.round(card.getBoundingClientRect().width)).toBe(412);
-    const [first, second, third] = cards.map((card) => card.getBoundingClientRect());
-    expect(Math.round(first.top)).toBe(Math.round(second.top));
-    expect(Math.round(first.height)).toBe(Math.round(second.height));
-    expect(Math.round(third.top - first.bottom)).toBe(10);
-    expect(Math.round(second.left - first.right)).toBe(10);
-    expect(document.querySelectorAll("[data-seed-column]")).toHaveLength(0);
+    // Two 412px columns in reading order whose n-th cards pair up and share
+    // one height (board 3.1).
+    const ids = (column: number) =>
+      Array.from(document.querySelectorAll<HTMLElement>(`[data-seed-column="${column}"] > [data-seed-cell] > article`)).map((card) => card.dataset.seedId);
+    expect(ids(0)).toEqual(["seed-grid-0", "seed-grid-2"]);
+    expect(ids(1)).toEqual(["seed-grid-1", "seed-grid-3"]);
+    const card = (id: string) => document.querySelector<HTMLElement>(`article[data-seed-id="${id}"]`)!.getBoundingClientRect();
+    for (const id of ["seed-grid-0", "seed-grid-1", "seed-grid-2", "seed-grid-3"]) expect(Math.round(card(id).width)).toBe(412);
+    await expect.poll(() => Math.round(card("seed-grid-0").height)).toBe(Math.round(card("seed-grid-1").height));
+    expect(Math.round(card("seed-grid-0").top)).toBe(Math.round(card("seed-grid-1").top));
+    expect(Math.round(card("seed-grid-2").top)).toBe(Math.round(card("seed-grid-3").top));
+    expect(Math.round(card("seed-grid-2").top - card("seed-grid-0").bottom)).toBe(10);
+    expect(Math.round(card("seed-grid-1").left - card("seed-grid-0").right)).toBe(10);
     await expect.element(page.getByRole("slider", { name: "Resize Seed outline" })).toHaveAttribute("aria-valuenow", "300");
     await page.getByLabelText("Seed workspace").screenshot({ path: await captures.path("seed-plan-desktop-1440") });
     wide.unmount();
@@ -3034,12 +3161,18 @@ describe("Seed plan final UI (ui-design-final.md sections 3 and 11)", () => {
     view.container.style.width = "1228px";
     view.container.style.height = "830px";
     await expect.poll(() => document.querySelector("[data-seed-grid]")?.getAttribute("data-seed-grid")).toBe("two");
-    // The first row pairs as usual; from the revised seed on, each card goes
-    // to the shorter column, so the fifth sits under the fourth.
+    // Cards go to the shorter column, a seed that carries revised seeds
+    // counting for more, so the fifth sits under the fourth.
     const ids = (selector: string) => Array.from(document.querySelectorAll<HTMLElement>(selector)).map((cell) => cell.dataset.seedCell);
-    expect(ids("[data-seed-rows] > [data-seed-cell]")).toEqual(["seed-grid-0", "seed-grid-1"]);
-    expect(ids('[data-seed-column="0"] > [data-seed-cell]')).toEqual(["seed-grid-2"]);
-    expect(ids('[data-seed-column="1"] > [data-seed-cell]')).toEqual(["seed-grid-3", "seed-grid-4"]);
+    expect(ids('[data-seed-column="0"] > [data-seed-cell]')).toEqual(["seed-grid-0", "seed-grid-2"]);
+    expect(ids('[data-seed-column="1"] > [data-seed-cell]')).toEqual(["seed-grid-1", "seed-grid-3", "seed-grid-4"]);
+    // The revised seed's own body pairs with its neighbour's; the fifth card
+    // then runs on under the fourth.
+    const body = (id: string) => document.querySelector<HTMLElement>(`article[data-seed-id="${id}"] > [data-seed-body]`)!.getBoundingClientRect();
+    await expect.poll(() => Math.round(body("seed-grid-2").height)).toBe(Math.round(body("seed-grid-3").height));
+    const fourth = document.querySelector<HTMLElement>('article[data-seed-id="seed-grid-3"]')!.getBoundingClientRect();
+    const fifth = document.querySelector<HTMLElement>('article[data-seed-id="seed-grid-4"]')!.getBoundingClientRect();
+    expect(Math.round(fifth.top - fourth.bottom)).toBe(10);
     // The revised seeds sit inside the targeted seed's own card, on canvas.
     const target = document.querySelector<HTMLElement>('article[data-seed-id="seed-grid-2"]')!;
     const group = target.querySelector<HTMLElement>('[data-feedback-group="feedback-grid"]')!;

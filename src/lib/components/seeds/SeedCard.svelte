@@ -144,12 +144,17 @@
   });
   const showQuotes = $derived(unmatchedCitations.length > 0 || item.provenanceTruncated);
   const tags = $derived(item.tags.slice(0, MAX_CARD_TAGS).map(seedTagStyle));
-  // A selected or revised seed keeps its tools out of the reading flow (board
-  // 3.2): they float over the card's bottom corner and show on hover or
-  // focus, and stay while one of their menus is open. Coarse pointers have no
-  // hover, so there the row stays in the flow and visible.
+  // A selected or revised seed shows its tools only on hover or focus, and
+  // keeps them while one of their menus is open (board 3.2). They then sit at
+  // the end of the card's tag row, in space that row keeps free for them, so
+  // they never cover a bullet, Restore original wording or the feedback box.
+  // A card without a tag row keeps the tools in their own row at its foot.
+  // Coarse pointers have no hover, so there the tools always show.
+  const tagRowShown = $derived(tags.length > 0 || item.support === "writer_asserted" || !!item.outdated);
   const footerFloating = $derived((item.selected || nested) && !editing);
   const footerHidden = $derived(footerFloating && !feedbackMenuOpen && !quotesOpen);
+  const toolCount = $derived((showQuotes ? 1 : 0) + (canEdit ? 2 : 0));
+  const toolsInTagRow = $derived(footerFloating && tagRowShown && toolCount > 0);
 
   function sameEdit(left: SeedEditDraft | null | undefined, right: SeedEditDraft) {
     return (
@@ -324,7 +329,7 @@
       class="inline-flex items-center gap-1 text-[11px] leading-[14px] text-gap-text!"
       data-seed-marker="outdated"
       title={item.outdated.changedRoleIds.length ? `Written before changes in ${item.outdated.changedRoleIds.join(", ")}` : undefined}
-    ><span class="size-1.5 rounded-full bg-[#F59E0B]" aria-hidden="true"></span>Outdated</span>
+    ><span class="size-1.5 rounded-full bg-stale-dot" aria-hidden="true"></span>Outdated</span>
   {/if}
 {/snippet}
 
@@ -336,186 +341,17 @@
   <svg class={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width={strokeWidth} stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7L3 8" /><path d="M3 3v5h5" /></svg>
 {/snippet}
 
-<article
-  class={`group relative flex flex-1 flex-col border transition-colors motion-reduce:transition-none ${
-    nested ? "rounded-lg px-3 py-2.5" : "rounded-[10px] px-4 py-3.5"
-  } ${
-    editing
-      ? "border-primary bg-surface ring-2 ring-primary-wash"
-      : item.selected
-        ? "border-primary-light bg-[#F7FCFB]"
-        : "border-line bg-surface"
-  }`}
-  data-seed-id={item.seedId}
-  data-selected={item.selected}
-  data-editing={editing}
->
-  <!-- The card's own body; a card beside it in the same row may stretch it,
-       and its tools then sit at its foot. -->
-  <div class="relative flex flex-1 flex-col bg-inherit" data-seed-body>
-  <div class={`flex items-start ${nested ? "gap-2.5" : "gap-3"}`}>
-    <div class="pt-0.5">
-      <Checkbox
-        checked={item.selected}
-        disabled={!canEdit || busy}
-        aria-label={item.selected ? "Deselect seed" : "Select seed"}
-        onCheckedChange={(selected) => {
-          if (canEdit) void onSelect(selected);
-        }}
-        class="peer inline-flex size-4 flex-none items-center justify-center rounded-[4px] border-[1.5px] transition-colors duration-150 ease-out active:scale-[0.97] data-[state=checked]:border-primary data-[state=checked]:bg-primary data-[state=unchecked]:border-line data-[state=unchecked]:bg-surface data-[state=unchecked]:hover:border-gray-400 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary data-[disabled]:opacity-50"
-      />
-    </div>
-    <div class={`flex min-w-0 flex-1 flex-col ${nested ? "gap-1.5" : "gap-2"}`}>
-      {#if !nested && (tags.length > 0 || item.support === "writer_asserted" || item.outdated)}
-        <div class="flex flex-wrap items-center gap-1.5">{@render tagPills()}</div>
-      {/if}
-
-      {#if editing && edit}
-        <div class="space-y-2">
-          <textarea
-            bind:this={firstField}
-            aria-label="Bullet 1"
-            value={edit.bulletOne}
-            oninput={(event) => {
-              if (edit) publishEdit({ ...edit, bulletOne: event.currentTarget.value });
-            }}
-            onkeydown={editKeydown}
-            rows="2"
-            maxlength={MAX_EDITED_BULLET_CHARS}
-            class="field-control block min-h-11 w-full resize-none rounded-md px-2.5 py-2 text-[14px] leading-5 text-ink [field-sizing:content]"
-          ></textarea>
-          <textarea
-            aria-label="Bullet 2, optional"
-            placeholder="Second bullet, optional"
-            value={edit.bulletTwo}
-            oninput={(event) => {
-              if (edit) publishEdit({ ...edit, bulletTwo: event.currentTarget.value });
-            }}
-            onkeydown={editKeydown}
-            rows="2"
-            maxlength={MAX_EDITED_BULLET_CHARS}
-            class="field-control block min-h-11 w-full resize-none rounded-md px-2.5 py-2 text-[14px] leading-5 text-ink [field-sizing:content] placeholder:text-ink-faint"
-          ></textarea>
-          <p class="text-[12px] leading-4 text-ink-muted">Enter to save, Shift+Enter for a new line, Esc to cancel.</p>
-          {#if discardArmed}
-            <p class="text-[12px] leading-4 text-gap-text!" role="status" data-seed-discard-armed>Press Esc again to discard your changes.</p>
-          {/if}
-          {#if editLong}
-            <p class="text-[12px] leading-4 text-gap-text!" aria-live="polite" data-seed-long-note>Long for a seed</p>
-          {/if}
-          {#if editStale}
-            <div class="rounded-lg bg-gap-bg px-3 py-2 text-body text-gap-text!" role="status">
-              <p>This wording began against an older decision version. Review the current wording before saving it.</p>
-              <p class="mt-1 text-xs">Current wording: {item.bullets.join(" ")}</p>
-              <Button
-                class="mt-2"
-                size="sm"
-                variant="secondary"
-                onclick={() => {
-                  if (edit) publishEdit({ ...edit, baseSeedStageVersion: seedStageVersion });
-                }}
-              >Use current decision version</Button>
-            </div>
-          {/if}
-        </div>
-      {:else}
-        <ul class="flex flex-col gap-1 text-[14px] leading-5 text-ink">
-          {#each bulletViews as view, index (index)}
-            <li class="flex items-start gap-2">
-              {#if !nested}<span class="mt-2 size-1 shrink-0 rounded-full bg-ink-muted" aria-hidden="true"></span>{/if}
-              <span class="min-w-0 flex-1">{@render bulletText(view)}</span>
-              {#if canEdit && index === firstEditedBullet}
-                <Tooltip text="Restore original wording">
-                  {#snippet children({ props })}
-                    <button
-                      {...props}
-                      type="button"
-                      aria-label="Restore original wording"
-                      class="-mt-px inline-flex size-[22px] shrink-0 items-center justify-center rounded-[5px] text-ink-secondary transition-colors hover:bg-gray-50 hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary disabled:pointer-events-none disabled:opacity-50 pointer-coarse:size-11"
-                      disabled={busy}
-                      onclick={onRestore}
-                    >{@render revertIcon("size-[13px]", 1.8)}</button>
-                  {/snippet}
-                </Tooltip>
-              {/if}
-            </li>
-          {/each}
-        </ul>
-        {#if showOriginal && item.edited}
-          <p class="text-[12px] leading-4 text-ink-muted">Original wording: {item.originalBullets.join(" ")}</p>
-        {/if}
-      {/if}
-
-      {#if nested && (tags.length > 0 || item.support === "writer_asserted" || item.outdated)}
-        <div class="flex flex-wrap items-center gap-1.5">{@render tagPills()}</div>
-      {/if}
-
-      {#if feedback && canEdit}
-        <div class="mt-1 rounded-lg border border-line-soft bg-canvas p-3">
-          <textarea
-            bind:this={feedbackField}
-            aria-label="Tell it what to change"
-            placeholder="Tell it what to change"
-            value={feedback.instruction}
-            oninput={(event) => {
-              if (feedback) publishFeedback({ ...feedback, instruction: event.currentTarget.value });
-            }}
-            onkeydown={feedbackKeydown}
-            rows="2"
-            maxlength="300"
-            class="field-control block min-h-11 w-full resize-none rounded-md px-2.5 py-1.5 text-body text-ink [field-sizing:content] placeholder:text-ink-faint"
-          ></textarea>
-          {#if feedbackStale}
-            <div class="mt-2 rounded-lg bg-gap-bg px-3 py-2 text-body text-gap-text!" role="status">
-              <p>This instruction began against an older decision version. Review the current seed before sending it.</p>
-              <p class="mt-1 text-xs">Current wording: {item.bullets.join(" ")}</p>
-              <Button
-                class="mt-2"
-                size="sm"
-                variant="secondary"
-                onclick={() => {
-                  if (feedback) publishFeedback({ ...feedback, baseSeedStageVersion: seedStageVersion });
-                }}
-              >Use current decision version</Button>
-            </div>
-          {/if}
-          <div class="mt-2 flex flex-wrap justify-end gap-2">
-            <Button size="sm" variant="secondary" onclick={() => publishFeedback(null)}>Cancel</Button>
-            <Button
-              size="sm"
-              onclick={sendFeedback}
-              disabled={sendingFeedback || !feedback.instruction.trim() || feedbackStale}
-            >{sendingFeedback ? "Sending…" : "Send feedback"}</Button>
-          </div>
-        </div>
-      {/if}
-
-      {#if !canEdit && hasUnsavedText}
-        <!-- The retention promise is truthful: it names the device only while
-             storage is mirroring the text (A2). -->
-        <p class="text-xs text-ink-muted" data-draft-retained={retained}>
-          {retained
-            ? "Your unsaved text for this Seed is kept on this device."
-            : "Your unsaved text for this Seed stays in this open workspace only; this device cannot keep it across navigation or reload."}
-          {unavailableNotice}
-        </p>
-      {/if}
-    </div>
-  </div>
-
-  {#if editing || canEdit || showQuotes}
-    <div
-      class={`flex items-center justify-end gap-2 transition-opacity motion-reduce:transition-none ${
-        footerFloating
-          ? `absolute -right-1.5 -bottom-1.5 rounded-lg bg-inherit p-0.5 pointer-coarse:static pointer-coarse:mt-auto pointer-coarse:p-0 pointer-coarse:pt-2.5 ${
-              footerHidden
-                ? "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 pointer-coarse:opacity-100"
-                : ""
-            }`
-          : "mt-auto pt-2.5"
-      }`}
-      data-seed-footer
-    >
+{#snippet tools(placement: "tags" | "foot")}
+  <div
+    class={`flex items-center justify-end gap-2 transition-opacity motion-reduce:transition-none ${
+      placement === "tags" ? "absolute top-1/2 right-0 -translate-y-1/2" : "mt-auto pt-2.5"
+    } ${
+      footerHidden
+        ? "pointer-events-none opacity-0 group-hover/seed:pointer-events-auto group-hover/seed:opacity-100 group-focus-within/seed:pointer-events-auto group-focus-within/seed:opacity-100 pointer-coarse:pointer-events-auto pointer-coarse:opacity-100"
+        : ""
+    }`}
+    data-seed-footer={placement}
+  >
       {#if showQuotes && !editing}
         <Popover.Root bind:open={quotesOpen}>
           <Tooltip text="Quoted lines">
@@ -650,10 +486,202 @@
         </DropdownMenu.Root>
       {/if}
     </div>
-  {/if}
+{/snippet}
+
+{#snippet tagRow()}
+  <!-- When the tools float here, the row keeps their width free (36px a
+       tool, 52px on coarse pointers) and is tall enough for 44px targets. -->
+  <div
+    class={`flex flex-wrap items-center gap-1.5 ${
+      toolsInTagRow ? "relative pr-[var(--seed-tools)] pointer-coarse:min-h-11 pointer-coarse:pr-[var(--seed-tools-coarse)]" : ""
+    }`}
+    style={toolsInTagRow ? `--seed-tools:${toolCount * 36}px;--seed-tools-coarse:${toolCount * 52}px` : undefined}
+    data-seed-tag-row
+  >
+    {@render tagPills()}
+    {#if toolsInTagRow}{@render tools("tags")}{/if}
+  </div>
+{/snippet}
+
+<article
+  class={`relative flex flex-1 flex-col border transition-colors motion-reduce:transition-none ${
+    nested ? "rounded-lg" : "rounded-[10px]"
+  } ${
+    editing
+      ? "border-primary bg-surface ring-2 ring-primary-wash"
+      : item.selected
+        ? "border-primary-light bg-[#F7FCFB]"
+        : "border-line bg-surface"
+  }`}
+  data-seed-id={item.seedId}
+  data-selected={item.selected}
+  data-editing={editing}
+>
+  <!-- The card's own body, and its hover group: revised seeds sit outside
+       it, so hovering or focusing one never reveals this card's tools, and
+       the reverse. A card beside it in the same row may stretch it. -->
+  <div
+    class={`group/seed flex flex-1 flex-col ${
+      nested ? `px-3 pt-2.5 ${below ? "pb-2" : "pb-2.5"}` : `px-4 pt-3.5 ${below ? "pb-3" : "pb-3.5"}`
+    }`}
+    data-seed-body
+  >
+  <div class={`flex items-start ${nested ? "gap-2.5" : "gap-3"}`}>
+    <div class="pt-0.5">
+      <Checkbox
+        checked={item.selected}
+        disabled={!canEdit || busy}
+        aria-label={item.selected ? "Deselect seed" : "Select seed"}
+        onCheckedChange={(selected) => {
+          if (canEdit) void onSelect(selected);
+        }}
+        class="peer inline-flex size-4 flex-none items-center justify-center rounded-[4px] border-[1.5px] transition-colors duration-150 ease-out active:scale-[0.97] data-[state=checked]:border-primary data-[state=checked]:bg-primary data-[state=unchecked]:border-line data-[state=unchecked]:bg-surface data-[state=unchecked]:hover:border-gray-400 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary data-[disabled]:opacity-50"
+      />
+    </div>
+    <div class={`flex min-w-0 flex-1 flex-col ${nested ? "gap-1.5" : "gap-2"}`}>
+      {#if !nested && tagRowShown}
+        {@render tagRow()}
+      {/if}
+
+      {#if editing && edit}
+        <div class="space-y-2">
+          <textarea
+            bind:this={firstField}
+            aria-label="Bullet 1"
+            value={edit.bulletOne}
+            oninput={(event) => {
+              if (edit) publishEdit({ ...edit, bulletOne: event.currentTarget.value });
+            }}
+            onkeydown={editKeydown}
+            rows="2"
+            maxlength={MAX_EDITED_BULLET_CHARS}
+            class="field-control block min-h-11 w-full resize-none rounded-md px-2.5 py-2 text-[14px] leading-5 text-ink [field-sizing:content]"
+          ></textarea>
+          <textarea
+            aria-label="Bullet 2, optional"
+            placeholder="Second bullet, optional"
+            value={edit.bulletTwo}
+            oninput={(event) => {
+              if (edit) publishEdit({ ...edit, bulletTwo: event.currentTarget.value });
+            }}
+            onkeydown={editKeydown}
+            rows="2"
+            maxlength={MAX_EDITED_BULLET_CHARS}
+            class="field-control block min-h-11 w-full resize-none rounded-md px-2.5 py-2 text-[14px] leading-5 text-ink [field-sizing:content] placeholder:text-ink-faint"
+          ></textarea>
+          <p class="text-[12px] leading-4 text-ink-muted">Enter to save, Shift+Enter for a new line, Esc to cancel.</p>
+          {#if discardArmed}
+            <p class="text-[12px] leading-4 text-gap-text!" role="status" data-seed-discard-armed>Press Esc again to discard your changes.</p>
+          {/if}
+          {#if editLong}
+            <p class="text-[12px] leading-4 text-gap-text!" aria-live="polite" data-seed-long-note>Long for a seed</p>
+          {/if}
+          {#if editStale}
+            <div class="rounded-lg bg-gap-bg px-3 py-2 text-body text-gap-text!" role="status">
+              <p>This wording began against an older decision version. Review the current wording before saving it.</p>
+              <p class="mt-1 text-xs">Current wording: {item.bullets.join(" ")}</p>
+              <Button
+                class="mt-2"
+                size="sm"
+                variant="secondary"
+                onclick={() => {
+                  if (edit) publishEdit({ ...edit, baseSeedStageVersion: seedStageVersion });
+                }}
+              >Use current decision version</Button>
+            </div>
+          {/if}
+        </div>
+      {:else}
+        <ul class="flex flex-col gap-1 text-[14px] leading-5 text-ink">
+          {#each bulletViews as view, index (index)}
+            <li class="flex items-start gap-2">
+              {#if !nested}<span class="mt-2 size-1 shrink-0 rounded-full bg-ink-muted" aria-hidden="true"></span>{/if}
+              <span class="min-w-0 flex-1">{@render bulletText(view)}</span>
+              {#if canEdit && index === firstEditedBullet}
+                <Tooltip text="Restore original wording">
+                  {#snippet children({ props })}
+                    <button
+                      {...props}
+                      type="button"
+                      aria-label="Restore original wording"
+                      class="-mt-px inline-flex size-[22px] shrink-0 items-center justify-center rounded-[5px] text-ink-secondary transition-colors hover:bg-gray-50 hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary disabled:pointer-events-none disabled:opacity-50 pointer-coarse:size-11"
+                      disabled={busy}
+                      onclick={onRestore}
+                    >{@render revertIcon("size-[13px]", 1.8)}</button>
+                  {/snippet}
+                </Tooltip>
+              {/if}
+            </li>
+          {/each}
+        </ul>
+        {#if showOriginal && item.edited}
+          <p class="text-[12px] leading-4 text-ink-muted">Original wording: {item.originalBullets.join(" ")}</p>
+        {/if}
+      {/if}
+
+      {#if nested && tagRowShown}
+        {@render tagRow()}
+      {/if}
+
+      {#if feedback && canEdit}
+        <div class="mt-1 rounded-lg border border-line-soft bg-canvas p-3">
+          <textarea
+            bind:this={feedbackField}
+            aria-label="Tell it what to change"
+            placeholder="Tell it what to change"
+            value={feedback.instruction}
+            oninput={(event) => {
+              if (feedback) publishFeedback({ ...feedback, instruction: event.currentTarget.value });
+            }}
+            onkeydown={feedbackKeydown}
+            rows="2"
+            maxlength="300"
+            class="field-control block min-h-11 w-full resize-none rounded-md px-2.5 py-1.5 text-body text-ink [field-sizing:content] placeholder:text-ink-faint"
+          ></textarea>
+          {#if feedbackStale}
+            <div class="mt-2 rounded-lg bg-gap-bg px-3 py-2 text-body text-gap-text!" role="status">
+              <p>This instruction began against an older decision version. Review the current seed before sending it.</p>
+              <p class="mt-1 text-xs">Current wording: {item.bullets.join(" ")}</p>
+              <Button
+                class="mt-2"
+                size="sm"
+                variant="secondary"
+                onclick={() => {
+                  if (feedback) publishFeedback({ ...feedback, baseSeedStageVersion: seedStageVersion });
+                }}
+              >Use current decision version</Button>
+            </div>
+          {/if}
+          <div class="mt-2 flex flex-wrap justify-end gap-2">
+            <Button size="sm" variant="secondary" onclick={() => publishFeedback(null)}>Cancel</Button>
+            <Button
+              size="sm"
+              onclick={sendFeedback}
+              disabled={sendingFeedback || !feedback.instruction.trim() || feedbackStale}
+            >{sendingFeedback ? "Sending…" : "Send feedback"}</Button>
+          </div>
+        </div>
+      {/if}
+
+      {#if !canEdit && hasUnsavedText}
+        <!-- The retention promise is truthful: it names the device only while
+             storage is mirroring the text (A2). -->
+        <p class="text-xs text-ink-muted" data-draft-retained={retained}>
+          {retained
+            ? "Your unsaved text for this Seed is kept on this device."
+            : "Your unsaved text for this Seed stays in this open workspace only; this device cannot keep it across navigation or reload."}
+          {unavailableNotice}
+        </p>
+      {/if}
+    </div>
   </div>
 
+  {#if (editing || canEdit || showQuotes) && !toolsInTagRow}
+    {@render tools("foot")}
+  {/if}
+</div>
+
   {#if below}
-    <div class="mt-3">{@render below()}</div>
+    <div class={nested ? "px-3 pb-2.5" : "px-4 pb-3.5"} data-seed-below>{@render below()}</div>
   {/if}
 </article>
