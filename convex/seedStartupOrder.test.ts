@@ -211,12 +211,18 @@ async function sha256Hex(text: string): Promise<string> {
   return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
-/** The first request body of each stage, hashed. */
-async function requestHashes(): Promise<Record<string, string>> {
+/** The first request body of each stage, hashed. `maxTokens` replaces a
+ * stage's `max_tokens` in place (same key position) before hashing. */
+async function requestHashes(
+  maxTokens: Partial<Record<string, number>> = {}
+): Promise<Record<string, string>> {
   const firstByTool = new Map<string, string>();
   for (const [params] of network.create.mock.calls as Array<[GenerationMessageParams]>) {
     const name = params.tool_choice?.name ?? "text";
-    if (!firstByTool.has(name)) firstByTool.set(name, maskIds(JSON.stringify(params)));
+    if (firstByTool.has(name)) continue;
+    const cap = maxTokens[name];
+    const body = cap === undefined ? params : { ...params, max_tokens: cap };
+    firstByTool.set(name, maskIds(JSON.stringify(body)));
   }
   const result: Record<string, string> = {};
   for (const [name, body] of [...firstByTool.entries()].sort()) {
@@ -224,6 +230,21 @@ async function requestHashes(): Promise<Record<string, string>> {
   }
   return result;
 }
+
+/** The output caps before the cut-off fix (fe75638c) raised them. */
+const PRE_CUTOFF_CAPS = {
+  submit_generation_brief: 8_192,
+  submit_retrieval_brief: 1_024,
+  submit_transcript_analysis: 8_192,
+};
+
+/** The hashes the reorder pinned, captured from this fixture on 9bed95c0. */
+const PRE_REORDER_HASHES_9BED95C0 = {
+  submit_generation_brief: "66095cb8cab5a57fd6c9f5e7ef84b89170d1b63d91aa96704c3977c018b0a9ba",
+  submit_retrieval_brief: "404d7fc76b249891f6afca242c872beaad15682d7f449eff60fc2f9f16e579d3",
+  submit_seed_batch: "2e71037c98d18d834150aa69c1a9903a420562310048f3ca9e5fa58181716e9a",
+  submit_transcript_analysis: "3038f5a2a8ce1fb5de9788cbaba1768a273eaacd5970fe2a91b8724eeac49623",
+};
 
 async function openFirstRole(s: Fixture) {
   await s.writer.mutation(api.seeds.open, {
@@ -304,17 +325,40 @@ describe("reordered Step-by-step start (decision 32)", () => {
     await s.t.action(internal.ai.iterative.startIterativeGeneration, { generationId: s.generationId });
     await runSeedDraftingInputs(s.t);
     await openFirstRole(s);
-    // Captured from the same fixture on 9bed95c0, before the reorder: the
-    // stages moved, their provider requests did not. The Brief, analysis and
-    // retrieval brief hashes were recaptured after merging the raised output
-    // caps (16,000 / 16,000 / 2,048 tokens); with the old caps restored they
-    // match the 9bed95c0 values, so max_tokens is the only difference.
+    // The stages moved, their provider requests did not. The seed batch hash
+    // was captured from the same fixture on 9bed95c0, before the reorder. The
+    // Brief, analysis and retrieval brief hashes were recaptured on the
+    // integration branch after the cut-off fix raised their output caps
+    // (16,000 / 16,000 / 2,048 tokens); the next test proves that with the
+    // old caps put back they are the 9bed95c0 hashes exactly.
     expect(await requestHashes()).toEqual({
       submit_generation_brief: "768cad27ddf4db91f8237ad51714fdab8cdc5b0826a54a83cc3eba516c57434e",
       submit_retrieval_brief: "5ff41dc8effa6c1d3debffd0657f07c741a25549cd8bfe83863ea1ff0e4939a5",
       submit_seed_batch: "2e71037c98d18d834150aa69c1a9903a420562310048f3ca9e5fa58181716e9a",
       submit_transcript_analysis: "529909743af47708a90efdf4bf9fca2dcd76070b988cec16e438bc02a8195310",
     });
+  });
+
+  it("differs from the 9bed95c0 request bodies only in the raised output caps", async () => {
+    vi.useFakeTimers({ now: new Date("2026-09-25T12:00:00Z"), toFake: ["Date"] });
+    const s = await startupFixture();
+    configureProvider();
+    await s.t.action(internal.ai.iterative.startIterativeGeneration, { generationId: s.generationId });
+    await runSeedDraftingInputs(s.t);
+    await openFirstRole(s);
+    const caps = Object.fromEntries(
+      (network.create.mock.calls as Array<[GenerationMessageParams]>).map(([params]) => [
+        params.tool_choice?.name ?? "text",
+        params.max_tokens,
+      ])
+    );
+    expect(caps).toMatchObject({
+      submit_generation_brief: 16_000,
+      submit_retrieval_brief: 2_048,
+      submit_transcript_analysis: 16_000,
+    });
+    // The caps before the cut-off fix; every other byte is unchanged.
+    expect(await requestHashes(PRE_CUTOFF_CAPS)).toEqual(PRE_REORDER_HASHES_9BED95C0);
   });
 
   it("opens the seed stage and serves the first Seeds before the analysis runs", async () => {
@@ -636,12 +680,20 @@ describe("section approval is unchanged by the reorder", () => {
         .withIndex("by_generationId_and_kind", (q) => q.eq("generationId", s.generationId))
         .collect()).map((row) => `${row.kind}:${row.content}`).sort());
     expect(artifacts.map((row) => row.split(":")[0])).toEqual(["analysis", "brain_blocks"]);
-    // Captured from the same fixture on 9bed95c0, before the reorder, with the
-    // raised output caps applied (see the note in the test above).
+    // The section draft (`text`) hash was captured from the same fixture on
+    // 9bed95c0, before the reorder. The other three were recaptured on the
+    // integration branch after the cut-off fix raised their output caps; with
+    // the old caps put back they are the 9bed95c0 hashes exactly.
     expect(await requestHashes()).toEqual({
       submit_generation_brief: "768cad27ddf4db91f8237ad51714fdab8cdc5b0826a54a83cc3eba516c57434e",
       submit_retrieval_brief: "5ff41dc8effa6c1d3debffd0657f07c741a25549cd8bfe83863ea1ff0e4939a5",
       submit_transcript_analysis: "529909743af47708a90efdf4bf9fca2dcd76070b988cec16e438bc02a8195310",
+      text: "89121783d0eb621299c46695a2c96c1e5bc3c2fde9169e7d9cbd6e360274f2b0",
+    });
+    expect(await requestHashes(PRE_CUTOFF_CAPS)).toEqual({
+      submit_generation_brief: PRE_REORDER_HASHES_9BED95C0.submit_generation_brief,
+      submit_retrieval_brief: PRE_REORDER_HASHES_9BED95C0.submit_retrieval_brief,
+      submit_transcript_analysis: PRE_REORDER_HASHES_9BED95C0.submit_transcript_analysis,
       text: "89121783d0eb621299c46695a2c96c1e5bc3c2fde9169e7d9cbd6e360274f2b0",
     });
     expect(await sha256Hex(JSON.stringify(artifacts))).toBe(
