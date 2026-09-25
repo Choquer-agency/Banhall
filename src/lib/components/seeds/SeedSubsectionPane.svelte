@@ -845,7 +845,14 @@
       {/if}
 
       <div {@attach observeWidth} data-seed-grid={twoColumns ? "two" : "one"}>
-        {#if data.items.length === 0 && !data.pendingBatchId}
+        {#if data.items.length === 0 && !data.pendingBatchId && (data.lastAttemptFailed || data.state === "failed")}
+          <div role="status" class="rounded-[10px] border border-dashed border-line p-6 text-center" data-seed-empty="failed">
+            <p class="text-body text-ink-secondary">Writing seeds for this step failed.</p>
+            {#if canEdit && data.state !== "skipped"}
+              <Button class="mt-3" size="sm" variant="secondary" disabled={busy} onclick={regenerateCurrent}>Try again</Button>
+            {/if}
+          </div>
+        {:else if data.items.length === 0 && !data.pendingBatchId}
           <div class="rounded-[10px] border border-dashed border-line p-6 text-center">
             <p class="text-body text-ink-muted">No seeds are available yet.</p>
           </div>

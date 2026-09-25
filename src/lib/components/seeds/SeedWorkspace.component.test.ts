@@ -620,6 +620,19 @@ describe("Seed workspace", () => {
     expect(__mutationCalls("seeds:unskip")[0]).toMatchObject({ roleId: "prior_year_status", expectedSeedStageVersion: 7 });
   });
 
+  it("says an empty step's last attempt failed and offers a fresh try, and keeps the plain empty text otherwise", async () => {
+    const empty = { state: "untouched" as const, items: [], shownBatchId: null, approvalChallenge: null };
+    const view = await render(SeedSubsectionPane, paneProps(subsection({ ...empty, lastAttemptFailed: true })));
+    await expect.element(page.getByText("Writing seeds for this step failed.")).toBeVisible();
+    await expect.element(page.getByText("No seeds are available yet.")).not.toBeInTheDocument();
+    await page.getByRole("button", { name: "Try again", exact: true }).click();
+    expect(__mutationCalls("seeds:regenerate")[0]).toMatchObject({ roleId: "company_context", expectedSeedStageVersion: 7 });
+
+    await view.rerender(paneProps(subsection(empty)));
+    await expect.element(page.getByText("No seeds are available yet.")).toBeVisible();
+    await expect.element(page.getByRole("button", { name: "Try again", exact: true })).not.toBeInTheDocument();
+  });
+
   it("rechecks edit capability at dispatch, so a revocation landing before an interaction dispatches sends nothing (A3, R6-08)", async () => {
     __setQueryData("seeds:listBatches", {
       page: [{

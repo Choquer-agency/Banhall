@@ -23,6 +23,7 @@ import {
   ORDERED_PROMPT_SCAFFOLDS,
   SELF_CHECK_REQUEST,
   SELF_CHECK_SCHEMA,
+  SUMMARY_PLAN_SELF_CHECK_REQUEST,
   SUMMARY_PLAN_SELF_CHECK_SCHEMA,
 } from "./promptDefinitions";
 import { SEQUENTIAL_CALLS_PER_GENERATE_CANDIDATE } from "./providers";
@@ -31,11 +32,15 @@ import { assembleSectionNotes, runDeterministicSelfCheck } from "../lib/selfChec
 import type { OrderedProfileContext } from "../lib/orderedChain";
 import { planComplianceNoteDrafts } from "./orderedGeneration";
 import { runModelSelfCheck, type SelfCheckPlanCheck } from "./selfCheck";
-import { SELF_CHECK_SYSTEM_PROMPT } from "./prompts";
+import {
+  SELF_CHECK_SYSTEM_PROMPT,
+  SUMMARY_PLAN_SELF_CHECK_SYSTEM_PROMPT,
+} from "./prompts";
 import {
   jsonEscapedUtf8Bytes,
   MAX_SUMMARY_SELF_CHECK_GUIDANCE_ESCAPED_UTF8_BYTES,
   MAX_SUMMARY_SELF_CHECK_REASON_ESCAPED_UTF8_BYTES,
+  MAX_SUMMARY_SELF_CHECK_RESPONSE_UTF8_BYTES,
   serializeFrozenSummaryPlanChecks,
 } from "../lib/seedRevisions";
 import { agentOutputsOf } from "../lib/generationOutputs";
@@ -381,6 +386,61 @@ describe("Self-check before display (CAP-9)", () => {
     expect(await completeSelfCheckRequestHash(request)).toBe(
       "4fa5d7184a93e08a953f2c5a5fdd9a7f94a667a1da247059d7dd2b1b69f478c1"
     );
+  });
+
+  it("gives only the Summary-plan Self-check an output allowance that covers its admitted response bytes", async () => {
+    // A byte-level tokenizer never needs more tokens than bytes, so an
+    // allowance at least as large as the admitted response always fits it.
+    expect(MAX_SUMMARY_SELF_CHECK_RESPONSE_UTF8_BYTES).toBe(16_384);
+    expect(SUMMARY_PLAN_SELF_CHECK_REQUEST.maxTokens).toBe(16_384);
+    expect(SUMMARY_PLAN_SELF_CHECK_REQUEST.maxTokens).toBeGreaterThanOrEqual(
+      MAX_SUMMARY_SELF_CHECK_RESPONSE_UTF8_BYTES
+    );
+    // The legacy Self-check allowance is unchanged.
+    expect(SELF_CHECK_REQUEST.maxTokens).toBe(4096);
+    const check: SelfCheckPlanCheck = {
+      itemId: "item-1",
+      roleId: "company_context",
+      mergedItemIds: ["item-1"],
+      instruction: "cover",
+      confirmedExclusion: false,
+      wording: ["Frozen wording."],
+      relationshipReferences: [],
+      sourceReferences: [],
+    };
+    const create = vi.fn(async (params: GenerationMessageParams) => ({
+      content: [{
+        type: "tool_use" as const,
+        id: "summary-allowance",
+        name: params.tool_choice?.name ?? "submit_self_check",
+        input: {
+          verdicts: [],
+          planVerdicts: [{
+            itemId: "item-1",
+            mergedItemIds: ["item-1"],
+            paragraph: 1,
+            outcome: "applied",
+            reason: "Covered.",
+          }],
+        },
+      }],
+      usage: { input_tokens: 1, output_tokens: 1 },
+    }));
+    await runModelSelfCheck({ messages: { create } } as GenerationClient, {
+      section: "242",
+      text: "One paragraph.",
+      storylineText: "",
+      confidenceMap: [],
+      glossaryCandidates: [],
+      rules: [],
+      model: "claude-opus-4-8",
+      planChecks: [check],
+      planChecksBlock: serializeFrozenSummaryPlanChecks([check]),
+    });
+    expect(create).toHaveBeenCalledTimes(1);
+    const [request] = create.mock.calls[0];
+    expect(request.system).toBe(SUMMARY_PLAN_SELF_CHECK_SYSTEM_PROMPT);
+    expect(request.max_tokens).toBe(16_384);
   });
 
   it.each(["missing tool output", "malformed adapter output", "invalid field type"] as const)(
@@ -934,8 +994,8 @@ describe("Self-check before display (CAP-9)", () => {
       ["Storyline numeric limit", (response) => { response.storylineQuestion.confidenceEntry = 10_000_000_000; }],
       ["negative Storyline entry", (response) => { response.storylineQuestion.confidenceEntry = -1; }],
       ["oversized negative Storyline entry", (response) => { response.storylineQuestion.confidenceEntry = -10_000_000_000; }],
-      ["oversized unknown root property", (response) => { Object.assign(response, { unknownRoot: "x".repeat(4_097) }); }],
-      ["oversized unknown nested property", (response) => { Object.assign(response.planVerdicts[0], { unknownNested: "x".repeat(4_097) }); }],
+      ["oversized unknown root property", (response) => { Object.assign(response, { unknownRoot: "x".repeat(MAX_SUMMARY_SELF_CHECK_RESPONSE_UTF8_BYTES + 1) }); }],
+      ["oversized unknown nested property", (response) => { Object.assign(response.planVerdicts[0], { unknownNested: "x".repeat(MAX_SUMMARY_SELF_CHECK_RESPONSE_UTF8_BYTES + 1) }); }],
       ["unknown root property", (response) => { Object.assign(response, { unknownRoot: true }); }],
       ["unknown ordinary property", (response) => { Object.assign(response.verdicts[0], { unknownOrdinary: true }); }],
       ["unknown plan property", (response) => { Object.assign(response.planVerdicts[0], { unknownPlan: true }); }],

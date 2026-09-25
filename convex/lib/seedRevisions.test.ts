@@ -740,7 +740,7 @@ describe("seed revisions", () => {
     expect(plan.checksBlock).toContain('"originatingItemId":"adv-b"');
   });
 
-  it("enforces independent Summary response counts and the exact 4,096-byte envelope", async () => {
+  it("enforces independent Summary response counts and the exact 16,384-byte envelope", async () => {
     const ordinary = projectSummaryOrdinaryChecks({
       storylineText: "Storyline",
       confidenceMap: [{ text: "Confidence" }],
@@ -868,11 +868,20 @@ describe("seed revisions", () => {
     ])).toThrow("orphan");
 
     // Primitive arithmetic is deliberately separate from a realizable plan.
+    // Literal widths keep the boundary independent of the exported constant.
+    expect(MAX_SUMMARY_SELF_CHECK_RESPONSE_UTF8_BYTES).toBe(16_384);
     expect(() => assertSummarySelfCheckResponseWithinLimit(
-      "x".repeat(MAX_SUMMARY_SELF_CHECK_RESPONSE_UTF8_BYTES)
+      "x".repeat(16_384)
     )).not.toThrow();
     expect(() => assertSummarySelfCheckResponseWithinLimit(
-      "x".repeat(MAX_SUMMARY_SELF_CHECK_RESPONSE_UTF8_BYTES + 1)
+      "x".repeat(16_385)
+    )).toThrow("worst-case response exceeds 16384 UTF-8 bytes");
+    // Multibyte text is measured in UTF-8 bytes, not characters.
+    expect(() => assertSummarySelfCheckResponseWithinLimit(
+      "é".repeat(8_192)
+    )).not.toThrow();
+    expect(() => assertSummarySelfCheckResponseWithinLimit(
+      `${"é".repeat(8_192)}x`
     )).toThrow("worst-case response");
   });
 

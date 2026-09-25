@@ -1041,7 +1041,7 @@
                   {#each [
                     { id: "compare", label: "Compare", hint: "Generate two alternatives and choose one" },
                     { id: "single", label: "Single draft", hint: "Generate one draft and open it directly" },
-                    { id: "iterative", label: "Section by section", hint: "Draft one section at a time — review and approve each before the next" },
+                    { id: "iterative", label: "Step by step", hint: "Plan the report idea by idea, sign off the plan, then draft it" },
                   ] as const as opt (opt.id)}
                     <Tooltip text={opt.hint}>
                       {#snippet children({ props })}
@@ -1462,7 +1462,7 @@
                 candidateMode === "compare"
                   ? "Compare 2 drafts"
                   : candidateMode === "iterative"
-                    ? "Section by section"
+                    ? "Step by step"
                     : "Single draft"
               )}
               {#if candidateMode === "compare"}

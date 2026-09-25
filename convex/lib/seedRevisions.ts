@@ -9,7 +9,16 @@ export const MAX_SEED_CONTEXT_ROW_UTF8_BYTES = 64_000;
 export const MAX_SEED_CONTEXT_SNAPSHOT_UTF8_BYTES = 512_000;
 export const MAX_SEED_PROMPT_UTF8_BYTES = 600_000;
 export const MAX_SUMMARY_PLAN_CHECK_INPUT_UTF8_BYTES = 64_000;
-export const MAX_SUMMARY_SELF_CHECK_RESPONSE_UTF8_BYTES = 4_096;
+/**
+ * Worst-case compact-JSON bytes of one Summary Self-check response. Real
+ * Briefs carry 10 to 20 ordinary checks per Section, so 4,096 bytes refused
+ * every real sign-off (2026-09-25). 16,384 bytes fits 30 ordinary checks,
+ * about 10 plan rows and the Storyline question. The Summary-plan Self-check
+ * request sends the same number as its output token allowance
+ * (SUMMARY_PLAN_SELF_CHECK_REQUEST.maxTokens), so a response within this
+ * byte limit never needs more tokens than the request allows.
+ */
+export const MAX_SUMMARY_SELF_CHECK_RESPONSE_UTF8_BYTES = 16_384;
 export const MAX_SUMMARY_PLAN_VERDICTS = 256;
 export const MAX_SUMMARY_ORDINARY_VERDICTS = 30;
 export const MAX_SUMMARY_SELF_CHECK_LABEL_ESCAPED_UTF8_BYTES = 32;

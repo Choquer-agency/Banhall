@@ -582,7 +582,7 @@ describe("Seed project hosts", () => {
       content: "Engineer: The controller trials measured stability across three load bands.",
     });
     await render(PreviewProjectPage, {});
-    await browserPage.getByRole("radio", { name: "Section by section", exact: true }).click();
+    await browserPage.getByRole("radio", { name: "Step by step", exact: true }).click();
     await browserPage.getByRole("button", { name: "Generate Report", exact: true }).click();
     expect(__mutationCalls("generations:requestGeneration")).toEqual([{
       projectId: "project-seed-host",

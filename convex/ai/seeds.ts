@@ -37,8 +37,10 @@ import {
 import {
   seedToolSchema,
   validateBatch,
+  type BatchValidationResult,
   type FrozenSeedSource,
   type SeedReference,
+  type SeedValidationIssueCode,
   type ValidatedSeedCandidate,
 } from "../lib/seedContract";
 import {
@@ -114,6 +116,63 @@ function countedClient(client: GenerationClient, onRequest: () => void): Generat
   };
 }
 
+const SEED_ISSUE_HINTS: Partial<Record<SeedValidationIssueCode, string>> = {
+  INVALID_SHAPE: "wrong fields",
+  INVALID_BULLET_COUNT: "use one or two bullets",
+  BULLET_TOO_LONG: "a bullet is over 25 words",
+  BULLET_NOT_ONE_SENTENCE: "a bullet is not one sentence ending in a full stop",
+  BULLET_TYPOGRAPHIC_DASH: "use a plain hyphen",
+  INVALID_TAG_COUNT: "use one or two tags",
+  INVALID_TAG: "unknown tag",
+  DUPLICATE_TAG: "repeated tag",
+  INVALID_ADVANCEMENT_REFERENCE:
+    "copy uncertaintySeedId and experimentSeedIds from the frozen selections",
+  INVALID_BATCH_SIZE: "return 3 to 5 valid Seeds",
+  INSUFFICIENT_TAG_DIVERSITY: "use at least two different tags",
+  INSUFFICIENT_FORM_DIVERSITY: "mix one-bullet and two-bullet Seeds",
+};
+
+/**
+ * Repair feedback the model can act on: which Seeds failed and why, never
+ * Seed text. structured.ts prefixes "(root): ", so the note stays inside
+ * the prompt's reserved repair bytes with that prefix included.
+ */
+export function seedRepairSummary(
+  result: BatchValidationResult,
+  returned: number
+): string {
+  const maxBytes =
+    SEED_PROMPT_PROGRAM.request.repairValidationSummaryMaxUtf8Bytes -
+    "(root): ".length;
+  const perSeed = new Map<number, Set<string>>();
+  const batch = new Set<string>();
+  for (const issue of result.issues) {
+    if (issue.code === "INVALID_PROVENANCE") continue;
+    const hint = SEED_ISSUE_HINTS[issue.code] ?? issue.code;
+    if (issue.seedIndex === undefined) {
+      batch.add(hint);
+      continue;
+    }
+    const hints = perSeed.get(issue.seedIndex) ?? new Set<string>();
+    hints.add(hint);
+    perSeed.set(issue.seedIndex, hints);
+  }
+  const parts = [
+    `${result.seeds.length} of ${returned} Seeds valid`,
+    ...batch,
+    ...[...perSeed.entries()]
+      .sort(([left], [right]) => left - right)
+      .map(([index, hints]) => `Seed ${index + 1}: ${[...hints].join(", ")}`),
+  ];
+  let summary = "";
+  for (const part of parts) {
+    const next = summary ? `${summary}; ${part}` : part;
+    if (new TextEncoder().encode(next).byteLength > maxBytes) break;
+    summary = next;
+  }
+  return summary;
+}
+
 function validatedBatchSchema(args: {
   roleId: Parameters<typeof validateBatch>[0]["roleId"];
   mode: Parameters<typeof validateBatch>[0]["mode"];
@@ -151,10 +210,7 @@ function validatedBatchSchema(args: {
       if (!result.ok) {
         context.addIssue({
           code: z.ZodIssueCode.custom,
-          message: result.issues
-            .slice(0, 3)
-            .map((issue) => issue.code)
-            .join(", "),
+          message: seedRepairSummary(result, seeds.length),
         });
         return z.NEVER;
       }

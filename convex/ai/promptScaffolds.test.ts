@@ -513,6 +513,21 @@ describe("the condense call belongs to the prompt program (AC5)", () => {
         },
       },
     });
+    expect(SUMMARY_PLAN_SELF_CHECK_REQUEST.maxTokens).toBe(
+      MAX_SUMMARY_SELF_CHECK_RESPONSE_UTF8_BYTES
+    );
+    const changedAllowanceProgram = structuredClone(generationPromptProgram);
+    Object.assign(
+      changedAllowanceProgram.calls.selfCheck.summaryPlan.requestScaffold,
+      { maxTokens: 4096 }
+    );
+    const changedSummaryAllowance = await hashPromptProgram(changedAllowanceProgram);
+    const changedCapacityProgram = structuredClone(generationPromptProgram);
+    Object.assign(
+      changedCapacityProgram.templates.seeds.summaryPlan.capacity,
+      { maxResponseUtf8Bytes: 4_096 }
+    );
+    const changedResponseCapacity = await hashPromptProgram(changedCapacityProgram);
     const changedSchemaProgram = structuredClone(generationPromptProgram);
     Object.assign(
       changedSchemaProgram.calls.selfCheck.summaryPlan.schema,
@@ -526,6 +541,8 @@ describe("the condense call belongs to the prompt program (AC5)", () => {
     expect(changedStructuredPolicy).not.toBe(current);
     expect(changedEncodedJsonPolicy).not.toBe(current);
     expect(changedSummarySchema).not.toBe(current);
+    expect(changedSummaryAllowance).not.toBe(current);
+    expect(changedResponseCapacity).not.toBe(current);
   });
 
   it("moves promptVersion, so no generation reports a stale contract", async () => {
