@@ -20,6 +20,7 @@ import {
   buildDispatchSnapshot,
   buildFrozenSummaryPlan,
   canonicalizeSeedSnapshot,
+  clipJsonEscapedUtf8,
   completeContextRevision,
   contextRevision,
   contributionHashes,
@@ -29,6 +30,7 @@ import {
   encodeBatchContext,
   explainChange,
   isSeedSubsectionStale,
+  jsonEscapedUtf8Bytes,
   materializeFinalWording,
   orderShownSet,
   projectFrozenSummaryPlanChecks,
@@ -949,5 +951,76 @@ describe("seed revisions", () => {
       recoverySourceIds: ["recovery-x", "recovery-y"],
       sourceIdMap: [map[0], map[0]],
     })).toThrow("Frozen source map");
+  });
+});
+
+describe("clipJsonEscapedUtf8 (Summary Self-check free text)", () => {
+  const LIMIT = 64;
+  const loneSurrogate = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
+
+  it("keeps 64 bytes as written and cuts 65 bytes at the last word boundary", () => {
+    const at64 = "Paragraph 3 reports the test matrix and the coupon counts fully.";
+    const at65 = "Paragraph 3 reports the test matrix and the coupon counts, fully.";
+    expect(jsonEscapedUtf8Bytes(at64)).toBe(64);
+    expect(jsonEscapedUtf8Bytes(at65)).toBe(65);
+    expect(clipJsonEscapedUtf8(at64, LIMIT)).toBe(at64);
+    const clipped = clipJsonEscapedUtf8(at65, LIMIT);
+    // The cut lands inside "fully", so the whole word and the comma go.
+    expect(clipped).toBe("Paragraph 3 reports the test matrix and the coupon counts…");
+    expect(jsonEscapedUtf8Bytes(clipped)).toBeLessThanOrEqual(LIMIT);
+  });
+
+  it("never splits a multibyte character or a surrogate pair", () => {
+    const accented = "é".repeat(33);
+    expect(jsonEscapedUtf8Bytes(accented)).toBe(66);
+    expect(clipJsonEscapedUtf8(accented, LIMIT)).toBe(`${"é".repeat(30)}…`);
+    const emoji = "😀".repeat(20);
+    expect(jsonEscapedUtf8Bytes(emoji)).toBe(80);
+    const clipped = clipJsonEscapedUtf8(emoji, LIMIT);
+    expect(clipped).toBe(`${"😀".repeat(15)}…`);
+    expect(loneSurrogate.test(clipped)).toBe(false);
+    expect(jsonEscapedUtf8Bytes(clipped)).toBe(63);
+  });
+
+  it("never cuts inside a JSON escape", () => {
+    const quoted = '"'.repeat(40);
+    expect(jsonEscapedUtf8Bytes(quoted)).toBe(80);
+    expect(clipJsonEscapedUtf8(quoted, LIMIT)).toBe(`${'"'.repeat(30)}…`);
+    const control = "\u0001".repeat(11);
+    expect(jsonEscapedUtf8Bytes(control)).toBe(66);
+    const clippedControl = clipJsonEscapedUtf8(control, LIMIT);
+    expect(clippedControl).toBe(`${"\u0001".repeat(10)}…`);
+    expect(jsonEscapedUtf8Bytes(clippedControl)).toBe(63);
+    // A lone surrogate escapes to six bytes and is kept or dropped whole.
+    const lone = `${"x".repeat(56)}\uD800${"y".repeat(10)}`;
+    const clippedLone = clipJsonEscapedUtf8(lone, LIMIT);
+    expect(clippedLone).toBe(`${"x".repeat(56)}…`);
+    // Newlines escape to two bytes; text of only whitespace keeps a hard cut.
+    const newlines = "\n".repeat(33);
+    const clippedNewlines = clipJsonEscapedUtf8(newlines, LIMIT);
+    expect(clippedNewlines).toBe(`${"\n".repeat(30)}…`);
+    expect(jsonEscapedUtf8Bytes(clippedNewlines)).toBe(63);
+  });
+
+  it("hard cuts when the only word boundary is early", () => {
+    const text = `A ${"x".repeat(70)}`;
+    expect(clipJsonEscapedUtf8(text, LIMIT)).toBe(`A ${"x".repeat(59)}…`);
+  });
+
+  it("stays within every limit for long real-style reasons", () => {
+    const reasons = [
+      "The section never states the approximate 85% retention figure for the silane primer at all; it only describes the primer failing after cycling.",
+      "P3 states this as an uncertainty ('was insufficient', 'not established'), consistent with the Storyline's framing.",
+      "Paragraph matches the storyline's description of the first round of results without contradiction.",
+    ];
+    for (const maximum of [64, 96]) {
+      for (const reason of reasons) {
+        const clipped = clipJsonEscapedUtf8(reason, maximum);
+        expect(jsonEscapedUtf8Bytes(clipped)).toBeLessThanOrEqual(maximum);
+        expect(jsonEscapedUtf8Bytes(clipped)).toBeGreaterThan(maximum / 2);
+        expect(clipped.endsWith("…")).toBe(true);
+        expect(reason.startsWith(clipped.slice(0, -1))).toBe(true);
+      }
+    }
   });
 });
