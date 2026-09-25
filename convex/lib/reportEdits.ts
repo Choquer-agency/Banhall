@@ -78,7 +78,19 @@ export function replaceAll(
 }
 
 /**
+ * The "Line 242/244/246" Section headings are load-bearing: export, QA and
+ * section detection find the Sections by their exact text, and the report
+ * page shows them as fixed labels. No AI edit may rewrite them (review g1,
+ * 2026-09-25), so every replacement pass leaves them untouched.
+ */
+function isSectionHeading(node: PMNode): boolean {
+  if (node.type !== "heading") return false;
+  return /^\s*(?:line|section)\s+24[246]\b/i.test(normalizeForMatch(nodeText(node)));
+}
+
+/**
  * BNH-27: apply find/replace pairs to a Tiptap JSON doc across ALL occurrences.
+ * Section headings are skipped (see isSectionHeading).
  *
  * Pass 1 walks every text node at any depth and replaces in place — this is
  * mark-preserving and handles the common case (a phrase repeated across the
@@ -97,6 +109,7 @@ export function applyReplacements(
 
   // ── Pass 1: per-text-node, mark-preserving, global ──
   const walk = (node: PMNode): PMNode => {
+    if (isSectionHeading(node)) return node;
     let next = node;
     const children = next.content as PMNode[] | undefined;
     if (Array.isArray(children)) {
@@ -124,6 +137,7 @@ export function applyReplacements(
   );
   if (stillPresent.length > 0) {
     const collapse = (node: PMNode): PMNode => {
+      if (isSectionHeading(node)) return node;
       const next = node;
       const children = next.content as PMNode[] | undefined;
       if (!Array.isArray(children)) return next;
