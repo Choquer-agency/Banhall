@@ -9,7 +9,9 @@ import type { MutationCtx, QueryCtx } from "../_generated/server";
 import {
   isCueRender,
   parseTranscriptTurns,
+  rawLabelForms,
   TRANSCRIPT_PARSER_VERSION,
+  transcriptSpeakerNames,
   type TranscriptTurn,
 } from "../../shared/transcriptParse";
 import { listTeamRoster, userDisplayLabel } from "./teamRoster";
@@ -108,7 +110,8 @@ export async function buildStructureStep(
   }
 
   const text = frozenSlice(transcript.content);
-  const turns = parseTranscriptTurns(text, { cues: isCueRender(transcript.sourceFormat, text) });
+  const cues = isCueRender(transcript.sourceFormat, text);
+  const turns = parseTranscriptTurns(text, { cues });
   const batch = turns.slice(fromIndex, fromIndex + TURN_BATCH_SIZE);
   if (batch.length > 0) {
     const existing = await ctx.db
@@ -138,17 +141,42 @@ export async function buildStructureStep(
   const guesses = project
     ? inferSpeakerRoles(turns, await speakerRoleContext(ctx, project))
     : inferSpeakerRoles(turns, { staffNames: [], clientNames: [] });
-  const needsModelRoles = await upsertSpeakers(ctx, transcript, guesses);
+  const speakers = await upsertSpeakers(ctx, transcript, guesses, rawLabelsByLabel(turns));
+  const needsModelRoles = speakers.needsModel;
   await ctx.db.patch(transcript._id, {
     parserVersion: TRANSCRIPT_PARSER_VERSION,
     structureBuildId: undefined,
     structureModelRoles: undefined,
-    speakerStatus: guesses.length === 0 ? "unchecked" : await speakerStatusOf(ctx, transcript._id),
+    speakerNames: storedSpeakerNames(text, cues),
+    speakerStatus:
+      guesses.length === 0
+        ? "unchecked"
+        : speakers.lostRole
+          ? "needs_check"
+          : await speakerStatusOf(ctx, transcript._id),
   });
   return {
     kind: "done",
     needsModelRoles,
     modelRoles: transcript.structureModelRoles === true || options.modelRoles === true,
+  };
+}
+
+/** Names one row may keep (`transcripts.speakerNames`); more are parsed each time. */
+export const MAX_STORED_SPEAKER_NAMES = 200;
+
+/**
+ * The names a build keeps on the row for placeholder maps: every name the
+ * labels hold besides the labels (which the speaker rows keep). Undefined
+ * when there are too many, so a map parses the text instead.
+ */
+function storedSpeakerNames(text: string, cues: boolean): Doc<"transcripts">["speakerNames"] {
+  const names = transcriptSpeakerNames(text, { cues });
+  if (names.otherNames.length + names.organizations.length > MAX_STORED_SPEAKER_NAMES) return undefined;
+  return {
+    parserVersion: TRANSCRIPT_PARSER_VERSION,
+    otherNames: names.otherNames,
+    organizations: names.organizations,
   };
 }
 
@@ -189,24 +217,112 @@ export async function listSpeakerRows(
     .take(MAX_SPEAKERS_PER_TRANSCRIPT);
 }
 
+/** The labels each new label was written as, from the turns of one parse. */
+export function rawLabelsByLabel(turns: readonly TranscriptTurn[]): Map<string, string[]> {
+  const out = new Map<string, string[]>();
+  for (const turn of turns) {
+    if (!turn.speakerLabel || !turn.rawLabel) continue;
+    const raws = out.get(turn.speakerLabel) ?? [];
+    if (!raws.includes(turn.rawLabel)) raws.push(turn.rawLabel);
+    out.set(turn.speakerLabel, raws);
+  }
+  return out;
+}
+
+/**
+ * Confidence of a role carried from one old label to several new ones:
+ * below MODEL_ROLE_THRESHOLD, so the speaker is checked again and the role
+ * never excludes words on its own (decision 25).
+ */
+export const SPLIT_ROLE_CONFIDENCE = 0.6;
+
+type SpeakerRow = Doc<"transcriptSpeakers">;
+
+export type CarriedRole = Pick<SpeakerRow, "role" | "roleSource" | "confidence" | "confirmedBy" | "confirmedAt">;
+
+/**
+ * Roles a consultant or the model set on labels a rebuild no longer finds,
+ * carried to the new labels whose lines were written as them (review
+ * 2026-09-25): the v3 label "Guest" of "Priya Shah (Guest)" goes to "Priya
+ * Shah". An old label that became exactly one new label, with no other old
+ * label becoming it, keeps its role and source as they were. One that
+ * became several, or several that disagree, give each new label the role as
+ * a rule's guess below the threshold, and only where the new rules could
+ * not place it themselves. `lost` lists old labels no new label came from
+ * (a heading word, a label buried in prose). Pure.
+ */
+export function carrySpeakerRoles(
+  gone: readonly SpeakerRow[],
+  guesses: readonly SpeakerRoleGuess[],
+  rawLabels: ReadonlyMap<string, readonly string[]>
+): { carried: Map<string, CarriedRole>; lost: string[] } {
+  const formsOf = new Map(
+    guesses.map((guess) => [
+      guess.label,
+      new Set((rawLabels.get(guess.label) ?? []).flatMap((raw) => rawLabelForms(raw))),
+    ])
+  );
+  const sources = new Map<string, Array<{ row: SpeakerRow; split: boolean }>>();
+  const lost: string[] = [];
+  for (const row of gone) {
+    if (row.roleSource === "heuristic") continue;
+    const targets = guesses.filter((guess) => formsOf.get(guess.label)?.has(row.label));
+    if (targets.length === 0) lost.push(row.label);
+    for (const target of targets) {
+      const list = sources.get(target.label) ?? [];
+      list.push({ row, split: targets.length > 1 });
+      sources.set(target.label, list);
+    }
+  }
+  const carried = new Map<string, CarriedRole>();
+  for (const guess of guesses) {
+    const list = sources.get(guess.label);
+    if (!list) continue;
+    if (list.length === 1 && !list[0].split) {
+      const { role, roleSource, confidence, confirmedBy, confirmedAt } = list[0].row;
+      carried.set(guess.label, {
+        role,
+        roleSource,
+        confidence,
+        ...(confirmedBy !== undefined ? { confirmedBy } : {}),
+        ...(confirmedAt !== undefined ? { confirmedAt } : {}),
+      });
+      continue;
+    }
+    const roles = new Set(list.map((source) => source.row.role));
+    if (roles.size !== 1 || !needsModelRole(guess)) continue;
+    carried.set(guess.label, {
+      role: list[0].row.role,
+      roleSource: "heuristic",
+      confidence: Math.min(SPLIT_ROLE_CONFIDENCE, ...list.map((source) => source.row.confidence)),
+    });
+  }
+  return { carried, lost };
+}
+
 /**
  * Writes the rule-based roles. A role a consultant set, or one the model
- * placed, survives a rebuild; labels the new parse no longer finds are
- * removed. Returns whether any label still needs the model's look.
+ * placed, survives a rebuild: on its label, or carried to the label the new
+ * parse reads the same lines as (`carrySpeakerRoles`). Labels the new parse
+ * no longer finds are removed. Returns whether any label still needs the
+ * model's look, and whether a consultant's or the model's role had no label
+ * left to go to (the transcript then needs a speaker check).
  */
 export async function upsertSpeakers(
   ctx: MutationCtx,
   transcript: Doc<"transcripts">,
-  guesses: readonly SpeakerRoleGuess[]
-): Promise<boolean> {
+  guesses: readonly SpeakerRoleGuess[],
+  rawLabels: ReadonlyMap<string, readonly string[]> = new Map()
+): Promise<{ needsModel: boolean; lostRole: boolean }> {
   const rows = await listSpeakerRows(ctx, transcript._id);
   const byLabel = new Map(rows.map((row) => [row.label, row]));
+  const kept = guesses.slice(0, MAX_SPEAKERS_PER_TRANSCRIPT);
   const labels = new Set(guesses.map((guess) => guess.label));
-  for (const row of rows) {
-    if (!labels.has(row.label)) await ctx.db.delete(row._id);
-  }
+  const gone = rows.filter((row) => !labels.has(row.label));
+  const { carried, lost } = carrySpeakerRoles(gone, kept, rawLabels);
+  for (const row of gone) await ctx.db.delete(row._id);
   let needsModel = false;
-  for (const guess of guesses.slice(0, MAX_SPEAKERS_PER_TRANSCRIPT)) {
+  for (const guess of kept) {
     const row = byLabel.get(guess.label);
     const counts = {
       turnCount: guess.turnCount,
@@ -216,24 +332,24 @@ export async function upsertSpeakers(
       await ctx.db.patch(row._id, counts);
       continue;
     }
-    if (needsModelRole(guess)) needsModel = true;
-    const fields = {
+    const fields = carried.get(guess.label) ?? {
       role: guess.role,
       roleSource: "heuristic" as const,
       confidence: guess.confidence,
-      ...counts,
     };
-    if (row) await ctx.db.patch(row._id, fields);
+    if (fields.roleSource === "heuristic" && needsModelRole(fields)) needsModel = true;
+    if (row) await ctx.db.patch(row._id, { ...fields, ...counts });
     else {
       await ctx.db.insert("transcriptSpeakers", {
         transcriptId: transcript._id,
         projectId: transcript.projectId,
         label: guess.label,
         ...fields,
+        ...counts,
       });
     }
   }
-  return needsModel;
+  return { needsModel, lostRole: lost.length > 0 };
 }
 
 /** `confirmed` once a consultant set every label; otherwise `needs_check`. */
