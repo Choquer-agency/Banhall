@@ -18,6 +18,7 @@ import { listTeamRoster, userDisplayLabel } from "./teamRoster";
 import { FROZEN_TRANSCRIPT_CHARS, newStructureBuildId } from "./transcripts";
 import {
   inferSpeakerRoles,
+  MODEL_ROLE_THRESHOLD,
   needsModelRole,
   type SpeakerRoleContext,
   type SpeakerRoleGuess,
@@ -362,11 +363,28 @@ export async function speakerStatusOf(
   return rows.every((row) => row.roleSource === "consultant") ? "confirmed" : "needs_check";
 }
 
-/** Role of every speaker label of a transcript, for render and verification. */
+/**
+ * The role a speaker row gives its words as evidence (decision 25): the
+ * stored role when a consultant set it or its confidence is at least
+ * MODEL_ROLE_THRESHOLD, otherwise `unknown`. A guess below the threshold
+ * never keeps words out of the evidence; they stay citable and are marked
+ * for a speaker check (decision 24: roles warn, never block; review
+ * 2026-09-25).
+ */
+export function evidenceRole(
+  row: Pick<Doc<"transcriptSpeakers">, "role" | "roleSource" | "confidence">
+): Doc<"transcriptSpeakers">["role"] {
+  return row.roleSource === "consultant" || row.confidence >= MODEL_ROLE_THRESHOLD ? row.role : "unknown";
+}
+
+/**
+ * Evidence role of every speaker label of a transcript (`evidenceRole`),
+ * for render and verification.
+ */
 export async function speakerRoleMap(
   ctx: Ctx,
   transcriptId: Id<"transcripts">
 ): Promise<Map<string, Doc<"transcriptSpeakers">["role"]>> {
   const rows = await listSpeakerRows(ctx, transcriptId);
-  return new Map(rows.map((row) => [row.label, row.role]));
+  return new Map(rows.map((row) => [row.label, evidenceRole(row)]));
 }

@@ -215,6 +215,44 @@ describe("the speaker check (convex/lib/citationSpeakers.ts)", () => {
     expect(await speakersOf(t, built.sourceId, [at(QUESTION)])).toEqual(["unchecked"]);
   });
 
+  it("says unchecked for turns an older parser built, so its merged labels never exclude a client", async () => {
+    const t = convexTest(schema, modules);
+    const built = await meridian(t, { turns: true });
+    expect(await speakersOf(t, built.sourceId, [at(QUESTION)])).toEqual(["excluded"]);
+    // As if parser v4 had built the row and all its turns.
+    await t.run(async (ctx) => {
+      await ctx.db.patch(built.transcriptId, { parserVersion: "4" });
+      for (const turn of await ctx.db
+        .query("transcriptTurns")
+        .withIndex("by_transcriptId_and_index", (q) => q.eq("transcriptId", built.transcriptId))
+        .collect()) {
+        await ctx.db.patch(turn._id, { parserVersion: "4" });
+      }
+    });
+    expect(await speakersOf(t, built.sourceId, [at(QUESTION), at(CLIENT)])).toEqual(["unchecked", "unchecked"]);
+  });
+
+  it("excludes only on a consultant's role or one at the model threshold; a weaker guess is marked for a check", async () => {
+    const t = convexTest(schema, modules);
+    const f = await meridian(t, { turns: true });
+    async function interviewerRole(roleSource: "heuristic" | "model", confidence: number) {
+      await t.run(async (ctx) => {
+        const [row] = await ctx.db
+          .query("transcriptSpeakers")
+          .withIndex("by_transcriptId_and_label", (q) =>
+            q.eq("transcriptId", f.transcriptId).eq("label", "Jordan Ellis")
+          )
+          .take(1);
+        await ctx.db.patch(row._id, { role: "interviewer", roleSource, confidence });
+      });
+      return (await speakersOf(t, f.sourceId, [at(QUESTION)]))[0];
+    }
+    expect(await interviewerRole("heuristic", 0.6)).toBe("needs_check");
+    expect(await interviewerRole("model", 0.5)).toBe("needs_check");
+    expect(await interviewerRole("heuristic", 0.7)).toBe("excluded");
+    expect(await interviewerRole("model", 0.9)).toBe("excluded");
+  });
+
   it("decides from roles alone, and orders other places nearest first", () => {
     expect(speakerOfRoles([])).toBe("needs_check");
     expect(speakerOfRoles(["interviewer"])).toBe("excluded");

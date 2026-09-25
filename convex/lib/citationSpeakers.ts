@@ -19,6 +19,7 @@
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
 import { isEvidenceRole, needsSpeakerCheck } from "./transcriptFacts";
+import { TRANSCRIPT_PARSER_VERSION } from "../../shared/transcriptParse";
 import { speakerRoleMap } from "./transcriptStructure";
 import type { TranscriptSpeakerRole } from "./transcriptValidators";
 import {
@@ -121,9 +122,11 @@ export function citationSpeakerReader(ctx: Ctx) {
 export type SpeakerReader = ReturnType<typeof citationSpeakerReader>;
 
 /**
- * The transcript's stored structure, when it describes the frozen text: its
- * turns were fully built (no rebuild running) and the frozen row is its text,
- * or the start of it (rows longer than the freeze cap). Otherwise null.
+ * The transcript's stored structure, when it describes the frozen text: the
+ * current parser version fully built its turns (no rebuild running) and the
+ * frozen row is its text, or the start of it (rows longer than the freeze
+ * cap). Otherwise null. Roles are evidence roles (`speakerRoleMap`): a guess
+ * below the model threshold reads as `unknown`.
  */
 async function loadReady(
   ctx: Ctx,
@@ -131,7 +134,12 @@ async function loadReady(
   source: SpeakerCheckSource
 ): Promise<ReadyTranscript | null> {
   const transcript = await ctx.db.get(transcriptId);
-  if (!transcript?.parserVersion || transcript.structureBuildId !== undefined) return null;
+  // Only structure the current parser built: an older parser's labels can
+  // merge a client with the interviewer ("he/him"), and its turns would
+  // exclude the client's words (integration review 2026-09-25, I-1).
+  if (transcript?.parserVersion !== TRANSCRIPT_PARSER_VERSION || transcript.structureBuildId !== undefined) {
+    return null;
+  }
   const sameText =
     (transcript.contentHash !== undefined && transcript.contentHash === source.contentHash) ||
     transcript.content.startsWith(source.content);
