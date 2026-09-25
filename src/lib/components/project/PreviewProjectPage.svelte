@@ -72,6 +72,7 @@
   import { qaSectionScores } from "$lib/qa/qaSectionScores";
   import { markQaDismissed, markQaSeen, readQaSeen, type QaSeenState } from "$lib/qa/qaSeen";
   import SourcesView from "$lib/components/project/shell/SourcesView.svelte";
+  import TranscriptSpeakersPopover from "$lib/components/project/shell/TranscriptSpeakersPopover.svelte";
   import {
     readTranscriptFile,
     TranscriptFileError,
@@ -251,6 +252,42 @@
       );
     } finally {
       transcriptBusy = false;
+    }
+  }
+
+  // Speakers popover: one transcript's speaker rows, subscribed only while
+  // its popover is open.
+  let speakersOpenFor = $state<string | null>(null);
+  const speakersQ = useQuery(api.transcripts.getTranscriptSpeakers, () =>
+    speakersOpenFor ? { transcriptId: speakersOpenFor as Id<"transcripts"> } : "skip"
+  );
+  const setSpeakerRoleMut = useMutation(api.transcripts.setSpeakerRole);
+  const confirmSpeakersMut = useMutation(api.transcripts.confirmSpeakers);
+  let speakersBusy = $state(false);
+
+  async function setSpeakerRole(
+    transcriptId: string,
+    label: string,
+    role: "interviewer" | "client" | "other"
+  ) {
+    speakersBusy = true;
+    try {
+      await setSpeakerRoleMut({ transcriptId: transcriptId as Id<"transcripts">, label, role });
+    } catch (error) {
+      toast.error(userErrorMessage(error, "The speaker's role could not be saved."));
+    } finally {
+      speakersBusy = false;
+    }
+  }
+
+  async function confirmSpeakers(transcriptId: string) {
+    speakersBusy = true;
+    try {
+      await confirmSpeakersMut({ transcriptId: transcriptId as Id<"transcripts"> });
+    } catch (error) {
+      toast.error(userErrorMessage(error, "The speakers could not be confirmed."));
+    } finally {
+      speakersBusy = false;
     }
   }
 
@@ -1967,6 +2004,7 @@
                 onAddTranscript={(file) => storeTranscriptFile(file, null)}
                 onReplaceTranscript={(transcriptId, file) => storeTranscriptFile(file, transcriptId)}
                 onRemoveTranscript={removeTranscript}
+                transcriptSpeakers={transcriptSpeakersChip}
               />
             </div>
           {/if}
@@ -2889,3 +2927,19 @@
   </div>
   </WorkspaceShell>
 {/if}
+
+{#snippet transcriptSpeakersChip(row: { _id: string; label: string; speakerStatus?: "unchecked" | "needs_check" | "confirmed" })}
+  <TranscriptSpeakersPopover
+    transcriptId={row._id}
+    transcriptLabel={row.label}
+    status={row.speakerStatus}
+    speakers={speakersOpenFor === row._id ? (speakersQ.data ?? undefined) : undefined}
+    busy={speakersBusy}
+    onOpenChange={(open) => {
+      if (open) speakersOpenFor = row._id;
+      else if (speakersOpenFor === row._id) speakersOpenFor = null;
+    }}
+    onSetRole={(label, role) => setSpeakerRole(row._id, label, role)}
+    onConfirm={() => confirmSpeakers(row._id)}
+  />
+{/snippet}

@@ -326,6 +326,7 @@ export async function scheduleTranscriptStructure(
 ): Promise<void> {
   await ctx.scheduler.runAfter(0, internal.transcripts.buildTranscriptStructure, {
     transcriptId,
+    modelRoles: true,
   });
 }
 

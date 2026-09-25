@@ -1,8 +1,11 @@
 "use node";
 
+import { v } from "convex/values";
 import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
-import type { ActionCtx } from "../_generated/server";
+import { internalAction, type ActionCtx } from "../_generated/server";
+import { classifySpeakerRolesCall } from "./speakerRolesAgent";
+import { withPlaceholders } from "./placeholderClient";
 import { CONDENSE_WINDOW_CHARS } from "../lib/transcripts";
 import {
   CONDENSE_CONCURRENCY,
@@ -19,6 +22,7 @@ import { MODEL } from "./model";
 import { generationPromptVersion } from "./promptProgram";
 import {
   clientForModel,
+  clientForRole,
   CONVEX_ACTION_LIMIT_MS,
   normalizeProviderError,
   RESERVED_NON_REQUEST_MS,
@@ -255,3 +259,45 @@ async function mapWithConcurrency<T, R>(
   );
   return results;
 }
+
+// ─── Speaker roles (2026-09-24, the transcript method) ─────────────────────
+
+/**
+ * One structured_helper call for the speakers of a new transcript that the
+ * rules could not place (owner decision 24: warn, never block). Names are
+ * replaced by placeholders before the call and restored after (decision 26).
+ * A failure leaves the rule-based roles in place: the consultant can still
+ * set them in the Speakers popover.
+ */
+export const classifySpeakerRoles = internalAction({
+  args: { transcriptId: v.id("transcripts") },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const input = await ctx.runQuery(internal.transcripts.speakerRoleInput, {
+      transcriptId: args.transcriptId,
+    });
+    if (!input || input.samples.length === 0) return null;
+    try {
+      const { client, model } = await clientForRole(ctx, "structured_helper", {
+        callSite: "transcript:speakers",
+        projectId: input.projectId,
+      });
+      const roles = await classifySpeakerRolesCall(withPlaceholders(client, input.placeholders), {
+        model,
+        samples: input.samples.map((sample) => ({
+          // The label itself is a name: the wrapper replaces it in the
+          // request and restores it in the answer.
+          label: sample.label,
+          lines: sample.lines,
+        })),
+      });
+      await ctx.runMutation(internal.transcripts.recordModelSpeakerRoles, {
+        transcriptId: args.transcriptId,
+        roles,
+      });
+    } catch (error) {
+      console.warn("Speaker roles were left to the rules", describeGenerationFailure(error));
+    }
+    return null;
+  },
+});
