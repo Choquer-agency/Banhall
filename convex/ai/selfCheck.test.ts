@@ -1876,6 +1876,31 @@ describe("Summary plan coverage replay (recorded Opus 244 case)", () => {
     expect(diagnostic).not.toContain("not-a-signed-off-item");
   });
 
+  it("names an answer cut off at the output limit as that, not as invalid JSON", async () => {
+    const response = replayResponse();
+    const client = {
+      messages: {
+        create: vi.fn(async (params: GenerationMessageParams) => ({
+          content: [{
+            type: "tool_use" as const,
+            id: "plan-coverage-cut-off",
+            name: params.tool_choice?.name ?? "submit_self_check",
+            input: response,
+          }],
+          stop_reason: "max_tokens",
+          usage: { input_tokens: 1, output_tokens: 1 },
+        })),
+      },
+    };
+    const error = await runModelSelfCheck(client as GenerationClient, replayInput())
+      .then(() => null, (caught: unknown) => caught);
+    // One call: the Summary Self-check has no repair attempt.
+    expect(client.messages.create).toHaveBeenCalledTimes(1);
+    const { OutputLimitError } = await import("./openrouterCore");
+    expect(error).toBeInstanceOf(OutputLimitError);
+    expect(selfCheckFailureDiagnostic(error)).toBe("answer was cut off at the output limit");
+  });
+
   it("describes failures without a checked response by their kind only", async () => {
     expect(selfCheckFailureDiagnostic(new Error("provider said: secret client text")))
       .toBe("no response to check");
