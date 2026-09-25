@@ -484,7 +484,7 @@ describe("seed Node action request boundary", () => {
     const body = await requests[0]?.json();
     expect(body).toMatchObject({
       model,
-      max_tokens: 1200,
+      max_tokens: 4000,
       tool_choice: { type: "tool", name: SEED_PROMPT_PROGRAM.request.toolName },
     });
     const system = requestText(body.system);

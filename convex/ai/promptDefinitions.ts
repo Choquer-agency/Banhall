@@ -49,7 +49,7 @@ export const SEED_PROMPT_PROGRAM = {
     // The mode's Seed count lives here, in the uncached role part, since the
     // shared tool schema spans both modes (cost phase 1).
     modeLabels: {
-      batch: "Generate a fresh Batch for this role: 3 to 5 Seeds.",
+      batch: "Generate a fresh Batch for this role: 3 to 5 Seeds. Use at least two different tags across the Batch. When you return four or five Seeds, include at least one Seed with one bullet and at least one Seed with two bullets.",
       feedback:
         "Revise the frozen target wording in response to the frozen feedback instruction: 1 to 3 Seeds.",
     },
@@ -127,7 +127,9 @@ export const SEED_PROMPT_PROGRAM = {
     toolName: "submit_seed_batch",
     description:
       "Submit the complete role-aware Seed Batch using only the required structured fields.",
-    maxTokens: 1200,
+    // Room for five Seeds with quoted excerpts; 1,200 truncated real Sonnet 5
+    // batches mid tool call (2026-09-25 demo run).
+    maxTokens: 4000,
     repairValidationSummaryMaxUtf8Bytes: 256,
     structuredPolicy: "two-attempt-repair",
     cacheControl: { type: "ephemeral", ttl: "1h" },
