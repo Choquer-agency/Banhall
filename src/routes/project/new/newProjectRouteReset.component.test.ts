@@ -1,7 +1,8 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-svelte";
+import { toast } from "svelte-sonner";
 import NewProjectRoute from "$lib/test/NewProjectRouteHarness.svelte";
-import { __resetPage, __setPageUrl } from "$lib/test/app-state-stub.svelte";
+import { __resetPage, __setPageUrl, page } from "$lib/test/app-state-stub.svelte";
 import { __navigationCalls, __resetNavigation } from "$lib/test/app-navigation-stub";
 import {
   __mutationCalls,
@@ -71,6 +72,25 @@ function seedDuplicateSource() {
   });
 }
 
+/**
+ * Opens the command menu and picks New project. The menu is given a moment
+ * to settle first, as a person's click always does: bits-ui arms its
+ * outside-click layer 1ms after the menu opens, and a scripted click inside
+ * that 1ms destroys the menu before the timer fires, which Svelte reports as
+ * a `derived_inert` warning.
+ */
+async function newProjectFromCommandMenu() {
+  window.dispatchEvent(new KeyboardEvent("keydown", { key: "k", metaKey: true, bubbles: true }));
+  const newProjectItem = () =>
+    document.querySelector<HTMLElement>('[role="option"][data-value="action:new-project"]') ??
+    [...document.querySelectorAll<HTMLElement>('[role="option"]')].find((item) =>
+      item.textContent?.includes("New project")
+    );
+  await expect.poll(newProjectItem).not.toBeUndefined();
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  newProjectItem()!.click();
+}
+
 beforeEach(() => {
   localStorage.clear();
   __resetPage();
@@ -89,14 +109,8 @@ describe("/project/new from the command menu on a duplicate", () => {
     await expect.poll(titleValue).toBe("Alloy furnace (copy)");
     await expect.poll(() => document.querySelector("[data-copied-files]")).not.toBeNull();
 
-    window.dispatchEvent(new KeyboardEvent("keydown", { key: "k", metaKey: true, bubbles: true }));
-    const newProjectItem = () =>
-      document.querySelector<HTMLElement>('[role="option"][data-value="action:new-project"]') ??
-      [...document.querySelectorAll<HTMLElement>('[role="option"]')].find((item) =>
-        item.textContent?.includes("New project")
-      );
-    await expect.poll(newProjectItem).not.toBeUndefined();
-    newProjectItem()!.click();
+    const warn = vi.spyOn(console, "warn");
+    await newProjectFromCommandMenu();
 
     await expect.poll(() => __navigationCalls.map((call) => call.url)).toContain("/project/new");
     await expect.poll(titleValue).toBe("");
@@ -126,5 +140,49 @@ describe("/project/new from the command menu on a duplicate", () => {
       projectId: "project-new",
       candidateMode: "compare",
     });
+    expect(warn.mock.calls.flat().join(" ")).not.toContain("derived_inert");
+    warn.mockRestore();
+  });
+
+  it("holds New project while the duplicate is saving, then finishes the save (review D-3)", async () => {
+    const info = vi.spyOn(toast, "info");
+    seedDuplicateSource();
+    let finishCopy!: (value: unknown) => void;
+    __setMutationResult(
+      "projectDuplication:copyProjectContent",
+      new Promise((resolve) => {
+        finishCopy = resolve;
+      })
+    );
+    __setPageUrl("/project/new?from=project-1&drafts=iterative");
+    await render(NewProjectRoute, {});
+
+    await expect.poll(titleValue).toBe("Alloy furnace (copy)");
+    await expect.poll(() => document.querySelector("[data-copied-files]")).not.toBeNull();
+    await clickText("Next");
+    await clickText("Generate Report");
+    await expect.poll(() => __mutationCalls("projectDuplication:copyProjectContent").length).toBe(1);
+
+    await newProjectFromCommandMenu();
+    await expect
+      .poll(() => __navigationCalls.find((call) => call.url === "/project/new"))
+      .toMatchObject({ cancelled: true });
+    expect(info).toHaveBeenCalledWith(
+      "Your project is still being saved. It opens when it is ready."
+    );
+    // The wizard stayed on the duplicate and is still saving it.
+    expect(page.url.search).toBe("?from=project-1&drafts=iterative");
+    expect(document.body.textContent).toContain("Copying all project materials");
+
+    finishCopy({});
+    await expect.poll(() => __mutationCalls("generations:requestGeneration").length).toBe(1);
+    expect(__mutationCalls("generations:requestGeneration")[0]).toMatchObject({
+      projectId: "project-new",
+      candidateMode: "iterative",
+    });
+    await expect
+      .poll(() => __navigationCalls.find((call) => call.url === "/project/project-new"))
+      .toEqual({ kind: "goto", url: "/project/project-new" });
+    info.mockRestore();
   });
 });

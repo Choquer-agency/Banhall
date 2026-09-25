@@ -659,6 +659,9 @@ export default defineSchema({
     ),
     archivedAt: v.optional(v.number()),
     supersededById: v.optional(v.id("transcripts")),
+    // 2026-09-25 widen (duplicate copy scope): the row a duplicate copied
+    // this one from, so only that row's original file comes along with it.
+    copiedFromTranscriptId: v.optional(v.id("transcripts")),
     speakerStatus: v.optional(
       v.union(v.literal("unchecked"), v.literal("needs_check"), v.literal("confirmed"))
     ),

@@ -1,7 +1,7 @@
 /// <reference types="vite/client" />
 import { convexTest } from "convex-test";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { api } from "./_generated/api";
+import { api, internal } from "./_generated/api";
 import schema from "./schema";
 import type { Id } from "./_generated/dataModel";
 import * as projectsModule from "./projects";
@@ -684,5 +684,248 @@ describe("transcript original files", () => {
       ...INPUTS_ONLY,
     });
     expect(copied).toMatchObject({ transcriptOriginalsCopied: 0 });
+  });
+});
+
+/** Every stored file, so a test can see what a copy left behind. */
+async function storedFileIds(f: Fixture) {
+  return await f.t.run(async (ctx) =>
+    (await ctx.db.system.query("_storage").collect()).map((file) => file._id)
+  );
+}
+
+describe("the copy checks what it writes into (review D-7, D-11)", () => {
+  it("refuses a report source transcript from another project", async () => {
+    const f = await setup();
+    const { projectId } = await newProject(f);
+    expect(
+      await errorCode(() =>
+        f.writer.action(api.projectDuplication.copyProjectContent, {
+          fromProjectId: f.sourceProjectId,
+          toProjectId: projectId,
+          // The source's own transcript, not the new project's copy.
+          targetTranscriptId: f.sourceTranscriptId,
+        })
+      )
+    ).toBe("INVALID_INPUT");
+    const rows = await projectRows(f, projectId);
+    expect(rows.documents).toEqual([]);
+    expect(rows.reports).toEqual([]);
+  });
+
+  it("refuses a new project that is already drafting", async () => {
+    const f = await setup();
+    const { projectId, transcriptIds } = await newProject(f);
+    await f.t.run((ctx) =>
+      ctx.db.insert("generations", {
+        projectId,
+        transcriptId: transcriptIds[0],
+        status: "running",
+        startedAt: Date.now(),
+      })
+    );
+    expect(
+      await errorCode(() =>
+        f.writer.action(api.projectDuplication.copyProjectContent, {
+          fromProjectId: f.sourceProjectId,
+          toProjectId: projectId,
+          targetTranscriptId: transcriptIds[0],
+        })
+      )
+    ).toBe("INVALID_STATE");
+    const rows = await projectRows(f, projectId);
+    expect(rows.documents).toEqual([]);
+    expect(rows.reports).toEqual([]);
+  });
+});
+
+describe("the leave-out list cap (review D-5)", () => {
+  async function sourceWithFiles(f: Fixture, count: number) {
+    return await f.t.run(async (ctx) => {
+      const ids: Id<"projectDocuments">[] = [];
+      for (let index = 0; index < count; index += 1) {
+        ids.push(
+          await ctx.db.insert("projectDocuments", {
+            projectId: f.sourceProjectId,
+            fileName: `Note ${index}.md`,
+            fileType: "md",
+            content: `Note ${index}`,
+            source: "context_input",
+            uploadedBy: "Writer",
+            createdAt: 1,
+          })
+        );
+      }
+      return ids;
+    });
+  }
+
+  it("refuses more than 250 files to leave out, and writes nothing", async () => {
+    const f = await setup();
+    const ids = await sourceWithFiles(f, 251);
+    const { projectId } = await newProject(f);
+    expect(
+      await errorCode(() =>
+        f.writer.action(api.projectDuplication.copyProjectContent, {
+          fromProjectId: f.sourceProjectId,
+          toProjectId: projectId,
+          ...INPUTS_ONLY,
+          excludeDocumentIds: ids,
+        })
+      )
+    ).toBe("INVALID_INPUT");
+    expect((await projectRows(f, projectId)).documents).toEqual([]);
+  });
+
+  it("counts a repeated id once", async () => {
+    const f = await setup();
+    const ids = await sourceWithFiles(f, 250);
+    const { projectId } = await newProject(f);
+    await f.writer.action(api.projectDuplication.copyProjectContent, {
+      fromProjectId: f.sourceProjectId,
+      toProjectId: projectId,
+      ...INPUTS_ONLY,
+      excludeDocumentIds: [...ids, ids[0], ids[1]],
+    });
+    const names = (await projectRows(f, projectId)).documents.map((row) => row.fileName);
+    expect(names.some((name) => name.startsWith("Note "))).toBe(false);
+  });
+});
+
+describe("last year's report edges (review D-5)", () => {
+  it("is refused for a Review PD project", async () => {
+    const f = await setup();
+    await f.t.run((ctx) => ctx.db.patch(f.sourceProjectId, { fiscalYearEnd: FYE_2024 }));
+    const { projectId } = await f.writer.mutation(api.projects.createProject, {
+      title: "Alloy furnace (copy)",
+      clientName: "Forgeworks Inc.",
+      mode: "review",
+      fiscalYearEnd: FYE_2025,
+      transcripts: [],
+    });
+    expect(
+      await errorCode(() =>
+        f.writer.action(api.projectDuplication.copyProjectContent, {
+          fromProjectId: f.sourceProjectId,
+          toProjectId: projectId,
+          includeReport: false,
+          includeReviews: true,
+          previousYearReport: true,
+        })
+      )
+    ).toBe("INVALID_INPUT");
+    expect((await projectRows(f, projectId)).documents).toEqual([]);
+  });
+
+  it("is skipped when the original has no report", async () => {
+    const f = await setup();
+    await f.t.run(async (ctx) => {
+      await ctx.db.patch(f.sourceProjectId, { fiscalYearEnd: FYE_2024 });
+      for (const report of await ctx.db
+        .query("reports")
+        .withIndex("by_projectId", (q) => q.eq("projectId", f.sourceProjectId))
+        .collect()) {
+        await ctx.db.delete(report._id);
+      }
+    });
+    const { projectId, copied } = await duplicateLikeTheWizard(
+      f,
+      { ...INPUTS_ONLY, previousYearReport: true },
+      { fiscalYearEnd: FYE_2025 }
+    );
+    expect(copied).toMatchObject({ previousYearReportCopied: false, documentsCopied: 2 });
+    const rows = await projectRows(f, projectId);
+    expect(rows.documents.filter((row) => row.category === "previous_pd")).toEqual([]);
+  });
+});
+
+describe("transcript originals follow the copied row (review D-12, D-5)", () => {
+  async function withOriginal(f: Fixture, bytes = "docx bytes") {
+    return await f.t.run(async (ctx) => {
+      const storageId = await ctx.storage.store(new Blob([bytes]));
+      await ctx.db.patch(f.sourceTranscriptId, { originalStorageId: storageId });
+      return storageId;
+    });
+  }
+
+  it("gives pasted text with the same words no file", async () => {
+    const f = await setup();
+    await withOriginal(f);
+    // The writer unticked the copied transcript and pasted the same text.
+    const { projectId, transcriptIds } = await f.writer.mutation(api.projects.createProject, {
+      title: "Alloy furnace (copy)",
+      clientName: "Forgeworks Inc.",
+      mode: "generate",
+      transcripts: [{ content: SOURCE_TRANSCRIPT, label: "Pasted transcript 1" }],
+    });
+    const copied = await f.writer.action(api.projectDuplication.copyProjectContent, {
+      fromProjectId: f.sourceProjectId,
+      toProjectId: projectId,
+      targetTranscriptId: transcriptIds[0],
+      ...INPUTS_ONLY,
+    });
+    expect(copied).toMatchObject({ transcriptOriginalsCopied: 0 });
+    const pasted = await f.t.run((ctx) => ctx.db.get(transcriptIds[0]));
+    expect(pasted?.originalStorageId).toBeUndefined();
+  });
+
+  it("records which row a copied transcript came from", async () => {
+    const f = await setup();
+    const { transcriptIds } = await newProject(f);
+    const copiedRow = await f.t.run((ctx) => ctx.db.get(transcriptIds[0]));
+    expect(copiedRow?.copiedFromTranscriptId).toBe(f.sourceTranscriptId);
+  });
+
+  it("releases the clones it made when the copy fails part way", async () => {
+    const f = await setup();
+    // The transcript original can be stored once but not read again, so
+    // the copy fails after it has already cloned the notes file.
+    let reads = 0;
+    class OneReadBlob extends Blob {
+      override async arrayBuffer() {
+        reads += 1;
+        if (reads > 1) throw new Error("storage read failed");
+        return await super.arrayBuffer();
+      }
+    }
+    await f.t.run(async (ctx) => {
+      const storageId = await ctx.storage.store(new OneReadBlob(["docx bytes"]));
+      await ctx.db.patch(f.sourceTranscriptId, { originalStorageId: storageId });
+    });
+    const filesBefore = await storedFileIds(f);
+    const { projectId, transcriptIds } = await newProject(f);
+    await expect(
+      f.writer.action(api.projectDuplication.copyProjectContent, {
+        fromProjectId: f.sourceProjectId,
+        toProjectId: projectId,
+        targetTranscriptId: transcriptIds[0],
+        ...INPUTS_ONLY,
+      })
+    ).rejects.toThrow("storage read failed");
+    // The notes clone was made, then released: no new file is left behind.
+    expect(await storedFileIds(f)).toEqual(filesBefore);
+    const rows = await projectRows(f, projectId);
+    const notes = rows.documents.find((row) => row.fileName === "Writer notes.md");
+    expect(notes).toBeTruthy();
+    expect(notes?.storageId).toBeUndefined();
+  });
+
+  it("releases a spare clone when the transcript already has a file", async () => {
+    const f = await setup();
+    const { projectId, transcriptIds } = await newProject(f);
+    const { kept, spare } = await f.t.run(async (ctx) => {
+      const kept = await ctx.storage.store(new Blob(["first"]));
+      const spare = await ctx.storage.store(new Blob(["second"]));
+      await ctx.db.patch(transcriptIds[0], { originalStorageId: kept });
+      return { kept, spare };
+    });
+    await f.writer.mutation(internal.projects.finishProjectContentCopy, {
+      toProjectId: projectId,
+      storageCopies: [],
+      transcriptCopies: [{ transcriptId: transcriptIds[0], storageId: spare }],
+    });
+    const row = await f.t.run((ctx) => ctx.db.get(transcriptIds[0]));
+    expect(row?.originalStorageId).toBe(kept);
+    expect(await storedFileIds(f)).not.toContain(spare);
   });
 });

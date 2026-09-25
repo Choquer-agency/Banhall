@@ -304,7 +304,7 @@ describe("/project/new copied files", () => {
       "uncategorized",
     ]);
     const groups = [...section.querySelectorAll<HTMLElement>("[data-copied-files-group]")];
-    expect(groups.map((group) => group.querySelector("p")?.textContent?.trim())).toEqual([
+    expect(groups.map((group) => group.querySelector("label")?.textContent?.trim())).toEqual([
       "Writer's notes",
       "Previous-year reports",
       "Scoping notes",
@@ -351,7 +351,7 @@ describe("/project/new copied files", () => {
       "uncategorized",
     ]);
     const reviewed = section.querySelector<HTMLElement>('[data-copied-files-group="review_pd"]')!;
-    expect(reviewed.querySelector("p")?.textContent?.trim()).toBe("Written PDs reviewed");
+    expect(reviewed.querySelector("label")?.textContent?.trim()).toBe("Written PDs reviewed");
     expect(reviewed.textContent).toContain("Existing PD.docx");
   });
 
@@ -707,5 +707,190 @@ describe("/project/new failed copy", () => {
     expect(error.mock.calls.map((call) => String(call[0])).join(" ")).not.toContain("Generate");
     expect(__mutationCalls("generations:requestGeneration")).toEqual([]);
     error.mockRestore();
+  });
+});
+
+describe("/project/new tick rows (review D-6)", () => {
+  const labelFor = (box: HTMLElement | null) =>
+    box ? document.querySelector<HTMLLabelElement>(`label[for="${box.id}"]`) : null;
+
+  it("toggles a file, a group and a transcript from the name", async () => {
+    seedSource();
+    __setPageUrl("/project/new?from=project-1&drafts=iterative");
+    await render(NewProjectPage, {});
+
+    const section = await copiedSection();
+    await expect.poll(() => fileBox("Writer notes.md")).not.toBeNull();
+    const name = labelFor(fileBox("Writer notes.md"));
+    expect(name?.textContent?.trim()).toBe("Writer notes.md");
+    name!.click();
+    await expect.poll(() => fileBox("Writer notes.md")?.getAttribute("aria-checked")).toBe("false");
+    name!.click();
+    await expect.poll(() => fileBox("Writer notes.md")?.getAttribute("aria-checked")).toBe("true");
+
+    labelFor(groupBox(section, "Writer's notes"))!.click();
+    await expect.poll(() => fileBox("Writer notes.md")?.getAttribute("aria-checked")).toBe("false");
+
+    const transcriptBox = () =>
+      document.querySelector<HTMLElement>('[data-transcript-item] button[aria-label="Copy Kickoff.docx"]');
+    await expect.poll(transcriptBox).not.toBeNull();
+    labelFor(transcriptBox())!.click();
+    await expect.poll(() => transcriptBox()?.getAttribute("aria-checked")).toBe("false");
+  });
+
+  it("makes the whole row one touch target, 44px tall on touch screens", async () => {
+    seedSource();
+    __setPageUrl("/project/new?from=project-1&drafts=iterative");
+    await render(NewProjectPage, {});
+
+    const section = await copiedSection();
+    await expect.poll(() => fileBox("Writer notes.md")).not.toBeNull();
+    const rows = [
+      ...section.querySelectorAll<HTMLElement>("[data-copied-file]"),
+      groupBox(section, "Writer's notes")!.closest<HTMLElement>("div.relative")!,
+    ];
+    for (const row of rows) {
+      expect(row.className).toContain("pointer-coarse:min-h-11");
+      // A tap at the far end of the row, past the name, lands on the label.
+      row.scrollIntoView({ block: "center" });
+      const rect = row.getBoundingClientRect();
+      const hit = document.elementFromPoint(rect.right - 2, rect.top + rect.height / 2);
+      const box = row.querySelector<HTMLElement>('button[role="checkbox"]')!;
+      expect(hit).toBe(labelFor(box));
+    }
+    const row = section.querySelector<HTMLElement>('[data-copied-file="doc-1"]')!;
+    row.scrollIntoView({ block: "center" });
+    const rect = row.getBoundingClientRect();
+    (document.elementFromPoint(rect.right - 2, rect.top + rect.height / 2) as HTMLElement).click();
+    await expect.poll(() => fileBox("Writer notes.md")?.getAttribute("aria-checked")).toBe("false");
+  });
+});
+
+describe("/project/new failed copy keeps the writer's own files (review D-2)", () => {
+  const BASE =
+    "Some files from Alloy furnace were not copied. Duplicate again, or add them on the project page.";
+
+  async function addOwnContextFile(name: string) {
+    await expect
+      .poll(() => document.querySelector('[role="region"][aria-label$=" files"] button'))
+      .not.toBeNull();
+    document.querySelector<HTMLButtonElement>('[role="region"][aria-label$=" files"] button')!.click();
+    await expect
+      .poll(() => document.querySelector('[role="region"][aria-label$=" files"] input[type="file"]'))
+      .not.toBeNull();
+    const input = document.querySelector<HTMLInputElement>(
+      '[role="region"][aria-label$=" files"] input[type="file"]'
+    )!;
+    const transfer = new DataTransfer();
+    transfer.items.add(new File(["Notes the writer added in the wizard."], name, { type: "text/plain" }));
+    input.files = transfer.files;
+    input.dispatchEvent(new Event("change", { bubbles: true }));
+    await expect.poll(() => document.body.textContent).toContain(name);
+  }
+
+  function stubUploads() {
+    __setMutationResult("documents:generateUploadUrl", "https://upload.test/own");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn<typeof fetch>().mockResolvedValue(Response.json({ storageId: "storage-own" }))
+    );
+  }
+
+  it("saves the files the writer added, drafts nothing and says so", async () => {
+    const error = vi.spyOn(toast, "error");
+    try {
+      seedSource();
+      stubUploads();
+      __setMutationResult("documents:uploadDocument", "own-doc");
+      __setMutationError("projectDuplication:copyProjectContent", new Error("copy failed"));
+      __setPageUrl("/project/new?from=project-1&drafts=iterative");
+      await render(NewProjectPage, {});
+
+      await copiedSection();
+      await addOwnContextFile("My notes.txt");
+      await commitFromReviewStep();
+
+      await expect
+        .poll(() => __navigationCalls.map((call) => call.url))
+        .toContain("/project/project-copy");
+      expect(__mutationCalls("documents:uploadDocument")).toEqual([
+        expect.objectContaining({ projectId: "project-copy", fileName: "My notes.txt" }),
+      ]);
+      expect(error.mock.calls.map((call) => call[0])).toContain(
+        `${BASE} The files you added here were saved.`
+      );
+      expect(__mutationCalls("generations:requestGeneration")).toEqual([]);
+    } finally {
+      error.mockRestore();
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("names the files the writer added that were not saved", async () => {
+    const error = vi.spyOn(toast, "error");
+    try {
+      seedSource();
+      stubUploads();
+      __setMutationError("documents:uploadDocument", new Error("offline"));
+      __setMutationError("projectDuplication:copyProjectContent", new Error("copy failed"));
+      __setPageUrl("/project/new?from=project-1&drafts=iterative");
+      await render(NewProjectPage, {});
+
+      await copiedSection();
+      await addOwnContextFile("My notes.txt");
+      await commitFromReviewStep();
+
+      await expect
+        .poll(() => __navigationCalls.map((call) => call.url))
+        .toContain("/project/project-copy");
+      const messages = error.mock.calls.map((call) => call[0]);
+      expect(messages).toContain(
+        `${BASE} These files you added were not saved either: My notes.txt.`
+      );
+      // One message, not a second skipped-files toast as well.
+      expect(messages.filter((message) => String(message).includes("My notes.txt"))).toHaveLength(1);
+      expect(__mutationCalls("generations:requestGeneration")).toEqual([]);
+    } finally {
+      error.mockRestore();
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("saves the written PD of a Review PD duplicate but starts no review", async () => {
+    const error = vi.spyOn(toast, "error");
+    try {
+      seedSource("review");
+      stubUploads();
+      __setMutationResult("documents:uploadDocument", "review-doc");
+      __setMutationError("projectDuplication:copyProjectContent", new Error("copy failed"));
+      __setPageUrl("/project/new?from=project-1&drafts=iterative");
+      await render(NewProjectPage, {});
+
+      await expect.poll(() => checked("Project mode", "Review PD")).toBe("true");
+      const input = document.querySelector<HTMLInputElement>(
+        'input[type="file"]:not([multiple]):not([accept=".docx"])'
+      )!;
+      const transfer = new DataTransfer();
+      transfer.items.add(new File(["Experimental development of a marine battery."], "Revised PD.txt"));
+      input.files = transfer.files;
+      input.dispatchEvent(new Event("change", { bubbles: true }));
+      await expect.poll(() => document.body.textContent).toContain("words extracted");
+      await clickText("Next");
+      await clickText("Review PD");
+
+      await expect
+        .poll(() => __navigationCalls.map((call) => call.url))
+        .toContain("/project/project-copy");
+      expect(__mutationCalls("documents:uploadDocument")).toEqual([
+        expect.objectContaining({ fileName: "Revised PD.txt", source: "review_pd" }),
+      ]);
+      expect(__mutationCalls("pdReviews:startPdReview")).toEqual([]);
+      expect(error.mock.calls.map((call) => call[0])).toContain(
+        `${BASE} The files you added here were saved. Start the PD review on the project page once the missing files are added.`
+      );
+    } finally {
+      error.mockRestore();
+      vi.unstubAllGlobals();
+    }
   });
 });
