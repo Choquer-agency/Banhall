@@ -51,6 +51,7 @@
   import {
     readPastedTranscript,
     readTranscriptFile,
+    releaseOriginalsOnFailure,
     TRANSCRIPT_FILE_TYPES_COPY,
     TranscriptFileError,
     uploadTranscriptOriginal,
@@ -80,6 +81,7 @@
   const startPdReview = useMutation(api.pdReviews.startPdReview);
   const uploadDocument = useMutation(api.documents.uploadDocument);
   const generateUploadUrl = useMutation(api.documents.generateUploadUrl);
+  const discardTranscriptOriginals = useMutation(api.transcripts.discardTranscriptOriginals);
   const recordUploadAttempts = useMutation(api.uploadAttempts.recordUploadAttempts);
   const user = useQuery(api.users.getCurrentUser, () =>
     auth.isAuthenticated ? {} : "skip"
@@ -656,26 +658,36 @@
     let createdProjectId: Id<"projects"> | null = null;
     try {
       progress = "Creating project…";
-      const { projectId, transcriptIds } = await createProject({
-        title: title.trim(),
-        ...(sredTitle.trim() ? { sredTitle: sredTitle.trim() } : {}),
-        clientName: clientName.trim(),
-        ...(interviewerUserId
-          ? { interviewerUserId: interviewerUserId as Id<"users"> }
-          : {}),
-        ...(interviewees.length ? { interviewees } : {}),
-        ...(selectedTagIds.length
-          ? { tagIds: selectedTagIds as Id<"tags">[] }
-          : {}),
-        ...(fiscalYearEnd
-          ? { fiscalYearEnd: new Date(`${fiscalYearEnd}T00:00:00`).getTime() }
-          : {}),
-        ...(industry ? { industry } : {}),
-        ...(scienceCode ? { scienceCode } : {}),
-        ...(projectNumber.trim() ? { projectNumber: projectNumber.trim() } : {}),
-        mode,
-        transcripts: await transcriptArgs(),
-      });
+      const transcripts = await transcriptArgs();
+      const originals = transcripts.flatMap((item) =>
+        "originalStorageId" in item && item.originalStorageId ? [item.originalStorageId] : []
+      );
+      // A refused createProject releases the transcript originals it was
+      // given; nothing else would ever point to them.
+      const { projectId, transcriptIds } = await releaseOriginalsOnFailure(
+        originals,
+        (storageIds) => discardTranscriptOriginals({ storageIds: storageIds as Id<"_storage">[] }),
+        () => createProject({
+          title: title.trim(),
+          ...(sredTitle.trim() ? { sredTitle: sredTitle.trim() } : {}),
+          clientName: clientName.trim(),
+          ...(interviewerUserId
+            ? { interviewerUserId: interviewerUserId as Id<"users"> }
+            : {}),
+          ...(interviewees.length ? { interviewees } : {}),
+          ...(selectedTagIds.length
+            ? { tagIds: selectedTagIds as Id<"tags">[] }
+            : {}),
+          ...(fiscalYearEnd
+            ? { fiscalYearEnd: new Date(`${fiscalYearEnd}T00:00:00`).getTime() }
+            : {}),
+          ...(industry ? { industry } : {}),
+          ...(scienceCode ? { scienceCode } : {}),
+          ...(projectNumber.trim() ? { projectNumber: projectNumber.trim() } : {}),
+          mode,
+          transcripts,
+        })
+      );
       extractionLifetime.signal.throwIfAborted();
       createdProjectId = projectId;
 

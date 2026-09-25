@@ -4,9 +4,11 @@ import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import {
   getInternalProjectAccessOrNull,
+  requireInternalActor,
   requireInternalProjectAccess,
 } from "./lib/auth";
 import { domainError, sha256 } from "./lib/contracts";
+import { deleteStorageIfUnreferenced } from "./lib/storage";
 import { findActiveGeneration } from "./lib/activeGeneration";
 import {
   transcriptSourceFormatValidator,
@@ -37,10 +39,12 @@ import { TRANSCRIPT_PARSER_VERSION } from "../shared/transcriptParse";
 import {
   adoptDerivedRows,
   insertTranscriptRow,
+  listActiveTranscriptRows,
   listProjectTranscripts,
   MAX_TOTAL_TRANSCRIPT_CHARS,
-  MAX_TRANSCRIPT_ROWS_READ,
+  MAX_TRANSCRIPT_HISTORY_ROWS,
   MAX_TRANSCRIPTS_PER_PROJECT,
+  projectTranscriptsFrom,
   requireTranscriptTextWithinCap,
   transcriptLabel,
   transcriptMetadata,
@@ -114,7 +118,9 @@ export const getTranscriptContent = query({
  * Builds one transcript's turns and rule-based speaker roles from its stored
  * text, one bounded batch per run, rescheduling itself until done. No model
  * call. Idempotent: a transcript already at the current parser version is
- * left alone, and a replayed batch inserts only what is missing.
+ * left alone, and a replayed batch inserts only what is missing. A call
+ * without `buildId` starts a new chain, which takes the build over from any
+ * chain still running for the same transcript (`buildStructureStep`).
  */
 export const buildTranscriptStructure = internalMutation({
   args: {
@@ -123,16 +129,19 @@ export const buildTranscriptStructure = internalMutation({
     // New intake asks the model about speakers the rules could not place;
     // the backfill never does (no model call).
     modelRoles: v.optional(v.boolean()),
+    // The chain this step belongs to; absent on a chain's first step.
+    buildId: v.optional(v.string()),
   },
   returns: v.null(),
   handler: async (ctx, args) => {
     const transcript = await ctx.db.get(args.transcriptId);
     if (!transcript || (await isProjectDeleting(ctx, transcript.projectId))) return null;
-    const step = await buildStructureStep(ctx, args.transcriptId, args.fromIndex ?? 0);
+    const step = await buildStructureStep(ctx, args.transcriptId, args.fromIndex ?? 0, args.buildId);
     if (step.kind === "continue") {
       await ctx.scheduler.runAfter(0, internal.transcripts.buildTranscriptStructure, {
         transcriptId: args.transcriptId,
         fromIndex: step.fromIndex,
+        buildId: step.buildId,
         ...(args.modelRoles ? { modelRoles: true } : {}),
       });
     }
@@ -145,8 +154,12 @@ export const buildTranscriptStructure = internalMutation({
   },
 });
 
-/** Transcripts one backfill page looks at. */
-const BACKFILL_PAGE_SIZE = 20;
+/**
+ * Transcripts one backfill page looks at, and the bytes it may read: a page
+ * of rows written before the per-transcript cap can be large.
+ */
+const BACKFILL_PAGE_SIZE = 10;
+const BACKFILL_MAX_BYTES_READ = 4 * 1024 * 1024;
 
 /**
  * Batched, self-rescheduling backfill of turns and heuristic speaker roles
@@ -159,9 +172,11 @@ export const backfillTranscriptStructure = internalMutation({
   args: { cursor: v.optional(v.union(v.string(), v.null())) },
   returns: v.object({ scheduled: v.number(), isDone: v.boolean() }),
   handler: async (ctx, args) => {
-    const page = await ctx.db
-      .query("transcripts")
-      .paginate({ cursor: args.cursor ?? null, numItems: BACKFILL_PAGE_SIZE });
+    const page = await ctx.db.query("transcripts").paginate({
+      cursor: args.cursor ?? null,
+      numItems: BACKFILL_PAGE_SIZE,
+      maximumBytesRead: BACKFILL_MAX_BYTES_READ,
+    });
     let scheduled = 0;
     for (const row of page.page) {
       if (row.parserVersion === TRANSCRIPT_PARSER_VERSION) continue;
@@ -202,7 +217,12 @@ const transcriptUploadArgs = {
  * The checks every change to a project's transcript list shares: the caller
  * can upload to the project (the `uploadDocument` access check), no
  * generation is active, and the result stays inside the caps. `replacing`
- * is left out of the counts and the duplicate check.
+ * is left out of the counts and the duplicate check, so a transcript can be
+ * replaced with the same text (with its original file, say); the Sources tab
+ * checks the same way before it uploads anything.
+ *
+ * Reads the project's active rows once, through the index that skips
+ * archived rows; archived rows are counted on the project, never read.
  */
 async function requireTranscriptChange(
   ctx: MutationCtx,
@@ -216,18 +236,17 @@ async function requireTranscriptChange(
       "Transcripts can't change while a report is generating. Try again when it finishes."
     );
   }
-  const rows = await ctx.db
-    .query("transcripts")
-    .withIndex("by_projectId", (q) => q.eq("projectId", projectId))
-    .take(MAX_TRANSCRIPT_ROWS_READ);
-  const active = await listProjectTranscripts(ctx, projectId);
+  const activeRows = await listActiveTranscriptRows(ctx, projectId);
+  const active = projectTranscriptsFrom(activeRows);
   const others = active.filter((row) => row._id !== change.replacing);
+  let contentHash: string | undefined;
   if (change.content !== undefined) {
     if (change.content.trim() === "") {
       domainError("INVALID_INPUT", "The transcript has no text");
     }
     requireTranscriptTextWithinCap(change.content);
-    if (rows.length >= MAX_TRANSCRIPT_ROWS_READ) {
+    // Add and Replace each write one more row; Replace archives the old one.
+    if (activeRows.length + (project.archivedTranscriptCount ?? 0) >= MAX_TRANSCRIPT_HISTORY_ROWS) {
       domainError("INVALID_INPUT", "This project has reached its transcript history limit");
     }
     if (others.length >= MAX_TRANSCRIPTS_PER_PROJECT) {
@@ -241,31 +260,65 @@ async function requireTranscriptChange(
       domainError("INVALID_INPUT", "Combined transcript text is too large");
     }
     const hash = await sha256(change.content);
-    const duplicate = active.find(
+    contentHash = hash;
+    const duplicate = others.find(
       (row) => (row.contentHash ?? "") === hash || row.content === change.content
     );
     if (duplicate) {
       domainError("INVALID_INPUT", `This transcript is already added (${transcriptLabel(duplicate)})`);
     }
   }
-  return { project, user, active, rows };
+  return { project, user, active, contentHash };
 }
+
+/**
+ * Each active row's list position. Rows written before transcripts carried
+ * a position sort after every positioned row (`compareTranscripts`), so a
+ * new row given a position would jump ahead of them. When any active row
+ * has none, every active row first takes its current list index, which
+ * keeps the order the project shows today. `except` (a row about to be
+ * archived) is not written.
+ */
+async function settlePositions(
+  ctx: MutationCtx,
+  active: readonly Doc<"transcripts">[],
+  except?: Id<"transcripts">
+): Promise<Map<Id<"transcripts">, number>> {
+  const settle = active.some((row) => row.position === undefined);
+  const positions = new Map<Id<"transcripts">, number>();
+  for (const [index, row] of active.entries()) {
+    const position = settle ? index : row.position!;
+    if (settle && row.position !== index && row._id !== except) {
+      await ctx.db.patch(row._id, { position: index });
+    }
+    positions.set(row._id, position);
+  }
+  return positions;
+}
+
+function nextPosition(positions: Map<Id<"transcripts">, number>): number {
+  return Math.max(-1, ...positions.values()) + 1;
+}
+
+/** Rows holding the same text that `sameTextElsewhere` looks at, newest first. */
+const SAME_TEXT_CANDIDATES = 2;
 
 /**
  * Another transcript row holding the same text in a project the caller can
  * read, so its confirmed roles and facts carry over with no model call.
+ * Called before the new row is written, and bounded: each candidate may hold
+ * 500 000 characters.
  */
 async function sameTextElsewhere(
   ctx: MutationCtx,
-  contentHash: string,
-  except: Id<"transcripts">
+  contentHash: string
 ): Promise<Doc<"transcripts"> | null> {
   const candidates = await ctx.db
     .query("transcripts")
     .withIndex("by_contentHash", (q) => q.eq("contentHash", contentHash))
-    .take(10);
+    .order("desc")
+    .take(SAME_TEXT_CANDIDATES);
   for (const row of candidates) {
-    if (row._id === except) continue;
     if (await getInternalProjectAccessOrNull(ctx, row.projectId)) return row;
   }
   return null;
@@ -276,6 +329,7 @@ async function insertUploadedTranscript(
   projectId: Id<"projects">,
   args: {
     content: string;
+    contentHash: string;
     label?: string;
     sourceFormat?: Doc<"transcripts">["sourceFormat"];
     originalStorageId?: Id<"_storage">;
@@ -285,6 +339,7 @@ async function insertUploadedTranscript(
   const originalStorageId = args.originalStorageId
     ? await validatedOriginalStorage(ctx, args.originalStorageId)
     : undefined;
+  const source = await sameTextElsewhere(ctx, args.contentHash);
   const transcriptId = await insertTranscriptRow(ctx, {
     projectId,
     content: args.content,
@@ -294,11 +349,7 @@ async function insertUploadedTranscript(
     ...(originalStorageId ? { originalStorageId } : {}),
   });
   if (!transcriptId) domainError("INVALID_INPUT", "The transcript has no text");
-  const inserted = await ctx.db.get(transcriptId);
-  if (inserted?.contentHash) {
-    const source = await sameTextElsewhere(ctx, inserted.contentHash, transcriptId);
-    if (source) await adoptDerivedRows(ctx, transcriptId, source);
-  }
+  if (source) await adoptDerivedRows(ctx, transcriptId, source);
   return transcriptId;
 }
 
@@ -307,13 +358,13 @@ export const addTranscript = mutation({
   args: { projectId: v.id("projects"), ...transcriptUploadArgs },
   returns: v.id("transcripts"),
   handler: async (ctx, args) => {
-    const { active } = await requireTranscriptChange(ctx, args.projectId, {
+    const { active, contentHash } = await requireTranscriptChange(ctx, args.projectId, {
       content: args.content,
     });
-    const position =
-      active.reduce((max, row) => Math.max(max, row.position ?? -1), -1) + 1;
+    const position = nextPosition(await settlePositions(ctx, active));
     const transcriptId = await insertUploadedTranscript(ctx, args.projectId, {
       ...args,
+      contentHash: contentHash!,
       label: args.label ?? `Transcript ${active.length + 1}`,
       position,
     });
@@ -331,26 +382,60 @@ export const replaceTranscript = mutation({
   args: { transcriptId: v.id("transcripts"), ...transcriptUploadArgs },
   returns: v.id("transcripts"),
   handler: async (ctx, args) => {
+    // Who may call first: an ineligible caller learns nothing about the row.
+    await requireInternalActor(ctx);
     const old = await ctx.db.get(args.transcriptId);
     if (!old) domainError("NOT_FOUND", "Transcript not found");
-    await requireTranscriptChange(ctx, old.projectId, {
+    if (old.archivedAt !== undefined) {
+      await requireInternalProjectAccess(ctx, old.projectId);
+      domainError("INVALID_STATE", "This transcript was already replaced or removed");
+    }
+    const { project, active, contentHash } = await requireTranscriptChange(ctx, old.projectId, {
       content: args.content,
       replacing: old._id,
     });
-    if (old.archivedAt !== undefined) {
-      domainError("INVALID_STATE", "This transcript was already replaced or removed");
-    }
+    const positions = await settlePositions(ctx, active, old._id);
     const replacementId = await insertUploadedTranscript(ctx, old.projectId, {
       content: args.content,
+      contentHash: contentHash!,
       label: args.label ?? transcriptLabel(old),
       sourceFormat: args.sourceFormat,
       originalStorageId: args.originalStorageId,
-      position: old.position ?? 0,
+      position: positions.get(old._id) ?? nextPosition(positions),
     });
     const now = Date.now();
     await ctx.db.patch(old._id, { archivedAt: now, supersededById: replacementId });
-    await ctx.db.patch(old.projectId, { updatedAt: now });
+    await ctx.db.patch(old.projectId, {
+      updatedAt: now,
+      archivedTranscriptCount: (project.archivedTranscriptCount ?? 0) + 1,
+    });
     return replacementId;
+  },
+});
+
+/** How recent an upload `discardTranscriptOriginals` may release. */
+const DISCARD_ORIGINAL_WINDOW_MS = 60 * 60 * 1000;
+
+/**
+ * Releases original files the browser uploaded for an Add, a Replace or a
+ * new project that was then refused (duplicate, caps, active generation).
+ * The bytes go to storage before the server checks anything, so without
+ * this a refusal left interview text in storage that no row points to and
+ * project erasure can never find. Only files no row holds and that were
+ * uploaded in the last hour are deleted; anything else is left alone.
+ */
+export const discardTranscriptOriginals = mutation({
+  args: { storageIds: v.array(v.id("_storage")) },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    await requireInternalActor(ctx);
+    const now = Date.now();
+    for (const storageId of args.storageIds.slice(0, MAX_TRANSCRIPTS_PER_PROJECT)) {
+      const metadata = await ctx.db.system.get("_storage", storageId);
+      if (!metadata || now - metadata._creationTime > DISCARD_ORIGINAL_WINDOW_MS) continue;
+      await deleteStorageIfUnreferenced(ctx, storageId);
+    }
+    return null;
   },
 });
 
@@ -359,13 +444,18 @@ export const removeTranscript = mutation({
   args: { transcriptId: v.id("transcripts") },
   returns: v.null(),
   handler: async (ctx, args) => {
+    // Who may call first: an ineligible caller learns nothing about the row.
+    await requireInternalActor(ctx);
     const row = await ctx.db.get(args.transcriptId);
     if (!row) domainError("NOT_FOUND", "Transcript not found");
-    await requireTranscriptChange(ctx, row.projectId, {});
+    const { project } = await requireTranscriptChange(ctx, row.projectId, {});
     if (row.archivedAt !== undefined) return null;
     const now = Date.now();
     await ctx.db.patch(row._id, { archivedAt: now });
-    await ctx.db.patch(row.projectId, { updatedAt: now });
+    await ctx.db.patch(row.projectId, {
+      updatedAt: now,
+      archivedTranscriptCount: (project.archivedTranscriptCount ?? 0) + 1,
+    });
     return null;
   },
 });

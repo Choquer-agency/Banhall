@@ -12,6 +12,7 @@ import {
   type TranscriptTurn,
 } from "../../shared/transcriptParse";
 import { listTeamRoster, userDisplayLabel } from "./teamRoster";
+import { FROZEN_TRANSCRIPT_CHARS } from "./transcripts";
 import {
   inferSpeakerRoles,
   needsModelRole,
@@ -48,24 +49,48 @@ export async function speakerRoleContext(
 export type StructureStep =
   | { kind: "missing" }
   | { kind: "current" }
-  | { kind: "continue"; fromIndex: number }
+  /** A newer chain took this transcript's build over; this chain stops. */
+  | { kind: "superseded" }
+  | { kind: "continue"; fromIndex: number; buildId: string }
   | { kind: "done"; needsModelRoles: boolean };
 
+function newBuildId(): string {
+  const bytes = new Uint8Array(12);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
 /**
- * One bounded step of building a transcript's turns and speakers. Call with
- * `fromIndex` 0 first, then with whatever `continue` returns until `done`.
- * Idempotent: a step replayed after a partial write inserts only the turns
- * still missing, and a transcript already at the current parser version is
- * left alone.
+ * One bounded step of building a transcript's turns and speakers. Call
+ * without `buildId` to start a chain, then with whatever `continue` returns
+ * until `done`.
+ *
+ * Every insert and the backfill start a chain, so two can run for the same
+ * transcript. The chain that starts last owns the build: it stamps its id on
+ * the transcript and starts over from no turns, and every step of an older
+ * chain finds another id there and stops without writing. Only the owning
+ * chain's own complete set of turns is ever marked current. A step replayed
+ * within its chain inserts only the turns still missing, and a transcript
+ * already at the current parser version is left alone.
  */
 export async function buildStructureStep(
   ctx: MutationCtx,
   transcriptId: Id<"transcripts">,
-  fromIndex: number
+  fromIndex: number,
+  buildId?: string
 ): Promise<StructureStep> {
   const transcript = await ctx.db.get(transcriptId);
   if (!transcript || transcript.content.trim() === "") return { kind: "missing" };
   if (transcript.parserVersion === TRANSCRIPT_PARSER_VERSION) return { kind: "current" };
+
+  let chain = buildId;
+  if (chain === undefined) {
+    chain = newBuildId();
+    await ctx.db.patch(transcript._id, { structureBuildId: chain });
+    fromIndex = 0;
+  } else if (transcript.structureBuildId !== chain) {
+    return { kind: "superseded" };
+  }
 
   if (fromIndex === 0) {
     // A (re)build starts from no turns: rows of an older parser version, or
@@ -75,10 +100,10 @@ export async function buildStructureStep(
       .withIndex("by_transcriptId_and_index", (q) => q.eq("transcriptId", transcriptId))
       .take(TURN_DELETE_BATCH_SIZE);
     for (const turn of stale) await ctx.db.delete(turn._id);
-    if (stale.length === TURN_DELETE_BATCH_SIZE) return { kind: "continue", fromIndex: 0 };
+    if (stale.length === TURN_DELETE_BATCH_SIZE) return { kind: "continue", fromIndex: 0, buildId: chain };
   }
 
-  const turns = parseTranscriptTurns(transcript.content);
+  const turns = parseTranscriptTurns(frozenSlice(transcript.content));
   const batch = turns.slice(fromIndex, fromIndex + TURN_BATCH_SIZE);
   if (batch.length > 0) {
     const existing = await ctx.db
@@ -101,7 +126,7 @@ export async function buildStructureStep(
     }
   }
   if (fromIndex + TURN_BATCH_SIZE < turns.length) {
-    return { kind: "continue", fromIndex: fromIndex + TURN_BATCH_SIZE };
+    return { kind: "continue", fromIndex: fromIndex + TURN_BATCH_SIZE, buildId: chain };
   }
 
   const project = await ctx.db.get(transcript.projectId);
@@ -111,9 +136,22 @@ export async function buildStructureStep(
   const needsModelRoles = await upsertSpeakers(ctx, transcript, guesses);
   await ctx.db.patch(transcript._id, {
     parserVersion: TRANSCRIPT_PARSER_VERSION,
+    structureBuildId: undefined,
     speakerStatus: guesses.length === 0 ? "unchecked" : await speakerStatusOf(ctx, transcript._id),
   });
   return { kind: "done", needsModelRoles };
+}
+
+/**
+ * The text turns are built from: the slice a generation freezes, so every
+ * turn offset stays valid on the frozen row. Only rows written before the
+ * 500 000-character cap are longer. Never ends inside a surrogate pair.
+ */
+export function frozenSlice(content: string): string {
+  if (content.length <= FROZEN_TRANSCRIPT_CHARS) return content;
+  const code = content.charCodeAt(FROZEN_TRANSCRIPT_CHARS - 1);
+  const end = code >= 0xd800 && code <= 0xdbff ? FROZEN_TRANSCRIPT_CHARS - 1 : FROZEN_TRANSCRIPT_CHARS;
+  return content.slice(0, end);
 }
 
 function turnRow(transcript: Doc<"transcripts">, turn: TranscriptTurn) {

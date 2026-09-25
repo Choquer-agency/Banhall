@@ -16,7 +16,15 @@
  * older version are rebuilt by the backfill.
  */
 
-export const TRANSCRIPT_PARSER_VERSION = "1";
+export const TRANSCRIPT_PARSER_VERSION = "2";
+
+/**
+ * Longest turn, in characters of stored text. A longer run of speech (a
+ * plain-text transcript with no blank lines, say) is split into turns of the
+ * same speaker at whitespace, so no turn's clean text approaches a
+ * document's size limit and every turn fits a fact window.
+ */
+export const MAX_TURN_CHARS = 16_000;
 
 export const TRANSCRIPT_SOURCE_FORMATS = [
   "teams_docx",
@@ -68,6 +76,11 @@ const VTT_VOICE = /^<v(?:\.[^\s>]+)*\s+([^>]{1,80})>/;
 const COLON_LABEL = /^(.{1,100}?)\s*:\s+\S/;
 /** A header line holding only a name and its timestamp (Otter, Teams exports). */
 const NAME_THEN_TIMESTAMP = new RegExp(String.raw`^(.{1,80}?)\s+${TIMESTAMP}$`);
+/**
+ * A bracketed time opening a line of speech that names no one: the canonical
+ * render of a VTT or SRT cue without a speaker (`[00:00:05] text`).
+ */
+const BRACKETED_TIME_LEAD = /^\[\d{1,2}:\d{2}(?::\d{2})?(?:[.,]\d{1,3})?\]\s+(?=\S)/;
 /** Zoom's header: `[Priya Shah] 10:02:33`. New with the parser; not a Seed stamp. */
 const ZOOM_HEADER = new RegExp(String.raw`^\[([^\]\n]{1,80})\]\s+(${TIMESTAMP})$`);
 const NAME_PARTICLES = new Set(["de", "da", "di", "du", "del", "der", "van", "von", "la", "le", "bin", "al"]);
@@ -156,13 +169,17 @@ export type SpeakerLine =
       timeMs?: number;
     }
   | { kind: "header"; speaker: string; rawLabel: string; timeMs?: number }
-  | { kind: "timestamp"; timeMs?: number };
+  | { kind: "timestamp"; timeMs?: number }
+  /** A bracketed time, then speech that names no one (`[00:00:05] text`). */
+  | { kind: "timed"; timeMs?: number; speechOffset: number };
 
 /**
  * How one line opens a turn, if it does. `inline` carries speech after the
  * label, `header` is a name and a time on its own line (Teams, Otter, Zoom),
- * `timestamp` is a time on its own line (Google Meet). Agrees with
- * `speakerOfTranscriptLine` on every line that function names a speaker for.
+ * `timestamp` is a time on its own line (Google Meet), `timed` is a
+ * bracketed time and speech with no name (a VTT or SRT cue that named no
+ * one). Agrees with `speakerOfTranscriptLine` on every line that function
+ * names a speaker for.
  */
 export function splitSpeakerLine(line: string): SpeakerLine | undefined {
   const withoutCr = line.replace(/\r$/, "");
@@ -191,6 +208,10 @@ export function splitSpeakerLine(line: string): SpeakerLine | undefined {
       speechOffset: lead + (timePrefix?.[0].length ?? 0) + colon[0].length,
       ...(time ? { timeMs: timestampToMs(time) } : {}),
     };
+  }
+  const timed = BRACKETED_TIME_LEAD.exec(text);
+  if (timed) {
+    return { kind: "timed", timeMs: timestampToMs(timed[0]), speechOffset: lead + timed[0].length };
   }
   if (!timePrefix) {
     const zoom = ZOOM_HEADER.exec(text);
@@ -296,8 +317,14 @@ function cueText(raw: string): string {
 
 type Cue = { startMs?: number; speaker?: string; text: string };
 
-/** Cues of a WebVTT or SRT file (also a Teams .docx that kept cue timings). */
-function parseCues(text: string): Cue[] {
+/**
+ * Cues of a WebVTT or SRT file (also a Teams .docx that kept cue timings).
+ * A blank line ends a VTT or SRT cue. In a Word document every paragraph
+ * ends in a blank line once extracted, so a Teams cue whose timing, name and
+ * speech are separate paragraphs runs to the next timing line instead
+ * (`acrossBlankLines`).
+ */
+function parseCues(text: string, options: { acrossBlankLines?: boolean } = {}): Cue[] {
   const cues: Cue[] = [];
   const all = lines(text);
   let index = 0;
@@ -309,8 +336,12 @@ function parseCues(text: string): Cue[] {
     }
     const body: string[] = [];
     index += 1;
-    while (index < all.length && all[index].trim() !== "" && !CUE_TIMING.test(all[index])) {
-      body.push(all[index]);
+    while (index < all.length && !CUE_TIMING.test(all[index])) {
+      if (all[index].trim() === "") {
+        if (!options.acrossBlankLines) break;
+      } else {
+        body.push(all[index]);
+      }
       index += 1;
     }
     // An SRT or VTT cue id line directly before the next timing is not text.
@@ -373,12 +404,10 @@ export function renderCuesCanonical(cues: readonly Cue[]): string {
  */
 export function normalizeTranscriptText(format: TranscriptSourceFormat, text: string): string {
   const unified = text.replace(/^﻿/, "").replace(/\r\n?/g, "\n");
-  const cueTimed =
-    format === "vtt" ||
-    format === "srt" ||
-    (format === "teams_docx" && countMatching(lines(unified), (line) => CUE_TIMING.test(line)) >= 2);
-  if (cueTimed) {
-    const rendered = renderCuesCanonical(parseCues(unified));
+  const teamsCues =
+    format === "teams_docx" && countMatching(lines(unified), (line) => CUE_TIMING.test(line)) >= 2;
+  if (format === "vtt" || format === "srt" || teamsCues) {
+    const rendered = renderCuesCanonical(parseCues(unified, { acrossBlankLines: teamsCues }));
     if (rendered.trim() !== "") return rendered;
   }
   return unified.replace(/[ \t]+$/gm, "").trim();
@@ -463,12 +492,58 @@ function trimmedSpan(content: string, start: number, end: number): [number, numb
   return e > s ? [s, e] : null;
 }
 
+/** Where to end a piece of speech that runs past MAX_TURN_CHARS from `from`. */
+function cutPoint(content: string, from: number): number {
+  const limit = from + MAX_TURN_CHARS;
+  for (let at = limit; at > from + MAX_TURN_CHARS / 2; at -= 1) {
+    if (/\s/.test(content[at - 1])) return at;
+  }
+  // No whitespace in the second half: cut there, never inside a surrogate pair.
+  const code = content.charCodeAt(limit - 1);
+  return code >= 0xd800 && code <= 0xdbff ? limit - 1 : limit;
+}
+
+/**
+ * A turn longer than MAX_TURN_CHARS as consecutive turns of the same
+ * speaker, cut at whitespace. Only the first keeps the start time.
+ */
+function splitLongDraft(content: string, draft: Draft): Draft[] {
+  const first = draft.spans[0][0];
+  const last = draft.spans[draft.spans.length - 1][1];
+  if (last - first <= MAX_TURN_CHARS) return [draft];
+  const pieces: Array<[number, number]> = [];
+  for (const [start, end] of draft.spans) {
+    let from = start;
+    while (end - from > MAX_TURN_CHARS) {
+      const cut = cutPoint(content, from);
+      const piece = trimmedSpan(content, from, cut);
+      if (piece) pieces.push(piece);
+      from = cut;
+    }
+    const rest = trimmedSpan(content, from, end);
+    if (rest) pieces.push(rest);
+  }
+  const out: Draft[] = [];
+  let chunk: Draft = { ...draft, spans: [] };
+  for (const piece of pieces) {
+    if (chunk.spans.length > 0 && piece[1] - chunk.spans[0][0] > MAX_TURN_CHARS) {
+      out.push(chunk);
+      chunk = { speakerLabel: draft.speakerLabel, rawLabel: draft.rawLabel, spans: [] };
+    }
+    chunk.spans.push(piece);
+  }
+  out.push(chunk);
+  return out;
+}
+
 /**
  * Splits verbatim transcript text into speaker turns. A turn opens on a
  * labelled line ("Name: text", `<v Name>`), or on a header line holding a
  * name and a time with the speech below it; unlabelled lines continue the
  * turn above them. Text before the first label, and every paragraph of a
- * transcript that names no one, becomes its own turn with no speaker.
+ * transcript that names no one, becomes its own turn with no speaker, as
+ * does a line opening with a bracketed time and no name. A turn longer than
+ * MAX_TURN_CHARS continues as further turns of the same speaker.
  */
 export function parseTranscriptTurns(content: string): TranscriptTurn[] {
   const infos = lineInfos(content);
@@ -519,6 +594,16 @@ export function parseTranscriptTurns(content: string): TranscriptTurn[] {
       blankSinceSpeech = false;
       continue;
     }
+    if (kind?.kind === "timed") {
+      // A cue that named no one: its own turn, with its time, never folded
+      // into the speaker above it.
+      open({ startMs: kind.timeMs ?? pendingTime, spans: [] });
+      pendingTime = undefined;
+      const span = trimmedSpan(content, info.start + kind.speechOffset, info.end);
+      if (span) current!.spans.push(span);
+      blankSinceSpeech = false;
+      continue;
+    }
     const span = trimmedSpan(content, info.start, info.end);
     if (!span) continue;
     const unlabelled = !current || current.speakerLabel === undefined;
@@ -535,7 +620,7 @@ export function parseTranscriptTurns(content: string): TranscriptTurn[] {
   }
   if (current && current.spans.length > 0) drafts.push(current);
 
-  const turns: TranscriptTurn[] = drafts.map((draft, index) => {
+  const turns: TranscriptTurn[] = drafts.flatMap((draft) => splitLongDraft(content, draft)).map((draft, index) => {
     const charStart = draft.spans[0][0];
     const charEnd = draft.spans[draft.spans.length - 1][1];
     const speech = draft.spans.map(([s, e]) => content.slice(s, e)).join(" ");

@@ -264,6 +264,11 @@ export default defineSchema({
     shareToken: v.string(),
     createdAt: v.number(),
     updatedAt: v.number(),
+    // 2026-09-24 widen (transcript method): transcript rows archived by
+    // Replace and Remove, kept for the generations that froze them. Counted
+    // here so the transcript history cap never reads archived text; absent
+    // means none.
+    archivedTranscriptCount: v.optional(v.number()),
   })
     .index("by_createdBy", ["createdBy"])
     .index("by_status", ["status"])
@@ -620,6 +625,9 @@ export default defineSchema({
     originalStorageId: v.optional(v.id("_storage")),
     sourceFormat: v.optional(transcriptSourceFormatValidator),
     parserVersion: v.optional(v.string()),
+    // The turn build chain that owns this row's rebuild. A chain that finds
+    // another id here stops, so two chains never interleave their writes.
+    structureBuildId: v.optional(v.string()),
     archivedAt: v.optional(v.number()),
     supersededById: v.optional(v.id("transcripts")),
     speakerStatus: v.optional(
@@ -631,6 +639,9 @@ export default defineSchema({
     factsVersion: v.optional(v.string()),
   })
     .index("by_projectId", ["projectId"])
+    // A project's active rows (archivedAt absent) without reading archived
+    // text: every project transcript read goes through this index.
+    .index("by_projectId_and_archivedAt", ["projectId", "archivedAt"])
     .index("by_originalStorageId", ["originalStorageId"])
     // Same text in another project: its roles and facts carry over.
     .index("by_contentHash", ["contentHash"]),
