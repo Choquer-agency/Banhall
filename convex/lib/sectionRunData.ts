@@ -45,6 +45,9 @@ export const selfCheckSummaryValidator = v.object({
   // Why the Summary Self-check was rejected: clause, index and byte counts
   // or app-supplied ids only, never model text (plan coverage, 2026-09-25).
   modelCheckDetail: v.optional(v.string()),
+  // Why the Summary Self-check's Storyline question was withheld: field names
+  // and byte counts only, never model text (2026-09-25).
+  storylineQuestionWithheld: v.optional(v.string()),
   planCoverage: v.optional(
     v.object({
       status: v.union(
@@ -178,19 +181,30 @@ const SELF_CHECK_KEYS = [
   "remainingFailures",
   "modelCheck",
   "modelCheckDetail",
+  "storylineQuestionWithheld",
   "planCoverage",
 ] as const;
 
 export function toSelfCheckSummaryData(value: unknown): SelfCheckSummaryData | undefined {
   if (!isPlainObject(value) || !onlyKeys(value, SELF_CHECK_KEYS)) return undefined;
-  const { status, repairAttempted, failedChecks, remainingFailures, modelCheck, modelCheckDetail, planCoverage } = value;
+  const {
+    status,
+    repairAttempted,
+    failedChecks,
+    remainingFailures,
+    modelCheck,
+    modelCheckDetail,
+    storylineQuestionWithheld,
+    planCoverage,
+  } = value;
   if (
     (status !== "pass" && status !== "repair_attempted" && status !== "repair_failed") ||
     typeof repairAttempted !== "boolean" ||
     !isFiniteNumber(failedChecks) ||
     !isFiniteNumber(remainingFailures) ||
     (modelCheck !== "ok" && modelCheck !== "failed") ||
-    (modelCheckDetail !== undefined && typeof modelCheckDetail !== "string")
+    (modelCheckDetail !== undefined && typeof modelCheckDetail !== "string") ||
+    (storylineQuestionWithheld !== undefined && typeof storylineQuestionWithheld !== "string")
   ) {
     return undefined;
   }
@@ -220,6 +234,7 @@ export function toSelfCheckSummaryData(value: unknown): SelfCheckSummaryData | u
     remainingFailures,
     modelCheck,
     ...(typeof modelCheckDetail === "string" ? { modelCheckDetail } : {}),
+    ...(typeof storylineQuestionWithheld === "string" ? { storylineQuestionWithheld } : {}),
     ...(coverage ? { planCoverage: coverage } : {}),
   };
 }

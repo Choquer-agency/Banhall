@@ -43,6 +43,7 @@ import {
 import {
   jsonEscapedUtf8Bytes,
   MAX_SUMMARY_SELF_CHECK_GUIDANCE_ESCAPED_UTF8_BYTES,
+  MAX_SUMMARY_SELF_CHECK_QUESTION_ESCAPED_UTF8_BYTES,
   MAX_SUMMARY_SELF_CHECK_REASON_ESCAPED_UTF8_BYTES,
   MAX_SUMMARY_SELF_CHECK_RESPONSE_UTF8_BYTES,
   projectSummaryOrdinaryChecks,
@@ -1710,6 +1711,59 @@ describe("Summary plan coverage replay (recorded Opus 244 case)", () => {
         expect(sent.startsWith(kept.slice(0, -1))).toBe(true);
       }
     });
+  });
+
+  const REPLAY_QUESTION = {
+    question: "Should the Storyline name the primer and cure hold?",
+    sectionClaim: "The primer and the 40°C hold removed primer-layer failure.",
+    storylineAlternative: "Low-temperature bonds held their strength once a primer and cure hold were added.",
+    confidenceEntry: 1,
+  };
+  const LONG_QUESTION_TEXT =
+    "The section shows that bonds cured at 60°C kept their lap shear strength through 200 cycles only after the silane primer and the 2-hour 40°C hold were added, which the Storyline never says.";
+
+  it.each(["question", "sectionClaim", "storylineAlternative"] as const)(
+    "withholds the Storyline question when its %s needed clipping, and keeps full coverage",
+    async (field) => {
+      const response = {
+        ...replayResponse(),
+        storylineQuestion: { ...REPLAY_QUESTION, [field]: LONG_QUESTION_TEXT },
+      };
+      const sentBytes = jsonEscapedUtf8Bytes(LONG_QUESTION_TEXT);
+      expect(sentBytes).toBeGreaterThan(MAX_SUMMARY_SELF_CHECK_QUESTION_ESCAPED_UTF8_BYTES);
+      expect(new TextEncoder().encode(JSON.stringify(response)).byteLength)
+        .toBeLessThanOrEqual(MAX_SUMMARY_SELF_CHECK_RESPONSE_UTF8_BYTES);
+      const client = replayClient(response);
+      const result = await runModelSelfCheck(client as GenerationClient, replayInput());
+
+      expect(client.messages.create).toHaveBeenCalledTimes(1);
+      // Coverage is complete and unchanged: only the optional question goes.
+      expect(result.planVerdicts.map((verdict) => verdict.outcome))
+        .toEqual(["applied", "applied", "applied", "applied"]);
+      expect(result.planVerdicts.map((verdict) => verdict.paragraphIndex))
+        .toEqual([0, 0, 1, 2]);
+      expect(result.verdicts).toHaveLength(10);
+      expect(result.storylineQuestion).toBeNull();
+      expect(result.storylineQuestionWithheld).toBe(
+        `${field} is ${sentBytes} escaped bytes, limit ${MAX_SUMMARY_SELF_CHECK_QUESTION_ESCAPED_UTF8_BYTES}`
+      );
+      // The recorded reason never carries the model's own words.
+      expect(result.storylineQuestionWithheld).not.toContain(LONG_QUESTION_TEXT.slice(0, 20));
+    }
+  );
+
+  it("keeps an in-limit Storyline question exactly as the model wrote it", async () => {
+    const response = { ...replayResponse(), storylineQuestion: REPLAY_QUESTION };
+    const client = replayClient(response);
+    const result = await runModelSelfCheck(client as GenerationClient, replayInput());
+    expect(result.storylineQuestion).toEqual({
+      question: REPLAY_QUESTION.question,
+      sectionClaim: REPLAY_QUESTION.sectionClaim,
+      storylineAlternative: REPLAY_QUESTION.storylineAlternative,
+      confidenceEntryIndex: 0,
+    });
+    expect(result).not.toHaveProperty("storylineQuestionWithheld");
+    expect(result.planVerdicts.every((verdict) => verdict.outcome === "applied")).toBe(true);
   });
 
   it.each([

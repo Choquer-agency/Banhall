@@ -388,6 +388,7 @@ async function draftCheckedSection(input: {
 
   let verdicts: ModelVerdict[] = [];
   let storylineQuestion: ModelSelfCheckResult["storylineQuestion"] = null;
+  let storylineQuestionWithheld: string | undefined;
   let planVerdicts: ModelSelfCheckResult["planVerdicts"] = [];
   let modelCheck: { ok: true } | { ok: false; reason: string; detail?: string } = { ok: true };
   try {
@@ -405,7 +406,13 @@ async function draftCheckedSection(input: {
     });
     verdicts = result.verdicts;
     storylineQuestion = result.storylineQuestion;
+    storylineQuestionWithheld = result.storylineQuestionWithheld;
     planVerdicts = result.planVerdicts;
+    if (storylineQuestionWithheld) {
+      console.warn(
+        `generation:selfCheck:${section}: Storyline question withheld: ${storylineQuestionWithheld}`
+      );
+    }
   } catch (error) {
     // An unrepaired or unrun check never blocks the section (Never-rule);
     // the failure is recorded in the Compliance Note instead, with a short
@@ -488,6 +495,7 @@ async function draftCheckedSection(input: {
     storylineQuestion: storylineQuestion
       ? { question: storylineQuestion.question, recorded: evidence !== undefined }
       : null,
+    ...(storylineQuestionWithheld ? { storylineQuestionWithheld } : {}),
     repair,
     finalText,
   });

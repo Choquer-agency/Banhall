@@ -78,6 +78,11 @@ type RawSelfCheck = {
   verdicts: RawVerdict[];
   planVerdicts?: RawPlanVerdict[];
   storylineQuestion?: RawStorylineQuestion | null;
+  /**
+   * Summary only, set by clipping: which Storyline question fields were over
+   * their reservation, with byte counts. Never model text.
+   */
+  storylineQuestionClipped?: string;
 };
 type RawPlanVerdict = {
   itemId?: string;
@@ -181,6 +186,11 @@ const decodedSummaryPlanSelfCheckOutputSchema = z.object({
  * stored evidence keeps the per-field limits the sign-off capacity proof
  * reserved. Labels, ids, counts and paragraphs are never clipped: the
  * completeness assertion still rejects them.
+ *
+ * A Storyline question with any clipped field is still clipped here, so the
+ * completeness assertion checks it as before, but it is marked: its
+ * alternative can replace the whole Storyline, so runModelSelfCheck withholds
+ * it rather than offer a shortened one.
  */
 export function clipSummarySelfCheckFreeText(raw: RawSelfCheck): RawSelfCheck {
   const clip = (value: string, maximum: number) => clipJsonEscapedUtf8(value, maximum);
@@ -189,6 +199,21 @@ export function clipSummarySelfCheckFreeText(raw: RawSelfCheck): RawSelfCheck {
       ? {}
       : { repairGuidance: clip(value, MAX_SUMMARY_SELF_CHECK_GUIDANCE_ESCAPED_UTF8_BYTES) };
   const question = raw.storylineQuestion;
+  const questionClipped = question
+    ? [
+        overLimit("question", question.question, MAX_SUMMARY_SELF_CHECK_QUESTION_ESCAPED_UTF8_BYTES),
+        overLimit(
+          "sectionClaim",
+          question.sectionClaim,
+          MAX_SUMMARY_SELF_CHECK_QUESTION_ESCAPED_UTF8_BYTES
+        ),
+        overLimit(
+          "storylineAlternative",
+          question.storylineAlternative,
+          MAX_SUMMARY_SELF_CHECK_QUESTION_ESCAPED_UTF8_BYTES
+        ),
+      ].filter((problem): problem is string => problem !== null).join("; ")
+    : "";
   return {
     ...raw,
     verdicts: raw.verdicts.map((verdict) => ({
@@ -221,6 +246,7 @@ export function clipSummarySelfCheckFreeText(raw: RawSelfCheck): RawSelfCheck {
           },
         }
       : {}),
+    ...(questionClipped ? { storylineQuestionClipped: questionClipped } : {}),
   };
 }
 
@@ -395,6 +421,11 @@ export type ModelSelfCheckResult = {
     /** 0-based index into the Confidence Map entries sent, or null. */
     confidenceEntryIndex: number | null;
   } | null;
+  /**
+   * Summary only: why the model's Storyline question was withheld (a field
+   * needed clipping), as field names and byte counts. Never model text.
+   */
+  storylineQuestionWithheld?: string;
   planVerdicts: Array<{
     itemId?: string;
     skippedRoleId?: string;
@@ -729,7 +760,11 @@ export async function runModelSelfCheck(
         ? { repairGuidance: verdict.repairGuidance.trim() }
         : {}),
     }));
-  const question = raw.storylineQuestion;
+  // A clipped Storyline question is withheld: "Use the section's evidence"
+  // would make its shortened alternative the whole Storyline. The coverage
+  // verdicts above are complete and stay.
+  const withheld = hasSummaryPlan ? raw.storylineQuestionClipped : undefined;
+  const question = withheld ? null : raw.storylineQuestion;
   const entryIndex =
     question && Number.isInteger(question.confidenceEntry) &&
     question.confidenceEntry >= 1 &&
@@ -779,6 +814,7 @@ export async function runModelSelfCheck(
           confidenceEntryIndex: entryIndex,
         }
       : null,
+    ...(withheld ? { storylineQuestionWithheld: withheld } : {}),
   };
 }
 
