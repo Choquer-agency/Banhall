@@ -14,9 +14,11 @@
  *   fails at once with ActionTimeBudgetError, which the action's own failure
  *   handling turns into the writer-facing state. It never counts as a model
  *   fault (modelFaultCode).
- * - Otherwise the request's timeout is cut to the time left, and a transport
- *   retry is allowed only when every attempt, at that timeout, plus the
- *   retry backoff still fits.
+ * - Otherwise each attempt's timeout is cut to the time left, and a
+ *   transport retry is decided when the failure happens: it is sent only
+ *   when a useful attempt (MIN_USEFUL_REQUEST_MS) still fits after its
+ *   backoff or Retry-After wait (retryFitsDeadline). A fast 500 or 529 late
+ *   in an action is still retried (review 2026-09-25, P2-2).
  * - An attempt that timed out on a timeout cut short by the deadline also
  *   fails with ActionTimeBudgetError: the time ran out, not the model.
  *
@@ -125,4 +127,39 @@ export function requestBudget(args: {
   let retries = maxRetries;
   while (retries > 0 && (retries + 1) * timeout + retries * backoff > remaining) retries -= 1;
   return { timeoutMs: timeout, maxRetries: retries, shortened: timeout < timeoutMs };
+}
+
+/**
+ * Whether a transport retry that first waits `delayMs` still leaves a useful
+ * attempt before the deadline. Always true without a deadline.
+ */
+export function retryFitsDeadline(deadline: number | undefined, now: number, delayMs: number): boolean {
+  return deadline === undefined || deadline - now - delayMs >= MIN_USEFUL_REQUEST_MS;
+}
+
+/**
+ * The wait before Anthropic transport retry number `retryIndex` (0 for the
+ * first), as the SDK computes it: the provider's `retry-after-ms` or
+ * `Retry-After` (seconds or a date) when sent, otherwise 0.5 s doubling to
+ * MAX_SDK_RETRY_BACKOFF_MS with up to 25 percent jitter. A long Retry-After
+ * is not capped here; retryFitsDeadline refuses a wait the action cannot
+ * afford.
+ */
+export function anthropicRetryDelayMs(
+  headers: { get(name: string): string | null } | undefined,
+  retryIndex: number,
+  now: number,
+  random: () => number
+): number {
+  const afterMs = Number.parseFloat(headers?.get("retry-after-ms") ?? "");
+  if (!Number.isNaN(afterMs)) return Math.max(0, afterMs);
+  const after = headers?.get("retry-after");
+  if (after) {
+    const seconds = Number.parseFloat(after);
+    if (!Number.isNaN(seconds)) return Math.max(0, seconds * 1000);
+    const date = Date.parse(after);
+    if (!Number.isNaN(date)) return Math.max(0, date - now);
+  }
+  const seconds = Math.min(0.5 * 2 ** retryIndex, MAX_SDK_RETRY_BACKOFF_MS / 1000);
+  return seconds * (1 - random() * 0.25) * 1000;
 }

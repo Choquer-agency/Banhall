@@ -1,3 +1,4 @@
+import Anthropic from "@anthropic-ai/sdk";
 import { describe, expect, it } from "vitest";
 import {
   ACTION_REQUEST_WINDOW_MS,
@@ -8,7 +9,9 @@ import {
   MIN_USEFUL_REQUEST_MS,
   RESERVED_NON_REQUEST_MS,
   actionDeadline,
+  anthropicRetryDelayMs,
   requestBudget,
+  retryFitsDeadline,
   startActionDeadline,
 } from "./actionDeadline";
 import {
@@ -112,5 +115,30 @@ describe("action deadline arithmetic (cutoff review P2-2)", () => {
     expect(describeProviderFailure(other)).toBe(
       "rate_limited: The AI provider is rate-limiting requests. Try again after the limit resets."
     );
+  });
+
+  it("decides a retry against the time left after its wait (review 2026-09-25, P2-2)", () => {
+    expect(retryFitsDeadline(undefined, 0, 1_000_000)).toBe(true);
+    expect(retryFitsDeadline(100_000, 70_000, 10_000)).toBe(true);
+    expect(retryFitsDeadline(100_000, 70_000, 10_001)).toBe(false);
+    const headers = (values: Record<string, string>) => new Headers(values);
+    expect(anthropicRetryDelayMs(headers({ "retry-after-ms": "10" }), 0, 0, () => 0)).toBe(10);
+    expect(anthropicRetryDelayMs(headers({ "retry-after": "25" }), 0, 0, () => 0)).toBe(25_000);
+    expect(anthropicRetryDelayMs(headers({ "retry-after": "Thu, 01 Jan 1970 00:00:30 GMT" }), 0, 10_000, () => 0)).toBe(20_000);
+    // The SDK's backoff: 0.5 s doubling to 8 s, up to 25 percent less.
+    expect(anthropicRetryDelayMs(undefined, 0, 0, () => 0)).toBe(500);
+    expect(anthropicRetryDelayMs(undefined, 1, 0, () => 1)).toBe(750);
+    expect(anthropicRetryDelayMs(undefined, 10, 0, () => 0)).toBe(MAX_SDK_RETRY_BACKOFF_MS);
+  });
+
+  it("never counts a provider infrastructure failure against the model; a full timeout still counts", () => {
+    const headers = new Headers();
+    expect(modelFaultCode(new Anthropic.InternalServerError(500, undefined, "boom", headers))).toBeNull();
+    expect(modelFaultCode(Anthropic.APIError.generate(529, undefined, "overloaded", headers))).toBeNull();
+    expect(modelFaultCode(Anthropic.APIError.generate(408, undefined, "timeout", headers))).toBeNull();
+    expect(modelFaultCode(new Anthropic.APIConnectionError({ message: "Connection error." }))).toBeNull();
+    expect(modelFaultCode(Object.assign(new Error("OpenRouter request failed with status 502"), { status: 502 }))).toBeNull();
+    expect(modelFaultCode(new Anthropic.APIConnectionTimeoutError())).toBe("unknown");
+    expect(modelFaultCode(Anthropic.APIError.generate(400, undefined, "bad request", headers))).toBe("unknown");
   });
 });

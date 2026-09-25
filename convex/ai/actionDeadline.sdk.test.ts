@@ -8,8 +8,9 @@
  * scheduler are the production ones.
  *
  * - Near the deadline a request is sent with its timeout cut to the time
- *   left and no transport retry; when that timer fires the call fails with
- *   the writer-facing ActionTimeBudgetError.
+ *   left; when that timer fires the call fails with the writer-facing
+ *   ActionTimeBudgetError. A transport retry is decided when the failure
+ *   happens, so a fast 500 or 529 late in an action is still retried.
  * - Past the minimum useful time a request is never sent.
  * - A structured call's repair goes through the same bound.
  * - None of these count against the model; the bodies are unchanged.
@@ -153,13 +154,113 @@ test("Anthropic: a retryable failure is retried with time to spare, and not when
   if (!roomyOutcome.ok) expect(roomyOutcome.error).toBeInstanceOf(Anthropic.InternalServerError);
 
   transport.mockClear();
-  const tight = call(300_000);
+  // Late in the action (300 s left, long past the first 52 s): a fast 500
+  // is still retried, since a useful attempt fits after the 10 ms wait
+  // (review 2026-09-25, P2-2). Each retry is decided when it happens.
+  const late = call(300_000);
+  await vi.advanceTimersByTimeAsync(1_000);
+  const lateOutcome = await late;
+  expect(transport).toHaveBeenCalledTimes(2);
+  expect(lateOutcome.ok).toBe(false);
+  if (!lateOutcome.ok) expect(lateOutcome.error).toBeInstanceOf(Anthropic.InternalServerError);
+
+  transport.mockClear();
+  // 25 s left and the provider asks for a 10 s wait: 15 s would be left,
+  // under the useful minimum, so the provider's error is returned at once.
+  transport.mockImplementation(async () =>
+    Response.json(
+      { type: "error", error: { type: "overloaded_error", message: "Synthetic overload" } },
+      { status: 529, headers: { "retry-after": "10" } }
+    ));
+  const tight = call(25_000);
   await vi.advanceTimersByTimeAsync(1_000);
   const tightOutcome = await tight;
-  // 2 x 240 s + backoff does not fit 300 s: one attempt, the provider's error.
   expect(transport).toHaveBeenCalledTimes(1);
   expect(tightOutcome.ok).toBe(false);
-  if (!tightOutcome.ok) expect(tightOutcome.error).toBeInstanceOf(Anthropic.InternalServerError);
+  if (!tightOutcome.ok) expect((tightOutcome.error as { status?: number }).status).toBe(529);
+});
+
+test("Anthropic, late in the action: a fast 529 is retried and the answer is used; the overload counts against no model", async () => {
+  const t = convexTest(schema, modules);
+  let calls = 0;
+  const transport = vi.fn<typeof fetch>(async () => {
+    calls += 1;
+    if (calls === 1) {
+      return Response.json(
+        { type: "error", error: { type: "overloaded_error", message: "Synthetic overload" } },
+        { status: 529 }
+      );
+    }
+    return Response.json({
+      id: "msg_late",
+      type: "message",
+      role: "assistant",
+      model: params.model,
+      content: [{ type: "text", text: "Pass." }],
+      stop_reason: "end_turn",
+      stop_sequence: null,
+      usage: { input_tokens: 10, output_tokens: 2 },
+    });
+  });
+  vi.stubGlobal("fetch", transport);
+  const result = settle(runAction(t, async (ctx) => {
+    withTimeLeft(ctx, 200_000);
+    const client = withOutcomeRecording(ctx, params.model, "deadline-contract",
+      instrumentedAnthropic(ctx, { callSite: "deadline-contract" }) as unknown as GenerationClient);
+    return await client.messages.create(params);
+  }));
+  await vi.advanceTimersByTimeAsync(10_000);
+  const outcome = await result;
+  await t.finishAllScheduledFunctions(vi.runAllTimers);
+
+  expect(outcome.ok).toBe(true);
+  expect(transport).toHaveBeenCalledTimes(2);
+  // The same body on both attempts.
+  const bodies = await Promise.all(
+    transport.mock.calls.map((call) => new Request(...(call as [RequestInfo, RequestInit])).json())
+  );
+  expect(bodies).toEqual([params, params]);
+  expect((await outcomeRows(t)).map((row) => row.outcome)).toEqual(["success"]);
+
+  // With no retry left, the overload fails the call and still records no fault.
+  transport.mockClear();
+  transport.mockImplementation(async () =>
+    Response.json({ type: "error", error: { type: "overloaded_error", message: "Synthetic overload" } }, { status: 529 }));
+  const failed = settle(runAction(t, async (ctx) => {
+    withTimeLeft(ctx, 200_000);
+    const client = withOutcomeRecording(ctx, params.model, "deadline-contract",
+      instrumentedAnthropic(ctx, { callSite: "deadline-contract" }) as unknown as GenerationClient);
+    return await client.messages.create(params);
+  }));
+  await vi.advanceTimersByTimeAsync(10_000);
+  expect((await failed).ok).toBe(false);
+  await t.finishAllScheduledFunctions(vi.runAllTimers);
+  expect(transport).toHaveBeenCalledTimes(2);
+  expect((await outcomeRows(t)).map((row) => row.outcome)).toEqual(["success"]);
+});
+
+test("Anthropic, 300 s left: a full 240 s timeout is retried with the retry's timeout cut to the time left, which then fails as out of time", async () => {
+  const t = convexTest(schema, modules);
+  const transport = hangingFetch();
+  vi.stubGlobal("fetch", transport);
+  const result = settle(runAction(t, async (ctx) => {
+    withTimeLeft(ctx, 300_000);
+    const client = withOutcomeRecording(ctx, params.model, "deadline-contract",
+      instrumentedAnthropic(ctx, { callSite: "deadline-contract" }) as unknown as GenerationClient);
+    return await client.messages.create(params);
+  }));
+  await vi.advanceTimersByTimeAsync(240_000);
+  expect(transport).toHaveBeenCalledTimes(1);
+  // The backoff (at most 0.5 s on the first retry), then the retry.
+  await vi.advanceTimersByTimeAsync(1_000);
+  expect(transport).toHaveBeenCalledTimes(2);
+  await vi.advanceTimersByTimeAsync(60_000);
+  const outcome = await result;
+  await t.finishAllScheduledFunctions(vi.runAllTimers);
+  expect(outcome.ok).toBe(false);
+  if (!outcome.ok) expect(outcome.error).toBeInstanceOf(ActionTimeBudgetError);
+  expect(transport).toHaveBeenCalledTimes(2);
+  expect(await outcomeRows(t)).toEqual([]);
 });
 
 test("Anthropic and OpenRouter, 10 s left: nothing is sent, the call fails with the writer-facing error and records no outcome", async () => {
