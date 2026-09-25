@@ -1775,22 +1775,23 @@
           </Button>
         {/if}
         {#if reportActionsVisible}
+          <!-- Board 2.1: 36px buttons, 13px labels, radius 7. -->
           <Button
             variant="secondary"
             size="sm"
-            class="h-9 gap-1.5"
+            class="h-9 gap-1.5 rounded-[7px]! px-3! text-[13px]!"
             aria-label={exporting ? "Exporting..." : "Export .docx"}
             onclick={handleExport}
             disabled={exporting}
           >
-            <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true">
+            <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true">
               <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
             </svg>
             <span class="max-sm:sr-only">Export</span>
           </Button>
           <Button
             size="sm"
-            class="h-9 max-sm:hidden"
+            class="h-9 rounded-[7px]! px-3.5! text-[13px]! max-sm:hidden"
             data-send-for-review
             disabled={!details.data?.permissions.canHandOff}
             title={details.data && !details.data.permissions.canHandOff ? (details.handOffReason ?? undefined) : undefined}

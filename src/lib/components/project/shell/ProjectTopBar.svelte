@@ -19,7 +19,7 @@
 <script lang="ts">
   import type { Snippet } from "svelte";
   import { DropdownMenu } from "bits-ui";
-  import { BellIcon, CaretLeftIcon, DotsThreeIcon, FileTextIcon } from "phosphor-svelte";
+  import { BellIcon, CaretLeftIcon, DotsThreeIcon, DotsThreeVerticalIcon, FileTextIcon } from "phosphor-svelte";
   import { resolve } from "$app/paths";
   import { useQuery } from "convex-svelte";
   import { useAuth } from "@mmailaender/convex-better-auth-svelte/svelte";
@@ -100,8 +100,10 @@
     </a>
     {#if moreItems.length > 0}
       <DropdownMenu.Root>
-        <DropdownMenu.Trigger aria-label="More actions" class={iconButton} data-top-bar-more>
-          <DotsThreeIcon size={18} weight="bold" aria-hidden="true" />
+        <!-- Phone (board 3.6): a vertical kebab at the far right. -->
+        <DropdownMenu.Trigger aria-label="More actions" class={`${iconButton} max-sm:order-last`} data-top-bar-more>
+          <DotsThreeIcon size={18} weight="bold" aria-hidden="true" class="max-sm:hidden" />
+          <DotsThreeVerticalIcon size={18} weight="bold" aria-hidden="true" class="sm:hidden" />
         </DropdownMenu.Trigger>
         <DropdownMenu.Portal>
           <DropdownMenu.Content

@@ -19,7 +19,7 @@ describe("PanelToolbar", () => {
     await page.viewport(1280, 800);
   });
 
-  it("orders the toggles Full width, divider, Details, Assistant, QA", async () => {
+  it("orders the toggles Full width, divider, Details, divider, Assistant, QA", async () => {
     await render(PanelToolbar, {
       tabs: [{ id: "report", label: "Report" }, { id: "sources", label: "Sources", count: 3 }],
       activeTab: "report",
@@ -31,7 +31,8 @@ describe("PanelToolbar", () => {
     const order = Array.from(
       document.querySelectorAll("[data-panel-toggles] [data-panel-toggle], [data-panel-toggles] [data-panel-toggle-divider]")
     ).map((el) => el.getAttribute("data-panel-toggle") ?? "divider");
-    expect(order).toEqual(["full-width", "divider", "details", "assistant", "qa"]);
+    // Boards 2.1 and 2.2 draw a hairline on each side of Details.
+    expect(order).toEqual(["full-width", "divider", "details", "divider", "assistant", "qa"]);
     expect(document.querySelector('[data-panel-toggle="assistant"] [data-ai-mark="aurora"]')).not.toBeNull();
   });
 
