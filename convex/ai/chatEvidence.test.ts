@@ -86,14 +86,14 @@ describe("chat evidence message", () => {
       true
     );
     // Render order runs from least to most volatile for prompt caching: the
-    // stable context, then the report, then the per-turn decisions.
+    // stable head, then the per-turn tail (report, decisions).
     const order = [
       begin(EVIDENCE_LABELS.analysis),
       EVIDENCE_LABELS.documentsHeading,
       begin("PREVIOUS-YEAR REPORT] prior.pdf"),
       begin("OTHER SUPPORTING MATERIAL] misc.txt"),
-      begin(EVIDENCE_LABELS.report),
       EVIDENCE_LABELS.turnHeading,
+      begin(EVIDENCE_LABELS.report),
       begin(EVIDENCE_LABELS.decisions),
     ].map((needle) => message.indexOf(needle));
     expect(order.every((i) => i > -1)).toBe(true);
@@ -491,9 +491,9 @@ describe("chat turn request", () => {
 
   it("keeps all four evidence texts out of the system string", () => {
     const turn = buildChatTurnRequest({ context: context() });
-    // Head (stable context, report) plus the per-turn tail, all user-role.
-    expect(turn.messages).toHaveLength(3);
-    expect(turn.headCount).toBe(2);
+    // The stable head plus the per-turn tail, both user-role.
+    expect(turn.messages).toHaveLength(2);
+    expect(turn.headCount).toBe(1);
     expect(turn.messages.every((message) => message.role === "user")).toBe(true);
     const evidence = evidenceOf(turn);
     for (const text of [
@@ -911,21 +911,22 @@ describe("chat prompt caching at the Anthropic HTTP boundary", () => {
     expect(body.cache_control).toEqual({ type: "ephemeral" });
     const all = blocks(body);
     const marked = all.filter((block) => block.cache_control);
-    // Stable context, report, writer's message: three explicit breakpoints,
-    // plus the automatic one, is Anthropic's limit of four.
+    // Stable head and writer's message: two explicit breakpoints, plus the
+    // automatic one, within Anthropic's limit of four.
     expect(marked.map((block) => block.cache_control)).toEqual([
-      { type: "ephemeral", ttl: "1h" },
       { type: "ephemeral", ttl: "1h" },
       { type: "ephemeral", ttl: "1h" },
     ]);
     expect(marked[0].text).toMatch(/^# EVIDENCE FOR THIS TURN\n/);
     expect(marked[0].text).toContain("--- BEGIN [TRANSCRIPT ANALYSIS] ---");
+    expect(marked[0].text).toContain("notes.md");
     expect(marked[0].text).not.toContain("CURRENT REPORT] ---");
-    expect(marked[1].text).toMatch(/^--- BEGIN \[CURRENT REPORT\] ---/);
-    expect(marked[2].text).toBe("Tighten paragraph 3.");
-    // The per-turn tail follows the writer's message and is never marked.
+    expect(marked[1].text).toBe("Tighten paragraph 3.");
+    // The per-turn tail (report first) follows the writer's message and is
+    // never marked.
     const last = all.at(-1);
-    expect(last?.text).toMatch(/^# EVIDENCE FOR THIS TURN, CONTINUED/);
+    expect(last?.text).toMatch(/^# EVIDENCE FOR THIS TURN, CONTINUED\n\n--- BEGIN \[CURRENT REPORT\] ---/);
+    expect(last?.text).toContain("[Edit 1: PENDING]");
     expect(last?.cache_control).toBeUndefined();
     // Nothing volatile in the system prompt: it carries no evidence.
     expect(JSON.stringify(body.system)).not.toContain("seal model");
@@ -934,9 +935,10 @@ describe("chat prompt caching at the Anthropic HTTP boundary", () => {
   it("repeats the previous turn byte for byte up to and including its prompt", async () => {
     const first = await send({ context: baseContext, history: [], prompt: "Tighten paragraph 3." });
     const second = await send({
-      // A new pending decision changes the tail only.
+      // An applied edit and a new decision change the tail only.
       context: {
         ...baseContext,
+        reportContent: reportDoc("An applied edit changed the report."),
         decisions: [
           ...baseContext.decisions,
           { state: "rejected", target: "older", candidate: "newer" },
@@ -964,19 +966,22 @@ describe("chat prompt caching at the Anthropic HTTP boundary", () => {
     const newMark = after.findIndex((block) => block.text === "Now paragraph 4.");
     expect(after[newMark].cache_control).toEqual({ type: "ephemeral", ttl: "1h" });
     expect(newMark - promptIndex).toBeLessThanOrEqual(20);
-    // And only the tail differs after it.
+    // And only the tail differs after it: the new report and decisions.
+    expect(after.at(-1)?.text).toContain("An applied edit changed the report.");
     expect(after.at(-1)?.text).toContain("[Edit 2: REJECTED]");
   });
 
-  it("keeps the evidence head cached when only the report changes", async () => {
+  it("keeps the whole prefix when only the report changes", async () => {
     const first = await send({ context: baseContext, history: [], prompt: "Q" });
     const second = await send({
       context: { ...baseContext, reportContent: reportDoc("An applied edit changed the report.") },
       history: [],
       prompt: "Q",
     });
-    expect(blocks(second)[0]).toEqual(blocks(first)[0]);
-    expect(blocks(second)[1]).not.toEqual(blocks(first)[1]);
+    const before = blocks(first);
+    const after = blocks(second);
+    expect(after.slice(0, -1)).toEqual(before.slice(0, -1));
+    expect(after.at(-1)).not.toEqual(before.at(-1));
   });
 });
 

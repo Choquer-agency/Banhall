@@ -176,9 +176,10 @@ const chat = (context: Partial<ChatTurnContext>): Built => {
     context: { ...emptyChatContext, ...context },
   });
   // Every assertion below runs against the joined evidence. Since cost
-  // phase 1 the evidence is split into a cached head (stable context, then
-  // the report) and a per-turn tail; each part must still be a plain
-  // user-role string, or the cast would point at the wrong bytes.
+  // phase 1 the evidence is split into a cached head (guidance, analysis,
+  // documents) and a per-turn tail (report, decisions, open questions); each
+  // part must still be a plain user-role string, or the cast would point at
+  // the wrong bytes.
   expect(request.messages.length).toBeGreaterThanOrEqual(1);
   expect(request.headCount).toBeGreaterThanOrEqual(1);
   for (const message of request.messages) {

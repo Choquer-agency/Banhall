@@ -505,8 +505,8 @@ describe("bounded chat context", () => {
     if (!call) throw new Error("streamText call missing");
     const system = String(call[2]?.system ?? "");
     const messages = (call[2]?.messages ?? []) as Array<{ role: string; content: unknown }>;
-    // Cached head (stable context, report) plus the per-turn tail.
-    expect(messages).toHaveLength(3);
+    // Cached stable head plus the per-turn tail (report, decisions).
+    expect(messages).toHaveLength(2);
     expect(messages.every((message) => message.role === "user")).toBe(true);
     const evidence = messages.map((message) => String(message.content)).join("\n\n");
 
