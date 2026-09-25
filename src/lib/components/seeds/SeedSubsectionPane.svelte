@@ -189,6 +189,10 @@
   }
 
   async function mutate(action: () => Promise<unknown>, success: string, exclusive = true): Promise<boolean> {
+    // A3: capability is rechecked at dispatch, not only when the control was
+    // rendered. A revocation that lands between an interaction and its
+    // dispatch sends nothing; the caller keeps its local text.
+    if (!canEdit) return false;
     if (exclusive) busy = true;
     error = null;
     try {

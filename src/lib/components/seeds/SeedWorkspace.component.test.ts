@@ -17,6 +17,7 @@ import {
   __setQueryError,
 } from "$lib/test/convex-svelte-stub.svelte";
 import { captureOwner } from "$lib/test/captureOwner";
+import { reactiveValue } from "$lib/test/reactiveValue.svelte";
 import SeedWorkspace from "./SeedWorkspace.svelte";
 import SeedSubsectionPane from "./SeedSubsectionPane.svelte";
 import SeedCard from "./SeedCard.svelte";
@@ -616,6 +617,75 @@ describe("Seed workspace", () => {
     }));
     await stepMenu("Restore step");
     expect(__mutationCalls("seeds:unskip")[0]).toMatchObject({ roleId: "prior_year_status", expectedSeedStageVersion: 7 });
+  });
+
+  it("rechecks edit capability at dispatch, so a revocation landing before an interaction dispatches sends nothing (A3, R6-08)", async () => {
+    __setQueryData("seeds:listBatches", {
+      page: [{
+        batch: { _id: "batch-old-1", operation: "initial", status: "superseded" },
+        seeds: [historicalSeed("seed-old-1", "Old original.", "Old history wording.", "Old excerpt.")],
+      }],
+      isDone: true,
+      continueCursor: "done",
+      truncated: false,
+      budget,
+    });
+    const capability = reactiveValue(true);
+    const onDraftChange = vi.fn();
+    const withCapability = (props: Record<string, unknown>) =>
+      Object.defineProperty(props, "canEdit", { get: () => capability.value, enumerable: true, configurable: true });
+    const feedbackGroup = {
+      requestId: "feedback-1" as Id<"seedFeedbackRequests">,
+      targetSeedId: "seed-1" as Id<"seeds">,
+      targetWording: ["The control loop stabilized output."],
+      instruction: "Make the evidence more specific.",
+      status: "active" as const,
+      batchId: null,
+      revisedSeedIds: [],
+    };
+    const optional = { title: "Previous-year status", objective: "Describe prior-year status.", kind: "optional", onDraftChange };
+    const view = await render(SeedSubsectionPane, withCapability(paneProps(subsection({
+      roleId: "prior_year_status",
+      items: [seed({ roleId: "prior_year_status", edited: true })],
+      feedbackGroups: [feedbackGroup],
+    }), optional)));
+    await stepMenu("Batch history");
+    await expect.element(page.getByText("Old history wording.", { exact: true })).toBeVisible();
+
+    // The capability changes without a flush, so the click still reaches the
+    // control the pane rendered while the writer could edit.
+    async function revokeThenDispatch(control: () => ReturnType<typeof page.getByRole>, open?: () => Promise<void>) {
+      capability.value = true;
+      await open?.();
+      await expect.element(control()).toBeVisible();
+      const element = control().element() as HTMLElement;
+      capability.value = false;
+      element.click();
+      await expect.poll(() => control().elements()).toHaveLength(0);
+    }
+    await revokeThenDispatch(() => page.getByRole("button", { name: "Restore original wording", exact: true }));
+    await revokeThenDispatch(() => page.getByRole("button", { name: "Withdraw feedback", exact: true }));
+    await revokeThenDispatch(() => page.getByRole("button", { name: "Regenerate", exact: true }));
+    await revokeThenDispatch(() => page.getByRole("button", { name: "Restore this Batch", exact: true }));
+    await revokeThenDispatch(
+      () => page.getByRole("menuitem", { name: "Skip step", exact: true }),
+      () => page.getByRole("button", { name: "More step actions", exact: true }).click()
+    );
+    view.unmount();
+
+    await render(SeedSubsectionPane, withCapability(paneProps(
+      subsection({ roleId: "prior_year_status", state: "skipped", items: [] }),
+      optional
+    )));
+    await revokeThenDispatch(
+      () => page.getByRole("menuitem", { name: "Restore step", exact: true }),
+      () => page.getByRole("button", { name: "More step actions", exact: true }).click()
+    );
+
+    for (const name of ["restoreWording", "withdrawFeedback", "regenerate", "retry", "restoreBatch", "skip", "unskip"]) {
+      expect(__mutationCalls(`seeds:${name}`), name).toEqual([]);
+    }
+    expect(onDraftChange).not.toHaveBeenCalled();
   });
 
   it("discards a history response when the role/version scope changes while it is loading", async () => {
