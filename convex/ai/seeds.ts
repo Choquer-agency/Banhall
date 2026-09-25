@@ -17,7 +17,7 @@ import type {
   failAttempt,
 } from "../seedRuns";
 import type { GenerationClient } from "./openrouterCore";
-import { MalformedOutputError, messageText } from "./openrouterCore";
+import { MalformedOutputError, OutputLimitError, messageText } from "./openrouterCore";
 import { generateStructured } from "./structured";
 import {
   normalizeProviderError,
@@ -110,6 +110,13 @@ function countedClient(client: GenerationClient, onRequest: () => void): Generat
         try {
           return await client.messages.create(params);
         } catch (error) {
+          // A cut-off answer keeps its class, so the repair asks for a
+          // shorter answer rather than a generic fix.
+          if (error instanceof OutputLimitError) {
+            throw new OutputLimitError(
+              "Seed provider response was truncated at the max_tokens limit before completing"
+            );
+          }
           if (error instanceof MalformedOutputError) {
             throw new MalformedOutputError(
               "Seed provider returned malformed structured output"

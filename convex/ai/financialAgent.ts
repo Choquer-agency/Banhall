@@ -6,7 +6,7 @@ import { v } from "convex/values";
 import { z } from "zod";
 import { clientForRole } from "./providers";
 import { normalizeProviderError } from "./providers";
-import { firstResponseText } from "./openrouterCore";
+import { OutputLimitError, firstResponseText, isCutOffStopReason } from "./openrouterCore";
 
 export const TIMESHEET_EXTRACTION_PROMPT = `You are a financial analyst for an SR&ED (Scientific Research & Experimental Development) consulting firm. Your job is to reconstruct timesheets from unstructured data sources.
 
@@ -117,6 +117,14 @@ export const processFinancialUpload = internalAction({
           },
         ],
       });
+      // A reply cut off at the output limit is refused, as the OpenRouter
+      // adapter refuses one, so a partial timesheet is never stored.
+      if (isCutOffStopReason(response.stop_reason)) {
+        await response.settleOutcome?.({ ok: false, code: "output_limit" });
+        throw new OutputLimitError(
+          "Financial agent response was truncated at the max_tokens limit before completing"
+        );
+      }
       const text =
         firstResponseText(response);
       let result: ReturnType<typeof parseTimesheetReply>;
