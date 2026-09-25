@@ -45,6 +45,28 @@ export type CitationSpeaker = "client" | "needs_check" | "excluded" | "unchecked
 export const MAX_SPAN_TURNS = 50;
 /** Other places of the same excerpt tried before a citation is dropped. */
 export const MAX_RELOCATIONS = 8;
+/**
+ * The shortest quote that may move to another place of the same words
+ * (review 2026-09-25, P2-3): shorter ones, such as "120C" or "the
+ * adhesive", recur in unrelated turns, so they are dropped instead.
+ */
+export const MIN_RELOCATION_CHARS = 30;
+export const MIN_RELOCATION_WORDS = 6;
+/**
+ * How many turns before or after the excluded place the new place may be:
+ * the client's answer to the question, or the client's words the
+ * interviewer repeated.
+ */
+export const RELOCATION_TURNS = 3;
+
+/** Whether a quote is long enough to move to another place of the same words. Pure. */
+export function mayMoveQuote(excerpt: string): boolean {
+  const text = excerpt.trim();
+  return text.length >= MIN_RELOCATION_CHARS && text.split(/\s+/).length >= MIN_RELOCATION_WORDS;
+}
+
+/** A place a quote moves from, to check the new place is near it. */
+export type MovedFrom = { startOffset: number; endOffset: number };
 
 /** The verdict for a span touching turns with these roles. Pure. */
 export function speakerOfRoles(
@@ -74,6 +96,10 @@ type ReadyTranscript = {
  * A reader that answers `CitationSpeaker` for spans of frozen rows. Each
  * transcript and its speaker rows are read once per reader; each span reads
  * only the turns it touches, through `by_transcriptId_and_charStart`.
+ *
+ * With `movedFrom`, the span is a new place for a quote whose place there
+ * was excluded: it is evidence only within RELOCATION_TURNS turns of that
+ * place, and `excluded` otherwise.
  */
 export function citationSpeakerReader(ctx: Ctx) {
   const transcripts = new Map<string, Promise<ReadyTranscript | null>>();
@@ -89,14 +115,15 @@ export function citationSpeakerReader(ctx: Ctx) {
     return pending;
   };
 
-  return async (
-    source: SpeakerCheckSource,
+  /** Roles and turn indexes a span touches, or null when unchecked. */
+  const touched = async (
+    transcript: ReadyTranscript,
     startOffset: number,
     endOffset: number
-  ): Promise<CitationSpeaker> => {
-    const transcript = await ready(source);
-    if (!transcript) return "unchecked";
+  ): Promise<{ roles: TranscriptSpeakerRole[]; first?: number; last?: number } | null> => {
     const roles: TranscriptSpeakerRole[] = [];
+    let first: number | undefined;
+    let last: number | undefined;
     // Turns never overlap and are stored in text order, so walking back from
     // the last turn that starts before the span's end visits exactly the
     // turns it touches, then one that ends before it starts.
@@ -109,13 +136,34 @@ export function citationSpeakerReader(ctx: Ctx) {
     for await (const turn of touching) {
       if (turn.charEnd <= startOffset) break;
       // A turn of another build: the structure is changing under us.
-      if (turn.parserVersion !== transcript.parserVersion) return "unchecked";
-      if (roles.length >= MAX_SPAN_TURNS) return "unchecked";
+      if (turn.parserVersion !== transcript.parserVersion) return null;
+      if (roles.length >= MAX_SPAN_TURNS) return null;
       roles.push(
         turn.speakerLabel ? (transcript.roles.get(turn.speakerLabel) ?? "unknown") : "unknown"
       );
+      first = Math.min(first ?? turn.index, turn.index);
+      last = Math.max(last ?? turn.index, turn.index);
     }
-    return speakerOfRoles(roles);
+    return { roles, first, last };
+  };
+
+  return async (
+    source: SpeakerCheckSource,
+    startOffset: number,
+    endOffset: number,
+    movedFrom?: MovedFrom
+  ): Promise<CitationSpeaker> => {
+    const transcript = await ready(source);
+    if (!transcript) return "unchecked";
+    const here = await touched(transcript, startOffset, endOffset);
+    if (!here) return "unchecked";
+    const verdict = speakerOfRoles(here.roles);
+    if (!movedFrom || verdict === "excluded") return verdict;
+    const there = await touched(transcript, movedFrom.startOffset, movedFrom.endOffset);
+    if (!there || here.first === undefined || there.first === undefined) return "excluded";
+    const near =
+      here.first <= there.last! + RELOCATION_TURNS && here.last! >= there.first - RELOCATION_TURNS;
+    return near ? verdict : "excluded";
   };
 }
 
@@ -176,7 +224,10 @@ export function otherOccurrences(
  * One citation under decision 25: kept where it is, moved to the nearest
  * other place in the same row where the same words are not the
  * interviewer's or another speaker's (the client may repeat a question's
- * words), or null to drop it. `speaker` is the verdict at the kept place.
+ * words), or null to drop it. Only a quote of at least MIN_RELOCATION_WORDS
+ * words and MIN_RELOCATION_CHARS characters moves, and only to a place
+ * within RELOCATION_TURNS turns of the old one (review 2026-09-25, P2-3).
+ * `speaker` is the verdict at the kept place.
  */
 export async function evidenceSpan(
   speakerOf: SpeakerReader,
@@ -191,7 +242,9 @@ export async function evidenceSpan(
   if (here !== "excluded") {
     return { startOffset: citation.startOffset, endOffset: citation.endOffset, speaker: here };
   }
+  if (!mayMoveQuote(citation.exactExcerpt)) return null;
   const length = citation.exactExcerpt.length;
+  const movedFrom = { startOffset: citation.startOffset, endOffset: citation.endOffset };
   for (const at of otherOccurrences(
     source.content,
     citation.exactExcerpt,
@@ -199,7 +252,7 @@ export async function evidenceSpan(
     citation.startOffset,
     MAX_RELOCATIONS
   )) {
-    const there = await speakerOf(source, at, at + length);
+    const there = await speakerOf(source, at, at + length, movedFrom);
     if (there !== "excluded") return { startOffset: at, endOffset: at + length, speaker: there };
   }
   return null;

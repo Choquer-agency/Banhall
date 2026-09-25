@@ -23,6 +23,8 @@ import type { GenerationClient } from "./ai/openrouterCore";
 import { sha256 } from "./lib/contracts";
 import {
   citationSpeakerReader,
+  evidenceSpan,
+  mayMoveQuote,
   otherOccurrences,
   speakerOfRoles,
   type CitationSpeaker,
@@ -253,6 +255,40 @@ describe("the speaker check (convex/lib/citationSpeakers.ts)", () => {
     expect(await interviewerRole("model", 0.9)).toBe("excluded");
   });
 
+  it("moves a quote only when it is long enough and the new place is near the old one", async () => {
+    const t = convexTest(schema, modules);
+    const f = await meridian(t, { turns: true });
+    expect(mayMoveQuote(ECHO)).toBe(true);
+    expect(mayMoveQuote("the standard cure")).toBe(false);
+    expect(mayMoveQuote("peel strength after every batch")).toBe(false);
+    // Robin Chen's line is turn 5: three turns after the question (turn 2),
+    // five after the opening question (turn 0).
+    expect(
+      await t.run(async (ctx) => {
+        const source = (await ctx.db.get(f.sourceId))!;
+        const speakerOf = citationSpeakerReader(ctx);
+        const unknown = at(UNKNOWN);
+        return [
+          await speakerOf(source, unknown.startOffset, unknown.endOffset, at(QUESTION)),
+          await speakerOf(source, unknown.startOffset, unknown.endOffset, ECHO_INTERVIEWER),
+        ];
+      })
+    ).toEqual(["needs_check", "excluded"]);
+    const kept = await t.run(async (ctx) => {
+      const source = (await ctx.db.get(f.sourceId))!;
+      const speakerOf = citationSpeakerReader(ctx);
+      const short = at("the standard cure");
+      return [
+        await evidenceSpan(speakerOf, source, ECHO_INTERVIEWER),
+        await evidenceSpan(speakerOf, source, short),
+      ];
+    });
+    expect(kept).toEqual([
+      { startOffset: ECHO_CLIENT.startOffset, endOffset: ECHO_CLIENT.endOffset, speaker: "client" },
+      null,
+    ]);
+  });
+
   it("decides from roles alone, and orders other places nearest first", () => {
     expect(speakerOfRoles([])).toBe("needs_check");
     expect(speakerOfRoles(["interviewer"])).toBe("excluded");
@@ -474,7 +510,7 @@ describe("Seeds keep only client turns as evidence outside facts mode", () => {
 
 // ─── Brief entries ───────────────────────────────────────────────────────────
 
-function briefClient(): GenerationClient {
+function briefClient(overrides: Record<string, unknown> = {}): GenerationClient {
   return {
     messages: {
       create: async (params) => ({
@@ -493,6 +529,7 @@ function briefClient(): GenerationClient {
             ],
             // First said by the interviewer, then by the client.
             glossaryTerms: [{ term: "bond line" }],
+            ...overrides,
           },
         }],
         stop_reason: "tool_use",
@@ -501,10 +538,14 @@ function briefClient(): GenerationClient {
   };
 }
 
-async function deriveBrief(t: TestConvex, f: Awaited<ReturnType<typeof meridian>>) {
+async function deriveBrief(
+  t: TestConvex,
+  f: Awaited<ReturnType<typeof meridian>>,
+  overrides: Record<string, unknown> = {}
+) {
   await t.run((ctx) => ctx.db.patch(f.generationId, { gatedWorkflow: undefined, status: "running" }));
   const outcome = await runAction(t, async (ctx) =>
-    deriveOrReuseBrief(ctx, briefClient(), { projectId: f.projectId, generationId: f.generationId })
+    deriveOrReuseBrief(ctx, briefClient(overrides), { projectId: f.projectId, generationId: f.generationId })
   );
   if (outcome.kind !== "derived") throw new Error(`unexpected Brief outcome ${outcome.kind}`);
   return await t.run(async (ctx) => ({
@@ -530,6 +571,25 @@ describe("Brief entries keep only client turns as evidence outside facts mode", 
       ].sort()
     );
     // Both dropped entries are counted on the Brief.
+    expect(brief?.droppedEntryCount).toBe(2);
+  });
+
+  it("moves only a long quote, and only near its first place; a short one is dropped", async () => {
+    const t = convexTest(schema, modules);
+    const f = await meridian(t, { turns: true });
+    const { brief, entries } = await deriveBrief(t, f, {
+      confidenceMap: [
+        // Said by the interviewer first, then echoed in the client's answer.
+        { text: "The bond line fails at the standard cure.", quote: ECHO, confidence: "established" },
+        // Too short to move: dropped, never re-backed by the client's turn.
+        { text: "The standard cure is the problem.", quote: "the standard cure", confidence: "established" },
+      ],
+    });
+    const confidence = entries.filter((entry) => entry.group === "confidenceMap");
+    expect(confidence.map((entry) => [entry.exactExcerpt, entry.startOffset])).toEqual([
+      [ECHO, ECHO_CLIENT.startOffset],
+    ]);
+    // The exclusion (question) and the short quote.
     expect(brief?.droppedEntryCount).toBe(2);
   });
 

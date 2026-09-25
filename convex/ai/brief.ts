@@ -32,7 +32,7 @@ import {
   type Citation,
   type FrozenSource,
 } from "../lib/citations";
-import type { CitationSpeaker } from "../lib/citationSpeakers";
+import { mayMoveQuote, type CitationSpeaker } from "../lib/citationSpeakers";
 import { citeFactQuote, readsFactPacks } from "../lib/seedFacts";
 import {
   flaggedGlossaryTerms,
@@ -512,30 +512,46 @@ const CITATION_SPEAKER_BATCH = 1_000;
 /**
  * Owner decision 25 verdicts for candidate places on transcript rows, one
  * query per batch. Places on any other row are not asked about and read as
- * `unchecked` (no entry in the map).
+ * `unchecked` (no entry in the map). In an `anchored` group every place
+ * after the first is a new place for the first one's words: it counts only
+ * on the same row and near that place (review 2026-09-25, P2-3). Glossary
+ * terms are not anchored: a term the client used anywhere is theirs.
  */
 async function citationSpeakersFor(
   ctx: BriefPublishCtx,
   generationId: Id<"generations">,
   sources: ReadonlyArray<{ _id: Id<"generationSources">; kind: string }>,
-  places: readonly Citation[]
+  groups: ReadonlyArray<{ places: readonly Citation[]; anchored: boolean }>
 ): Promise<Map<Citation, CitationSpeaker>> {
   const transcriptRows = new Set<string>(
     sources.filter((source) => source.kind === "transcript").map((source) => source._id)
   );
-  const asked = places.filter((place) => transcriptRows.has(place.sourceId));
   const verdicts = new Map<Citation, CitationSpeaker>();
+  const asked: Array<{ place: Citation; movedFrom?: Citation }> = [];
+  for (const { places, anchored } of groups) {
+    const [first] = places;
+    for (const place of places) {
+      if (anchored && place !== first && place.sourceId !== first.sourceId) {
+        verdicts.set(place, "excluded");
+      } else if (transcriptRows.has(place.sourceId)) {
+        asked.push({ place, ...(anchored && place !== first ? { movedFrom: first } : {}) });
+      }
+    }
+  }
   for (let at = 0; at < asked.length; at += CITATION_SPEAKER_BATCH) {
     const batch = asked.slice(at, at + CITATION_SPEAKER_BATCH);
     const answers = await ctx.runQuery(internal.generations.getCitationSpeakers, {
       generationId,
-      spans: batch.map(({ sourceId, startOffset, endOffset }) => ({
-        sourceId,
-        startOffset,
-        endOffset,
+      spans: batch.map(({ place, movedFrom }) => ({
+        sourceId: place.sourceId,
+        startOffset: place.startOffset,
+        endOffset: place.endOffset,
+        ...(movedFrom
+          ? { movedFrom: { startOffset: movedFrom.startOffset, endOffset: movedFrom.endOffset } }
+          : {}),
       })),
     });
-    batch.forEach((place, index) => verdicts.set(place, answers[index]));
+    batch.forEach(({ place }, index) => verdicts.set(place, answers[index]));
   }
   return verdicts;
 }
@@ -643,7 +659,10 @@ export async function deriveOrReuseBrief(
     ];
     for (const quote of quotes) {
       if (!places.has(quote)) {
-        places.set(quote, quoteOccurrences(evidenceSources, quote, MAX_QUOTE_PLACES));
+        // A short quote never moves off an excluded place (review
+        // 2026-09-25, P2-3): only its first place is tried.
+        const limit = mayMoveQuote(quote) ? MAX_QUOTE_PLACES : 1;
+        places.set(quote, quoteOccurrences(evidenceSources, quote, limit));
       }
     }
   }
@@ -668,8 +687,8 @@ export async function deriveOrReuseBrief(
     ];
   });
   const speakerAt = await citationSpeakersFor(ctx, args.generationId, sources, [
-    ...[...places.values()].flat(),
-    ...glossaryPlaces.flat(),
+    ...[...places.values()].map((candidates) => ({ places: candidates, anchored: true })),
+    ...glossaryPlaces.map((candidates) => ({ places: candidates, anchored: false })),
   ]);
   const firstEvidence = (candidates: readonly Citation[]): Citation | null =>
     candidates.find((place) => speakerAt.get(place) !== "excluded") ?? null;

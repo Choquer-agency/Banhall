@@ -264,6 +264,9 @@ export const getCitationSpeakersArgs = {
       sourceId: v.id("generationSources"),
       startOffset: v.number(),
       endOffset: v.number(),
+      // A quote's first place on the same row: this span is a new place for
+      // it and counts only near that one (review 2026-09-25, P2-3).
+      movedFrom: v.optional(v.object({ startOffset: v.number(), endOffset: v.number() })),
     })
   ),
 };
@@ -295,7 +298,7 @@ export async function getCitationSpeakersHandler(
     }
     verdicts.push(
       source && source.generationId === args.generationId
-        ? await speakerOf(source, span.startOffset, span.endOffset)
+        ? await speakerOf(source, span.startOffset, span.endOffset, span.movedFrom)
         : "unchecked"
     );
   }
