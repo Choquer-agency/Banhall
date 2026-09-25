@@ -2,8 +2,11 @@ import type { MutationCtx, QueryCtx } from "../_generated/server";
 import type { Doc, Id } from "../_generated/dataModel";
 import { internal } from "../_generated/api";
 import { domainError, sha256 } from "./contracts";
-import { isStorageReferenced } from "./storage";
-import type { TranscriptSourceFormat } from "../../shared/transcriptParse";
+import { isStorageReferenced, requireFreshUpload } from "./storage";
+import {
+  TRANSCRIPT_PARSER_VERSION,
+  type TranscriptSourceFormat,
+} from "../../shared/transcriptParse";
 
 type Ctx = QueryCtx | MutationCtx;
 
@@ -347,14 +350,71 @@ export async function copyTranscriptRow(
   return transcriptId;
 }
 
+/**
+ * A build chain older than this that never finished (its step threw, say)
+ * no longer holds the transcript: the backfill or a facts request may start
+ * a new one.
+ */
+export const STRUCTURE_BUILD_STALE_MS = 10 * 60_000;
+
+/** A fresh build chain id: its start time, then random hex. */
+export function newStructureBuildId(now = Date.now()): string {
+  const bytes = new Uint8Array(12);
+  crypto.getRandomValues(bytes);
+  return `${now.toString(36)}-${Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("")}`;
+}
+
+/** When the chain holding this id started; undefined for an id without a time. */
+export function structureBuildStartedAt(buildId: string | undefined): number | undefined {
+  const match = buildId ? /^([0-9a-z]+)-[0-9a-f]+$/.exec(buildId) : null;
+  if (!match) return undefined;
+  const at = parseInt(match[1], 36);
+  return Number.isFinite(at) ? at : undefined;
+}
+
+/** Whether a build chain holds this transcript right now. */
+export function structureBuildIsLive(transcript: Doc<"transcripts">, now = Date.now()): boolean {
+  const started = structureBuildStartedAt(transcript.structureBuildId);
+  return started !== undefined && now - started < STRUCTURE_BUILD_STALE_MS;
+}
+
+/**
+ * Starts the turn build of a new row, asking for the model's look at
+ * speakers. The row is marked before the build is scheduled, so the backfill
+ * leaves it to this build and a chain that takes it over still asks.
+ */
 export async function scheduleTranscriptStructure(
   ctx: MutationCtx,
   transcriptId: Id<"transcripts">
 ): Promise<void> {
+  await ctx.db.patch(transcriptId, {
+    structureBuildId: newStructureBuildId(),
+    structureModelRoles: true,
+  });
   await ctx.scheduler.runAfter(0, internal.transcripts.buildTranscriptStructure, {
     transcriptId,
     modelRoles: true,
   });
+}
+
+/**
+ * Schedules a rule-only rebuild of a row whose turns are not at the current
+ * parser version, unless a build already holds it. Marks the row first, so
+ * repeated calls schedule once. Returns whether it scheduled one.
+ */
+export async function scheduleStructureRebuildIfStale(
+  ctx: MutationCtx,
+  transcript: Doc<"transcripts">
+): Promise<boolean> {
+  if (transcript.parserVersion === TRANSCRIPT_PARSER_VERSION) return false;
+  if (transcript.archivedAt !== undefined || transcript.content.trim() === "") return false;
+  const now = Date.now();
+  if (structureBuildIsLive(transcript, now)) return false;
+  await ctx.db.patch(transcript._id, { structureBuildId: newStructureBuildId(now) });
+  await ctx.scheduler.runAfter(0, internal.transcripts.buildTranscriptStructure, {
+    transcriptId: transcript._id,
+  });
+  return true;
 }
 
 /** Speaker rows a copy may carry over. */
@@ -411,11 +471,13 @@ export function requireTranscriptTextWithinCap(content: string): void {
 }
 
 /**
- * The uploaded original file, if it exists, fits the file limit and no row
- * holds it yet. A file over the limit is refused (the client checks the size
- * before uploading). A file another row already holds is refused too: the
- * transcript's reference would keep that row's file alive when its own
- * project is erased (`deleteStorageIfUnreferenced`).
+ * The uploaded original file, if it exists, was uploaded in the last hour
+ * (`requireFreshUpload`), fits the file limit and no row holds it yet. A
+ * file over the limit is refused (the client checks the size before
+ * uploading). An old orphan is refused, so no project can claim one. A file
+ * another row already holds is refused too: the transcript's reference
+ * would keep that row's file alive when its own project is erased
+ * (`deleteStorageIfUnreferenced`).
  */
 export async function validatedOriginalStorage(
   ctx: MutationCtx,
@@ -423,6 +485,7 @@ export async function validatedOriginalStorage(
 ): Promise<Id<"_storage">> {
   const metadata = await ctx.db.system.get("_storage", storageId);
   if (!metadata) domainError("INVALID_INPUT", "The uploaded transcript file was not found");
+  await requireFreshUpload(ctx, storageId, "The uploaded transcript file is no longer available. Upload it again.");
   if (metadata.size > MAX_TRANSCRIPT_FILE_BYTES) {
     domainError("INVALID_INPUT", "A transcript file can be at most 25 MB");
   }

@@ -29,7 +29,11 @@ import {
 } from "./instrument";
 import { COMPRESSION_REQUEST } from "./promptDefinitions";
 import { instrumentedOpenRouter } from "./openrouter";
-import { MalformedOutputError, type GenerationClient, type GenerationResponse } from "./openrouterCore";
+import {
+  MalformedOutputError,
+  type GenerationClient,
+  type GenerationResponse,
+} from "./openrouterCore";
 import { entryFromFrozen } from "../lib/modelRoles";
 import type { PlaceholderMap } from "../lib/deidentify";
 import { withPlaceholders } from "./placeholderClient";
@@ -289,40 +293,122 @@ export function withOutcomeRecording(
   modelId: string,
   callSite: string,
   client: GenerationClient,
-  options: { deferOutcome?: boolean } = {}
+  options: {
+    deferOutcome?: boolean;
+    /**
+     * The caller's abort signal (fact extraction, 2026-09-25): a request the
+     * caller gave up on records nothing, since that says nothing about the
+     * model (review P3-b).
+     */
+    signal?: AbortSignal;
+  } = {}
 ): GenerationClient {
   return {
     messages: {
-      create: async (params) => {
-        const requested = params.model || modelId;
-        let response: Awaited<ReturnType<GenerationClient["messages"]["create"]>>;
-        try {
-          response = await client.messages.create(params);
-        } catch (error) {
-          const code = modelFaultCode(error);
-          if (code) {
-            await recordOutcome(ctx, { model: servedModelOf(error) ?? requested, callSite, outcome: "failure", code });
-          }
-          throw error;
-        }
-        const model = response.servedModel ?? requested;
-        if (params.tool_choice || options.deferOutcome) {
-          let settled = false;
-          response.settleOutcome = async (result) => {
-            if (settled) return;
-            settled = true;
-            await recordOutcome(
-              ctx,
-              result.ok
-                ? { model, callSite, outcome: "success" }
-                : { model, callSite, outcome: "failure", code: result.code }
-            );
-          };
-          return response;
-        }
-        await recordOutcome(ctx, { model, callSite, outcome: "success" });
-        return response;
-      },
+      create: async (params) =>
+        await recordedRequest(
+          ctx,
+          {
+            requested: params.model || modelId,
+            callSite,
+            defer: Boolean(params.tool_choice || options.deferOutcome),
+            ...(options.signal ? { signal: options.signal } : {}),
+          },
+          () => client.messages.create(params)
+        ),
+    },
+  };
+}
+
+/** Settles a deferred outcome once the caller knows whether the output is usable. */
+export type SettleOutcome = (result: { ok: true } | { ok: false; code: string }) => Promise<void>;
+
+/**
+ * The one place a provider request's terminal outcome is recorded: exactly
+ * one per request (phase 2 rule), for the model that served it. A deferred
+ * request hands the response a `settleOutcome` for the caller to call after
+ * its own validation. A request whose own `signal` was aborted records
+ * nothing (review 2026-09-25, P3-b): the caller gave up, which says nothing
+ * about the model. Any other error, a timeout included, is judged by
+ * `modelFaultCode`, so an attempt that timed out on its own timer (a body
+ * read past the deadline, say) still counts against the model.
+ */
+async function recordedRequest<R extends { servedModel?: string; settleOutcome?: SettleOutcome }>(
+  ctx: Pick<ActionCtx, "runMutation">,
+  request: { requested: string; callSite: string; defer: boolean; signal?: AbortSignal },
+  send: () => Promise<R>
+): Promise<R> {
+  const { requested, callSite } = request;
+  let response: R;
+  try {
+    response = await send();
+  } catch (error) {
+    const code = request.signal?.aborted ? null : modelFaultCode(error);
+    if (code) {
+      await recordOutcome(ctx, { model: servedModelOf(error) ?? requested, callSite, outcome: "failure", code });
+    }
+    throw error;
+  }
+  const model = response.servedModel ?? requested;
+  if (request.defer) {
+    let settled = false;
+    response.settleOutcome = async (result) => {
+      if (settled) return;
+      settled = true;
+      await recordOutcome(
+        ctx,
+        result.ok
+          ? { model, callSite, outcome: "success" }
+          : { model, callSite, outcome: "failure", code: result.code }
+      );
+    };
+    return response;
+  }
+  await recordOutcome(ctx, { model, callSite, outcome: "success" });
+  return response;
+}
+
+/** The Anthropic calls citations-mode extraction makes (see citationsExtractor). */
+export type OutcomeAnthropicClient = {
+  messages: {
+    create(
+      params: Anthropic.MessageCreateParamsNonStreaming,
+      options?: { signal?: AbortSignal }
+    ): Promise<Anthropic.Message & { settleOutcome?: SettleOutcome }>;
+  };
+};
+
+/**
+ * An Anthropic client for requests `withOutcomeRecording` cannot carry:
+ * citations-mode fact extraction reads a plain-text answer and passes
+ * request options such as `{ signal }` (review 2026-09-25, P3-a). Every
+ * request records exactly one outcome: its response carries
+ * `settleOutcome`, which the caller settles after parsing, and a failed
+ * request records its model fault. A request the caller aborted records
+ * nothing.
+ */
+export function withAnthropicOutcomeRecording(
+  ctx: Pick<ActionCtx, "runMutation">,
+  modelId: string,
+  callSite: string,
+  client: Anthropic
+): OutcomeAnthropicClient {
+  return {
+    messages: {
+      create: async (params, options) =>
+        await recordedRequest(
+          ctx,
+          {
+            requested: params.model || modelId,
+            callSite,
+            defer: true,
+            ...(options?.signal ? { signal: options.signal } : {}),
+          },
+          async () =>
+            (await client.messages.create(params, options?.signal ? { signal: options.signal } : undefined)) as Anthropic.Message & {
+              settleOutcome?: SettleOutcome;
+            }
+        ),
     },
   };
 }
@@ -481,7 +567,9 @@ export function factExtractionClient(
       },
     };
   }
-  return withOutcomeRecording(ctx, modelId, meta.callSite, client);
+  return withOutcomeRecording(ctx, modelId, meta.callSite, client, {
+    ...(options.signal ? { signal: options.signal } : {}),
+  });
 }
 
 /**

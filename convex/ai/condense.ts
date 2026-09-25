@@ -41,6 +41,7 @@ import {
   clientForModel,
   clientForRole,
   factExtractionClient,
+  withAnthropicOutcomeRecording,
   registerGenerationModels,
   CONVEX_ACTION_LIMIT_MS,
   normalizeProviderError,
@@ -362,12 +363,19 @@ function extractorFor(
   };
   if (gatewayForModel(model) === "anthropic") {
     // Not placeholder-wrapped either: extractTranscriptFacts applies the
-    // one map to every window and every answer.
-    const client = instrumentedAnthropic(ctx, {
-      ...common,
-      capability: "generation",
-      clientOptions: { timeout: FACTS_TIMEOUT_MS },
-    });
+    // one map to every window and every answer. Every request records one
+    // outcome for the model catalog, settled after its answer is parsed
+    // (review 2026-09-25, P3-a).
+    const client = withAnthropicOutcomeRecording(
+      ctx,
+      model,
+      callSite,
+      instrumentedAnthropic(ctx, {
+        ...common,
+        capability: "generation",
+        clientOptions: { timeout: FACTS_TIMEOUT_MS },
+      })
+    );
     return {
       adapter: "citations",
       extractor: citationsExtractor(client, model, (tokens) => {

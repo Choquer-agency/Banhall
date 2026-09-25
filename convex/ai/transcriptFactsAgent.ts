@@ -210,17 +210,55 @@ export function stripTurnPrefix(text: string): string {
   return text.replace(/^\s*\[T\d{1,6}\]\s*\((?:interviewer|client|other|unknown)\)\s*(?:[^:\n]{1,80}:\s)?/, "").trim();
 }
 
+/**
+ * The Anthropic client citations mode needs: `create` with request options.
+ * A response may carry `settleOutcome` (providers.ts
+ * withAnthropicOutcomeRecording), settled once the answer is parsed.
+ */
+export type CitationsClient = {
+  messages: {
+    create(
+      params: Anthropic.MessageCreateParamsNonStreaming,
+      options?: { signal?: AbortSignal }
+    ): Promise<
+      Anthropic.Message & {
+        settleOutcome?: (result: { ok: true } | { ok: false; code: string }) => Promise<void>;
+      }
+    >;
+  };
+};
+
+/**
+ * The outcome one parsed citations answer records (review 2026-09-25,
+ * P3-a): cut off at max_tokens or refused is a failure of the model, even
+ * when the lines before the cut are kept; anything else is a success.
+ */
+export function citationsOutcome(stopReason: string | null | undefined): { ok: true } | { ok: false; code: string } {
+  if (stopReason === "max_tokens") return { ok: false, code: "output_limit" };
+  if (stopReason === "refusal") return { ok: false, code: "refusal" };
+  return { ok: true };
+}
+
 export function citationsExtractor(
-  client: Anthropic,
+  client: CitationsClient | Anthropic,
   model: string,
   onUsage?: (usage: { inputTokens: number; outputTokens: number }) => void
 ): FactWindowExtractor {
+  const citations = client as CitationsClient;
   return async (lines, signal) => {
-    const response = await client.messages.create(citationsRequest(model, lines), signal ? { signal } : undefined);
+    const response = await citations.messages.create(citationsRequest(model, lines), signal ? { signal } : undefined);
     if (response.usage) {
       onUsage?.({ inputTokens: response.usage.input_tokens, outputTokens: response.usage.output_tokens });
     }
-    return parseCitationsResponse(response.content, lines, { truncated: response.stop_reason === "max_tokens" });
+    let facts: ProposedFact[];
+    try {
+      facts = parseCitationsResponse(response.content, lines, { truncated: response.stop_reason === "max_tokens" });
+    } catch (error) {
+      await response.settleOutcome?.({ ok: false, code: "malformed_output" });
+      throw error;
+    }
+    await response.settleOutcome?.(citationsOutcome(response.stop_reason));
+    return facts;
   };
 }
 
@@ -277,6 +315,19 @@ export function structuredExtractor(
 // ─── Orchestration ─────────────────────────────────────────────────────────
 
 /**
+ * Why a call was aborted, as an AbortError: the caller gave up, and the
+ * model is not to blame (review 2026-09-25, P3-b). Transports and outcome
+ * recording read the name, so an abort is never retried or counted.
+ */
+function abortError(message: string): DOMException {
+  return new DOMException(message, "AbortError");
+}
+
+function stoppedError(): DOMException {
+  return abortError("Fact extraction stopped after a failed window");
+}
+
+/**
  * Runs `run` over `items`, at most `limit` at once. After the first failure
  * `stop` aborts, and no worker starts another item.
  */
@@ -290,11 +341,11 @@ async function mapWithConcurrency<T, R>(
   let next = 0;
   const worker = async () => {
     for (let index = next++; index < items.length; index = next++) {
-      if (stop?.signal.aborted) throw new Error("Fact extraction stopped after a failed window");
+      if (stop?.signal.aborted) throw stoppedError();
       try {
         results[index] = await run(items[index]);
       } catch (error) {
-        stop?.abort();
+        stop?.abort(stoppedError());
         throw error;
       }
     }
@@ -325,7 +376,7 @@ async function withTimeout<T>(
       pending,
       new Promise<never>((_, reject) => {
         timer = setTimeout(() => {
-          controller.abort(new Error("Fact extraction ran past its time limit"));
+          controller.abort(abortError("Fact extraction ran past its time limit"));
           reject(new Error("Fact extraction ran past its time limit"));
         }, ms);
       }),
@@ -402,7 +453,7 @@ export async function extractTranscriptFacts(args: {
     async (window) => {
       if (!args.slots) return await call(window);
       return await args.slots.run(async () => {
-        if (stop.signal.aborted) throw new Error("Fact extraction stopped after a failed window");
+        if (stop.signal.aborted) throw stoppedError();
         return await call(window);
       });
     },

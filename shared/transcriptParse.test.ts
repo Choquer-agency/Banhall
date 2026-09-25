@@ -4,6 +4,7 @@ import {
   cleanTurnText,
   detectTranscriptFormat,
   formatTimestamp,
+  isCueRender,
   MAX_TURN_CHARS,
   normalizeTranscriptText,
   parseTranscriptTurns,
@@ -16,6 +17,11 @@ import {
 
 function fixture(name: string): string {
   return readFileSync(new URL(`./__fixtures__/transcripts/${name}`, import.meta.url), "utf8");
+}
+
+/** Turns of prepared text as the server builds them: cue rules for cue renders. */
+function builtTurns(prepared: { format: Parameters<typeof isCueRender>[0]; content: string }): TranscriptTurn[] {
+  return parseTranscriptTurns(prepared.content, { cues: isCueRender(prepared.format, prepared.content) });
 }
 
 function speakers(turns: TranscriptTurn[]): Array<string | undefined> {
@@ -112,7 +118,7 @@ describe("format detection and canonical render", () => {
         "[00:00:12] Someone joined without a name.",
       ].join("\n\n")
     );
-    const turns = parseTranscriptTurns(prepared.content);
+    const turns = builtTurns(prepared);
     expect(turns.map((turn) => [turn.speakerLabel, turn.startMs])).toEqual([
       ["Dana Whitfield", 1_000],
       ["Priya Shah", 5_000],
@@ -236,7 +242,7 @@ describe("cues and turns with no speaker", () => {
       text: "1\n00:00:01,000 --> 00:00:03,000\nWe could not predict flow.\n\n2\n00:00:04,500 --> 00:00:06,000\nSo we built a rig.",
     });
     expect(srt.content).toBe("[00:00:01] We could not predict flow.\n\n[00:00:04] So we built a rig.");
-    const turns = parseTranscriptTurns(srt.content);
+    const turns = builtTurns(srt);
     expect(turns.map((turn) => [turn.speakerLabel, turn.startMs, turn.endMs])).toEqual([
       [undefined, 1_000, 4_000],
       [undefined, 4_000, undefined],
@@ -261,13 +267,95 @@ describe("cues and turns with no speaker", () => {
         "<v Priya Shah>A test rig.",
       ].join("\n"),
     });
-    const turns = parseTranscriptTurns(vtt.content);
+    const turns = builtTurns(vtt);
     expect(turns.map((turn) => [turn.speakerLabel, turn.startMs])).toEqual([
       ["Dana Whitfield", 1_000],
       [undefined, 3_000],
       ["Priya Shah", 5_000],
     ]);
     expect(vtt.content.slice(turns[1].charStart, turns[1].charEnd)).toBe("Background voice nobody named.");
+  });
+
+  it("keeps an unnamed cue whose speech holds a colon out of the speaker above it", () => {
+    for (const [fileName, text] of [
+      [
+        "call.vtt",
+        "WEBVTT\n\n00:00:01.000 --> 00:00:02.000\n<v Priya Shah>We built a rig.\n\n00:00:03.000 --> 00:00:05.000\nWe tested two options: the first failed.",
+      ],
+      [
+        "call.srt",
+        "1\n00:00:01,000 --> 00:00:02,000\nPriya Shah: We built a rig.\n\n2\n00:00:03,000 --> 00:00:05,000\nNote: the logger dropped out.",
+      ],
+    ] as const) {
+      const prepared = prepareTranscriptUpload({ fileName, text });
+      const turns = builtTurns(prepared);
+      expect(turns.map((turn) => [turn.speakerLabel, turn.startMs]), fileName).toEqual([
+        ["Priya Shah", 1_000],
+        [undefined, 3_000],
+      ]);
+      expect(turns[0].cleanText, fileName).toBe("We built a rig.");
+      expect(prepared.content.slice(turns[1].charStart, turns[1].charEnd), fileName).toMatch(
+        /^(We tested two options: the first failed\.|Note: the logger dropped out\.)$/
+      );
+      expectSpansValid(prepared.content, turns);
+    }
+  });
+
+  it("reads a colon line with a bracketed time and no speaker as timed, never as a speaker", () => {
+    expect(splitSpeakerLine("[00:00:03] We tested two options: the first failed")).toEqual({
+      kind: "timed",
+      timeMs: 3_000,
+      speechOffset: "[00:00:03] ".length,
+    });
+    expect(speakerOfTranscriptLine("[00:00:03] We tested two options: the first failed")).toBeUndefined();
+    // A named line keeps its speaker.
+    expect(splitSpeakerLine("[00:00:03] Priya Shah: We tested it")).toMatchObject({
+      kind: "inline",
+      speaker: "Priya Shah",
+    });
+    // Without a bracketed time a non-speaker colon line is still plain text.
+    expect(splitSpeakerLine("We tested two options: the first failed")).toBeUndefined();
+  });
+});
+
+describe("bracketed times outside cue renders", () => {
+  it("keeps a timestamped paragraph in the named turn above it, as pasted and .txt transcripts expect", () => {
+    const content = "Priya Shah: We built the first rig in March.\n\n[00:12:30] And then the rig failed on a cloudy day.\n\nDana Whitfield: Why?";
+    for (const format of ["paste", "txt", "otter", "unknown", undefined] as const) {
+      const turns = parseTranscriptTurns(content, { cues: isCueRender(format, content) });
+      expect(turns.map((turn) => turn.speakerLabel), String(format)).toEqual(["Priya Shah", "Dana Whitfield"]);
+      expect(content.slice(turns[0].charStart, turns[0].charEnd), String(format)).toBe(
+        "We built the first rig in March.\n\n[00:12:30] And then the rig failed on a cloudy day."
+      );
+      expect(turns[0].cleanText).toBe(
+        "We built the first rig in March. And then the rig failed on a cloudy day."
+      );
+    }
+  });
+
+  it("gives a timestamped paragraph that opens a turn its time", () => {
+    const content = "[00:00:05] We met the client.\n\n[00:01:10] They built a rig.";
+    const turns = parseTranscriptTurns(content, { cues: isCueRender("txt", content) });
+    expect(turns.map((turn) => [turn.speakerLabel, turn.startMs, turn.endMs])).toEqual([
+      [undefined, 5_000, 70_000],
+      [undefined, 70_000, undefined],
+    ]);
+    // The same edges as a transcript that never carried times: the line is kept whole.
+    expect(content.slice(turns[1].charStart, turns[1].charEnd)).toBe("[00:01:10] They built a rig.");
+  });
+
+  it("treats only VTT, SRT and cue-timed Teams exports as cue renders", () => {
+    const cueTeams = prepareTranscriptUpload({ fileName: "t.docx", text: fixture("teams-cues-docx.txt") });
+    const headerTeams = prepareTranscriptUpload({ fileName: "t.docx", text: fixture("teams-docx.txt") });
+    expect(cueTeams.format).toBe("teams_docx");
+    expect(headerTeams.format).toBe("teams_docx");
+    expect(isCueRender("teams_docx", cueTeams.content)).toBe(true);
+    expect(isCueRender("teams_docx", headerTeams.content)).toBe(false);
+    expect(isCueRender("vtt", "anything")).toBe(true);
+    expect(isCueRender("srt", "anything")).toBe(true);
+    for (const format of ["txt", "paste", "zoom", "meet", "otter", "unknown", undefined] as const) {
+      expect(isCueRender(format, cueTeams.content), String(format)).toBe(false);
+    }
   });
 });
 

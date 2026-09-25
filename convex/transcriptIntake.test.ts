@@ -427,6 +427,22 @@ describe("archived transcript history", () => {
 });
 
 describe("stored originals", () => {
+  it("refuses a file uploaded more than an hour ago", async () => {
+    const f = await setup();
+    const stale = await f.t.run((ctx) => ctx.storage.store(new Blob(["old upload"])));
+    vi.setSystemTime(Date.now() + 2 * 60 * 60 * 1000);
+    await expect(
+      f.writer.mutation(api.transcripts.addTranscript, { projectId: f.projectId, content: SECOND, originalStorageId: stale })
+    ).rejects.toThrow(/no longer available/);
+    await expect(
+      f.writer.mutation(api.projects.createProject, {
+        title: "New",
+        clientName: "Verdant Grid",
+        transcripts: [{ content: SECOND, label: "b.vtt", originalStorageId: stale }],
+      })
+    ).rejects.toThrow(/no longer available/);
+  });
+
   it("refuses a file another row already holds", async () => {
     const f = await setup();
     const { documentFile, transcriptFile } = await f.t.run(async (ctx) => {

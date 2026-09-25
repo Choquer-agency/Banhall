@@ -6,9 +6,10 @@ import {
   getInternalProjectAccessOrNull,
   requireInternalActor,
   requireInternalProjectAccess,
+  requireRole,
 } from "./lib/auth";
 import { domainError, sha256 } from "./lib/contracts";
-import { deleteStorageIfUnreferenced } from "./lib/storage";
+import { deleteStorageIfUnreferenced, isStorageReferenced } from "./lib/storage";
 import { findActiveGeneration } from "./lib/activeGeneration";
 import {
   transcriptSourceFormatValidator,
@@ -34,7 +35,7 @@ import {
   transcriptHash,
 } from "./lib/transcriptFactRows";
 import { transcriptFactTypeValidator } from "./lib/transcriptValidators";
-import { transcriptFactsMode, transcriptPlaceholdersEnabled } from "./appSettings";
+import { storageSweepMode, transcriptFactsMode, transcriptPlaceholdersEnabled } from "./appSettings";
 import { TRANSCRIPT_PARSER_VERSION } from "../shared/transcriptParse";
 import {
   adoptDerivedRows,
@@ -45,6 +46,7 @@ import {
   MAX_TRANSCRIPT_HISTORY_ROWS,
   MAX_TRANSCRIPTS_PER_PROJECT,
   projectTranscriptsFrom,
+  scheduleStructureRebuildIfStale,
   requireTranscriptTextWithinCap,
   transcriptLabel,
   transcriptMetadata,
@@ -136,7 +138,9 @@ export const buildTranscriptStructure = internalMutation({
   handler: async (ctx, args) => {
     const transcript = await ctx.db.get(args.transcriptId);
     if (!transcript || (await isProjectDeleting(ctx, transcript.projectId))) return null;
-    const step = await buildStructureStep(ctx, args.transcriptId, args.fromIndex ?? 0, args.buildId);
+    const step = await buildStructureStep(ctx, args.transcriptId, args.fromIndex ?? 0, args.buildId, {
+      modelRoles: args.modelRoles === true,
+    });
     if (step.kind === "continue") {
       await ctx.scheduler.runAfter(0, internal.transcripts.buildTranscriptStructure, {
         transcriptId: args.transcriptId,
@@ -145,7 +149,9 @@ export const buildTranscriptStructure = internalMutation({
         ...(args.modelRoles ? { modelRoles: true } : {}),
       });
     }
-    if (step.kind === "done" && step.needsModelRoles && args.modelRoles) {
+    // The request is read from the row, so a build another chain took over
+    // from an upload still asks.
+    if (step.kind === "done" && step.needsModelRoles && step.modelRoles) {
       await ctx.scheduler.runAfter(0, internal.ai.condense.classifySpeakerRoles, {
         transcriptId: args.transcriptId,
       });
@@ -166,7 +172,8 @@ const BACKFILL_MAX_BYTES_READ = 4 * 1024 * 1024;
  * for every transcript row written before the transcript method. Run once
  * from the dashboard (`transcripts:backfillTranscriptStructure` with `{}`);
  * safe to run again, since rows already at the current parser version are
- * skipped. Archived and empty rows are skipped too.
+ * skipped. Archived and empty rows are skipped too, and so is a row a build
+ * already holds (an upload's, say), so the backfill never takes it over.
  */
 export const backfillTranscriptStructure = internalMutation({
   args: { cursor: v.optional(v.union(v.string(), v.null())) },
@@ -179,12 +186,7 @@ export const backfillTranscriptStructure = internalMutation({
     });
     let scheduled = 0;
     for (const row of page.page) {
-      if (row.parserVersion === TRANSCRIPT_PARSER_VERSION) continue;
-      if (row.archivedAt !== undefined || row.content.trim() === "") continue;
-      await ctx.scheduler.runAfter(0, internal.transcripts.buildTranscriptStructure, {
-        transcriptId: row._id,
-      });
-      scheduled += 1;
+      if (await scheduleStructureRebuildIfStale(ctx, row)) scheduled += 1;
     }
     if (!page.isDone) {
       // Spaced out so the builds of one page finish before the next starts.
@@ -439,6 +441,210 @@ export const discardTranscriptOriginals = mutation({
   },
 });
 
+/**
+ * Files younger than this are left alone by `sweepUnreferencedStorage`: an
+ * upload whose save has not run yet is still on its way to its row.
+ */
+export const UNREFERENCED_STORAGE_GRACE_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Files one sweep transaction looks at. Each held file costs one full row
+ * read in `isStorageReferenced` (a transcript or a document can hold up to
+ * 1 MB of text), so a page stays far inside the 16 MiB a transaction may
+ * read.
+ */
+export const STORAGE_SWEEP_PAGE_SIZE = 10;
+
+/** Sweep runs kept for admins to read; older ones are pruned. */
+export const STORAGE_SWEEP_RUNS_KEPT = 30;
+
+/** File ids one run keeps as a sample of what it found. */
+export const STORAGE_SWEEP_SAMPLE_SIZE = 20;
+
+const storageSweepResultValidator = v.union(
+  v.null(),
+  v.object({
+    runId: v.id("storageSweepRuns"),
+    mode: v.union(v.literal("report"), v.literal("delete")),
+    checked: v.number(),
+    unreferenced: v.number(),
+    deleted: v.number(),
+    isDone: v.boolean(),
+  })
+);
+
+/**
+ * The daily sweep of stored files no row holds once they are a day old. The
+ * case it exists for is a transcript original whose save never ran (the tab
+ * closed after the upload, the connection dropped, or the release after a
+ * refusal failed): the file holds interview text that project erasure can
+ * never find. It looks at every file, not only transcripts.
+ *
+ * The admin setting `storage.sweepUnreferenced` (`storageSweepMode`)
+ * decides what it does:
+ * - `report` (default): counts and records what it would delete (one
+ *   `storageSweepRuns` row, a log line, and a notice on the alerts board
+ *   when the count changes) and deletes nothing;
+ * - `delete`: deletes those files as well;
+ * - `off`: does nothing.
+ * The setting is read on every page, so switching away from `delete` stops
+ * a run's deletions at once.
+ *
+ * Pages `_storage` oldest first, one bounded page per transaction, and
+ * reschedules itself with the run's cut-off until done. A file counts only
+ * when `isStorageReferenced` finds no row holding it through any of the
+ * schema's storage fields (`STORAGE_REFERENCE_FIELDS`). Runs daily
+ * (`crons.ts`); safe to run again.
+ */
+export const sweepUnreferencedStorage = internalMutation({
+  args: {
+    runId: v.optional(v.id("storageSweepRuns")),
+    cursor: v.optional(v.union(v.string(), v.null())),
+  },
+  returns: storageSweepResultValidator,
+  handler: async (ctx, args) => {
+    const mode = await storageSweepMode(ctx);
+    let run = args.runId ? await ctx.db.get(args.runId) : null;
+    if (args.runId && (!run || run.finishedAt !== undefined)) return null;
+    if (mode === "off") {
+      if (run) await ctx.db.patch(run._id, { finishedAt: Date.now() });
+      return null;
+    }
+    if (!run) {
+      await pruneStorageSweepRuns(ctx);
+      const now = Date.now();
+      const runId = await ctx.db.insert("storageSweepRuns", {
+        mode,
+        before: now - UNREFERENCED_STORAGE_GRACE_MS,
+        startedAt: now,
+        checked: 0,
+        unreferenced: 0,
+        unreferencedBytes: 0,
+        sampleFileIds: [],
+        deleted: 0,
+      });
+      run = (await ctx.db.get(runId))!;
+    }
+    // Deletes only while both the run and the setting say so.
+    const deleting = run.mode === "delete" && mode === "delete";
+    const before = run.before;
+    const page = await ctx.db.system
+      .query("_storage")
+      .withIndex("by_creation_time", (q) => q.lt("_creationTime", before))
+      .paginate({ cursor: args.cursor ?? null, numItems: STORAGE_SWEEP_PAGE_SIZE });
+    let unreferenced = 0;
+    let bytes = 0;
+    let deleted = 0;
+    let oldest = run.oldestCreatedAt;
+    let newest = run.newestCreatedAt;
+    const sample = [...run.sampleFileIds];
+    for (const file of page.page) {
+      if (await isStorageReferenced(ctx, file._id)) continue;
+      unreferenced += 1;
+      bytes += file.size;
+      oldest = oldest === undefined ? file._creationTime : Math.min(oldest, file._creationTime);
+      newest = newest === undefined ? file._creationTime : Math.max(newest, file._creationTime);
+      if (sample.length < STORAGE_SWEEP_SAMPLE_SIZE) sample.push(file._id);
+      if (deleting) {
+        await ctx.storage.delete(file._id);
+        deleted += 1;
+      }
+    }
+    const totals = {
+      checked: run.checked + page.page.length,
+      unreferenced: run.unreferenced + unreferenced,
+      unreferencedBytes: run.unreferencedBytes + bytes,
+      ...(oldest !== undefined ? { oldestCreatedAt: oldest } : {}),
+      ...(newest !== undefined ? { newestCreatedAt: newest } : {}),
+      sampleFileIds: sample,
+      deleted: run.deleted + deleted,
+    };
+    if (!page.isDone) {
+      await ctx.db.patch(run._id, totals);
+      await ctx.scheduler.runAfter(0, internal.transcripts.sweepUnreferencedStorage, {
+        runId: run._id,
+        cursor: page.continueCursor,
+      });
+    } else {
+      await ctx.db.patch(run._id, { ...totals, finishedAt: Date.now() });
+      await reportStorageSweep(ctx, { ...run, ...totals });
+    }
+    return {
+      runId: run._id,
+      mode: run.mode,
+      checked: page.page.length,
+      unreferenced,
+      deleted,
+      isDone: page.isDone,
+    };
+  },
+});
+
+async function pruneStorageSweepRuns(ctx: MutationCtx): Promise<void> {
+  const runs = await ctx.db
+    .query("storageSweepRuns")
+    .withIndex("by_startedAt")
+    .order("desc")
+    .take(STORAGE_SWEEP_RUNS_KEPT + 10);
+  for (const old of runs.slice(STORAGE_SWEEP_RUNS_KEPT - 1)) await ctx.db.delete(old._id);
+}
+
+function describeBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} bytes`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function describeDay(at: number | undefined): string {
+  return at === undefined ? "unknown" : new Date(at).toISOString().slice(0, 10);
+}
+
+/**
+ * The finished run's log line, and a notice on the alerts board when a
+ * report found files and the count differs from the run before, so the
+ * board gets one notice per change rather than one a day.
+ */
+async function reportStorageSweep(ctx: MutationCtx, run: Doc<"storageSweepRuns">): Promise<void> {
+  const summary =
+    `${run.unreferenced} stored ${run.unreferenced === 1 ? "file is" : "files are"} more than a day old and held by no row ` +
+    `(${describeBytes(run.unreferencedBytes)}, oldest ${describeDay(run.oldestCreatedAt)}, newest ${describeDay(run.newestCreatedAt)}).`;
+  console.log(
+    run.mode === "delete"
+      ? `Storage sweep: ${summary} Deleted ${run.deleted}.`
+      : `Storage sweep (report only): ${summary} Nothing was deleted.`
+  );
+  if (run.mode !== "report" || run.unreferenced === 0) return;
+  const previous = (
+    await ctx.db.query("storageSweepRuns").withIndex("by_startedAt").order("desc").take(STORAGE_SWEEP_RUNS_KEPT)
+  ).find((row) => row._id !== run._id && row.finishedAt !== undefined);
+  if (previous?.mode === "report" && previous.unreferenced === run.unreferenced) return;
+  await ctx.db.insert("errorReports", {
+    kind: "auto",
+    reportType: "bug",
+    // No file ids: anyone signed in can read the alerts board, and an id
+    // is all it takes to attach a file. The sample stays on the admin-only
+    // run row (getStorageSweepStatus).
+    message:
+      `Storage sweep (report only): ${summary} Nothing was deleted. ` +
+      `An admin can read the run and set storage.sweepUnreferenced to "delete" to remove them.`,
+    source: "storage-sweep",
+    url: "/alerts",
+    breadcrumbs: [],
+    status: "open",
+    createdAt: Date.now(),
+  });
+}
+
+/** The sweep's mode and its latest run, for admins. */
+export const getStorageSweepStatus = query({
+  args: {},
+  handler: async (ctx) => {
+    await requireRole(ctx, ["admin"]);
+    const latest = await ctx.db.query("storageSweepRuns").withIndex("by_startedAt").order("desc").first();
+    return { mode: await storageSweepMode(ctx), latestRun: latest };
+  },
+});
+
 /** Removes a transcript from the project's list by archiving it. */
 export const removeTranscript = mutation({
   args: { transcriptId: v.id("transcripts") },
@@ -688,9 +894,11 @@ export const factsInput = internalQuery({
       label: transcriptLabel(transcript),
       content: transcript.content,
       sourceContentHash: await transcriptHash(transcript),
-      // Ready only when every turn was built with the transcript's current
-      // parser version: never mid-rebuild (2026-09-25).
-      structureReady: transcript.parserVersion !== undefined && turnsVersion === transcript.parserVersion,
+      // Ready only when every turn was built with the current parser
+      // version: never mid-rebuild (2026-09-25), and never turns an older
+      // parser built (a stale row is rebuilt when facts are requested).
+      structureReady:
+        transcript.parserVersion === TRANSCRIPT_PARSER_VERSION && turnsVersion === TRANSCRIPT_PARSER_VERSION,
       parserVersion: transcript.parserVersion,
       turns,
       // Recorded on the run, so a later role correction makes it stale.
@@ -843,6 +1051,13 @@ export const requestTranscriptFacts = mutation({
     if (!transcript || transcript.archivedAt !== undefined) return null;
     if (!(await getInternalProjectAccessOrNull(ctx, transcript.projectId))) return null;
     if ((await transcriptFactsMode(ctx)) === "off") return null;
+    // Facts read turns. Turns an older parser built, or a build still
+    // running, are not ready: rebuild if nothing holds the row, and extract
+    // on the next open rather than queue an extraction that cannot run.
+    if (transcript.parserVersion !== TRANSCRIPT_PARSER_VERSION) {
+      await scheduleStructureRebuildIfStale(ctx, transcript);
+      return null;
+    }
     const run = await findFactRun(ctx, transcript._id, await transcriptHash(transcript));
     if (run && (await factRunIsCurrent(ctx, run))) return null;
     // A recent attempt that is still running or just failed is left alone;

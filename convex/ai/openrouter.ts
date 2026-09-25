@@ -58,6 +58,17 @@ function attemptSignal(timeoutMs: number, caller: AbortSignal | undefined): Abor
   return combined.signal;
 }
 
+/**
+ * The request was aborted by its caller (a fact extraction past its time
+ * limit, or one whose sibling window failed). Named AbortError, so outcome
+ * recording counts nothing against the model.
+ */
+function callerAbortError(): OpenRouterError {
+  const error = new OpenRouterError("OpenRouter request aborted by the caller");
+  error.name = "AbortError";
+  return error;
+}
+
 /** Error shaped like the Anthropic SDK's (status + message) so
  *  normalizeProviderError classifies both gateways the same way. */
 export class OpenRouterError extends Error {
@@ -112,6 +123,8 @@ export async function openRouterChatCompletion(
   // network). Retry decisions and delays are pure functions in
   // openrouterCore.ts; this loop only executes them.
   for (let attempt = 0; ; attempt += 1) {
+    // A caller that gave up is never sent a (re)try (review 2026-09-25, P3-b).
+    if (input.signal?.aborted) throw callerAbortError();
     try {
       response = await fetch(OPENROUTER_URL, {
         method: "POST",
@@ -129,6 +142,9 @@ export async function openRouterChatCompletion(
       // A timed-out attempt already spent its full time budget — retrying it
       // would overrun the action limit, so only pre-response network failures
       // are retried.
+      // The caller's own abort is reported as such, never as a timeout, and
+      // never retried; only this attempt's own timer is a timeout.
+      if (input.signal?.aborted) throw callerAbortError();
       if (isAbortLikeError(error)) {
         throw new OpenRouterError(
           `OpenRouter request timed out after ${timeoutMs}ms`

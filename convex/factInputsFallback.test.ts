@@ -9,6 +9,7 @@ import { convexTest } from "convex-test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { getConvexSize } from "convex/values";
 import { api, internal } from "./_generated/api";
+import { TRANSCRIPT_PARSER_VERSION } from "../shared/transcriptParse";
 import schema from "./schema";
 import type { Id } from "./_generated/dataModel";
 import { ensureFactInputs } from "./ai/condense";
@@ -37,7 +38,7 @@ afterEach(() => {
   vi.unstubAllEnvs();
 });
 
-async function reserved() {
+async function reserved(options: { beforeReserve?: (t: T, transcriptId: Id<"transcripts">) => Promise<void> } = {}) {
   const t = convexTest(schema, modules);
   const { projectId } = await t.run(async (ctx) => {
     const writerId = await ctx.db.insert("users", { authId: "fb-writer", role: "writer" });
@@ -59,6 +60,7 @@ async function reserved() {
   vi.stubGlobal("fetch", vi.fn(() => { throw new Error("Unexpected HTTP transport"); }));
   const transcriptId = await writer.mutation(api.transcripts.addTranscript, { projectId, content: CONTENT, label: "call.txt" });
   await t.finishAllScheduledFunctions(vi.runAllTimers);
+  await options.beforeReserve?.(t, transcriptId);
   const generationId: Id<"generations"> = await writer.mutation(api.generations.requestGeneration, {
     projectId,
     candidateMode: "iterative",
@@ -85,6 +87,32 @@ async function run(t: T, generationId: Id<"generations">, elapsedMs = 0) {
 }
 
 describe("ensureFactInputs falls back to today's path", () => {
+  it("when an older parser built the transcript's turns, and reserving starts their rebuild once", async () => {
+    const f = await reserved({
+      beforeReserve: async (t, transcriptId) => {
+        await t.run(async (ctx) => {
+          for (const turn of await ctx.db
+            .query("transcriptTurns")
+            .withIndex("by_transcriptId_and_index", (q) => q.eq("transcriptId", transcriptId))
+            .collect()) {
+            await ctx.db.patch(turn._id, { parserVersion: "1" });
+          }
+          await ctx.db.patch(transcriptId, { parserVersion: "1" });
+        });
+      },
+    });
+    const rebuilds = await f.t.run(async (ctx) =>
+      (await ctx.db.system.query("_scheduled_functions").collect()).filter(
+        (job) => job.name.includes("buildTranscriptStructure") && job.state.kind === "pending"
+      )
+    );
+    expect(rebuilds.map((job) => job.args[0])).toEqual([{ transcriptId: f.transcriptId }]);
+    const result = await run(f.t, f.generationId);
+    expect(result).toMatchObject({ ready: false, packs: [] });
+    expect(result.lines[0]).toContain("is not ready to be read as verified facts");
+    expect(f.fetchMock).not.toHaveBeenCalled();
+  });
+
   it("when a transcript was cut at freeze", async () => {
     const f = await reserved();
     await f.t.run(async (ctx) => {
@@ -174,6 +202,7 @@ describe("a pack row near the 1 MiB document limit (review 2026-09-25, P3-2)", (
         contentHash: hash,
         createdAt: 1,
         position: 0,
+        parserVersion: TRANSCRIPT_PARSER_VERSION,
       });
       const generationId = await ctx.db.insert("generations", {
         projectId,
@@ -205,6 +234,9 @@ describe("a pack row near the 1 MiB document limit (review 2026-09-25, P3-2)", (
         counts: { proposed: 1_200, verified: 1_200, dropped: 0 },
         startedAt: 1,
         finishedAt: 2,
+        // Facts index turns of the current parser version (a run from an
+        // older parser is stale).
+        parserVersion: TRANSCRIPT_PARSER_VERSION,
       });
       let at = label.length + 2;
       for (let fact = 0; fact < 1_200; fact += 1) {
