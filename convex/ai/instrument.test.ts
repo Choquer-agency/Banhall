@@ -13,7 +13,7 @@ vi.mock("./providers", () => ({
   createAnthropicClient: providerMocks.createAnthropicClient,
 }));
 
-import { instrumentedAnthropic } from "./instrument";
+import { anthropicCacheWrite1hTokens, instrumentedAnthropic } from "./instrument";
 import {
   GENERATION_CALL_SLOTS,
   GENERATION_SLOT_ALLOWANCES,
@@ -365,6 +365,28 @@ describe("generation prefix caching at the SDK boundary", () => {
       cacheCreationInputTokens: 20,
       cacheReadInputTokens: 80,
     });
+  });
+
+  it("records the 1-hour share of cache writes from usage.cache_creation", async () => {
+    const providerCreate = vi.fn(async (..._args: unknown[]) => textResponse({
+      input_tokens: 4,
+      output_tokens: 2,
+      cache_creation_input_tokens: 30,
+      cache_read_input_tokens: 0,
+      cache_creation: { ephemeral_5m_input_tokens: 10, ephemeral_1h_input_tokens: 20 },
+    }));
+    providerMocks.createAnthropicClient.mockReturnValue({ messages: { create: providerCreate } });
+    const { ctx, runAfter } = fakeCtx();
+    const client = instrumentedAnthropic(ctx, { callSite: "pd_review" });
+    await client.messages.create(request);
+    expect(runAfter.mock.calls[0][2]).toMatchObject({
+      cacheCreationInputTokens: 30,
+      cacheCreation1hInputTokens: 20,
+      cacheReadInputTokens: 0,
+    });
+    expect(anthropicCacheWrite1hTokens({ cache_creation: {} })).toBeNull();
+    expect(anthropicCacheWrite1hTokens(undefined)).toBeNull();
+    expect(anthropicCacheWrite1hTokens({ cache_creation: { ephemeral_1h_input_tokens: -1 } })).toBeNull();
   });
 
   it("leaves non-generation traffic unchanged", async () => {

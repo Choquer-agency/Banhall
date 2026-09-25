@@ -568,8 +568,15 @@ export default defineSchema({
     inputTokens: v.number(),
     outputTokens: v.number(),
     cacheCreationInputTokens: v.optional(v.number()),
+    // 2026-09-24 widen: the part of cacheCreationInputTokens written with the
+    // 1-hour TTL (2x input rather than 1.25x). Absent on older rows.
+    cacheCreation1hInputTokens: v.optional(v.number()),
     cacheReadInputTokens: v.optional(v.number()),
     costUsd: v.number(),
+    // 2026-09-24 widen: "native" when the provider reported the charge
+    // (OpenRouter usage.cost), "estimated" when it came from
+    // shared/modelPricing.ts. Absent on rows written before the field.
+    costSource: v.optional(v.union(v.literal("native"), v.literal("estimated"))),
     createdAt: v.number(),
   })
     .index("by_createdAt", ["createdAt"])

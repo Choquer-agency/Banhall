@@ -20,6 +20,8 @@ export type UsageEvent = {
   inputTokens: number;
   outputTokens: number;
   cacheCreationInputTokens?: number;
+  /** The part of cacheCreationInputTokens written with the 1-hour TTL. */
+  cacheCreation1hInputTokens?: number;
   cacheReadInputTokens?: number;
   /** Provider-reported exact cost (OpenRouter). Anthropic path never sets it. */
   costUsd?: number;
@@ -205,10 +207,29 @@ function tokenCount(value: unknown): number | null {
     : null;
 }
 
+/**
+ * Tokens written with the 1-hour TTL, from Anthropic's `usage.cache_creation`
+ * breakdown (`ephemeral_1h_input_tokens`). Null when the breakdown is absent,
+ * which prices every write at the 5-minute rate. Shared by the SDK path below
+ * and the chat agent's usage handler (the AI SDK passes the raw usage
+ * through as `providerMetadata.anthropic.usage`).
+ */
+export function anthropicCacheWrite1hTokens(usage: unknown): number | null {
+  if (!usage || typeof usage !== "object" || !("cache_creation" in usage)) {
+    return null;
+  }
+  const breakdown = usage.cache_creation;
+  if (!breakdown || typeof breakdown !== "object") return null;
+  return "ephemeral_1h_input_tokens" in breakdown
+    ? tokenCount(breakdown.ephemeral_1h_input_tokens)
+    : null;
+}
+
 function anthropicUsage(response: unknown): {
   inputTokens: number;
   outputTokens: number;
   cacheCreationInputTokens?: number;
+  cacheCreation1hInputTokens?: number;
   cacheReadInputTokens?: number;
 } | null {
   if (!response || typeof response !== "object" || !("usage" in response)) {
@@ -233,11 +254,15 @@ function anthropicUsage(response: unknown): {
   if (inputTokens === null && outputTokens === null) {
     return null;
   }
+  const cacheCreation1hInputTokens = anthropicCacheWrite1hTokens(usage);
   return {
     inputTokens: inputTokens ?? 0,
     outputTokens: outputTokens ?? 0,
     ...(cacheCreationInputTokens !== null
       ? { cacheCreationInputTokens }
+      : {}),
+    ...(cacheCreation1hInputTokens
+      ? { cacheCreation1hInputTokens }
       : {}),
     ...(cacheReadInputTokens !== null ? { cacheReadInputTokens } : {}),
   };
@@ -366,6 +391,12 @@ export function instrumentedAnthropic(
               ? {
                   cacheCreationInputTokens:
                     usage.cacheCreationInputTokens,
+                }
+              : {}),
+            ...(usage.cacheCreation1hInputTokens !== undefined
+              ? {
+                  cacheCreation1hInputTokens:
+                    usage.cacheCreation1hInputTokens,
                 }
               : {}),
             ...(usage.cacheReadInputTokens !== undefined

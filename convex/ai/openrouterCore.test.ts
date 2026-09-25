@@ -317,6 +317,40 @@ describe("openRouterUsage", () => {
     });
   });
 
+  it("subtracts cache writes too and reports them separately", () => {
+    expect(
+      openRouterUsage({
+        usage: {
+          prompt_tokens: 1000,
+          completion_tokens: 10,
+          cost: 0.01,
+          prompt_tokens_details: { cached_tokens: 600, cache_write_tokens: 300 },
+        },
+      })
+    ).toEqual({
+      inputTokens: 100,
+      outputTokens: 10,
+      cacheReadInputTokens: 600,
+      cacheCreationInputTokens: 300,
+      costUsd: 0.01,
+    });
+    // A write count past the uncached remainder is clamped, never negative.
+    expect(
+      openRouterUsage({
+        usage: {
+          prompt_tokens: 100,
+          completion_tokens: 1,
+          prompt_tokens_details: { cached_tokens: 90, cache_write_tokens: 50 },
+        },
+      })
+    ).toEqual({
+      inputTokens: 0,
+      outputTokens: 1,
+      cacheReadInputTokens: 90,
+      cacheCreationInputTokens: 10,
+    });
+  });
+
   it("omits costUsd when absent and rejects missing or wholly malformed usage", () => {
     expect(openRouterUsage({ usage: { prompt_tokens: 10, completion_tokens: 5 } })).toEqual({
       inputTokens: 10,

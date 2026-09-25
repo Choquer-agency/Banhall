@@ -177,6 +177,9 @@ export async function openRouterChatCompletion(
       inputTokens: usage.inputTokens,
       outputTokens: usage.outputTokens,
       cacheReadInputTokens: usage.cacheReadInputTokens,
+      ...(usage.cacheCreationInputTokens !== undefined
+        ? { cacheCreationInputTokens: usage.cacheCreationInputTokens }
+        : {}),
       ...(usage.costUsd !== undefined ? { costUsd: usage.costUsd } : {}),
     });
   }

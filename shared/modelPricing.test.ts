@@ -1,0 +1,76 @@
+import { describe, expect, test } from "vitest";
+import { CANDIDATE_MODELS } from "./generationModels";
+import {
+  FALLBACK_MODEL_PRICING,
+  MODEL_PRICING,
+  estimateCostFromTable,
+  pricingFor,
+} from "./modelPricing";
+
+const MTOK = 1_000_000;
+
+describe("model price table", () => {
+  test("prices every model the app can select, dated ids included", () => {
+    for (const model of CANDIDATE_MODELS) {
+      expect(pricingFor(model.id), model.id).not.toBeNull();
+    }
+    expect(pricingFor("claude-haiku-4-5-20251001")).toBe(
+      MODEL_PRICING["claude-haiku-4-5"]
+    );
+    expect(pricingFor("claude-opus-5-5")).not.toBeNull();
+    expect(pricingFor("claude-sonnet-4-6")).not.toBeNull();
+    expect(pricingFor("claude-unknown-9")).toBeNull();
+  });
+
+  test("uses the published Anthropic rates (2026-09-24)", () => {
+    const one = (model: string) =>
+      estimateCostFromTable(model, { inputTokens: MTOK, outputTokens: MTOK });
+    expect(one("claude-sonnet-5")).toBeCloseTo(2 + 10, 10);
+    expect(one("claude-sonnet-4-6")).toBeCloseTo(3 + 15, 10);
+    expect(one("claude-opus-4-8")).toBeCloseTo(5 + 25, 10);
+    expect(one("claude-opus-5-5")).toBeCloseTo(4 + 20, 10);
+    expect(one("claude-haiku-4-5-20251001")).toBeCloseTo(1 + 5, 10);
+  });
+
+  test("prices 5-minute writes at 1.25x, 1-hour writes at 2x and reads at 0.1x", () => {
+    // Sonnet 5, $2 input: 1M uncached + 1M written (400k of it 1-hour)
+    // + 1M read.
+    const cost = estimateCostFromTable("claude-sonnet-5", {
+      inputTokens: MTOK,
+      outputTokens: 0,
+      cacheCreationInputTokens: MTOK,
+      cacheCreation1hInputTokens: 400_000,
+      cacheReadInputTokens: MTOK,
+    });
+    expect(cost).toBeCloseTo(2 + 0.6 * 2 * 1.25 + 0.4 * 2 * 2 + 2 * 0.1, 10);
+  });
+
+  test("Opus 5.5 reads cost 0.05x input", () => {
+    expect(
+      estimateCostFromTable("claude-opus-5-5", {
+        inputTokens: 0,
+        outputTokens: 0,
+        cacheReadInputTokens: MTOK,
+      })
+    ).toBeCloseTo(0.2, 10);
+  });
+
+  test("clamps 1-hour writes to the total and ignores malformed counts", () => {
+    const clamped = estimateCostFromTable("claude-haiku-4-5", {
+      inputTokens: -5,
+      outputTokens: Number.NaN,
+      cacheCreationInputTokens: 100,
+      cacheCreation1hInputTokens: 1_000,
+    });
+    expect(clamped).toBeCloseTo((100 * 1 * 2) / MTOK, 12);
+  });
+
+  test("an unknown model falls back to the default model's rates", () => {
+    expect(pricingFor("vendor/new-model") ?? FALLBACK_MODEL_PRICING).toBe(
+      MODEL_PRICING["claude-sonnet-5"]
+    );
+    expect(
+      estimateCostFromTable("vendor/new-model", { inputTokens: MTOK, outputTokens: 0 })
+    ).toBeCloseTo(2, 10);
+  });
+});

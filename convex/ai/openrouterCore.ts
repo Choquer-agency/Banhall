@@ -200,7 +200,11 @@ export type ChatCompletionsResponse = {
     prompt_tokens?: number;
     completion_tokens?: number;
     cost?: number;
-    prompt_tokens_details?: { cached_tokens?: number };
+    prompt_tokens_details?: {
+      cached_tokens?: number;
+      /** Tokens written to the provider cache (Anthropic models). */
+      cache_write_tokens?: number;
+    };
   };
   error?: { message?: string; code?: number };
 };
@@ -279,6 +283,7 @@ export function openRouterUsage(body: ChatCompletionsResponse): {
   inputTokens: number;
   outputTokens: number;
   cacheReadInputTokens: number;
+  cacheCreationInputTokens?: number;
   costUsd?: number;
 } | null {
   const usage = body.usage;
@@ -290,6 +295,9 @@ export function openRouterUsage(body: ChatCompletionsResponse): {
   const promptTokens = count(usage.prompt_tokens);
   const completionTokens = count(usage.completion_tokens);
   const cachedTokens = count(usage.prompt_tokens_details?.cached_tokens);
+  const cacheWriteTokens = count(
+    usage.prompt_tokens_details?.cache_write_tokens
+  );
   const cost = count(usage.cost);
   if (promptTokens === null && completionTokens === null) {
     return null;
@@ -299,10 +307,14 @@ export function openRouterUsage(body: ChatCompletionsResponse): {
     cachedTokens ?? 0,
     prompt
   );
+  // Cache writes are also part of prompt_tokens (Anthropic models behind
+  // OpenRouter); subtract them too so inputTokens stays the uncached count.
+  const written = Math.min(cacheWriteTokens ?? 0, prompt - cached);
   return {
-    inputTokens: prompt - cached,
+    inputTokens: prompt - cached - written,
     outputTokens: completionTokens ?? 0,
     cacheReadInputTokens: cached,
+    ...(written > 0 ? { cacheCreationInputTokens: written } : {}),
     ...(cost !== null ? { costUsd: cost } : {}),
   };
 }

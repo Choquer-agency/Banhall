@@ -40,6 +40,7 @@ import { describeContextCuts } from "./trustedContext";
 import { preserveReasoningSignature } from "./reasoningSignature";
 import { searchBrainExemplars, formatBrainExemplars } from "./brain/retrieve";
 import { safeErrorDetails } from "../lib/safeErrorDetails";
+import { anthropicCacheWrite1hTokens } from "./instrument";
 
 // ─── Agent-based chat (BNH-10 P2) ────────────────────────────────────────────
 // Parallel-run replacement for chatAgent.ts. The @convex-dev/agent component
@@ -510,9 +511,15 @@ export const reportChatAgent = new Agent(components.agent, {
   tools: CHAT_TOOLS,
   // BNH-16: durably log billed usage for every model step without turning a
   // successful streamed response into a chat failure.
-  usageHandler: async (ctx, { threadId, userId, model, usage }) => {
+  usageHandler: async (ctx, { threadId, userId, model, usage, providerMetadata }) => {
     const cacheCreationInputTokens =
       usage.inputTokenDetails.cacheWriteTokens ?? 0;
+    // The AI SDK passes Anthropic's raw usage through; its cache_creation
+    // breakdown says how much of the write used the 1-hour TTL (2x input).
+    const cacheCreation1hInputTokens = Math.min(
+      anthropicCacheWrite1hTokens(providerMetadata?.anthropic?.usage) ?? 0,
+      cacheCreationInputTokens
+    );
     const cacheReadInputTokens =
       usage.inputTokenDetails.cacheReadTokens ?? 0;
     const totalInputTokens = usage.inputTokens ?? 0;
@@ -532,10 +539,13 @@ export const reportChatAgent = new Agent(components.agent, {
         model,
         inputTokens,
         outputTokens: usage.outputTokens ?? 0,
-        ...(cacheCreationInputTokens
-          ? { cacheCreationInputTokens }
+        // Always recorded, zero included, so a row with no cache activity
+        // is distinguishable from a row written before caching was tracked.
+        cacheCreationInputTokens,
+        cacheReadInputTokens,
+        ...(cacheCreation1hInputTokens
+          ? { cacheCreation1hInputTokens }
           : {}),
-        ...(cacheReadInputTokens ? { cacheReadInputTokens } : {}),
         createdAt: Date.now(),
       });
     } catch (error) {
