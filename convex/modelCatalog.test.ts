@@ -994,6 +994,14 @@ describe("round 4", () => {
   const NOTICED_AT = SWITCHED_AT + 60_000;
   const ANALYSIS_CHILDREN = ["pd_review", "financial_extraction", "learning_digest", "science_code"] as const;
 
+  // Every timer is fake here, so an evaluation these tests plan never
+  // starts on its own (it would call model providers); each test drives
+  // claims and completions itself.
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(NOW);
+  });
+
   const assignmentOf = (t: TestConvex, role: Doc<"modelRoleAssignments">["role"]) =>
     t.run((ctx) =>
       ctx.db.query("modelRoleAssignments").withIndex("by_role", (q) => q.eq("role", role)).unique()
@@ -1108,6 +1116,7 @@ describe("round 4", () => {
         errorNoticeAt: NOTICED_AT,
         assignedBy: "system",
         origin: "role_split",
+        inheritedHistory: { role: "analysis", until: SWITCHED_AT },
       });
     }
     const admin = t.withIdentity({ subject: ADMIN });
@@ -1128,7 +1137,7 @@ describe("round 4", () => {
     }
   });
 
-  it("4: a split role never flips back after a rollback its predecessor made before the split", async () => {
+  it("4: a split role never flips back after a rollback its predecessor made before the split, even after its own promotion", async () => {
     // Before the deploy: analysis was rolled back from B to A.
     const t = await beforeSplit({ modelId: A, previousModelId: B, rolledBack: true });
     await t.mutation(applyCatalogRefreshRef, { models: parsed, fetchedAt: NOW, complete: false });
@@ -1163,5 +1172,40 @@ describe("round 4", () => {
     const queued = await t.run((ctx) => Promise.all(planned.map((id) => ctx.db.get(id))));
     expect(queued.map((evaluation) => evaluation?.role)).toEqual(["pd_review"]);
     expect(queued.some((evaluation) => evaluation?.modelId === B)).toBe(false);
+
+    // PD review then switches on its own: the planned candidate C passes
+    // and is promoted from A, which clears the carried-over marker.
+    const [evaluationId] = planned;
+    const claim = await t.mutation(claimEvaluationRef, { evaluationId, envelope: EVAL_ENVELOPE });
+    const C = claim!.candidate.id;
+    expect([A, B]).not.toContain(C);
+    const pdReview = (rubricScore: number): EvalTaskResult[] => [
+      { task: "pd_review_report", structured: true, schemaValid: true, contractPassed: true, rubricScore, costUsd: 0.05 },
+    ];
+    expect(
+      await t.mutation(completeEvaluationRef, {
+        evaluationId,
+        candidateResults: pdReview(8),
+        incumbentResults: pdReview(7),
+        evalCostUsd: 0.1,
+      })
+    ).toBe("promoted");
+    const promoted = await assignmentOf(t, "pd_review");
+    expect(promoted).toMatchObject({ modelId: C, previousModelId: A });
+    expect(promoted?.origin).toBeUndefined();
+    expect(await eventsOf(t, "pd_review")).toMatchObject([{ kind: "promotion", fromModelId: A, toModelId: C }]);
+    // B still beats C on paper, and the next plan still leaves it out.
+    const next = await t.mutation(planEvaluationsRef, {});
+    const nextQueued = await t.run((ctx) => Promise.all(next.map((id) => ctx.db.get(id))));
+    expect(nextQueued.some((evaluation) => evaluation?.modelId === B)).toBe(false);
+    // The error check goes by PD review's own last switch now: a failing C
+    // is rolled back to A, while the roles still on A stay put.
+    vi.setSystemTime(NOW + 30 * 60_000);
+    for (let i = 0; i < 21; i += 1) {
+      await t.mutation(recordCallOutcomeRef, { model: C, callSite: "pd-review", outcome: i < 6 ? "failure" : "success" });
+    }
+    vi.setSystemTime(NOW + 3_600_000);
+    expect(await t.mutation(checkProductionErrorsRef, {})).toEqual([{ role: "pd_review", modelId: C, rolledBack: true }]);
+    expect((await assignmentOf(t, "pd_review"))?.modelId).toBe(A);
   });
 });

@@ -152,8 +152,10 @@ export async function roleModelId(ctx: ReadCtx, role: ModelRole): Promise<string
  * A carried-over model keeps its rollback watch (round 4): the
  * predecessor's rollback target (when this role can run it), the switch
  * time the production error window starts from and the last error notice.
- * The predecessor's earlier rollbacks reach it through roleSwitchHistory.
- * Roles that already have an assignment are never touched.
+ * The predecessor's history up to its last switch is recorded once, in
+ * `inheritedHistory`, which no later switch changes (round 5), and reaches
+ * the role through roleSwitchHistory. Roles that already have an assignment
+ * are never touched.
  */
 export async function ensureRoleSplit(ctx: MutationCtx): Promise<number> {
   let written = 0;
@@ -176,6 +178,7 @@ export async function ensureRoleSplit(ctx: MutationCtx): Promise<number> {
       ...(carried?.errorNoticeAt !== undefined ? { errorNoticeAt: carried.errorNoticeAt } : {}),
       assignedBy: "system",
       origin: "role_split",
+      ...(inherited ? { inheritedHistory: { role: predecessor, until: inherited.assignedAt } } : {}),
     });
     written += 1;
   }
@@ -183,13 +186,16 @@ export async function ensureRoleSplit(ctx: MutationCtx): Promise<number> {
 }
 
 /**
- * A role's switch events, newest first. A split role still on the
- * assignment carried over from its predecessor has no events of its own,
- * so it reads the predecessor's events up to the carried switch time. A
- * rollback the predecessor made before the split then still stops the
- * production error check from flipping the role back, and still keeps the
- * model it rolled back from out of the role's evaluations. The predecessor's
- * later switches are not part of it.
+ * A role's switch history, newest first, at most `limit` events: its own
+ * events, then, for a split role, the predecessor's events up to the split
+ * (`inheritedHistory`, recorded once). Every inherited event is older than
+ * every own event, so the order holds. The production error check reads the
+ * newest: the role's own last switch once it has one, else the
+ * predecessor's last switch before the split, so a rollback made there
+ * still stops it flipping back. Evaluation planning reads all of it, so a
+ * model rolled back from before the split stays out of this role's
+ * evaluations after the role's own later switches too (round 5). The
+ * predecessor's switches after the split are never part of it.
  */
 export async function roleSwitchHistory(
   ctx: ReadCtx,
@@ -201,16 +207,15 @@ export async function roleSwitchHistory(
     .withIndex("by_role_and_at", (q) => q.eq("role", role))
     .order("desc")
     .take(limit);
-  const predecessor = ROLE_PREDECESSORS[role];
-  if (own.length > 0 || !predecessor) return own;
-  const assignment = await roleAssignment(ctx, role);
-  if (assignment?.origin !== "role_split") return own;
-  const carriedAt = assignment.assignedAt;
-  return await ctx.db
+  if (own.length >= limit) return own;
+  const inherited = (await roleAssignment(ctx, role))?.inheritedHistory;
+  if (!inherited) return own;
+  const before = await ctx.db
     .query("modelSwitchEvents")
-    .withIndex("by_role_and_at", (q) => q.eq("role", predecessor).lte("at", carriedAt))
+    .withIndex("by_role_and_at", (q) => q.eq("role", inherited.role).lte("at", inherited.until))
     .order("desc")
-    .take(limit);
+    .take(limit - own.length);
+  return [...own, ...before];
 }
 
 export async function roleCostCap(ctx: ReadCtx, role: ModelRole): Promise<CostCap> {

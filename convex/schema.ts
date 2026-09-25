@@ -2924,6 +2924,11 @@ export default defineSchema({
     // (shared/modelCatalog ROLE_PREDECESSORS), not chosen for it. Cleared
     // by the role's first real switch.
     origin: v.optional(v.literal("role_split")),
+    // Written once when a split role gets its first assignment: the
+    // predecessor's switch events up to `until` stay part of this role's
+    // history, so a rollback made before the split keeps that model out of
+    // this role's evaluations. No switch ever changes it.
+    inheritedHistory: v.optional(v.object({ role: modelRoleValidator, until: v.number() })),
   }).index("by_role", ["role"]),
 
   // Append-only audit log of every role switch, automatic or manual.
