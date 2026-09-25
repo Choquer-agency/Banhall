@@ -5,7 +5,7 @@ import { api } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import schema from "./schema";
 import fixture from "../shared/__fixtures__/openrouter-models-2026-09-24.json";
-import { parseOpenRouterModels, type EvalTaskResult } from "../shared/modelCatalog";
+import { parseOpenRouterModels, type EvalTaskResult, type ModelRole } from "../shared/modelCatalog";
 import {
   adminStateRef,
   applyCatalogRefreshRef,
@@ -993,6 +993,58 @@ describe("round 3", () => {
   });
 });
 
+/**
+ * `role` becomes the only role with room under its cost cap, and `modelId`
+ * its best candidate on paper, so a plan queues `modelId` for `role` unless
+ * something excludes it.
+ */
+async function onlyRoleCanPlan(t: TestConvex, role: ModelRole, modelId: string) {
+  const admin = t.withIdentity({ subject: ADMIN });
+  for (const other of MODEL_ROLES) {
+    if (other === role) continue;
+    await admin.mutation(setRoleCostCapRef, { role: other, maxInputUsdPerMTok: 0.01, maxOutputUsdPerMTok: 0.01, maxCostRatio: 2 });
+  }
+  await t.run(async (ctx) => {
+    const row = await ctx.db.query("modelCatalog").withIndex("by_modelId", (q) => q.eq("modelId", modelId)).first();
+    await ctx.db.patch(row!._id, {
+      benchmarks: [{ source: "openrouter_aa", metric: "intelligence_index", value: 99, fetchedAt: NOW }],
+    });
+  });
+}
+
+async function plan(t: TestConvex) {
+  const ids = await t.mutation(planEvaluationsRef, {});
+  const rows = await t.run((ctx) => Promise.all(ids.map((id) => ctx.db.get(id))));
+  return rows.map((row) => ({ id: row!._id, role: row!.role, modelId: row!.modelId }));
+}
+
+/**
+ * Drops evaluations that were planned but never started: a queued one
+ * marks its role busy, and a settled one would put its model on the
+ * evaluation cooldown, which must not stand in for the rollback check.
+ */
+async function dropQueued(t: TestConvex) {
+  await t.run(async (ctx) => {
+    for (const row of await ctx.db.query("modelEvaluations").withIndex("by_status", (q) => q.eq("status", "queued")).collect()) {
+      await ctx.db.delete(row._id);
+    }
+  });
+}
+
+/** Deletes `role`'s rollbacks from `modelId`: the negative control for an exclusion. */
+async function forgetRollbacks(t: TestConvex, role: ModelRole, modelId: string) {
+  await t.run(async (ctx) => {
+    for (const event of await ctx.db
+      .query("modelSwitchEvents")
+      .withIndex("by_role_and_kind_and_fromModelId_and_at", (q) =>
+        q.eq("role", role).eq("kind", "rollback").eq("fromModelId", modelId)
+      )
+      .collect()) {
+      await ctx.db.delete(event._id);
+    }
+  });
+}
+
 describe("round 4", () => {
   const A = "claude-sonnet-5";
   const B = "claude-opus-4-8";
@@ -1210,37 +1262,6 @@ describe("round 4", () => {
   describe("round 6", () => {
     const D = "claude-haiku-4-5-20251001";
 
-    /** PD review becomes the only role with room under its cap, and B its best candidate on paper. */
-    async function onlyPdReviewCanPlanB(t: TestConvex) {
-      const admin = t.withIdentity({ subject: ADMIN });
-      for (const role of MODEL_ROLES) {
-        if (role === "pd_review") continue;
-        await admin.mutation(setRoleCostCapRef, { role, maxInputUsdPerMTok: 0.01, maxOutputUsdPerMTok: 0.01, maxCostRatio: 2 });
-      }
-      await t.run(async (ctx) => {
-        const opus = await ctx.db.query("modelCatalog").withIndex("by_modelId", (q) => q.eq("modelId", B)).first();
-        await ctx.db.patch(opus!._id, {
-          benchmarks: [{ source: "openrouter_aa", metric: "intelligence_index", value: 99, fetchedAt: NOW }],
-        });
-      });
-    }
-    async function plan(t: TestConvex) {
-      const ids = await t.mutation(planEvaluationsRef, {});
-      const rows = await t.run((ctx) => Promise.all(ids.map((id) => ctx.db.get(id))));
-      return rows.map((row) => ({ id: row!._id, role: row!.role, modelId: row!.modelId }));
-    }
-    /**
-     * Drops evaluations that were planned but never started: a queued one
-     * marks its role busy, and a settled one would put its model on the
-     * evaluation cooldown, which must not stand in for the rollback check.
-     */
-    async function dropQueued(t: TestConvex) {
-      await t.run(async (ctx) => {
-        for (const row of await ctx.db.query("modelEvaluations").withIndex("by_status", (q) => q.eq("status", "queued")).collect()) {
-          await ctx.db.delete(row._id);
-        }
-      });
-    }
     /** PD review promotes the candidate its planned evaluation measured. */
     async function promotePdReview(t: TestConvex, evaluationId: Id<"modelEvaluations">) {
       const claim = await t.mutation(claimEvaluationRef, { evaluationId, envelope: EVAL_ENVELOPE });
@@ -1302,13 +1323,17 @@ describe("round 4", () => {
 
       // B stays out of PD review's plans, also once its own promotion has
       // cleared the role_split marker.
-      await onlyPdReviewCanPlanB(t);
+      await onlyRoleCanPlan(t, "pd_review", B);
       const [first] = await plan(t);
       expect(first).toMatchObject({ role: "pd_review" });
       expect(first.modelId).not.toBe(B);
       await promotePdReview(t, first.id);
       expect((await assignmentOf(t, "pd_review"))?.origin).toBeUndefined();
       expect((await plan(t)).some((item) => item.modelId === B)).toBe(false);
+      // Negative control: without analysis's rollback, the same plan picks B.
+      await dropQueued(t);
+      await forgetRollbacks(t, "analysis", B);
+      expect((await plan(t)).filter((item) => item.modelId === B).map((item) => item.role)).toEqual(["pd_review"]);
     });
 
     it("6: a predecessor's rollback stays excluded however many switches its split role makes", async () => {
@@ -1360,7 +1385,7 @@ describe("round 4", () => {
       expect(newestFifty).toHaveLength(50);
       expect(newestFifty.at(-1)).toMatchObject({ kind: "rollback", fromModelId: B });
 
-      await onlyPdReviewCanPlanB(t);
+      await onlyRoleCanPlan(t, "pd_review", B);
       const [first] = await plan(t);
       expect(first).toMatchObject({ role: "pd_review" });
       expect(first.modelId).not.toBe(B);
@@ -1377,6 +1402,115 @@ describe("round 4", () => {
       const last = await plan(t);
       expect(last.map((item) => item.role)).toEqual(["pd_review"]);
       expect(last.some((item) => item.modelId === B)).toBe(false);
+      // Negative control: without analysis's rollback, the same plan picks B.
+      await dropQueued(t);
+      await forgetRollbacks(t, "analysis", B);
+      expect((await plan(t)).filter((item) => item.modelId === B).map((item) => item.role)).toEqual(["pd_review"]);
     });
+  });
+});
+
+describe("round 7", () => {
+  const INCUMBENT = "claude-sonnet-5";
+  const CANDIDATE = "claude-opus-4-8";
+  const HAIKU = "claude-haiku-4-5-20251001";
+
+  const writingEvents = (t: TestConvex) =>
+    t.run((ctx) =>
+      ctx.db.query("modelSwitchEvents").withIndex("by_role_and_at", (q) => q.eq("role", "writing")).collect()
+    );
+
+  /** The daily plan queues CANDIDATE for writing, which runs INCUMBENT. */
+  async function plannedCandidate(t: TestConvex) {
+    await onlyRoleCanPlan(t, "writing", CANDIDATE);
+    const [queued] = await plan(t);
+    expect(queued).toMatchObject({ role: "writing", modelId: CANDIDATE });
+    return queued.id;
+  }
+
+  /** An admin tries CANDIDATE by hand, and it is rolled back to INCUMBENT. */
+  async function triedAndRolledBack(admin: ReturnType<TestConvex["withIdentity"]>, t: TestConvex) {
+    await admin.mutation(setRoleModelRef, { role: "writing", modelId: CANDIDATE });
+    await admin.mutation(rollbackRoleRef, { role: "writing" });
+    expect(await writingModel(t)).toBe(INCUMBENT);
+  }
+
+  it("7: an evaluation that finishes after its role was rolled back from the candidate is held, not promoted", async () => {
+    const { t, admin } = await setup();
+    const evaluationId = await plannedCandidate(t);
+    expect(await t.mutation(claimEvaluationRef, { evaluationId, envelope: EVAL_ENVELOPE })).not.toBeNull();
+    // While it runs, an admin tries the candidate by hand and rolls it back.
+    await triedAndRolledBack(admin, t);
+    // The role runs the incumbent again, and the candidate passes every gate.
+    const complete = () =>
+      t.mutation(completeEvaluationRef, {
+        evaluationId,
+        candidateResults: results(),
+        incumbentResults: incumbentResults(),
+        evalCostUsd: 0.2,
+      });
+    expect(await complete()).toBe("held");
+    expect(await t.run((ctx) => ctx.db.get(evaluationId))).toMatchObject({
+      status: "passed",
+      outcome: "passed; the role was rolled back from this model",
+      evalCostUsd: 0.2,
+    });
+    expect(await writingModel(t)).toBe(INCUMBENT);
+    expect((await writingEvents(t)).map((event) => event.kind)).toEqual(["manual", "rollback"]);
+
+    // Negative control: the same finished run promotes once the rollback is gone.
+    await forgetRollbacks(t, "writing", CANDIDATE);
+    await t.run((ctx) => ctx.db.patch(evaluationId, { status: "running", outcome: undefined }));
+    expect(await complete()).toBe("promoted");
+    expect(await writingModel(t)).toBe(CANDIDATE);
+  });
+
+  it("7: a queued evaluation of a model its role was rolled back from never starts", async () => {
+    const { t, admin } = await setup();
+    const evaluationId = await plannedCandidate(t);
+    await triedAndRolledBack(admin, t);
+    expect(await t.mutation(claimEvaluationRef, { evaluationId, envelope: EVAL_ENVELOPE })).toBeNull();
+    expect(await t.run((ctx) => ctx.db.get(evaluationId))).toMatchObject({
+      status: "error",
+      error: "The role was rolled back from this model",
+      evalCostUsd: 0,
+    });
+    // Negative control: without the rollback the same evaluation starts.
+    await forgetRollbacks(t, "writing", CANDIDATE);
+    await t.run((ctx) =>
+      ctx.db.patch(evaluationId, { status: "queued", error: undefined, evalCostUsd: undefined, completedAt: undefined })
+    );
+    expect(await t.mutation(claimEvaluationRef, { evaluationId, envelope: EVAL_ENVELOPE })).not.toBeNull();
+  });
+
+  it("7: a rollback excludes the same model under its other gateway id", async () => {
+    const { t, admin } = await setup();
+    const listing = "anthropic/claude-opus-4.8";
+    expect((await row(t, listing))?.canonicalSlug).toBe((await row(t, CANDIDATE))?.canonicalSlug);
+    await triedAndRolledBack(admin, t);
+    await onlyRoleCanPlan(t, "writing", listing);
+    expect((await plan(t)).some((item) => item.modelId === listing || item.modelId === CANDIDATE)).toBe(false);
+    // Negative control: without the rollback, the OpenRouter listing is planned.
+    await dropQueued(t);
+    await forgetRollbacks(t, "writing", CANDIDATE);
+    expect((await plan(t)).map((item) => [item.role, item.modelId])).toEqual([["writing", listing]]);
+  });
+
+  it("7: a role's own rollback stays excluded after more than 50 later switches", async () => {
+    const { t, admin } = await setup();
+    await triedAndRolledBack(admin, t);
+    for (let i = 0; i < 55; i += 1) {
+      await admin.mutation(setRoleModelRef, { role: "writing", modelId: i % 2 === 0 ? HAIKU : INCUMBENT });
+    }
+    const newestFifty = await t.run((ctx) =>
+      ctx.db.query("modelSwitchEvents").withIndex("by_role_and_at", (q) => q.eq("role", "writing")).order("desc").take(50)
+    );
+    expect(newestFifty.some((event) => event.kind === "rollback")).toBe(false);
+    await onlyRoleCanPlan(t, "writing", CANDIDATE);
+    expect((await plan(t)).some((item) => item.modelId === CANDIDATE)).toBe(false);
+    // Negative control: without the rollback, the same plan picks the candidate.
+    await dropQueued(t);
+    await forgetRollbacks(t, "writing", CANDIDATE);
+    expect((await plan(t)).map((item) => [item.role, item.modelId])).toEqual([["writing", CANDIDATE]]);
   });
 });

@@ -750,6 +750,11 @@ export const claimEvaluation = internalMutation({
       return null;
     };
     if (!(await autoSwitchEnabled(ctx))) return await stop("Automatic switching is off");
+    // Rolled back from after it was planned (an admin tried it by hand, and
+    // it failed): it could never be promoted, so nothing is spent on it.
+    if (await rolledBackFrom(ctx, evaluation.role, evaluation.modelId)) {
+      return await stop("The role was rolled back from this model");
+    }
     const cap = await roleCostCap(ctx, evaluation.role);
     const candidate = await frozenEntryForModel(ctx, evaluation.modelId, cap);
     const incumbent = await frozenEntryForModel(ctx, evaluation.incumbentModelId, cap);
@@ -804,8 +809,9 @@ export const claimEvaluation = internalMutation({
 
 /**
  * Record an evaluation's results and apply the promotion rule. A pass
- * switches the role only when automatic switching is still on and the role
- * still runs the incumbent the candidate was measured against.
+ * switches the role only when automatic switching is still on, the role
+ * still runs the incumbent the candidate was measured against, and the role
+ * has not been rolled back from the candidate since it was planned.
  */
 export const completeEvaluation = internalMutation({
   args: {
@@ -880,7 +886,9 @@ export const completeEvaluation = internalMutation({
         ? "passed; this role never switches on its own"
         : current !== evaluation.incumbentModelId
           ? "passed; the role changed while it ran"
-          : null;
+          : (await rolledBackFrom(ctx, evaluation.role, evaluation.modelId))
+            ? "passed; the role was rolled back from this model"
+            : null;
     if (blocker) {
       await ctx.db.patch(evaluation._id, { ...base, status: "passed", outcome: blocker });
       return "held";
@@ -934,7 +942,7 @@ export const failEvaluation = internalMutation({
 /**
  * The model a helper role runs now, as an entry an action can register, plus
  * the role's previous model as an OpenRouter fallback when both are on that
- * gateway.
+ * gateway and the role was never rolled back from it.
  */
 export const roleModelEntry = internalQuery({
   args: { role: modelRoleValidator },
@@ -950,9 +958,13 @@ export const roleModelEntry = internalQuery({
       (await frozenEntryForModel(ctx, ROLE_POLICIES[args.role].defaultModelId, cap));
     if (!entry) throw new Error(`No model resolves for role ${args.role}`);
     const assignment = await roleAssignment(ctx, args.role);
-    const previous = assignment?.previousModelId
-      ? await frozenEntryForModel(ctx, assignment.previousModelId, cap)
-      : null;
+    // Never the model the role was rolled back from: after a rollback the
+    // previous model is exactly that one.
+    const previous =
+      assignment?.previousModelId &&
+      !(await rolledBackFrom(ctx, args.role, assignment.previousModelId))
+        ? await frozenEntryForModel(ctx, assignment.previousModelId, cap)
+        : null;
     return {
       entry,
       ...(previous && previous.gateway === "openrouter" && entry.gateway === "openrouter" && previous.id !== entry.id

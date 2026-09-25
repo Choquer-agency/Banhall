@@ -15,12 +15,14 @@ import {
   MODEL,
   seedModelById,
   type ModelEntry,
+  type ModelGateway,
 } from "../../shared/generationModels";
 import {
   AUTOMATION_THRESHOLDS,
   MODEL_ROLES,
   ROLE_POLICIES,
   ROLE_PREDECESSORS,
+  SEED_CANONICAL_SLUGS,
   entryFromCatalog,
   maxPriceFor,
   parseCostCap,
@@ -243,37 +245,68 @@ export async function lastRoleSwitch(
     .first();
 }
 
+/** Every gateway; the Record keeps the list complete if one is added. */
+const GATEWAYS = Object.keys({ anthropic: true, openrouter: true } satisfies Record<ModelGateway, true>) as ModelGateway[];
+
 /**
- * Whether `role` was ever rolled back from `modelId`: by a rollback of its
- * own, or, for a split role, by its predecessor's before the split. Such a
- * model is never evaluated for the role again, however many switches come
- * after (round 6). One indexed row per role, whatever the history length.
+ * The catalog ids that stand for the same model as `modelId`: the id itself
+ * and every row with its canonical slug, on any gateway. A direct Anthropic
+ * model and its OpenRouter listing share OpenRouter's canonical slug (the
+ * refresh matches seed rows by it), so they are one model here (round 7).
+ * Bounded: a slug has a row or two per gateway.
+ */
+async function sameModelIds(ctx: ReadCtx, modelId: string): Promise<string[]> {
+  const ids = new Set([modelId]);
+  const slug = (await catalogRow(ctx, modelId))?.canonicalSlug ?? SEED_CANONICAL_SLUGS[modelId];
+  if (slug) {
+    for (const gateway of GATEWAYS) {
+      const rows = await ctx.db
+        .query("modelCatalog")
+        .withIndex("by_gateway_and_canonicalSlug", (q) => q.eq("gateway", gateway).eq("canonicalSlug", slug))
+        .take(10);
+      for (const row of rows) ids.add(row.modelId);
+    }
+  }
+  return [...ids];
+}
+
+/**
+ * Whether `role` was ever rolled back from `modelId`, under any of its
+ * catalog ids: by a rollback of its own, or, for a split role, by its
+ * predecessor's before the split. Such a model is never evaluated for the
+ * role again, however many switches come after (round 6), never promoted
+ * by an evaluation that was already under way (round 7), and never the
+ * role's OpenRouter fallback. One indexed row per id and role, whatever
+ * the history length.
  */
 export async function rolledBackFrom(
   ctx: ReadCtx,
   role: ModelRole,
   modelId: string
 ): Promise<boolean> {
-  const own = await ctx.db
-    .query("modelSwitchEvents")
-    .withIndex("by_role_and_kind_and_fromModelId_and_at", (q) =>
-      q.eq("role", role).eq("kind", "rollback").eq("fromModelId", modelId)
-    )
-    .first();
-  if (own) return true;
   const inherited = inheritedHistoryOf(await roleAssignment(ctx, role));
-  if (!inherited) return false;
-  const before = await ctx.db
-    .query("modelSwitchEvents")
-    .withIndex("by_role_and_kind_and_fromModelId_and_at", (q) =>
-      q
-        .eq("role", inherited.role)
-        .eq("kind", "rollback")
-        .eq("fromModelId", modelId)
-        .lte("at", inherited.until)
-    )
-    .first();
-  return before !== null;
+  for (const id of await sameModelIds(ctx, modelId)) {
+    const own = await ctx.db
+      .query("modelSwitchEvents")
+      .withIndex("by_role_and_kind_and_fromModelId_and_at", (q) =>
+        q.eq("role", role).eq("kind", "rollback").eq("fromModelId", id)
+      )
+      .first();
+    if (own) return true;
+    if (!inherited) continue;
+    const before = await ctx.db
+      .query("modelSwitchEvents")
+      .withIndex("by_role_and_kind_and_fromModelId_and_at", (q) =>
+        q
+          .eq("role", inherited.role)
+          .eq("kind", "rollback")
+          .eq("fromModelId", id)
+          .lte("at", inherited.until)
+      )
+      .first();
+    if (before) return true;
+  }
+  return false;
 }
 
 export async function roleCostCap(ctx: ReadCtx, role: ModelRole): Promise<CostCap> {

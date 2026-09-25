@@ -240,6 +240,37 @@ describe("OpenRouter request fields", () => {
     expect(usage.map((row) => row.model)).toEqual(["xiaomi/mimo-v2.6-pro"]);
     vi.useRealTimers();
   });
+
+  it("never falls back to the model a helper role was rolled back from", async () => {
+    // The same assignment as above, reached by rolling back from the
+    // previous model: the test above is its negative control.
+    const t = await setup();
+    await t.run(async (ctx) => {
+      await ctx.db.insert("modelSwitchEvents", {
+        role: "structured_helper",
+        fromModelId: "xiaomi/mimo-v2.6-pro",
+        toModelId: "z-ai/glm-5.3-flash",
+        kind: "rollback",
+        reason: "production_error_rate",
+        actor: "system",
+        at: NOW,
+      });
+      await ctx.db.insert("modelRoleAssignments", {
+        role: "structured_helper",
+        modelId: "z-ai/glm-5.3-flash",
+        previousModelId: "xiaomi/mimo-v2.6-pro",
+        assignedAt: NOW,
+        assignedBy: "system",
+      });
+    });
+    await t.action(async (ctx) => {
+      const { client, model } = await clientForRole(ctx, "structured_helper", { callSite: "routing-test" });
+      expect(model).toBe("z-ai/glm-5.3-flash");
+      await client.messages.create(toolParams(model));
+    });
+    expect(captured[0].body).toMatchObject({ model: "z-ai/glm-5.3-flash" });
+    expect(captured[0].body.models).toBeUndefined();
+  });
 });
 
 describe("model outcome recording", () => {

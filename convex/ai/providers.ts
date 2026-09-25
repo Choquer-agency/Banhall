@@ -407,7 +407,8 @@ export function clientForModel(
  * The client for a helper role outside any generation (Brain ingest,
  * learning digests, chat-side helpers, admin summaries): the role's current
  * model, with its previous model as an OpenRouter fallback when both run
- * there. Returns the model id to put in the request.
+ * there and the role was never rolled back from it (modelCatalog.ts
+ * roleModelEntry). Returns the model id to put in the request.
  */
 export async function clientForRole(
   ctx: ActionCtx,
