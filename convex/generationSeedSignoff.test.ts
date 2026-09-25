@@ -46,6 +46,12 @@ import { readSeedReadiness } from "./lib/seedReadiness";
 import { factIndex } from "./lib/seedFacts";
 import schema from "./schema";
 import { agentOutputsOf } from "./lib/generationOutputs";
+import planCoverageReplayKit from "../test-data/plan-coverage-replay.json?raw";
+
+/** Self-check reasons Sonnet 5 really wrote (fictional demo project). */
+const RECORDED_REASONS = (
+  JSON.parse(planCoverageReplayKit) as { recordedReasons: string[] }
+).recordedReasons;
 
 const summaryAdmissionProgram = vi.hoisted(() => ({
   promptVersion: null as string | null,
@@ -172,6 +178,24 @@ type ProviderPlanCheck = {
     originatingItemId: string;
     sourceId: string;
     exactExcerpt: string;
+  }>;
+};
+
+type SummaryCheckInput = {
+  verdicts: Array<{
+    paragraph: number;
+    check: string;
+    instruction: string;
+    outcome: string;
+    reason: string;
+  }>;
+  planVerdicts: Array<{
+    itemId?: string;
+    skippedRoleId?: string;
+    mergedItemIds: string[];
+    paragraph: number;
+    outcome: string;
+    reason: string;
   }>;
 };
 
@@ -4050,6 +4074,219 @@ describe("seed Summary sign-off and recovery", () => {
     )).toBe(true);
     expect(progress.some((line) =>
       line.includes("Self-check: pass; plan coverage complete")
+    )).toBe(true);
+  });
+
+  it("reports plan coverage complete when real-length reasons are clipped instead of rejected", async () => {
+    const s = await decisionFixture();
+    await makeReady(s);
+    await s.writer.mutation(api.generations.signOffSeedStage, {
+      generationId: s.generationId,
+      expectedSeedStageVersion: 0,
+    });
+    let next = 0;
+    const realReason = () => RECORDED_REASONS[next++ % RECORDED_REASONS.length] ?? "";
+    network.create.mockImplementation(async (params: GenerationMessageParams) => {
+      if (!params.tool_choice) {
+        return {
+          content: [{ type: "text", text: "Technical work and results were recorded." }],
+          usage: { input_tokens: 10, output_tokens: 5 },
+        };
+      }
+      const checks = providerPlanChecks(params);
+      return {
+        content: [{
+          type: "tool_use",
+          id: "real-length-reasons",
+          name: params.tool_choice.name,
+          input: {
+            verdicts: providerOrdinaryVerdicts(params).map((verdict) => ({
+              ...verdict,
+              reason: realReason(),
+            })),
+            planVerdicts: checks.map((check) => ({
+              ...(check.itemId ? { itemId: check.itemId } : {}),
+              ...(check.skippedRoleId ? { skippedRoleId: check.skippedRoleId } : {}),
+              mergedItemIds: [...check.mergedItemIds],
+              paragraph: 1,
+              outcome: "applied",
+              reason: realReason(),
+            })),
+          },
+        }],
+        usage: { input_tokens: 10, output_tokens: 5 },
+      };
+    });
+
+    await runNextSectionAction(s, s.generationId);
+    await runNextSectionAction(s, s.generationId);
+    // Most recorded reasons are over the 64-byte reservation.
+    expect(next).toBeGreaterThan(4);
+    const state = await s.t.run(async (ctx) => ({
+      runs: await ctx.db.query("generationSectionRuns")
+        .withIndex("by_generationId", (q) => q.eq("generationId", s.generationId))
+        .take(4),
+      rows242: await ctx.db.query("complianceNotes")
+        .withIndex("by_generationId_and_section", (q) =>
+          q.eq("generationId", s.generationId).eq("section", "242"))
+        .take(30),
+    }));
+    const summary242 = JSON.parse(
+      state.runs.find((row) => row.section === "s242")?.selfCheck ?? "{}"
+    );
+    expect(summary242).toMatchObject({
+      status: "pass",
+      modelCheck: "ok",
+      planCoverage: { status: "complete" },
+    });
+    expect(summary242.modelCheckDetail).toBeUndefined();
+    const summary246 = JSON.parse(
+      state.runs.find((row) => row.section === "s246")?.selfCheck ?? "{}"
+    );
+    // Section 246 carries a confirmed exclusion conflict, never an outage.
+    expect(summary246).toMatchObject({
+      modelCheck: "ok",
+      planCoverage: { status: "incomplete" },
+    });
+    const planRows = state.rows242.filter((row) => row.planRef);
+    expect(planRows.length).toBeGreaterThan(0);
+    expect(planRows.every((row) => row.outcome === "applied")).toBe(true);
+    const modelRows = state.rows242.filter((row) => row.source === "model");
+    expect(modelRows.some((row) => row.reason.endsWith("…"))).toBe(true);
+    for (const row of modelRows) {
+      expect(new TextEncoder().encode(row.reason).byteLength).toBeLessThanOrEqual(64);
+    }
+    expect(state.rows242.some((row) => row.instruction === "Model Self-check")).toBe(false);
+    const progress = await exposedProgress(s);
+    expect(progress.some((line) =>
+      line.includes("Self-check: pass; plan coverage complete")
+    )).toBe(true);
+    expect(progress.some((line) => line.includes("plan coverage unavailable"))).toBe(false);
+  });
+
+  it.each([
+    {
+      name: "a wrong item id",
+      mutate: (input: SummaryCheckInput, checks: ProviderPlanCheck[]) => {
+        const index = checks.findIndex((check) => check.itemId);
+        Object.assign(input.planVerdicts[index] ?? {}, { itemId: "not-a-signed-off-item" });
+      },
+      detail: (checks: ProviderPlanCheck[]) =>
+        `plan verdict ${checks.findIndex((check) => check.itemId) + 1}: ` +
+        "itemId of 21 escaped bytes matches no plan check",
+    },
+    {
+      name: "empty mergedItemIds",
+      mutate: (input: SummaryCheckInput, checks: ProviderPlanCheck[]) => {
+        const index = checks.findIndex((check) => check.itemId);
+        Object.assign(input.planVerdicts[index] ?? {}, { mergedItemIds: [] });
+      },
+      detail: (checks: ProviderPlanCheck[]) => {
+        const index = checks.findIndex((check) => check.itemId);
+        const check = checks[index];
+        return `plan verdict ${index + 1} (item ${check?.itemId}): mergedItemIds has 0 ids, ` +
+          `expected [${check?.mergedItemIds.join(", ")}] in that order`;
+      },
+    },
+    {
+      name: "a duplicate label",
+      mutate: (input: SummaryCheckInput) => {
+        input.verdicts[1] = { ...input.verdicts[0]! };
+      },
+      detail: () => "ordinary verdict 2 (storyline): label repeats",
+    },
+    {
+      name: "an out-of-range paragraph",
+      mutate: (input: SummaryCheckInput) => {
+        input.verdicts[0]!.paragraph = 2;
+      },
+      detail: () =>
+        "ordinary verdict 1 (storyline): paragraph 2 is not a whole number from 0 to 1",
+    },
+    {
+      name: "a response over 16,384 bytes",
+      mutate: (input: SummaryCheckInput) => {
+        input.verdicts[0]!.reason = "The section matches the Storyline. ".repeat(480);
+      },
+      detail: () =>
+        "response failed validation: (root) Summary Self-check response exceeds its UTF-8 byte budget",
+    },
+  ])("keeps plan coverage unavailable for $name and records why", async ({ mutate, detail }) => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const s = await decisionFixture();
+    await makeReady(s);
+    await s.writer.mutation(api.generations.signOffSeedStage, {
+      generationId: s.generationId,
+      expectedSeedStageVersion: 0,
+    });
+    let expectedDetail = "";
+    network.create.mockImplementation(async (params: GenerationMessageParams) => {
+      if (!params.tool_choice) {
+        return {
+          content: [{ type: "text", text: "Technical work and results were recorded." }],
+          usage: { input_tokens: 10, output_tokens: 5 },
+        };
+      }
+      const checks = providerPlanChecks(params);
+      const input: SummaryCheckInput = {
+        verdicts: providerOrdinaryVerdicts(params),
+        planVerdicts: checks.map((check) => ({
+          ...(check.itemId ? { itemId: check.itemId } : {}),
+          ...(check.skippedRoleId ? { skippedRoleId: check.skippedRoleId } : {}),
+          mergedItemIds: [...check.mergedItemIds],
+          paragraph: 1,
+          outcome: "applied",
+          reason: "Covered.",
+        })),
+      };
+      expect(input.verdicts.length).toBeGreaterThanOrEqual(2);
+      expect(input.verdicts[0]?.instruction).toBe("storyline");
+      mutate(input, checks);
+      expectedDetail = detail(checks);
+      return {
+        content: [{
+          type: "tool_use",
+          id: "rejected-summary-check",
+          name: params.tool_choice.name,
+          input,
+        }],
+        usage: { input_tokens: 10, output_tokens: 5 },
+      };
+    });
+
+    await runNextSectionAction(s, s.generationId);
+    expect(expectedDetail).not.toBe("");
+    const state = await s.t.run(async (ctx) => ({
+      rows: await ctx.db.query("complianceNotes")
+        .withIndex("by_generationId_and_section", (q) =>
+          q.eq("generationId", s.generationId).eq("section", "246"))
+        .take(30),
+      run: (await ctx.db.query("generationSectionRuns")
+        .withIndex("by_generationId", (q) => q.eq("generationId", s.generationId))
+        .take(4)).find((row) => row.section === "s246"),
+    }));
+    const summary = JSON.parse(state.run?.selfCheck ?? "{}");
+    expect(summary).toMatchObject({
+      modelCheck: "failed",
+      planCoverage: { status: "unavailable", applied: 0 },
+    });
+    expect(summary.modelCheckDetail).toContain(expectedDetail);
+    expect(state.rows.find((row) => row.instruction === "Model Self-check")?.reason)
+      .toContain(`Self-check call failed (unknown: ${expectedDetail}`);
+    expect(state.rows.filter((row) => row.planRef).every((row) =>
+      row.outcome === "not_applied" && row.repaired === false
+    )).toBe(true);
+    expect(warn.mock.calls.some(([message]) =>
+      typeof message === "string" &&
+      message.includes("generation:selfCheck:246") &&
+      message.includes(expectedDetail)
+    )).toBe(true);
+    // The recorded reason names the clause, never the model's own text.
+    expect(summary.modelCheckDetail).not.toContain("not-a-signed-off-item");
+    expect(summary.modelCheckDetail).not.toContain("matches the Storyline");
+    expect((await exposedProgress(s)).some((line) =>
+      line.includes("plan coverage unavailable")
     )).toBe(true);
   });
 

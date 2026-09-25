@@ -31,7 +31,11 @@ import { sectionMetrics } from "../lib/lineLimits";
 import { assembleSectionNotes, runDeterministicSelfCheck } from "../lib/selfCheckRules";
 import type { OrderedProfileContext } from "../lib/orderedChain";
 import { planComplianceNoteDrafts } from "./orderedGeneration";
-import { runModelSelfCheck, type SelfCheckPlanCheck } from "./selfCheck";
+import {
+  runModelSelfCheck,
+  selfCheckFailureDiagnostic,
+  type SelfCheckPlanCheck,
+} from "./selfCheck";
 import {
   SELF_CHECK_SYSTEM_PROMPT,
   SUMMARY_PLAN_SELF_CHECK_SYSTEM_PROMPT,
@@ -41,9 +45,12 @@ import {
   MAX_SUMMARY_SELF_CHECK_GUIDANCE_ESCAPED_UTF8_BYTES,
   MAX_SUMMARY_SELF_CHECK_REASON_ESCAPED_UTF8_BYTES,
   MAX_SUMMARY_SELF_CHECK_RESPONSE_UTF8_BYTES,
+  projectSummaryOrdinaryChecks,
   serializeFrozenSummaryPlanChecks,
 } from "../lib/seedRevisions";
 import { agentOutputsOf } from "../lib/generationOutputs";
+import type { PdSubsectionRoleId } from "../../shared/pdSubsections";
+import planCoverageReplayKit from "../../test-data/plan-coverage-replay.json?raw";
 
 const network = vi.hoisted(() => ({ create: vi.fn() }));
 vi.mock("@anthropic-ai/sdk", () => ({
@@ -532,7 +539,7 @@ describe("Self-check before display (CAP-9)", () => {
       aboveLimit: `${"\n".repeat(48)}x`,
     },
   ] as const)(
-    "advertises and enforces the Summary byte limit for $case text",
+    "advertises the Summary byte limit for $case text and clips text above it",
     async ({ field, maximum, atLimit, aboveLimit }) => {
       expect(jsonEscapedUtf8Bytes(atLimit)).toBe(maximum);
       expect(jsonEscapedUtf8Bytes(aboveLimit)).toBe(maximum + 1);
@@ -634,11 +641,20 @@ describe("Self-check before display (CAP-9)", () => {
         );
       }
 
-      const rejected = await execute(aboveLimit);
-      await expect(rejected.result).rejects.toThrow(
-        "Summary Self-check returned an invalid ordinary verdict"
-      );
-      expect(rejected.create).toHaveBeenCalledTimes(1);
+      // Over-long free text used to reject the whole check (2026-09-25:
+      // real reasons run 90 to 280 bytes). It is now clipped to the limit
+      // and the check is accepted with the clipped text.
+      const clipped = await execute(aboveLimit);
+      const value = await clipped.result;
+      expect(clipped.create).toHaveBeenCalledTimes(1);
+      expect(value.verdicts).toHaveLength(1);
+      expect(value.planVerdicts[0]).toMatchObject({ outcome: "applied", paragraphIndex: 0 });
+      const kept = field === "reason"
+        ? value.verdicts[0]?.reason
+        : value.verdicts[0]?.repairGuidance;
+      expect(kept).toBeDefined();
+      expect(jsonEscapedUtf8Bytes(kept ?? "")).toBeLessThanOrEqual(maximum);
+      expect(kept?.endsWith("…")).toBe(true);
     }
   );
 
@@ -987,7 +1003,6 @@ describe("Self-check before display (CAP-9)", () => {
       ["duplicate plan row", (response) => { response.planVerdicts[2] = { ...response.planVerdicts[0] }; }],
       ["unknown plan reference", (response) => { response.planVerdicts[0].itemId = "unknown-item"; }],
       ["incomplete merge ids", (response) => { response.planVerdicts[0].mergedItemIds = ["item-a"]; }],
-      ["overlong escaped field", (response) => { response.verdicts[0].reason = "\n".repeat(33); }],
       ["overlong returned id", (response) => { response.planVerdicts[0].itemId = "x".repeat(65); }],
       ["ordinary paragraph numeric limit", (response) => { response.verdicts[0].paragraph = 10_000_000_000; }],
       ["plan paragraph numeric limit", (response) => { response.planVerdicts[0].paragraph = 10_000_000_000; }],
@@ -1009,6 +1024,18 @@ describe("Self-check before display (CAP-9)", () => {
       await expect(rejected.result, name).rejects.toThrow();
       expect(rejected.create, name).toHaveBeenCalledTimes(1);
     }
+
+    // An overlong escaped free-text field no longer rejects the whole
+    // response: it is clipped to its limit and the rest is kept as returned.
+    const overlong = structuredClone(valid);
+    overlong.verdicts[0].reason = "\n".repeat(33);
+    const clipped = await execute(overlong);
+    const value = await clipped.result;
+    expect(clipped.create).toHaveBeenCalledTimes(1);
+    expect(value.verdicts).toHaveLength(valid.verdicts.length);
+    expect(value.planVerdicts.map((verdict) => verdict.outcome))
+      .toEqual(["applied", "applied", "applied"]);
+    expect(value.storylineQuestion?.question).toBe("Which result is supported?");
   });
 
   it.each([
@@ -1526,6 +1553,227 @@ describe("deterministic Self-check rules", () => {
     expect(rows[1]).toMatchObject({ outcome: "not_applied", tier: "conflict", repaired: false, planRef: { itemId: second, mergedItemIds: [first, second] } });
     expect(rows[1].paragraphIndex).toBeUndefined();
     expect(rows[2]).toMatchObject({ outcome: "applied", planRef: { skippedRoleId: "project_status", mergedItemIds: [] } });
+  });
+});
+
+// ─── Summary plan coverage replay (2026-09-25) ──────────────────────────────
+//
+// Every real Step-by-step run reported "plan coverage unavailable": the
+// Summary Self-check passed its schema, then the completeness check rejected
+// the whole response because real reasons run 90 to 280 bytes against a
+// 64-byte reservation. This replays the saved Line 244 input of a real Opus
+// run (fictional demo data) answered with 33 reasons Sonnet 5 really wrote.
+
+type PlanCoverageReplayKit = {
+  case: {
+    model: string;
+    section: "244";
+    text: string;
+    storylineText: string;
+    confidenceMap: Array<{ text: string; confidence?: string }>;
+    items: Array<{
+      itemId: string;
+      roleId: PdSubsectionRoleId;
+      support: "source_supported" | "writer_asserted";
+      bullets: string[];
+    }>;
+  };
+  recordedReasons: string[];
+};
+const planCoverageReplay = JSON.parse(planCoverageReplayKit) as PlanCoverageReplayKit;
+
+function replayPlanChecks(): SelfCheckPlanCheck[] {
+  return planCoverageReplay.case.items.map((item) => ({
+    itemId: item.itemId,
+    roleId: item.roleId,
+    mergedItemIds: [item.itemId],
+    instruction: "cover" as const,
+    confirmedExclusion: false,
+    support: item.support,
+    wording: item.bullets,
+    relationshipReferences: [],
+    sourceReferences: [],
+  }));
+}
+
+function replayInput() {
+  const planChecks = replayPlanChecks();
+  return {
+    section: planCoverageReplay.case.section,
+    text: planCoverageReplay.case.text,
+    storylineText: planCoverageReplay.case.storylineText,
+    confidenceMap: planCoverageReplay.case.confidenceMap,
+    glossaryCandidates: [] as string[],
+    rules: [] as Array<{ instruction: string }>,
+    model: planCoverageReplay.case.model,
+    planChecks,
+    planChecksBlock: serializeFrozenSummaryPlanChecks(planChecks),
+  };
+}
+
+/** The evidence paragraph (1-based) for each ordinary label and plan item. */
+const REPLAY_ORDINARY_PARAGRAPHS = [0, 3, 3, 1, 1, 4, 4, 5, 5, 5];
+const REPLAY_PLAN_PARAGRAPHS = [1, 1, 2, 3];
+
+function replayResponse() {
+  const input = replayInput();
+  const reasons = planCoverageReplay.recordedReasons;
+  let next = 0;
+  const reason = () => reasons[next++ % reasons.length];
+  const ordinary = projectSummaryOrdinaryChecks({
+    storylineText: input.storylineText,
+    confidenceMap: input.confidenceMap,
+    glossaryTerms: input.glossaryCandidates,
+    rules: input.rules,
+  });
+  return {
+    verdicts: ordinary.map((check, index) => ({
+      paragraph: REPLAY_ORDINARY_PARAGRAPHS[index] ?? 0,
+      check: check.check,
+      instruction: check.label,
+      outcome: "applied",
+      reason: reason(),
+    })),
+    planVerdicts: input.planChecks.map((check, index) => ({
+      itemId: check.itemId,
+      mergedItemIds: [...check.mergedItemIds],
+      paragraph: REPLAY_PLAN_PARAGRAPHS[index],
+      outcome: "applied",
+      reason: reason(),
+    })),
+    storylineQuestion: null,
+  };
+}
+
+function replayClient(response: unknown) {
+  return {
+    messages: {
+      create: vi.fn(async (params: GenerationMessageParams) => ({
+        content: [{
+          type: "tool_use" as const,
+          id: "plan-coverage-replay",
+          name: params.tool_choice?.name ?? "submit_self_check",
+          input: response,
+        }],
+        usage: { input_tokens: 1, output_tokens: 1 },
+      })),
+    },
+  };
+}
+
+describe("Summary plan coverage replay (recorded Opus 244 case)", () => {
+  it("accepts real-length reasons by clipping them, with every plan item applied on its paragraph", async () => {
+    const response = replayResponse();
+    const input = replayInput();
+    // The recorded shape: 5 paragraphs, 10 labels, 4 plan items.
+    expect(input.text.split(/\n\s*\n/)).toHaveLength(5);
+    expect(response.verdicts).toHaveLength(10);
+    expect(response.planVerdicts).toHaveLength(4);
+    const sentReasons = [
+      ...response.verdicts.map((verdict) => verdict.reason),
+      ...response.planVerdicts.map((verdict) => verdict.reason),
+    ];
+    // Real reasons, most of them over the 64-byte reservation.
+    expect(sentReasons.filter((reason) =>
+      jsonEscapedUtf8Bytes(reason) > MAX_SUMMARY_SELF_CHECK_REASON_ESCAPED_UTF8_BYTES
+    ).length).toBeGreaterThanOrEqual(10);
+    // The whole response still fits the 16,384-byte limit.
+    expect(new TextEncoder().encode(JSON.stringify(response)).byteLength)
+      .toBeLessThanOrEqual(MAX_SUMMARY_SELF_CHECK_RESPONSE_UTF8_BYTES);
+
+    const client = replayClient(response);
+    const result = await runModelSelfCheck(client as GenerationClient, input);
+
+    expect(client.messages.create).toHaveBeenCalledTimes(1);
+    expect(result.planVerdicts).toHaveLength(4);
+    expect(result.planVerdicts.map((verdict) => verdict.outcome))
+      .toEqual(["applied", "applied", "applied", "applied"]);
+    expect(result.planVerdicts.map((verdict) => verdict.paragraphIndex))
+      .toEqual([0, 0, 1, 2]);
+    expect(result.planVerdicts.map((verdict) => verdict.itemId))
+      .toEqual(planCoverageReplay.case.items.map((item) => item.itemId));
+    expect(result.verdicts).toHaveLength(10);
+    expect(result.verdicts.every((verdict) => verdict.outcome === "applied")).toBe(true);
+    const keptReasons = [
+      ...result.verdicts.map((verdict) => verdict.reason),
+      ...result.planVerdicts.map((verdict) => verdict.reason),
+    ];
+    keptReasons.forEach((kept, index) => {
+      const sent = sentReasons[index] ?? "";
+      expect(jsonEscapedUtf8Bytes(kept)).toBeLessThanOrEqual(
+        MAX_SUMMARY_SELF_CHECK_REASON_ESCAPED_UTF8_BYTES
+      );
+      if (jsonEscapedUtf8Bytes(sent) <= MAX_SUMMARY_SELF_CHECK_REASON_ESCAPED_UTF8_BYTES) {
+        expect(kept).toBe(sent.trim());
+      } else {
+        expect(kept.endsWith("…")).toBe(true);
+        expect(sent.startsWith(kept.slice(0, -1))).toBe(true);
+      }
+    });
+  });
+
+  it.each([
+    {
+      name: "a wrong item id",
+      mutate: (response: ReturnType<typeof replayResponse>) => {
+        response.planVerdicts[1].itemId = "not-a-signed-off-item";
+      },
+      detail: "plan verdict 2: itemId of 21 escaped bytes matches no plan check",
+    },
+    {
+      name: "empty mergedItemIds",
+      mutate: (response: ReturnType<typeof replayResponse>) => {
+        response.planVerdicts[0].mergedItemIds = [];
+      },
+      detail: `plan verdict 1 (item ${planCoverageReplay.case.items[0]?.itemId}): mergedItemIds has 0 ids, expected [${planCoverageReplay.case.items[0]?.itemId}] in that order`,
+    },
+    {
+      name: "a duplicate label",
+      mutate: (response: ReturnType<typeof replayResponse>) => {
+        response.verdicts[2] = { ...response.verdicts[1] };
+      },
+      detail: "ordinary verdict 3 (confidence:C1): label repeats",
+    },
+    {
+      name: "an out-of-range paragraph",
+      mutate: (response: ReturnType<typeof replayResponse>) => {
+        response.verdicts[4].paragraph = 6;
+      },
+      detail: "ordinary verdict 5 (confidence:C4): paragraph 6 is not a whole number from 0 to 5",
+    },
+    {
+      name: "a response over 16,384 bytes",
+      mutate: (response: ReturnType<typeof replayResponse>) => {
+        response.verdicts[0].reason = "The section matches the Storyline. ".repeat(480);
+      },
+      detail: "response failed validation: (root) Summary Self-check response exceeds its UTF-8 byte budget",
+    },
+  ])("still rejects the whole check for $name and names why", async ({ mutate, detail }) => {
+    const response = replayResponse();
+    mutate(response);
+    const client = replayClient(response);
+    const error = await runModelSelfCheck(client as GenerationClient, replayInput())
+      .then(() => null, (caught: unknown) => caught);
+    expect(error).toBeInstanceOf(Error);
+    expect(client.messages.create).toHaveBeenCalledTimes(1);
+    const diagnostic = selfCheckFailureDiagnostic(error);
+    expect(diagnostic).toContain(detail);
+    // The diagnostic never carries the model's own words.
+    for (const reason of planCoverageReplay.recordedReasons) {
+      expect(diagnostic).not.toContain(reason.slice(0, 24));
+    }
+    expect(diagnostic).not.toContain("not-a-signed-off-item");
+  });
+
+  it("describes failures without a checked response by their kind only", async () => {
+    expect(selfCheckFailureDiagnostic(new Error("provider said: secret client text")))
+      .toBe("no response to check");
+    expect(selfCheckFailureDiagnostic(
+      new Error("submit_self_check: model did not return structured output")
+    )).toBe("no tool output");
+    const { MalformedOutputError } = await import("./openrouterCore");
+    expect(selfCheckFailureDiagnostic(new MalformedOutputError("{\"reason\": \"model text\"")))
+      .toBe("tool output was not valid JSON");
   });
 });
 

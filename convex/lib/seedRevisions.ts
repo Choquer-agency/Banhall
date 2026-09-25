@@ -169,6 +169,44 @@ export function jsonEscapedUtf8Bytes(value: string): number {
   return utf8Bytes(escaped.slice(1, -1));
 }
 
+const CLIP_MARK = "…";
+
+/**
+ * Clip model free text to `maximum` JSON-escaped UTF-8 bytes, measured by
+ * jsonEscapedUtf8Bytes. Text within the limit is returned unchanged. Longer
+ * text is cut between code points (so never inside a UTF-8 sequence or a
+ * JSON escape), at the last word boundary when one falls in the second half
+ * of the kept text, and ends with a "…" mark that the limit already counts.
+ * Escaping is per code point, so the kept prefix costs exactly the sum of
+ * its code points.
+ */
+export function clipJsonEscapedUtf8(value: string, maximum: number): string {
+  if (jsonEscapedUtf8Bytes(value) <= maximum) return value;
+  const markBytes = jsonEscapedUtf8Bytes(CLIP_MARK);
+  const withMark = maximum > markBytes;
+  const budget = withMark ? maximum - markBytes : Math.max(maximum, 0);
+  const codePoints = Array.from(value);
+  let used = 0;
+  let end = 0;
+  while (end < codePoints.length) {
+    const cost = jsonEscapedUtf8Bytes(codePoints[end]);
+    if (used + cost > budget) break;
+    used += cost;
+    end += 1;
+  }
+  const hardCut = codePoints.slice(0, end).join("");
+  if (!withMark) return hardCut;
+  let kept = hardCut;
+  const next = codePoints[end];
+  const last = codePoints[end - 1];
+  if (next !== undefined && last !== undefined && /\S/u.test(next) && /\S/u.test(last)) {
+    const boundary = kept.search(/\s\S*$/u);
+    if (boundary > 0 && boundary >= kept.length / 2) kept = kept.slice(0, boundary);
+  }
+  kept = kept.replace(/[\s,;:]+$/u, "");
+  return `${kept || hardCut}${CLIP_MARK}`;
+}
+
 function assertEscapedStringLimit(
   value: string,
   maximum: number,
