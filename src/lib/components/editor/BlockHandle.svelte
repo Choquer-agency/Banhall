@@ -82,10 +82,12 @@
 </script>
 
 {#if hoveredBlock && compact}
+  <!-- pr-0.5 runs the hit area to the text edge, so the pointer never leaves
+       the editor on its way from a heading to the handle. -->
   <div
     bind:this={handleEl}
     data-block-handle
-    class="absolute -left-[34px] flex items-center gap-0.5 opacity-0 transition-opacity group-hover/editor:opacity-100 motion-reduce:transition-none"
+    class="absolute -left-[34px] flex items-center gap-0.5 pr-0.5 opacity-0 transition-opacity group-hover/editor:opacity-100 motion-reduce:transition-none"
     style={`top: ${hoveredBlock.top + 3}px;`}
   >
     <button

@@ -49,6 +49,7 @@
 <script lang="ts">
   import { tick } from "svelte";
   import ToolbarButton from "./ToolbarButton.svelte";
+  import { rangeTouchesSectionHeading } from "./reportSectionHeadings";
   import AuroraMark from "$lib/components/ui/AuroraMark.svelte";
 
   let {
@@ -76,9 +77,31 @@
   let linkEditing = $state(false);
   let linkDraft = $state("");
 
-  const blockLabel = $derived(
-    BLOCK_TYPES.find((type) => type.label !== "Paragraph" && type.isActive(editor))?.label ?? "Paragraph"
-  );
+  // The Editor instance never changes, so editor state read in the template
+  // needs its own signal: bumped on every transaction (review f1).
+  let revision = $state(0);
+  $effect(() => {
+    const bump = () => (revision += 1);
+    editor.on("transaction", bump);
+    return () => {
+      editor.off("transaction", bump);
+    };
+  });
+  const active = $derived.by(() => {
+    void revision;
+    const { from, to } = editor.state.selection;
+    return {
+      block: BLOCK_TYPES.find((type) => type.label !== "Paragraph" && type.isActive(editor))?.label ?? "Paragraph",
+      bold: editor.isActive("bold"),
+      italic: editor.isActive("italic"),
+      underline: editor.isActive("underline"),
+      strike: editor.isActive("strike"),
+      link: editor.isActive("link"),
+      // A block-type change over a Section heading would convert or wrap it.
+      touchesSectionHeading: rangeTouchesSectionHeading(editor.state.doc, from, to),
+    };
+  });
+  const blockLabel = $derived(active.block);
 
   // Keep the toolbar inside the editor column instead of clipping at its edge.
   const left = $derived.by(() => {
@@ -142,6 +165,7 @@
 
     blockMenuOpen = false;
     linkEditing = false;
+    revision += 1;
     coords = {
       top: mouseY - editorRect.top - 48,
       left: mouseX - editorRect.left,
@@ -240,7 +264,7 @@
         class="flex h-[26px] items-center rounded-[5px] px-2 text-xs text-primary-selected transition-colors hover:bg-primary-wash"
       >Add link</button>
     {:else}
-      {#if !commentOnly}
+      {#if !commentOnly && !active.touchesSectionHeading}
         <div class="relative">
           <button
             type="button"
@@ -277,9 +301,11 @@
           {/if}
         </div>
         <div class="h-4 w-px shrink-0 bg-line" aria-hidden="true"></div>
+      {/if}
+      {#if !commentOnly}
 
         <ToolbarButton
-          active={editor.isActive("bold")}
+          active={active.bold}
           onclick={() => editor.chain().focus().toggleBold().run()}
           title="Bold (Cmd+B)"
         >
@@ -287,7 +313,7 @@
         </ToolbarButton>
 
         <ToolbarButton
-          active={editor.isActive("italic")}
+          active={active.italic}
           onclick={() => editor.chain().focus().toggleItalic().run()}
           title="Italic (Cmd+I)"
         >
@@ -295,14 +321,14 @@
         </ToolbarButton>
 
         <ToolbarButton
-          active={editor.isActive("underline")}
+          active={active.underline}
           onclick={() => editor.chain().focus().toggleUnderline().run()}
           title="Underline (Cmd+U)"
         >
           <span class="underline decoration-1">U</span>
         </ToolbarButton>
 
-        <ToolbarButton active={editor.isActive("link")} onclick={toggleLink} title={editor.isActive("link") ? "Remove link" : "Link"}>
+        <ToolbarButton active={active.link} onclick={toggleLink} title={active.link ? "Remove link" : "Link"}>
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1 M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1" />
           </svg>
@@ -325,9 +351,17 @@
         </button>
       {/if}
 
-      {#if onComment || onResearch}
+      {#if !commentOnly || onComment || onResearch}
         {#if !commentOnly}
           <div class="h-4 w-px shrink-0 bg-line" aria-hidden="true"></div>
+          <!-- Kept from the old toolbar (decision 19); quiet, after the board's set. -->
+          <ToolbarButton
+            active={active.strike}
+            onclick={() => editor.chain().focus().toggleStrike().run()}
+            title="Strikethrough"
+          >
+            <span class="text-ink-secondary line-through">S</span>
+          </ToolbarButton>
         {/if}
         {#if onComment}
           <ToolbarButton active={false} onclick={onComment} title="Comment">

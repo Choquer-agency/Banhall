@@ -35,7 +35,10 @@
   import { Decoration, DecorationSet } from "@tiptap/pm/view";
   import { NOT_GENERATED_PLACEHOLDER } from "../../../../convex/lib/tiptapReport";
   import type { CommentRange, FindReplaceMatch } from "$lib/components/editor/types";
-  import type { ReportLimitMeterSpec } from "$lib/components/editor/reportSectionHeadings";
+  import {
+    SECTION_HEADINGS_EXTERNAL,
+    type ReportLimitMeterSpec,
+  } from "$lib/components/editor/reportSectionHeadings";
   import { overflowStartOffset } from "../../../../convex/lib/lineLimits";
   import {
     reportSectionKeyForHeading,
@@ -866,7 +869,9 @@
         // later restore to one of those documents must be shown.
         outstandingSaves = [];
         lastAcknowledgedSave = null;
-        ed.commands.setContent(parsed, { emitUpdate: false });
+        // The server's copy may replace the Section headings; the reading
+        // presentation otherwise refuses any change to them.
+        ed.chain().setMeta(SECTION_HEADINGS_EXTERNAL, true).setContent(parsed, { emitUpdate: false }).run();
         refreshDocumentMetrics(ed);
       }
     }

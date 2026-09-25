@@ -899,7 +899,8 @@ textarea.input-chromeless:focus-visible {
   font-family: var(--font-sans);
   font-size: 13px;
   line-height: 20px;
-  color: var(--color-ink-faint);
+  /* ink-faint is for placeholders; an always-visible hint needs AA contrast. */
+  color: var(--color-ink-muted);
 }
 
 /* Comment highlights in editor — writer (default: amber/yellow) */
