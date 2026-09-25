@@ -637,8 +637,9 @@ export type SeedTrustedContextInput = {
   lengthTarget: string;
   maxPromptBytes?: number;
   /**
-   * Bytes charged for the role-specific tail whatever its size, so the
-   * source allowance is identical across roles (see buildSeedPrompt).
+   * The role tail's reservation when the sources overflow. Given, the
+   * source allowance depends on generation-stable inputs only and an
+   * oversized role tail is refused (see buildSeedTrustedContext).
    */
   roleTailReserveBytes?: number;
 };
@@ -824,24 +825,47 @@ export function buildSeedTrustedContext(input: SeedTrustedContextInput): {
     );
   }
 
-  // Cost phase 1: the source allowance must not depend on role-specific
-  // text, or near the limit each role would cut the sources (inside the
-  // cached block) at a different byte. With a reserve, the role tail is
-  // charged at least `roleTailReserveBytes`, so any role whose tail fits
-  // the reserve gets the same sources byte for byte. A longer tail still
-  // fits, at the cost of that role's cache hit.
   const roleTailBytes = utf8Bytes(roleTail.join(separator));
-  const roleTailCharge = Math.max(roleTailBytes, input.roleTailReserveBytes ?? 0);
-  let remaining = Math.max(0, maxBytes - fixedBytes - (roleTailCharge - roleTailBytes));
+  const sourceBlocksFull = input.sources.map((source) =>
+    seedBlock(sourceLabel(source), neutralizeMarkers(source.content))
+  );
+  const fullSourceBytes = utf8Bytes(sourceBlocksFull.join(separator));
+  // Without a reservation (direct callers and tests), the sources take
+  // whatever the actual tail leaves, as before cost phase 1.
+  let remaining = maxBytes - fixedBytes;
+  if (input.roleTailReserveBytes !== undefined) {
+    // Cost phase 1: the source allowance sits inside the cached block, so it
+    // is derived from generation-stable inputs only (limit, heading,
+    // guidance, Brief, sources, writer settings, length target), never from
+    // the role's own text. `stableBytes` is what sources and the role tail
+    // share. Sources that fit take their exact size and the rest goes to the
+    // role; sources that overflow leave the role its reservation, clamped to
+    // half the shared space so a very large Brief still leaves the sources
+    // room. A role tail larger than what is left is refused below; it never
+    // moves the cached source cutoff.
+    const stableBytes = maxBytes - fixedBytes + roleTailBytes;
+    const sourcesNeed =
+      input.sources.length > 0
+        ? fullSourceBytes
+        : utf8Bytes(seedBlock(prompt.blocks.sources, prompt.empty));
+    const sourceAllowance = Math.max(
+      0,
+      Math.min(
+        sourcesNeed,
+        Math.max(stableBytes - input.roleTailReserveBytes, Math.floor(stableBytes / 2))
+      )
+    );
+    const roleAllowance = stableBytes - sourceAllowance;
+    if (roleTailBytes > roleAllowance) {
+      throw new SeedContextLimitError(
+        "prompt_utf8_bytes",
+        `Seed role context (mode, objective, decisions, feedback and target) is ${roleTailBytes} UTF-8 bytes; its allowance is ${roleAllowance}`
+      );
+    }
+    remaining = sourceAllowance;
+  }
   const sourceBlocks: string[] = [];
   const reports: SeedPromptSourceReport[] = [];
-  const fullSourceBytes = utf8Bytes(
-    input.sources
-      .map((source) =>
-        seedBlock(sourceLabel(source), neutralizeMarkers(source.content))
-      )
-      .join(separator)
-  );
   let omissionReserveBytes = 0;
   if (input.sources.length > 0 && fullSourceBytes > remaining) {
     const maximalNotice = seedBlock(

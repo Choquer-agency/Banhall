@@ -19,6 +19,7 @@ import {
 } from "./trustedContext";
 import { CONTEXT_INPUTS_GUIDANCE } from "./prompts";
 import { SEED_PROMPT_PROGRAM } from "./promptDefinitions";
+import { SeedContextLimitError } from "../lib/seedRevisions";
 
 const budget = (overrides: Partial<ContextBudget> = {}): ContextBudget => ({
   ...DEFAULT_CONTEXT_BUDGET,
@@ -930,14 +931,36 @@ describe("seed source allowance near the byte limit (cost phase 1)", () => {
     expect(second.userBlocks[1].text).not.toBe(first.userBlocks[1].text);
   });
 
-  it("still fits a role tail longer than the reserve, at the cost of fewer source bytes", () => {
-    const long = buildSeedPrompt({
+  it("refuses a role tail over its allowance instead of moving the source cutoff", () => {
+    const reserve = SEED_PROMPT_PROGRAM.request.roleTailReserveUtf8Bytes;
+    const withDecisions = (bytes: number) =>
+      buildSeedPrompt({
+        ...base,
+        objective: "Objective.",
+        projection: { decisions: "x".repeat(bytes), feedback: "(none)" },
+      });
+    const small = withDecisions(10);
+    // A tail just inside the reservation gets the same cached block...
+    const near = withDecisions(reserve - 2_000);
+    expect(near.userBlocks[0].text).toBe(small.userBlocks[0].text);
+    expect(near.sources).toEqual(small.sources);
+    // ...and one past it is refused as a processing limit, never by
+    // shrinking the sources.
+    expect(() => withDecisions(reserve + 10_000)).toThrow(SeedContextLimitError);
+    expect(() => withDecisions(reserve + 10_000)).toThrow(/Seed role context .* its allowance is/);
+  });
+
+  it("fits a Brief that leaves less than the reservation, with a short source (baseline boundary)", () => {
+    const prompt = buildSeedPrompt({
       ...base,
+      brief: { storyline: "S".repeat(550_000), entries: [] },
+      sources: [{ sourceId: "source-1", label: "Interview", kind: "transcript",
+        content: "A short frozen source.", contentHash: "hash-1" }],
       objective: "Objective.",
-      projection: { decisions: "x".repeat(SEED_PROMPT_PROGRAM.request.roleTailReserveUtf8Bytes + 10_000), feedback: "(none)" },
+      projection: { decisions: "(none)", feedback: "(none)" },
     });
-    const short = buildSeedPrompt({ ...base, objective: "Objective.", projection: { decisions: "(none)", feedback: "(none)" } });
-    expect(long.promptBytes).toBeLessThanOrEqual(600_000);
-    expect(long.sources[0].includedBytes).toBeLessThan(short.sources[0].includedBytes);
+    expect(prompt.sources[0]).toMatchObject({ included: true, truncated: false });
+    expect(prompt.promptBytes).toBeGreaterThan(550_000);
+    expect(prompt.promptBytes).toBeLessThanOrEqual(600_000);
   });
 });
