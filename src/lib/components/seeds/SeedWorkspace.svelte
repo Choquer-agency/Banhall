@@ -364,6 +364,11 @@
   // the writer works the Seeds. A failure shows here as soon as it happens,
   // not only on the Summary, with the same retry.
   const draftingInputsFailed = $derived(outline?.draftingInputs?.status === "failed");
+  const draftingInputsNotice = $derived(
+    draftingInputsFailed
+      ? draftingInputsFailureMessage(outline?.draftingInputs?.failureCode, !!outline?.canEdit)
+      : ""
+  );
   let retryingDraftingInputs = $state(false);
   let draftingInputsRetryError = $state<string | null>(null);
   $effect(() => {
@@ -975,9 +980,12 @@
     </p>
   {/if}
 
+  <!-- Always rendered, so a screen reader hears the failure when it arrives:
+       a live region inserted already filled is often not announced. -->
+  <p class="sr-only" aria-live="polite" data-workspace-drafting-inputs-announcement>{draftingInputsNotice}</p>
   {#if draftingInputsFailed}
-    <div role="status" data-workspace-drafting-inputs="failed" class="flex shrink-0 flex-wrap items-center gap-2 border-b border-line bg-gap-bg px-4 py-2 text-body text-gap-text!">
-      <p class="min-w-0 flex-1">{draftingInputsFailureMessage(outline?.draftingInputs?.failureCode)}</p>
+    <div data-workspace-drafting-inputs="failed" class="flex shrink-0 flex-wrap items-center gap-2 border-b border-line bg-gap-bg px-4 py-2 text-body text-gap-text!">
+      <p class="min-w-0 flex-1">{draftingInputsNotice}</p>
       {#if outline?.canEdit}
         <Button
           class="min-h-11"

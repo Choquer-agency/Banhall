@@ -439,6 +439,7 @@ describe("call sites", () => {
     { site: "generations.completeDraftingInputs", from: "preparing", to: "ready" },
     { site: "generations.failDraftingInputs", from: "preparing", to: "failed" },
     { site: "generations.expireDraftingInputs", from: "preparing", to: "failed" },
+    { site: "generations.retryDraftingInputs", from: "preparing", to: "failed" },
     { site: "generations.retryDraftingInputs", from: "failed", to: "preparing" },
   ];
 

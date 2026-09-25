@@ -1,6 +1,6 @@
 <script lang="ts">
   import { isParseAbort } from "$lib/spreadsheetClient";
-  import { onDestroy } from "svelte";
+  import { onDestroy, onMount } from "svelte";
   import { beforeNavigate, goto } from "$app/navigation";
   import { goToLogin } from "$lib/auth/goToLogin";
   import { toast } from "svelte-sonner";
@@ -73,6 +73,7 @@
   import { parseDraftModeParam } from "$lib/workspace/projectDuplicate";
   import { page } from "$app/state";
   import { createRequestId } from "$lib/requestId";
+  import { registerSaveHold, SAVE_HOLD_ESCAPE_MS } from "$lib/workspace/saveHold";
 
   const extractionLifetime = new AbortController();
   onDestroy(() => extractionLifetime.abort());
@@ -621,6 +622,8 @@
   let pyId = 1;
   let pyRows = $state<PyRow[]>([{ id: "py-0", year: baseYear, note: "", files: [] }]);
   let committing = $state(false);
+  // When the current save began, for the way out of a stalled one.
+  let commitStartedAt = 0;
   let progress = $state("");
   // Set when the wizard itself navigates away (to the new project or to
   // sign in), so the guard below lets that navigation through.
@@ -628,13 +631,32 @@
 
   // Review D-3: leaving while the project saves would destroy the wizard
   // mid-save (a new query remounts it) and strand a half-made project. Hold
-  // every other navigation until the save opens the project.
+  // every other navigation until the save opens the project. The root
+  // layout's deploy-update reload asks the same hold.
+  onMount(() => registerSaveHold(() => committing && !leaving));
   beforeNavigate((navigation) => {
     if (!committing || leaving) return;
     navigation.cancel();
-    if (navigation.type !== "leave") {
-      toast.info("Your project is still being saved. It opens when it is ready.");
+    // Closing the tab or reloading: the browser asks the writer to confirm.
+    if (navigation.type === "leave") return;
+    const target = navigation.to?.url;
+    if (target && Date.now() - commitStartedAt >= SAVE_HOLD_ESCAPE_MS) {
+      // A save this slow may have stalled (offline, for example), so the
+      // writer can go. Leaving for another page destroys the wizard, which
+      // stops the save before it starts a draft or a PD review.
+      toast.warning(
+        "Saving is taking longer than usual. If you leave now, the project may be only partly saved and its draft may not start.",
+        {
+          duration: 10_000,
+          action: {
+            label: "Leave anyway",
+            onClick: () => leaveTo(`${target.pathname}${target.search}${target.hash}`),
+          },
+        }
+      );
+      return;
     }
+    toast.info("Your project is still being saved. It opens when it is ready.");
   });
 
   function leaveTo(path: string) {
@@ -883,11 +905,19 @@
       const index = unsaved.indexOf(name);
       if (index >= 0) unsaved.splice(index, 1);
     }
-    let message = `Some files from ${copySourceTitle} were not copied. Duplicate again, or add them on the project page.`;
-    if (unsaved.length) {
-      message += ` These files you added were not saved either: ${unsaved.join(", ")}.`;
-    } else if (saved.length) {
-      message += " The files you added here were saved.";
+    let message = `Some files from ${copySourceTitle} were not copied.`;
+    if (!saved.length) {
+      message += " Duplicate again, or add them on the project page.";
+      if (unsaved.length) {
+        message += ` These files you added were not saved either: ${unsaved.join(", ")}.`;
+      }
+    } else {
+      // Review P3-3: the writer's own files are in this project now, so a
+      // new duplicate would not have them. Point at this project instead.
+      message += ` Add them on the project page. ${
+        unsaved.length ? "Some of the files you added here were" : "The files you added here were"
+      } saved in this project, so a new duplicate would not include them.`;
+      if (unsaved.length) message += ` These were not saved: ${unsaved.join(", ")}.`;
     }
     if (mode === "review" && pdDoc && saved.includes(pdDoc.name)) {
       message += " Start the PD review on the project page once the missing files are added.";
@@ -909,6 +939,7 @@
       return;
     }
     committing = true;
+    commitStartedAt = Date.now();
     let createdProjectId: Id<"projects"> | null = null;
     let copyFailed = false;
     // The writer's own files saved so far, by ownUploadNames' names.
@@ -1619,7 +1650,7 @@
                           <!-- The whole row toggles the tick box (review D-6). -->
                           <Label.Root
                             for={`copy-transcript-${item.id}`}
-                            class={`block cursor-pointer truncate text-sm font-medium text-gray-800 ${STRETCHED_LABEL}`}
+                            class={`block truncate text-sm font-medium text-gray-800 ${STRETCHED_LABEL}`}
                           >{item.label}</Label.Root>
                         {:else}
                           <span class="block truncate text-sm font-medium text-gray-800">{item.label}</span>
@@ -1788,7 +1819,7 @@
                         </span>
                         <Label.Root
                           for={`copy-group-${group.id}`}
-                          class={`cursor-pointer text-xs font-medium text-ink-muted ${STRETCHED_LABEL}`}
+                          class={`text-xs font-medium text-ink-muted ${STRETCHED_LABEL}`}
                         >{group.label}</Label.Root>
                       </div>
                       <ul class="mt-1 flex flex-col gap-1 text-sm text-ink-secondary">
@@ -1809,7 +1840,7 @@
                             </span>
                             <Label.Root
                               for={`copy-file-${file._id}`}
-                              class={`flex min-w-0 cursor-pointer ${STRETCHED_LABEL}`}
+                              class={`flex min-w-0 ${STRETCHED_LABEL}`}
                             ><span class="min-w-0 truncate">{file.fileName}</span></Label.Root>
                             {#if file.archived}
                               <span class="shrink-0 text-xs text-ink-muted">Archived, not read for the draft</span>
@@ -1837,7 +1868,7 @@
                             </span>
                             <Label.Root
                               for="copy-previous-year-report"
-                              class={`flex min-w-0 cursor-pointer ${STRETCHED_LABEL}`}
+                              class={`flex min-w-0 ${STRETCHED_LABEL}`}
                             ><span class="min-w-0 truncate">{copySourceTitle} report (FY {sourceFiscalYear})</span></Label.Root>
                             <span class="shrink-0 text-xs text-ink-muted">Made from the original's latest report</span>
                           </li>

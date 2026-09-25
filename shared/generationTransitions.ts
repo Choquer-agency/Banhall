@@ -423,8 +423,12 @@ export const DRAFTING_INPUTS_TRANSITIONS: readonly DraftingInputsTransition[] = 
   {
     from: "preparing",
     to: "failed",
-    sites: ["generations.failDraftingInputs", "generations.expireDraftingInputs"],
-    note: "The current attempt failed, or its lease ran out without an answer.",
+    sites: [
+      "generations.failDraftingInputs",
+      "generations.expireDraftingInputs",
+      "generations.retryDraftingInputs",
+    ],
+    note: "The current attempt failed, or its lease ran out without an answer (a writer's retry settles an attempt stuck past its lease the same way before starting the next one).",
   },
   {
     from: "failed",

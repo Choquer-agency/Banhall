@@ -446,6 +446,11 @@
   // for "ready". A missing value is an older server: nothing to wait for.
   const draftingInputs = $derived(outline?.draftingInputs?.status ?? "ready");
   const draftingInputsFailure = $derived(outline?.draftingInputs?.failureCode);
+  const draftingInputsNotice = $derived(
+    !readOnly && draftingInputs === "failed"
+      ? draftingInputsFailureMessage(draftingInputsFailure, canEdit)
+      : ""
+  );
   // Incomplete server readiness is a bounded-processing limitation, not a
   // role decision blocker (A4): the server names it, this review never
   // derives it. The messages are the server's own, when it reports them.
@@ -791,7 +796,7 @@
 
   const modelName = $derived(settings ? modelLabel(settings.modelId) : "");
 
-  /** Starts a new background attempt after the drafting context failed. */
+  /** Starts a new background attempt after the transcript analysis failed. */
   async function retryDraftingContext() {
     if (!mutationsAvailable || retryingDraftingInputs) return;
     retryingDraftingInputs = true;
@@ -800,7 +805,7 @@
       await retryDraftingInputs({ generationId });
     } catch (cause) {
       if (!disposed) {
-        actionError = userErrorMessage(cause, "The drafting context could not be restarted.");
+        actionError = userErrorMessage(cause, "The transcript analysis could not be restarted.");
       }
     } finally {
       if (!disposed) retryingDraftingInputs = false;
@@ -1098,14 +1103,17 @@
   </div>
 
   <footer class="shrink-0 border-t border-line bg-surface">
+    <!-- Always rendered, so a screen reader hears the failure when it
+         arrives: a live region inserted already filled is often missed. -->
+    <p class="sr-only" aria-live="polite" data-summary-drafting-inputs-announcement>{draftingInputsNotice}</p>
     {#if actionError || (!readOnly && readiness && !readiness.ready && readinessIncomplete) || (!readOnly && draftingInputs === "failed")}
       <div class="flex flex-col gap-2 border-b border-line-soft px-4 py-3 sm:px-6">
         {#if actionError}<p role="alert" class="text-body text-gap-text!">{actionError}</p>{/if}
         {#if !readOnly && draftingInputs === "failed"}
           <!-- The background analysis or Brain search failed. The plan is
                untouched; sign-off waits until a retry finishes. -->
-          <div role="status" class="flex flex-wrap items-center gap-x-3 gap-y-2" data-summary-drafting-inputs="failed">
-            <p class="text-body text-gap-text!">{draftingInputsFailureMessage(draftingInputsFailure)}</p>
+          <div class="flex flex-wrap items-center gap-x-3 gap-y-2" data-summary-drafting-inputs="failed">
+            <p class="text-body text-gap-text!">{draftingInputsNotice}</p>
             {#if canEdit}
               <Button
                 variant="secondary"
@@ -1149,7 +1157,7 @@
             class="size-4 shrink-0 animate-spin rounded-full border-2 border-primary/30 border-t-primary motion-reduce:animate-none"
             aria-hidden="true"
           ></span>
-          <p class="text-[14px] leading-5 font-medium text-ink">Preparing the drafting context…</p>
+          <p class="text-[14px] leading-5 font-medium text-ink">Preparing the transcript analysis…</p>
         </div>
       {:else if readiness?.ready && draftingInputs === "failed"}
         <div class="flex items-center gap-2.5" data-summary-status="drafting-inputs-failed">

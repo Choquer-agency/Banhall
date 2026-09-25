@@ -3,7 +3,8 @@ import { render } from "vitest-browser-svelte";
 import { toast } from "svelte-sonner";
 import NewProjectRoute from "$lib/test/NewProjectRouteHarness.svelte";
 import { __resetPage, __setPageUrl, page } from "$lib/test/app-state-stub.svelte";
-import { __navigationCalls, __resetNavigation } from "$lib/test/app-navigation-stub";
+import { __navigationCalls, __resetNavigation, __simulateLeave } from "$lib/test/app-navigation-stub";
+import { SAVE_HOLD_ESCAPE_MS, saveInProgress } from "$lib/workspace/saveHold";
 import {
   __mutationCalls,
   __resetConvexStub,
@@ -184,5 +185,95 @@ describe("/project/new from the command menu on a duplicate", () => {
       .poll(() => __navigationCalls.find((call) => call.url === "/project/project-new"))
       .toEqual({ kind: "goto", url: "/project/project-new" });
     info.mockRestore();
+  });
+
+  /** Starts a duplicate's save whose copy waits until `finishCopy` runs. */
+  async function startHeldDuplicateSave() {
+    seedDuplicateSource();
+    let finishCopy!: (value: unknown) => void;
+    __setMutationResult(
+      "projectDuplication:copyProjectContent",
+      new Promise((resolve) => {
+        finishCopy = resolve;
+      })
+    );
+    __setPageUrl("/project/new?from=project-1&drafts=iterative");
+    await render(NewProjectRoute, {});
+    await expect.poll(titleValue).toBe("Alloy furnace (copy)");
+    await expect.poll(() => document.querySelector("[data-copied-files]")).not.toBeNull();
+    await clickText("Next");
+    await clickText("Generate Report");
+    await expect.poll(() => __mutationCalls("projectDuplication:copyProjectContent").length).toBe(1);
+    return (value: unknown) => finishCopy(value);
+  }
+
+  it("lets the browser ask before a tab close while saving, with no toast (review D-3)", async () => {
+    const info = vi.spyOn(toast, "info");
+    const finishCopy = await startHeldDuplicateSave();
+
+    // Cancelling a "leave" is what makes the browser show its leave prompt.
+    expect(__simulateLeave()).toBe(true);
+    expect(info).not.toHaveBeenCalled();
+
+    finishCopy({});
+    await expect
+      .poll(() => __navigationCalls.find((call) => call.url === "/project/project-new"))
+      .toEqual({ kind: "goto", url: "/project/project-new" });
+    // The save is done and the wizard is on its way out: nothing is held.
+    expect(__simulateLeave()).toBe(false);
+    info.mockRestore();
+  });
+
+  it("offers a way out of a save that has stalled, and then starts no draft (review P3-1)", async () => {
+    const info = vi.spyOn(toast, "info");
+    const warning = vi.spyOn(toast, "warning");
+    const realNow = Date.now.bind(Date);
+    let elapsed = 0;
+    const clock = vi.spyOn(Date, "now").mockImplementation(() => realNow() + elapsed);
+    try {
+      const finishCopy = await startHeldDuplicateSave();
+      // The root layout's deploy-update reload sees the hold too (review P3-2).
+      expect(saveInProgress()).toBe(true);
+
+      // A fresh save holds navigation with no way out.
+      await newProjectFromCommandMenu();
+      await expect.poll(() => info.mock.calls.length).toBe(1);
+      expect(warning).not.toHaveBeenCalled();
+
+      // Past the bound, the writer is told what leaving means and may leave.
+      elapsed = SAVE_HOLD_ESCAPE_MS;
+      await newProjectFromCommandMenu();
+      await expect.poll(() => warning.mock.calls.length).toBe(1);
+      const [message, options] = warning.mock.calls[0] as [
+        string,
+        { action: { label: string; onClick: (event: MouseEvent) => void } },
+      ];
+      expect(message).toBe(
+        "Saving is taking longer than usual. If you leave now, the project may be only partly saved and its draft may not start."
+      );
+      expect(options.action.label).toBe("Leave anyway");
+      expect(__navigationCalls.filter((call) => call.url === "/project/new")).toEqual([
+        { kind: "goto", url: "/project/new", cancelled: true },
+        { kind: "goto", url: "/project/new", cancelled: true },
+      ]);
+
+      options.action.onClick(new MouseEvent("click"));
+      await expect
+        .poll(() => __navigationCalls.filter((call) => call.url === "/project/new").at(-1))
+        .toEqual({ kind: "goto", url: "/project/new" });
+      await expect.poll(titleValue).toBe("");
+      expect(saveInProgress()).toBe(false);
+
+      // The copy finishing later starts nothing and opens nothing: a
+      // half-copied project is never drafted.
+      finishCopy({});
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      expect(__mutationCalls("generations:requestGeneration")).toEqual([]);
+      expect(__navigationCalls.find((call) => call.url === "/project/project-new")).toBeUndefined();
+    } finally {
+      clock.mockRestore();
+      info.mockRestore();
+      warning.mockRestore();
+    }
   });
 });

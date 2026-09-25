@@ -350,7 +350,7 @@
       {#if canEdit}
         {#if alternativeClipped}
           <p class="mt-3 text-body text-gap-text!" data-question-alternative-clipped>
-            This suggestion was cut short, so it can't replace your Storyline. Edit the Storyline yourself, or keep it.
+            The suggested new Storyline was cut short, so it can't replace yours. Edit the Storyline yourself, or keep it.
           </p>
         {/if}
         <div class="mt-3 flex flex-wrap items-center gap-2">

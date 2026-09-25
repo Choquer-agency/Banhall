@@ -764,11 +764,66 @@ describe("/project/new tick rows (review D-6)", () => {
     (document.elementFromPoint(rect.right - 2, rect.top + rect.height / 2) as HTMLElement).click();
     await expect.poll(() => fileBox("Writer notes.md")?.getAttribute("aria-checked")).toBe("false");
   });
+
+  /** Where a tap lands, and taps there. */
+  async function tapAt(x: number, y: number) {
+    const hit = document.elementFromPoint(x, y) as HTMLElement;
+    hit.click();
+    return hit;
+  }
+
+  it("toggles a transcript from anywhere on its row, past its truncated name", async () => {
+    seedSource();
+    __setPageUrl("/project/new?from=project-1&drafts=iterative");
+    await render(NewProjectPage, {});
+
+    const transcriptBox = () =>
+      document.querySelector<HTMLElement>('[data-transcript-item] button[aria-label="Copy Kickoff.docx"]');
+    await expect.poll(transcriptBox).not.toBeNull();
+    const row = transcriptBox()!.closest<HTMLElement>("[data-transcript-item]")!;
+    row.scrollIntoView({ block: "center" });
+    const rect = row.getBoundingClientRect();
+    const boxRect = transcriptBox()!.getBoundingClientRect();
+
+    // The empty space just before the tick box.
+    expect(await tapAt(boxRect.left - 12, rect.top + rect.height / 2)).toBe(labelFor(transcriptBox()));
+    await expect.poll(() => transcriptBox()?.getAttribute("aria-checked")).toBe("false");
+
+    // The word count under the name.
+    const words = row.querySelector<HTMLElement>("[data-transcript-format]")!.getBoundingClientRect();
+    expect(await tapAt(words.left + 4, words.top + words.height / 2)).toBe(labelFor(transcriptBox()));
+    await expect.poll(() => transcriptBox()?.getAttribute("aria-checked")).toBe("true");
+  });
+
+  it("toggles last year's report from anywhere on its row", async () => {
+    seedYearSource();
+    __setPageUrl("/project/new?from=project-1&drafts=iterative");
+    await render(NewProjectPage, {});
+
+    await copiedSection();
+    await pickFiscalYearEnd("2025-12-31", "Next");
+    const reportRow = () => document.querySelector<HTMLElement>("[data-previous-year-report]");
+    await expect.poll(reportRow).not.toBeNull();
+    const box = () => reportRow()!.querySelector<HTMLElement>('button[role="checkbox"]')!;
+    expect(reportRow()!.className).toContain("pointer-coarse:min-h-11");
+    reportRow()!.scrollIntoView({ block: "center" });
+    const rect = reportRow()!.getBoundingClientRect();
+
+    // The note at the far end of the row sits under the label's overlay.
+    expect(await tapAt(rect.right - 2, rect.top + rect.height / 2)).toBe(labelFor(box()));
+    await expect.poll(() => box().getAttribute("aria-checked")).toBe("false");
+    await tapAt(rect.right - 2, rect.top + rect.height / 2);
+    await expect.poll(() => box().getAttribute("aria-checked")).toBe("true");
+  });
 });
 
 describe("/project/new failed copy keeps the writer's own files (review D-2)", () => {
   const BASE =
     "Some files from Alloy furnace were not copied. Duplicate again, or add them on the project page.";
+  // With the writer's own files saved in the new project, a second
+  // duplicate would not have them (review P3-3).
+  const SAVED_HERE =
+    "Some files from Alloy furnace were not copied. Add them on the project page. The files you added here were saved in this project, so a new duplicate would not include them.";
 
   async function addOwnContextFile(name: string) {
     await expect
@@ -817,7 +872,7 @@ describe("/project/new failed copy keeps the writer's own files (review D-2)", (
         expect.objectContaining({ projectId: "project-copy", fileName: "My notes.txt" }),
       ]);
       expect(error.mock.calls.map((call) => call[0])).toContain(
-        `${BASE} The files you added here were saved.`
+        SAVED_HERE
       );
       expect(__mutationCalls("generations:requestGeneration")).toEqual([]);
     } finally {
@@ -886,7 +941,7 @@ describe("/project/new failed copy keeps the writer's own files (review D-2)", (
       ]);
       expect(__mutationCalls("pdReviews:startPdReview")).toEqual([]);
       expect(error.mock.calls.map((call) => call[0])).toContain(
-        `${BASE} The files you added here were saved. Start the PD review on the project page once the missing files are added.`
+        `${SAVED_HERE} Start the PD review on the project page once the missing files are added.`
       );
     } finally {
       error.mockRestore();
