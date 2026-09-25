@@ -172,7 +172,9 @@ export const BRIEF_REQUEST = {
   toolName: "submit_generation_brief",
   toolDescription:
     "Submit the derived Generation Brief: Storyline, Claim Exclusions, Confidence Map, Glossary Terms.",
-  maxTokens: 8192,
+  // 2026-09-25: raised from 8,192; a real Brief used 8,007 of it, so a
+  // slightly larger project would have been cut off (see ANALYZER_REQUEST).
+  maxTokens: 16_000,
 } as const;
 
 /**

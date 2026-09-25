@@ -100,7 +100,12 @@ export const ANALYZER_REQUEST = {
   toolDescription:
     "Submit the structured analysis of the SR&ED interview transcript.",
   jsonIndentation: 2,
-  maxTokens: 8192,
+  // 2026-09-25: raised from 8,192, which real analyses hit exactly (the cut
+  // tail, gaps and useful_quotes, defaulted to empty lists). Every Anthropic
+  // model on the list allows far more; OpenRouter scales it for reasoning
+  // and clamps it to the model's own cap. At about 100 tokens a second a
+  // full answer still fits the 240 s request timeout.
+  maxTokens: 16_000,
   modelSelector: "candidate-model-or-default",
 } as const;
 

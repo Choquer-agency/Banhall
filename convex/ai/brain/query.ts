@@ -74,7 +74,10 @@ export const RETRIEVAL_BRIEF_REQUEST = {
   toolName: "submit_retrieval_brief",
   toolDescription:
     "Submit the four retrieval queries extracted from the transcript.",
-  maxTokens: 1024,
+  // 2026-09-25: raised from 1,024, which 28 of 61 recorded calls hit
+  // exactly. A cut-off answer now spends the repair attempt, then falls
+  // back to the title and transcript query.
+  maxTokens: 2048,
   modelSelector: "frozen-retrieval-brief-role-model",
 } as const;
 
