@@ -1083,6 +1083,24 @@ export default defineSchema({
         error: v.optional(v.string()),
       })
     ),
+    // 2026-09-25 (owner decision 32): the analysis and Brain retrieval a
+    // Step-by-step generation prepares in the background while the writer
+    // works the Seeds. Sign-off needs `ready`. `attempt` fences every write,
+    // so a stale action cannot settle a newer attempt. Written only through
+    // transitionDraftingInputs; absent on generations started before the
+    // reorder, which froze both inputs before their seed stage opened.
+    draftingInputs: v.optional(
+      v.object({
+        status: v.union(
+          v.literal("preparing"),
+          v.literal("ready"),
+          v.literal("failed")
+        ),
+        attempt: v.number(),
+        startedAt: v.number(),
+        settledAt: v.optional(v.number()),
+      })
+    ),
     // Story 3 (CAP-8, AD-26): the Writer Profile this generation ran under —
     // saved profile, or a settings document supplied as Writer's Notes or an
     // attachment — and the save offer. Written only by
@@ -2228,10 +2246,15 @@ export default defineSchema({
       // (convex/lib/generationOutputs.ts).
       v.literal("agent_outputs"),
       v.literal("brain_retrieval_brief"),
-      v.literal("brain_provenance")
+      v.literal("brain_provenance"),
+      // 2026-09-25 (owner decision 32): the frozen writer style (the
+      // `brain_blocks` shape without `blocks`), saved before the seed stage
+      // opens so Seeds never wait for Brain retrieval. `brain_blocks` still
+      // carries the same style next to the blocks for every drafting reader.
+      v.literal("writer_style")
     ),
-    // JSON text for `analysis` and `brain_blocks`; empty for kinds stored in
-    // a typed field below.
+    // JSON text for `analysis`, `brain_blocks` and `writer_style`; empty for
+    // kinds stored in a typed field below.
     content: v.string(),
     candidateRunId: v.optional(v.id("generationCandidateRuns")),
     orderedPayload: v.optional(orderedPayloadValidator),

@@ -44,6 +44,7 @@ import type {
 import type { completeAttempt, dispatch } from "./seedRuns";
 import { readSeedReadiness } from "./lib/seedReadiness";
 import { factIndex } from "./lib/seedFacts";
+import { runSeedDraftingInputs } from "./seedStartup.fixture";
 import schema from "./schema";
 import { agentOutputsOf } from "./lib/generationOutputs";
 import planCoverageReplayKit from "../test-data/plan-coverage-replay.json?raw";
@@ -461,7 +462,13 @@ async function makeReady(
   });
 }
 
-async function productionInitializedFixture(): Promise<ReadyFixture> {
+async function productionInitializedFixture(
+  options: {
+    /** Leave the background analysis and Brain retrieval (owner decision
+     * 32) scheduled but not run; needs fake timers. */
+    holdDraftingInputs?: boolean;
+  } = {}
+): Promise<ReadyFixture> {
   vi.stubEnv("ANTHROPIC_API_KEY", "test-key");
   const t = convexTest(schema, modules);
   const ids = await t.run(async (ctx) => {
@@ -556,6 +563,9 @@ async function productionInitializedFixture(): Promise<ReadyFixture> {
   await t.action(internal.ai.iterative.startIterativeGeneration, {
     generationId: ids.generationId,
   });
+  // Owner decision 32: the analysis and Brain retrieval run in the
+  // background after the seed stage opens; sign-off needs them.
+  if (!options.holdDraftingInputs) await runSeedDraftingInputs(t);
   const brief = await t.run(async (ctx) =>
     await ctx.db.query("generationBriefs")
       .withIndex("by_generationId", (q) =>
@@ -1299,7 +1309,7 @@ async function signoffState(s: Awaited<ReturnType<typeof decisionFixture>>) {
 }
 
 async function signoffWriteFootprint(
-  s: Awaited<ReturnType<typeof decisionFixture>>
+  s: Pick<ReadyFixture, "t" | "generationId" | "projectId">
 ) {
   return await s.t.run(async (ctx) => ({
     generation: await ctx.db.get(s.generationId),
@@ -1880,6 +1890,66 @@ describe("seed Summary sign-off and recovery", () => {
       promptVersion: executingProgram,
       candidateIds: [signed.candidateRunId],
       model: "claude-sonnet-5",
+    });
+  });
+
+  it("waits for the background analysis and Brain retrieval, then signs off (owner decision 32)", async () => {
+    vi.useFakeTimers();
+    const s = await productionInitializedFixture({ holdDraftingInputs: true });
+    await makeReady(s);
+    const artifactKinds = async () =>
+      (await s.t.run(async (ctx) =>
+        await ctx.db.query("generationArtifacts")
+          .withIndex("by_generationId_and_kind", (q) => q.eq("generationId", s.generationId))
+          .take(5))).map((row) => row.kind).sort();
+    expect(await artifactKinds()).toEqual(["writer_style"]);
+    const signOff = () => s.writer.mutation(api.generations.signOffSeedStage, {
+      generationId: s.generationId,
+      expectedSeedStageVersion: 0,
+    });
+
+    // Still preparing: refused with nothing written.
+    const before = await signoffWriteFootprint(s);
+    await expect(signOff()).rejects.toMatchObject({
+      data: { code: "INVALID_STATE", reason: "DRAFTING_INPUTS_PREPARING" },
+    });
+    expect(await signoffWriteFootprint(s)).toEqual(before);
+
+    // The analysis fails: refused with the failure until the writer retries.
+    const answer = network.create.getMockImplementation();
+    network.create.mockImplementation(async (params: GenerationMessageParams) => {
+      if (params.tool_choice?.name === "submit_transcript_analysis") {
+        throw new Error("Provider failure");
+      }
+      return await answer?.(params);
+    });
+    await runSeedDraftingInputs(s.t);
+    const failed = await signoffWriteFootprint(s);
+    await expect(signOff()).rejects.toMatchObject({
+      data: { code: "INVALID_STATE", reason: "DRAFTING_INPUTS_FAILED" },
+    });
+    expect(await signoffWriteFootprint(s)).toEqual(failed);
+
+    network.create.mockImplementation(async (params: GenerationMessageParams) => await answer?.(params));
+    await s.writer.mutation(api.generations.retryDraftingInputs, { generationId: s.generationId });
+    await runSeedDraftingInputs(s.t);
+    expect(await artifactKinds()).toEqual(["analysis", "brain_blocks", "writer_style"]);
+
+    const signed = await signOff();
+    expect(signed.summaryVersionId).toBeDefined();
+    expect(await s.t.run(async (ctx) => await ctx.db.get(s.generationId))).toMatchObject({
+      status: "running",
+      summaryVersionId: signed.summaryVersionId,
+      draftingInputs: { status: "ready", attempt: 2 },
+    });
+    // The drafting chain reads the analysis the background step froze.
+    const payload = await s.t.run(async (ctx) =>
+      await ctx.db.query("generationArtifacts")
+        .withIndex("by_generationId_and_kind", (q) =>
+          q.eq("generationId", s.generationId).eq("kind", "ordered_payload"))
+        .first());
+    expect(JSON.parse(payload?.orderedPayload?.analysis ?? "{}")).toMatchObject({
+      project_goal: "Stabilize the control loop",
     });
   });
 

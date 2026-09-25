@@ -50,6 +50,13 @@ import {
 } from "../../shared/styleOverrides";
 import { resolveGenerationWriterSettings } from "./writerSettings";
 import type { Id } from "../_generated/dataModel";
+import type { ModelFreeze } from "../lib/modelCatalogValidators";
+import type { StyleOverrides } from "../../shared/styleOverrides";
+import {
+  brainBlocksArtifactContent,
+  writerStyleArtifactContent,
+  type FrozenWriterStyle,
+} from "../lib/frozenWriterStyle";
 import {
   ITERATIVE_PROMPT_SCAFFOLDS,
   ITERATIVE_SECTION_TITLES,
@@ -62,13 +69,15 @@ const SECTION_TITLES: Record<IterativeSection, string> =
 
 export { ITERATIVE_PROMPT_SCAFFOLDS } from "./promptDefinitions";
 
-async function finishSeedInitialization(
+/** Derive or reuse the frozen seed Brief. Never throws: this boundary
+ * never persists provider errors or source/model text. */
+async function deriveSeedBrief(
   ctx: ActionCtx,
   generationId: Id<"generations">,
   projectId: Id<"projects">,
   model: string,
   requestedBy?: Id<"users">
-): Promise<void> {
+): Promise<boolean> {
   try {
     const client = clientForModel(ctx, model, {
       callSite: "generation:brief", projectId,
@@ -78,12 +87,172 @@ async function finishSeedInitialization(
     const result = await deriveOrReuseBrief(ctx, client, {
       projectId, generationId, model, seedStartup: true,
     });
-    if (result.kind === "no_evidence") throw new Error("Frozen seed evidence is unavailable");
+    return result.kind !== "no_evidence";
+  } catch {
+    return false;
+  }
+}
+
+/** Open the seed stage once its Brief exists, or leave a retryable failure. */
+async function openSeedStageOrRecordFailure(
+  ctx: ActionCtx,
+  generationId: Id<"generations">,
+  briefReady: boolean
+): Promise<void> {
+  try {
+    if (!briefReady) throw new Error("Frozen seed evidence is unavailable");
     await ctx.runMutation(internal.generations.initializeSeedStage, { generationId });
   } catch {
     // This boundary never persists provider errors or source/model text.
     await ctx.runMutation(internal.generations.recordSeedInitializationFailure, { generationId });
   }
+}
+
+async function finishSeedInitialization(
+  ctx: ActionCtx,
+  generationId: Id<"generations">,
+  projectId: Id<"projects">,
+  model: string,
+  requestedBy?: Id<"users">
+): Promise<void> {
+  const briefReady = await deriveSeedBrief(ctx, generationId, projectId, model, requestedBy);
+  await openSeedStageOrRecordFailure(ctx, generationId, briefReady);
+}
+
+/**
+ * Frozen once: learned digests + the writer's personal flavor, as the
+ * style every later step reads. All wrapped so learning/flavor can NEVER
+ * break generation. qaCalibration only feeds the ghost draft's QA agent;
+ * section drafts use deterministic checks (the writer is the QA).
+ */
+async function resolveFrozenWriterStyle(
+  ctx: ActionCtx,
+  args: {
+    generationId: Id<"generations">;
+    projectId: Id<"projects">;
+    requestedBy?: Id<"users">;
+    freeze: ModelFreeze | null;
+    log: (line: string) => Promise<unknown>;
+  }
+): Promise<{
+  style: FrozenWriterStyle;
+  /** The resolver's own waivers, absent when it returned none. */
+  resolvedStyleOverrides?: StyleOverrides;
+}> {
+  const { generationId: genId, projectId, freeze, log } = args;
+  // Shared writer-settings resolver (story 3, writerSettings.ts): saved
+  // profile or settings document, started in parallel with the digest
+  // fetch; it degrades instead of throwing. Iterative keeps its gate and
+  // reads only the flavor and waivers.
+  const writerStylePromise = resolveGenerationWriterSettings(ctx, {
+    generationId: genId,
+    projectId,
+    requestedBy: args.requestedBy,
+    // The analysis role's model frozen at reservation.
+    model: freeze?.roles.analysis ?? MODEL,
+    clientFor: (callSite) =>
+      clientForModel(ctx, freeze?.roles.analysis ?? MODEL, {
+        callSite,
+        projectId,
+        ...(args.requestedBy ? { userId: args.requestedBy } : {}),
+        attribution: { generationId: genId },
+      }),
+    log,
+  });
+  let draftStyle: string | undefined;
+  let qaCalibration: string | undefined;
+  let draftStyleDigestId: Id<"learningDigests"> | undefined;
+  let qaCalibrationDigestId: Id<"learningDigests"> | undefined;
+  try {
+    const [qaDigest, styleDigest] = await Promise.all([
+      ctx.runQuery(internal.learning.getActiveDigest, {
+        kind: "qa_calibration",
+      }),
+      ctx.runQuery(internal.learning.getActiveDigest, {
+        kind: "draft_style",
+      }),
+    ]);
+    if (qaDigest?.content.trim()) {
+      qaCalibration = qaDigest.content;
+      qaCalibrationDigestId = qaDigest._id;
+    }
+    if (styleDigest?.content.trim()) {
+      draftStyle = styleDigest.content;
+      draftStyleDigestId = styleDigest._id;
+      await log(
+        `Applying drafting style learned from ${styleDigest.sourceCount} writer critique(s).`
+      );
+    }
+  } catch (err) {
+    console.error("learning digest fetch failed for generation", genId, err);
+  }
+  const { writerFlavor, styleOverrides, orderedContext } = await writerStylePromise;
+  return {
+    style: {
+      styleGuidance: buildStyleGuidance(
+        draftStyle,
+        writerFlavor,
+        styleOverrides ?? NO_STYLE_OVERRIDES
+      ),
+      orderedContext,
+      ...(qaCalibration ? { qaCalibration } : {}),
+      ...(draftStyle ? { draftStyle } : {}),
+      ...(qaCalibrationDigestId ? { qaCalibrationDigestId } : {}),
+      ...(draftStyleDigestId ? { draftStyleDigestId } : {}),
+      ...(writerFlavor ? { writerFlavor } : {}),
+      styleOverrides: styleOverrides ?? NO_STYLE_OVERRIDES,
+    },
+    ...(styleOverrides ? { resolvedStyleOverrides: styleOverrides } : {}),
+  };
+}
+
+/**
+ * The reordered Step-by-step start (owner decision 32, 2026-09-25). Seeds
+ * read the Brief, the frozen sources, the frozen writer style and the
+ * writer's decisions, never the analysis or Brain blocks. So once the
+ * sources are frozen the Brief starts at once, beside the writer style;
+ * the analysis and Brain retrieval are scheduled as their own background
+ * action (prepareSeedDraftingInputs) and must be ready before sign-off; and
+ * the seed stage opens as soon as the Brief and the style exist.
+ */
+async function startSeedStage(
+  ctx: ActionCtx,
+  args: {
+    generationId: Id<"generations">;
+    projectId: Id<"projects">;
+    model: string;
+    requestedBy?: Id<"users">;
+    freeze: ModelFreeze | null;
+    log: (line: string) => Promise<unknown>;
+  }
+): Promise<void> {
+  const { generationId } = args;
+  const brief = deriveSeedBrief(
+    ctx,
+    generationId,
+    args.projectId,
+    args.model,
+    args.requestedBy
+  );
+  try {
+    const { style } = await resolveFrozenWriterStyle(ctx, args);
+    await ctx.runMutation(internal.generations.saveWriterStyle, {
+      generationId,
+      writerStyle: writerStyleArtifactContent(style),
+    });
+    // Scheduled only after the style is frozen: the background step builds
+    // `brain_blocks` from it.
+    await ctx.runMutation(internal.generations.startDraftingInputs, { generationId });
+  } catch (error) {
+    await ctx.runMutation(internal.generations.failGeneration, {
+      generationId,
+      error: describeGenerationFailure(error),
+    });
+    // The Brief's own writes are fenced to a live seed stage.
+    await brief;
+    return;
+  }
+  await openSeedStageOrRecordFailure(ctx, generationId, await brief);
 }
 
 /** Retry only frozen Brief publication and row initialization, never analysis or retrieval. */
@@ -101,9 +270,97 @@ export const resumeSeedInitialization = internalAction({
 });
 
 /**
- * One-time setup for an iterative generation: analyzer + Brain retrieval +
- * style/flavor capture (all frozen as generationArtifacts), section-run rows,
- * the first section draft, and the background ghost draft.
+ * The background step of the reordered Step-by-step start (owner decision
+ * 32, 2026-09-25): Brain retrieval and the transcript analysis, run on the
+ * generation's frozen inputs while the writer works the Seeds, then frozen
+ * as the `analysis` and `brain_blocks` artifacts sign-off needs. The same
+ * calls, clients and inputs as before the reorder, so the provider requests
+ * are unchanged. Fenced by `attempt`: a cancel, a deletion, sign-off or a
+ * newer attempt stops it before its paid calls and drops its result. Any
+ * failure leaves the drafting inputs failed, for the writer to retry.
+ */
+export const prepareSeedDraftingInputs = internalAction({
+  args: { generationId: v.id("generations"), attempt: v.number() },
+  returns: v.null(),
+  handler: async (ctx, args): Promise<null> => {
+    const stillCurrent = () =>
+      ctx.runQuery(internal.generations.isDraftingInputsAttemptCurrent, args);
+    if (!(await stillCurrent())) return null;
+    try {
+      // Model catalog: routing and output budgets read the frozen models.
+      const freeze = await registerGenerationModels(ctx, args.generationId);
+      const input = await ctx.runQuery(internal.generations.getGenerationInput, {
+        generationId: args.generationId,
+      });
+      if (!input || input.gatedWorkflow !== "seeds") return null;
+      const genId = input.generationId;
+      const projectId = input.projectId;
+      const model = candidateModelsForMode("iterative", input.singleModelId)[0];
+      const briefModel = freeze?.roles.retrieval_brief ?? RETRIEVAL_BRIEF_MODEL;
+      const log = (line: string) =>
+        ctx.runMutation(internal.generations.appendProgress, {
+          generationId: genId,
+          line,
+        });
+      // The same bounded analyzer input startup recorded (pure, from the
+      // same frozen rows).
+      const analyzerContext = buildAnalyzerContext(input);
+      const brainBlocks = await retrieveBrainBlocks(ctx, {
+        generationId: genId,
+        projectId,
+        title: input.title || "Untitled Report",
+        transcript: input.transcript,
+        industry: input.industry ?? null,
+        scienceCode: normalizeCraScienceCode(input.scienceCode) ?? null,
+        ...(input.transcriptReading === "facts"
+          ? { factPacks: input.transcriptParts.map((part) => part.content), placeholders: input.placeholders }
+          : {}),
+        retrievalBriefClient: clientForModel(ctx, briefModel, {
+          callSite: "generation:retrieval_brief",
+          projectId,
+          ...(input.requestedBy ? { userId: input.requestedBy } : {}),
+          attribution: { generationId: genId },
+        }),
+        retrievalBriefModel: briefModel,
+        log,
+      });
+      if (!(await stillCurrent())) return null;
+      const analysis = await runAnalyzerAgent(
+        clientForModel(ctx, model.id, {
+          callSite: "generation:analyzer",
+          projectId,
+          ...(input.requestedBy ? { userId: input.requestedBy } : {}),
+          attribution: { generationId: genId },
+        }),
+        analyzerContext.userMessage,
+        model.id,
+        brainBlocks.analyzer
+      );
+      await ctx.runMutation(internal.generations.completeDraftingInputs, {
+        ...args,
+        analysis: JSON.stringify(analysis),
+        brainBlocks: JSON.stringify(brainBlocks),
+      });
+    } catch (error) {
+      // Only the normalized code: never provider or source text.
+      console.error(
+        "drafting inputs failed for generation",
+        args.generationId,
+        normalizeProviderError(error).code
+      );
+      await ctx.runMutation(internal.generations.failDraftingInputs, args);
+    }
+    return null;
+  },
+});
+
+/**
+ * One-time setup for an iterative generation. Section approval: analyzer +
+ * Brain retrieval + style/flavor capture (all frozen as
+ * generationArtifacts), section-run rows, the first section draft, and the
+ * background ghost draft. Step by step (owner decision 32): the writer style
+ * and the Brief open the seed stage while prepareSeedDraftingInputs runs the
+ * analysis and Brain retrieval in the background (startSeedStage).
  */
 export const startIterativeGeneration = internalAction({
   args: { generationId: v.id("generations") },
@@ -219,6 +476,18 @@ export const startIterativeGeneration = internalAction({
       const cuts = describeContextCuts(analyzerContext.report);
       if (cuts) await log(cuts);
 
+      if (input.gatedWorkflow === "seeds") {
+        await startSeedStage(ctx, {
+          generationId: genId,
+          projectId,
+          model: model.id,
+          ...(input.requestedBy ? { requestedBy: input.requestedBy } : {}),
+          freeze,
+          log,
+        });
+        return;
+      }
+
       // Frozen once: Brain exemplar blocks (never re-retrieved per section).
       const brainBlocks = await retrieveBrainBlocks(ctx, {
         generationId: genId,
@@ -238,61 +507,21 @@ export const startIterativeGeneration = internalAction({
       });
 
       // Frozen once: learned digests + the writer's personal flavor.
-      // All wrapped so learning/flavor can NEVER break generation.
-      // qaCalibration only feeds the ghost draft's QA agent — section drafts
-      // use deterministic checks (the writer is the QA).
-      // Shared writer-settings resolver (story 3, writerSettings.ts): saved
-      // profile or settings document — started in parallel with the digest
-      // fetch; it degrades instead of throwing. Iterative keeps its gate and
-      // reads only the flavor and waivers.
-      const writerStylePromise = resolveGenerationWriterSettings(ctx, {
-        generationId: genId,
-        projectId,
-        requestedBy: input.requestedBy,
-        // The analysis role's model frozen at reservation.
-        model: freeze?.roles.analysis ?? MODEL,
-        clientFor: (callSite) =>
-          clientForModel(ctx, freeze?.roles.analysis ?? MODEL, {
-            callSite,
-            projectId,
-            ...(input.requestedBy ? { userId: input.requestedBy } : {}),
-            attribution: { generationId: genId },
-          }),
-        log,
-      });
-      let draftStyle: string | undefined;
-      let qaCalibration: string | undefined;
-      let draftStyleDigestId: Id<"learningDigests"> | undefined;
-      let qaCalibrationDigestId: Id<"learningDigests"> | undefined;
-      try {
-        const [qaDigest, styleDigest] = await Promise.all([
-          ctx.runQuery(internal.learning.getActiveDigest, {
-            kind: "qa_calibration",
-          }),
-          ctx.runQuery(internal.learning.getActiveDigest, {
-            kind: "draft_style",
-          }),
-        ]);
-        if (qaDigest?.content.trim()) {
-          qaCalibration = qaDigest.content;
-          qaCalibrationDigestId = qaDigest._id;
-        }
-        if (styleDigest?.content.trim()) {
-          draftStyle = styleDigest.content;
-          draftStyleDigestId = styleDigest._id;
-          await log(
-            `Applying drafting style learned from ${styleDigest.sourceCount} writer critique(s).`
-          );
-        }
-      } catch (err) {
-        console.error("learning digest fetch failed for generation", genId, err);
-      }
-      const { writerFlavor, styleOverrides, orderedContext } = await writerStylePromise;
-      const styleGuidance = buildStyleGuidance(
+      const { style, resolvedStyleOverrides: styleOverrides } =
+        await resolveFrozenWriterStyle(ctx, {
+          generationId: genId,
+          projectId,
+          ...(input.requestedBy ? { requestedBy: input.requestedBy } : {}),
+          freeze,
+          log,
+        });
+      const {
+        qaCalibration,
         draftStyle,
+        qaCalibrationDigestId,
+        draftStyleDigestId,
         writerFlavor,
-        styleOverrides ?? NO_STYLE_OVERRIDES
-      );
+      } = style;
 
       // Frozen once: analyzer output shared by every section draft.
       await log("Analyzing the transcript (runs once — shared by all sections)…");
@@ -307,28 +536,9 @@ export const startIterativeGeneration = internalAction({
         generationId: genId,
         analysis: JSON.stringify(analysis),
         // Documented shape: { blocks: BrainExemplarBlocks, styleGuidance,
-        // styleOverrides }. Overrides are frozen at generation start (like
-        // styleGuidance) so a mid-generation profile change cannot skew later
-        // sections — INCLUDING the all-false "full enforcement" state, so a
-        // later profile/mode change can never re-score this draft under
-        // waivers it was not written with.
-        brainBlocks: JSON.stringify({
-          blocks: brainBlocks,
-          styleGuidance,
-          orderedContext,
-          ...(qaCalibration ? { qaCalibration } : {}),
-          ...(draftStyle ? { draftStyle } : {}),
-          ...(qaCalibrationDigestId ? { qaCalibrationDigestId } : {}),
-          ...(draftStyleDigestId ? { draftStyleDigestId } : {}),
-          ...(writerFlavor ? { writerFlavor } : {}),
-          styleOverrides: styleOverrides ?? NO_STYLE_OVERRIDES,
-        }),
+        // styleOverrides, ... } (convex/lib/frozenWriterStyle.ts).
+        brainBlocks: brainBlocksArtifactContent(brainBlocks, style),
       });
-
-      if (input.gatedWorkflow === "seeds") {
-        await finishSeedInitialization(ctx, genId, projectId, model.id, input.requestedBy);
-        return;
-      }
 
       // Story 1 (CAP-1/2/4): derive or reuse the Generation Brief once,
       // shared by every section below. Never fatal — Brief is read-only

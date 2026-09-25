@@ -321,14 +321,23 @@ export async function loadFrozenSeedActionInput(
       ),
     MAX_SEED_SOURCE_ROWS,
   );
-  const settingsRead = await budget.one(() =>
-    ctx.db
-      .query("generationArtifacts")
-      .withIndex("by_generationId_and_kind", (q) =>
-        q.eq("generationId", args.generation._id).eq("kind", "brain_blocks"),
-      )
-      .unique(),
-  );
+  // The frozen writer style: its own artifact since the reordered start
+  // (owner decision 32, 2026-09-25), so Seeds never wait for Brain
+  // retrieval; inside `brain_blocks` for generations started before it.
+  const styleArtifact = (kind: "writer_style" | "brain_blocks") =>
+    budget.one(() =>
+      ctx.db
+        .query("generationArtifacts")
+        .withIndex("by_generationId_and_kind", (q) =>
+          q.eq("generationId", args.generation._id).eq("kind", kind),
+        )
+        .unique(),
+    );
+  const styleRead = await styleArtifact("writer_style");
+  const settingsRead =
+    styleRead.kind === "loaded" && styleRead.value === null
+      ? await styleArtifact("brain_blocks")
+      : styleRead;
   if (
     !entryRead.complete ||
     !sourceRead.complete ||

@@ -358,12 +358,21 @@ export const generationPromptProgram = {
           "assemble-approved-sections",
           "post-terminal-qa-and-chronology",
         ],
+        // Owner decision 32 (2026-09-25): the Brief runs beside the frozen
+        // writer style and opens the seed stage; the retrieval brief, the
+        // Brain searches and the analyzer run in the background (their
+        // provider requests unchanged) and must finish before sign-off.
         seeds: [
-          "retrieval-brief-with-fallback-query",
-          "four-sequential-brain-searches-with-optional-rerank",
-          "frozen-analyzer-brain-style-artifacts",
+          "frozen-writer-style-artifact",
           "brief",
           "seed-stage-human-gate",
+          {
+            backgroundUntilSignOff: [
+              "retrieval-brief-with-fallback-query",
+              "four-sequential-brain-searches-with-optional-rerank",
+              "frozen-analyzer-brain-style-artifacts",
+            ],
+          },
           "ordered-section-chain-after-sign-off",
           "post-terminal-qa-and-chronology",
         ],
