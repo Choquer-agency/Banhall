@@ -192,7 +192,10 @@ describe("catalog refresh", () => {
     const messages = await notices(t);
     expect(messages.filter((m) => m.includes("renamed"))).toHaveLength(1);
     expect(messages.filter((m) => m.includes("retired on 2026-09-28"))).toHaveLength(1);
-    expect(messages.filter((m) => m.includes("no longer listed"))).toHaveLength(1);
+    // The 2026-09-24 snapshot predates GPT-6 Luna, a seed since 2026-09-25,
+    // so it reads as unlisted here too; Grok is the case under test.
+    expect(messages.filter((m) => m.includes("no longer listed") && m.includes("x-ai/grok-4.7"))).toHaveLength(1);
+    expect(messages.filter((m) => m.includes("no longer listed"))).toHaveLength(2);
     expect(await row(t, "openai/gpt-5.6-sol")).toMatchObject({ requestId: "openai/gpt-5.6-sol-v2", modelId: "openai/gpt-5.6-sol" });
     // An enabled model that vanished keeps its status; a candidate is retired.
     expect(await row(t, "x-ai/grok-4.7")).toMatchObject({ status: "enabled" });
@@ -713,7 +716,10 @@ describe("review fixes", () => {
     const adopted = await row(t, "openai/gpt-5.6-sol");
     expect(adopted?.missingSince).toBeUndefined();
     expect(adopted).toMatchObject({ status: "enabled", canonicalSlug: "openai/gpt-5.6-sol-20260709" });
-    expect((await notices(t)).some((m) => m.includes("no longer listed"))).toBe(false);
+    // Only GPT-6 Luna (absent from the 2026-09-24 snapshot) reads as unlisted.
+    expect(
+      (await notices(t)).some((m) => m.includes("no longer listed") && m.includes("openai/gpt-5.6-sol"))
+    ).toBe(false);
     // A row already wrongly marked missing is cleared by the adoption.
     await t.run((ctx) =>
       ctx.db.patch(sol!._id, { canonicalSlug: "openai/gpt-5.6-sol-older", missingSince: NOW - 1, goneNoticeAt: NOW - 1 })
@@ -1789,3 +1795,4 @@ describe("round 10", () => {
     expect(await told("not rolled back to it")).toHaveLength(1);
   });
 });
+

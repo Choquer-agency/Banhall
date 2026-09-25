@@ -39,4 +39,19 @@ describe("single-model picker items", () => {
     expect(modelLabelFor("x-ai/grok-4.7", { models: [grok] })).toBe("Grok 4.7");
     expect(modelLabelFor("unknown/model", undefined)).toBe("unknown/model");
   });
+
+  it("lists Opus 5.5, Fable 5.1, GPT-6 Sol and GPT-6 Luna in the seed fallback", () => {
+    const seed = pickerModels(undefined);
+    const byId = (id: string) => seed.find((model) => model.id === id);
+    expect(byId("claude-opus-5-5")).toMatchObject({ label: "Opus 5.5", provider: "Anthropic", gateway: "anthropic" });
+    expect(byId("claude-fable-5-1")).toMatchObject({ label: "Fable 5.1", provider: "Anthropic", gateway: "anthropic" });
+    expect(byId("openai/gpt-6-sol")).toMatchObject({ label: "GPT-6 Sol", provider: "OpenAI", gateway: "openrouter" });
+    expect(byId("openai/gpt-6-luna")).toMatchObject({ label: "GPT-6 Luna", provider: "OpenAI", gateway: "openrouter" });
+    const items = singleModelItemsFor(undefined).map((item) => item.value);
+    expect(items).toEqual(expect.arrayContaining(["claude-opus-5-5", "claude-fable-5-1", "openai/gpt-6-sol", "openai/gpt-6-luna"]));
+    expect(modelLabelFor("claude-fable-5-1", undefined)).toBe("Fable 5.1");
+    // The OpenRouter listings of the direct Anthropic models are not seeds.
+    expect(byId("anthropic/claude-opus-5.5")).toBeUndefined();
+    expect(byId("anthropic/claude-fable-5.1")).toBeUndefined();
+  });
 });

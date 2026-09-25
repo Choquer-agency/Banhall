@@ -42,6 +42,17 @@ export const CANDIDATE_MODE_ROUTING = {
 type CandidateModel = ModelEntry;
 
 /**
+ * The roster a legacy in-flight compare generation (no persisted pair) ran
+ * before pairs were persisted: the three Anthropic models of that time.
+ * Pinned by id, so an Anthropic model added to the seed later never joins it.
+ */
+export const LEGACY_COMPARE_MODEL_IDS = [
+  MODEL,
+  "claude-opus-4-8",
+  "claude-haiku-4-5-20251001",
+] as const;
+
+/**
  * Resolve a persisted compare pair to model entries: filters to known ids
  * (seed, or registered from the generation's frozen catalog entries) and
  * dedupes. Returns the two entries when exactly 2 distinct valid ids remain;
@@ -88,14 +99,15 @@ export function candidateModelsForMode(
 ) {
   if (mode === "compare") {
     // Legacy in-flight generations (no persisted pair) still run the original
-    // 3 Anthropic models — NOT the full roster, which now includes OpenRouter
-    // models that would 7x the run and require a second key. New requests
-    // always persist exactly 2 ids.
+    // 3 Anthropic models, NOT the full roster, which now includes OpenRouter
+    // models that would multiply the run and require a second key, and newer
+    // Anthropic models. New requests always persist exactly 2 ids.
     return (
       resolveCompareModels(compareModelIds) ??
       (CANDIDATE_MODELS as readonly CandidateModel[]).filter(
         (model) =>
-          model.gateway === CANDIDATE_MODE_ROUTING.compare.legacyFallbackGateway
+          model.gateway === CANDIDATE_MODE_ROUTING.compare.legacyFallbackGateway &&
+          (LEGACY_COMPARE_MODEL_IDS as readonly string[]).includes(model.id)
       )
     );
   }

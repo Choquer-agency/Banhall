@@ -609,3 +609,38 @@ describe("models that reject forced tool calls at the OpenRouter boundary", () =
     vi.useRealTimers();
   });
 });
+
+describe("GPT-6 at the OpenRouter boundary", () => {
+  const drain = async (t: Awaited<ReturnType<typeof setup>>) =>
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
+
+  it("sends GPT-6 Sol its forced named function, reasoning headroom and native cost", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const t = await setup();
+    reply = () => toolReply(JSON.stringify({ ok: true }), "openai/gpt-6-sol");
+    const value = await t.action(async (ctx) =>
+      generateStructured(clientForModel(ctx, "openai/gpt-6-sol", { callSite: "routing-test" }), {
+        ...structuredArgs("openai/gpt-6-sol"),
+        maxTokens: 4096,
+      })
+    );
+    expect(value).toEqual({ ok: true });
+    expect(captured).toHaveLength(1);
+    expect(captured[0].url).toBe("https://openrouter.ai/api/v1/chat/completions");
+    expect(captured[0].body).toMatchObject({
+      model: "openai/gpt-6-sol",
+      // Reasoning headroom: 4096 x 4, under the 128,000 cap.
+      max_tokens: 16384,
+      tool_choice: { type: "function", function: { name: "record" } },
+      messages: [
+        { role: "system", content: "System." },
+        { role: "user", content: "Hello." },
+      ],
+      provider: { require_parameters: true },
+    });
+    await drain(t);
+    const usage = await t.run((ctx) => ctx.db.query("aiUsage").collect());
+    expect(usage).toMatchObject([{ model: "openai/gpt-6-sol", costUsd: 0.001, costSource: "native" }]);
+    vi.useRealTimers();
+  });
+});

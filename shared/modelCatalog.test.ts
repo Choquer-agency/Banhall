@@ -178,6 +178,75 @@ describe("catalog seed", () => {
     expect(sonnet.canonicalSlug).toBe("anthropic/claude-sonnet-5-20260630");
   });
 
+  test("seeds Opus 5.5, Fable 5.1, GPT-6 Sol and GPT-6 Luna with prices, limits and OpenRouter slugs", () => {
+    const seeds = seedCatalogModels(NOW);
+    const seed = (id: string) => seeds.find((s) => s.modelId === id)!;
+    expect(seed("claude-opus-5-5")).toMatchObject({
+      gateway: "anthropic",
+      displayName: "Opus 5.5",
+      forcedToolChoice: false,
+      canonicalSlug: "anthropic/claude-opus-5.5-20260921",
+      inputUsdPerMTok: 4,
+      outputUsdPerMTok: 20,
+      cacheReadUsdPerMTok: 0.2,
+      cacheWriteUsdPerMTok: 5,
+      cacheWrite1hUsdPerMTok: 8,
+      contextLength: 1_000_000,
+      maxOutputTokens: 128_000,
+      reasoning: false,
+      status: "enabled",
+      source: "seed",
+    });
+    expect(seed("claude-fable-5-1")).toMatchObject({
+      gateway: "anthropic",
+      displayName: "Fable 5.1",
+      forcedToolChoice: false,
+      canonicalSlug: "anthropic/claude-fable-5.1-20260831",
+      inputUsdPerMTok: 10,
+      outputUsdPerMTok: 50,
+      cacheReadUsdPerMTok: 0.25,
+      contextLength: 1_000_000,
+      maxOutputTokens: 128_000,
+    });
+    expect(seed("openai/gpt-6-sol")).toMatchObject({
+      gateway: "openrouter",
+      displayName: "GPT-6 Sol",
+      canonicalSlug: "openai/gpt-6-sol-20260922",
+      inputUsdPerMTok: 2,
+      outputUsdPerMTok: 10,
+      reasoning: true,
+      maxCompletionTokens: 128000,
+      maxOutputTokens: 128000,
+    });
+    expect(seed("openai/gpt-6-sol").forcedToolChoice).toBeUndefined();
+    expect(seed("claude-sonnet-5").forcedToolChoice).toBeUndefined();
+    expect(seed("openai/gpt-6-luna")).toMatchObject({
+      gateway: "openrouter",
+      displayName: "GPT-6 Luna",
+      canonicalSlug: "openai/gpt-6-luna-20260922",
+      inputUsdPerMTok: 0.1,
+      outputUsdPerMTok: 0.5,
+      reasoning: true,
+      maxCompletionTokens: 128000,
+    });
+    // Each clears the writing role's output floor for automatic switches.
+    for (const id of ["claude-opus-5-5", "claude-fable-5-1", "openai/gpt-6-sol", "openai/gpt-6-luna"]) {
+      expect(seed(id).maxOutputTokens, id).toBeGreaterThanOrEqual(ROLE_POLICIES.writing.minOutputTokens);
+    }
+  });
+
+  test("a direct Opus 5.5 row borrows its OpenRouter listing's scores; the listing stays its own candidate", () => {
+    const opus = bySlug("anthropic/claude-opus-5.5");
+    const direct = seedCatalogModels(NOW).find((s) => s.modelId === "claude-opus-5-5")!;
+    const changes = diffCatalog([direct], [opus], NOW);
+    expect(changes).toContainEqual({ kind: "update", modelId: "claude-opus-5-5", model: opus });
+    // The listing is proposed as a separate OpenRouter candidate, as the
+    // Sonnet 5 and Opus 4.8 listings are; pickers show enabled rows only.
+    expect(changes).toContainEqual({ kind: "new", model: opus });
+    const refreshed = refreshedFields({ source: "seed", gateway: "anthropic", modelId: "claude-opus-5-5" }, opus);
+    expect(refreshed.inputUsdPerMTok).toBeUndefined();
+    expect(refreshed.maxOutputTokens).toBeUndefined();
+  });
 });
 
 function candidateView(model: ParsedModel, overrides: Partial<PrefilterModel> = {}): PrefilterModel {

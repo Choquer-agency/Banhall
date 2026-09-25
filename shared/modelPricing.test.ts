@@ -29,7 +29,44 @@ describe("model price table", () => {
     expect(one("claude-sonnet-4-6")).toBeCloseTo(3 + 15, 10);
     expect(one("claude-opus-4-8")).toBeCloseTo(5 + 25, 10);
     expect(one("claude-opus-5-5")).toBeCloseTo(4 + 20, 10);
+    expect(one("claude-fable-5-1")).toBeCloseTo(10 + 50, 10);
     expect(one("claude-haiku-4-5-20251001")).toBeCloseTo(1 + 5, 10);
+  });
+
+  test("Fable 5.1 reads cost $0.25 (0.025x); its writes follow the Anthropic rule", () => {
+    const read = estimateCostFromTable("claude-fable-5-1", {
+      inputTokens: 0,
+      outputTokens: 0,
+      cacheReadInputTokens: MTOK,
+    });
+    expect(read).toBeCloseTo(0.25, 10);
+    const written = estimateCostFromTable("claude-fable-5-1", {
+      inputTokens: 0,
+      outputTokens: 0,
+      cacheCreationInputTokens: MTOK,
+      cacheCreation1hInputTokens: 400_000,
+    });
+    expect(written).toBeCloseTo(0.6 * 10 * 1.25 + 0.4 * 10 * 2, 10);
+  });
+
+  test("prices GPT-6 Sol and Luna at OpenRouter's listed rates as fallbacks", () => {
+    const one = (model: string) =>
+      estimateCostFromTable(model, { inputTokens: MTOK, outputTokens: MTOK });
+    expect(one("openai/gpt-6-sol")).toBeCloseTo(2 + 10, 10);
+    expect(one("openai/gpt-6-luna")).toBeCloseTo(0.1 + 0.5, 10);
+    // OpenRouter fallbacks bill no separate cache writes; reads are 0.1x.
+    expect(MODEL_PRICING["openai/gpt-6-sol"]).toMatchObject({
+      cacheWrite5mMultiplier: 0,
+      cacheWrite1hMultiplier: 0,
+      cacheReadMultiplier: 0.1,
+    });
+    expect(
+      estimateCostFromTable("openai/gpt-6-luna", {
+        inputTokens: 0,
+        outputTokens: 0,
+        cacheReadInputTokens: MTOK,
+      })
+    ).toBeCloseTo(0.01, 10);
   });
 
   test("prices 5-minute writes at 1.25x, 1-hour writes at 2x and reads at 0.1x", () => {
@@ -98,6 +135,8 @@ describe("Anthropic models through OpenRouter without a native cost", () => {
   test("resolve other anthropic/ ids to the direct Anthropic entry", () => {
     expect(pricingFor("anthropic/claude-opus-4.8")).toBe(MODEL_PRICING["claude-opus-4-8"]);
     expect(pricingFor("anthropic/claude-haiku-4.5")).toBe(MODEL_PRICING["claude-haiku-4-5"]);
+    expect(pricingFor("anthropic/claude-opus-5.5")).toBe(MODEL_PRICING["claude-opus-5-5"]);
+    expect(pricingFor("anthropic/claude-fable-5.1")).toBe(MODEL_PRICING["claude-fable-5-1"]);
     expect(pricingFor("anthropic/claude-unknown")).toBeNull();
   });
 });
