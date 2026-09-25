@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { Snippet } from "svelte";
+  import { tick, type Snippet } from "svelte";
   import { DropdownMenu, Popover } from "bits-ui";
   import { CheckIcon, QuotesIcon, XIcon } from "phosphor-svelte";
   import Checkbox from "$lib/components/ui/Checkbox.svelte";
@@ -87,6 +87,10 @@
   let savingEdit = $state(false);
   let sendingFeedback = $state(false);
   let sendingPreset = $state(false);
+  // The Give feedback trigger. It stays focusable while a preset is sent, so
+  // the menu can hand focus back to it, and it takes focus back when the
+  // feedback box closes under the writer's focus.
+  let feedbackTrigger = $state<HTMLElement | null>(null);
   let hydratedDraftSignature = $state<string | null>(null);
   let feedbackMenuOpen = $state(false);
   let quotesOpen = $state(false);
@@ -260,11 +264,24 @@
             ? composed(current, { feedback: null })
             : (current ?? null)
         );
-        if (sameFeedback(feedback, submitted)) feedback = null;
+        if (sameFeedback(feedback, submitted)) {
+          feedback = null;
+          void returnFocusToFeedback();
+        }
       }
     } finally {
       sendingFeedback = false;
     }
+  }
+
+  /** After the feedback box closes, focus that was inside it (now on the
+   * page body) goes back to Give feedback; focus the writer moved elsewhere
+   * stays where it is. */
+  async function returnFocusToFeedback() {
+    await tick();
+    const active = document.activeElement;
+    if (active && active !== document.body && active.isConnected) return;
+    feedbackTrigger?.focus();
   }
 
   /** Enter saves, Shift+Enter keeps a new line, Esc cancels. Changed wording
@@ -447,8 +464,9 @@
             {#snippet children({ props: tipProps })}
               <DropdownMenu.Trigger
                 {...tipProps}
+                bind:ref={feedbackTrigger}
                 aria-label="Give feedback"
-                disabled={busy || sendingPreset}
+                disabled={busy}
                 class={`${tile} ${feedbackMenuOpen ? "bg-gray-50 text-ink" : ""}`}
               >
                 <svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" /></svg>
@@ -466,7 +484,7 @@
             >
               <p class="px-2 pt-1.5 pb-3 text-[10px] leading-3 font-medium tracking-[0.04em] text-ink-faint uppercase" id={`seed-feedback-menu-${uid}`}>Revise this seed</p>
               {#each FEEDBACK_PRESETS as preset (preset.label)}
-                <DropdownMenu.Item class={menuItem} onSelect={() => void sendPreset(preset.instruction)}>
+                <DropdownMenu.Item class={menuItem} disabled={sendingPreset} onSelect={() => void sendPreset(preset.instruction)}>
                   <svg class="size-3 shrink-0 text-ink-muted" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                     {#if preset.label === "More specific"}<path d="M4 12h16M12 4v16" />
                     {:else if preset.label === "Shorter"}<path d="M5 12h14" />
@@ -653,7 +671,7 @@
             </div>
           {/if}
           <div class="mt-2 flex flex-wrap justify-end gap-2">
-            <Button size="sm" variant="secondary" onclick={() => publishFeedback(null)}>Cancel</Button>
+            <Button size="sm" variant="secondary" onclick={() => { publishFeedback(null); void returnFocusToFeedback(); }}>Cancel</Button>
             <Button
               size="sm"
               onclick={sendFeedback}
