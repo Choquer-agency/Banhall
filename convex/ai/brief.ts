@@ -506,8 +506,8 @@ export type BriefStageAttempt =
 
 /** Places of one quote tried under owner decision 25 before it is dropped. */
 const MAX_QUOTE_PLACES = 8;
-/** Spans per `getCitationSpeakers` call; it accepts at most 2,000. */
-const CITATION_SPEAKER_BATCH = 1_000;
+/** Spans per `getCitationSpeakers` call; it accepts at most 250 (MAX_CITATION_SPEAKER_SPANS). */
+const CITATION_SPEAKER_BATCH = 250;
 
 /**
  * Owner decision 25 verdicts for candidate places on transcript rows, one

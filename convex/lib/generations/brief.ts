@@ -247,8 +247,13 @@ export async function getGenerationSourcesForBriefHandler(
   return await readBriefSourceRows(ctx, args.generationId);
 }
 
-/** Spans one `getCitationSpeakers` call may ask about. */
-export const MAX_CITATION_SPEAKER_SPANS = 2_000;
+/**
+ * Spans one `getCitationSpeakers` call may ask about. Each span reads at
+ * most MAX_SPAN_TURNS + 1 turns, twice when it names the place a quote
+ * moves from, so 250 spans stay inside one query's read limits (review
+ * 2026-09-25, P3-5).
+ */
+export const MAX_CITATION_SPEAKER_SPANS = 250;
 
 export const citationSpeakerValidator = v.union(
   v.literal("client"),

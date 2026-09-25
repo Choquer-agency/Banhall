@@ -135,11 +135,13 @@ const ROLE_LABEL = /^(?:interviewer|interviewee|subject|client|host|co-?host|mod
  * never a speaker's whole name on a line above a time.
  */
 const NOT_A_NAME = new Set([
-  "actually", "again", "alright", "also", "and", "anyway", "basically", "but",
-  "bye", "cool", "exactly", "fine", "finally", "first", "good", "great", "hello",
-  "hey", "hi", "honestly", "listen", "look", "no", "nope", "now", "oh", "ok",
-  "okay", "perfect", "please", "plus", "right", "second", "see", "so", "sorry",
-  "sure", "thanks", "then", "true", "wait", "well", "wow", "yeah", "yep", "yes",
+  "absolutely", "actually", "again", "agreed", "alright", "also", "and",
+  "anyway", "basically", "but", "bye", "cool", "correct", "definitely",
+  "exactly", "fine", "finally", "first", "good", "great", "hello", "hey", "hi",
+  "hmm", "honestly", "indeed", "listen", "look", "no", "nope", "now", "oh",
+  "ok", "okay", "perfect", "please", "plus", "right", "second", "see", "so",
+  "sorry", "sure", "thanks", "then", "totally", "true", "wait", "well", "wow",
+  "yeah", "yep", "yes",
 ]);
 
 function nameWords(text: string): boolean {

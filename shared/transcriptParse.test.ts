@@ -496,6 +496,13 @@ describe("speaker labels (parser v4)", () => {
     expect(names.organizations).toEqual(["Northwind Labs"]);
   });
 
+  it("never reads a reply before a comma as a surname", () => {
+    for (const opener of ["Correct", "Absolutely", "Agreed", "Totally", "Indeed", "Hmm"]) {
+      expect(speakerOfTranscriptLine(`${opener}, Dana: we rebuilt it twice.`), opener).toBeUndefined();
+    }
+    expect(speakerOfTranscriptLine("Shah, Priya: We rebuilt it twice.")).toBe("Priya Shah");
+  });
+
   it("lists every form an older parser could have read a label as", () => {
     expect(rawLabelForms("Priya Shah (she/her)")).toEqual(["Priya Shah (she/her)", "Priya Shah", "she/her"]);
     expect(rawLabelForms("Priya Shah (Guest) [00:00:04]")).toEqual(["Priya Shah (Guest)", "Priya Shah", "Guest"]);
