@@ -304,7 +304,7 @@ describe("/project/new copied files", () => {
       "uncategorized",
     ]);
     const groups = [...section.querySelectorAll<HTMLElement>("[data-copied-files-group]")];
-    expect(groups.map((group) => group.querySelector("p")?.textContent?.trim())).toEqual([
+    expect(groups.map((group) => group.querySelector("label")?.textContent?.trim())).toEqual([
       "Writer's notes",
       "Previous-year reports",
       "Scoping notes",
@@ -351,7 +351,7 @@ describe("/project/new copied files", () => {
       "uncategorized",
     ]);
     const reviewed = section.querySelector<HTMLElement>('[data-copied-files-group="review_pd"]')!;
-    expect(reviewed.querySelector("p")?.textContent?.trim()).toBe("Written PDs reviewed");
+    expect(reviewed.querySelector("label")?.textContent?.trim()).toBe("Written PDs reviewed");
     expect(reviewed.textContent).toContain("Existing PD.docx");
   });
 
@@ -707,6 +707,62 @@ describe("/project/new failed copy", () => {
     expect(error.mock.calls.map((call) => String(call[0])).join(" ")).not.toContain("Generate");
     expect(__mutationCalls("generations:requestGeneration")).toEqual([]);
     error.mockRestore();
+  });
+});
+
+describe("/project/new tick rows (review D-6)", () => {
+  const labelFor = (box: HTMLElement | null) =>
+    box ? document.querySelector<HTMLLabelElement>(`label[for="${box.id}"]`) : null;
+
+  it("toggles a file, a group and a transcript from the name", async () => {
+    seedSource();
+    __setPageUrl("/project/new?from=project-1&drafts=iterative");
+    await render(NewProjectPage, {});
+
+    const section = await copiedSection();
+    await expect.poll(() => fileBox("Writer notes.md")).not.toBeNull();
+    const name = labelFor(fileBox("Writer notes.md"));
+    expect(name?.textContent?.trim()).toBe("Writer notes.md");
+    name!.click();
+    await expect.poll(() => fileBox("Writer notes.md")?.getAttribute("aria-checked")).toBe("false");
+    name!.click();
+    await expect.poll(() => fileBox("Writer notes.md")?.getAttribute("aria-checked")).toBe("true");
+
+    labelFor(groupBox(section, "Writer's notes"))!.click();
+    await expect.poll(() => fileBox("Writer notes.md")?.getAttribute("aria-checked")).toBe("false");
+
+    const transcriptBox = () =>
+      document.querySelector<HTMLElement>('[data-transcript-item] button[aria-label="Copy Kickoff.docx"]');
+    await expect.poll(transcriptBox).not.toBeNull();
+    labelFor(transcriptBox())!.click();
+    await expect.poll(() => transcriptBox()?.getAttribute("aria-checked")).toBe("false");
+  });
+
+  it("makes the whole row one touch target, 44px tall on touch screens", async () => {
+    seedSource();
+    __setPageUrl("/project/new?from=project-1&drafts=iterative");
+    await render(NewProjectPage, {});
+
+    const section = await copiedSection();
+    await expect.poll(() => fileBox("Writer notes.md")).not.toBeNull();
+    const rows = [
+      ...section.querySelectorAll<HTMLElement>("[data-copied-file]"),
+      groupBox(section, "Writer's notes")!.closest<HTMLElement>("div.relative")!,
+    ];
+    for (const row of rows) {
+      expect(row.className).toContain("pointer-coarse:min-h-11");
+      // A tap at the far end of the row, past the name, lands on the label.
+      row.scrollIntoView({ block: "center" });
+      const rect = row.getBoundingClientRect();
+      const hit = document.elementFromPoint(rect.right - 2, rect.top + rect.height / 2);
+      const box = row.querySelector<HTMLElement>('button[role="checkbox"]')!;
+      expect(hit).toBe(labelFor(box));
+    }
+    const row = section.querySelector<HTMLElement>('[data-copied-file="doc-1"]')!;
+    row.scrollIntoView({ block: "center" });
+    const rect = row.getBoundingClientRect();
+    (document.elementFromPoint(rect.right - 2, rect.top + rect.height / 2) as HTMLElement).click();
+    await expect.poll(() => fileBox("Writer notes.md")?.getAttribute("aria-checked")).toBe("false");
   });
 });
 

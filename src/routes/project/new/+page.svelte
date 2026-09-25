@@ -63,6 +63,7 @@
   import SingleModelPicker from "$lib/components/generation/SingleModelPicker.svelte";
   import Tooltip from "$lib/components/ui/Tooltip.svelte";
   import Checkbox from "$lib/components/ui/Checkbox.svelte";
+  import { Label } from "bits-ui";
   import { SvelteMap } from "svelte/reactivity";
   import { dashboardFiscalYear } from "../../../../shared/dashboardProjection";
   import { previousYearReportHeader } from "../../../../shared/previousYear";
@@ -463,6 +464,11 @@
       (offerPreviousYearReport && !previousYearReportIncluded)
   );
   const copySourceTitle = $derived(sourceProjectQ.data?.title ?? "the original project");
+  // Review D-6: a tick row is a 44px touch target on touch screens, and a
+  // tap anywhere on it (the name included) toggles its box. The label's
+  // ::after covers the row; the box sits above it and stays clickable.
+  const TICK_ROW = "relative flex min-w-0 items-center gap-2 pointer-coarse:min-h-11";
+  const STRETCHED_LABEL = "after:absolute after:inset-0";
   const copyProjectContent = useAction(api.projectDuplication.copyProjectContent);
   // Owner decision 35 (2026-09-25): a copy of a Review PD project stays a
   // Review PD project, so Generate PD, and with it Step by step, is not
@@ -1600,7 +1606,7 @@
                   <li
                     data-transcript-item
                     data-included={included ? "true" : "false"}
-                    class="flex items-center justify-between gap-3 rounded-xl border border-gray-200 bg-white px-4 py-3"
+                    class="relative flex items-center justify-between gap-3 rounded-xl border border-gray-200 bg-white px-4 py-3"
                   >
                     <span class="flex min-w-0 items-center gap-2.5">
                       <span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-blue-50 text-blue-500">
@@ -1609,7 +1615,15 @@
                         </svg>
                       </span>
                       <span class="min-w-0">
-                        <span class="block truncate text-sm font-medium text-gray-800">{item.label}</span>
+                        {#if copied}
+                          <!-- The whole row toggles the tick box (review D-6). -->
+                          <Label.Root
+                            for={`copy-transcript-${item.id}`}
+                            class={`block cursor-pointer truncate text-sm font-medium text-gray-800 ${STRETCHED_LABEL}`}
+                          >{item.label}</Label.Root>
+                        {:else}
+                          <span class="block truncate text-sm font-medium text-gray-800">{item.label}</span>
+                        {/if}
                         <span class="block text-xs text-gray-400" data-transcript-format>
                           {item.format && item.format !== "unknown" ? `${TRANSCRIPT_FORMAT_LABELS[item.format]}, ` : ""}{item.wordCount.toLocaleString()} words
                         </span>
@@ -1621,11 +1635,14 @@
                     {#if copied}
                       <!-- A copied transcript is unticked, not removed, so the
                            writer can tick it again (owner decision 35). -->
-                      <Checkbox
-                        checked={included}
-                        aria-label={`Copy ${item.label}`}
-                        onCheckedChange={(checked) => setTranscriptIncluded(item.id, checked)}
-                      />
+                      <span class="relative z-10 flex">
+                        <Checkbox
+                          id={`copy-transcript-${item.id}`}
+                          checked={included}
+                          aria-label={`Copy ${item.label}`}
+                          onCheckedChange={(checked) => setTranscriptIncluded(item.id, checked)}
+                        />
+                      </span>
                     {:else}
                       <button
                         type="button"
@@ -1759,14 +1776,20 @@
                     {@const allTicked = ticks.every(Boolean)}
                     {@const someTicked = ticks.some(Boolean)}
                     <div data-copied-files-group={group.id}>
-                      <div class="flex items-center gap-2">
-                        <Checkbox
-                          checked={allTicked}
-                          indeterminate={someTicked && !allTicked}
-                          aria-label={`Copy all ${group.label}`}
-                          onCheckedChange={(checked) => setGroupIncluded(group, checked)}
-                        />
-                        <p class="text-xs font-medium text-ink-muted">{group.label}</p>
+                      <div class={TICK_ROW}>
+                        <span class="relative z-10 flex">
+                          <Checkbox
+                            id={`copy-group-${group.id}`}
+                            checked={allTicked}
+                            indeterminate={someTicked && !allTicked}
+                            aria-label={`Copy all ${group.label}`}
+                            onCheckedChange={(checked) => setGroupIncluded(group, checked)}
+                          />
+                        </span>
+                        <Label.Root
+                          for={`copy-group-${group.id}`}
+                          class={`cursor-pointer text-xs font-medium text-ink-muted ${STRETCHED_LABEL}`}
+                        >{group.label}</Label.Root>
                       </div>
                       <ul class="mt-1 flex flex-col gap-1 text-sm text-ink-secondary">
                         {#each group.files as file (file._id)}
@@ -1774,14 +1797,20 @@
                           <li
                             data-copied-file={file._id}
                             data-included={included ? "true" : "false"}
-                            class="flex min-w-0 items-center gap-2"
+                            class={TICK_ROW}
                           >
-                            <Checkbox
-                              checked={included}
-                              aria-label={`Copy ${file.fileName}`}
-                              onCheckedChange={(checked) => documentChoices.set(file._id, checked)}
-                            />
-                            <span class="min-w-0 truncate">{file.fileName}</span>
+                            <span class="relative z-10 flex">
+                              <Checkbox
+                                id={`copy-file-${file._id}`}
+                                checked={included}
+                                aria-label={`Copy ${file.fileName}`}
+                                onCheckedChange={(checked) => documentChoices.set(file._id, checked)}
+                              />
+                            </span>
+                            <Label.Root
+                              for={`copy-file-${file._id}`}
+                              class={`flex min-w-0 cursor-pointer ${STRETCHED_LABEL}`}
+                            ><span class="min-w-0 truncate">{file.fileName}</span></Label.Root>
                             {#if file.archived}
                               <span class="shrink-0 text-xs text-ink-muted">Archived, not read for the draft</span>
                             {:else if isPortedSameYear(file)}
@@ -1797,13 +1826,19 @@
                           <li
                             data-previous-year-report
                             data-included={previousYearReportIncluded ? "true" : "false"}
-                            class="flex min-w-0 items-center gap-2"
+                            class={TICK_ROW}
                           >
-                            <Checkbox
-                              bind:checked={previousYearReportIncluded}
-                              aria-label={`Copy ${copySourceTitle} report (FY ${sourceFiscalYear})`}
-                            />
-                            <span class="min-w-0 truncate">{copySourceTitle} report (FY {sourceFiscalYear})</span>
+                            <span class="relative z-10 flex">
+                              <Checkbox
+                                id="copy-previous-year-report"
+                                bind:checked={previousYearReportIncluded}
+                                aria-label={`Copy ${copySourceTitle} report (FY ${sourceFiscalYear})`}
+                              />
+                            </span>
+                            <Label.Root
+                              for="copy-previous-year-report"
+                              class={`flex min-w-0 cursor-pointer ${STRETCHED_LABEL}`}
+                            ><span class="min-w-0 truncate">{copySourceTitle} report (FY {sourceFiscalYear})</span></Label.Root>
                             <span class="shrink-0 text-xs text-ink-muted">Made from the original's latest report</span>
                           </li>
                         {/if}
