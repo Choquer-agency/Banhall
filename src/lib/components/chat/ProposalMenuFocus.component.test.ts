@@ -56,3 +56,12 @@ it("leaves focus in the composer after Refine with AI chosen from the keyboard",
   await new Promise((resolve) => setTimeout(resolve, 300));
   expect(focusedLabel()).toBe("Message the report assistant");
 });
+
+it("returns focus to the More button when the menu is dismissed with Escape", async () => {
+  await render(AgentChatPanel, { reportId, projectId });
+  const trigger = page.getByRole("button", { name: "More actions for this suggestion", exact: true });
+  await trigger.click();
+  await expect.element(page.getByRole("menuitem", { name: "Edit wording", exact: true })).toBeVisible();
+  await userEvent.keyboard("{Escape}");
+  await expect.poll(() => document.activeElement).toBe(trigger.element());
+});

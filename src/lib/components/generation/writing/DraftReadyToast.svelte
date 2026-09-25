@@ -77,7 +77,7 @@
   class={`relative w-max max-w-full overflow-hidden rounded-full p-[2px] transition-opacity duration-300 ease-out motion-reduce:transition-none ${
     fading ? "opacity-0" : "opacity-100"
   }`}
-  style="background:var(--aurora-track);box-shadow:0 8px 24px #16211F14, 0 0 14px #8438FF24"
+  style="background:var(--aurora-track);box-shadow:var(--shadow-toast-soft), 0 0 14px #8438FF24"
 >
   <span
     aria-hidden="true"

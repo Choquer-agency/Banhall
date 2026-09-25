@@ -1,9 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { page, userEvent } from "vitest/browser";
 import { render } from "vitest-browser-svelte";
+import { tick } from "svelte";
 import { Toaster } from "svelte-sonner";
 import DetailsPanel from "./DetailsPanel.svelte";
 import DetailsPopover from "./DetailsPopover.svelte";
+import DetailsPanelSwitchFixture from "./DetailsPanelSwitchFixture.svelte";
 import { __resetConvexStub } from "$lib/test/convex-svelte-stub.svelte";
 import type { DetailsPanelData, TeamMember } from "./types";
 
@@ -394,6 +396,24 @@ describe("Details panel", () => {
     // It goes away on its own.
     await expect.poll(() => confirmation(), { timeout: 6_000 }).toBeNull();
     expect(region.isConnected).toBe(true);
+  });
+
+  it("unmounts at once when the side slot switches panels while a confirmation shows", async () => {
+    await render(DetailsPanelSwitchFixture, { data: data(), onChangeStage: vi.fn(async () => {}) });
+    await page.getByRole("button", { name: "Change stage", exact: true }).click();
+    await expect.poll(() => document.querySelector("[data-stage-menu-option='internal_review']")).not.toBeNull();
+    document.querySelector<HTMLButtonElement>("[data-stage-menu-option='internal_review']")!.click();
+    await expect.poll(() => confirmation()?.textContent?.trim()).toBe("Moved to Internal review");
+
+    document.querySelector<HTMLButtonElement>("[data-fixture-switch]")!.click();
+    await tick();
+    // No outro holds the panel in the slot: the next panel takes its place now,
+    // well inside the confirmation's 300ms fade.
+    expect(document.querySelector("[data-details-panel]")).toBeNull();
+    expect(document.querySelector("[data-details-confirmation]")).toBeNull();
+    const other = document.querySelector<HTMLElement>("[data-fixture-other-panel]")!;
+    const slot = document.querySelector<HTMLElement>("[data-fixture-slot]")!;
+    expect(Math.round(other.getBoundingClientRect().top)).toBe(Math.round(slot.getBoundingClientRect().top));
   });
 
   it("turns the card into an inline reason step for a note-required move", async () => {

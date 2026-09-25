@@ -83,6 +83,8 @@
     onToggleFull?: () => void;
     /** Keep header room for a host's overlaid close button (default true). */
     closeInset?: boolean;
+    /** Height of the pinned composer area, for hosts that float notices above it. */
+    composerHeight?: number;
     onReferenceText?: (texts: string[], scrollTo?: string) => void;
     onReviewReplacements?: (
       pairs: { find: string; replaceWith: string }[],
@@ -108,6 +110,7 @@
     isFull,
     onToggleFull,
     closeInset = true,
+    composerHeight = $bindable(0),
     onReferenceText,
     onReviewReplacements,
     onPreviewProposal,
@@ -1711,5 +1714,5 @@
 
   {/if}
   <!-- Preserve the composer and keyboard focus across the first local row. -->
-  <div class={`shrink-0 pt-2 pb-6 ${isFull ? "px-6 lg:px-0" : "px-6"}`}>{@render composer()}</div>
+  <div bind:offsetHeight={composerHeight} class={`shrink-0 pt-2 pb-6 ${isFull ? "px-6 lg:px-0" : "px-6"}`}>{@render composer()}</div>
 </div>

@@ -138,7 +138,7 @@ describe("PreviewProjectPage final shell", () => {
     expect(tabs()).toEqual(["report", "sources"]);
     expect(document.querySelector('[data-panel-tab="report"]')?.getAttribute("aria-current")).toBe("page");
     expect(document.querySelector('[data-panel-tab="sources"]')?.textContent).toContain("1");
-    // Top bar: breadcrumb and title, bell, Export, Send for review, More.
+    // Top bar: breadcrumb and title, bell, More, Export, Send for review.
     const header = document.querySelector<HTMLElement>("[data-workspace-page-header]")!;
     expect(header.querySelector("h1")?.textContent).toBe("Adaptive cold storage controls");
     expect(header.textContent).toContain("Projects");
@@ -146,10 +146,11 @@ describe("PreviewProjectPage final shell", () => {
     const exportButton = page.getByRole("button", { name: "Export .docx", exact: true }).element() as HTMLElement;
     expect(exportButton.className).toContain("bg-chrome");
     expect(page.getByRole("button", { name: "Send for review", exact: true }).elements()).toHaveLength(1);
-    // The kebab closes the row in the markup as well, so tab order follows the eye.
+    // Desktop (board 2.1): Send for review keeps the right edge, the kebab sits
+    // before Export in the markup too, so tab order follows the eye.
     const more = page.getByRole("button", { name: "More actions", exact: true }).element() as HTMLElement;
-    const send = page.getByRole("button", { name: "Send for review", exact: true }).element() as HTMLElement;
-    expect(send.compareDocumentPosition(more) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(more.getAttribute("data-top-bar-more")).toBe("desktop");
+    expect(more.compareDocumentPosition(exportButton) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     await page.getByRole("button", { name: "More actions", exact: true }).click();
     const items = Array.from(document.querySelectorAll("[data-top-bar-more-item]")).map((item) => item.getAttribute("data-top-bar-more-item"));
     expect(items).toEqual(["ai-review", "share", "history", "financial"]);
@@ -485,6 +486,51 @@ describe("PreviewProjectPage final shell", () => {
         expect(__mutationCalls("projects:setProjectNumber")).toHaveLength(1);
       });
     }
+
+    it("keeps Details, with the error, when the save fails before Send for review", async () => {
+      seed();
+      __setMutationError("projects:setProjectNumber", new Error("That project number is already in use."));
+      await render(PreviewProjectPage);
+      await page.getByRole("button", { name: "Details", exact: true }).click();
+      await page.getByRole("button", { name: "Edit project number", exact: true }).click();
+      await page.getByRole("textbox", { name: "Edit project number" }).fill("2B");
+      await page.getByRole("button", { name: "Send for review", exact: true }).click();
+      await expect.element(page.getByText("That project number is already in use.", { exact: false }).first()).toBeVisible();
+      expect(document.querySelector("[data-details-panel] h2")?.textContent?.trim()).toBe("Details");
+    });
+
+    it("brings a phone's hidden Details back to show a failed save", async () => {
+      seed();
+      await page.viewport(390, 844);
+      __setMutationError("projects:setProjectNumber", new Error("That project number is already in use."));
+      await render(PreviewProjectPage);
+      await page.getByRole("button", { name: "Details", exact: true }).click();
+      await page.getByRole("button", { name: "Edit project number", exact: true }).click();
+      await page.getByRole("textbox", { name: "Edit project number" }).fill("2B");
+      // A tab moves the phone to the main pane; Details stays open behind it.
+      (document.querySelector('[data-panel-tab="report"]') as HTMLElement).click();
+      await expect.poll(() => document.querySelector("[data-details-panel]")?.getClientRects().length ?? 0).toBe(0);
+      await page.getByRole("button", { name: "Assistant", exact: true }).click();
+      await expect.poll(() => document.querySelector("[data-details-panel]")?.getClientRects().length ?? 0).toBeGreaterThan(0);
+      await expect.element(page.getByText("That project number is already in use.", { exact: false }).first()).toBeVisible();
+    });
+
+    it("ignores a second toggle click while the save is still running", async () => {
+      seed();
+      let finish!: (value: null) => void;
+      __setMutationResult("projects:setProjectNumber", new Promise((resolve) => { finish = resolve; }));
+      await render(PreviewProjectPage);
+      await page.getByRole("button", { name: "Details", exact: true }).click();
+      await page.getByRole("button", { name: "Edit project number", exact: true }).click();
+      await page.getByRole("textbox", { name: "Edit project number" }).fill("2B");
+      const assistant = page.getByRole("button", { name: "Assistant", exact: true });
+      await assistant.click();
+      await assistant.click();
+      finish(null);
+      await expect.poll(() => document.querySelector("[data-side-panel]")?.getAttribute("data-side-panel")).toBe("chat");
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      expect(document.querySelector("[data-side-panel]")?.getAttribute("data-side-panel")).toBe("chat");
+    });
 
     it("saves the pending number, then switches to the Assistant", async () => {
       seed();

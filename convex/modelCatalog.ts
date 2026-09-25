@@ -335,6 +335,12 @@ export const recordEndpointSupport = internalMutation({
 
 const HOUR_MS = 60 * 60 * 1000;
 const hourStartOf = (at: number) => Math.floor(at / HOUR_MS) * HOUR_MS;
+/**
+ * The daily check reaches a role at a slightly different time each day, so
+ * "at most daily" allows an hour of slack: a notice a few minutes short of
+ * 24 hours after the last one still goes out (round 9).
+ */
+const ERROR_NOTICE_MARGIN_MS = HOUR_MS;
 
 /** Per-request outcome rows are kept this long (the window plus a day). */
 const OUTCOME_ROW_RETENTION_MS = 2 * AUTOMATION_THRESHOLDS.errorWindowMs;
@@ -420,7 +426,7 @@ export async function runProductionErrorCheck(
     if (held) {
       if (
         assignment.errorNoticeAt === undefined ||
-        now - assignment.errorNoticeAt >= AUTOMATION_THRESHOLDS.errorWindowMs
+        now - assignment.errorNoticeAt >= AUTOMATION_THRESHOLDS.errorWindowMs - ERROR_NOTICE_MARGIN_MS
       ) {
         await ctx.db.patch(assignment._id, { errorNoticeAt: now });
         await raiseAdminNotice(
@@ -547,19 +553,42 @@ function prefilterView(row: Doc<"modelCatalog">): PrefilterModel {
   };
 }
 
-async function blockedForRole(
+/** Stopped before it started: nothing was measured and nothing spent. */
+function neverStarted(evaluation: Doc<"modelEvaluations">): boolean {
+  return (
+    evaluation.status === "error" &&
+    evaluation.startedAt === undefined &&
+    (evaluation.evalCostUsd ?? 0) === 0
+  );
+}
+
+/**
+ * Whether `modelId` may be evaluated for `role` now and, if so, the most a
+ * claim has needed for it lately. The cooldown counts runs that started. One
+ * stopped before it started (refused at claim for the budget, released
+ * unclaimed) measured and spent nothing, so it does not cost the model its
+ * turn (round 9); a budget refusal instead records what it needed, which
+ * planning uses as the run's cost, so a candidate the budget cannot cover
+ * waits and its role tries the next one (round 10). Only rows inside the
+ * cooldown window are read.
+ */
+async function evaluationTurn(
   ctx: MutationCtx,
   role: ModelRole,
   modelId: string,
   now: number
-): Promise<boolean> {
-  const recent = await ctx.db
+): Promise<{ blocked: true } | { blocked: false; requiredCostUsd?: number }> {
+  let requiredCostUsd: number | undefined;
+  for await (const evaluation of ctx.db
     .query("modelEvaluations")
     .withIndex("by_role_and_modelId", (q) => q.eq("role", role).eq("modelId", modelId))
-    .order("desc")
-    .first();
-  if (recent && now - recent.createdAt < AUTOMATION_THRESHOLDS.evaluationCooldownMs) return true;
-  return await rolledBackFrom(ctx, role, modelId);
+    .order("desc")) {
+    if (now - evaluation.createdAt >= AUTOMATION_THRESHOLDS.evaluationCooldownMs) break;
+    if (!neverStarted(evaluation)) return { blocked: true };
+    requiredCostUsd ??= evaluation.requiredCostUsd;
+  }
+  if (await rolledBackFrom(ctx, role, modelId)) return { blocked: true };
+  return { blocked: false, ...(requiredCostUsd !== undefined ? { requiredCostUsd } : {}) };
 }
 
 /**
@@ -630,18 +659,20 @@ export async function planEvaluationRun(
     for (const row of rows) {
       const paper = prefilterCandidate({ role, candidate: prefilterView(row), incumbent, cap, now });
       if (!paper.ok || paper.score === null) continue;
-      if (await blockedForRole(ctx, role, row.modelId, now)) continue;
+      const turn = await evaluationTurn(ctx, role, row.modelId, now);
+      if (turn.blocked) continue;
+      const estimate = estimateEvaluationCostUsd([
+        row,
+        ...(incumbentRow ? [incumbentRow] : []),
+        ...(judgeRow ? [judgeRow] : []),
+      ]);
       eligible.push({
         role,
         modelId: row.modelId,
         score: paper.score,
         incumbentModelId: incumbentId,
         incumbentScore: paper.incumbentScore,
-        estimatedCostUsd: estimateEvaluationCostUsd([
-          row,
-          ...(incumbentRow ? [incumbentRow] : []),
-          ...(judgeRow ? [judgeRow] : []),
-        ]),
+        estimatedCostUsd: Math.max(estimate, turn.requiredCostUsd ?? 0),
       });
     }
   }
@@ -769,11 +800,12 @@ export const claimEvaluation = internalMutation({
     const evaluation = await ctx.db.get(args.evaluationId);
     if (!evaluation || evaluation.status !== "queued") return null;
     const now = Date.now();
-    const stop = async (reason: string) => {
+    const stop = async (reason: string, requiredCostUsd?: number) => {
       await ctx.db.patch(evaluation._id, {
         status: "error",
         error: reason,
         evalCostUsd: 0,
+        ...(requiredCostUsd !== undefined ? { requiredCostUsd } : {}),
         completedAt: now,
         accountedAt: now,
       });
@@ -829,7 +861,8 @@ export const claimEvaluation = internalMutation({
     const committed = await evalSpendThisMonth(ctx, now, evaluation._id);
     if (committed + reservedCostUsd > budget) {
       return await stop(
-        `Over the monthly evaluation budget: needs up to $${reservedCostUsd.toFixed(2)}, $${Math.max(0, budget - committed).toFixed(2)} left`
+        `Over the monthly evaluation budget: needs up to $${reservedCostUsd.toFixed(2)}, $${Math.max(0, budget - committed).toFixed(2)} left`,
+        reservedCostUsd
       );
     }
     await ctx.db.patch(evaluation._id, { status: "running", startedAt: now, reservedCostUsd, accountedAt: now });
@@ -1257,7 +1290,18 @@ export const setAutoSwitch = mutation({
   returns: v.null(),
   handler: async (ctx, args) => {
     const user = await requireRole(ctx, ["admin"]);
+    const wasEnabled = await autoSwitchEnabled(ctx);
     await setSetting(ctx, AUTO_SWITCH_KEY, args.enabled ? "on" : "off", user._id);
+    // Turned back on: a role held for another reason from now on is told
+    // at once, not up to a day after the "switching is off" notice (round 10).
+    if (args.enabled && !wasEnabled) {
+      for (const role of MODEL_ROLES) {
+        const assignment = await roleAssignment(ctx, role);
+        if (assignment?.errorNoticeAt !== undefined) {
+          await ctx.db.patch(assignment._id, { errorNoticeAt: undefined });
+        }
+      }
+    }
     return null;
   },
 });

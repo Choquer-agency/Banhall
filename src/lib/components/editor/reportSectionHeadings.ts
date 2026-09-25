@@ -19,8 +19,9 @@
 
 /** Transaction meta for a replacement from outside the editor (the server's copy). */
 export const SECTION_HEADINGS_EXTERNAL = "reportSectionHeadings/external";
-import { Extension, type Editor as CoreEditor } from "@tiptap/core";
-import { Plugin, PluginKey, Selection, TextSelection, type EditorState, type Transaction } from "@tiptap/pm/state";
+import { Extension, isiOS, isMacOS, type Editor as CoreEditor } from "@tiptap/core";
+import { NodeSelection, Plugin, PluginKey, Selection, TextSelection, type EditorState, type Transaction } from "@tiptap/pm/state";
+import { Fragment, Slice } from "@tiptap/pm/model";
 import { isHistoryTransaction } from "@tiptap/pm/history";
 import type { Node as PMNode } from "@tiptap/pm/model";
 import type { Decoration, NodeView } from "@tiptap/pm/view";
@@ -146,20 +147,63 @@ function plainHeadingView(node: PMNode): NodeView {
   };
 }
 
-/** Key, level and exact text of each top-level Section heading, in document order. */
-function sectionHeadingSignature(doc: PMNode): string {
-  const parts: string[] = [];
-  doc.forEach((node) => {
+type SectionHeadingEntry = { pos: number; key: ReportSectionKey; json: string };
+
+/** Each top-level Section heading with its position and full stored form (text, level, marks). */
+function sectionHeadingEntries(doc: PMNode): SectionHeadingEntry[] {
+  const entries: SectionHeadingEntry[] = [];
+  doc.forEach((node, offset) => {
     const key = sectionKeyForNode(node);
-    if (key) parts.push(`${key}\u0000${String(node.attrs.level)}\u0000${node.textContent}`);
+    if (key) entries.push({ pos: offset, key, json: JSON.stringify(node.toJSON()) });
   });
-  return parts.join("\u0001");
+  return entries;
+}
+
+const SECTION_ORDER: ReportSectionKey[] = ["s242", "s244", "s246"];
+
+/**
+ * A repair: every old heading survives unchanged and in order, and the new
+ * ones only fill missing Sections, keeping 242, 244, 246 order with no
+ * duplicates. This lets a writer retype a heading that an old edit broke.
+ */
+function onlyRestoresMissingHeadings(before: SectionHeadingEntry[], after: SectionHeadingEntry[]): boolean {
+  const oldKeys = new Set(before.map((entry) => entry.key));
+  const survivors = after.filter((entry) => oldKeys.has(entry.key));
+  if (survivors.length !== before.length || survivors.some((entry, i) => entry.json !== before[i].json)) return false;
+  const order = after.map((entry) => SECTION_ORDER.indexOf(entry.key));
+  return order.every((index, i) => i === 0 || index > order[i - 1]);
 }
 
 function userMayChange(tr: Transaction, state: EditorState): boolean {
   if (!tr.docChanged) return true;
   if (tr.getMeta(SECTION_HEADINGS_EXTERNAL) || isHistoryTransaction(tr)) return true;
-  return sectionHeadingSignature(tr.doc) === sectionHeadingSignature(state.doc);
+  const before = sectionHeadingEntries(state.doc);
+  // A heading that the transaction removes, even to put it back elsewhere
+  // (a drag and drop), is refused though the order survives (review g1).
+  if (before.some((entry) => tr.mapping.mapResult(entry.pos + 1).deleted)) return false;
+  const after = sectionHeadingEntries(tr.doc);
+  if (after.length === before.length && after.every((entry, i) => entry.key === before[i].key && entry.json === before[i].json)) {
+    return true;
+  }
+  return onlyRestoresMissingHeadings(before, after);
+}
+
+/** Drops Section headings from pasted or dropped content (they would duplicate a Section). */
+function withoutSectionHeadings(slice: Slice): Slice {
+  const kept: PMNode[] = [];
+  let removedFirst = false;
+  let removedLast = false;
+  slice.content.forEach((node, _offset, index) => {
+    if (sectionKeyForNode(node)) {
+      if (index === 0) removedFirst = true;
+      if (index === slice.content.childCount - 1) removedLast = true;
+    } else {
+      kept.push(node);
+    }
+  });
+  if (kept.length === slice.content.childCount) return slice;
+  if (kept.length === 0) return Slice.empty;
+  return new Slice(Fragment.fromArray(kept), removedFirst ? 0 : slice.openStart, removedLast ? 0 : slice.openEnd);
 }
 
 /**
@@ -240,31 +284,52 @@ function edgeBesideSectionHeading(editor: CoreEditor, direction: "backward" | "f
   return true;
 }
 
-const BACKWARD_KEYS = ["Backspace", "Shift-Backspace", "Mod-Backspace", "Alt-Backspace", "Ctrl-h"] as const;
-const FORWARD_KEYS = ["Delete", "Mod-Delete", "Alt-Delete", "Ctrl-d", "Alt-d", "Ctrl-Alt-Backspace"] as const;
+// The keys Tiptap binds to its Backspace and Delete handlers. The Mac-only ones
+// are registered only on Mac and iOS, as Tiptap does, so Ctrl-d, Ctrl-h and
+// Alt-d keep their browser meaning elsewhere (review g1).
+const BACKWARD_KEYS = ["Backspace", "Shift-Backspace", "Mod-Backspace"] as const;
+const FORWARD_KEYS = ["Delete", "Mod-Delete"] as const;
+const MAC_BACKWARD_KEYS = ["Alt-Backspace", "Ctrl-h"] as const;
+const MAC_FORWARD_KEYS = ["Alt-Delete", "Ctrl-d", "Alt-d", "Ctrl-Alt-Backspace"] as const;
 
 /**
  * Plugin-level node view for `heading`, so StarterKit's Heading extension
  * (schema, commands, shortcuts) stays exactly as it is.
  */
-export const ReportSectionHeadings = Extension.create({
+export const ReportSectionHeadings = Extension.create<{
+  /** Called when a user edit is refused because it would change a Section heading. */
+  onRefuse: (() => void) | null;
+}>({
   name: "reportSectionHeadings",
+  addOptions() {
+    return { onRefuse: null };
+  },
   addKeyboardShortcuts() {
+    const mac = isMacOS() || isiOS();
     const shortcuts: Record<string, (props: { editor: CoreEditor }) => boolean> = {};
-    for (const key of BACKWARD_KEYS) shortcuts[key] = ({ editor }) => edgeBesideSectionHeading(editor, "backward");
-    for (const key of FORWARD_KEYS) shortcuts[key] = ({ editor }) => edgeBesideSectionHeading(editor, "forward");
+    for (const key of [...BACKWARD_KEYS, ...(mac ? MAC_BACKWARD_KEYS : [])]) {
+      shortcuts[key] = ({ editor }) => edgeBesideSectionHeading(editor, "backward");
+    }
+    for (const key of [...FORWARD_KEYS, ...(mac ? MAC_FORWARD_KEYS : [])]) {
+      shortcuts[key] = ({ editor }) => edgeBesideSectionHeading(editor, "forward");
+    }
     return shortcuts;
   },
   addProseMirrorPlugins() {
     return [
       new Plugin({
         key: new PluginKey("reportSectionHeadings"),
-        filterTransaction: (tr, state) => userMayChange(tr, state),
+        filterTransaction: (tr, state) => {
+          if (userMayChange(tr, state)) return true;
+          this.options.onRefuse?.();
+          return false;
+        },
         appendTransaction: (_transactions, oldState, newState) => {
           const { selection, doc } = newState;
           if (!(selection instanceof TextSelection)) {
-            // A node selection of a heading (for example a modified click).
-            if (selection.from + 1 === selection.to && sectionHeadingAt(doc, selection.from + 1)) {
+            // A node selection of a heading (a Cmd or Ctrl click) would make it
+            // draggable: put the caret just after it instead.
+            if (selection instanceof NodeSelection && selection.node.type.name === "heading" && sectionHeadingAt(doc, selection.from + 1)) {
               const at = outsideSectionHeading(doc, selection.to, 1);
               return newState.tr.setSelection(TextSelection.near(doc.resolve(at))).setMeta("addToHistory", false);
             }
@@ -291,6 +356,7 @@ export const ReportSectionHeadings = Extension.create({
           return newState.tr.setSelection(next).setMeta("addToHistory", false);
         },
         props: {
+          transformPasted: (slice) => withoutSectionHeadings(slice),
           nodeViews: {
             heading: (node, _view, _getPos, decorations) => {
               const key = sectionKeyForNode(node);

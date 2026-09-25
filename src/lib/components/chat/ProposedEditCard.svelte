@@ -50,6 +50,10 @@
   let editing = $state(false);
   let editedWording = $state<string[]>([]);
   let cardEl = $state<HTMLDivElement | null>(null);
+  // Set when a More menu item is chosen: that action places focus itself, so
+  // the menu must not hand it back to its trigger. Escape or a click outside
+  // still returns focus to the trigger (review g2 B3).
+  let menuActionChosen = false;
 
   // Session-local by design: remounting a proposal always returns to neutral.
   let showChanges = $state(false);
@@ -346,17 +350,20 @@
             </svg>
           </DropdownMenu.Trigger>
           <DropdownMenu.Portal>
-            <!-- The chosen action places focus (the composer or the wording
-                 field); do not hand it back to this trigger. -->
-            <DropdownMenu.Content side="bottom" align="end" sideOffset={6} onCloseAutoFocus={(event) => event.preventDefault()} class="z-[100] w-44 rounded-xl border border-line bg-white p-1 shadow-lg">
+            <!-- A chosen action places focus (the composer or the wording
+                 field); only then is focus not handed back to this trigger. -->
+            <DropdownMenu.Content side="bottom" align="end" sideOffset={6} onCloseAutoFocus={(event) => {
+              if (menuActionChosen) event.preventDefault();
+              menuActionChosen = false;
+            }} class="z-[100] w-44 rounded-xl border border-line bg-white p-1 shadow-lg">
               {#if onEditWording}
-                <DropdownMenu.Item onSelect={startEditing} class="flex min-h-8 w-full items-center rounded-md px-2 text-[13px] text-ink outline-none hover:bg-primary-wash focus:bg-primary-wash">
+                <DropdownMenu.Item onSelect={() => { menuActionChosen = true; void startEditing(); }} class="flex min-h-8 w-full items-center rounded-md px-2 text-[13px] text-ink outline-none hover:bg-primary-wash focus:bg-primary-wash">
                   Edit wording
                 </DropdownMenu.Item>
               {/if}
               {#if onRefine}
                 {@const refine = onRefine}
-                <DropdownMenu.Item onSelect={() => handle(refine)} class="flex min-h-8 w-full items-center rounded-md px-2 text-[13px] text-ink outline-none hover:bg-primary-wash focus:bg-primary-wash">
+                <DropdownMenu.Item onSelect={() => { menuActionChosen = true; void handle(refine); }} class="flex min-h-8 w-full items-center rounded-md px-2 text-[13px] text-ink outline-none hover:bg-primary-wash focus:bg-primary-wash">
                   Refine with AI
                 </DropdownMenu.Item>
               {/if}

@@ -577,6 +577,9 @@ export async function switchRoleModel(
       ...next,
       assignedByUserId: input.actorUserId,
       origin: undefined,
+      // A notice about the model it replaced must not silence one about
+      // the new model (round 9).
+      errorNoticeAt: undefined,
     });
   } else {
     await ctx.db.insert("modelRoleAssignments", { role: input.role, ...next });
