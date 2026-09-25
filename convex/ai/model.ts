@@ -1,6 +1,6 @@
 import {
-  acceptsForcedToolChoice,
   CANDIDATE_MODELS,
+  eligibleForRandomDraw,
   MODEL,
   RANDOM_COMPARISON_GATEWAY,
   modelById,
@@ -74,21 +74,15 @@ export function resolveCompareModels(
 }
 
 /**
- * Two distinct random entries, Anthropic models only. A random draw must
- * never silently require the OpenRouter key or pick up a different cost
- * profile; OpenAI/Google models are always an explicit writer choice. The
- * pool is the models a writer may pick today (the catalog's enabled set).
+ * Two distinct random entries from the models a writer may pick today (the
+ * catalog's enabled set), filtered by eligibleForRandomDraw: Anthropic models
+ * only, and Opus 5.5 as the one approved model that rejects a forced tool
+ * call. OpenAI/Google models are always an explicit writer choice.
  */
 export function randomComparePair(
   pool: readonly CandidateModel[] = CANDIDATE_MODELS
 ): CandidateModel[] {
-  // Models that reject a forced tool call stay an explicit choice: they
-  // run structured steps without the forced call.
-  const shuffled = pool.filter(
-    (model) =>
-      model.gateway === CANDIDATE_MODE_ROUTING.compare.randomPoolGateway &&
-      acceptsForcedToolChoice(model.id)
-  );
+  const shuffled = pool.filter(eligibleForRandomDraw);
   for (let i = shuffled.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
     [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
