@@ -133,7 +133,7 @@ function seedIssueHints(mode: SeedBatchMode): Record<SeedValidationIssueCode, st
       ? [MIN_BATCH_SEEDS, MAX_BATCH_SEEDS]
       : [MIN_FEEDBACK_SEEDS, MAX_FEEDBACK_SEEDS];
   return {
-    INVALID_SHAPE: "wrong fields",
+    INVALID_SHAPE: "wrong fields or tag",
     INVALID_BULLET_COUNT: "use one or two bullets",
     BULLET_TOO_LONG: `a bullet is over ${MAX_BULLET_WORDS} words`,
     BULLET_NOT_ONE_SENTENCE: "a bullet is not one sentence ending in a full stop",
@@ -180,9 +180,9 @@ export function seedRepairSummary(
     seeds.add(issue.seedIndex + 1);
     seedsByRule.set(issue.code, seeds);
   }
-  // Variety is counted over valid Seeds only, so its hints mislead once a
-  // Seed-level rule has dropped some; the Seed rules come first then.
-  const seedRulesFailed = seedsByRule.size > 0;
+  // Variety is counted over valid Seeds only, so a variety hint can repeat
+  // what a dropped Seed already broke; it can also be the only reason the
+  // batch failed. Keep it, after the Seed rules, so the cap drops it first.
   const parts = [
     `${result.seeds.length} of ${returned} ${returned === 1 ? "Seed" : "Seeds"} valid`,
     ...(batchRules.has("INVALID_BATCH_SIZE") ? [hints.INVALID_BATCH_SIZE] : []),
@@ -192,11 +192,9 @@ export function seedRepairSummary(
         const list = [...seeds].sort((left, right) => left - right).join(", ");
         return `${hints[code]} (${seeds.size === 1 ? "Seed" : "Seeds"} ${list})`;
       }),
-    ...(seedRulesFailed
-      ? []
-      : [...batchRules]
-          .filter((code) => code !== "INVALID_BATCH_SIZE")
-          .map((code) => hints[code])),
+    ...[...batchRules]
+      .filter((code) => code !== "INVALID_BATCH_SIZE")
+      .map((code) => hints[code]),
   ];
   const bytes = (text: string) => new TextEncoder().encode(text).byteLength;
   const budget = maxBytes - bytes(`; ${REPAIR_OMITTED}`);
