@@ -369,6 +369,7 @@ describe("Generation Brief reaches the drafting pipeline (story 1 wiring)", () =
       const drafts = network.create.mock.calls.filter(
         ([params]) =>
           userText(params).startsWith(section.userPrefix) &&
+          userText(params).includes(section.taskMarker) &&
           !userText(params).includes(ORDERED_PROMPT_SCAFFOLDS.repairGuidance.prefix)
       );
       expect(drafts).toHaveLength(1);
@@ -393,7 +394,8 @@ describe("Generation Brief reaches the drafting pipeline (story 1 wiring)", () =
     expect(generation?.briefId).toBeUndefined();
 
     const drafts = network.create.mock.calls.filter(([params]) =>
-      userText(params).startsWith(SECTION_242_REQUEST.userPrefix)
+      userText(params).startsWith(SECTION_242_REQUEST.userPrefix) &&
+      userText(params).includes(SECTION_242_REQUEST.taskMarker)
     );
     expect(drafts).toHaveLength(1);
     expect(userText(drafts[0][0])).not.toContain("--- BEGIN [GENERATION BRIEF] ---");

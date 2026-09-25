@@ -23,11 +23,36 @@ export interface GenerationResponse {
 /** JSON Schema for a tool input (matches Anthropic.Tool.InputSchema). */
 export type ToolInputSchema = { type: "object"; [key: string]: unknown };
 
+/** Anthropic prompt-cache breakpoint (cost phase 1). */
+export type GenerationCacheControl = { type: "ephemeral"; ttl?: "5m" | "1h" };
+
+/**
+ * One text block of a message. A message sent as blocks carries a cache
+ * breakpoint after its shared prefix: the direct Anthropic SDK sends the
+ * blocks as they are, and the OpenRouter conversion keeps the breakpoint for
+ * Anthropic models and joins the text for every other provider, whose
+ * caching is automatic on an identical prefix.
+ */
+export type GenerationTextBlock = {
+  type: "text";
+  text: string;
+  cache_control?: GenerationCacheControl;
+};
+
+export type GenerationMessageContent = string | GenerationTextBlock[];
+
+/** A message's text as one string, whatever its shape. */
+export function messageText(content: GenerationMessageContent): string {
+  return typeof content === "string"
+    ? content
+    : content.map((block) => block.text).join("");
+}
+
 export interface GenerationMessageParams {
   model: string;
   max_tokens: number;
   system?: string;
-  messages: Array<{ role: "user" | "assistant"; content: string }>;
+  messages: Array<{ role: "user" | "assistant"; content: GenerationMessageContent }>;
   tools?: Array<{
     name: string;
     description?: string;
@@ -47,7 +72,10 @@ export interface GenerationClient {
 export type ChatCompletionsBody = {
   model: string;
   max_tokens: number;
-  messages: Array<{ role: "system" | "user" | "assistant"; content: string }>;
+  messages: Array<{
+    role: "system" | "user" | "assistant";
+    content: string | GenerationTextBlock[];
+  }>;
   usage: { include: true };
   tools?: Array<{
     type: "function";
@@ -73,7 +101,23 @@ export const OPENROUTER_CONVERSION = {
   usageRequest: { include: true },
   thinkingRule: "omit-anthropic-thinking-control",
   maxTokensRule: "apply-registered-model-reasoning-headroom",
+  // Cost phase 1: block content keeps its cache breakpoints only for
+  // Anthropic models (OpenRouter passes cache_control through to them);
+  // other providers cache an identical prefix automatically, so their
+  // blocks are joined into the same single string as before.
+  cacheControlRule: "keep-text-blocks-for-anthropic-models-else-join",
+  cacheControlModelPrefix: "anthropic/",
 } as const;
+
+function convertContent(
+  model: string,
+  content: GenerationMessageContent
+): string | GenerationTextBlock[] {
+  if (typeof content === "string") return content;
+  return model.startsWith(OPENROUTER_CONVERSION.cacheControlModelPrefix)
+    ? content.map((block) => ({ ...block }))
+    : messageText(content);
+}
 
 export function toChatCompletions(
   params: GenerationMessageParams,
@@ -93,7 +137,10 @@ export function toChatCompletions(
       params.system
         ? [{ role: OPENROUTER_CONVERSION.systemRole, content: params.system }]
         : []),
-      ...params.messages,
+      ...params.messages.map((message) => ({
+        role: message.role,
+        content: convertContent(params.model, message.content),
+      })),
     ],
     usage: OPENROUTER_CONVERSION.usageRequest,
   };

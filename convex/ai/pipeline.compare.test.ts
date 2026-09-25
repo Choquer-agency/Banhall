@@ -168,11 +168,17 @@ const sectionRequests = [SECTION_242_REQUEST, SECTION_244_REQUEST, SECTION_246_R
 // Recaptured 2026-09-23 from the same fixture for the owner-directed
 // copy-skills change (dashfix + copywriting rules in RULES_HUMAN_PROSE, which
 // every section system prompt carries); previous values ad1f47f0..., 4f141cd3...,
-// 91dfb047.... Any other change to these requests is still unintended.
+// 91dfb047.... Recaptured 2026-09-24 from the same fixture for cost phase 1:
+// the three lines now share one system prompt (SECTION_SHARED_SYSTEM_INTRO
+// plus the unchanged writing rules and output format) and open their user
+// message with the same cached block (the analysis JSON), with each line's
+// unchanged instructions and runtime blocks after it; previous values fd9a4107...,
+// 96663c9e..., b32eb92a.... Any other change to these requests is still
+// unintended.
 const HISTORICAL_NO_PLAN_SECTION_REQUEST_HASHES = [
-  "fd9a41074cffe858c192671674936878d781c6d0052dcfaa48cb9714e206166e",
-  "96663c9e78278f9e2ff3ac469dfcbf1f4f0308a8144840926fb417349036f0f5",
-  "b32eb92a63ac48ecd1c240ab11362468e5d1284a2b9d7cea7f099f990803d836",
+  "2bd255c79925e24f18538a5a2a8653ab3e75ac31511628f62d15ef801ec4ae0c",
+  "060b56f8c304a41f75600596da9f13d07706ac6b7cb4c1a3426acc99d0d25341",
+  "e018b20e612590133df7cf8777d446ece1a71d94818b8fbeb78f6e157f8eb8bc",
 ] as const;
 
 async function completeRequestHash(params: GenerationMessageParams): Promise<string> {
@@ -194,6 +200,23 @@ async function expectHistoricalNoPlanRequests(model: string): Promise<void> {
   expect(requests).toHaveLength(3);
   expect(await Promise.all(requests.map(completeRequestHash)))
     .toEqual(HISTORICAL_NO_PLAN_SECTION_REQUEST_HASHES);
+  // Cost phase 1: the three drafts share a byte-identical prefix (system
+  // plus the first user block, which carries the only breakpoint) and
+  // differ only after it.
+  const blocksOf = (params: GenerationMessageParams) => {
+    const content = params.messages[0].content;
+    if (typeof content === "string") throw new Error("section draft sent as a string");
+    return content;
+  };
+  const [first, ...rest] = requests;
+  for (const other of rest) {
+    expect(other.system).toBe(first.system);
+    expect(blocksOf(other)[0]).toEqual(blocksOf(first)[0]);
+    expect(blocksOf(other)[1]).not.toEqual(blocksOf(first)[1]);
+  }
+  expect(blocksOf(first)[0].cache_control).toEqual({ type: "ephemeral" });
+  expect(requests.flatMap((params) => blocksOf(params).filter((block) => block.cache_control)))
+    .toHaveLength(3);
 }
 
 describe("shared generation analysis", () => {
@@ -240,7 +263,8 @@ describe("shared generation analysis", () => {
     for (const model of models) {
       for (const section of sectionRequests) {
         const drafts = network.create.mock.calls.filter(([params]) =>
-          params.model === model && userText(params).startsWith(section.userPrefix));
+          params.model === model && userText(params).startsWith(section.userPrefix) &&
+          userText(params).includes(section.taskMarker));
         expect(drafts).toHaveLength(1);
         expect(userText(drafts[0][0])).toContain(JSON.stringify(analysis, null, section.jsonIndentation));
       }
@@ -416,12 +440,14 @@ it("shares one analysis across Anthropic and OpenRouter candidates without chang
   }
   for (const section of sectionRequests) {
     const gatewayDrafts = requests.filter((request) => request.messages.some((message) =>
-      message.role === "user" && message.content.startsWith(section.userPrefix)));
+      message.role === "user" && message.content.startsWith(section.userPrefix) &&
+      message.content.includes(section.taskMarker)));
     expect(gatewayDrafts).toHaveLength(1);
     expect(gatewayDrafts[0].messages.find((message) => message.role === "user")?.content)
       .toContain(JSON.stringify(analysis, null, section.jsonIndentation));
     const directDrafts = network.create.mock.calls.filter(([params]) =>
-      params.model === pair[0] && userText(params).startsWith(section.userPrefix));
+      params.model === pair[0] && userText(params).startsWith(section.userPrefix) &&
+      userText(params).includes(section.taskMarker));
     expect(directDrafts).toHaveLength(1);
     expect(userText(directDrafts[0][0])).toContain(JSON.stringify(analysis, null, section.jsonIndentation));
   }

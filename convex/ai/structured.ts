@@ -4,6 +4,7 @@ import { MODEL } from "./model";
 import {
   MalformedOutputError,
   type GenerationClient,
+  type GenerationMessageContent,
   type GenerationResponse,
 } from "./openrouterCore";
 
@@ -22,6 +23,9 @@ export const STRUCTURED_OUTPUT_PROGRAM = {
     userRole: "user",
     toolChoice: { type: "tool", selection: "named", forced: true },
     retryUserPolicy: "reuse-original-and-append-repair-scaffold",
+    // Cost phase 1: a block-form user message keeps its cached prefix on
+    // the repair attempt; the scaffold is appended as one more text block.
+    retryBlockPolicy: "append-repair-scaffold-as-uncached-text-block",
     thinking: { kind: "omitted" },
   },
 } as const;
@@ -67,7 +71,11 @@ export async function generateStructured<T>(
   rawClient: GenerationClient | Anthropic,
   opts: {
     system: string;
-    user: string;
+    /**
+     * The user message. Block form carries a cache breakpoint after a shared
+     * prefix (see GenerationTextBlock); a string is sent as it always was.
+     */
+    user: GenerationMessageContent;
     toolName: string;
     description: string;
     schema?: Anthropic.Tool.InputSchema;
@@ -97,10 +105,13 @@ export async function generateStructured<T>(
   // malformed analysis fail much later after more paid generation work.
   for (let attempt = 0; attempt < attempts; attempt += 1) {
     const lastAttempt = attempt === attempts - 1;
-    const user =
+    const repair = `${STRUCTURED_OUTPUT_PROGRAM.repairScaffold.prefix}${validationSummary}${STRUCTURED_OUTPUT_PROGRAM.repairScaffold.suffix}`;
+    const user: GenerationMessageContent =
       attempt === 0
         ? opts.user
-        : `${opts.user}${STRUCTURED_OUTPUT_PROGRAM.repairScaffold.prefix}${validationSummary}${STRUCTURED_OUTPUT_PROGRAM.repairScaffold.suffix}`;
+        : typeof opts.user === "string"
+          ? `${opts.user}${repair}`
+          : [...opts.user, { type: "text", text: repair }];
     let res: GenerationResponse;
     try {
       res = await client.messages.create({

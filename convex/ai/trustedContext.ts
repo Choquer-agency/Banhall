@@ -17,6 +17,7 @@ import { buildTranscriptPromptText } from "../lib/transcripts";
 import { CONTEXT_INPUTS_GUIDANCE } from "./prompts";
 import { SEED_PROMPT_PROGRAM } from "./promptDefinitions";
 import { STRUCTURED_OUTPUT_PROGRAM } from "./structured";
+import type { GenerationTextBlock } from "./openrouterCore";
 import { NO_STYLE_OVERRIDES } from "../../shared/styleOverrides";
 import {
   MAX_SEED_PROMPT_UTF8_BYTES,
@@ -730,19 +731,29 @@ function sourceLabel(source: SeedPromptSource): string {
  */
 export function buildSeedTrustedContext(input: SeedTrustedContextInput): {
   userMessage: string;
+  /**
+   * `userMessage` split for prompt caching: `shared` (heading, guidance,
+   * Brief, sources) is the same for every role of one generation and mode;
+   * `role` (mode, objective, decisions and the rest) follows it. Their
+   * concatenation is exactly `userMessage`.
+   */
+  parts: { shared: string; role: string };
   promptBytes: number;
   sources: SeedPromptSourceReport[];
 } {
   const prompt = SEED_PROMPT_PROGRAM.user;
   const separator = prompt.delimiters.separator;
+  // Cost phase 1: everything the roles of one generation share comes first,
+  // so it forms one cacheable prefix; the role's own objective and state
+  // follow the sources. SEED_PROMPT_PROGRAM.user.order discloses this order.
   const beforeSources = [
     prompt.heading,
-    prompt.modeLabels[input.mode],
     prompt.guidance,
-    seedBlock(prompt.blocks.objective, input.objective),
     seedBlock(prompt.blocks.brief, seedValue(input.brief)),
   ];
   const afterSources = [
+    prompt.modeLabels[input.mode],
+    seedBlock(prompt.blocks.objective, input.objective),
     seedBlock(prompt.blocks.decisions, input.projection.decisions),
     seedBlock(prompt.blocks.feedback, input.projection.feedback),
     seedBlock(
@@ -887,11 +898,9 @@ export function buildSeedTrustedContext(input: SeedTrustedContextInput): {
     sourceBlocks.push(empty);
   }
 
-  const userMessage = [
-    ...beforeSources,
-    sourceBlocks.join(separator),
-    ...afterSources,
-  ].join(separator);
+  const shared = [...beforeSources, sourceBlocks.join(separator)].join(separator);
+  const role = `${separator}${afterSources.join(separator)}`;
+  const userMessage = `${shared}${role}`;
   const promptBytes = utf8Bytes(userMessage);
   if (promptBytes > maxBytes) {
     throw new SeedContextLimitError(
@@ -902,7 +911,7 @@ export function buildSeedTrustedContext(input: SeedTrustedContextInput): {
   if (input.maxPromptBytes === undefined) {
     assertSeedPromptWithinLimit(userMessage);
   }
-  return { userMessage, promptBytes, sources: reports };
+  return { userMessage, parts: { shared, role }, promptBytes, sources: reports };
 }
 
 /** Assemble the complete two-message request under one shared byte limit. */
@@ -911,6 +920,13 @@ export function buildSeedPrompt(
 ): {
   system: string;
   user: string;
+  /**
+   * `user` as two text blocks with a 1-hour cache breakpoint after the
+   * shared part: roles are drafted step by step at the writer's pace, often
+   * more than 5 minutes apart, and every later role of the same generation
+   * reads the frozen sources back at 0.1x.
+   */
+  userBlocks: GenerationTextBlock[];
   promptBytes: number;
   sources: SeedPromptSourceReport[];
 } {
@@ -937,6 +953,14 @@ export function buildSeedPrompt(
   return {
     system,
     user: built.userMessage,
+    userBlocks: [
+      {
+        type: "text",
+        text: built.parts.shared,
+        cache_control: { ...SEED_PROMPT_PROGRAM.request.cacheControl },
+      },
+      { type: "text", text: built.parts.role },
+    ],
     promptBytes: systemBytes + built.promptBytes,
     sources: built.sources,
   };

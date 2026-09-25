@@ -5,7 +5,11 @@ import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { z } from "zod";
 import schema from "../schema";
 import { instrumentedAnthropic } from "./instrument";
-import { generateStructured } from "./structured";
+import { STRUCTURED_OUTPUT_PROGRAM, generateStructured } from "./structured";
+import { SEED_PROMPT_PROGRAM } from "./promptDefinitions";
+import { buildSeedPrompt } from "./trustedContext";
+import { seedToolSchema } from "../lib/seedContract";
+import { PD_SUBSECTIONS } from "../../shared/pdSubsections";
 
 // Keep SDK, application decoding and Convex scheduling real; replace only fetch.
 const modules = import.meta.glob("../**/*.ts");
@@ -108,4 +112,136 @@ test("propagates a real SDK authentication error without structured repair or su
   await t.finishAllScheduledFunctions(vi.runAllTimers);
   expect(transport).toHaveBeenCalledTimes(1);
   expect(await t.run((ctx) => ctx.db.query("aiUsage").collect())).toEqual([]);
+});
+
+// ─── Cost phase 1: shared cacheable prefixes across generation roles ─────────
+
+function anthropicReply(content: unknown[], model = "claude-sonnet-5") {
+  return Response.json({
+    id: "msg_prefix",
+    type: "message",
+    role: "assistant",
+    model,
+    content,
+    stop_reason: "end_turn",
+    stop_sequence: null,
+    usage: { input_tokens: 3, output_tokens: 2 },
+  });
+}
+
+type WireBlock = { type: string; text: string; cache_control?: unknown };
+type WireBody = {
+  system?: unknown;
+  tools?: unknown;
+  messages: Array<{ role: string; content: string | WireBlock[] }>;
+};
+const wireBlocks = (body: WireBody): WireBlock[] => {
+  const content = body.messages[0].content;
+  if (typeof content === "string") throw new Error("expected text blocks");
+  return content;
+};
+
+test("section drafts 242 and 244 share a byte-identical cached prefix at the SDK boundary", async () => {
+  const t = convexTest(schema, modules);
+  const bodies: WireBody[] = [];
+  vi.stubGlobal("fetch", vi.fn<typeof fetch>(async (input, init) => {
+    bodies.push(await new Request(input, init).json() as WireBody);
+    return anthropicReply([{ type: "text", text: "Drafted paragraph." }]);
+  }));
+  const { runSection242Agent } = await import("./section242Agent");
+  const { runSection244Agent } = await import("./section244Agent");
+  const analysis = { uncertainties: ["Seal fatigue under cyclic load."] } as never;
+  const brief = "\n\n--- BEGIN [GENERATION BRIEF] ---\nStoryline.\n--- END [GENERATION BRIEF] ---";
+  await t.action(async (ctx) => {
+    const client = instrumentedAnthropic(ctx, {
+      callSite: "generation:section:242",
+      attribution: { generationId: "generation-prefix" as never },
+    });
+    await runSection242Agent(client as never, analysis, "claude-sonnet-5", "", "\n\nBudget 242.", "", undefined, brief);
+    await runSection244Agent(client as never, analysis, "claude-sonnet-5", "", "\n\nBudget 244.", "", undefined, brief);
+  });
+  await t.finishAllScheduledFunctions(vi.runAllTimers);
+  expect(bodies).toHaveLength(2);
+  const [draft242, draft244] = bodies;
+  expect(draft244.system).toEqual(draft242.system);
+  expect(draft242.tools).toBeUndefined();
+  const [shared242, task242] = wireBlocks(draft242);
+  const [shared244, task244] = wireBlocks(draft244);
+  expect(shared244).toEqual(shared242);
+  expect(shared242.cache_control).toEqual({ type: "ephemeral" });
+  expect(shared242.text).toContain("Seal fatigue under cyclic load.");
+  // The Brief stays after the line's plan, outside the shared block.
+  expect(shared242.text).not.toContain("GENERATION BRIEF");
+  expect(task242.text.endsWith(brief)).toBe(true);
+  expect(task242.cache_control).toBeUndefined();
+  expect(task242.text).toContain("Your task is to draft Line 242 ");
+  expect(task244.text).toContain("Your task is to draft Line 244 ");
+  expect(task244.text).toContain("Budget 244.");
+  // The instrument never adds its own breakpoints to an explicit policy.
+  expect(JSON.stringify(draft242.system)).not.toContain("cache_control");
+});
+
+test("seed roles share tools, system and the cached source block; the repair keeps the prefix", async () => {
+  const t = convexTest(schema, modules);
+  const bodies: WireBody[] = [];
+  let call = 0;
+  vi.stubGlobal("fetch", vi.fn<typeof fetch>(async (input, init) => {
+    bodies.push(await new Request(input, init).json() as WireBody);
+    call += 1;
+    // The first call returns no tool output, forcing the one repair attempt.
+    return anthropicReply(call === 1
+      ? [{ type: "text", text: "No tool." }]
+      : [{ type: "tool_use", id: `tool-${call}`, name: SEED_PROMPT_PROGRAM.request.toolName, input: { seeds: [] } }]);
+  }));
+  const common = {
+    mode: "batch" as const,
+    brief: { storyline: "A frozen storyline.", entries: ["Complete Brief item."] },
+    sources: [{ sourceId: "source-1", label: "Interview", kind: "transcript",
+      content: "The team measured seal fatigue at 400 kPa. ".repeat(50), contentHash: "hash-1" }],
+    projection: { decisions: "(none)", feedback: "(none)" },
+    writerSettings: { profile: "Frozen profile.", styleOverrides: {} },
+    lengthTarget: "standard",
+  };
+  const roles = ["company_context", "goal_problem"] as const;
+  const requests = roles.map((roleId) => buildSeedPrompt({
+    ...common,
+    objective: PD_SUBSECTIONS.find((role) => role.roleId === roleId)?.objective ?? roleId,
+  }));
+  for (const request of requests) {
+    expect(request.userBlocks.map((block) => block.text).join("")).toBe(request.user);
+  }
+  await t.action(async (ctx) => {
+    for (const [index, roleId] of roles.entries()) {
+      await generateStructured(
+        instrumentedAnthropic(ctx, {
+          callSite: `generation:seeds:${roleId}`,
+          attribution: { generationId: "generation-seeds" as never },
+        }),
+        {
+          system: requests[index].system,
+          user: requests[index].userBlocks,
+          toolName: SEED_PROMPT_PROGRAM.request.toolName,
+          description: SEED_PROMPT_PROGRAM.request.description,
+          schema: seedToolSchema(roleId, "batch") as never,
+          maxTokens: SEED_PROMPT_PROGRAM.request.maxTokens,
+          model: "claude-sonnet-5",
+        },
+      );
+    }
+  });
+  await t.finishAllScheduledFunctions(vi.runAllTimers);
+  // Role one: first attempt plus its repair; role two: one attempt.
+  expect(bodies).toHaveLength(3);
+  const [firstTry, repair, secondRole] = bodies;
+  expect(secondRole.tools).toEqual(firstTry.tools);
+  expect(secondRole.system).toEqual(firstTry.system);
+  expect(wireBlocks(secondRole)[0]).toEqual(wireBlocks(firstTry)[0]);
+  expect(wireBlocks(firstTry)[0].cache_control).toEqual({ type: "ephemeral", ttl: "1h" });
+  expect(wireBlocks(firstTry)[0].text).toContain("seal fatigue at 400 kPa");
+  expect(wireBlocks(firstTry)[0].text).not.toContain("SUBSECTION OBJECTIVE");
+  expect(wireBlocks(secondRole)[1]).not.toEqual(wireBlocks(firstTry)[1]);
+  // The repair re-sends the same blocks and appends the scaffold uncached.
+  expect(wireBlocks(repair).slice(0, 2)).toEqual(wireBlocks(firstTry));
+  expect(wireBlocks(repair)[2].text).toContain(STRUCTURED_OUTPUT_PROGRAM.repairScaffold.prefix.trim());
+  expect(wireBlocks(repair)[2].cache_control).toBeUndefined();
 });

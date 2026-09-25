@@ -20,6 +20,32 @@ import {
 } from "../../shared/generationModels";
 
 describe("toChatCompletions", () => {
+  it("keeps cache breakpoints for Anthropic models and joins blocks for the rest", () => {
+    const content = [
+      { type: "text" as const, text: "Shared sources. ", cache_control: { type: "ephemeral" as const, ttl: "1h" as const } },
+      { type: "text" as const, text: "Role tail." },
+    ];
+    const anthropicBody = toChatCompletions({
+      model: "anthropic/claude-sonnet-5",
+      max_tokens: 100,
+      system: "Policy",
+      messages: [{ role: "user", content }],
+    });
+    expect(anthropicBody.messages[1]).toEqual({ role: "user", content });
+    expect(anthropicBody.messages[1].content).not.toBe(content);
+    for (const model of ["openai/gpt-5.6-sol", "google/gemini-3.5-flash"]) {
+      const body = toChatCompletions({
+        model,
+        max_tokens: 100,
+        messages: [{ role: "user", content }],
+      });
+      // Same bytes as the joined text, so the automatic prefix caches of
+      // these providers see one stable string.
+      expect(body.messages).toEqual([{ role: "user", content: "Shared sources. Role tail." }]);
+      expect(JSON.stringify(body)).not.toContain("cache_control");
+    }
+  });
+
   it("prepends system as a system message and passes tokens through", () => {
     const body = toChatCompletions({
       model: "claude-sonnet-5",

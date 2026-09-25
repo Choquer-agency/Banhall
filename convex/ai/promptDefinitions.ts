@@ -86,6 +86,23 @@ export const SEED_PROMPT_PROGRAM = {
       label: "label=",
       separator: " ",
     },
+    // Cost phase 1: render order, shared blocks first. Everything up to
+    // and including the sources is identical for every role of one
+    // generation and carries the cache breakpoint.
+    order: [
+      "heading",
+      "guidance",
+      "{{runtime.brief}}",
+      "{{runtime.sources}}",
+      "{{cache.breakpoint}}",
+      "{{runtime.mode}}",
+      "{{runtime.objective}}",
+      "{{runtime.decisions}}",
+      "{{runtime.feedback}}",
+      "{{runtime.target}}",
+      "{{runtime.writerSettings}}",
+      "{{runtime.lengthTarget}}",
+    ],
     runtimeSentinels: [
       "{{runtime.mode}}",
       "{{runtime.objective}}",
@@ -105,6 +122,7 @@ export const SEED_PROMPT_PROGRAM = {
     maxTokens: 1200,
     repairValidationSummaryMaxUtf8Bytes: 256,
     structuredPolicy: "two-attempt-repair",
+    cacheControl: { type: "ephemeral", ttl: "1h" },
     transport: {
       maxRetries: 0,
       timeoutMs: 90_000,
