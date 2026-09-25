@@ -112,6 +112,7 @@ async function resolveTranscriptInputs(
     );
   }
   const resolved: ResolvedTranscript[] = [];
+  const originals = new Set<string>();
   for (const input of inputs) {
     if ("fromTranscriptId" in input) {
       const source = await ctx.db.get(input.fromTranscriptId);
@@ -133,6 +134,13 @@ async function resolveTranscriptInputs(
       )
     ) {
       domainError("INVALID_INPUT", `${input.label ?? "This transcript"} is already added`);
+    }
+    if (input.originalStorageId) {
+      // One file backs one transcript; no row holds it yet either.
+      if (originals.has(input.originalStorageId)) {
+        domainError("INVALID_INPUT", "The uploaded transcript file is already in use. Upload it again.");
+      }
+      originals.add(input.originalStorageId);
     }
     resolved.push({
       kind: "content",

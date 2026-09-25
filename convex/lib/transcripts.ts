@@ -2,6 +2,7 @@ import type { MutationCtx, QueryCtx } from "../_generated/server";
 import type { Doc, Id } from "../_generated/dataModel";
 import { internal } from "../_generated/api";
 import { domainError, sha256 } from "./contracts";
+import { isStorageReferenced } from "./storage";
 import type { TranscriptSourceFormat } from "../../shared/transcriptParse";
 
 type Ctx = QueryCtx | MutationCtx;
@@ -410,8 +411,11 @@ export function requireTranscriptTextWithinCap(content: string): void {
 }
 
 /**
- * The uploaded original file, if it exists and fits the file limit; a file
- * over the limit is refused (the client checks the size before uploading).
+ * The uploaded original file, if it exists, fits the file limit and no row
+ * holds it yet. A file over the limit is refused (the client checks the size
+ * before uploading). A file another row already holds is refused too: the
+ * transcript's reference would keep that row's file alive when its own
+ * project is erased (`deleteStorageIfUnreferenced`).
  */
 export async function validatedOriginalStorage(
   ctx: MutationCtx,
@@ -421,6 +425,9 @@ export async function validatedOriginalStorage(
   if (!metadata) domainError("INVALID_INPUT", "The uploaded transcript file was not found");
   if (metadata.size > MAX_TRANSCRIPT_FILE_BYTES) {
     domainError("INVALID_INPUT", "A transcript file can be at most 25 MB");
+  }
+  if (await isStorageReferenced(ctx, storageId)) {
+    domainError("INVALID_INPUT", "The uploaded transcript file is already in use. Upload it again.");
   }
   return storageId;
 }

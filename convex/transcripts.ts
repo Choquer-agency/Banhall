@@ -4,6 +4,7 @@ import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import {
   getInternalProjectAccessOrNull,
+  requireInternalActor,
   requireInternalProjectAccess,
 } from "./lib/auth";
 import { domainError, sha256 } from "./lib/contracts";
@@ -213,7 +214,9 @@ const transcriptUploadArgs = {
  * The checks every change to a project's transcript list shares: the caller
  * can upload to the project (the `uploadDocument` access check), no
  * generation is active, and the result stays inside the caps. `replacing`
- * is left out of the counts.
+ * is left out of the counts and the duplicate check, so a transcript can be
+ * replaced with the same text (with its original file, say); the Sources tab
+ * checks the same way before it uploads anything.
  *
  * Reads the project's active rows once, through the index that skips
  * archived rows; archived rows are counted on the project, never read.
@@ -255,7 +258,7 @@ async function requireTranscriptChange(
     }
     const hash = await sha256(change.content);
     contentHash = hash;
-    const duplicate = active.find(
+    const duplicate = others.find(
       (row) => (row.contentHash ?? "") === hash || row.content === change.content
     );
     if (duplicate) {
@@ -263,6 +266,35 @@ async function requireTranscriptChange(
     }
   }
   return { project, user, active, contentHash };
+}
+
+/**
+ * Each active row's list position. Rows written before transcripts carried
+ * a position sort after every positioned row (`compareTranscripts`), so a
+ * new row given a position would jump ahead of them. When any active row
+ * has none, every active row first takes its current list index, which
+ * keeps the order the project shows today. `except` (a row about to be
+ * archived) is not written.
+ */
+async function settlePositions(
+  ctx: MutationCtx,
+  active: readonly Doc<"transcripts">[],
+  except?: Id<"transcripts">
+): Promise<Map<Id<"transcripts">, number>> {
+  const settle = active.some((row) => row.position === undefined);
+  const positions = new Map<Id<"transcripts">, number>();
+  for (const [index, row] of active.entries()) {
+    const position = settle ? index : row.position!;
+    if (settle && row.position !== index && row._id !== except) {
+      await ctx.db.patch(row._id, { position: index });
+    }
+    positions.set(row._id, position);
+  }
+  return positions;
+}
+
+function nextPosition(positions: Map<Id<"transcripts">, number>): number {
+  return Math.max(-1, ...positions.values()) + 1;
 }
 
 /** Rows holding the same text that `sameTextElsewhere` looks at, newest first. */
@@ -326,8 +358,7 @@ export const addTranscript = mutation({
     const { active, contentHash } = await requireTranscriptChange(ctx, args.projectId, {
       content: args.content,
     });
-    const position =
-      active.reduce((max, row) => Math.max(max, row.position ?? -1), -1) + 1;
+    const position = nextPosition(await settlePositions(ctx, active));
     const transcriptId = await insertUploadedTranscript(ctx, args.projectId, {
       ...args,
       contentHash: contentHash!,
@@ -348,22 +379,26 @@ export const replaceTranscript = mutation({
   args: { transcriptId: v.id("transcripts"), ...transcriptUploadArgs },
   returns: v.id("transcripts"),
   handler: async (ctx, args) => {
+    // Who may call first: an ineligible caller learns nothing about the row.
+    await requireInternalActor(ctx);
     const old = await ctx.db.get(args.transcriptId);
     if (!old) domainError("NOT_FOUND", "Transcript not found");
-    const { project, contentHash } = await requireTranscriptChange(ctx, old.projectId, {
+    if (old.archivedAt !== undefined) {
+      await requireInternalProjectAccess(ctx, old.projectId);
+      domainError("INVALID_STATE", "This transcript was already replaced or removed");
+    }
+    const { project, active, contentHash } = await requireTranscriptChange(ctx, old.projectId, {
       content: args.content,
       replacing: old._id,
     });
-    if (old.archivedAt !== undefined) {
-      domainError("INVALID_STATE", "This transcript was already replaced or removed");
-    }
+    const positions = await settlePositions(ctx, active, old._id);
     const replacementId = await insertUploadedTranscript(ctx, old.projectId, {
       content: args.content,
       contentHash: contentHash!,
       label: args.label ?? transcriptLabel(old),
       sourceFormat: args.sourceFormat,
       originalStorageId: args.originalStorageId,
-      position: old.position ?? 0,
+      position: positions.get(old._id) ?? nextPosition(positions),
     });
     const now = Date.now();
     await ctx.db.patch(old._id, { archivedAt: now, supersededById: replacementId });
@@ -380,6 +415,8 @@ export const removeTranscript = mutation({
   args: { transcriptId: v.id("transcripts") },
   returns: v.null(),
   handler: async (ctx, args) => {
+    // Who may call first: an ineligible caller learns nothing about the row.
+    await requireInternalActor(ctx);
     const row = await ctx.db.get(args.transcriptId);
     if (!row) domainError("NOT_FOUND", "Transcript not found");
     const { project } = await requireTranscriptChange(ctx, row.projectId, {});

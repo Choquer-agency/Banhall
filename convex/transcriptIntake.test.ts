@@ -267,6 +267,66 @@ describe("replaceTranscript and removeTranscript", () => {
     ).rejects.toThrow(/already replaced or removed/);
   });
 
+  it("replaces a transcript with its own text, carrying its roles over", async () => {
+    const f = await setup();
+    await f.t.mutation(internal.transcripts.buildTranscriptStructure, { transcriptId: f.firstId });
+    await f.t.run(async (ctx) => {
+      const [row] = await ctx.db
+        .query("transcriptSpeakers")
+        .withIndex("by_transcriptId_and_label", (q) => q.eq("transcriptId", f.firstId).eq("label", "Priya Shah"))
+        .collect();
+      await ctx.db.patch(row._id, { role: "other", roleSource: "consultant" });
+      await ctx.db.patch(f.firstId, { contentHash: await sha(FIRST) });
+    });
+    const replacementId = await f.writer.mutation(api.transcripts.replaceTranscript, {
+      transcriptId: f.firstId,
+      content: FIRST,
+      label: "first-with-original.docx",
+    });
+    const list = await f.writer.query(api.transcripts.listTranscripts, { projectId: f.projectId });
+    expect(list.map((row) => [row._id, row.label, row.position])).toEqual([[replacementId, "first-with-original.docx", 0]]);
+    const speakers = await f.t.run((ctx) =>
+      ctx.db
+        .query("transcriptSpeakers")
+        .withIndex("by_transcriptId_and_label", (q) => q.eq("transcriptId", replacementId))
+        .collect()
+    );
+    expect(speakers.find((row) => row.label === "Priya Shah")).toMatchObject({ role: "other", roleSource: "consultant" });
+  });
+
+  it("refuses to replace a row that was already replaced or removed", async () => {
+    const f = await setup();
+    await f.writer.mutation(api.transcripts.removeTranscript, { transcriptId: f.firstId });
+    await expect(
+      f.writer.mutation(api.transcripts.replaceTranscript, { transcriptId: f.firstId, content: SECOND })
+    ).rejects.toThrow(/already replaced or removed/);
+  });
+
+  it("gives callers outside the team the same answer whether or not the transcript exists", async () => {
+    const f = await setup();
+    const missing = await f.t.run(async (ctx) => {
+      const id = await ctx.db.insert("transcripts", { projectId: f.projectId, content: "gone", createdAt: 1 });
+      await ctx.db.delete(id);
+      return id;
+    });
+    for (const [caller, error] of [
+      [f.roleless, /An active internal role is required/],
+      [f.anonymous, /Authentication required/],
+      [f.t, /Authentication required/],
+    ] as const) {
+      for (const transcriptId of [f.firstId, missing]) {
+        await expect(caller.mutation(api.transcripts.removeTranscript, { transcriptId })).rejects.toThrow(error);
+        await expect(
+          caller.mutation(api.transcripts.replaceTranscript, { transcriptId, content: SECOND })
+        ).rejects.toThrow(error);
+      }
+    }
+    // A team member is told the row is missing.
+    await expect(
+      f.writer.mutation(api.transcripts.removeTranscript, { transcriptId: missing })
+    ).rejects.toThrow(/Transcript not found/);
+  });
+
   it("refuses a replacement identical to another transcript", async () => {
     const f = await setup();
     await f.writer.mutation(api.transcripts.addTranscript, { projectId: f.projectId, content: SECOND });
@@ -363,6 +423,114 @@ describe("archived transcript history", () => {
     // Remove writes no row, so it still works at the cap.
     await f.writer.mutation(api.transcripts.removeTranscript, { transcriptId: f.firstId });
     expect(await f.writer.query(api.transcripts.listTranscripts, { projectId: f.projectId })).toEqual([]);
+  });
+});
+
+describe("stored originals", () => {
+  it("refuses a file another row already holds", async () => {
+    const f = await setup();
+    const { documentFile, transcriptFile } = await f.t.run(async (ctx) => {
+      const otherProject = await ctx.db.insert("projects", {
+        title: "Other",
+        clientName: "Other client",
+        status: "draft",
+        createdBy: f.writerId,
+        shareToken: "in-token-other",
+        createdAt: 1,
+        updatedAt: 1,
+      });
+      const documentFile = await ctx.storage.store(new Blob(["other project's document"]));
+      await ctx.db.insert("projectDocuments", {
+        projectId: otherProject,
+        fileName: "notes.docx",
+        fileType: "docx",
+        content: "Notes",
+        storageId: documentFile,
+        source: "upload",
+        uploadedBy: "in-writer",
+        createdAt: 1,
+      });
+      const transcriptFile = await ctx.storage.store(new Blob(["WEBVTT"]));
+      return { documentFile, transcriptFile };
+    });
+    await expect(
+      f.writer.mutation(api.transcripts.addTranscript, {
+        projectId: f.projectId,
+        content: SECOND,
+        originalStorageId: documentFile,
+      })
+    ).rejects.toThrow(/already in use/);
+    await f.writer.mutation(api.transcripts.addTranscript, {
+      projectId: f.projectId,
+      content: SECOND,
+      originalStorageId: transcriptFile,
+    });
+    await expect(
+      f.writer.mutation(api.transcripts.addTranscript, {
+        projectId: f.projectId,
+        content: "Dana Whitfield: A third interview.",
+        originalStorageId: transcriptFile,
+      })
+    ).rejects.toThrow(/already in use/);
+    const fresh = await f.t.run((ctx) => ctx.storage.store(new Blob(["WEBVTT 2"])));
+    await expect(
+      f.writer.mutation(api.projects.createProject, {
+        title: "New",
+        clientName: "Verdant Grid",
+        transcripts: [
+          { content: FIRST, label: "a.vtt", originalStorageId: fresh },
+          { content: SECOND, label: "b.vtt", originalStorageId: fresh },
+        ],
+      })
+    ).rejects.toThrow(/already in use/);
+    await expect(
+      f.writer.mutation(api.projects.createProject, {
+        title: "New",
+        clientName: "Verdant Grid",
+        transcripts: [{ content: FIRST, label: "a.vtt", originalStorageId: documentFile }],
+      })
+    ).rejects.toThrow(/already in use/);
+  });
+});
+
+describe("list order on projects older than positions", () => {
+  async function legacyProject() {
+    const f = await setup();
+    // Rows written before transcripts carried a position, oldest first.
+    const ids = await f.t.run(async (ctx) => {
+      await ctx.db.patch(f.firstId, { position: undefined, createdAt: 10 });
+      const second = await ctx.db.insert("transcripts", {
+        projectId: f.projectId,
+        content: "Dana Whitfield: Legacy second interview.",
+        createdAt: 20,
+      });
+      return [f.firstId, second];
+    });
+    return { f, ids };
+  }
+
+  it("adds a transcript after the older rows", async () => {
+    const { f, ids } = await legacyProject();
+    const added = await f.writer.mutation(api.transcripts.addTranscript, { projectId: f.projectId, content: SECOND });
+    const list = await f.writer.query(api.transcripts.listTranscripts, { projectId: f.projectId });
+    expect(list.map((row) => [row._id, row.position])).toEqual([
+      [ids[0], 0],
+      [ids[1], 1],
+      [added, 2],
+    ]);
+  });
+
+  it("replaces an older row in its place", async () => {
+    const { f, ids } = await legacyProject();
+    const replaced = await f.writer.mutation(api.transcripts.replaceTranscript, {
+      transcriptId: ids[0],
+      content: SECOND,
+    });
+    const list = await f.writer.query(api.transcripts.listTranscripts, { projectId: f.projectId });
+    expect(list.map((row) => [row._id, row.position])).toEqual([
+      [replaced, 0],
+      [ids[1], 1],
+    ]);
   });
 });
 
