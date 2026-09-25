@@ -490,6 +490,29 @@ describe("placeholders frozen before the speaker build runs", () => {
     }
   });
 
+  it("keeps hiding speakers past the speaker row cap when the build's stored names are read", async () => {
+    const first = ["Avery", "Blake", "Casey", "Devon", "Emery", "Finley", "Gray", "Harper", "Indigo", "Jules", "Kendall", "Logan", "Morgan", "Noel", "Oakley"];
+    const last = ["Abbott", "Barros", "Castell", "Dunmore", "Everly", "Fairholt", "Gansett"];
+    const names = Array.from({ length: 105 }, (_, i) => `${first[i % first.length]} ${last[Math.floor(i / first.length)]}`);
+    const content = names.map((name, i) => `${name}: Line ${i} about the rig.`).join("\n\n");
+    const f = await setupFresh("past-cap", content);
+    await f.t.mutation(internal.transcripts.buildTranscriptStructure, { transcriptId: f.transcriptId });
+    await f.t.finishAllScheduledFunctions(vi.runAllTimers);
+    const row = await f.t.run((ctx) => ctx.db.get(f.transcriptId));
+    expect(row?.parserVersion).toBe(TRANSCRIPT_PARSER_VERSION);
+    expect(row?.structureBuildId).toBeUndefined();
+    // Rows stop at the cap; the labels past it are kept with the other names.
+    expect((await speakerLabels(f.t, f.transcriptId)).length).toBeGreaterThan(0);
+    expect(row?.speakerNames?.otherNames).toEqual(names.slice(100));
+
+    const generationId = await f.writer.mutation(api.generations.requestGeneration, {
+      projectId: f.projectId,
+      candidateMode: "single",
+    });
+    const values = (await f.t.run((ctx) => ctx.db.get(generationId)))?.placeholders?.map((entry) => entry.value) ?? [];
+    for (const name of names) expect(values, name).toContain(name);
+  });
+
   it("hides the speakers of a transcript whose build has not run in an extraction's map too", async () => {
     const f = await setupFresh("facts");
     await f.t.mutation(internal.transcripts.buildTranscriptStructure, { transcriptId: f.transcriptId });
