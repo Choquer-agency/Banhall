@@ -389,8 +389,11 @@ export async function stampGenerationBriefIdHandler(
  * the Brief (the next version number, everything else copied as it is) and
  * counted on it in `droppedEntryCount`, as a fresh derivation counts them.
  * No model call and no re-derivation; a Brief with nothing to drop is
- * returned as it is. Removed-entry markers and generated questions are
- * copied unchecked. A Brief too large to read whole is returned unchecked.
+ * returned as it is. Only model-derived provenance is checked: removed-entry
+ * markers, generated output, Storyline questions (Self-check artifacts, as
+ * in liveBaselinePayload) and entries a writer edited (writer-asserted
+ * content, review 2026-09-25) are copied unchecked. A Brief too large to
+ * read whole is returned unchecked.
  */
 export async function briefWithoutExcludedQuotes(
   ctx: MutationCtx,
@@ -406,6 +409,7 @@ export async function briefWithoutExcludedQuotes(
   const excluded = new Set<Id<"generationBriefEntries">>();
   for (const row of rows) {
     if (row.change === "removed" || row.generatedOutput) continue;
+    if (row.group === "storylineQuestion" || row.edited === true) continue;
     let source = sources.get(row.sourceId);
     if (source === undefined) {
       source = await ctx.db.get(row.sourceId);

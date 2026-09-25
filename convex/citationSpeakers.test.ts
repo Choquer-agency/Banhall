@@ -593,6 +593,53 @@ describe("Brief entries keep only client turns as evidence outside facts mode", 
     expect(brief?.droppedEntryCount).toBe(2);
   });
 
+  it("keeps a writer's edited entry and a Storyline question when a reused Brief is checked", async () => {
+    const t = convexTest(schema, modules);
+    const f = await meridian(t, { turns: true });
+    const { brief } = await deriveBrief(t, f);
+    const hash = await sha256(MERIDIAN);
+    await t.run(async (ctx) => {
+      // The writer asserted this entry, on the interviewer's words.
+      await ctx.db.insert("generationBriefEntries", {
+        briefId: brief!._id,
+        projectId: f.projectId,
+        group: "confidenceMap",
+        text: "Buying an adhesive was considered and rejected.",
+        confidence: "established",
+        sourceId: f.sourceId,
+        sourceContentHash: hash,
+        ...at(QUESTION),
+        edited: true,
+        createdAt: Date.now(),
+      });
+      // A resolved Storyline question anchored on the interviewer's words.
+      await ctx.db.insert("generationBriefEntries", {
+        briefId: brief!._id,
+        projectId: f.projectId,
+        group: "storylineQuestion",
+        text: "Was buying an adhesive ruled out?",
+        sourceId: f.sourceId,
+        sourceContentHash: hash,
+        ...at(QUESTION),
+        question: { questionText: "Was buying an adhesive ruled out?", resolvedBy: "keep_storyline" },
+        createdAt: Date.now(),
+      });
+    });
+    const before = await t.run((ctx) =>
+      ctx.db.query("generationBriefEntries").withIndex("by_briefId", (q) => q.eq("briefId", brief!._id)).collect()
+    );
+    vi.stubGlobal("fetch", vi.fn());
+    const outcome = await runAction(t, async (ctx) =>
+      deriveOrReuseBrief(ctx, briefClient(), { projectId: f.projectId, generationId: f.generationId })
+    );
+    // Nothing model-derived to drop: the same Brief, every entry kept.
+    expect(outcome).toEqual({ kind: "reused", briefId: brief!._id });
+    const after = await t.run((ctx) =>
+      ctx.db.query("generationBriefEntries").withIndex("by_briefId", (q) => q.eq("briefId", brief!._id)).collect()
+    );
+    expect(after).toEqual(before);
+  });
+
   it("drops an interviewer-backed entry from a stored Brief when it is reused, into a new version that counts it", async () => {
     const t = convexTest(schema, modules);
     const f = await meridian(t, { turns: true });
