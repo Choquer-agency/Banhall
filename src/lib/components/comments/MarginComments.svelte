@@ -44,13 +44,18 @@
   // A refused accept (a stale, ambiguous or heading selection) is shown on
   // its card instead of failing silently.
   let acceptErrors = $state<Record<string, string>>({});
+  // One Accept at a time per comment: the button is disabled while it runs.
+  let accepting = $state<Record<string, boolean>>({});
   async function accept(commentId: Id<"comments">) {
-    const { [commentId]: _cleared, ...rest } = acceptErrors;
-    acceptErrors = rest;
+    if (accepting[commentId]) return;
+    accepting = { ...accepting, [commentId]: true };
+    acceptErrors = Object.fromEntries(Object.entries(acceptErrors).filter(([id]) => id !== commentId));
     try {
       await acceptEdit({ commentId });
     } catch (error) {
       acceptErrors = { ...acceptErrors, [commentId]: userErrorMessage(error, "The suggested edit could not be applied.") };
+    } finally {
+      accepting = Object.fromEntries(Object.entries(accepting).filter(([id]) => id !== commentId));
     }
   }
   type Commenter = NonNullable<typeof commentersQ.data>[number];
@@ -338,7 +343,9 @@
                       e.stopPropagation();
                       void accept(comment._id);
                     }}
-                    class="rounded bg-primary px-2 py-0.5 text-[10px] font-medium text-white hover:bg-primary-dark transition-colors"
+                    disabled={accepting[comment._id]}
+                    aria-busy={accepting[comment._id] ? "true" : undefined}
+                    class="rounded bg-primary px-2 py-0.5 text-[10px] font-medium text-white hover:bg-primary-dark transition-colors disabled:opacity-50"
                   >
                     Accept
                   </button>

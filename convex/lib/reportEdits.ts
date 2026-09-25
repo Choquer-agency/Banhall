@@ -145,27 +145,110 @@ function textBetweenPositions(doc: PMNode, from: number, to: number): string {
 }
 
 export type StoredSelection = { from: number; to: number; text: string };
-export type SelectionLocation = "body" | ProtectedKind;
+export type SelectionLocation = "body" | ProtectedKind | "missing";
+
+/** Plain message when a stored selection's text is no longer in the report. */
+export const SELECTION_GONE = "The report changed since this text was selected. Select it again.";
+
+/** Each top-level node with its ProseMirror range and protected kind, if any. */
+function topLevelRanges(doc: PMNode): Array<{ from: number; to: number; kind: ProtectedKind | undefined }> {
+  const guarded = protectedHeadings(doc);
+  const ranges: Array<{ from: number; to: number; kind: ProtectedKind | undefined }> = [];
+  let pos = 0;
+  for (const node of (doc.content as PMNode[] | undefined) ?? []) {
+    const size = nodeSize(node);
+    ranges.push({ from: pos, to: pos + size, kind: guarded.get(node) });
+    pos += size;
+  }
+  return ranges;
+}
+
+/**
+ * The protected kind a selection touches. A heading's text runs from one
+ * position after its start to one before its end, so a body selection that
+ * ends at the start of the next heading line, or starts at the end of a
+ * heading's text, stays in the body.
+ */
+function kindAt(doc: PMNode, from: number, to: number): "body" | ProtectedKind {
+  for (const range of topLevelRanges(doc)) {
+    if (range.kind && from < range.to - 1 && to > range.from + 1) return range.kind;
+  }
+  return "body";
+}
+
+/** Every occurrence of `text` inside one textblock, as ProseMirror ranges. */
+function occurrences(doc: PMNode, text: string): Array<{ from: number; to: number }> {
+  const needle = normalizeForMatch(text).trim().toLowerCase();
+  if (!needle) return [];
+  const found: Array<{ from: number; to: number }> = [];
+  const visit = (node: PMNode, start: number) => {
+    const children = node.content as PMNode[] | undefined;
+    if (!Array.isArray(children)) return;
+    if (children.every((c) => c.type === "text" || c.type === "hardBreak")) {
+      let joined = "";
+      const positions: number[] = [];
+      let pos = start + 1;
+      for (const child of children) {
+        if (child.type === "text" && typeof child.text === "string") {
+          for (let i = 0; i < child.text.length; i++) positions.push(pos + i);
+          joined += child.text;
+          pos += child.text.length;
+        } else {
+          positions.push(pos);
+          joined += "\n";
+          pos += 1;
+        }
+      }
+      const haystack = normalizeForMatch(joined).toLowerCase();
+      for (let at = haystack.indexOf(needle); at !== -1; at = haystack.indexOf(needle, at + 1)) {
+        found.push({ from: positions[at], to: positions[at + needle.length - 1] + 1 });
+      }
+      return;
+    }
+    let pos = start + 1;
+    for (const child of children) {
+      visit(child, pos);
+      pos += nodeSize(child);
+    }
+  };
+  let pos = 0;
+  for (const child of (doc.content as PMNode[] | undefined) ?? []) {
+    visit(child, pos);
+    pos += nodeSize(child);
+  }
+  return found;
+}
 
 /**
  * Where a stored editor selection sits: in a Section heading, the hidden
- * title or the body. Null when the positions no longer hold the selected
- * text (the report changed since), so the caller cannot rely on them.
+ * title or the body. When the positions no longer hold the selected text (the
+ * report changed since), the occurrence nearest the old position decides;
+ * "missing" when the text is gone.
  */
-export function locateSelection(doc: PMNode, selection: StoredSelection): SelectionLocation | null {
+export function locateSelection(doc: PMNode, selection: StoredSelection): SelectionLocation {
   const { from, to } = selection;
-  if (!Number.isInteger(from) || !Number.isInteger(to) || to <= from) return null;
   const same = (text: string) => normalizeForMatch(text).trim().toLowerCase();
-  if (same(textBetweenPositions(doc, from, to)) !== same(selection.text)) return null;
-  const guarded = protectedHeadings(doc);
-  let pos = 0;
-  for (const node of (doc.content as PMNode[] | undefined) ?? []) {
-    const end = pos + nodeSize(node);
-    const kind = guarded.get(node);
-    if (kind && from < end && to > pos) return kind;
-    pos = end;
+  if (
+    Number.isInteger(from) &&
+    Number.isInteger(to) &&
+    to > from &&
+    same(textBetweenPositions(doc, from, to)) === same(selection.text)
+  ) {
+    return kindAt(doc, from, to);
   }
-  return "body";
+  const candidates = occurrences(doc, selection.text);
+  if (candidates.length === 0) return "missing";
+  const nearest = candidates.reduce((best, next) =>
+    Math.abs(next.from - from) < Math.abs(best.from - from) ? next : best
+  );
+  return kindAt(doc, nearest.from, nearest.to);
+}
+
+/** True when an edit's search text overlaps the text the writer selected. */
+export function targetsSelection(find: string, selectionText: string): boolean {
+  const a = normalizeForMatch(find).trim().toLowerCase();
+  const b = normalizeForMatch(selectionText).trim().toLowerCase();
+  return !!a && !!b && (a.includes(b) || b.includes(a));
 }
 
 export type ReplacementResult = {
@@ -179,21 +262,21 @@ export type ReplacementResult = {
 
 /**
  * Why a single-target edit must be refused because of heading or title text,
- * or null. With a stored selection (a research edit, a client suggestion) the
- * selection decides: in a heading or the title it is refused, in the body it
- * may apply to the body match. Positions that no longer hold the text fail
- * closed when heading or title text matches. Without a stored selection (an
- * AI edit) a heading or title match only matters when it is the only match.
+ * or null. With a stored selection (a research edit, a client suggestion, an
+ * Ask assistant highlight) the selection decides: in a heading or the title
+ * it is refused, in the body it may apply to the body match, and a selection
+ * whose text is gone is refused as stale. Without one, a heading or title
+ * match only matters when it is the only match.
  */
 export function headingEditRefusal(
   result: ReplacementResult,
-  location?: SelectionLocation | null
+  location?: SelectionLocation
 ): string | null {
   const message = result.skippedInHeadings > 0 ? SECTION_HEADING_EDIT_REFUSED : REPORT_TITLE_EDIT_REFUSED;
   const inProtected = result.skippedInHeadings + result.skippedInTitle > 0;
   if (location === "section") return SECTION_HEADING_EDIT_REFUSED;
   if (location === "title") return REPORT_TITLE_EDIT_REFUSED;
-  if (location === null && inProtected) return message;
+  if (location === "missing") return SELECTION_GONE;
   if (result.count === 0 && inProtected) return message;
   return null;
 }

@@ -7,7 +7,13 @@ import {
 } from "./lib/auth";
 import { requireReportEditAccess } from "./lib/roleCapabilities";
 import { domainError, sha256 } from "./lib/contracts";
-import { applyReplacements, headingEditRefusal, locateSelection, type PMNode } from "./lib/reportEdits";
+import {
+  applyReplacements,
+  headingEditRefusal,
+  locateSelection,
+  SELECTION_GONE,
+  type PMNode,
+} from "./lib/reportEdits";
 import { pruneSnapshots, writePreEditSnapshot } from "./lib/snapshots";
 
 const COMMENTER_COLORS = [
@@ -150,6 +156,10 @@ export const acceptEdit = mutation({
     }
     // Accepting a client suggestion rewrites report prose: report.editProse.
     await requireReportEditAccess(ctx, comment.projectId);
+    // A second Accept (a double click, another tab) must not apply it again.
+    if (comment.resolved) {
+      domainError("INVALID_STATE", "This suggestion was already accepted or dismissed.");
+    }
     const report = await ctx.db.get(comment.reportId);
     if (!report || report.projectId !== comment.projectId) {
       domainError("NOT_FOUND", "The commented report revision is unavailable");
@@ -179,7 +189,7 @@ export const acceptEdit = mutation({
         text: comment.highlightText,
       })
     );
-    if (refusal) domainError("INVALID_INPUT", refusal);
+    if (refusal) domainError(refusal === SELECTION_GONE ? "STALE_REVISION" : "INVALID_INPUT", refusal);
     if (applied.count !== 1) {
       domainError(
         "STALE_REVISION",

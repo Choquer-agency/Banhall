@@ -1,7 +1,7 @@
 /// <reference types="vite/client" />
 import agentTest from "@convex-dev/agent/test";
 import { convexTest } from "convex-test";
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api, internal } from "./_generated/api";
 import schema from "./schema";
 import type { Id } from "./_generated/dataModel";
@@ -161,5 +161,124 @@ describe("AI edits with no stored selection", () => {
     expect(await f.owner.mutation(api.chatV2.applyProposal, { proposalId })).toMatchObject({ applied: false, reason: HEADING_MESSAGE });
     expect(await reportContent(f)).toBe(REPORT_DOC);
     expect(await proposalState(f, proposalId)).toBe("stale");
+  });
+});
+
+/** Top-level node boundaries in ProseMirror positions. */
+function nodeStart(index: number) {
+  let pos = 0;
+  for (let i = 0; i < index; i++) pos += 2 + NODES[i].content[0].text.length;
+  return pos;
+}
+const nodeEnd = (index: number) => nodeStart(index) + 2 + NODES[index].content[0].text.length;
+
+describe("selections at a heading's edge (final round, item 1)", () => {
+  it("applies a body selection that ends at the start of the next heading line", async () => {
+    // Drag from the start of the last 242 paragraph to the start of the next line.
+    const text = NODES[2].content[0].text;
+    const f = await setup({ text, suggestion: "The open question was the fatigue limit of the alloy.", at: { from: nodeStart(2) + 1, to: nodeStart(3) + 1 } });
+    await f.owner.mutation(api.comments.acceptEdit, { commentId: f.commentId });
+    expect(await reportContent(f)).toContain("The open question was the fatigue limit");
+    expect(await reportContent(f)).toContain("Line 244 — Work Performed");
+  });
+
+  it("applies a selection that starts at the end of a heading's text", async () => {
+    // Shift+Down from the end of the heading line into the body.
+    const f = await setup({ text: "The work performed", suggestion: "The testing done", at: { from: nodeEnd(3) - 1, to: nodeStart(4) + 1 + "The work performed".length } });
+    await f.owner.mutation(api.comments.acceptEdit, { commentId: f.commentId });
+    expect(await reportContent(f)).toContain("The testing done in phase 2");
+    expect(await reportContent(f)).toContain("Line 244 — Work Performed");
+  });
+});
+
+describe("Ask assistant with a highlight (final round, item 2)", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.stubEnv("ANTHROPIC_API_KEY", "test-anthropic-key");
+  });
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.useRealTimers();
+  });
+
+  async function askWithHighlight(f: Fixture, highlight: { text: string; from: number; to: number }) {
+    return await f.owner.mutation(api.chatV2.sendMessage, {
+      reportId: f.reportId, content: "Rewrite this.", newThread: true, highlight,
+    });
+  }
+
+  it("refuses an edit aimed at a heading the writer selected, though the body has one match", async () => {
+    const f = await setup(bodyComment);
+    const sent = await askWithHighlight(f, { text: "Work Performed", ...selection(3, "Work Performed") });
+    const saved = await f.t.mutation(internal.chatV2.saveProposal, {
+      agentThreadId: sent.threadId, promptMessageId: sent.messageId, kind: "edit", targetText: "Work Performed", newText: "Experimental work",
+    });
+    expect(saved).toMatchObject({ ok: false, reason: expect.stringContaining(HEADING_MESSAGE) });
+    expect(await reportContent(f)).toBe(REPORT_DOC);
+  });
+
+  it("applies an edit aimed at the body passage the writer selected", async () => {
+    const f = await setup(bodyComment);
+    const sent = await askWithHighlight(f, { text: "work performed", ...selection(4, "work performed") });
+    const saved = await f.t.mutation(internal.chatV2.saveProposal, {
+      agentThreadId: sent.threadId, promptMessageId: sent.messageId, kind: "edit", targetText: "work performed", newText: "tests run",
+    });
+    if (!saved.ok) throw new Error(`refused: ${"reason" in saved ? saved.reason : ""}`);
+    expect(await f.owner.mutation(api.chatV2.applyProposal, { proposalId: saved.proposalId })).toMatchObject({ applied: true });
+    expect(await reportContent(f)).toContain("The tests run in phase 2");
+  });
+
+  it("keeps the highlight's place when the writer regenerates the prompt", async () => {
+    const f = await setup(bodyComment);
+    const first = await askWithHighlight(f, { text: "Work Performed", ...selection(3, "Work Performed") });
+    // Regenerate resends the stored prompt text, which carries only the excerpt.
+    const again = await f.owner.mutation(api.chatV2.sendMessage, {
+      reportId: f.reportId, threadId: first.threadId,
+      content: 'Rewrite this.\n\n[Writer highlighted this excerpt from the report]:\n"""Work Performed"""',
+    });
+    const saved = await f.t.mutation(internal.chatV2.saveProposal, {
+      agentThreadId: again.threadId, promptMessageId: again.messageId, kind: "edit", targetText: "Work Performed", newText: "Experimental work",
+    });
+    expect(saved).toMatchObject({ ok: false, reason: expect.stringContaining(HEADING_MESSAGE) });
+  });
+
+  it("refuses at Apply a stored edit whose turn selected the heading", async () => {
+    const f = await setup(bodyComment);
+    const sent = await askWithHighlight(f, { text: "Work Performed", ...selection(3, "Work Performed") });
+    const proposalId = await f.t.run((ctx) =>
+      ctx.db.insert("chatProposals", {
+        agentThreadId: sent.threadId, promptMessageId: sent.messageId, projectId: f.projectId, reportId: f.reportId,
+        kind: "edit", targetText: "Work Performed", newText: "Experimental work", state: "pending", createdAt: Date.now(),
+      })
+    );
+    expect(await f.owner.mutation(api.chatV2.applyProposal, { proposalId })).toMatchObject({ applied: false, reason: HEADING_MESSAGE });
+    expect(await proposalState(f, proposalId)).toBe("stale");
+    expect(await reportContent(f)).toBe(REPORT_DOC);
+  });
+});
+
+describe("stale stored positions (final round, item 3)", () => {
+  it("decides from the selected text nearest the old position", async () => {
+    // Positions moved (a paragraph was added above), but the text is still in the body.
+    const f = await setup({ text: "work performed", suggestion: "tests run", at: { from: selection(4, "work performed").from - 7, to: selection(4, "work performed").to - 7 } });
+    await f.owner.mutation(api.comments.acceptEdit, { commentId: f.commentId });
+    expect(await reportContent(f)).toContain("The tests run in phase 2");
+  });
+
+  it("says the report changed when the selected text is gone", async () => {
+    const f = await setup({ text: "a sentence no longer here", suggestion: "new words", at: { from: 5, to: 30 } });
+    await expect(f.owner.mutation(api.comments.acceptEdit, { commentId: f.commentId })).rejects.toThrow(
+      "The report changed since this text was selected. Select it again."
+    );
+  });
+});
+
+describe("accepting a suggestion twice (final round, item 4)", () => {
+  it("refuses a comment that was already accepted", async () => {
+    const f = await setup(bodyComment);
+    await f.owner.mutation(api.comments.acceptEdit, { commentId: f.commentId });
+    const after = await reportContent(f);
+    await expect(f.owner.mutation(api.comments.acceptEdit, { commentId: f.commentId })).rejects.toThrow(/already/);
+    expect(await reportContent(f)).toBe(after);
   });
 });

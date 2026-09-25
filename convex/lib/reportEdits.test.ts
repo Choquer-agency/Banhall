@@ -102,6 +102,11 @@ describe("stored selections", () => {
     expect(locateSelection(doc, title)).toBe("title");
     expect(locateSelection(doc, heading)).toBe("section");
     expect(locateSelection(doc, body)).toBe("body");
-    expect(locateSelection(doc, { ...body, text: "something else" })).toBeNull();
+    expect(locateSelection(doc, { ...body, text: "something else" })).toBe("missing");
+    // Positions that moved: the nearest occurrence of the text decides.
+    expect(locateSelection(doc, { ...heading, from: heading.from + 3, to: heading.to + 3 })).toBe("section");
+    expect(locateSelection(doc, { ...body, from: body.from - 4, to: body.to - 4 })).toBe("body");
+    // A body selection ending at the start of the next heading line stays in the body.
+    expect(locateSelection(doc, { from: starts[2] + 1, to: starts[3] + 1, text: bodyText })).toBe("body");
   });
 });

@@ -3,7 +3,7 @@ import { page } from "vitest/browser";
 import { render } from "vitest-browser-svelte";
 import { ConvexError } from "convex/values";
 import MarginComments from "./MarginComments.svelte";
-import { __resetConvexStub, __setMutationError, __setQueryData } from "$lib/test/convex-svelte-stub.svelte";
+import { __mutationCalls, __resetConvexStub, __setMutationError, __setMutationResult, __setQueryData } from "$lib/test/convex-svelte-stub.svelte";
 
 /** A refused Accept (for example a selection in a Section heading) shows on its card. */
 beforeEach(() => {
@@ -25,4 +25,21 @@ it("shows why Accept was refused on the comment", async () => {
   });
   await page.getByRole("button", { name: "Accept", exact: true }).click();
   await expect.element(page.getByRole("alert")).toHaveTextContent("Section headings can't be edited.");
+});
+
+it("disables Accept while the first click is still running", async () => {
+  let finish!: (value: null) => void;
+  __setMutationResult("comments:acceptEdit", new Promise((resolve) => { finish = resolve; }));
+  const handle = { getYForPos: () => 40, getEditorTop: () => 0 } as never;
+  await render(MarginComments, {
+    projectId: "project-1" as never, reportId: "report-1" as never, commenterId: "writer-1", commenterType: "writer",
+    commenterName: "Wren", editorHandle: handle, scrollContainer: null, activeCommentId: "comment-1", onActiveCommentChange: () => {},
+  });
+  const button = page.getByRole("button", { name: "Accept", exact: true });
+  await button.click();
+  await expect.element(button).toBeDisabled();
+  (button.element() as HTMLButtonElement).click();
+  expect(__mutationCalls("comments:acceptEdit")).toHaveLength(1);
+  finish(null);
+  await expect.element(button).toBeEnabled();
 });

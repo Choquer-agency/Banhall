@@ -1342,6 +1342,10 @@ export default defineSchema({
     startedAt: v.optional(v.number()),
     endedAt: v.optional(v.number()),
     stepCount: v.number(),
+    // The report text the writer highlighted for this prompt, as editor
+    // positions. Proposals from the turn that target it are judged by where
+    // it sits: a Section heading or the title is never edited.
+    highlight: v.optional(v.object({ text: v.string(), from: v.number(), to: v.number() })),
   })
     .index("by_agentThreadId_and_promptMessageId", [
       "agentThreadId",
