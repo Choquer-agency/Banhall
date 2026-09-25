@@ -17,7 +17,7 @@ import { clientForRole } from "./providers";
 import { HUMAN_PROSE_FOR_OWN_WORDING } from "../../shared/humanProse";
 
 /** First balanced JSON object in a string, or null. */
-function extractJson(text: string): {
+export function extractJson(text: string): {
   title?: string;
   kind?: string;
   body?: string;
@@ -55,10 +55,23 @@ function extractJson(text: string): {
   return null;
 }
 
+/** The request, shared with the structured_helper evaluation. */
+export const CHANGELOG_MAX_TOKENS = 1200;
+
+export function changelogUserMessage(
+  workDay: string,
+  commits: ReadonlyArray<{ subject: string; body?: string }>
+): string {
+  const log = commits
+    .map((c) => `- ${c.subject}${c.body?.trim() ? `\n  ${c.body.trim().replace(/\n/g, "\n  ")}` : ""}`)
+    .join("\n");
+  return `Commits for ${workDay}:\n\n${log}\n\nRespond with ONLY a JSON object: {"title": string, "summary": string, "sections": {"new": string[], "improved": string[], "fixed": string[]}}`;
+}
+
 // Structure contract lives in docs/changelog-guidelines.md (2026-08-12):
 // standard categorized sections (New / Improved / Fixed), combined bullets,
 // kind derived from the sections.
-const SYSTEM = `You write release notes for Banhall, an internal tool that turns SR&ED interview transcripts into CRA-ready project description reports. Your readers are SR&ED consultants and writers: smart, busy, NOT programmers.
+export const CHANGELOG_SYSTEM_PROMPT = `You write release notes for Banhall, an internal tool that turns SR&ED interview transcripts into CRA-ready project description reports. Your readers are SR&ED consultants and writers: smart, busy, NOT programmers.
 
 You receive one day's git commit messages. Produce a JSON object:
 1. "title": a short headline for the day (max 70 chars, no dates, no jargon, e.g. "Excel uploads and a faster project setup"). Lead with the most writer-visible change.
@@ -97,9 +110,6 @@ export const publishDay = internalAction({
     }
     if (args.commits.length === 0) return { skipped: true as const };
 
-    const log = args.commits
-      .map((c) => `- ${c.subject}${c.body?.trim() ? `\n  ${c.body.trim().replace(/\n/g, "\n  ")}` : ""}`)
-      .join("\n");
 
     // Model catalog: the structured_helper role's model.
     const { client, model } = await clientForRole(ctx, "structured_helper", {
@@ -107,12 +117,12 @@ export const publishDay = internalAction({
     });
     const response = await client.messages.create({
       model,
-      max_tokens: 1200,
-      system: SYSTEM,
+      max_tokens: CHANGELOG_MAX_TOKENS,
+      system: CHANGELOG_SYSTEM_PROMPT,
       messages: [
         {
           role: "user",
-          content: `Commits for ${args.workDay}:\n\n${log}\n\nRespond with ONLY a JSON object: {"title": string, "summary": string, "sections": {"new": string[], "improved": string[], "fixed": string[]}}`,
+          content: changelogUserMessage(args.workDay, args.commits),
         },
       ],
     });

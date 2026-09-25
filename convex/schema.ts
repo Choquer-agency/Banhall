@@ -602,10 +602,7 @@ export default defineSchema({
     .index("by_createdAt", ["createdAt"])
     .index("by_projectId", ["projectId"])
     .index("by_projectId_and_createdAt", ["projectId", "createdAt"])
-    .index("by_generationId", ["generationId"])
-    // 2026-09-24 widen: per-model call counts for the model catalog's
-    // production error-rate rollback.
-    .index("by_model_and_createdAt", ["model", "createdAt"]),
+    .index("by_generationId", ["generationId"]),
 
   transcripts: defineTable({
     projectId: v.id("projects"),
@@ -3096,6 +3093,15 @@ export default defineSchema({
     // Last admin notice about this role's production error rate, so a
     // failing model with automatic switching off is announced once a day.
     errorNoticeAt: v.optional(v.number()),
+    // "role_split": copied from the role this one was split out of
+    // (shared/modelCatalog ROLE_PREDECESSORS), not chosen for it. Cleared
+    // by the role's first real switch.
+    origin: v.optional(v.literal("role_split")),
+    // Written once when a split role gets its first assignment: the
+    // predecessor's switch events up to `until` stay part of this role's
+    // history, so a rollback made before the split keeps that model out of
+    // this role's evaluations. No switch ever changes it.
+    inheritedHistory: v.optional(v.object({ role: modelRoleValidator, until: v.number() })),
   }).index("by_role", ["role"]),
 
   // Append-only audit log of every role switch, automatic or manual.
@@ -3126,7 +3132,10 @@ export default defineSchema({
     at: v.number(),
   })
     .index("by_role_and_at", ["role", "at"])
-    .index("by_at", ["at"]),
+    .index("by_at", ["at"])
+    // Whether a role was ever rolled back from a model (up to a time), read
+    // as one row however long the role's history is.
+    .index("by_role_and_kind_and_fromModelId_and_at", ["role", "kind", "fromModelId", "at"]),
 
   // One candidate evaluated for one role against the incumbent on the fixed
   // eval set. Pending rows are queued or running; the rest carry results.
@@ -3140,8 +3149,22 @@ export default defineSchema({
       v.literal("running"),
       v.literal("passed"),
       v.literal("failed"),
+      // A judge grade was missing on either side: never promotes.
+      v.literal("incomplete"),
       v.literal("error")
     ),
+    // The scheduled run, written in the same transaction as the row so a
+    // queued evaluation is never left without one.
+    scheduledJobId: v.optional(v.id("_scheduled_functions")),
+    // Spend held against the monthly budget while it runs: the most its
+    // full request envelope can cost. Released to evalCostUsd at the end.
+    reservedCostUsd: v.optional(v.number()),
+    // The part of evalCostUsd that is the reserved maximum of requests that
+    // were sent but never reported a charge (lost response, timeout).
+    unsettledCostUsd: v.optional(v.number()),
+    // When the row's spend counts against a monthly budget: created, then
+    // claimed, then settled. Monthly accounting reads this, not createdAt.
+    accountedAt: v.optional(v.number()),
     benchmarkScore: v.optional(v.number()),
     incumbentBenchmarkScore: v.optional(v.number()),
     estimatedCostUsd: v.number(),
@@ -3159,18 +3182,32 @@ export default defineSchema({
   })
     .index("by_status", ["status"])
     .index("by_role_and_modelId", ["role", "modelId"])
-    .index("by_createdAt", ["createdAt"]),
+    .index("by_createdAt", ["createdAt"])
+    .index("by_accountedAt", ["accountedAt"]),
 
-  // Provider calls that failed in a way the model is answerable for
-  // (malformed or truncated output, model refusals, unclassified errors).
-  // Billing, auth and rate-limit failures are not recorded: they say nothing
-  // about the model.
-  modelCallFailures: defineTable({
+  // Exact per-model, per-hour request outcomes for the production
+  // error-rate rollback: one terminal outcome per request, counted apart
+  // from billing (a billed malformed response is one failure, never also a
+  // success). Billing, auth, rate-limit and network failures are not
+  // counted: they say nothing about the model.
+  modelCallBuckets: defineTable({
     model: v.string(),
-    callSite: v.string(),
-    code: v.string(),
+    hourStart: v.number(),
+    successes: v.number(),
+    failures: v.number(),
+    lastFailureCode: v.optional(v.string()),
+    lastFailureCallSite: v.optional(v.string()),
+  }).index("by_model_and_hourStart", ["model", "hourStart"]),
+
+  // The same outcomes one row per request, kept two days, so the partial
+  // hours at the edges of a window are counted to the exact millisecond.
+  modelCallOutcomes: defineTable({
+    model: v.string(),
     at: v.number(),
-  }).index("by_model_and_at", ["model", "at"]),
+    outcome: v.union(v.literal("success"), v.literal("failure")),
+  })
+    .index("by_model_and_at", ["model", "at"])
+    .index("by_at", ["at"]),
 
   appSettings: defineTable({
     key: v.string(),

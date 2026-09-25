@@ -186,17 +186,13 @@ export async function openRouterChatCompletion(
     cacheWriteTtl: requestCacheWriteTtl(input.body),
   });
   // After a fallback the answer came from another model: bill that model.
-  const answered =
-    input.fallbackModels?.length && typeof body.model === "string"
-      ? [input.model, ...input.fallbackModels].find(
-          (id) => id === body.model || modelById(id)?.requestId === body.model
-        )
-      : undefined;
-  const usageModel = answered ?? input.model;
+  const usageModel = servingModelId(input.model, input.fallbackModels, body.model);
   if (usage) {
     input.onUsage?.({
       model: usageModel,
       costUsd: usage.costUsd ?? estimateCostFromTable(usageModel, usage),
+      ...(usage.costUsd !== undefined ? { nativeCostUsd: usage.costUsd } : {}),
+      tokens: usage,
     });
     await scheduleUsage(ctx, {
       ...(input.projectId ? { projectId: input.projectId } : {}),
@@ -225,6 +221,23 @@ export async function openRouterChatCompletion(
     });
   }
   return body;
+}
+
+/**
+ * The app model id that answered: the requested model, or the fallback
+ * whose id (or request id) OpenRouter reports in the response.
+ */
+export function servingModelId(
+  requested: string,
+  fallbacks: readonly string[] | undefined,
+  answered: unknown
+): string {
+  if (!fallbacks?.length || typeof answered !== "string") return requested;
+  return (
+    [requested, ...fallbacks].find(
+      (id) => id === answered || modelById(id)?.requestId === answered
+    ) ?? requested
+  );
 }
 
 export function instrumentedOpenRouter(
@@ -258,7 +271,17 @@ export function instrumentedOpenRouter(
           ...options,
           ...meta,
         });
-        return fromChatCompletions(body);
+        // Outcomes are attributed to the model that actually answered.
+        const served = servingModelId(params.model, options.fallbackModels, body.model);
+        try {
+          const response = fromChatCompletions(body);
+          return served === params.model ? response : { ...response, servedModel: served };
+        } catch (error) {
+          if (served !== params.model && error instanceof Error) {
+            Object.assign(error, { servedModel: served });
+          }
+          throw error;
+        }
       },
     },
   };

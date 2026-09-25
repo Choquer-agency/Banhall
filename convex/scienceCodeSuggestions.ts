@@ -37,8 +37,8 @@ export const suggest = action({
       .join("\n\n")
       .slice(0, MAX_CONTEXT_CHARS);
 
-    // Model catalog: the suggestion runs on the analysis role's model.
-    const { client, model } = await clientForRole(ctx, "analysis", {
+    // Model catalog: the suggestion runs on the science_code role's model.
+    const { client, model } = await clientForRole(ctx, "science_code", {
       callSite: "science-code-suggestion",
       projectId: args.projectId,
       userId: identity.tokenIdentifier,

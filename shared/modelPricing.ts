@@ -174,7 +174,14 @@ export function estimateCostFromTable(
   tokens: BilledTokens,
   override?: ModelPricing
 ): number {
-  const pricing = pricingFor(model) ?? override ?? FALLBACK_MODEL_PRICING;
+  return estimateCostWithPricing(
+    pricingFor(model) ?? override ?? FALLBACK_MODEL_PRICING,
+    tokens
+  );
+}
+
+/** Estimated USD cost of one response at exactly `pricing`. */
+export function estimateCostWithPricing(pricing: ModelPricing, tokens: BilledTokens): number {
   const cacheWrite = billable(tokens.cacheCreationInputTokens);
   const cacheWrite1h = Math.min(billable(tokens.cacheCreation1hInputTokens), cacheWrite);
   const cacheWrite5m = cacheWrite - cacheWrite1h;

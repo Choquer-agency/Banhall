@@ -2,10 +2,10 @@
 import { convexTest } from "convex-test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api } from "./_generated/api";
-import type { Id } from "./_generated/dataModel";
+import type { Doc, Id } from "./_generated/dataModel";
 import schema from "./schema";
 import fixture from "../shared/__fixtures__/openrouter-models-2026-09-24.json";
-import { parseOpenRouterModels, type EvalTaskResult } from "../shared/modelCatalog";
+import { parseOpenRouterModels, type EvalTaskResult, type ModelRole } from "../shared/modelCatalog";
 import {
   adminStateRef,
   applyCatalogRefreshRef,
@@ -21,6 +21,19 @@ import {
   setRoleModelRef,
 } from "./lib/modelCatalogRefs";
 import { generationPromptVersion } from "./ai/promptProgram";
+import { EVAL_ENVELOPE } from "./ai/modelEvaluation";
+import { MODEL_ROLES, ROLE_POLICIES, chargeCeiling, maxEvaluationCostUsd, maxPriceFor } from "../shared/modelCatalog";
+import { recordCallOutcomeRef } from "./lib/modelCatalogRefs";
+import { roleAutoSwitches } from "../shared/modelCatalog";
+import reviewAgentSource from "./ai/reviewAgent.ts?raw";
+import financialAgentSource from "./ai/financialAgent.ts?raw";
+import ingestSource from "./ai/brain/ingest.ts?raw";
+import learningSource from "./ai/learning.ts?raw";
+import scienceCodeSource from "./scienceCodeSuggestions.ts?raw";
+import modelFeedbackSource from "./ai/modelFeedback.ts?raw";
+import changelogSource from "./ai/changelogPipeline.ts?raw";
+import styleAnalysisSource from "./ai/styleAnalysis.ts?raw";
+import { guardProviderNetwork } from "../tests/providerNetworkGuard";
 
 const modules = import.meta.glob("./**/*.ts");
 type TestConvex = ReturnType<typeof convexTest<typeof schema.tables>>;
@@ -30,8 +43,13 @@ const parsed = parseOpenRouterModels(fixture, NOW).models;
 const ADMIN = "catalog-admin";
 const WRITER = "catalog-writer";
 
+guardProviderNetwork();
+// Every timer is fake, not just Date: convex-test starts scheduled
+// functions on setTimeout, and a planned evaluation or a reserved
+// generation left to run by itself would call model providers. Tests that
+// need scheduled work drive it themselves.
 beforeEach(() => {
-  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.useFakeTimers();
   vi.setSystemTime(NOW);
   vi.stubEnv("ANTHROPIC_API_KEY", "test-anthropic-key");
   vi.stubEnv("OPENROUTER_API_KEY", "test-openrouter-key");
@@ -107,7 +125,7 @@ async function runningEvaluation(t: TestConvex, modelId: string, role: "writing"
       createdAt: NOW,
     })
   );
-  const claim = await t.mutation(claimEvaluationRef, { evaluationId });
+  const claim = await t.mutation(claimEvaluationRef, { evaluationId, envelope: EVAL_ENVELOPE });
   expect(claim?.candidate.id).toBe(modelId);
   return evaluationId;
 }
@@ -243,7 +261,7 @@ describe("evaluation planning", () => {
 
   it("respects a lowered cost cap", async () => {
     const { t, admin } = await setup();
-    for (const role of ["writing", "structured_helper", "condense", "retrieval_brief", "analysis"] as const) {
+    for (const role of MODEL_ROLES) {
       await admin.mutation(setRoleCostCapRef, { role, maxInputUsdPerMTok: 0.01, maxOutputUsdPerMTok: 0.01, maxCostRatio: 2 });
     }
     expect(await t.mutation(planEvaluationsRef, {})).toEqual([]);
@@ -349,23 +367,42 @@ describe("rollback", () => {
 });
 
 describe("production error rollback", () => {
+  /** Record outcomes through the real per-request outcome mutation. */
   async function failingCalls(t: TestConvex, model: string, successes: number, failures: number) {
-    await t.run(async (ctx) => {
-      for (let i = 0; i < successes; i += 1) {
-        await ctx.db.insert("aiUsage", {
-          callSite: "generation:section:242",
-          model,
-          inputTokens: 10,
-          outputTokens: 10,
-          costUsd: 0,
-          createdAt: NOW,
-        });
-      }
-      for (let i = 0; i < failures; i += 1) {
-        await ctx.db.insert("modelCallFailures", { model, callSite: "generation:section:242", code: "malformed_output", at: NOW });
-      }
-    });
+    const callSite = "generation:section:242";
+    for (let i = 0; i < successes; i += 1) {
+      await t.mutation(recordCallOutcomeRef, { model, callSite, outcome: "success" });
+    }
+    for (let i = 0; i < failures; i += 1) {
+      await t.mutation(recordCallOutcomeRef, { model, callSite, outcome: "failure", code: "malformed_output" });
+    }
   }
+
+  it("counts exactly above any read cap: 10,000 successes and 300 failures is 2.9 percent, no rollback", async () => {
+    const { t } = await setup();
+    await promote(t, "x-ai/grok-4.7");
+    // Hourly buckets hold both counts, so neither side is ever truncated
+    // on its own (finding 5).
+    await t.run(async (ctx) => {
+      await ctx.db.insert("modelCallBuckets", {
+        model: "x-ai/grok-4.7",
+        hourStart: Math.floor(NOW / 3_600_000) * 3_600_000,
+        successes: 10_000,
+        failures: 300,
+      });
+    });
+    expect(await t.mutation(checkProductionErrorsRef, {})).toEqual([]);
+    expect(await writingModel(t)).toBe("x-ai/grok-4.7");
+  });
+
+  it("adds each request outcome to its model's hourly bucket", async () => {
+    const { t } = await setup();
+    await failingCalls(t, "x-ai/grok-4.7", 3, 2);
+    const buckets = await t.run((ctx) => ctx.db.query("modelCallBuckets").collect());
+    expect(buckets).toMatchObject([
+      { model: "x-ai/grok-4.7", successes: 3, failures: 2, lastFailureCode: "malformed_output" },
+    ]);
+  });
 
   it("rolls back a switched model that fails over the threshold, once, and blocks it for the role", async () => {
     const { t } = await setup();
@@ -484,5 +521,1098 @@ describe("models frozen per generation", () => {
     const other = await writer.mutation(api.generations.requestGeneration, { projectId, candidateMode: "single" });
     const otherVersion = await t.action(async (ctx) => await generationPromptVersion(ctx, other));
     expect(otherVersion).not.toBe(before);
+  });
+});
+
+describe("review fixes", () => {
+  it("finding 2: never promotes when the incumbent's judge grades are missing on one side", async () => {
+    const { t } = await setup();
+    const evaluationId = await runningEvaluation(t, "x-ai/grok-4.7");
+    const ungraded = incumbentResults().map(({ rubricScore: _drop, ...rest }) => rest);
+    expect(
+      await t.mutation(completeEvaluationRef, {
+        evaluationId,
+        candidateResults: results(),
+        incumbentResults: ungraded,
+        evalCostUsd: 0.2,
+      })
+    ).toBe("held");
+    const evaluation = await t.run((ctx) => ctx.db.get(evaluationId));
+    expect(evaluation?.status).toBe("incomplete");
+    expect(evaluation?.outcome).toBe(
+      "incomplete: no judge grade for incumbent seed_batch, incumbent section_draft"
+    );
+    expect(await writingModel(t)).toBe("claude-sonnet-5");
+  });
+
+  it("finding 2: a partial judge failure on either side is incomplete too", async () => {
+    const { t } = await setup();
+    for (const side of ["candidate", "incumbent"] as const) {
+      const evaluationId = await runningEvaluation(t, "x-ai/grok-4.7");
+      const partial = (side === "candidate" ? results() : incumbentResults()).map((result) =>
+        result.task === "section_draft" ? { ...result, rubricScore: undefined } : result
+      );
+      await t.mutation(completeEvaluationRef, {
+        evaluationId,
+        candidateResults: side === "candidate" ? partial : results(),
+        incumbentResults: side === "incumbent" ? partial : incumbentResults(),
+        evalCostUsd: 0.2,
+      });
+      expect((await t.run((ctx) => ctx.db.get(evaluationId)))?.outcome).toBe(
+        `incomplete: no judge grade for ${side} section_draft`
+      );
+    }
+    expect(await writingModel(t)).toBe("claude-sonnet-5");
+  });
+
+  it("finding 2: a candidate failing a gate of its own is held back, not incomplete", async () => {
+    const { t } = await setup();
+    const evaluationId = await runningEvaluation(t, "x-ai/grok-4.7");
+    await t.mutation(completeEvaluationRef, {
+      evaluationId,
+      candidateResults: results({ schemaValid: false, rubricScore: undefined }),
+      incumbentResults: incumbentResults(),
+      evalCostUsd: 0.2,
+    });
+    expect((await t.run((ctx) => ctx.db.get(evaluationId)))?.status).toBe("failed");
+  });
+
+  it("finding 4: each evaluation is scheduled in the same transaction as its row", async () => {
+    const { t } = await setup();
+    const ids = await t.mutation(planEvaluationsRef, {});
+    expect(ids.length).toBeGreaterThan(0);
+    for (const id of ids) {
+      const row = await t.run((ctx) => ctx.db.get(id));
+      expect(row?.scheduledJobId).toBeDefined();
+      const job = await t.run((ctx) => ctx.db.system.get(row!.scheduledJobId!));
+      expect(job?.name).toBe("ai/modelEvaluation:runEvaluation");
+      expect(job?.args[0]).toEqual({ evaluationId: id });
+    }
+  });
+
+  it("finding 4: a stranded queued evaluation is released and its role planned again", async () => {
+    const { t } = await setup();
+    const stranded = await t.run((ctx) =>
+      ctx.db.insert("modelEvaluations", {
+        role: "writing",
+        modelId: "x-ai/grok-4.7",
+        incumbentModelId: "claude-sonnet-5",
+        evalSetVersion: "banhall-eval/v1",
+        status: "queued",
+        estimatedCostUsd: 0.5,
+        createdAt: NOW - 1,
+      })
+    );
+    const ids = await t.mutation(planEvaluationsRef, {});
+    expect(await t.run((ctx) => ctx.db.get(stranded))).toMatchObject({
+      status: "error",
+      error: "The evaluation never started",
+      evalCostUsd: 0,
+    });
+    const planned = await t.run((ctx) => Promise.all(ids.map((id) => ctx.db.get(id))));
+    expect(planned.some((row) => row?.role === "writing")).toBe(true);
+  });
+
+  it("finding 7: claim reserves the full envelope and completion releases it to the actual spend", async () => {
+    const { t } = await setup();
+    const evaluationId = await runningEvaluation(t, "x-ai/grok-4.7");
+    const running = await t.run((ctx) => ctx.db.get(evaluationId));
+    const [grok, sonnet] = await Promise.all([row(t, "x-ai/grok-4.7"), row(t, "claude-sonnet-5")]);
+    // Each model at the most its requests can be charged: an OpenRouter
+    // model at its max_price (the writing cap, or its listed price if higher).
+    const priced = (r: NonNullable<typeof grok>) => {
+      const listed = { input: r.inputUsdPerMTok!, output: r.outputUsdPerMTok! };
+      const ceiling = chargeCeiling(
+        { gateway: r.gateway, maxPrice: maxPriceFor(ROLE_POLICIES.writing.defaultCostCap, r) },
+        listed
+      );
+      return {
+        gateway: r.gateway,
+        reasoning: r.reasoning,
+        maxCompletionTokens: r.maxCompletionTokens,
+        inputUsdPerMTok: ceiling.input,
+        outputUsdPerMTok: ceiling.output,
+      };
+    };
+    const expected = maxEvaluationCostUsd({
+      tasks: ROLE_POLICIES.writing.evalTasks,
+      envelope: EVAL_ENVELOPE,
+      candidate: priced(grok!),
+      incumbent: priced(sonnet!),
+      judge: priced(sonnet!),
+    });
+    expect(running?.reservedCostUsd).toBeCloseTo(expected, 10);
+    expect(expected).toBeGreaterThan(running!.estimatedCostUsd);
+    await t.mutation(completeEvaluationRef, {
+      evaluationId,
+      candidateResults: results(),
+      incumbentResults: incumbentResults(),
+      evalCostUsd: 0.2,
+    });
+    const done = await t.run((ctx) => ctx.db.get(evaluationId));
+    expect(done?.reservedCostUsd).toBeUndefined();
+    expect(done?.evalCostUsd).toBe(0.2);
+  });
+
+  it("finding 7: a budget lowered to zero, or below the envelope, stops a queued evaluation at claim", async () => {
+    const { t, admin } = await setup();
+    for (const monthlyUsd of [0, 0.6]) {
+      await admin.mutation(setEvalBudgetRef, { monthlyUsd });
+      const evaluationId = await t.run((ctx) =>
+        ctx.db.insert("modelEvaluations", {
+          role: "writing",
+          modelId: "x-ai/grok-4.7",
+          incumbentModelId: "claude-sonnet-5",
+          evalSetVersion: "banhall-eval/v1",
+          status: "queued",
+          estimatedCostUsd: 0.5,
+          createdAt: NOW,
+        })
+      );
+      expect(await t.mutation(claimEvaluationRef, { evaluationId, envelope: EVAL_ENVELOPE })).toBeNull();
+      const stopped = await t.run((ctx) => ctx.db.get(evaluationId));
+      expect(stopped?.status).toBe("error");
+      expect(stopped?.error).toMatch(/^Over the monthly evaluation budget/);
+    }
+  });
+
+  it("finding 9: every automatic role runs its own task; chat stays manual and says why", async () => {
+    const { t, admin } = await setup();
+    expect(ROLE_POLICIES.writing.evalTasks).toEqual(["seed_batch", "section_draft", "qa_structured"]);
+    expect(ROLE_POLICIES.condense.evalTasks).toEqual(["condense_digest"]);
+    expect(ROLE_POLICIES.retrieval_brief.evalTasks).toEqual(["retrieval_queries"]);
+    expect(ROLE_POLICIES.analysis.evalTasks).toEqual(["style_classification"]);
+    expect(ROLE_POLICIES.structured_helper.evalTasks).toEqual(["changelog_summary"]);
+    const state = await admin.query(adminStateRef, {});
+    const chat = state?.roles.find((role) => role.role === "chat");
+    expect(chat).toMatchObject({ autoSwitch: false });
+    expect(chat?.manualOnlyReason).toMatch(/no evaluation covers a streamed chat turn/);
+    // A chat evaluation that somehow queued never runs.
+    const evaluationId = await t.run((ctx) =>
+      ctx.db.insert("modelEvaluations", {
+        role: "chat",
+        modelId: "claude-opus-4-8",
+        incumbentModelId: "claude-sonnet-5",
+        evalSetVersion: "banhall-eval/v1",
+        status: "queued",
+        estimatedCostUsd: 0.1,
+        createdAt: NOW,
+      })
+    );
+    expect(await t.mutation(claimEvaluationRef, { evaluationId, envelope: EVAL_ENVELOPE })).toBeNull();
+    expect((await t.run((ctx) => ctx.db.get(evaluationId)))?.error).toBe(
+      "This role has no evaluation task of its own"
+    );
+  });
+
+  it("finding 10: a drifted canonical slug is adopted by id through refresh application", async () => {
+    const { t } = await setup();
+    const sol = await row(t, "openai/gpt-5.6-sol");
+    await t.run((ctx) => ctx.db.patch(sol!._id, { canonicalSlug: "openai/gpt-5.6-sol-old" }));
+    await t.mutation(applyCatalogRefreshRef, { models: parsed, fetchedAt: NOW, complete: true });
+    const adopted = await row(t, "openai/gpt-5.6-sol");
+    expect(adopted?.missingSince).toBeUndefined();
+    expect(adopted).toMatchObject({ status: "enabled", canonicalSlug: "openai/gpt-5.6-sol-20260709" });
+    expect((await notices(t)).some((m) => m.includes("no longer listed"))).toBe(false);
+    // A row already wrongly marked missing is cleared by the adoption.
+    await t.run((ctx) =>
+      ctx.db.patch(sol!._id, { canonicalSlug: "openai/gpt-5.6-sol-older", missingSince: NOW - 1, goneNoticeAt: NOW - 1 })
+    );
+    await t.mutation(applyCatalogRefreshRef, { models: parsed, fetchedAt: NOW, complete: true });
+    expect((await row(t, "openai/gpt-5.6-sol"))?.missingSince).toBeUndefined();
+  });
+});
+
+describe("second review", () => {
+  it("A: every call site resolves its own role; automatic roles are covered by a task each", async () => {
+    const roleOf = (source: string) =>
+      [...source.matchAll(/clientForRole\(ctx, "([a-z_]+)"/g)].map((match) => match[1]);
+    expect(roleOf(reviewAgentSource)).toEqual(["pd_review"]);
+    expect(roleOf(financialAgentSource)).toEqual(["financial_extraction"]);
+    expect(roleOf(ingestSource)).toEqual(["brain_context"]);
+    expect(roleOf(learningSource)).toEqual(["learning_digest"]);
+    expect(roleOf(scienceCodeSource)).toEqual(["science_code"]);
+    expect(roleOf(modelFeedbackSource)).toEqual(["feedback_summary"]);
+    expect(roleOf(changelogSource)).toEqual(["structured_helper"]);
+    expect(roleOf(styleAnalysisSource)).toEqual(["analysis"]);
+    const automatic = MODEL_ROLES.filter(roleAutoSwitches);
+    expect(automatic).toEqual([
+      "writing",
+      "condense",
+      "retrieval_brief",
+      "analysis",
+      "structured_helper",
+      "pd_review",
+      "financial_extraction",
+      "brain_context",
+    ]);
+    expect(ROLE_POLICIES.pd_review.evalTasks).toEqual(["pd_review_report"]);
+    expect(ROLE_POLICIES.financial_extraction.evalTasks).toEqual(["timesheet_extraction"]);
+    expect(ROLE_POLICIES.brain_context.evalTasks).toEqual(["chunk_context"]);
+    for (const role of automatic) {
+      for (const task of ROLE_POLICIES[role].evalTasks) expect(EVAL_ENVELOPE[task], `${role} ${task}`).toBeDefined();
+    }
+    // Uses without a fixture stay manual, say why, and keep today's models.
+    const { t, admin } = await setup();
+    const state = await admin.query(adminStateRef, {});
+    for (const [role, model] of [
+      ["chat", "claude-sonnet-5"],
+      ["learning_digest", "claude-sonnet-5"],
+      ["science_code", "claude-sonnet-5"],
+      ["feedback_summary", "claude-haiku-4-5-20251001"],
+      ["pd_review", "claude-sonnet-5"],
+      ["financial_extraction", "claude-sonnet-5"],
+      ["brain_context", "claude-haiku-4-5-20251001"],
+    ] as const) {
+      const entry = state?.roles.find((item) => item.role === role);
+      expect(entry?.modelId, role).toBe(model);
+      if (!roleAutoSwitches(role)) {
+        expect(entry?.autoSwitch).toBe(false);
+        expect(entry?.manualOnlyReason).toBeTruthy();
+        expect(entry?.evaluatedOn).toEqual([]);
+      } else {
+        expect(entry?.evaluatedOn.length).toBeGreaterThan(0);
+      }
+    }
+    // Manual roles are still switchable by an admin.
+    await admin.mutation(setRoleModelRef, { role: "learning_digest", modelId: "claude-opus-4-8" });
+    const learning = await t.run((ctx) =>
+      ctx.db.query("modelRoleAssignments").withIndex("by_role", (q) => q.eq("role", "learning_digest")).unique()
+    );
+    expect(learning?.modelId).toBe("claude-opus-4-8");
+  });
+
+  async function assignWriting(t: TestConvex, modelId: string, assignedAt: number) {
+    await t.run((ctx) =>
+      ctx.db.insert("modelRoleAssignments", {
+        role: "writing",
+        modelId,
+        previousModelId: "claude-sonnet-5",
+        assignedAt,
+        assignedBy: "system",
+      })
+    );
+  }
+  async function outcomesAt(t: TestConvex, at: number, model: string, successes: number, failures: number) {
+    vi.setSystemTime(at);
+    for (let i = 0; i < successes; i += 1) {
+      await t.mutation(recordCallOutcomeRef, { model, callSite: "generation:analyzer", outcome: "success" });
+    }
+    for (let i = 0; i < failures; i += 1) {
+      await t.mutation(recordCallOutcomeRef, { model, callSite: "generation:analyzer", outcome: "failure", code: "unknown" });
+    }
+  }
+
+  it("D: outcomes from before a mid-hour assignment never count", async () => {
+    const { t } = await setup();
+    const hour = Date.parse("2026-09-24T10:00:00Z");
+    await outcomesAt(t, hour + 50 * 60_000, "x-ai/grok-4.7", 15, 5);
+    await assignWriting(t, "x-ai/grok-4.7", hour + 55 * 60_000);
+    vi.setSystemTime(hour + 90 * 60_000);
+    expect(await t.mutation(checkProductionErrorsRef, {})).toEqual([]);
+    // The same failures after the assignment do count.
+    await outcomesAt(t, hour + 95 * 60_000, "x-ai/grok-4.7", 15, 5);
+    expect(await t.mutation(checkProductionErrorsRef, {})).toEqual([
+      { role: "writing", modelId: "x-ai/grok-4.7", rolledBack: true },
+    ]);
+  });
+
+  it("D: outcomes older than the rolling 24 hours never count, even in the window's first hour", async () => {
+    const { t } = await setup();
+    const now = Date.parse("2026-09-24T12:30:00Z");
+    await assignWriting(t, "x-ai/grok-4.7", now - 3 * 24 * 3_600_000);
+    // 12:10 yesterday: 20 minutes outside a window that opens at 12:30.
+    await outcomesAt(t, now - 24 * 3_600_000 - 20 * 60_000, "x-ai/grok-4.7", 15, 5);
+    // A little healthy traffic inside the window, in a full hour and the
+    // current one: counted with the stale failures it would reach 20.8
+    // percent of 24 calls and roll back.
+    await outcomesAt(t, now - 5 * 3_600_000, "x-ai/grok-4.7", 3, 0);
+    await outcomesAt(t, now - 10 * 60_000, "x-ai/grok-4.7", 1, 0);
+    vi.setSystemTime(now);
+    expect(await t.mutation(checkProductionErrorsRef, {})).toEqual([]);
+    // Inside the window the full-hour bucket and the partial hour both count.
+    await outcomesAt(t, now - 5 * 3_600_000, "x-ai/grok-4.7", 12, 5);
+    vi.setSystemTime(now);
+    expect(await t.mutation(checkProductionErrorsRef, {})).toEqual([
+      { role: "writing", modelId: "x-ai/grok-4.7", rolledBack: true },
+    ]);
+  });
+
+  it("F: a queued evaluation from last month claimed this month counts against this month's budget", async () => {
+    const { t, admin } = await setup();
+    const lastMonth = Date.parse("2026-08-31T23:00:00Z");
+    const insertQueued = () =>
+      t.run((ctx) =>
+        ctx.db.insert("modelEvaluations", {
+          role: "writing",
+          modelId: "x-ai/grok-4.7",
+          incumbentModelId: "claude-sonnet-5",
+          evalSetVersion: "banhall-eval/v1",
+          status: "queued",
+          estimatedCostUsd: 0.01,
+          createdAt: lastMonth,
+          accountedAt: lastMonth,
+        })
+      );
+    const first = await insertQueued();
+    const second = await insertQueued();
+    const claimed = await t.mutation(claimEvaluationRef, { evaluationId: first, envelope: EVAL_ENVELOPE });
+    expect(claimed).not.toBeNull();
+    const reservation = claimed!.reservedCostUsd;
+    await admin.mutation(setEvalBudgetRef, { monthlyUsd: reservation * 1.5 });
+    expect(await t.mutation(claimEvaluationRef, { evaluationId: second, envelope: EVAL_ENVELOPE })).toBeNull();
+    expect((await t.run((ctx) => ctx.db.get(second)))?.error).toMatch(/^Over the monthly evaluation budget/);
+  });
+});
+
+describe("round 3", () => {
+  const queued = (t: TestConvex, fields: Partial<Doc<"modelEvaluations">> = {}) =>
+    t.run((ctx) =>
+      ctx.db.insert("modelEvaluations", {
+        role: "writing",
+        modelId: "x-ai/grok-4.7",
+        incumbentModelId: "claude-sonnet-5",
+        evalSetVersion: "banhall-eval/v1",
+        status: "queued",
+        estimatedCostUsd: 0.01,
+        createdAt: NOW,
+        ...fields,
+      })
+    );
+
+  it("1: settled and running rows written before accountedAt still count this month", async () => {
+    const { t, admin } = await setup();
+    await admin.mutation(setEvalBudgetRef, { monthlyUsd: 20 });
+    // A completed evaluation from before the field existed spent the budget.
+    const legacyDone = await queued(t, { status: "passed", evalCostUsd: 19.99, completedAt: NOW });
+    const blocked = await queued(t);
+    expect(await t.mutation(claimEvaluationRef, { evaluationId: blocked, envelope: EVAL_ENVELOPE })).toBeNull();
+    // A running evaluation from before the field existed holds its reservation.
+    await t.run((ctx) => ctx.db.patch(legacyDone, { status: "error", evalCostUsd: 0 }));
+    await queued(t, { status: "running", reservedCostUsd: 19.99, startedAt: NOW });
+    const blockedAgain = await queued(t);
+    expect(await t.mutation(claimEvaluationRef, { evaluationId: blockedAgain, envelope: EVAL_ENVELOPE })).toBeNull();
+    expect((await t.run((ctx) => ctx.db.get(blockedAgain)))?.error).toMatch(/^Over the monthly evaluation budget/);
+  });
+
+  it("4: a reservation claimed before midnight still blocks the new month until it settles", async () => {
+    const { t, admin } = await setup();
+    const beforeMidnight = Date.parse("2026-08-31T23:59:00Z");
+    await queued(t, {
+      status: "running",
+      reservedCostUsd: 19.99,
+      createdAt: beforeMidnight,
+      startedAt: beforeMidnight,
+      accountedAt: beforeMidnight,
+    });
+    await admin.mutation(setEvalBudgetRef, { monthlyUsd: 20 });
+    const next = await queued(t);
+    expect(await t.mutation(claimEvaluationRef, { evaluationId: next, envelope: EVAL_ENVELOPE })).toBeNull();
+    expect((await t.run((ctx) => ctx.db.get(next)))?.error).toMatch(/^Over the monthly evaluation budget/);
+  });
+
+  it("2: split roles start from a customised predecessor and then move independently", async () => {
+    const t = convexTest(schema, modules);
+    await t.run(async (ctx) => {
+      const adminId = await ctx.db.insert("users", { authId: ADMIN, role: "admin" });
+      // Before the split an admin customised both old roles.
+      await ctx.db.insert("modelRoleAssignments", {
+        role: "analysis",
+        modelId: "claude-opus-4-8",
+        previousModelId: "claude-sonnet-5",
+        assignedAt: NOW - 1000,
+        assignedBy: "user",
+        assignedByUserId: adminId,
+      });
+      await ctx.db.insert("modelRoleAssignments", {
+        role: "structured_helper",
+        modelId: "openai/gpt-5.6-luna",
+        previousModelId: "claude-haiku-4-5-20251001",
+        assignedAt: NOW - 1000,
+        assignedBy: "user",
+        assignedByUserId: adminId,
+      });
+    });
+    const admin = t.withIdentity({ subject: ADMIN });
+    const modelOf = async (role: string) =>
+      (await admin.query(adminStateRef, {}))?.roles.find((item) => item.role === role)?.modelId;
+    // Right after the deploy, before anything ran: the split roles already
+    // run what the old roles were customised to.
+    for (const role of ["pd_review", "financial_extraction", "learning_digest", "science_code"]) {
+      expect(await modelOf(role), role).toBe("claude-opus-4-8");
+    }
+    for (const role of ["brain_context", "feedback_summary"]) {
+      expect(await modelOf(role), role).toBe("openai/gpt-5.6-luna");
+    }
+    // The daily refresh materializes them.
+    await t.mutation(applyCatalogRefreshRef, { models: parsed, fetchedAt: NOW, complete: false });
+    const learning = await t.run((ctx) =>
+      ctx.db.query("modelRoleAssignments").withIndex("by_role", (q) => q.eq("role", "learning_digest")).unique()
+    );
+    expect(learning).toMatchObject({ modelId: "claude-opus-4-8", origin: "role_split" });
+    expect((await admin.query(adminStateRef, {}))?.roles.find((item) => item.role === "learning_digest")?.carriedOverFrom).toBe(
+      "Style analysis"
+    );
+    // The old roles moving no longer drags the split roles along...
+    await admin.mutation(setRoleModelRef, { role: "analysis", modelId: "claude-sonnet-5" });
+    await admin.mutation(setRoleModelRef, { role: "structured_helper", modelId: "claude-haiku-4-5-20251001" });
+    expect(await modelOf("learning_digest")).toBe("claude-opus-4-8");
+    expect(await modelOf("feedback_summary")).toBe("openai/gpt-5.6-luna");
+    // ...and a later independent choice stays put.
+    await admin.mutation(setRoleModelRef, { role: "pd_review", modelId: "claude-sonnet-5" });
+    await admin.mutation(setRoleModelRef, { role: "analysis", modelId: "claude-opus-4-8" });
+    expect(await modelOf("pd_review")).toBe("claude-sonnet-5");
+  });
+
+  it("2: a switch before any refresh materializes the split first", async () => {
+    const t = convexTest(schema, modules);
+    await t.run(async (ctx) => {
+      await ctx.db.insert("users", { authId: ADMIN, role: "admin" });
+      await ctx.db.insert("modelRoleAssignments", {
+        role: "analysis",
+        modelId: "claude-opus-4-8",
+        assignedAt: NOW - 1000,
+        assignedBy: "system",
+      });
+    });
+    const admin = t.withIdentity({ subject: ADMIN });
+    await admin.mutation(setRoleModelRef, { role: "analysis", modelId: "claude-sonnet-5" });
+    expect((await admin.query(adminStateRef, {}))?.roles.find((item) => item.role === "financial_extraction")?.modelId).toBe(
+      "claude-opus-4-8"
+    );
+  });
+
+  it("3: retention deletes every expired outcome row in continuing batches and keeps recent ones", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(NOW);
+    const { t } = await setup();
+    await t.run(async (ctx) => {
+      for (let i = 0; i < 1_200; i += 1) {
+        await ctx.db.insert("modelCallOutcomes", { model: "x-ai/grok-4.7", at: NOW - 3 * 86_400_000 + i, outcome: "success" });
+      }
+      for (let i = 0; i < 10; i += 1) {
+        await ctx.db.insert("modelCallOutcomes", { model: "x-ai/grok-4.7", at: NOW - 60_000 + i, outcome: "success" });
+      }
+    });
+    await t.mutation(checkProductionErrorsRef, {});
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
+    const left = await t.run((ctx) => ctx.db.query("modelCallOutcomes").collect());
+    expect(left).toHaveLength(10);
+    expect(left.every((row) => row.at >= NOW - 60_000)).toBe(true);
+  });
+});
+
+/**
+ * `role` becomes the only role with room under its cost cap, and `modelId`
+ * its best candidate on paper, so a plan queues `modelId` for `role` unless
+ * something excludes it.
+ */
+async function onlyRoleCanPlan(t: TestConvex, role: ModelRole, modelId: string) {
+  const admin = t.withIdentity({ subject: ADMIN });
+  for (const other of MODEL_ROLES) {
+    if (other === role) continue;
+    await admin.mutation(setRoleCostCapRef, { role: other, maxInputUsdPerMTok: 0.01, maxOutputUsdPerMTok: 0.01, maxCostRatio: 2 });
+  }
+  await t.run(async (ctx) => {
+    const row = await ctx.db.query("modelCatalog").withIndex("by_modelId", (q) => q.eq("modelId", modelId)).first();
+    await ctx.db.patch(row!._id, {
+      benchmarks: [{ source: "openrouter_aa", metric: "intelligence_index", value: 99, fetchedAt: NOW }],
+    });
+  });
+}
+
+async function plan(t: TestConvex) {
+  const ids = await t.mutation(planEvaluationsRef, {});
+  const rows = await t.run((ctx) => Promise.all(ids.map((id) => ctx.db.get(id))));
+  return rows.map((row) => ({ id: row!._id, role: row!.role, modelId: row!.modelId }));
+}
+
+/**
+ * Drops evaluations that were planned but never started: a queued one
+ * marks its role busy, and a settled one would put its model on the
+ * evaluation cooldown, which must not stand in for the rollback check.
+ */
+async function dropQueued(t: TestConvex) {
+  await t.run(async (ctx) => {
+    for (const row of await ctx.db.query("modelEvaluations").withIndex("by_status", (q) => q.eq("status", "queued")).collect()) {
+      await ctx.db.delete(row._id);
+    }
+  });
+}
+
+/** Deletes `role`'s rollbacks from `modelId`: the negative control for an exclusion. */
+async function forgetRollbacks(t: TestConvex, role: ModelRole, modelId: string) {
+  await t.run(async (ctx) => {
+    for (const event of await ctx.db
+      .query("modelSwitchEvents")
+      .withIndex("by_role_and_kind_and_fromModelId_and_at", (q) =>
+        q.eq("role", role).eq("kind", "rollback").eq("fromModelId", modelId)
+      )
+      .collect()) {
+      await ctx.db.delete(event._id);
+    }
+  });
+}
+
+describe("round 4", () => {
+  const A = "claude-sonnet-5";
+  const B = "claude-opus-4-8";
+  const SWITCHED_AT = NOW - 2 * 3_600_000;
+  const NOTICED_AT = SWITCHED_AT + 60_000;
+  const ANALYSIS_CHILDREN = ["pd_review", "financial_extraction", "learning_digest", "science_code"] as const;
+
+  const assignmentOf = (t: TestConvex, role: Doc<"modelRoleAssignments">["role"]) =>
+    t.run((ctx) =>
+      ctx.db.query("modelRoleAssignments").withIndex("by_role", (q) => q.eq("role", role)).unique()
+    );
+  const eventsOf = (t: TestConvex, role: Doc<"modelSwitchEvents">["role"]) =>
+    t.run((ctx) =>
+      ctx.db.query("modelSwitchEvents").withIndex("by_role_and_at", (q) => q.eq("role", role)).collect()
+    );
+
+  /** A deployment from before the split: only the old roles have assignments. */
+  async function beforeSplit(analysis: { modelId: string; previousModelId: string; rolledBack: boolean }) {
+    const t = convexTest(schema, modules);
+    await t.run(async (ctx) => {
+      await ctx.db.insert("users", { authId: ADMIN, role: "admin" });
+      const promotedAt = analysis.rolledBack ? SWITCHED_AT - 3_600_000 : SWITCHED_AT;
+      await ctx.db.insert("modelSwitchEvents", {
+        role: "analysis",
+        fromModelId: A,
+        toModelId: B,
+        kind: "promotion",
+        reason: "evaluation_passed",
+        actor: "system",
+        at: promotedAt,
+      });
+      if (analysis.rolledBack) {
+        await ctx.db.insert("modelSwitchEvents", {
+          role: "analysis",
+          fromModelId: B,
+          toModelId: A,
+          kind: "rollback",
+          reason: "production_error_rate",
+          actor: "system",
+          at: SWITCHED_AT,
+        });
+      }
+      await ctx.db.insert("modelRoleAssignments", {
+        role: "analysis",
+        modelId: analysis.modelId,
+        previousModelId: analysis.previousModelId,
+        assignedAt: SWITCHED_AT,
+        assignedBy: "system",
+        errorNoticeAt: NOTICED_AT,
+      });
+    });
+    return t;
+  }
+
+  /** 6 of 21 calls fail (28.6 percent), an hour after the switch. */
+  async function failing(t: TestConvex, model: string) {
+    vi.setSystemTime(NOW - 3_600_000);
+    for (let i = 0; i < 15; i += 1) {
+      await t.mutation(recordCallOutcomeRef, { model, callSite: "pd-review", outcome: "success" });
+    }
+    for (let i = 0; i < 6; i += 1) {
+      await t.mutation(recordCallOutcomeRef, { model, callSite: "pd-review", outcome: "failure", code: "malformed_output" });
+    }
+    vi.setSystemTime(NOW);
+  }
+
+  it("4: split roles carried over from a failing switched predecessor roll back with it on the first refresh", async () => {
+    // Before the deploy: analysis was promoted from A to B, and an admin
+    // had already given science code suggestions a model of their own.
+    const t = await beforeSplit({ modelId: B, previousModelId: A, rolledBack: false });
+    const independentId = await t.run(async (ctx) => {
+      const adminId = (await ctx.db.query("users").first())!._id;
+      return await ctx.db.insert("modelRoleAssignments", {
+        role: "science_code",
+        modelId: "claude-haiku-4-5-20251001",
+        previousModelId: A,
+        assignedAt: SWITCHED_AT - 60_000,
+        assignedBy: "user",
+        assignedByUserId: adminId,
+      });
+    });
+    const independent = await t.run((ctx) => ctx.db.get(independentId));
+    await failing(t, B);
+
+    // The daily job: the refresh materializes the split, then the
+    // production error check runs.
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) =>
+      String(input).endsWith("/api/v1/models")
+        ? Response.json(fixture)
+        : Response.json({ data: { endpoints: [] } })
+    ));
+    await t.action(refreshCatalogRef, {});
+
+    expect(await assignmentOf(t, "analysis")).toMatchObject({ modelId: A, previousModelId: B });
+    for (const role of ["pd_review", "financial_extraction", "learning_digest"] as const) {
+      expect(await assignmentOf(t, role), role).toMatchObject({ modelId: A, previousModelId: B });
+      expect((await assignmentOf(t, role))?.origin, role).toBeUndefined();
+      expect(await eventsOf(t, role), role).toMatchObject([
+        { kind: "rollback", reason: "production_error_rate", fromModelId: B, toModelId: A, actor: "system" },
+      ]);
+    }
+    // Both automatic split roles are among them.
+    expect(roleAutoSwitches("pd_review") && roleAutoSwitches("financial_extraction")).toBe(true);
+    // The role an admin had already assigned is untouched.
+    expect(await t.run((ctx) => ctx.db.get(independentId))).toEqual(independent);
+    expect(await eventsOf(t, "science_code")).toEqual([]);
+    // Nothing flips back afterwards.
+    expect(await t.mutation(checkProductionErrorsRef, {})).toEqual([]);
+  });
+
+  it("4: materializing keeps the predecessor's rollback target, switch time and last notice", async () => {
+    const t = await beforeSplit({ modelId: B, previousModelId: A, rolledBack: false });
+    await t.mutation(applyCatalogRefreshRef, { models: parsed, fetchedAt: NOW, complete: false });
+    for (const role of ANALYSIS_CHILDREN) {
+      expect(await assignmentOf(t, role), role).toMatchObject({
+        modelId: B,
+        previousModelId: A,
+        assignedAt: SWITCHED_AT,
+        errorNoticeAt: NOTICED_AT,
+        assignedBy: "system",
+        origin: "role_split",
+        inheritedHistory: { role: "analysis", until: SWITCHED_AT },
+      });
+    }
+    const admin = t.withIdentity({ subject: ADMIN });
+    const pdReview = (await admin.query(adminStateRef, {}))?.roles.find((item) => item.role === "pd_review");
+    expect(pdReview).toMatchObject({ carriedOverFrom: "Style analysis", previousModelId: A });
+  });
+
+  it("4: a predecessor rolled back by hand before any refresh leaves its split roles watched", async () => {
+    const t = await beforeSplit({ modelId: B, previousModelId: A, rolledBack: false });
+    await failing(t, B);
+    const admin = t.withIdentity({ subject: ADMIN });
+    await admin.mutation(rollbackRoleRef, { role: "analysis" });
+    expect(await t.mutation(checkProductionErrorsRef, {})).toEqual(
+      ANALYSIS_CHILDREN.map((role) => ({ role, modelId: B, rolledBack: true }))
+    );
+    for (const role of ANALYSIS_CHILDREN) {
+      expect((await assignmentOf(t, role))?.modelId, role).toBe(A);
+    }
+  });
+
+  it("4: a split role never flips back after a rollback its predecessor made before the split, even after its own promotion", async () => {
+    // Before the deploy: analysis was rolled back from B to A.
+    const t = await beforeSplit({ modelId: A, previousModelId: B, rolledBack: true });
+    await t.mutation(applyCatalogRefreshRef, { models: parsed, fetchedAt: NOW, complete: false });
+    for (const role of ANALYSIS_CHILDREN) {
+      expect(await assignmentOf(t, role), role).toMatchObject({
+        modelId: A,
+        previousModelId: B,
+        assignedAt: SWITCHED_AT,
+        origin: "role_split",
+      });
+    }
+    // A now fails too: no role goes back to the model it was rolled back from.
+    await failing(t, A);
+    expect(await t.mutation(checkProductionErrorsRef, {})).toEqual([]);
+    for (const role of ANALYSIS_CHILDREN) {
+      expect((await assignmentOf(t, role))?.modelId, role).toBe(A);
+    }
+    // Nor is B evaluated again for them, though it is PD review's best
+    // candidate on paper and the only role left with room under its cap.
+    const admin = t.withIdentity({ subject: ADMIN });
+    for (const role of MODEL_ROLES) {
+      if (role === "pd_review") continue;
+      await admin.mutation(setRoleCostCapRef, { role, maxInputUsdPerMTok: 0.01, maxOutputUsdPerMTok: 0.01, maxCostRatio: 2 });
+    }
+    await t.run(async (ctx) => {
+      const opus = await ctx.db.query("modelCatalog").withIndex("by_modelId", (q) => q.eq("modelId", B)).first();
+      await ctx.db.patch(opus!._id, {
+        benchmarks: [{ source: "openrouter_aa", metric: "intelligence_index", value: 99, fetchedAt: NOW }],
+      });
+    });
+    const planned = await t.mutation(planEvaluationsRef, {});
+    const queued = await t.run((ctx) => Promise.all(planned.map((id) => ctx.db.get(id))));
+    expect(queued.map((evaluation) => evaluation?.role)).toEqual(["pd_review"]);
+    expect(queued.some((evaluation) => evaluation?.modelId === B)).toBe(false);
+
+    // PD review then switches on its own: the planned candidate C passes
+    // and is promoted from A, which clears the carried-over marker.
+    const [evaluationId] = planned;
+    const claim = await t.mutation(claimEvaluationRef, { evaluationId, envelope: EVAL_ENVELOPE });
+    const C = claim!.candidate.id;
+    expect([A, B]).not.toContain(C);
+    const pdReview = (rubricScore: number): EvalTaskResult[] => [
+      { task: "pd_review_report", structured: true, schemaValid: true, contractPassed: true, rubricScore, costUsd: 0.05 },
+    ];
+    expect(
+      await t.mutation(completeEvaluationRef, {
+        evaluationId,
+        candidateResults: pdReview(8),
+        incumbentResults: pdReview(7),
+        evalCostUsd: 0.1,
+      })
+    ).toBe("promoted");
+    const promoted = await assignmentOf(t, "pd_review");
+    expect(promoted).toMatchObject({ modelId: C, previousModelId: A });
+    expect(promoted?.origin).toBeUndefined();
+    expect(await eventsOf(t, "pd_review")).toMatchObject([{ kind: "promotion", fromModelId: A, toModelId: C }]);
+    // B still beats C on paper, and the next plan still leaves it out.
+    const next = await t.mutation(planEvaluationsRef, {});
+    const nextQueued = await t.run((ctx) => Promise.all(next.map((id) => ctx.db.get(id))));
+    expect(nextQueued.some((evaluation) => evaluation?.modelId === B)).toBe(false);
+    // The error check goes by PD review's own last switch now: a failing C
+    // is rolled back to A, while the roles still on A stay put.
+    vi.setSystemTime(NOW + 30 * 60_000);
+    for (let i = 0; i < 21; i += 1) {
+      await t.mutation(recordCallOutcomeRef, { model: C, callSite: "pd-review", outcome: i < 6 ? "failure" : "success" });
+    }
+    vi.setSystemTime(NOW + 3_600_000);
+    expect(await t.mutation(checkProductionErrorsRef, {})).toEqual([{ role: "pd_review", modelId: C, rolledBack: true }]);
+    expect((await assignmentOf(t, "pd_review"))?.modelId).toBe(A);
+  });
+
+  describe("round 6", () => {
+    const D = "claude-haiku-4-5-20251001";
+
+    /** PD review promotes the candidate its planned evaluation measured. */
+    async function promotePdReview(t: TestConvex, evaluationId: Id<"modelEvaluations">) {
+      const claim = await t.mutation(claimEvaluationRef, { evaluationId, envelope: EVAL_ENVELOPE });
+      const result = (rubricScore: number): EvalTaskResult[] => [
+        { task: "pd_review_report", structured: true, schemaValid: true, contractPassed: true, rubricScore, costUsd: 0.05 },
+      ];
+      expect(
+        await t.mutation(completeEvaluationRef, {
+          evaluationId,
+          candidateResults: result(8),
+          incumbentResults: result(7),
+          evalCostUsd: 0.1,
+        })
+      ).toBe("promoted");
+      return claim!.candidate.id;
+    }
+
+    it("6: a split role materialized before inheritedHistory existed keeps its predecessor's rollback after the upgrade", async () => {
+      // Before the upgrade: analysis rolled B back to A, and the previous
+      // version had already materialized PD review from it, without the field.
+      const t = await beforeSplit({ modelId: A, previousModelId: B, rolledBack: true });
+      const legacy = {
+        role: "pd_review" as const,
+        modelId: A,
+        previousModelId: B,
+        assignedAt: SWITCHED_AT,
+        assignedBy: "system" as const,
+        origin: "role_split" as const,
+      };
+      const { legacyId, independentId } = await t.run(async (ctx) => {
+        const adminId = (await ctx.db.query("users").first())!._id;
+        return {
+          legacyId: await ctx.db.insert("modelRoleAssignments", legacy),
+          independentId: await ctx.db.insert("modelRoleAssignments", {
+            role: "science_code",
+            modelId: D,
+            previousModelId: A,
+            assignedAt: SWITCHED_AT - 60_000,
+            assignedBy: "user",
+            assignedByUserId: adminId,
+          }),
+        };
+      });
+      const independent = await t.run((ctx) => ctx.db.get(independentId));
+
+      // A fails before anything has run since the upgrade: PD review is
+      // not sent back to the model its predecessor rolled back from.
+      await failing(t, A);
+      expect(await t.mutation(checkProductionErrorsRef, {})).toEqual([]);
+      expect((await assignmentOf(t, "pd_review"))?.modelId).toBe(A);
+
+      // The first refresh writes the field on the legacy row, and only there.
+      await t.mutation(applyCatalogRefreshRef, { models: parsed, fetchedAt: NOW, complete: false });
+      expect(await t.run((ctx) => ctx.db.get(legacyId))).toMatchObject({
+        ...legacy,
+        inheritedHistory: { role: "analysis", until: SWITCHED_AT },
+      });
+      expect(await t.run((ctx) => ctx.db.get(independentId))).toEqual(independent);
+
+      // B stays out of PD review's plans, also once its own promotion has
+      // cleared the role_split marker.
+      await onlyRoleCanPlan(t, "pd_review", B);
+      const [first] = await plan(t);
+      expect(first).toMatchObject({ role: "pd_review" });
+      expect(first.modelId).not.toBe(B);
+      await promotePdReview(t, first.id);
+      expect((await assignmentOf(t, "pd_review"))?.origin).toBeUndefined();
+      expect((await plan(t)).some((item) => item.modelId === B)).toBe(false);
+      // Negative control: without analysis's rollback, the same plan picks B.
+      await dropQueued(t);
+      await forgetRollbacks(t, "analysis", B);
+      expect((await plan(t)).filter((item) => item.modelId === B).map((item) => item.role)).toEqual(["pd_review"]);
+    });
+
+    it("6: a predecessor's rollback stays excluded however many switches its split role makes", async () => {
+      // Analysis rolled B back to A, then was switched by hand 49 more
+      // times: that rollback is its 50th newest event at the split.
+      const t = convexTest(schema, modules);
+      const start = SWITCHED_AT - 60 * 60_000;
+      const lastAt = start + 49 * 60_000;
+      await t.run(async (ctx) => {
+        await ctx.db.insert("users", { authId: ADMIN, role: "admin" });
+        await ctx.db.insert("modelSwitchEvents", {
+          role: "analysis",
+          fromModelId: B,
+          toModelId: A,
+          kind: "rollback",
+          reason: "production_error_rate",
+          actor: "system",
+          at: start,
+        });
+        for (let i = 1; i <= 49; i += 1) {
+          await ctx.db.insert("modelSwitchEvents", {
+            role: "analysis",
+            fromModelId: i % 2 === 1 ? A : D,
+            toModelId: i % 2 === 1 ? D : A,
+            kind: "manual",
+            reason: "admin_choice",
+            actor: "user",
+            at: start + i * 60_000,
+          });
+        }
+        // The 49th switch, the last, went from A to D.
+        await ctx.db.insert("modelRoleAssignments", {
+          role: "analysis",
+          modelId: D,
+          previousModelId: A,
+          assignedAt: lastAt,
+          assignedBy: "user",
+        });
+      });
+      await t.mutation(applyCatalogRefreshRef, { models: parsed, fetchedAt: NOW, complete: false });
+      expect((await assignmentOf(t, "pd_review"))?.inheritedHistory).toEqual({ role: "analysis", until: lastAt });
+      const newestFifty = await t.run((ctx) =>
+        ctx.db
+          .query("modelSwitchEvents")
+          .withIndex("by_role_and_at", (q) => q.eq("role", "analysis").lte("at", lastAt))
+          .order("desc")
+          .take(50)
+      );
+      expect(newestFifty).toHaveLength(50);
+      expect(newestFifty.at(-1)).toMatchObject({ kind: "rollback", fromModelId: B });
+
+      await onlyRoleCanPlan(t, "pd_review", B);
+      const [first] = await plan(t);
+      expect(first).toMatchObject({ role: "pd_review" });
+      expect(first.modelId).not.toBe(B);
+      // One switch of its own...
+      await promotePdReview(t, first.id);
+      expect((await plan(t)).some((item) => item.modelId === B)).toBe(false);
+      // ...and many more.
+      await dropQueued(t);
+      const admin = t.withIdentity({ subject: ADMIN });
+      for (let i = 0; i < 60; i += 1) {
+        await admin.mutation(setRoleModelRef, { role: "pd_review", modelId: i % 2 === 0 ? A : D });
+      }
+      expect(await eventsOf(t, "pd_review")).toHaveLength(61);
+      const last = await plan(t);
+      expect(last.map((item) => item.role)).toEqual(["pd_review"]);
+      expect(last.some((item) => item.modelId === B)).toBe(false);
+      // Negative control: without analysis's rollback, the same plan picks B.
+      await dropQueued(t);
+      await forgetRollbacks(t, "analysis", B);
+      expect((await plan(t)).filter((item) => item.modelId === B).map((item) => item.role)).toEqual(["pd_review"]);
+    });
+  });
+});
+
+describe("round 7", () => {
+  const INCUMBENT = "claude-sonnet-5";
+  const CANDIDATE = "claude-opus-4-8";
+  const HAIKU = "claude-haiku-4-5-20251001";
+
+  const writingEvents = (t: TestConvex) =>
+    t.run((ctx) =>
+      ctx.db.query("modelSwitchEvents").withIndex("by_role_and_at", (q) => q.eq("role", "writing")).collect()
+    );
+
+  /** The daily plan queues CANDIDATE for writing, which runs INCUMBENT. */
+  async function plannedCandidate(t: TestConvex) {
+    await onlyRoleCanPlan(t, "writing", CANDIDATE);
+    const [queued] = await plan(t);
+    expect(queued).toMatchObject({ role: "writing", modelId: CANDIDATE });
+    return queued.id;
+  }
+
+  /** An admin tries CANDIDATE by hand, and it is rolled back to INCUMBENT. */
+  async function triedAndRolledBack(admin: ReturnType<TestConvex["withIdentity"]>, t: TestConvex) {
+    await admin.mutation(setRoleModelRef, { role: "writing", modelId: CANDIDATE });
+    await admin.mutation(rollbackRoleRef, { role: "writing" });
+    expect(await writingModel(t)).toBe(INCUMBENT);
+  }
+
+  it("7: an evaluation that finishes after its role was rolled back from the candidate is held, not promoted", async () => {
+    const { t, admin } = await setup();
+    const evaluationId = await plannedCandidate(t);
+    expect(await t.mutation(claimEvaluationRef, { evaluationId, envelope: EVAL_ENVELOPE })).not.toBeNull();
+    // While it runs, an admin tries the candidate by hand and rolls it back.
+    await triedAndRolledBack(admin, t);
+    // The role runs the incumbent again, and the candidate passes every gate.
+    const complete = () =>
+      t.mutation(completeEvaluationRef, {
+        evaluationId,
+        candidateResults: results(),
+        incumbentResults: incumbentResults(),
+        evalCostUsd: 0.2,
+      });
+    expect(await complete()).toBe("held");
+    expect(await t.run((ctx) => ctx.db.get(evaluationId))).toMatchObject({
+      status: "passed",
+      outcome: "passed; the role was rolled back from this model",
+      evalCostUsd: 0.2,
+    });
+    expect(await writingModel(t)).toBe(INCUMBENT);
+    expect((await writingEvents(t)).map((event) => event.kind)).toEqual(["manual", "rollback"]);
+
+    // Negative control: the same finished run promotes once the rollback is gone.
+    await forgetRollbacks(t, "writing", CANDIDATE);
+    await t.run((ctx) => ctx.db.patch(evaluationId, { status: "running", outcome: undefined }));
+    expect(await complete()).toBe("promoted");
+    expect(await writingModel(t)).toBe(CANDIDATE);
+  });
+
+  it("7: a queued evaluation of a model its role was rolled back from never starts", async () => {
+    const { t, admin } = await setup();
+    const evaluationId = await plannedCandidate(t);
+    await triedAndRolledBack(admin, t);
+    expect(await t.mutation(claimEvaluationRef, { evaluationId, envelope: EVAL_ENVELOPE })).toBeNull();
+    expect(await t.run((ctx) => ctx.db.get(evaluationId))).toMatchObject({
+      status: "error",
+      error: "The role was rolled back from this model",
+      evalCostUsd: 0,
+    });
+    // Negative control: without the rollback the same evaluation starts.
+    await forgetRollbacks(t, "writing", CANDIDATE);
+    await t.run((ctx) =>
+      ctx.db.patch(evaluationId, { status: "queued", error: undefined, evalCostUsd: undefined, completedAt: undefined })
+    );
+    expect(await t.mutation(claimEvaluationRef, { evaluationId, envelope: EVAL_ENVELOPE })).not.toBeNull();
+  });
+
+  it("7: a rollback excludes the same model under its other gateway id", async () => {
+    const { t, admin } = await setup();
+    const listing = "anthropic/claude-opus-4.8";
+    expect((await row(t, listing))?.canonicalSlug).toBe((await row(t, CANDIDATE))?.canonicalSlug);
+    await triedAndRolledBack(admin, t);
+    await onlyRoleCanPlan(t, "writing", listing);
+    expect((await plan(t)).some((item) => item.modelId === listing || item.modelId === CANDIDATE)).toBe(false);
+    // Negative control: without the rollback, the OpenRouter listing is planned.
+    await dropQueued(t);
+    await forgetRollbacks(t, "writing", CANDIDATE);
+    expect((await plan(t)).map((item) => [item.role, item.modelId])).toEqual([["writing", listing]]);
+  });
+
+  it("7: a role's own rollback stays excluded after more than 50 later switches", async () => {
+    const { t, admin } = await setup();
+    await triedAndRolledBack(admin, t);
+    for (let i = 0; i < 55; i += 1) {
+      await admin.mutation(setRoleModelRef, { role: "writing", modelId: i % 2 === 0 ? HAIKU : INCUMBENT });
+    }
+    const newestFifty = await t.run((ctx) =>
+      ctx.db.query("modelSwitchEvents").withIndex("by_role_and_at", (q) => q.eq("role", "writing")).order("desc").take(50)
+    );
+    expect(newestFifty.some((event) => event.kind === "rollback")).toBe(false);
+    await onlyRoleCanPlan(t, "writing", CANDIDATE);
+    expect((await plan(t)).some((item) => item.modelId === CANDIDATE)).toBe(false);
+    // Negative control: without the rollback, the same plan picks the candidate.
+    await dropQueued(t);
+    await forgetRollbacks(t, "writing", CANDIDATE);
+    expect((await plan(t)).map((item) => [item.role, item.modelId])).toEqual([["writing", CANDIDATE]]);
+  });
+});
+
+describe("round 8", () => {
+  const A = "claude-sonnet-5";
+  const B = "x-ai/grok-4.7";
+  const C = "claude-opus-4-8";
+  const minutes = (n: number) => NOW + n * 60_000;
+
+  async function outcomes(t: TestConvex, model: string, successes: number, failures: number) {
+    for (let i = 0; i < successes + failures; i += 1) {
+      await t.mutation(recordCallOutcomeRef, {
+        model,
+        callSite: "generation:section:242",
+        ...(i < failures ? { outcome: "failure" as const, code: "malformed_output" } : { outcome: "success" as const }),
+      });
+    }
+  }
+
+  it("8: the error check never rolls a role back to a model it was rolled back from", async () => {
+    const { t, admin } = await setup();
+    // 1. Writing is promoted from A to B, and B is rolled back for failing.
+    await promote(t, B);
+    vi.setSystemTime(minutes(10));
+    await outcomes(t, B, 15, 6);
+    expect(await t.mutation(checkProductionErrorsRef, {})).toEqual([{ role: "writing", modelId: B, rolledBack: true }]);
+    expect(await writingModel(t)).toBe(A);
+    // 2. An admin chooses B again by hand.
+    vi.setSystemTime(minutes(20));
+    await admin.mutation(setRoleModelRef, { role: "writing", modelId: B });
+    // 3. An evaluation against B promotes C.
+    vi.setSystemTime(minutes(30));
+    const evaluationId = await t.run((ctx) =>
+      ctx.db.insert("modelEvaluations", {
+        role: "writing",
+        modelId: C,
+        incumbentModelId: B,
+        evalSetVersion: "banhall-eval/v1",
+        status: "queued",
+        estimatedCostUsd: 0.5,
+        createdAt: minutes(30),
+      })
+    );
+    expect(await t.mutation(claimEvaluationRef, { evaluationId, envelope: EVAL_ENVELOPE })).not.toBeNull();
+    expect(
+      await t.mutation(completeEvaluationRef, {
+        evaluationId,
+        candidateResults: results(),
+        incumbentResults: incumbentResults(),
+        evalCostUsd: 0.2,
+      })
+    ).toBe("promoted");
+    expect(await t.run((ctx) => ctx.db.query("modelRoleAssignments").withIndex("by_role", (q) => q.eq("role", "writing")).unique())).toMatchObject({
+      modelId: C,
+      previousModelId: B,
+    });
+    // 4. C fails too: the role is not sent back to B; admins are told.
+    vi.setSystemTime(minutes(40));
+    await outcomes(t, C, 15, 6);
+    expect(await t.mutation(checkProductionErrorsRef, {})).toEqual([{ role: "writing", modelId: C, rolledBack: false }]);
+    expect(await writingModel(t)).toBe(C);
+    expect((await notices(t)).filter((message) => message.includes(`not rolled back to it`))).toHaveLength(1);
+
+    // Negative control: without the earlier rollback from B, the same check
+    // rolls the role back to B.
+    await forgetRollbacks(t, "writing", B);
+    expect(await t.mutation(checkProductionErrorsRef, {})).toEqual([{ role: "writing", modelId: C, rolledBack: true }]);
+    expect(await writingModel(t)).toBe(B);
+  });
+
+  it("8: a rollback still excludes a model's OpenRouter listing after OpenRouter re-dates its slug", async () => {
+    const { t, admin } = await setup();
+    const listing = "anthropic/claude-opus-4.8";
+    // Writing is rolled back from the direct model.
+    await admin.mutation(setRoleModelRef, { role: "writing", modelId: C });
+    await admin.mutation(rollbackRoleRef, { role: "writing" });
+    // OpenRouter re-dates the listing's canonical slug.
+    const redated = "anthropic/claude-4.8-opus-20261001";
+    expect((await row(t, listing))?.canonicalSlug).not.toBe(redated);
+    await t.mutation(applyCatalogRefreshRef, {
+      models: parsed.map((model) => (model.openRouterId === listing ? { ...model, canonicalSlug: redated } : model)),
+      fetchedAt: NOW,
+      complete: true,
+    });
+    // The listing is adopted by id under the new slug, and the direct row follows it.
+    expect((await row(t, listing))?.canonicalSlug).toBe(redated);
+    expect((await row(t, C))?.canonicalSlug).toBe(redated);
+    await onlyRoleCanPlan(t, "writing", listing);
+    expect((await plan(t)).some((item) => item.modelId === listing || item.modelId === C)).toBe(false);
+    // Negative control: without the rollback, the listing is planned.
+    await dropQueued(t);
+    await forgetRollbacks(t, "writing", C);
+    expect((await plan(t)).map((item) => [item.role, item.modelId])).toEqual([["writing", listing]]);
   });
 });

@@ -45,6 +45,7 @@
     assistantActive = false,
     onToggleAssistant,
     qa,
+    showQa = true,
   }: {
     tabs: PanelTab[];
     activeTab: PanelTab["id"] | null;
@@ -64,6 +65,8 @@
     onToggleAssistant?: () => void;
     /** The QA toggle slot. */
     qa?: Snippet;
+    /** Whether the QA slot renders anything (it draws the divider before it). */
+    showQa?: boolean;
   } = $props();
 
   const toggleBase =
@@ -87,7 +90,7 @@
         aria-label={tab.ariaLabel}
         disabled={tab.disabled}
         onclick={() => onSelectTab(tab.id)}
-        class={`relative flex shrink-0 items-center gap-1.5 text-[13px] transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-fir disabled:cursor-default disabled:opacity-50 pointer-coarse:min-h-11 ${active ? "text-ink" : "text-ink-muted hover:text-ink"}`}
+        class={`relative flex shrink-0 items-center gap-1.5 text-xs leading-4 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-fir disabled:cursor-default disabled:opacity-50 pointer-coarse:min-h-11 ${active ? "font-medium text-ink" : "text-ink-secondary hover:text-ink"}`}
       >
         {tab.label}
         {#if tab.done}
@@ -98,7 +101,7 @@
           <span class="rounded bg-primary-wash px-1.5 text-[11px] leading-4 text-primary-selected">{tab.status}</span>
         {/if}
         {#if tab.count != null}
-          <span class="rounded bg-gray-50 px-1.5 text-[11px] leading-4 text-ink-muted tabular-nums">{tab.count}</span>
+          <span class="flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-gray-50 px-1 text-[10px] leading-3 font-normal text-ink-muted tabular-nums">{tab.count}</span>
         {/if}
         {#if active}
           <span aria-hidden="true" class="absolute inset-x-0 -bottom-px h-0.5 rounded-full bg-primary-selected"></span>
@@ -139,6 +142,10 @@
         <InfoIcon size={16} aria-hidden="true" />
       </button>
       {@render detailsPeek?.()}
+      <!-- Boards 2.1 and 2.2: a hairline between Details and the AI toggles. -->
+      {#if showAssistant || (qa && showQa)}
+        <span aria-hidden="true" data-panel-toggle-divider class="mx-1 h-4 w-px bg-line"></span>
+      {/if}
     {/if}
     {#if showAssistant}
       <Tooltip text="Assistant" side="bottom" delayDuration={300}>
@@ -152,7 +159,7 @@
             onclick={onToggleAssistant}
             class={toggleClass(assistantActive)}
           >
-            <AuroraMark size={16} />
+            <AuroraMark size={18} />
           </button>
         {/snippet}
       </Tooltip>

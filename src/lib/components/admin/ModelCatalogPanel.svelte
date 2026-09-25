@@ -167,11 +167,19 @@
               <p class="text-xs text-gray-500">
                 {#if role.assignedAt === null}
                   Default model, never switched.
+                {:else if role.carriedOverFrom}
+                  Carried over from {role.carriedOverFrom} when roles were split.
                 {:else}
                   {role.assignedBy === "system" ? "Switched automatically" : "Set by an admin"} on {formatDate(role.assignedAt)}.
                 {/if}
-                {#if !role.autoSwitch}
-                  Never switches on its own.
+                {#if role.autoSwitch}
+                  <span class="mt-1 block" data-testid="auto-switch-tasks">
+                    Switches on its own after passing its evaluation on: {role.evaluatedOn.join(", ")}.
+                  </span>
+                {:else}
+                  <span class="mt-1 block" data-testid="manual-only-reason">
+                    Never switches on its own: {role.manualOnlyReason}
+                  </span>
                 {/if}
               </p>
             </div>

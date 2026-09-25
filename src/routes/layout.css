@@ -19,15 +19,19 @@
   /* Attio-informed workspace chrome. These are intentionally separate from
      the public-app shell tokens: the product rail is a pale, flat navigation
      surface while fir remains the identity and action colour. */
-  --color-workspace-rail: #FBFBFB;
+  /* Boards 1.1 and 1.2 (ui-design-final.md section 2): the rail and the frame
+     around the work panel share the gray-50 wash; the panel is white. */
+  --color-workspace-rail: #F3F7F6;
   --color-workspace-subrail: #F7F8FA;
   --color-workspace-subrail-hover: #EEF0F3;   /* second rail (page sub-nav): near-rail gray, subtly off the white content (Linear/Notion settings pattern) */
-  --color-workspace-rail-line: #EEEFF1;
-  --color-workspace-rail-hover: #F5F5F5;
+  --color-workspace-rail-line: #E9F0EF;
+  --color-workspace-rail-hover: #EDF3F2;
   --color-workspace-rail-selected: #E9F1EF;
   --color-workspace-control: #FFFFFF;
   --shadow-workspace-control: 0 0 0 1px inset rgb(0 0 0 / 0), 0 0 2px rgb(28 40 64 / 0.18), 0 1px 3px rgb(0 0 0 / 0.04);
   --shadow-workspace-drawer: 10px 0 32px rgb(28 40 64 / 0.12);
+  /* Floating cards (menus, pickers, popovers) on the final screens. */
+  --shadow-popover: 0 16px 40px #16211F1F;
 
   /* Brand */
   --color-fir: #0A3A38;           /* fixed fir — identity/avatar surfaces; never theme-flipped */
@@ -47,6 +51,9 @@
   /* Report gap highlight (BNH editor) */
   --color-gap-bg: #FEF3C7;
   --color-gap-text: #A8500F;
+
+  /* Stale marker dot (amber, the orange score band's bar colour). */
+  --color-stale-dot: #F59E0B;
 
   /* Neutral ramp — teal-cast grays. The gray scale is REMAPPED app-wide:
      900/800 ink · 700/600 secondary · 500 muted · 400 faint/placeholder ·
@@ -779,6 +786,121 @@ textarea.input-chromeless:focus-visible {
 
 .tiptap-editor .ProseMirror-gapcursor::after {
   border-top: 1px solid #0A3A38;
+}
+
+/* ─── Report reading presentation (ui-design-final.md section 8, board 2.1) ──
+   The preview report page renders the editor in the reading style: serif
+   15/25 body in the 660px column, Section headings as a 12px sans label over
+   the serif CRA question (reportSectionHeadings.ts), and a limit meter at the
+   right of the label only when a Section is near or over a CRA limit. The
+   stored document is unchanged. */
+.report-reading .tiptap-editor {
+  font-family: var(--font-serif);
+  font-size: 15px;
+  line-height: 25px;
+  color: var(--color-ink);
+}
+/* Blocks carry 2px of hover padding, so 10px here reads as the board's 14px
+   between lines of prose. */
+.report-reading .tiptap-editor > * + * {
+  margin-top: 10px;
+}
+.report-reading .tiptap-editor p {
+  margin-bottom: 0;
+}
+/* Blocks carry their hover wash in the gutter so text never shifts. */
+.report-reading .tiptap-editor > p:not(.not-drafted-placeholder) {
+  margin-inline: -8px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  transition: background-color 150ms ease-out;
+}
+.report-reading .tiptap-editor[contenteditable="true"] > p:not(.not-drafted-placeholder):hover {
+  background-color: var(--color-gray-50);
+}
+.report-reading .tiptap-editor > .report-section-heading {
+  margin-top: 30px;
+}
+.report-reading .tiptap-editor > .report-section-heading + * {
+  margin-top: 12px;
+}
+/* The stored rule between Sections is replaced by the heading rhythm. */
+.report-reading .tiptap-editor > hr:has(+ .report-section-heading) {
+  display: none;
+}
+.report-reading .tiptap-editor .report-section-heading__label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-family: var(--font-sans);
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--color-ink-muted);
+  user-select: none;
+}
+.report-reading .tiptap-editor .report-section-heading__question {
+  margin: 6px 0 0;
+  padding: 0;
+  border: 0;
+  font-family: var(--font-serif);
+  font-size: 18px;
+  font-weight: 400;
+  line-height: 26px;
+  color: var(--color-ink);
+  text-wrap: balance;
+}
+.report-limit-meter {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 16px;
+  font-variant-numeric: tabular-nums;
+}
+.report-limit-meter[hidden] {
+  display: none;
+}
+.report-limit-meter__bar {
+  display: flex;
+  width: 48px;
+  height: 3px;
+  overflow: hidden;
+  border-radius: 9999px;
+  background-color: var(--color-line-soft);
+}
+.report-limit-meter__fill {
+  height: 100%;
+  border-radius: 9999px;
+}
+/* Band colours from the contract's score bands: orange near, red over. */
+.report-limit-meter[data-limit-state="warning"] { color: #C2410C; }
+.report-limit-meter[data-limit-state="warning"] .report-limit-meter__fill { background-color: #F59E0B; }
+.report-limit-meter[data-limit-state="over"] { color: #B91C1C; }
+.report-limit-meter[data-limit-state="over"] .report-limit-meter__fill { background-color: #DC2626; }
+.report-reading .tiptap-editor mark[data-color="#FEF3C7"] {
+  font-family: inherit;
+  font-size: inherit;
+  font-weight: 400;
+  line-height: 23px;
+  padding: 2px 6px;
+  border-radius: 3px;
+  color: var(--color-gap-text);
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+}
+.report-reading .tiptap-editor ::selection {
+  background-color: color-mix(in srgb, var(--color-primary) 20%, transparent);
+}
+.report-editor-hint {
+  margin-top: 12px;
+  font-family: var(--font-sans);
+  font-size: 13px;
+  line-height: 20px;
+  /* ink-faint is for placeholders; an always-visible hint needs AA contrast. */
+  color: var(--color-ink-muted);
 }
 
 /* Comment highlights in editor — writer (default: amber/yellow) */

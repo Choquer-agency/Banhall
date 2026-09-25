@@ -19,7 +19,7 @@
 <script lang="ts">
   import type { Snippet } from "svelte";
   import { DropdownMenu } from "bits-ui";
-  import { BellIcon, CaretLeftIcon, DotsThreeIcon, FileTextIcon } from "phosphor-svelte";
+  import { BellIcon, CaretLeftIcon, DotsThreeIcon, DotsThreeVerticalIcon, FileTextIcon } from "phosphor-svelte";
   import { resolve } from "$app/paths";
   import { useQuery } from "convex-svelte";
   import { useAuth } from "@mmailaender/convex-better-auth-svelte/svelte";
@@ -59,7 +59,7 @@
     "flex size-8 shrink-0 items-center justify-center rounded-lg text-ink-secondary transition-colors hover:bg-primary-wash hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir data-[state=open]:bg-primary-wash pointer-coarse:size-11";
 </script>
 
-<header data-workspace-page-header class="flex h-14 shrink-0 items-center gap-2 px-3 sm:px-4">
+<header data-workspace-page-header class="flex h-14 shrink-0 items-center gap-2 px-3 sm:px-5">
   <!-- Phone (board 3.6): a back chevron to Projects replaces the menu button
        and the breadcrumb; from 640px the workspace controls return. -->
   <a
@@ -98,10 +98,14 @@
         <span aria-hidden="true" class="absolute right-1.5 top-1.5 size-1.5 rounded-full bg-primary"></span>
       {/if}
     </a>
+    {@render actions?.()}
     {#if moreItems.length > 0}
       <DropdownMenu.Root>
+        <!-- The kebab closes the row in markup too, so tab order matches what
+             the eye sees; on a phone (board 3.6) it is vertical. -->
         <DropdownMenu.Trigger aria-label="More actions" class={iconButton} data-top-bar-more>
-          <DotsThreeIcon size={18} weight="bold" aria-hidden="true" />
+          <DotsThreeIcon size={18} weight="bold" aria-hidden="true" class="max-sm:hidden" />
+          <DotsThreeVerticalIcon size={18} weight="bold" aria-hidden="true" class="sm:hidden" />
         </DropdownMenu.Trigger>
         <DropdownMenu.Portal>
           <DropdownMenu.Content
@@ -132,6 +136,5 @@
         </DropdownMenu.Portal>
       </DropdownMenu.Root>
     {/if}
-    {@render actions?.()}
   </div>
 </header>

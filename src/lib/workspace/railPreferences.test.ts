@@ -1,5 +1,8 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import {
+  LEGACY_RAIL_PREFERENCES_KEY,
+  RAIL_PREFERENCES_KEY,
+  loadRailPreferences,
   RAIL_DEFAULT_WIDTH,
   RAIL_MAX_WIDTH,
   RAIL_MIN_WIDTH,
@@ -71,11 +74,10 @@ describe("railWidthForKey (keyboard separator)", () => {
       RAIL_DEFAULT_WIDTH - 8
     );
     expect(railWidthForKey("ArrowRight", RAIL_DEFAULT_WIDTH, true)).toBe(
-      RAIL_MAX_WIDTH
+      RAIL_DEFAULT_WIDTH + 32
     );
-    expect(railWidthForKey("ArrowLeft", RAIL_DEFAULT_WIDTH, true)).toBe(
-      RAIL_DEFAULT_WIDTH - 32
-    );
+    expect(railWidthForKey("ArrowRight", RAIL_MAX_WIDTH - 8, true)).toBe(RAIL_MAX_WIDTH);
+    expect(railWidthForKey("ArrowLeft", RAIL_DEFAULT_WIDTH, true)).toBe(RAIL_MIN_WIDTH);
     expect(railWidthForKey("ArrowLeft", RAIL_MIN_WIDTH, true)).toBe(RAIL_MIN_WIDTH);
     expect(railWidthForKey("ArrowRight", RAIL_MAX_WIDTH, false)).toBe(RAIL_MAX_WIDTH);
   });
@@ -85,5 +87,26 @@ describe("railWidthForKey (keyboard separator)", () => {
     expect(railWidthForKey("End", 300, false)).toBe(RAIL_MAX_WIDTH);
     expect(railWidthForKey("Enter", 300, false)).toBeNull();
     expect(railWidthForKey("Escape", 300, false)).toBeNull();
+  });
+});
+
+describe("loadRailPreferences (v2 key)", () => {
+  const store = new Map<string, string>();
+  const storage = {
+    getItem: (key: string) => store.get(key) ?? null,
+    setItem: (key: string, value: string) => void store.set(key, value),
+  };
+  afterEach(() => {
+    store.clear();
+    delete (globalThis as { localStorage?: unknown }).localStorage;
+  });
+
+  it("uses the 200px board default and keeps only the collapsed choice from the legacy key", () => {
+    (globalThis as { localStorage?: unknown }).localStorage = storage;
+    expect(RAIL_DEFAULT_WIDTH).toBe(200);
+    store.set(LEGACY_RAIL_PREFERENCES_KEY, JSON.stringify({ width: 275, hidden: true }));
+    expect(loadRailPreferences()).toEqual({ width: 200, hidden: true });
+    store.set(RAIL_PREFERENCES_KEY, JSON.stringify({ width: 240, hidden: false }));
+    expect(loadRailPreferences()).toEqual({ width: 240, hidden: false });
   });
 });

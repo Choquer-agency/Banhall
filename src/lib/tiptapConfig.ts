@@ -3,6 +3,7 @@ import Placeholder from "@tiptap/extension-placeholder";
 import Highlight from "@tiptap/extension-highlight";
 import CharacterCount from "@tiptap/extension-character-count";
 import { Extension } from "@tiptap/core";
+import { ReportSectionHeadings } from "$lib/components/editor/reportSectionHeadings";
 
 /**
  * Custom keyboard shortcuts extension.
@@ -20,7 +21,12 @@ const CustomKeyboardShortcuts = Extension.create({
 
 export function getEditorExtensions({
   editable = true,
-}: { editable?: boolean } = {}) {
+  sectionHeadings = false,
+}: {
+  editable?: boolean;
+  /** Render the Line 242/244/246 headings as label + CRA question (reading presentation). */
+  sectionHeadings?: boolean;
+} = {}) {
   return [
     StarterKit.configure({
       heading: { levels: [1, 2, 3] },
@@ -43,5 +49,6 @@ export function getEditorExtensions({
     }),
     CharacterCount,
     CustomKeyboardShortcuts,
+    ...(sectionHeadings ? [ReportSectionHeadings] : []),
   ];
 }

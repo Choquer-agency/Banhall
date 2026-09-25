@@ -150,19 +150,31 @@ export async function generateStructured<T>(
       continue;
     }
 
+    // Model catalog: a forced-tool request's outcome is recorded only now,
+    // after this validation, so usable JSON in an unusable shape counts as
+    // a failure of the model that answered (providers.ts).
+    const settle = async (result: { ok: true } | { ok: false; code: string }) =>
+      await res.settleOutcome?.(result);
     const block = res.content.find((item) => item.type === "tool_use");
     if (!block || block.type !== "tool_use") {
+      await settle({ ok: false, code: "no_tool_output" });
       validationSummary = "the required tool was not called";
       if (!lastAttempt) continue;
       throw new Error(`${opts.toolName}: model did not return structured output`);
     }
-    if (!opts.validate) return block.input as T;
+    if (!opts.validate) {
+      await settle({ ok: true });
+      return block.input as T;
+    }
 
     // Validate the value as returned FIRST: a tool whose output is legitimately
     // a JSON-looking string must not be silently parsed into an object.
     // Unwrapping is a recovery path, not a preprocessing step.
     const asReturned = opts.validate.safeParse(block.input);
-    if (asReturned.success) return asReturned.data;
+    if (asReturned.success) {
+      await settle({ ok: true });
+      return asReturned.data;
+    }
 
     const unwrapped = opts.encodedJsonRecovery === false
       ? block.input
@@ -171,7 +183,11 @@ export async function generateStructured<T>(
       unwrapped === block.input
         ? asReturned
         : opts.validate.safeParse(unwrapped);
-    if (parsed.success) return parsed.data;
+    if (parsed.success) {
+      await settle({ ok: true });
+      return parsed.data;
+    }
+    await settle({ ok: false, code: "invalid_output" });
 
     validationSummary = parsed.error.issues
       .slice(0, 3)

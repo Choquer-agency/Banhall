@@ -46,6 +46,9 @@ export const recordEndpointSupportRef = ref<typeof catalog.recordEndpointSupport
 export const checkProductionErrorsRef = ref<typeof catalog.checkProductionErrors>(
   "modelCatalog:checkProductionErrors"
 );
+export const pruneCallOutcomesRef = ref<typeof catalog.pruneCallOutcomes>(
+  "modelCatalog:pruneCallOutcomes"
+);
 export const planEvaluationsRef = ref<typeof catalog.planEvaluations>(
   "modelCatalog:planEvaluations"
 );
@@ -71,8 +74,8 @@ export const generationModelsRef = ref<typeof catalog.generationModels>(
 export const modelEntryForCallRef = ref<typeof catalog.modelEntryForCall>(
   "modelCatalog:modelEntryForCall"
 );
-export const recordCallFailureRef = ref<typeof catalog.recordCallFailure>(
-  "modelCatalog:recordCallFailure"
+export const recordCallOutcomeRef = ref<typeof catalog.recordCallOutcome>(
+  "modelCatalog:recordCallOutcome"
 );
 
 // Public: the admin page.

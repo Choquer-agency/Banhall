@@ -102,6 +102,7 @@
   import SingleModelPicker from "$lib/components/generation/SingleModelPicker.svelte";
   import GhostCompareDialog from "$lib/components/generation/GhostCompareDialog.svelte";
   import { displayName } from "$lib/displayName";
+  import { setProposalSectionSource } from "$lib/chat/proposalSection";
 
   const auth = useAuth();
   // New-UI shell wiring (2026-08-10): same contract WorkspaceChrome uses —
@@ -343,6 +344,8 @@
 
   const project = $derived(projectQ.data);
   const report = $derived(reportQ.data);
+  // Suggested-edit cards in the assistant name their Section ("Suggested edit for 242").
+  setProposalSectionSource(() => report?.content);
   const generation = $derived(generationQ.data);
   const transcripts = $derived(transcriptsQ.data ?? []);
   const openTranscript = $derived(openTranscriptQ.data);
@@ -613,12 +616,12 @@
   }
 
   function handleAskAI(selection: { from: number; to: number; text: string }) {
-    openSidePanel("chat");
+    void leaveDetailsThen(() => openSidePanel("chat"));
     pendingChatHighlight = selection;
   }
 
   function handleResearch(selection: ResearchSelection) {
-    openSidePanel("chat");
+    void leaveDetailsThen(() => openSidePanel("chat"));
     pendingChatHighlight = null;
     pendingResearch = selection;
   }
@@ -731,6 +734,20 @@
     handOffStage = stage;
     detailsPeekOpen = false;
     openSidePanel("details");
+  }
+  // Leaving an open Details panel from the host (the toolbar toggles, Ask
+  // assistant, Open QA) first lets it save a pending project number edit; a
+  // failed save keeps it open with the error instead of losing the edit.
+  let detailsPanel = $state<{ requestClose: () => Promise<boolean> } | undefined>();
+  async function leaveDetailsThen(next: () => void) {
+    if (detailsOpen && railView === "details" && detailsPanel && !(await detailsPanel.requestClose())) return;
+    next();
+  }
+  // The Details (i) toggle, wherever it sits: the panel toolbar, or beside
+  // the narrow Outline/Seeds switch during the seed stage (board 3.6).
+  function toggleDetails() {
+    if (detailsOpen && sidePanelOnScreen) void leaveDetailsThen(closeSidePanel);
+    else openDetails();
   }
 
   // Send any upload failures this user queued while offline. Page-level rather
@@ -1601,6 +1618,13 @@
   // the page does not offer right now (Seed phases, writing, intake) takes
   // no room: the side panel is open only for a surface that can show.
   const sidePanelOpen = $derived(chatShown || qaShown || detailsOpen);
+  // Board 3.6: below the large breakpoint the seed stage puts the Details
+  // toggle beside the Outline/Seeds switch, so the toolbar drops its own.
+  // While the panel covers the narrow screen, the toolbar toggle returns so
+  // it can be closed where the seed workspace is hidden.
+  const seedDetailsInPaneSwitch = $derived(
+    showSeedWorkspace && !desktopAssistant && !(detailsOpen && sidePanelOnScreen)
+  );
   const assistantFull = $derived(chatFocus && chatShown);
   // Whether the main pane (the tab content) is on screen: not behind
   // Assistant full screen, and not replaced by the side panel on a narrow
@@ -1731,7 +1755,7 @@
     qaSeenTick += 1;
   }
   function openQaFromNotice() {
-    openSidePanel("qa");
+    void leaveDetailsThen(() => openSidePanel("qa"));
   }
   const showQaFinished = $derived(
     reportActionsVisible && qaSeen === "unseen" && !qaOnScreen
@@ -1901,22 +1925,23 @@
           </Button>
         {/if}
         {#if reportActionsVisible}
+          <!-- Board 2.1: 36px buttons, 13px labels, radius 7. -->
           <Button
             variant="secondary"
             size="sm"
-            class="h-9 gap-1.5"
+            class="h-9 gap-1.5 rounded-[7px]! px-3! text-[13px]!"
             aria-label={exporting ? "Exporting..." : "Export .docx"}
             onclick={handleExport}
             disabled={exporting}
           >
-            <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true">
+            <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true">
               <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
             </svg>
             <span class="max-sm:sr-only">Export</span>
           </Button>
           <Button
             size="sm"
-            class="h-9 max-sm:hidden"
+            class="h-9 rounded-[7px]! px-3.5! text-[13px]! max-sm:hidden"
             data-send-for-review
             disabled={!details.data?.permissions.canHandOff}
             title={details.data && !details.data.permissions.canHandOff ? (details.handOffReason ?? undefined) : undefined}
@@ -1944,7 +1969,7 @@
       {/snippet}
     </ProjectTopBar>
 
-    <div data-project-card class="mb-2 mr-2 flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-workspace-rail-line bg-surface max-xl:ml-2">
+    <div data-project-card class="mx-3 mb-3 flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-workspace-rail-line bg-surface">
       <PanelToolbar
         tabs={panelTabs}
         {activeTab}
@@ -1952,15 +1977,14 @@
         showFullWidth={reportActionsVisible && !sourcesOpen && !assistantFull}
         fullWidth={workspaceMaximized}
         onToggleFullWidth={() => (workspaceMaximized = !workspaceMaximized)}
+        showDetails={!seedDetailsInPaneSwitch}
         detailsActive={detailsOpen && sidePanelOnScreen}
-        onToggleDetails={() => {
-          if (detailsOpen && sidePanelOnScreen) closeSidePanel();
-          else openDetails();
-        }}
+        onToggleDetails={toggleDetails}
         bind:detailsButton
         showAssistant={reportActionsVisible && !!user}
+        showQa={reportActionsVisible && !!user}
         assistantActive={chatShown && sidePanelOnScreen}
-        onToggleAssistant={() => toggleSidePanel("chat")}
+        onToggleAssistant={() => void leaveDetailsThen(() => toggleSidePanel("chat"))}
       >
         {#snippet detailsPeek()}
           <DetailsPopover
@@ -1978,7 +2002,7 @@
               score={qaScore}
               unseen={qaUnseen}
               active={qaShown && sidePanelOnScreen}
-              onToggle={() => toggleSidePanel("qa")}
+              onToggle={() => void leaveDetailsThen(() => toggleSidePanel("qa"))}
             />
           {/if}
         {/snippet}
@@ -1994,7 +2018,7 @@
                of the Report tab. Export and Send for review are back in the
                top bar. -->
           {#if draftReadyFor && reportActionsVisible && !sourcesOpen}
-            <div class="pointer-events-none absolute inset-x-0 top-4 z-30 flex justify-center px-4" data-draft-ready-host>
+            <div class="pointer-events-none absolute inset-x-0 top-6 z-30 flex justify-center px-4" data-draft-ready-host>
               <div class="pointer-events-auto max-w-full">
                 {#key draftReadyFor}
                   <DraftReadyToast
@@ -2003,6 +2027,14 @@
                   />
                 {/key}
               </div>
+            </div>
+          {/if}
+          <!-- QA finished (board 4.5): 24px inside the report panel's bottom
+               right corner until opened or dismissed; it scrolls rather than
+               clips in a short window. -->
+          {#if showQaFinished && qaScores && mainPaneVisible}
+            <div class="absolute bottom-6 right-6 z-[85] max-h-[calc(100%-3rem)] overflow-y-auto max-sm:inset-x-4 max-sm:bottom-4 max-sm:max-h-[calc(100%-2rem)]" data-qa-finished-host>
+              {@render qaFinishedNotice()}
             </div>
           {/if}
           {#if sourcesOpen}
@@ -2121,7 +2153,25 @@
               summaryOpener = "trigger";
               setSeedSummary(true);
             }}
-          />
+          >
+            {#snippet paneSwitchEnd()}
+              <!-- Board 3.6: the page's Details toggle beside the switch. -->
+              <button
+                type="button"
+                data-seed-details-toggle
+                aria-pressed={detailsOpen && sidePanelOnScreen}
+                aria-label="Details"
+                onclick={toggleDetails}
+                class={`flex size-10 shrink-0 items-center justify-center rounded-lg transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir motion-reduce:transition-none pointer-coarse:size-11 ${
+                  detailsOpen && sidePanelOnScreen
+                    ? "bg-workspace-rail-selected text-fir"
+                    : "text-ink-secondary hover:bg-primary-wash hover:text-ink"
+                }`}
+              >
+                <svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10" /><path d="M12 16v-4M12 8h.01" /></svg>
+              </button>
+            {/snippet}
+          </SeedWorkspace>
         {/key}
       </div>
     {/if}
@@ -2195,11 +2245,17 @@
             <div
               data-report-surface
               data-report-width={workspaceMaximized ? "full" : "reading"}
-              class={`w-full py-10 transition-[padding,max-width] duration-[325ms] ease-out motion-reduce:transition-none ${workspaceMaximized ? (sidePanelOpen ? "px-6 lg:px-12" : "px-6 lg:px-24") : "mx-auto max-w-[708px] px-6"}`}
+              class={`w-full pt-11 pb-10 transition-[padding,max-width] duration-[325ms] ease-out motion-reduce:transition-none ${workspaceMaximized ? (sidePanelOpen ? "px-6 lg:px-12" : "px-6 lg:px-24") : "mx-auto max-w-[708px] px-6"}`}
             >
+              <!-- Board 2.1: the report opens on its serif title. The top bar
+                   holds the page h1; the document's own title heading stays
+                   hidden in the editor. -->
+              <h2 data-report-title class="mb-0.5 font-serif text-[28px] leading-9 font-normal text-ink [text-wrap:balance]">
+                {project.title}
+              </h2>
               {#if notDraftedSections.length > 0}
                 <!-- A stopped Step-by-step draft (FR-43, owner decision 20). -->
-                <div class="mb-6">
+                <div class="mt-6">
                   <NotDraftedBanner
                     missingSections={notDraftedSections}
                     onDraftRest={draftTheRest}
@@ -2210,7 +2266,7 @@
                   />
                 </div>
               {:else if reportReadOnly}
-                <p class="mb-6 text-[13px] leading-5 text-ink-secondary" role="status" data-redraft-status>
+                <p class="mt-4 text-[13px] leading-5 text-ink-secondary" role="status" data-redraft-status>
                   Drafting the missing sections. Editing resumes when they are in.
                 </p>
               {/if}
@@ -2226,6 +2282,7 @@
                 readOnly={reportReadOnly}
                 {commentRanges}
                 onHoverComment={(id) => (hoveredCommentId = id)}
+                presentation="reading"
               />
 
               <!-- Supporting panels (QA lives in the side panel, BNH-47) -->
@@ -2547,6 +2604,7 @@
           {#if detailsOpen && railView === "details"}
             <div class="h-full" style={`min-width: ${SIDE_PANEL_MIN}px`}>
               <DetailsPanel
+                bind:this={detailsPanel}
                 data={details.data}
                 error={details.error}
                 bind:view={detailsView}
@@ -2579,10 +2637,13 @@
                 <LazyModule load={() => import("$lib/components/qa/QARailPanel.svelte")} label="QA score">
                   {#snippet children(QARailPanel)}
                     <QARailPanel
+                      variant="side"
                       title="QA score"
+                      lastRunAt={generation?.postQaStatus === "failed"
+                        ? null
+                        : (generation?.postQaCompletedAt ?? generation?.completedAt ?? null)}
                       open={qaOpen}
                       onClose={closeSidePanel}
-                      modelName={generation?.selectedModelLabel ?? generation?.iterativeModelLabel ?? null}
                       agentOutputs={generation?.agentOutputs}
                       reportContent={report.content}
                       reportId={report._id}
@@ -2695,9 +2756,8 @@
       </div>
     {/if}
 
-    <!-- QA finished (board 4.5): bottom right until opened or dismissed. -->
-    {#if showQaFinished && qaScores}
-      <div class="fixed bottom-6 right-6 z-[85] max-sm:inset-x-4 max-sm:bottom-4" data-qa-finished-host>
+    {#snippet qaFinishedNotice()}
+      {#if qaScores}
         <QaFinishedNotice
           overallScore={qaScores.overall}
           sections={qaScores.sections}
@@ -2706,6 +2766,13 @@
           onLater={dismissQaNotice}
           onDismiss={dismissQaNotice}
         />
+      {/if}
+    {/snippet}
+    <!-- QA finished while the report pane is off screen (Assistant full
+         screen, or the side panel on a phone): the window corner instead. -->
+    {#if showQaFinished && qaScores && !mainPaneVisible}
+      <div class="fixed bottom-6 right-6 z-[85] max-h-[calc(100dvh-3rem)] overflow-y-auto max-sm:inset-x-4 max-sm:bottom-4" data-qa-finished-host>
+        {@render qaFinishedNotice()}
       </div>
     {/if}
 

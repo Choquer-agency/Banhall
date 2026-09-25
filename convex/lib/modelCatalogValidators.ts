@@ -13,11 +13,17 @@ export const modelGatewayValidator = v.union(
 
 export const modelRoleValidator = v.union(
   v.literal("writing"),
-  v.literal("structured_helper"),
-  v.literal("chat"),
   v.literal("condense"),
   v.literal("retrieval_brief"),
-  v.literal("analysis")
+  v.literal("analysis"),
+  v.literal("structured_helper"),
+  v.literal("pd_review"),
+  v.literal("financial_extraction"),
+  v.literal("brain_context"),
+  v.literal("chat"),
+  v.literal("learning_digest"),
+  v.literal("science_code"),
+  v.literal("feedback_summary")
 );
 
 export const catalogStatusValidator = v.union(
@@ -139,12 +145,52 @@ export const costComparisonValidator = v.object({
   toEvalCostUsd: v.optional(v.number()),
 });
 
+export const evalTaskKindValidator = v.union(
+  v.literal("seed_batch"),
+  v.literal("section_draft"),
+  v.literal("qa_structured"),
+  v.literal("condense_digest"),
+  v.literal("retrieval_queries"),
+  v.literal("style_classification"),
+  v.literal("changelog_summary"),
+  v.literal("pd_review_report"),
+  v.literal("timesheet_extraction"),
+  v.literal("chunk_context")
+);
+
+const requestBoundValidator = v.object({
+  requests: v.number(),
+  maxInputTokens: v.number(),
+  answerTokens: v.object({ anthropic: v.number(), openrouter: v.number() }),
+  preserveMaxTokens: v.boolean(),
+});
+
+/** The evaluation action's request envelope (shared/modelCatalog EvalEnvelope). */
+export const evalEnvelopeValidator = v.object({
+  seed_batch: requestBoundValidator,
+  section_draft: requestBoundValidator,
+  qa_structured: requestBoundValidator,
+  condense_digest: requestBoundValidator,
+  retrieval_queries: requestBoundValidator,
+  style_classification: requestBoundValidator,
+  changelog_summary: requestBoundValidator,
+  pd_review_report: requestBoundValidator,
+  timesheet_extraction: requestBoundValidator,
+  chunk_context: requestBoundValidator,
+  judge: requestBoundValidator,
+});
+
+/** Per-million-token prices frozen for an evaluation's usage meter. */
+export const evalPricingValidator = v.object({
+  input: v.number(),
+  output: v.number(),
+  cacheRead: v.optional(v.number()),
+  cacheWrite: v.optional(v.number()),
+  cacheWrite1h: v.optional(v.number()),
+});
+
 export const evalTaskResultValidator = v.object({
-  task: v.union(
-    v.literal("seed_batch"),
-    v.literal("section_draft"),
-    v.literal("qa_structured")
-  ),
+  task: evalTaskKindValidator,
   structured: v.boolean(),
   schemaValid: v.boolean(),
   contractPassed: v.optional(v.boolean()),

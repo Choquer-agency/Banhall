@@ -137,7 +137,16 @@ describe("catalog diffing", () => {
       NOW
     );
     expect(changes.some((c) => c.kind === "new")).toBe(false);
+    // Same id still listed: adopted, never also reported gone (finding 10).
+    expect(changes.some((c) => c.kind === "gone")).toBe(false);
     expect(changes).toContainEqual({ kind: "update", modelId: "openai/gpt-5.6-sol", model: sol });
+    // A drifted row already marked missing comes back on adoption.
+    const back = diffCatalog(
+      [row(sol, { canonicalSlug: "openai/gpt-5.6-sol-old", status: "enabled", missingSince: NOW - 1 })],
+      [sol],
+      NOW
+    );
+    expect(back).toContainEqual({ kind: "returned", modelId: "openai/gpt-5.6-sol" });
   });
 
   test("a refresh keeps seed declarations and never reprices direct rows", () => {

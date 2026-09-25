@@ -37,7 +37,7 @@ import type { ModelFreeze } from "../lib/modelCatalogValidators";
 import {
   generationModelsRef,
   modelEntryForCallRef,
-  recordCallFailureRef,
+  recordCallOutcomeRef,
   roleModelEntryRef,
 } from "../lib/modelCatalogRefs";
 
@@ -79,6 +79,21 @@ export const SEED_PROVIDER_MAX_RETRIES = 0;
 
 /** Per-request deadline for both seed gateways (AD-34). */
 export const SEED_PROVIDER_TIMEOUT_MS = 90_000;
+
+/**
+ * The seed gateway policy, shared by production seeds and seed evaluations
+ * so an evaluation sends exactly the request production sends. OpenRouter
+ * keeps the seed answer budget as is (no reasoning headroom).
+ */
+export const SEED_OPENROUTER_OPTIONS = {
+  maxRetries: SEED_PROVIDER_MAX_RETRIES,
+  timeoutMs: SEED_PROVIDER_TIMEOUT_MS,
+  preserveMaxTokens: true,
+} as const;
+export const SEED_ANTHROPIC_OPTIONS = {
+  maxRetries: SEED_PROVIDER_MAX_RETRIES,
+  timeout: SEED_PROVIDER_TIMEOUT_MS,
+} as const;
 
 /**
  * Worst-case count of provider calls that run one after another in wall time
@@ -211,32 +226,102 @@ export function modelFaultCode(error: unknown): string | null {
     : null;
 }
 
-function recordingFailures(
-  ctx: ActionCtx,
+/**
+ * Records exactly one terminal outcome per provider request, apart from
+ * billing (review finding 6): a response that was billed but could not be
+ * used (malformed tool JSON, truncation) is one failure and never also a
+ * success, which a usage-row count would have made it. Errors that say
+ * nothing about the model (billing, auth, rate limits, network) are not
+ * counted either way. A recording failure is logged and never fails the
+ * call; one small mutation per request is negligible next to the request.
+ */
+/** How long a request waits for its outcome to be recorded. */
+export const OUTCOME_RECORD_DEADLINE_MS = 2_000;
+
+type Outcome = { model: string; callSite: string; outcome: "success" | "failure"; code?: string };
+
+/**
+ * Records one outcome with a short deadline. A write that fails or runs
+ * past the deadline never fails or holds up the request: it is logged as
+ * "model call outcome not recorded" so the gap is visible in the logs.
+ */
+async function recordOutcome(ctx: Pick<ActionCtx, "runMutation">, outcome: Outcome): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const written = ctx.runMutation(recordCallOutcomeRef, outcome).then(() => "written" as const);
+    const deadline = new Promise<"late">((resolve) => {
+      timer = setTimeout(() => resolve("late"), OUTCOME_RECORD_DEADLINE_MS);
+    });
+    // A late write may still land; its eventual rejection is only logged.
+    written.catch((error: unknown) =>
+      console.error("model call outcome not recorded", { ...outcome, error: String(error) })
+    );
+    if ((await Promise.race([written, deadline])) === "late") {
+      console.error("model call outcome not recorded in time", outcome);
+    }
+  } catch (error) {
+    console.error("model call outcome not recorded", { ...outcome, error: String(error) });
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+/** The model that actually answered, carried on a response or an error. */
+function servedModelOf(value: unknown): string | undefined {
+  return value && typeof value === "object" && "servedModel" in value && typeof value.servedModel === "string"
+    ? value.servedModel
+    : undefined;
+}
+
+/**
+ * Wraps a client so each request records exactly one outcome for the model
+ * that actually served it (an OpenRouter fallback answer counts for the
+ * fallback, review E). Forced-tool calls defer the outcome to the caller's
+ * schema validation: the response carries `settleOutcome`, which
+ * generateStructured calls once it knows whether the output is usable
+ * (review F). Every forced-tool call in production goes through
+ * generateStructured. A caller that validates a plain-text answer itself
+ * (financial extraction parses JSON from text) opts in with
+ * `deferOutcome` and settles after its own validation (round 3, item 6).
+ */
+export function withOutcomeRecording(
+  ctx: Pick<ActionCtx, "runMutation">,
   modelId: string,
   callSite: string,
-  client: GenerationClient
+  client: GenerationClient,
+  options: { deferOutcome?: boolean } = {}
 ): GenerationClient {
   return {
     messages: {
       create: async (params) => {
+        const requested = params.model || modelId;
+        let response: Awaited<ReturnType<GenerationClient["messages"]["create"]>>;
         try {
-          return await client.messages.create(params);
+          response = await client.messages.create(params);
         } catch (error) {
           const code = modelFaultCode(error);
           if (code) {
-            try {
-              await ctx.runMutation(recordCallFailureRef, {
-                model: params.model || modelId,
-                callSite,
-                code,
-              });
-            } catch (recordError) {
-              console.error("model call failure could not be recorded", recordError);
-            }
+            await recordOutcome(ctx, { model: servedModelOf(error) ?? requested, callSite, outcome: "failure", code });
           }
           throw error;
         }
+        const model = response.servedModel ?? requested;
+        if (params.tool_choice || options.deferOutcome) {
+          let settled = false;
+          response.settleOutcome = async (result) => {
+            if (settled) return;
+            settled = true;
+            await recordOutcome(
+              ctx,
+              result.ok
+                ? { model, callSite, outcome: "success" }
+                : { model, callSite, outcome: "failure", code: result.code }
+            );
+          };
+          return response;
+        }
+        await recordOutcome(ctx, { model, callSite, outcome: "success" });
+        return response;
       },
     },
   };
@@ -306,7 +391,7 @@ function lazyClient(
         resolved = undefined;
         throw error;
       }));
-  return recordingFailures(ctx, modelId, meta.callSite, {
+  return withOutcomeRecording(ctx, modelId, meta.callSite, {
     messages: {
       create: async (params) => (await resolve()).messages.create(params),
     },
@@ -325,19 +410,12 @@ export function seedClientForModel(
   assertGenerationCallSite(meta.callSite);
   return lazyClient(ctx, modelId, meta, () => {
     if (gatewayForModel(modelId) === "openrouter") {
-      return instrumentedOpenRouter(ctx, meta, {
-        maxRetries: SEED_PROVIDER_MAX_RETRIES,
-        timeoutMs: SEED_PROVIDER_TIMEOUT_MS,
-        preserveMaxTokens: true,
-      });
+      return instrumentedOpenRouter(ctx, meta, SEED_OPENROUTER_OPTIONS);
     }
     return instrumentedAnthropic(ctx, {
       ...meta,
       capability: "generation",
-      clientOptions: {
-        maxRetries: SEED_PROVIDER_MAX_RETRIES,
-        timeout: SEED_PROVIDER_TIMEOUT_MS,
-      },
+      clientOptions: SEED_ANTHROPIC_OPTIONS,
     }) as unknown as GenerationClient;
   });
 }
@@ -403,14 +481,15 @@ export function factExtractionClient(
       },
     };
   }
-  return recordingFailures(ctx, modelId, meta.callSite, client);
+  return withOutcomeRecording(ctx, modelId, meta.callSite, client);
 }
 
 /**
  * The client for a helper role outside any generation (Brain ingest,
  * learning digests, chat-side helpers, admin summaries): the role's current
  * model, with its previous model as an OpenRouter fallback when both run
- * there. Returns the model id to put in the request.
+ * there and the role was never rolled back from it (modelCatalog.ts
+ * roleModelEntry). Returns the model id to put in the request.
  */
 export async function clientForRole(
   ctx: ActionCtx,
@@ -418,6 +497,8 @@ export async function clientForRole(
   meta: GenerationCallMeta & {
     capability?: AnthropicCapability;
     brainSourceId?: Id<"brainSources">;
+    /** The caller settles each response's outcome after its own validation. */
+    deferOutcome?: boolean;
   }
 ): Promise<{ client: GenerationClient; model: string }> {
   const { entry, fallback } = await ctx.runQuery(roleModelEntryRef, { role });
@@ -432,7 +513,12 @@ export async function clientForRole(
           ...meta,
           capability: meta.capability ?? "generation",
         }) as unknown as GenerationClient);
-  return { client: recordingFailures(ctx, entry.id, meta.callSite, client), model: entry.id };
+  return {
+    client: withOutcomeRecording(ctx, entry.id, meta.callSite, client, {
+      deferOutcome: meta.deferOutcome === true,
+    }),
+    model: entry.id,
+  };
 }
 
 /**
