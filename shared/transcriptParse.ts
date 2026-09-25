@@ -26,9 +26,15 @@
  * line, speech) keeps its speakers; heading words ("Result:") never name a
  * speaker, and plain "Name:" labels count only with a speaker pattern
  * across the transcript. Turn and speaker rows keep their shape.
+ *
+ * v5 (2026-09-25, review): "Acme (Priya Shah)", one word then a full name
+ * in brackets, is "Priya Shah" of Acme, unless the same bracketed name
+ * follows several one-word names ("Dana (Verdant Grid)", "Sam (Verdant
+ * Grid)"), which makes it their company. Every name in a label's brackets
+ * is hidden as v3 hid it; job titles and departments are not names.
  */
 
-export const TRANSCRIPT_PARSER_VERSION = "4";
+export const TRANSCRIPT_PARSER_VERSION = "5";
 
 /**
  * Longest turn, in characters of stored text. A longer run of speech (a
@@ -129,11 +135,13 @@ const ROLE_LABEL = /^(?:interviewer|interviewee|subject|client|host|co-?host|mod
  * never a speaker's whole name on a line above a time.
  */
 const NOT_A_NAME = new Set([
-  "actually", "again", "alright", "also", "and", "anyway", "basically", "but",
-  "bye", "cool", "exactly", "fine", "finally", "first", "good", "great", "hello",
-  "hey", "hi", "honestly", "listen", "look", "no", "nope", "now", "oh", "ok",
-  "okay", "perfect", "please", "plus", "right", "second", "see", "so", "sorry",
-  "sure", "thanks", "then", "true", "wait", "well", "wow", "yeah", "yep", "yes",
+  "absolutely", "actually", "again", "agreed", "alright", "also", "and",
+  "anyway", "basically", "but", "bye", "cool", "correct", "definitely",
+  "exactly", "fine", "finally", "first", "good", "great", "hello", "hey", "hi",
+  "hmm", "honestly", "indeed", "listen", "look", "no", "nope", "now", "oh",
+  "ok", "okay", "perfect", "please", "plus", "right", "second", "see", "so",
+  "sorry", "sure", "thanks", "then", "totally", "true", "wait", "well", "wow",
+  "yeah", "yep", "yes",
 ]);
 
 function nameWords(text: string): boolean {
@@ -145,6 +153,68 @@ function nameWords(text: string): boolean {
     if (index === 0) return false;
     return /^\d+$/.test(word) || NAME_PARTICLES.has(word.toLowerCase());
   });
+}
+
+/**
+ * Last words that mark a company's name ("Northwind Labs", "Acme Corp"),
+ * never a person's (parser v5).
+ */
+const ORG_WORDS = new Set([
+  "inc", "incorporated", "ltd", "limited", "llc", "corp", "corporation", "co",
+  "company", "plc", "gmbh", "ulc", "lp", "llp", "technologies", "technology",
+  "systems", "solutions", "group", "holdings", "labs", "laboratories",
+  "industries", "international", "enterprises", "services", "software",
+  "energy", "canada",
+]);
+
+/**
+ * Job titles and departments written in a label's brackets ("Priya Shah
+ * (CTO)", "Raj Patel (Engineering)"). They name no one and no company, so
+ * they are never hidden as one (parser v5).
+ */
+const TITLE_WORDS = new Set([
+  "ceo", "cto", "cfo", "coo", "cio", "vp", "svp", "evp", "president", "chief",
+  "officer", "director", "manager", "lead", "head", "engineer", "engineering",
+  "scientist", "science", "research", "researcher", "developer", "development",
+  "analyst", "architect", "founder", "cofounder", "co-founder", "owner",
+  "partner", "principal", "senior", "junior", "sales", "marketing", "finance",
+  "operations", "product", "design", "designer", "hr", "legal", "it", "r&d",
+  "qa", "support", "technician", "specialist", "coordinator", "consultant",
+  "advisor", "intern", "team",
+]);
+
+function lastWord(text: string): string {
+  const words = text.toLowerCase().replace(/[.,]+$/, "").split(/\s+/);
+  return words[words.length - 1];
+}
+
+function isTitle(text: string): boolean {
+  return text.toLowerCase().split(/\s+/).some((word) => TITLE_WORDS.has(word.replace(/[.,]+$/, "")));
+}
+
+/** A label split at its closing brackets: "Priya Shah (Acme)". */
+function bracketParts(rawLabel: string): { outer: string; inner: string } | undefined {
+  const label = rawLabel.trim().replace(TRAILING_TIMESTAMP, "");
+  const paren = /^(.+?)\s*[(\[]([^()[\]]{1,80})[)\]]$/.exec(label);
+  return paren ? { outer: paren[1].trim(), inner: paren[2].trim() } : undefined;
+}
+
+/**
+ * Whether brackets hold a person's full name after one word that is more
+ * likely a company's ("Acme (Priya Shah)"): two to five name words, not a
+ * role, pronouns, a time, a title or a company's name. The name in brackets
+ * is then the speaker and the word before it the organization (parser v5,
+ * review 2026-09-25); `resolveBracketSpeakers` turns this round when the
+ * same bracketed name follows several words ("Dana (Verdant Grid)", "Sam
+ * (Verdant Grid)").
+ */
+function companyThenName(parts: { outer: string; inner: string }): boolean {
+  const { outer, inner } = parts;
+  if (/\s/.test(outer) || !nameWords(outer) || ROLE_LABEL.test(outer) || isHeadingLabel(outer)) return false;
+  if (ONLY_TIMESTAMP.test(inner) || inner.includes("/") || ROLE_LABEL.test(inner)) return false;
+  const words = inner.split(/\s+/);
+  if (words.length < 2 || !nameWords(inner)) return false;
+  return !ORG_WORDS.has(lastWord(inner)) && !isTitle(inner);
 }
 
 function isHeadingLabel(label: string): boolean {
@@ -180,14 +250,16 @@ function lastFirstName(label: string): string | undefined {
  */
 function speakerFromLabel(raw: string): string | undefined {
   let label = raw.trim().replace(TRAILING_TIMESTAMP, "");
-  const paren = /^(.+?)\s*[(\[]([^()[\]]{1,80})[)\]]$/.exec(label);
+  const parts = bracketParts(label);
   let preferred: string | undefined;
-  if (paren) {
-    label = paren[1].trim();
-    const inner = paren[2].trim();
+  if (parts) {
+    label = parts.outer;
+    const inner = parts.inner;
     if (!ONLY_TIMESTAMP.test(inner) && ROLE_LABEL.test(label)) {
       const first = inner.split(",")[0].trim();
       if (/^\p{L}/u.test(first) && first.length >= 2) preferred = first;
+    } else if (companyThenName(parts)) {
+      preferred = inner;
     }
   }
   if (label.length < 2 || label.length > 60) return undefined;
@@ -204,19 +276,50 @@ function voiceSpeaker(raw: string): string | undefined {
 }
 
 /**
- * What a label's brackets hold when they are left off the speaker's name
- * and look like an organization's name ("Acme" in "Priya Shah (Acme)"):
- * not pronouns, a role or a time. Hidden with the speakers' names
- * (owner decision 26), as the label itself was before parser v4.
+ * The names a label holds besides its speaker's, hidden with the speakers'
+ * names (owner decision 26). An organization in brackets ("Acme" in "Priya
+ * Shah (Acme)", "Northwind Labs") is an organization. Brackets holding two
+ * or more name words that are not a company's name are hidden as a person,
+ * word by word too, as every parser before v4 did ("Acme (Priya Shah)",
+ * review 2026-09-25), and so is the other side of such a label. Pronouns,
+ * roles, times, job titles and departments are not names.
  */
-export function labelAffiliation(rawLabel: string): string | undefined {
+export function labelBracketNames(rawLabel: string): { people: string[]; organizations: string[] } {
+  const none = { people: [], organizations: [] };
+  const parts = bracketParts(rawLabel);
+  if (!parts || ROLE_LABEL.test(parts.outer)) return none;
+  if (companyThenName(parts)) return { people: [parts.inner], organizations: [parts.outer] };
+  const inner = parts.inner;
+  if (ONLY_TIMESTAMP.test(inner) || inner.includes("/") || ROLE_LABEL.test(inner)) return none;
+  if (inner.length < 3 || !nameWords(inner) || isTitle(inner)) return none;
+  if (/\s/.test(inner) && !ORG_WORDS.has(lastWord(inner))) return { people: [inner], organizations: [] };
+  return { people: [], organizations: [inner] };
+}
+
+/**
+ * Every string a speaker label may have been read as, by this parser or an
+ * earlier one: the label as written, the name before its brackets, the
+ * brackets' content and its first comma part, and "Shah, Priya" as written
+ * and as "Priya Shah". A rebuild uses these to carry a role set on an old
+ * label over to the label the new parse gives the same line (review
+ * 2026-09-25).
+ */
+export function rawLabelForms(rawLabel: string): string[] {
   const label = rawLabel.trim().replace(TRAILING_TIMESTAMP, "");
-  const paren = /^(.+?)\s*[(\[]([^()[\]]{1,80})[)\]]$/.exec(label);
-  if (!paren || ROLE_LABEL.test(paren[1].trim())) return undefined;
-  const inner = paren[2].trim();
-  if (ONLY_TIMESTAMP.test(inner) || inner.includes("/") || ROLE_LABEL.test(inner)) return undefined;
-  if (inner.length < 3 || !nameWords(inner)) return undefined;
-  return inner;
+  const forms = new Set([label]);
+  const parts = bracketParts(label);
+  const names = parts ? [label, parts.outer] : [label];
+  if (parts) {
+    forms.add(parts.outer);
+    forms.add(parts.inner);
+    forms.add(parts.inner.split(",")[0].trim());
+  }
+  for (const name of names) {
+    const named = lastFirstName(name);
+    if (named) forms.add(named);
+  }
+  forms.delete("");
+  return [...forms];
 }
 
 /** The speaker a transcript line opens with, if it opens a turn. */
@@ -736,7 +839,9 @@ export function transcriptSpeakerNames(content: string, options: { cues?: boolea
     if (kind?.kind !== "inline" && kind?.kind !== "header") continue;
     add(otherNames, kind.speaker);
     add(otherNames, writtenLastFirst(kind.rawLabel));
-    add(organizations, labelAffiliation(kind.rawLabel));
+    const bracketed = labelBracketNames(kind.rawLabel);
+    for (const name of bracketed.people) add(otherNames, name);
+    for (const name of bracketed.organizations) add(organizations, name);
   }
   for (const name of lines.paneNames) add(otherNames, name);
   return { labels: [...labels], otherNames: [...otherNames], organizations: [...organizations] };
@@ -836,6 +941,32 @@ function dropUnpatternedLabels(infos: readonly LineInfo[], kinds: LineKind[]): v
   }
 }
 
+/**
+ * "Dana (Verdant Grid)" and "Sam (Verdant Grid)": a bracketed name that
+ * follows several one-word names, each always with that same name, is the
+ * company they share, so each word before it is the speaker. One line alone
+ * cannot tell this from "Acme (Priya Shah)" (`companyThenName`), so this
+ * reads the whole transcript (parser v5).
+ */
+function resolveBracketSpeakers(kinds: LineKind[]): void {
+  const outersOf = new Map<string, Set<string>>();
+  const innersOf = new Map<string, Set<string>>();
+  const pairs: Array<{ at: number; outer: string; inner: string }> = [];
+  kinds.forEach((kind, at) => {
+    if (kind?.kind !== "inline" && kind?.kind !== "header") return;
+    const parts = bracketParts(kind.rawLabel);
+    if (!parts || !companyThenName(parts)) return;
+    pairs.push({ at, ...parts });
+    outersOf.set(parts.inner, (outersOf.get(parts.inner) ?? new Set()).add(parts.outer));
+    innersOf.set(parts.outer, (innersOf.get(parts.outer) ?? new Set()).add(parts.inner));
+  });
+  for (const pair of pairs) {
+    if ((outersOf.get(pair.inner)?.size ?? 0) < 2 || (innersOf.get(pair.outer)?.size ?? 0) !== 1) continue;
+    const kind = kinds[pair.at] as Extract<SpeakerLine, { speaker: string }>;
+    kinds[pair.at] = { ...kind, speaker: pair.outer };
+  }
+}
+
 /** An untimed "Name: speech" line: the weakest sign of a speaker. */
 function isPlainLabel(text: string, kind: SpeakerLine): boolean {
   return kind.kind === "inline" && kind.timeMs === undefined && !VTT_VOICE.test(text.trim());
@@ -856,6 +987,7 @@ function analyzeLines(content: string): AnalyzedLines {
   const lineKinds: LineKind[] = infos.map((info) => splitSpeakerLine(info.text));
   const kinds = [...lineKinds];
   const paneNames = markPaneHeaders(infos, kinds);
+  resolveBracketSpeakers(kinds);
   dropUnpatternedLabels(infos, kinds);
   return { infos, lineKinds, kinds, paneNames };
 }

@@ -13,6 +13,7 @@ import {
   splitSpeakerLine,
   timestampToMs,
   transcriptSpeakerNames,
+  rawLabelForms,
   type TranscriptTurn,
 } from "./transcriptParse";
 
@@ -458,6 +459,60 @@ describe("speaker labels (parser v4)", () => {
     expect(speakers(parseTranscriptTurns(company))).toEqual(["Priya Shah", "Tom Becker", "Dana Whitfield"]);
     expect(speakerOfTranscriptLine("Marcus Lindqvist (Guest): We tried.")).toBe("Marcus Lindqvist");
     expect(speakerOfTranscriptLine("Dana (Interviewer): Why?")).toBe("Dana");
+  });
+
+  it("reads a company before a full name in brackets as that person, and a name shared after several first names as their company (v5)", () => {
+    const acme = [
+      "Jordan Ellis: Priya, why not buy one?",
+      "Acme (Priya Shah): We tried. Raj knows.",
+      "Jordan Ellis: Raj?",
+      "Acme (Raj Patel): Shah is right.",
+    ].join("\n\n");
+    expect(speakers(parseTranscriptTurns(acme))).toEqual(["Jordan Ellis", "Priya Shah", "Jordan Ellis", "Raj Patel"]);
+    expect(speakerOfTranscriptLine("Acme (Priya Shah): We tried.")).toBe("Priya Shah");
+    expect(transcriptSpeakerNames(acme)).toEqual({
+      labels: ["Jordan Ellis", "Priya Shah", "Raj Patel"],
+      otherNames: [],
+      organizations: ["Acme"],
+    });
+
+    const shared = "Jordan Ellis: Why?\n\nDana (Verdant Grid): We tried.\n\nJordan Ellis: And?\n\nSam (Verdant Grid): It held.";
+    expect(speakers(parseTranscriptTurns(shared))).toEqual(["Jordan Ellis", "Dana", "Jordan Ellis", "Sam"]);
+    // Still hidden word by word, as a name.
+    expect(transcriptSpeakerNames(shared).otherNames).toEqual(["Verdant Grid"]);
+  });
+
+  it("hides a full name in brackets as a person, a company as an organization, and never a title", () => {
+    const content = [
+      "Priya Shah (CTO): We tried.",
+      "Raj Patel (Engineering): It held.",
+      "Tom Becker (Acme Widgets): It drifted.",
+      "Ann Lee (Northwind Labs): We logged it.",
+      "Marcus Lindqvist (Chief Technology Officer): Agreed.",
+    ].join("\n\n");
+    const names = transcriptSpeakerNames(content);
+    expect(names.labels).toEqual(["Priya Shah", "Raj Patel", "Tom Becker", "Ann Lee", "Marcus Lindqvist"]);
+    expect(names.otherNames).toEqual(["Acme Widgets"]);
+    expect(names.organizations).toEqual(["Northwind Labs"]);
+  });
+
+  it("never reads a reply before a comma as a surname", () => {
+    for (const opener of ["Correct", "Absolutely", "Agreed", "Totally", "Indeed", "Hmm"]) {
+      expect(speakerOfTranscriptLine(`${opener}, Dana: we rebuilt it twice.`), opener).toBeUndefined();
+    }
+    expect(speakerOfTranscriptLine("Shah, Priya: We rebuilt it twice.")).toBe("Priya Shah");
+  });
+
+  it("lists every form an older parser could have read a label as", () => {
+    expect(rawLabelForms("Priya Shah (she/her)")).toEqual(["Priya Shah (she/her)", "Priya Shah", "she/her"]);
+    expect(rawLabelForms("Priya Shah (Guest) [00:00:04]")).toEqual(["Priya Shah (Guest)", "Priya Shah", "Guest"]);
+    expect(rawLabelForms("Shah, Priya")).toEqual(["Shah, Priya", "Priya Shah"]);
+    expect(rawLabelForms("Subject (Marcus Lindqvist, CTO)")).toEqual([
+      "Subject (Marcus Lindqvist, CTO)",
+      "Subject",
+      "Marcus Lindqvist, CTO",
+      "Marcus Lindqvist",
+    ]);
   });
 
   it("still takes the name in brackets after a role word", () => {

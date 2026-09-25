@@ -13,7 +13,12 @@
 import { internalAction, type ActionCtx } from "../_generated/server";
 import { internal } from "../_generated/api";
 import { v } from "convex/values";
-import { clientForModel, registerGenerationModels } from "./providers";
+import {
+  clientForModel,
+  describeProviderFailure,
+  registerGenerationModels,
+  startActionDeadline,
+} from "./providers";
 import { RETRIEVAL_BRIEF_MODEL } from "./brain/query";
 import { runAnalyzerAgent, type TranscriptAnalysis } from "./analyzerAgent";
 import { runGenerationBriefStage, deriveOrReuseBrief } from "./brief";
@@ -260,6 +265,8 @@ export const resumeSeedInitialization = internalAction({
   args: { generationId: v.id("generations") },
   returns: v.null(),
   handler: async (ctx, args): Promise<null> => {
+    // The action's deadline bounds every provider request (actionDeadline.ts).
+    startActionDeadline(ctx);
     const input = await ctx.runQuery(internal.generations.getGenerationInput, args);
     if (!input || input.gatedWorkflow !== "seeds") return null;
     await registerGenerationModels(ctx, args.generationId);
@@ -283,6 +290,8 @@ export const prepareSeedDraftingInputs = internalAction({
   args: { generationId: v.id("generations"), attempt: v.number() },
   returns: v.null(),
   handler: async (ctx, args): Promise<null> => {
+    // The action's deadline bounds every provider request (actionDeadline.ts).
+    startActionDeadline(ctx);
     const stillCurrent = () =>
       ctx.runQuery(internal.generations.isDraftingInputsAttemptCurrent, args);
     if (!(await stillCurrent())) return null;
@@ -366,6 +375,8 @@ export const startIterativeGeneration = internalAction({
   args: { generationId: v.id("generations") },
   handler: async (ctx, args) => {
     const actionStartedAt = Date.now();
+    // The action's deadline bounds every provider request (actionDeadline.ts).
+    startActionDeadline(ctx, actionStartedAt);
     if (!(await beginTrackedGeneration(ctx, args.generationId))) return;
     const reservedInput = await ctx.runQuery(
       internal.generations.getGenerationInput,
@@ -626,6 +637,8 @@ export const generateSection = internalAction({
     section: v.union(v.literal("s242"), v.literal("s244"), v.literal("s246")),
   },
   handler: async (ctx, args) => {
+    // The action's deadline bounds every provider request (actionDeadline.ts).
+    startActionDeadline(ctx);
     // Model catalog: routing and output budgets read the frozen models.
     await registerGenerationModels(ctx, args.generationId).catch(() => null);
     const run = await ctx.runMutation(internal.generations.claimSectionRun, {
@@ -733,8 +746,7 @@ export const generateSection = internalAction({
         qa: JSON.stringify(findings),
       });
     } catch (error) {
-      const normalized = normalizeProviderError(error);
-      await fail(`${normalized.code}: ${normalized.message}`);
+      await fail(describeProviderFailure(error));
     }
   },
 });

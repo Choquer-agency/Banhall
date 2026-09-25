@@ -5,6 +5,7 @@ import { api, internal } from "./_generated/api";
 import schema from "./schema";
 import { clientForModel, resetGenerationModelCache, resetGenerationPlaceholderCache } from "./ai/providers";
 import { MODEL } from "./ai/model";
+import { TRANSCRIPT_PARSER_VERSION } from "../shared/transcriptParse";
 
 /**
  * Owner decision 26: every generation-owned provider call, Claude included,
@@ -200,7 +201,7 @@ describe("placeholders frozen before the speaker build runs", () => {
   ].join("\n");
   const SPEAKER_WORDS = ["Dana", "Whitfield", "Marcus", "Lindqvist", "Anika", "Rao", "Northwind", "Shah", "Priya", "Verdant"];
 
-  async function setupFresh(tag: string) {
+  async function setupFresh(tag: string, content = TRANSCRIPT) {
     const t = convexTest(schema, modules);
     const projectId = await t.run(async (ctx) => {
       const writerId = await ctx.db.insert("users", { authId: `race-${tag}`, role: "writer", firstName: "Wren", lastName: "Writer" });
@@ -219,7 +220,7 @@ describe("placeholders frozen before the speaker build runs", () => {
     // The real intake path: saves the row and schedules the speaker build.
     const transcriptId = await writer.mutation(api.transcripts.addTranscript, {
       projectId,
-      content: TRANSCRIPT,
+      content,
       label: "Helios interview",
     });
     return { t, projectId, transcriptId, writer };
@@ -308,6 +309,107 @@ describe("placeholders frozen before the speaker build runs", () => {
     const afterMap = (await after.t.run((ctx) => ctx.db.get(afterId)))?.placeholders;
     expect(beforeMap?.length).toBeGreaterThan(0);
     expect(afterMap).toEqual(beforeMap);
+  });
+
+  it("reads the names the build stored at generation start, and parses a row the current parser did not build", async () => {
+    const f = await setupFresh("stored");
+    await f.t.mutation(internal.transcripts.buildTranscriptStructure, { transcriptId: f.transcriptId });
+    const built = await f.t.run((ctx) => ctx.db.get(f.transcriptId));
+    expect(built?.speakerNames).toEqual({
+      parserVersion: TRANSCRIPT_PARSER_VERSION,
+      otherNames: ["Shah, Priya"],
+      organizations: ["Northwind Labs"],
+    });
+    // A name only the stored list holds: a map that reads the stored names
+    // has it, a map that parses the text does not.
+    await f.t.run((ctx) =>
+      ctx.db.patch(f.transcriptId, {
+        speakerNames: { ...built!.speakerNames!, otherNames: ["Shah, Priya", "Stored Sentinel"] },
+      })
+    );
+    const current = await f.writer.mutation(api.generations.requestGeneration, {
+      projectId: f.projectId,
+      candidateMode: "single",
+    });
+    const currentValues = (await f.t.run((ctx) => ctx.db.get(current)))?.placeholders?.map((entry) => entry.value);
+    expect(currentValues).toContain("Stored Sentinel");
+    expect(currentValues).toContain("Northwind Labs");
+
+    // Built by an older parser: the stored names are not trusted, the text is
+    // parsed, and every speaker is still hidden.
+    const old = await setupFresh("stored-stale");
+    await old.t.mutation(internal.transcripts.buildTranscriptStructure, { transcriptId: old.transcriptId });
+    await old.t.run((ctx) =>
+      ctx.db.patch(old.transcriptId, {
+        parserVersion: "4",
+        speakerNames: { parserVersion: "4", otherNames: ["Stored Sentinel"], organizations: [] },
+      })
+    );
+    const stale = await old.writer.mutation(api.generations.requestGeneration, {
+      projectId: old.projectId,
+      candidateMode: "single",
+    });
+    const staleValues = (await old.t.run((ctx) => ctx.db.get(stale)))?.placeholders?.map((entry) => entry.value);
+    expect(staleValues).not.toContain("Stored Sentinel");
+    for (const name of ["Dana Whitfield", "Marcus Lindqvist", "Anika Rao", "Priya Shah", "Shah, Priya", "Northwind Labs"]) {
+      expect(staleValues).toContain(name);
+    }
+  });
+
+  it("keeps people apart and hides each one when a company is written before their name (Acme (Priya Shah))", async () => {
+    const content = [
+      "Jordan Ellis: Priya, why not buy one?",
+      "",
+      "Acme (Priya Shah): We tried. Raj knows.",
+      "",
+      "Jordan Ellis: Raj?",
+      "",
+      "Acme (Raj Patel): Shah is right.",
+    ].join("\n");
+    for (const built of [false, true]) {
+      const f = await setupFresh(`acme-${built}`, content);
+      if (built) {
+        await f.t.mutation(internal.transcripts.buildTranscriptStructure, { transcriptId: f.transcriptId });
+        expect((await speakerLabels(f.t, f.transcriptId)).sort()).toEqual(["Jordan Ellis", "Priya Shah", "Raj Patel"]);
+      }
+      const generationId = await f.writer.mutation(api.generations.requestGeneration, {
+        projectId: f.projectId,
+        candidateMode: "single",
+      });
+      const bodies: string[] = [];
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+          bodies.push(await new Request(input, init).text());
+          return Response.json({
+            id: "msg_acme",
+            type: "message",
+            role: "assistant",
+            model: MODEL,
+            content: [{ type: "text", text: "ok" }],
+            stop_reason: "end_turn",
+            stop_sequence: null,
+            usage: { input_tokens: 10, output_tokens: 1 },
+          });
+        })
+      );
+      await f.t.action(async (ctx) =>
+        clientForModel(ctx, MODEL, {
+          callSite: "generation:analyzer",
+          projectId: f.projectId,
+          attribution: { generationId },
+        }).messages.create({
+          model: MODEL,
+          max_tokens: 100,
+          messages: [{ role: "user", content }],
+        })
+      );
+      expect(bodies).toHaveLength(1);
+      for (const word of ["Priya", "Raj", "Shah", "Patel", "Jordan", "Ellis", "Acme"]) {
+        expect(bodies[0], `${word} (built: ${built})`).not.toContain(word);
+      }
+      expect(bodies[0]).toContain("why not buy one?");
+    }
   });
 
   it("hides the speakers of a transcript whose build has not run in an extraction's map too", async () => {

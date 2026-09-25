@@ -23,6 +23,8 @@ import type { GenerationClient } from "./ai/openrouterCore";
 import { sha256 } from "./lib/contracts";
 import {
   citationSpeakerReader,
+  evidenceSpan,
+  mayMoveQuote,
   otherOccurrences,
   speakerOfRoles,
   type CitationSpeaker,
@@ -213,6 +215,78 @@ describe("the speaker check (convex/lib/citationSpeakers.ts)", () => {
       await ctx.db.patch(built.sourceId, { content: `Preface.\n\n${MERIDIAN}`, contentHash: "other" });
     });
     expect(await speakersOf(t, built.sourceId, [at(QUESTION)])).toEqual(["unchecked"]);
+  });
+
+  it("says unchecked for turns an older parser built, so its merged labels never exclude a client", async () => {
+    const t = convexTest(schema, modules);
+    const built = await meridian(t, { turns: true });
+    expect(await speakersOf(t, built.sourceId, [at(QUESTION)])).toEqual(["excluded"]);
+    // As if parser v4 had built the row and all its turns.
+    await t.run(async (ctx) => {
+      await ctx.db.patch(built.transcriptId, { parserVersion: "4" });
+      for (const turn of await ctx.db
+        .query("transcriptTurns")
+        .withIndex("by_transcriptId_and_index", (q) => q.eq("transcriptId", built.transcriptId))
+        .collect()) {
+        await ctx.db.patch(turn._id, { parserVersion: "4" });
+      }
+    });
+    expect(await speakersOf(t, built.sourceId, [at(QUESTION), at(CLIENT)])).toEqual(["unchecked", "unchecked"]);
+  });
+
+  it("excludes only on a consultant's role or one at the model threshold; a weaker guess is marked for a check", async () => {
+    const t = convexTest(schema, modules);
+    const f = await meridian(t, { turns: true });
+    async function interviewerRole(roleSource: "heuristic" | "model", confidence: number) {
+      await t.run(async (ctx) => {
+        const [row] = await ctx.db
+          .query("transcriptSpeakers")
+          .withIndex("by_transcriptId_and_label", (q) =>
+            q.eq("transcriptId", f.transcriptId).eq("label", "Jordan Ellis")
+          )
+          .take(1);
+        await ctx.db.patch(row._id, { role: "interviewer", roleSource, confidence });
+      });
+      return (await speakersOf(t, f.sourceId, [at(QUESTION)]))[0];
+    }
+    expect(await interviewerRole("heuristic", 0.6)).toBe("needs_check");
+    expect(await interviewerRole("model", 0.5)).toBe("needs_check");
+    expect(await interviewerRole("heuristic", 0.7)).toBe("excluded");
+    expect(await interviewerRole("model", 0.9)).toBe("excluded");
+  });
+
+  it("moves a quote only when it is long enough and the new place is near the old one", async () => {
+    const t = convexTest(schema, modules);
+    const f = await meridian(t, { turns: true });
+    expect(mayMoveQuote(ECHO)).toBe(true);
+    expect(mayMoveQuote("the standard cure")).toBe(false);
+    expect(mayMoveQuote("peel strength after every batch")).toBe(false);
+    // Robin Chen's line is turn 5: three turns after the question (turn 2),
+    // five after the opening question (turn 0).
+    expect(
+      await t.run(async (ctx) => {
+        const source = (await ctx.db.get(f.sourceId))!;
+        const speakerOf = citationSpeakerReader(ctx);
+        const unknown = at(UNKNOWN);
+        return [
+          await speakerOf(source, unknown.startOffset, unknown.endOffset, at(QUESTION)),
+          await speakerOf(source, unknown.startOffset, unknown.endOffset, ECHO_INTERVIEWER),
+        ];
+      })
+    ).toEqual(["needs_check", "excluded"]);
+    const kept = await t.run(async (ctx) => {
+      const source = (await ctx.db.get(f.sourceId))!;
+      const speakerOf = citationSpeakerReader(ctx);
+      const short = at("the standard cure");
+      return [
+        await evidenceSpan(speakerOf, source, ECHO_INTERVIEWER),
+        await evidenceSpan(speakerOf, source, short),
+      ];
+    });
+    expect(kept).toEqual([
+      { startOffset: ECHO_CLIENT.startOffset, endOffset: ECHO_CLIENT.endOffset, speaker: "client" },
+      null,
+    ]);
   });
 
   it("decides from roles alone, and orders other places nearest first", () => {
@@ -436,7 +510,7 @@ describe("Seeds keep only client turns as evidence outside facts mode", () => {
 
 // ─── Brief entries ───────────────────────────────────────────────────────────
 
-function briefClient(): GenerationClient {
+function briefClient(overrides: Record<string, unknown> = {}): GenerationClient {
   return {
     messages: {
       create: async (params) => ({
@@ -455,6 +529,7 @@ function briefClient(): GenerationClient {
             ],
             // First said by the interviewer, then by the client.
             glossaryTerms: [{ term: "bond line" }],
+            ...overrides,
           },
         }],
         stop_reason: "tool_use",
@@ -463,10 +538,14 @@ function briefClient(): GenerationClient {
   };
 }
 
-async function deriveBrief(t: TestConvex, f: Awaited<ReturnType<typeof meridian>>) {
+async function deriveBrief(
+  t: TestConvex,
+  f: Awaited<ReturnType<typeof meridian>>,
+  overrides: Record<string, unknown> = {}
+) {
   await t.run((ctx) => ctx.db.patch(f.generationId, { gatedWorkflow: undefined, status: "running" }));
   const outcome = await runAction(t, async (ctx) =>
-    deriveOrReuseBrief(ctx, briefClient(), { projectId: f.projectId, generationId: f.generationId })
+    deriveOrReuseBrief(ctx, briefClient(overrides), { projectId: f.projectId, generationId: f.generationId })
   );
   if (outcome.kind !== "derived") throw new Error(`unexpected Brief outcome ${outcome.kind}`);
   return await t.run(async (ctx) => ({
@@ -493,6 +572,108 @@ describe("Brief entries keep only client turns as evidence outside facts mode", 
     );
     // Both dropped entries are counted on the Brief.
     expect(brief?.droppedEntryCount).toBe(2);
+  });
+
+  it("moves only a long quote, and only near its first place; a short one is dropped", async () => {
+    const t = convexTest(schema, modules);
+    const f = await meridian(t, { turns: true });
+    const { brief, entries } = await deriveBrief(t, f, {
+      confidenceMap: [
+        // Said by the interviewer first, then echoed in the client's answer.
+        { text: "The bond line fails at the standard cure.", quote: ECHO, confidence: "established" },
+        // Too short to move: dropped, never re-backed by the client's turn.
+        { text: "The standard cure is the problem.", quote: "the standard cure", confidence: "established" },
+      ],
+    });
+    const confidence = entries.filter((entry) => entry.group === "confidenceMap");
+    expect(confidence.map((entry) => [entry.exactExcerpt, entry.startOffset])).toEqual([
+      [ECHO, ECHO_CLIENT.startOffset],
+    ]);
+    // The exclusion (question) and the short quote.
+    expect(brief?.droppedEntryCount).toBe(2);
+  });
+
+  it("drops an interviewer-backed entry from a stored Brief when it is reused, into a new version that counts it", async () => {
+    const t = convexTest(schema, modules);
+    const f = await meridian(t, { turns: true });
+    const { brief } = await deriveBrief(t, f);
+    // As if this Brief had been derived before the check: an exclusion
+    // backed by the interviewer's question.
+    await t.run(async (ctx) =>
+      ctx.db.insert("generationBriefEntries", {
+        briefId: brief!._id,
+        projectId: f.projectId,
+        group: "claimExclusion",
+        text: "Buying an adhesive was an option.",
+        reason: "business_risk",
+        sourceId: f.sourceId,
+        sourceContentHash: await sha256(MERIDIAN),
+        ...at(QUESTION),
+        createdAt: Date.now(),
+      })
+    );
+    const fetchSpy = vi.fn();
+    vi.stubGlobal("fetch", fetchSpy);
+    const reuse = () =>
+      runAction(t, async (ctx) =>
+        deriveOrReuseBrief(ctx, briefClient(), { projectId: f.projectId, generationId: f.generationId })
+      );
+    const outcome = await reuse();
+    expect(fetchSpy).not.toHaveBeenCalled();
+    if (outcome.kind !== "reused") throw new Error(`unexpected Brief outcome ${outcome.kind}`);
+    expect(outcome.briefId).not.toBe(brief!._id);
+    const reused = await t.run(async (ctx) => ({
+      brief: await ctx.db.get(outcome.briefId),
+      generation: await ctx.db.get(f.generationId),
+      entries: await ctx.db
+        .query("generationBriefEntries")
+        .withIndex("by_briefId", (q) => q.eq("briefId", outcome.briefId))
+        .collect(),
+    }));
+    expect(reused.brief).toMatchObject({
+      version: brief!.version + 1,
+      inputsHash: brief!.inputsHash,
+      droppedEntryCount: (brief!.droppedEntryCount ?? 0) + 1,
+    });
+    expect(reused.generation?.briefId).toBe(outcome.briefId);
+    expect(reused.entries.map((entry) => entry.exactExcerpt)).not.toContain(QUESTION);
+    expect(reused.entries).toHaveLength(3);
+    // Reused again: nothing left to drop, so no further version.
+    const again = await reuse();
+    expect(again).toEqual({ kind: "reused", briefId: outcome.briefId });
+
+    // The Step-by-step start pins the checked version too.
+    await t.run(async (ctx) => {
+      await ctx.db.insert("generationBriefEntries", {
+        briefId: outcome.briefId,
+        projectId: f.projectId,
+        group: "confidenceMap",
+        text: "Supplier samples failed the peel test.",
+        confidence: "established",
+        sourceId: f.sourceId,
+        sourceContentHash: await sha256(MERIDIAN),
+        ...at(OTHER),
+        createdAt: Date.now(),
+      });
+      await ctx.db.patch(f.generationId, {
+        gatedWorkflow: "seeds",
+        status: "awaiting_input",
+        briefId: undefined,
+      });
+    });
+    const pin = await t.mutation(internal.generations.pinSeedBrief, {
+      generationId: f.generationId,
+      inputsHash: brief!.inputsHash,
+    });
+    expect(pin).not.toBe(outcome.briefId);
+    const pinnedRows = await t.run(async (ctx) =>
+      ctx.db
+        .query("generationBriefEntries")
+        .withIndex("by_briefId", (q) => q.eq("briefId", pin!))
+        .collect()
+    );
+    expect(pinnedRows.map((entry) => entry.exactExcerpt)).not.toContain(OTHER);
+    expect((await t.run((ctx) => ctx.db.get(pin!)))?.version).toBe(brief!.version + 2);
   });
 
   it("refuses an interviewer-backed entry again when the Brief is stored", async () => {

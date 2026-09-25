@@ -286,6 +286,125 @@ describe("backfill of turns and speaker roles", () => {
     expect((await turnsOf(f.t, f.transcriptIds[0])).length).toBe(4);
   });
 
+  /**
+   * As if an older parser had built the transcript with these speaker rows
+   * (review 2026-09-25, P2-1): the turns are marked old and the rows replaced.
+   */
+  async function asBuiltByOlderParser(
+    f: Awaited<ReturnType<typeof setup>>,
+    rows: Array<{ label: string; role: "interviewer" | "client" | "other"; roleSource: "consultant" | "model" | "heuristic"; confidence: number }>
+  ) {
+    await f.t.mutation(internal.transcripts.buildTranscriptStructure, { transcriptId: f.transcriptIds[0] });
+    await f.t.run(async (ctx) => {
+      for (const row of await ctx.db
+        .query("transcriptSpeakers")
+        .withIndex("by_transcriptId_and_label", (q) => q.eq("transcriptId", f.transcriptIds[0]))
+        .collect()) {
+        await ctx.db.delete(row._id);
+      }
+      for (const row of rows) {
+        await ctx.db.insert("transcriptSpeakers", {
+          transcriptId: f.transcriptIds[0],
+          projectId: f.projectId,
+          turnCount: 1,
+          ...row,
+          ...(row.roleSource === "consultant" ? { confirmedBy: f.writerId, confirmedAt: 5 } : {}),
+        });
+      }
+      await ctx.db.patch(f.transcriptIds[0], { parserVersion: "3", speakerStatus: "confirmed" });
+    });
+    await f.t.mutation(internal.transcripts.backfillTranscriptStructure, {});
+    await f.t.finishAllScheduledFunctions(vi.runAllTimers);
+    return {
+      speakers: await speakersOf(f.t, f.transcriptIds[0]),
+      transcript: await f.t.run((ctx) => ctx.db.get(f.transcriptIds[0])),
+    };
+  }
+
+  it("carries a consultant's role on a label the new parser reads differently to the new label", async () => {
+    const f = await setup([
+      [
+        "Dana Whitfield: What did you build?",
+        "Priya Shah (Guest): A predictive controller.",
+        "Dana Whitfield: What made it hard?",
+        "Priya Shah (Guest): The forecast lagged.",
+      ].join("\n\n"),
+    ]);
+    const fetchSpy = vi.fn();
+    vi.stubGlobal("fetch", fetchSpy);
+    try {
+      // v3 read "Priya Shah (Guest)" as "Guest"; a consultant set it and Dana.
+      const { speakers, transcript } = await asBuiltByOlderParser(f, [
+        { label: "Dana Whitfield", role: "interviewer", roleSource: "consultant", confidence: 1 },
+        { label: "Guest", role: "client", roleSource: "consultant", confidence: 1 },
+      ]);
+      expect(speakers.map((row) => [row.label, row.role, row.roleSource, row.confidence, row.confirmedBy])).toEqual([
+        ["Dana Whitfield", "interviewer", "consultant", 1, f.writerId],
+        ["Priya Shah", "client", "consultant", 1, f.writerId],
+      ]);
+      expect(transcript?.speakerStatus).toBe("confirmed");
+    } finally {
+      vi.unstubAllGlobals();
+    }
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("gives each person of a label the new parser splits the old role as a guess to check", async () => {
+    const f = await setup([
+      [
+        "Jordan Ellis (he/him): What did you test?",
+        "Raj Patel (he/him): We tested four low-temperature adhesives and two held.",
+        "Priya Shah (she/her): The second one held at 120C.",
+      ].join("\n\n"),
+    ]);
+    // v3 merged Jordan and Raj into "he/him"; the model called it client.
+    const { speakers, transcript } = await asBuiltByOlderParser(f, [
+      { label: "he/him", role: "client", roleSource: "model", confidence: 0.8 },
+      { label: "she/her", role: "client", roleSource: "consultant", confidence: 1 },
+    ]);
+    const byLabel = new Map(speakers.map((row) => [row.label, row]));
+    // One old label, one new: kept as it was.
+    expect(byLabel.get("Priya Shah")).toMatchObject({ role: "client", roleSource: "consultant", confidence: 1 });
+    // One old label, two new people: the old answer, as a guess below the
+    // model threshold where the rules could not place them.
+    for (const label of ["Jordan Ellis", "Raj Patel"]) {
+      expect(byLabel.get(label), label).toMatchObject({ role: "client", roleSource: "heuristic", confidence: 0.6 });
+    }
+    expect(transcript?.speakerStatus).toBe("needs_check");
+  });
+
+  it("keeps a new rule's confident role over a split old role", async () => {
+    const f = await setup(
+      [
+        [
+          "Jordan Ellis (he/him): What did you test?",
+          "Raj Patel (he/him): We tested four low-temperature adhesives and two held.",
+        ].join("\n\n"),
+      ],
+      { interviewer: "Jordan Ellis", interviewees: ["Raj Patel"] }
+    );
+    const { speakers } = await asBuiltByOlderParser(f, [
+      { label: "he/him", role: "interviewer", roleSource: "consultant", confidence: 1 },
+    ]);
+    expect(speakers.map((row) => [row.label, row.role, row.roleSource])).toEqual([
+      ["Jordan Ellis", "interviewer", "heuristic"],
+      ["Raj Patel", "client", "heuristic"],
+    ]);
+  });
+
+  it("marks the transcript for a speaker check when a consultant's role has no label left to go to", async () => {
+    const f = await setup([INTERVIEW]);
+    const { speakers, transcript } = await asBuiltByOlderParser(f, [
+      { label: "Dana Whitfield", role: "interviewer", roleSource: "consultant", confidence: 1 },
+      { label: "Priya Shah", role: "client", roleSource: "consultant", confidence: 1 },
+      // A heading an older parser read as a speaker.
+      { label: "Result", role: "client", roleSource: "consultant", confidence: 1 },
+    ]);
+    expect(speakers.map((row) => row.label)).toEqual(["Dana Whitfield", "Priya Shah"]);
+    expect(speakers.every((row) => row.roleSource === "consultant")).toBe(true);
+    expect(transcript?.speakerStatus).toBe("needs_check");
+  });
+
   it("skips a project that is being deleted", async () => {
     const f = await setup([INTERVIEW]);
     await f.t.run(async (ctx) => ctx.db.patch(f.projectId, { deletionStartedAt: Date.now() }));

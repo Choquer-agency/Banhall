@@ -20,6 +20,7 @@
  * attribution line and never exposed to clients.
  */
 import {
+  ALWAYS_THINKING_MAX_OUTPUT_TOKENS,
   CANDIDATE_MODELS,
   FORCED_TOOL_CHOICE_REJECTED_IDS,
   MODEL,
@@ -1212,6 +1213,11 @@ export type EvalEnvelope = Record<EvalTaskKind | "judge", EvalRequestBound>;
 export type PricedModel = {
   gateway: ModelGateway;
   reasoning: boolean;
+  /**
+   * A direct Anthropic model whose thinking is always on (entryAlwaysThinks):
+   * the gateway multiplies its answer budget, seeds included (2026-09-25).
+   */
+  alwaysThinks?: boolean;
   maxCompletionTokens?: number;
   inputUsdPerMTok?: number;
   outputUsdPerMTok?: number;
@@ -1223,10 +1229,16 @@ export const UNKNOWN_EVAL_PRICE = { inputUsdPerMTok: 30, outputUsdPerMTok: 150 }
 /**
  * The max_tokens a request actually carries: OpenRouter scales a reasoning
  * model's budget by the reasoning multiplier (capped by its output limit)
- * unless the call preserves it; direct Anthropic calls send it as is.
+ * unless the call preserves it; direct Anthropic calls send it as is, except
+ * to a model whose thinking is always on, which gets the same multiplier
+ * within its output cap (alwaysThinkingMaxTokens), seeds included.
  */
 export function maxRequestOutputTokens(model: PricedModel, bound: EvalRequestBound): number {
   const answer = bound.answerTokens[model.gateway];
+  if (model.gateway === "anthropic" && model.alwaysThinks) {
+    const cap = model.maxCompletionTokens ?? ALWAYS_THINKING_MAX_OUTPUT_TOKENS;
+    return Math.max(answer, Math.min(answer * REASONING_TOKEN_MULTIPLIER, cap));
+  }
   if (bound.preserveMaxTokens || !model.reasoning || model.gateway !== "openrouter") {
     return answer;
   }

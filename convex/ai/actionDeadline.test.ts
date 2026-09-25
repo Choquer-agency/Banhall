@@ -1,0 +1,116 @@
+import { describe, expect, it } from "vitest";
+import {
+  ACTION_REQUEST_WINDOW_MS,
+  ACTION_TIME_BUDGET_MESSAGE,
+  ActionTimeBudgetError,
+  CONVEX_ACTION_LIMIT_MS,
+  MAX_SDK_RETRY_BACKOFF_MS,
+  MIN_USEFUL_REQUEST_MS,
+  RESERVED_NON_REQUEST_MS,
+  actionDeadline,
+  requestBudget,
+  startActionDeadline,
+} from "./actionDeadline";
+import {
+  ANTHROPIC_MAX_RETRIES,
+  ANTHROPIC_TIMEOUT_MS,
+  describeProviderFailure,
+  modelFaultCode,
+  normalizeProviderError,
+} from "./providers";
+
+describe("action deadline arithmetic (cutoff review P2-2)", () => {
+  it("ends every request 60 s before the Convex action limit", () => {
+    expect(CONVEX_ACTION_LIMIT_MS).toBe(600_000);
+    expect(RESERVED_NON_REQUEST_MS).toBe(60_000);
+    expect(ACTION_REQUEST_WINDOW_MS).toBe(540_000);
+    const ctx = {};
+    expect(actionDeadline(ctx)).toBeUndefined();
+    expect(startActionDeadline(ctx, 1_000)).toBe(541_000);
+    expect(actionDeadline(ctx)).toBe(541_000);
+    // Each action context has its own deadline.
+    expect(actionDeadline({})).toBeUndefined();
+  });
+
+  it("leaves a request untouched when its action set no deadline", () => {
+    expect(requestBudget({ deadline: undefined, now: 9e12, timeoutMs: 240_000, maxRetries: 1 }))
+      .toEqual({ timeoutMs: 240_000, maxRetries: 1, shortened: false });
+  });
+
+  it("keeps the defaults while every attempt and the backoff fit", () => {
+    const deadline = startActionDeadline({}, 0);
+    expect(requestBudget({ deadline, now: 0, timeoutMs: ANTHROPIC_TIMEOUT_MS, maxRetries: ANTHROPIC_MAX_RETRIES }))
+      .toEqual({ timeoutMs: 240_000, maxRetries: 1, shortened: false });
+    // 2 x 240 s + 8 s = 488 s: the retry still fits with 488 s left.
+    const tight = 2 * ANTHROPIC_TIMEOUT_MS + MAX_SDK_RETRY_BACKOFF_MS;
+    expect(requestBudget({ deadline, now: deadline - tight, timeoutMs: 240_000, maxRetries: 1 }).maxRetries).toBe(1);
+  });
+
+  it("drops the retry when a second attempt would not fit", () => {
+    const deadline = 1_000_000;
+    const now = deadline - (2 * 240_000 + MAX_SDK_RETRY_BACKOFF_MS - 1);
+    expect(requestBudget({ deadline, now, timeoutMs: 240_000, maxRetries: 1 }))
+      .toEqual({ timeoutMs: 240_000, maxRetries: 0, shortened: false });
+  });
+
+  it("cuts the timeout to the time left, with no retry", () => {
+    const deadline = 1_000_000;
+    expect(requestBudget({ deadline, now: deadline - 100_000, timeoutMs: 240_000, maxRetries: 1 }))
+      .toEqual({ timeoutMs: 100_000, maxRetries: 0, shortened: true });
+    // The seed policy: 90 s and no retry, cut only when less is left.
+    expect(requestBudget({ deadline, now: deadline - 100_000, timeoutMs: 90_000, maxRetries: 0 }))
+      .toEqual({ timeoutMs: 90_000, maxRetries: 0, shortened: false });
+    expect(requestBudget({ deadline, now: deadline - 30_000, timeoutMs: 90_000, maxRetries: 0 }))
+      .toEqual({ timeoutMs: 30_000, maxRetries: 0, shortened: true });
+  });
+
+  it("refuses to send with less than the minimum useful time left", () => {
+    const deadline = 1_000_000;
+    expect(requestBudget({ deadline, now: deadline - MIN_USEFUL_REQUEST_MS, timeoutMs: 240_000, maxRetries: 1 }))
+      .toEqual({ timeoutMs: MIN_USEFUL_REQUEST_MS, maxRetries: 0, shortened: true });
+    expect(() => requestBudget({ deadline, now: deadline - MIN_USEFUL_REQUEST_MS + 1, timeoutMs: 240_000, maxRetries: 1 }))
+      .toThrow(ActionTimeBudgetError);
+    expect(() => requestBudget({ deadline, now: deadline + 5_000, timeoutMs: 240_000, maxRetries: 1 }))
+      .toThrow(ACTION_TIME_BUDGET_MESSAGE);
+  });
+
+  it("bounds a structured call with its repair: both requests end by the deadline", () => {
+    // Worst case before the deadline: cut, repair, each timing out once and
+    // retried. Simulate it against the budget.
+    const deadline = startActionDeadline({}, 0);
+    let now = 0;
+    let requests = 0;
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      let budget;
+      try {
+        budget = requestBudget({ deadline, now, timeoutMs: 240_000, maxRetries: 1 });
+      } catch (error) {
+        expect(error).toBeInstanceOf(ActionTimeBudgetError);
+        break;
+      }
+      requests += 1;
+      now += (budget.maxRetries + 1) * budget.timeoutMs + budget.maxRetries * MAX_SDK_RETRY_BACKOFF_MS;
+      expect(now).toBeLessThanOrEqual(deadline);
+    }
+    // 488 s for the first request, then 52 s left: one 52 s repair, no retry.
+    expect(requests).toBe(2);
+    expect(now).toBe(deadline);
+    expect(now + RESERVED_NON_REQUEST_MS).toBe(CONVEX_ACTION_LIMIT_MS);
+  });
+
+  it("is a writer-facing failure that never counts against the model", () => {
+    const error = new ActionTimeBudgetError();
+    expect(error.message).toBe(ACTION_TIME_BUDGET_MESSAGE);
+    // No colon: the read side shows it as is (userSafeStoredError).
+    expect(ACTION_TIME_BUDGET_MESSAGE).not.toContain(":");
+    expect(ACTION_TIME_BUDGET_MESSAGE).not.toMatch(/[\u2013\u2014\u00b7]/);
+    expect(modelFaultCode(error)).toBeNull();
+    expect(normalizeProviderError(error)).toEqual({ code: "unknown", message: ACTION_TIME_BUDGET_MESSAGE });
+    expect(describeProviderFailure(error)).toBe(ACTION_TIME_BUDGET_MESSAGE);
+    // Every other failure keeps its stored "<code>: <message>" form.
+    const other = Object.assign(new Error("slow down"), { status: 429 });
+    expect(describeProviderFailure(other)).toBe(
+      "rate_limited: The AI provider is rate-limiting requests. Try again after the limit resets."
+    );
+  });
+});

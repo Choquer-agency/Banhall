@@ -644,6 +644,18 @@ export default defineSchema({
     // place. Kept on the row, so a chain that takes the build over still
     // asks; cleared when the build finishes.
     structureModelRoles: v.optional(v.boolean()),
+    // 2026-09-25 widen (review): the names the speaker labels hold besides
+    // the labels themselves, written by the build with `parserVersion`, so a
+    // placeholder map built at generation start reads them instead of
+    // parsing the text again. Absent when too many to keep; then the text
+    // is parsed.
+    speakerNames: v.optional(
+      v.object({
+        parserVersion: v.string(),
+        otherNames: v.array(v.string()),
+        organizations: v.array(v.string()),
+      })
+    ),
     archivedAt: v.optional(v.number()),
     supersededById: v.optional(v.id("transcripts")),
     speakerStatus: v.optional(
