@@ -17,4 +17,18 @@ describe("compressSection with a thinking-first reply", () => {
     expect(create).toHaveBeenCalledTimes(1);
     expect(out).toBe("The shorter section.");
   });
+
+  it("keeps the original text when the reply was cut off at the token limit", async () => {
+    const create = vi.fn(async () => ({
+      content: [
+        { type: "thinking", thinking: "Long planning." },
+        { type: "text", text: "The shorter sec" },
+      ],
+      stop_reason: "max_tokens",
+      usage: { input_tokens: 10, output_tokens: 4096 },
+    }));
+    const client = { messages: { create } } as unknown as GenerationClient;
+    const original = "The original, longer section text.";
+    expect(await compressSection(client, "claude-opus-5-5", "s242", original, "standard")).toBe(original);
+  });
 });

@@ -362,16 +362,22 @@ export function singleModelItems(
 // + Random → fill the open slot here so the pair persists for retries.
 // Random fills draw from Anthropic models only: a surprise OpenRouter pick
 // must never silently require the second API key or a different cost profile.
+// Models that reject a forced tool call (Opus 5.5, Fable 5.1) stay an
+// explicit choice, as in the server's random draw.
 export function comparePairFromSlots(
   slotA: string,
   slotB: string,
-  models: readonly Pick<ModelEntry, "id" | "gateway">[] = CANDIDATE_MODELS
+  models: readonly Pick<ModelEntry, "id" | "gateway" | "forcedToolChoice">[] = CANDIDATE_MODELS
 ): string[] | undefined {
   const picked = [slotA, slotB].filter(Boolean);
   if (picked.length === 0) return undefined;
   if (picked.length === 2) return picked;
   const rest = models.filter(
-    (m) => m.id !== picked[0] && m.gateway === RANDOM_COMPARISON_GATEWAY
+    (m) =>
+      m.id !== picked[0] &&
+      m.gateway === RANDOM_COMPARISON_GATEWAY &&
+      m.forcedToolChoice !== false &&
+      !FORCED_TOOL_CHOICE_REJECTED_IDS.has(m.id)
   );
   if (rest.length === 0) return undefined;
   return [picked[0], rest[Math.floor(Math.random() * rest.length)].id];

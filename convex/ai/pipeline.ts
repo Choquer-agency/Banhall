@@ -119,6 +119,9 @@ export async function compressSection(
       },
     ],
   });
+  // A reply cut off at the token limit (thinking shares the budget on Opus
+  // 5.5 and Fable 5.1) is a partial section; keep the original instead.
+  if (response.stop_reason === "max_tokens") return text;
   const out = firstResponseText(response).trim();
   return out || text;
 }
