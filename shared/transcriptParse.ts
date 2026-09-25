@@ -16,7 +16,7 @@
  * older version are rebuilt by the backfill.
  */
 
-export const TRANSCRIPT_PARSER_VERSION = "2";
+export const TRANSCRIPT_PARSER_VERSION = "3";
 
 /**
  * Longest turn, in characters of stored text. A longer run of speech (a
@@ -198,16 +198,20 @@ export function splitSpeakerLine(line: string): SpeakerLine | undefined {
   const colon = /^(.{1,100}?)\s*:\s+(?=\S)/.exec(afterTime);
   if (colon && COLON_LABEL.test(afterTime)) {
     const speaker = speakerFromLabel(colon[1]);
-    if (!speaker) return undefined;
-    const labelTime = TRAILING_TIMESTAMP.exec(colon[1].trim());
-    const time = labelTime?.[0] ?? timePrefix?.[0];
-    return {
-      kind: "inline",
-      speaker,
-      rawLabel: colon[1].trim(),
-      speechOffset: lead + (timePrefix?.[0].length ?? 0) + colon[0].length,
-      ...(time ? { timeMs: timestampToMs(time) } : {}),
-    };
+    if (speaker) {
+      const labelTime = TRAILING_TIMESTAMP.exec(colon[1].trim());
+      const time = labelTime?.[0] ?? timePrefix?.[0];
+      return {
+        kind: "inline",
+        speaker,
+        rawLabel: colon[1].trim(),
+        speechOffset: lead + (timePrefix?.[0].length ?? 0) + colon[0].length,
+        ...(time ? { timeMs: timestampToMs(time) } : {}),
+      };
+    }
+    // Not a speaker: "[00:00:03] We tested two options: the first failed"
+    // is an unnamed cue whose speech holds a colon, so it is still timed.
+    if (!BRACKETED_TIME_LEAD.test(text)) return undefined;
   }
   const timed = BRACKETED_TIME_LEAD.exec(text);
   if (timed) {
@@ -396,6 +400,23 @@ export function renderCuesCanonical(cues: readonly Cue[]): string {
     .join("\n\n");
 }
 
+/** A paragraph of the canonical cue render: `Name [hh:mm:ss]: text` or `[hh:mm:ss] text`. */
+const CANONICAL_CUE_PARAGRAPH = /^(?:\[\d{2}:\d{2}:\d{2}\] \S|[^\n]{1,100}? \[\d{2}:\d{2}:\d{2}\]: \S)/;
+
+/**
+ * Whether stored text is a cue render (`renderCuesCanonical`): a VTT or SRT
+ * file, or a Teams .docx that kept its cue timings, whose every paragraph
+ * opens with its cue's time. Only there does a line opening with a
+ * bracketed time and no name mark a cue nobody was named for; in any other
+ * transcript it marks a time inside the speech (`parseTranscriptTurns`).
+ */
+export function isCueRender(format: TranscriptSourceFormat | undefined, content: string): boolean {
+  if (format === "vtt" || format === "srt") return true;
+  if (format !== "teams_docx") return false;
+  const paragraphs = content.split(/\n{2,}/).filter((paragraph) => paragraph.trim() !== "");
+  return paragraphs.length > 0 && paragraphs.every((paragraph) => CANONICAL_CUE_PARAGRAPH.test(paragraph));
+}
+
 /**
  * The verbatim text stored for an upload. VTT, SRT and cue-timed Teams
  * exports are rendered to the canonical form; every other format is kept
@@ -541,11 +562,20 @@ function splitLongDraft(content: string, draft: Draft): Draft[] {
  * labelled line ("Name: text", `<v Name>`), or on a header line holding a
  * name and a time with the speech below it; unlabelled lines continue the
  * turn above them. Text before the first label, and every paragraph of a
- * transcript that names no one, becomes its own turn with no speaker, as
- * does a line opening with a bracketed time and no name. A turn longer than
- * MAX_TURN_CHARS continues as further turns of the same speaker.
+ * transcript that names no one, becomes its own turn with no speaker. A
+ * turn longer than MAX_TURN_CHARS continues as further turns of the same
+ * speaker.
+ *
+ * A line opening with a bracketed time and no name depends on `cues`
+ * (`isCueRender`). In a cue render it is a cue nobody was named for: its
+ * own turn with that time and no speaker, never folded into the speaker
+ * above. Anywhere else it is speech with a time on it, read like any other
+ * line: it continues a named turn, and a turn it opens starts at that time.
  */
-export function parseTranscriptTurns(content: string): TranscriptTurn[] {
+export function parseTranscriptTurns(
+  content: string,
+  options: { cues?: boolean } = {}
+): TranscriptTurn[] {
   const infos = lineInfos(content);
   const kinds = infos.map((info) => splitSpeakerLine(info.text));
   const hasSpeakers = kinds.some((kind) => kind?.kind === "inline" || kind?.kind === "header");
@@ -594,7 +624,7 @@ export function parseTranscriptTurns(content: string): TranscriptTurn[] {
       blankSinceSpeech = false;
       continue;
     }
-    if (kind?.kind === "timed") {
+    if (kind?.kind === "timed" && options.cues) {
       // A cue that named no one: its own turn, with its time, never folded
       // into the speaker above it.
       open({ startMs: kind.timeMs ?? pendingTime, spans: [] });
@@ -604,6 +634,8 @@ export function parseTranscriptTurns(content: string): TranscriptTurn[] {
       blankSinceSpeech = false;
       continue;
     }
+    // Outside a cue render a bracketed time is part of the line.
+    const lineTime = kind?.kind === "timed" ? kind.timeMs : undefined;
     const span = trimmedSpan(content, info.start, info.end);
     if (!span) continue;
     const unlabelled = !current || current.speakerLabel === undefined;
@@ -611,7 +643,7 @@ export function parseTranscriptTurns(content: string): TranscriptTurn[] {
     // turn of its own; inside a labelled turn, text continues it.
     if (!hasSpeakers || unlabelled) {
       if (!current || current.speakerLabel !== undefined || blankSinceSpeech) {
-        open({ spans: [], startMs: pendingTime });
+        open({ spans: [], startMs: lineTime ?? pendingTime });
         pendingTime = undefined;
       }
     }

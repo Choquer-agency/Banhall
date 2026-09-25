@@ -291,6 +291,33 @@ describe("backfill of turns and speaker roles", () => {
   });
 });
 
+describe("cue renders and other transcripts", () => {
+  const CUE_TEXT = "Priya Shah [00:00:01]: We built a rig.\n\n[00:00:03] We tested two options: the first failed.";
+
+  it("gives an unnamed cue its own turn only when the row came from VTT, SRT or a cue-timed Teams export", async () => {
+    const f = await setup([CUE_TEXT, CUE_TEXT, CUE_TEXT]);
+    await f.t.run(async (ctx) => {
+      await ctx.db.patch(f.transcriptIds[0], { sourceFormat: "vtt" });
+      await ctx.db.patch(f.transcriptIds[1], { sourceFormat: "teams_docx" });
+      await ctx.db.patch(f.transcriptIds[2], { sourceFormat: "paste" });
+    });
+    await f.t.mutation(internal.transcripts.backfillTranscriptStructure, {});
+    await f.t.finishAllScheduledFunctions(vi.runAllTimers);
+    for (const id of f.transcriptIds.slice(0, 2)) {
+      expect((await turnsOf(f.t, id)).map((turn) => [turn.speakerLabel, turn.startMs])).toEqual([
+        ["Priya Shah", 1_000],
+        [undefined, 3_000],
+      ]);
+    }
+    // Pasted text: the timestamped paragraph continues Priya's turn.
+    const pasted = await turnsOf(f.t, f.transcriptIds[2]);
+    expect(pasted.map((turn) => turn.speakerLabel)).toEqual(["Priya Shah"]);
+    expect(CUE_TEXT.slice(pasted[0].charStart, pasted[0].charEnd)).toBe(
+      "We built a rig.\n\n[00:00:03] We tested two options: the first failed."
+    );
+  });
+});
+
 describe("speaker role rules", () => {
   const turns = parseTranscriptTurns(INTERVIEW);
 

@@ -7,6 +7,7 @@
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
 import {
+  isCueRender,
   parseTranscriptTurns,
   TRANSCRIPT_PARSER_VERSION,
   type TranscriptTurn,
@@ -103,7 +104,8 @@ export async function buildStructureStep(
     if (stale.length === TURN_DELETE_BATCH_SIZE) return { kind: "continue", fromIndex: 0, buildId: chain };
   }
 
-  const turns = parseTranscriptTurns(frozenSlice(transcript.content));
+  const text = frozenSlice(transcript.content);
+  const turns = parseTranscriptTurns(text, { cues: isCueRender(transcript.sourceFormat, text) });
   const batch = turns.slice(fromIndex, fromIndex + TURN_BATCH_SIZE);
   if (batch.length > 0) {
     const existing = await ctx.db
