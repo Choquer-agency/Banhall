@@ -53,6 +53,7 @@ import { normalizeCraScienceCode } from "../shared/craScienceCodes";
 import { deriveStoredProcessing } from "../shared/documentStatus";
 import { canUseIndustry, industrySlug } from "../shared/industries";
 import { findActiveGeneration } from "./lib/activeGeneration";
+import { transitionGeneration } from "./lib/generationTransitions";
 import {
   projectDashboardProjectionPatch,
   stageCountBucket,
@@ -1517,8 +1518,7 @@ async function terminalizeLiveGenerationWork(
     for (const generation of generations) {
       await terminateSeedAttempts(ctx, generation._id);
       await cancelScheduledJob(ctx, generation.scheduledJobId);
-      await ctx.db.patch(generation._id, {
-        status: "failed",
+      await transitionGeneration(ctx, generation, "failed", {
         completedAt: now,
         error: PROJECT_DELETED_ERROR,
         // A post-QA attempt in flight can no longer settle: saveReportQa

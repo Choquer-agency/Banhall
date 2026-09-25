@@ -129,25 +129,22 @@ import {
   type SectionNumber,
 } from "./lib/orderedChain";
 import { ORDERED_SECTION_TITLES } from "./ai/promptDefinitions";
+import {
+  ACTIVE_GENERATION_STATUSES,
+  isTerminalGenerationStatus,
+} from "../shared/generationTransitions";
+import {
+  transitionGeneration,
+  transitionPostQa,
+  transitionRedraft,
+} from "./lib/generationTransitions";
 
 // ─── Generation status helpers ───────────────────────────────────────────────
-
-/** Statuses `findActiveGeneration` treats as live: the project stays fenced on
- * the generation and the dashboard shows activity for it. */
-const ACTIVE_GENERATION_STATUSES = [
-  "reserved",
-  "running",
-  "awaiting_selection",
-  "awaiting_input",
-] as const;
-
-/** Terminal statuses: nothing may resurrect the row, and candidate runs left
- * stranded under it are settled by the reaper. `superseded` (CAP-7) is
- * terminal without a report: a partial compare generation whose failed drafts
- * were retried into a linked recovery generation. */
-function isTerminalGenerationStatus(status: Doc<"generations">["status"]) {
-  return status === "completed" || status === "failed" || status === "superseded";
-}
+// ACTIVE_GENERATION_STATUSES (the project stays fenced on the generation and
+// the dashboard shows activity for it) and isTerminalGenerationStatus (nothing
+// may resurrect the row; stranded candidate runs are settled by the reaper)
+// come from the declared state machine in shared/generationTransitions.ts.
+// Every status write goes through transitionGeneration.
 
 /** A generation the project page, history list, and dashboard may surface.
  * `superseded` rows are attempt history only — the recovery generation that
@@ -1094,8 +1091,7 @@ export const retryFailedCandidates = mutation({
     // project page skip it, and QA can never be requested on it. The link runs
     // the other way — the recovery row's retryOfGenerationId — so no
     // supersededBy pointer is stored.
-    await ctx.db.patch(generation._id, {
-      status: "superseded",
+    await transitionGeneration(ctx, generation, "superseded", {
       currentStep: "Recovery started",
       completedAt: now,
     });
@@ -1106,37 +1102,23 @@ export const retryFailedCandidates = mutation({
     });
     const resetProject = await ctx.db.get(project._id);
     if (!resetProject) domainError("NOT_FOUND", "Project not found");
-    let retryId: Id<"generations">;
-    try {
-      retryId = await reserveGeneration(
-        ctx,
-        resetProject,
-        user._id,
-        generation.lengthTarget ?? "standard",
-        "compare",
-        undefined,
-        compareModelIds,
-        generation._id,
-        failedModelIds,
-        successfulCandidates.length
-      );
-    } catch (error) {
-      // The whole mutation is transactional, so this restoration mainly
-      // documents the intended invariant and protects future refactors that
-      // move reservation work behind a non-throwing boundary.
-      await ctx.db.patch(generation._id, {
-        status: "awaiting_selection",
-        currentStep: "Choose your preferred draft",
-        completedAt: undefined,
-      });
-      await ctx.db.patch(project._id, {
-        activeGenerationId: generation._id,
-        status: "generating",
-        updatedAt: Date.now(),
-      });
-      await refreshProjectGenerationActivity(ctx, generation.projectId);
-      throw error;
-    }
+    // A reservation failure throws out of this mutation, and Convex discards
+    // every write of a mutation that throws: the supersede above, the project
+    // reset and anything reserveGeneration wrote. The partial generation stays
+    // awaiting_selection with the project fenced on it. No restore patch is
+    // written (superseded is terminal in the transition table).
+    const retryId = await reserveGeneration(
+      ctx,
+      resetProject,
+      user._id,
+      generation.lengthTarget ?? "standard",
+      "compare",
+      undefined,
+      compareModelIds,
+      generation._id,
+      failedModelIds,
+      successfulCandidates.length
+    );
     for (const candidate of successfulCandidates) {
       const candidateId = await ctx.db.insert("reportCandidates", {
         projectId: candidate.projectId,
@@ -1189,8 +1171,7 @@ export const beginGeneration = internalMutation({
     }
     const project = await ctx.db.get(generation.projectId);
     if (!project || project.deletionStartedAt !== undefined || project.activeGenerationId !== generation._id) return false;
-    await ctx.db.patch(generation._id, {
-      status: "running",
+    await transitionGeneration(ctx, generation, "running", {
       // A present digest array is the new-reservation marker. Legacy reserved
       // rows remain valid and are deliberately not retroactively attributed.
       ...(generation.learningDigestIds !== undefined
@@ -1891,8 +1872,7 @@ async function settleCandidateRun(
       const seedStopped = isSeedOrdered && args.stoppedAfterSection !== undefined;
       const scheduleSeedQa = isSeedOrdered && !seedStopped;
       if (generation.candidateMode !== "single" && !isSeedOrdered) {
-        await ctx.db.patch(generation._id, {
-          status: "awaiting_selection",
+        await transitionGeneration(ctx, generation, "awaiting_selection", {
           candidatesDone: done,
           candidatesFailed: failed,
           currentStep: "Choose your preferred draft",
@@ -1921,8 +1901,7 @@ async function settleCandidateRun(
         status: "review",
         updatedAt: now,
       });
-      await ctx.db.patch(generation._id, {
-        status: "completed",
+      await transitionGeneration(ctx, generation, "completed", {
         candidatesDone: done,
         candidatesFailed: failed,
         currentStep: "Complete",
@@ -1957,8 +1936,7 @@ async function settleCandidateRun(
       return;
     }
 
-    await ctx.db.patch(generation._id, {
-      status: "failed",
+    await transitionGeneration(ctx, generation, "failed", {
       candidatesDone: 0,
       candidatesFailed: failed,
       currentStep: "Failed",
@@ -2046,8 +2024,7 @@ export const failGeneration = internalMutation({
     ) {
       return;
     }
-    await ctx.db.patch(generation._id, {
-      status: "failed",
+    await transitionGeneration(ctx, generation, "failed", {
       currentStep: "Failed",
       error: args.error.slice(0, 500),
       completedAt: Date.now(),
@@ -2515,8 +2492,8 @@ export const initializeSeedStage = internalMutation({
         currentContextRevision, selectionRevision, consecutiveFailures: 0,
       });
     }
-    await ctx.db.patch(generation._id, {
-      status: "awaiting_input", briefVersionId: brief._id,
+    await transitionGeneration(ctx, generation, "awaiting_input", {
+      briefVersionId: brief._id,
       seedStageVersion: 0, seedRequestsReserved: 0, seedStageError: undefined,
       lengthTarget: generation.lengthTarget ?? "standard", currentStep: "Seeds ready",
     });
@@ -2893,9 +2870,8 @@ export const signOffSeedStage = mutation({
         })),
       },
     });
-    await ctx.db.patch(generation._id, {
+    await transitionGeneration(ctx, generation, "running", {
       summaryVersionId,
-      status: "running",
       currentStep: `Drafting ${payload.orderedContext.buildOrder[0]}…`,
       totalCandidates: 1,
       candidatesDone: 0,
@@ -2945,9 +2921,8 @@ export const beginSummaryRecovery = internalMutation({
     );
     await assertFrozenSummaryRuntimeAdmission(ctx, generation, payload);
     const now = Date.now();
-    await ctx.db.patch(generation._id, {
+    await transitionGeneration(ctx, generation, "running", {
       promptVersion: args.promptVersion,
-      status: "running",
       currentStep: `Drafting ${payload.orderedContext.buildOrder[0]}…`,
       productionOrder: payload.orderedContext.buildOrder,
       lastProgressAt: now,
@@ -3567,8 +3542,7 @@ export const completeSectionRun = internalMutation({
       error: undefined,
       completedAt: Date.now(),
     });
-    await ctx.db.patch(generation._id, {
-      status: "awaiting_input",
+    await transitionGeneration(ctx, generation, "awaiting_input", {
       currentStep: `Review the ${SECTION_TITLES[args.section]} draft`,
       progressLog: [
         ...(generation.progressLog ?? []),
@@ -3599,8 +3573,7 @@ export const failSectionRun = internalMutation({
     // The generation stays alive in awaiting_input: the writer regenerates
     // the failed section (or cancels) from the stepper.
     if (generation.status === "running") {
-      await ctx.db.patch(generation._id, {
-        status: "awaiting_input",
+      await transitionGeneration(ctx, generation, "awaiting_input", {
         currentStep: `${SECTION_TITLES[args.section]} draft failed`,
         progressLog: [
           ...(generation.progressLog ?? []),
@@ -3907,8 +3880,7 @@ export const saveReportQa = internalMutation({
         // Only an identified active attempt may release the retry lock. Its
         // stale scorecard and chronology never become current evidence.
         if (args.attemptStartedAt !== undefined) {
-          await ctx.db.patch(generation._id, {
-            postQaStatus: "failed",
+          await transitionPostQa(ctx, generation, "failed", {
             postQaCompletedAt: Date.now(),
           });
         }
@@ -3951,9 +3923,8 @@ export const saveReportQa = internalMutation({
     // A failed pass still persists whatever DID succeed (e.g. the chronology
     // when only the scorecard was malformed) instead of discarding it.
     if (args.failed) {
-      await ctx.db.patch(generation._id, {
+      await transitionPostQa(ctx, generation, "failed", {
         agentOutputs: JSON.stringify(outputs),
-        postQaStatus: "failed",
         postQaCompletedAt: Date.now(),
         progressLog: [
           ...(generation.progressLog ?? []),
@@ -3962,9 +3933,8 @@ export const saveReportQa = internalMutation({
       });
       return;
     }
-    await ctx.db.patch(generation._id, {
+    await transitionPostQa(ctx, generation, "done", {
       agentOutputs: JSON.stringify(outputs),
-      postQaStatus: "done",
       postQaCompletedAt: Date.now(),
       ...(args.qaScore !== undefined ? { qaScore: args.qaScore } : {}),
       progressLog: [
@@ -4001,8 +3971,7 @@ export const requestReportQa = mutation({
     // close/reopen — never double-spend the API call.
     if (generation.postQaStatus === "running") return null;
     const attemptStartedAt = Math.max(Date.now(), (generation.postQaStartedAt ?? 0) + 1);
-    await ctx.db.patch(generation._id, {
-      postQaStatus: "running",
+    await transitionPostQa(ctx, generation, "running", {
       postQaStartedAt: attemptStartedAt,
     });
     await ctx.scheduler.runAfter(0, internal.ai.postQa.runReportQa, {
@@ -4260,8 +4229,7 @@ export const approveSectionDraft = mutation({
         domainError("INVALID_STATE", "The next section is not ready to draft");
       }
       await ctx.db.patch(next._id, { status: "queued", queuedAt: now });
-      await ctx.db.patch(generation._id, {
-        status: "running",
+      await transitionGeneration(ctx, generation, "running", {
         // startedAt marks the start of THIS drafting phase so the stale-run
         // reaper measures drafting time, not total writer review time.
         startedAt: now,
@@ -4394,8 +4362,10 @@ export const approveSectionDraft = mutation({
       status: "review",
       updatedAt: doneAt,
     });
-    await ctx.db.patch(generation._id, {
-      status: "completed",
+    // Every mode ends with a scorecard: run QA + chronology over the
+    // assembled sections in the background (feeds the learning loops). The
+    // pass starts in the same write that completes the generation.
+    await transitionGeneration(ctx, generation, "completed", {
       currentStep: "Complete",
       agentOutputs,
       completedAt: doneAt,
@@ -4405,14 +4375,10 @@ export const approveSectionDraft = mutation({
         "✓ Report assembled from the approved sections.",
         "Running the QA scorecard and chronology in the background…",
       ],
-    });
-    await refreshProjectGenerationActivity(ctx, generation.projectId);
-    // Every mode ends with a scorecard: run QA + chronology over the
-    // assembled sections in the background (feeds the learning loops).
-    await ctx.db.patch(generation._id, {
       postQaStatus: "running",
       postQaStartedAt: doneAt,
     });
+    await refreshProjectGenerationActivity(ctx, generation.projectId);
     await ctx.scheduler.runAfter(0, internal.ai.postQa.runReportQa, {
       generationId: generation._id,
       attemptStartedAt: doneAt,
@@ -4455,8 +4421,7 @@ export const regenerateSectionDraft = mutation({
       startedAt: undefined,
       completedAt: undefined,
     });
-    await ctx.db.patch(generation._id, {
-      status: "running",
+    await transitionGeneration(ctx, generation, "running", {
       startedAt: now,
       currentStep: `Redrafting ${SECTION_TITLES[args.section]}…`,
       progressLog: [
@@ -4498,8 +4463,7 @@ export const cancelIterativeGeneration = mutation({
       });
     }
     const now = Date.now();
-    await ctx.db.patch(generation._id, {
-      status: "failed",
+    await transitionGeneration(ctx, generation, "failed", {
       currentStep: "Cancelled",
       error: "Cancelled by writer",
       completedAt: now,
@@ -4757,8 +4721,7 @@ export const failStaleGenerations = internalMutation({
               completedAt: Date.now(),
             });
           }
-          await ctx.db.patch(generation._id, {
-            status: "awaiting_input",
+          await transitionGeneration(ctx, generation, "awaiting_input", {
             currentStep: "Section draft timed out — regenerate to retry",
             progressLog: [
               ...(generation.progressLog ?? []),
@@ -4787,8 +4750,7 @@ export const failStaleGenerations = internalMutation({
         continue;
       }
       failed += 1;
-      await ctx.db.patch(generation._id, {
-        status: "failed",
+      await transitionGeneration(ctx, generation, "failed", {
         currentStep: "Failed",
         error: "Timed out before generation completed.",
         completedAt: Date.now(),
@@ -5003,8 +4965,7 @@ export const failStalePostQa = internalMutation({
     let failed = 0;
     for (const generation of running) {
       if ((generation.postQaStartedAt ?? 0) >= cutoff) continue;
-      await ctx.db.patch(generation._id, {
-        postQaStatus: "failed",
+      await transitionPostQa(ctx, generation, "failed", {
         postQaCompletedAt: Date.now(),
         progressLog: [
           ...(generation.progressLog ?? []),
@@ -5120,13 +5081,14 @@ export const updateGenerationStatus = internalMutation({
     // pointer is already cleared.
     if (!generation || isTerminalGenerationStatus(generation.status)) return;
     if (await isProjectDeleting(ctx, generation.projectId)) return;
-    const updates: Record<string, unknown> = { status: args.status };
-    if (args.currentStep !== undefined) updates.currentStep = args.currentStep;
-    if (args.agentOutputs !== undefined)
-      updates.agentOutputs = args.agentOutputs;
-    if (args.error !== undefined) updates.error = args.error;
-    if (args.completedAt !== undefined) updates.completedAt = args.completedAt;
-    await ctx.db.patch(args.generationId, updates);
+    // Any other move the transition table does not declare for this row's
+    // flow is refused (INVALID_TRANSITION) rather than written.
+    await transitionGeneration(ctx, generation, args.status, {
+      ...(args.currentStep !== undefined ? { currentStep: args.currentStep } : {}),
+      ...(args.agentOutputs !== undefined ? { agentOutputs: args.agentOutputs } : {}),
+      ...(args.error !== undefined ? { error: args.error } : {}),
+      ...(args.completedAt !== undefined ? { completedAt: args.completedAt } : {}),
+    });
     await refreshProjectGenerationActivity(ctx, generation.projectId);
   },
 });
@@ -5313,8 +5275,7 @@ export const selectReportCandidate = mutation({
       status: "review",
       updatedAt: now,
     });
-    await ctx.db.patch(generation._id, {
-      status: "completed",
+    await transitionGeneration(ctx, generation, "completed", {
       currentStep: "Complete",
       agentOutputs: candidate.agentOutputs,
       // Story 2 (AD-24): the selected candidate's own stop, if it stopped.
@@ -7110,14 +7071,13 @@ export const redraftMissingSections = mutation({
         completedAt: undefined,
       });
     }
-    await ctx.db.patch(generation._id, {
-      redraft: {
-        status: "running",
-        attemptStartedAt,
-        requestedBy: user._id,
-        sections,
-        lastProgressAt: now,
-      },
+    await transitionRedraft(ctx, generation, {
+      status: "running",
+      attemptStartedAt,
+      requestedBy: user._id,
+      sections,
+      lastProgressAt: now,
+    }, {
       progressLog: [
         ...(generation.progressLog ?? []),
         `Drafting the Not drafted Sections (${sections.join(", ")}) from the signed-off Summary into the same report.`,
@@ -7175,9 +7135,7 @@ export const claimRedraftSection = internalMutation({
     }
     const now = Date.now();
     await ctx.db.patch(row._id, { status: "running", startedAt: now });
-    await ctx.db.patch(fence.generation._id, {
-      redraft: { ...fence.redraft, lastProgressAt: now },
-    });
+    await transitionRedraft(ctx, fence.generation, { ...fence.redraft, lastProgressAt: now });
     const report = await reportForGeneration(ctx, fence.generation._id);
     const redrafting = new Set<string>(fence.redraft.sections.map(sectionKeyOf));
     const orderIndex = row.orderIndex ?? 0;
@@ -7252,8 +7210,7 @@ export const completeRedraftSection = internalMutation({
       storylineQuestion: args.storylineQuestion,
       now,
     });
-    await ctx.db.patch(fence.generation._id, {
-      redraft: { ...fence.redraft, lastProgressAt: now },
+    await transitionRedraft(ctx, fence.generation, { ...fence.redraft, lastProgressAt: now }, {
       progressLog: [
         ...(fence.generation.progressLog ?? []),
         `✓ ${fence.run.label}: ${ORDERED_SECTION_TITLES[args.section]} redrafted (${sectionCheckNarration(args.selfCheck)}).`,
@@ -7363,15 +7320,14 @@ async function settleSeedRedraft(
   const narration = outcome.failed
     ? `✗ The redraft did not finish. ${filled.length ? `${lines(filled)} went into the report; ` : ""}the other Sections stay Not drafted.`
     : `✓ Redrafted ${filled.length ? lines(filled) : "no Section"} into the report${skipped.length ? `. ${lines(skipped)} kept the writer's own text` : ""}.`;
-  await ctx.db.patch(generation._id, {
-    redraft: {
-      ...redraft,
-      status: outcome.failed ? "failed" : "completed",
-      lastProgressAt: now,
-      completedAt: now,
-      filledSections: filled,
-      ...(outcome.failed ? { error: outcome.error.slice(0, 500) } : {}),
-    },
+  await transitionRedraft(ctx, generation, {
+    ...redraft,
+    status: outcome.failed ? "failed" : "completed",
+    lastProgressAt: now,
+    completedAt: now,
+    filledSections: filled,
+    ...(outcome.failed ? { error: outcome.error.slice(0, 500) } : {}),
+  }, {
     // stoppedAfterSection is present only while Sections remain Not drafted.
     stoppedAfterSection: complete
       ? undefined
@@ -7584,8 +7540,9 @@ export const applySeedRedraft = internalMutation({
             row.section === checked[index].section && row.text === checked[index].text
         );
       if (!unchanged) {
-        await ctx.db.patch(fence.generation._id, {
-          redraft: { ...fence.redraft, lastProgressAt: Date.now() },
+        await transitionRedraft(ctx, fence.generation, {
+          ...fence.redraft,
+          lastProgressAt: Date.now(),
         });
         return "report_changed";
       }

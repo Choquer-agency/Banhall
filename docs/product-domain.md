@@ -2291,6 +2291,34 @@ Data-model and generation-input amendment for phase 3 of the generation work (ow
 - **Not in this amendment:** stopping digest creation (plan step 9) waits until facts are on everywhere.
 - **Approval:** product owner, 2026-09-24 (decisions 22 and 24 to 27).
 
+### 2026-09-25: Generation transition table
+
+Technical-state amendment from the 2026-09-24 generation-structure audit (phase 4, branch `ui/generation-structure`). It writes down the generation moves the code already makes and refuses every other one. No state is added and no move is added or removed.
+
+- **Owner rule:** `generations.status` changes only through one helper, `transitionGeneration` (`convex/lib/generationTransitions.ts`), which checks the declared table in `shared/generationTransitions.ts` and refuses any other move with `INVALID_TRANSITION`, writing nothing. `updateGenerationStatus` no longer accepts any non-terminal move: it still ignores a terminal row, and any other undeclared move is refused.
+- **Flows:** a row's allowed moves depend on its flow, read from the row before the write: `compare` (also legacy rows without `candidateMode`), `single`, `sections` (iterative without the seed workflow), `seed_stage` (seed workflow before Summary sign-off) and `seed_drafting` (after sign-off, including Summary recovery rows).
+- **Status moves** (`from -> to`: flows):
+  - `reserved -> running`: all flows (the pipeline claims its reservation).
+  - `running -> running`: all flows (a progress update that restates the status).
+  - `running -> awaiting_selection`: compare.
+  - `running -> awaiting_input`: sections, seed_stage (a section waits for the writer; the seed stage opens).
+  - `running -> completed`: single, seed_drafting.
+  - `awaiting_selection -> completed`: compare, single (single rows only from before single mode completed on its own).
+  - `awaiting_selection -> superseded`: compare (CAP-7 recovery).
+  - `awaiting_input -> awaiting_input`: seed_stage (seed initialization restates the open stage).
+  - `awaiting_input -> running`: sections (next or redrafted section), seed_stage (Summary sign-off).
+  - `awaiting_input -> completed`: sections (last section approved).
+  - Every active status (`reserved`, `running`, `awaiting_selection`, `awaiting_input`) `-> failed`: all flows, so project deletion is never refused.
+  - `completed`, `failed` and `superseded` are terminal. Nothing re-enters `reserved`; rows are inserted in it.
+- **Post-QA sub-state** (`postQaStatus`, absent reads as `none`): `none`, `done` or `failed -> running` only on a `completed` row (at assembly, on request, or when a redraft leaves no Section Not drafted); `running -> done` or `failed`. `saveReportQa` called without an attempt id (legacy callers) may settle `none`, `done` or `failed` to `done` or `failed`.
+- **Redraft sub-state** (`redraft.status`, absent reads as `none`), only on a `completed` seed_drafting row: `none`, `completed` or `failed -> running` (a new attempt); `running -> running` (progress, or a fresh attempt replacing a stale one); `running -> completed` or `failed`.
+- **Behaviour changes:** none for any move the code makes today. `retryFailedCandidates` no longer writes a restore patch after a failed reservation; the mutation throws and Convex discards all its writes, which is what already happened. `approveSectionDraft` starts post-QA in the same write that completes the generation instead of a second write in the same mutation.
+- **Migration and compatibility:** none. No schema change and no backfill; old rows keep their states.
+- **Authorization:** unchanged.
+- **Tests:** `shared/generationTransitions.test.ts` (every allowed and every refused move of the three tables), `convex/generationTransitions.test.ts` (the helpers, each call site's move, a source check that no module writes these fields directly, and end-to-end moves of the internal mutations).
+- **Tickets:** none (phase 4 generation structure).
+- **Approval:** pending product-owner review of phase 4 before merge into the demo branch.
+
 ## Amendment process
 
 A change to vocabulary, an invariant, a transition edge, or a decision above requires:
