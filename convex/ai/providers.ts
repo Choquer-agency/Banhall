@@ -28,6 +28,7 @@ import {
   type ProviderCallMeta,
 } from "./instrument";
 import { COMPRESSION_REQUEST } from "./promptDefinitions";
+import { ActionTimeBudgetError } from "./actionDeadline";
 import { instrumentedOpenRouter } from "./openrouter";
 import {
   MalformedOutputError,
@@ -51,9 +52,17 @@ import {
 // 10-minute timeout equals the Convex action limit, so a hung call would
 // consume the entire action budget. providers.test.ts proves the budget
 // arithmetic over these exact exports; change them together.
+//
+// The action limit and the reserve live in actionDeadline.ts, which also
+// bounds a whole action (2026-09-25, cutoff review P2-2): see below.
 
-/** Convex terminates an action after 10 minutes of wall time. */
-export const CONVEX_ACTION_LIMIT_MS = 600_000;
+export {
+  CONVEX_ACTION_LIMIT_MS,
+  RESERVED_NON_REQUEST_MS,
+  ACTION_TIME_BUDGET_MESSAGE,
+  ActionTimeBudgetError,
+  startActionDeadline,
+} from "./actionDeadline";
 
 /**
  * One retry (two attempts total). Between attempts the SDK sleeps for its own
@@ -67,14 +76,25 @@ export const ANTHROPIC_MAX_RETRIES = 1;
  * Per-attempt timeout. Sized so ONE provider-call slot fits the action limit
  * together with the reserve: (1 + 1) * 240 s + 60 s = 540 s < 600 s.
  *
- * It is deliberately NOT sized for the whole generateCandidate chain (see
+ * It is deliberately NOT sized for a whole chain of calls (see
  * SEQUENTIAL_CALLS_PER_GENERATE_CANDIDATE). Fitting 5 slots x 2 attempts in
  * 10 minutes would need about 54 s per attempt, which is below the real
  * duration of the analyzer call on a large transcript; that would replace a
- * theoretical bound with real timeouts. Until the chain is split into
- * workflow steps, a generation whose chain overruns the action is recovered
- * by the stale-generation reaper (convex/crons.ts: failStaleGenerations,
- * 30 minutes).
+ * theoretical bound with real timeouts.
+ *
+ * The chain is bounded per action instead (2026-09-25, cutoff review P2-2):
+ * every generation action records a deadline when it starts
+ * (startActionDeadline: start + 600 s - RESERVED_NON_REQUEST_MS), and both
+ * gateway transports read it before each request, the structured repair
+ * included. A request with less than MIN_USEFUL_REQUEST_MS left is not sent
+ * and fails with ActionTimeBudgetError; otherwise its timeout is cut to the
+ * time left and a transport retry is kept only if every attempt still fits.
+ * So every request of the action ends by start + 540 s, and the failure
+ * write runs inside the reserve, through the action's own failure handling.
+ * The stale-generation reaper (convex/crons.ts: failStaleGenerations) is no
+ * longer the recovery path for a chain that runs long; it stays as the
+ * backstop for a crash. One gap remains: a provider Retry-After longer than
+ * the reserve can still push an Anthropic SDK retry past it.
  */
 export const ANTHROPIC_TIMEOUT_MS = 240_000;
 
@@ -87,7 +107,10 @@ export const SEED_PROVIDER_TIMEOUT_MS = 90_000;
 /**
  * The seed gateway policy, shared by production seeds and seed evaluations
  * so an evaluation sends exactly the request production sends. OpenRouter
- * keeps the seed answer budget as is (no reasoning headroom).
+ * keeps the seed answer budget as is (no reasoning headroom). The direct
+ * gateway still gives a model whose thinking is always on its thinking room
+ * (instrument.ts adaptAnthropicRequest, 2026-09-25); the 90 s timeout, not
+ * max_tokens, bounds a seed request's time.
  */
 export const SEED_OPENROUTER_OPTIONS = {
   maxRetries: SEED_PROVIDER_MAX_RETRIES,
@@ -117,11 +140,12 @@ export const SEED_ANTHROPIC_OPTIONS = {
  * generateOrderedSection) whose worst case is ORDERED_SECTION_ACTION_SLOTS:
  * one draft + the compression squeezes + one Self-check + at most one repair
  * = 5, the same bound. Finalize adds consistency + (QA || chronology) = 2.
- * Iterative's one-shot ghost still runs the five-slot chain above. A section
- * action that overruns the Convex action limit before its completion
- * mutation runs leaves its row "running" and stops stamping the
- * generation's lastProgressAt; failStaleGenerations then fails the
- * generation once its window elapses from that last stamp (DW-119).
+ * Iterative's one-shot ghost still runs the five-slot chain above. Since
+ * 2026-09-25 each of these actions runs under its action deadline (see
+ * ANTHROPIC_TIMEOUT_MS): a chain that runs out of time fails its row
+ * through the action's own failure handling instead of overrunning the
+ * Convex action limit. failStaleGenerations (DW-119) stays as the backstop
+ * for an action that dies another way.
  */
 export const SEQUENTIAL_CALLS_PER_GENERATE_CANDIDATE = 5;
 
@@ -133,15 +157,6 @@ export const ORDERED_SECTION_ACTION_SLOTS = {
   repair: 1,
 } as const;
 
-/**
- * Named reserve for every part of the action that is not a provider request
- * in flight: SDK retry backoff (at most 8 s per retry by default, more only
- * if the provider sends Retry-After), the claim and frozen-input reads before
- * the first call, banned-word scrubs and section metrics between calls, and
- * claim hashing plus the provenance and candidate writes after the last one.
- * 60 s is the spec floor and is conservative against that work.
- */
-export const RESERVED_NON_REQUEST_MS = 60_000;
 
 export function createAnthropicClient(
   capability: AnthropicCapability,
@@ -220,9 +235,11 @@ async function ensureModelRegistered(
  * The failure codes the production error-rate rollback counts: the model
  * returned something unusable, refused, or failed in a way nobody has
  * classified. Billing, auth, rate limits and network faults say nothing
- * about the model and are not recorded.
+ * about the model and are not recorded. Neither is an action running out of
+ * time (ActionTimeBudgetError, 2026-09-25): that is our own arithmetic.
  */
 export function modelFaultCode(error: unknown): string | null {
+  if (error instanceof ActionTimeBudgetError) return null;
   if (error instanceof MalformedOutputError) return "malformed_output";
   const { code } = normalizeProviderError(error);
   return code === "output_limit" || code === "model_access" || code === "unknown"
@@ -657,6 +674,12 @@ export function normalizeProviderError(error: unknown): {
     | "unknown";
   message: string;
 } {
+  // Our own time arithmetic, not a provider answer (actionDeadline.ts). It
+  // keeps the "unknown" code, which every stored failure code accepts, with
+  // the writer-facing sentence instead of provider text.
+  if (error instanceof ActionTimeBudgetError) {
+    return { code: "unknown", message: error.message };
+  }
   let status: number | undefined;
   let rawMessage = "";
   if (error instanceof Error) rawMessage = error.message;
@@ -723,4 +746,17 @@ export function normalizeProviderError(error: unknown): {
       ? `The AI provider rejected the request: ${rawMessage.slice(0, 300)}`
       : "The AI provider rejected the request. An administrator should inspect provider status.",
   };
+}
+
+/**
+ * The failure text a generation, candidate, section or redraft row stores:
+ * `<code>: <message>` from normalizeProviderError, which the read side maps
+ * to fixed writer copy by its code. An action that ran out of time stores
+ * the writer-facing sentence alone (it has no colon), which the read side
+ * shows as is.
+ */
+export function describeProviderFailure(error: unknown): string {
+  if (error instanceof ActionTimeBudgetError) return error.message;
+  const normalized = normalizeProviderError(error);
+  return `${normalized.code}: ${normalized.message}`;
 }

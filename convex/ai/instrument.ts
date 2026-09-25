@@ -1,5 +1,10 @@
 import Anthropic from "@anthropic-ai/sdk";
-import { createAnthropicClient } from "./providers";
+import {
+  ANTHROPIC_MAX_RETRIES,
+  ANTHROPIC_TIMEOUT_MS,
+  createAnthropicClient,
+} from "./providers";
+import { ActionTimeBudgetError, actionDeadline, requestBudget } from "./actionDeadline";
 import { COMPRESSION_REQUEST } from "./promptDefinitions";
 import type { AnthropicCapability } from "../lib/providerConfig";
 import type { ActionCtx } from "../_generated/server";
@@ -416,6 +421,23 @@ export function adaptAnthropicRequest(params: unknown): unknown {
   return adapted;
 }
 
+/**
+ * The caller's request options (a fact extraction's `signal`, say) with the
+ * deadline's timeout and retry count. A caller's own lower values win.
+ */
+function withRequestBudget(
+  options: unknown,
+  budget: { timeoutMs: number; maxRetries: number }
+): Record<string, unknown> {
+  const own = options && typeof options === "object" ? (options as Record<string, unknown>) : {};
+  return {
+    ...own,
+    timeout: typeof own.timeout === "number" ? Math.min(own.timeout, budget.timeoutMs) : budget.timeoutMs,
+    maxRetries:
+      typeof own.maxRetries === "number" ? Math.min(own.maxRetries, budget.maxRetries) : budget.maxRetries,
+  };
+}
+
 /** Anthropic client that durably records billed usage after every response. */
 export function instrumentedAnthropic(
   ctx: ActionCtx,
@@ -439,14 +461,36 @@ export function instrumentedAnthropic(
     get(target, property, receiver) {
       if (property !== "create") return Reflect.get(target, property, receiver);
       return async (...args: unknown[]) => {
+        // The action's deadline (actionDeadline.ts): throws before sending
+        // when too little time is left; otherwise it may shorten this
+        // request's timeout and drop its retry. Transport options only.
+        const deadline = actionDeadline(ctx);
+        const budget =
+          deadline === undefined
+            ? undefined
+            : requestBudget({
+                deadline,
+                now: Date.now(),
+                timeoutMs: meta.clientOptions?.timeout ?? ANTHROPIC_TIMEOUT_MS,
+                maxRetries: meta.clientOptions?.maxRetries ?? ANTHROPIC_MAX_RETRIES,
+              });
         await recordGenerationHandoff(ctx, meta.attribution);
         const startedAt = Date.now();
         const request = adaptAnthropicRequest(args[0]);
-        const response: unknown = await Reflect.apply(
-          originalCreate,
-          target,
-          [meta.attribution ? cacheGenerationPrefix(request) : request, ...args.slice(1)]
-        );
+        const sent = [meta.attribution ? cacheGenerationPrefix(request) : request, ...args.slice(1)];
+        if (budget) sent[1] = withRequestBudget(sent[1], budget);
+        let response: unknown;
+        try {
+          response = await Reflect.apply(originalCreate, target, sent);
+        } catch (error) {
+          // A timeout the deadline cut short says the action ran out of
+          // time, not that the model failed.
+          const timeoutError = Anthropic.APIConnectionTimeoutError;
+          if (budget?.shortened && typeof timeoutError === "function" && error instanceof timeoutError) {
+            throw new ActionTimeBudgetError();
+          }
+          throw error;
+        }
         const durationMs = Math.max(0, Date.now() - startedAt);
         const usage = anthropicUsage(response);
         const stopReason = responseStopReason(response);

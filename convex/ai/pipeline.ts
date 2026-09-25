@@ -4,7 +4,12 @@ import { internalAction, type ActionCtx } from "../_generated/server";
 import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { v } from "convex/values";
-import { clientForModel, registerGenerationModels } from "./providers";
+import {
+  clientForModel,
+  describeProviderFailure,
+  registerGenerationModels,
+  startActionDeadline,
+} from "./providers";
 import {
   OutputLimitError,
   firstResponseText,
@@ -32,7 +37,6 @@ import { runChronologyAgent } from "./chronologyAgent";
 import { MODEL, candidateModelsForMode } from "./model";
 import { modelById, type ModelEntry } from "../../shared/generationModels";
 import { RETRIEVAL_BRIEF_MODEL } from "./brain/query";
-import { normalizeProviderError } from "./providers";
 import { buildTiptapDocument } from "../lib/tiptapReport";
 import {
   retrieveBrainBlocks,
@@ -643,6 +647,8 @@ export const generateReport = internalAction({
   args: { generationId: v.id("generations") },
   handler: async (ctx, args) => {
     const actionStartedAt = Date.now();
+    // The action's deadline bounds every provider request (actionDeadline.ts).
+    startActionDeadline(ctx, actionStartedAt);
     if (!(await beginTrackedGeneration(ctx, args.generationId))) return;
     const reservedInput = await ctx.runQuery(
       internal.generations.getGenerationInput,
@@ -981,6 +987,8 @@ export const generateCandidate = internalAction({
     orderedContext: v.optional(orderedProfileContextValidator),
   },
   handler: async (ctx, args) => {
+    // The action's deadline bounds every provider request (actionDeadline.ts).
+    startActionDeadline(ctx);
     const run = await ctx.runMutation(internal.generations.claimCandidateRun, {
       candidateRunId: args.candidateRunId,
     });
@@ -1095,10 +1103,9 @@ export const generateCandidate = internalAction({
         provenanceId,
       });
     } catch (error) {
-      const normalized = normalizeProviderError(error);
       await ctx.runMutation(internal.generations.completeCandidateRun, {
         candidateRunId: args.candidateRunId,
-        error: `${normalized.code}: ${normalized.message}`,
+        error: describeProviderFailure(error),
       });
     }
   },

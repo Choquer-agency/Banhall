@@ -44,7 +44,7 @@ import {
   withAnthropicOutcomeRecording,
   registerGenerationModels,
   CONVEX_ACTION_LIMIT_MS,
-  normalizeProviderError,
+  describeProviderFailure,
   ANTHROPIC_TIMEOUT_MS,
   RESERVED_NON_REQUEST_MS,
 } from "./providers";
@@ -73,8 +73,8 @@ export class CondenseBudgetError extends Error {
  */
 export function describeGenerationFailure(error: unknown): string {
   if (error instanceof CondenseBudgetError) return CONDENSE_BUDGET_ERROR;
-  const normalized = normalizeProviderError(error);
-  return `${normalized.code}: ${normalized.message}`;
+  // An action out of time stores its writer-facing sentence (2026-09-25).
+  return describeProviderFailure(error);
 }
 
 /** What condensation needs from the parent action: nothing but its calls. */
