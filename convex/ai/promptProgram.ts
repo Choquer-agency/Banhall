@@ -263,6 +263,10 @@ export function projectFrozenModels(freeze: ModelFreeze) {
         requestId: entry.requestId ?? entry.id,
         reasoning: entry.reasoning,
         maxCompletionTokens: entry.maxCompletionTokens ?? null,
+        // Only when false, so every version hashed before the field existed
+        // stays the same; a model that rejects forced tool calls is sent a
+        // different request (toolRequestForModel).
+        ...(entry.forcedToolChoice === false ? { forcedToolChoice: false } : {}),
         sectionAnswerTokenBudget: answerBudget,
         reasoningHeadroom: [1024, 4096, 8192].map((answerTokens) => ({
           answerTokens,

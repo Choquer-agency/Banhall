@@ -563,3 +563,49 @@ describe("round 3: financial extraction settles after its own validation", () =>
     ]);
   });
 });
+
+describe("models that reject forced tool calls at the OpenRouter boundary", () => {
+  const drain = async (t: Awaited<ReturnType<typeof setup>>) =>
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
+
+  it("sends Opus 5.5 on OpenRouter `auto` and one system line, and repairs a text-only answer", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const t = await setup();
+    let call = 0;
+    reply = () => {
+      call += 1;
+      return call === 1
+        ? Response.json({
+            choices: [{ message: { content: "Here is the record." }, finish_reason: "stop" }],
+            usage: { prompt_tokens: 10, completion_tokens: 5, cost: 0.001 },
+          })
+        : toolReply(JSON.stringify({ ok: true }));
+    };
+    const value = await t.action(async (ctx) =>
+      generateStructured(clientForModel(ctx, "anthropic/claude-opus-5.5", { callSite: "routing-test" }), {
+        ...structuredArgs("anthropic/claude-opus-5.5"),
+        attempts: 2,
+      })
+    );
+    expect(value).toEqual({ ok: true });
+    // The text-only answer spent the one repair attempt.
+    expect(captured).toHaveLength(2);
+    for (const request of captured) {
+      expect(request.body.tool_choice).toBe("auto");
+      expect(request.body.messages).toContainEqual({
+        role: "system",
+        content: "System.\n\nReply only by calling the record tool, exactly once. A tool call is the only valid reply.",
+      });
+      expect(JSON.stringify(request.body)).not.toContain('"function":{"name":"record"}}');
+      expect(request.body.thinking).toBeUndefined();
+    }
+    const repair = captured[1].body.messages as Array<{ role: string; content: string }>;
+    expect(repair.at(-1)?.content).toContain("the required tool was not called");
+    await drain(t);
+    const buckets = await t.run((ctx) => ctx.db.query("modelCallBuckets").collect());
+    expect(buckets).toMatchObject([
+      { model: "anthropic/claude-opus-5.5", successes: 1, failures: 1, lastFailureCode: "no_tool_output" },
+    ]);
+    vi.useRealTimers();
+  });
+});

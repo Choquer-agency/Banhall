@@ -12,6 +12,7 @@ import {
   maxTokensWithReasoningHeadroom,
   modelById,
   requestModelId,
+  toolRequestForModel,
 } from "../../shared/generationModels";
 import {
   openRouterProviderPreferences,
@@ -101,7 +102,8 @@ export type ChatCompletionsBody = {
       parameters: Record<string, unknown>;
     };
   }>;
-  tool_choice?: { type: "function"; function: { name: string } };
+  /** "auto" only for a model that rejects a forced tool call. */
+  tool_choice?: { type: "function"; function: { name: string } } | "auto";
   /** Provider routing: require_parameters on tool calls, max_price. */
   provider?: OpenRouterProviderPreferences;
   /** Fallback models, tried in order after `model` (helper roles only). */
@@ -158,6 +160,11 @@ export function toChatCompletions(
     fallbackModels?: readonly string[];
   } = {}
 ): ChatCompletionsBody {
+  // A model that rejects a forced tool call (Opus 5.5 and Fable 5.1 on
+  // OpenRouter) gets `auto` plus one system line; everything else is
+  // unchanged (shared/generationModels.ts toolRequestForModel).
+  const toolRequest = toolRequestForModel(params.model, params.tool_choice, params.system);
+  const system = toolRequest.system as string | undefined;
   const body: ChatCompletionsBody = {
     model: requestModelId(params.model),
     // Agents budget max_tokens for the answer alone (the Anthropic-correct
@@ -169,8 +176,8 @@ export function toChatCompletions(
       : maxTokensWithReasoningHeadroom(params.model, params.max_tokens),
     messages: [
       ...(OPENROUTER_CONVERSION.systemInclusion === "truthy-string" &&
-      params.system
-        ? [{ role: OPENROUTER_CONVERSION.systemRole, content: params.system }]
+      system
+        ? [{ role: OPENROUTER_CONVERSION.systemRole, content: system }]
         : []),
       ...params.messages.map((message) => ({
         role: message.role,
@@ -192,7 +199,9 @@ export function toChatCompletions(
       },
     }));
   }
-  if (params.tool_choice) {
+  if (toolRequest.toolChoice?.type === "auto") {
+    body.tool_choice = "auto";
+  } else if (params.tool_choice) {
     body.tool_choice = {
       type: OPENROUTER_CONVERSION.toolChoiceType,
       function: { name: params.tool_choice.name },

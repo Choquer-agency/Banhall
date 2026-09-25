@@ -399,6 +399,7 @@ function frozenEntry(
       : {}),
     ...(entry.requestId ? { requestId: entry.requestId } : {}),
     ...(entry.gateway === "openrouter" && maxPrice ? { maxPrice } : {}),
+    ...(entry.forcedToolChoice === false ? { forcedToolChoice: false } : {}),
   };
 }
 
@@ -483,6 +484,7 @@ export function entryFromFrozen(entry: FrozenModelEntry): ModelEntry {
       ? { maxCompletionTokens: entry.maxCompletionTokens }
       : {}),
     ...(entry.requestId ? { requestId: entry.requestId } : {}),
+    ...(entry.forcedToolChoice === false ? { forcedToolChoice: false } : {}),
   };
 }
 
@@ -512,6 +514,7 @@ export function generationModelFreeze(
             ...(seed.maxCompletionTokens !== undefined
               ? { maxCompletionTokens: seed.maxCompletionTokens }
               : {}),
+            ...(seed.forcedToolChoice === false ? { forcedToolChoice: false } : {}),
           },
         ]
       : [];

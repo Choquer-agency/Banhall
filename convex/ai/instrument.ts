@@ -7,6 +7,7 @@ import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { PD_SUBSECTIONS } from "../../shared/pdSubsections";
 import { estimateCostFromTable, type BilledTokens } from "../../shared/modelPricing";
+import { acceptsForcedToolChoice, toolRequestForModel } from "../../shared/generationModels";
 
 export type UsageEvent = {
   projectId?: Id<"projects">;
@@ -343,6 +344,50 @@ function cacheGenerationPrefix(params: unknown): unknown {
   };
 }
 
+/**
+ * Adapts the two request shapes a model that rejects forced tool calls
+ * answers with a 400, at the one direct Anthropic boundary, so every caller
+ * (generations, helpers, evaluations) keeps its portable request. On this
+ * gateway such a model is a Claude model whose thinking is always on (Opus
+ * 5.5, Fable 5.1), the cause of both rejections:
+ * - A forced `tool_choice` becomes `auto` plus one system line
+ *   (toolRequestForModel, shared with the OpenRouter conversion).
+ * - `thinking: {type: "disabled"}` (the section drafts) is dropped and the
+ *   effort set to "low", the closest the API allows to no thinking; an
+ *   explicit budget (`{type: "enabled"}`) is dropped and adaptive runs.
+ * Every other model's request passes through as the same object. Runs
+ * before cacheGenerationPrefix, so the system line is part of the cached
+ * prefix.
+ */
+export function adaptAnthropicRequest(params: unknown): unknown {
+  if (!params || typeof params !== "object") return params;
+  const request = params as Record<string, unknown>;
+  if (typeof request.model !== "string" || acceptsForcedToolChoice(request.model)) return params;
+  const adapted: Record<string, unknown> = { ...request };
+  const thinking = adapted.thinking;
+  if (thinking && typeof thinking === "object" && "type" in thinking && thinking.type !== "adaptive") {
+    delete adapted.thinking;
+    const config =
+      adapted.output_config && typeof adapted.output_config === "object"
+        ? (adapted.output_config as Record<string, unknown>)
+        : {};
+    if (thinking.type === "disabled" && config.effort === undefined) {
+      adapted.output_config = { ...config, effort: "low" };
+    }
+  }
+  const choice = adapted.tool_choice;
+  if (choice && typeof choice === "object" && "type" in choice && typeof choice.type === "string") {
+    const tools = toolRequestForModel(
+      request.model,
+      choice as { type: string; name?: string },
+      adapted.system
+    );
+    adapted.tool_choice = tools.toolChoice;
+    adapted.system = tools.system;
+  }
+  return adapted;
+}
+
 /** Anthropic client that durably records billed usage after every response. */
 export function instrumentedAnthropic(
   ctx: ActionCtx,
@@ -368,12 +413,11 @@ export function instrumentedAnthropic(
       return async (...args: unknown[]) => {
         await recordGenerationHandoff(ctx, meta.attribution);
         const startedAt = Date.now();
+        const request = adaptAnthropicRequest(args[0]);
         const response: unknown = await Reflect.apply(
           originalCreate,
           target,
-          meta.attribution
-            ? [cacheGenerationPrefix(args[0]), ...args.slice(1)]
-            : args
+          [meta.attribution ? cacheGenerationPrefix(request) : request, ...args.slice(1)]
         );
         const durationMs = Math.max(0, Date.now() - startedAt);
         const usage = anthropicUsage(response);

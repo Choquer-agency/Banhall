@@ -177,6 +177,7 @@ describe("catalog seed", () => {
     expect(sonnet.inputUsdPerMTok).toBe(2);
     expect(sonnet.canonicalSlug).toBe("anthropic/claude-sonnet-5-20260630");
   });
+
 });
 
 function candidateView(model: ParsedModel, overrides: Partial<PrefilterModel> = {}): PrefilterModel {
@@ -205,6 +206,25 @@ const incumbent: PrefilterModel = {
 const writingCap = ROLE_POLICIES.writing.defaultCostCap;
 
 describe("prefilter", () => {
+  test("never evaluates a model that rejects forced tool calls, stored flag or not", () => {
+    const opus = bySlug("anthropic/claude-opus-5.5");
+    // The parser flags it by a fixed rule: OpenRouter lists tool_choice.
+    expect(opus.supportsToolChoice).toBe(true);
+    expect(opus.forcedToolChoice).toBe(false);
+    expect(bySlug("anthropic/claude-sonnet-5").forcedToolChoice).toBeUndefined();
+    expect(bySlug("openai/gpt-6-sol").forcedToolChoice).toBeUndefined();
+    for (const candidate of [
+      candidateView(opus),
+      // A row stored before the field existed is caught by its id.
+      candidateView(opus, { forcedToolChoice: undefined }),
+      { ...candidateView(opus), modelId: "claude-opus-5-5", gateway: "anthropic" as const },
+    ]) {
+      const result = prefilterCandidate({ role: "writing", candidate, incumbent, cap: writingCap, now: NOW });
+      expect(result.ok).toBe(false);
+      expect(result.reasons).toContain("rejects forced tool calls");
+    }
+  });
+
   test("passes a stronger, capable model within the cap", () => {
     const result = prefilterCandidate({
       role: "writing",
@@ -226,6 +246,7 @@ describe("prefilter", () => {
     ["no endpoint serves tools and structured outputs", { endpointSupport: { checkedAt: NOW, endpointCount: 2, toolsAndStructuredProviders: [] } }],
     ["benchmark not better by the margin", { benchmarks: [{ source: "openrouter_aa" as const, metric: "intelligence_index" as const, value: 39, fetchedAt: NOW }] }],
     ["no benchmark score", { benchmarks: [] }],
+    ["rejects forced tool calls", { forcedToolChoice: false }],
   ])("rejects: %s", (reason, overrides) => {
     const result = prefilterCandidate({
       role: "writing",

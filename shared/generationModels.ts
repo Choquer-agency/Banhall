@@ -24,6 +24,11 @@ export const PROVIDER_LOGO_URL = PROVIDER_LOGOS.Anthropic;
  * output cap, used to clamp the headroom. Both are explicit per entry too.
  * Some providers allow reasoning to be disabled per-request; until we do so
  * deliberately, these models must be budgeted as if it is always on.
+ *
+ * forcedToolChoice: false marks a model whose API answers a forced tool call
+ * (`tool_choice` `tool` or `any`) with a 400 (Opus 5.5, Fable 5.1; see
+ * acceptsForcedToolChoice). Both gateways then send it `auto` plus one
+ * system line instead (toolRequestForModel).
  */
 export const CANDIDATE_MODELS = [
   {
@@ -108,6 +113,8 @@ export type ModelEntry = {
   requestId?: string;
   /** OpenRouter `provider.max_price`, USD per million tokens. */
   maxPrice?: { prompt: number; completion: number };
+  /** False when the model rejects a forced tool call (see above). */
+  forcedToolChoice?: boolean;
 };
 
 /**
@@ -184,6 +191,70 @@ export function modelById(id: string): ModelEntry | undefined {
  */
 export function seedModelById(id: string): ModelEntry | undefined {
   return CANDIDATE_MODELS.find((model) => model.id === id) as ModelEntry | undefined;
+}
+
+/**
+ * Claude models whose thinking is always on: Opus 5.5, Fable 5.1 and Mythos
+ * 5.1, by direct Anthropic id and by OpenRouter id. Their API answers a
+ * forced tool call (`tool_choice` `tool` or `any`) and, on the direct
+ * gateway, `thinking: {type: "disabled"}` with a 400. A fixed rule, because
+ * OpenRouter's catalog lists `tool_choice` for them and cannot tell.
+ */
+export const FORCED_TOOL_CHOICE_REJECTED_IDS: ReadonlySet<string> = new Set([
+  "claude-opus-5-5",
+  "claude-fable-5-1",
+  "claude-mythos-5-1",
+  "anthropic/claude-opus-5.5",
+  "anthropic/claude-fable-5.1",
+  "anthropic/claude-mythos-5.1",
+]);
+
+/**
+ * Whether `id` accepts a forced tool call: false for the fixed rule above
+ * and for any entry (seed, or registered from a frozen catalog entry) that
+ * declares `forcedToolChoice: false`.
+ */
+export function acceptsForcedToolChoice(id: string): boolean {
+  return !FORCED_TOOL_CHOICE_REJECTED_IDS.has(id) && modelById(id)?.forcedToolChoice !== false;
+}
+
+/** The one system line that replaces a forced tool call. */
+export function toolOnlyReplyLine(toolName: string | undefined): string {
+  return toolName
+    ? `Reply only by calling the ${toolName} tool, exactly once. A tool call is the only valid reply.`
+    : "Reply only by calling one of the provided tools, exactly once. A tool call is the only valid reply.";
+}
+
+type ToolChoiceSetting = { type: string; name?: string; disable_parallel_tool_use?: boolean };
+
+/**
+ * The tool setting a request sends to `model`, decided in one place for both
+ * gateways. A model that accepts forced tool calls, and any request that
+ * does not force one, is returned unchanged (same objects). A model that
+ * rejects them gets `auto` with at most one call, and the system prompt
+ * gains toolOnlyReplyLine; a caller that validates the output (as
+ * generateStructured does) treats a missing tool call as a failed attempt
+ * and spends its repair on it.
+ */
+export function toolRequestForModel<S>(
+  model: string,
+  toolChoice: ToolChoiceSetting | undefined,
+  system: S
+): { toolChoice: ToolChoiceSetting | undefined; system: S | string | unknown[] } {
+  if (!toolChoice || (toolChoice.type !== "tool" && toolChoice.type !== "any")) {
+    return { toolChoice, system };
+  }
+  if (acceptsForcedToolChoice(model)) return { toolChoice, system };
+  const line = toolOnlyReplyLine(toolChoice.type === "tool" ? toolChoice.name : undefined);
+  return {
+    toolChoice: { type: "auto", disable_parallel_tool_use: true },
+    system:
+      typeof system === "string" && system.length > 0
+        ? `${system}\n\n${line}`
+        : Array.isArray(system)
+          ? [...system, { type: "text", text: line }]
+          : line,
+  };
 }
 
 /** The id to send to the gateway for `id` (an OpenRouter rename moves it). */

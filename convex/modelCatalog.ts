@@ -546,6 +546,7 @@ function prefilterView(row: Doc<"modelCatalog">): PrefilterModel {
     maxOutputTokens: row.maxOutputTokens,
     supportsTools: row.supportsTools,
     supportsStructuredOutputs: row.supportsStructuredOutputs,
+    ...(row.forcedToolChoice === false ? { forcedToolChoice: false } : {}),
     endpointSupport: row.endpointSupport,
     expirationDate: row.expirationDate,
     benchmarks: row.benchmarks,

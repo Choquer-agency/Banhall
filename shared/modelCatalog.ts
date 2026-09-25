@@ -21,6 +21,7 @@
  */
 import {
   CANDIDATE_MODELS,
+  FORCED_TOOL_CHOICE_REJECTED_IDS,
   MODEL,
   REASONING_TOKEN_MULTIPLIER,
   type ModelEntry,
@@ -395,6 +396,8 @@ export type CatalogFields = {
   reasoningEfforts: string[];
   supportsTools: boolean;
   supportsToolChoice: boolean;
+  /** False when the model rejects a forced tool call; absent otherwise. */
+  forcedToolChoice?: boolean;
   supportsStructuredOutputs: boolean;
   supportsReasoning: boolean;
   expirationDate?: string;
@@ -478,6 +481,7 @@ export function seedCatalogModels(now: number): CatalogModel[] {
       reasoningEfforts: [],
       supportsTools: true,
       supportsToolChoice: true,
+      ...(entry.forcedToolChoice === false ? { forcedToolChoice: false } : {}),
       supportsStructuredOutputs: true,
       supportsReasoning: entry.reasoning === true,
       benchmarks: [],
@@ -501,6 +505,7 @@ export function entryFromCatalog(
     | "reasoning"
     | "maxCompletionTokens"
     | "requestId"
+    | "forcedToolChoice"
   >
 ): ModelEntry {
   return {
@@ -516,6 +521,7 @@ export function entryFromCatalog(
     ...(row.requestId && row.requestId !== row.modelId
       ? { requestId: row.requestId }
       : {}),
+    ...(row.forcedToolChoice === false ? { forcedToolChoice: false } : {}),
   };
 }
 
@@ -626,6 +632,9 @@ export function parseOpenRouterModel(model: RawModel, fetchedAt: number): Parsed
     reasoningEfforts: stringArray(reasoning?.supported_efforts),
     supportsTools: params.includes("tools"),
     supportsToolChoice: params.includes("tool_choice"),
+    // OpenRouter lists `tool_choice` for these too; only a fixed rule can
+    // tell that a forced call is rejected.
+    ...(FORCED_TOOL_CHOICE_REJECTED_IDS.has(id) ? { forcedToolChoice: false } : {}),
     supportsStructuredOutputs:
       params.includes("structured_outputs") || params.includes("response_format"),
     supportsReasoning,
@@ -958,6 +967,7 @@ export type PrefilterModel = Pick<
   | "maxOutputTokens"
   | "supportsTools"
   | "supportsStructuredOutputs"
+  | "forcedToolChoice"
   | "endpointSupport"
   | "expirationDate"
   | "benchmarks"
@@ -996,6 +1006,15 @@ export function prefilterCandidate(args: {
   if (!policy.gateways.includes(candidate.gateway)) reasons.push("gateway not allowed for role");
   if (!candidate.supportsTools || !candidate.supportsStructuredOutputs) {
     reasons.push("missing tools or structured outputs");
+  }
+  // Such a model answers structured calls through `auto` plus a system line
+  // (toolRequestForModel), not the forced call the incumbent gets, so an
+  // evaluation would not compare like with like: an admin chooses it.
+  if (
+    candidate.forcedToolChoice === false ||
+    FORCED_TOOL_CHOICE_REJECTED_IDS.has(candidate.modelId)
+  ) {
+    reasons.push("rejects forced tool calls");
   }
   if (
     candidate.endpointSupport &&
