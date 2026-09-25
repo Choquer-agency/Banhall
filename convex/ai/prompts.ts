@@ -1142,8 +1142,12 @@ Rules:
 
 export const SUMMARY_PLAN_SELF_CHECK_SYSTEM_PROMPT = `${SELF_CHECK_SYSTEM_PROMPT}
 
-Signed-off content plan:
-- In Summary mode, return exactly one ordinary verdict for every deterministic label supplied with Storyline, Confidence Map, Glossary candidate and Writer instruction checks. Copy the label exactly into verdict.instruction; never copy the full instruction there.
+Signed-off content plan (Summary mode). These rules replace any rule above that conflicts with them:
+- Return exactly one ordinary verdict for each supplied label, such as [storyline] or [confidence:C1]. Never return one verdict per paragraph.
+- Copy the label exactly into verdict.instruction, without the square brackets. Never copy the instruction text there.
+- Set paragraph to the one paragraph that holds the evidence, or 0 when the verdict concerns the whole section.
+- Keep reason to one short clause of at most about 60 characters, such as "P3 hedges the figure."
+- Keep repairGuidance, and each storylineQuestion field, to at most about 90 characters.
 - Return exactly one planVerdict for every item and Skip in CONTENT PLAN CHECKS.
 - Judge coverage against each item's frozen role, wording and supporting references. Preserve every supplied item id in mergedItemIds.
 - An applied coverage verdict must identify the paragraph containing the evidence. A Skip is applied only when the role is absent.
