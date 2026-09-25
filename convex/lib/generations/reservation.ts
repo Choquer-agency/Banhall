@@ -266,7 +266,11 @@ export async function reserveGeneration(
   );
   // Owner decision 26: every generation-owned provider call reads
   // placeholders, never names; the map is frozen here so every call of this
-  // generation (and its cached prefixes) sees the same bytes. It is checked
+  // generation (and its cached prefixes) sees the same bytes. The speakers'
+  // names are parsed from the transcripts' text here, so a draft started
+  // before the scheduled turn build has written the speaker rows still hides
+  // them (review 2026-09-25: three demo drafts started 28 to 53 ms after
+  // their transcript was saved sent the speakers' names). It is checked
   // against every text the calls will send, so a source that already holds
   // placeholder-style tokens never has them restored into names.
   const placeholders = (await transcriptPlaceholdersEnabled(ctx))
@@ -274,7 +278,7 @@ export async function reserveGeneration(
         ...(await projectPlaceholderMap(
           ctx,
           project,
-          transcripts.map((row) => row._id),
+          transcripts,
           [
             ...frozenTranscripts.map((item) => item.content),
             ...frozenDocuments.map((item) => item.content),

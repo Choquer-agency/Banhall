@@ -12,6 +12,7 @@ import {
   speakerOfTranscriptLine,
   splitSpeakerLine,
   timestampToMs,
+  transcriptSpeakerNames,
   type TranscriptTurn,
 } from "./transcriptParse";
 
@@ -214,6 +215,14 @@ describe("speaker lines", () => {
     "00:01:02",
     "[00:01:02] We could not.",
     "[00:01:02] Priya Shah: We could not.",
+    "Priya Shah (she/her): Yes.",
+    "Priya Shah (Acme): Yes.",
+    "Shah, Priya   0:03",
+    "Shah, Priya: We could not.",
+    "<v Shah, Priya>We could not.",
+    "Well, Dana: we tried.",
+    "Result: throughput improved 30%.",
+    "Key Findings: two",
     "",
   ];
 
@@ -429,5 +438,162 @@ describe("spans", () => {
       expect(turns.length, name).toBeGreaterThan(0);
       expectSpansValid(content, turns);
     }
+  });
+});
+
+describe("speaker labels (parser v4)", () => {
+  it("keeps the name before pronouns or a company in brackets, so different people stay apart", () => {
+    const content = [
+      "Priya Shah (she/her): We built the first rig in March.",
+      "Tom Becker (he/him): I ran the bench tests.",
+      "Anika Rao (they/them): I logged every run.",
+      "Priya Shah (she/her): And the forecast lagged.",
+    ].join("\n\n");
+    const turns = parseTranscriptTurns(content);
+    expect(speakers(turns)).toEqual(["Priya Shah", "Tom Becker", "Anika Rao", "Priya Shah"]);
+    // The label as written is kept for the role rules.
+    expect(turns[0].rawLabel).toBe("Priya Shah (she/her)");
+
+    const company = "Priya Shah (Acme): We built a rig.\n\nTom Becker (Acme): I ran the tests.\n\nDana Whitfield (Banhall): Thanks, both.";
+    expect(speakers(parseTranscriptTurns(company))).toEqual(["Priya Shah", "Tom Becker", "Dana Whitfield"]);
+    expect(speakerOfTranscriptLine("Marcus Lindqvist (Guest): We tried.")).toBe("Marcus Lindqvist");
+    expect(speakerOfTranscriptLine("Dana (Interviewer): Why?")).toBe("Dana");
+  });
+
+  it("still takes the name in brackets after a role word", () => {
+    expect(speakerOfTranscriptLine("Interviewer (Dana): What changed?")).toBe("Dana");
+    expect(speakerOfTranscriptLine("Subject (Marcus Lindqvist, CTO): The feeder model.")).toBe("Marcus Lindqvist");
+    expect(speakerOfTranscriptLine("Speaker 2 (Priya): Yes.")).toBe("Priya");
+  });
+
+  it("reads Last, First names in Teams headers, VTT voices and labels", () => {
+    const teams = "Shah, Priya   0:03\nWe could not predict flow at the feeder.\n\nWhitfield, Dana   0:12\nHow long did it take?\n\nShah, Priya   0:20\nAbout six weeks.";
+    const turns = parseTranscriptTurns(teams);
+    expect(speakers(turns)).toEqual(["Priya Shah", "Dana Whitfield", "Priya Shah"]);
+    expect(turns.map((turn) => turn.startMs)).toEqual([3_000, 12_000, 20_000]);
+    expect(turns[0].rawLabel).toBe("Shah, Priya");
+    // The question stays with the interviewer, not inside the answer above it.
+    expect(teams.slice(turns[1].charStart, turns[1].charEnd)).toBe("How long did it take?");
+    expectSpansValid(teams, turns);
+
+    const vtt = prepareTranscriptUpload({
+      fileName: "call.vtt",
+      text: "WEBVTT\n\n00:00:01.000 --> 00:00:02.000\n<v Shah, Priya>We could not predict flow.\n\n00:00:03.000 --> 00:00:04.000\n<v Whitfield, Dana>How long did it take?",
+    });
+    // The render keeps the names as written; the turns read them.
+    expect(vtt.content).toBe("Shah, Priya [00:00:01]: We could not predict flow.\n\nWhitfield, Dana [00:00:03]: How long did it take?");
+    expect(speakers(builtTurns(vtt))).toEqual(["Priya Shah", "Dana Whitfield"]);
+
+    const pasted = "Shah, Priya: We could not predict flow.\n\nWhitfield, Dana: How long did it take?";
+    expect(speakers(parseTranscriptTurns(pasted))).toEqual(["Priya Shah", "Dana Whitfield"]);
+  });
+
+  it("never reads a sentence opener before a comma as a surname", () => {
+    expect(speakerOfTranscriptLine("Well, Dana: we tried a rule-based controller.")).toBeUndefined();
+    expect(speakerOfTranscriptLine("So, Priya: what came next?")).toBeUndefined();
+    const content = "Dana Whitfield: What did you try?\n\nPriya Shah: A rule-based controller.\nWell, Dana: it oscillated.\n\nDana Whitfield: And then?";
+    const turns = parseTranscriptTurns(content);
+    expect(speakers(turns)).toEqual(["Dana Whitfield", "Priya Shah", "Dana Whitfield"]);
+    expect(turns[1].cleanText).toBe("A rule-based controller. Well, Dana: it oscillated.");
+  });
+
+  it("keeps the speakers of text copied from the Teams transcript pane", () => {
+    // Name line, time line, speech; with and without blank lines between turns.
+    for (const content of [
+      "Priya Shah\n0:03\nWe could not predict flow at the feeder.\nDana Whitfield\n0:12\nHow long did it take?\nPriya Shah\n1:02:20\nAbout six weeks, then we rebuilt it.",
+      "Priya Shah\n0:03\nWe could not predict flow at the feeder.\n\nDana Whitfield\n0:12\nHow long did it take?\n\nPriya Shah\n1:02:20\nAbout six weeks, then we rebuilt it.",
+    ]) {
+      const turns = parseTranscriptTurns(content);
+      expect(speakers(turns)).toEqual(["Priya Shah", "Dana Whitfield", "Priya Shah"]);
+      expect(turns.map((turn) => [turn.startMs, turn.endMs])).toEqual([
+        [3_000, 12_000],
+        [12_000, 3_740_000],
+        [3_740_000, undefined],
+      ]);
+      expect(content.slice(turns[1].charStart, turns[1].charEnd)).toBe("How long did it take?");
+      expectSpansValid(content, turns);
+    }
+    const lastFirst = "Shah, Priya\n0:03\nWe could not predict flow.\nWhitfield, Dana\n0:12\nWhy not?";
+    expect(speakers(parseTranscriptTurns(lastFirst))).toEqual(["Priya Shah", "Dana Whitfield"]);
+  });
+
+  it("needs two pane headers, and leaves a Google Meet layout as it was", () => {
+    // One name above one time is not a pattern: the text stays plain.
+    expect(speakers(parseTranscriptTurns("Priya Shah\n0:03\nWe could not predict flow."))).toEqual([undefined]);
+    // A short reply above a Meet timestamp stays in the turn it ends.
+    const meet = "00:00:00\nDana Whitfield: Thanks for joining.\nOkay\n00:05:00\nPriya Shah: We built the rig.\nRight\n00:06:00\nDana Whitfield: Why?";
+    const turns = parseTranscriptTurns(meet);
+    expect(speakers(turns)).toEqual(["Dana Whitfield", "Priya Shah", "Dana Whitfield"]);
+    expect(turns[0].cleanText).toBe("Thanks for joining. Okay");
+    expect(turns[1].startMs).toBe(300_000);
+  });
+
+  it("never lets a heading such as Result: take over the paragraphs after it", () => {
+    const notes = [
+      "The team started in March with a baseline rig.",
+      "They measured flow every hour across the feeder.",
+      "Result: throughput improved 30%.",
+      "The next quarter focused on the controller.",
+      "It held voltage within band.",
+    ].join("\n\n");
+    const turns = parseTranscriptTurns(notes);
+    expect(turns).toHaveLength(5);
+    expect(speakers(turns)).toEqual([undefined, undefined, undefined, undefined, undefined]);
+    expect(notes.slice(turns[2].charStart, turns[2].charEnd)).toBe("Result: throughput improved 30%.");
+    expect(speakerOfTranscriptLine("Result: throughput improved 30%.")).toBeUndefined();
+    expect(speakerOfTranscriptLine("Next Steps: rebuild the rig.")).toBeUndefined();
+  });
+
+  it("counts a plain label only when the transcript shows a speaker pattern", () => {
+    // A lone label in prose names no one, even when it looks like a name.
+    const prose = "We built the rig in March.\n\nIt failed twice.\n\nLessons Learned: calibrate first.\n\nThe second rig held.";
+    expect(speakers(parseTranscriptTurns(prose))).toEqual([undefined, undefined, undefined, undefined]);
+    // Two speakers, each once, is an exchange.
+    expect(speakers(parseTranscriptTurns("Dana: How long did the rig take?\n\nPriya: About six weeks."))).toEqual([
+      "Dana",
+      "Priya",
+    ]);
+    // So is a single speaker who recurs, one whose label opens the text, or
+    // one whose label carries a time.
+    expect(speakers(parseTranscriptTurns("Notes.\n\nPriya: We built it.\n\nIt failed.\n\nPriya: Then it held."))).toEqual([
+      undefined,
+      "Priya",
+      "Priya",
+    ]);
+    expect(speakers(parseTranscriptTurns("Priya Shah: We built it.\n\n[00:12:30] And then it failed."))).toEqual([
+      "Priya Shah",
+    ]);
+    expect(speakers(parseTranscriptTurns("Intro notes.\n\nPriya [00:00:05]: We built it."))).toEqual([undefined, "Priya"]);
+    // A heading inside a real transcript stays in the speaker's turn.
+    const interview = "Dana Whitfield: What did you measure?\n\nPriya Shah: Flow at the feeder.\nResult: throughput improved 30%.\n\nDana Whitfield: Good.";
+    const turns = parseTranscriptTurns(interview);
+    expect(speakers(turns)).toEqual(["Dana Whitfield", "Priya Shah", "Dana Whitfield"]);
+    expect(turns[1].cleanText).toBe("Flow at the feeder. Result: throughput improved 30%.");
+  });
+
+  it("lists every name the speaker labels hold, for placeholders", () => {
+    const content = [
+      "Shah, Priya (Northwind Labs)   0:03",
+      "We could not predict flow.",
+      "",
+      "Whitfield, Dana   0:12",
+      "Why not?",
+      "",
+      "Tom Becker (he/him)   0:20",
+      "The sensor drifted.",
+    ].join("\n");
+    const turns = parseTranscriptTurns(content);
+    const names = transcriptSpeakerNames(content);
+    expect(names.labels).toEqual(["Priya Shah", "Dana Whitfield", "Tom Becker"]);
+    expect(names.labels).toEqual([...new Set(speakers(turns))]);
+    expect(names.otherNames).toEqual(["Shah, Priya", "Whitfield, Dana"]);
+    expect(names.organizations).toEqual(["Northwind Labs"]);
+    // A label the transcript-wide rules set aside is still a name to hide.
+    expect(transcriptSpeakerNames("Notes.\n\nMore notes.\n\nPriya: We built it.")).toEqual({
+      labels: [],
+      otherNames: ["Priya"],
+      organizations: [],
+    });
+    expect(transcriptSpeakerNames("Priya Shah\n0:03\nWe could not.").otherNames).toEqual(["Priya Shah"]);
   });
 });
