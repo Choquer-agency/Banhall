@@ -436,6 +436,16 @@ describe("/project/new transcript originals", () => {
   });
 });
 
+/** Copied rows carry a tick box, not Remove (owner decision 35, 2026-09-25). */
+const copiedLabels = () =>
+  [...document.querySelectorAll('[data-transcript-item] button[aria-label^="Copy "]')].map(
+    (box) => box.getAttribute("aria-label")!.replace("Copy ", "")
+  );
+const copiedBox = (label: string) =>
+  document.querySelector<HTMLButtonElement>(
+    `[data-transcript-item] button[aria-label="Copy ${label}"]`
+  );
+
 describe("/project/new duplicate prefill", () => {
   beforeEach(() => {
     __setPageUrl("/project/new?from=project-1");
@@ -465,14 +475,45 @@ describe("/project/new duplicate prefill", () => {
     ]);
   });
 
-  it("prefills every source transcript as a removable item", async () => {
+  it("prefills every source transcript ticked, and an unticked one stays listed", async () => {
     await render(NewProjectPage, {});
 
-    await expect.poll(itemLabels).toEqual(["Day 1.docx", "Day 2.docx"]);
-    await expect.poll(() => document.body.textContent).toContain("30 words");
+    await expect.poll(copiedLabels).toEqual(["Day 1.docx", "Day 2.docx"]);
+    expect(itemLabels()).toEqual([]);
+    expect(copiedBox("Day 1.docx")?.getAttribute("aria-checked")).toBe("true");
+    expect(copiedBox("Day 2.docx")?.getAttribute("aria-checked")).toBe("true");
+    await expect.poll(() => document.body.textContent).toContain("2 transcripts · 30 words");
 
-    await clickLabel("Remove Day 1.docx");
-    await expect.poll(itemLabels).toEqual(["Day 2.docx"]);
+    copiedBox("Day 1.docx")!.click();
+    await expect.poll(() => copiedBox("Day 1.docx")?.getAttribute("aria-checked")).toBe("false");
+    // Still listed, marked, and out of the count.
+    expect(copiedLabels()).toEqual(["Day 1.docx", "Day 2.docx"]);
+    expect(copiedBox("Day 1.docx")!.closest("li")?.textContent).toContain("Not copied");
+    await expect.poll(() => document.body.textContent).toContain("10 words");
+    expect(document.body.textContent).not.toContain("2 transcripts");
+  });
+
+  it("leaves an unticked transcript out of createProject, and ticking it brings it back", async () => {
+    __setMutationResult("projects:createProject", {
+      projectId: "project-copy",
+      transcriptIds: ["copied-2"],
+    });
+    await render(NewProjectPage, {});
+
+    await expect.poll(copiedLabels).toEqual(["Day 1.docx", "Day 2.docx"]);
+    copiedBox("Day 1.docx")!.click();
+    await expect.poll(() => copiedBox("Day 1.docx")?.getAttribute("aria-checked")).toBe("false");
+    copiedBox("Day 2.docx")!.click();
+    await expect.poll(() => copiedBox("Day 2.docx")?.getAttribute("aria-checked")).toBe("false");
+    copiedBox("Day 2.docx")!.click();
+    await expect.poll(() => copiedBox("Day 2.docx")?.getAttribute("aria-checked")).toBe("true");
+
+    await clickText("Next");
+    await clickText("Generate Report");
+    await expect.poll(() => __mutationCalls("projects:createProject").length).toBe(1);
+    expect(
+      (__mutationCalls("projects:createProject")[0] as { transcripts: unknown[] }).transcripts
+    ).toEqual([{ fromTranscriptId: "transcript-2", label: "Day 2.docx" }]);
   });
 
   it("submits them as references and hands the first new row to the copy", async () => {
@@ -482,7 +523,7 @@ describe("/project/new duplicate prefill", () => {
     });
     await render(NewProjectPage, {});
 
-    await expect.poll(itemLabels).toEqual(["Day 1.docx", "Day 2.docx"]);
+    await expect.poll(copiedLabels).toEqual(["Day 1.docx", "Day 2.docx"]);
     await clickText("Next");
     await expect
       .poll(() =>

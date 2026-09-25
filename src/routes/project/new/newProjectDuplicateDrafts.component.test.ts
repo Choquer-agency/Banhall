@@ -1,4 +1,5 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { toast } from "svelte-sonner";
 import { render } from "vitest-browser-svelte";
 import NewProjectPage from "./+page.svelte";
 import { __resetPage, __setPageUrl } from "$lib/test/app-state-stub.svelte";
@@ -6,6 +7,7 @@ import { __navigationCalls, __resetNavigation } from "$lib/test/app-navigation-s
 import {
   __mutationCalls,
   __resetConvexStub,
+  __setMutationError,
   __setMutationResult,
   __setQueryData,
 } from "$lib/test/convex-svelte-stub.svelte";
@@ -36,6 +38,37 @@ function buttonByText(text: string) {
 async function clickText(text: string) {
   await expect.poll(() => buttonByText(text)?.disabled).toBe(false);
   buttonByText(text)!.click();
+}
+
+/** Each copied file's tick box state, by file name. */
+function fileBoxStates(section: HTMLElement) {
+  return Object.fromEntries(
+    [...section.querySelectorAll<HTMLElement>("[data-copied-file]")].map((row) => [
+      row.querySelector("span.truncate")?.textContent?.trim(),
+      row.querySelector('button[role="checkbox"]')?.getAttribute("aria-checked"),
+    ])
+  );
+}
+
+const fileBox = (name: string) =>
+  document.querySelector<HTMLButtonElement>(
+    `[data-copied-files] button[role="checkbox"][aria-label="Copy ${name}"]`
+  );
+const groupBox = (section: HTMLElement, label: string) =>
+  section.querySelector<HTMLButtonElement>(
+    `button[role="checkbox"][aria-label="Copy all ${label}"]`
+  );
+
+async function copiedSection() {
+  await expect.poll(() => document.querySelector("[data-copied-files]")).not.toBeNull();
+  return document.querySelector<HTMLElement>("[data-copied-files]")!;
+}
+
+function setFiscalYearEnd(value: string) {
+  const field = document.querySelector<HTMLInputElement>("#fiscalYearEnd");
+  if (!field) throw new Error("Missing fiscal year-end field");
+  field.value = value;
+  field.dispatchEvent(new Event("input", { bubbles: true }));
 }
 
 async function commitFromReviewStep() {
@@ -257,7 +290,7 @@ describe("/project/new copied files", () => {
     const section = document.querySelector<HTMLElement>("[data-copied-files]")!;
     await expect.poll(() => section.textContent).toContain("Files from Alloy furnace");
     expect(section.querySelector("[data-copied-files-note]")?.textContent?.trim()).toBe(
-      "Files from Alloy furnace are copied into this new project, then the report is generated from them. The old report is not copied."
+      "Ticked files are copied into the new project and read for the draft. The old report stays with the original."
     );
     // The reviewed PD stays behind on a Generate PD duplicate.
     expect(section.textContent).toContain("4 files");
@@ -275,15 +308,22 @@ describe("/project/new copied files", () => {
       "Writer's notes",
       "Previous-year reports",
       "Scoping notes",
-      "Other project files",
+      "Chat and other uploads",
     ]);
     expect(groups[0].textContent).toContain("Writer notes.md");
     expect(groups[1].textContent).toContain("FY2024 report.docx");
     expect(groups[2].textContent).toContain("Old scoping.md");
-    expect(groups[2].textContent).toContain("Archived");
+    expect(groups[2].textContent).toContain("Archived, not read for the draft");
     expect(groups[3].textContent).toContain("Chat upload.pdf");
-    // Read-only: nothing to remove or replace.
-    expect(section.querySelector("button, input")).toBeNull();
+    // Every file and group has a tick box, ticked by default; no native inputs.
+    expect(section.querySelector("input")).toBeNull();
+    expect(fileBoxStates(section)).toEqual({
+      "Writer notes.md": "true",
+      "FY2024 report.docx": "true",
+      "Old scoping.md": "true",
+      "Chat upload.pdf": "true",
+    });
+    expect(groupBox(section, "Writer's notes")?.getAttribute("aria-checked")).toBe("true");
     expect(section.textContent).not.toMatch(/[\u2013\u2014]/);
 
     await clickText("Next");
@@ -301,8 +341,18 @@ describe("/project/new copied files", () => {
     await expect.poll(() => section.textContent).toContain("Existing PD.docx");
     expect(section.textContent).toContain("5 files");
     expect(section.querySelector("[data-copied-files-note]")?.textContent?.trim()).toBe(
-      "Files from Alloy furnace are copied into this new project, then the review runs on the PD you upload. The old report is not copied."
+      "Ticked files are copied into the new project as context for the review. The old report stays with the original."
     );
+    expect(groupIds(section)).toEqual([
+      "writer_notes",
+      "previous_pd",
+      "scoping_notes",
+      "review_pd",
+      "uncategorized",
+    ]);
+    const reviewed = section.querySelector<HTMLElement>('[data-copied-files-group="review_pd"]')!;
+    expect(reviewed.querySelector("p")?.textContent?.trim()).toBe("Written PDs reviewed");
+    expect(reviewed.textContent).toContain("Existing PD.docx");
   });
 
   it("lists every file with the clone wording on the plain ?from= link", async () => {
@@ -315,7 +365,7 @@ describe("/project/new copied files", () => {
     await expect.poll(() => section.textContent).toContain("Existing PD.docx");
     expect(section.textContent).toContain("5 files");
     expect(section.querySelector("[data-copied-files-note]")?.textContent?.trim()).toBe(
-      "Copied from Alloy furnace when you create the project."
+      "Ticked files are copied when you create the project."
     );
   });
 
@@ -359,5 +409,303 @@ describe("/project/new copied files", () => {
 
     await expect.poll(() => document.querySelector("#title")).not.toBeNull();
     expect(document.querySelector("[data-copied-files]")).toBeNull();
+  });
+});
+
+/**
+ * Owner decision 35 (2026-09-25): every copied transcript and file has a
+ * tick box, ticked by default, and the wizard sends what was unticked as a
+ * leave-out list. The old report is offered as last year's report only when
+ * the fiscal year moves forward. A Review PD source stays Review PD.
+ */
+const FYE_2024 = Date.UTC(2024, 11, 31);
+
+function seedYearSource(overrides: Record<string, unknown> = {}) {
+  seedSource();
+  __setQueryData("projects:getProject", {
+    _id: "project-1",
+    title: "Alloy furnace",
+    clientName: "Forgeworks Inc.",
+    mode: "generate",
+    fiscalYearEnd: FYE_2024,
+    ...overrides,
+  });
+  __setQueryData("projects:getDuplicateSourceReport", { version: 3, hasText: true });
+}
+
+const copyArgs = () =>
+  __mutationCalls("projectDuplication:copyProjectContent")[0] as Record<string, unknown>;
+
+/** Picks a date in the fiscal year-end calendar, paging by month. */
+async function pickFiscalYearEnd(value: string, direction: "Next" | "Previous") {
+  document.querySelector<HTMLButtonElement>("#fiscalYearEnd")!.click();
+  const day = () =>
+    document.querySelector<HTMLElement>(
+      `[data-bits-day][data-value="${value}"]:not([data-outside-month])`
+    );
+  await expect.poll(() => document.querySelector(`button[aria-label="${direction}"]`)).not.toBeNull();
+  for (let page = 0; page < 30 && !day(); page += 1) {
+    document.querySelector<HTMLButtonElement>(`button[aria-label="${direction}"]`)!.click();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  }
+  day()!.click();
+  await expect.poll(() => document.querySelector("#fiscalYearEnd")?.textContent).toContain(
+    value.slice(0, 4)
+  );
+}
+
+async function untick(name: string) {
+  await expect.poll(() => fileBox(name)).not.toBeNull();
+  fileBox(name)!.click();
+  await expect.poll(() => fileBox(name)?.getAttribute("aria-checked")).toBe("false");
+}
+
+describe("/project/new unticking copied files", () => {
+  it("sends exactly the unticked file as the leave-out list", async () => {
+    seedSource();
+    __setPageUrl("/project/new?from=project-1&drafts=iterative");
+    await render(NewProjectPage, {});
+
+    const section = await copiedSection();
+    await untick("Writer notes.md");
+    expect(section.querySelector("[data-copied-files-count]")?.textContent?.trim()).toBe(
+      "3 of 4 files"
+    );
+    await commitFromReviewStep();
+
+    await expect.poll(() => __mutationCalls("projectDuplication:copyProjectContent").length).toBe(1);
+    expect(copyArgs()).toMatchObject({ excludeDocumentIds: ["doc-1"] });
+    expect(copyArgs()).not.toHaveProperty("previousYearReport");
+  });
+
+  it("toggles a whole group, and shows the mixed state", async () => {
+    seedSource();
+    __setQueryData("documents:listDocuments", [
+      document_("doc-1", "Notes A.md", { category: "writer_notes" }),
+      document_("doc-2", "Notes B.md", { category: "writer_notes" }),
+      document_("doc-3", "Scoping.md", { category: "scoping_notes" }),
+    ]);
+    __setPageUrl("/project/new?from=project-1&drafts=iterative");
+    await render(NewProjectPage, {});
+
+    const section = await copiedSection();
+    await expect.poll(() => groupBox(section, "Writer's notes")).not.toBeNull();
+    await untick("Notes A.md");
+    await expect
+      .poll(() => groupBox(section, "Writer's notes")?.getAttribute("aria-checked"))
+      .toBe("mixed");
+
+    groupBox(section, "Writer's notes")!.click();
+    await expect.poll(() => fileBox("Notes A.md")?.getAttribute("aria-checked")).toBe("true");
+    expect(groupBox(section, "Writer's notes")?.getAttribute("aria-checked")).toBe("true");
+
+    groupBox(section, "Writer's notes")!.click();
+    await expect.poll(() => fileBox("Notes A.md")?.getAttribute("aria-checked")).toBe("false");
+    expect(fileBox("Notes B.md")?.getAttribute("aria-checked")).toBe("false");
+    expect(fileBox("Scoping.md")?.getAttribute("aria-checked")).toBe("true");
+
+    await commitFromReviewStep();
+    await expect.poll(() => __mutationCalls("projectDuplication:copyProjectContent").length).toBe(1);
+    expect(copyArgs().excludeDocumentIds).toEqual(["doc-1", "doc-2"]);
+  });
+
+  it("blocks Generate when everything is unticked, until a readable file is ticked", async () => {
+    seedSource();
+    __setQueryData("documents:listDocuments", [
+      document_("doc-1", "Writer notes.md", { category: "writer_notes" }),
+    ]);
+    __setPageUrl("/project/new?from=project-1&drafts=iterative");
+    await render(NewProjectPage, {});
+
+    await copiedSection();
+    await expect
+      .poll(() => document.querySelector('[data-transcript-item] button[aria-label="Copy Kickoff.docx"]'))
+      .not.toBeNull();
+    document.querySelector<HTMLButtonElement>('[data-transcript-item] button[aria-label="Copy Kickoff.docx"]')!.click();
+    await untick("Writer notes.md");
+
+    await clickText("Next");
+    await expect
+      .poll(() => document.body.textContent)
+      .toContain("Tick a transcript or file from Alloy furnace, or add your own.");
+    expect(buttonByText("Generate Report")?.disabled).toBe(true);
+
+    buttonByText("Back")!.click();
+    await expect.poll(() => fileBox("Writer notes.md")).not.toBeNull();
+    fileBox("Writer notes.md")!.click();
+    await clickText("Next");
+    await expect.poll(() => buttonByText("Generate Report")?.disabled).toBe(false);
+  });
+
+  it("shows the ticked count on the review step", async () => {
+    seedSource();
+    __setPageUrl("/project/new?from=project-1&drafts=iterative");
+    await render(NewProjectPage, {});
+
+    await copiedSection();
+    await untick("Chat upload.pdf");
+    await clickText("Next");
+    await expect.poll(() => document.body.textContent).toContain("3 of 4 from Alloy furnace");
+  });
+
+  it("sends no leave-out list when submitted before the file list loads", async () => {
+    seedSource();
+    __setQueryData("documents:listDocuments", undefined);
+    __setPageUrl("/project/new?from=project-1&drafts=iterative");
+    await render(NewProjectPage, {});
+
+    await expect.poll(() => checked("Draft generation mode", "Step by step")).toBe("true");
+    await commitFromReviewStep();
+    await expect.poll(() => __mutationCalls("projectDuplication:copyProjectContent").length).toBe(1);
+    expect(copyArgs()).not.toHaveProperty("excludeDocumentIds");
+  });
+
+  it("starts a ported PD for the same year unticked, and ticks it once the year moves on", async () => {
+    seedYearSource();
+    __setQueryData("documents:listDocuments", [
+      document_("doc-1", "Writer notes.md", { category: "writer_notes" }),
+      document_("doc-2", "FY2024 PD.docx", { category: "previous_pd", source: "ingestion_port" }),
+    ]);
+    __setPageUrl("/project/new?from=project-1&drafts=iterative");
+    await render(NewProjectPage, {});
+
+    await copiedSection();
+    await expect.poll(() => fileBox("FY2024 PD.docx")?.getAttribute("aria-checked")).toBe("false");
+    expect(fileBox("FY2024 PD.docx")!.closest("li")?.textContent).toContain(
+      "PD for FY 2024, the same year as this project"
+    );
+    expect(fileBox("Writer notes.md")?.getAttribute("aria-checked")).toBe("true");
+
+    await pickFiscalYearEnd("2025-12-31", "Next");
+    await expect.poll(() => fileBox("FY2024 PD.docx")?.getAttribute("aria-checked")).toBe("true");
+  });
+});
+
+describe("/project/new last year's report", () => {
+  const reportRow = () => document.querySelector<HTMLElement>("[data-previous-year-report]");
+
+  it("is offered only once the fiscal year moves forward, ticked", async () => {
+    seedYearSource();
+    __setPageUrl("/project/new?from=project-1&drafts=iterative");
+    await render(NewProjectPage, {});
+
+    await copiedSection();
+    await expect.poll(() => document.querySelector("#fiscalYearEnd")?.textContent).toContain("2024");
+    expect(reportRow()).toBeNull();
+    expect(document.querySelector("[data-transcripts-year-note]")).toBeNull();
+
+    await pickFiscalYearEnd("2025-12-31", "Next");
+    await expect.poll(() => reportRow()).not.toBeNull();
+    const row = reportRow()!;
+    expect(row.closest("[data-copied-files-group]")?.getAttribute("data-copied-files-group")).toBe(
+      "previous_pd"
+    );
+    expect(row.textContent).toContain("Alloy furnace report (FY 2024)");
+    expect(row.textContent).toContain("Made from the original's latest report");
+    expect(row.querySelector('button[role="checkbox"]')?.getAttribute("aria-checked")).toBe("true");
+    expect(document.querySelector("[data-copied-files-count]")?.textContent?.trim()).toBe("5 files");
+    expect(document.querySelector("[data-transcripts-year-note]")?.textContent?.trim()).toBe(
+      "These transcripts are from FY 2024. Untick any that don't cover this year's work."
+    );
+
+    // Moving the year back hides it again.
+    await pickFiscalYearEnd("2024-12-31", "Previous");
+    await expect.poll(() => reportRow()).toBeNull();
+
+    await pickFiscalYearEnd("2025-12-31", "Next");
+    await expect.poll(() => reportRow()).not.toBeNull();
+    await commitFromReviewStep();
+    await expect.poll(() => __mutationCalls("projectDuplication:copyProjectContent").length).toBe(1);
+    expect(copyArgs()).toMatchObject({ includeReport: false, previousYearReport: true });
+  });
+
+  it("is not sent when unticked", async () => {
+    seedYearSource();
+    __setPageUrl("/project/new?from=project-1&drafts=iterative");
+    await render(NewProjectPage, {});
+
+    await copiedSection();
+    await pickFiscalYearEnd("2025-12-31", "Next");
+    await expect.poll(() => reportRow()).not.toBeNull();
+    reportRow()!.querySelector<HTMLButtonElement>('button[role="checkbox"]')!.click();
+    await expect
+      .poll(() => reportRow()?.querySelector('button[role="checkbox"]')?.getAttribute("aria-checked"))
+      .toBe("false");
+    await commitFromReviewStep();
+    await expect.poll(() => __mutationCalls("projectDuplication:copyProjectContent").length).toBe(1);
+    expect(copyArgs()).not.toHaveProperty("previousYearReport");
+  });
+
+  it("is never offered on a Review PD duplicate", async () => {
+    seedYearSource({ mode: "review" });
+    __setPageUrl("/project/new?from=project-1&drafts=iterative");
+    await render(NewProjectPage, {});
+
+    await copiedSection();
+    await expect.poll(() => checked("Project mode", "Review PD")).toBe("true");
+    await pickFiscalYearEnd("2025-12-31", "Next");
+    expect(reportRow()).toBeNull();
+  });
+});
+
+describe("/project/new Review PD duplicate", () => {
+  async function dropPd(name: string) {
+    const input = document.querySelector<HTMLInputElement>(
+      'input[type="file"]:not([multiple]):not([accept=".docx"])'
+    );
+    if (!input) throw new Error("Missing PD input");
+    const transfer = new DataTransfer();
+    transfer.items.add(new File(["Experimental development of a marine battery."], name));
+    input.files = transfer.files;
+    input.dispatchEvent(new Event("change", { bubbles: true }));
+    await expect.poll(() => document.body.textContent).toContain("words extracted");
+  }
+
+  it("keeps Review PD, never offers Step by step, and starts a review", async () => {
+    seedSource("review");
+    __setMutationResult("documents:uploadDocument", "review-doc");
+    __setPageUrl("/project/new?from=project-1&drafts=iterative");
+    await render(NewProjectPage, {});
+
+    await expect.poll(() => checked("Project mode", "Review PD")).toBe("true");
+    const generate = radio("Project mode", "Generate PD")!;
+    expect(generate.getAttribute("aria-disabled")).toBe("true");
+    generate.click();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(checked("Project mode", "Review PD")).toBe("true");
+    expect(document.querySelector('[aria-label="Draft generation mode"]')).toBeNull();
+    expect(document.body.textContent).not.toContain("Step by step");
+
+    await dropPd("Revised PD.txt");
+    await clickText("Next");
+    await clickText("Review PD");
+
+    await expect.poll(() => __mutationCalls("pdReviews:startPdReview").length).toBe(1);
+    expect(copyArgs()).toMatchObject({ includeReport: false, includeReviews: true });
+    expect(__mutationCalls("projects:createProject")[0]).toMatchObject({ mode: "review" });
+    expect(__mutationCalls("generations:requestGeneration")).toEqual([]);
+  });
+});
+
+describe("/project/new failed copy", () => {
+  it("says the files were not copied, starts nothing and opens the project", async () => {
+    const error = vi.spyOn(toast, "error");
+    seedSource();
+    __setMutationError("projectDuplication:copyProjectContent", new Error("copy failed"));
+    __setPageUrl("/project/new?from=project-1&drafts=iterative");
+    await render(NewProjectPage, {});
+
+    await expect.poll(() => checked("Draft generation mode", "Step by step")).toBe("true");
+    await commitFromReviewStep();
+
+    await expect
+      .poll(() => __navigationCalls.map((call) => call.url))
+      .toContain("/project/project-copy");
+    expect(error.mock.calls.map((call) => call[0])).toContain(
+      "Some files from Alloy furnace were not copied. Duplicate again, or add them on the project page."
+    );
+    expect(error.mock.calls.map((call) => String(call[0])).join(" ")).not.toContain("Generate");
+    expect(__mutationCalls("generations:requestGeneration")).toEqual([]);
+    error.mockRestore();
   });
 });
