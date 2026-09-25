@@ -144,6 +144,33 @@ export async function uploadTranscriptOriginal(
   }
 }
 
+/**
+ * Runs `save` with the originals just uploaded for it. The bytes go to
+ * storage before the server checks anything, so when `save` throws (a
+ * duplicate, a cap, a report generating) the originals are released first
+ * (`transcripts.discardTranscriptOriginals`, which deletes only files no row
+ * holds) and then the error goes on. A failed release never hides the
+ * refusal.
+ */
+export async function releaseOriginalsOnFailure<T>(
+  storageIds: readonly string[],
+  discard: (storageIds: string[]) => Promise<unknown>,
+  save: () => Promise<T>
+): Promise<T> {
+  try {
+    return await save();
+  } catch (error) {
+    if (storageIds.length > 0) {
+      try {
+        await discard([...storageIds]);
+      } catch {
+        // Best effort: the refusal is what the writer needs to see.
+      }
+    }
+    throw error;
+  }
+}
+
 /** SHA-256 hex of a text, matching the server's `contentHash`. */
 export async function transcriptContentHash(content: string): Promise<string> {
   const bytes = new TextEncoder().encode(content);

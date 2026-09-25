@@ -75,6 +75,7 @@
   import TranscriptSpeakersPopover from "$lib/components/project/shell/TranscriptSpeakersPopover.svelte";
   import {
     readTranscriptFile,
+    releaseOriginalsOnFailure,
     TranscriptFileError,
     transcriptContentHash,
     uploadTranscriptOriginal,
@@ -221,10 +222,16 @@
   const addTranscriptMut = useMutation(api.transcripts.addTranscript);
   const replaceTranscriptMut = useMutation(api.transcripts.replaceTranscript);
   const removeTranscriptMut = useMutation(api.transcripts.removeTranscript);
+  const discardTranscriptOriginalsMut = useMutation(api.transcripts.discardTranscriptOriginals);
   const generateTranscriptUploadUrl = useMutation(api.documents.generateUploadUrl);
   let transcriptBusy = $state(false);
 
-  /** Reads a transcript file and stores it as a new or replacing row. */
+  /**
+   * Reads a transcript file and stores it as a new or replacing row. The
+   * duplicate check leaves out the row being replaced, as the server does.
+   * When the server refuses the change, the original file uploaded for it
+   * is released again.
+   */
   async function storeTranscriptFile(file: File, replacing: string | null) {
     if (transcriptBusy) return;
     transcriptBusy = true;
@@ -243,13 +250,15 @@
         sourceFormat: read.format,
         ...(originalStorageId ? { originalStorageId: originalStorageId as Id<"_storage"> } : {}),
       };
-      if (replacing) {
-        await replaceTranscriptMut({ transcriptId: replacing as Id<"transcripts">, ...upload });
-        toast.success(`Replaced with ${file.name}`);
-      } else {
-        await addTranscriptMut({ projectId, ...upload });
-        toast.success(`Added ${file.name}`);
-      }
+      await releaseOriginalsOnFailure(
+        originalStorageId ? [originalStorageId] : [],
+        (storageIds) => discardTranscriptOriginalsMut({ storageIds: storageIds as Id<"_storage">[] }),
+        () =>
+          replacing
+            ? replaceTranscriptMut({ transcriptId: replacing as Id<"transcripts">, ...upload })
+            : addTranscriptMut({ projectId, ...upload })
+      );
+      toast.success(replacing ? `Replaced with ${file.name}` : `Added ${file.name}`);
     } catch (error) {
       toast.error(
         error instanceof TranscriptFileError

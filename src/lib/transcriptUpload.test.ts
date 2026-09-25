@@ -1,10 +1,11 @@
 import { readFileSync } from "node:fs";
 import JSZip from "jszip";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { parseTranscriptTurns, prepareTranscriptUpload } from "../../shared/transcriptParse";
 import {
   docxTranscriptText,
   readPastedTranscript,
+  releaseOriginalsOnFailure,
   readTranscriptFile,
   transcriptContentHash,
   TranscriptFileError,
@@ -144,5 +145,47 @@ describe("pasted text and hashing", () => {
     expect(await transcriptContentHash("abc")).toBe(
       "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
     );
+  });
+});
+
+describe("releaseOriginalsOnFailure", () => {
+  it("releases the uploaded originals when the save is refused, then passes the refusal on", async () => {
+    const discard = vi.fn(async () => null);
+    const refusal = new Error("This transcript is already added (Day 1.docx)");
+    await expect(
+      releaseOriginalsOnFailure(["storage-1"], discard, async () => {
+        throw refusal;
+      })
+    ).rejects.toBe(refusal);
+    expect(discard).toHaveBeenCalledWith(["storage-1"]);
+  });
+
+  it("keeps the originals when the save succeeds, and never lets a failed release hide the refusal", async () => {
+    const discard = vi.fn(async () => null);
+    await expect(releaseOriginalsOnFailure(["storage-1"], discard, async () => "transcript-1")).resolves.toBe(
+      "transcript-1"
+    );
+    expect(discard).not.toHaveBeenCalled();
+
+    const refusal = new Error("Combined transcript text is too large");
+    await expect(
+      releaseOriginalsOnFailure(
+        ["storage-2"],
+        async () => {
+          throw new Error("offline");
+        },
+        async () => {
+          throw refusal;
+        }
+      )
+    ).rejects.toBe(refusal);
+    // Nothing to release: no call.
+    const none = vi.fn(async () => null);
+    await expect(
+      releaseOriginalsOnFailure([], none, async () => {
+        throw refusal;
+      })
+    ).rejects.toBe(refusal);
+    expect(none).not.toHaveBeenCalled();
   });
 });

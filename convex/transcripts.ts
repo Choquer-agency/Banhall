@@ -8,6 +8,7 @@ import {
   requireInternalProjectAccess,
 } from "./lib/auth";
 import { domainError, sha256 } from "./lib/contracts";
+import { deleteStorageIfUnreferenced } from "./lib/storage";
 import { findActiveGeneration } from "./lib/activeGeneration";
 import {
   transcriptSourceFormatValidator,
@@ -407,6 +408,32 @@ export const replaceTranscript = mutation({
       archivedTranscriptCount: (project.archivedTranscriptCount ?? 0) + 1,
     });
     return replacementId;
+  },
+});
+
+/** How recent an upload `discardTranscriptOriginals` may release. */
+const DISCARD_ORIGINAL_WINDOW_MS = 60 * 60 * 1000;
+
+/**
+ * Releases original files the browser uploaded for an Add, a Replace or a
+ * new project that was then refused (duplicate, caps, active generation).
+ * The bytes go to storage before the server checks anything, so without
+ * this a refusal left interview text in storage that no row points to and
+ * project erasure can never find. Only files no row holds and that were
+ * uploaded in the last hour are deleted; anything else is left alone.
+ */
+export const discardTranscriptOriginals = mutation({
+  args: { storageIds: v.array(v.id("_storage")) },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    await requireInternalActor(ctx);
+    const now = Date.now();
+    for (const storageId of args.storageIds.slice(0, MAX_TRANSCRIPTS_PER_PROJECT)) {
+      const metadata = await ctx.db.system.get("_storage", storageId);
+      if (!metadata || now - metadata._creationTime > DISCARD_ORIGINAL_WINDOW_MS) continue;
+      await deleteStorageIfUnreferenced(ctx, storageId);
+    }
+    return null;
   },
 });
 

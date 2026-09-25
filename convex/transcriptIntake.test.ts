@@ -493,6 +493,48 @@ describe("stored originals", () => {
   });
 });
 
+describe("discardTranscriptOriginals", () => {
+  async function exists(f: Awaited<ReturnType<typeof setup>>, id: Id<"_storage">) {
+    return await f.t.run(async (ctx) => (await ctx.storage.get(id)) !== null);
+  }
+
+  it("releases the original of a refused Add, and never a file a row holds", async () => {
+    const f = await setup();
+    const refused = await f.t.run((ctx) => ctx.storage.store(new Blob(["same text again"])));
+    await expect(
+      f.writer.mutation(api.transcripts.addTranscript, {
+        projectId: f.projectId,
+        content: FIRST,
+        originalStorageId: refused,
+      })
+    ).rejects.toThrow(/already added/);
+    const kept = await f.t.run((ctx) => ctx.storage.store(new Blob(["kept"])));
+    await f.writer.mutation(api.transcripts.addTranscript, {
+      projectId: f.projectId,
+      content: SECOND,
+      originalStorageId: kept,
+    });
+    await f.writer.mutation(api.transcripts.discardTranscriptOriginals, { storageIds: [refused, kept] });
+    expect(await exists(f, refused)).toBe(false);
+    expect(await exists(f, kept)).toBe(true);
+  });
+
+  it("leaves files older than an hour alone and refuses callers outside the team", async () => {
+    const f = await setup();
+    const old = await f.t.run((ctx) => ctx.storage.store(new Blob(["old upload"])));
+    vi.setSystemTime(Date.now() + 2 * 60 * 60 * 1000);
+    await f.writer.mutation(api.transcripts.discardTranscriptOriginals, { storageIds: [old] });
+    expect(await exists(f, old)).toBe(true);
+    const fresh = await f.t.run((ctx) => ctx.storage.store(new Blob(["fresh upload"])));
+    for (const caller of [f.roleless, f.anonymous, f.t]) {
+      await expect(
+        caller.mutation(api.transcripts.discardTranscriptOriginals, { storageIds: [fresh] })
+      ).rejects.toThrow();
+    }
+    expect(await exists(f, fresh)).toBe(true);
+  });
+});
+
 describe("list order on projects older than positions", () => {
   async function legacyProject() {
     const f = await setup();
