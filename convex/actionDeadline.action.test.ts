@@ -115,7 +115,18 @@ it("a cut-off analysis late in prepareSeedDraftingInputs fails fast instead of o
   });
 
   // Startup schedules the background step, which the scheduler runs here.
+  // Only Date is faked, so the scheduler starts the step on a real zero-delay
+  // timer; under load it may not have started yet, and finishing in-progress
+  // functions would then run nothing. Wait until it has sent its analysis.
   await t.action(internal.ai.iterative.startIterativeGeneration, { generationId });
+  // (A plain wait on real timers: vi.waitFor would move the faked clock.)
+  const analysisSent = () =>
+    network.create.mock.calls.some(
+      ([params]) => (params as GenerationMessageParams).tool_choice?.name === "submit_transcript_analysis"
+    );
+  for (let waited = 0; !analysisSent() && waited < 30_000; waited += 20) {
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
   await t.finishInProgressScheduledFunctions();
   const actionEnd = Date.now();
 
