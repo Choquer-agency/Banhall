@@ -17,6 +17,7 @@
   import { seedSourceLabel, type SeedSourceAttribution } from "./attribution";
   import type { QuoteCitation } from "./citations";
   import { SEED_REVIEW_SUMMARY_TRIGGER_ID } from "./summaryFocus";
+  import { approvalButtonClass } from "./approvalStyles";
   import type { SeedDraftUpdate, SeedLocalDraft } from "./types";
   import { seedsApi } from "./api";
 
@@ -871,7 +872,7 @@
       {@render approvalActions(layout)}
     {:else if outline?.canEdit}
       <!-- The step is still loading: its approval waits for a current read. -->
-      <Button class={`w-full ${layout === "bar" ? "h-11" : "h-9"}`} disabled>
+      <Button class={approvalButtonClass(layout)} disabled>
         {reopened ? "Confirm and approve" : "Approve and continue"}
       </Button>
     {/if}
@@ -879,7 +880,7 @@
       <Button
         id={SEED_REVIEW_SUMMARY_TRIGGER_ID}
         variant="secondary"
-        class={`w-full ${layout === "bar" ? "h-11" : "h-9"}`}
+        class={approvalButtonClass(layout)}
         onclick={onReviewSummary}
       >Review summary</Button>
     {/if}
@@ -892,21 +893,34 @@
 
 <section class="relative flex h-full min-h-0 flex-col overflow-hidden bg-surface" aria-label="Seed workspace">
   {#if !largeViewport && outline}
-    <!-- Phone and narrow layouts show one pane at a time (3.6). -->
-    <div class="shrink-0 border-b border-line-soft px-4 py-2">
-      <div class="grid grid-cols-2 gap-1 rounded-lg bg-chrome p-1" role="group" aria-label="Workspace pane">
-        <button
-          type="button"
-          aria-pressed={mobilePane === "outline"}
-          onclick={() => (mobilePane = "outline")}
-          class={`inline-flex min-h-11 items-center justify-center gap-1.5 rounded-md px-3 text-sm transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary motion-reduce:transition-none ${mobilePane === "outline" ? "bg-surface text-ink shadow-sm" : "text-ink-secondary hover:text-ink"}`}
-        >Outline <span class="text-xs text-ink-muted">{decidedCount}/{outline.rows.length}</span></button>
-        <button
-          type="button"
-          aria-pressed={mobilePane === "work"}
-          onclick={() => (mobilePane = "work")}
-          class={`inline-flex min-h-11 items-center justify-center rounded-md px-3 text-sm transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary motion-reduce:transition-none ${mobilePane === "work" ? "bg-surface text-ink shadow-sm" : "text-ink-secondary hover:text-ink"}`}
-        >Seeds</button>
+    <!-- Phone and narrow layouts show one pane at a time (3.6): a 40px
+         gray-50 track with 34px segments, each inside a 44px hit target. -->
+    <div class="flex h-[52px] shrink-0 items-center border-b border-line-soft px-4">
+      <div class="relative grid min-w-0 flex-1 grid-cols-2 gap-[3px] px-[3px]" role="group" aria-label="Workspace pane">
+        <span class="pointer-events-none absolute inset-x-0 top-1/2 h-10 -translate-y-1/2 rounded-[9px] bg-gray-50" aria-hidden="true"></span>
+        {#each [{ pane: "outline" as const }, { pane: "work" as const }] as option (option.pane)}
+          {@const pressed = mobilePane === option.pane}
+          <button
+            type="button"
+            aria-pressed={pressed}
+            onclick={() => (mobilePane = option.pane)}
+            class="group relative flex h-11 min-w-0 items-center justify-center rounded-[7px] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-primary"
+          >
+            <span
+              class={`flex h-[34px] w-full items-center justify-center gap-1.5 rounded-[7px] border text-[13px] leading-[18px] transition-colors motion-reduce:transition-none ${
+                pressed
+                  ? "border-line bg-surface font-medium text-ink"
+                  : "border-transparent text-ink-secondary group-hover:text-ink"
+              }`}
+            >
+              {#if option.pane === "outline"}
+                Outline <span class="text-[11px] leading-[14px] font-normal text-ink-faint">{decidedCount} / {outline.rows.length}</span>
+              {:else}
+                Seeds
+              {/if}
+            </span>
+          </button>
+        {/each}
       </div>
     </div>
   {/if}
@@ -1048,7 +1062,7 @@
         {/if}
         {#if !largeViewport}
           <!-- Phone bottom bar (3.6): regenerate and approve, 44px targets. -->
-          <div class="shrink-0 border-t border-line-soft bg-surface px-4 py-3" data-seed-bottom-bar>
+          <div class="shrink-0 border-t border-line-soft bg-surface px-4 pt-2.5 pb-6" data-seed-bottom-bar>
             {@render approvalFooter("bar")}
           </div>
         {/if}

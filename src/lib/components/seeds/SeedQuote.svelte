@@ -26,7 +26,7 @@
   } = $props();
 
   const uid = $props.id();
-  const CARD_WIDTH = 288;
+  const CARD_WIDTH = 304;
   const OPEN_DELAY_MS = 120;
   const CLOSE_DELAY_MS = 160;
 
@@ -145,7 +145,7 @@
     aria-expanded={open}
     aria-controls={`seed-quote-card-${uid}`}
     data-exact-quote
-    class="inline cursor-default rounded-[2px] bg-transparent p-0 text-left align-baseline [color:inherit] underline decoration-primary decoration-1 underline-offset-[5px] [font:inherit] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+    class={`inline cursor-default rounded-[2px] p-0 text-left align-baseline [color:inherit] underline decoration-primary decoration-[1.5px] underline-offset-[3px] [font:inherit] transition-colors hover:bg-primary-wash focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary motion-reduce:transition-none ${open ? "bg-primary-wash" : "bg-transparent"}`}
     onpointerenter={(event) => {
       if (event.pointerType !== "touch") scheduleShow();
     }}
@@ -169,19 +169,24 @@
       role="group"
       aria-label="Quoted line"
       data-quote-card
-      class="fixed z-[90] block rounded-lg border border-line bg-surface p-3 text-left shadow-lg"
+      class="fixed z-[90] flex flex-col gap-1.5 rounded-lg border border-line bg-surface px-3 py-2.5 text-left shadow-lg"
       style={`top:${position.top}px;left:${position.left}px;width:min(${CARD_WIDTH}px, calc(100vw - 16px))`}
       onpointerenter={clearTimer}
       onpointerleave={scheduleHide}
-    ><span class="block text-sm leading-snug text-ink" data-quote-text>“{citation.exactExcerpt}”</span>{#if speakerLine}<span
-          class="mt-2 block text-xs text-ink-secondary"
-          data-quote-speaker>{speakerLine}</span>{/if}<span
-        class={`mt-1 block text-xs ${source.attributed ? "text-ink-muted" : "italic text-ink-muted"}`}
-        data-quote-source
-        data-attributed={source.attributed}>{source.label}</span>{#if onOpenSource}<button
-          type="button"
-          class="mt-2 block rounded text-xs font-medium text-action-primary hover:text-action-primary-hover focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
-          onclick={() => {
-            hide();
-            onOpenSource(citation);
-          }}>Open in transcript</button>{/if}</span>{/if}</span>
+    ><span class="block font-serif text-[13px] leading-[18px] text-ink" data-quote-text>“{citation.exactExcerpt}”</span><span
+        class="flex items-end gap-3 text-[11px] leading-[14px]"
+      ><span class="min-w-0 flex-1 text-ink-faint">{#if speakerLine && source.attributed}<span
+              data-quote-speaker>{speakerLine}</span> in <span
+              data-quote-source
+              data-attributed={source.attributed}>{source.label}</span>{:else}{#if speakerLine}<span
+                class="block"
+                data-quote-speaker>{speakerLine}</span>{/if}<span
+              class={source.attributed ? "block" : "block italic"}
+              data-quote-source
+              data-attributed={source.attributed}>{source.label}</span>{/if}</span>{#if onOpenSource}<button
+            type="button"
+            class="shrink-0 rounded text-[11px] leading-[14px] text-primary-selected hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+            onclick={() => {
+              hide();
+              onOpenSource(citation);
+            }}>Open in transcript</button>{/if}</span></span>{/if}</span>

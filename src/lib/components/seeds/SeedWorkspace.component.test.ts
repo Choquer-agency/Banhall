@@ -354,7 +354,7 @@ describe("Seed workspace", () => {
     expect(Math.round(workspaceElement.getBoundingClientRect().width)).toBe(390);
     expect(Math.round(workspaceElement.getBoundingClientRect().height)).toBe(844);
     await expect.element(seedsSwitch()).toHaveAttribute("aria-pressed", "true");
-    await expect.element(outlineSwitch()).toHaveTextContent("Outline 0/13");
+    await expect.element(outlineSwitch()).toHaveTextContent("Outline 0 / 13");
     await outlineSwitch().click();
     await expect.element(outlineSwitch()).toHaveAttribute("aria-pressed", "true");
     await expect.element(page.getByRole("navigation", { name: "PD subsections" })).toBeVisible();
@@ -1376,7 +1376,7 @@ describe("Seed workspace", () => {
     await expect.element(card).toHaveTextContent("the control loop stabilized output");
     expect(document.querySelector("[data-quote-card] [data-quote-source]")?.textContent).toBe("Controller interview.docx");
     // Moving the pointer away (not into the card) closes it.
-    await page.getByRole("heading", { name: "Company / Context", exact: true }).hover();
+    await page.getByRole("heading", { name: "Company and context", exact: true }).hover();
     await expect.poll(() => document.querySelector("[data-quote-card]")).toBeNull();
 
     await quotesButton().click();
@@ -2244,11 +2244,11 @@ describe("Seed workspace", () => {
     expect(count()?.dataset.selectedCount).toBe("partial");
     expect(count()?.textContent).toContain("1+ selected in the shown seeds");
     expect(count()?.textContent).toContain("complete count pending");
-    expect(document.body.textContent).not.toContain("3 selected");
+    expect(document.body.textContent).not.toContain("3 seeds selected");
 
     await page.getByRole("button", { name: "Load Batch history", exact: true }).click();
     await expect.poll(() => count()?.dataset.selectedCount).toBe("complete");
-    expect(count()?.textContent).toBe("3 selected");
+    expect(count()?.textContent).toBe("3 seeds selected");
 
     // A failed replacement review invalidates the server count until a retry succeeds.
     __setQueryData("seeds:listBatches", rejecting(new ConvexError({ code: "INVALID_STATE", message: "History read failed" })));
@@ -2259,7 +2259,7 @@ describe("Seed workspace", () => {
     __setQueryData("seeds:listBatches", completeHistory);
     await page.getByRole("button", { name: "Retry Batch history", exact: true }).click();
     await expect.poll(() => count()?.dataset.selectedCount).toBe("complete");
-    expect(count()?.textContent).toBe("3 selected");
+    expect(count()?.textContent).toBe("3 seeds selected");
 
     // A new decision version is a new scope: the previous review count no longer applies.
     await view.rerender(paneProps(subsection({
@@ -2275,7 +2275,7 @@ describe("Seed workspace", () => {
     await view.rerender(paneProps(subsection({
       items: [seed(), seed({ seedId: "seed-2" as Id<"seeds">, selected: true })],
     })));
-    await expect.poll(() => count()?.textContent).toBe("2 selected");
+    await expect.poll(() => count()?.textContent).toBe("2 seeds selected");
     expect(count()?.dataset.selectedCount).toBe("complete");
   });
 
@@ -2316,7 +2316,7 @@ describe("Seed workspace", () => {
     await new Promise((resolve) => setTimeout(resolve, 50));
     expect(openRefusal()).toBeNull();
     expect(document.body.textContent).not.toContain("Role A open refused late");
-    await expect.element(page.getByRole("heading", { name: "Goal / Problem", exact: true })).toBeVisible();
+    await expect.element(page.getByRole("heading", { name: "Goal and problem", exact: true })).toBeVisible();
 
     // A current refusal for the displayed role is announced with a Retry
     // that resubmits against the current capability and stage version.
@@ -2358,7 +2358,7 @@ describe("Seed workspace", () => {
     ]);
     refuseFirst?.(new ConvexError({ code: "INVALID_STATE", message: "First open refused late" }));
     await new Promise((resolve) => setTimeout(resolve, 50));
-    await expect.element(page.getByRole("heading", { name: "Company / Context", exact: true })).toBeVisible();
+    await expect.element(page.getByRole("heading", { name: "Company and context", exact: true })).toBeVisible();
     expect(openRefusal()).toBeNull();
     expect(document.body.textContent).not.toContain("First open refused late");
   });
@@ -2383,7 +2383,7 @@ describe("Seed workspace", () => {
     ]);
     refuseOld?.(new ConvexError({ code: "INVALID_STATE", message: "Previous owner's open refused" }));
     await new Promise((resolve) => setTimeout(resolve, 50));
-    await expect.element(page.getByRole("heading", { name: "Company / Context", exact: true })).toBeVisible();
+    await expect.element(page.getByRole("heading", { name: "Company and context", exact: true })).toBeVisible();
     expect(openRefusal()).toBeNull();
     expect(document.body.textContent).not.toContain("Previous owner's open refused");
     view.unmount();
@@ -2401,7 +2401,7 @@ describe("Seed workspace", () => {
     await expect.poll(() => __mutationCalls("seeds:open")).toHaveLength(4);
     refuseDestroyed?.(new ConvexError({ code: "INVALID_STATE", message: "Destroyed workspace's open refused" }));
     await new Promise((resolve) => setTimeout(resolve, 50));
-    await expect.element(page.getByRole("heading", { name: "Company / Context", exact: true })).toBeVisible();
+    await expect.element(page.getByRole("heading", { name: "Company and context", exact: true })).toBeVisible();
     expect(openRefusal()).toBeNull();
     expect(document.body.textContent).not.toContain("Destroyed workspace's open refused");
   });
@@ -2549,7 +2549,9 @@ describe("Seed plan final UI (ui-design-final.md sections 3 and 11)", () => {
     expect(Number.parseInt(getComputedStyle(heading.element()).fontWeight, 10)).toBeLessThanOrEqual(500);
     const helper = view.container.querySelector<HTMLElement>("[data-step-helper]")!;
     expect(helper.querySelector("svg")).not.toBeNull();
-    expect(helper.textContent).toContain("2 selected");
+    // A reopened step says why it is open again instead of counting (board 3.7).
+    expect(helper.textContent).toContain("Reopened from the summary.");
+    expect(helper.querySelector("[data-selected-count]")).toBeNull();
     expect(helper.textContent).toContain("Underlined words are quoted from the sources.");
     // No raw kind chip, no per-card regenerate, no dashed placeholder card.
     expect(view.container.textContent).not.toContain("multiple");
@@ -2784,7 +2786,7 @@ describe("Seed plan final UI (ui-design-final.md sections 3 and 11)", () => {
     expect(footer().getByRole("button", { name: "Review summary", exact: true }).elements()).toHaveLength(0);
     await footer().getByRole("button", { name: "Approve and continue", exact: true }).click();
     expect(__mutationCalls("seeds:approve")).toEqual([expect.objectContaining({ roleId: "company_context", approvalChallenge: "challenge-exact" })]);
-    await expect.element(page.getByRole("heading", { name: "Goal / Problem", exact: true })).toBeVisible();
+    await expect.element(page.getByRole("heading", { name: "Goal and problem", exact: true })).toBeVisible();
     await expect.poll(() => __activeQueryArgs("seeds:getSubsection")).toContainEqual({ generationId, roleId: "goal_problem" });
     view.unmount();
 
@@ -2823,11 +2825,11 @@ describe("Seed plan final UI (ui-design-final.md sections 3 and 11)", () => {
 
     // The writer opens Goal / Problem before step one's approval returns.
     await page.getByRole("navigation", { name: "PD subsections" }).getByRole("button", { name: /Goal \/ Problem/ }).click();
-    await expect.element(page.getByRole("heading", { name: "Goal / Problem", exact: true })).toBeVisible();
+    await expect.element(page.getByRole("heading", { name: "Goal and problem", exact: true })).toBeVisible();
     finishApproval?.(null);
     await new Promise((resolve) => setTimeout(resolve, 100));
     // Step one's continuation must not move the writer on from Goal / Problem.
-    await expect.element(page.getByRole("heading", { name: "Goal / Problem", exact: true })).toBeVisible();
+    await expect.element(page.getByRole("heading", { name: "Goal and problem", exact: true })).toBeVisible();
     expect(__activeQueryArgs("seeds:getSubsection")).not.toContainEqual({ generationId, roleId: "passive_limitations" });
     expect(onReviewSummary).not.toHaveBeenCalled();
   });
@@ -2858,7 +2860,7 @@ describe("Seed plan final UI (ui-design-final.md sections 3 and 11)", () => {
     expect(__mutationCalls("seeds:approve")).toEqual([expect.objectContaining({ roleId: "company_context" })]);
     await new Promise((resolve) => setTimeout(resolve, 100));
     // Confirmed in place: the step stays open and the Summary is one click away.
-    await expect.element(page.getByRole("heading", { name: "Company / Context", exact: true })).toBeVisible();
+    await expect.element(page.getByRole("heading", { name: "Company and context", exact: true })).toBeVisible();
     await review.click();
     expect(onReviewSummary).toHaveBeenCalledTimes(1);
 
@@ -2875,6 +2877,87 @@ describe("Seed plan final UI (ui-design-final.md sections 3 and 11)", () => {
     expect(document.querySelector('[data-step-chip="approved"]')?.textContent).toBe("Approved");
   });
 
+  it("matches board 3.1 metrics: 13px Outline rows with 14px marks, 14px seed text, 16px checkboxes, 11px tags and a quiet disabled approval", async () => {
+    await page.viewport(1440, 900);
+    __setQueryData("seeds:getOutline", {
+      ...outline(),
+      rows: outline().rows.map((row) => ({
+        ...row,
+        state: row.order === 2 ? "approved" : row.order === 1 ? "in_progress" : "untouched",
+      })),
+    });
+    __setQueryData("seeds:getSubsection", subsection({
+      approvalChallenge: null,
+      items: [
+        seed({ selected: false, tags: ["conservative", "high_level"] }),
+        seed({ seedId: "seed-2" as Id<"seeds">, selected: true, bullets: ["A selected seed."] }),
+      ],
+    }));
+    const view = await render(SeedWorkspace, workspaceProps());
+    view.container.style.width = "1214px";
+    view.container.style.height = "790px";
+    const nav = view.container.querySelector<HTMLElement>('nav[aria-label="PD subsections"]')!;
+    const active = nav.querySelector<HTMLElement>('button[aria-current="step"]')!;
+    const activeLabel = active.querySelector<HTMLElement>(".truncate")!;
+    expect(getComputedStyle(activeLabel).fontSize).toBe("13px");
+    expect(getComputedStyle(activeLabel).fontWeight).toBe("500");
+    expect(Math.round(active.querySelector<HTMLElement>("[data-row-icon]")!.getBoundingClientRect().width)).toBe(14);
+    // An approved step reads in full ink; an untouched one in secondary ink.
+    const approved = nav.querySelector<HTMLElement>('button[data-row-state="approved"] .truncate')!;
+    const untouched = nav.querySelector<HTMLElement>('button[data-row-state="untouched"] .truncate')!;
+    expect(getComputedStyle(approved).color).toBe("rgb(22, 33, 31)");
+    expect(getComputedStyle(untouched).color).toBe("rgb(79, 97, 93)");
+    expect(getComputedStyle(nav.querySelector<HTMLElement>(":scope > p")!).fontSize).toBe("11px");
+    expect(Math.round(view.container.querySelector<HTMLElement>('[aria-label="Seed outline"] > header')!.getBoundingClientRect().height)).toBe(48);
+
+    // Step header: serif 24/30 title, 13px purpose, 12px helper over a hairline.
+    const heading = page.getByRole("heading", { name: "Company and context", exact: true }).element() as HTMLElement;
+    expect(getComputedStyle(heading).fontSize).toBe("24px");
+    expect(getComputedStyle(heading).lineHeight).toBe("30px");
+    const helperLine = view.container.querySelector<HTMLElement>("[data-step-helper]")!;
+    expect(getComputedStyle(helperLine).fontSize).toBe("12px");
+    expect(helperLine.textContent?.replace(/\s+/g, " ").trim()).toBe(
+      "1 seed selected. Approve to move on, or change your pick. Underlined words are quoted from the sources."
+    );
+
+    // Cards: 10px radius, 14/16 padding, 16px checkbox, 11px medium tags, 14/20 bullets.
+    const card = view.container.querySelector<HTMLElement>('article[data-seed-id="seed-1"]')!;
+    expect(getComputedStyle(card).borderRadius).toBe("10px");
+    expect(getComputedStyle(card).paddingTop).toBe("14px");
+    expect(getComputedStyle(card).paddingLeft).toBe("16px");
+    expect(Math.round(card.querySelector<HTMLElement>('[role="checkbox"]')!.getBoundingClientRect().width)).toBe(16);
+    const tag = card.querySelector<HTMLElement>("[data-seed-tag]")!;
+    expect(getComputedStyle(tag).fontSize).toBe("11px");
+    expect(getComputedStyle(tag).fontWeight).toBe("500");
+    expect(Math.round(tag.getBoundingClientRect().height)).toBe(20);
+    const bullet = card.querySelector<HTMLElement>("li")!;
+    expect(getComputedStyle(bullet).fontSize).toBe("14px");
+    expect(getComputedStyle(bullet).lineHeight).toBe("20px");
+    // An unselected card keeps its tools in the flow; a selected one floats
+    // them over its corner, hidden until hover (board 3.2).
+    expect(getComputedStyle(card.querySelector<HTMLElement>("[data-seed-footer]")!).position).toBe("static");
+    const selectedFooter = view.container.querySelector<HTMLElement>('article[data-seed-id="seed-2"] [data-seed-footer]')!;
+    expect(getComputedStyle(selectedFooter).position).toBe("absolute");
+    expect(getComputedStyle(selectedFooter).opacity).toBe("0");
+
+    // A disabled approval is a gray-50 fill with faint ink, not a faded primary.
+    const approve = page.elementLocator(view.container.querySelector<HTMLElement>("[data-outline-footer]")!)
+      .getByRole("button", { name: "Approve and continue", exact: true });
+    await expect.element(approve).toBeDisabled();
+    const approveStyle = getComputedStyle(approve.element());
+    expect(approveStyle.backgroundColor).toBe("rgb(243, 247, 246)");
+    expect(approveStyle.color).toBe("rgb(147, 165, 161)");
+    expect(approveStyle.opacity).toBe("1");
+    view.unmount();
+
+    // Before anything is ticked, the helper also says how to read a quote.
+    document.body.innerHTML = "";
+    const fresh = await render(SeedSubsectionPane, paneProps(subsection({ items: [seed({ selected: false })] })));
+    expect(fresh.container.querySelector<HTMLElement>("[data-step-helper]")!.textContent?.replace(/\s+/g, " ").trim()).toBe(
+      "Tick at least one seed to approve this step. Underlined words are quoted from the sources; hover one to see the line."
+    );
+  });
+
   const manySeeds = () => Array.from({ length: 4 }, (_, index) => seed({
     seedId: `seed-grid-${index}` as Id<"seeds">,
     bullets: [`Grid seed ${index + 1} wording.`],
@@ -2883,15 +2966,27 @@ describe("Seed plan final UI (ui-design-final.md sections 3 and 11)", () => {
   it("lays out two 412px card columns at 1440 and one column with a 240px Outline at tablet width", async () => {
     await page.viewport(1440, 900);
     __setQueryData("seeds:getOutline", outline());
-    __setQueryData("seeds:getSubsection", subsection({ items: manySeeds() }));
+    // The second card runs longer than the first; its row partner still matches it.
+    __setQueryData("seeds:getSubsection", subsection({
+      items: manySeeds().map((item, index) => index === 1
+        ? { ...item, bullets: ["Grid seed 2 wording runs long enough to wrap onto a second line in its card.", "A second bullet."] }
+        : item),
+    }));
     const wide = await render(SeedWorkspace, workspaceProps());
     wide.container.style.width = "1228px";
     wide.container.style.height = "830px";
     await expect.poll(() => document.querySelector("[data-seed-grid]")?.getAttribute("data-seed-grid")).toBe("two");
-    const columns = document.querySelectorAll<HTMLElement>("[data-seed-column]");
-    expect(columns).toHaveLength(2);
-    expect(Math.round(columns[0].getBoundingClientRect().width)).toBe(412);
-    expect(Math.round(columns[1].getBoundingClientRect().width)).toBe(412);
+    // Seeds without revisions form row-aligned pairs of 412px cards that
+    // share one height (board 3.1).
+    const cards = Array.from(document.querySelectorAll<HTMLElement>("[data-seed-rows] > [data-seed-cell] > article"));
+    expect(cards.map((card) => card.dataset.seedId)).toEqual(["seed-grid-0", "seed-grid-1", "seed-grid-2", "seed-grid-3"]);
+    for (const card of cards) expect(Math.round(card.getBoundingClientRect().width)).toBe(412);
+    const [first, second, third] = cards.map((card) => card.getBoundingClientRect());
+    expect(Math.round(first.top)).toBe(Math.round(second.top));
+    expect(Math.round(first.height)).toBe(Math.round(second.height));
+    expect(Math.round(third.top - first.bottom)).toBe(10);
+    expect(Math.round(second.left - first.right)).toBe(10);
+    expect(document.querySelectorAll("[data-seed-column]")).toHaveLength(0);
     await expect.element(page.getByRole("slider", { name: "Resize Seed outline" })).toHaveAttribute("aria-valuenow", "300");
     await page.getByLabelText("Seed workspace").screenshot({ path: await captures.path("seed-plan-desktop-1440") });
     wide.unmount();
@@ -2911,6 +3006,47 @@ describe("Seed plan final UI (ui-design-final.md sections 3 and 11)", () => {
     await page.getByLabelText("Seed workspace").screenshot({ path: await captures.path("seed-plan-tablet-1024") });
   });
 
+  it("nests revised seeds inside their seed's card and continues in the shorter column after it (board 3.2)", async () => {
+    await page.viewport(1440, 900);
+    const revision = (index: number) => seed({
+      seedId: `seed-rev-${index}` as Id<"seeds">,
+      selected: false,
+      bullets: [`Revised wording ${index}.`],
+      revisionOfSeedId: "seed-grid-2" as Id<"seeds">,
+      feedbackRequestId: "feedback-grid" as Id<"seedFeedbackRequests">,
+      provenance: [],
+    });
+    __setQueryData("seeds:getOutline", outline());
+    __setQueryData("seeds:getSubsection", subsection({
+      items: [...manySeeds(), seed({ seedId: "seed-grid-4" as Id<"seeds">, bullets: ["Grid seed 5 wording."] }), revision(1), revision(2)],
+      feedbackGroups: [{
+        requestId: "feedback-grid" as Id<"seedFeedbackRequests">,
+        targetSeedId: "seed-grid-2" as Id<"seeds">,
+        targetWording: ["Grid seed 3 wording."],
+        instruction: "Say what was measured.",
+        status: "active" as const,
+        batchId: null,
+        revisedSeedIds: ["seed-rev-1", "seed-rev-2"] as Id<"seeds">[],
+      }],
+    }));
+    const view = await render(SeedWorkspace, workspaceProps());
+    view.container.style.width = "1228px";
+    view.container.style.height = "830px";
+    await expect.poll(() => document.querySelector("[data-seed-grid]")?.getAttribute("data-seed-grid")).toBe("two");
+    // The first row pairs as usual; from the revised seed on, each card goes
+    // to the shorter column, so the fifth sits under the fourth.
+    const ids = (selector: string) => Array.from(document.querySelectorAll<HTMLElement>(selector)).map((cell) => cell.dataset.seedCell);
+    expect(ids("[data-seed-rows] > [data-seed-cell]")).toEqual(["seed-grid-0", "seed-grid-1"]);
+    expect(ids('[data-seed-column="0"] > [data-seed-cell]')).toEqual(["seed-grid-2"]);
+    expect(ids('[data-seed-column="1"] > [data-seed-cell]')).toEqual(["seed-grid-3", "seed-grid-4"]);
+    // The revised seeds sit inside the targeted seed's own card, on canvas.
+    const target = document.querySelector<HTMLElement>('article[data-seed-id="seed-grid-2"]')!;
+    const group = target.querySelector<HTMLElement>('[data-feedback-group="feedback-grid"]')!;
+    expect(group).not.toBeNull();
+    expect(group.querySelectorAll("article[data-seed-id^='seed-rev-']")).toHaveLength(2);
+    expect(getComputedStyle(group).backgroundColor).toBe("rgb(249, 252, 251)");
+  });
+
   it("gives phones a segmented Outline n/13 | Seeds switch, one column and a bottom bar with 44px regenerate and approve", async () => {
     await page.viewport(390, 844);
     __setQueryData("seeds:getOutline", {
@@ -2922,7 +3058,7 @@ describe("Seed plan final UI (ui-design-final.md sections 3 and 11)", () => {
     const { container } = await render(SeedWorkspace, workspaceProps());
     container.style.width = "390px";
     container.style.height = "844px";
-    await expect.element(outlineSwitch()).toHaveTextContent("Outline 2/13");
+    await expect.element(outlineSwitch()).toHaveTextContent("Outline 2 / 13");
     await expect.element(seedsSwitch()).toHaveAttribute("aria-pressed", "true");
     await expect.poll(() => document.querySelector("[data-seed-grid]")?.getAttribute("data-seed-grid")).toBe("one");
     const bar = page.elementLocator(container.querySelector<HTMLElement>("[data-seed-bottom-bar]")!);
@@ -2934,7 +3070,12 @@ describe("Seed plan final UI (ui-design-final.md sections 3 and 11)", () => {
     expect(Math.round((approve.element() as HTMLElement).getBoundingClientRect().height)).toBe(44);
     for (const target of [outlineSwitch(), seedsSwitch()]) {
       expect((target.element() as HTMLElement).getBoundingClientRect().height).toBeGreaterThanOrEqual(44);
+      // Each 44px target draws a 34px segment on a gray-50 track (board 3.6).
+      expect(Math.round((target.element() as HTMLElement).firstElementChild!.getBoundingClientRect().height)).toBe(34);
     }
+    const pressedSegment = (seedsSwitch().element() as HTMLElement).firstElementChild!;
+    expect(getComputedStyle(pressedSegment).backgroundColor).toBe("rgb(255, 255, 255)");
+    expect(getComputedStyle(pressedSegment).fontWeight).toBe("500");
     // The header Regenerate gives way to the bar's icon; no Outline footer.
     expect(page.getByRole("button", { name: "Regenerate", exact: true }).elements()).toHaveLength(1);
     expect(container.querySelector("[data-outline-footer]")).toBeNull();
