@@ -322,16 +322,18 @@ function validatedProvenance(args: {
     // names, so offsets it counts drift from the frozen text. Offsets were
     // never trustworthy from a model; a verbatim excerpt at the wrong offsets
     // is located in its own source and still byte-checked below.
-    const citation =
+    // The occurrence nearest the model's own offset wins (review 2026-09-25):
+    // an excerpt the interviewer also said earlier must not move to their
+    // turn and take their speaker.
+    const located =
       source &&
       source.content.slice(original.startOffset, original.endOffset) !== original.exactExcerpt &&
-      original.exactExcerpt !== "" &&
-      source.content.includes(original.exactExcerpt)
-        ? {
-            ...original,
-            startOffset: source.content.indexOf(original.exactExcerpt),
-            endOffset: source.content.indexOf(original.exactExcerpt) + original.exactExcerpt.length,
-          }
+      original.exactExcerpt !== ""
+        ? nearestOccurrence(source.content, original.exactExcerpt, original.startOffset)
+        : -1;
+    const citation =
+      located !== -1
+        ? { ...original, startOffset: located, endOffset: located + original.exactExcerpt.length }
         : original;
     const offsetsValid =
       Number.isInteger(citation.startOffset) &&
@@ -368,6 +370,21 @@ function validatedProvenance(args: {
           ]
         : [],
   };
+}
+
+/**
+ * The start of the occurrence of `excerpt` in `content` nearest `near` (the
+ * earlier one on a tie), or -1. A non-number `near` means the first.
+ */
+export function nearestOccurrence(content: string, excerpt: string, near: number): number {
+  if (excerpt === "") return -1;
+  const target = Number.isFinite(near) ? near : 0;
+  let best = -1;
+  for (let at = content.indexOf(excerpt); at !== -1; at = content.indexOf(excerpt, at + 1)) {
+    if (best === -1 || Math.abs(at - target) < Math.abs(best - target)) best = at;
+    if (at > target) break;
+  }
+  return best;
 }
 
 function withoutAdvancementLinks(candidate: SeedCandidate): SeedCandidate {

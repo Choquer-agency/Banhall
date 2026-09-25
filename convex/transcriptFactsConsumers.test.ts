@@ -180,10 +180,24 @@ describe("the PD review reads live fact packs behind placeholders", () => {
   it("replaces the transcript text with the packs when every transcript has facts", async () => {
     const f = await reviewFixture("all", true);
     const input = await f.t.query(internal.pdReviews.getReviewInput, { reviewId: f.reviewId });
-    expect(input?.transcriptKind).toBe("facts");
-    expect(input?.transcript).toContain("[F1-1] (uncertainty)");
-    expect(input?.transcript).not.toContain("What made the forecast hard?");
+    // The query only plans the packs; each renders in its own query (P3-7).
+    expect(input?.factPacks.map((entry) => entry.position)).toEqual([1]);
+    expect(input?.transcript).toContain("What made the forecast hard?");
 
+    const bodies = stubReview();
+    await f.t.action(internal.ai.reviewAgent.runPdReview, { reviewId: f.reviewId, projectId: f.projectId });
+    expect(bodies).toHaveLength(1);
+    expect(bodies[0]).toContain(PD_REVIEW_FACTS_HEADING.slice(0, 30));
+    expect(bodies[0]).toContain("[F1-1] (uncertainty)");
+    expect(bodies[0]).not.toContain("What made the forecast hard?");
+    // Owner decision 26: no name leaves the app, and the stored review is restored.
+    for (const name of ["Priya", "Dana", "Verdant"]) expect(bodies[0]).not.toContain(name);
+    const review = await f.t.run((ctx) => ctx.db.get(f.reviewId));
+    expect(review?.status).toBe("completed");
+    expect(JSON.parse(review!.result!).summary).toBe("Priya Shah is well supported.");
+  });
+
+  function stubReview() {
     const bodies: string[] = [];
     vi.stubGlobal(
       "fetch",
@@ -215,22 +229,20 @@ describe("the PD review reads live fact packs behind placeholders", () => {
         });
       })
     );
-    await f.t.action(internal.ai.reviewAgent.runPdReview, { reviewId: f.reviewId, projectId: f.projectId });
-    expect(bodies).toHaveLength(1);
-    expect(bodies[0]).toContain(PD_REVIEW_FACTS_HEADING.slice(0, 30));
-    // Owner decision 26: no name leaves the app, and the stored review is restored.
-    for (const name of ["Priya", "Dana", "Verdant"]) expect(bodies[0]).not.toContain(name);
-    const review = await f.t.run((ctx) => ctx.db.get(f.reviewId));
-    expect(review?.status).toBe("completed");
-    expect(JSON.parse(review!.result!).summary).toBe("Priya Shah is well supported.");
-  });
+    return bodies;
+  }
 
   it("reads the transcript text as before without facts, or with the setting off", async () => {
-    for (const [mode, extract] of [["all", false], ["off", false]] as const) {
+    for (const [mode, extract, planned] of [["all", false, 1], ["off", true, 0]] as const) {
       const f = await reviewFixture(mode, extract);
       const input = await f.t.query(internal.pdReviews.getReviewInput, { reviewId: f.reviewId });
-      expect(input?.transcriptKind).toBe("text");
-      expect(input?.transcript).toContain("What made the forecast hard?");
+      expect(input?.factPacks).toHaveLength(planned);
+      const bodies = stubReview();
+      await f.t.action(internal.ai.reviewAgent.runPdReview, { reviewId: f.reviewId, projectId: f.projectId });
+      expect(bodies).toHaveLength(1);
+      expect(bodies[0]).toContain("## Interview transcript (context)");
+      expect(bodies[0]).toContain("What made the forecast hard?");
+      expect(bodies[0]).not.toContain("[F1-1]");
     }
   });
 });

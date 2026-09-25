@@ -343,6 +343,12 @@ export function provenanceDrafts(
     : usefulQuotes
         .map((quote) => quote.trim().replace(/^['"]|['"]$/g, ""))
         .filter((quote) => quote.length >= 20 && transcript.includes(quote));
+  // Each quote is tokenized once, not once per paragraph (review 2026-09-25,
+  // P3-8): in fact mode the pool can hold thousands of quotes.
+  const quoteTokens = exactQuotes.map((quote) => ({
+    quote,
+    tokens: new Set(quote.toLowerCase().match(/[a-z0-9]{4,}/g) ?? []),
+  }));
   const drafts: ProvenanceDraft[] = [];
   for (const { section, text } of sections) {
     const paragraphs = text
@@ -356,10 +362,9 @@ export function provenanceDrafts(
       );
       let sourceQuote: string | undefined;
       let bestOverlap = 1;
-      for (const quote of exactQuotes) {
-        const quoteTokens = new Set(quote.toLowerCase().match(/[a-z0-9]{4,}/g) ?? []);
+      for (const { quote, tokens } of quoteTokens) {
         let overlap = 0;
-        for (const token of quoteTokens) {
+        for (const token of tokens) {
           if (claimTokens.has(token)) overlap += 1;
         }
         if (overlap > bestOverlap) {

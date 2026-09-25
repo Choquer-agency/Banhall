@@ -1,6 +1,7 @@
 "use node";
 
-import { internalAction } from "../_generated/server";
+import { internalAction, type ActionCtx } from "../_generated/server";
+import type { Id } from "../_generated/dataModel";
 import { internal } from "../_generated/api";
 import { v } from "convex/values";
 import { clientForRole } from "./providers";
@@ -162,6 +163,26 @@ export function buildPdReviewUserMessage(
   return parts.join("\n\n");
 }
 
+/** Every listed pack, or null when any is missing or cannot be read. */
+async function livePacks(
+  ctx: ActionCtx,
+  plan: ReadonlyArray<{ transcriptId: Id<"transcripts">; position: number; label: string }>
+): Promise<string[] | null> {
+  if (plan.length === 0) return null;
+  const packs: string[] = [];
+  for (const entry of plan) {
+    try {
+      const pack = await ctx.runQuery(internal.transcriptDigests.renderLiveFactPack, entry);
+      if (pack === null) return null;
+      packs.push(pack);
+    } catch (error) {
+      console.warn("A fact pack could not be read for the PD review", error instanceof Error ? error.message : String(error));
+      return null;
+    }
+  }
+  return packs;
+}
+
 export const runPdReview = internalAction({
   args: {
     reviewId: v.id("pdReviews"),
@@ -175,6 +196,13 @@ export const runPdReview = internalAction({
       if (!input || !input.pdContent.trim()) {
         throw new Error("Uploaded PD has no extractable text");
       }
+      // Plan step 8: the verified fact packs replace the transcript text when
+      // every transcript has them. Each renders in its own query; any gap or
+      // failure keeps today's text (review 2026-09-25, P3-7).
+      const packs = await livePacks(ctx, input.factPacks);
+      const reviewInput = packs
+        ? { ...input, transcript: packs.join("\n\n"), transcriptKind: "facts" as const }
+        : { ...input, transcriptKind: "text" as const };
       const contextDocs: ContextDoc[] = await ctx.runQuery(
         internal.documents.getContextDocsForGeneration,
         { projectId: args.projectId }
@@ -196,14 +224,14 @@ export const runPdReview = internalAction({
         roleClient,
         avoidTokenCollisions(input.placeholders ?? [], [
           input.pdContent,
-          input.transcript,
+          reviewInput.transcript,
           ...contextDocs.map((doc) => doc.content),
         ])
       );
       const result = await generateStructured<PdReviewResult>(client, {
         model,
         system: PD_REVIEW_SYSTEM_PROMPT,
-        user: buildPdReviewUserMessage(input, contextDocs),
+        user: buildPdReviewUserMessage(reviewInput, contextDocs),
         toolName: "submit_pd_review",
         description: "Submit the structured feedback report for the written PD.",
         schema: PD_REVIEW_SCHEMA as never,

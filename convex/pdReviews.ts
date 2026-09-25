@@ -13,8 +13,12 @@ import {
 import { domainError, sha256 } from "./lib/contracts";
 import { isProjectDeleting } from "./lib/projectDeletion";
 import { requireAnthropicConfigured } from "./lib/providerConfig";
-import { listProjectTranscripts, projectTranscriptPromptText } from "./lib/transcripts";
-import { liveProjectFactPacks } from "./lib/transcriptFactRows";
+import {
+  buildTranscriptPromptText,
+  listProjectTranscripts,
+  transcriptLabel,
+} from "./lib/transcripts";
+import { liveFactPacksApply } from "./lib/transcriptFactRows";
 import { projectPlaceholderMap } from "./lib/transcriptPlaceholders";
 import { transcriptFactsMode, transcriptPlaceholdersEnabled } from "./appSettings";
 /**
@@ -262,20 +266,12 @@ export const getReviewInput = internalQuery({
     if (!review) return null;
     const doc = await ctx.db.get(review.documentId);
     const project = await ctx.db.get(review.projectId);
-    // 2026-09-24 (transcript method, plan step 8): under transcripts.factsMode
-    // the verified fact packs replace the transcript text the budget would
-    // cut, when every transcript has ready facts; otherwise today's text.
-    const packs = await liveProjectFactPacks(ctx, review.projectId, await transcriptFactsMode(ctx));
-    // Owner decision 26: the review call reads placeholders, not names.
+    const rows = await listProjectTranscripts(ctx, review.projectId);
+    // Owner decision 26: the review call reads placeholders, not names. The
+    // action checks the map against every text it sends.
     const placeholders =
       project && (await transcriptPlaceholdersEnabled(ctx))
-        ? [
-            ...(await projectPlaceholderMap(
-              ctx,
-              project,
-              (await listProjectTranscripts(ctx, project._id)).map((row) => row._id)
-            )),
-          ]
+        ? [...(await projectPlaceholderMap(ctx, project, rows.map((row) => row._id)))]
         : [];
     return {
       pdContent: doc?.content ?? "",
@@ -284,8 +280,15 @@ export const getReviewInput = internalQuery({
       fileName: review.sourceFileName,
       title: project?.title ?? "Untitled",
       clientName: project?.clientName ?? "",
-      transcript: packs ? packs.join("\n\n") : await projectTranscriptPromptText(ctx, review.projectId),
-      transcriptKind: packs ? ("facts" as const) : ("text" as const),
+      transcript: buildTranscriptPromptText(
+        rows.map((row) => ({ label: transcriptLabel(row), content: row.content }))
+      ),
+      // 2026-09-24 (transcript method, plan step 8): under transcripts.factsMode
+      // the action tries the verified fact packs of these transcripts, one
+      // query each, in place of the text the budget would cut.
+      factPacks: liveFactPacksApply(rows, await transcriptFactsMode(ctx))
+        ? rows.map((row, index) => ({ transcriptId: row._id, position: index + 1, label: transcriptLabel(row) }))
+        : [],
       placeholders,
     };
   },

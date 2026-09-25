@@ -17,11 +17,7 @@ import {
   type PackTurnInfo,
 } from "./transcriptFacts";
 import { speakerRoleMap } from "./transcriptStructure";
-import {
-  listProjectTranscripts,
-  transcriptLabel,
-  TRANSCRIPT_BUDGET_CHARS,
-} from "./transcripts";
+import { TRANSCRIPT_BUDGET_CHARS } from "./transcripts";
 import type { TranscriptSpeakerRole } from "./transcriptValidators";
 
 type Ctx = QueryCtx | MutationCtx;
@@ -184,32 +180,18 @@ export async function renderTranscriptPack(
 }
 
 /**
- * The live fact packs of a project's transcripts, for readers outside a
- * generation (the PD review; plan step 8). The transcripts.factsMode rule
- * of a generation applies: `all` always, `long` only over the transcript
- * budget, `off` never. Null, meaning "read the transcripts as today", unless
- * every transcript has ready facts for its current text.
+ * Whether a reader outside a generation (the PD review; plan step 8) should
+ * try fact packs for these transcripts: the transcripts.factsMode rule of a
+ * generation applies, `all` always, `long` only over the transcript budget,
+ * `off` never. Each pack is then rendered in its own query
+ * (`transcriptDigests.renderLiveFactPack`), so one project's packs never
+ * share a transaction's read limits (review 2026-09-25, P3-7).
  */
-export async function liveProjectFactPacks(
-  ctx: Ctx,
-  projectId: Id<"projects">,
+export function liveFactPacksApply(
+  rows: readonly Pick<Doc<"transcripts">, "content">[],
   mode: "off" | "long" | "all"
-): Promise<string[] | null> {
-  if (mode === "off") return null;
-  const rows = await listProjectTranscripts(ctx, projectId);
-  if (rows.length === 0) return null;
+): boolean {
+  if (mode === "off" || rows.length === 0) return false;
   const chars = rows.reduce((total, row) => total + row.content.length, 0);
-  if (mode === "long" && chars <= TRANSCRIPT_BUDGET_CHARS) return null;
-  const packs: string[] = [];
-  for (const [index, row] of rows.entries()) {
-    const pack = await renderTranscriptPack(
-      ctx,
-      row,
-      { position: index + 1, label: transcriptLabel(row) },
-      { maxChars: FACT_PACK_MAX_CHARS }
-    );
-    if (!pack) return null;
-    packs.push(pack.content);
-  }
-  return packs;
+  return mode === "all" || chars > TRANSCRIPT_BUDGET_CHARS;
 }

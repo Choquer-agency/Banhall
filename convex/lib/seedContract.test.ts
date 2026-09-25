@@ -7,6 +7,7 @@ import {
   isLongForSeed,
   isOneSeedSentence,
   locateCitations,
+  nearestOccurrence,
   seedToolSchema,
   speakerOfTranscriptLine,
   validateBatch,
@@ -558,5 +559,29 @@ describe("citation speaker and line", () => {
     expect(speakerOfTranscriptLine("One two three four five six: too long")).toBeUndefined();
     expect(speakerOfTranscriptLine("10:30 the meeting began")).toBeUndefined();
     expect(speakerOfTranscriptLine("")).toBeUndefined();
+  });
+});
+
+describe("a Seed excerpt at drifted offsets (placeholders, review 2026-09-25)", () => {
+  const content = [
+    "Dana: So it failed at 4.2 bar?",
+    "Priya: Yes, it failed at 4.2 bar on the second rig.",
+  ].join("\n");
+  const excerpt = "it failed at 4.2 bar";
+  const clientAt = content.lastIndexOf(excerpt);
+
+  it("moves to the occurrence nearest the model's own offset, not the first one", () => {
+    expect(nearestOccurrence(content, excerpt, clientAt - 3)).toBe(clientAt);
+    expect(nearestOccurrence(content, excerpt, 0)).toBe(content.indexOf(excerpt));
+    expect(nearestOccurrence(content, "not here", 5)).toBe(-1);
+    const result = validateSeed({
+      roleId: "experimentation",
+      seed: candidate([one], ["technical"], {
+        provenance: [{ sourceId: "s1", startOffset: clientAt - 4, endOffset: clientAt - 4 + excerpt.length, exactExcerpt: excerpt }],
+      }),
+      frozenSources: [{ sourceId: "s1", content, contentHash: "h1" }],
+    });
+    expect(result.ok && result.seed.provenance[0].startOffset).toBe(clientAt);
+    expect(result.ok && result.seed.support).toBe("source_supported");
   });
 });

@@ -13,6 +13,7 @@ import type { ActionCtx } from "./_generated/server";
 import { sha256 } from "./lib/contracts";
 import { buildTiptapDocument } from "./lib/tiptapReport";
 import { provenanceDrafts, recordCandidateProvenance } from "./ai/pipeline";
+import { buildBriefUserMessage } from "./ai/brief";
 
 const modules = import.meta.glob("./**/*.ts");
 
@@ -148,5 +149,45 @@ describe("sections cite verified fact quotes on the transcript row (plan step 8)
       "The ramp model reached 71 percent accuracy on sunny days in March.",
     ]);
     expect(drafts.every((draft) => draft.citation === undefined)).toBe(true);
+  });
+});
+
+describe("a generation whose extraction froze only some packs reads today's way (review 2026-09-25)", () => {
+  it("reads full text, carries no fact quotes or duplicate rows, and the Brief never sees the pack", async () => {
+    const f = await setup({ pack: true });
+    const second = "Priya Shah: A second interview about the feeder test.";
+    await f.t.run(async (ctx) => {
+      const transcriptId = await ctx.db.insert("transcripts", { projectId: f.projectId, content: second, createdAt: 2, position: 1 });
+      const generation = (await ctx.db.get(f.generationId))!;
+      await ctx.db.patch(f.generationId, { transcriptIds: [...(generation.transcriptIds ?? []), transcriptId] });
+      await ctx.db.insert("generationSources", {
+        generationId: f.generationId,
+        projectId: f.projectId,
+        kind: "transcript",
+        transcriptId,
+        label: "Follow-up",
+        content: second,
+        contentHash: await sha256(second),
+        truncated: false,
+        originalLength: second.length,
+        capturedAt: 1,
+      });
+    });
+    const input = await f.t.query(internal.generations.getGenerationInput, { generationId: f.generationId });
+    expect(input?.transcriptReading).toBe("full");
+    expect(input?.transcriptParts.map((part) => part.content)).toEqual([TRANSCRIPT, second]);
+    expect(input?.factQuotes).toBeUndefined();
+    // P3-3: the full text is not returned a second time outside fact mode.
+    expect(input && "transcriptRows" in input).toBe(false);
+    const sources = await f.t.run((ctx) =>
+      ctx.db
+        .query("generationSources")
+        .withIndex("by_generationId", (q) => q.eq("generationId", f.generationId))
+        .collect()
+    );
+    const message = buildBriefUserMessage(sources);
+    expect(message).not.toContain("SOURCE_KIND=transcript_facts");
+    expect(message).toContain("SOURCE_KIND=transcript]");
+    expect(message).toContain("A second interview about the feeder test.");
   });
 });

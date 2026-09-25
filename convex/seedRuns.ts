@@ -823,7 +823,9 @@ export const completeAttempt = internalMutation({
       }
       const { kept, dropped } = factModeCitations(seed.provenance, factSources);
       factDropped += dropped;
-      return { ...seed, provenance: kept };
+      // Each dropped citation stays as a malformed item, so the Seed
+      // contract reports it like any other bad citation (review P3-5).
+      return { ...seed, provenance: [...kept, ...Array.from({ length: dropped }, () => null)] };
     });
     const validation = validateBatch({
       roleId: batch.roleId,

@@ -1354,10 +1354,11 @@ export const getGenerationInput = internalQuery({
       transcriptFacts: generation.transcriptFacts === true,
       // What `transcriptParts` holds: fact packs, digests or full text.
       transcriptReading: factParts ? ("facts" as const) : digestParts ? ("digest" as const) : ("full" as const),
-      // The frozen full-text transcript rows, always: claims read from a fact
-      // pack or a digest still cite the transcript itself (decision 25 and
-      // the provenance contract).
-      transcriptRows: fullTranscriptRows.map(toPart),
+      // Reading fact packs only: the frozen full-text transcript rows, which
+      // claims read from a pack cite (decision 25 and the provenance
+      // contract). Left out otherwise, so no other generation carries the
+      // full text twice (review 2026-09-25, P3-3).
+      ...(factParts ? { transcriptRows: fullTranscriptRows.map(toPart) } : {}),
       ...(factQuotes ? { factQuotes } : {}),
       // Owner decision 26: the frozen name map, for work that leaves the
       // app without a model call (the Brain query built from facts).

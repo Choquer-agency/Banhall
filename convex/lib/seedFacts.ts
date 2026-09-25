@@ -177,9 +177,11 @@ export function locateVerbatim(
 
 /**
  * Rewrites every Seed's provenance from fact ids and document excerpts to
- * offset citations on frozen rows. Items that resolve to nothing are left
- * out and counted; the Seed contract counts them as malformed as before, and
- * the Seed stays, writer-asserted when nothing else supports it.
+ * offset citations on frozen rows. An item that resolves to nothing stays
+ * in place as written, so the Seed contract counts it as malformed and
+ * reports INVALID_PROVENANCE, as for any other bad citation (review
+ * 2026-09-25, P3-5); the Seed stays, writer-asserted when nothing else
+ * supports it. `unresolved` counts them too.
  */
 export function resolveFactCitations(
   seeds: readonly unknown[],
@@ -190,8 +192,12 @@ export function resolveFactCitations(
   let unresolved = 0;
   const out = seeds.map((seed) => {
     if (!isRecord(seed) || !Array.isArray(seed.provenance)) return seed;
-    const provenance: ResolvedCitation[] = [];
+    const provenance: unknown[] = [];
     const seen = new Set<string>();
+    const keepUnresolved = (item: unknown) => {
+      unresolved += 1;
+      provenance.push(item);
+    };
     const push = (citation: ResolvedCitation) => {
       const key = `${citation.sourceId}:${citation.startOffset}:${citation.endOffset}`;
       if (seen.has(key)) return;
@@ -200,14 +206,14 @@ export function resolveFactCitations(
     };
     for (const item of seed.provenance) {
       if (!isRecord(item)) {
-        unresolved += 1;
+        keepUnresolved(item);
         continue;
       }
       if (typeof item.factId === "string") {
         const fact = facts.get(item.factId.trim());
         const quotes = fact?.span.quotes.slice(0, QUOTES_PER_FACT) ?? [];
         if (!fact || quotes.length === 0) {
-          unresolved += 1;
+          keepUnresolved(item);
           continue;
         }
         for (const quote of quotes) {
@@ -228,7 +234,7 @@ export function resolveFactCitations(
             ? locateVerbatim(source.content, item.exactExcerpt)
             : null;
         if (!source || !at) {
-          unresolved += 1;
+          keepUnresolved(item);
           continue;
         }
         push({
@@ -239,7 +245,7 @@ export function resolveFactCitations(
         });
         continue;
       }
-      unresolved += 1;
+      keepUnresolved(item);
     }
     return { ...seed, provenance };
   });

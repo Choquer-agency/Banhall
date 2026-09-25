@@ -383,3 +383,25 @@ export const freezeFactsSource = internalMutation({
     return pack.content.length;
   },
 });
+
+/**
+ * One live transcript's fact pack for a reader outside a generation (the
+ * PD review; plan step 8), or null without ready, current facts. One query
+ * per pack, so a large project never renders every pack in one transaction
+ * (review 2026-09-25, P3-7).
+ */
+export const renderLiveFactPack = internalQuery({
+  args: { transcriptId: v.id("transcripts"), position: v.number(), label: v.string() },
+  returns: v.union(v.string(), v.null()),
+  handler: async (ctx, args) => {
+    const transcript = await ctx.db.get(args.transcriptId);
+    if (!transcript || transcript.archivedAt !== undefined) return null;
+    const pack = await renderTranscriptPack(
+      ctx,
+      transcript,
+      { position: args.position, label: args.label },
+      { maxChars: FACT_PACK_MAX_CHARS }
+    );
+    return pack?.content ?? null;
+  },
+});

@@ -164,8 +164,20 @@ describe("a Seed cites a fact by id and gets verbatim offsets", () => {
     );
     expect(unresolved).toBe(4);
     const provenance = (seeds[0] as { provenance: Array<Record<string, unknown>> }).provenance;
-    expect(provenance).toEqual([
-      { sourceId: "src-doc", startOffset: 11, endOffset: 34, exactExcerpt: "run the ramp forecaster" },
+    expect(provenance[0]).toEqual({ sourceId: "src-doc", startOffset: 11, endOffset: 34, exactExcerpt: "run the ramp forecaster" });
+    // Unresolved items stay as written, so the Seed contract reports them
+    // (review 2026-09-25, P3-5) and the Seed is still supported by the rest.
+    expect(provenance).toHaveLength(5);
+    const result = validateBatch({
+      roleId: "active_uncertainties",
+      mode: "feedback",
+      seeds,
+      frozenSources: frozen(sources()),
+    });
+    expect(result.seeds[0].support).toBe("source_supported");
+    expect(result.seeds[0].provenance).toHaveLength(1);
+    expect(result.issues).toEqual([
+      expect.objectContaining({ code: "INVALID_PROVENANCE", message: "4 provenance citation(s) did not match the frozen source bytes" }),
     ]);
   });
 
@@ -216,7 +228,8 @@ describe("the write boundary keeps only fact spans", () => {
       rows
     );
     expect(unresolved).toBe(1);
-    expect((seeds[0] as { provenance: Array<{ factId: string }> }).provenance.map((citation) => citation.factId)).toEqual(["F1-2"]);
+    const provenance = (seeds[0] as { provenance: Array<{ factId: string; startOffset?: number }> }).provenance;
+    expect(provenance.filter((citation) => citation.startOffset !== undefined).map((citation) => citation.factId)).toEqual(["F1-2"]);
     expect(
       factStamp(rows, { sourceId: "src-transcript", factId: "F1-2", startOffset: clientResult.charStart, endOffset: clientResult.charEnd })
     ).toEqual({ factKey: "F1-2", role: "unknown", needsSpeakerCheck: true });
