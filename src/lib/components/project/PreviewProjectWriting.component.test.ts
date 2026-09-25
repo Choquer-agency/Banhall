@@ -409,6 +409,9 @@ describe("PreviewProjectPage writing a signed-off Step-by-step draft", () => {
     const host = document.querySelector<HTMLElement>("[data-qa-finished-host]")!;
     expect(getComputedStyle(host).position).toBe("fixed");
     expect(window.innerWidth - host.getBoundingClientRect().right).toBe(24);
+    // It sits above the Assistant composer, never over Send (review g2 B7).
+    const send = page.getByRole("button", { name: "Send message", exact: true }).element() as HTMLElement;
+    await expect.poll(() => host.getBoundingClientRect().bottom <= send.getBoundingClientRect().top).toBe(true);
   });
 
   it("shows QA finished bottom right until QA is opened, and keeps the dot after Later", async () => {

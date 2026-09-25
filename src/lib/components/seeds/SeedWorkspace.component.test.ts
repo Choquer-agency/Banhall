@@ -2793,6 +2793,59 @@ describe("Seed plan final UI (ui-design-final.md sections 3 and 11)", () => {
     await expect.poll(() => shown(nested)).toBe(false);
   });
 
+  it("keeps the card that receives feedback mounted, with focus back on Give feedback, when its first feedback group lands", async () => {
+    const pending = (requestId: string, targetSeedId: string, instruction: string) => ({
+      requestId: requestId as Id<"seedFeedbackRequests">,
+      targetSeedId: targetSeedId as Id<"seeds">,
+      targetWording: ["Wording."],
+      instruction,
+      status: "active" as const,
+      batchId: "batch-pending" as Id<"seedBatches">,
+      revisedSeedIds: [] as Id<"seeds">[],
+    });
+    const items = () => [
+      seed({ selected: false, provenance: [] }),
+      seed({ seedId: "seed-2" as Id<"seeds">, selected: false, bullets: ["Second seed."], provenance: [] }),
+    ];
+    const view = await render(SeedSubsectionPane, paneProps(subsection({ items: items() })));
+    const cardOf = (id: string) => document.querySelector<HTMLElement>(`article[data-seed-id="${id}"]`)!;
+    const triggerOf = (card: HTMLElement) => card.querySelector<HTMLElement>('[aria-label="Give feedback"]')!;
+
+    // A preset from the Give feedback menu.
+    const first = cardOf("seed-1");
+    await page.elementLocator(triggerOf(first)).click();
+    await page.getByRole("menuitem", { name: "Shorter", exact: true }).click();
+    await expect.poll(() => __mutationCalls("seeds:giveFeedback")).toHaveLength(1);
+    await expect.poll(() => document.activeElement).toBe(triggerOf(first));
+    await view.rerender(paneProps(subsection({
+      items: items(),
+      pendingBatchId: "batch-pending" as Id<"seedBatches">,
+      feedbackGroups: [pending("feedback-1", "seed-1", "Make this seed shorter.")],
+    })));
+    await expect.poll(() => first.querySelector('[data-feedback-group="feedback-1"]')).not.toBeNull();
+    expect(cardOf("seed-1")).toBe(first);
+    expect(document.activeElement).toBe(triggerOf(first));
+
+    // Send feedback from the custom field: focus returns to Give feedback.
+    // The first menu has finished its closing fade.
+    await expect.poll(() => document.querySelector('[data-seed-feedback-menu="seed-1"]')).toBeNull();
+    const second = cardOf("seed-2");
+    await page.elementLocator(triggerOf(second)).click();
+    await page.getByRole("menuitem", { name: "Tell it what to change…", exact: true }).click();
+    await page.elementLocator(second).getByRole("textbox", { name: "Tell it what to change" }).fill("Name the site.");
+    await page.elementLocator(second).getByRole("button", { name: "Send feedback", exact: true }).click();
+    await expect.poll(() => __mutationCalls("seeds:giveFeedback")).toHaveLength(2);
+    await expect.poll(() => document.activeElement).toBe(triggerOf(second));
+    await view.rerender(paneProps(subsection({
+      items: items(),
+      pendingBatchId: "batch-pending" as Id<"seedBatches">,
+      feedbackGroups: [pending("feedback-1", "seed-1", "Make this seed shorter."), pending("feedback-2", "seed-2", "Name the site.")],
+    })));
+    await expect.poll(() => second.querySelector('[data-feedback-group="feedback-2"]')).not.toBeNull();
+    expect(cardOf("seed-2")).toBe(second);
+    expect(document.activeElement).toBe(triggerOf(second));
+  });
+
   it("keeps every card in place, with its focus and unsaved wording, when revised seeds land on another card", async () => {
     await page.viewport(1440, 900);
     const letters = ["a", "b", "c", "d", "e", "f"];
@@ -2874,7 +2927,7 @@ describe("Seed plan final UI (ui-design-final.md sections 3 and 11)", () => {
     expect(nested.textContent).toContain("from your feedback “Say what was measured.”");
     expect(getComputedStyle(nested).backgroundColor).toBe("rgb(249, 252, 251)");
     // The revision is not also a top-level card.
-    expect(document.querySelectorAll("[data-seed-column] > [data-seed-cell]")).toHaveLength(2);
+    expect(document.querySelectorAll("[data-seed-cell][data-seed-column]")).toHaveLength(2);
     // A group whose target is not shown is listed on its own.
     const orphan = document.querySelector<HTMLElement>('[data-feedback-group="feedback-2"]')!;
     expect(orphan.closest("[data-seed-cell]")).toBeNull();
@@ -3102,12 +3155,23 @@ describe("Seed plan final UI (ui-design-final.md sections 3 and 11)", () => {
     wide.container.style.width = "1228px";
     wide.container.style.height = "830px";
     await expect.poll(() => document.querySelector("[data-seed-grid]")?.getAttribute("data-seed-grid")).toBe("two");
-    // Two 412px columns in reading order whose n-th cards pair up and share
-    // one height (board 3.1).
-    const ids = (column: number) =>
-      Array.from(document.querySelectorAll<HTMLElement>(`[data-seed-column="${column}"] > [data-seed-cell] > article`)).map((card) => card.dataset.seedId);
-    expect(ids(0)).toEqual(["seed-grid-0", "seed-grid-2"]);
-    expect(ids(1)).toEqual(["seed-grid-1", "seed-grid-3"]);
+    // The page keeps the ranked reading order (A, B, C, D), so tab and
+    // screen-reader order run across each row; the cards are placed in two
+    // 412px columns whose n-th cards pair up and share one height (board 3.1).
+    const checkbox = (id: string) => document.querySelector<HTMLElement>(`article[data-seed-id="${id}"] [role="checkbox"]`)!;
+    const nextCheckbox = async () => {
+      for (let steps = 0; steps < 20; steps += 1) {
+        await userEvent.keyboard("{Tab}");
+        if (document.activeElement?.getAttribute("role") === "checkbox") return document.activeElement;
+      }
+      return null;
+    };
+    checkbox("seed-grid-0").focus();
+    expect(await nextCheckbox()).toBe(checkbox("seed-grid-1"));
+    expect(await nextCheckbox()).toBe(checkbox("seed-grid-2"));
+    const cells = Array.from(document.querySelectorAll<HTMLElement>("[data-seed-cell][data-seed-column]"));
+    expect(cells.map((cell) => cell.dataset.seedCell)).toEqual(["seed-grid-0", "seed-grid-1", "seed-grid-2", "seed-grid-3"]);
+    expect(cells.map((cell) => cell.dataset.seedColumn)).toEqual(["0", "1", "0", "1"]);
     const card = (id: string) => document.querySelector<HTMLElement>(`article[data-seed-id="${id}"]`)!.getBoundingClientRect();
     for (const id of ["seed-grid-0", "seed-grid-1", "seed-grid-2", "seed-grid-3"]) expect(Math.round(card(id).width)).toBe(412);
     await expect.poll(() => Math.round(card("seed-grid-0").height)).toBe(Math.round(card("seed-grid-1").height));
@@ -3128,7 +3192,7 @@ describe("Seed plan final UI (ui-design-final.md sections 3 and 11)", () => {
     const outlinePane = tablet.container.querySelector<HTMLElement>('[aria-label="Seed outline"]')!.parentElement!;
     expect(Math.round(outlinePane.getBoundingClientRect().width)).toBe(240);
     await expect.poll(() => document.querySelector("[data-seed-grid]")?.getAttribute("data-seed-grid")).toBe("one");
-    expect(document.querySelectorAll("[data-seed-column]")).toHaveLength(1);
+    expect(new Set(Array.from(document.querySelectorAll<HTMLElement>("[data-seed-cell][data-seed-column]")).map((cell) => cell.dataset.seedColumn))).toEqual(new Set(["0"]));
     await expect.element(page.elementLocator(tablet.container.querySelector<HTMLElement>("[data-outline-footer]")!)
       .getByRole("button", { name: "Approve and continue", exact: true })).toBeVisible();
     await page.getByLabelText("Seed workspace").screenshot({ path: await captures.path("seed-plan-tablet-1024") });
@@ -3162,17 +3226,17 @@ describe("Seed plan final UI (ui-design-final.md sections 3 and 11)", () => {
     view.container.style.height = "830px";
     await expect.poll(() => document.querySelector("[data-seed-grid]")?.getAttribute("data-seed-grid")).toBe("two");
     // Cards go to the shorter column, a seed that carries revised seeds
-    // counting for more, so the fifth sits under the fourth.
-    const ids = (selector: string) => Array.from(document.querySelectorAll<HTMLElement>(selector)).map((cell) => cell.dataset.seedCell);
-    expect(ids('[data-seed-column="0"] > [data-seed-cell]')).toEqual(["seed-grid-0", "seed-grid-2"]);
-    expect(ids('[data-seed-column="1"] > [data-seed-cell]')).toEqual(["seed-grid-1", "seed-grid-3", "seed-grid-4"]);
-    // The revised seed's own body pairs with its neighbour's; the fifth card
-    // then runs on under the fourth.
-    const body = (id: string) => document.querySelector<HTMLElement>(`article[data-seed-id="${id}"] > [data-seed-body]`)!.getBoundingClientRect();
-    await expect.poll(() => Math.round(body("seed-grid-2").height)).toBe(Math.round(body("seed-grid-3").height));
-    const fourth = document.querySelector<HTMLElement>('article[data-seed-id="seed-grid-3"]')!.getBoundingClientRect();
-    const fifth = document.querySelector<HTMLElement>('article[data-seed-id="seed-grid-4"]')!.getBoundingClientRect();
-    expect(Math.round(fifth.top - fourth.bottom)).toBe(10);
+    // counting for more, so the fifth goes right; the page keeps ranked order.
+    const cells = Array.from(document.querySelectorAll<HTMLElement>("[data-seed-cell][data-seed-column]"));
+    expect(cells.map((cell) => cell.dataset.seedCell)).toEqual(["seed-grid-0", "seed-grid-1", "seed-grid-2", "seed-grid-3", "seed-grid-4"]);
+    expect(cells.map((cell) => cell.dataset.seedColumn)).toEqual(["0", "1", "0", "1", "1"]);
+    // The revised seed's row: its neighbour keeps its own height rather than
+    // stretching beside the revised seeds, and the fifth card starts on the
+    // next row.
+    const rect = (id: string) => document.querySelector<HTMLElement>(`article[data-seed-id="${id}"]`)!.getBoundingClientRect();
+    expect(Math.round(rect("seed-grid-3").top)).toBe(Math.round(rect("seed-grid-2").top));
+    expect(rect("seed-grid-3").height).toBeLessThan(rect("seed-grid-2").height - 100);
+    expect(Math.round(rect("seed-grid-4").top - rect("seed-grid-2").bottom)).toBe(10);
     // The revised seeds sit inside the targeted seed's own card, on canvas.
     const target = document.querySelector<HTMLElement>('article[data-seed-id="seed-grid-2"]')!;
     const group = target.querySelector<HTMLElement>('[data-feedback-group="feedback-grid"]')!;

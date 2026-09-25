@@ -37,6 +37,7 @@
   import type { CommentRange, FindReplaceMatch } from "$lib/components/editor/types";
   import {
     SECTION_HEADINGS_EXTERNAL,
+    rangeTouchesSectionHeading,
     type ReportLimitMeterSpec,
   } from "$lib/components/editor/reportSectionHeadings";
   import { overflowStartOffset } from "../../../../convex/lib/lineLimits";
@@ -638,7 +639,7 @@
 </script>
 
 <script lang="ts">
-  import { onMount } from "svelte";
+  import { onDestroy, onMount } from "svelte";
   import { createEditor, EditorContent, type Editor } from "svelte-tiptap";
   import type { Editor as CoreEditor } from "@tiptap/core";
   import { getEditorExtensions } from "$lib/tiptapConfig";
@@ -684,6 +685,17 @@
   } = $props();
   // svelte-ignore state_referenced_locally -- fixed at mount, like `editable`
   const reading = presentation === "reading";
+
+  // A short, polite note when an edit is refused because it would change a
+  // hidden Section heading (review g1): otherwise the key press does nothing.
+  let headingNotice = $state(false);
+  let headingNoticeTimer: ReturnType<typeof setTimeout> | undefined;
+  function showHeadingNotice() {
+    headingNotice = true;
+    clearTimeout(headingNoticeTimer);
+    headingNoticeTimer = setTimeout(() => (headingNotice = false), 4000);
+  }
+  onDestroy(() => clearTimeout(headingNoticeTimer));
 
   let editor = $state<Editor>();
   let slashMenu = $state<{
@@ -785,7 +797,11 @@
   onMount(() => {
     lastContent = content;
     const editorStore = createEditor({
-      extensions: getEditorExtensions({ editable, sectionHeadings: reading }),
+      extensions: getEditorExtensions({
+        editable,
+        sectionHeadings: reading,
+        onSectionHeadingRefused: showHeadingNotice,
+      }),
       content: parseContent(content),
       editable,
       editorProps: {
@@ -1158,9 +1174,13 @@
   ): FindReplaceMatch[] {
     if (!editor) return [];
     const out: FindReplaceMatch[] = [];
-    const found = findOccurrencesBatch(editor.state.doc, pairs.map((p) => p.find));
+    const doc = editor.state.doc;
+    const found = findOccurrencesBatch(doc, pairs.map((p) => p.find));
     pairs.forEach((p, i) => {
       for (const r of found[i]) {
+        // Section headings are load-bearing and never edited by a proposal
+        // (review g1): their text is not a match.
+        if (rangeTouchesSectionHeading(doc, r.from, r.to)) continue;
         out.push({
           from: r.from,
           to: r.to,
@@ -1172,9 +1192,12 @@
     return out.sort((a, b) => a.from - b.from);
   }
 
-  export function replaceRange(from: number, to: number, newText: string) {
-    if (!editor) return;
+  /** Replace one range; false when nothing changed (for example a refused edit). */
+  export function replaceRange(from: number, to: number, newText: string): boolean {
+    if (!editor) return false;
+    const before = editor.state.doc;
     editor.chain().insertContentAt({ from, to }, newText).run();
+    return !editor.state.doc.eq(before);
   }
 
   export function highlightRange(from: number, to: number, text: string) {
@@ -1250,6 +1273,16 @@
 
     {#if reading && canEdit}
       <p class="report-editor-hint" data-report-editor-hint>Type / for commands, or select text to ask the assistant</p>
+    {/if}
+    {#if reading}
+      <!-- Always mounted, so the live region announces its message. -->
+      <div class="pointer-events-none fixed inset-x-0 bottom-6 z-[85] flex justify-center px-4" role="status" aria-live="polite" data-heading-notice>
+        {#if headingNotice}
+          <p class="rounded-lg bg-navy px-4 py-2 font-sans text-[13px] leading-5 text-white shadow-popover">
+            Section headings stay as they are. Edit the text under them.
+          </p>
+        {/if}
+      </div>
     {/if}
 
     {#if editable}

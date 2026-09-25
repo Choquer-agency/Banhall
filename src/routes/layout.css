@@ -32,6 +32,12 @@
   --shadow-workspace-drawer: 10px 0 32px rgb(28 40 64 / 0.12);
   /* Floating cards (menus, pickers, popovers) on the final screens. */
   --shadow-popover: 0 16px 40px #16211F1F;
+  /* Toasts and inline confirmations (board 5.1y B3); the draft-ready toast
+     (board 4.4) uses the softer one under its Aurora glow. */
+  --shadow-toast: 0 8px 24px #16211F1A;
+  --shadow-toast-soft: 0 8px 24px #16211F14;
+  /* The selection toolbar and its menu (board 2.1). */
+  --shadow-toolbar: 0 2px 8px #16211F1A;
 
   /* Brand */
   --color-fir: #0A3A38;           /* fixed fir — identity/avatar surfaces; never theme-flipped */

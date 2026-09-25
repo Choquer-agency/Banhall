@@ -22,10 +22,13 @@ const CustomKeyboardShortcuts = Extension.create({
 export function getEditorExtensions({
   editable = true,
   sectionHeadings = false,
+  onSectionHeadingRefused,
 }: {
   editable?: boolean;
   /** Render the Line 242/244/246 headings as label + CRA question (reading presentation). */
   sectionHeadings?: boolean;
+  /** Called when the reading presentation refuses an edit to a Section heading. */
+  onSectionHeadingRefused?: () => void;
 } = {}) {
   return [
     StarterKit.configure({
@@ -49,6 +52,8 @@ export function getEditorExtensions({
     }),
     CharacterCount,
     CustomKeyboardShortcuts,
-    ...(sectionHeadings ? [ReportSectionHeadings] : []),
+    ...(sectionHeadings
+      ? [ReportSectionHeadings.configure({ onRefuse: onSectionHeadingRefused ?? null })]
+      : []),
   ];
 }
