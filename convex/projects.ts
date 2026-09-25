@@ -6,6 +6,7 @@ import {
   internalMutation,
   internalQuery,
   type MutationCtx,
+  type QueryCtx,
 } from "./_generated/server";
 import { v } from "convex/values";
 import type { GenericDatabaseWriter, GenericDataModel, GenericDocument } from "convex/server";
@@ -1089,6 +1090,37 @@ async function requireFreshCopyTarget(
       "Files can only be copied into a new project that has no report or files yet"
     );
   }
+  // A draft already running would read the project half copied, and a
+  // copied report would land beside the one it is writing.
+  if (
+    await findActiveGeneration(ctx, target, [
+      "reserved",
+      "running",
+      "awaiting_selection",
+      "awaiting_input",
+    ])
+  ) {
+    domainError(
+      "INVALID_STATE",
+      "Files can only be copied into a new project that is not drafting yet"
+    );
+  }
+}
+
+/**
+ * The transcript the copied report cites must be one of the new project's
+ * own, never a row from another project.
+ */
+async function requireTargetTranscript(
+  ctx: MutationCtx,
+  toProjectId: Id<"projects">,
+  transcriptId: Id<"transcripts"> | undefined
+) {
+  if (!transcriptId) return;
+  const transcript = await ctx.db.get(transcriptId);
+  if (!transcript || transcript.projectId !== toProjectId) {
+    domainError("INVALID_INPUT", "The transcript is not in the new project");
+  }
 }
 
 /**
@@ -1222,29 +1254,32 @@ async function insertPreviousYearReport(
 
 /**
  * Copied transcripts carry the text but not the uploaded file. Pair each
- * copied transcript that has no original with the source transcript holding
- * the same text (`copyTranscriptRow` copies the hash), so the action can
- * clone that file too. A transcript the writer left unticked was never
- * created, so it has nothing to pair with.
+ * transcript of the new project that was copied from a row of the source
+ * project (`copiedFromTranscriptId`, set by `copyTranscriptRow`) with that
+ * row's original, so the action can clone the file too. Pasted text that
+ * only matches a source transcript is not a copy and gets no file, and a
+ * transcript the writer left unticked was never created, so it has nothing
+ * to pair with.
+ *
+ * Its own query rather than part of prepare, so the copy transaction does
+ * not also read every transcript of both projects: only the new project's
+ * active rows are read here, plus the one source row each copy came from.
  */
 async function transcriptOriginalCopies(
-  ctx: MutationCtx,
+  ctx: QueryCtx,
   fromProjectId: Id<"projects">,
   toProjectId: Id<"projects">
 ): Promise<TranscriptOriginalCopy[]> {
-  const originalsByHash = new Map<string, Id<"_storage">>();
-  for (const row of await listProjectTranscripts(ctx, fromProjectId)) {
-    if (!row.originalStorageId) continue;
-    // `copyTranscriptRow` hashes a row that predates stored hashes the same way.
-    const hash = row.contentHash ?? (await sha256(row.content));
-    if (!originalsByHash.has(hash)) originalsByHash.set(hash, row.originalStorageId);
-  }
-  if (originalsByHash.size === 0) return [];
   const copies: TranscriptOriginalCopy[] = [];
   for (const row of await listProjectTranscripts(ctx, toProjectId)) {
-    if (row.originalStorageId || !row.contentHash) continue;
-    const storageId = originalsByHash.get(row.contentHash);
-    if (storageId) copies.push({ transcriptId: row._id, storageId });
+    if (row.originalStorageId || !row.copiedFromTranscriptId) continue;
+    const source = await ctx.db.get(row.copiedFromTranscriptId);
+    if (!source?.originalStorageId || source.projectId !== fromProjectId) continue;
+    // The file must be the one this text came from; `copyTranscriptRow`
+    // hashes a source row that predates stored hashes the same way.
+    const sourceHash = source.contentHash ?? (await sha256(source.content));
+    if (sourceHash !== row.contentHash) continue;
+    copies.push({ transcriptId: row._id, storageId: source.originalStorageId });
   }
   return copies;
 }
@@ -1256,6 +1291,7 @@ async function copyProjectInputRows(ctx: MutationCtx, args: CopyScope) {
     args.toProjectId
   );
   if (args.requireFreshTarget) await requireFreshCopyTarget(ctx, user, target);
+  await requireTargetTranscript(ctx, args.toProjectId, args.targetTranscriptId);
   const includeReport = args.includeReport ?? true;
   const includeReviews = args.includeReviews ?? true;
   const excluded = await excludedDocumentSet(ctx, args.fromProjectId, args.excludeDocumentIds);
@@ -1419,11 +1455,6 @@ async function copyProjectInputRows(ctx: MutationCtx, args: CopyScope) {
 
   return {
     documents: copies,
-    transcriptOriginals: await transcriptOriginalCopies(
-      ctx,
-      args.fromProjectId,
-      args.toProjectId
-    ),
     evidenceCopied,
     pdReviewsCopied,
     ...(reportId ? { reportId } : {}),
@@ -1446,6 +1477,20 @@ export const prepareProjectContentCopy = internalMutation({
   },
   handler: async (ctx, args) => {
     return await copyProjectInputRows(ctx, args);
+  },
+});
+
+// Called only by projectDuplication.copyProjectContentBetween, after
+// prepare: which copied transcripts have an original file to clone.
+export const planTranscriptOriginalCopies = internalQuery({
+  args: {
+    fromProjectId: v.id("projects"),
+    toProjectId: v.id("projects"),
+  },
+  handler: async (ctx, args) => {
+    await requireInternalProjectAccess(ctx, args.fromProjectId);
+    await requireInternalProjectAccess(ctx, args.toProjectId);
+    return await transcriptOriginalCopies(ctx, args.fromProjectId, args.toProjectId);
   },
 });
 

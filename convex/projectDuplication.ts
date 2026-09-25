@@ -9,10 +9,6 @@ type CopyPlan = {
     documentId: Id<"projectDocuments">;
     storageId?: Id<"_storage">;
   }>;
-  transcriptOriginals: Array<{
-    transcriptId: Id<"transcripts">;
-    storageId: Id<"_storage">;
-  }>;
   evidenceCopied: number;
   pdReviewsCopied: number;
   reportId?: Id<"reports">;
@@ -31,9 +27,10 @@ type CopyResult = {
 
 /**
  * Shared internals of the content copy: destination rows are created
- * atomically by projects.prepareProjectContentCopy, then original file bytes
- * are cloned (never shared storage ids), then the copied rows are patched
- * with their new storage ids. Used by the duplicate-wizard action below and
+ * atomically by projects.prepareProjectContentCopy, the copied transcripts'
+ * original files are found by projects.planTranscriptOriginalCopies, then
+ * original file bytes are cloned (never shared storage ids), then the copied
+ * rows are patched with their new storage ids. Used by the duplicate-wizard action below and
  * by reviewFromProject.createReviewFromProject (2026-08-11 second amendment).
  *
  * Both mutations are internal (owner decision 35, 2026-09-25): every storage
@@ -58,6 +55,13 @@ export async function copyProjectContentBetween(
     internal.projects.prepareProjectContentCopy,
     args
   );
+  const transcriptOriginals: Array<{
+    transcriptId: Id<"transcripts">;
+    storageId: Id<"_storage">;
+  }> = await ctx.runQuery(internal.projects.planTranscriptOriginalCopies, {
+    fromProjectId: args.fromProjectId,
+    toProjectId: args.toProjectId,
+  });
   const storageCopies: Array<{
     documentId: Id<"projectDocuments">;
     storageId: Id<"_storage">;
@@ -78,7 +82,7 @@ export async function copyProjectContentBetween(
       });
     }
     // Transcript originals (.docx, .vtt, .srt) come along too.
-    for (const original of plan.transcriptOriginals) {
+    for (const original of transcriptOriginals) {
       const blob = await ctx.storage.get(original.storageId);
       if (!blob) continue;
       transcriptCopies.push({
