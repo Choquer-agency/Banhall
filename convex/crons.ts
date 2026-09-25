@@ -67,4 +67,14 @@ crons.cron(
   refreshCatalogRef
 );
 
+// Files no row holds once they are a day old (an upload whose save never
+// ran): they hold interview text that project erasure can never find.
+// Reports only until an admin sets storage.sweepUnreferenced to "delete".
+crons.cron(
+  "release unreferenced files",
+  "30 9 * * *",
+  internal.transcripts.sweepUnreferencedStorage,
+  {}
+);
+
 export default crons;

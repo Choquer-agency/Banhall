@@ -18,6 +18,7 @@ import {
 } from "./transcriptFacts";
 import { speakerRoleMap } from "./transcriptStructure";
 import { TRANSCRIPT_BUDGET_CHARS } from "./transcripts";
+import { TRANSCRIPT_PARSER_VERSION } from "../../shared/transcriptParse";
 import type { TranscriptSpeakerRole } from "./transcriptValidators";
 
 type Ctx = QueryCtx | MutationCtx;
@@ -88,6 +89,9 @@ export async function factRunIsCurrent(ctx: Ctx, run: Doc<"transcriptFactRuns">)
   // transcript's turns are rebuilt with another (2026-09-25).
   const transcript = await ctx.db.get(run.transcriptId);
   if (!transcript || transcript.parserVersion !== run.parserVersion) return false;
+  // Facts drawn from turns an older parser built are stale too, even before
+  // the row is rebuilt.
+  if (run.parserVersion !== TRANSCRIPT_PARSER_VERSION) return false;
   if (!run.excludedLabels || run.excludedLabels.length === 0) return true;
   const roles = await speakerRoleMap(ctx, run.transcriptId);
   return run.excludedLabels.every((label) => !isEvidenceRole(roles.get(label) ?? "unknown"));

@@ -2,6 +2,7 @@
 import { convexTest } from "convex-test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api, internal } from "./_generated/api";
+import { TRANSCRIPT_PARSER_VERSION } from "../shared/transcriptParse";
 import schema from "./schema";
 import type { Id } from "./_generated/dataModel";
 import { FACTS_VERSION } from "./lib/transcriptFacts";
@@ -195,15 +196,26 @@ describe("fact extraction runs once per text and version", () => {
     }));
     expect(run.parserVersion).toBe(transcript.parserVersion);
 
-    // A rebuild in progress: some turns already carry a newer parser version
-    // while the transcript still names the old one. Nothing extracts from
-    // half a structure, and no pack mixes the two.
+    // As if an older parser had built these turns and the facts on them.
     await f.t.run(async (ctx) => {
       const turns = await ctx.db
         .query("transcriptTurns")
         .withIndex("by_transcriptId_and_index", (q) => q.eq("transcriptId", f.transcriptId))
         .collect();
-      await ctx.db.patch(turns[turns.length - 1]._id, { parserVersion: "rebuilt" });
+      for (const turn of turns) await ctx.db.patch(turn._id, { parserVersion: "old" });
+      await ctx.db.patch(f.transcriptId, { parserVersion: "old" });
+      await ctx.db.patch(run._id, { parserVersion: "old" });
+    });
+
+    // A rebuild in progress: some turns already carry the current parser
+    // version while the transcript still names the old one. Nothing extracts
+    // from half a structure, and no pack mixes the two.
+    await f.t.run(async (ctx) => {
+      const turns = await ctx.db
+        .query("transcriptTurns")
+        .withIndex("by_transcriptId_and_index", (q) => q.eq("transcriptId", f.transcriptId))
+        .collect();
+      await ctx.db.patch(turns[turns.length - 1]._id, { parserVersion: TRANSCRIPT_PARSER_VERSION });
     });
     const midRebuild = await f.t.query(internal.transcripts.factsInput, { transcriptId: f.transcriptId });
     expect(midRebuild?.structureReady).toBe(false);
@@ -239,8 +251,8 @@ describe("fact extraction runs once per text and version", () => {
         .query("transcriptTurns")
         .withIndex("by_transcriptId_and_index", (q) => q.eq("transcriptId", f.transcriptId))
         .collect();
-      for (const turn of turns) await ctx.db.patch(turn._id, { parserVersion: "rebuilt" });
-      await ctx.db.patch(f.transcriptId, { parserVersion: "rebuilt" });
+      for (const turn of turns) await ctx.db.patch(turn._id, { parserVersion: TRANSCRIPT_PARSER_VERSION });
+      await ctx.db.patch(f.transcriptId, { parserVersion: TRANSCRIPT_PARSER_VERSION });
     });
     expect(await f.t.mutation(internal.transcriptDigests.freezeFactsSource, { generationId, transcriptId: f.transcriptId })).toBeNull();
     await f.writer.mutation(api.transcripts.requestTranscriptFacts, { transcriptId: f.transcriptId });
@@ -248,8 +260,8 @@ describe("fact extraction runs once per text and version", () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
     const runs = await f.t.run((ctx) => ctx.db.query("transcriptFactRuns").collect());
     expect(runs.map((row) => [row.status, row.parserVersion])).toEqual([
-      ["ready", transcript.parserVersion],
-      ["ready", "rebuilt"],
+      ["ready", "old"],
+      ["ready", TRANSCRIPT_PARSER_VERSION],
     ]);
     expect(await f.t.mutation(internal.transcriptDigests.freezeFactsSource, { generationId, transcriptId: f.transcriptId })).not.toBeNull();
   });
