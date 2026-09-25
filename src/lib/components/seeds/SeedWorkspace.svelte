@@ -28,6 +28,7 @@
     onReviewSummary,
     onOpenSource = undefined,
     hostVisible = true,
+    paneSwitchEnd = undefined,
   }: {
     generationId: Id<"generations">;
     projectId: Id<"projects">;
@@ -40,6 +41,9 @@
     /** Opens a quoted source in its transcript; without it the quote card
      * shows no "Open in transcript" action. */
     onOpenSource?: (citation: QuoteCitation) => void;
+    /** Host controls at the end of the narrow Outline/Seeds switch row (board
+     * 3.6 puts the page's Details toggle there). Shown only with the switch. */
+    paneSwitchEnd?: Snippet;
   } = $props();
 
   // A failed read is retried by re-establishing the live subscriptions.
@@ -895,7 +899,7 @@
   {#if !largeViewport && outline}
     <!-- Phone and narrow layouts show one pane at a time (3.6): a 40px
          gray-50 track with 34px segments, each inside a 44px hit target. -->
-    <div class="flex h-[52px] shrink-0 items-center border-b border-line-soft px-4">
+    <div class="flex h-[52px] shrink-0 items-center gap-2.5 border-b border-line-soft px-4" data-seed-pane-switch>
       <div class="relative grid min-w-0 flex-1 grid-cols-2 gap-[3px] px-[3px]" role="group" aria-label="Workspace pane">
         <span class="pointer-events-none absolute inset-x-0 top-1/2 h-10 -translate-y-1/2 rounded-[9px] bg-gray-50" aria-hidden="true"></span>
         {#each [{ pane: "outline" as const }, { pane: "work" as const }] as option (option.pane)}
@@ -922,6 +926,9 @@
           </button>
         {/each}
       </div>
+      {#if paneSwitchEnd}
+        <div class="flex shrink-0 items-center" data-seed-pane-switch-end>{@render paneSwitchEnd()}</div>
+      {/if}
     </div>
   {/if}
 

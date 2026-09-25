@@ -620,6 +620,12 @@
     detailsPeekOpen = false;
     openSidePanel("details");
   }
+  // The Details (i) toggle, wherever it sits: the panel toolbar, or beside
+  // the narrow Outline/Seeds switch during the seed stage (board 3.6).
+  function toggleDetails() {
+    if (detailsOpen && sidePanelOnScreen) closeSidePanel();
+    else openDetails();
+  }
 
   // Send any upload failures this user queued while offline. Page-level rather
   // than inside FilesPanel so it runs in every state of the page, including the
@@ -1475,6 +1481,13 @@
   // the page does not offer right now (Seed phases, writing, intake) takes
   // no room: the side panel is open only for a surface that can show.
   const sidePanelOpen = $derived(chatShown || qaShown || detailsOpen);
+  // Board 3.6: below the large breakpoint the seed stage puts the Details
+  // toggle beside the Outline/Seeds switch, so the toolbar drops its own.
+  // While the panel covers the narrow screen, the toolbar toggle returns so
+  // it can be closed where the seed workspace is hidden.
+  const seedDetailsInPaneSwitch = $derived(
+    showSeedWorkspace && !desktopAssistant && !(detailsOpen && sidePanelOnScreen)
+  );
   const assistantFull = $derived(chatFocus && chatShown);
   // Whether the main pane (the tab content) is on screen: not behind
   // Assistant full screen, and not replaced by the side panel on a narrow
@@ -1827,11 +1840,9 @@
         showFullWidth={reportActionsVisible && !sourcesOpen && !assistantFull}
         fullWidth={workspaceMaximized}
         onToggleFullWidth={() => (workspaceMaximized = !workspaceMaximized)}
+        showDetails={!seedDetailsInPaneSwitch}
         detailsActive={detailsOpen && sidePanelOnScreen}
-        onToggleDetails={() => {
-          if (detailsOpen && sidePanelOnScreen) closeSidePanel();
-          else openDetails();
-        }}
+        onToggleDetails={toggleDetails}
         bind:detailsButton
         showAssistant={reportActionsVisible && !!user}
         assistantActive={chatShown && sidePanelOnScreen}
@@ -2001,7 +2012,25 @@
               summaryOpener = "trigger";
               setSeedSummary(true);
             }}
-          />
+          >
+            {#snippet paneSwitchEnd()}
+              <!-- Board 3.6: the page's Details toggle beside the switch. -->
+              <button
+                type="button"
+                data-seed-details-toggle
+                aria-pressed={detailsOpen && sidePanelOnScreen}
+                aria-label="Details"
+                onclick={toggleDetails}
+                class={`flex size-10 shrink-0 items-center justify-center rounded-lg transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir motion-reduce:transition-none pointer-coarse:size-11 ${
+                  detailsOpen && sidePanelOnScreen
+                    ? "bg-workspace-rail-selected text-fir"
+                    : "text-ink-secondary hover:bg-primary-wash hover:text-ink"
+                }`}
+              >
+                <svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10" /><path d="M12 16v-4M12 8h.01" /></svg>
+              </button>
+            {/snippet}
+          </SeedWorkspace>
         {/key}
       </div>
     {/if}

@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { createRawSnippet } from "svelte";
 import { page, userEvent } from "vitest/browser";
 import { render } from "vitest-browser-svelte";
 import { ConvexError } from "convex/values";
@@ -3045,6 +3046,38 @@ describe("Seed plan final UI (ui-design-final.md sections 3 and 11)", () => {
     expect(group).not.toBeNull();
     expect(group.querySelectorAll("article[data-seed-id^='seed-rev-']")).toHaveLength(2);
     expect(getComputedStyle(group).backgroundColor).toBe("rgb(249, 252, 251)");
+  });
+
+  it("renders the host's control at the end of the narrow pane switch row, and nowhere on a wide screen (board 3.6)", async () => {
+    const hostControl = createRawSnippet(() => ({
+      render: () => `<button type="button" aria-label="Details" data-host-control class="size-10">i</button>`,
+    }));
+    __setQueryData("seeds:getOutline", outline());
+    __setQueryData("seeds:getSubsection", subsection({ items: manySeeds() }));
+    await page.viewport(390, 844);
+    const phone = await render(SeedWorkspace, workspaceProps({ paneSwitchEnd: hostControl }));
+    phone.container.style.width = "390px";
+    phone.container.style.height = "844px";
+    const row = () => phone.container.querySelector<HTMLElement>("[data-seed-pane-switch]");
+    await expect.poll(() => row()?.querySelector("[data-host-control]")).not.toBeNull();
+    const control = row()!.querySelector<HTMLElement>("[data-host-control]")!.getBoundingClientRect();
+    const segmented = row()!.querySelector<HTMLElement>('[role="group"]')!.getBoundingClientRect();
+    // Beside the switch, 10px after it and 16px from the edge, in the 52px row.
+    expect(Math.round(row()!.getBoundingClientRect().height)).toBe(52);
+    expect(Math.round(control.left - segmented.right)).toBe(10);
+    expect(Math.round(row()!.getBoundingClientRect().right - control.right)).toBe(16);
+    expect(Math.round(control.top + control.height / 2)).toBe(Math.round(segmented.top + segmented.height / 2));
+    phone.unmount();
+
+    // Wide screens have no pane switch, so the host keeps its own control.
+    document.body.innerHTML = "";
+    await page.viewport(1440, 900);
+    const wide = await render(SeedWorkspace, workspaceProps({ paneSwitchEnd: hostControl }));
+    wide.container.style.width = "1228px";
+    wide.container.style.height = "830px";
+    await expect.element(page.getByRole("navigation", { name: "PD subsections" })).toBeVisible();
+    expect(wide.container.querySelector("[data-seed-pane-switch]")).toBeNull();
+    expect(wide.container.querySelector("[data-host-control]")).toBeNull();
   });
 
   it("gives phones a segmented Outline n/13 | Seeds switch, one column and a bottom bar with 44px regenerate and approve", async () => {
