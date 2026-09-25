@@ -1,0 +1,12 @@
+1
+00:00:00,000 --> 00:00:03,520
+Dana Whitfield: Thanks for joining.
+
+2
+00:00:03,520 --> 00:00:09,100
+Priya Shah: We could not predict flow
+at the feeder.
+
+3
+00:00:09,100 --> 00:00:12,000
+Priya Shah: So we built a test rig.

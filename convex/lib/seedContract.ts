@@ -1,5 +1,6 @@
 import type { PdSubsectionRoleId } from "../../shared/pdSubsections";
 import { isDashClean } from "../../shared/humanProse";
+import { speakerOfTranscriptLine } from "../../shared/transcriptParse";
 
 export const SEED_TAGS = [
   "conservative",
@@ -595,68 +596,8 @@ export function seedToolSchema(): SeedToolInputSchema {
  */
 export type CitationLocation = { line: number; speaker?: string };
 
-const TIMESTAMP = String.raw`[\[(]?\d{1,2}:\d{2}(?::\d{2})?(?:[.,]\d{1,3})?[\])]?`;
-const LEADING_TIMESTAMP = new RegExp(String.raw`^${TIMESTAMP}\s*(?:[-\u2013\u2014]\s*)?`);
-const TRAILING_TIMESTAMP = new RegExp(String.raw`\s+${TIMESTAMP}$`);
-const ONLY_TIMESTAMP = new RegExp(String.raw`^${TIMESTAMP}$`);
-/** WebVTT voice span: `<v Priya Shah>` or `<v.loud Priya>`. */
-const VTT_VOICE = /^<v(?:\.[^\s>]+)*\s+([^>]{1,80})>/;
-/** "Priya:", "Interviewer (Dana):", "Priya Shah [00:01:02]:" followed by speech. */
-const COLON_LABEL = /^(.{1,100}?)\s*:\s+\S/;
-/** A header line holding only a name and its timestamp (Otter, Teams exports). */
-const NAME_THEN_TIMESTAMP = new RegExp(String.raw`^(.{1,80}?)\s+${TIMESTAMP}$`);
-const NAME_PARTICLES = new Set(["de", "da", "di", "du", "del", "der", "van", "von", "la", "le", "bin", "al"]);
-/** Header keys that end in a colon in exported transcripts but name no one. */
-const NOT_A_SPEAKER = new Set([
-  "agenda", "attendees", "date", "duration", "location", "meeting", "note",
-  "notes", "participants", "recording", "summary", "time", "title", "transcript",
-]);
-
-function nameWords(text: string): boolean {
-  const words = text.split(/\s+/);
-  if (words.length === 0 || words.length > 5) return false;
-  return words.every((word, index) => {
-    if (!/^[\p{L}\p{M}\d'’.\-]+$/u.test(word)) return false;
-    if (/^\p{Lu}/u.test(word)) return true;
-    if (index === 0) return false;
-    return /^\d+$/.test(word) || NAME_PARTICLES.has(word.toLowerCase());
-  });
-}
-
-/** A speaker from a label such as "Priya", "Speaker 2", "Interviewer (Dana)"
- * or "Subject (Marcus Lindqvist, CTO)"; the name in parentheses wins. */
-function speakerFromLabel(raw: string): string | undefined {
-  let label = raw.trim().replace(TRAILING_TIMESTAMP, "");
-  const paren = /^(.+?)\s*[(\[]([^()[\]]{1,80})[)\]]$/.exec(label);
-  let preferred: string | undefined;
-  if (paren) {
-    label = paren[1].trim();
-    const inner = paren[2].trim();
-    if (!ONLY_TIMESTAMP.test(inner)) {
-      const first = inner.split(",")[0].trim();
-      if (/^\p{L}/u.test(first) && first.length >= 2) preferred = first;
-    }
-  }
-  if (label.length < 2 || label.length > 60 || !nameWords(label)) return undefined;
-  if (NOT_A_SPEAKER.has(label.toLowerCase())) return undefined;
-  return preferred ?? label;
-}
-
-/** The speaker a transcript line opens with, if it opens a turn. */
-export function speakerOfTranscriptLine(line: string): string | undefined {
-  const text = line.replace(/\r$/, "").trim();
-  if (!text) return undefined;
-  const voice = VTT_VOICE.exec(text);
-  if (voice) return voice[1].trim() || undefined;
-  const afterTime = text.replace(LEADING_TIMESTAMP, "");
-  const colon = COLON_LABEL.exec(afterTime);
-  if (colon) return speakerFromLabel(colon[1]);
-  if (afterTime === text) {
-    const header = NAME_THEN_TIMESTAMP.exec(text);
-    if (header) return speakerFromLabel(header[1]);
-  }
-  return undefined;
-}
+/** Moved to shared/transcriptParse.ts (phase 3); re-exported unchanged. */
+export { speakerOfTranscriptLine };
 
 /**
  * Locates each citation in one pass over `content`, reading no further than
