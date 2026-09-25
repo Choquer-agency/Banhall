@@ -103,7 +103,7 @@
     "field-control flex h-9 w-full items-center gap-2 rounded-lg px-2.5 text-left text-[13px] leading-[18px] text-ink data-[state=open]:shadow-[inset_0_0_0_1px_var(--color-primary)]!";
   const fieldLabel = "text-xs font-medium leading-[18px] text-ink-secondary";
   const menu =
-    "z-[120] w-[var(--bits-popover-anchor-width)] min-w-56 overflow-hidden rounded-xl border border-line bg-surface shadow-[0_16px_40px_#16211F1F] outline-none";
+    "z-[120] w-[var(--bits-popover-anchor-width)] min-w-56 overflow-hidden rounded-xl border border-line bg-surface shadow-popover outline-none";
   const optionRow =
     "flex min-h-[34px] w-full cursor-default items-center gap-2.5 rounded-md px-2 text-left text-[13px] leading-[18px] text-ink outline-none";
 </script>

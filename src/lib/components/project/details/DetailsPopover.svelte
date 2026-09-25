@@ -99,7 +99,7 @@
       onpointerleave={scheduleClose}
       data-details-popover
       aria-label="Details"
-      class="z-[120] w-[360px] max-w-[calc(100vw-1.5rem)] rounded-xl border border-line bg-surface px-2 pb-2.5 pt-3 text-[13px] leading-[18px] shadow-[0_16px_40px_#16211F1F] outline-none"
+      class="z-[120] w-[360px] max-w-[calc(100vw-1.5rem)] rounded-xl border border-line bg-surface px-2 pb-2.5 pt-3 text-[13px] leading-[18px] shadow-popover outline-none"
     >
       <Popover.Arrow>
         {#snippet child({ props })}

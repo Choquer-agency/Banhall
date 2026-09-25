@@ -458,6 +458,8 @@ describe("Details popover", () => {
     const popover = () => document.querySelector<HTMLElement>("[data-details-popover]");
     await expect.poll(() => popover()).not.toBeNull();
     expect(popover()!.getBoundingClientRect().width).toBe(360);
+    // The shared popover shadow token (--shadow-popover), not an ad-hoc value.
+    expect(getComputedStyle(popover()!).boxShadow).toContain("rgba(22, 33, 31, 0.12) 0px 16px 40px 0px");
     const text = popover()!.textContent!.replace(/\s+/g, " ");
     expect(text).toContain("Internal review with S Sam Chen");
     expect(text).toContain("2026 (June 30, 2026)");

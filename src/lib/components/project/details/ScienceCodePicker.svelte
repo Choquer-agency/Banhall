@@ -72,7 +72,7 @@
       align="end"
       sideOffset={4}
       collisionPadding={12}
-      class="z-[120] w-[min(22rem,calc(100vw-1.5rem))] overflow-hidden rounded-xl border border-line bg-surface shadow-[0_16px_40px_#16211F1F] outline-none"
+      class="z-[120] w-[min(22rem,calc(100vw-1.5rem))] overflow-hidden rounded-xl border border-line bg-surface shadow-popover outline-none"
     >
       <Command.Root shouldFilter={false} loop disableInitialScroll label="Science code" bind:value={highlighted} class="flex max-h-[min(24rem,calc(100dvh-8rem))] flex-col">
         <div class="shrink-0 px-2 pb-1 pt-2">

@@ -171,7 +171,7 @@
             align="start"
             sideOffset={4}
             collisionPadding={12}
-            class="z-[120] max-h-[min(30rem,calc(100dvh-6rem))] w-[var(--bits-popover-anchor-width)] max-w-[calc(100vw-1.5rem)] overflow-y-auto rounded-xl border border-line bg-surface p-1.5 shadow-[0_16px_40px_#16211F1F] outline-none"
+            class="z-[120] max-h-[min(30rem,calc(100dvh-6rem))] w-[var(--bits-popover-anchor-width)] max-w-[calc(100vw-1.5rem)] overflow-y-auto rounded-xl border border-line bg-surface p-1.5 shadow-popover outline-none"
           >
             <StageMenu {groups} onPick={pick} />
           </Popover.Content>
