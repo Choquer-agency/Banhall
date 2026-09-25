@@ -8,6 +8,7 @@
  * @module
  */
 
+import type * as ai_actionDeadline from "../ai/actionDeadline.js";
 import type * as ai_analyzerAgent from "../ai/analyzerAgent.js";
 import type * as ai_brain_embeddings from "../ai/brain/embeddings.js";
 import type * as ai_brain_erase from "../ai/brain/erase.js";
@@ -97,6 +98,7 @@ import type * as lib_auth from "../lib/auth.js";
 import type * as lib_briefInputsHash from "../lib/briefInputsHash.js";
 import type * as lib_briefRender from "../lib/briefRender.js";
 import type * as lib_chatPublicOutput from "../lib/chatPublicOutput.js";
+import type * as lib_citationSpeakers from "../lib/citationSpeakers.js";
 import type * as lib_citations from "../lib/citations.js";
 import type * as lib_claimExclusionMatcher from "../lib/claimExclusionMatcher.js";
 import type * as lib_comparisonText from "../lib/comparisonText.js";
@@ -107,9 +109,11 @@ import type * as lib_contracts from "../lib/contracts.js";
 import type * as lib_dashboardProjection from "../lib/dashboardProjection.js";
 import type * as lib_deidentify from "../lib/deidentify.js";
 import type * as lib_deviationInventory from "../lib/deviationInventory.js";
+import type * as lib_draftingInputsFailure from "../lib/draftingInputsFailure.js";
 import type * as lib_editDistance from "../lib/editDistance.js";
 import type * as lib_eligibleOwner from "../lib/eligibleOwner.js";
 import type * as lib_email from "../lib/email.js";
+import type * as lib_frozenWriterStyle from "../lib/frozenWriterStyle.js";
 import type * as lib_gatedWorkflow from "../lib/gatedWorkflow.js";
 import type * as lib_generationIndexReads from "../lib/generationIndexReads.js";
 import type * as lib_generationOutputs from "../lib/generationOutputs.js";
@@ -118,6 +122,7 @@ import type * as lib_generationTransitions from "../lib/generationTransitions.js
 import type * as lib_generations_brief from "../lib/generations/brief.js";
 import type * as lib_generations_candidates from "../lib/generations/candidates.js";
 import type * as lib_generations_chain from "../lib/generations/chain.js";
+import type * as lib_generations_draftingInputs from "../lib/generations/draftingInputs.js";
 import type * as lib_generations_inputs from "../lib/generations/inputs.js";
 import type * as lib_generations_iterative from "../lib/generations/iterative.js";
 import type * as lib_generations_lifecycle from "../lib/generations/lifecycle.js";
@@ -170,6 +175,7 @@ import type * as lib_settingsDocument from "../lib/settingsDocument.js";
 import type * as lib_settingsExtraction from "../lib/settingsExtraction.js";
 import type * as lib_snapshots from "../lib/snapshots.js";
 import type * as lib_storage from "../lib/storage.js";
+import type * as lib_storylineQuestionNote from "../lib/storylineQuestionNote.js";
 import type * as lib_styleOverrides from "../lib/styleOverrides.js";
 import type * as lib_successMetrics from "../lib/successMetrics.js";
 import type * as lib_teamRoster from "../lib/teamRoster.js";
@@ -225,6 +231,7 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
+  "ai/actionDeadline": typeof ai_actionDeadline;
   "ai/analyzerAgent": typeof ai_analyzerAgent;
   "ai/brain/embeddings": typeof ai_brain_embeddings;
   "ai/brain/erase": typeof ai_brain_erase;
@@ -314,6 +321,7 @@ declare const fullApi: ApiFromModules<{
   "lib/briefInputsHash": typeof lib_briefInputsHash;
   "lib/briefRender": typeof lib_briefRender;
   "lib/chatPublicOutput": typeof lib_chatPublicOutput;
+  "lib/citationSpeakers": typeof lib_citationSpeakers;
   "lib/citations": typeof lib_citations;
   "lib/claimExclusionMatcher": typeof lib_claimExclusionMatcher;
   "lib/comparisonText": typeof lib_comparisonText;
@@ -324,9 +332,11 @@ declare const fullApi: ApiFromModules<{
   "lib/dashboardProjection": typeof lib_dashboardProjection;
   "lib/deidentify": typeof lib_deidentify;
   "lib/deviationInventory": typeof lib_deviationInventory;
+  "lib/draftingInputsFailure": typeof lib_draftingInputsFailure;
   "lib/editDistance": typeof lib_editDistance;
   "lib/eligibleOwner": typeof lib_eligibleOwner;
   "lib/email": typeof lib_email;
+  "lib/frozenWriterStyle": typeof lib_frozenWriterStyle;
   "lib/gatedWorkflow": typeof lib_gatedWorkflow;
   "lib/generationIndexReads": typeof lib_generationIndexReads;
   "lib/generationOutputs": typeof lib_generationOutputs;
@@ -335,6 +345,7 @@ declare const fullApi: ApiFromModules<{
   "lib/generations/brief": typeof lib_generations_brief;
   "lib/generations/candidates": typeof lib_generations_candidates;
   "lib/generations/chain": typeof lib_generations_chain;
+  "lib/generations/draftingInputs": typeof lib_generations_draftingInputs;
   "lib/generations/inputs": typeof lib_generations_inputs;
   "lib/generations/iterative": typeof lib_generations_iterative;
   "lib/generations/lifecycle": typeof lib_generations_lifecycle;
@@ -387,6 +398,7 @@ declare const fullApi: ApiFromModules<{
   "lib/settingsExtraction": typeof lib_settingsExtraction;
   "lib/snapshots": typeof lib_snapshots;
   "lib/storage": typeof lib_storage;
+  "lib/storylineQuestionNote": typeof lib_storylineQuestionNote;
   "lib/styleOverrides": typeof lib_styleOverrides;
   "lib/successMetrics": typeof lib_successMetrics;
   "lib/teamRoster": typeof lib_teamRoster;
