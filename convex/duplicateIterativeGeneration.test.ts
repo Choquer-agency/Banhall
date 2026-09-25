@@ -725,17 +725,29 @@ describe("the copy checks what it writes into (review D-7, D-11)", () => {
     expect(rows.reports).toEqual([]);
   });
 
-  it("refuses a new project that is already drafting", async () => {
+  // Every non-terminal status (convex/schema.ts), found through the
+  // project's pointer or, for a row without one, the status index.
+  it.each([
+    ["reserved", "pointer"],
+    ["running", "pointer"],
+    ["awaiting_selection", "pointer"],
+    ["awaiting_input", "pointer"],
+    ["reserved", "index"],
+    ["running", "index"],
+    ["awaiting_selection", "index"],
+    ["awaiting_input", "index"],
+  ] as const)("refuses a new project whose generation is %s (found by %s)", async (status, lookup) => {
     const f = await setup();
     const { projectId, transcriptIds } = await newProject(f);
-    await f.t.run((ctx) =>
-      ctx.db.insert("generations", {
+    await f.t.run(async (ctx) => {
+      const generationId = await ctx.db.insert("generations", {
         projectId,
         transcriptId: transcriptIds[0],
-        status: "running",
+        status,
         startedAt: Date.now(),
-      })
-    );
+      });
+      if (lookup === "pointer") await ctx.db.patch(projectId, { activeGenerationId: generationId });
+    });
     expect(
       await errorCode(() =>
         f.writer.action(api.projectDuplication.copyProjectContent, {
@@ -749,6 +761,28 @@ describe("the copy checks what it writes into (review D-7, D-11)", () => {
     expect(rows.documents).toEqual([]);
     expect(rows.reports).toEqual([]);
   });
+
+  it.each(["completed", "failed", "superseded"] as const)(
+    "copies into a new project whose only generation is %s",
+    async (status) => {
+      const f = await setup();
+      const { projectId, transcriptIds } = await newProject(f);
+      await f.t.run((ctx) =>
+        ctx.db.insert("generations", {
+          projectId,
+          transcriptId: transcriptIds[0],
+          status,
+          startedAt: Date.now(),
+        })
+      );
+      const copied = await f.writer.action(api.projectDuplication.copyProjectContent, {
+        fromProjectId: f.sourceProjectId,
+        toProjectId: projectId,
+        targetTranscriptId: transcriptIds[0],
+      });
+      expect(copied.documentsCopied).toBeGreaterThan(0);
+    }
+  );
 });
 
 describe("the leave-out list cap (review D-5)", () => {
