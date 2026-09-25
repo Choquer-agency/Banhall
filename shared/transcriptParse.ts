@@ -38,9 +38,15 @@
  * company or a person whose name holds one of those words ("Northwind
  * Engineering", "Acme (Jonathan Head)") is hidden again, as v3 and v4 hid
  * it. The bump makes the build store names again for rows v5 built.
+ *
+ * v7 (2026-09-25, fix-g review P3-1): brackets that end in a job noun
+ * ("Dana (Plant Manager)", "Priya (Mechanical Engineer)") are a title too,
+ * so a first name before them stays the speaker instead of the title, and
+ * the title is hidden as nothing rather than as a company or a person. The
+ * bump rebuilds rows v6 built at the next backfill.
  */
 
-export const TRANSCRIPT_PARSER_VERSION = "6";
+export const TRANSCRIPT_PARSER_VERSION = "7";
 
 /**
  * Longest turn, in characters of stored text. A longer run of speech (a
@@ -179,9 +185,10 @@ const ORG_WORDS = new Set([
 /**
  * Job titles and departments written in a label's brackets ("Priya Shah
  * (CTO)", "Raj Patel (Engineering)", "Head of R&D"). Brackets are a title,
- * naming no one and no company, only when every word is one of these or a
- * connector: "Northwind Engineering" and "Jonathan Head" hold a name word,
- * so they stay hidden (parser v5, review 2026-09-25).
+ * naming no one and no company, when every word is one of these or a
+ * connector, or when they end in a job noun (JOB_NOUNS): "Northwind
+ * Engineering" and "Jonathan Head" hold a name word, so they stay hidden
+ * (parser v5, review 2026-09-25).
  */
 const TITLE_WORDS = new Set([
   "ceo", "cto", "cfo", "coo", "cio", "vp", "svp", "evp", "president", "chief",
@@ -196,14 +203,36 @@ const TITLE_WORDS = new Set([
   "project", "business", "data", "software", "hardware", "staff", "assistant",
 ]);
 const TITLE_CONNECTORS = new Set(["of", "and", "&"]);
+/**
+ * Words for a person's job that end a title ("Plant Manager", "Lab
+ * Technician", "Principal Investigator") and are almost never a surname
+ * (parser v7, fix-g review P3-1). "Head", "Owner", "Partner", "Chief",
+ * "General" and "Foreman" are left out: "Acme (Jonathan Head)" is a person.
+ */
+const JOB_NOUNS = new Set([
+  "manager", "engineer", "technician", "technologist", "investigator",
+  "associate", "scientist", "researcher", "developer", "analyst", "architect",
+  "director", "officer", "specialist", "coordinator", "consultant", "advisor",
+  "adviser", "intern", "assistant", "designer", "founder", "cofounder",
+  "co-founder", "president", "supervisor", "administrator", "programmer",
+  "chemist", "physicist", "biologist", "operator", "machinist", "estimator",
+  "controller", "accountant", "superintendent", "representative",
+  "executive", "lead", "strategist", "economist", "statistician",
+]);
 
 function lastWord(text: string): string {
   const words = text.toLowerCase().replace(/[.,]+$/, "").split(/\s+/);
   return words[words.length - 1];
 }
 
+/**
+ * Whether brackets hold a job title: every word a title or department word
+ * or a connector ("VP Engineering", parser v6), or any words ending in a
+ * job noun ("Plant Manager", "Senior Mechanical Engineer", parser v7).
+ */
 function isTitle(text: string): boolean {
   const words = text.toLowerCase().split(/\s+/).map((word) => word.replace(/[.,]+$/, ""));
+  if (JOB_NOUNS.has(words[words.length - 1])) return true;
   return (
     words.some((word) => TITLE_WORDS.has(word)) &&
     words.every((word) => TITLE_WORDS.has(word) || TITLE_CONNECTORS.has(word))

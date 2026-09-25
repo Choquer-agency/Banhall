@@ -107,12 +107,14 @@ export const ANALYZER_REQUEST = {
   // full answer still fits the 240 s request timeout.
   maxTokens: 16_000,
   modelSelector: "candidate-model-or-default",
-  // 2026-09-25: a Step-by-step retry after an analysis was cut off at the
-  // output limit appends this to the user message. The limit, timeouts and
-  // repair stay the same, so the retry's worst-case time is the first
-  // attempt's; the caps keep a full answer to about half the limit.
+  // 2026-09-25: a Step-by-step retry after an analysis was too long (cut
+  // off at the output limit, or timed out on a model that always thinks)
+  // appends this to the user message. It names no cause, so it is true
+  // after either (fix-g). The limit, timeouts and repair stay the same, so
+  // the retry's worst-case time is the first attempt's; the caps keep a
+  // full answer to about half the limit.
   shorterRetryNote:
-    "\n\nAn earlier analysis of this transcript was cut off at the output token limit before it finished. " +
+    "\n\nAn earlier analysis of this transcript was too long to finish. " +
     "Write a shorter analysis that fits: keep each text field to three sentences or fewer, " +
     "list at most 8 items in each list, each one or two sentences, " +
     "give at most 8 experiments or iterations with each field in three sentences or fewer, " +

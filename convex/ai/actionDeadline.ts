@@ -21,6 +21,9 @@
  *   in an action is still retried (review 2026-09-25, P2-2).
  * - An attempt that timed out on a timeout cut short by the deadline also
  *   fails with ActionTimeBudgetError: the time ran out, not the model.
+ * - A retryable failure whose retry does not fit is thrown as it came, but
+ *   marked (markStoppedByDeadline) so it is not counted against the model
+ *   either. A failure that outlasts every retry it was allowed still counts.
  *
  * Only transport options change. Request bodies are never touched, and an
  * action that records no deadline sends exactly what it sent before.
@@ -162,6 +165,24 @@ export function anthropicRetryDelayMs(
   }
   const seconds = Math.min(0.5 * 2 ** retryIndex, MAX_SDK_RETRY_BACKOFF_MS / 1000);
   return seconds * (1 - random() * 0.25) * 1000;
+}
+
+const stoppedByDeadline = new WeakSet<object>();
+
+/**
+ * Marks a retryable failure whose transport retry the deadline refused
+ * (retryFitsDeadline), and returns it. The time ran out before the retry,
+ * so the failure is not counted against the model (modelFaultCode, fix-g
+ * review P2-2). The error itself is thrown unchanged.
+ */
+export function markStoppedByDeadline<E>(error: E): E {
+  if (error && typeof error === "object") stoppedByDeadline.add(error);
+  return error;
+}
+
+/** Whether the deadline refused this failure's transport retry. */
+export function wasStoppedByDeadline(error: unknown): boolean {
+  return Boolean(error && typeof error === "object" && stoppedByDeadline.has(error));
 }
 
 /**

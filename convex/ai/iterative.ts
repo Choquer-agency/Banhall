@@ -327,8 +327,9 @@ export function draftingInputsNeedShorterAnalysis(args: {
  * failure leaves the drafting inputs failed with its normalized code, for
  * the writer to retry. `shorterAnalysis` (a retry after an analysis that
  * was too long, draftingInputsNeedShorterAnalysis) appends
- * ANALYZER_REQUEST.shorterRetryNote; every other byte of every request is
- * unchanged.
+ * ANALYZER_REQUEST.shorterRetryNote to the analyzer's request; its template
+ * and caps are unchanged, but each attempt reruns Brain retrieval on the
+ * project's live details, so its exemplars can differ.
  */
 export const prepareSeedDraftingInputs = internalAction({
   args: {

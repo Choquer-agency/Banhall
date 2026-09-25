@@ -716,6 +716,20 @@ describe("reordered Step-by-step start (decision 32)", () => {
       expect(drafting, modelId).toMatchObject({ status: "failed", attempt: 1, failureCode: "timed_out" });
       expect(drafting?.shorterAnalysis === true, modelId).toBe(shorter);
       expect(await outlineDrafting(s)).toEqual({ status: "failed", failureCode: "timed_out" });
+      if (shorter) {
+        // The retry's note is true after a timeout as after a cut-off: it
+        // says the analysis was too long, not which limit stopped it.
+        network.create.mockClear();
+        configureProvider();
+        await s.writer.mutation(api.generations.retryDraftingInputs, { generationId: s.generationId });
+        await runSeedDraftingInputs(s.t);
+        // Opus 5.5 is sent its tool unforced, so read the analyzer body.
+        const escapedNote = JSON.stringify(ANALYZER_REQUEST.shorterRetryNote).slice(1, -1);
+        expect(analyzerBodies()).toHaveLength(1);
+        expect(analyzerBodies()[0].split(escapedNote)).toHaveLength(2);
+        expect(ANALYZER_REQUEST.shorterRetryNote).toContain("too long to finish");
+        expect(ANALYZER_REQUEST.shorterRetryNote).not.toMatch(/token limit|cut off|timed? ?out/i);
+      }
       vi.useRealTimers();
     }
   });

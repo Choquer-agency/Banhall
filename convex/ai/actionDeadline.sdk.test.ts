@@ -13,7 +13,9 @@
  *   happens, so a fast 500 or 529 late in an action is still retried.
  * - Past the minimum useful time a request is never sent.
  * - A structured call's repair goes through the same bound.
- * - None of these count against the model; the bodies are unchanged.
+ * - None of these count against the model; the bodies are unchanged. A
+ *   request that still fails after every retry it was allowed does count
+ *   (decision 21, fix-g review P2-2).
  */
 import Anthropic from "@anthropic-ai/sdk";
 import { convexTest } from "convex-test";
@@ -21,7 +23,7 @@ import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import schema from "../schema";
 import type { ActionCtx } from "../_generated/server";
 import { instrumentedAnthropic } from "./instrument";
-import { openRouterChatCompletion } from "./openrouter";
+import { instrumentedOpenRouter, openRouterChatCompletion } from "./openrouter";
 import type { GenerationClient } from "./openrouterCore";
 import {
   ACTION_REQUEST_WINDOW_MS,
@@ -31,6 +33,7 @@ import {
 } from "./actionDeadline";
 import { describeProviderFailure, withOutcomeRecording } from "./providers";
 import { generateStructured } from "./structured";
+import { productionErrorVerdict } from "../../shared/modelCatalog";
 
 const modules = import.meta.glob("../**/*.ts");
 type TestConvex = ReturnType<typeof convexTest<typeof schema.tables>>;
@@ -180,7 +183,7 @@ test("Anthropic: a retryable failure is retried with time to spare, and not when
   if (!tightOutcome.ok) expect((tightOutcome.error as { status?: number }).status).toBe(529);
 });
 
-test("Anthropic, late in the action: a fast 529 is retried and the answer is used; the overload counts against no model", async () => {
+test("Anthropic, late in the action: a fast 529 is retried and the answer is used; a 529 that outlasts the retry counts", async () => {
   const t = convexTest(schema, modules);
   let calls = 0;
   const transport = vi.fn<typeof fetch>(async () => {
@@ -222,7 +225,8 @@ test("Anthropic, late in the action: a fast 529 is retried and the answer is use
   expect(bodies).toEqual([params, params]);
   expect((await outcomeRows(t)).map((row) => row.outcome)).toEqual(["success"]);
 
-  // With no retry left, the overload fails the call and still records no fault.
+  // With no retry left, the overload fails the call and counts against the
+  // model, as it did before this branch series (fix-g review P2-2).
   transport.mockClear();
   transport.mockImplementation(async () =>
     Response.json({ type: "error", error: { type: "overloaded_error", message: "Synthetic overload" } }, { status: 529 }));
@@ -236,7 +240,101 @@ test("Anthropic, late in the action: a fast 529 is retried and the answer is use
   expect((await failed).ok).toBe(false);
   await t.finishAllScheduledFunctions(vi.runAllTimers);
   expect(transport).toHaveBeenCalledTimes(2);
-  expect((await outcomeRows(t)).map((row) => row.outcome)).toEqual(["success"]);
+  expect((await outcomeRows(t)).map((row) => row.outcome)).toEqual(["success", "failure"]);
+});
+
+/** One request through outcome recording on either gateway, with `leftMs` of request time or no deadline. */
+function recordedCall(t: TestConvex, gateway: "anthropic" | "openrouter", leftMs: number | undefined) {
+  return settle(runAction(t, async (ctx) => {
+    if (leftMs !== undefined) withTimeLeft(ctx, leftMs);
+    if (gateway === "anthropic") {
+      const client = withOutcomeRecording(ctx, params.model, "deadline-contract",
+        instrumentedAnthropic(ctx, { callSite: "deadline-contract" }) as unknown as GenerationClient);
+      return await client.messages.create(params);
+    }
+    const client = withOutcomeRecording(ctx, "openai/gpt-6-sol", "deadline-contract",
+      instrumentedOpenRouter(ctx, { callSite: "deadline-contract" }));
+    return await client.messages.create({ ...params, model: "openai/gpt-6-sol" });
+  }));
+}
+
+test.each(["anthropic", "openrouter"] as const)(
+  "%s: a model that always answers 500 counts on every request after its retries, and would be rolled back (fix-g review P2-2)",
+  async (gateway) => {
+    const t = convexTest(schema, modules);
+    const transport = vi.fn<typeof fetch>(async () =>
+      gateway === "anthropic"
+        ? serverError()
+        : Response.json({ error: { message: "Synthetic outage" } }, { status: 500, headers: { "retry-after": "0" } }));
+    vi.stubGlobal("fetch", transport);
+    // 20 requests: the daily minimum for a rollback. Half under an action
+    // deadline with time to spare, half from an action without one.
+    for (let index = 0; index < 20; index += 1) {
+      const result = recordedCall(t, gateway, index % 2 === 0 ? ACTION_REQUEST_WINDOW_MS : undefined);
+      await vi.advanceTimersByTimeAsync(30_000);
+      const outcome = await result;
+      expect(outcome.ok).toBe(false);
+      if (!outcome.ok) expect((outcome.error as { status?: number }).status).toBe(500);
+    }
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
+    // Every request was retried once, then failed.
+    expect(transport).toHaveBeenCalledTimes(40);
+    const rows = await outcomeRows(t);
+    expect(rows.map((row) => row.outcome)).toEqual(Array(20).fill("failure"));
+    expect(productionErrorVerdict({ successes: 0, failures: rows.length }).rollback).toBe(true);
+  }
+);
+
+test("Anthropic and OpenRouter: a failure whose retry the deadline refused counts against no model (fix-g review P2-2)", async () => {
+  const t = convexTest(schema, modules);
+  // Anthropic, 25 s left and a 529 asking for a 10 s wait: the retry would
+  // leave 15 s, so the 529 is returned at once.
+  const transport = vi.fn<typeof fetch>(async () =>
+    Response.json(
+      { type: "error", error: { type: "overloaded_error", message: "Synthetic overload" } },
+      { status: 529, headers: { "retry-after": "10" } }
+    ));
+  vi.stubGlobal("fetch", transport);
+  const overloaded = recordedCall(t, "anthropic", 25_000);
+  await vi.advanceTimersByTimeAsync(1_000);
+  const overloadedOutcome = await overloaded;
+  expect(transport).toHaveBeenCalledTimes(1);
+  expect(overloadedOutcome.ok).toBe(false);
+  if (!overloadedOutcome.ok) expect((overloadedOutcome.error as { status?: number }).status).toBe(529);
+
+  // Anthropic, a dropped connection with 20.2 s left: the retry's backoff
+  // would leave less than a useful attempt.
+  transport.mockReset();
+  transport.mockImplementation(async () => { throw new TypeError("fetch failed"); });
+  const dropped = recordedCall(t, "anthropic", 20_200);
+  await vi.advanceTimersByTimeAsync(1_000);
+  const droppedOutcome = await dropped;
+  expect(transport).toHaveBeenCalledTimes(1);
+  expect(droppedOutcome.ok).toBe(false);
+  if (!droppedOutcome.ok) expect(droppedOutcome.error).toBeInstanceOf(Anthropic.APIConnectionError);
+
+  // OpenRouter, 40 s left and a 500 asking for a 25 s wait.
+  transport.mockReset();
+  transport.mockImplementation(async () =>
+    Response.json({ error: { message: "busy" } }, { status: 500, headers: { "retry-after": "25" } }));
+  const busy = recordedCall(t, "openrouter", 40_000);
+  await vi.advanceTimersByTimeAsync(30_000);
+  const busyOutcome = await busy;
+  expect(transport).toHaveBeenCalledTimes(1);
+  expect(busyOutcome.ok).toBe(false);
+  if (!busyOutcome.ok) expect(String(busyOutcome.error)).toMatch(/status 500/);
+
+  await t.finishAllScheduledFunctions(vi.runAllTimers);
+  expect(await outcomeRows(t)).toEqual([]);
+
+  // The same failures with time for the retry, which fails too, do count.
+  transport.mockClear();
+  const roomy = recordedCall(t, "openrouter", 300_000);
+  await vi.advanceTimersByTimeAsync(30_000);
+  expect((await roomy).ok).toBe(false);
+  await t.finishAllScheduledFunctions(vi.runAllTimers);
+  expect(transport).toHaveBeenCalledTimes(2);
+  expect((await outcomeRows(t)).map((row) => row.outcome)).toEqual(["failure"]);
 });
 
 test("Anthropic, 300 s left: a full 240 s timeout is retried with the retry's timeout cut to the time left, which then fails as out of time", async () => {

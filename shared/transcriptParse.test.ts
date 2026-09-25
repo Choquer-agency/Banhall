@@ -531,6 +531,45 @@ describe("speaker labels (parser v4)", () => {
     }
   });
 
+  it("keeps a first name as the speaker before a job title in brackets, and hides the title as nothing (v7)", () => {
+    const content = [
+      "Jordan Ellis: Who ran the rig?",
+      "Dana (Plant Manager): We did, on the night shift.",
+      "Jordan Ellis: And the tests?",
+      "Sam (Lab Technician): I logged every run.",
+      "Priya (Principal Investigator): The seal failed at 4.2 bar.",
+      "Raj (Research Associate): Twice, in fact.",
+      "Priya (Mechanical Engineer): So we rebuilt it.",
+      "Priya: Then it held.",
+      "Ann Lee (Senior Mechanical Engineer): Agreed.",
+    ].join("\n\n");
+    expect(speakers(parseTranscriptTurns(content))).toEqual([
+      "Jordan Ellis",
+      "Dana",
+      "Jordan Ellis",
+      "Sam",
+      "Priya",
+      "Raj",
+      "Priya",
+      "Priya",
+      "Ann Lee",
+    ]);
+    // Every speaker's name is hidden; no title is hidden as a person or a company.
+    expect(transcriptSpeakerNames(content)).toEqual({
+      labels: ["Jordan Ellis", "Dana", "Sam", "Priya", "Raj", "Ann Lee"],
+      otherNames: [],
+      organizations: [],
+    });
+    for (const label of ["Dana (Plant Manager)", "Priya (Mechanical Engineer)", "Ann Lee (Senior Mechanical Engineer)"]) {
+      expect(labelBracketNames(label), label).toEqual({ people: [], organizations: [] });
+    }
+    expect(speakerOfTranscriptLine("Priya (Mechanical Engineer): So we rebuilt it.")).toBe("Priya");
+    // A surname that is also a title word still names the person in brackets.
+    expect(speakerOfTranscriptLine("Acme (Jonathan Head): We logged it.")).toBe("Jonathan Head");
+    expect(labelBracketNames("Acme (Mark General)")).toEqual({ people: ["Mark General"], organizations: ["Acme"] });
+    expect(labelBracketNames("Acme (George Foreman)")).toEqual({ people: ["George Foreman"], organizations: ["Acme"] });
+  });
+
   it("never reads a reply before a comma as a surname", () => {
     for (const opener of ["Correct", "Absolutely", "Agreed", "Totally", "Indeed", "Hmm"]) {
       expect(speakerOfTranscriptLine(`${opener}, Dana: we rebuilt it twice.`), opener).toBeUndefined();

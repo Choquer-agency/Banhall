@@ -648,6 +648,54 @@ describe("speaker role rules", () => {
     });
   });
 
+  it("places a speaker from the roster outright only when the label holds the whole name (fix-e review P2-1)", () => {
+    const interview = (client: string) =>
+      parseTranscriptTurns(
+        [
+          "Jordan: What did you set out to build?",
+          `${client}: A predictive controller for feeder voltage, which we tested on two feeders over the summer.`,
+          "Jordan: What made that hard?",
+          `${client}: We could not forecast net load fast enough when cloud cover changed during the afternoon.`,
+        ].join("\n\n")
+      );
+    const roles = (client: string, rosterNames: string[]) =>
+      inferSpeakerRoles(interview(client), { staffNames: [], clientNames: [], rosterNames }).map((g) => [
+        g.label,
+        g.role,
+        g.confidence,
+      ]);
+    // A compound first name, a one-word roster name, a roster initial, and a
+    // bracketed company after a one-word roster name: never a full name, so
+    // the client is at most a first-name lean and nobody is placed at the
+    // threshold on the roster match.
+    for (const [client, roster] of [
+      ["Jean-Philippe", "Jean-Philippe Roy"],
+      ["Mary Anne", "Mary Anne Smith"],
+      ["Dana Rao", "Dana"],
+      ["Dana Rao", "Dana W."],
+      ["Dana (Acme)", "Dana"],
+    ] as const) {
+      const guesses = roles(client, [roster]);
+      const label = client.replace(/\s*\(.*\)$/, "");
+      expect(guesses.map(([name]) => name), `${client} / ${roster}`).toEqual(["Jordan", label]);
+      for (const [name, role, confidence] of guesses) {
+        expect(
+          role === "unknown" || (confidence as number) < MODEL_ROLE_THRESHOLD,
+          `${name} placed ${role} at ${confidence} (${client} / ${roster})`
+        ).toBe(true);
+      }
+    }
+    // The whole two-part name on the label, however it is written, still places the speaker outright.
+    for (const label of ["Jean-Philippe Roy", "Roy, Jean-Philippe", "Jean-Philippe ROY", "Dr. Jean-Philippe Roy"]) {
+      expect(roles(label, ["Jean-Philippe Roy"])[1], label).toEqual([
+        expect.any(String),
+        "interviewer",
+        0.95,
+      ]);
+    }
+    expect(roles("Dana Whitfield", ["Dana Whitfield"])[1]).toEqual(["Dana Whitfield", "interviewer", 0.95]);
+  });
+
   it("builds a client named like a roster member as a client whose words stay evidence", async () => {
     const content = [
       "Jordan Ellis: What did you set out to build?",
