@@ -10,9 +10,11 @@ import {
   RESERVED_NON_REQUEST_MS,
   actionDeadline,
   anthropicRetryDelayMs,
+  markStoppedByDeadline,
   requestBudget,
   retryFitsDeadline,
   startActionDeadline,
+  wasStoppedByDeadline,
 } from "./actionDeadline";
 import {
   ANTHROPIC_MAX_RETRIES,
@@ -134,15 +136,30 @@ describe("action deadline arithmetic (cutoff review P2-2)", () => {
     expect(anthropicRetryDelayMs(undefined, 10, 0, () => 0)).toBe(MAX_SDK_RETRY_BACKOFF_MS);
   });
 
-  it("never counts a provider infrastructure failure against the model; a full timeout still counts", () => {
+  it("counts a provider failure that outlasts its retries, and never one the deadline stopped (fix-g review P2-2)", () => {
     const headers = new Headers();
-    expect(modelFaultCode(new Anthropic.InternalServerError(500, undefined, "boom", headers))).toBeNull();
-    expect(modelFaultCode(Anthropic.APIError.generate(529, undefined, "overloaded", headers))).toBeNull();
-    expect(modelFaultCode(Anthropic.APIError.generate(408, undefined, "timeout", headers))).toBeNull();
-    expect(modelFaultCode(new Anthropic.APIConnectionError({ message: "Connection error." }))).toBeNull();
-    expect(modelFaultCode(Object.assign(new Error("OpenRouter request failed with status 502"), { status: 502 }))).toBeNull();
-    expect(modelFaultCode(new Anthropic.APIConnectionTimeoutError())).toBe("unknown");
+    const failures = () => [
+      new Anthropic.InternalServerError(500, undefined, "boom", headers),
+      Anthropic.APIError.generate(529, undefined, "overloaded", headers),
+      Anthropic.APIError.generate(408, undefined, "timeout", headers),
+      Anthropic.APIError.generate(409, undefined, "conflict", headers),
+      new Anthropic.APIConnectionError({ message: "Connection error." }),
+      new Anthropic.APIConnectionTimeoutError(),
+      new OpenRouterError("OpenRouter request failed with status 502: down", 502),
+      new OpenRouterError("OpenRouter request failed with status 500", 500),
+    ];
+    // After every retry it was allowed, each one is a model fault, as
+    // before this branch series (decision 21).
+    expect(failures().map(modelFaultCode)).toEqual(Array(8).fill("unknown"));
+    // The same failure whose retry the action's deadline refused is not.
+    expect(failures().map((error) => modelFaultCode(markStoppedByDeadline(error)))).toEqual(Array(8).fill(null));
+    expect(wasStoppedByDeadline(markStoppedByDeadline(new Error("x")))).toBe(true);
+    expect(wasStoppedByDeadline(new Error("x"))).toBe(false);
+    expect(wasStoppedByDeadline(undefined)).toBe(false);
+    // A client error still counts; rate limits and billing still never do.
     expect(modelFaultCode(Anthropic.APIError.generate(400, undefined, "bad request", headers))).toBe("unknown");
+    expect(modelFaultCode(Anthropic.APIError.generate(429, undefined, "slow down", headers))).toBeNull();
+    expect(modelFaultCode(new OpenRouterError("OpenRouter request failed with status 402", 402))).toBeNull();
   });
 
   it("stores a background step that ran out of time as timed_out, and asks for a shorter analysis when it was too long", () => {

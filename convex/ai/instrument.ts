@@ -9,6 +9,7 @@ import {
   actionDeadline,
   anthropicRetryDelayMs,
   isErrorOf,
+  markStoppedByDeadline,
   requestBudget,
   retryFitsDeadline,
 } from "./actionDeadline";
@@ -479,7 +480,8 @@ async function createWithinDeadline(
         ? (error as InstanceType<typeof Anthropic.APIError>).headers
         : undefined;
       const delay = anthropicRetryDelayMs(headers, attempt, Date.now(), Math.random);
-      if (!retryFitsDeadline(deadline, Date.now(), delay)) throw error;
+      // The time ran out before the retry: not counted against the model.
+      if (!retryFitsDeadline(deadline, Date.now(), delay)) throw markStoppedByDeadline(error);
       console.warn(`Anthropic request failed (attempt ${attempt + 1}/${retries + 1}), retrying in ${Math.round(delay)}ms`);
       await new Promise<void>((resolve) => setTimeout(resolve, delay));
     }

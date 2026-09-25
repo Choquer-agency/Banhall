@@ -37,6 +37,7 @@ import {
   ActionTimeBudgetError,
   MIN_USEFUL_REQUEST_MS,
   actionDeadline,
+  markStoppedByDeadline,
   requestBudget,
 } from "./actionDeadline";
 
@@ -142,6 +143,8 @@ export async function openRouterChatCompletion(
   const startedAt = Date.now();
   let response!: Response;
   let text!: string;
+  // Set when the deadline refused a retry the status called for.
+  let retryStoppedByDeadline = false;
   // Bounded retry with backoff for transient gateway failures (429/5xx/
   // network). Retry decisions and delays are pure functions in
   // openrouterCore.ts; this loop only executes them.
@@ -179,7 +182,8 @@ export async function openRouterChatCompletion(
       }
       if (attempt + 1 >= maxAttempts) throw error;
       const delay = retryDelayMs(attempt, null, Math.random);
-      if (!retryFits(delay)) throw error;
+      // The time ran out before the retry: not counted against the model.
+      if (!retryFits(delay)) throw markStoppedByDeadline(error);
       console.warn(
         `OpenRouter fetch failed (attempt ${attempt + 1}/${maxAttempts}), retrying in ${delay}ms:`,
         error instanceof Error ? error.message : String(error)
@@ -211,7 +215,10 @@ export async function openRouterChatCompletion(
       response.headers.get("retry-after"),
       Math.random
     );
-    if (!retryFits(delay)) break;
+    if (!retryFits(delay)) {
+      retryStoppedByDeadline = true;
+      break;
+    }
     console.warn(
       `OpenRouter returned ${response.status} (attempt ${attempt + 1}/${maxAttempts}), retrying in ${delay}ms`
     );
@@ -226,12 +233,13 @@ export async function openRouterChatCompletion(
   const body = (raw ?? {}) as ChatCompletionsResponse;
   if (!response.ok) {
     const detail = body.error?.message ?? text.trim().slice(0, 300);
-    throw new OpenRouterError(
+    const failure = new OpenRouterError(
       `OpenRouter request failed with status ${response.status}${
         detail ? `: ${detail}` : ""
       }`,
       response.status
     );
+    throw retryStoppedByDeadline ? markStoppedByDeadline(failure) : failure;
   }
   // Mirrors instrumentedAnthropic: a successful response is never turned into
   // an app failure by usage logging.
