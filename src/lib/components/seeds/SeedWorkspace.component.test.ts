@@ -1561,6 +1561,47 @@ describe("Seed workspace", () => {
     expect(notice()).toBeNull();
   });
 
+  it("explains a successful but incomplete name recovery, offers an explicit retry, then shows the recovered attribution (A8, R6-16)", async () => {
+    __setQueryData("seeds:getOutline", outline());
+    __setQueryData("seeds:getSubsection", subsection());
+    __setQueryData("seeds:getSourceAttribution", {
+      generationId,
+      sources: [{ sourceId: "source-other", label: "Other.docx", kind: "transcript" }],
+      complete: false,
+    });
+    // The recovery read succeeds, but its own processing budget ran out
+    // before it reached the requested source.
+    __setQueryData("seeds:getSourceAttributionByIds", { generationId, sources: [], complete: false });
+    await render(SeedWorkspace, workspaceProps());
+    await quotesButton().click();
+    const caption = () => document.querySelector<HTMLElement>('[data-seed-quotes="seed-1"] [data-quote-source]');
+    await expect.poll(() => __clientQueryCalls("seeds:getSourceAttributionByIds")).toEqual([{ generationId, sourceIds: ["source-1"] }]);
+    await expect.poll(() => caption()?.textContent).toBe("Source name not retrieved");
+    expect(caption()?.dataset.attributed).toBe("false");
+    const notice = () => document.querySelector<HTMLElement>('[data-source-attribution="incomplete"]');
+    await expect.poll(() => notice()?.textContent ?? "").toContain(
+      "Some source names could not be retrieved within the server's safe processing limit."
+    );
+    await expect.element(page.getByText("“Measured output remained stable.”", { exact: true })).toBeVisible();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(__clientQueryCalls("seeds:getSourceAttributionByIds")).toHaveLength(1);
+
+    __setQueryData("seeds:getSourceAttributionByIds", {
+      generationId,
+      sources: [{ sourceId: "source-1", label: "Controller interview.docx", kind: "transcript" }],
+      complete: true,
+    });
+    await userEvent.keyboard("{Escape}");
+    await expect.poll(() => document.querySelector("[data-seed-quotes]")).toBeNull();
+    await page.getByRole("button", { name: "Retry source names", exact: true }).click();
+    await quotesButton().click();
+    await expect.poll(() => __clientQueryCalls("seeds:getSourceAttributionByIds")).toHaveLength(2);
+    await expect.poll(() => caption()?.textContent).toBe("Controller interview.docx");
+    expect(caption()?.dataset.attributed).toBe("true");
+    await expect.element(page.getByText("“Measured output remained stable.”", { exact: true })).toBeVisible();
+    expect(notice()).toBeNull();
+  });
+
   it("issues no second viewed mutation after the workspace is destroyed during a retry delay", async () => {
     __setQueryData("seeds:getOutline", outline());
     __setQueryData("seeds:getSubsection", subsection());
