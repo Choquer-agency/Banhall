@@ -1224,6 +1224,68 @@ describe("Seed project hosts", () => {
     await assertLegacyStepperOwnsSummaryUrl(PreviewProjectPage);
   });
 
+  async function assertCandidateSelectionOwnsSummaryUrl(Component: typeof CurrentProjectPage | typeof PreviewProjectPage) {
+    // A10 (R6-05): a compare run awaiting candidate selection keeps the main
+    // surface; an existing Seed report's frozen Summary URL never renders
+    // beside it, and resolves normally once selection has ended.
+    __setPageUrl("/project/project-seed-host?view=summary");
+    const browserUrl = new URL(window.location.href);
+    browserUrl.searchParams.set("view", "summary");
+    window.history.replaceState({}, "", browserUrl);
+    __setQueryData("reports:getLatestReport", {
+      ...existingReport("Completed Seed report."),
+      generationId: "generation-report-owner",
+    });
+    __setQueryData("generations:getGenerationSeedView", {
+      _id: "generation-report-owner",
+      gatedWorkflow: "seeds",
+      seedPhase: "completed",
+      summaryVersionId: "summary-report-owner",
+      seedCanEdit: true,
+    });
+    __setQueryData("seeds:getSummary", frozenSummary("generation-report-owner", "summary-report-owner", ["Frozen report-owned Summary item."]));
+    __setQueryData("generations:getCandidates", []);
+    __setQueryData("generations:getGenerationRecovery", null);
+    __setQueryData("generations:getMyCandidateScores", []);
+    __setQueryData("generations:getLatestGeneration", {
+      _id: "generation-compare",
+      status: "awaiting_selection",
+      candidateMode: "compare",
+      gatedWorkflow: undefined,
+      summaryVersionId: null,
+    });
+    const mounted = await render(Component, {});
+    await expect.poll(() => __activeQueryArgs("generations:getCandidates"), { timeout: 10000 })
+      .toEqual([{ generationId: "generation-compare" }]);
+    expect(browserPage.getByRole("heading", { name: "Summary review", exact: true }).elements()).toHaveLength(0);
+    expect(document.body.textContent).not.toContain("Frozen report-owned Summary item.");
+    expect(document.body.textContent).not.toContain("Completed Seed report.");
+    expect(__activeQueryArgs("seeds:getSummary")).toEqual([]);
+
+    // Selection ends: the same URL now opens the frozen Summary alone.
+    __setQueryData("generations:getLatestGeneration", {
+      _id: "generation-compare",
+      status: "completed",
+      candidateMode: "compare",
+      gatedWorkflow: undefined,
+      summaryVersionId: null,
+    });
+    await expect.element(browserPage.getByText("Frozen report-owned Summary item.", { exact: true })).toBeVisible();
+    expect(document.body.textContent).not.toContain("Completed Seed report.");
+    await browserPage.getByRole("button", { name: "Back to report", exact: true }).click();
+    await expect.element(browserPage.getByText("Completed Seed report.", { exact: true })).toBeVisible();
+    expect(browserPage.getByRole("heading", { name: "Summary review", exact: true }).elements()).toHaveLength(0);
+    mounted.unmount();
+  }
+
+  it("never renders a report-owned frozen Summary URL beside candidate selection in the current host (R6-05)", async () => {
+    await assertCandidateSelectionOwnsSummaryUrl(CurrentProjectPage);
+  });
+
+  it("never renders a report-owned frozen Summary URL beside candidate selection in the preview host (R6-05)", async () => {
+    await assertCandidateSelectionOwnsSummaryUrl(PreviewProjectPage);
+  });
+
   async function assertSignOffFocus(
     Component: typeof CurrentProjectPage | typeof PreviewProjectPage,
     ordering: "subscription-first" | "command-first",
