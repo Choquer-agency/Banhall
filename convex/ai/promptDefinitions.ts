@@ -501,8 +501,9 @@ export const SUMMARY_PLAN_SELF_CHECK_SCHEMA = {
 /**
  * Output token allowance for the Summary-plan Self-check only. It equals the
  * admitted worst-case response bytes, and a byte-level tokenizer never needs
- * more tokens than bytes, so every admitted response fits. The legacy
- * Self-check keeps SELF_CHECK_REQUEST.maxTokens.
+ * more tokens than bytes, so an admitted response fits the allowance (on
+ * OpenRouter reasoning models, reasoning shares a four times larger one).
+ * The legacy Self-check keeps SELF_CHECK_REQUEST.maxTokens.
  */
 export const SUMMARY_PLAN_SELF_CHECK_MAX_TOKENS =
   MAX_SUMMARY_SELF_CHECK_RESPONSE_UTF8_BYTES;
