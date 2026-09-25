@@ -8,6 +8,7 @@
   import { onDestroy } from "svelte";
   import AuroraMark from "$lib/components/ui/AuroraMark.svelte";
   import { motionDuration } from "$lib/motion";
+  import AuroraRingSpinner from "./AuroraRingSpinner.svelte";
 
   let {
     qaRunning = true,
@@ -89,7 +90,7 @@
     <span class="text-sm font-medium leading-[18px] text-ink">Your draft is ready</span>
     {#if qaRunning}
       <span class="flex items-center gap-1.5" data-toast-qa-running>
-        <AuroraMark size={12} glyph="spinner" />
+        <AuroraRingSpinner size={12} />
         <span class="text-[13px] leading-[18px] text-ink-muted">QA is checking it</span>
       </span>
     {/if}

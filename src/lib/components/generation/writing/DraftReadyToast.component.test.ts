@@ -20,7 +20,10 @@ describe("DraftReadyToast", () => {
     expect(node.textContent).toContain("Your draft is ready");
     const running = node.querySelector("[data-toast-qa-running]")!;
     expect(running.textContent).toContain("QA is checking it");
-    expect(running.querySelector('[data-ai-mark-glyph="spinner"]')).not.toBeNull();
+    const spinner = running.querySelector('[data-ai-mark-glyph="spinner"]')!;
+    expect(spinner).not.toBeNull();
+    expect(spinner.querySelector("circle")?.getAttribute("stroke")).toBe("var(--aurora-track)");
+    expect(spinner.classList.contains("aurora-spin")).toBe(true);
     expect(node.querySelector("[data-toast-close]")?.getAttribute("aria-label")).toBe("Close");
     const drain = node.querySelector<HTMLElement>("[data-toast-drain]")!;
     expect(drain.classList.contains("toast-drain")).toBe(true);

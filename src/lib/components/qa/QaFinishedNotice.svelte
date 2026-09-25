@@ -91,16 +91,17 @@
                 style={`width:${Math.max(0, Math.min(100, section.score))}%;background:${colors.bar}`}
               ></span>
             </span>
-            <span class="w-[22px] shrink-0 text-right text-[13px] font-medium leading-[18px] tabular-nums text-ink">{section.score}</span>
+            <span class="min-w-[18px] shrink-0 text-right text-[13px] font-medium leading-[18px] tabular-nums text-ink">{section.score}</span>
           </li>
         {/each}
       </ul>
     {/if}
     <div class="flex justify-end gap-2">
-      <Button variant="secondary" size="sm" class="h-8" onclick={() => (onLater ?? onDismiss)()} data-qa-later>
+      <!-- Board 4.5: 32px buttons, 14px sides, 13px labels. -->
+      <Button variant="secondary" size="xs" class="px-3.5!" onclick={() => (onLater ?? onDismiss)()} data-qa-later>
         Later
       </Button>
-      <Button variant="primary" size="sm" class="h-8" onclick={() => onOpen()} data-qa-open>
+      <Button variant="primary" size="xs" class="px-3.5!" onclick={() => onOpen()} data-qa-open>
         Open QA
       </Button>
     </div>

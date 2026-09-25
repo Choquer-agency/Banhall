@@ -24,7 +24,15 @@ describe("QaToggle", () => {
     const node = toggle();
     expect(node.getAttribute("aria-label")).toBe("QA, checking the draft");
     expect(node.hasAttribute("title")).toBe(false);
-    expect(node.querySelector('[data-ai-mark="aurora"][data-ai-mark-glyph="spinner"]')).not.toBeNull();
+    const spinner = node.querySelector('[data-ai-mark="aurora"][data-ai-mark-glyph="spinner"]')!;
+    expect(spinner).not.toBeNull();
+    // Board 4.4: a grey track ring with a turning Aurora arc, 12px.
+    expect(spinner.querySelector("circle")?.getAttribute("stroke")).toBe("var(--aurora-track)");
+    expect(spinner.querySelector("path")?.getAttribute("stroke")).toMatch(/^url\(#/);
+    expect(Math.round(spinner.getBoundingClientRect().width)).toBe(12);
+    expect(getComputedStyle(node).paddingLeft).toBe("5px");
+    expect(getComputedStyle(node).paddingRight).toBe("7px");
+    expect(getComputedStyle(node).columnGap).toBe("5px");
     expect(node.querySelector("[data-qa-chip]")).toBeNull();
     const gray50 = getComputedStyle(document.documentElement).getPropertyValue("--color-gray-50").trim();
     expect(gray50).not.toBe("");

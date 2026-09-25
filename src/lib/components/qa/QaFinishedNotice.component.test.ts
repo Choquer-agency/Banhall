@@ -77,6 +77,14 @@ describe("QaFinishedNotice", () => {
     expect(open.textContent?.trim()).toBe("Open QA");
     expect(getComputedStyle(later).borderTopColor).toBe("rgba(0, 0, 0, 0)");
     expect(getComputedStyle(open).backgroundColor).toBe("rgb(8, 122, 117)");
+    // Board 4.5: 32px buttons with 14px sides and 13px labels.
+    for (const button of [later, open]) {
+      const style = getComputedStyle(button);
+      expect(Math.round(button.getBoundingClientRect().height)).toBe(32);
+      expect(style.fontSize).toBe("13px");
+      expect(style.paddingLeft).toBe("14px");
+      expect(style.paddingRight).toBe("14px");
+    }
     open.click();
     later.click();
     notice().querySelector<HTMLButtonElement>("[data-qa-finished-close]")!.click();
