@@ -183,7 +183,12 @@ export function buildPlaceholderMap(input: {
     seenPeople.add(key);
     person += 1;
     add(`[PERSON_${person}]`, name);
-    const words = name.split(" ").filter((word) => !/^(?:dr|mr|mrs|ms|prof)\.?$/i.test(word));
+    // "Shah, Priya" (a speaker label as a Teams export writes it) gives
+    // "Shah" and "Priya", never "Shah," with its comma.
+    const words = name
+      .split(" ")
+      .map((word) => word.replace(/,$/, ""))
+      .filter((word) => !/^(?:dr|mr|mrs|ms|prof)\.?$/i.test(word));
     if (words.length >= 2) {
       const first = words[0];
       const last = words[words.length - 1];

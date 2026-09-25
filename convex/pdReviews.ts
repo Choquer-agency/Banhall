@@ -271,7 +271,7 @@ export const getReviewInput = internalQuery({
     // action checks the map against every text it sends.
     const placeholders =
       project && (await transcriptPlaceholdersEnabled(ctx))
-        ? [...(await projectPlaceholderMap(ctx, project, rows.map((row) => row._id)))]
+        ? [...(await projectPlaceholderMap(ctx, project, rows))]
         : [];
     return {
       pdContent: doc?.content ?? "",
