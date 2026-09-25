@@ -5,6 +5,7 @@ import { api, internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import type { DomainErrorCode } from "./lib/contracts";
 import schema from "./schema";
+import { allGenerationProgress } from "./lib/generationProgress";
 
 const modules = import.meta.glob("./**/*.ts");
 const AUTH_ID = "lifecycle-writer";
@@ -375,6 +376,7 @@ describe("completeCandidateRun fan-in", () => {
 
     const state = await t.run(async (ctx) => ({
       generation: await ctx.db.get(generationId),
+      progress: await allGenerationProgress(ctx, generationId),
       project: await ctx.db.get(projectId),
       candidates: await ctx.db.query("reportCandidates").collect(),
       reports: await ctx.db.query("reports").collect(),
@@ -382,7 +384,7 @@ describe("completeCandidateRun fan-in", () => {
     expect(state.generation?.status).toBe("running");
     expect(state.generation?.candidatesDone).toBe(1);
     expect(state.generation?.candidatesFailed).toBe(0);
-    expect(state.generation?.progressLog).toEqual([
+    expect(state.progress).toEqual([
       "Generation started.",
       "✓ Sonnet 5 draft ready (QA 91/100).",
     ]);
@@ -417,6 +419,7 @@ describe("completeCandidateRun fan-in", () => {
 
     const state = await t.run(async (ctx) => ({
       generation: await ctx.db.get(generationId),
+      progress: await allGenerationProgress(ctx, generationId),
       candidates: await ctx.db.query("reportCandidates").collect(),
       reports: await ctx.db.query("reports").collect(),
     }));
@@ -449,6 +452,7 @@ describe("completeCandidateRun fan-in", () => {
 
     const state = await t.run(async (ctx) => ({
       generation: await ctx.db.get(generationId),
+      progress: await allGenerationProgress(ctx, generationId),
       candidates: await ctx.db.query("reportCandidates").collect(),
       reports: await ctx.db.query("reports").collect(),
     }));
@@ -486,6 +490,7 @@ describe("completeCandidateRun fan-in", () => {
     const state = await t.run(async (ctx) => ({
       run: await ctx.db.get(runIds[1]),
       generation: await ctx.db.get(generationId),
+      progress: await allGenerationProgress(ctx, generationId),
       project: await ctx.db.get(projectId),
       candidates: await ctx.db.query("reportCandidates").collect(),
     }));
@@ -494,7 +499,7 @@ describe("completeCandidateRun fan-in", () => {
     expect(state.generation?.status).toBe("awaiting_selection");
     expect(state.generation?.candidatesDone).toBe(1);
     expect(state.generation?.candidatesFailed).toBe(1);
-    expect(state.generation?.progressLog).toEqual([
+    expect(state.progress).toEqual([
       "Generation started.",
       "✗ Gemini 3.1 Pro failed: provider rejected request.",
     ]);
@@ -526,6 +531,7 @@ describe("completeCandidateRun fan-in", () => {
 
     const state = await t.run(async (ctx) => ({
       generation: await ctx.db.get(generationId),
+      progress: await allGenerationProgress(ctx, generationId),
       project: await ctx.db.get(projectId),
       candidates: await ctx.db.query("reportCandidates").collect(),
     }));
@@ -556,6 +562,7 @@ describe("completeCandidateRun fan-in", () => {
     const state = await t.run(async (ctx) => ({
       run: await ctx.db.get(runIds[0]),
       generation: await ctx.db.get(generationId),
+      progress: await allGenerationProgress(ctx, generationId),
       project: await ctx.db.get(projectId),
       reports: await ctx.db.query("reports").collect(),
       snapshots: await ctx.db.query("reportSnapshots").collect(),
@@ -603,6 +610,7 @@ describe("completeCandidateRun fan-in", () => {
     const before = await t.run(async (ctx) => ({
       run: await ctx.db.get(runIds[0]),
       generation: await ctx.db.get(generationId),
+      progress: await allGenerationProgress(ctx, generationId),
     }));
 
     await t.mutation(internal.generations.completeCandidateRun, {
@@ -614,6 +622,7 @@ describe("completeCandidateRun fan-in", () => {
     const after = await t.run(async (ctx) => ({
       run: await ctx.db.get(runIds[0]),
       generation: await ctx.db.get(generationId),
+      progress: await allGenerationProgress(ctx, generationId),
       candidates: await ctx.db.query("reportCandidates").collect(),
     }));
     expect(after.run).toEqual(before.run);
@@ -629,6 +638,7 @@ describe("completeCandidateRun fan-in", () => {
     const before = await t.run(async (ctx) => ({
       run: await ctx.db.get(runIds[0]),
       generation: await ctx.db.get(generationId),
+      progress: await allGenerationProgress(ctx, generationId),
     }));
 
     await t.mutation(internal.generations.completeCandidateRun, {
@@ -640,6 +650,7 @@ describe("completeCandidateRun fan-in", () => {
     const after = await t.run(async (ctx) => ({
       run: await ctx.db.get(runIds[0]),
       generation: await ctx.db.get(generationId),
+      progress: await allGenerationProgress(ctx, generationId),
       candidates: await ctx.db.query("reportCandidates").collect(),
       reports: await ctx.db.query("reports").collect(),
     }));
@@ -659,6 +670,7 @@ describe("completeCandidateRun fan-in", () => {
     const before = await t.run(async (ctx) => ({
       run: await ctx.db.get(runIds[0]),
       generation: await ctx.db.get(generationId),
+      progress: await allGenerationProgress(ctx, generationId),
       project: await ctx.db.get(projectId),
     }));
 
@@ -672,6 +684,7 @@ describe("completeCandidateRun fan-in", () => {
     const after = await t.run(async (ctx) => ({
       run: await ctx.db.get(runIds[0]),
       generation: await ctx.db.get(generationId),
+      progress: await allGenerationProgress(ctx, generationId),
       project: await ctx.db.get(projectId),
       candidates: await ctx.db.query("reportCandidates").collect(),
     }));
@@ -690,6 +703,7 @@ describe("completeCandidateRun fan-in", () => {
     const before = await t.run(async (ctx) => ({
       run: await ctx.db.get(runIds[0]),
       generation: await ctx.db.get(generationId),
+      progress: await allGenerationProgress(ctx, generationId),
       project: await ctx.db.get(projectId),
     }));
 
@@ -702,6 +716,7 @@ describe("completeCandidateRun fan-in", () => {
     const after = await t.run(async (ctx) => ({
       run: await ctx.db.get(runIds[0]),
       generation: await ctx.db.get(generationId),
+      progress: await allGenerationProgress(ctx, generationId),
       project: await ctx.db.get(projectId),
       candidates: await ctx.db.query("reportCandidates").collect(),
       reports: await ctx.db.query("reports").collect(),
@@ -737,6 +752,7 @@ describe("completeCandidateRun fan-in", () => {
     const state = await t.run(async (ctx) => ({
       run: await ctx.db.get(runIds[0]),
       generation: await ctx.db.get(generationId),
+      progress: await allGenerationProgress(ctx, generationId),
       project: await ctx.db.get(projectId),
       candidates: await ctx.db.query("reportCandidates").collect(),
       reports: await ctx.db.query("reports").collect(),
@@ -746,7 +762,7 @@ describe("completeCandidateRun fan-in", () => {
     expect(state.candidates[0]?.content).toBe("Ghost draft");
     expect(state.run?.candidateId).toBe(state.candidates[0]?._id);
     expect(state.generation?.status).toBe("awaiting_input");
-    expect(state.generation?.progressLog).toEqual([
+    expect(state.progress).toEqual([
       "Generation started.",
       "✓ One-shot comparison draft ready (Gemini 3.1 Pro).",
     ]);
@@ -780,6 +796,7 @@ describe("approveSectionDraft", () => {
       s242: await ctx.db.get(sectionRunIds.s242),
       s244: await ctx.db.get(sectionRunIds.s244),
       generation: await ctx.db.get(generationId),
+      progress: await allGenerationProgress(ctx, generationId),
       project: await ctx.db.get(projectId),
       events: await ctx.db.query("sectionEditEvents").collect(),
       reports: await ctx.db.query("reports").collect(),
@@ -792,7 +809,7 @@ describe("approveSectionDraft", () => {
     expect(state.generation?.currentStep).toBe(
       "Drafting Line 244 — Work performed…"
     );
-    expect(state.generation?.progressLog).toEqual([
+    expect(state.progress).toEqual([
       "Generation started.",
       "✓ Line 242 — Uncertainty approved by the writer.",
       "Drafting Line 244 — Work performed…",
@@ -829,6 +846,7 @@ describe("approveSectionDraft", () => {
 
     const state = await t.run(async (ctx) => ({
       generation: await ctx.db.get(generationId),
+      progress: await allGenerationProgress(ctx, generationId),
       project: await ctx.db.get(projectId),
       reports: await ctx.db.query("reports").collect(),
       snapshots: await ctx.db.query("reportSnapshots").collect(),
@@ -982,6 +1000,7 @@ describe("approveSectionDraft", () => {
 
     const state = await t.run(async (ctx) => ({
       generation: await ctx.db.get(generationId),
+      progress: await allGenerationProgress(ctx, generationId),
       project: await ctx.db.get(projectId),
       ghostRun: await ctx.db.get(ghostRunId!),
       reports: await ctx.db.query("reports").collect(),
@@ -1064,6 +1083,7 @@ describe("approveSectionDraft", () => {
       s242: await ctx.db.get(sectionRunIds.s242),
       s244: await ctx.db.get(sectionRunIds.s244),
       generation: await ctx.db.get(generationId),
+      progress: await allGenerationProgress(ctx, generationId),
       project: await ctx.db.get(projectId),
       events: await ctx.db.query("sectionEditEvents").collect(),
       reports: await ctx.db.query("reports").collect(),
@@ -1199,6 +1219,7 @@ describe("selectReportCandidate", () => {
 
     const state = await t.run(async (ctx) => ({
       generation: await ctx.db.get(generationId),
+      progress: await allGenerationProgress(ctx, generationId),
       project: await ctx.db.get(projectId),
       reports: await ctx.db.query("reports").collect(),
       selections: await ctx.db.query("modelSelections").collect(),
@@ -1262,6 +1283,7 @@ describe("selectReportCandidate", () => {
       reports: await ctx.db.query("reports").collect(),
       selections: await ctx.db.query("modelSelections").collect(),
       generation: await ctx.db.get(generationId),
+      progress: await allGenerationProgress(ctx, generationId),
     }));
     expect(state.reports).toHaveLength(0);
     expect(state.selections).toHaveLength(0);
@@ -1330,6 +1352,7 @@ describe("selectReportCandidate", () => {
       reports: await ctx.db.query("reports").collect(),
       selections: await ctx.db.query("modelSelections").collect(),
       generation: await ctx.db.get(generationId),
+      progress: await allGenerationProgress(ctx, generationId),
     }));
     expect(state.reports).toHaveLength(0);
     expect(state.selections).toHaveLength(0);
@@ -1398,6 +1421,7 @@ describe("selectReportCandidate", () => {
 
     const state = await t.run(async (ctx) => ({
       generation: await ctx.db.get(generationId),
+      progress: await allGenerationProgress(ctx, generationId),
       project: await ctx.db.get(projectId),
       reports: await ctx.db.query("reports").collect(),
       selections: await ctx.db.query("modelSelections").collect(),
@@ -1438,6 +1462,7 @@ describe("selectReportCandidate", () => {
 
     const state = await t.run(async (ctx) => ({
       generation: await ctx.db.get(generationId),
+      progress: await allGenerationProgress(ctx, generationId),
       project: await ctx.db.get(projectId),
       reports: await ctx.db.query("reports").collect(),
       selections: await ctx.db.query("modelSelections").collect(),

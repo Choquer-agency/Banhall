@@ -1001,7 +1001,13 @@ export default defineSchema({
     ),
     agentOutputs: v.optional(v.string()),
     currentStep: v.optional(v.string()),
+    // Legacy progress narration. Since 2026-09-25 new lines are rows of
+    // `generationProgress`; this array is only read (dual read) and never
+    // written again. `progressLogCopiedAt` marks a row whose array
+    // generations.backfillGenerationProgress has copied into child rows, so
+    // readers stop reading the array.
     progressLog: v.optional(v.array(v.string())),
+    progressLogCopiedAt: v.optional(v.number()),
     // BNH-21: time-estimate + milestone progress for the loading screen.
     estimatedMs: v.optional(v.number()),
     totalCandidates: v.optional(v.number()),
@@ -1102,6 +1108,19 @@ export default defineSchema({
     .index("by_status_and_startedAt", ["status", "startedAt"])
     .index("by_startedAt", ["startedAt"])
     .index("by_postQaStatus", ["postQaStatus"]),
+
+  // 2026-09-25: one row per progress narration line of a generation (the
+  // live "thinking" log), in place of the unbounded array on the generation
+  // row. `kind` is derived from the line's leading check or cross.
+  generationProgress: defineTable({
+    generationId: v.id("generations"),
+    projectId: v.id("projects"),
+    at: v.number(),
+    message: v.string(),
+    kind: v.union(v.literal("info"), v.literal("success"), v.literal("failure")),
+  })
+    .index("by_generationId_and_at", ["generationId", "at"])
+    .index("by_projectId", ["projectId"]),
 
   // ─── Step-by-step idea seeds (AD-33/39) ───────────────────────────────────
   // All eleven tables are project-scoped. Core fields are required for new

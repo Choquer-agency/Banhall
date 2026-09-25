@@ -46,6 +46,7 @@ import {
   MAX_BRIEF_SOURCE_ROWS,
 } from "../generations";
 import schema from "../schema";
+import { allGenerationProgress } from "../lib/generationProgress";
 import {
   BRIEF_PUBLISH_ATTEMPTS,
   publishDerivedBrief,
@@ -1804,7 +1805,10 @@ describe("Generation Brief read completeness and diff baseline (DW-107/DW-118)",
     network.create.mockClear();
     await t.action(internal.ai.pipeline.generateReport, { generationId });
     await drainGeneration(t);
-    const generation = await t.run((ctx) => ctx.db.get(generationId));
+    const generation = await t.run(async (ctx) => {
+      const row = await ctx.db.get(generationId);
+      return row ? { ...row, progressLog: await allGenerationProgress(ctx, generationId) } : null;
+    });
     expect(generation?.status).toBe("completed");
     expect(generation?.briefId).toBeUndefined();
     expect(briefCalls()).toHaveLength(0);

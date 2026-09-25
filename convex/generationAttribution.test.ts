@@ -18,6 +18,7 @@ import {
   hashPromptProgram,
 } from "./ai/promptProgram";
 import schema from "./schema";
+import { allGenerationProgress } from "./lib/generationProgress";
 import { sha256 } from "./lib/contracts";
 import { buildTiptapDocument } from "./lib/tiptapReport";
 import { NO_STYLE_OVERRIDES } from "../shared/styleOverrides";
@@ -2357,11 +2358,11 @@ describe("the analyzer context budget is recorded by the entry actions", () => {
       expect(documentRow.content).toBe(CANDIDATE_DOCUMENT_BODY);
       expect(documentRow.truncated).toBe(false);
 
-      const generation = await t.run((ctx) => ctx.db.get(generationId));
-      expect(generation?.progressLog).toContain(
+      const progress = await t.run((ctx) => allGenerationProgress(ctx, generationId));
+      expect(progress).toContain(
         "Using 1 frozen contextual document(s), weighted by SR&ED priority.",
       );
-      expect(generation?.progressLog).toContain(
+      expect(progress).toContain(
         "Context budget (100 tokens) shortened notes.md.",
       );
 

@@ -13,6 +13,7 @@ import type { FunctionArgs } from "convex/server";
 import { api, internal } from "../_generated/api";
 import type { Doc, Id } from "../_generated/dataModel";
 import schema from "../schema";
+import { allGenerationProgress } from "../lib/generationProgress";
 // DW-107: the one definition of the Brief entry-row bound, so the over-bound
 // fixture below cannot drift from the reader that enforces it.
 import { MAX_BRIEF_ENTRY_ROWS } from "../generations";
@@ -280,8 +281,13 @@ function firstDraftPrompts(): string[] {
 const priorBlock = (section: Section) =>
   `### ${{ "242": "Line 242 (Uncertainty)", "244": "Line 244 (Work performed)", "246": "Line 246 (Advancement)" }[section]} (DRAFTED)\n${DRAFTS[section]}`;
 
+/** The generation row, with its progress lines read the way the queries read
+ * them (child rows since 2026-09-25, legacy array first). */
 async function generationOf(t: ReturnType<typeof convexTest>, generationId: Id<"generations">) {
-  return (await t.run((ctx) => ctx.db.get(generationId))) as Doc<"generations">;
+  return await t.run(async (ctx) => {
+    const generation = (await ctx.db.get(generationId)) as Doc<"generations">;
+    return { ...generation, progressLog: await allGenerationProgress(ctx, generationId) };
+  });
 }
 
 describe("ordered, ungated generation (single)", () => {
