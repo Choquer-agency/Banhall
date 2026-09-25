@@ -1,12 +1,15 @@
 import type { Doc } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
 import {
+  DRAFTING_INPUTS_REQUIRE,
   findGenerationStatusTransition,
   generationFlowOf,
+  isDraftingInputsTransitionAllowed,
   isPostQaTransitionAllowed,
   isRedraftTransitionAllowed,
   POST_QA_RUNNING_REQUIRES_STATUS,
   REDRAFT_REQUIRES,
+  type DraftingInputsState,
   type GenerationStatus,
   type PostQaState,
   type RedraftState,
@@ -14,7 +17,8 @@ import {
 import { domainError } from "./contracts";
 
 /** Every writable field of a generation row except `status`, which only
- * `transitionGeneration` sets, and the legacy fields that moved to child
+ * `transitionGeneration` sets, `draftingInputs`, which only
+ * `transitionDraftingInputs` sets, and the legacy fields that moved to child
  * rows on 2026-09-25 (progress lines, agent outputs and Brain provenance),
  * which are never written to the row again. */
 export type GenerationPatch = Partial<
@@ -23,6 +27,7 @@ export type GenerationPatch = Partial<
     | "_id"
     | "_creationTime"
     | "status"
+    | "draftingInputs"
     | "progressLog"
     | "agentOutputs"
     | "brainProvenance"
@@ -38,8 +43,14 @@ function redraftStateOf(value: Doc<"generations">["redraft"]): RedraftState {
   return value?.status ?? "none";
 }
 
+export function draftingInputsStateOf(
+  value: Doc<"generations">["draftingInputs"]
+): DraftingInputsState {
+  return value?.status ?? "none";
+}
+
 function refuse(
-  machine: "status" | "postQa" | "redraft",
+  machine: "status" | "postQa" | "redraft" | "draftingInputs",
   generation: Doc<"generations">,
   from: string,
   to: string
@@ -151,4 +162,32 @@ export async function transitionRedraft(
     }
   }
   await ctx.db.patch(generation._id, { ...patch, redraft });
+}
+
+/**
+ * Change the drafting-inputs sub-state (owner decision 32) of a Step-by-step
+ * generation in its seed stage. The generation's own status stays as it is.
+ */
+export async function transitionDraftingInputs(
+  ctx: MutationCtx,
+  generation: Doc<"generations">,
+  draftingInputs: NonNullable<Doc<"generations">["draftingInputs"]>
+): Promise<void> {
+  const flow = generationFlowOf(generation);
+  const from = draftingInputsStateOf(generation.draftingInputs);
+  if (!isDraftingInputsTransitionAllowed(from, draftingInputs.status)) {
+    refuse("draftingInputs", generation, from, draftingInputs.status);
+  }
+  if (
+    flow !== DRAFTING_INPUTS_REQUIRE.flow ||
+    !DRAFTING_INPUTS_REQUIRE.statuses.includes(generation.status)
+  ) {
+    refuse(
+      "draftingInputs",
+      generation,
+      `${from} (${flow}, status ${generation.status})`,
+      draftingInputs.status
+    );
+  }
+  await ctx.db.patch(generation._id, { draftingInputs });
 }

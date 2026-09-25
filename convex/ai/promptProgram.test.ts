@@ -586,6 +586,23 @@ describe("iterative mode is unchanged", () => {
     expect(generationPromptProgram.topology.modes.iterative.sections).toContain("one-shot-ghost-candidate-pipeline");
     expect(generationPromptProgram.topology.modes.iterative.seeds).toContain("seed-stage-human-gate");
     expect(generationPromptProgram.topology.modes.iterative.seeds).not.toContain("one-shot-ghost-candidate-pipeline");
+    // Owner decision 32 (2026-09-25): the seed stage opens after the Brief
+    // and the frozen writer style; retrieval and the analyzer run in the
+    // background until sign-off, and no section drafts before it.
+    expect(generationPromptProgram.topology.modes.iterative.seeds).toEqual([
+      "frozen-writer-style-artifact",
+      "brief",
+      "seed-stage-human-gate",
+      {
+        backgroundUntilSignOff: [
+          "retrieval-brief-with-fallback-query",
+          "four-sequential-brain-searches-with-optional-rerank",
+          "frozen-analyzer-brain-style-artifacts",
+        ],
+      },
+      "ordered-section-chain-after-sign-off",
+      "post-terminal-qa-and-chronology",
+    ]);
     expect(generationPromptProgram.topology.modes.iterative.selectedBy).toBe(
       "stored-gatedWorkflow"
     );

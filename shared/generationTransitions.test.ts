@@ -1,10 +1,14 @@
 import { describe, expect, it } from "vitest";
 import {
   ACTIVE_GENERATION_STATUSES,
+  DRAFTING_INPUTS_REQUIRE,
+  DRAFTING_INPUTS_STATES,
+  DRAFTING_INPUTS_TRANSITIONS,
   GENERATION_FLOWS,
   GENERATION_STATUSES,
   GENERATION_STATUS_TRANSITIONS,
   generationFlowOf,
+  isDraftingInputsTransitionAllowed,
   isGenerationStatusTransitionAllowed,
   isPostQaTransitionAllowed,
   isRedraftTransitionAllowed,
@@ -12,6 +16,7 @@ import {
   POST_QA_STATES,
   REDRAFT_STATES,
   TERMINAL_GENERATION_STATUSES,
+  type DraftingInputsState,
   type GenerationFlow,
   type GenerationStatus,
   type PostQaState,
@@ -100,6 +105,15 @@ const EXPECTED_REDRAFT_MOVES: Array<[RedraftState, RedraftState]> = [
   ["running", "running"],
   ["running", "completed"],
   ["running", "failed"],
+];
+
+// Owner decision 32 (2026-09-25, amendment 2026-09-25 (third)).
+const EXPECTED_DRAFTING_INPUTS_MOVES: Array<[DraftingInputsState, DraftingInputsState]> = [
+  ["none", "preparing"],
+  ["none", "ready"],
+  ["preparing", "ready"],
+  ["preparing", "failed"],
+  ["failed", "preparing"],
 ];
 
 function key(from: string, to: string) {
@@ -218,4 +232,33 @@ describe("redraft sub-state table", () => {
       });
     }
   }
+});
+
+describe("drafting-inputs sub-state table", () => {
+  const allowed = new Set(EXPECTED_DRAFTING_INPUTS_MOVES.map(([from, to]) => key(from, to)));
+  for (const from of DRAFTING_INPUTS_STATES) {
+    for (const to of DRAFTING_INPUTS_STATES) {
+      const expected = allowed.has(key(from, to));
+      it(`${from} -> ${to} is ${expected ? "allowed" : "refused"}`, () => {
+        expect(isDraftingInputsTransitionAllowed(from, to)).toBe(expected);
+      });
+    }
+  }
+
+  it("never leaves ready and never returns to none", () => {
+    for (const to of DRAFTING_INPUTS_STATES) {
+      expect(isDraftingInputsTransitionAllowed("ready", to)).toBe(false);
+      expect(isDraftingInputsTransitionAllowed(to, "none")).toBe(false);
+    }
+  });
+
+  it("names a call site for every edge and applies only to an open seed stage", () => {
+    for (const edge of DRAFTING_INPUTS_TRANSITIONS) {
+      expect(edge.sites.length).toBeGreaterThan(0);
+    }
+    expect(DRAFTING_INPUTS_REQUIRE).toEqual({
+      flow: "seed_stage",
+      statuses: ["running", "awaiting_input"],
+    });
+  });
 });

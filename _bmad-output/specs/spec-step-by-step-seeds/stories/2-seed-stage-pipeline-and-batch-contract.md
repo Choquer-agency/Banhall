@@ -149,3 +149,12 @@ The initial post-analysis seed branch, frozen Brief retry, legacy section refusa
 Three independent `gpt-6-astra` medium review layers covered blind correctness, edge cases and verification gaps. Their accepted implementation and evidence findings were corrected and independently rechecked. An Astra medium review lead closed T1-T8 and rejected T9 because the hypothesized feedback retargeting has no supported writer. No material finding remains open. The final additional witness directly calls completion with an out-of-snapshot advancement reference and proves that no invalid Seed persists.
 
 Local evidence is preserved under `.git-local-evidence/`: `story2-verify-final.log`, the three initial and correction review reports, `story2-review-triage.md`, `story2-review-closure.md`, and manifests identifying the reviewed and final artifacts. Evidence files are not part of the commit.
+
+## Amendment 2026-09-25 (owner approved, decision 32): reordered start
+
+This story fixed the startup order "analysis and Brain retrieval, then the Brief, then initialization" (the "post-analysis Brief seam" rows above). The owner approved reordering it; the spine records the rule under Amendments and `docs/product-domain.md` under "2026-09-25 (third)".
+
+- The Brief starts as soon as the sources are frozen, beside the writer style, which is frozen as its own `writer_style` artifact; `initializeSeedStage` needs the frozen writer settings, that style and the Brief, and no longer the analysis.
+- Brain retrieval and the analysis run in the background (`ai/iterative.prepareSeedDraftingInputs`) and freeze `analysis` and `brain_blocks` exactly as before; sign-off waits for them (`generations.draftingInputs`).
+- The matrix rows above still hold with this reading: "reaches the post-analysis Brief seam" becomes "reaches the Brief seam once the style is frozen", and a Brief retry still reuses the frozen sources and never reruns the analysis or Brain retrieval, which have their own retry (`retryDraftingInputs`).
+- Seed prompts are unchanged: the first seed request is byte-for-byte what it was (`convex/seedStartupOrder.test.ts`).

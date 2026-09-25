@@ -7,18 +7,22 @@ import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { DomainErrorCode } from "./lib/contracts";
 import {
+  transitionDraftingInputs,
   transitionGeneration,
   transitionPostQa,
   transitionRedraft,
 } from "./lib/generationTransitions";
 import schema from "./schema";
 import {
+  DRAFTING_INPUTS_TRANSITIONS,
   GENERATION_STATUS_TRANSITIONS,
+  isDraftingInputsTransitionAllowed,
   isGenerationStatusTransitionAllowed,
   isPostQaTransitionAllowed,
   isRedraftTransitionAllowed,
   POST_QA_TRANSITIONS,
   REDRAFT_TRANSITIONS,
+  type DraftingInputsState,
   type GenerationFlow,
   type GenerationStatus,
   type PostQaState,
@@ -249,6 +253,53 @@ describe("transitionRedraft", () => {
   });
 });
 
+describe("transitionDraftingInputs", () => {
+  const drafting = (status: "preparing" | "ready" | "failed", attempt = 1) => ({
+    status,
+    attempt,
+    startedAt: 1,
+  });
+
+  it("refuses the sub-state outside an open seed stage", async () => {
+    for (const fixture of [
+      { candidateMode: "single" as const },
+      { candidateMode: "iterative" as const, gatedWorkflow: "seeds" as const, status: "completed" as const },
+      { candidateMode: "iterative" as const, gatedWorkflow: "sections" as const },
+    ]) {
+      const f = await setup(fixture);
+      await expectDomainError(
+        () =>
+          f.t.run(async (ctx) => {
+            const generation = (await ctx.db.get(f.generationId))!;
+            await transitionDraftingInputs(ctx, generation, drafting("preparing"));
+          }),
+        "INVALID_TRANSITION"
+      );
+      expect((await f.read())?.draftingInputs).toBeUndefined();
+    }
+  });
+
+  it("prepares, fails, retries and settles, and refuses ready -> preparing", async () => {
+    const f = await setup({ candidateMode: "iterative", gatedWorkflow: "seeds", status: "awaiting_input" });
+    for (const next of [drafting("preparing"), drafting("failed"), drafting("preparing", 2), drafting("ready", 2)]) {
+      await f.t.run(async (ctx) => {
+        const generation = (await ctx.db.get(f.generationId))!;
+        await transitionDraftingInputs(ctx, generation, next);
+      });
+    }
+    expect((await f.read())?.draftingInputs).toMatchObject({ status: "ready", attempt: 2 });
+    expect((await f.read())?.status).toBe("awaiting_input");
+    await expectDomainError(
+      () =>
+        f.t.run(async (ctx) => {
+          const generation = (await ctx.db.get(f.generationId))!;
+          await transitionDraftingInputs(ctx, generation, drafting("preparing", 3));
+        }),
+      "INVALID_TRANSITION"
+    );
+  });
+});
+
 describe("call sites", () => {
   /**
    * Every move each call site makes, as the code makes it. Each must be a
@@ -376,11 +427,39 @@ describe("call sites", () => {
     }
   });
 
+  const DRAFTING_INPUTS_CALL_SITES: Array<{
+    site: string;
+    from: DraftingInputsState;
+    to: DraftingInputsState;
+  }> = [
+    { site: "generations.startDraftingInputs", from: "none", to: "preparing" },
+    { site: "generations.startDraftingInputs", from: "none", to: "ready" },
+    { site: "generations.initializeSeedStage", from: "none", to: "preparing" },
+    { site: "generations.initializeSeedStage", from: "none", to: "ready" },
+    { site: "generations.completeDraftingInputs", from: "preparing", to: "ready" },
+    { site: "generations.failDraftingInputs", from: "preparing", to: "failed" },
+    { site: "generations.expireDraftingInputs", from: "preparing", to: "failed" },
+    { site: "generations.retryDraftingInputs", from: "failed", to: "preparing" },
+  ];
+
+  it("every drafting-inputs call site's move is declared for that site", () => {
+    for (const move of DRAFTING_INPUTS_CALL_SITES) {
+      expect(isDraftingInputsTransitionAllowed(move.from, move.to), move.site).toBe(true);
+      expect(
+        DRAFTING_INPUTS_TRANSITIONS.some(
+          (edge) => edge.from === move.from && edge.to === move.to && edge.sites.includes(move.site)
+        ),
+        `${move.site} ${move.from} -> ${move.to}`
+      ).toBe(true);
+    }
+  });
+
   it("every site the table names is an exported Convex function", () => {
     const sites = new Set([
       ...GENERATION_STATUS_TRANSITIONS.flatMap((edge) => edge.sites),
       ...POST_QA_TRANSITIONS.flatMap((edge) => edge.sites),
       ...REDRAFT_TRANSITIONS.flatMap((edge) => edge.sites),
+      ...DRAFTING_INPUTS_TRANSITIONS.flatMap((edge) => edge.sites),
     ]);
     for (const site of sites) {
       const [module, fn] = site.split(".");
@@ -389,7 +468,7 @@ describe("call sites", () => {
     }
   });
 
-  it("no Convex module writes a generation's status, post-QA, redraft or moved fields directly", () => {
+  it("no Convex module writes a generation's status, post-QA, redraft, drafting inputs or moved fields directly", () => {
     const offenders: string[] = [];
     const walk = (dir: string): string[] =>
       fs.readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
@@ -421,7 +500,7 @@ describe("call sites", () => {
         // Status and sub-states go through the transition helpers; the fields
         // that moved to child rows on 2026-09-25 are never written to the row.
         if (
-          /\bstatus\s*:|postQaStatus|\bredraft\s*:|\bprogressLog\s*:|\bagentOutputs\s*:|\bbrainProvenance\s*:|\bbrainRetrievalBrief\s*:/.test(
+          /\bstatus\s*:|postQaStatus|\bredraft\s*:|\bdraftingInputs\s*:|\bprogressLog\s*:|\bagentOutputs\s*:|\bbrainProvenance\s*:|\bbrainRetrievalBrief\s*:/.test(
             body
           )
         ) {
