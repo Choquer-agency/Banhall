@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+// @ts-nocheck: plain Node script; the app's type check reaches it only
+// through its unit test.
 // Read-only summary of an aiUsage export, for comparing spend before and
 // after a change. It reads a file and prints a table; it never talks to
 // Convex or a provider.

@@ -1,5 +1,4 @@
 import { describe, expect, test } from "vitest";
-// @ts-expect-error: plain ESM script without type declarations.
 import { isNativeCost, parseRows, summarize } from "../scripts/ai-usage-report.mjs";
 
 const rows = [
