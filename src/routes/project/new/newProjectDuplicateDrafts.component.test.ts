@@ -769,6 +769,10 @@ describe("/project/new tick rows (review D-6)", () => {
 describe("/project/new failed copy keeps the writer's own files (review D-2)", () => {
   const BASE =
     "Some files from Alloy furnace were not copied. Duplicate again, or add them on the project page.";
+  // With the writer's own files saved in the new project, a second
+  // duplicate would not have them (review P3-3).
+  const SAVED_HERE =
+    "Some files from Alloy furnace were not copied. Add them on the project page. The files you added here were saved in this project, so a new duplicate would not include them.";
 
   async function addOwnContextFile(name: string) {
     await expect
@@ -817,7 +821,7 @@ describe("/project/new failed copy keeps the writer's own files (review D-2)", (
         expect.objectContaining({ projectId: "project-copy", fileName: "My notes.txt" }),
       ]);
       expect(error.mock.calls.map((call) => call[0])).toContain(
-        `${BASE} The files you added here were saved.`
+        SAVED_HERE
       );
       expect(__mutationCalls("generations:requestGeneration")).toEqual([]);
     } finally {
@@ -886,7 +890,7 @@ describe("/project/new failed copy keeps the writer's own files (review D-2)", (
       ]);
       expect(__mutationCalls("pdReviews:startPdReview")).toEqual([]);
       expect(error.mock.calls.map((call) => call[0])).toContain(
-        `${BASE} The files you added here were saved. Start the PD review on the project page once the missing files are added.`
+        `${SAVED_HERE} Start the PD review on the project page once the missing files are added.`
       );
     } finally {
       error.mockRestore();

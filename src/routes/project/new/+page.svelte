@@ -905,11 +905,19 @@
       const index = unsaved.indexOf(name);
       if (index >= 0) unsaved.splice(index, 1);
     }
-    let message = `Some files from ${copySourceTitle} were not copied. Duplicate again, or add them on the project page.`;
-    if (unsaved.length) {
-      message += ` These files you added were not saved either: ${unsaved.join(", ")}.`;
-    } else if (saved.length) {
-      message += " The files you added here were saved.";
+    let message = `Some files from ${copySourceTitle} were not copied.`;
+    if (!saved.length) {
+      message += " Duplicate again, or add them on the project page.";
+      if (unsaved.length) {
+        message += ` These files you added were not saved either: ${unsaved.join(", ")}.`;
+      }
+    } else {
+      // Review P3-3: the writer's own files are in this project now, so a
+      // new duplicate would not have them. Point at this project instead.
+      message += ` Add them on the project page. ${
+        unsaved.length ? "Some of the files you added here were" : "The files you added here were"
+      } saved in this project, so a new duplicate would not include them.`;
+      if (unsaved.length) message += ` These were not saved: ${unsaved.join(", ")}.`;
     }
     if (mode === "review" && pdDoc && saved.includes(pdDoc.name)) {
       message += " Start the PD review on the project page once the missing files are added.";
