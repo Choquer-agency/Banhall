@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildTrustedContext,
   buildSeedTrustedContext,
+  buildSeedPrompt,
   preferDigestSources,
   buildSeedSystemPrompt,
   CHARS_PER_TOKEN,
@@ -17,6 +18,7 @@ import {
   type ContextDoc,
 } from "./trustedContext";
 import { CONTEXT_INPUTS_GUIDANCE } from "./prompts";
+import { SEED_PROMPT_PROGRAM } from "./promptDefinitions";
 
 const budget = (overrides: Partial<ContextBudget> = {}): ContextBudget => ({
   ...DEFAULT_CONTEXT_BUDGET,
@@ -892,5 +894,50 @@ describe("PD review input budget", () => {
     expect(whole).not.toContain("TRUNCATED");
     expect(whole).not.toContain("omitted");
     expect(whole).toContain("3".repeat(10));
+  });
+});
+
+describe("seed source allowance near the byte limit (cost phase 1)", () => {
+  const base = {
+    mode: "batch" as const,
+    brief: { storyline: "A frozen storyline.", entries: ["Complete Brief item."] },
+    // Far past the 600,000-byte limit, so the sources are cut.
+    sources: [{ sourceId: "source-1", label: "Interview", kind: "transcript",
+      content: "Measured seal fatigue at 400 kPa across cycles. ".repeat(20_000), contentHash: "hash-1" }],
+    writerSettings: { profile: "Frozen profile.", styleOverrides: {} },
+    lengthTarget: "standard",
+  };
+
+  it("keeps the cached source block byte-identical across objectives and decisions", () => {
+    const first = buildSeedPrompt({
+      ...base,
+      objective: "Short objective.",
+      projection: { decisions: "(none)", feedback: "(none)" },
+    });
+    const second = buildSeedPrompt({
+      ...base,
+      mode: "feedback",
+      objective: `A much longer objective. ${"More words for this role. ".repeat(40)}`,
+      projection: {
+        decisions: JSON.stringify({ items: Array.from({ length: 30 }, (_, i) => ({ bullets: [`Decision ${i} wording.`] })) }),
+        feedback: "Keep the measurement precise.",
+        target: "Frozen target wording.",
+      },
+    });
+    expect(first.sources[0]).toMatchObject({ truncated: true });
+    expect(second.userBlocks[0].text).toBe(first.userBlocks[0].text);
+    expect(second.sources).toEqual(first.sources);
+    expect(second.userBlocks[1].text).not.toBe(first.userBlocks[1].text);
+  });
+
+  it("still fits a role tail longer than the reserve, at the cost of fewer source bytes", () => {
+    const long = buildSeedPrompt({
+      ...base,
+      objective: "Objective.",
+      projection: { decisions: "x".repeat(SEED_PROMPT_PROGRAM.request.roleTailReserveUtf8Bytes + 10_000), feedback: "(none)" },
+    });
+    const short = buildSeedPrompt({ ...base, objective: "Objective.", projection: { decisions: "(none)", feedback: "(none)" } });
+    expect(long.promptBytes).toBeLessThanOrEqual(600_000);
+    expect(long.sources[0].includedBytes).toBeLessThan(short.sources[0].includedBytes);
   });
 });

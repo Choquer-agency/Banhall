@@ -636,6 +636,11 @@ export type SeedTrustedContextInput = {
   writerSettings: unknown;
   lengthTarget: string;
   maxPromptBytes?: number;
+  /**
+   * Bytes charged for the role-specific tail whatever its size, so the
+   * source allowance is identical across roles (see buildSeedPrompt).
+   */
+  roleTailReserveBytes?: number;
 };
 
 export function splitSeedWriterSettings(value: unknown): {
@@ -789,7 +794,8 @@ export function buildSeedTrustedContext(input: SeedTrustedContextInput): {
     prompt.guidance,
     seedBlock(prompt.blocks.brief, seedValue(input.brief)),
   ];
-  const afterSources = [
+  // The role-specific part of the tail (it differs between roles and modes).
+  const roleTail = [
     prompt.modeLabels[input.mode],
     seedBlock(prompt.blocks.objective, input.objective),
     seedBlock(prompt.blocks.decisions, input.projection.decisions),
@@ -798,9 +804,13 @@ export function buildSeedTrustedContext(input: SeedTrustedContextInput): {
       prompt.blocks.target,
       input.projection.target ?? prompt.empty
     ),
+  ];
+  // Generation-wide, so the same for every role.
+  const generationTail = [
     seedBlock(prompt.blocks.settings, seedValue(input.writerSettings)),
     seedBlock(prompt.blocks.lengthTarget, input.lengthTarget),
   ];
+  const afterSources = [...roleTail, ...generationTail];
   const maxBytes = input.maxPromptBytes ?? MAX_SEED_PROMPT_UTF8_BYTES;
   const separatorBytes = utf8Bytes(separator);
   const fixedBytes =
@@ -814,7 +824,15 @@ export function buildSeedTrustedContext(input: SeedTrustedContextInput): {
     );
   }
 
-  let remaining = maxBytes - fixedBytes;
+  // Cost phase 1: the source allowance must not depend on role-specific
+  // text, or near the limit each role would cut the sources (inside the
+  // cached block) at a different byte. With a reserve, the role tail is
+  // charged at least `roleTailReserveBytes`, so any role whose tail fits
+  // the reserve gets the same sources byte for byte. A longer tail still
+  // fits, at the cost of that role's cache hit.
+  const roleTailBytes = utf8Bytes(roleTail.join(separator));
+  const roleTailCharge = Math.max(roleTailBytes, input.roleTailReserveBytes ?? 0);
+  let remaining = Math.max(0, maxBytes - fixedBytes - (roleTailCharge - roleTailBytes));
   const sourceBlocks: string[] = [];
   const reports: SeedPromptSourceReport[] = [];
   const fullSourceBytes = utf8Bytes(
@@ -954,7 +972,7 @@ export function buildSeedTrustedContext(input: SeedTrustedContextInput): {
 
 /** Assemble the complete two-message request under one shared byte limit. */
 export function buildSeedPrompt(
-  input: Omit<SeedTrustedContextInput, "maxPromptBytes">
+  input: Omit<SeedTrustedContextInput, "maxPromptBytes" | "roleTailReserveBytes">
 ): {
   system: string;
   user: string;
@@ -989,6 +1007,7 @@ export function buildSeedPrompt(
   const built = buildSeedTrustedContext({
     ...input,
     sources,
+    roleTailReserveBytes: SEED_PROMPT_PROGRAM.request.roleTailReserveUtf8Bytes,
     writerSettings: settings.remaining,
     maxPromptBytes:
       MAX_SEED_PROMPT_UTF8_BYTES - systemBytes - repairReserveBytes,

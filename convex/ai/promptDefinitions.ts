@@ -125,6 +125,10 @@ export const SEED_PROMPT_PROGRAM = {
     repairValidationSummaryMaxUtf8Bytes: 256,
     structuredPolicy: "two-attempt-repair",
     cacheControl: { type: "ephemeral", ttl: "1h" },
+    // Fixed charge for the role-specific tail (mode, objective, decisions,
+    // feedback, target), so every role gets the same source allowance and
+    // the cached source block stays byte-identical near the limit.
+    roleTailReserveUtf8Bytes: 65_536,
     transport: {
       maxRetries: 0,
       timeoutMs: 90_000,
