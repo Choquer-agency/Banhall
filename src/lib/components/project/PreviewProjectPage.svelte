@@ -2057,11 +2057,17 @@
             <div
               data-report-surface
               data-report-width={workspaceMaximized ? "full" : "reading"}
-              class={`w-full py-10 transition-[padding,max-width] duration-[325ms] ease-out motion-reduce:transition-none ${workspaceMaximized ? (sidePanelOpen ? "px-6 lg:px-12" : "px-6 lg:px-24") : "mx-auto max-w-[708px] px-6"}`}
+              class={`w-full pt-11 pb-10 transition-[padding,max-width] duration-[325ms] ease-out motion-reduce:transition-none ${workspaceMaximized ? (sidePanelOpen ? "px-6 lg:px-12" : "px-6 lg:px-24") : "mx-auto max-w-[708px] px-6"}`}
             >
+              <!-- Board 2.1: the report opens on its serif title. The top bar
+                   holds the page h1; the document's own title heading stays
+                   hidden in the editor. -->
+              <h2 data-report-title class="mb-0.5 font-serif text-[28px] leading-9 font-normal text-ink [text-wrap:balance]">
+                {project.title}
+              </h2>
               {#if notDraftedSections.length > 0}
                 <!-- A stopped Step-by-step draft (FR-43, owner decision 20). -->
-                <div class="mb-6">
+                <div class="mt-6">
                   <NotDraftedBanner
                     missingSections={notDraftedSections}
                     onDraftRest={draftTheRest}
@@ -2072,7 +2078,7 @@
                   />
                 </div>
               {:else if reportReadOnly}
-                <p class="mb-6 text-[13px] leading-5 text-ink-secondary" role="status" data-redraft-status>
+                <p class="mt-4 text-[13px] leading-5 text-ink-secondary" role="status" data-redraft-status>
                   Drafting the missing sections. Editing resumes when they are in.
                 </p>
               {/if}
@@ -2088,6 +2094,7 @@
                 readOnly={reportReadOnly}
                 {commentRanges}
                 onHoverComment={(id) => (hoveredCommentId = id)}
+                presentation="reading"
               />
 
               <!-- Supporting panels (QA lives in the side panel, BNH-47) -->

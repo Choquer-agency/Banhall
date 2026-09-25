@@ -35,6 +35,7 @@
   import { Decoration, DecorationSet } from "@tiptap/pm/view";
   import { NOT_GENERATED_PLACEHOLDER } from "../../../../convex/lib/tiptapReport";
   import type { CommentRange, FindReplaceMatch } from "$lib/components/editor/types";
+  import type { ReportLimitMeterSpec } from "$lib/components/editor/reportSectionHeadings";
   import { overflowStartOffset } from "../../../../convex/lib/lineLimits";
   import {
     reportSectionKeyForHeading,
@@ -255,13 +256,34 @@
     return { from: fromPos, to: toPos + 1 }; // +1 because to is exclusive in PM
   }
 
+  /**
+   * How the CRA limits show in the document. Classic: an end-of-section
+   * marker for every Section plus overflow tinting, both behind the limits
+   * toggle. Reading (ui-design-final.md section 8): a meter in the Section
+   * heading only when the Section is near or over a limit; overflow tinting
+   * still follows the toggle.
+   */
+  type LimitDecorationOptions = {
+    metrics: ReportSectionMetricMap;
+    endMarkers: boolean;
+    overflow: boolean;
+    headingMeters: boolean;
+  };
+
+  function limitMeterText(metric: ReportSectionMetricMap[ReportSectionKey]): string {
+    const gapLineSuffix =
+      metric.rawLines !== metric.lines ? ` (+${metric.rawLines - metric.lines} with gaps)` : "";
+    return `${metric.lines} / ${metric.limit} lines${gapLineSuffix}, ${metric.words} / ${metric.wordCap} words`;
+  }
+
   function buildSectionLimitDecorations(
     doc: PMNode,
-    metrics: ReportSectionMetricMap
+    { metrics, endMarkers, overflow, headingMeters }: LimitDecorationOptions
   ): Decoration[] {
     type OverflowSpan = { from: number; to: number; text: string; start: number };
     type SectionSource = { text: string; spans: OverflowSpan[] };
     const endPositions: Partial<Record<ReportSectionKey, number>> = {};
+    const headingRanges: Partial<Record<ReportSectionKey, { from: number; to: number }>> = {};
     const sectionSources: Partial<Record<ReportSectionKey, SectionSource>> = {};
     let currentSection: ReportSectionKey | null = null;
     let reachedQaTail = false;
@@ -271,6 +293,7 @@
       const heading = reportSectionKeyForHeading(node.toJSON());
       if (heading) {
         currentSection = heading;
+        headingRanges[heading] = { from: offset, to: offset + node.nodeSize };
         endPositions[heading] = offset + node.nodeSize;
         sectionSources[heading] = { text: "", spans: [] };
         return;
@@ -349,7 +372,19 @@
       if (position === undefined) continue;
       const metric = metrics[key];
       const state = limitState(metric);
-      if (state === "over") {
+      const headingRange = headingRanges[key];
+      if (headingMeters && headingRange && state !== "ok") {
+        const spec: ReportLimitMeterSpec = {
+          reportLimitMeter: {
+            state,
+            text: limitMeterText(metric),
+            description: limitWarning(line, metric),
+            percent: Math.max(metric.lines / metric.limit, metric.words / metric.wordCap) * 100,
+          },
+        };
+        markers.push(Decoration.node(headingRange.from, headingRange.to, {}, spec));
+      }
+      if (overflow && state === "over") {
         const source = sectionSources[key];
         const overflowAt = source ? overflowStartOffset(source.text, key) : null;
         if (source && overflowAt !== null) {
@@ -367,6 +402,7 @@
           }
         }
       }
+      if (!endMarkers) continue;
       markers.push(
         Decoration.widget(
           Math.min(position, doc.content.size),
@@ -387,11 +423,7 @@
             count.className = "cra-section-end__count";
             // [GAP: …] text is excluded from the CRA counts; surface the
             // with-gaps figure so writers know what resolving gaps costs.
-            const gapLineSuffix =
-              metric.rawLines !== metric.lines
-                ? ` (+${metric.rawLines - metric.lines} with gaps)`
-                : "";
-            count.textContent = `${metric.lines} / ${metric.limit} lines${gapLineSuffix}, ${metric.words} / ${metric.wordCap} words`;
+            count.textContent = limitMeterText(metric);
 
             chip.append(label, count);
             if (state !== "ok") {
@@ -414,7 +446,7 @@
     doc: PMNode,
     ranges: CommentRange[],
     aiRanges: Range[] = [],
-    sectionLimitMetrics?: ReportSectionMetricMap,
+    limitOptions?: LimitDecorationOptions,
     diffs: DiffPreview[] = []
   ) {
     const decorations: Decoration[] = [];
@@ -528,8 +560,8 @@
         })
       );
     }
-    if (sectionLimitMetrics) {
-      decorations.push(...buildSectionLimitDecorations(doc, sectionLimitMetrics));
+    if (limitOptions) {
+      decorations.push(...buildSectionLimitDecorations(doc, limitOptions));
     }
     // A Section a stopped Step-by-step draft left empty keeps one
     // "[NOT GENERATED]" paragraph; mark it "Not drafted" where it sits.
@@ -622,6 +654,7 @@
     readOnly = false,
     commentRanges = [],
     onHoverComment,
+    presentation = "classic",
   }: {
     content: string;
     onUpdate?: (json: string) => void | Promise<void>;
@@ -638,7 +671,16 @@
     readOnly?: boolean;
     commentRanges?: CommentRange[];
     onHoverComment?: (commentId: string | null) => void;
+    /**
+     * Fixed at mount. "reading" is the report page of ui-design-final.md
+     * section 8 (board 2.1): serif body, Section headings as label plus CRA
+     * question, and a limit meter in the heading only near a limit. "classic"
+     * keeps the earlier look for the rollback report page.
+     */
+    presentation?: "classic" | "reading";
   } = $props();
+  // svelte-ignore state_referenced_locally -- fixed at mount, like `editable`
+  const reading = presentation === "reading";
 
   let editor = $state<Editor>();
   let slashMenu = $state<{
@@ -740,7 +782,7 @@
   onMount(() => {
     lastContent = content;
     const editorStore = createEditor({
-      extensions: getEditorExtensions({ editable }),
+      extensions: getEditorExtensions({ editable, sectionHeadings: reading }),
       content: parseContent(content),
       editable,
       editorProps: {
@@ -837,7 +879,18 @@
     if (!ed) return;
     const ranges = commentRanges;
     const ai = aiHighlights;
-    const metrics = limitOverlayVisible ? sectionLimitMetrics : undefined;
+    // Reading: heading meters always (they only show near a limit); the
+    // toggle keeps owning the overflow tint. Classic: everything behind it.
+    const metrics: LimitDecorationOptions | undefined = reading
+      ? {
+          metrics: sectionLimitMetrics,
+          endMarkers: false,
+          overflow: limitOverlayVisible,
+          headingMeters: true,
+        }
+      : limitOverlayVisible
+        ? { metrics: sectionLimitMetrics, endMarkers: true, overflow: true, headingMeters: false }
+        : undefined;
     const diffs = previewDiffs;
     let decoratedDoc: PMNode | null = null;
     let decorations: DecorationSet | null = null;
@@ -1156,10 +1209,10 @@
 </script>
 
 {#if editor}
-  <div class="group/editor relative">
+  <div class={`group/editor relative ${reading ? "report-reading" : ""}`} data-editor-presentation={presentation}>
     <!-- Block handles -->
     {#if canEdit}
-      <BlockHandle {editor} />
+      <BlockHandle {editor} compact={reading} />
     {/if}
 
     <!-- Floating toolbar on text selection -->
@@ -1189,6 +1242,10 @@
 
     <!-- The editor itself -->
     <EditorContent {editor} />
+
+    {#if reading && canEdit}
+      <p class="report-editor-hint" data-report-editor-hint>Type / for commands, or select text to ask the assistant</p>
+    {/if}
 
     {#if editable}
       <div class="mt-4 border-t border-line-soft pt-2.5 font-sans">

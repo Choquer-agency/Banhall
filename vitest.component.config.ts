@@ -72,6 +72,7 @@ export default defineConfig({
       "@tiptap/extension-highlight",
       "@tiptap/extension-placeholder",
       "@tiptap/extension-underline",
+      "@tiptap/pm/state",
       "@tiptap/pm/view",
       "@tiptap/starter-kit",
       "convex/browser",

@@ -7,25 +7,42 @@
 <script lang="ts">
   import type { Editor } from "@tiptap/core";
 
-  let { editor }: { editor: Editor } = $props();
+  let {
+    editor,
+    compact = false,
+  }: {
+    editor: Editor;
+    /** Reading presentation (board 2.1): a small + and grip level with the first line. */
+    compact?: boolean;
+  } = $props();
 
   let hoveredBlock = $state<{ top: number; pos: number } | null>(null);
   let dragging = $state(false);
 
+  let handleEl = $state<HTMLDivElement | null>(null);
+
+  // Listen on the document: when this effect first runs, svelte-tiptap has not
+  // yet moved the editor DOM into place, so its parent does not exist yet.
   $effect(() => {
     const editorElement = editor.view.dom; // the `.tiptap-editor` root
-    const parent = editorElement.parentElement;
-    if (!parent) return;
 
     const handleMouseMove = (e: MouseEvent) => {
       if (dragging) return;
+      const wrapper = editorElement.parentElement?.closest(".group\\/editor") ?? editorElement.parentElement;
+      const target = e.target instanceof Node ? e.target : null;
+      if (!wrapper || !target || !wrapper.contains(target)) {
+        hoveredBlock = null;
+        return;
+      }
+      // Keep the handle while the pointer travels onto it.
+      if (handleEl?.contains(target)) return;
 
       // Find the block element under the cursor
-      const target = document.elementFromPoint(e.clientX, e.clientY);
-      if (!target) return;
+      const pointTarget = document.elementFromPoint(e.clientX, e.clientY);
+      if (!pointTarget) return;
 
       // Walk up to find a direct child of the editor
-      let blockEl: HTMLElement | null = target as HTMLElement;
+      let blockEl: HTMLElement | null = pointTarget as HTMLElement;
       while (blockEl && blockEl.parentElement !== editorElement) {
         blockEl = blockEl.parentElement;
       }
@@ -47,17 +64,8 @@
       };
     };
 
-    const handleMouseLeave = () => {
-      hoveredBlock = null;
-    };
-
-    parent.addEventListener("mousemove", handleMouseMove);
-    parent.addEventListener("mouseleave", handleMouseLeave);
-
-    return () => {
-      parent.removeEventListener("mousemove", handleMouseMove);
-      parent.removeEventListener("mouseleave", handleMouseLeave);
-    };
+    document.addEventListener("mousemove", handleMouseMove);
+    return () => document.removeEventListener("mousemove", handleMouseMove);
   });
 
   function handleAddBlock() {
@@ -73,8 +81,42 @@
   }
 </script>
 
-{#if hoveredBlock}
+{#if hoveredBlock && compact}
   <div
+    bind:this={handleEl}
+    data-block-handle
+    class="absolute -left-[34px] flex items-center gap-0.5 opacity-0 transition-opacity group-hover/editor:opacity-100 motion-reduce:transition-none"
+    style={`top: ${hoveredBlock.top + 3}px;`}
+  >
+    <button
+      type="button"
+      onclick={handleAddBlock}
+      class="flex h-5 w-4 items-center justify-center rounded text-ink-muted transition-colors hover:bg-primary-wash hover:text-ink"
+      title="Add block"
+      aria-label="Add block"
+    >
+      <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true">
+        <path d="M6 2v8M2 6h8" />
+      </svg>
+    </button>
+    <button
+      type="button"
+      class="flex h-5 w-3.5 cursor-grab items-center justify-center rounded text-gray-300 transition-colors hover:text-ink-muted"
+      title="Drag to reorder"
+      aria-label="Drag to reorder"
+      onmousedown={() => (dragging = true)}
+      onmouseup={() => (dragging = false)}
+    >
+      <svg width="10" height="14" viewBox="0 0 10 14" fill="currentColor" aria-hidden="true">
+        <circle cx="3" cy="3" r="1.3" /><circle cx="7" cy="3" r="1.3" />
+        <circle cx="3" cy="7" r="1.3" /><circle cx="7" cy="7" r="1.3" />
+        <circle cx="3" cy="11" r="1.3" /><circle cx="7" cy="11" r="1.3" />
+      </svg>
+    </button>
+  </div>
+{:else if hoveredBlock}
+  <div
+    bind:this={handleEl}
     class="absolute -left-10 flex items-center gap-0.5 opacity-0 transition-opacity group-hover/editor:opacity-100"
     style={`top: ${hoveredBlock.top}px;`}
   >
