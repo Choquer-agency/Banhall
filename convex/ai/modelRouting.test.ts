@@ -31,6 +31,9 @@ import { evalClient } from "./modelEvaluation";
 import { SEED_PROMPT_PROGRAM } from "./promptDefinitions";
 import type { GenerationMessageParams } from "./openrouterCore";
 import { generateStructured } from "./structured";
+import { guardProviderNetwork } from "../../tests/providerNetworkGuard";
+
+guardProviderNetwork();
 
 const structuredArgs = (model: string) => ({
   model,

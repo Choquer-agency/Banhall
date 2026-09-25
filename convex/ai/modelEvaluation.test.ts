@@ -34,6 +34,9 @@ import { PD_REVIEW_TOOL } from "./reviewAgent";
 import { TIMESHEET_EXTRACTION_PROMPT } from "./financialAgent";
 import { CONTEXTUALIZE_SYSTEM_PROMPT } from "./brain/ingest";
 import type { GenerationMessageParams, GenerationResponse } from "./openrouterCore";
+import { guardProviderNetwork } from "../../tests/providerNetworkGuard";
+
+guardProviderNetwork();
 
 // Vite keys this directory's own files as "./x.ts"; convex-test resolves
 // function names from the convex root, so map them back under "../ai/".

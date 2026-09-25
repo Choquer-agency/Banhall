@@ -33,6 +33,7 @@ import scienceCodeSource from "./scienceCodeSuggestions.ts?raw";
 import modelFeedbackSource from "./ai/modelFeedback.ts?raw";
 import changelogSource from "./ai/changelogPipeline.ts?raw";
 import styleAnalysisSource from "./ai/styleAnalysis.ts?raw";
+import { guardProviderNetwork } from "../tests/providerNetworkGuard";
 
 const modules = import.meta.glob("./**/*.ts");
 type TestConvex = ReturnType<typeof convexTest<typeof schema.tables>>;
@@ -42,8 +43,13 @@ const parsed = parseOpenRouterModels(fixture, NOW).models;
 const ADMIN = "catalog-admin";
 const WRITER = "catalog-writer";
 
+guardProviderNetwork();
+// Every timer is fake, not just Date: convex-test starts scheduled
+// functions on setTimeout, and a planned evaluation or a reserved
+// generation left to run by itself would call model providers. Tests that
+// need scheduled work drive it themselves.
 beforeEach(() => {
-  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.useFakeTimers();
   vi.setSystemTime(NOW);
   vi.stubEnv("ANTHROPIC_API_KEY", "test-anthropic-key");
   vi.stubEnv("OPENROUTER_API_KEY", "test-openrouter-key");
@@ -993,14 +999,6 @@ describe("round 4", () => {
   const SWITCHED_AT = NOW - 2 * 3_600_000;
   const NOTICED_AT = SWITCHED_AT + 60_000;
   const ANALYSIS_CHILDREN = ["pd_review", "financial_extraction", "learning_digest", "science_code"] as const;
-
-  // Every timer is fake here, so an evaluation these tests plan never
-  // starts on its own (it would call model providers); each test drives
-  // claims and completions itself.
-  beforeEach(() => {
-    vi.useFakeTimers();
-    vi.setSystemTime(NOW);
-  });
 
   const assignmentOf = (t: TestConvex, role: Doc<"modelRoleAssignments">["role"]) =>
     t.run((ctx) =>
