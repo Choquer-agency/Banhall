@@ -98,10 +98,12 @@
         <span aria-hidden="true" class="absolute right-1.5 top-1.5 size-1.5 rounded-full bg-primary"></span>
       {/if}
     </a>
+    {@render actions?.()}
     {#if moreItems.length > 0}
       <DropdownMenu.Root>
-        <!-- Phone (board 3.6): a vertical kebab at the far right. -->
-        <DropdownMenu.Trigger aria-label="More actions" class={`${iconButton} max-sm:order-last`} data-top-bar-more>
+        <!-- The kebab closes the row in markup too, so tab order matches what
+             the eye sees; on a phone (board 3.6) it is vertical. -->
+        <DropdownMenu.Trigger aria-label="More actions" class={iconButton} data-top-bar-more>
           <DotsThreeIcon size={18} weight="bold" aria-hidden="true" class="max-sm:hidden" />
           <DotsThreeVerticalIcon size={18} weight="bold" aria-hidden="true" class="sm:hidden" />
         </DropdownMenu.Trigger>
@@ -134,6 +136,5 @@
         </DropdownMenu.Portal>
       </DropdownMenu.Root>
     {/if}
-    {@render actions?.()}
   </div>
 </header>

@@ -193,6 +193,11 @@ describe("WorkspaceRail", () => {
     });
     await render(WorkspaceRail, baseProps());
 
+    // Group labels in secondary ink: muted fails AA at 11px on the gray-50 rail.
+    for (const label of ["Workspace", "Other"]) {
+      const element = Array.from(document.querySelectorAll("nav p")).find((p) => p.textContent?.trim() === label)!;
+      expect(getComputedStyle(element).color).toBe("rgb(79, 97, 93)");
+    }
     expect(document.querySelector("[data-developer-group-toggle]")).toBeNull();
     expect(document.querySelector('nav a[href="/alerts"]')).toBeNull();
     expect(document.querySelector('nav a[href="/requests"]')).toBeNull();

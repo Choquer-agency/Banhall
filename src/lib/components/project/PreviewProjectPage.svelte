@@ -1845,6 +1845,7 @@
         onToggleDetails={toggleDetails}
         bind:detailsButton
         showAssistant={reportActionsVisible && !!user}
+        showQa={reportActionsVisible && !!user}
         assistantActive={chatShown && sidePanelOnScreen}
         onToggleAssistant={() => toggleSidePanel("chat")}
       >
@@ -1892,17 +1893,11 @@
             </div>
           {/if}
           <!-- QA finished (board 4.5): 24px inside the report panel's bottom
-               right corner until opened or dismissed. -->
-          {#if showQaFinished && qaScores}
-            <div class="absolute bottom-6 right-6 z-[85] max-sm:inset-x-4 max-sm:bottom-4" data-qa-finished-host>
-              <QaFinishedNotice
-                overallScore={qaScores.overall}
-                sections={qaScores.sections}
-                completedAt={qaCompletedAt}
-                onOpen={openQaFromNotice}
-                onLater={dismissQaNotice}
-                onDismiss={dismissQaNotice}
-              />
+               right corner until opened or dismissed; it scrolls rather than
+               clips in a short window. -->
+          {#if showQaFinished && qaScores && mainPaneVisible}
+            <div class="absolute bottom-6 right-6 z-[85] max-h-[calc(100%-3rem)] overflow-y-auto max-sm:inset-x-4 max-sm:bottom-4 max-sm:max-h-[calc(100%-2rem)]" data-qa-finished-host>
+              {@render qaFinishedNotice()}
             </div>
           {/if}
           {#if sourcesOpen}
@@ -2502,7 +2497,6 @@
                         : (generation?.postQaCompletedAt ?? generation?.completedAt ?? null)}
                       open={qaOpen}
                       onClose={closeSidePanel}
-                      modelName={generation?.selectedModelLabel ?? generation?.iterativeModelLabel ?? null}
                       agentOutputs={generation?.agentOutputs}
                       reportContent={report.content}
                       reportId={report._id}
@@ -2612,6 +2606,26 @@
             </button>
           </div>
         </div>
+      </div>
+    {/if}
+
+    {#snippet qaFinishedNotice()}
+      {#if qaScores}
+        <QaFinishedNotice
+          overallScore={qaScores.overall}
+          sections={qaScores.sections}
+          completedAt={qaCompletedAt}
+          onOpen={openQaFromNotice}
+          onLater={dismissQaNotice}
+          onDismiss={dismissQaNotice}
+        />
+      {/if}
+    {/snippet}
+    <!-- QA finished while the report pane is off screen (Assistant full
+         screen, or the side panel on a phone): the window corner instead. -->
+    {#if showQaFinished && qaScores && !mainPaneVisible}
+      <div class="fixed bottom-6 right-6 z-[85] max-h-[calc(100dvh-3rem)] overflow-y-auto max-sm:inset-x-4 max-sm:bottom-4" data-qa-finished-host>
+        {@render qaFinishedNotice()}
       </div>
     {/if}
 

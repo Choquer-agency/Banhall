@@ -127,7 +127,7 @@
       side="bottom"
       {align}
       sideOffset={4}
-      class="z-[120] w-[312px] max-w-[calc(100vw-2rem)] rounded-xl border border-line bg-white p-1.5 shadow-[0_16px_40px_#16211F1F]"
+      class="z-[120] w-[312px] max-w-[calc(100vw-2rem)] rounded-xl border border-line bg-white p-1.5 shadow-popover"
     >
       <div class="flex flex-col gap-2 p-2">
       <Calendar.Root

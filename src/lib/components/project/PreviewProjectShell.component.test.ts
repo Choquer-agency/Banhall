@@ -138,7 +138,7 @@ describe("PreviewProjectPage final shell", () => {
     expect(tabs()).toEqual(["report", "sources"]);
     expect(document.querySelector('[data-panel-tab="report"]')?.getAttribute("aria-current")).toBe("page");
     expect(document.querySelector('[data-panel-tab="sources"]')?.textContent).toContain("1");
-    // Top bar: breadcrumb and title, bell, More, Export, Send for review.
+    // Top bar: breadcrumb and title, bell, Export, Send for review, More.
     const header = document.querySelector<HTMLElement>("[data-workspace-page-header]")!;
     expect(header.querySelector("h1")?.textContent).toBe("Adaptive cold storage controls");
     expect(header.textContent).toContain("Projects");
@@ -146,6 +146,10 @@ describe("PreviewProjectPage final shell", () => {
     const exportButton = page.getByRole("button", { name: "Export .docx", exact: true }).element() as HTMLElement;
     expect(exportButton.className).toContain("bg-chrome");
     expect(page.getByRole("button", { name: "Send for review", exact: true }).elements()).toHaveLength(1);
+    // The kebab closes the row in the markup as well, so tab order follows the eye.
+    const more = page.getByRole("button", { name: "More actions", exact: true }).element() as HTMLElement;
+    const send = page.getByRole("button", { name: "Send for review", exact: true }).element() as HTMLElement;
+    expect(send.compareDocumentPosition(more) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     await page.getByRole("button", { name: "More actions", exact: true }).click();
     const items = Array.from(document.querySelectorAll("[data-top-bar-more-item]")).map((item) => item.getAttribute("data-top-bar-more-item"));
     expect(items).toEqual(["ai-review", "share", "history", "financial"]);

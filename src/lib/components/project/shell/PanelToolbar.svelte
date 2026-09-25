@@ -45,6 +45,7 @@
     assistantActive = false,
     onToggleAssistant,
     qa,
+    showQa = true,
   }: {
     tabs: PanelTab[];
     activeTab: PanelTab["id"] | null;
@@ -64,6 +65,8 @@
     onToggleAssistant?: () => void;
     /** The QA toggle slot. */
     qa?: Snippet;
+    /** Whether the QA slot renders anything (it draws the divider before it). */
+    showQa?: boolean;
   } = $props();
 
   const toggleBase =
@@ -140,7 +143,7 @@
       </button>
       {@render detailsPeek?.()}
       <!-- Boards 2.1 and 2.2: a hairline between Details and the AI toggles. -->
-      {#if showAssistant || qa}
+      {#if showAssistant || (qa && showQa)}
         <span aria-hidden="true" data-panel-toggle-divider class="mx-1 h-4 w-px bg-line"></span>
       {/if}
     {/if}

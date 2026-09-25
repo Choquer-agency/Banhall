@@ -268,7 +268,8 @@
 
     <div data-rail-scroll class="scrollbar-hidden flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain">
       {#if !collapsed}
-        <p class="px-4 pb-1 pt-1.5 text-[11px] leading-4 text-ink-muted">Workspace</p>
+        <!-- Secondary ink: muted fails AA at 11px on the gray-50 rail (review f2). -->
+        <p class="px-4 pb-1 pt-1.5 text-[11px] leading-4 text-ink-secondary">Workspace</p>
       {/if}
       <div class={`flex flex-col ${collapsed ? "items-center gap-1 px-0" : "px-2"}`}>
         {@render row({
@@ -369,7 +370,7 @@
 
       <div data-rail-utilities class={collapsed ? "mb-1 flex flex-col items-center gap-1" : "px-2"}>
         {#if !collapsed}
-          <p class="px-2 pb-1 pt-4 text-[11px] leading-4 text-ink-muted">Other</p>
+          <p class="px-2 pb-1 pt-4 text-[11px] leading-4 text-ink-secondary">Other</p>
         {/if}
         <div class={`flex flex-col ${collapsed ? "items-center gap-1" : ""}`}>
           {@render row({

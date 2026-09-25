@@ -76,4 +76,19 @@ describe("PanelToolbar", () => {
     expect(document.querySelector('[data-panel-toggle="full-width"]')).toBeNull();
     expect(document.querySelector('[data-panel-toggle="assistant"]')).toBeNull();
   });
+
+  it("draws no divider after Details when neither Assistant nor QA shows", async () => {
+    await render(PanelToolbar, {
+      tabs: [{ id: "report", label: "Report" }],
+      activeTab: "report",
+      onSelectTab: () => {},
+      showAssistant: false,
+      qa: qaSnippet,
+      showQa: false,
+    });
+    const order = Array.from(
+      document.querySelectorAll("[data-panel-toggles] [data-panel-toggle], [data-panel-toggles] [data-panel-toggle-divider]")
+    ).map((el) => el.getAttribute("data-panel-toggle") ?? "divider");
+    expect(order[order.indexOf("details") + 1]).not.toBe("divider");
+  });
 });
