@@ -38,7 +38,7 @@ import { condenseWindow, splitIntoWindows, type TranscriptDigest } from "../../c
 import { withPlaceholders } from "../../convex/ai/placeholderClient";
 import type { GenerationClient } from "../../convex/ai/openrouterCore";
 import { restorePlaceholders } from "../../convex/lib/deidentify";
-import { parseTranscriptTurns, prepareTranscriptUpload } from "../../shared/transcriptParse";
+import { isCueRender, parseTranscriptTurns, prepareTranscriptUpload } from "../../shared/transcriptParse";
 import { estimateCostFromTable } from "../../shared/modelPricing";
 
 export type EvalTranscript = {
@@ -192,8 +192,9 @@ function rate(numerator: number, denominator: number): number {
 }
 
 export function evalTurns(entry: EvalTranscript): { content: string; turns: FactTurn[]; placeholders: PlaceholderMap; speakers: Array<{ label: string; role: string }> } {
-  const { content } = prepareTranscriptUpload({ fileName: entry.fileName ?? `${entry.name}.txt`, text: entry.text });
-  const parsed = parseTranscriptTurns(content);
+  const { format, content } = prepareTranscriptUpload({ fileName: entry.fileName ?? `${entry.name}.txt`, text: entry.text });
+  // The cue rules production's turn build applies (buildStructureStep).
+  const parsed = parseTranscriptTurns(content, { cues: isCueRender(format, content) });
   const guesses = inferSpeakerRoles(parsed, {
     staffNames: entry.interviewer ? [entry.interviewer] : [],
     clientNames: entry.interviewees ?? [],

@@ -11,7 +11,7 @@ import {
   deriveStoredProcessing,
 } from "../shared/documentStatus";
 import { requireAttemptKey, resolveUploadAttempt } from "./lib/uploadAttempts";
-import { deleteStorageIfUnreferenced } from "./lib/storage";
+import { deleteStorageIfUnreferenced, requireFreshUpload } from "./lib/storage";
 
 const fileTypeValidator = v.union(
   v.literal("txt"),
@@ -100,6 +100,11 @@ export const uploadDocument = mutation({
       extractionFailed: args.extractionOutcome === "failed",
       intake: args.intake,
     });
+    // Only a fresh upload can be attached (a retry that sends the file this
+    // row already holds resolves as before).
+    if (args.storageId && dup?.storageId !== args.storageId) {
+      await requireFreshUpload(ctx, args.storageId);
+    }
 
     if (dup) {
       if (!dup.storageId && args.storageId) {

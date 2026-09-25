@@ -447,8 +447,13 @@ export const discardTranscriptOriginals = mutation({
  */
 export const UNREFERENCED_STORAGE_GRACE_MS = 24 * 60 * 60 * 1000;
 
-/** Files one sweep transaction looks at. */
-export const STORAGE_SWEEP_PAGE_SIZE = 100;
+/**
+ * Files one sweep transaction looks at. Each held file costs one full row
+ * read in `isStorageReferenced` (a transcript or a document can hold up to
+ * 1 MB of text), so a page stays far inside the 16 MiB a transaction may
+ * read.
+ */
+export const STORAGE_SWEEP_PAGE_SIZE = 10;
 
 /** Sweep runs kept for admins to read; older ones are pruned. */
 export const STORAGE_SWEEP_RUNS_KEPT = 30;
@@ -616,10 +621,12 @@ async function reportStorageSweep(ctx: MutationCtx, run: Doc<"storageSweepRuns">
   await ctx.db.insert("errorReports", {
     kind: "auto",
     reportType: "bug",
+    // No file ids: anyone signed in can read the alerts board, and an id
+    // is all it takes to attach a file. The sample stays on the admin-only
+    // run row (getStorageSweepStatus).
     message:
       `Storage sweep (report only): ${summary} Nothing was deleted. ` +
-      `Sample: ${run.sampleFileIds.slice(0, 5).join(", ")}. ` +
-      `An admin can set storage.sweepUnreferenced to "delete" to remove them.`,
+      `An admin can read the run and set storage.sweepUnreferenced to "delete" to remove them.`,
     source: "storage-sweep",
     url: "/alerts",
     breadcrumbs: [],

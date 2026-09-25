@@ -316,7 +316,9 @@ describe("sweepUnreferencedStorage", () => {
     expect(notices[0]).toMatchObject({ kind: "auto", status: "open", url: "/alerts" });
     expect(notices[0].message).toContain("3 stored files are more than a day old and held by no row (600 bytes");
     expect(notices[0].message).toContain("Nothing was deleted.");
-    expect(notices[0].message).toContain(orphans[0]);
+    // Anyone signed in can read the alerts board: the file ids stay on the
+    // admin-only run row, never in the notice.
+    for (const id of orphans) expect(notices[0].message).not.toContain(id);
 
     // The next day finds the same files: a new run row, no new notice.
     vi.setSystemTime(Date.now() + DAY);
@@ -329,6 +331,52 @@ describe("sweepUnreferencedStorage", () => {
     await sweep(t);
     expect(await sweepNotices(t)).toHaveLength(2);
     for (const id of orphans) expect(await exists(t, id)).toBe(true);
+  });
+
+  it("pages through files held by heavy rows inside the read limit", async () => {
+    // Each held file costs one full row read in isStorageReferenced; rows of
+    // about 900 KB (a long transcript or document) must never push a page
+    // past the 16 MiB a transaction may read.
+    const t = convexTest({ schema, modules, transactionLimits: true }) as T;
+    const projectId = await t.run(async (ctx) => {
+      const writerId = await ctx.db.insert("users", { authId: "sweep-heavy", role: "writer" });
+      return await ctx.db.insert("projects", {
+        title: "Heavy",
+        clientName: "Client",
+        status: "draft",
+        createdBy: writerId,
+        shareToken: "sweep-heavy-token",
+        createdAt: 1,
+        updatedAt: 1,
+      });
+    });
+    const heavy = "x".repeat(900_000);
+    const held: Id<"_storage">[] = [];
+    for (let i = 0; i < 24; i += 1) {
+      const storageId = await t.run((ctx) => ctx.storage.store(new Blob([`held ${i}`])));
+      await t.run(async (ctx): Promise<unknown> =>
+        i % 2 === 0
+          ? await ctx.db.insert("transcripts", { projectId, content: `${i}${heavy}`, createdAt: 1, originalStorageId: storageId })
+          : await ctx.db.insert("projectDocuments", {
+              projectId,
+              fileName: `doc-${i}.txt`,
+              fileType: "txt",
+              content: `${i}${heavy}`,
+              storageId,
+              source: "upload",
+              uploadedBy: "sweep-heavy",
+              createdAt: 1,
+            })
+      );
+      held.push(storageId);
+    }
+    vi.setSystemTime(Date.now() + DAY + 60_000);
+    await setMode(t, "delete");
+    await sweep(t);
+    const [run] = await runs(t);
+    expect(run).toMatchObject({ checked: held.length, unreferenced: 0, deleted: 0 });
+    expect(run.finishedAt).toBeTypeOf("number");
+    for (const id of held) expect(await exists(t, id)).toBe(true);
   });
 
   it("keeps a capped sample of file ids", async () => {

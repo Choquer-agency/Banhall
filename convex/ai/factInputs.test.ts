@@ -16,8 +16,8 @@ import { CONDENSE_TIMEOUT_MS } from "./condenseAgent";
 import {
   ANTHROPIC_TIMEOUT_MS,
   CONVEX_ACTION_LIMIT_MS,
-  isCallerAbort,
   RESERVED_NON_REQUEST_MS,
+  withOutcomeRecording,
 } from "./providers";
 import Anthropic from "@anthropic-ai/sdk";
 import { FACT_WINDOW_TOKENS, planFactWindows, type FactTurn } from "../lib/transcriptFacts";
@@ -148,15 +148,54 @@ describe("calls across transcripts share one cap", () => {
 });
 
 describe("an abort is the caller's, never the model's (review 2026-09-25, P3-b)", () => {
-  it("recognizes every abort shape and nothing else", () => {
-    expect(isCallerAbort(new DOMException("gone", "AbortError"))).toBe(true);
-    expect(isCallerAbort(new DOMException("slow", "TimeoutError"))).toBe(true);
-    expect(isCallerAbort(new Anthropic.APIUserAbortError())).toBe(true);
-    const openRouter = new Error("OpenRouter request aborted by the caller");
-    openRouter.name = "AbortError";
-    expect(isCallerAbort(openRouter)).toBe(true);
-    expect(isCallerAbort(new Error("Request was aborted."))).toBe(false);
-    expect(isCallerAbort(new Error("bad window"))).toBe(false);
-    expect(isCallerAbort("AbortError")).toBe(false);
+  const params = { model: "m", max_tokens: 10, messages: [{ role: "user" as const, content: "hi" }] };
+
+  /** A recording client whose request fails with `error`, and the outcomes it recorded. */
+  function failingClient(error: unknown, signal?: AbortSignal) {
+    const recorded: unknown[] = [];
+    const ctx = {
+      runMutation: async (_ref: unknown, outcome: unknown) => {
+        recorded.push(outcome);
+        return null;
+      },
+    };
+    const inner = {
+      messages: {
+        create: async () => {
+          throw error;
+        },
+      },
+    };
+    const client = withOutcomeRecording(ctx as never, "m", "abort-test", inner as never, signal ? { signal } : {});
+    return { client, recorded };
+  }
+
+  it("records nothing when the caller aborted its own request, whatever the error", async () => {
+    for (const error of [
+      new DOMException("gone", "AbortError"),
+      new DOMException("slow", "TimeoutError"),
+      new Anthropic.APIUserAbortError(),
+      new Error("bad window"),
+    ]) {
+      const controller = new AbortController();
+      controller.abort();
+      const { client, recorded } = failingClient(error, controller.signal);
+      await expect(client.messages.create(params)).rejects.toBe(error);
+      expect(recorded, String(error)).toEqual([]);
+    }
+  });
+
+  it("records a timeout the caller did not ask for as the model's failure", async () => {
+    // A body read that ran past the attempt's own timer rejects with a raw
+    // TimeoutError (openrouter.ts reads the body outside its timeout
+    // handling); the caller's signal is still live.
+    const timeout = new DOMException("The operation was aborted due to timeout", "TimeoutError");
+    const live = new AbortController();
+    for (const { client, recorded } of [failingClient(timeout), failingClient(timeout, live.signal)]) {
+      await expect(client.messages.create(params)).rejects.toBe(timeout);
+      expect(recorded).toEqual([
+        expect.objectContaining({ model: "m", callSite: "abort-test", outcome: "failure", code: "unknown" }),
+      ]);
+    }
   });
 });

@@ -30,7 +30,6 @@ import {
 import { COMPRESSION_REQUEST } from "./promptDefinitions";
 import { instrumentedOpenRouter } from "./openrouter";
 import {
-  isAbortLikeError,
   MalformedOutputError,
   type GenerationClient,
   type GenerationResponse,
@@ -325,28 +324,14 @@ export function withOutcomeRecording(
 export type SettleOutcome = (result: { ok: true } | { ok: false; code: string }) => Promise<void>;
 
 /**
- * An error that means the caller gave up on the request (its own time limit,
- * or a sibling request failed), not that the model failed: a DOMException
- * or error named AbortError or TimeoutError, or the Anthropic SDK's user
- * abort.
- */
-export function isCallerAbort(error: unknown): boolean {
-  // Guarded: a test double of the SDK may not export the class, and an
-  // `instanceof` against undefined would throw and replace the real error.
-  const userAbort: unknown = (Anthropic as { APIUserAbortError?: unknown }).APIUserAbortError;
-  return (
-    isAbortLikeError(error) ||
-    (typeof userAbort === "function" && error instanceof (userAbort as new () => Error)) ||
-    (error instanceof Error && error.name === "APIUserAbortError")
-  );
-}
-
-/**
  * The one place a provider request's terminal outcome is recorded: exactly
  * one per request (phase 2 rule), for the model that served it. A deferred
  * request hands the response a `settleOutcome` for the caller to call after
- * its own validation. A request whose `signal` was aborted, or that failed
- * with an abort, records nothing (review 2026-09-25, P3-b).
+ * its own validation. A request whose own `signal` was aborted records
+ * nothing (review 2026-09-25, P3-b): the caller gave up, which says nothing
+ * about the model. Any other error, a timeout included, is judged by
+ * `modelFaultCode`, so an attempt that timed out on its own timer (a body
+ * read past the deadline, say) still counts against the model.
  */
 async function recordedRequest<R extends { servedModel?: string; settleOutcome?: SettleOutcome }>(
   ctx: Pick<ActionCtx, "runMutation">,
@@ -358,7 +343,7 @@ async function recordedRequest<R extends { servedModel?: string; settleOutcome?:
   try {
     response = await send();
   } catch (error) {
-    const code = request.signal?.aborted || isCallerAbort(error) ? null : modelFaultCode(error);
+    const code = request.signal?.aborted ? null : modelFaultCode(error);
     if (code) {
       await recordOutcome(ctx, { model: servedModelOf(error) ?? requested, callSite, outcome: "failure", code });
     }

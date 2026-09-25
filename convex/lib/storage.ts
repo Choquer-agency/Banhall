@@ -1,5 +1,6 @@
 import type { Id } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
+import { domainError } from "./contracts";
 
 /**
  * Every schema field that holds a file, as `table.field`. The storage
@@ -37,6 +38,30 @@ export async function isStorageReferenced(
   if (await ctx.db.query("transcripts")
     .withIndex("by_originalStorageId", (q) => q.eq("originalStorageId", storageId)).first()) return true;
   return false;
+}
+
+/**
+ * How recently a file must have been uploaded for a save to attach it: the
+ * browser saves within seconds of its upload, so an hour is generous.
+ */
+export const FRESH_UPLOAD_MS = 60 * 60 * 1000;
+
+/**
+ * Refuses a storage id a save may not attach: a file that is gone, or one
+ * uploaded more than FRESH_UPLOAD_MS ago. Convex does not record who
+ * uploaded a file, so freshness stands in for "the caller's own upload": an
+ * old orphan (an upload whose save never ran, or a file an erased project
+ * left behind) cannot be claimed by a project.
+ */
+export async function requireFreshUpload(
+  ctx: QueryCtx | MutationCtx,
+  storageId: Id<"_storage">,
+  message = "The uploaded file is no longer available. Upload it again.",
+): Promise<void> {
+  const metadata = await ctx.db.system.get("_storage", storageId);
+  if (!metadata || Date.now() - metadata._creationTime > FRESH_UPLOAD_MS) {
+    domainError("INVALID_INPUT", message);
+  }
 }
 
 /**

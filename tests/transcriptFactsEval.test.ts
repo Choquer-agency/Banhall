@@ -5,6 +5,7 @@ import {
   contentWords,
   estimateEvalCost,
   evalRunRefusal,
+  evalTurns,
   formatReport,
   recalledBy,
   runFactsEval,
@@ -228,6 +229,31 @@ describe("transcript facts evaluation harness", () => {
     expect(evalRunRefusal({ ...base, clientName: "  " })).toMatch(/--client/);
     expect(evalRunRefusal({ ...base, estimateUsd: 2 })).toMatch(/--max-usd 1/);
     expect(evalRunRefusal({ ...base, apiKey: undefined })).toMatch(/ANTHROPIC_API_KEY/);
+  });
+
+  it("parses a cue file with the cue rules production uses", () => {
+    // An unnamed cue whose speech holds a colon: production gives it its own
+    // timed turn, never the speaker above it (isCueRender from the format).
+    const vtt = [
+      "WEBVTT",
+      "",
+      "00:00:01.000 --> 00:00:02.000",
+      "<v Priya Shah>We built a rig.",
+      "",
+      "00:00:03.000 --> 00:00:05.000",
+      "We tested two options: the first failed.",
+    ].join("\n");
+    const { turns } = evalTurns({ name: "call", fileName: "call.vtt", text: vtt });
+    expect(turns.map((turn) => [turn.speakerLabel, turn.startMs])).toEqual([
+      ["Priya Shah", 1_000],
+      [undefined, 3_000],
+    ]);
+    // Pasted-style text keeps a timestamped paragraph in the named turn.
+    const pasted = evalTurns({
+      name: "notes",
+      text: "Priya Shah: We built a rig.\n\n[00:12:30] And then it failed.",
+    });
+    expect(pasted.turns.map((turn) => turn.speakerLabel)).toEqual(["Priya Shah"]);
   });
 
   it("counts recall by shared content words", () => {
