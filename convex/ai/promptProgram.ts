@@ -264,11 +264,16 @@ const seedRolePromptProgram = PD_SUBSECTIONS.map((role) => ({
   kind: role.kind,
   title: role.title,
   objective: role.objective,
-  schemas: {
-    batch: seedToolSchema(role.roleId, "batch"),
-    feedback: seedToolSchema(role.roleId, "feedback"),
-  },
 }));
+
+// Cost phase 1: one provider-facing Seed schema for every role and both
+// modes, so the cached tools prefix is shared; validateBatch enforces each
+// mode's count and specific advancements' links.
+const seedProviderSchema = seedToolSchema();
+const SEED_SCHEMA_POLICY = {
+  provider: "one-schema-for-every-role-and-mode",
+  application: "validateBatch-enforces-mode-count-and-role-links",
+} as const;
 
 const derivedWordBudgets = Object.keys(LINE_LIMITS).flatMap((section) =>
   Object.keys(LENGTH_TARGETS).map((target) => ({
@@ -447,9 +452,8 @@ export const generationPromptProgram = {
       styleOverridesScaffold: SEED_PROMPT_PROGRAM.styleOverrides,
       userScaffold: SEED_PROMPT_PROGRAM.user,
       request: SEED_PROMPT_PROGRAM.request,
-      schemaByRole: Object.fromEntries(
-        seedRolePromptProgram.map((role) => [role.roleId, role.schemas.batch])
-      ),
+      schema: seedProviderSchema,
+      schemaPolicy: SEED_SCHEMA_POLICY,
       model: { kind: "candidate", fallbackModelId: MODEL },
       thinking: { kind: "omitted" },
       structuredPolicy: "two-attempt-repair",
@@ -461,9 +465,8 @@ export const generationPromptProgram = {
       styleOverridesScaffold: SEED_PROMPT_PROGRAM.styleOverrides,
       userScaffold: SEED_PROMPT_PROGRAM.user,
       request: SEED_PROMPT_PROGRAM.request,
-      schemaByRole: Object.fromEntries(
-        seedRolePromptProgram.map((role) => [role.roleId, role.schemas.feedback])
-      ),
+      schema: seedProviderSchema,
+      schemaPolicy: SEED_SCHEMA_POLICY,
       model: { kind: "candidate", fallbackModelId: MODEL },
       thinking: { kind: "omitted" },
       structuredPolicy: "two-attempt-repair",

@@ -7,6 +7,7 @@ import {
   chatHistoryWindowRows,
 } from "./chatAgentV2";
 import {
+  CHAT_TAIL_SHARE,
   DEFAULT_CHAT_EVIDENCE_BUDGET,
   arrangeChatContext,
   EMPTY_ANALYSIS_TEXT,
@@ -225,25 +226,27 @@ describe("chat evidence message", () => {
     expect(describeContextCuts(report)).toContain("shortened big.txt");
   });
 
-  it("keeps the report whole and drops later sources when the total is exhausted", () => {
+  it("keeps the report whole and drops later head sources when the head allowance is exhausted", () => {
+    // Cost phase 1: the total (1,000 tokens, 4,000 characters) splits into a
+    // tail of a quarter (report, decisions) and a head of the rest
+    // (analysis, documents).
     const reportText = "R".repeat(400);
     const { message, report } = buildChatEvidence({
       reportText,
-      analysisText: "A".repeat(400),
+      analysisText: "A".repeat(3_000),
       documents: [doc({ fileName: "late.txt", content: "Never sent.", category: "other" })],
       decisions: [{ state: "applied", target: "t", candidate: "c" }],
-      budget: budget({ totalTokens: 100 }),
+      budget: budget({ totalTokens: 1_000 }),
     });
     expect(blockBody(message, `${EVIDENCE_LABELS.report}]`)).toBe(reportText);
-    // Nothing of the later sources is sent, and no block carries empty text:
-    // each says it was dropped instead (see the omission-notice case below).
-    expect(message).not.toContain("A".repeat(400));
+    expect(blockBody(message, `${EVIDENCE_LABELS.analysis}]`)).toBe("A".repeat(3_000));
+    expect(message).toContain("Canonical target from report: t");
+    // The document found the head allowance spent and is reported dropped.
     expect(message).not.toContain("Never sent.");
-    expect(message).not.toContain("Canonical target from report: t");
-    for (const kind of ["analysis", "decisions", "document"] as const) {
-      const row = report.sources.find((s) => s.kind === kind);
-      expect(row).toMatchObject({ included: false, includedLength: 0 });
-    }
+    expect(report.sources.find((s) => s.kind === "document")).toMatchObject({
+      included: false,
+      includedLength: 0,
+    });
     expect(report.includedTokens).toBeLessThanOrEqual(report.budget.totalTokens);
   });
 
@@ -344,7 +347,7 @@ describe("chat evidence message", () => {
     }
   });
 
-  it("never spends more than the total budget", () => {
+  it("never spends more than the total budget, and the tail never more than its share", () => {
     const { report } = buildChatEvidence({
       reportText: "R".repeat(5_000),
       analysisText: "A".repeat(5_000),
@@ -355,7 +358,51 @@ describe("chat evidence message", () => {
       budget: budget({ totalTokens: 2_000 }),
     });
     expect(report.includedTokens).toBeLessThanOrEqual(2_000);
+    const tail = report.sources
+      .filter((s) => s.kind === "report" || s.kind === "decisions" || s.kind === "openQuestions")
+      .reduce((n, s) => n + s.includedLength, 0);
+    expect(tail).toBeLessThanOrEqual(2_000 * CHARS_PER_TOKEN * CHAT_TAIL_SHARE);
     expect(report.sources).toHaveLength(11);
+  });
+
+  it("keeps a small configured total small (1,000 tokens)", () => {
+    const { report } = buildChatEvidence({
+      reportText: "R".repeat(20_000),
+      analysisText: "A".repeat(20_000),
+      documents: [doc({ fileName: "big.txt", content: "z".repeat(20_000), category: "other" })],
+      decisions: [{ state: "applied", target: "t".repeat(20_000), candidate: "c" }],
+      openQuestions: [{ text: "q".repeat(20_000), confidence: "unresolved", sourceLabel: null }],
+      budget: budget({ totalTokens: 1_000 }),
+    });
+    expect(report.includedTokens).toBeLessThanOrEqual(1_000);
+  });
+
+  it("keeps the cached head byte-identical when the report or decisions change (cost phase 1)", () => {
+    // Documents saturate the head allowance, where a shared pool would move
+    // their cut with every change to the tail.
+    const input = {
+      analysisText: "A".repeat(2_500),
+      documents: Array.from({ length: 4 }, (_, i) =>
+        doc({ fileName: `d${i}.txt`, content: "z".repeat(3_000), category: "other" as const })
+      ),
+      budget: budget({ totalTokens: 2_000 }),
+    };
+    const base = buildChatEvidence({
+      ...input,
+      reportText: "R".repeat(1_000),
+      decisions: [{ state: "applied", target: "t", candidate: "c" }],
+    });
+    const edited = buildChatEvidence({
+      ...input,
+      reportText: "R".repeat(1_009),
+      decisions: [
+        { state: "applied", target: "t", candidate: "c" },
+        { state: "pending", target: "t2".repeat(100), candidate: "c2" },
+      ],
+    });
+    expect(base.report.sources.some((s) => s.kind === "document" && s.truncated)).toBe(true);
+    expect(edited.head).toBe(base.head);
+    expect(edited.tail).not.toBe(base.tail);
   });
 
   it("keeps the evidence guidance free of dash connectors", () => {
@@ -376,7 +423,7 @@ describe("chat evidence message", () => {
       documents: [
         doc({ fileName: "late.txt", content: "Dropped body.", category: "other" }),
       ],
-      budget: budget({ totalTokens: 100 }),
+      budget: budget({ totalTokens: 100, analysisTokens: 0, perDocumentTokens: 0 }),
     });
     // The analysis block is still there, saying what happened to it. An absent
     // block reads as "never provided", which is what invites a fabricated gap.
@@ -455,7 +502,9 @@ describe("chat evidence message", () => {
         doc({ fileName: "left-out.txt", content: "y".repeat(400), category: "other" }),
       ],
       decisions: [],
-      budget: budget({ totalTokens: 150, reportTokens: 100, perDocumentTokens: 100 }),
+      // Head allowance 400 characters: the analysis placeholder, then 366 of
+      // kept-short, then nothing for left-out.
+      budget: budget({ totalTokens: 100, perDocumentTokens: 100 }),
     });
     const cuts = describeContextCuts(report);
     expect(cuts).toContain("shortened");

@@ -25,6 +25,7 @@ import {
   toChatCompletions,
   fromChatCompletions,
   openRouterUsage,
+  requestCacheWriteTtl,
   shouldRetryStatus,
   retryDelayMs,
   isAbortLikeError,
@@ -164,7 +165,9 @@ export async function openRouterChatCompletion(
   }
   // Mirrors instrumentedAnthropic: a successful response is never turned into
   // an app failure by usage logging.
-  const usage = openRouterUsage(body);
+  const usage = openRouterUsage(body, {
+    cacheWriteTtl: requestCacheWriteTtl(input.body),
+  });
   // After a fallback the answer came from another model: bill that model.
   const answered =
     input.fallbackModels?.length && typeof body.model === "string"
@@ -197,6 +200,9 @@ export async function openRouterChatCompletion(
       cacheReadInputTokens: usage.cacheReadInputTokens,
       ...(usage.cacheCreationInputTokens !== undefined
         ? { cacheCreationInputTokens: usage.cacheCreationInputTokens }
+        : {}),
+      ...(usage.cacheCreation1hInputTokens !== undefined
+        ? { cacheCreation1hInputTokens: usage.cacheCreation1hInputTokens }
         : {}),
       ...(usage.costUsd !== undefined ? { costUsd: usage.costUsd } : {}),
     });

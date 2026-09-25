@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildTrustedContext,
   buildSeedTrustedContext,
+  buildSeedPrompt,
   preferDigestSources,
   buildSeedSystemPrompt,
   CHARS_PER_TOKEN,
@@ -17,6 +18,8 @@ import {
   type ContextDoc,
 } from "./trustedContext";
 import { CONTEXT_INPUTS_GUIDANCE } from "./prompts";
+import { SEED_PROMPT_PROGRAM } from "./promptDefinitions";
+import { SeedContextLimitError } from "../lib/seedRevisions";
 
 const budget = (overrides: Partial<ContextBudget> = {}): ContextBudget => ({
   ...DEFAULT_CONTEXT_BUDGET,
@@ -892,5 +895,99 @@ describe("PD review input budget", () => {
     expect(whole).not.toContain("TRUNCATED");
     expect(whole).not.toContain("omitted");
     expect(whole).toContain("3".repeat(10));
+  });
+});
+
+describe("seed source allowance near the byte limit (cost phase 1)", () => {
+  const base = {
+    mode: "batch" as const,
+    brief: { storyline: "A frozen storyline.", entries: ["Complete Brief item."] },
+    // Far past the 600,000-byte limit, so the sources are cut.
+    sources: [{ sourceId: "source-1", label: "Interview", kind: "transcript",
+      content: "Measured seal fatigue at 400 kPa across cycles. ".repeat(20_000), contentHash: "hash-1" }],
+    writerSettings: { profile: "Frozen profile.", styleOverrides: {} },
+    lengthTarget: "standard",
+  };
+
+  it("keeps the cached source block byte-identical across objectives and decisions", () => {
+    const first = buildSeedPrompt({
+      ...base,
+      objective: "Short objective.",
+      projection: { decisions: "(none)", feedback: "(none)" },
+    });
+    const second = buildSeedPrompt({
+      ...base,
+      mode: "feedback",
+      objective: `A much longer objective. ${"More words for this role. ".repeat(40)}`,
+      projection: {
+        decisions: JSON.stringify({ items: Array.from({ length: 30 }, (_, i) => ({ bullets: [`Decision ${i} wording.`] })) }),
+        feedback: "Keep the measurement precise.",
+        target: "Frozen target wording.",
+      },
+    });
+    expect(first.sources[0]).toMatchObject({ truncated: true });
+    expect(second.userBlocks[0].text).toBe(first.userBlocks[0].text);
+    expect(second.sources).toEqual(first.sources);
+    expect(second.userBlocks[1].text).not.toBe(first.userBlocks[1].text);
+  });
+
+  it("refuses a role tail over its allowance instead of moving the source cutoff", () => {
+    const reserve = SEED_PROMPT_PROGRAM.request.roleTailReserveUtf8Bytes;
+    const withDecisions = (bytes: number) =>
+      buildSeedPrompt({
+        ...base,
+        objective: "Objective.",
+        projection: { decisions: "x".repeat(bytes), feedback: "(none)" },
+      });
+    const small = withDecisions(10);
+    // A tail just inside the reservation gets the same cached block...
+    const near = withDecisions(reserve - 2_000);
+    expect(near.userBlocks[0].text).toBe(small.userBlocks[0].text);
+    expect(near.sources).toEqual(small.sources);
+    // ...and one past it is refused as a processing limit, never by
+    // shrinking the sources.
+    expect(() => withDecisions(reserve + 10_000)).toThrow(SeedContextLimitError);
+    expect(() => withDecisions(reserve + 10_000)).toThrow(/Seed role context .* its allowance is/);
+  });
+
+  it("keeps room to disclose omitted sources under a very large Brief with many sources", () => {
+    // Accepted at 215995f (2 sources kept, 126 omissions disclosed); the
+    // half-space clamp alone left the disclosure no room.
+    const build = (objective: string) => buildSeedPrompt({
+      ...base,
+      brief: { storyline: "S".repeat(590_000), entries: [] },
+      sources: Array.from({ length: 128 }, (_, i) => ({
+        sourceId: `source-${String(i).padStart(25, "0")}`,
+        label: `Interview ${i}`,
+        kind: "transcript",
+        content: "B".repeat(1_000),
+        contentHash: `hash-${i}`,
+      })),
+      objective,
+      projection: { decisions: "(none)", feedback: "(none)" },
+    });
+    const prompt = build("Objective.");
+    // The cached block still ignores the role's own text.
+    expect(build("A longer objective for another role.").userBlocks[0].text)
+      .toBe(prompt.userBlocks[0].text);
+    expect(prompt.promptBytes).toBeLessThanOrEqual(600_000);
+    expect(prompt.userBlocks[0].text).toContain("[OMITTED: frozen source excerpt ");
+    const omitted = prompt.sources.filter((source) => !source.included);
+    expect(omitted.length).toBeGreaterThan(0);
+    for (const source of omitted) expect(prompt.userBlocks[0].text).toContain(source.sourceId);
+  });
+
+  it("fits a Brief that leaves less than the reservation, with a short source (baseline boundary)", () => {
+    const prompt = buildSeedPrompt({
+      ...base,
+      brief: { storyline: "S".repeat(550_000), entries: [] },
+      sources: [{ sourceId: "source-1", label: "Interview", kind: "transcript",
+        content: "A short frozen source.", contentHash: "hash-1" }],
+      objective: "Objective.",
+      projection: { decisions: "(none)", feedback: "(none)" },
+    });
+    expect(prompt.sources[0]).toMatchObject({ included: true, truncated: false });
+    expect(prompt.promptBytes).toBeGreaterThan(550_000);
+    expect(prompt.promptBytes).toBeLessThanOrEqual(600_000);
   });
 });

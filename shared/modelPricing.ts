@@ -87,8 +87,10 @@ export const MODEL_PRICING: Readonly<Record<string, ModelPricing>> = {
   "google/gemini-3.1-pro-preview": gateway(2, 12, 0.25),
   "google/gemini-3.5-flash": gateway(1.5, 9, 0.25),
   "perplexity/sonar-deep-research": gateway(2, 8, 0),
-  // Contextual Research routes its reviewer through OpenRouter.
-  "anthropic/claude-sonnet-5": gateway(2, 10, 0.1),
+  // Anthropic models through OpenRouter bill at Anthropic's list prices,
+  // cache writes included (review finding: this row once had zero write
+  // multipliers). Other anthropic/ ids resolve through pricingFor.
+  "anthropic/claude-sonnet-5": anthropic(2, 10),
 };
 
 /**
@@ -98,17 +100,28 @@ export const MODEL_PRICING: Readonly<Record<string, ModelPricing>> = {
  */
 export const FALLBACK_MODEL_PRICING: ModelPricing = MODEL_PRICING["claude-sonnet-5"];
 
+const ANTHROPIC_GATEWAY_PREFIX = "anthropic/";
+
 /**
  * The table entry for `model`: the exact id, else the id without a trailing
  * `-YYYYMMDD` snapshot date (`claude-haiku-4-5-20251001` prices as
- * `claude-haiku-4-5`). Null when neither is known.
+ * `claude-haiku-4-5`), else, for an `anthropic/` OpenRouter id, the direct
+ * Anthropic entry. Null when none is known.
  */
 export function pricingFor(model: string): ModelPricing | null {
   const exact = MODEL_PRICING[model];
   if (exact) return exact;
   const undated = model.replace(/-\d{8}$/, "");
-  return undated !== model ? (MODEL_PRICING[undated] ?? null) : null;
+  if (undated !== model && MODEL_PRICING[undated]) return MODEL_PRICING[undated];
+  // An Anthropic model through OpenRouter ("anthropic/claude-opus-4.8")
+  // prices as the direct id ("claude-opus-4-8").
+  if (model.startsWith(ANTHROPIC_GATEWAY_PREFIX)) {
+    const direct = model.slice(ANTHROPIC_GATEWAY_PREFIX.length).replace(/\./g, "-");
+    return pricingFor(direct);
+  }
+  return null;
 }
+
 
 function billable(value: number | undefined): number {
   return typeof value === "number" && Number.isFinite(value) && value > 0

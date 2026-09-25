@@ -101,7 +101,7 @@ export async function runSeedBatchTask(
         {
           name: SEED_PROMPT_PROGRAM.request.toolName,
           description: SEED_PROMPT_PROGRAM.request.description,
-          input_schema: seedToolSchema(EVAL_SEED_ROLE, "batch"),
+          input_schema: seedToolSchema(),
         },
       ],
       tool_choice: { type: "tool", name: SEED_PROMPT_PROGRAM.request.toolName },

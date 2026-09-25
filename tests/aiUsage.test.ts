@@ -93,6 +93,25 @@ describe("AI usage pricing", () => {
     expect(gateway).toMatchObject({ costUsd: 0.0042, costSource: "native" });
   });
 
+  test("prices Anthropic-through-OpenRouter cache writes when usage.cost is missing", async () => {
+    const t = convexTest(schema, import.meta.glob("../convex/**/*.ts"));
+    for (const [callSite, oneHour] of [["five-minute", 0], ["one-hour", 100_000]] as const) {
+      await t.mutation(internal.aiUsage.logUsage, {
+        callSite,
+        model: "anthropic/claude-sonnet-5",
+        inputTokens: 0,
+        outputTokens: 0,
+        cacheCreationInputTokens: 100_000,
+        ...(oneHour ? { cacheCreation1hInputTokens: oneHour } : {}),
+        createdAt: 1,
+      });
+    }
+    const rows = await t.run((ctx) => ctx.db.query("aiUsage").collect());
+    expect(rows.find((row) => row.callSite === "five-minute")).toMatchObject({ costSource: "estimated" });
+    expect(rows.find((row) => row.callSite === "five-minute")?.costUsd).toBeCloseTo(0.25, 10);
+    expect(rows.find((row) => row.callSite === "one-hour")?.costUsd).toBeCloseTo(0.4, 10);
+  });
+
   test("prices Voyage corpus/query embeddings and reranking by processed tokens", () => {
     expect(estimateCostUsd("voyage-3-large", 1_000_000, 0)).toBeCloseTo(
       0.18,
@@ -340,21 +359,11 @@ describe("generation prompt program", () => {
       "iterative",
       "single",
     ]);
-    const seedRoleIds = PD_SUBSECTIONS.map(({ roleId }) => roleId).sort();
-    expect(
-      Object.keys(generationPromptProgram.calls.seeds.schemaByRole).sort()
-    ).toEqual(seedRoleIds);
-    expect(
-      Object.keys(generationPromptProgram.calls.seedFeedback.schemaByRole).sort()
-    ).toEqual(seedRoleIds);
-    for (const roleId of seedRoleIds) {
-      expect(generationPromptProgram.calls.seeds.schemaByRole[roleId]).toEqual(
-        seedToolSchema(roleId, "batch")
-      );
-      expect(
-        generationPromptProgram.calls.seedFeedback.schemaByRole[roleId]
-      ).toEqual(seedToolSchema(roleId, "feedback"));
-    }
+    // Cost phase 1: one provider schema for every role and both modes.
+    expect(generationPromptProgram.calls.seeds.schema).toEqual(seedToolSchema());
+    expect(generationPromptProgram.calls.seedFeedback.schema).toEqual(seedToolSchema());
+    expect(generationPromptProgram.templates.seeds.roles.map(({ roleId }) => roleId).sort())
+      .toEqual(PD_SUBSECTIONS.map(({ roleId }) => roleId).sort());
     const serialized = JSON.stringify(generationPromptProgram);
     expect(serialized).toContain("post-terminal-qa-and-chronology");
     expect(serialized).toContain("one-shot-ghost-candidate-pipeline");

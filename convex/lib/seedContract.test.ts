@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
+  MAX_BATCH_SEEDS,
   MAX_BULLET_WORDS,
+  MIN_FEEDBACK_SEEDS,
   SEED_TAGS,
   isLongForSeed,
   isOneSeedSentence,
@@ -307,18 +309,40 @@ describe("seed contract", () => {
     });
   });
 
-  it("builds the bounded role-aware forced tool schema", () => {
-    const batch = seedToolSchema("goal_problem", "batch");
-    const advancement = JSON.stringify(
-      seedToolSchema("specific_advancements", "feedback")
-    );
-    expect(batch).toMatchObject({ type: "object", additionalProperties: false });
-    expect(advancement).toContain("uncertaintySeedId");
-    expect(advancement).toContain("experimentSeedIds");
+  it("builds one bounded forced tool schema spanning every role and mode", () => {
+    const schema = seedToolSchema();
+    expect(schema).toMatchObject({
+      type: "object",
+      additionalProperties: false,
+      properties: { seeds: { minItems: MIN_FEEDBACK_SEEDS, maxItems: MAX_BATCH_SEEDS } },
+    });
+    expect(JSON.stringify(schema)).toContain("uncertaintySeedId");
+    expect(JSON.stringify(schema)).toContain("experimentSeedIds");
+  });
+
+  it("drops advancement links from every other role (cost phase 1)", () => {
+    const linked = { ...candidate([one]), uncertaintySeedId: "u-1", experimentSeedIds: ["e-1"] };
+    const result = validateSeed({
+      roleId: "goal_problem",
+      seed: linked,
+      referenceContext: { generationId: "generation-1", references: [] },
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.seed).not.toHaveProperty("uncertaintySeedId");
+    expect(result.seed).not.toHaveProperty("experimentSeedIds");
+  });
+
+  it("enforces each mode's Seed count in validation, not in the schema", () => {
+    const seeds = [candidate([one], ["technical"]), candidate([one], ["detailed"])];
+    expect(validateBatch({ roleId: "goal_problem", mode: "feedback", seeds }).issues)
+      .not.toContainEqual(expect.objectContaining({ code: "INVALID_BATCH_SIZE" }));
+    expect(validateBatch({ roleId: "goal_problem", mode: "batch", seeds }).issues)
+      .toContainEqual(expect.objectContaining({ code: "INVALID_BATCH_SIZE" }));
   });
 
   it("keeps role-11 schema links optional until frozen selections require them", () => {
-    const schema = seedToolSchema("specific_advancements", "batch");
+    const schema = seedToolSchema();
     expect(schema).toMatchObject({
       properties: {
         seeds: {

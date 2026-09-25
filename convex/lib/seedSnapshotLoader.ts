@@ -5,7 +5,6 @@ import {
   type PdSubsectionRoleId,
 } from "../../shared/pdSubsections";
 import { createReadBudget } from "./readBudget";
-import { preferDigestSources } from "../ai/trustedContext";
 import { domainError } from "./contracts";
 import {
   MAX_SEED_SNAPSHOT_ROWS,
@@ -247,6 +246,7 @@ export type FrozenSeedActionInput = {
       | "contentHash"
       | "truncated"
       | "originalLength"
+      | "transcriptId"
     >
   >;
   writerSettings: {
@@ -380,15 +380,16 @@ export async function loadFrozenSeedActionInput(
         endOffset: entry.endOffset,
         exactExcerpt: entry.exactExcerpt,
       })),
-    // Digest mode means digests (cost phase 1): a transcript with a frozen
-    // digest reaches the Seed prompt only as that digest, in the
-    // transcript's place, so the byte limit is never spent on both.
-    sources: preferDigestSources(sources).map((source) => ({
+    // Every frozen source, digested transcripts included: provenance
+    // validation needs them all, since a Brief citation can point at the
+    // original transcript. buildSeedPrompt picks the digest-only view.
+    sources: sources.map((source) => ({
       _id: source._id,
       kind: source.kind,
       label: source.label,
       content: source.content,
       contentHash: source.contentHash,
+      ...(source.transcriptId ? { transcriptId: source.transcriptId } : {}),
       truncated: source.truncated,
       originalLength: source.originalLength,
     })),
