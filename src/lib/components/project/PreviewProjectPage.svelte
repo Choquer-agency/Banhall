@@ -463,8 +463,11 @@
     const sess = replaceSession;
     const ed = editorRef;
     if (!sess?.current || !ed || finishingReplace) return;
-    ed.replaceRange(sess.current.from, sess.current.to, sess.current.replaceWith);
-    advanceReplace(sess.current.from + sess.current.replaceWith.length, 1);
+    // Count only a replacement that changed the document; a refused one is
+    // stepped over like "Keep original" (review g1).
+    const changed = ed.replaceRange(sess.current.from, sess.current.to, sess.current.replaceWith);
+    if (changed) advanceReplace(sess.current.from + sess.current.replaceWith.length, 1);
+    else advanceReplace(sess.current.to, 0);
   }
 
   function keepOriginalAndNext() {
@@ -482,9 +485,13 @@
     for (let i = 0; i < 5000; i++) {
       const m = ed.findReplaceMatches(sess.pairs).find((x) => x.from >= cursor);
       if (!m) break;
-      ed.replaceRange(m.from, m.to, m.replaceWith);
-      cursor = m.from + m.replaceWith.length;
-      replaced++;
+      if (ed.replaceRange(m.from, m.to, m.replaceWith)) {
+        cursor = m.from + m.replaceWith.length;
+        replaced++;
+      } else {
+        // Refused: step past it instead of finding it again.
+        cursor = m.to;
+      }
     }
     void finishReplaceSession({ ...sess, replaced });
   }

@@ -37,6 +37,7 @@
   import type { CommentRange, FindReplaceMatch } from "$lib/components/editor/types";
   import {
     SECTION_HEADINGS_EXTERNAL,
+    rangeTouchesSectionHeading,
     type ReportLimitMeterSpec,
   } from "$lib/components/editor/reportSectionHeadings";
   import { overflowStartOffset } from "../../../../convex/lib/lineLimits";
@@ -1173,9 +1174,13 @@
   ): FindReplaceMatch[] {
     if (!editor) return [];
     const out: FindReplaceMatch[] = [];
-    const found = findOccurrencesBatch(editor.state.doc, pairs.map((p) => p.find));
+    const doc = editor.state.doc;
+    const found = findOccurrencesBatch(doc, pairs.map((p) => p.find));
     pairs.forEach((p, i) => {
       for (const r of found[i]) {
+        // Section headings are load-bearing and never edited by a proposal
+        // (review g1): their text is not a match.
+        if (rangeTouchesSectionHeading(doc, r.from, r.to)) continue;
         out.push({
           from: r.from,
           to: r.to,
@@ -1187,9 +1192,12 @@
     return out.sort((a, b) => a.from - b.from);
   }
 
-  export function replaceRange(from: number, to: number, newText: string) {
-    if (!editor) return;
+  /** Replace one range; false when nothing changed (for example a refused edit). */
+  export function replaceRange(from: number, to: number, newText: string): boolean {
+    if (!editor) return false;
+    const before = editor.state.doc;
     editor.chain().insertContentAt({ from, to }, newText).run();
+    return !editor.state.doc.eq(before);
   }
 
   export function highlightRange(from: number, to: number, text: string) {
