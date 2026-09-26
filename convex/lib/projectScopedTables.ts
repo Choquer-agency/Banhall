@@ -62,6 +62,12 @@ export type ProjectScopedTable = {
   /** Field typed `v.id("_storage")` whose bytes the row owns. */
   blob?: "storageId" | "originalStorageId";
   /**
+   * Field holding an agent component thread id the row owns. After the row
+   * is deleted the purge schedules the component's own deletion of that
+   * thread, its messages and streams (`projects.deleteAgentChatThread`).
+   */
+  componentThread?: "agentThreadId";
+  /**
    * `detach` only: sibling fields that describe the cleared reference (a
    * document id or timestamp of the link) and are cleared with it. The
    * registry stays keyed on the project reference itself.
@@ -134,10 +140,12 @@ export const PROJECT_SCOPED_TABLES = [
     field: "projectId",
     disposition: "delete",
     index: "by_projectId",
+    // The component's thread, messages and streams hold the chat text; they
+    // are deleted by the component itself, scheduled once this row is gone
+    // (security wave 1, a2 P2-6).
+    componentThread: "agentThreadId",
     children: [
-      // App-owned turn timing keyed by the component thread id string; the
-      // component's own thread/message rows are not purged here (story 0
-      // never touches component-owned rows).
+      // App-owned turn timing keyed by the component thread id string.
       {
         table: "chatTurns",
         field: "agentThreadId",

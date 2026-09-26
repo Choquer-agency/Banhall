@@ -10,7 +10,7 @@ import {
 } from "./_generated/server";
 import { v } from "convex/values";
 import type { GenericDatabaseWriter, GenericDataModel, GenericDocument } from "convex/server";
-import { internal } from "./_generated/api";
+import { components, internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import {
   PROJECT_ERASURE_REGISTRY_VERSION,
@@ -2025,8 +2025,38 @@ async function deleteRowWithChildren(
   for (const child of entry.children ?? []) {
     if (child.cleanup === "scheduled") await scheduleChildCleanup(ctx, child, rowId(row));
   }
+  if (entry.componentThread) {
+    const agentThreadId = row[entry.componentThread];
+    if (typeof agentThreadId === "string") {
+      await ctx.scheduler.runAfter(0, internal.projects.deleteAgentChatThread, { agentThreadId });
+    }
+  }
   return { deleted: true, writes };
 }
+
+/**
+ * Project erasure's last step for a chat thread (a2 P2-6): the agent
+ * component deletes the thread, its messages and streams in its own pages.
+ * A thread id the component does not know (a legacy or already deleted
+ * thread) is logged and skipped, so erasure never stalls on it.
+ */
+export const deleteAgentChatThread = internalMutation({
+  args: { agentThreadId: v.string() },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    try {
+      await ctx.runMutation(components.agent.threads.deleteAllForThreadIdAsync, {
+        threadId: args.agentThreadId,
+      });
+    } catch (error) {
+      console.warn("deleteAgentChatThread: component refused the thread id", {
+        agentThreadId: args.agentThreadId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+    return null;
+  },
+});
 
 /** The final page: detach review projects from the source, then delete the row. */
 async function finalizeProjectPurge(
