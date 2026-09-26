@@ -127,7 +127,9 @@
     class="mx-3 mb-3 flex min-h-0 flex-1 flex-col overflow-y-auto rounded-[10px] border border-line bg-surface"
   >
     <div class="flex flex-1 flex-col gap-10 px-4 pb-6 pt-5 sm:px-6 xl:flex-row xl:gap-8">
-      <div data-home-tables class="min-w-0 flex-1">
+      <!-- A1, A4: the tables keep the board's 752px from 1280px up, so
+           collapsing the rail shifts Home left instead of widening it. -->
+      <div data-home-tables class="min-w-0 flex-1 xl:max-w-[752px]">
         <HomeProjectTable
           id="home-with-you"
           label="With you"
@@ -179,6 +181,7 @@
             icon="clock"
             rows={recentRows}
             count={recentRows ? String(recentRows.length) : null}
+            columnHeader={false}
             {now}
           >
             {#snippet empty()}

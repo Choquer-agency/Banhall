@@ -2,10 +2,11 @@
   One Home table (ui-design-final.md section 9, boards 1.1 and 1.2; round 2
   A1 and J7): a view chip that shows or hides the table, then a 28px leading
   column, Name, Client (136), Stage (108) and Last edited (84). The boards
-  draw a checkbox in the leading column; Home has no row selection, so it
-  stays empty. Each row is one link to the project; the name link stretches over
-  the whole row. Rows carry data-recent-* so opening one records it in this
-  device's Recently opened list.
+  draw a checkbox in the leading column; Home has no row selection or bulk
+  action yet, so it stays empty. "Recently opened" (A1) shows no column
+  header row: its headers stay for screen readers at zero height. Each row is one link to the project; the name link
+  stretches over the whole row. Rows carry data-recent-* so opening one
+  records it in this device's Recently opened list.
 -->
 <script lang="ts">
   import type { Snippet } from "svelte";
@@ -26,6 +27,7 @@
     bounded = false,
     now,
     first = false,
+    columnHeader = true,
     emptyLayout = "line",
     empty,
     footer,
@@ -41,6 +43,8 @@
     now: number;
     /** The first table sits flush with the panel top; later ones get 40px above. */
     first?: boolean;
+    /** Show the column header row (With you); false keeps it for screen readers. */
+    columnHeader?: boolean;
     /**
      * "line": one quiet line under the chip. "block" (J7): keep the column
      * header row and centre the empty message inside the table.
@@ -60,7 +64,12 @@
 
 {#snippet columnHeaders()}
   <thead>
-    <tr class="h-9 border-b border-line-soft text-[11px] leading-4 text-ink-muted">
+    <!-- Hidden headers keep their column widths at zero height (fixed
+         layout reads the first row) and stay in the accessibility tree. -->
+    <tr
+      data-home-column-header
+      class={columnHeader ? "h-9 border-b border-line-soft text-[11px] leading-4 text-ink-muted" : "text-[0px] leading-[0px]"}
+    >
       <td aria-hidden="true" class="w-7 max-sm:w-2"></td>
       <th scope="col" class="font-normal">Name</th>
       <th scope="col" class="w-[136px] font-normal max-sm:hidden">Client</th>
