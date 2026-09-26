@@ -30,6 +30,8 @@ const expected: Record<Capability, Record<CapabilityRole, CapabilityLevel>> = {
   "outcome.recordDelivery": { writer: "own", manager: "all", admin: "all", financial: "none" },
   "financial.read": { writer: "none", manager: "all", admin: "all", financial: "none" },
   "financial.write": { writer: "none", manager: "all", admin: "all", financial: "none" },
+  "team.view": { writer: "none", manager: "all", admin: "all", financial: "none" },
+  "invites.manage": { writer: "none", manager: "all", admin: "all", financial: "none" },
   "roles.manage": { writer: "none", manager: "none", admin: "all", financial: "none" },
   "settings.configure": { writer: "none", manager: "none", admin: "all", financial: "none" },
   "ops.viewAlerts": { writer: "none", manager: "none", admin: "all", financial: "none" },

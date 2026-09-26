@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { projectCapabilityAllows } from "./capabilities";
+import { canManageInvite, projectCapabilityAllows } from "./capabilities";
 
 describe("projectCapabilityAllows", () => {
   const project = { ownerId: "owner-1" };
@@ -15,5 +15,22 @@ describe("projectCapabilityAllows", () => {
     expect(projectCapabilityAllows("admin", "project.setStage", {}, "someone")).toBe(true);
     expect(projectCapabilityAllows(undefined, "project.setStage", project, "owner-1")).toBe(false);
     expect(projectCapabilityAllows("writer", "ops.viewAlerts", project, "owner-1")).toBe(false);
+  });
+});
+
+describe("canManageInvite (decision 47)", () => {
+  it("lets Managers manage Consultant and Manager invites but not Admin invites", () => {
+    expect(canManageInvite("manager", "writer")).toBe(true);
+    expect(canManageInvite("manager", "manager")).toBe(true);
+    expect(canManageInvite("manager", "admin")).toBe(false);
+  });
+
+  it("lets Admins manage every invite and nobody else manage any", () => {
+    for (const role of ["writer", "manager", "admin"] as const) {
+      expect(canManageInvite("admin", role)).toBe(true);
+      expect(canManageInvite("writer", role)).toBe(false);
+      expect(canManageInvite("financial", role)).toBe(false);
+      expect(canManageInvite(undefined, role)).toBe(false);
+    }
   });
 });

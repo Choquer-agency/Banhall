@@ -171,6 +171,15 @@ export default defineSchema({
     .index("by_email_and_status", ["email", "status"])
     .index("by_status", ["status"]),
 
+  // ─── Round 2 (decision 54): Team's "Last active" ──────────────────────────
+  // One row per user, written by team.markActive at most once per 5 minutes.
+  // Kept off the users row so the heartbeat never re-runs every query that
+  // reads the current user.
+  userActivity: defineTable({
+    userId: v.id("users"),
+    lastActiveAt: v.number(),
+  }).index("by_userId", ["userId"]),
+
   projects: defineTable({
     usedInDevelopment: v.optional(v.boolean()),
     // Plain-language internal title (set at the start; shown in lists).
