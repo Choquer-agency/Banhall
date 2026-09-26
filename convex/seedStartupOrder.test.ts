@@ -277,14 +277,21 @@ async function sha256Hex(text: string): Promise<string> {
 }
 
 /** The first request body of each stage, hashed. `maxTokens` replaces a
- * stage's `max_tokens` in place (same key position) before hashing. */
+ * stage's `max_tokens` in place (same key position) before hashing. Round 2
+ * (decision 57): the Brief is streamed during Step-by-step startup; its body
+ * gains `stream: true` and nothing else, so that one field is taken out
+ * before hashing (and asserted on its own). */
 async function requestHashes(
-  maxTokens: Partial<Record<string, number>> = {}
+  maxTokens: Partial<Record<string, number>> = {},
+  briefStreamed = true
 ): Promise<Record<string, string>> {
   const firstByTool = new Map<string, string>();
-  for (const [params] of network.create.mock.calls as Array<[GenerationMessageParams]>) {
-    const name = params.tool_choice?.name ?? "text";
+  for (const [sent] of network.create.mock.calls as Array<[GenerationMessageParams & { stream?: boolean }]>) {
+    const name = sent.tool_choice?.name ?? "text";
     if (firstByTool.has(name)) continue;
+    if (name === "submit_generation_brief" && briefStreamed) expect(sent.stream).toBe(true);
+    else expect(sent).not.toHaveProperty("stream");
+    const { stream: _stream, ...params } = sent;
     const cap = maxTokens[name];
     const body = cap === undefined ? params : { ...params, max_tokens: cap };
     firstByTool.set(name, maskIds(JSON.stringify(body)));
@@ -1035,14 +1042,15 @@ describe("section approval is unchanged by the reorder", () => {
     // The section draft (`text`) hash was captured from the same fixture on
     // 9bed95c0, before the reorder. The other three were recaptured on the
     // integration branch after the cut-off fix raised their output caps; with
-    // the old caps put back they are the 9bed95c0 hashes exactly.
-    expect(await requestHashes()).toEqual({
+    // the old caps put back they are the 9bed95c0 hashes exactly. Section
+    // approval is not a seed startup, so its Brief never streams.
+    expect(await requestHashes({}, false)).toEqual({
       submit_generation_brief: "768cad27ddf4db91f8237ad51714fdab8cdc5b0826a54a83cc3eba516c57434e",
       submit_retrieval_brief: "5ff41dc8effa6c1d3debffd0657f07c741a25549cd8bfe83863ea1ff0e4939a5",
       submit_transcript_analysis: "529909743af47708a90efdf4bf9fca2dcd76070b988cec16e438bc02a8195310",
       text: "89121783d0eb621299c46695a2c96c1e5bc3c2fde9169e7d9cbd6e360274f2b0",
     });
-    expect(await requestHashes(PRE_CUTOFF_CAPS)).toEqual({
+    expect(await requestHashes(PRE_CUTOFF_CAPS, false)).toEqual({
       submit_generation_brief: PRE_REORDER_HASHES_9BED95C0.submit_generation_brief,
       submit_retrieval_brief: PRE_REORDER_HASHES_9BED95C0.submit_retrieval_brief,
       submit_transcript_analysis: PRE_REORDER_HASHES_9BED95C0.submit_transcript_analysis,

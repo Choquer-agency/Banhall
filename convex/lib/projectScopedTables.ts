@@ -110,6 +110,8 @@ export const PROJECT_SCOPED_TABLES = [
   { table: "summaryVersions", field: "projectId", disposition: "delete", index: "by_projectId" },
   { table: "generationBriefEntries", field: "projectId", disposition: "delete", index: "by_projectId" },
   { table: "generationBriefs", field: "projectId", disposition: "delete", index: "by_projectId" },
+  // Round 2 (F2): display-only facts shown while the Brief is written.
+  { table: "generationReadingFacts", field: "projectId", disposition: "delete", index: "by_projectId" },
   { table: "generationSources", field: "projectId", disposition: "delete", index: "by_projectId_and_generationId" },
   { table: "generationSectionRuns", field: "projectId", disposition: "delete", index: "by_projectId" },
   { table: "generationCandidateRuns", field: "projectId", disposition: "delete", index: "by_projectId" },

@@ -127,6 +127,13 @@ export async function generateStructured<T>(
      * way. Request bytes are unchanged.
      */
     onCutOff?: () => void;
+    /**
+     * Round 2 (F2, decision 57): stream the first attempt and report the
+     * tool input written so far (see GenerationStreamHandlers). Only when the
+     * client can stream; the request then gains `stream: true` and nothing
+     * else. Repairs and validation are unchanged and never stream.
+     */
+    onPartialToolInput?: (json: string) => void;
   }
 ): Promise<T> {
   const client = rawClient as GenerationClient;
@@ -146,8 +153,15 @@ export async function generateStructured<T>(
           ? `${opts.user}${repair}`
           : [...opts.user, { type: "text", text: repair }];
     let res: GenerationResponse;
+    const stream =
+      attempt === 0 && opts.onPartialToolInput && client.messages.createStreaming
+        ? client.messages.createStreaming.bind(client.messages)
+        : null;
+    const onToolInput = opts.onPartialToolInput;
+    const send = (params: Parameters<GenerationClient["messages"]["create"]>[0]) =>
+      stream && onToolInput ? stream(params, { onToolInput }) : client.messages.create(params);
     try {
-      res = await client.messages.create({
+      res = await send({
         model: opts.model ?? MODEL,
         max_tokens:
           opts.maxTokens ?? STRUCTURED_OUTPUT_PROGRAM.request.defaultMaxTokens,

@@ -51,6 +51,7 @@ import {
   type GenerationStep,
 } from "./lib/generationSteps";
 import { runSeedDraftingInputs } from "./seedStartup.fixture";
+import { anthropicToolSse, sseResponse } from "./anthropicSse.fixture";
 
 const modules = import.meta.glob("./**/*.ts");
 type T = ReturnType<typeof convexTest<typeof schema.tables>>;
@@ -212,6 +213,11 @@ function installFetch(options: { hold?: Partial<Record<string, () => Promise<voi
         );
       }
       const tool = toolOf(json);
+      if (tool && json.stream === true) {
+        // Round 2 (F2): the Step-by-step Brief streams its tool input.
+        if (!(tool in ANSWERS)) throw new Error(`Unexpected tool ${tool}`);
+        return sseResponse(anthropicToolSse({ model: String(json.model), tool, input: ANSWERS[tool] }));
+      }
       if (tool) {
         if (!(tool in ANSWERS)) throw new Error(`Unexpected tool ${tool}`);
         return Response.json({
@@ -241,6 +247,28 @@ async function sha256Hex(text: string): Promise<string> {
 }
 
 type Pin = { count: number; hash: string; models: string[] };
+
+/**
+ * Round 2 (decision 57): the Step-by-step Brief request gains `stream: true`
+ * and nothing else, so with that one field taken out every body is the
+ * pinned one. Single and Compare never stream.
+ */
+const withoutBriefStream = (json: Record<string, unknown>) => {
+  if (toolOf(json) !== "submit_generation_brief" || !("stream" in json)) return json;
+  const { stream: _stream, ...rest } = json;
+  return rest;
+};
+function expectBriefStreaming(sent: Sent[], streamed: boolean) {
+  const briefs = sent.filter((request) => toolOf(request.json) === "submit_generation_brief");
+  expect(briefs.length).toBeGreaterThan(0);
+  for (const request of briefs) {
+    if (streamed) expect(request.json.stream).toBe(true);
+    else expect(request.json).not.toHaveProperty("stream");
+  }
+  for (const request of sent.filter((item) => toolOf(item.json) !== "submit_generation_brief")) {
+    expect(request.json).not.toHaveProperty("stream");
+  }
+}
 type Scenario = `${"seeds" | "single" | "compare"}:${typeof SONNET | typeof OPUS}`;
 
 /** Per stage: how many requests, the hash of their sorted bodies, and the models they named. */
@@ -642,7 +670,8 @@ describe("requests on the wire (real SDK, fetch stubbed)", () => {
     async (mode) => {
       const { wire } = await run(`${mode}:${SONNET}`, "current");
       const pinned = PINNED_771AF202[`${mode}:${SONNET}`];
-      const now = await stagesOf(wire.sent);
+      expectBriefStreaming(wire.sent, mode === "seeds");
+      const now = await stagesOf(wire.sent, withoutBriefStream);
       const { compression: pinnedCompression, ...pinnedRest } = pinned;
       const { compression, ...rest } = now;
       expect(rest).toEqual(pinnedRest);
@@ -663,7 +692,8 @@ describe("requests on the wire (real SDK, fetch stubbed)", () => {
     "an Opus 5.5 pick runs the %s helpers on Sonnet 5 exactly as a Sonnet 5 pick does, and writes on Opus 5.5",
     async (mode) => {
       const { wire } = await run(`${mode}:${OPUS}`, "current");
-      const now = await stagesOf(wire.sent);
+      expectBriefStreaming(wire.sent, mode === "seeds");
+      const now = await stagesOf(wire.sent, withoutBriefStream);
       const sonnet = PINNED_771AF202[`${mode}:${SONNET}`];
       const before = PINNED_771AF202[`${mode}:${OPUS}`];
       for (const stage of [...PLANNING_STAGES, ...CHECKING_STAGES].filter((name) => name in sonnet)) {
@@ -700,7 +730,8 @@ describe("requests on the wire (real SDK, fetch stubbed)", () => {
     "a generation frozen before step routing sends every %s request as on 771af202",
     async (scenario) => {
       const { wire } = await run(scenario, "beforeStepRouting");
-      expect(await stagesOf(wire.sent)).toEqual(PINNED_771AF202[scenario]);
+      expectBriefStreaming(wire.sent, scenario.startsWith("seeds"));
+      expect(await stagesOf(wire.sent, withoutBriefStream)).toEqual(PINNED_771AF202[scenario]);
     }
   );
 

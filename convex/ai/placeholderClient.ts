@@ -20,6 +20,7 @@ import type {
   GenerationMessageContent,
   GenerationMessageParams,
   GenerationResponse,
+  GenerationStreamHandlers,
 } from "./openrouterCore";
 
 function pseudonymizeContent(content: GenerationMessageContent, map: PlaceholderMap): GenerationMessageContent {
@@ -61,10 +62,19 @@ export function restoreResponse<R extends GenerationResponse>(response: R, map: 
 
 export function withPlaceholders(client: GenerationClient, map: PlaceholderMap): GenerationClient {
   if (map.length === 0) return client;
+  const streaming = client.messages.createStreaming?.bind(client.messages);
   return {
     messages: {
       create: async (params) =>
         restoreResponse(await client.messages.create(pseudonymizeRequest(params, map)), map),
+      // The streamed tool input is handed on as the model wrote it
+      // (placeholders); the reader restores each entry itself (F2).
+      ...(streaming
+        ? {
+            createStreaming: async (params: GenerationMessageParams, handlers: GenerationStreamHandlers) =>
+              restoreResponse(await streaming(pseudonymizeRequest(params, map), handlers), map),
+          }
+        : {}),
     },
   };
 }

@@ -43,7 +43,9 @@ import {
   OutputLimitError,
   isCutOffStopReason,
   type GenerationClient,
+  type GenerationMessageParams,
   type GenerationResponse,
+  type GenerationStreamHandlers,
 } from "./openrouterCore";
 import { entryFromFrozen } from "../lib/modelRoles";
 import type { PlaceholderMap } from "../lib/deidentify";
@@ -373,19 +375,23 @@ export function withOutcomeRecording(
     signal?: AbortSignal;
   } = {}
 ): GenerationClient {
+  const meta = (params: GenerationMessageParams) => ({
+    requested: params.model || modelId,
+    callSite,
+    defer: Boolean(params.tool_choice || options.deferOutcome),
+    ...(options.signal ? { signal: options.signal } : {}),
+  });
+  const streaming = client.messages.createStreaming?.bind(client.messages);
   return {
     messages: {
       create: async (params) =>
-        await recordedRequest(
-          ctx,
-          {
-            requested: params.model || modelId,
-            callSite,
-            defer: Boolean(params.tool_choice || options.deferOutcome),
-            ...(options.signal ? { signal: options.signal } : {}),
-          },
-          () => client.messages.create(params)
-        ),
+        await recordedRequest(ctx, meta(params), () => client.messages.create(params)),
+      ...(streaming
+        ? {
+            createStreaming: async (params: GenerationMessageParams, handlers: GenerationStreamHandlers) =>
+              await recordedRequest(ctx, meta(params), () => streaming(params, handlers)),
+          }
+        : {}),
     },
   };
 }
@@ -607,6 +613,15 @@ function lazyClient(
     {
       messages: {
         create: async (params) => (await resolve()).messages.create(params),
+        // The gateway is known only once resolved: a client that cannot
+        // stream (OpenRouter chat completions) answers the same request
+        // unstreamed, and the caller simply sees no progress.
+        createStreaming: async (params, handlers) => {
+          const client = await resolve();
+          return client.messages.createStreaming
+            ? await client.messages.createStreaming(params, handlers)
+            : await client.messages.create(params);
+        },
       },
     },
     signal ? { signal } : {}
@@ -703,18 +718,24 @@ export function clientForStep(
 export function withStepRequest(client: GenerationClient, route: StepRoute): GenerationClient {
   if (route.policyVersion === null) return client;
   const thinking = route.request.thinking;
+  const routed = (params: GenerationMessageParams): GenerationMessageParams => {
+    if (params.model !== route.model) {
+      throw new Error(
+        `The ${route.step} step is routed to ${route.model} but its request names ${params.model}`
+      );
+    }
+    return thinking && params.thinking === undefined ? { ...params, thinking } : params;
+  };
+  const streaming = client.messages.createStreaming?.bind(client.messages);
   return {
     messages: {
-      create: async (params) => {
-        if (params.model !== route.model) {
-          throw new Error(
-            `The ${route.step} step is routed to ${route.model} but its request names ${params.model}`
-          );
-        }
-        return await client.messages.create(
-          thinking && params.thinking === undefined ? { ...params, thinking } : params
-        );
-      },
+      create: async (params) => await client.messages.create(routed(params)),
+      ...(streaming
+        ? {
+            createStreaming: async (params: GenerationMessageParams, handlers: GenerationStreamHandlers) =>
+              await streaming(routed(params), handlers),
+          }
+        : {}),
     },
   };
 }

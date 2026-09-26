@@ -40,6 +40,7 @@ import {
 } from "../lib/glossaryMatcher";
 import { MODEL } from "./model";
 import { HUMAN_PROSE_FOR_OWN_WORDING } from "../../shared/humanProse";
+import { createReadingFactsCollector } from "../lib/readingFacts";
 
 /**
  * Generation Brief derivation stage (story 1, CAP-1/2/4).
@@ -275,13 +276,17 @@ export const BRIEF_SCHEMA: Anthropic.Tool.InputSchema = {
   ],
 };
 
-/** Pure model call — takes an already-assembled, pre-delimited user message. */
+/** Pure model call — takes an already-assembled, pre-delimited user message.
+ * `onPartialToolInput` (Step-by-step startup only, decision 57) streams the
+ * first attempt; the request then gains `stream: true` and nothing else. */
 export async function runBriefAgent(
   client: GenerationClient,
   userMessage: string,
-  model?: string
+  model?: string,
+  onPartialToolInput?: (json: string) => void
 ): Promise<BriefAgentOutput> {
   return await generateStructured<BriefAgentOutput>(client, {
+    ...(onPartialToolInput ? { onPartialToolInput } : {}),
     system: BRIEF_SYSTEM_PROMPT,
     user: userMessage,
     toolName: BRIEF_REQUEST.toolName,
@@ -590,6 +595,18 @@ export async function deriveOrReuseBrief(
       : ((await ctx.runMutation(internal.generations.stampGenerationBriefId, {
           generationId: args.generationId, briefId: reusableId,
         })) ?? reusableId);
+    if (args.seedStartup) {
+      // Round 2 (F2): the reused Brief's entries fill "Reading the
+      // interview" at once. Display only; never fails the stage.
+      try {
+        await ctx.runMutation(internal.seeds.copyBriefToReadingFacts, {
+          generationId: args.generationId,
+          briefId,
+        });
+      } catch (error) {
+        logBriefStageError("Reading facts not copied from the reused Brief", args.generationId, error);
+      }
+    }
     return { kind: "reused", briefId };
   }
 
@@ -609,13 +626,7 @@ export async function deriveOrReuseBrief(
   const documentSources: FrozenSource[] = sources.filter(
     (s) => s.kind !== "writer_storyline" && s.kind !== "transcript" && s.kind !== "transcript_facts" && s.kind !== "transcript_digest"
   );
-  const cite = (quote: string): Citation | null => {
-    if (!factMode) {
-      // `places` and `firstEvidence` (decision 25, below) are filled once
-      // the model has answered, before the first cite() call.
-      const candidates = places.get(quote);
-      return candidates ? firstEvidence(candidates) : citeQuote(evidenceSources, quote);
-    }
+  const citeInFactMode = (quote: string): Citation | null => {
     const fact = citeFactQuote(
       sources.map((s) => ({
         sourceId: s._id,
@@ -638,13 +649,59 @@ export async function deriveOrReuseBrief(
     }
     return citeQuote(documentSources, quote);
   };
+  const cite = (quote: string): Citation | null => {
+    if (!factMode) {
+      // `places` and `firstEvidence` (decision 25, below) are filled once
+      // the model has answered, before the first cite() call.
+      const candidates = places.get(quote);
+      return candidates ? firstEvidence(candidates) : citeQuote(evidenceSources, quote);
+    }
+    return citeInFactMode(quote);
+  };
+
+  // Round 2 (F2, decision 57): during Step-by-step startup the Brief
+  // streams, and each entry is located as it arrives the way publishing
+  // locates it (decision 25 applied) and written as a display-only reading
+  // fact. Single and Compare send their request unchanged.
+  const readingFacts = args.seedStartup
+    ? createReadingFactsCollector({
+        ctx,
+        generationId: args.generationId,
+        append: internal.seeds.appendReadingFacts,
+        sources,
+        writerStoryline: Boolean(writerSource),
+        placeholders: await ctx.runQuery(internal.generations.getGenerationPlaceholders, {
+          generationId: args.generationId,
+        }),
+        locate: async (quote, glossary) => {
+          if (factMode) return citeInFactMode(quote);
+          let candidates = quoteOccurrences(
+            evidenceSources,
+            quote,
+            mayMoveQuote(quote) ? MAX_QUOTE_PLACES : 1
+          );
+          if (!candidates.length && glossary) candidates = termOccurrence(evidenceSources, quote);
+          if (!candidates.length) return null;
+          const verdicts = await citationSpeakersFor(ctx, args.generationId, sources, [
+            { places: candidates, anchored: !glossary },
+          ]);
+          return candidates.find((place) => verdicts.get(place) !== "excluded") ?? null;
+        },
+      })
+    : null;
 
   const model = args.model ?? MODEL;
-  const output = await runBriefAgent(
-    client,
-    buildBriefUserMessage(sources),
-    model
-  );
+  let output: BriefAgentOutput;
+  try {
+    output = await runBriefAgent(
+      client,
+      buildBriefUserMessage(sources),
+      model,
+      readingFacts?.onToolInput
+    );
+  } finally {
+    await readingFacts?.finish();
+  }
 
   // Owner decision 25 (2026-09-25): a quote that is only the interviewer's
   // or another speaker's words never backs an entry. Each quote is cited at
@@ -825,6 +882,25 @@ export async function deriveOrReuseBrief(
     upstreamDroppedEntryCount,
   });
   return { kind: "derived", briefId };
+}
+
+/** A glossary term's first place, ignoring case (the term as the client wrote it). */
+function termOccurrence(sources: FrozenSource[], term: string): Citation[] {
+  const needle = term.toLowerCase();
+  for (const source of sources) {
+    const at = source.content.toLowerCase().indexOf(needle);
+    if (at === -1) continue;
+    return [
+      {
+        sourceId: source._id,
+        sourceContentHash: source.contentHash,
+        exactExcerpt: source.content.slice(at, at + term.length),
+        startOffset: at,
+        endOffset: at + term.length,
+      },
+    ];
+  }
+  return [];
 }
 
 type BriefFailureOutcome = Extract<BriefOutcome, { kind: "failed" }>;

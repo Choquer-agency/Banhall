@@ -624,7 +624,10 @@ export default defineSchema({
     .index("by_createdAt", ["createdAt"])
     .index("by_projectId", ["projectId"])
     .index("by_projectId_and_createdAt", ["projectId", "createdAt"])
-    .index("by_generationId", ["generationId"]),
+    .index("by_generationId", ["generationId"])
+    // Round 2 (F2): the recent Brief durations that pace "Reading the
+    // interview" (seeds.getReadingFacts).
+    .index("by_callSite_and_createdAt", ["callSite", "createdAt"]),
 
   transcripts: defineTable({
     projectId: v.id("projects"),
@@ -3110,6 +3113,25 @@ export default defineSchema({
     .index("by_generationId", ["generationId"])
     // Latest-brief-for-project lookup (any inputsHash), used to diff a
     // re-derivation's entries against whatever the project last had.
+    .index("by_projectId", ["projectId"]),
+
+  // Round 2 (F2, decision 57): the facts "Reading the interview" shows while
+  // the Step-by-step Brief is written, located on the frozen transcript as
+  // they stream in. Display only: never generation input, never read by
+  // Seeds, the Summary, drafting or QA. Erased with the project.
+  generationReadingFacts: defineTable({
+    generationId: v.id("generations"),
+    projectId: v.id("projects"),
+    seq: v.number(),
+    chip: v.string(),
+    // At most 300 characters, names restored (decision 26).
+    quote: v.string(),
+    sourceLabel: v.string(),
+    speaker: v.optional(v.string()),
+    line: v.optional(v.number()),
+    createdAt: v.number(),
+  })
+    .index("by_generationId_and_seq", ["generationId", "seq"])
     .index("by_projectId", ["projectId"]),
 
   // Child rows of generationBriefs: individual entries (Storyline questions,

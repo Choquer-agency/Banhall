@@ -2,6 +2,7 @@ import { v, ConvexError, getConvexSize } from "convex/values";
 import {
   query,
   mutation,
+  internalMutation,
   type MutationCtx,
   type QueryCtx,
 } from "./_generated/server";
@@ -51,6 +52,12 @@ import {
 } from "./seedRuns";
 import { readSeedReadiness } from "./lib/seedReadiness";
 import { MAX_SEED_SOURCE_ROWS } from "./lib/seedSnapshotLoader";
+import {
+  appendReadingFactsHandler,
+  copyBriefToReadingFactsHandler,
+  getReadingFactsHandler,
+  readingFactValidator,
+} from "./lib/readingFacts";
 
 export const seedRoleIdValidator = v.union(
   ...PD_SUBSECTIONS.map((r) => v.literal(r.roleId)),
@@ -1063,4 +1070,29 @@ export const getSummary = query({
       args.numItems ?? 50,
     );
   },
+});
+
+// ─── Round 2 (F2, decision 57): Reading the interview ───────────────────────
+// Registered here rather than in a new convex/readingFacts.ts module so the
+// generated API types need no codegen run; the logic lives in
+// lib/readingFacts.ts.
+
+/** The pill and the three newest facts found so far; null without read access. */
+export const getReadingFacts = query({
+  args: { generationId: v.id("generations") },
+  handler: async (ctx, args) => await getReadingFactsHandler(ctx, args),
+});
+
+/** Facts located as the Brief streams in; fenced by the run still starting. */
+export const appendReadingFacts = internalMutation({
+  args: { generationId: v.id("generations"), facts: v.array(readingFactValidator) },
+  returns: v.null(),
+  handler: async (ctx, args) => await appendReadingFactsHandler(ctx, args),
+});
+
+/** A reused Brief's located entries, shown at once. */
+export const copyBriefToReadingFacts = internalMutation({
+  args: { generationId: v.id("generations"), briefId: v.id("generationBriefs") },
+  returns: v.null(),
+  handler: async (ctx, args) => await copyBriefToReadingFactsHandler(ctx, args),
 });
