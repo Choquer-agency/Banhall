@@ -61,6 +61,70 @@
   /* Stale marker dot (amber, the orange score band's bar colour). */
   --color-stale-dot: #F59E0B;
 
+  /* ─── Round 2 (HANDOFF "Global rules added this round", 2026-09-26) ───
+     Light-only tokens: the dark workspace scope does not retint them. */
+
+  /* Shell: the lighter rail and the frame around the work panel, and the
+     tile behind the page icon in the top bar. Separate from
+     --color-workspace-rail so the current rail keeps its colour until the
+     round 2 shell adopts these. */
+  --color-workspace-shell: #FAFCFB;
+  --color-workspace-page-icon: #E3F4F1;
+
+  /* Role chips (RoleChip): soft fill + ink per role. */
+  --color-role-owner: #C9EDE7;
+  --color-role-owner-ink: #065F5B;
+  --color-role-admin: #DBEAFE;
+  --color-role-admin-ink: #1D4ED8;
+  --color-role-manager: #CFFAFE;
+  --color-role-manager-ink: #0E7490;
+  --color-role-consultant: #DDE6E4;
+  --color-role-consultant-ink: #33423F;
+  --color-role-developer: #EDE3FF;
+  --color-role-developer-ink: #6D28D9;
+
+  /* Status families. The bare token is the solid (icons, dots); -soft is the
+     chip and badge fill with -ink text; -surface and -line are the callout
+     box fill and border (boards E5, E6); -ink-muted is the callout paragraph,
+     an opaque stand-in for the boards' 75-80% opacity ink that keeps AA on
+     -surface; -action fills a button inside the box with white text (AA). */
+  --color-danger: #DC2626;
+  --color-danger-soft: #FEE2E2;
+  --color-danger-ink: #991B1B;
+  --color-danger-ink-muted: #B91C1C;
+  --color-danger-surface: #FEF2F2;
+  --color-danger-line: #FCA5A5;
+  --color-danger-action: #DC2626;
+  --color-danger-action-hover: #B91C1C;
+
+  --color-warning: #D97706;
+  --color-warning-soft: #FEF3C7;
+  --color-warning-ink: #92400E;
+  --color-warning-ink-muted: #B45309;
+  --color-warning-surface: #FFFBEB;
+  --color-warning-line: #FDE68A;
+  --color-warning-action: #B45309;
+  --color-warning-action-hover: #92400E;
+
+  --color-success: #16A34A;
+  --color-success-soft: #DCFCE7;
+  --color-success-ink: #166534;
+  --color-success-ink-muted: #15803D;
+  --color-success-surface: #F0FDF4;
+  --color-success-line: #BBF7D0;
+  --color-success-action: #15803D;
+  --color-success-action-hover: #166534;
+
+  /* "Recommended" label (board E1, How should we write it?). */
+  --color-recommended: #BBF7D0;
+  --color-recommended-ink: #14532D;
+
+  /* Filled destructive button (Button variant "destructive-soft"). */
+  --color-destructive-soft: #FEE2E2;
+  --color-destructive-soft-ink: #B91C1C;
+  --color-destructive-soft-hover: #FECACA;
+  --color-destructive-soft-ink-hover: #991B1B;
+
   /* Neutral ramp — teal-cast grays. The gray scale is REMAPPED app-wide:
      900/800 ink · 700/600 secondary · 500 muted · 400 faint/placeholder ·
      300 disabled · 200/100 lines · 50 wash. Redefining these harmonizes every
