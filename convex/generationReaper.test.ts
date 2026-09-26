@@ -7,7 +7,7 @@
  */
 import { convexTest } from "convex-test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { internal } from "./_generated/api";
+import { api, internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import { STALE_PROJECT_SWEEP_PAGE_SIZE } from "./generations";
 import schema from "./schema";
@@ -23,6 +23,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.useRealTimers();
+  vi.unstubAllEnvs();
 });
 
 type Seed = Awaited<ReturnType<typeof seed>>;
@@ -202,5 +203,90 @@ describe("freeOrphanedGeneratingProjects", () => {
     // The live generation is fresh, so the whole-fail sweep left it alone too.
     const live = await t.run(async (ctx) => await ctx.db.get(s.liveGenerationId));
     expect(live?.status).toBe("running");
+  });
+});
+
+// Audit 2026-09-25 a4 #20 (retro C5): "generating" is never the status a
+// generation returns its project to, or a stuck project is locked again on
+// every sweep. A reservation stores "draft" instead, and a row stored
+// before that rule is read as "draft".
+describe("the reaper never restores generating", () => {
+  async function stuckProject(t: ReturnType<typeof convexTest>, stored: "generating" | "draft") {
+    return await t.run(async (ctx) => {
+      const old = Date.now() - 60 * MINUTES;
+      const userId = await ctx.db.insert("users", { authId: "restore-writer", role: "writer" });
+      const projectId = await ctx.db.insert("projects", {
+        title: "Stuck",
+        clientName: "Client",
+        status: "generating",
+        createdBy: userId,
+        shareToken: "restore-token",
+        createdAt: old,
+        updatedAt: old,
+      });
+      const transcriptId = await ctx.db.insert("transcripts", {
+        projectId,
+        content: "Interview content",
+        createdAt: old,
+      });
+      const generationId = await ctx.db.insert("generations", {
+        projectId,
+        transcriptId,
+        status: "running",
+        candidateMode: "compare",
+        previousProjectStatus: stored,
+        startedAt: old,
+      });
+      await ctx.db.patch(projectId, { activeGenerationId: generationId });
+      return { userId, projectId, generationId };
+    });
+  }
+
+  it("fails a stale run whose stored status is generating and returns the project to draft", async () => {
+    const t = convexTest(schema, modules);
+    const { projectId, generationId } = await stuckProject(t, "generating");
+    await t.mutation(internal.generations.failStaleGenerations, { olderThanMinutes: 30 });
+    const state = await t.run(async (ctx) => ({
+      project: await ctx.db.get(projectId),
+      generation: await ctx.db.get(generationId),
+    }));
+    expect(state.generation?.status).toBe("failed");
+    expect(state.project?.status).toBe("draft");
+    expect(state.project?.activeGenerationId).toBeUndefined();
+  });
+
+  it("frees an orphaned project whose last generation stored generating to draft", async () => {
+    const t = convexTest(schema, modules);
+    const { projectId, generationId } = await stuckProject(t, "generating");
+    await t.run(async (ctx) => {
+      await ctx.db.patch(generationId, { status: "failed", completedAt: Date.now() - 60 * MINUTES });
+      await ctx.db.patch(projectId, { activeGenerationId: undefined });
+    });
+    await t.mutation(internal.generations.freeOrphanedGeneratingProjects, {
+      cutoff: Date.now() - 30 * MINUTES,
+    });
+    expect((await t.run((ctx) => ctx.db.get(projectId)))?.status).toBe("draft");
+  });
+
+  it("stores draft, not generating, when a draft is requested while the project still reads generating", async () => {
+    vi.stubEnv("ANTHROPIC_API_KEY", "test-anthropic-key");
+    const t = convexTest(schema, modules);
+    const { userId, projectId, generationId } = await stuckProject(t, "draft");
+    await t.run(async (ctx) => {
+      await ctx.db.patch(generationId, { status: "failed", completedAt: Date.now() });
+      await ctx.db.patch(projectId, { activeGenerationId: undefined, ownerId: userId });
+    });
+    await t
+      .withIdentity({ subject: "restore-writer" })
+      .mutation(api.generations.requestGeneration, { projectId, candidateMode: "single" });
+    const latest = await t.run((ctx) =>
+      ctx.db
+        .query("generations")
+        .withIndex("by_projectId", (q) => q.eq("projectId", projectId))
+        .order("desc")
+        .first()
+    );
+    expect(latest?._id).not.toBe(generationId);
+    expect(latest?.previousProjectStatus).toBe("draft");
   });
 });

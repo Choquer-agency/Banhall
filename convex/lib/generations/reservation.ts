@@ -59,6 +59,7 @@ import { requireReportEditAccess } from "../roleCapabilities";
 import { assertFrozenSourceBijection, resolveFrozenSourceId } from "../seedRevisions";
 import { startSummaryRecoveryRef } from "./seedStage";
 import { transitionGeneration } from "../generationTransitions";
+import { restorableProjectStatus } from "./restoreStatus";
 
 export const lengthTargetValidator = v.union(
   v.literal("concise"),
@@ -381,7 +382,7 @@ export async function reserveGeneration(
     retryOfGenerationId,
     retryModelIds: persistedRetryModelIds,
     seededCandidates: seededCandidates || undefined,
-    previousProjectStatus: project.status,
+    previousProjectStatus: restorableProjectStatus(project.status),
     currentStep: "Queued",
     candidatesDone: seededCandidates,
     candidatesFailed: 0,
@@ -641,7 +642,7 @@ export async function retryFromSummaryHandler(
     // Summary recovery drafts on exactly the models the original froze.
     ...(failed.modelFreeze ? { modelFreeze: failed.modelFreeze } : {}),
     retryOfGenerationId: failed._id,
-    previousProjectStatus: project.status,
+    previousProjectStatus: restorableProjectStatus(project.status),
     currentStep: "Preparing Summary recovery",
     candidatesDone: 0,
     candidatesFailed: 0,
@@ -787,7 +788,7 @@ export async function retryFailedCandidatesHandler(
   });
   await ctx.db.patch(project._id, {
     activeGenerationId: undefined,
-    status: generation.previousProjectStatus ?? "draft",
+    status: restorableProjectStatus(generation.previousProjectStatus),
     updatedAt: now,
   });
   const resetProject = await ctx.db.get(project._id);

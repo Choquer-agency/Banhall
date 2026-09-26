@@ -26,6 +26,7 @@ import {
   ACTIVE_GENERATION_STATUSES,
 } from "../../../shared/generationTransitions";
 import { findActiveGeneration } from "../activeGeneration";
+import { restorableProjectStatus } from "./restoreStatus";
 
 /** Argument validators of generations.reapSeedBatchPage. */
 export const reapSeedBatchPageArgs = { status: v.union(v.literal("queued"), v.literal("running")), cutoff: v.number(), pageSize: v.optional(v.number()) };
@@ -262,7 +263,7 @@ export async function failStaleGenerationsHandler(
     if (project?.activeGenerationId === generation._id) {
       await ctx.db.patch(project._id, {
         activeGenerationId: undefined,
-        status: generation.previousProjectStatus ?? "draft",
+        status: restorableProjectStatus(generation.previousProjectStatus),
         updatedAt: Date.now(),
       });
     } else if (project?.status === "generating" && !project.activeGenerationId) {
@@ -282,7 +283,7 @@ export async function failStaleGenerationsHandler(
       ]);
       if (!reservedActive && !runningActive) {
         await ctx.db.patch(project._id, {
-          status: generation.previousProjectStatus ?? "draft",
+          status: restorableProjectStatus(generation.previousProjectStatus),
           updatedAt: Date.now(),
         });
       }
@@ -397,7 +398,7 @@ export async function freeOrphanedGeneratingProjectsHandler(
       .first();
     await ctx.db.patch(project._id, {
       activeGenerationId: undefined,
-      status: lastGeneration?.previousProjectStatus ?? "draft",
+      status: restorableProjectStatus(lastGeneration?.previousProjectStatus),
       updatedAt: Date.now(),
     });
     await refreshProjectGenerationActivity(ctx, project._id);

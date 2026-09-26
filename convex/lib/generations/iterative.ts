@@ -44,6 +44,7 @@ import { provenanceForWriterApprovedReport } from "../editProvenance";
 import { terminateSeedAttempts } from "../../seedRuns";
 import { bypassSeedEpisodes } from "../seedDecisionWrites";
 import { writeAgentOutputs } from "../generationOutputs";
+import { restorableProjectStatus } from "./restoreStatus";
 
 // ─── Iterative (section-by-section) generation lifecycle ─────────────────────
 //
@@ -850,7 +851,7 @@ export async function cancelIterativeGenerationHandler(
   for (const row of candidates) await ctx.db.delete(row._id);
   await ctx.db.patch(project._id, {
     activeGenerationId: undefined,
-    status: generation.previousProjectStatus ?? "draft",
+    status: restorableProjectStatus(generation.previousProjectStatus),
     updatedAt: now,
   });
   await refreshProjectGenerationActivity(ctx, generation.projectId);

@@ -2376,6 +2376,8 @@ Technical-state amendment from the 2026-09-24 generation-structure audit (phase 
 - **Tickets:** none (phase 4 generation structure).
 - **Approval:** the product owner approved merging phase 4 into `feat/seeds-5-6-ui` on 2026-09-25 ("we can put all the work onto the branch for 5173, so that's phase 4"). Merged as part of 9085f3ce; the four backfills ran on the local test deployment the same day.
 
+- **Later note, 2026-09-25: the project status a generation returns to (correctness wave 1; approved 2026-09-25 by the lead, the owner delegated the call to the lead).** A generation records the project status to return to when it ends (`generations.previousProjectStatus`). It never records "generating": a generation reserved while the project still read "generating" (a stuck run) records "draft", and every place that returns the project (failure, cancel, the stale-run reaper and the orphaned-project sweep) reads a stored "generating" as "draft" too (`convex/lib/generations/restoreStatus.ts`). Before, such a project went back to "generating" and was locked again on every sweep (audit 2026-09-25 a4 #20, retro C5). No schema change and no backfill. Tests: `convex/generationReaper.test.ts`.
+
 ### 2026-09-25 (second): Generation storage structure (widen, migrate, dual read)
 
 Data-model amendment from the same audit. It changes where generation data is stored, not what it means. The schema is only widened: no field is removed or made required, and no data is deleted. Two parts are not purely additive and are recorded here: one `qaFindings` index is removed (see Indexes), and the moved fields stop being written at deploy (see Rollback).

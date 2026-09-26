@@ -20,6 +20,7 @@ import { writerSettingsValidator } from "../orderedChain";
 import { isProjectDeleting } from "../projectDeletion";
 import { isTerminalGenerationStatus } from "../../../shared/generationTransitions";
 import { writeAgentOutputs, writeBrainProvenance } from "../generationOutputs";
+import { restorableProjectStatus } from "./restoreStatus";
 
 /** Argument validators of generations.beginGeneration. */
 export const beginGenerationArgs = {
@@ -142,7 +143,7 @@ export async function failGenerationHandler(
   if (project?.activeGenerationId === generation._id) {
     await ctx.db.patch(project._id, {
       activeGenerationId: undefined,
-      status: generation.previousProjectStatus ?? "draft",
+      status: restorableProjectStatus(generation.previousProjectStatus),
       updatedAt: Date.now(),
     });
   }

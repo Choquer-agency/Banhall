@@ -28,6 +28,7 @@ import { internal } from "../../_generated/api";
 import { getInternalProjectAccessOrNull, requireCurrentUser } from "../auth";
 import { requireReportEditAccess } from "../roleCapabilities";
 import { writeAgentOutputs } from "../generationOutputs";
+import { restorableProjectStatus } from "./restoreStatus";
 
 /** Argument validators of generations.createCandidateRun. */
 export const createCandidateRunArgs = {
@@ -444,7 +445,7 @@ export async function settleCandidateRun(
     });
     await ctx.db.patch(project._id, {
       activeGenerationId: undefined,
-      status: generation.previousProjectStatus ?? "draft",
+      status: restorableProjectStatus(generation.previousProjectStatus),
       updatedAt: Date.now(),
     });
     await refreshProjectGenerationActivity(ctx, generation.projectId);
