@@ -17,6 +17,7 @@ import {
 } from "./lib/contracts";
 import { admissionValidator, attemptOutcomeValidator } from "./lib/learningAdmission";
 import { styleOverridesValidator } from "./lib/styleOverrides";
+import { writerCoverageValidator } from "./lib/writerCoverage";
 import { brainProvenanceEntryValidator } from "./lib/generationOutputs";
 import { draftingInputsFailureCodeValidator } from "./lib/draftingInputsFailure";
 import {
@@ -2879,10 +2880,31 @@ export default defineSchema({
     buildOrder: v.optional(v.array(v.string())),
     // Story 2 (CAP-9): per-paragraph / per-section Self-check rules.
     selfCheckRules: v.optional(v.array(selfCheckRuleValidator)),
+    // Round 2 (I2): the stored "What they cover" analysis of the saved
+    // instructions. Written only for the text whose hash it carries and
+    // cleared whenever the instructions change, so it is never stale.
+    coverage: v.optional(writerCoverageValidator),
     updatedBy: v.id("users"),
     createdAt: v.number(),
     updatedAt: v.number(),
   }).index("by_userId", ["userId"]),
+
+  // Round 2 (I2, decision 58): Writing preferences Preview samples. Keyed by
+  // a hash of everything that shapes the sample, so a repeat view makes no
+  // model call. The house-style sample is shared (no userId); requestedBy
+  // counts toward the requester's daily cap.
+  writerStylePreviews: defineTable({
+    userId: v.optional(v.id("users")),
+    requestedBy: v.id("users"),
+    variant: v.union(v.literal("house"), v.literal("preferences")),
+    inputsHash: v.string(),
+    paragraphs: v.array(v.string()),
+    model: v.string(),
+    createdAt: v.number(),
+  })
+    .index("by_userId_and_variant", ["userId", "variant"])
+    .index("by_inputsHash", ["inputsHash"])
+    .index("by_requestedBy_and_createdAt", ["requestedBy", "createdAt"]),
 
   // ─── Jul 17: in-app changelog ──────────────────────────────────────────────
   // Dated entries so non-early-adopter writers can see what changed since they
