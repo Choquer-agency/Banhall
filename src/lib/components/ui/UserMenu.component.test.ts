@@ -36,39 +36,6 @@ describe("UserMenu", () => {
 
   afterEach(() => vi.restoreAllMocks());
 
-  it("turns the rail icon into a confirmed sign-out action", async () => {
-    __setQueryData("users:getCurrentUser", {
-      firstName: "Admin",
-      lastName: "Writer",
-      email: "admin@example.com",
-      role: "admin",
-    });
-    await render(UserMenu, {
-      tone: "light",
-      menuTheme: "light",
-      triggerVariant: "rail",
-    });
-
-    const trigger = document.querySelector<HTMLButtonElement>('button[aria-label="Sign out"]');
-    expect(trigger?.className).toContain("rounded-r-md");
-    expect(trigger?.className).not.toContain("hover:bg-red-50");
-    await page.getByRole("button", { name: "Sign out", exact: true }).click();
-    await expect.poll(() => document.querySelector('[role="dialog"]')).not.toBeNull();
-
-    const dialog = document.querySelector<HTMLElement>('[role="dialog"]');
-    expect(dialog?.className).toContain("rounded-t-xl");
-    expect(document.querySelector("[data-account-menu-identity]")).toBeNull();
-    expect(document.body.textContent).toContain("Sign out?");
-    expect(document.body.textContent).toContain("Sign out");
-    expect(document.body.textContent).toContain("Stay signed in");
-    expect(page.getByRole("menuitem", { name: "Settings", exact: true }).elements()).toHaveLength(0);
-    await page.getByRole("button", { name: "Stay signed in", exact: true }).click();
-    await expect.poll(() => document.querySelector('[role="dialog"]')).toBeNull();
-    await expect.poll(() => document.activeElement).toBe(trigger);
-    expect(authClient.signOut).not.toHaveBeenCalled();
-    expect(__navigationCalls).toEqual([]);
-  });
-
   it("keeps signed-in identity in the app-bar avatar menu", async () => {
     __setQueryData("users:getCurrentUser", {
       firstName: "Admin",

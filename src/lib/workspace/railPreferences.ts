@@ -42,10 +42,16 @@ export type RailPreferences = {
   width: number;
   /** Rail fully hidden (desktop only; the mobile drawer is independent). */
   hidden: boolean;
+  /**
+   * Admin group open in the expanded rail (round 2, B1 and B2). Only the
+   * last choice made off the admin pages; on `/admin/*` the group opens
+   * regardless. Absent in older payloads, so it defaults to closed.
+   */
+  adminOpen: boolean;
 };
 
 export function defaultRailPreferences(): RailPreferences {
-  return { width: RAIL_DEFAULT_WIDTH, hidden: false };
+  return { width: RAIL_DEFAULT_WIDTH, hidden: false, adminOpen: false };
 }
 
 /** Clamp + round any candidate width; non-finite input falls to the default. */
@@ -61,11 +67,12 @@ export function parseRailPreferences(raw: string | null | undefined): RailPrefer
   try {
     const parsed: unknown = JSON.parse(raw);
     if (typeof parsed !== "object" || parsed === null) return defaults;
-    const candidate = parsed as { width?: unknown; hidden?: unknown };
+    const candidate = parsed as { width?: unknown; hidden?: unknown; adminOpen?: unknown };
     return {
       width:
         typeof candidate.width === "number" ? clampRailWidth(candidate.width) : defaults.width,
       hidden: candidate.hidden === true,
+      adminOpen: candidate.adminOpen === true,
     };
   } catch {
     return defaults;
@@ -76,6 +83,7 @@ export function serializeRailPreferences(preferences: RailPreferences): string {
   return JSON.stringify({
     width: clampRailWidth(preferences.width),
     hidden: preferences.hidden === true,
+    adminOpen: preferences.adminOpen === true,
   });
 }
 
@@ -84,7 +92,7 @@ export function loadRailPreferences(): RailPreferences {
     const current = localStorage.getItem(RAIL_PREFERENCES_KEY);
     if (current === null) {
       const legacy = parseRailPreferences(localStorage.getItem(LEGACY_RAIL_PREFERENCES_KEY));
-      return { width: RAIL_DEFAULT_WIDTH, hidden: legacy.hidden };
+      return { width: RAIL_DEFAULT_WIDTH, hidden: legacy.hidden, adminOpen: false };
     }
     return parseRailPreferences(current);
   } catch {
@@ -93,8 +101,13 @@ export function loadRailPreferences(): RailPreferences {
   }
 }
 
-export function persistRailPreferences(preferences: RailPreferences): void {
+/**
+ * Persist a change. The shell writes width and collapse and the rail writes
+ * the Admin group choice, so each update merges over what is stored.
+ */
+export function persistRailPreferences(update: Partial<RailPreferences>): void {
   try {
+    const preferences = { ...loadRailPreferences(), ...update };
     localStorage.setItem(RAIL_PREFERENCES_KEY, serializeRailPreferences(preferences));
   } catch {
     // Storage blocked — the in-memory preference still applies for the session.

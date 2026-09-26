@@ -6,6 +6,15 @@
   import WorkspaceRailResizeHandle from "$lib/components/workspace/WorkspaceRailResizeHandle.svelte";
   import CommandPalette from "$lib/components/workspace/CommandPalette.svelte";
   import * as Drawer from "$lib/components/ui/drawer/index.js";
+  import { useQuery } from "convex-svelte";
+  import { useAuth } from "@mmailaender/convex-better-auth-svelte/svelte";
+  import { api } from "../../../../convex/_generated/api";
+  import ViewAsPill from "$lib/components/shell/ViewAsPill.svelte";
+  import ViewAsDialog from "$lib/components/shell/ViewAsDialog.svelte";
+  import ShortcutHost from "$lib/components/shell/ShortcutHost.svelte";
+  import NotificationToaster from "$lib/components/shell/NotificationToaster.svelte";
+  import { canSeeAdmin } from "$lib/shell/navigation";
+  import { effectiveViewer, viewAs } from "$lib/shell/viewAs.svelte";
   import {
     RAIL_COLLAPSED_WIDTH,
     clampRailWidth,
@@ -72,6 +81,14 @@
     persistRailPreferences({ width: railWidth, hidden: railHidden });
   });
 
+  // View as (D1 to D5) is presentation only: the shell frames the work panel
+  // and shows the pill while a developer views another role.
+  const auth = useAuth();
+  const userQ = useQuery(api.users.getCurrentUser, () => (auth.isAuthenticated ? {} : "skip"));
+  const realDeveloper = $derived(userQ.data?.isDeveloper === true);
+  const viewer = $derived(effectiveViewer(userQ.data));
+  const viewing = $derived(viewer.viewing);
+
   // Live drag writes the CSS custom property straight onto the root node —
   // no Svelte state churn per pointermove; the committed width lands in
   // state (and storage) once on release.
@@ -98,6 +115,8 @@
     return () => media.removeEventListener("change", update);
   });
   const railCollapsed = $derived(railHidden || tablet);
+  // At tablet widths the rail is always icons-only, so there is nothing to expand.
+  const toggleRail = $derived(tablet ? null : () => (railHidden = !railHidden));
 
   $effect(() => {
     const desktop = window.matchMedia("(min-width: 64rem)");
@@ -117,14 +136,15 @@
   data-workspace-theme={theme}
   data-rail-hidden={railHidden ? "" : undefined}
   data-rail-resizing={resizing ? "" : undefined}
+  data-view-as={viewing ?? undefined}
   style={`--workspace-rail-width: ${railWidth}px; --workspace-rail-collapsed-width: ${RAIL_COLLAPSED_WIDTH}px;`}
-  class="workspace-shell-grid relative grid h-dvh grid-rows-[minmax(0,1fr)] overflow-hidden bg-canvas text-ink lg:grid-cols-[var(--workspace-rail-collapsed-width)_minmax(0,1fr)] xl:grid-cols-[var(--workspace-rail-col)_minmax(0,1fr)]"
+  class="workspace-shell-grid relative grid h-dvh grid-rows-[minmax(0,1fr)] overflow-hidden bg-workspace-shell text-ink lg:grid-cols-[var(--workspace-rail-collapsed-width)_minmax(0,1fr)] xl:grid-cols-[var(--workspace-rail-col)_minmax(0,1fr)]"
 >
   <div class="workspace-rail-column relative hidden min-h-0 lg:block">
     <aside
       id="workspace-rail"
       data-rail-panel
-      class="workspace-rail-panel absolute inset-y-0 left-0 overflow-hidden bg-workspace-rail"
+      class="workspace-rail-panel absolute inset-y-0 left-0 overflow-hidden bg-workspace-shell"
       style={`width: ${railCollapsed ? "var(--workspace-rail-collapsed-width)" : "var(--workspace-rail-width)"};`}
     >
       <div class="h-full" style={`width: ${railCollapsed ? "var(--workspace-rail-collapsed-width)" : "var(--workspace-rail-width)"};`}>
@@ -135,10 +155,8 @@
           {myWorkAvailable}
           {myWorkHref}
           {projectsHref}
-          {currentDashboardHref}
-          {currentExperienceLabel}
           onFocusSearch={() => (commandPaletteOpen = true)}
-          onToggleRail={() => (railHidden = !railHidden)}
+          onToggleRail={toggleRail}
         />
       </div>
       <!-- Pointer/keyboard resize applies to the expanded rail only. -->
@@ -149,15 +167,42 @@
   </div>
 
   {@render children()}
+
+  {#if viewing}
+    <!-- D3: centred over the 56px top bar of the content column; below 1024px
+         a full-width strip under the top bar (not designed, proposed). -->
+    <div
+      data-view-as-layer
+      class="view-as-layer pointer-events-none absolute z-[60] flex items-center justify-center max-lg:inset-x-3 max-lg:top-14 lg:right-0 lg:top-0 lg:h-14"
+    >
+      <ViewAsPill role={viewing} />
+    </div>
+  {/if}
 </div>
 
-<CommandPalette bind:open={commandPaletteOpen} {myWorkHref} {projectsHref} />
+<CommandPalette
+  bind:open={commandPaletteOpen}
+  {myWorkHref}
+  {projectsHref}
+  {currentDashboardHref}
+  {currentExperienceLabel}
+/>
+<ViewAsDialog bind:open={viewAs.dialogOpen} />
+<NotificationToaster />
+<ShortcutHost
+  onToggleRail={() => {
+    if (!tablet) railHidden = !railHidden;
+  }}
+  canOpenAdmin={canSeeAdmin(viewer)}
+  canViewAs={realDeveloper}
+  onOpenViewAs={() => (viewAs.dialogOpen = true)}
+/>
 
 <Drawer.Root bind:open={navigationOpen} direction="left" shouldScaleBackground={false} autoFocus={true}>
   <Drawer.Content
     data-workspace-drawer
     data-workspace-theme="light"
-    class="z-[110] h-dvh w-[min(19rem,calc(100vw-2.5rem))]! max-w-none! rounded-none! border-r border-workspace-rail-line bg-workspace-rail p-0 text-ink shadow-workspace-drawer lg:hidden"
+    class="z-[110] h-dvh w-[min(19rem,calc(100vw-2.5rem))]! max-w-none! rounded-none! border-r border-workspace-rail-line bg-workspace-shell p-0 text-ink shadow-workspace-drawer lg:hidden"
   >
     <Drawer.Title class="sr-only">Workspace navigation</Drawer.Title>
     <Drawer.Description class="sr-only">{drawerDescription}</Drawer.Description>
@@ -173,9 +218,10 @@
       {myWorkAvailable}
       {myWorkHref}
       {projectsHref}
-      {currentDashboardHref}
-      {currentExperienceLabel}
-      {onFocusSearch}
+      onFocusSearch={() => {
+        navigationOpen = false;
+        commandPaletteOpen = true;
+      }}
       onNavigate={() => (navigationOpen = false)}
     />
   </Drawer.Content>
@@ -197,6 +243,18 @@
 
   .workspace-shell-grid[data-rail-hidden] {
     --workspace-rail-col: var(--workspace-rail-collapsed-width, 56px);
+  }
+
+  /* The pill spans the content column: from the rail's edge to the right. */
+  @media (min-width: 64rem) {
+    .view-as-layer {
+      left: var(--workspace-rail-collapsed-width, 56px);
+    }
+  }
+  @media (min-width: 80rem) {
+    .view-as-layer {
+      left: var(--workspace-rail-col);
+    }
   }
 
   .workspace-shell-grid[data-rail-resizing] {

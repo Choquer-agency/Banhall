@@ -103,7 +103,7 @@ describe("Workspace rail resize + hide/show", () => {
     await expect.poll(() => handle()?.getAttribute("aria-valuenow")).toBe(String(RAIL_MIN_WIDTH));
 
     // Every keyboard commit persists the clamped preference.
-    expect(storedPrefs()).toEqual({ width: RAIL_MIN_WIDTH, hidden: false });
+    expect(storedPrefs()).toEqual({ width: RAIL_MIN_WIDTH, hidden: false, adminOpen: false });
     // The grid variable follows the committed width.
     expect(shellRoot()?.style.getPropertyValue("--workspace-rail-width").trim()).toBe(
       `${RAIL_MIN_WIDTH}px`
@@ -134,7 +134,7 @@ describe("Workspace rail resize + hide/show", () => {
 
     separator.dispatchEvent(pointer("pointerup", 900));
     await expect.poll(() => root.hasAttribute("data-rail-resizing")).toBe(false);
-    expect(storedPrefs()).toEqual({ width: RAIL_MAX_WIDTH, hidden: false });
+    expect(storedPrefs()).toEqual({ width: RAIL_MAX_WIDTH, hidden: false, adminOpen: false });
     await expect.poll(() => handle()?.getAttribute("aria-valuenow")).toBe(String(RAIL_MAX_WIDTH));
   });
 
@@ -158,11 +158,11 @@ describe("Workspace rail resize + hide/show", () => {
     toggle.click();
     await expect.poll(() => root.hasAttribute("data-rail-hidden")).toBe(true);
     // The collapsed rail stays usable (icons only) and the preference
-    // persists under the compatible `hidden` key; the content header
-    // provides the expand affordance.
+    // persists under the compatible `hidden` key; the collapsed rail itself
+    // provides the expand affordance (round 2, A4).
     expect(railAside()?.hasAttribute("inert")).toBe(false);
     expect(railAside()?.querySelector("[data-rail-collapsed]")).not.toBeNull();
-    expect(storedPrefs()).toEqual({ width: 272, hidden: true });
+    expect(storedPrefs()).toEqual({ width: 272, hidden: true, adminOpen: false });
     await expect
       .poll(() => railToggle()?.getAttribute("aria-label"))
       .toBe("Expand navigation rail");
@@ -181,7 +181,7 @@ describe("Workspace rail resize + hide/show", () => {
     railToggle()!.click();
     await expect.poll(() => root.hasAttribute("data-rail-hidden")).toBe(false);
     // Expanding restores the PREVIOUS expanded width, not the default.
-    expect(storedPrefs()).toEqual({ width: 272, hidden: false });
+    expect(storedPrefs()).toEqual({ width: 272, hidden: false, adminOpen: false });
     await expect
       .poll(() => railAside()!.getBoundingClientRect().width, { timeout: 2000 })
       .toBeGreaterThanOrEqual(271);
@@ -202,7 +202,7 @@ describe("Workspace rail resize + hide/show", () => {
     const hamburger = document.querySelector<HTMLElement>('button[aria-label="Open workspace navigation"]');
     expect(hamburger === null || getComputedStyle(hamburger).display === "none").toBe(true);
     // The stored expanded preference is untouched.
-    expect(storedPrefs()).toEqual({ width: 272, hidden: false });
+    expect(storedPrefs()).toEqual({ width: 272, hidden: false, adminOpen: false });
   });
 
   it("restores persisted collapsed state on mount (preference survives reload)", async () => {
