@@ -1,4 +1,9 @@
-export type AvatarTone = "fir" | "teal" | "purple";
+/**
+ * "fir", "teal" and "purple" are the person tones `avatarTone` picks from.
+ * "invite" (J5, J9 banner inviter) and "faded" (J6 expired inviter) are
+ * fixed tones for those two screens only.
+ */
+export type AvatarTone = "fir" | "teal" | "purple" | "invite" | "faded";
 
 const TONES: readonly AvatarTone[] = ["fir", "teal", "purple"];
 

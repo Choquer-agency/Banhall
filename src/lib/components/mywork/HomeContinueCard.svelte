@@ -9,7 +9,6 @@
   import { resolve } from "$app/paths";
   import { useAuth } from "@mmailaender/convex-better-auth-svelte/svelte";
   import { useQuery } from "convex-svelte";
-  import { ArrowRightIcon } from "phosphor-svelte";
   import { api } from "../../../../convex/_generated/api";
   import HomeStageChip from "$lib/components/mywork/HomeStageChip.svelte";
   import {
@@ -74,16 +73,15 @@
           data-recent-title={summary.projectTitle}
           data-recent-stage={summary.workflowStage}
           data-recent-client={summary.clientName || undefined}
-          class="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md bg-primary-selected px-2.5 text-xs font-medium text-white transition-colors hover:bg-primary-dark focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-fir motion-reduce:transition-none pointer-coarse:h-11"
+          class="inline-flex h-8 shrink-0 items-center gap-1 rounded-md bg-primary-selected px-2.5 text-xs leading-[18px] font-medium text-white transition-colors hover:bg-primary-dark focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-fir motion-reduce:transition-none pointer-coarse:h-11"
         >
-          Resume report
-          <ArrowRightIcon size={12} aria-hidden="true" />
+          Resume report <span aria-hidden="true">→</span>
         </a>
       </div>
     </div>
   {:else}
     <!-- J7: no card, one quiet line until there is something to pick up. -->
-    <p data-home-continue-empty class="text-[13px] leading-5 text-ink-muted">
+    <p data-home-continue-empty class="text-[13px] leading-[19px] text-ink-muted">
       Nothing to pick up yet. The last project you worked on shows up here.
     </p>
   {/if}

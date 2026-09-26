@@ -218,9 +218,67 @@ describe("/signup/[token]", () => {
         "Join by Friday, Oct 2.",
       ]);
       const column = document.querySelector<HTMLElement>("[data-auth-column]")!;
-      expect(Math.round(column.getBoundingClientRect().width)).toBe(390 - 48);
+      // J9: 20px sides; the 52px logo 40px under the banner, 24px above the column.
+      expect(Math.round(column.getBoundingClientRect().width)).toBe(390 - 40);
+      const banner = document.querySelector<HTMLElement>("[data-invite-banner]")!.getBoundingClientRect();
+      const logo = document.querySelector<HTMLImageElement>("[data-banhall-logo]")!.getBoundingClientRect();
+      expect(Math.round(logo.height)).toBe(52);
+      expect(Math.round(logo.top - banner.bottom)).toBe(40);
+      expect(Math.round(column.getBoundingClientRect().top - logo.bottom)).toBe(24);
+      expect(document.querySelector("[data-auth-footer]")).toBeNull();
     } finally {
       await page.viewport(1280, 800);
     }
+  });
+
+  it("draws the J5 banner and password rule in the board colours", async () => {
+    __setQueryData("invites:getInviteByToken", PENDING);
+    render(SignupPage);
+    await expect.poll(() => document.querySelector("[data-invite-banner]")).not.toBeNull();
+    const banner = document.querySelector<HTMLElement>("[data-invite-banner]")!;
+    expect(banner.getBoundingClientRect().height).toBe(48);
+    expect(getComputedStyle(banner).backgroundColor).toBe("rgb(227, 244, 241)");
+    const avatar = banner.querySelector<HTMLElement>("[data-avatar]")!;
+    expect(getComputedStyle(avatar).backgroundColor).toBe("rgb(46, 119, 114)");
+    expect(getComputedStyle(avatar).fontWeight).toBe("500");
+    expect(getComputedStyle(avatar).fontSize).toBe("10px");
+    const joinBy = [...banner.querySelectorAll<HTMLElement>("[data-invite-join-by]")].find(
+      (el) => el.offsetParent !== null,
+    )!;
+    expect(getComputedStyle(joinBy).color).toBe("rgb(51, 96, 91)");
+    // J5 has no footer.
+    expect(document.querySelector("[data-auth-footer]")).toBeNull();
+
+    setInputValue("#password", "long enough");
+    const rule = () => document.querySelector<HTMLElement>("[data-password-rule]")!;
+    await expect.poll(() => rule().dataset.passwordRule).toBe("met");
+    const mark = rule().querySelector<HTMLElement>("[data-password-rule-mark]")!;
+    expect(getComputedStyle(mark).backgroundColor).toBe("rgb(220, 252, 231)");
+    const check = mark.querySelector("svg")!;
+    expect(check.getAttribute("width")).toBe("9");
+    expect(check.getAttribute("stroke-width")).toBe("3.2");
+    expect(getComputedStyle(check).color).toBe("rgb(22, 101, 52)");
+    expect(getComputedStyle(rule().querySelector("span:last-child")!).color).toBe("rgb(22, 101, 52)");
+  });
+
+  it("fades the expired inviter to the board grey-teal and uses the amber Expired chip (J6)", async () => {
+    __setQueryData("invites:getInviteByToken", {
+      state: "expired",
+      role: "writer",
+      inviter: { name: "Bryce Choquer", firstName: "Bryce", email: "bryce@banhall.com" },
+      sentAt: SENT,
+      expiresAt: EXPIRES,
+    });
+    render(SignupPage);
+    await expect.poll(() => document.querySelector("[data-invite-expired] [data-avatar]")).not.toBeNull();
+    const avatar = document.querySelector<HTMLElement>("[data-invite-expired] [data-avatar]")!;
+    expect(getComputedStyle(avatar).backgroundColor).toBe("rgb(185, 207, 203)");
+    expect(getComputedStyle(avatar).opacity).toBe("1");
+    const chip = [...document.querySelectorAll<HTMLElement>("[data-invite-expired] span")].find(
+      (el) => el.textContent === "Expired",
+    )!;
+    expect(getComputedStyle(chip).backgroundColor).toBe("rgb(254, 243, 199)");
+    expect(getComputedStyle(chip).color).toBe("rgb(146, 64, 14)");
+    expect(document.querySelector("[data-auth-footer]")).toBeNull();
   });
 });

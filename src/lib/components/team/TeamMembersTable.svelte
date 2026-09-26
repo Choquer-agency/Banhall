@@ -1,6 +1,8 @@
 <script lang="ts">
   // C1 members table: Name (260), Email (flex), Role (120), Last active
-  // (110), plus a 28px actions column for Admin viewers (decision 54).
+  // (110), plus a 28px actions column for Admin viewers (decision 54). 36px
+  // header (12/16 muted on canvas), 48px rows, 24px avatars with 10px
+  // initials in the person's own tone (the same seed as the rail).
   import Avatar from "$lib/components/ui/Avatar.svelte";
   import RoleChip from "$lib/components/ui/RoleChip.svelte";
   import MemberRowMenu from "./MemberRowMenu.svelte";
@@ -48,7 +50,7 @@
     {#each members as member (member._id)}
       <div role="row" data-member-row={member._id} class="flex h-12 items-center gap-4 border-b border-line-soft px-4 last:border-b-0">
         <span role="cell" class="flex w-[260px] shrink-0 items-center gap-2.5">
-          <Avatar name={member.name} initials={personInitials(member)} size={24} tone={member.isSelf ? "teal" : "fir"} />
+          <Avatar name={member.name} initials={personInitials(member)} seed={member._id} size={24} />
           <span class="truncate text-[13px] leading-[19px] font-medium text-ink">{member.name}</span>
         </span>
         <span role="cell" class="min-w-0 flex-1 truncate text-[13px] leading-[19px] text-ink-secondary">{member.email ?? ""}</span>

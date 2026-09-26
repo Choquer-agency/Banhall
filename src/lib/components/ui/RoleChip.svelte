@@ -15,6 +15,7 @@
     kind = undefined,
     size = "md",
     label = undefined,
+    radius = undefined,
     class: className = "",
   }: {
     role?: Role | null;
@@ -24,6 +25,8 @@
     size?: "md" | "sm";
     /** Replaces the role name, keeping the role's colours ("Viewing as Consultant", D3). */
     label?: string;
+    /** Corner radius in px when a board differs from the size's default (4 in the C3 role cards and C4 role menu). */
+    radius?: number;
     class?: string;
   } = $props();
 
@@ -47,6 +50,7 @@
   <span
     data-role-chip={resolved}
     class={`inline-flex shrink-0 items-center whitespace-nowrap font-medium ${sizeStyles[size]} ${toneStyles[resolved]} ${className}`}
+    style:border-radius={radius === undefined ? undefined : `${radius}px`}
   >
     {label ?? ROLE_CHIP_LABELS[resolved]}
   </span>

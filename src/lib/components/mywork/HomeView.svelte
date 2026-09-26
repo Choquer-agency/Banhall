@@ -19,7 +19,7 @@
   import { resolve } from "$app/paths";
   import { useAuth } from "@mmailaender/convex-better-auth-svelte/svelte";
   import { usePaginatedQuery, useQuery } from "convex-svelte";
-  import { BellIcon, PlusIcon } from "phosphor-svelte";
+  import { IconBell, IconHome, IconPlus, IconPlusSmall } from "$lib/components/icons";
   import { api } from "../../../../convex/_generated/api";
   import HomeContinueCard from "$lib/components/mywork/HomeContinueCard.svelte";
   import HomeProjectTable from "$lib/components/mywork/HomeProjectTable.svelte";
@@ -86,7 +86,7 @@
   });
 
   const iconButton =
-    "flex size-8 shrink-0 items-center justify-center rounded-lg text-ink-secondary transition-colors hover:bg-primary-wash hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir motion-reduce:transition-none pointer-coarse:size-11";
+    "flex size-9 shrink-0 items-center justify-center rounded-[7px] text-ink-secondary transition-colors hover:bg-primary-wash hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir motion-reduce:transition-none pointer-coarse:size-11";
 </script>
 
 <svelte:window onfocus={() => (now = Date.now())} />
@@ -95,9 +95,7 @@
   <header data-workspace-page-header data-home-top-bar class="flex h-14 shrink-0 items-center gap-2.5 px-3 sm:px-5">
     <WorkspaceShellControls tone="light" {onOpenNavigation} {railHidden} {onToggleRail} />
     <span aria-hidden="true" data-home-page-icon class="flex size-[26px] shrink-0 items-center justify-center rounded-md bg-workspace-page-icon text-primary">
-      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-        <path d="M3 10l9-7 9 7v10H3Z M9 20v-7h6v7" />
-      </svg>
+      <IconHome size={15} strokeWidth={1.8} />
     </span>
     <h1 class="shrink-0 text-sm font-medium leading-5 text-ink">Home</h1>
     <p data-home-greeting class="min-w-0 truncate text-xs leading-[18px] text-ink-muted max-sm:hidden">{greeting}</p>
@@ -108,17 +106,17 @@
       aria-label={unseen > 0 ? `Notifications, ${unseen} new update${unseen === 1 ? "" : "s"}` : "Notifications"}
       class={`relative ${iconButton}`}
     >
-      <BellIcon size={17} aria-hidden="true" />
+      <IconBell size={16} strokeWidth={1.5} />
       {#if unseen > 0}
-        <span aria-hidden="true" class="absolute right-1.5 top-1.5 size-1.5 rounded-full bg-primary"></span>
+        <span aria-hidden="true" data-top-bar-bell-dot class="absolute right-2.5 top-2 size-1.5 rounded-full bg-primary"></span>
       {/if}
     </a>
     <a
       href={resolve("/project/new")}
       data-home-new-project
-      class="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-lg bg-primary-selected px-3.5 text-[13px] font-medium text-white transition-colors hover:bg-primary-dark focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-fir motion-reduce:transition-none pointer-coarse:h-11"
+      class="inline-flex h-[30px] shrink-0 items-center gap-[5px] rounded-[7px] bg-primary-selected pl-2.5 pr-3 text-[13px] leading-[18px] font-medium text-white transition-colors hover:bg-primary-dark focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-fir motion-reduce:transition-none pointer-coarse:h-11"
     >
-      <PlusIcon size={12} weight="bold" aria-hidden="true" />
+      <IconPlusSmall size={12} strokeWidth={1.5} class="shrink-0" />
       New project
     </a>
   </header>
@@ -126,7 +124,7 @@
   <main
     data-home-panel
     data-work-panel
-    class="mx-3 mb-3 flex min-h-0 flex-1 flex-col overflow-y-auto rounded-xl border border-workspace-rail-line bg-surface"
+    class="mx-3 mb-3 flex min-h-0 flex-1 flex-col overflow-y-auto rounded-[10px] border border-line bg-surface"
   >
     <div class="flex flex-1 flex-col gap-10 px-4 pb-6 pt-5 sm:px-6 xl:flex-row xl:gap-8">
       <div data-home-tables class="min-w-0 flex-1">
@@ -150,9 +148,13 @@
               <a
                 href={resolve("/project/new")}
                 data-home-add-new
-                class={`inline-flex items-center gap-2 rounded-md pr-2 text-ink-muted transition-colors hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir motion-reduce:transition-none ${withYou?.length === 0 ? "h-10 pl-7 text-[13px] leading-[18px]" : "h-9 pl-2 text-xs"}`}
+                class={`inline-flex items-center gap-2 rounded-md pl-7 pr-2 text-ink-muted transition-colors hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir motion-reduce:transition-none ${withYou?.length === 0 ? "h-10 text-[13px] leading-[18px]" : "h-9 text-xs leading-4"}`}
               >
-                <PlusIcon size={withYou?.length === 0 ? 14 : 12} aria-hidden="true" />
+                {#if withYou?.length === 0}
+                  <IconPlus size={14} strokeWidth={2} class="shrink-0" />
+                {:else}
+                  <IconPlusSmall size={12} strokeWidth={1.3} class="shrink-0" />
+                {/if}
                 {withYou?.length === 0 ? "New project" : "Add new"}
               </a>
               {#if withYouMore}

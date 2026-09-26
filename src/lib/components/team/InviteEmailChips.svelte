@@ -3,7 +3,7 @@
   // chips; an invalid address becomes a danger chip with "Check this
   // address"; duplicates collapse; Backspace in an empty field removes the
   // last chip.
-  import { XIcon } from "phosphor-svelte";
+  import { IconClose } from "$lib/components/icons";
   import Tooltip from "$lib/components/ui/Tooltip.svelte";
   import { addChips, splitEmails, type EmailChip } from "$lib/team/inviteEmails";
 
@@ -57,24 +57,24 @@
 <div
   data-invite-email-chips
   onclick={() => input?.focus()}
-  class="flex min-h-11 cursor-text flex-wrap items-center gap-1.5 rounded-[10px] border-[1.5px] border-line bg-surface p-2 focus-within:border-primary-selected"
+  class="flex min-h-11 cursor-text flex-wrap items-center gap-1.5 rounded-lg border-[1.5px] border-line bg-surface p-2 focus-within:border-primary-selected"
 >
   {#each chips as chip, index (chip.value)}
     {#if chip.valid}
-      <span data-email-chip="valid" class="flex h-7 items-center gap-1.5 rounded-md bg-chrome pl-2.5 pr-1.5 text-[13px] leading-[18px] text-ink">
+      <span data-email-chip="valid" class="flex h-[26px] items-center gap-1.5 rounded-md bg-chrome pl-2.5 pr-1.5 text-[13px] leading-[18px] text-ink">
         {chip.value}
-        <button type="button" {disabled} aria-label={`Remove ${chip.value}`} onclick={(event) => { event.stopPropagation(); remove(index); }} class="flex h-4 w-4 items-center justify-center rounded text-ink-muted hover:text-ink">
-          <XIcon size={14} aria-hidden="true" />
+        <button type="button" {disabled} aria-label={`Remove ${chip.value}`} onclick={(event) => { event.stopPropagation(); remove(index); }} class="flex h-4 w-4 items-center justify-center rounded text-ink-faint hover:text-ink">
+          <IconClose size={14} strokeWidth={1.8} />
         </button>
       </span>
     {:else}
       <Tooltip text="Check this address" delayDuration={200}>
         {#snippet children({ props })}
-          <span {...props} data-email-chip="invalid" tabindex="-1" class="flex h-7 items-center gap-1.5 rounded-md bg-danger-soft pl-2.5 pr-1.5 text-[13px] leading-[18px] text-danger-ink">
+          <span {...props} data-email-chip="invalid" tabindex="-1" class="flex h-[26px] items-center gap-1.5 rounded-md bg-danger-soft pl-2.5 pr-1.5 text-[13px] leading-[18px] text-danger-ink">
             {chip.value}
             <span class="sr-only">Check this address</span>
             <button type="button" {disabled} aria-label={`Remove ${chip.value}`} onclick={(event) => { event.stopPropagation(); remove(index); }} class="flex h-4 w-4 items-center justify-center rounded text-danger-ink hover:text-danger-ink-muted">
-              <XIcon size={14} aria-hidden="true" />
+              <IconClose size={14} strokeWidth={1.8} />
             </button>
           </span>
         {/snippet}
@@ -94,6 +94,6 @@
     {onpaste}
     onblur={() => commit()}
     placeholder={chips.length ? "Add more, separate with commas" : "name@banhall.com, separate with commas"}
-    class="input-chromeless h-7 min-w-[12rem] flex-1 bg-transparent pl-1 text-[13px] text-ink placeholder:text-ink-faint"
+    class="input-chromeless h-[26px] min-w-[12rem] flex-1 bg-transparent pl-1 text-[13px] leading-[18px] text-ink placeholder:text-ink-faint"
   />
 </div>

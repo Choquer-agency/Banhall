@@ -179,4 +179,57 @@ describe("TeamPage", () => {
     await expect.poll(() => document.querySelector("[data-team-loading]")).not.toBeNull();
     expect(document.querySelector("[data-member-row]")).toBeNull();
   });
+
+  it("draws C1 at the board sizes: Invite button, page padding, tables, avatars and status dots", async () => {
+    seed(ADMIN);
+    await page.viewport(1440, 900);
+    try {
+      await render(TeamPage, { origin: "https://banhall.app" });
+      await expect.poll(() => document.querySelectorAll("[data-member-row]").length).toBe(4);
+
+      const invite = document.querySelector<HTMLElement>("[data-open-invite]")!;
+      expect(invite.getBoundingClientRect().height).toBe(30);
+      expect(getComputedStyle(invite).borderRadius).toBe("7px");
+      expect(getComputedStyle(invite).backgroundColor).toBe("rgb(8, 122, 117)");
+      const plus = invite.querySelector("svg")!;
+      expect(plus.getAttribute("viewBox")).toBe("0 0 12 12");
+      expect(plus.getAttribute("width")).toBe("12");
+      expect(plus.getAttribute("stroke-width")).toBe("1.5");
+      expect(plus.querySelector("path")?.getAttribute("d")).toBe("M6 2v8M2 6h8");
+
+      const body = getComputedStyle(document.querySelector<HTMLElement>("[data-team-page]")!);
+      expect([body.paddingTop, body.paddingBottom, body.paddingLeft, body.paddingRight]).toEqual(["28px", "28px", "56px", "56px"]);
+      const title = getComputedStyle(document.querySelector<HTMLElement>("[data-team-page] h1")!);
+      expect([title.fontSize, title.lineHeight]).toEqual(["28px", "34px"]);
+      const subtitle = getComputedStyle(document.querySelector<HTMLElement>("[data-team-subtitle]")!);
+      expect([subtitle.fontSize, subtitle.lineHeight, subtitle.color]).toEqual(["14px", "20px", "rgb(107, 127, 123)"]);
+
+      const members = document.querySelector<HTMLElement>("[data-team-members]")!;
+      const header = members.querySelector<HTMLElement>('[role="row"]')!;
+      expect(header.getBoundingClientRect().height).toBe(36);
+      expect(getComputedStyle(header).fontSize).toBe("12px");
+      const widths = [...header.querySelectorAll<HTMLElement>('[role="columnheader"]')].map((cell) =>
+        Math.round(cell.getBoundingClientRect().width),
+      );
+      expect(widths[0]).toBe(260);
+      expect(widths[2]).toBe(120);
+      expect(widths[3]).toBe(110);
+      const firstRow = members.querySelector<HTMLElement>("[data-member-row]")!;
+      expect(firstRow.getBoundingClientRect().height).toBe(48);
+      const avatar = firstRow.querySelector<HTMLElement>("[data-avatar]")!;
+      expect(avatar.getBoundingClientRect().width).toBe(24);
+      expect(getComputedStyle(avatar).fontSize).toBe("10px");
+      expect(getComputedStyle(avatar).fontWeight).toBe("400");
+
+      const dot = (email: string) => row(email)!.querySelector<HTMLElement>("[data-invite-status] span")!;
+      expect(getComputedStyle(dot("ana.ruiz@banhall.com")).backgroundColor).toBe("rgb(245, 158, 11)");
+      expect(getComputedStyle(dot("m.tremblay@banhall.com")).backgroundColor).toBe("rgb(220, 38, 38)");
+      const resend = row("m.tremblay@banhall.com")!.querySelector<HTMLElement>("[data-resend]")!;
+      expect(resend.getBoundingClientRect().height).toBe(28);
+      expect(getComputedStyle(resend).borderRadius).toBe("6px");
+      expect(row("ana.ruiz@banhall.com")!.getBoundingClientRect().height).toBe(52);
+    } finally {
+      await page.viewport(1280, 800);
+    }
+  });
 });

@@ -18,7 +18,15 @@ describe("RevokeInviteDialog", () => {
       "The link stops working right away. You can invite them again later.",
     );
     const revoke = page.getByRole("button", { name: "Revoke invite" });
-    expect(revoke.element().className).toContain("bg-danger-action");
+    // C5: a filled red confirm (white text) beside the chrome Keep invite, both 36px, radius 8.
+    const revokeStyle = getComputedStyle(revoke.element());
+    expect(revokeStyle.backgroundColor).toBe("rgb(220, 38, 38)");
+    expect(revokeStyle.color).toBe("rgb(255, 255, 255)");
+    expect(revokeStyle.borderRadius).toBe("8px");
+    expect(revoke.element().getBoundingClientRect().height).toBe(36);
+    const keepStyle = getComputedStyle(page.getByRole("button", { name: "Keep invite" }).element());
+    expect(keepStyle.backgroundColor).toBe("rgb(234, 242, 241)");
+    expect(keepStyle.borderRadius).toBe("8px");
     await page.getByRole("button", { name: "Keep invite" }).click();
     await expect.poll(() => document.querySelector('[data-testid="revoke-invite-dialog"]')).toBeNull();
     expect(onConfirm).not.toHaveBeenCalled();

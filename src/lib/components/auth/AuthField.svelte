@@ -1,6 +1,8 @@
 <script lang="ts">
   // J1 field: 13px 500 label, 44px input (radius 10, line border, 15px ink,
-  // faint placeholder). Invalid fields take a 1.5px danger border (J2, J4).
+  // faint placeholder). Focus: 1.5px primary-selected border and a 3px
+  // primary ring at 12% (J3, J5). Invalid fields take a 1.5px danger border
+  // (J2, J4).
   import type { Snippet } from "svelte";
   import type { HTMLInputAttributes } from "svelte/elements";
 
@@ -33,7 +35,7 @@
   <div
     data-auth-input
     data-invalid={invalid ? "true" : undefined}
-    class={`flex h-11 items-center gap-2 rounded-[10px] bg-surface px-3 transition-[border-color,box-shadow] ${invalid ? "border-[1.5px] border-danger" : "border border-line focus-within:border-[1.5px] focus-within:border-primary-selected focus-within:ring-[3px] focus-within:ring-primary/15"}`}
+    class={`flex h-11 items-center gap-2 rounded-[10px] bg-surface px-3 transition-[border-color,box-shadow] ${invalid ? "border-[1.5px] border-danger" : "border border-line focus-within:border-[1.5px] focus-within:border-primary-selected focus-within:ring-[3px] focus-within:ring-primary/12"}`}
   >
     <input
       bind:this={element}

@@ -1,8 +1,10 @@
 <script lang="ts">
   // C1, C2 Pending invites: Email (flex), Role (120), Invited by (150),
-  // Status (170), actions (150). Rows the viewer may not manage (a Manager
-  // looking at an Admin invite) show no actions.
-  import { CheckIcon } from "phosphor-svelte";
+  // Status (170), actions (150); 36px header, 52px rows. Status dots: amber
+  // (stale-dot) while pending, red once expired. Resend is a 28px chrome
+  // button. Rows the viewer may not manage (a Manager looking at an Admin
+  // invite) show no actions.
+  import { IconCheck } from "$lib/components/icons";
   import RoleChip from "$lib/components/ui/RoleChip.svelte";
   import InviteRowMenu from "./InviteRowMenu.svelte";
   import { expiredLabel, sentLabel } from "$lib/team/teamFormat";
@@ -64,7 +66,7 @@
           <span role="cell" class="flex w-[120px] shrink-0"><RoleChip role={invite.role} /></span>
           <span role="cell" class="w-[150px] shrink-0 truncate text-[13px] leading-[19px] text-ink-secondary">{invite.invitedByName ?? ""}</span>
           <span role="cell" data-invite-status={invite.expired ? "expired" : "pending"} class="flex w-[170px] shrink-0 items-center gap-1.5">
-            <span aria-hidden="true" class={`h-1.5 w-1.5 shrink-0 rounded-full ${invite.expired ? "bg-danger" : "bg-warning"}`}></span>
+            <span aria-hidden="true" class={`h-1.5 w-1.5 shrink-0 rounded-full ${invite.expired ? "bg-danger" : "bg-stale-dot"}`}></span>
             <span class="truncate text-[13px] leading-[19px] text-ink-secondary">
               {invite.expired ? expiredLabel(invite.sentAt) : sentLabel(invite.sentAt, now)}
             </span>
@@ -73,14 +75,14 @@
             {#if invite.canManage}
               {#if copiedId === invite._id}
                 <span role="status" data-link-copied class="flex items-center gap-[5px] text-[13px] leading-[18px] font-medium text-success-ink-muted">
-                  <CheckIcon size={13} weight="bold" aria-hidden="true" />Link copied
+                  <IconCheck size={13} strokeWidth={2.2} class="shrink-0" />Link copied
                 </span>
               {:else if invite.expired}
                 <button
                   type="button"
                   data-resend={invite.email}
                   onclick={() => onResend(invite)}
-                  class="flex h-8 items-center rounded-md bg-chrome px-2.5 text-[13px] leading-[18px] font-medium text-ink hover:bg-primary-wash focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                  class="flex h-7 items-center rounded-md bg-chrome px-2.5 text-[13px] leading-[18px] font-medium text-ink hover:bg-primary-wash focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary pointer-coarse:h-11"
                 >Resend</button>
               {/if}
               <InviteRowMenu

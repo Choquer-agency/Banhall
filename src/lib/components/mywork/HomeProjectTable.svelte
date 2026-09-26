@@ -1,14 +1,16 @@
 <!--
-  One Home table (ui-design-final.md section 9, boards 1.1 and 1.2): a view
-  chip that shows or hides the table, then Name, Client, Stage and Last
-  edited. Each row is one link to the project; the name link stretches over
+  One Home table (ui-design-final.md section 9, boards 1.1 and 1.2; round 2
+  A1 and J7): a view chip that shows or hides the table, then a 28px leading
+  column, Name, Client (136), Stage (108) and Last edited (84). The boards
+  draw a checkbox in the leading column; Home has no row selection, so it
+  stays empty. Each row is one link to the project; the name link stretches over
   the whole row. Rows carry data-recent-* so opening one records it in this
   device's Recently opened list.
 -->
 <script lang="ts">
   import type { Snippet } from "svelte";
   import { resolve } from "$app/paths";
-  import { CaretDownIcon } from "phosphor-svelte";
+  import { IconChevronDownSmall, IconClockSmall, IconTable } from "$lib/components/icons";
   import HomeStageChip from "$lib/components/mywork/HomeStageChip.svelte";
   import DuplicateProjectButton from "$lib/components/workspace/DuplicateProjectButton.svelte";
   import { formatEdited } from "$lib/components/project/details/detailsFormat";
@@ -59,16 +61,17 @@
 {#snippet columnHeaders()}
   <thead>
     <tr class="h-9 border-b border-line-soft text-[11px] leading-4 text-ink-muted">
-      <th scope="col" class="pl-2 font-normal">Name</th>
+      <td aria-hidden="true" class="w-7 max-sm:w-2"></td>
+      <th scope="col" class="font-normal">Name</th>
       <th scope="col" class="w-[136px] font-normal max-sm:hidden">Client</th>
-      <th scope="col" class="w-[120px] font-normal">Stage</th>
+      <th scope="col" class="w-[108px] font-normal">Stage</th>
       <th scope="col" class="w-[84px] font-normal max-sm:hidden">Last edited</th>
     </tr>
   </thead>
 {/snippet}
 
 <section data-home-table={id} aria-labelledby={`${id}-label`}>
-  <div class={`flex items-center gap-2 border-b border-line ${first ? "pb-4" : "pb-3 pt-10"}`}>
+  <div class={`flex items-center gap-2 border-b border-line ${first ? "h-12 pb-4" : "h-[72px] pb-3 pt-10"}`}>
     <h2 class="flex">
       <button
         type="button"
@@ -79,23 +82,17 @@
         class="inline-flex h-[26px] items-center gap-1.5 rounded-md bg-gray-50 px-2 transition-colors hover:bg-primary-wash focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-fir motion-reduce:transition-none"
       >
         {#if icon === "table"}
-          <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true" class="shrink-0 text-ink-secondary">
-            <rect x="1.5" y="1.5" width="11" height="11" rx="2" fill="none" stroke="currentColor" stroke-width="1.3" />
-            <path d="M1.5 5.5h11M5.5 5.5v7" fill="none" stroke="currentColor" stroke-width="1.3" />
-          </svg>
+          <IconTable size={14} strokeWidth={1.3} class="shrink-0 text-ink-secondary" />
         {:else}
-          <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true" class="shrink-0 text-ink-secondary">
-            <circle cx="7" cy="7" r="5.5" fill="none" stroke="currentColor" stroke-width="1.3" />
-            <path d="M7 4v3l2 1.5" fill="none" stroke="currentColor" stroke-width="1.3" />
-          </svg>
+          <IconClockSmall size={14} strokeWidth={1.3} class="shrink-0 text-ink-secondary" />
         {/if}
         <span id={`${id}-label`} class="text-[13px] font-medium leading-[18px] text-ink">{label}</span>
         {#if count}
           <span data-home-table-count class="text-xs leading-[18px] text-ink-muted">{count}</span>
         {/if}
-        <CaretDownIcon
+        <IconChevronDownSmall
           size={12}
-          aria-hidden="true"
+          strokeWidth={1.3}
           class={`shrink-0 text-ink-muted transition-transform duration-200 motion-reduce:transition-none ${open ? "" : "-rotate-90"}`}
         />
       </button>
@@ -122,7 +119,7 @@
           <caption class="sr-only">{label}</caption>
           {@render columnHeaders()}
         </table>
-        <div data-home-table-empty class="flex flex-col items-center justify-center gap-1 border-b border-line-soft py-14 text-center">
+        <div data-home-table-empty class="flex h-40 flex-col items-center justify-center gap-1 border-b border-line-soft text-center">
           {@render empty()}
         </div>
       {:else}
@@ -132,7 +129,8 @@
           <tbody>
             {#each rows as row (row.projectId)}
               <tr data-home-row={row.projectId} class="group/project relative h-11 border-b border-line-soft transition-colors hover:bg-primary-wash motion-reduce:transition-none">
-                <td class="pl-2 pr-3">
+                <td aria-hidden="true"></td>
+                <td class="pr-3">
                   <div class="flex min-w-0 items-center gap-2">
                     <span
                       aria-hidden="true"

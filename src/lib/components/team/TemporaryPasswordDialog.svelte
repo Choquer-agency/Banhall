@@ -95,10 +95,10 @@
   {#snippet footer()}
     <div class="mt-5 flex items-center justify-end gap-2 border-t border-line-soft py-4 pl-7 pr-5">
       {#if saved}
-        <button type="button" onclick={() => (open = false)} class="h-9 rounded-[10px] bg-fir px-4 text-sm font-medium text-white">Done</button>
+        <button type="button" onclick={() => (open = false)} class="h-9 rounded-lg bg-fir px-4 text-sm font-medium text-white">Done</button>
       {:else}
-        <button type="button" disabled={saving} onclick={() => (open = false)} class="h-9 rounded-[10px] bg-destructive-soft px-3.5 text-sm font-medium text-destructive-soft-ink hover:bg-destructive-soft-hover disabled:opacity-50">Cancel</button>
-        <button type="button" disabled={saving || password.length < 8} onclick={submit} class="h-9 rounded-[10px] bg-fir px-4 text-sm font-medium text-white disabled:opacity-50">{saving ? "Setting..." : "Set password"}</button>
+        <button type="button" disabled={saving} onclick={() => (open = false)} class="h-9 rounded-lg bg-destructive-soft px-3.5 text-sm font-medium text-destructive-soft-ink hover:bg-destructive-soft-hover disabled:opacity-50">Cancel</button>
+        <button type="button" disabled={saving || password.length < 8} onclick={submit} class="h-9 rounded-lg bg-fir px-4 text-sm font-medium text-white disabled:opacity-50">{saving ? "Setting..." : "Set password"}</button>
       {/if}
     </div>
   {/snippet}

@@ -15,6 +15,7 @@
     size = 24,
     tone = undefined,
     seed = undefined,
+    weight = "normal",
     class: className = "",
   }: {
     name?: string;
@@ -24,6 +25,8 @@
     tone?: AvatarTone;
     /** Stable id used to pick a tone when `tone` is not set. */
     seed?: string;
+    /** Initials weight: the Team table and rail use 400; J3, J5, J6 use 500. */
+    weight?: "normal" | "medium";
     class?: string;
   } = $props();
 
@@ -33,6 +36,8 @@
     fir: "bg-fir",
     teal: "bg-primary-selected",
     purple: "bg-avatar-purple",
+    invite: "bg-invite-banner-avatar",
+    faded: "bg-avatar-faded",
   };
   const fontSize = $derived(size >= 48 ? 18 : size >= 32 ? 12 : size >= 28 ? 11 : 10);
 </script>
@@ -41,7 +46,7 @@
   data-avatar
   data-avatar-tone={imageUrl ? undefined : resolvedTone}
   aria-hidden="true"
-  class={`inline-flex shrink-0 select-none items-center justify-center overflow-hidden rounded-full font-normal leading-none text-white ${imageUrl ? "bg-chrome" : toneClass[resolvedTone]} ${className}`}
+  class={`inline-flex shrink-0 select-none items-center justify-center overflow-hidden rounded-full leading-none text-white ${weight === "medium" ? "font-medium" : "font-normal"} ${imageUrl ? "bg-chrome" : toneClass[resolvedTone]} ${className}`}
   style:width={`${size}px`}
   style:height={`${size}px`}
   style:font-size={`${fontSize}px`}

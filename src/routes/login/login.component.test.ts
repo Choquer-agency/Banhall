@@ -215,7 +215,12 @@ describe("/login", () => {
       render(LoginPage);
       await expect.poll(() => document.querySelector("h1")?.textContent).toBe("Sign in");
       const column = document.querySelector<HTMLElement>("[data-auth-column]")!;
-      expect(Math.round(column.getBoundingClientRect().width)).toBe(390 - 48);
+      // J8: 20px sides, the 56px logo 96px from the top, 28px above the column.
+      expect(Math.round(column.getBoundingClientRect().width)).toBe(390 - 40);
+      const logo = document.querySelector<HTMLImageElement>("[data-banhall-logo]")!.getBoundingClientRect();
+      expect(Math.round(logo.height)).toBe(56);
+      expect(Math.round(logo.top)).toBe(96);
+      expect(Math.round(column.getBoundingClientRect().top - logo.bottom)).toBe(28);
       const footer = [...document.querySelectorAll("footer span")].filter(
         (el) => getComputedStyle(el).display !== "none",
       );
@@ -223,5 +228,76 @@ describe("/login", () => {
     } finally {
       await page.viewport(1280, 800);
     }
+  });
+
+  it("draws J1 at the board sizes: 64px logo, 44px fields, 46px button and the footer 32px from the bottom", async () => {
+    await page.viewport(1440, 900);
+    try {
+      render(LoginPage);
+      await expect.poll(() => document.querySelector("h1")?.textContent).toBe("Sign in");
+      const logo = document.querySelector<HTMLImageElement>("[data-banhall-logo]")!.getBoundingClientRect();
+      expect(Math.round(logo.height)).toBe(64);
+      expect(Math.round(logo.width)).toBe(143);
+      const field = document.querySelector<HTMLElement>("#email")!.closest<HTMLElement>("[data-auth-input]")!;
+      expect(field.getBoundingClientRect().height).toBe(44);
+      expect(getComputedStyle(field).borderRadius).toBe("10px");
+      expect(getComputedStyle(field).borderTopColor).toBe("rgb(218, 229, 227)");
+      const button = document.querySelector<HTMLElement>('button[type="submit"]')!;
+      expect(button.getBoundingClientRect().height).toBe(46);
+      const footer = document.querySelector<HTMLElement>("[data-auth-footer]")!;
+      expect(Math.round(window.innerHeight - footer.getBoundingClientRect().bottom)).toBe(32);
+      expect(footer.textContent).toContain("Banhall Consulting Ltd.");
+      // The column is centred in the whole page, not above the footer.
+      const main = document.querySelector("main")!.getBoundingClientRect();
+      expect(Math.round(main.height)).toBe(900);
+    } finally {
+      await page.viewport(1280, 800);
+    }
+  });
+
+  it("uses the board eye icon and the board alert icon in the J2 error line", async () => {
+    signInEmail.mockResolvedValue(wrongCredentials);
+    render(LoginPage);
+    const toggle = () => document.querySelector<HTMLElement>("[data-password-toggle]")!;
+    await expect.poll(() => toggle()?.querySelector("path")?.getAttribute("d")).toBe(
+      "M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12Z M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z",
+    );
+    const eye = toggle().querySelector("svg")!;
+    expect(eye.getAttribute("width")).toBe("16");
+    expect(eye.getAttribute("stroke-width")).toBe("1.6");
+    expect(getComputedStyle(toggle()).color).toBe("rgb(107, 127, 123)");
+    await page.getByRole("button", { name: "Show password" }).click();
+    await expect.poll(() => toggle().querySelector("path")?.getAttribute("d")).toContain("M4 4l16 16");
+
+    await submit("writer@banhall.com", "wrong password");
+    await expect.poll(alertText).toBe("Wrong email or password. Check both and try again.");
+    const alert = document.querySelector<HTMLElement>('[role="alert"]')!;
+    const icon = alert.querySelector("svg")!;
+    expect(icon.querySelector("path")?.getAttribute("d")).toBe("M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18Z M12 7.5V13 M12 16.3v.2");
+    expect(icon.getAttribute("width")).toBe("14");
+    expect(icon.getAttribute("stroke-width")).toBe("2");
+    expect(getComputedStyle(icon).color).toBe("rgb(220, 38, 38)");
+    expect(getComputedStyle(alert).color).toBe("rgb(185, 28, 28)");
+    const field = document.querySelector("#email")!.closest<HTMLElement>("[data-auth-input]")!;
+    // The border colour transitions, so wait for it to settle.
+    await expect.poll(() => getComputedStyle(field).borderTopColor).toBe("rgb(220, 38, 38)");
+    // 1.5px on the board; Chromium snaps it to device pixels, so check the class.
+    expect(field.className).toContain("border-[1.5px]");
+  });
+
+  it("draws the J3 account card: radius 12, 10/12 padding, 36px avatar with 12px/500 initials", async () => {
+    rememberAccount({ email: "ana.ruiz@banhall.com", firstName: "Ana", lastName: "Ruiz" });
+    render(LoginPage);
+    await expect.poll(() => document.querySelector("[data-account-card]")).not.toBeNull();
+    const card = document.querySelector<HTMLElement>("[data-account-card]")!;
+    const style = getComputedStyle(card);
+    expect(style.borderRadius).toBe("12px");
+    expect(style.paddingTop).toBe("10px");
+    expect(style.paddingLeft).toBe("12px");
+    expect(style.borderTopColor).toBe("rgb(233, 240, 239)");
+    const avatar = card.querySelector<HTMLElement>("[data-avatar]")!;
+    expect(avatar.getBoundingClientRect().width).toBe(36);
+    expect(getComputedStyle(avatar).fontSize).toBe("12px");
+    expect(getComputedStyle(avatar).fontWeight).toBe("500");
   });
 });

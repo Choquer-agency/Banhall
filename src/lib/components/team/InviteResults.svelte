@@ -1,7 +1,7 @@
 <script lang="ts">
   // C3 result state (not designed, proposed): no email provider (decision
   // 50), so each created invite shows its link to copy; failures say why.
-  import { CheckIcon } from "phosphor-svelte";
+  import { IconCheck } from "$lib/components/icons";
   import RoleChip from "$lib/components/ui/RoleChip.svelte";
   import type { Role } from "../../../../shared/roles";
 
@@ -48,7 +48,7 @@
           onclick={() => copy(row)}
           class="flex h-8 shrink-0 items-center gap-1 rounded-md bg-chrome px-2.5 text-[13px] font-medium text-ink hover:bg-primary-wash focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
         >
-          {#if copied[row.email]}<CheckIcon size={13} weight="bold" class="text-success-ink-muted" aria-hidden="true" />Copied{:else}Copy link{/if}
+          {#if copied[row.email]}<IconCheck size={13} strokeWidth={2.2} class="text-success-ink-muted" />Copied{:else}Copy link{/if}
         </button>
       {/if}
     </li>

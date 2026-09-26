@@ -1,10 +1,13 @@
 <script lang="ts">
   // C4 pending invite row menu: copy the link, change the role the invite
   // grants, make a fresh link, revoke. Admin appears in "Invite as" only for
-  // viewers who may invite Admins (roles.manage).
+  // viewers who may invite Admins (roles.manage). Board values: 220px menu,
+  // 6px padding, radius 12, the menu shadow; 32px items with 15px icons
+  // (stroke 1.5) in ink and 13/19 text; Revoke in the danger red.
   import { DropdownMenu } from "bits-ui";
-  import { ArrowClockwiseIcon, DotsThreeIcon, LinkIcon, ProhibitIcon } from "phosphor-svelte";
+  import { IconArrowLeft, IconBook, IconLogout, IconMore } from "$lib/components/icons";
   import RoleSubmenu from "./RoleSubmenu.svelte";
+  import { MENU_CONTENT, MENU_ITEM, ROW_MENU_TRIGGER } from "./menuStyles";
   import type { Role } from "../../../../shared/roles";
 
   let {
@@ -26,35 +29,28 @@
   } = $props();
 
   const roles = $derived<Role[]>(canInviteAdmin ? ["writer", "manager", "admin"] : ["writer", "manager"]);
-  const item =
-    "flex h-8 w-full cursor-default items-center gap-2 rounded-md px-2 text-[13px] text-ink outline-none data-[highlighted]:bg-workspace-rail-selected";
 </script>
 
 <DropdownMenu.Root>
   <DropdownMenu.Trigger
     aria-label={`More actions for the invite to ${email}`}
     data-invite-menu={email}
-    class="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-ink-muted hover:bg-primary-wash hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+    class={ROW_MENU_TRIGGER}
   >
-    <DotsThreeIcon size={16} weight="bold" aria-hidden="true" />
+    <IconMore size={16} strokeWidth={3} />
   </DropdownMenu.Trigger>
   <DropdownMenu.Portal>
-    <DropdownMenu.Content
-      side="bottom"
-      align="end"
-      sideOffset={4}
-      class="z-[100] w-[216px] rounded-xl border border-line bg-surface p-1.5 shadow-popover outline-none"
-    >
-      <DropdownMenu.Item data-menu-item="copy" onSelect={onCopy} class={item}>
-        <LinkIcon size={15} aria-hidden="true" class="text-ink-secondary" />Copy invite link
+    <DropdownMenu.Content side="bottom" align="end" sideOffset={4} class={`w-[220px] ${MENU_CONTENT}`}>
+      <DropdownMenu.Item data-menu-item="copy" onSelect={onCopy} class={`${MENU_ITEM} text-ink`}>
+        <IconBook size={15} strokeWidth={1.5} class="shrink-0" />Copy invite link
       </DropdownMenu.Item>
       <RoleSubmenu heading="Invite as" {roles} current={role} onSelect={onChangeRole} />
-      <DropdownMenu.Item data-menu-item="resend" onSelect={onResend} class={item}>
-        <ArrowClockwiseIcon size={15} aria-hidden="true" class="text-ink-secondary" />Resend invite
+      <DropdownMenu.Item data-menu-item="resend" onSelect={onResend} class={`${MENU_ITEM} text-ink`}>
+        <IconArrowLeft size={15} strokeWidth={1.5} class="shrink-0" />Resend invite
       </DropdownMenu.Item>
       <DropdownMenu.Separator class="my-1 h-px bg-line-soft" />
-      <DropdownMenu.Item data-menu-item="revoke" onSelect={onRevoke} class={`${item} text-danger`}>
-        <ProhibitIcon size={15} aria-hidden="true" />Revoke invite
+      <DropdownMenu.Item data-menu-item="revoke" onSelect={onRevoke} class={`${MENU_ITEM} text-danger`}>
+        <IconLogout size={15} strokeWidth={1.5} class="shrink-0" />Revoke invite
       </DropdownMenu.Item>
     </DropdownMenu.Content>
   </DropdownMenu.Portal>

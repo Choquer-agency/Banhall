@@ -111,4 +111,47 @@ describe("InviteDialog", () => {
     await expect.poll(() => document.querySelector('[role="alert"]')?.textContent).toBeTruthy();
     expect(dialog()?.textContent).toContain("Invite people");
   });
+
+  it("draws C3 with the board scrim, role cards, chips and footer buttons", async () => {
+    await page.viewport(1440, 900);
+    await render(InviteDialog, { open: true, canInviteAdmin: true, onSend: vi.fn() });
+    await expect.poll(dialog).not.toBeNull();
+    const scrim = document.querySelector<HTMLElement>("[data-team-dialog-scrim]")!;
+    expect(getComputedStyle(scrim).backgroundColor).toBe("rgba(1, 5, 5, 0.35)");
+    expect(getComputedStyle(dialog()!).borderRadius).toBe("16px");
+    const close = page.getByRole("button", { name: "Close" }).element();
+    expect(close.querySelector("svg")?.getAttribute("width")).toBe("18");
+    expect(close.querySelector("svg")?.getAttribute("stroke-width")).toBe("2");
+    expect(close.querySelector("path")?.getAttribute("d")).toBe("M18 6 6 18M6 6l12 12");
+
+    const card = (role: string) => document.querySelector<HTMLElement>(`[data-role-option="${role}"]`)!;
+    expect(getComputedStyle(card("writer")).backgroundColor).toBe("rgb(247, 252, 251)");
+    // 1.5px on the board; Chromium snaps it to device pixels, so check the class.
+    expect(card("writer").className).toContain("border-[1.5px]");
+    expect(getComputedStyle(card("writer")).borderTopColor).toBe("rgb(8, 122, 117)");
+    expect(getComputedStyle(card("manager")).backgroundColor).toBe("rgb(255, 255, 255)");
+    expect(getComputedStyle(card("manager")).paddingTop).toBe("10px");
+    expect(getComputedStyle(card("manager")).borderRadius).toBe("10px");
+    expect(getComputedStyle(card("manager").querySelector<HTMLElement>("[data-role-chip]")!).borderRadius).toBe("4px");
+
+    await typeEmails("k.osei@banhall.com ");
+    await expect.poll(() => chips("valid")).toEqual(["k.osei@banhall.com"]);
+    const chip = document.querySelector<HTMLElement>('[data-email-chip="valid"]')!;
+    expect(chip.getBoundingClientRect().height).toBe(26);
+    expect(getComputedStyle(chip).borderRadius).toBe("6px");
+    const remove = chip.querySelector<HTMLElement>("button")!;
+    expect(getComputedStyle(remove).color).toBe("rgb(147, 165, 161)");
+    expect(remove.querySelector("svg")?.getAttribute("stroke-width")).toBe("1.8");
+    const field = document.querySelector<HTMLElement>("[data-invite-email-chips]")!;
+    expect(getComputedStyle(field).borderRadius).toBe("8px");
+
+    const cancel = page.getByRole("button", { name: "Cancel" }).element() as HTMLElement;
+    expect(getComputedStyle(cancel).backgroundColor).toBe("rgb(254, 226, 226)");
+    expect(getComputedStyle(cancel).color).toBe("rgb(185, 28, 28)");
+    expect(getComputedStyle(cancel).borderRadius).toBe("8px");
+    expect(cancel.getBoundingClientRect().height).toBe(36);
+    expect(getComputedStyle(sendButton()!).backgroundColor).toBe("rgb(10, 58, 56)");
+    expect(getComputedStyle(sendButton()!).borderRadius).toBe("8px");
+    await page.viewport(1280, 800);
+  });
 });

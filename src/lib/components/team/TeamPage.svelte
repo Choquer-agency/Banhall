@@ -8,12 +8,11 @@
   import { resolve } from "$app/paths";
   import { useMutation, useQuery } from "convex-svelte";
   import { useAuth } from "@mmailaender/convex-better-auth-svelte/svelte";
-  import { PlusIcon } from "phosphor-svelte";
   import { toast } from "svelte-sonner";
   import { api } from "../../../../convex/_generated/api";
   import type { Id } from "../../../../convex/_generated/dataModel";
   import WorkspaceChrome from "$lib/components/workspace/WorkspaceChrome.svelte";
-  import { IconUsers } from "$lib/components/icons";
+  import { IconPlusSmall, IconUsers } from "$lib/components/icons";
   import ViewAsHiddenPage from "$lib/components/shell/ViewAsHiddenPage.svelte";
   import { effectiveViewer } from "$lib/shell/viewAs.svelte";
   import { teamApi } from "$lib/team/api";
@@ -154,13 +153,13 @@
         type="button"
         data-open-invite
         onclick={() => (inviteOpen = true)}
-        class="flex h-9 shrink-0 items-center gap-[5px] rounded-[7px] bg-primary-selected pl-2.5 pr-3 text-[13px] font-medium text-white hover:bg-primary-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
+        class="flex h-[30px] shrink-0 items-center gap-[5px] rounded-[7px] bg-primary-selected pl-2.5 pr-3 text-[13px] leading-[18px] font-medium text-white hover:bg-primary-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 pointer-coarse:h-11"
       >
-        <PlusIcon size={12} weight="bold" aria-hidden="true" />Invite
+        <IconPlusSmall size={12} strokeWidth={1.5} class="shrink-0" />Invite
       </button>
     {/if}
   {/snippet}
-  <div data-team-page class="flex flex-col gap-5 px-6 pb-10 pt-7 md:px-14">
+  <div data-team-page class="flex flex-col gap-5 px-6 py-7 md:px-14">
     {#if user === undefined}
       <div data-team-loading class="flex flex-col gap-3" aria-busy="true">
         <div class="h-8 w-40 animate-pulse rounded bg-chrome"></div>

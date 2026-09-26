@@ -1,5 +1,6 @@
 <script lang="ts">
-  // C5: confirm before a pending invite's link stops working.
+  // C5: confirm before a pending invite's link stops working. Keep invite
+  // (chrome) and the filled red Revoke invite, both 36px with radius 8.
   import TeamDialog from "./TeamDialog.svelte";
 
   let {
@@ -34,13 +35,13 @@
         type="button"
         disabled={busy}
         onclick={() => (open = false)}
-        class="h-9 rounded-[10px] bg-chrome px-3.5 text-sm font-medium text-ink hover:bg-primary-wash focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:opacity-50"
+        class="h-9 rounded-lg bg-chrome px-3.5 text-sm leading-5 font-medium text-ink hover:bg-primary-wash focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:opacity-50"
       >Keep invite</button>
       <button
         type="button"
         disabled={busy}
         onclick={() => void onConfirm()}
-        class="h-9 rounded-[10px] bg-danger-action px-4 text-sm font-medium text-white hover:bg-danger-action-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-danger focus-visible:ring-offset-2 disabled:opacity-50"
+        class="h-9 rounded-lg bg-danger-action px-4 text-sm leading-5 font-medium text-white hover:bg-danger-action-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-danger focus-visible:ring-offset-2 disabled:opacity-50"
       >{busy ? "Revoking..." : "Revoke invite"}</button>
     </div>
   {/snippet}

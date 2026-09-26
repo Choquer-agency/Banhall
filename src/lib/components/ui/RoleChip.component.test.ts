@@ -71,4 +71,10 @@ describe("RoleChip", () => {
     await render(RoleChip, {});
     expect(chip()).toBeNull();
   });
+
+  it("takes the 4px radius of the C3 role cards and C4 role menu", async () => {
+    await render(RoleChip, { role: "manager", radius: 4 });
+    expect(getComputedStyle(chip()!).borderRadius).toBe("4px");
+    expect(chip()!.getBoundingClientRect().height).toBe(20);
+  });
 });

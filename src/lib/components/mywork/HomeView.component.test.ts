@@ -119,6 +119,22 @@ describe("Home", () => {
     expect(bar.querySelector("[data-home-page-icon]")?.className).toContain("bg-workspace-page-icon");
     expect(document.querySelector("[data-home]")?.className).toContain("bg-workspace-shell");
     expect(document.querySelector("[data-home-panel]")?.hasAttribute("data-work-panel")).toBe(true);
+    // Board sizes (A1, J7): 30px New project with the 12-grid plus (stroke
+    // 1.5), a 36px bell with the 16px board bell, and a 10px-radius panel
+    // with the line border.
+    expect(newProject.getBoundingClientRect().height).toBe(30);
+    expect(getComputedStyle(newProject).borderRadius).toBe("7px");
+    const plus = newProject.querySelector("svg")!;
+    expect(plus.getAttribute("viewBox")).toBe("0 0 12 12");
+    expect(plus.getAttribute("stroke-width")).toBe("1.5");
+    expect(plus.querySelector("path")?.getAttribute("d")).toBe("M6 2v8M2 6h8");
+    const bell = bar.querySelector<HTMLElement>("[data-top-bar-bell]")!;
+    expect(bell.getBoundingClientRect().width).toBe(36);
+    expect(bell.querySelector("svg")?.getAttribute("width")).toBe("16");
+    expect(bell.querySelector("path")?.getAttribute("d")).toBe("M5 17h14l-2-3V9a5 5 0 0 0-10 0v5Z M10 21h4");
+    const panel = document.querySelector<HTMLElement>("[data-home-panel]")!;
+    expect(getComputedStyle(panel).borderRadius).toBe("10px");
+    expect(getComputedStyle(panel).borderTopColor).toBe("rgb(218, 229, 227)");
     // Home stays simple: no search field on the dashboard.
     expect(document.querySelector('input[type="search"], [role="searchbox"]')).toBeNull();
   });
@@ -201,11 +217,27 @@ describe("Home", () => {
       "Stage",
       "Last edited",
     ]);
+    // J7: a 160px empty block, then a 40px "+ New project" row indented 28px
+    // with the 14px plus (24 grid, stroke 2).
     const empty = withYou.querySelector<HTMLElement>("[data-home-table-empty]")!;
-    expect(getComputedStyle(empty).paddingTop).toBe("56px");
+    expect(empty.getBoundingClientRect().height).toBe(160);
     const newProject = withYou.querySelector<HTMLAnchorElement>("[data-home-add-new]")!;
     expect(newProject.textContent?.trim()).toBe("New project");
     expect(newProject.getAttribute("href")).toBe("/project/new");
+    expect(newProject.getBoundingClientRect().height).toBe(40);
+    expect(getComputedStyle(newProject).paddingLeft).toBe("28px");
+    const plus = newProject.querySelector("svg")!;
+    expect(plus.getAttribute("viewBox")).toBe("0 0 24 24");
+    expect(plus.getAttribute("width")).toBe("14");
+    expect(plus.getAttribute("stroke-width")).toBe("2");
+    // The chip row is 48px; Name starts after a 28px leading column.
+    const chipRow = withYou.querySelector<HTMLElement>("[data-home-view-chip]")!.closest("h2")!.parentElement!;
+    expect(chipRow.getBoundingClientRect().height).toBe(48);
+    const tableBox = withYou.querySelector("table")!.getBoundingClientRect();
+    const nameHeader = [...withYou.querySelectorAll("th")].find((cell) => cell.textContent?.trim() === "Name")!;
+    expect(Math.round(nameHeader.getBoundingClientRect().left - tableBox.left)).toBe(28);
+    const stageHeader = [...withYou.querySelectorAll("th")].find((cell) => cell.textContent?.trim() === "Stage")!;
+    expect(Math.round(stageHeader.getBoundingClientRect().width)).toBe(108);
     // No second table, no welcome banner, no get-started cards.
     expect(document.querySelector('[data-home-table="home-recent"]')).toBeNull();
     expect(document.body.textContent).not.toMatch(/Welcome|Get started/);
@@ -286,7 +318,9 @@ describe("Home", () => {
     expect(card.querySelector("[data-home-stage-chip]")?.textContent?.trim()).toBe("Drafting");
     const resume = card.querySelector<HTMLAnchorElement>("[data-home-resume]")!;
     expect(resume.getAttribute("href")).toBe("/project/proj-r1");
-    expect(resume.textContent?.trim()).toBe("Resume report");
+    // "Resume report →" as on the board; the arrow is hidden from the accessible name.
+    expect(resume.textContent?.replace(/\s+/g, " ").trim()).toBe("Resume report →");
+    expect(resume.querySelector('[aria-hidden="true"]')?.textContent).toBe("→");
     expect(document.querySelector("#home-continue-title")?.textContent).toBe("Continue working");
   });
 

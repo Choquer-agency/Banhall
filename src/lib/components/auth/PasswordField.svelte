@@ -1,7 +1,7 @@
 <script lang="ts">
   // Password field with a show and hide button, and an optional "Forgot
   // password?" on the label line (J1-J4).
-  import { EyeIcon, EyeSlashIcon } from "phosphor-svelte";
+  import { IconEye, IconEyeOff } from "$lib/components/icons";
   import type { HTMLInputAttributes } from "svelte/elements";
   import AuthField from "./AuthField.svelte";
 
@@ -44,10 +44,11 @@
       type="button"
       aria-label={visible ? "Hide password" : "Show password"}
       aria-controls={id}
+      data-password-toggle
       onclick={() => (visible = !visible)}
-      class="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-ink-muted hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+      class="-mr-1.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-ink-muted hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
     >
-      {#if visible}<EyeSlashIcon size={16} aria-hidden="true" />{:else}<EyeIcon size={16} aria-hidden="true" />{/if}
+      {#if visible}<IconEyeOff size={16} strokeWidth={1.6} />{:else}<IconEye size={16} strokeWidth={1.6} />{/if}
     </button>
   {/snippet}
 </AuthField>

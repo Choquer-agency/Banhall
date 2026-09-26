@@ -1,7 +1,7 @@
 <script lang="ts">
   import { useAuth } from "@mmailaender/convex-better-auth-svelte/svelte";
   import { useQuery } from "convex-svelte";
-  import { WarningCircleIcon } from "phosphor-svelte";
+  import { IconAlertCircle } from "$lib/components/icons";
   import { authClient } from "$lib/authClient";
   import Spinner from "$lib/components/ui/Spinner.svelte";
   import AuthLayout from "$lib/components/auth/AuthLayout.svelte";
@@ -212,7 +212,7 @@
           />
           {#if error}
             <p id={errorId} role="alert" class="flex items-start gap-1.5 text-[13px] leading-[18px] text-danger-ink-muted">
-              <WarningCircleIcon size={14} aria-hidden="true" class="mt-0.5 shrink-0" />
+              <IconAlertCircle size={14} strokeWidth={2} stroke-linejoin="miter" class="mt-0.5 shrink-0 text-danger" />
               {error}
             </p>
           {/if}

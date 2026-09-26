@@ -131,11 +131,11 @@
 </svelte:head>
 
 {#if inviteQ.isLoading}
-  <AuthLayout width={380}>
+  <AuthLayout width={380} footer={false}>
     <div class="flex justify-center py-8"><Spinner /></div>
   </AuthLayout>
 {:else if submitting}
-  <AuthLayout width={380}>
+  <AuthLayout width={380} footer={false}>
     <div class="flex flex-col items-center py-8 text-center" role="status" aria-live="polite">
       <Spinner />
       <h1 class="mt-4 text-title">{redirecting ? "Account created" : "Creating your account..."}</h1>
@@ -145,7 +145,7 @@
     </div>
   </AuthLayout>
 {:else if expired}
-  <AuthLayout width={440}>
+  <AuthLayout width={440} footer={false}>
     <div data-invite-expired class="flex flex-col gap-5">
       <AuthHeading
         title="Your invite has expired"
@@ -159,7 +159,8 @@
             name={expired.inviter.name}
             initials={personInitials({ name: expired.inviter.name })}
             size={36}
-            class="opacity-40"
+            tone="faded"
+            weight="medium"
           />
           <div class="flex min-w-0 flex-1 flex-col gap-px">
             <span class="truncate text-[13px] leading-[18px] font-medium text-ink-secondary">{expired.inviter.name} invited you</span>
@@ -167,7 +168,7 @@
               Sent {firmShortDate(expired.sentAt)}. Expired {firmShortDate(expired.expiresAt)}.
             </span>
           </div>
-          <span class="flex h-5 shrink-0 items-center rounded-[5px] bg-warning-soft px-[7px] text-xs leading-4 font-medium text-warning-ink">Expired</span>
+          <span class="flex h-5 shrink-0 items-center rounded-[5px] bg-gap-bg px-[7px] text-xs leading-4 font-medium text-warning-ink">Expired</span>
         </div>
       {/if}
       <div class="flex flex-col gap-3">
@@ -187,7 +188,7 @@
   </AuthLayout>
 {:else if !invite}
   <!-- Revoked, replaced by a resend, already used or unknown. -->
-  <AuthLayout width={380}>
+  <AuthLayout width={380} footer={false}>
     <div data-invite-unavailable class="flex flex-col gap-5">
       <AuthHeading
         title="This invite link isn't valid"
@@ -200,7 +201,7 @@
     </div>
   </AuthLayout>
 {:else if signedIn}
-  <AuthLayout width={380}>
+  <AuthLayout width={380} footer={false}>
     <div data-invite-signed-in class="flex flex-col items-center gap-5">
       <AuthHeading title="You're already signed in" subtitle={`Sign out first to accept this invite for ${invite.email}.`} />
       <button
@@ -211,7 +212,7 @@
     </div>
   </AuthLayout>
 {:else}
-  <AuthLayout width={380}>
+  <AuthLayout width={380} footer={false}>
     {#snippet banner()}
       <InviteBanner inviter={invite.inviter} role={invite.role} expiresAt={invite.expiresAt} />
     {/snippet}
