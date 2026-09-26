@@ -40,6 +40,7 @@
   import { userErrorMessage } from "$lib/errors";
   import { reportSectionMetrics } from "$lib/reportSections";
   import GenerationRecoveryPanel from "./GenerationRecoveryPanel.svelte";
+  import { stickyActionBar } from "$lib/shell/stickyActionBars.svelte";
 
   /**
    * Candidate picker (port of src/components/generation/CandidateSelection.tsx).
@@ -334,7 +335,7 @@
 
     <!-- Sticky action bar (@container so the score control adapts to the bar's
          actual width, which shrinks when the QA rail opens) -->
-    <div class="@container sticky bottom-0 border-t border-gray-200 bg-white/90 px-8 py-3 backdrop-blur">
+    <div {@attach stickyActionBar} class="@container sticky bottom-0 border-t border-gray-200 bg-white/90 px-8 py-3 backdrop-blur">
       {#if actionError}
         <p class="mx-auto mb-2 max-w-[var(--container-shell)] text-sm text-red-700" role="alert">
           {actionError}

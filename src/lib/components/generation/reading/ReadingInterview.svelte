@@ -26,6 +26,7 @@
   import AuroraProgressPill from "../writing/AuroraProgressPill.svelte";
   import { userErrorMessage } from "$lib/errors";
   import { factCountText, factOpacities, readingPercent } from "./readingProgress";
+  import { stickyActionBar } from "$lib/shell/stickyActionBars.svelte";
 
   let {
     generationId,
@@ -201,7 +202,7 @@
   </div>
 
   {#if phone}
-    <div data-reading-bottom class="sticky bottom-0 flex flex-col items-center gap-1.5 border-t border-line-soft bg-surface px-4 pt-3.5 pb-[30px]">
+    <div data-reading-bottom {@attach stickyActionBar} class="sticky bottom-0 flex flex-col items-center gap-1.5 border-t border-line-soft bg-surface px-4 pt-3.5 pb-[30px]">
       {#if !failed}
         <p class="text-center text-[13px] leading-[18px] text-ink-muted">You can leave. We will notify you when ideas are ready.</p>
       {/if}

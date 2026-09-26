@@ -106,6 +106,7 @@
   import { page } from "$app/state";
   import { createRequestId } from "$lib/requestId";
   import { registerSaveHold, SAVE_HOLD_ESCAPE_MS } from "$lib/workspace/saveHold";
+  import { stickyActionBar } from "$lib/shell/stickyActionBars.svelte";
 
   const extractionLifetime = new AbortController();
   onDestroy(() => extractionLifetime.abort());
@@ -2490,6 +2491,7 @@
             {#if layout !== "desktop"}
             <div
               data-bottom-bar
+              {@attach stickyActionBar}
               class={`sticky bottom-0 z-10 mt-auto flex border-t border-line-soft bg-surface ${
                 layout === "phone" ? "flex-col gap-1.5 px-4 pt-3 pb-[30px]" : "h-[72px] flex-row items-center gap-3 px-8"
               }`}

@@ -10,6 +10,8 @@
    * line-soft hairline, 14px padding and 10px gap, the 22px AI mark for AI
    * kinds, a 14px 500 title and a 13px muted line. As a floating card it
    * keeps the menu shadow and a close button, which the board does not draw.
+   * On tablet and phone the stack sits above any sticky action bar (H1, H2
+   * start bar, H4 cancel bar) so it never covers the page's primary action.
    */
   import { goto } from "$app/navigation";
   import { page } from "$app/state";
@@ -20,6 +22,7 @@
   import type { Id } from "../../../../convex/_generated/dataModel";
   import { isAiNotificationKind } from "../../../../shared/notifications";
   import AuroraMark from "$lib/components/ui/AuroraMark.svelte";
+  import { stickyActionBarHeight } from "$lib/shell/stickyActionBars.svelte";
 
   const SHOW_FOR_MS = 24 * 60 * 60 * 1000;
   const MAX_CARDS = 3;
@@ -80,7 +83,8 @@
   <section
     aria-label="Notifications"
     data-notification-toaster
-    class="pointer-events-none fixed bottom-4 right-4 z-[100] flex w-[min(360px,calc(100vw-2rem))] flex-col-reverse gap-2"
+    style:bottom={`${16 + stickyActionBarHeight()}px`}
+    class="pointer-events-none fixed right-4 z-[100] flex w-[min(360px,calc(100vw-2rem))] flex-col-reverse gap-2"
   >
     {#each cards as row (row._id)}
       <div
