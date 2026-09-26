@@ -253,11 +253,41 @@ function tokenValue(token: string, byToken: ReadonlyMap<string, string>): string
   return base;
 }
 
-/** Placeholders become the names they stand for; unknown tokens stay. */
+/**
+ * A token a model wrote without its brackets (`CLIENT_1`, `CLIENT_1_BRAND`,
+ * "led by PERSON_2"; review 2026-09-25). Whole ids only: the edges exclude
+ * letters, digits and underscores, so `XCLIENT_1`, `CLIENT_10` and
+ * `CLIENT_1_OTHER` never match as `CLIENT_1`. Case-sensitive, like the
+ * bracketed form, so a code identifier such as `client_1` stays.
+ */
+const BARE_TOKEN = /(?<![\p{L}\p{N}_])(?:CLIENT|PERSON)_\d+(?:_[A-Z]+)?(?![\p{L}\p{N}_])/gu;
+
+/** Either form, bracketed first, in one pass. */
+const ANY_TOKEN = new RegExp(`${TOKEN.source}|${BARE_TOKEN.source}`, "gu");
+
+/** Whether a text may hold a token in either form (a cheap pre-check). */
+function mayHoldToken(text: string): boolean {
+  return text.includes("[") || text.includes("CLIENT_") || text.includes("PERSON_");
+}
+
+/**
+ * The name a token in either form stands for. A bracketed token keeps its
+ * rules above. A bare id restores only when the map issued exactly that id,
+ * suffix included: no variant fallback, so an id the map never issued stays
+ * as written.
+ */
+function anyTokenValue(token: string, byToken: ReadonlyMap<string, string>): string | undefined {
+  return token.startsWith("[") ? tokenValue(token, byToken) : byToken.get(`[${token}]`);
+}
+
+/**
+ * Placeholders become the names they stand for, bracketed or bare; unknown
+ * tokens stay. One pass: a restored name is never read again.
+ */
 export function restorePlaceholders(text: string, map: PlaceholderMap): string {
-  if (map.length === 0 || text === "" || !text.includes("[")) return text;
+  if (map.length === 0 || text === "" || !mayHoldToken(text)) return text;
   const byToken = new Map(map.map((entry) => [entry.token, entry.value]));
-  return text.replace(TOKEN, (token) => tokenValue(token, byToken) ?? token);
+  return text.replace(ANY_TOKEN, (token) => anyTokenValue(token, byToken) ?? token);
 }
 
 /** `restorePlaceholders` over every string inside a JSON-like value. */
@@ -276,19 +306,20 @@ export function restorePlaceholdersDeep<T>(value: T, map: PlaceholderMap): T {
 
 /**
  * Whether a text already carries a token this map would restore: one of its
- * own tokens, or a variant whose base is one (round trip unsafe).
+ * own tokens, bracketed or bare, or a bracketed variant whose base is one
+ * (round trip unsafe).
  */
 export function containsPlaceholderToken(text: string, map: PlaceholderMap): boolean {
-  if (map.length === 0) return false;
+  if (map.length === 0 || !mayHoldToken(text)) return false;
   const byToken = new Map(map.map((entry) => [entry.token, entry.value]));
-  for (const match of text.matchAll(TOKEN)) if (tokenValue(match[0], byToken) !== undefined) return true;
+  for (const match of text.matchAll(ANY_TOKEN)) if (anyTokenValue(match[0], byToken) !== undefined) return true;
   return false;
 }
 
 /**
  * The map to use for texts that may already hold placeholder-style tokens,
- * such as a transcript redacted by hand with `[PERSON_1]` (review
- * 2026-09-25). Restoring would turn those literal tokens into real names,
+ * such as a transcript redacted by hand with `[PERSON_1]` or `PERSON_1`
+ * (review 2026-09-25). Restoring would turn those literal tokens into real names,
  * so when any text carries a token this map would restore, every token is
  * renumbered past the highest number of its kind found in the texts. The
  * source's own tokens then stay literal both ways. Deterministic in the map
@@ -299,10 +330,10 @@ export function avoidTokenCollisions(map: PlaceholderMap, texts: readonly string
   const highest = { CLIENT: 0, PERSON: 0 };
   let collides = false;
   for (const text of texts) {
-    if (!text.includes("[")) continue;
+    if (!mayHoldToken(text)) continue;
     if (!collides && containsPlaceholderToken(text, map)) collides = true;
-    for (const match of text.matchAll(TOKEN)) {
-      const parts = TOKEN_PARTS.exec(match[0]);
+    for (const match of text.matchAll(ANY_TOKEN)) {
+      const parts = TOKEN_PARTS.exec(match[0].startsWith("[") ? match[0] : `[${match[0]}]`);
       if (!parts) continue;
       const kind = parts[1] as keyof typeof highest;
       highest[kind] = Math.max(highest[kind], Number(parts[2]));
