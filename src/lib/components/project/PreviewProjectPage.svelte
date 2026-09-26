@@ -1756,8 +1756,29 @@
           ? "plan"
           : "report"
   );
+  // Fidelity broken behaviour 6: a Step-by-step run's Sources tab counts
+  // the files the run was started with (its frozen transcripts and
+  // documents; files left out in the start dialog were never frozen), not
+  // every file on the project. The Seed workspace reads the same rows, so
+  // this shares its subscription. Other runs, and a read that is loading,
+  // failed or cut short, count the project's files as before.
+  const seedRunId = $derived(
+    isSeedWorkflow && generation
+      ? generation._id
+      : reportGenerationQ.data?.gatedWorkflow === "seeds"
+        ? reportGenerationQ.data._id
+        : null
+  );
+  const runSourcesQ = useQuery(seedsApi.getSourceAttribution, () =>
+    auth.isAuthenticated && seedRunId ? { generationId: seedRunId } : "skip"
+  );
+  const runFileCount = $derived.by(() => {
+    const read = runSourcesQ.data;
+    if (!seedRunId || !read || read.generationId !== seedRunId || !read.complete) return null;
+    return read.sources.filter((source) => source.kind === "transcript" || source.kind === "project_document").length;
+  });
   const sourceCount = $derived(
-    transcripts.length + (documentsQ.data ?? []).filter((doc) => !doc.archived).length
+    runFileCount ?? transcripts.length + (documentsQ.data ?? []).filter((doc) => !doc.archived).length
   );
   const panelTabs = $derived.by((): PanelTab[] => {
     const sources: PanelTab = { id: "sources", label: "Sources", count: sourceCount || null };
@@ -1853,6 +1874,12 @@
   );
 
   const topBarMoreItems = $derived.by((): TopBarMoreItem[] => {
+    const financial: TopBarMoreItem = { id: "financial", label: "Financial", href: `/project/${projectId}/financial` };
+    // Reading the interview (H4): the phone bar keeps its More dots with the
+    // project tools that need no report; wider screens show none (F2, H3).
+    if (showReadingInterview) {
+      return [...(report ? [{ id: "history", label: "History", onSelect: () => (showHistory = true) }] : []), financial];
+    }
     if (!reportActionsVisible) return [];
     return [
       {
@@ -1868,7 +1895,7 @@
         ? [{ id: "compare", label: "Compare with the one-shot draft", onSelect: () => (ghostCompareOpen = true) }]
         : []),
       { id: "history", label: "History", onSelect: () => (showHistory = true) },
-      { id: "financial", label: "Financial", href: `/project/${projectId}/financial` },
+      financial,
     ];
   });
 </script>
@@ -1950,7 +1977,11 @@
         {#if !project.workflowStage}
           <ProjectStateBadge workflowStage={project.workflowStage} legacyStatus={project.status} />
         {/if}
-        {#if generation && generation.status !== "completed"}
+        {#if generation && generation.status !== "completed" && !isSeedWorkflow}
+          <!-- A Step-by-step run shows its state in the panel (the reading
+               pill, the step's writing line, the writing pill), so the top
+               bar carries no status pill (F2 to F5, H3; ui-design-final.md
+               section 2). -->
           <span class="hidden lg:inline-flex">
             <GenerationStatusChip
               status={generation.status}

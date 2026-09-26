@@ -373,6 +373,39 @@ describe("Seed project hosts", () => {
     ]);
   });
 
+  it("counts only the files a Step-by-step run was started with on the Sources tab (F5)", async () => {
+    // Five files on the project; the run was started with three of them.
+    __setQueryData("transcripts:listTranscripts", [0, 1, 2].map((index) => ({
+      _id: `transcript-${index}`, label: `Interview ${index + 1}`, position: index, createdAt: 1, charCount: 60, wordCount: 10,
+    })));
+    __setQueryData("documents:listDocuments", [0, 1].map((index) => ({
+      _id: `document-${index}`, fileName: `spec-${index + 1}.pdf`, category: null, createdAt: 1, sizeChars: 10, archived: false, url: null,
+    })));
+    __setQueryData("seeds:getSourceAttribution", {
+      generationId: "generation-seed-host",
+      sources: [
+        { sourceId: "frozen-1", label: "Interview 1", kind: "transcript" },
+        { sourceId: "frozen-2", label: "Interview 1 facts", kind: "transcript_facts" },
+        { sourceId: "frozen-3", label: "Interview 2", kind: "transcript" },
+        { sourceId: "frozen-4", label: "spec-1.pdf", kind: "project_document" },
+        { sourceId: "frozen-5", label: "Storyline", kind: "writer_storyline" },
+      ],
+      complete: true,
+    });
+    await render(PreviewProjectPage, {});
+    await expect.element(browserPage.getByLabelText("Seed workspace")).toBeVisible();
+    const sourcesTab = () => document.querySelector('[data-panel-tab="sources"]')?.textContent?.replace(/\s+/g, " ").trim();
+    await expect.poll(sourcesTab).toBe("Sources 3");
+
+    // A read cut short says nothing it cannot back: the project's files count.
+    __setQueryData("seeds:getSourceAttribution", {
+      generationId: "generation-seed-host",
+      sources: [{ sourceId: "frozen-1", label: "Interview 1", kind: "transcript" }],
+      complete: false,
+    });
+    await expect.poll(sourcesTab).toBe("Sources 5");
+  });
+
   it("routes the current host from Seeds to Summary and back without the legacy stepper", async () => {
     await assertConnectedJourney(CurrentProjectPage);
   });
@@ -616,6 +649,10 @@ describe("Seed project hosts", () => {
     // Round 2 (F2): the preview host reads the interview while the Brief is written.
     await expect.element(browserPage.getByText("Reading the interview", { exact: true })).toBeVisible();
     expect(browserPage.getByRole("tab", { name: "Plan" }).elements()).toHaveLength(0);
+    // F2 to F5: no status pill in the top bar while a Step-by-step run reads
+    // or writes ideas; the panel says what is happening.
+    const header = () => document.querySelector<HTMLElement>("[data-workspace-page-header]")!;
+    expect(header().textContent).not.toContain("AI generating");
 
     __setQueryData("generations:getLatestGeneration", {
       _id: "generation-seed-host",
@@ -629,6 +666,8 @@ describe("Seed project hosts", () => {
       seedCanEdit: true,
     });
     await expect.element(browserPage.getByLabelText("Seed workspace")).toBeVisible();
+    expect(header().textContent).not.toContain("Action needed");
+    expect(header().querySelector('[role="status"]')).toBeNull();
   });
 
   async function assertSignoffThroughCompletedReport(Component: typeof CurrentProjectPage | typeof PreviewProjectPage) {
@@ -1022,6 +1061,10 @@ describe("Seed project hosts", () => {
     expect(panelStyle.borderTopColor).toBe("rgb(233, 240, 239)");
     expect(panelStyle.borderRadius).toBe("12px");
     expect(panelStyle.marginLeft).toBe("12px");
+    // F2: no status pill and no More dots in the desktop top bar.
+    const header = document.querySelector<HTMLElement>("[data-workspace-page-header]")!;
+    expect(header.textContent).not.toContain("AI generating");
+    expect(getComputedStyle(header.querySelector('[data-top-bar-more="desktop"]')!).display).toBe("none");
     cancel.click();
     await expect.element(browserPage.getByText("Cancel this generation?", { exact: true })).toBeVisible();
   });
@@ -1064,6 +1107,9 @@ describe("Seed project hosts", () => {
     expect(getComputedStyle(panel).marginLeft).toBe("0px");
     expect(getComputedStyle(panel).borderTopWidth).toBe("0px");
     expect(getComputedStyle(panel).borderRadius).toBe("0px");
+    // H3 has no More dots.
+    expect(hidden(header.querySelector('[data-top-bar-more="desktop"]'))).toBe(true);
+    expect(hidden(header.querySelector('[data-top-bar-more="phone"]'))).toBe(true);
 
     // H4: the 52px bar, the top-bar cancel gives way to the bottom one.
     await browserPage.viewport(390, 844);
@@ -1071,6 +1117,11 @@ describe("Seed project hosts", () => {
     expect(hidden(document.querySelector("[data-top-bar-cancel-generation]"))).toBe(true);
     await expect.element(browserPage.getByText("You can leave. We will notify you when ideas are ready.", { exact: true })).toBeVisible();
     expect(getComputedStyle(header.querySelector("h1")!).fontSize).toBe("16px");
+    // H4: the More dots at the far right, with the project tools that need no report.
+    const phoneMore = header.querySelector<HTMLElement>('[data-top-bar-more="phone"]')!;
+    expect(hidden(phoneMore)).toBe(false);
+    phoneMore.click();
+    await expect.poll(() => Array.from(document.querySelectorAll("[data-top-bar-more-item]")).map((item) => item.getAttribute("data-top-bar-more-item"))).toEqual(["financial"]);
   });
 
   it("keeps an explicit legacy sections generation on the section stepper", async () => {

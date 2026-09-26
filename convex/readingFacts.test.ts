@@ -10,7 +10,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api, internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import schema from "./schema";
-import { DEFAULT_BRIEF_MS, confidenceChip, glossaryChip, sentenceAround } from "./lib/readingFacts";
+import {
+  DEFAULT_BRIEF_MS,
+  READING_FACTS_FLUSH_MS,
+  confidenceChip,
+  createReadingFactsCollector,
+  glossaryChip,
+  sentenceAround,
+  speakerFirstName,
+  type ReadingFact,
+} from "./lib/readingFacts";
 
 const modules = import.meta.glob("./**/*.ts");
 type T = ReturnType<typeof convexTest<typeof schema.tables>>;
@@ -101,6 +110,20 @@ describe("seeds.getReadingFacts", () => {
       [4, "The seal cracked at minus 30. 2"],
       [3, "The seal cracked at minus 30. 1"],
     ]);
+  });
+
+  it("places a fact by the speaker's first name on every size, rows stored with a full name included", async () => {
+    const t = convexTest(schema, modules);
+    const f = await fixture(t);
+    await t.mutation(internal.seeds.appendReadingFacts, {
+      generationId: f.generationId,
+      facts: [
+        { ...FACT, sourceLabel: "Anika Rao, line 19", speaker: "Anika Rao", line: 19 },
+        { chip: "Fact", quote: "No speaker here.", sourceLabel: "Follow-up call, line 12", line: 12 },
+      ],
+    });
+    const view = await t.withIdentity({ subject: "facts-writer" }).query(api.seeds.getReadingFacts, { generationId: f.generationId });
+    expect(view?.latest.map((fact) => fact.sourceLabel)).toEqual(["Follow-up call, line 12", "Anika, line 19"]);
   });
 
   it("serves internal roles and is silent for everyone else", async () => {
@@ -235,6 +258,66 @@ describe("a reused Brief fills the list at once", () => {
   });
 });
 
+describe("the collector writes each fact as its entry completes (fidelity broken behaviour 9)", () => {
+  it("writes the first fact at once, a quick second one when the pace allows, and a late one at once", async () => {
+    const source = { _id: "source-1" as Id<"generationSources">, kind: "transcript" as const, label: "Kickoff call", content: CONTENT };
+    const writes: Array<{ at: number; quotes: string[] }> = [];
+    const start = Date.now();
+    const collector = createReadingFactsCollector({
+      ctx: {
+        runMutation: (async (_ref: unknown, args: { facts: ReadingFact[] }) => {
+          writes.push({ at: Date.now() - start, quotes: args.facts.map((fact) => fact.quote) });
+          return null;
+        }) as never,
+      },
+      generationId: "generation-1" as Id<"generations">,
+      append: internal.seeds.appendReadingFacts,
+      sources: [source],
+      writerStoryline: false,
+      placeholders: [],
+      locate: async (quote) => {
+        const startOffset = CONTENT.indexOf(quote);
+        return startOffset < 0
+          ? null
+          : { sourceId: source._id, sourceContentHash: "h", exactExcerpt: quote, startOffset, endOffset: startOffset + quote.length };
+      },
+    });
+    // The tool input as a stubbed stream delivers it: each Confidence Map
+    // entry completes in its own piece.
+    const entries = [
+      { text: "a", quote: "The seal cracked at minus 30.", confidence: "established" },
+      { text: "b", quote: "We never found why.", confidence: "unresolved" },
+      { text: "c", quote: "What failed?", confidence: "partial" },
+    ];
+    let text = '{"storyline":"s","storylineClaims":[],"claimExclusions":[],"confidenceMap":[';
+    const complete = async (index: number) => {
+      text += `${index ? "," : ""}${JSON.stringify(entries[index])}`;
+      collector.onToolInput(text);
+      await vi.advanceTimersByTimeAsync(0);
+    };
+    await complete(0);
+    expect(writes).toEqual([{ at: 0, quotes: ["The seal cracked at minus 30."] }]);
+    // A second entry 100ms later waits for the pace, then is written without
+    // waiting for another entry.
+    await vi.advanceTimersByTimeAsync(100);
+    await complete(1);
+    expect(writes).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(READING_FACTS_FLUSH_MS);
+    expect(writes).toEqual([
+      { at: 0, quotes: ["The seal cracked at minus 30."] },
+      { at: READING_FACTS_FLUSH_MS, quotes: ["We never found why."] },
+    ]);
+    // An entry after a long gap is written at once.
+    await vi.advanceTimersByTimeAsync(5_000);
+    await complete(2);
+    expect(writes.at(-1)).toEqual({ at: 100 + READING_FACTS_FLUSH_MS + 5_000, quotes: ["What failed?"] });
+    text += "]}";
+    collector.onToolInput(text);
+    await collector.finish();
+    expect(writes).toHaveLength(3);
+  });
+});
+
 describe("chips and quotes (option A, no prompt change)", () => {
   it("maps the Brief's groups", () => {
     expect(confidenceChip("established")).toBe("Fact");
@@ -243,6 +326,15 @@ describe("chips and quotes (option A, no prompt change)", () => {
     expect(confidenceChip("unreliable")).toBeNull();
     expect(glossaryChip("FrostLine")).toBe("Product name");
     expect(glossaryChip("leak rate")).toBe("Term");
+  });
+
+  it("names a speaker by first name, keeping numbered labels and skipping a title", () => {
+    expect(speakerFirstName("Priya Raman")).toBe("Priya");
+    expect(speakerFirstName("  Anika   Rao ")).toBe("Anika");
+    expect(speakerFirstName("Priya")).toBe("Priya");
+    expect(speakerFirstName("Dr. Priya Raman")).toBe("Priya");
+    expect(speakerFirstName("Speaker 2")).toBe("Speaker 2");
+    expect(speakerFirstName("Interviewer")).toBe("Interviewer");
   });
 
   it("shows the sentence around a glossary term", () => {

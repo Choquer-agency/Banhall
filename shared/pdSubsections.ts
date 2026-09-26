@@ -148,6 +148,26 @@ export type PdSubsection = (typeof PD_SUBSECTIONS)[number];
 export type PdSubsectionRoleId = PdSubsection["roleId"];
 
 /**
+ * Round 2 (boards F3 to F5): shorter names for three Outline rows, so no row
+ * truncates in the 300px Outline. Only the Outline uses them; prompts, QA,
+ * the step header and the Summary keep each step's `title`.
+ */
+const PD_SUBSECTION_OUTLINE_LABELS: Partial<Record<PdSubsectionRoleId, string>> = {
+  prior_year_status: "Previous-year work",
+  specific_advancements: "Specific advancements",
+  goal_improvements: "Goal improvements",
+};
+
+/** The step's name in the Outline: its short label, else its title. */
+export function pdSubsectionOutlineLabel(roleId: PdSubsectionRoleId): string {
+  return (
+    PD_SUBSECTION_OUTLINE_LABELS[roleId] ??
+    PD_SUBSECTIONS.find((subsection) => subsection.roleId === roleId)?.title ??
+    roleId
+  );
+}
+
+/**
  * Display headings for the three report Sections in the Step-by-step writing
  * view (ui-design-final.md section 6): the small sans label ("242 Technological
  * uncertainty") and the serif question. Presentation only; the report's own

@@ -9,6 +9,7 @@ import { SEED_TAGS } from "../convex/lib/seedContract";
 import {
   PD_SUBSECTIONS,
   SEED_TAG_DISPLAY_LABELS,
+  pdSubsectionOutlineLabel,
   pdSubsectionRoleList,
   pdSubsectionsForSection,
 } from "./pdSubsections";
@@ -78,6 +79,26 @@ const EXPECTED_SUBSECTIONS = [
 ] as const;
 
 describe("PD_SUBSECTIONS", () => {
+  it("shortens three Outline labels and keeps every other title (F3)", () => {
+    expect(PD_SUBSECTIONS.map((subsection) => pdSubsectionOutlineLabel(subsection.roleId))).toEqual([
+      "Company / Context",
+      "Goal / Problem",
+      "Technological limitations",
+      "Technological objectives",
+      "Technological uncertainties",
+      "Previous-year work",
+      "Work plan",
+      "Hypothesis",
+      "Experimentation / Iterations",
+      "Advancement to science / technology",
+      "Specific advancements",
+      "Project status and next steps",
+      "Goal improvements",
+    ]);
+    // The canonical titles are unchanged for every other use.
+    expect(PD_SUBSECTIONS.find((subsection) => subsection.roleId === "prior_year_status")?.title).toBe("Previous-year status");
+  });
+
   it("provides display labels for the closed seed tag vocabulary", () => {
     expect(SEED_TAG_DISPLAY_LABELS).toEqual({
       conservative: "Conservative",

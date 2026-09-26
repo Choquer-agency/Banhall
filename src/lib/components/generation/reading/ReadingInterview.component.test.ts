@@ -151,7 +151,7 @@ describe("ReadingInterview", () => {
     expect(content.paddingTop).toBe("40px");
     expect(content.paddingLeft).toBe("16px");
     expect(content.justifyContent).toBe("normal");
-    expect(text(document.querySelector('[data-reading-fact="4"] [data-reading-source]'))).toBe("Follow-up, line 12");
+    expect(text(document.querySelector('[data-reading-fact="4"] [data-reading-source]'))).toBe("Follow-up call, line 12");
     expect(text(document.querySelector('[data-reading-fact="5"] [data-reading-source]'))).toBe("Priya, line 64");
     const bottom = document.querySelector<HTMLElement>("[data-reading-bottom]")!;
     expect(text(bottom)).toContain("You can leave. We will notify you when ideas are ready.");
@@ -166,10 +166,26 @@ describe("ReadingInterview", () => {
     expect(onCancel).toHaveBeenCalledTimes(1);
   });
 
-  it("shortens the source on a phone", async () => {
+  it("places a fact the same way on every size (F2, H3, H4)", async () => {
     __setQueryData("seeds:getReadingFacts", view({ latest: [FACTS[2], FACTS[1]] }));
+    for (const layout of ["desktop", "tablet", "phone"] as const) {
+      const mounted = await render(ReadingInterview, { generationId: GENERATION, layout });
+      expect(text(document.querySelector('[data-reading-fact="4"] [data-reading-source]')), layout).toBe("Follow-up call, line 12");
+      expect(text(document.querySelector('[data-reading-fact="5"] [data-reading-source]')), layout).toBe("Priya, line 64");
+      mounted.unmount();
+    }
+  });
+
+  it("keeps the newest fact at full ink when a burst lands (F2, H4)", async () => {
+    __setQueryData("seeds:getReadingFacts", view({ count: 1, latest: [{ ...FACTS[2], seq: 1 }] }));
     await render(ReadingInterview, { generationId: GENERATION, layout: "phone" });
-    expect(text(document.querySelector('[data-reading-fact="4"] [data-reading-source]'))).toBe("Follow-up, line 12");
+    // Three new facts arrive in one read: none of them fades in from nothing.
+    __setQueryData("seeds:getReadingFacts", view());
+    await tick();
+    const cards = [...document.querySelectorAll<HTMLElement>("[data-reading-fact]")];
+    expect(cards.map((card) => card.dataset.readingFact)).toEqual(["6", "5", "4"]);
+    expect(getComputedStyle(cards[0]).opacity).toBe("1");
+    await expect.poll(() => cards.map((card) => getComputedStyle(card).opacity)).toEqual(["1", "0.55", "0.25"]);
   });
 });
 
@@ -180,6 +196,8 @@ describe("ReadingInterview when reading failed (F6)", () => {
     await render(ReadingInterview, { generationId: GENERATION, failed: true, canEdit: true, onBack });
     const box = document.querySelector<HTMLElement>("[data-reading-failed] [data-reading-failed-box]")!;
     expect(box.getAttribute("role")).toBe("alert");
+    // F6: the box is 424px wide at most.
+    expect(getComputedStyle(document.querySelector("[data-reading-failed]")!).maxWidth).toBe("424px");
     expect(text(box)).toContain("We could not read the transcripts");
     expect(text(box)).toContain("Your files are still here. Try again, or cancel to change them.");
     expect(document.querySelector("[data-reading-pill]")).toBeNull();

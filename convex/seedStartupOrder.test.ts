@@ -279,8 +279,9 @@ async function sha256Hex(text: string): Promise<string> {
 /** The first request body of each stage, hashed. `maxTokens` replaces a
  * stage's `max_tokens` in place (same key position) before hashing. Round 2
  * (decision 57): the Brief is streamed during Step-by-step startup; its body
- * gains `stream: true` and nothing else, so that one field is taken out
- * before hashing (and asserted on its own). */
+ * gains `stream: true` and, on the direct API, `eager_input_streaming: true`
+ * on its tool (fidelity broken behaviour 9) and nothing else, so those are
+ * taken out before hashing (and asserted on their own). */
 async function requestHashes(
   maxTokens: Partial<Record<string, number>> = {},
   briefStreamed = true
@@ -289,9 +290,19 @@ async function requestHashes(
   for (const [sent] of network.create.mock.calls as Array<[GenerationMessageParams & { stream?: boolean }]>) {
     const name = sent.tool_choice?.name ?? "text";
     if (firstByTool.has(name)) continue;
-    if (name === "submit_generation_brief" && briefStreamed) expect(sent.stream).toBe(true);
-    else expect(sent).not.toHaveProperty("stream");
-    const { stream: _stream, ...params } = sent;
+    if (name === "submit_generation_brief" && briefStreamed) {
+      expect(sent.stream).toBe(true);
+      expect(sent.tools?.map((tool) => (tool as { eager_input_streaming?: boolean }).eager_input_streaming)).toEqual([true]);
+    } else {
+      expect(sent).not.toHaveProperty("stream");
+    }
+    const { stream: _stream, ...streamless } = sent;
+    const params = {
+      ...streamless,
+      ...(streamless.tools
+        ? { tools: streamless.tools.map(({ eager_input_streaming: _eager, ...tool }: Record<string, unknown>) => tool) }
+        : {}),
+    };
     const cap = maxTokens[name];
     const body = cap === undefined ? params : { ...params, max_tokens: cap };
     firstByTool.set(name, maskIds(JSON.stringify(body)));

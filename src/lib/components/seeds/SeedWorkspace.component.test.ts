@@ -2087,13 +2087,18 @@ describe("Seed workspace", () => {
     const notice = () => document.querySelector<HTMLElement>("[data-outline-partial]");
     await expect.poll(() => notice()?.textContent ?? "").toContain("counts and previews may be incomplete");
     expect(view.container.textContent).toContain("Readiness could not be fully computed within the server's safe processing limit.");
-    // The first row's count is a lower bound: "1+" on screen, "at least 1
-    // selected, partial read" for assistive technology. Previews are gone
-    // from the single-line rows, so no partial preview can pass as complete.
-    const firstRow = () => document.querySelector<HTMLElement>('nav[aria-label="PD subsections"] button')!;
-    expect(firstRow().querySelector("[data-counts-complete]")?.textContent).toBe("1+");
-    expect(firstRow().querySelector("[data-counts-complete]")?.getAttribute("data-counts-complete")).toBe("false");
+    // A count is a lower bound: "1+" on screen, "at least 1 selected,
+    // partial read" for assistive technology. The approved first row shows
+    // only its check (F5) and keeps the qualified count in its accessible
+    // state. Previews are gone from the single-line rows, so no partial
+    // preview can pass as complete.
+    const rowAt = (index: number) => document.querySelectorAll<HTMLElement>('nav[aria-label="PD subsections"] button')[index]!;
+    const firstRow = () => rowAt(0);
+    expect(firstRow().querySelector("[data-counts-complete]")).toBeNull();
     expect(firstRow().textContent).toContain("approved, at least 1 selected, partial read");
+    expect(rowAt(1).querySelector("[data-counts-complete]")?.textContent).toBe("1+");
+    expect(rowAt(1).querySelector("[data-counts-complete]")?.getAttribute("data-counts-complete")).toBe("false");
+    expect(rowAt(1).textContent).toContain("open, at least 1 selected, partial read");
     expect(view.container.textContent).not.toContain("Partial preview line");
 
     await page.getByRole("button", { name: "Reload Outline", exact: true }).click();
@@ -2107,7 +2112,7 @@ describe("Seed workspace", () => {
     );
     __setQueryData("seeds:getOutline", complete);
     await expect.poll(() => notice()).toBeNull();
-    await expect.poll(() => firstRow().querySelector("[data-counts-complete]")?.textContent).toBe("1");
+    await expect.poll(() => rowAt(1).querySelector("[data-counts-complete]")?.textContent).toBe("1");
     expect(firstRow().textContent).toContain("approved, 1 selected");
     expect(view.container.textContent).not.toContain("partial read");
     expect(view.container.textContent).not.toContain("Readiness could not be fully computed");
@@ -2432,14 +2437,27 @@ describe("Seed workspace", () => {
     expect(document.body.textContent).not.toContain("Role A open refused late");
     await expect.element(page.getByRole("heading", { name: "Goal and problem", exact: true })).toBeVisible();
 
-    // A current refusal for the displayed role is announced with a Retry
-    // that resubmits against the current capability and stage version.
+    // A stale refusal means another tab changed the decisions first: it is
+    // not announced, and the open is sent again once the Outline catches up
+    // (fidelity broken behaviour 3).
     __setMutationError("seeds:open", new ConvexError({ code: "STALE_REVISION", message: "Seed decisions changed; refresh and retry" }));
+    await outlineRole(/Company \/ Context/).click();
+    await expect.poll(() => __mutationCalls("seeds:open")).toHaveLength(3);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(openRefusal()).toBeNull();
+    __setMutationResult("seeds:open", null);
+    __setQueryData("seeds:getOutline", untouchedOutline(["company_context", "goal_problem"], { seedStageVersion: 8 }));
+    await expect.poll(() => __mutationCalls("seeds:open")).toHaveLength(4);
+    expect(openRefusal()).toBeNull();
+
+    // Any other current refusal for the displayed role is announced with a
+    // Retry that resubmits against the current capability and stage version.
+    __setMutationError("seeds:open", new ConvexError({ code: "INVALID_STATE", message: "Seed work is already pending for this role" }));
     await outlineRole(/Company \/ Context/).click();
     await expect.poll(() => openRefusal()?.dataset.openRefusal).toBe("company_context");
     expect(openRefusal()?.getAttribute("role")).toBe("alert");
-    expect(openRefusal()?.textContent).toContain("Seed decisions changed; refresh and retry");
-    __setQueryData("seeds:getOutline", untouchedOutline(["company_context", "goal_problem"], { seedStageVersion: 8 }));
+    expect(openRefusal()?.textContent).toContain("Seed work is already pending for this role");
+    __setQueryData("seeds:getOutline", untouchedOutline(["company_context", "goal_problem"], { seedStageVersion: 9 }));
     __setMutationResult("seeds:open", null);
     await page.getByRole("button", { name: "Retry", exact: true }).click();
     await expect.poll(() => openRefusal()).toBeNull();
@@ -2448,6 +2466,8 @@ describe("Seed workspace", () => {
       openCall("goal_problem", 7),
       openCall("company_context", 7),
       openCall("company_context", 8),
+      openCall("company_context", 8),
+      openCall("company_context", 9),
     ]);
   });
 
@@ -2628,8 +2648,15 @@ describe("Seed plan final UI (ui-design-final.md sections 3 and 11)", () => {
     expect(row(/Advancement to science/).textContent).toContain("seeds failed");
     expect(row(/Specific/).textContent).toContain("approved, stale");
     expect(row(/Specific/).querySelector("[data-row-marker]")?.textContent?.trim()).toBe("stale");
-    // A count is faint and on the right; no preview or state line on screen.
-    expect(row(/Company \/ Context/).querySelector("[data-counts-complete]")?.textContent).toBe("2");
+    // A count is faint and on the right; an approved step shows none (F5).
+    // No preview or state line on screen.
+    expect(row(/Experimentation/).querySelector("[data-counts-complete]")?.textContent).toBe("1");
+    expect(row(/Company \/ Context/).querySelector("[data-counts-complete]")).toBeNull();
+    // F3: the three long step names are shortened in the Outline only.
+    const label = (roleTitle: RegExp) => row(roleTitle).querySelector(".truncate")?.textContent;
+    expect(label(/Previous-year/)).toBe("Previous-year work");
+    expect(label(/Specific/)).toBe("Specific advancements");
+    expect(label(/Goal improvements/)).toBe("Goal improvements");
     expect(container.textContent).not.toContain("Control loop evidence");
     expect(container.textContent).not.toContain("·");
     // Rows are one line high.
@@ -2739,6 +2766,48 @@ describe("Seed plan final UI (ui-design-final.md sections 3 and 11)", () => {
     await expect.poll(() => document.querySelector("[data-quote-card]")).toBeNull();
     expect(document.activeElement).toBe(elsewhere);
     elsewhere.remove();
+  });
+
+  it("keeps the words and punctuation after a quote on the quote's line (F4)", async () => {
+    await page.viewport(1440, 900);
+    const bullet = "Meridian Materials manufactures bonded composite panels for refrigerated truck bodies, its core product line.";
+    const citation = quotedCitation({ exactExcerpt: "bonded composite panels for refrigerated truck bodies" });
+    await render(SeedSubsectionPane, paneProps(subsection({
+      items: [seed({ selected: false, bullets: [bullet], originalBullets: [bullet], provenance: [citation] })],
+    }), { sourceAttribution: attributed }));
+    const quote = document.querySelector<HTMLElement>("[data-exact-quote]")!;
+    expect(quote.textContent).toBe("bonded composite panels for refrigerated truck bodies");
+    const walker = document.createTreeWalker(quote.closest("li")!, NodeFilter.SHOW_TEXT);
+    let tail: Text | null = null;
+    while (walker.nextNode()) if (walker.currentNode.textContent?.startsWith(", its")) tail = walker.currentNode as Text;
+    const comma = document.createRange();
+    comma.setStart(tail!, 0);
+    comma.setEnd(tail!, 1);
+    // The quote wraps; the comma follows its last line, never starts a line.
+    const lines = quote.getClientRects();
+    expect(lines.length).toBeGreaterThan(1);
+    const last = lines[lines.length - 1];
+    expect(Math.abs(comma.getBoundingClientRect().top - last.top)).toBeLessThan(2);
+    expect(comma.getBoundingClientRect().left).toBeGreaterThanOrEqual(Math.floor(last.right));
+    // Still a keyboard control: focus opens the quoted line, Enter pins it,
+    // and Enter again closes it.
+    quote.focus();
+    await expect.element(page.getByRole("group", { name: "Quoted line" })).toBeVisible();
+    await userEvent.keyboard("{Enter}");
+    await expect.element(page.getByRole("group", { name: "Quoted line" })).toBeVisible();
+    await userEvent.keyboard("{Enter}");
+    await expect.poll(() => document.querySelector("[data-quote-card]")).toBeNull();
+  });
+
+  it("shows the quoted-lines tile only on hover or focus, as the boards draw the footer (F4)", async () => {
+    await render(SeedSubsectionPane, paneProps(subsection({ items: [seed({ selected: false })] }), { sourceAttribution: attributed }));
+    const tileEl = document.querySelector<HTMLElement>("[data-seed-quotes-trigger]")!;
+    expect(getComputedStyle(tileEl).opacity).toBe("0");
+    expect(getComputedStyle(page.getByRole("button", { name: "Edit", exact: true }).element()).opacity).toBe("1");
+    await userEvent.hover(document.querySelector<HTMLElement>('[data-seed-id="seed-1"]')!);
+    await expect.poll(() => getComputedStyle(tileEl).opacity).toBe("1");
+    await tileEl.click();
+    await expect.poll(() => document.querySelector("[data-seed-quotes]")).not.toBeNull();
   });
 
   it("drops underlines from an edited bullet and offers Restore original wording beside it", async () => {
@@ -3728,6 +3797,44 @@ describe("board match (F3 to F5)", () => {
     expect(document.querySelector("[data-step-more-trigger] svg path")!.getAttribute("d")).toBe(PATHS.more);
     // The objective runs the width of the pane (F4), no reading cap.
     expect(getComputedStyle(document.querySelector("[data-step-objective]")!).maxWidth).toBe("none");
+  });
+
+  it("keeps Regenerate at full ink while ideas are written, with the More dots out of the header (F3 to F5)", async () => {
+    await page.viewport(1440, 900);
+    const now = Date.now();
+    const view = await render(
+      SeedSubsectionPane,
+      paneProps(
+        subsection({
+          items: [],
+          shownBatchId: null,
+          pendingBatchId: "batch-pending" as Id<"seedBatches">,
+          pendingBatch: { status: "running", queuedAt: now - 5_000, startedAt: now - 5_000 },
+          state: "generating",
+        }),
+        { expectedMs: 20_000 }
+      )
+    );
+    view.container.style.width = "915px";
+    const regenerate = page.getByRole("button", { name: "Regenerate", exact: true }).element() as HTMLButtonElement;
+    // Not faded or disabled; a Batch on its way is not replaced.
+    expect(regenerate.disabled).toBe(false);
+    expect(getComputedStyle(regenerate).opacity).toBe("1");
+    expect(regenerate.getAttribute("aria-disabled")).toBe("true");
+    regenerate.click();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(__mutationCalls("seeds:regenerate")).toEqual([]);
+    // Regenerate ends the header row; the More dots sit in the gutter and
+    // show only on hover or focus.
+    const headRow = regenerate.closest<HTMLElement>(".group\\/stephead")!;
+    await expect.poll(() => Math.round(regenerate.getBoundingClientRect().right)).toBe(Math.round(headRow.getBoundingClientRect().right));
+    const more = document.querySelector<HTMLElement>("[data-step-more-trigger]")!;
+    expect(getComputedStyle(more).position).toBe("absolute");
+    expect(getComputedStyle(more).opacity).toBe("0");
+    await userEvent.hover(headRow);
+    await expect.poll(() => getComputedStyle(more).opacity).toBe("1");
+    await more.click();
+    await expect.element(page.getByRole("menuitem", { name: "Batch history" })).toBeVisible();
   });
 
   it("marks an approved step with the fir disc and 9px check, in secondary ink (F5)", async () => {

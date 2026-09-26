@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { Snippet } from "svelte";
-  import type { PdSubsectionRoleId } from "../../../../shared/pdSubsections";
+  import { pdSubsectionOutlineLabel, type PdSubsectionRoleId } from "../../../../shared/pdSubsections";
   import type { SeedOutlineRow } from "./types";
   import { seedProgress } from "./seedProgress";
   import { IconCheck } from "$lib/components/icons";
@@ -106,8 +106,10 @@
     return parts.join(", ");
   }
 
+  // An approved step shows only its check (F5); its count stays in the
+  // accessible state.
   function countText(row: SeedOutlineRow) {
-    if (row.selectedCount === 0 || row.state === "skipped") return "";
+    if (row.selectedCount === 0 || row.state === "skipped" || row.state === "approved") return "";
     return row.countsComplete ? String(row.selectedCount) : `${row.selectedCount}+`;
   }
 </script>
@@ -192,7 +194,7 @@
                   ? "text-ink-faint"
                   : "text-ink-secondary"
             }`}
-          >{row.title}</span>
+          >{pdSubsectionOutlineLabel(row.roleId)}</span>
           <span class="sr-only">, {stateText(row)}</span>
           {#if writing !== null}
             <span class="shrink-0 pr-1 text-[11px] leading-[14px] text-ink-muted" data-row-progress>{writing}%</span>

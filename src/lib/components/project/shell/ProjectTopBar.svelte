@@ -8,7 +8,8 @@
 
   `flush` (Reading the interview, H3 and H4): below 1280px the panel under
   the bar is flush, so the bar becomes a white strip with a hairline; on a
-  tablet it drops the page tile and the bell, as H3 draws it.
+  tablet it drops the page tile and the bell, as H3 draws it. Only the phone
+  keeps the More dots there (H4); F2 and H3 show none.
 -->
 <script lang="ts" module>
   export type TopBarMoreItem = {
@@ -73,7 +74,7 @@
   <DropdownMenu.Root>
     <DropdownMenu.Trigger
       aria-label="More actions"
-      class={`${iconButton} ${placement === "phone" ? "size-11! text-ink! sm:hidden" : "max-sm:hidden"}`}
+      class={`${iconButton} ${placement === "phone" ? "size-11! text-ink! sm:hidden" : flush ? "hidden" : "max-sm:hidden"}`}
       data-top-bar-more={placement}
     >
       <IconMore size={placement === "phone" ? 18 : 16} />

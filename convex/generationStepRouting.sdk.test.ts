@@ -249,21 +249,31 @@ async function sha256Hex(text: string): Promise<string> {
 type Pin = { count: number; hash: string; models: string[] };
 
 /**
- * Round 2 (decision 57): the Step-by-step Brief request gains `stream: true`
- * and nothing else, so with that one field taken out every body is the
- * pinned one. Single and Compare never stream.
+ * Round 2 (decision 57): the Step-by-step Brief request is streamed. It gains
+ * `stream: true` and, on the direct API, `eager_input_streaming: true` on its
+ * tool (fidelity broken behaviour 9) and nothing else, so with those taken
+ * out every body is the pinned one. Single and Compare never stream.
  */
 const withoutBriefStream = (json: Record<string, unknown>) => {
   if (toolOf(json) !== "submit_generation_brief" || !("stream" in json)) return json;
   const { stream: _stream, ...rest } = json;
-  return rest;
+  return {
+    ...rest,
+    tools: (rest.tools as Array<Record<string, unknown>>).map(({ eager_input_streaming: _eager, ...tool }) => tool),
+  };
 };
 function expectBriefStreaming(sent: Sent[], streamed: boolean) {
   const briefs = sent.filter((request) => toolOf(request.json) === "submit_generation_brief");
   expect(briefs.length).toBeGreaterThan(0);
   for (const request of briefs) {
-    if (streamed) expect(request.json.stream).toBe(true);
-    else expect(request.json).not.toHaveProperty("stream");
+    const tools = request.json.tools as Array<Record<string, unknown>>;
+    if (streamed) {
+      expect(request.json.stream).toBe(true);
+      expect(tools.map((tool) => tool.eager_input_streaming)).toEqual(tools.map(() => true));
+    } else {
+      expect(request.json).not.toHaveProperty("stream");
+      for (const tool of tools) expect(tool).not.toHaveProperty("eager_input_streaming");
+    }
   }
   for (const request of sent.filter((item) => toolOf(item.json) !== "submit_generation_brief")) {
     expect(request.json).not.toHaveProperty("stream");

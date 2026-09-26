@@ -13,7 +13,7 @@ vi.mock("./providers", () => ({
   createAnthropicClient: providerMocks.createAnthropicClient,
 }));
 
-import { anthropicCacheWrite1hTokens, instrumentedAnthropic } from "./instrument";
+import { anthropicCacheWrite1hTokens, instrumentedAnthropic, streamedBody } from "./instrument";
 import {
   GENERATION_CALL_SLOTS,
   GENERATION_SLOT_ALLOWANCES,
@@ -76,6 +76,28 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.restoreAllMocks();
+});
+
+describe("streamed request body (fidelity broken behaviour 9)", () => {
+  const wire = {
+    model: "claude-opus-5-5",
+    max_tokens: 100,
+    tools: [{ name: "submit_generation_brief", input_schema: { type: "object" } }],
+    tool_choice: { type: "tool", name: "submit_generation_brief" },
+  };
+  it("asks the direct API to stream each tool's input as it is written", () => {
+    expect(streamedBody(wire, false)).toEqual({
+      ...wire,
+      stream: true,
+      tools: [{ name: "submit_generation_brief", input_schema: { type: "object" }, eager_input_streaming: true }],
+    });
+    // Key order is kept, so the rest of the body is byte for byte the same.
+    expect(Object.keys(streamedBody(wire, false))).toEqual([...Object.keys(wire), "stream"]);
+  });
+  it("only adds stream: true on OpenRouter", () => {
+    expect(streamedBody(wire, true)).toEqual({ ...wire, stream: true });
+    expect(streamedBody({ model: "m", max_tokens: 1 }, false)).toEqual({ model: "m", max_tokens: 1, stream: true });
+  });
 });
 
 describe("instrumentedAnthropic generation attribution", () => {

@@ -5,7 +5,10 @@
    * the facts found so far, newest first and fading down the list. The pill
    * counts them and its border fills in the AI gradient on a time-based
    * estimate, held below 100% until the Brief lands. Facts come from
-   * seeds.getReadingFacts (display-only rows written as the Brief streams).
+   * seeds.getReadingFacts (display-only rows written as the Brief streams),
+   * each placed the same way on every size ("Priya, line 18"). A card rises
+   * into place at its own ink, so the newest fact is at full ink even when a
+   * burst lands at once.
    *
    * When the seed stage could not start (F6), the reading content becomes the
    * F6 danger box with Back to project and Try again
@@ -22,7 +25,7 @@
   import { IconAlertCircle, IconBell } from "$lib/components/icons";
   import AuroraProgressPill from "../writing/AuroraProgressPill.svelte";
   import { userErrorMessage } from "$lib/errors";
-  import { compactSource, factCountText, factOpacities, readingPercent } from "./readingProgress";
+  import { factCountText, factOpacities, readingPercent } from "./readingProgress";
 
   let {
     generationId,
@@ -117,7 +120,7 @@
     {#if failed}
       <!-- F6 "Reading the transcripts failed": the box, its paragraph and
            its buttons in the red family; Back to project, then Try again. -->
-      <div class="w-full max-w-[520px]" data-reading-failed>
+      <div class="w-full max-w-[424px]" data-reading-failed>
         <div
           role="alert"
           data-reading-failed-box
@@ -172,7 +175,7 @@
             data-reading-fact={fact.seq}
             class="flex w-full max-w-[520px] flex-col gap-1.5 rounded-xl border border-line-soft bg-surface px-[18px] py-4 transition-opacity duration-300 motion-reduce:transition-none"
             style={`opacity:${opacities[index] ?? opacities[opacities.length - 1]}`}
-            in:fly={{ y: reducedMotion ? 0 : 4, duration: reducedMotion ? 0 : 300, easing: cubicOut }}
+            in:fly={{ y: reducedMotion ? 0 : 4, opacity: 1, duration: reducedMotion ? 0 : 300, easing: cubicOut }}
           >
             <div class="flex items-center gap-2">
               <span
@@ -180,7 +183,7 @@
                 class="flex h-5 items-center rounded-[5px] bg-seed-tag-technical px-[7px] text-[11px] leading-4 font-medium text-primary-selected"
               >{fact.chip}</span>
               <span class="grow"></span>
-              <span class="truncate text-xs leading-4 text-ink-faint" data-reading-source>{phone ? compactSource(fact.sourceLabel) : fact.sourceLabel}</span>
+              <span class="truncate text-xs leading-4 text-ink-faint" data-reading-source>{fact.sourceLabel}</span>
             </div>
             <p class="font-serif text-base leading-6 text-ink" data-reading-quote>"{fact.quote}"</p>
           </li>

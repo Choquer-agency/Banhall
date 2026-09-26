@@ -7,7 +7,7 @@
     type PdSubsectionRoleId,
   } from "../../../../shared/pdSubsections";
   import { useStableQuery } from "$lib/stableQuery.svelte";
-  import { userErrorMessage } from "$lib/errors";
+  import { userErrorCode, userErrorMessage } from "$lib/errors";
     import Button from "$lib/components/ui/Button.svelte";
   import Spinner from "$lib/components/ui/Spinner.svelte";
   import * as Drawer from "$lib/components/ui/drawer/index.js";
@@ -89,6 +89,10 @@
   // for the current role against the current capability and stage version.
   type OpenRefusal = { roleId: PdSubsectionRoleId; message: string };
   let openError = $state<OpenRefusal | null>(null);
+  // Round 2 fidelity (broken behaviour 3): an open refused as stale means
+  // another tab changed the decisions first. It is not announced; once the
+  // Outline has caught up, the open is sent again quietly.
+  let staleOpen = $state<{ roleId: PdSubsectionRoleId; version: number } | null>(null);
   let openRequestToken = 0;
   let autoOpened = $state(false);
   // The authoritative unsaved box text of the hydrated owner (A2). Browser
@@ -276,6 +280,7 @@
       persistence = "ok";
       autoOpened = false;
       openError = null;
+      staleOpen = null;
       openRequestToken += 1;
       briefOpen = false;
       viewedBatches.clear();
@@ -808,12 +813,26 @@
         !ownerMatches() ||
         activeRoleId !== roleId
       ) return;
+      if (userErrorCode(cause) === "STALE_REVISION") {
+        staleOpen = { roleId, version: current.seedStageVersion };
+        return;
+      }
       openError = {
         roleId,
         message: userErrorMessage(cause, "Idea Seeds could not be initialized for this subsection."),
       };
     }
   }
+
+  $effect(() => {
+    const pending = staleOpen;
+    const current = outline;
+    if (!pending || !current || current.seedStageVersion === pending.version) return;
+    untrack(() => {
+      staleOpen = null;
+      if (!disposed && ownerMatches() && activeRoleId === pending.roleId) void openRole(pending.roleId);
+    });
+  });
 
   async function openRoleFromOutline(roleId: PdSubsectionRoleId) {
     const narrow = !!outlinePane && getComputedStyle(outlinePane).display !== "none" &&

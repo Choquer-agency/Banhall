@@ -582,6 +582,31 @@ function openRouterWireBody(body: unknown): unknown {
 }
 
 /**
+ * Round 2 (F2, decision 57; fidelity broken behaviour 9): the body of a
+ * streamed request is the same request with `stream: true`. On the direct
+ * API each tool also asks for eager input streaming: without it the API
+ * holds each top-level key of a tool's input until the key is complete, so
+ * a whole Brief array (every Confidence Map entry) arrived at once and
+ * "Reading the interview" showed one fact, then a burst. Validation is ours
+ * either way (structured.ts parses and checks the finished input, and a cut
+ * or malformed one spends the repair attempt). OpenRouter is a proxy that
+ * may refuse the field, so its request only gains `stream: true`.
+ */
+export function streamedBody(wire: unknown, viaOpenRouter: boolean): Record<string, unknown> {
+  const body: Record<string, unknown> = { ...(wire as Record<string, unknown>), stream: true };
+  const tools = body.tools;
+  if (viaOpenRouter || !Array.isArray(tools)) return body;
+  return {
+    ...body,
+    tools: tools.map((tool: unknown) =>
+      tool && typeof tool === "object" && "input_schema" in tool
+        ? { ...(tool as Record<string, unknown>), eager_input_streaming: true }
+        : tool
+    ),
+  };
+}
+
+/**
  * Anthropic client that durably records billed usage after every response.
  * On the `openrouter` transport (owner decision 30) the request is the same
  * apart from the model id on the wire and the provider pin; the usage row
@@ -637,7 +662,7 @@ export function instrumentedAnthropic(
         const request = adaptAnthropicRequest(args[0]);
         const prefixed = meta.attribution ? cacheGenerationPrefix(request) : request;
         const wire = viaOpenRouter ? openRouterWireBody(prefixed) : prefixed;
-        const body = handlers ? { ...(wire as Record<string, unknown>), stream: true } : wire;
+        const body = handlers ? streamedBody(wire, viaOpenRouter) : wire;
         const rest = args.slice(2);
         // A streamed answer is read to its end inside the attempt, so a
         // stream that breaks is retried like a failed request.

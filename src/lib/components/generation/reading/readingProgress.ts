@@ -19,14 +19,6 @@ export function factCountText(count: number, compact = false): string {
   return `${count} ${count === 1 ? "fact" : "facts"} found so far`;
 }
 
-/** The phone shortens a place to its first word before the line: "Call, line 12". */
-export function compactSource(label: string): string {
-  const match = /^(.*?),\s*line\s+(\d+)$/i.exec(label);
-  if (!match) return label.length > 24 ? `${label.slice(0, 23).trimEnd()}...` : label;
-  const first = match[1].trim().split(/\s+/)[0] ?? match[1];
-  return `${first}, line ${match[2]}`;
-}
-
 /**
  * Opacity of the newest to the oldest card on screen, which also sets how
  * many show: three on the desktop (F2) and the phone (H4), two on a tablet
