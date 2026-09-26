@@ -210,6 +210,9 @@
      the drop zones and the section chips) keep the board's #F9FCFB inside
      the light workspace scope, which turns --color-canvas white. */
   --color-new-project-canvas: #F9FCFB;
+  /* Settings (I4, I5): the shortcuts detection strip keeps the board's
+     #F9FCFB inside the light workspace scope, which turns canvas white. */
+  --color-settings-well: #F9FCFB;
   --color-write-mode-selected: #F7FCFB;
   --color-being-reviewed: #E1F2EF;
   --color-start-scrim: #010505BF;
