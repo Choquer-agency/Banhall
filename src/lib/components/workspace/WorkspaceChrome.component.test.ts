@@ -150,9 +150,17 @@ describe("WorkspaceChrome (round 2 frame)", () => {
     const bar = root.querySelector<HTMLElement>("[data-page-top-bar]")!.getBoundingClientRect();
     expect(pill.height).toBe(36);
     expect(Math.abs(pill.top + pill.height / 2 - (bar.top + bar.height / 2))).toBeLessThanOrEqual(1);
-    // D3, D4: centred on the window, as the boards draw it (not on the content column).
+    // D3, D4: 560px from the window's left edge, as the boards draw it.
     const shell = root.getBoundingClientRect();
-    expect(Math.abs(pill.left + pill.width / 2 - (shell.left + shell.width / 2))).toBeLessThanOrEqual(1);
+    expect(pill.left - shell.left).toBe(560);
+    // Narrower than the boards, it is centred on the window instead.
+    await browserPage.viewport(1100, 900);
+    await expect.poll(() => {
+      const narrow = document.querySelector<HTMLElement>("[data-view-as-pill]")!.getBoundingClientRect();
+      const frame = root.getBoundingClientRect();
+      return Math.round(narrow.left + narrow.width / 2 - (frame.left + frame.width / 2));
+    }).toBe(0);
+    await browserPage.viewport(1440, 900);
   });
 
   it("D4: a gated page shows the hidden state in a view that cannot open it, and hides its actions", async () => {

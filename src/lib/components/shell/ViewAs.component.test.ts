@@ -86,6 +86,18 @@ describe("View as (D2, D3, D5)", () => {
     expect(getComputedStyle(scrim).backgroundColor).toBe("rgba(1, 5, 5, 0.35)");
   });
 
+  it("D2: the dialog sits 170px from the top of a 900px window", async () => {
+    await page.viewport(1440, 900);
+    try {
+      const view = await render(ViewAsDialog, { open: true });
+      await expect.poll(() => document.querySelector<HTMLElement>("[data-view-as-dialog]")?.getBoundingClientRect().top).toBe(170);
+      expect(document.querySelector<HTMLElement>("[data-view-as-dialog]")!.getBoundingClientRect().left).toBe(420);
+      view.unmount();
+    } finally {
+      await page.viewport(1280, 800);
+    }
+  });
+
   it("D2: Cancel closes without entering; confirm enters, stores the role and toasts with Undo", async () => {
     await render(ToastHarness, {});
     const view = await render(ViewAsDialog, { open: true });

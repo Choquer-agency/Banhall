@@ -3,6 +3,8 @@
   // check on the current one. Shared by the invite and member row menus.
   // Board values: 224px card, heading 12/16 muted (6/8/4 padding), 34px rows
   // with a 14px primary-selected check (stroke 2.2) and 4px-radius chips.
+  // Placement (C4): the card's top sits 5px above the Change role row and
+  // 6px outside the menu card.
   import { DropdownMenu } from "bits-ui";
   import { IconCheck, IconChevronRight, IconUsers } from "$lib/components/icons";
   import RoleChip from "$lib/components/ui/RoleChip.svelte";
@@ -31,7 +33,7 @@
     <span class="flex-1">Change role</span>
     <IconChevronRight size={12} strokeWidth={2} class="shrink-0 text-ink-muted" />
   </DropdownMenu.SubTrigger>
-  <DropdownMenu.SubContent sideOffset={6} class={`z-[110] w-56 ${MENU_CONTENT}`}>
+  <DropdownMenu.SubContent align="start" alignOffset={-5} sideOffset={12} class={`z-[110] w-56 ${MENU_CONTENT}`}>
     <DropdownMenu.Group>
       <DropdownMenu.GroupHeading class="px-2 pb-1 pt-1.5 text-xs leading-4 text-ink-muted">{heading}</DropdownMenu.GroupHeading>
       {#each roles as role (role)}

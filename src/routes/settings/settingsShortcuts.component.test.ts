@@ -62,6 +62,20 @@ describe("Settings Keyboard shortcuts (I4, I5)", () => {
     expect(getComputedStyle(document.querySelector<HTMLElement>("[data-key-then]")!).color).toBe("rgb(107, 127, 123)");
   });
 
+  it("keeps the I4 strip #F9FCFB inside the light work panel, where canvas is white", async () => {
+    __setQueryData("users:getCurrentUser", { _id: "u", role: "admin", isDeveloper: true });
+    const host = document.createElement("div");
+    host.setAttribute("data-workspace-theme", "light");
+    document.body.append(host);
+    try {
+      await render(ShortcutsPage, { target: host } as never);
+      const strip = host.querySelector<HTMLElement>("[data-shortcuts-detected]")!;
+      expect(getComputedStyle(strip).backgroundColor).toBe("rgb(249, 252, 251)");
+    } finally {
+      host.remove();
+    }
+  });
+
   it("matches I4 and I5: the detected note on canvas, the white active segment and settings rows", async () => {
     __setQueryData("users:getCurrentUser", { _id: "u", role: "admin", isDeveloper: true });
     await render(ShortcutsPage, {});

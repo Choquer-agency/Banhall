@@ -38,11 +38,22 @@ describe("BanhallRailMark", () => {
     expect(image.getBoundingClientRect().top - box.top).toBeCloseTo(-5.24, 1);
   });
 
-  it("fits the 56px collapsed rail at 40px wide", async () => {
+  it("is the boards' 28px fir tile with a white B in the collapsed rail (A4, A5)", async () => {
     await render(BanhallRailMark, { collapsed: true });
     const mark = document.body.querySelector<HTMLElement>("[data-banhall-rail-mark]")!;
     expect(mark.dataset.banhallRailMark).toBe("collapsed");
-    expect(mark.getBoundingClientRect().width).toBeCloseTo(40, 0);
-    expect(mark.getBoundingClientRect().height).toBeCloseTo(15.15, 0);
+    expect(mark.querySelector("img")).toBeNull();
+    expect(mark.getAttribute("role")).toBe("img");
+    expect(mark.getAttribute("aria-label")).toBe("Banhall");
+    expect(mark.textContent).toBe("B");
+    const box = mark.getBoundingClientRect();
+    expect(box.width).toBe(28);
+    expect(box.height).toBe(28);
+    const style = getComputedStyle(mark);
+    expect(style.borderRadius).toBe("7px");
+    expect(style.backgroundColor).toBe("rgb(10, 58, 56)");
+    expect(style.color).toBe("rgb(255, 255, 255)");
+    expect(style.fontSize).toBe("12px");
+    expect(style.fontWeight).toBe("500");
   });
 });

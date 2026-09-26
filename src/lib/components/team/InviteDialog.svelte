@@ -88,6 +88,7 @@
 <TeamDialog
   bind:open
   width={540}
+  top={150}
   busy={sending}
   testId="invite-dialog"
   title={results
@@ -111,8 +112,10 @@
         <p class="text-xs text-danger-ink-muted">Invite at most {MAX_INVITE_EMAILS} people at a time.</p>
       {/if}
     </div>
-    <fieldset class="flex flex-col gap-2 px-7 pb-[18px] pt-4">
-      <legend class="mb-2 text-xs font-medium leading-4 text-ink-secondary">Role</legend>
+    <!-- C3: the Role label 16px under the email box and 8px above the
+         options (a <legend> ignores the fieldset's flex gap and padding). -->
+    <div role="radiogroup" aria-labelledby="invite-role-label" data-invite-roles class="flex flex-col gap-2 px-7 pb-[18px] pt-4">
+      <p id="invite-role-label" data-invite-role-label class="text-xs font-medium leading-4 text-ink-secondary">Role</p>
       {#each options as option (option.role)}
         <label
           data-role-option={option.role}
@@ -127,7 +130,7 @@
           <span class="truncate text-[13px] leading-[18px] text-ink-muted">{option.line}</span>
         </label>
       {/each}
-    </fieldset>
+    </div>
     {#if error}
       <p role="alert" class="mx-7 mb-4 rounded-[10px] border border-danger-line bg-danger-surface px-3 py-2 text-[13px] text-danger-ink-muted">{error}</p>
     {/if}

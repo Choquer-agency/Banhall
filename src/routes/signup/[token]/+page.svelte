@@ -75,6 +75,10 @@
   async function accept() {
     if (submitting || !invite || !ready) return;
     error = "";
+    // Snapshot the invite: accepting it marks it used in the same transaction
+    // that creates the account, so the live query can drop it (invite becomes
+    // null) before sign-up returns.
+    const email = invite.email;
     const first = firstName.trim();
     const last = lastName.trim();
     const name = `${first} ${last}`;
@@ -82,20 +86,20 @@
     try {
       await confirmInviteNames({ token, firstName: first, lastName: last });
       const { error: signUpError } = await authClient.signUp.email({
-        email: invite.email,
+        email,
         password,
         name,
         // Passed through to the invite gate (hooks.before in convex/auth.ts).
         // fetchOptions.body extension keeps types happy for extra fields.
         fetchOptions: {
-          body: { email: invite.email, password, name, inviteToken: token },
+          body: { email, password, name, inviteToken: token },
         },
       });
       if (signUpError) {
         error = signUpError.message ?? "The invite could not be accepted. Try again.";
         return;
       }
-      rememberAccount({ email: invite.email, firstName: first, lastName: last });
+      rememberAccount({ email, firstName: first, lastName: last });
       // Keep the completion state mounted while the accepted invite drops out
       // of the live query. Replacing history also prevents Back from returning
       // to a link that has now been consumed.

@@ -259,6 +259,10 @@
   // rendered inside the modal, so recomputing on open is enough).
   const crumbCount = $derived(modalMode ? getBreadcrumbs().length : 0);
 
+  // Sign-in and invite pages (J1 to J9) have no floating "Flag issue": on a
+  // phone it covered the footer, and signed-out visitors have nothing to flag.
+  const onAuthPage = $derived(/^\/(login|signup)(\/|$)/.test(page.url.pathname));
+
   // Workspace rail integration (2026-08-10): the rail's "Flag issue" row
   // raises this custom event; the floating button hides inside the
   // workspace shell (layout.css :has rule) so the action lives in one
@@ -272,7 +276,8 @@
 
 <!-- AUTO path renders through the global sonner toaster (see notifyError). -->
 
-<!-- ── MANUAL: floating flag button, bottom-right ────────────────────── -->
+<!-- ── MANUAL: floating flag button, bottom-left ─────────────────────── -->
+{#if !onAuthPage}
 <button
   data-flag-issue-floating
   onclick={() => (modalMode = "manual")}
@@ -294,6 +299,7 @@
   </svg>
   Flag issue
 </button>
+{/if}
 
 <!-- ── Shared report modal ───────────────────────────────────────────── -->
 {#if modalMode}

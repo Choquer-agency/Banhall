@@ -43,7 +43,7 @@
 <svelte:head><title>Keyboard shortcuts - Settings</title></svelte:head>
 
 <div data-settings-shortcuts class="flex flex-col gap-6">
-  <div data-shortcuts-detected class="flex flex-wrap items-center gap-3 rounded-xl bg-canvas px-3.5 py-3">
+  <div data-shortcuts-detected class="flex flex-wrap items-center gap-3 rounded-xl bg-settings-well px-3.5 py-3">
     <IconCheck size={15} strokeWidth={2} class="shrink-0 text-primary-selected" />
     <p class="flex-1 text-[13px] leading-[18px] text-ink-secondary">{detectedCopy}</p>
     <div role="group" aria-label="Show keys for" data-shortcuts-platforms class="flex gap-1 rounded-[9px] bg-chrome p-[3px]">

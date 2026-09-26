@@ -145,19 +145,40 @@ describe("round 2 shell captures", () => {
     expect(getComputedStyle(backTitle).lineHeight).toBe("19px");
     expect(getComputedStyle(back).borderRadius).toBe("10px");
     expect(getComputedStyle(back).paddingLeft).toBe("14px");
-    expect(getComputedStyle(back).paddingRight).toBe("14px");
+    expect(getComputedStyle(back).paddingRight).toBe("10px");
     expect(back.getBoundingClientRect().width).toBeLessThan(300);
+    // The success tick is the board's plain 15px check, not a filled circle.
+    const saved = byText("Changes saved").querySelector<SVGElement>('[data-toast-icon="check"]');
+    expect(saved?.querySelector("path")?.getAttribute("d")).toBe("M20 6 9 17l-5-5");
     const viewing = byText("Now viewing");
-    expect(getComputedStyle(viewing).paddingRight).toBe("12px");
+    expect(getComputedStyle(viewing).paddingRight).toBe("10px");
     const eye = viewing.querySelector<SVGElement>('[data-toast-icon="eye"]')!;
     expect(eye.getAttribute("stroke-width")).toBe("1.6");
     expect(getComputedStyle(eye).color).toBe("rgb(255, 255, 255)");
     const toaster = document.querySelector<HTMLElement>("[data-sonner-toaster]")!;
     expect(toaster.dataset.yPosition).toBe("bottom");
     expect(toaster.dataset.xPosition).toBe("center");
+    // Board C1, D3, D5: the front toast's top is 820 on a 900 tall window,
+    // 41px above the bottom edge.
+    const front = toasts.find((element) => element.dataset.front === "true")!;
+    await expect.poll(() => Math.round(window.innerHeight - front.getBoundingClientRect().bottom)).toBe(41);
     // Expanded so every toast shows in the capture.
     toaster.dispatchEvent(new MouseEvent("mouseenter", { bubbles: true }));
     await settle();
+    // C1, D3, D5: expanded, the card is its own 39px and its close button
+    // sits inside on the right after the text, not over the top-left corner.
+    await expect.poll(() => back.getBoundingClientRect().height).toBe(39);
+    const backRect = back.getBoundingClientRect();
+    const close = back.querySelector<HTMLElement>("[data-close-button]")!.getBoundingClientRect();
+    expect(close.width).toBe(18);
+    expect(close.left).toBeGreaterThan(backTitle.getBoundingClientRect().right);
+    expect(Math.round(backRect.right - close.right)).toBe(10);
+    expect(close.top).toBeGreaterThan(backRect.top);
+    expect(close.bottom).toBeLessThan(backRect.bottom);
+    // A wide red card still keeps its close button at the right edge.
+    const failed = byText("Could not save").getBoundingClientRect();
+    const failedClose = byText("Could not save").querySelector<HTMLElement>("[data-close-button]")!.getBoundingClientRect();
+    expect(failed.right - failedClose.right).toBeLessThan(20);
     await page.screenshot({ path: await captures.path("toasts") });
     // Remove toasts while the Toaster is still mounted (svelte-sonner's own
     // delete timer otherwise reads a toast that is gone).

@@ -191,6 +191,32 @@ describe("/login", () => {
     await expect.poll(() => document.body.textContent).toContain("Signing you in...");
   });
 
+  it("does not log a refused sign-in as an app error (J2, J4)", async () => {
+    // ErrorMonitor turns every console.error into the "We noticed an error"
+    // toast, so an expected wrong password must stay out of the console.
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      signInEmail.mockResolvedValue(wrongCredentials);
+      render(LoginPage);
+      await submit("writer@banhall.com", "wrong password");
+      await expect.poll(alertText).toBe("Wrong email or password. Check both and try again.");
+      signInEmail.mockResolvedValue({
+        data: null,
+        error: { status: 429, statusText: "Too Many Requests", message: "Too many requests" },
+      });
+      await submit("writer@banhall.com", "wrong password");
+      await expect.poll(alertText).toBe("Too many sign-in attempts. Wait a minute, then try again.");
+      expect(consoleError).not.toHaveBeenCalled();
+
+      // A request that crashes outright is still reported.
+      signInEmail.mockRejectedValue(new Error("boom"));
+      await submit("writer@banhall.com", "wrong password");
+      await expect.poll(() => consoleError.mock.calls.length).toBe(1);
+    } finally {
+      consoleError.mockRestore();
+    }
+  });
+
   it("keeps the rate-limit and offline messages in the same slot without marking the fields", async () => {
     signInEmail.mockResolvedValue({
       data: null,
@@ -283,6 +309,23 @@ describe("/login", () => {
     await expect.poll(() => getComputedStyle(field).borderTopColor).toBe("rgb(220, 38, 38)");
     // 1.5px on the board; Chromium snaps it to device pixels, so check the class.
     expect(field.className).toContain("border-[1.5px]");
+  });
+
+  it("opens J1 with nothing focused, so the Email field shows no focus ring (J1, J8)", async () => {
+    render(LoginPage);
+    await expect.poll(() => document.querySelector<HTMLButtonElement>('button[type="submit"]')?.disabled).toBe(false);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(document.activeElement).toBe(document.body);
+  });
+
+  it("puts the J3 password 20px under the account card", async () => {
+    rememberAccount({ email: "ana.ruiz@banhall.com", firstName: "Ana", lastName: "Ruiz" });
+    render(LoginPage);
+    await expect.poll(() => document.querySelector("[data-account-card]")).not.toBeNull();
+    const card = document.querySelector<HTMLElement>("[data-account-card]")!.getBoundingClientRect();
+    const label = document.querySelector<HTMLElement>('label[for="password"]')!;
+    const block = label.closest<HTMLElement>(".gap-2") ?? label.parentElement!;
+    expect(Math.round(block.getBoundingClientRect().top - card.bottom)).toBe(20);
   });
 
   it("draws the J3 account card: radius 12, 10/12 padding, 36px avatar with 12px/500 initials", async () => {

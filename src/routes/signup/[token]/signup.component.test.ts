@@ -130,6 +130,28 @@ describe("/signup/[token]", () => {
     await expect.poll(text).toContain("Account created");
   });
 
+  it("opens Home even when the consumed invite drops out of the live query before sign-up resolves", async () => {
+    // Accepting the invite marks it used in the same transaction that creates
+    // the account, so the invite query can report "unavailable" before the
+    // sign-up request returns. The page must still finish and open Banhall.
+    __setQueryData("invites:getInviteByToken", PENDING);
+    signUpEmail.mockImplementation(async () => {
+      __setQueryData("invites:getInviteByToken", { state: "unavailable" });
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      return { data: {}, error: null };
+    });
+    render(SignupPage);
+    await expect.poll(() => document.querySelector("#password")).not.toBeNull();
+    setInputValue("#password", "correct horse");
+    await expect.poll(() => createButton()?.disabled).toBe(false);
+    createButton()!.click();
+
+    await expect.poll(() => replaceLocation.mock.calls).toEqual([["/my-work"]]);
+    await expect.poll(text).toContain("Account created");
+    expect(text()).not.toContain("This invite link isn't valid");
+    expect(readLastAccount()).toMatchObject({ email: "ana.ruiz@banhall.com", name: "Ana Ruiz" });
+  });
+
   it("shows the server's message above the button when joining fails", async () => {
     __setQueryData("invites:getInviteByToken", PENDING);
     __setMutationError("invites:confirmInviteNames", new Error("This invite has expired"));

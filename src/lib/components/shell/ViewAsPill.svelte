@@ -1,8 +1,10 @@
 <script lang="ts">
   /**
-   * D3 viewing pill, layered by the shell over the centre of the 56px top
-   * bar: "Viewing as [role]" with a role menu that switches directly, and
-   * Exit. Only renders while a developer is viewing as another role.
+   * D3 viewing pill, layered by the shell over the 56px top bar: "Viewing
+   * as [role]" with a role menu that switches directly, and Exit. From
+   * 1280px up it sits 560px from the window's left edge, as D3 and D4 draw
+   * it; narrower windows centre it. Only renders while a developer is
+   * viewing as another role.
    */
   import { DropdownMenu } from "bits-ui";
   import { IconCheck, IconChevronDown, IconEye } from "$lib/components/icons";
@@ -16,7 +18,7 @@
 <div
   data-view-as-pill
   role="status"
-  class="pointer-events-auto flex h-9 items-center gap-1 rounded-full border border-warning-line bg-warning-surface pl-3 pr-1 max-lg:w-full max-lg:justify-center"
+  class="pointer-events-auto flex h-9 items-center gap-1 rounded-full border border-warning-line bg-warning-surface pl-3 pr-1 max-lg:w-full max-lg:justify-center xl:absolute xl:left-[560px]"
 >
   <IconEye size={14} strokeWidth={1.7} class="shrink-0 text-warning-ink" />
   <span class="pl-1 pr-1.5 text-[13px] leading-[18px] text-warning-ink">Viewing as</span>

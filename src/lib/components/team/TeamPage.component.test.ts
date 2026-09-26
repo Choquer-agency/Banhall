@@ -89,6 +89,18 @@ describe("TeamPage", () => {
     expect(document.querySelectorAll("[data-member-menu]")).toHaveLength(4);
   });
 
+  it("colours member avatars by role: Owner teal, Consultant and Manager fir, Developer purple (C1)", async () => {
+    seed(ADMIN);
+    await render(TeamPage, { origin: "https://banhall.app" });
+    await expect.poll(() => document.querySelectorAll("[data-member-row] [data-avatar]").length).toBe(4);
+    const bg = (id: string) =>
+      getComputedStyle(document.querySelector<HTMLElement>(`[data-member-row="${id}"] [data-avatar]`)!).backgroundColor;
+    expect(bg("u-admin")).toBe("rgb(8, 122, 117)");
+    expect(bg("u-larry")).toBe("rgb(10, 58, 56)");
+    expect(bg("u-sam")).toBe("rgb(10, 58, 56)");
+    expect(bg("u-new")).toBe("rgb(126, 34, 206)");
+  });
+
   it("shows the Manager view without member actions and with read-only Admin invites", async () => {
     seed(MANAGER);
     await render(TeamPage, { origin: "https://banhall.app" });
@@ -214,6 +226,12 @@ describe("TeamPage", () => {
       expect(widths[0]).toBe(260);
       expect(widths[2]).toBe(120);
       expect(widths[3]).toBe(110);
+      // C1: the Admin row menu takes no column of its own, so Last active
+      // ends 16px inside the table and the menu sits over its right end.
+      const lastActive = header.querySelectorAll<HTMLElement>('[role="columnheader"]')[3].getBoundingClientRect();
+      expect(Math.round(members.getBoundingClientRect().right - lastActive.right)).toBe(17);
+      const menu = members.querySelector<HTMLElement>("[data-member-row] [data-member-menu]")!.getBoundingClientRect();
+      expect(Math.round(menu.right)).toBe(Math.round(lastActive.right));
       const firstRow = members.querySelector<HTMLElement>("[data-member-row]")!;
       expect(firstRow.getBoundingClientRect().height).toBe(48);
       const avatar = firstRow.querySelector<HTMLElement>("[data-avatar]")!;

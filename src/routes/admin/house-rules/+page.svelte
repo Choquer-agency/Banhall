@@ -101,7 +101,7 @@
 {:else}
   <AdminWorkspacePage
     title="House rules"
-    description="The organization's PD writing rulebook — what every report must follow, and which house-style rules writers may override."
+    description="The organization's PD writing rulebook: what every report must follow, and which house-style rules writers may override."
   >
     {#if currentUserQ.data === undefined}
       <div class="flex min-h-[40vh] items-center justify-center"><Spinner /></div>
@@ -115,7 +115,7 @@
         <p class="mt-1 max-w-3xl text-sm text-gray-500">
           Every generated PD is written against two tiers of rules. The
           locked tier (CRA form length limits and no-fabrication rules) applies
-          to everyone — no writer, admin, or preference document can change
+          to everyone; no writer, admin, or preference document can change
           it. The waivable tier below is the organization's own writing
           standard, including the default report skeleton (content coverage
           and order per line, not paragraph counts): each category can
@@ -126,7 +126,7 @@
 
       <!-- CRA tier: read-only, visually locked -->
       <section class="card mt-6 p-6">
-        <h2 class="text-title">CRA-required — same for everyone</h2>
+        <h2 class="text-title">CRA-required: same for everyone</h2>
         <p class="mt-1 text-sm text-gray-500">
           These rules keep reports compliant with the T661 form and CRA review
           practice. They can never be waived or overridden.
@@ -155,11 +155,11 @@
         <div>
           <h2 class="text-title">House style rules</h2>
           <p class="mt-1 max-w-3xl text-sm text-gray-500">
-            Each category has one org-wide mode. <span class="font-medium text-gray-700">Writer's choice</span>
-            — enforced unless a consultant lets their own
-            instructions override it; <span class="font-medium text-gray-700">Always enforced</span>
-            — consultant overrides are ignored; <span class="font-medium text-gray-700">Off for everyone</span>
-            — the rule is disabled org-wide.
+            Each category has one org-wide mode. <span class="font-medium text-gray-700">Writer's choice</span>:
+            enforced unless a consultant lets their own
+            instructions override it; <span class="font-medium text-gray-700">Always enforced</span>:
+            consultant overrides are ignored; <span class="font-medium text-gray-700">Off for everyone</span>:
+            the rule is disabled org-wide.
           </p>
           <p class="mt-1 max-w-3xl text-sm text-gray-500">
             Until an admin saves a mode here, every category is Writer's
@@ -276,7 +276,7 @@
                 Deleted outright
               </h3>
               <p class="mt-1 text-xs text-gray-400">
-                No meaning-preserving substitute — the word is removed and the
+                No meaning-preserving substitute: the word is removed and the
                 sentence re-capitalized.
               </p>
               <ul class="mt-2 flex flex-wrap gap-1.5">

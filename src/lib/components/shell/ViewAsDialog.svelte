@@ -10,6 +10,7 @@
   import { IconCheck, IconClose, IconMinus } from "$lib/components/icons";
   import RoleChip from "$lib/components/ui/RoleChip.svelte";
   import { modalPop, overlayFade } from "$lib/motion";
+  import BoardDialogLayer from "$lib/components/shell/BoardDialogLayer.svelte";
   import { VIEW_AS_LABELS, viewAs, type ViewAsRole } from "$lib/shell/viewAs.svelte";
   import { enterViewAsWithToast } from "$lib/shell/viewAsActions";
 
@@ -57,7 +58,8 @@
         {/if}
       {/snippet}
     </Dialog.Overlay>
-    <div class="pointer-events-none fixed inset-0 z-[120] flex items-end justify-center sm:items-center sm:p-4">
+    <!-- D2: 170px from the window's top edge, centred when it does not fit. -->
+    <BoardDialogLayer top={170} class="z-[120]">
       <Dialog.Content forceMount>
         {#snippet child({ props, open: isOpen })}
           {#if isOpen}
@@ -65,7 +67,7 @@
               {...props}
               data-view-as-dialog
               transition:modalPop
-              class="pointer-events-auto w-full overflow-hidden rounded-t-2xl border border-line bg-surface shadow-dialog sm:max-w-[600px] sm:rounded-2xl"
+              class="pointer-events-auto w-full shrink-0 overflow-hidden rounded-t-2xl border border-line bg-surface shadow-dialog sm:max-w-[600px] sm:rounded-2xl"
             >
               <div class="flex items-start gap-4 pl-7 pr-5 pt-6">
                 <div class="flex flex-1 flex-col gap-1.5">
@@ -129,6 +131,6 @@
           {/if}
         {/snippet}
       </Dialog.Content>
-    </div>
+    </BoardDialogLayer>
   </Dialog.Portal>
 </Dialog.Root>

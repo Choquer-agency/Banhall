@@ -1,12 +1,25 @@
+<script module lang="ts">
+  // Whether the last interaction was the keyboard. A dialog opened from a
+  // pointer shows no focus ring on the element it focuses (C5), until the
+  // person presses a key inside it.
+  let lastInput: "keyboard" | "pointer" = "pointer";
+  if (typeof document !== "undefined") {
+    document.addEventListener("keydown", () => (lastInput = "keyboard"), true);
+    document.addEventListener("pointerdown", () => (lastInput = "pointer"), true);
+  }
+</script>
+
 <script lang="ts">
   // Shared frame for the Team dialogs (C3 invite, C5 revoke, temporary
   // password): the board scrim, radius 16, the dialog shadow, header padding
   // 24/20/0/28, title 18/24 500, muted 14/20 subtitle and a 32px close button
-  // (18px close icon, stroke 2) top right.
+  // (18px close icon, stroke 2) top right. Placed `top` px from the window's
+  // top edge as the boards draw it (BoardDialogLayer).
   import type { Snippet } from "svelte";
   import { Dialog } from "bits-ui";
   import { IconClose } from "$lib/components/icons";
   import { overlayFade, modalPop } from "$lib/motion";
+  import BoardDialogLayer from "$lib/components/shell/BoardDialogLayer.svelte";
 
   let {
     open = $bindable(false),
@@ -17,6 +30,8 @@
     children,
     footer,
     testId = undefined,
+    top = undefined,
+    initialFocus = undefined,
   }: {
     open?: boolean;
     title: string;
@@ -26,7 +41,22 @@
     children?: Snippet;
     footer?: Snippet;
     testId?: string;
+    /** The board's distance from the window's top edge (C3 150, C5 320). */
+    top?: number;
+    /** The element to focus on open; the first focusable one otherwise. */
+    initialFocus?: () => HTMLElement | null | undefined;
   } = $props();
+
+  let pointerOpened = $state(false);
+
+  function onOpenAutoFocus(event: Event) {
+    pointerOpened = lastInput === "pointer";
+    const target = initialFocus?.();
+    if (target) {
+      event.preventDefault();
+      target.focus();
+    }
+  }
 </script>
 
 <Dialog.Root bind:open>
@@ -36,9 +66,10 @@
         {#if isOpen}<div {...props} transition:overlayFade data-team-dialog-scrim class="fixed inset-0 z-[130] bg-dialog-scrim"></div>{/if}
       {/snippet}
     </Dialog.Overlay>
-    <div class="pointer-events-none fixed inset-0 z-[130] flex items-end sm:items-center sm:justify-center sm:p-4">
+    <BoardDialogLayer {top} class="z-[130]">
       <Dialog.Content
         forceMount
+        {onOpenAutoFocus}
         onEscapeKeydown={(event) => { if (busy) event.preventDefault(); }}
         onInteractOutside={(event) => { if (busy) event.preventDefault(); }}
       >
@@ -48,8 +79,11 @@
               {...props}
               transition:modalPop
               data-testid={testId}
+              data-team-dialog
+              data-pointer-opened={pointerOpened ? "" : undefined}
+              onkeydown={() => (pointerOpened = false)}
               style={`max-width:${width}px`}
-              class="pointer-events-auto flex max-h-[90vh] w-full flex-col overflow-hidden rounded-t-2xl border border-line bg-surface shadow-dialog sm:rounded-2xl"
+              class="pointer-events-auto flex max-h-[90vh] w-full shrink-0 flex-col overflow-hidden rounded-t-2xl border border-line bg-surface shadow-dialog sm:rounded-2xl"
             >
               <div class="flex items-start gap-4 pl-7 pr-5 pt-6">
                 <div class="flex min-w-0 flex-1 flex-col gap-1.5">
@@ -74,6 +108,15 @@
           {/if}
         {/snippet}
       </Dialog.Content>
-    </div>
+    </BoardDialogLayer>
   </Dialog.Portal>
 </Dialog.Root>
+
+<style>
+  /* Opened from a pointer: no ring on the focused element until a key is
+     pressed inside the dialog (keyboard users always get the ring). */
+  :global([data-team-dialog][data-pointer-opened] :focus-visible) {
+    outline: none;
+    box-shadow: none;
+  }
+</style>

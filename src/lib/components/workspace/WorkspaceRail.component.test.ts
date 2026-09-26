@@ -267,8 +267,8 @@ describe("WorkspaceRail (round 2)", () => {
       expect(item(id)!.getAttribute("aria-label")).toBeTruthy();
       expect(item(id)!.getBoundingClientRect().width).toBe(36);
     }
-    // No labels: only the avatar's initials are text.
-    expect(nav().textContent?.trim()).toBe("AA");
+    // No labels: only the mark's B and the avatar's initials are text.
+    expect(nav().textContent?.replace(/\s+/g, " ").trim()).toBe("B AA");
     expect(nav().querySelector("[data-role-chip]")).toBeNull();
     // What's new is a 7px dot here, not a count.
     expect(item("changelog")!.querySelector("[data-rail-dot]")).not.toBeNull();
@@ -282,6 +282,62 @@ describe("WorkspaceRail (round 2)", () => {
     const search = nav().querySelector<SVGElement>("[data-rail-search] svg")!;
     expect(search.getAttribute("width")).toBe("17");
     expect(search.querySelector("path")?.getAttribute("d")).toBe("M11 18a7 7 0 1 0 0-14 7 7 0 0 0 0 14Z M20 20l-4-4");
+  });
+
+  it("A4: the collapsed rail starts with the 28px fir tile and ends 18px under the avatar", async () => {
+    seed("consultant", { unseen: 2 });
+    await render(WorkspaceRail, baseProps({ collapsed: true, onToggleRail: () => {} }));
+    await expect.poll(() => item("settings")).not.toBeNull();
+    nav().parentElement!.style.height = "900px";
+    const top = nav().getBoundingClientRect().top;
+    const mark = nav().querySelector<HTMLElement>('[data-banhall-rail-mark="collapsed"]')!;
+    expect(mark.getBoundingClientRect()).toMatchObject({ width: 28, height: 28 });
+    expect(mark.getBoundingClientRect().top - top).toBe(14);
+    // Board A4 (2px column gap): avatar 852 to 882, Settings 795 to 831 and
+    // What's new 757 to 793 on a 900 tall rail.
+    const bottom = nav().getBoundingClientRect().bottom;
+    const avatar = nav().querySelector<HTMLElement>("[data-rail-identity] [data-avatar]")!.getBoundingClientRect();
+    expect(bottom - avatar.bottom).toBe(18);
+    expect(bottom - item("settings")!.getBoundingClientRect().bottom).toBe(69);
+    expect(bottom - item("changelog")!.getBoundingClientRect().bottom).toBe(107);
+  });
+
+  it("A1 to A3, D3: the identity avatar is coloured by the person's own role", async () => {
+    const avatarBg = () =>
+      getComputedStyle(nav().querySelector<HTMLElement>("[data-rail-identity] [data-avatar]")!).backgroundColor;
+    seed("consultant");
+    const first = await render(WorkspaceRail, baseProps());
+    await expect.poll(() => nav()?.querySelector("[data-rail-identity] [data-avatar]")).not.toBeNull();
+    expect(avatarBg()).toBe("rgb(10, 58, 56)");
+    first.unmount();
+
+    seed("owner");
+    const second = await render(WorkspaceRail, baseProps());
+    await expect.poll(avatarBg).toBe("rgb(8, 122, 117)");
+    second.unmount();
+
+    seed("admin");
+    const third = await render(WorkspaceRail, baseProps());
+    await expect.poll(avatarBg).toBe("rgb(29, 78, 216)");
+    third.unmount();
+
+    // D3: viewing as Consultant keeps the Developer purple.
+    seed("developerAdmin");
+    viewAs.enter("consultant");
+    await render(WorkspaceRail, baseProps());
+    await expect.poll(avatarBg).toBe("rgb(126, 34, 206)");
+  });
+
+  it("E1, F2, H3: Projects stays selected inside a project and on New project", async () => {
+    seed("consultant");
+    __setPageUrl("/project/p1");
+    await render(WorkspaceRail, baseProps({ displayedView: null, collapsed: true }));
+    await expect.poll(() => item("projects")?.getAttribute("aria-current")).toBe("page");
+    expect(item("home")!.getAttribute("aria-current")).toBeNull();
+    __setPageUrl("/project/new");
+    await expect.poll(() => item("projects")?.getAttribute("aria-current")).toBe("page");
+    __setPageUrl("/projects-archive");
+    await expect.poll(() => item("projects")?.getAttribute("aria-current")).toBeNull();
   });
 
   it("A5: the collapsed developer rail puts Alerts with a count and Feature requests near the bottom", async () => {

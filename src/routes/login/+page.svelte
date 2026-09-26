@@ -58,7 +58,10 @@
     known = readLastAccount();
     if (known) email = known.email;
     hydrated = true;
-    void tick().then(() => (known ? passwordInput : emailInput)?.focus());
+    // J3 opens with the password focused. J1 and J8 open with nothing
+    // focused: a focused text field always shows its ring, and the boards
+    // draw the empty form at rest.
+    if (known) void tick().then(() => passwordInput?.focus());
   });
 
   // Keep the layout mounted while the session resolves. Only the column
@@ -125,11 +128,14 @@
         }
       }, 10_000);
     } catch (err) {
-      console.error("Auth error:", err);
       // Only credential failures blame the email or password; an origin
       // rejection (127.0.0.1 or a LAN address) says to use the usual address.
       const failure = err instanceof SignInError ? err : null;
       const online = navigator.onLine;
+      // A refused sign-in (wrong password, rate limit, origin) or being
+      // offline is an expected answer shown under the field, not an app
+      // error: logging it would raise ErrorMonitor's "We noticed an error".
+      if (!failure && online) console.error("Auth error:", err);
       errorKind = signInErrorKind(failure, { online });
       error = signInErrorMessage(failure, { online, knownAccount: known !== null });
       submitting = false;
@@ -141,6 +147,34 @@
 <svelte:head>
   <title>Sign in - Banhall</title>
 </svelte:head>
+
+{#snippet passwordBlock()}
+  <div class="flex flex-col gap-2">
+    <PasswordField
+      id="password"
+      bind:value={password}
+      bind:element={passwordInput}
+      placeholder="Enter your password"
+      autocomplete="current-password"
+      disabled={!hydrated || submitting}
+      invalid={credentialsError}
+      aria-describedby={[error ? errorId : null, forgotOpen ? "forgot-password-note" : null].filter(Boolean).join(" ") || undefined}
+      required
+      minlength={8}
+      {forgotOpen}
+      onForgot={() => (forgotOpen = !forgotOpen)}
+    />
+    {#if error}
+      <p id={errorId} role="alert" class="flex items-start gap-1.5 text-[13px] leading-[18px] text-danger-ink-muted">
+        <IconAlertCircle size={14} strokeWidth={2} stroke-linejoin="miter" class="mt-0.5 shrink-0 text-danger" />
+        {error}
+      </p>
+    {/if}
+    {#if forgotOpen}
+      <ForgotPasswordNote />
+    {/if}
+  </div>
+{/snippet}
 
 <AuthLayout width={360}>
   {#if auth.isAuthenticated || entering}
@@ -158,28 +192,31 @@
       <AuthHeading title="Sign in" subtitle="Use your @banhall.com email." />
     {/if}
 
+    <!-- J1: Email and Password 14px apart. J3: the account card, then the
+         password, 20px apart like every other row in the column. -->
     <form onsubmit={handleSubmit} class="flex flex-col gap-5" aria-busy={!hydrated || submitting}>
-      <div class="flex flex-col gap-3.5">
-        {#if known}
-          <AccountCard
-            name={known.name}
-            email={known.email}
-            initials={known.initials}
-            onUseAnother={useAnotherAccount}
-          />
-          <!-- Password managers match the saved entry by this username. -->
-          <input
-            type="email"
-            name="username"
-            autocomplete="username"
-            value={known.email}
-            readonly
-            tabindex="-1"
-            aria-hidden="true"
-            data-hidden-username
-            class="input-chromeless sr-only"
-          />
-        {:else}
+      {#if known}
+        <AccountCard
+          name={known.name}
+          email={known.email}
+          initials={known.initials}
+          onUseAnother={useAnotherAccount}
+        />
+        <!-- Password managers match the saved entry by this username. -->
+        <input
+          type="email"
+          name="username"
+          autocomplete="username"
+          value={known.email}
+          readonly
+          tabindex="-1"
+          aria-hidden="true"
+          data-hidden-username
+          class="input-chromeless sr-only"
+        />
+        {@render passwordBlock()}
+      {:else}
+        <div class="flex flex-col gap-3.5">
           <AuthField
             id="email"
             label="Email"
@@ -194,33 +231,9 @@
             aria-describedby={credentialsError ? errorId : undefined}
             required
           />
-        {/if}
-        <div class="flex flex-col gap-2">
-          <PasswordField
-            id="password"
-            bind:value={password}
-            bind:element={passwordInput}
-            placeholder="Enter your password"
-            autocomplete="current-password"
-            disabled={!hydrated || submitting}
-            invalid={credentialsError}
-            aria-describedby={[error ? errorId : null, forgotOpen ? "forgot-password-note" : null].filter(Boolean).join(" ") || undefined}
-            required
-            minlength={8}
-            {forgotOpen}
-            onForgot={() => (forgotOpen = !forgotOpen)}
-          />
-          {#if error}
-            <p id={errorId} role="alert" class="flex items-start gap-1.5 text-[13px] leading-[18px] text-danger-ink-muted">
-              <IconAlertCircle size={14} strokeWidth={2} stroke-linejoin="miter" class="mt-0.5 shrink-0 text-danger" />
-              {error}
-            </p>
-          {/if}
-          {#if forgotOpen}
-            <ForgotPasswordNote />
-          {/if}
+          {@render passwordBlock()}
         </div>
-      </div>
+      {/if}
 
       <button
         type="submit"
