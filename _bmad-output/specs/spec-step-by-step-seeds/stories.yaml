@@ -49,7 +49,7 @@
     in convex/generations.ts (parent AD-2). The action reads only
     decodeBatchContext of the snapshot rows, never live selections; prove it
     with the dispatch/edit/claim interleaving test asserting request bytes.
-    Seed calls use SDK maxRetries 0, 90 s timeout, max_tokens 1200, at most two
+    Seed calls use SDK maxRetries 0, 90 s timeout, max_tokens 4000 (1200 until 2026-09-25, see the spine amendment), at most two
     requests per attempt. There is no cap and no extension: usage is counted
     and displayed only (owner decision 2026-09-17). Do not schedule the ghost
     draft for seeds generations. Add the two slots to convex/ai/instrument.ts
