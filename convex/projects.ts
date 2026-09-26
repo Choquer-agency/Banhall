@@ -422,8 +422,12 @@ async function resolveProjectNumberCollision(
   }
   if (!collides) return normalized;
   // The existing bare sibling is renamed to "<n>a" in the same transaction so
-  // the pair reads 1a/1b instead of 1/1b (owner direction 2026-08-19).
-  if (bareSibling) {
+  // the pair reads 1a/1b instead of 1/1b (owner direction 2026-08-19), but
+  // only when the caller may edit that project's details (security wave 1,
+  // a2 P3-2). Otherwise the sibling keeps its bare number, which already
+  // reads as the "a" slot, and the caller's project still takes the next
+  // free letter.
+  if (bareSibling && (await getReportEditAccessOrNull(ctx, bareSibling._id))) {
     await ctx.db.patch(bareSibling._id, {
       projectNumber: `${normalized}a`,
       updatedAt: Date.now(),

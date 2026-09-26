@@ -1667,6 +1667,21 @@ describe("project number auto-lettering (meeting 2026-08-18)", () => {
     expect(c?.projectNumber).toBe("1c");
   });
 
+  // Security wave 1 (a2 P3-2): the bare sibling is renamed only when the
+  // caller may edit that project's details; otherwise it keeps "1" (read as
+  // the "a" slot) and the caller's project still takes the next letter.
+  test("leaves a sibling the caller cannot edit alone and still letters the caller's project", async () => {
+    const { t, siblings, writerId } = await setupSiblings();
+    await t.run((ctx) => ctx.db.patch(siblings.a, { ownerId: writerId, projectNumber: "1" }));
+    await asActor(t, "owner").mutation(api.projects.setProjectNumber, {
+      projectId: siblings.b,
+      projectNumber: "1",
+    });
+    const [a, b] = await t.run(async (ctx) => [await ctx.db.get(siblings.a), await ctx.db.get(siblings.b)]);
+    expect(a?.projectNumber).toBe("1");
+    expect(b?.projectNumber).toBe("1b");
+  });
+
   test("re-applying the same number to the same project does not self-collide", async () => {
     const { t, siblings } = await setupSiblings();
     await asActor(t, "owner").mutation(api.projects.setProjectNumber, {
