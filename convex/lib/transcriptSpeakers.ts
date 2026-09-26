@@ -122,8 +122,11 @@ function nameParts(name: string): string[] {
  * part of the name is in the label. A given name alone ("Jean-Philippe" or
  * "Mary Anne" for Jean-Philippe Roy or Mary Anne Smith) is not, and a
  * one-word name ("Dana", "Dana W.") never matches in full (fix-e review
- * P2-1). Bracketed words on the label never count, so "Dana (Whitfield
- * Consulting)" is not Dana Whitfield (fix-g review P3-3). A near miss of the
+ * P2-1). A company or affiliation on the label never counts, whether it is
+ * in brackets or after a dash, a comma, "@" or "|": "Dana (Whitfield
+ * Consulting)", "Dana [Whitfield Consulting]", "Dana - Whitfield Consulting"
+ * and "Dana, Whitfield Consulting" are not Dana Whitfield (fix-g review
+ * P3-3, sweep review P3-2). A near miss of the
  * same person (a hyphen written as a space, a middle name only on the
  * roster, a suffix or credential such as "Jr" or "P.Eng.", an email roster
  * label) is not a full name either: it matches as a first name, which only
@@ -131,9 +134,31 @@ function nameParts(name: string): string[] {
  * adjusted 2026-09-25).
  */
 function labelNamesPersonFully(label: string, name: string): boolean {
-  const labelParts = nameParts(label.replace(/\([^)]*\)/g, " "));
   const parts = nameParts(name);
-  return labelParts.length >= 2 && parts.length >= 2 && parts.every((part) => labelParts.includes(part));
+  if (parts.length < 2) return false;
+  const has = (labelParts: string[]) =>
+    labelParts.length >= 2 && parts.every((part) => labelParts.includes(part));
+  const [before, after] = labelWithoutAffiliation(label).split(",");
+  // "Dana Whitfield, Whitfield Consulting": the name before the comma.
+  if (has(nameParts(before))) return true;
+  // "Whitfield, Dana" (last name first): the surname before the comma and
+  // the given name after it, so "Dana, Whitfield Consulting" is not.
+  if (after === undefined) return false;
+  const surname = nameParts(before);
+  const given = nameParts(after);
+  return surname.includes(parts[parts.length - 1]) && given.includes(parts[0]) && has([...given, ...surname]);
+}
+
+/**
+ * A speaker label without a trailing company or affiliation: bracketed
+ * words ("(...)", "[...]", "{...}") and anything after a spaced dash, an
+ * en or em dash, "@" or "|". A hyphen inside a name ("Jean-Philippe",
+ * "Whitfield-Rao") is kept. Commas are left for the caller.
+ */
+function labelWithoutAffiliation(label: string): string {
+  return label
+    .replace(/\([^)]*\)|\[[^\]]*\]|\{[^}]*\}/g, " ")
+    .split(/[([{]|\s[-‐‑]\s|[\u2013\u2014|@]/)[0];
 }
 
 /** A roster match on a first name alone: a guess below the model threshold. */
@@ -160,9 +185,15 @@ export function inferSpeakerRoles(
   const rosterFirstNameOnly = new Set<string>();
   for (const s of stats) {
     const names = [s.label, ...s.rawLabels];
+    // A full name is read from the label as written when there is one: the
+    // parser's label has lost its brackets and commas ("Dana, Whitfield
+    // Consulting" becomes "Whitfield Consulting Dana").
+    const asWritten = s.rawLabels.length > 0 ? s.rawLabels : [s.label];
     const matches = (people: readonly string[] | undefined, full = false) =>
       (people ?? []).some((name) =>
-        names.some((label) => (full ? labelNamesPersonFully(label, name) : labelNamesPerson(label, name)))
+        full
+          ? asWritten.some((label) => labelNamesPersonFully(label, name))
+          : names.some((label) => labelNamesPerson(label, name))
       );
     const staff = matches(context.staffNames);
     const client = matches(context.clientNames);

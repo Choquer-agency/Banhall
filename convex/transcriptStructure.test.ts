@@ -755,6 +755,77 @@ describe("speaker role rules", () => {
     }
   });
 
+  it("ignores a company after the name in square brackets, after a dash or after a comma (sweep review P3-2)", () => {
+    // The third speaker's label as written; the parser's own label for it
+    // loses the brackets and commas, so both are given as the parser would.
+    const meeting = (rawLabel: string, speakerLabel: string) => {
+      const lines: Array<[string, string]> = [
+        ["Jordan", "What did you set out to build?"],
+        ["Priya Shah", "A predictive controller for feeder voltage, which we tested on two feeders over the summer."],
+        [rawLabel, "Noted."],
+        ["Jordan", "What made that hard?"],
+        ["Priya Shah", "We could not forecast net load fast enough when cloud cover changed during the afternoon."],
+      ];
+      return lines.map(([raw, text], index) => ({
+        index,
+        speakerLabel: raw === rawLabel ? speakerLabel : raw,
+        rawLabel: raw,
+        charStart: 0,
+        charEnd: text.length,
+        cleanText: text,
+      }));
+    };
+    const third = (rawLabel: string, speakerLabel: string) => {
+      const guess = inferSpeakerRoles(meeting(rawLabel, speakerLabel), {
+        staffNames: [],
+        clientNames: [],
+        rosterNames: ["Dana Whitfield"],
+      })[2];
+      return [guess.label, guess.role, guess.confidence];
+    };
+    // A client company that shares a word with a staff surname: never a full
+    // name, so at most the first-name lean below the threshold.
+    for (const [rawLabel, speakerLabel] of [
+      ["Dana [Whitfield Consulting]", "Dana"],
+      ["Dana - Whitfield Consulting", "Dana - Whitfield Consulting"],
+      ["Dana \u2013 Whitfield Consulting", "Dana \u2013 Whitfield Consulting"],
+      ["Dana, Whitfield Consulting", "Whitfield Consulting Dana"],
+      ["Dana @ Whitfield Consulting", "Dana @ Whitfield Consulting"],
+      ["Dana | Whitfield Consulting", "Dana | Whitfield Consulting"],
+    ] as const) {
+      expect(third(rawLabel, speakerLabel), rawLabel).toEqual([speakerLabel, "interviewer", 0.6]);
+    }
+    // Through the parser too: the square brackets and the comma.
+    for (const [rawLabel, speakerLabel] of [
+      ["Dana [Whitfield Consulting]", "Dana"],
+      ["Dana, Whitfield Consulting", "Whitfield Consulting Dana"],
+    ] as const) {
+      const turns = parseTranscriptTurns(
+        `Jordan: What did you build?\n\nPriya Shah: A controller for two feeders over the summer.\n\n${rawLabel}: Noted.`
+      );
+      expect(turns[2]).toMatchObject({ speakerLabel, rawLabel });
+      const guess = inferSpeakerRoles(turns, { staffNames: [], clientNames: [], rosterNames: ["Dana Whitfield"] })[2];
+      expect([guess.role, guess.confidence], rawLabel).toEqual(["interviewer", 0.6]);
+    }
+    // The staff member's own full name, with a company after it or written
+    // last name first, still places the speaker outright.
+    for (const [rawLabel, speakerLabel] of [
+      ["Whitfield, Dana", "Dana Whitfield"],
+      ["Dana Whitfield [Banhall]", "Dana Whitfield"],
+      ["Dana Whitfield - Banhall", "Dana Whitfield - Banhall"],
+      ["Dana Whitfield, Banhall", "Banhall Dana Whitfield"],
+      ["Whitfield, Dana (Banhall)", "Dana Whitfield"],
+    ] as const) {
+      expect(third(rawLabel, speakerLabel), rawLabel).toEqual([speakerLabel, "interviewer", 0.95]);
+    }
+    // Last name first for other staff is intact.
+    const shah = inferSpeakerRoles(
+      parseTranscriptTurns("Jordan: What did you build?\n\nShah, Priya: A controller for two feeders over the summer."),
+      { staffNames: [], clientNames: [], rosterNames: ["Priya Shah"] }
+    )[1];
+    expect(shah).toMatchObject({ label: "Priya Shah", role: "interviewer", confidence: 0.95 });
+  });
+
   it("builds a client named like a roster member as a client whose words stay evidence", async () => {
     const content = [
       "Jordan Ellis: What did you set out to build?",
