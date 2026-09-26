@@ -103,6 +103,7 @@
   import SingleModelPicker from "$lib/components/generation/SingleModelPicker.svelte";
   import GhostCompareDialog from "$lib/components/generation/GhostCompareDialog.svelte";
   import { displayName } from "$lib/displayName";
+  import { projectCapabilityAllows } from "../../../../shared/capabilities";
   import { setProposalSectionSource } from "$lib/chat/proposalSection";
 
   const auth = useAuth();
@@ -356,11 +357,13 @@
   const transcripts = $derived(transcriptsQ.data ?? []);
   const openTranscript = $derived(openTranscriptQ.data);
   const user = $derived(userQ.data);
+  // Same authority as publishForReview: project.setStage (the current
+  // Owner, a Manager or an Admin), never createdBy.
   const canShare = $derived(
     Boolean(
       project &&
         user &&
-        (project.createdBy === user._id || user.role === "admin")
+        projectCapabilityAllows(user.role, "project.setStage", project, user._id)
     )
   );
   const pdReview = $derived(pdReviewQ.data);

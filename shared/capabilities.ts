@@ -239,3 +239,20 @@ export function listCapabilityMatrix() {
     })),
   }));
 }
+
+/**
+ * Whether a user holds a capability on one project, for UI gating: `all`
+ * holds everywhere, `own` only on a project whose Owner (`ownerId`) is the
+ * user. `createdBy` is never consulted. Convex enforces the real rule (which
+ * for some capabilities also counts an open work item); this only decides
+ * whether to offer the action.
+ */
+export function projectCapabilityAllows(
+  role: CapabilityRole | null | undefined,
+  capability: Capability,
+  project: { ownerId?: string | null },
+  userId: string
+): boolean {
+  const level = getEffectiveCapabilityLevel(role, capability);
+  return level === "all" || (level === "own" && project.ownerId === userId);
+}

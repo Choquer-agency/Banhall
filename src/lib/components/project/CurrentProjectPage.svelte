@@ -84,6 +84,7 @@
   import SingleModelPicker from "$lib/components/generation/SingleModelPicker.svelte";
   import GhostCompareDialog from "$lib/components/generation/GhostCompareDialog.svelte";
   import { displayName } from "$lib/displayName";
+  import { projectCapabilityAllows } from "../../../../shared/capabilities";
 
   const auth = useAuth();
   const convex = useConvexClient();
@@ -199,11 +200,13 @@
           (documentsQ.data ?? []).some((doc) => !doc.archived && doc.sizeChars > 0)))
   );
   const user = $derived(userQ.data);
+  // Same authority as publishForReview: project.setStage (the current
+  // Owner, a Manager or an Admin), never createdBy.
   const canShare = $derived(
     Boolean(
       project &&
         user &&
-        (project.createdBy === user._id || user.role === "admin")
+        projectCapabilityAllows(user.role, "project.setStage", project, user._id)
     )
   );
   const viewSummary = $derived(viewSummaryQ.data);
