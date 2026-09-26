@@ -530,7 +530,7 @@ describe("reordered Step-by-step start (decision 32)", () => {
     expect(await outlineDrafting(s)).toEqual({ status: "failed", failureCode: "unknown" });
     expect(failed.kinds).toEqual(["writer_style"]);
     expect(await outlineDraftingStatus(s)).toBe("failed");
-    // The Seeds keep working while the drafting context waits for a retry.
+    // The Seeds keep working while the transcript analysis waits for a retry.
     await openFirstRole(s);
     expect((await state(s)).seeds).toBe(3);
 

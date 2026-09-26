@@ -511,7 +511,7 @@ describe("Seed workspace", () => {
     __setQueryData("seeds:getSubsection", subsection());
     __setMutationError("generations:retryDraftingInputs", new ConvexError({
       code: "INVALID_STATE",
-      message: "The drafting context is not waiting for a retry",
+      message: "The transcript analysis has not failed, so there is nothing to try again",
     }));
     const view = await render(SeedWorkspace, workspaceProps());
     const notice = () => document.querySelector<HTMLElement>("[data-workspace-drafting-inputs=failed]");
@@ -520,7 +520,7 @@ describe("Seed workspace", () => {
     );
     document.querySelector<HTMLButtonElement>("[data-workspace-drafting-retry]")?.click();
     await expect.poll(() => notice()?.querySelector('[role="alert"]')?.textContent).toContain(
-      "The drafting context is not waiting for a retry"
+      "The transcript analysis has not failed, so there is nothing to try again"
     );
     view.unmount();
 
