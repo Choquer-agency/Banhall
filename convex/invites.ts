@@ -101,7 +101,7 @@ export const listInvites = query({
   args: {},
   handler: async (ctx) => {
     const viewer = await getCurrentUserOrNull(ctx);
-    if (viewer?.role !== "admin") return [];
+    if (viewer?.role !== "admin" || viewer.isAnonymous === true) return [];
     // Accepted invites disappear from the admin surface immediately, while
     // their records remain available as an audit trail. Query only the two
     // visible states so consumed invite tokens are never returned to clients.

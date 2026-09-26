@@ -53,7 +53,7 @@ async function scheduleEmbed(
 /** Admin-only guard (the Brain is sacred — only the admin curates it). */
 async function assertAdmin(ctx: QueryCtx | MutationCtx): Promise<string> {
   const user = await getCurrentUserOrNull(ctx);
-  if (!user) throw new Error("Not authenticated");
+  if (!user || user.isAnonymous === true) throw new Error("Not authenticated");
   if (user.role !== "admin") throw new Error("Admin only");
   return user._id;
 }
@@ -61,7 +61,7 @@ async function assertAdmin(ctx: QueryCtx | MutationCtx): Promise<string> {
 /** Non-throwing variant for dashboard queries: null → render "sign in" state. */
 async function adminOrNull(ctx: QueryCtx): Promise<string | null> {
   const user = await getCurrentUserOrNull(ctx);
-  return user?.role === "admin" ? user._id : null;
+  return user?.role === "admin" && user.isAnonymous !== true ? user._id : null;
 }
 
 /** Stable content fingerprint for dedup (FNV-1a, V8-safe — no node crypto). */

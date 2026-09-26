@@ -75,7 +75,7 @@ const USAGE_REPORT_ROLES: Record<string, true> = { admin: true };
 
 async function usageViewerOrNull(ctx: QueryCtx): Promise<Id<"users"> | null> {
   const user = await getCurrentUserOrNull(ctx);
-  return user?.role && USAGE_REPORT_ROLES[user.role] ? user._id : null;
+  return user?.role && user.isAnonymous !== true && USAGE_REPORT_ROLES[user.role] ? user._id : null;
 }
 
 export const usageReportAccess = query({
