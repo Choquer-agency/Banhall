@@ -45,10 +45,18 @@ describe("E5 file problems", () => {
     const box = document.querySelector<HTMLElement>("[data-transcript-wrong-file]")!;
     expect(text(box)).toBe("FrostLine demo.mp4 is a video. Add transcripts as Word, VTT, SRT or text.");
     expect(document.querySelector("[data-transcript-drop]")).toBeNull();
-    // The danger family: dashed danger line on the danger surface.
+    // E5: a dashed danger line on the white drop zone, the icon in #B91C1C
+    // (16px, stroke 1.7), the title in danger ink and the line at 80%.
     expect(getComputedStyle(box).borderTopStyle).toBe("dashed");
+    expect(box.className).toContain("border-[1.5px]");
     expect(getComputedStyle(box).borderTopColor).toBe("rgb(252, 165, 165)");
-    expect(getComputedStyle(box).backgroundColor).toBe("rgb(254, 242, 242)");
+    expect(getComputedStyle(box).backgroundColor).toBe("rgb(255, 255, 255)");
+    const icon = box.querySelector("svg")!;
+    expect(getComputedStyle(icon).color).toBe("rgb(185, 28, 28)");
+    expect([icon.getAttribute("width"), icon.getAttribute("stroke-width")]).toEqual(["16", "1.7"]);
+    const [title, line] = [...box.querySelectorAll<HTMLElement>("span")];
+    expect(getComputedStyle(title).color).toBe("rgb(153, 27, 27)");
+    expect(getComputedStyle(line).color).toBe("rgba(185, 28, 28, 0.8)");
     expect(text(box)).not.toMatch(/PDF/);
   });
 
@@ -80,6 +88,15 @@ describe("E5 file problems", () => {
     await expect
       .poll(() => text(document.querySelector('[data-interview-status="problem"]')))
       .toBe("1 of 2 can be read");
+    // E5: the status icon is the 13px, stroke 2 alert in #DC2626; the row
+    // sits 4px off its neighbours in the red box.
+    const statusIcon = document.querySelector<SVGElement>('[data-interview-status="problem"] svg')!;
+    expect(getComputedStyle(statusIcon).color).toBe("rgb(220, 38, 38)");
+    expect([statusIcon.getAttribute("width"), statusIcon.getAttribute("stroke-width")]).toEqual(["13", "2"]);
+    expect(getComputedStyle(problem).marginTop).toBe("4px");
+    const callout = problem.querySelector<HTMLElement>("[data-status-callout]")!;
+    expect(getComputedStyle(callout).backgroundColor).toBe("rgb(254, 242, 242)");
+    expect(getComputedStyle(callout).minHeight).toBe("52px");
     const row = document.querySelector<HTMLElement>('[data-checklist-row="unreadable"]')!;
     expect(row.dataset.state).toBe("danger");
     expect(text(row)).toContain("1 transcript could not be read");

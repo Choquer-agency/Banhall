@@ -134,6 +134,7 @@
   import Button from "$lib/components/ui/Button.svelte";
   import FileIcon from "$lib/components/ui/FileIcon.svelte";
   import StatusCallout from "$lib/components/ui/StatusCallout.svelte";
+  import { IconCheck, IconClose, IconLock } from "$lib/components/icons";
 
   let {
     open = $bindable(false),
@@ -217,7 +218,7 @@
     <Dialog.Overlay forceMount>
       {#snippet child({ props, open: isOpen })}
         {#if isOpen}
-          <div {...props} transition:overlayFade data-start-run-scrim class="fixed inset-0 z-[110] bg-[#010505]/75"></div>
+          <div {...props} transition:overlayFade data-start-run-scrim class="fixed inset-0 z-[110] bg-start-scrim"></div>
         {/if}
       {/snippet}
     </Dialog.Overlay>
@@ -244,18 +245,19 @@
               transition:modalPop
               data-start-run-dialog
               data-mode={mode}
-              class="pointer-events-auto flex max-h-[calc(100dvh-2rem)] w-full max-w-[580px] flex-col overflow-hidden rounded-[16px] border border-line bg-surface shadow-[0_24px_64px_rgba(5,42,40,0.25)]"
+              class="pointer-events-auto flex max-h-[calc(100dvh-2rem)] w-full max-w-[580px] flex-col overflow-hidden rounded-[16px] border border-line bg-surface shadow-dialog"
             >
               <div class="flex items-start gap-4 pt-6 pr-5 pl-7">
                 <div class="flex min-w-0 flex-1 flex-col gap-1.5">
-                  <Dialog.Title class="text-title leading-6">{copy.title}</Dialog.Title>
+                  <Dialog.Title data-start-run-title class="text-[18px] leading-6 font-medium text-ink">{copy.title}</Dialog.Title>
                   <Dialog.Description class="text-sm leading-5 text-ink-muted">{copy.subtitle}</Dialog.Description>
                 </div>
                 <Dialog.Close
                   aria-label="Close"
-                  class="-mt-1.5 -mr-1.5 flex size-11 shrink-0 items-center justify-center rounded-lg text-ink-muted transition-colors hover:bg-primary-wash hover:text-ink motion-reduce:transition-none"
+                  data-start-run-close
+                  class="flex size-8 shrink-0 items-center justify-center rounded-lg text-ink-muted transition-colors hover:bg-primary-wash hover:text-ink motion-reduce:transition-none pointer-coarse:size-11"
                 >
-                  <svg class="size-[18px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12" /></svg>
+                  <IconClose size={18} strokeWidth={2} />
                 </Dialog.Close>
               </div>
 
@@ -270,7 +272,7 @@
                   >
                     {#if source.locked}
                       <span class="flex size-[18px] shrink-0 items-center justify-center rounded-[5px] bg-chrome text-ink-secondary" data-start-run-lock aria-hidden="true">
-                        <svg class="size-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="11" width="14" height="10" rx="2" /><path d="M8 11V7a4 4 0 0 1 8 0v4" /></svg>
+                        <IconLock size={10} strokeWidth={2.6} stroke-linejoin="round" />
                       </span>
                     {:else}
                       <Checkbox.Root
@@ -282,29 +284,26 @@
                       >
                         {#snippet children({ checked })}
                           {#if checked}
-                            <svg class="size-[11px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5" /></svg>
+                            <IconCheck size={11} strokeWidth={3.2} />
                           {/if}
                         {/snippet}
                       </Checkbox.Root>
                     {/if}
-                    <div class={`flex min-w-0 flex-1 items-center gap-2.5 transition-opacity motion-reduce:transition-none ${ticked ? "" : "opacity-50"}`} data-start-run-body>
+                    <div class={`flex min-w-0 flex-1 items-center gap-2.5 transition-opacity motion-reduce:transition-none ${ticked ? "" : "opacity-55"}`} data-start-run-body>
                       <span class="flex size-7 shrink-0 items-center justify-center"><FileIcon name={source.name} size={28} /></span>
                       <div class="flex min-w-0 flex-col">
-                        <span class="truncate text-sm leading-[18px] font-medium text-ink">{source.name}</span>
-                        <span
-                          data-start-run-meta
-                          class={`truncate text-xs leading-4 ${source.reading ? "text-ink-faint" : "text-ink-muted"}`}
-                        >
+                        <span class="truncate text-[13px] leading-[18px] font-medium text-ink" data-start-run-name>{source.name}</span>
+                        <span data-start-run-meta class="truncate text-xs leading-4 text-ink-muted">
                           {source.reading ? readingMeta(source.readingEtaSeconds) : source.meta}
                         </span>
                       </div>
                     </div>
                     {#if source.locked}
-                      <span data-start-run-chip class="flex h-[18px] shrink-0 items-center rounded-[4px] bg-primary-wash px-1.5 text-xs leading-[14px] font-medium text-primary-selected">
+                      <span data-start-run-chip class="flex h-[18px] shrink-0 items-center rounded-[4px] bg-being-reviewed px-1.5 text-[11px] leading-[14px] font-medium text-fir">
                         Being reviewed
                       </span>
                     {:else}
-                      <span data-start-run-chip class={`flex h-[18px] shrink-0 items-center rounded-[4px] bg-chrome px-1.5 text-xs leading-[14px] font-medium text-ink-secondary ${ticked ? "" : "opacity-50"}`}>
+                      <span data-start-run-chip class={`flex h-[18px] shrink-0 items-center rounded-[4px] bg-chrome px-1.5 text-[11px] leading-[14px] font-medium text-ink-secondary ${ticked ? "" : "opacity-55"}`}>
                         {source.typeLabel}
                       </span>
                     {/if}
@@ -341,7 +340,7 @@
                 <div class="flex min-w-0 flex-1 items-center gap-2" data-start-run-models>
                   <AuroraMark size={18} />
                   <div class="flex min-w-0 flex-col">
-                    <span class="truncate text-sm leading-[18px] font-medium text-ink" data-start-run-model-title>{models.title}</span>
+                    <span class="truncate text-[13px] leading-[18px] font-medium text-ink" data-start-run-model-title>{models.title}</span>
                     <span class="truncate text-xs leading-4 text-ink-muted" data-start-run-model-line>{models.line}</span>
                   </div>
                 </div>

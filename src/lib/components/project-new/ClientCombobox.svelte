@@ -5,7 +5,7 @@
    * one keeps it as typed (D7: names are never merged automatically).
    */
   import { Combobox } from "bits-ui";
-  import { CaretDownIcon } from "phosphor-svelte";
+  import { IconChevronDown } from "$lib/components/icons";
 
   let {
     id = "clientName",
@@ -13,12 +13,15 @@
     suggestions,
     placeholder = "Client name",
     class: className = "",
+    inputClass = "h-9 rounded-lg pl-2.5 pointer-coarse:h-11",
   }: {
     id?: string;
     value?: string;
     suggestions: readonly string[];
     placeholder?: string;
     class?: string;
+    /** Height, radius and left padding of the field (36px on desktop, 44px on the phone, H2). */
+    inputClass?: string;
   } = $props();
 
   let open = $state(false);
@@ -66,20 +69,20 @@
         open = matches.length > 0;
       }}
       onfocus={() => (open = matches.length > 0)}
-      class="field-control h-9 w-full rounded-md pr-8 pl-2.5 text-sm text-ink placeholder:text-ink-faint pointer-coarse:h-11"
+      class={`field-control w-full pr-8 text-sm text-ink placeholder:text-ink-faint ${inputClass}`}
     />
     <Combobox.Trigger
       aria-label="Show recorded clients"
-      class="absolute top-1/2 right-1.5 flex size-6 -translate-y-1/2 items-center justify-center text-ink-muted"
+      class="absolute top-1/2 right-[5px] flex size-6 -translate-y-1/2 items-center justify-center text-ink-faint"
     >
-      <CaretDownIcon size={12} aria-hidden="true" />
+      <IconChevronDown size={14} strokeWidth={1.8} />
     </Combobox.Trigger>
   </div>
   <Combobox.Portal>
     <Combobox.Content
       sideOffset={4}
       data-client-suggestions
-      class="z-[150] max-h-72 w-[var(--bits-combobox-anchor-width)] overflow-hidden rounded-[10px] border border-line bg-surface p-1 shadow-popover"
+      class="z-[150] max-h-72 w-[var(--bits-combobox-anchor-width)] overflow-hidden rounded-xl border border-line bg-surface p-1.5 shadow-menu"
     >
       <Combobox.Viewport class="max-h-64 overflow-y-auto">
         {#each matches as name (name)}

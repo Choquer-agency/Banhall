@@ -68,7 +68,7 @@ describe("StartRunDialog copy by mode", () => {
 });
 
 describe("StartRunDialog rows", () => {
-  it("ticks every file, shows each row's chip and meta, and greys a file still reading", async () => {
+  it("ticks every file, shows each row's chip and meta, and shows a file still reading in grey", async () => {
     await render(StartRunDialog, props());
     const rows = [...document.querySelectorAll<HTMLElement>("[data-start-run-row]")];
     expect(rows.map((row) => row.dataset.ticked)).toEqual(["true", "true", "true", "true"]);
@@ -81,7 +81,8 @@ describe("StartRunDialog rows", () => {
     expect(text(rows[0].querySelector("[data-start-run-meta]"))).toBe("9,240 words");
     const reading = rows[3].querySelector<HTMLElement>("[data-start-run-meta]")!;
     expect(text(reading)).toBe("Still reading, ready in about 20 seconds");
-    expect(getComputedStyle(reading).color).toBe("rgb(147, 165, 161)");
+    // F1: the "Still reading" line is the same muted grey as the other metas.
+    expect(getComputedStyle(reading).color).toBe("rgb(107, 127, 123)");
     expect(text(q("[data-start-run-reading-note]"))).toBe(
       "Files still being read are used as soon as they are ready. Untick one to start without it."
     );
@@ -94,8 +95,9 @@ describe("StartRunDialog rows", () => {
     await settle(250);
     const row = q("[data-start-run-row='d2']")!;
     expect(row.dataset.ticked).toBe("false");
-    // Fades to 50% (a short opacity transition runs first).
-    await expect.poll(() => getComputedStyle(row.querySelector("[data-start-run-body]")!).opacity).toBe("0.5");
+    // Fades to 55% as on F1 (a short opacity transition runs first).
+    await expect.poll(() => getComputedStyle(row.querySelector("[data-start-run-body]")!).opacity).toBe("0.55");
+    await expect.poll(() => getComputedStyle(row.querySelector("[data-start-run-chip]")!).opacity).toBe("0.55");
     expect(text(q("[data-start-run-confirm]"))).toBe("Start with 3 files");
     expect(q("[data-start-run-reading-note]")).toBeNull();
   });
@@ -132,6 +134,73 @@ describe("StartRunDialog rows", () => {
     expect(q<HTMLButtonElement>("[data-start-run-confirm]")!.disabled).toBe(false);
     q<HTMLButtonElement>("[data-start-run-confirm]")!.click();
     expect(onConfirm).toHaveBeenCalledWith({ transcriptIds: ["t1"], documentIds: [] });
+  });
+});
+
+describe("StartRunDialog board values (F1, G1 to G3)", () => {
+  it("draws the frame, title, rows, chips and footer at the board sizes", async () => {
+    await render(StartRunDialog, props());
+    await settle(250);
+    const scrim = q("[data-start-run-scrim]")!;
+    await expect.poll(() => getComputedStyle(scrim).backgroundColor).toBe("rgba(1, 5, 5, 0.75)");
+    const node = dialog()!;
+    expect(getComputedStyle(node).boxShadow).toContain("rgba(5, 42, 40, 0.25) 0px 24px 64px");
+    expect(getComputedStyle(node).borderRadius).toBe("16px");
+    const title = node.querySelector<HTMLElement>("[data-start-run-title]")!;
+    expect(getComputedStyle(title).fontSize).toBe("18px");
+    expect(getComputedStyle(title).lineHeight).toBe("24px");
+    expect(getComputedStyle(title).fontWeight).toBe("500");
+    expect(getComputedStyle(title).letterSpacing).toBe("normal");
+    // Close: a 32px button with the board's 18px, stroke 2 cross.
+    const close = q("[data-start-run-close]")!;
+    expect(getComputedStyle(close).width).toBe("32px");
+    const cross = close.querySelector("svg")!;
+    expect([cross.getAttribute("width"), cross.getAttribute("viewBox"), cross.getAttribute("stroke-width")]).toEqual(["18", "0 0 24 24", "2"]);
+    expect(cross.querySelector("path")!.getAttribute("d")).toBe("M18 6 6 18M6 6l12 12");
+    const row = q("[data-start-run-row='t1']")!;
+    expect(getComputedStyle(row).height).toBe("48px");
+    expect(getComputedStyle(row.querySelector("[data-start-run-name]")!).fontSize).toBe("13px");
+    const chip = row.querySelector<HTMLElement>("[data-start-run-chip]")!;
+    expect(getComputedStyle(chip).fontSize).toBe("11px");
+    expect(getComputedStyle(chip).height).toBe("18px");
+    expect(getComputedStyle(chip).backgroundColor).toBe("rgb(234, 242, 241)");
+    // The tick is the board's 11px, stroke 3.2 check on fir.
+    const check = q("[data-start-run-check='t1']")!;
+    expect(getComputedStyle(check).backgroundColor).toBe("rgb(10, 58, 56)");
+    const tick = check.querySelector("svg")!;
+    expect([tick.getAttribute("width"), tick.getAttribute("stroke-width")]).toEqual(["11", "3.2"]);
+    expect(tick.querySelector("path")!.getAttribute("d")).toBe("M20 6 9 17l-5-5");
+    expect(getComputedStyle(q("[data-start-run-model-title]")!).fontSize).toBe("13px");
+    const cancel = q("[data-start-run-cancel]")!;
+    expect(getComputedStyle(cancel).height).toBe("36px");
+    expect(getComputedStyle(cancel).paddingLeft).toBe("14px");
+    expect(getComputedStyle(cancel).borderTopLeftRadius).toBe("8px");
+    const confirm = q("[data-start-run-confirm]")!;
+    expect(getComputedStyle(confirm).height).toBe("36px");
+    expect(getComputedStyle(confirm).paddingLeft).toBe("16px");
+  });
+
+  it("marks the draft under review with the G3 chip and lock", async () => {
+    const writtenPd: StartRunSource = {
+      id: "pd",
+      kind: "writtenPd",
+      name: "Cedarline cold storage PD, draft v3.docx",
+      typeLabel: "Written PD",
+      meta: "1,120 words, all 3 sections found",
+      locked: true,
+    };
+    await render(StartRunDialog, props({ mode: "review", sources: [writtenPd, SOURCES[0]] }));
+    const row = q("[data-start-run-row='pd']")!;
+    const chip = row.querySelector<HTMLElement>("[data-start-run-chip]")!;
+    expect(getComputedStyle(chip).backgroundColor).toBe("rgb(225, 242, 239)");
+    expect(getComputedStyle(chip).color).toBe("rgb(10, 58, 56)");
+    const lock = row.querySelector<HTMLElement>("[data-start-run-lock]")!;
+    expect(getComputedStyle(lock).backgroundColor).toBe("rgb(234, 242, 241)");
+    const svg = lock.querySelector("svg")!;
+    expect([svg.getAttribute("width"), svg.getAttribute("stroke-width"), svg.getAttribute("stroke-linejoin")]).toEqual(["10", "2.6", "round"]);
+    expect(svg.querySelector("path")!.getAttribute("d")).toBe(
+      "M6 11h12a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1v-8a1 1 0 0 1 1-1Z M8 11V8a4 4 0 0 1 8 0v3"
+    );
   });
 });
 

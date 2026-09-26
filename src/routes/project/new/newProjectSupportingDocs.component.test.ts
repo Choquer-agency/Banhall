@@ -139,6 +139,20 @@ describe("E1 supporting documents on the page", () => {
     expect(text(node.querySelector("[data-category-chip]"))).toBe("Other supporting docs");
     expect(node.querySelector('[data-file-icon="txt"]')).not.toBeNull();
     expect(text(document.querySelector('[data-checklist-row="supporting"]'))).toContain("1 supporting document");
+    // E1 card: radius 12, 14px padding, the 13px name, the 11px chip with its
+    // 10px, stroke 2.4 chevron, and the 15px eye and 14px faint cross.
+    const box = getComputedStyle(node);
+    expect([box.borderTopLeftRadius, box.paddingTop, box.borderTopColor]).toEqual(["12px", "14px", "rgb(233, 240, 239)"]);
+    expect(getComputedStyle(node.querySelector("[data-supporting-name]")!).fontSize).toBe("13px");
+    const chip = node.querySelector<HTMLElement>("[data-category-chip]")!;
+    expect([getComputedStyle(chip).fontSize, getComputedStyle(chip).height, getComputedStyle(chip).borderTopLeftRadius]).toEqual(["11px", "20px", "5px"]);
+    const chevron = chip.querySelector("svg")!;
+    expect([chevron.getAttribute("width"), chevron.getAttribute("stroke-width")]).toEqual(["10", "2.4"]);
+    const eye = node.querySelector("[data-preview] svg")!;
+    expect([eye.getAttribute("width"), eye.getAttribute("stroke-width")]).toEqual(["15", "1.6"]);
+    const remove = node.querySelector<HTMLElement>("[data-remove]")!;
+    expect(getComputedStyle(remove).color).toBe("rgb(147, 165, 161)");
+    expect(remove.querySelector("svg path")!.getAttribute("d")).toBe("M18 6 6 18M6 6l12 12");
   });
 
   it("offers the five existing categories on the chip, never Work plan or Test results", async () => {
@@ -183,6 +197,21 @@ describe("E1 supporting documents on the page", () => {
     // Not a PDF: the start of the text in a page box.
     expect(text(sheet.querySelector("[data-preview-text]"))).toContain("Line 242 Technological uncertainty");
     expect(getComputedStyle(sheet).maxWidth).toBe("560px");
+    // E3: the sheet shadow, a 17px title, the chip as a menu, the gray-50
+    // page well, 40px found rows and the 15px shield note.
+    expect(getComputedStyle(sheet).boxShadow).toContain("-24px 0px 64px");
+    expect(getComputedStyle(sheet.querySelector("h2, [data-dialog-title]")!).fontSize).toBe("17px");
+    const category = sheet.querySelector<HTMLElement>("[data-preview-category]")!;
+    expect(category.tagName).toBe("BUTTON");
+    expect([getComputedStyle(category).height, getComputedStyle(category).fontSize]).toEqual(["24px", "12px"]);
+    expect(getComputedStyle(sheet.querySelector("[data-preview-page-area]")!).backgroundColor).toBe("rgb(243, 247, 246)");
+    expect(getComputedStyle(sheet.querySelector("[data-found-section]")!).height).toBe("40px");
+    const shield = sheet.querySelector("[data-previous-year-note] svg")!;
+    expect([shield.getAttribute("width"), shield.getAttribute("stroke-width")]).toEqual(["15", "1.6"]);
+    const scrim = document.querySelector("[data-preview-scrim]")!;
+    expect(getComputedStyle(scrim).backgroundColor).toBe("rgba(1, 5, 5, 0.25)");
+    const replace = getComputedStyle(sheet.querySelector("[data-preview-replace]")!);
+    expect([replace.height, replace.paddingLeft]).toEqual(["36px", "14px"]);
     sheet.querySelector<HTMLButtonElement>("[data-preview-done]")!.click();
     await expect.poll(() => document.querySelector("[data-supporting-preview]")).toBeNull();
   });

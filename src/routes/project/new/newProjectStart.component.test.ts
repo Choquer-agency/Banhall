@@ -91,6 +91,10 @@ describe("the start dialog names the models that run (decision 52)", () => {
     expect(text(document.querySelector("[data-start-run-model-title]"))).toBe("Sonnet 5");
     expect(text(document.querySelector("[data-start-run-model-line]"))).toBe("Writes the draft, about 3 minutes");
     expect(text(confirmButton())).toBe("Write the draft");
+    // G1 (board nit): the write-mode card behind the dialog is the dialog's mode.
+    const selectedCard = () => document.querySelector<HTMLElement>('[data-right-column] [data-write-mode][aria-checked="true"]');
+    expect(document.querySelector<HTMLElement>("[data-start-run-dialog]")!.dataset.mode).toBe("single");
+    expect(selectedCard()?.dataset.writeMode).toBe("single");
     document.querySelector<HTMLButtonElement>("[data-start-run-cancel]")!.click();
     await expect.poll(() => document.querySelector("[data-start-run-dialog]")).toBeNull();
 
@@ -100,6 +104,9 @@ describe("the start dialog names the models that run (decision 52)", () => {
     expect(text(document.querySelector("[data-start-run-model-line]"))).toBe("One draft each, you keep the better one");
     expect(text(confirmButton())).toBe("Write 2 drafts");
     expect(document.querySelectorAll('[data-start-run-dialog] [data-ai-mark="aurora"]')).toHaveLength(1);
+    // G2 (board nit): Compare two drafts is the card selected behind it.
+    expect(document.querySelector<HTMLElement>("[data-start-run-dialog]")!.dataset.mode).toBe("compare");
+    expect(selectedCard()?.dataset.writeMode).toBe("compare");
   });
 
   it("returns focus to the start button when the dialog is cancelled", async () => {

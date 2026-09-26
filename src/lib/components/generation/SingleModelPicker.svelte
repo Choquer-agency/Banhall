@@ -9,6 +9,7 @@
   import ModelLogo from "./ModelLogo.svelte";
   import AuroraMark from "$lib/components/ui/AuroraMark.svelte";
   import ModelSelectPanel from "./ModelSelectPanel.svelte";
+  import { IconChevronDown } from "$lib/components/icons";
   import { defaultModelIdFor, pickerModels } from "$lib/modelPicker";
   import { useQuery } from "convex-svelte";
   import { api } from "../../../../convex/_generated/api";
@@ -38,7 +39,7 @@
 <div
   data-model-picker={size}
   class={size === "field"
-    ? "relative h-9 w-full overflow-hidden rounded-md border border-line bg-surface text-sm transition-colors hover:bg-primary-wash pointer-coarse:h-11"
+    ? "relative h-9 w-full overflow-hidden rounded-lg border border-line bg-surface text-sm transition-colors hover:bg-primary-wash pointer-coarse:h-11"
     : `group/card relative overflow-hidden rounded-lg border border-gray-200 bg-white text-sm transition-colors hover:border-gray-300 hover:bg-gray-50/60 ${
         size === "md" ? "h-9 w-40" : "h-11 w-44"
       }`}
@@ -49,9 +50,9 @@
       class="flex h-full w-full min-w-0 cursor-pointer items-center gap-2 px-2.5 text-left"
     >
       {#if size === "field"}
-        <AuroraMark size={16} />
-        <span class="min-w-0 flex-1 truncate text-sm text-ink" title={label}>{label}</span>
-        <svg class="h-3 w-3 shrink-0 text-ink-muted" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6" /></svg>
+        <AuroraMark size={18} />
+        <span class="min-w-0 flex-1 truncate text-sm leading-5 text-ink" title={label}>{label}</span>
+        <IconChevronDown size={14} strokeWidth={1.8} class="shrink-0 text-ink-faint" />
       {:else}
         <ModelLogo provider={selected.provider} size={size === "md" ? "sm" : "md"} />
         <span

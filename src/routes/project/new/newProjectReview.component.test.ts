@@ -86,6 +86,19 @@ describe("E4 Review a written PD", () => {
     expect(document.body.textContent).toContain(
       "Add the interview under Supporting documents if you want facts checked against it."
     );
+    // E4 card: 14px padding, the 40 by 52 thumbnail with its five 3px lines,
+    // the 12px "Uploaded" line and 30px rows with the 13px, stroke 2.2 tick.
+    const card = document.querySelector<HTMLElement>("[data-review-pd-card]")!;
+    expect(getComputedStyle(card).paddingTop).toBe("14px");
+    const thumb = card.querySelector<HTMLElement>("[data-review-pd-thumb]")!;
+    expect([getComputedStyle(thumb).width, getComputedStyle(thumb).height, getComputedStyle(thumb).borderTopLeftRadius]).toEqual(["40px", "52px", "4px"]);
+    expect(getComputedStyle(thumb).boxShadow).toContain("0px 1px 2px");
+    const line = thumb.querySelector<HTMLElement>("span")!;
+    expect([getComputedStyle(line).height, getComputedStyle(line).backgroundColor]).toEqual(["3px", "rgb(221, 230, 228)"]);
+    expect(getComputedStyle(card.querySelector("[data-review-pd-uploaded]")!).fontSize).toBe("12px");
+    expect(getComputedStyle(rows[0]).height).toBe("30px");
+    const tick = rows[0].querySelector("svg")!;
+    expect([tick.getAttribute("width"), tick.getAttribute("stroke-width")]).toEqual(["13", "2.2"]);
   });
 
   it("shows the pd_review model read-only and no check list", async () => {
@@ -99,6 +112,16 @@ describe("E4 Review a written PD", () => {
     expect(text(document.querySelector("[data-start-note]"))).toBe(
       "You get a feedback report. Your draft is never changed."
     );
+    // E4: the model field on white with the 18px mark; the start straight
+    // under it, 36px and full width, no "Before you start" box.
+    const model = document.querySelector<HTMLElement>("[data-review-model]")!;
+    expect([getComputedStyle(model).backgroundColor, getComputedStyle(model).borderTopLeftRadius]).toEqual(["rgb(255, 255, 255)", "8px"]);
+    expect(document.querySelector<HTMLElement>("[data-start-checklist]")!.dataset.startChecklist).toBe("plain");
+    expect(document.body.textContent).not.toContain("Before you start");
+    const start = document.querySelector<HTMLElement>("[data-start-button]")!;
+    expect(getComputedStyle(start).height).toBe("36px");
+    // Full width of the 360px column, less its 24px sides.
+    expect(start.getBoundingClientRect().width).toBeGreaterThan(300);
   });
 
   it("locks the written PD in the dialog and leaves out what the writer unticks", async () => {

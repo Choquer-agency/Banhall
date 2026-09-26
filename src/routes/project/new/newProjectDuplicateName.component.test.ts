@@ -66,7 +66,7 @@ describe("E6 project already exists", () => {
     // The title field takes the 1.5px warning line (inset, as every field).
     const title = document.querySelector<HTMLElement>("#title")!;
     expect(title.dataset.sameName).toBe("true");
-    await expect.poll(() => getComputedStyle(title).boxShadow).toContain("rgb(217, 119, 6)");
+    await expect.poll(() => getComputedStyle(title).boxShadow).toContain("rgb(245, 158, 11)");
     expect(title.style.boxShadow).toContain("1.5px");
 
     const row = document.querySelector<HTMLElement>('[data-checklist-row="duplicate"]')!;

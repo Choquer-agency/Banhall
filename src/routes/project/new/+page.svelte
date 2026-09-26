@@ -10,16 +10,6 @@
   import { api } from "../../../../convex/_generated/api";
   import type { Id } from "../../../../convex/_generated/dataModel";
   import { DropdownMenu, Label } from "bits-ui";
-  import {
-    CalendarBlankIcon,
-    CaretDownIcon,
-    CheckIcon,
-    ClipboardTextIcon,
-    PlusIcon,
-    UploadSimpleIcon,
-    WarningCircleIcon,
-    XIcon,
-  } from "phosphor-svelte";
   import Button from "$lib/components/ui/Button.svelte";
   import Spinner from "$lib/components/ui/Spinner.svelte";
   import FileIcon from "$lib/components/ui/FileIcon.svelte";
@@ -98,7 +88,17 @@
   } from "../../../../shared/previousYear";
   import { WORKFLOW_STAGE_LABELS } from "../../../../shared/workflowLabels";
   import WorkspaceChrome from "$lib/components/workspace/WorkspaceChrome.svelte";
-  import { IconFolder } from "$lib/components/icons";
+  import {
+    IconAlertCircle,
+    IconBook,
+    IconCalendar,
+    IconCheck,
+    IconChevronDown,
+    IconClose,
+    IconFolder,
+    IconPlus,
+    IconUpload,
+  } from "$lib/components/icons";
   import { takeProjectStart } from "$lib/workspace/projectIntentHandoff";
   import { parseDraftModeParam } from "$lib/workspace/projectDuplicate";
   import { page } from "$app/state";
@@ -1577,6 +1577,13 @@
   const layout = $derived<"desktop" | "tablet" | "phone">(
     viewportWidth >= 1280 ? "desktop" : viewportWidth >= 640 ? "tablet" : "phone"
   );
+  // Interview helper: the E1 line; below desktop the count and words take
+  // its place once transcripts are in (H1, H2; the status snippet).
+  const interviewHelper = $derived(
+    layout === "phone" || (layout === "tablet" && transcriptCountForSubmit > 0 && !transcriptProblems.length)
+      ? undefined
+      : "Transcripts the PD is written from"
+  );
   const sectionChips = $derived([
     { id: "section-project", label: "Project", short: "Project", done: Boolean(clientName.trim() && title.trim()) },
     {
@@ -1623,18 +1630,37 @@
     mode === "review" ? "You get a feedback report. Your draft is never changed." : "You will check your files before anything starts."
   );
 
-  // The shared borderless field (inset line, lagoon on hover and focus).
-  const fieldClass =
-    "field-control h-9 w-full rounded-md px-2.5 text-sm text-ink placeholder:text-ink-faint pointer-coarse:h-11";
-  const labelClass = "text-xs leading-4 font-medium text-ink-secondary";
+  // The shared borderless field (inset line, lagoon on hover and focus):
+  // 36px, radius 8 and 10px padding (E1); 44px, radius 10 and 12px padding
+  // with 13px labels on the phone (H2).
+  const fieldSize = $derived(
+    layout === "phone" ? "h-11 rounded-[10px] px-3" : "h-9 rounded-lg px-2.5 pointer-coarse:h-11"
+  );
+  const fieldClass = $derived(
+    `field-control w-full text-sm leading-5 text-ink placeholder:text-ink-faint ${fieldSize}`
+  );
+  const labelClass = $derived(
+    layout === "phone"
+      ? "text-[13px] leading-[18px] font-medium text-ink-secondary"
+      : "text-xs leading-4 font-medium text-ink-secondary"
+  );
+  // bits-ui select fields (Industry, Interviewer) draw a 44px input; the
+  // board field is 36px with a 14px 1.8 chevron in faint ink (E1).
+  const selectFieldClass = $derived(
+    layout === "phone"
+      ? "[&_input]:h-11! [&_input]:rounded-[10px]! [&_input]:px-3!"
+      : "[&_input]:h-9! [&_input]:px-2.5! pointer-coarse:[&_input]:h-11! [&_button]:right-[3px]! [&_button_svg]:[stroke-width:1.8]"
+  );
 </script>
 
 {#snippet modelPicker()}
   <div class="flex flex-col gap-1.5 pt-1">
     <span class={labelClass}>Model</span>
     {#if mode === "review"}
-      <div data-review-model class="flex h-9 items-center gap-2 rounded-md border border-line bg-canvas px-2.5 text-sm text-ink">
-        <AuroraMark size={16} />
+      <!-- E4 draws a select; the review model is read-only (decision 56),
+           so the field has no chevron. -->
+      <div data-review-model class="flex h-9 items-center gap-2 rounded-lg border border-line bg-surface px-2.5 text-sm leading-5 text-ink">
+        <AuroraMark size={18} />
         <span class="truncate">{capabilities?.pdReviewModelLabel ?? "The review model"}</span>
       </div>
     {:else if candidateMode !== "compare"}
@@ -1669,8 +1695,8 @@
             onclick={() => {
               if (!locked) mode = opt.id;
             }}
-            class={`flex h-[30px] items-center justify-center rounded-[7px] px-3 text-[13px] leading-[18px] font-medium transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-fir pointer-coarse:h-11 ${
-              fullWidth ? "flex-1" : ""
+            class={`flex items-center justify-center rounded-[7px] px-3 font-medium transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-fir pointer-coarse:h-11 ${
+              fullWidth ? "h-9 flex-1 text-sm leading-[18px]" : layout === "tablet" ? "h-8 text-[13px] leading-[18px]" : "h-[30px] text-[13px] leading-[18px]"
             } ${
               mode === opt.id
                 ? "bg-primary-selected text-white"
@@ -1696,21 +1722,23 @@
         <li
           data-transcript-item
           data-included={included ? "true" : "false"}
-          class="relative flex min-h-11 items-center gap-2.5 border-b border-line-soft py-1.5 last:border-b-0"
+          class={`relative flex items-center gap-2.5 ${
+            layout === "phone" ? "min-h-10" : `min-h-11 py-1.5 ${transcriptProblems.length ? "border-b border-line-soft" : "border-b border-line-soft last:border-b-0"}`
+          }`}
         >
           <span class="flex size-7 shrink-0 items-center justify-center"><FileIcon name={item.file?.name ?? item.label} size={28} /></span>
-          <span class="flex min-w-0 flex-1 flex-col sm:flex-row sm:items-center sm:gap-2.5">
+          <span class={`flex min-w-0 flex-1 ${layout === "phone" ? "flex-col" : "flex-row items-center gap-2.5"}`}>
             {#if copied}
               <!-- The whole row toggles the tick box (review D-6). -->
               <Label.Root
                 for={`copy-transcript-${item.id}`}
-                class={`block min-w-0 truncate text-sm leading-[19px] font-medium text-ink ${STRETCHED_LABEL}`}
+                class={`block min-w-0 truncate text-[13px] font-medium text-ink ${layout === "phone" ? "leading-[18px]" : "leading-[19px]"} ${STRETCHED_LABEL}`}
               >{item.label}</Label.Root>
             {:else}
-              <span class="block min-w-0 truncate text-sm leading-[19px] font-medium text-ink">{item.label}</span>
+              <span data-transcript-name class={`block min-w-0 truncate text-[13px] font-medium text-ink ${layout === "phone" ? "leading-[18px]" : "leading-[19px]"}`}>{item.label}</span>
             {/if}
-            <span class="grow"></span>
-            <span class="shrink-0 text-[13px] leading-[19px] text-ink-muted" data-transcript-format>
+            {#if layout !== "phone"}<span class="grow"></span>{/if}
+            <span class={`shrink-0 text-ink-muted ${layout === "phone" ? "text-xs leading-4" : "text-[13px] leading-[19px]"}`} data-transcript-format>
               {item.format && item.format !== "unknown" ? `${TRANSCRIPT_FORMAT_LABELS[item.format]}, ` : ""}{item.wordCount.toLocaleString("en-US")} words
             </span>
             {#if !included}
@@ -1729,7 +1757,7 @@
               />
             </span>
           {:else}
-            <CheckIcon size={14} class="shrink-0 text-success" aria-label="Read" />
+            {#if layout !== "phone"}<IconCheck size={14} strokeWidth={2} class="shrink-0 text-success" role="img" aria-hidden="false" aria-label="Read" data-transcript-read />{/if}
             <Tooltip text="Remove" delayDuration={300}>
               {#snippet children({ props })}
                 <button
@@ -1739,7 +1767,7 @@
                   aria-label={`Remove ${item.label}`}
                   class="flex size-7 shrink-0 items-center justify-center rounded-md text-ink-faint transition-colors hover:bg-danger-soft hover:text-danger-ink pointer-coarse:size-11"
                 >
-                  <XIcon size={14} aria-hidden="true" />
+                  <IconClose size={14} strokeWidth={1.8} />
                 </button>
               {/snippet}
             </Tooltip>
@@ -1748,7 +1776,7 @@
       {/each}
     </ul>
     {#each transcriptProblems as problem (problem.id)}
-      <div data-transcript-problem>
+      <div data-transcript-problem class="my-1">
         <StatusCallout
           tone="danger"
           layout="inline"
@@ -1859,7 +1887,19 @@
     panel="flush"
   >
     {#snippet actions()}
-      <Button variant="destructive-soft" size="sm" class="h-9 px-3.5! py-0!" onclick={cancel} data-new-project-cancel>Cancel</Button>
+      <Button
+        variant="destructive-soft"
+        size="sm"
+        class={`px-3.5! py-0! ${
+          layout === "phone"
+            ? "h-11 text-[15px]! leading-5!"
+            : layout === "tablet"
+              ? "h-8 leading-5! pointer-coarse:h-11"
+              : "h-9 text-[13px]! leading-[18px]! pointer-coarse:h-11"
+        }`}
+        onclick={cancel}
+        data-new-project-cancel>Cancel</Button
+      >
     {/snippet}
     {#snippet children()}
         <div data-new-project-panel class="flex min-h-full">
@@ -1869,7 +1909,9 @@
             <nav
               aria-label="Sections"
               data-section-chips
-              class="sticky top-0 z-10 flex gap-2 overflow-x-auto border-b border-line-soft bg-surface px-4 py-2.5 scrollbar-hidden sm:px-[88px]"
+              class={`sticky top-0 z-10 flex gap-2 overflow-x-auto border-b border-line-soft bg-new-project-canvas scrollbar-hidden ${
+                layout === "phone" ? "px-4 py-2.5" : "px-8 py-3"
+              }`}
             >
               {#each sectionChips as chip (chip.id)}
                 {@const current = currentSection === chip.id}
@@ -1878,39 +1920,56 @@
                   data-section-chip={chip.id}
                   aria-current={current ? "true" : undefined}
                   onclick={() => jumpTo(chip.id)}
-                  class={`flex h-8 shrink-0 items-center gap-1.5 rounded-full px-3 text-[13px] leading-[18px] font-medium transition-colors pointer-coarse:h-11 ${
+                  class={`flex h-[30px] shrink-0 items-center gap-1.5 rounded-full px-3 text-[13px] leading-[18px] font-medium transition-colors pointer-coarse:h-11 ${
                     current
-                      ? "border-[1.5px] border-primary-selected text-ink"
+                      ? "border-[1.5px] border-primary-selected bg-surface text-ink"
                       : chip.done
-                        ? "border border-transparent bg-chrome text-ink-secondary"
-                        : "border border-line text-ink-secondary"
+                        ? "border border-transparent bg-workspace-rail-selected text-fir"
+                        : "border border-line bg-surface text-ink-muted"
                   }`}
                 >
-                  {#if current}<span class="size-1.5 rounded-full bg-primary-selected" aria-hidden="true"></span>{:else if chip.done}<CheckIcon size={12} aria-hidden="true" />{/if}
+                  {#if current}<span class="size-1.5 rounded-full bg-primary-selected" aria-hidden="true"></span>{:else if chip.done}<IconCheck size={12} strokeWidth={2.4} class="text-primary-selected" />{/if}
                   {layout === "phone" ? chip.short : chip.label}
                 </button>
               {/each}
             </nav>
             {/if}
 
-            <div bind:this={formColumn} data-form-column class={`flex w-full flex-col gap-[22px] pb-8 ${layout === "desktop" ? "max-w-[854px] px-10 pt-7" : layout === "tablet" ? "px-[88px] pt-6" : "px-4 pt-5"}`}>
-              <header class="flex flex-col gap-4 sm:flex-row sm:items-end">
-                <div class="flex min-w-0 flex-1 flex-col gap-1">
+            <div
+              bind:this={formColumn}
+              data-form-column
+              class={`flex w-full flex-col ${
+                layout === "desktop"
+                  ? "max-w-[854px] gap-[22px] px-10 py-6"
+                  : layout === "tablet"
+                    ? "gap-[22px] px-8 pt-7 pb-7"
+                    : "gap-[18px] px-4 pt-[18px] pb-6"
+              }`}
+            >
+              <!-- H2: the phone top bar already names the page, so the heading
+                   stays for screen readers and the mode switch leads. -->
+              <header class={layout === "phone" ? "flex flex-col" : "flex flex-row items-end gap-4"}>
+                <div class={layout === "phone" ? "sr-only" : "flex min-w-0 flex-1 flex-col gap-1"}>
                   <h1 class="font-serif text-[28px] leading-[34px] text-ink">New project</h1>
                   <p class="text-sm leading-5 text-ink-muted" data-new-project-subtitle>
-                    {mode === "review"
-                      ? "Add the draft and the basics. You become the project Owner."
-                      : "Add the interview and the basics. You become the project Owner."}
+                    {mode === "review" ? "Add the draft and the basics." : "Add the interview and the basics."}{layout === "desktop" ? " You become the project Owner." : ""}
                   </p>
                 </div>
                 {@render modeSwitch()}
               </header>
 
-              <NewProjectSection id="section-project" number="01" title="Project" helper="The basics">
-                <div class="grid gap-4 sm:grid-cols-[260px_minmax(0,1fr)]">
+              <NewProjectSection id="section-project" number="01" title="Project" helper={layout === "phone" ? undefined : "The basics"} compact={layout === "phone"} gap={layout === "phone" ? "12px" : "14px"}>
+                <div class={`grid ${
+                  layout === "phone" ? "grid-cols-1 gap-3" : layout === "tablet" ? "grid-cols-2 gap-x-4 gap-y-3.5" : "grid-cols-[260px_minmax(0,1fr)] gap-x-4 gap-y-3.5"
+                }`}>
                   <label class="flex flex-col gap-1.5">
                     <span class={labelClass}>Client</span>
-                    <ClientCombobox id="clientName" bind:value={clientName} suggestions={clientSuggestions} />
+                    <ClientCombobox
+                      id="clientName"
+                      bind:value={clientName}
+                      suggestions={clientSuggestions}
+                      inputClass={layout === "phone" ? "h-11 rounded-[10px] pl-3" : "h-9 rounded-lg pl-2.5 pointer-coarse:h-11"}
+                    />
                   </label>
                   <label class="flex flex-col gap-1.5">
                     <span class={labelClass}>Project title</span>
@@ -1919,9 +1978,9 @@
                       bind:value={title}
                       required
                       placeholder="Project title"
-                      class="field-control h-9 w-full rounded-md px-2.5 text-sm text-ink placeholder:text-ink-faint pointer-coarse:h-11"
+                      class={`field-control w-full text-sm leading-5 text-ink placeholder:text-ink-faint pointer-coarse:h-11 ${fieldSize}`}
                       data-same-name={sameProject ? "true" : undefined}
-                      style={sameProject ? "box-shadow: inset 0 0 0 1.5px var(--color-warning)" : undefined}
+                      style={sameProject ? "box-shadow: inset 0 0 0 1.5px var(--color-same-name-line)" : undefined}
                     />
                   </label>
                 </div>
@@ -1939,7 +1998,9 @@
                     </StatusCallout>
                   </div>
                 {/if}
-                <div class="grid gap-4 sm:grid-cols-[260px_minmax(0,1fr)] md:max-xl:grid-cols-3">
+                <div class={`grid ${
+                  layout === "phone" ? "grid-cols-1 gap-3" : layout === "tablet" ? "grid-cols-3 gap-x-4 gap-y-3.5" : "grid-cols-[260px_minmax(0,1fr)] gap-x-4 gap-y-3.5"
+                }`}>
                   <div class="flex flex-col gap-1.5">
                     <span class={labelClass} id="fiscal-year-label">Fiscal year</span>
                     <DatePicker
@@ -1951,7 +2012,7 @@
                     >
                       {#snippet trigger({ props })}
                         <button {...props} type="button" aria-labelledby="fiscal-year-label" data-fiscal-year class={`${fieldClass} flex items-center gap-2 text-left`}>
-                          <CalendarBlankIcon size={14} class="shrink-0 text-ink-muted" aria-hidden="true" />
+                          <IconCalendar size={15} strokeWidth={1.5} class="shrink-0 text-ink-muted" />
                           {#if fiscalDisplay}
                             <span class="text-ink">{fiscalDisplay.year}</span>
                             <span class="min-w-0 truncate text-ink-muted"><span class="hidden sm:inline">({fiscalDisplay.date})</span><span class="sm:hidden">({fiscalDisplay.date.replace(/, \d{4}$/, "")})</span></span>
@@ -1968,34 +2029,53 @@
                       {#snippet trigger({ props })}
                         <button {...props} type="button" id="scienceCode" aria-labelledby="science-code-label" data-science-code class={`${fieldClass} flex items-center gap-2 text-left`}>
                           {#if scienceDisplay}
-                            <span class="hidden font-mono font-medium text-ink sm:inline">{scienceDisplay.code}</span>
-                            <span class="min-w-0 flex-1 truncate text-ink sm:text-ink-muted">{scienceDisplay.label}</span>
+                            {#if layout !== "phone"}<span class="font-mono font-medium text-ink">{scienceDisplay.code}</span>{/if}
+                            <span class={`min-w-0 flex-1 truncate ${layout === "phone" ? "text-ink" : "text-ink-muted"}`}>{scienceDisplay.label}</span>
                           {:else}
                             <span class="min-w-0 flex-1 truncate text-ink-faint">Choose a science code</span>
                           {/if}
-                          <CaretDownIcon size={12} class="shrink-0 text-ink-muted" aria-hidden="true" />
+                          <IconChevronDown size={14} strokeWidth={1.8} class="shrink-0 text-ink-faint" />
                         </button>
                       {/snippet}
                     </ScienceCodePicker>
                   </div>
-                  <div class="flex flex-col gap-1.5 sm:max-md:col-span-1 xl:col-span-1">
+                  <div class="flex flex-col gap-1.5">
                     <label for="industry" class={labelClass}>Industry</label>
-                    <IndustrySelect id="industry" bind:value={industry} canCreate={user.data?.role === "admin"} />
+                    <IndustrySelect id="industry" bind:value={industry} canCreate={user.data?.role === "admin"} class={selectFieldClass} />
                   </div>
                 </div>
               </NewProjectSection>
 
               {#if mode === "generate"}
-                <NewProjectSection id="section-interview" number="02" title="Interview" helper="Transcripts the PD is written from" gap="10px">
+                <!-- H1, H2: once transcripts are in, the helper carries the
+                     count and the words instead of the status at the right. -->
+                <NewProjectSection
+                  id="section-interview"
+                  number="02"
+                  title="Interview"
+                  helper={interviewHelper}
+                  statusInline={layout !== "desktop" && !transcriptProblems.length}
+                  compact={layout === "phone"}
+                  gap={layout === "phone" ? "6px" : layout === "tablet" ? "8px" : "10px"}
+                >
                   {#snippet status()}
-                    {#if transcriptProblems.length}
-                      <span data-interview-status="problem" class="flex items-center gap-1.5 text-[13px] leading-[19px] font-medium text-danger-ink-muted">
-                        <WarningCircleIcon size={14} aria-hidden="true" />
+                    {#if layout !== "desktop" && !transcriptProblems.length}
+                      {#if transcriptCountForSubmit > 0}
+                        <!-- H1, H2: the count sits where the helper was. -->
+                        <span data-interview-status="ready" class="text-[13px] leading-[19px] text-ink-muted">
+                          {layout === "phone"
+                            ? `${transcriptWordCount.toLocaleString("en-US")} words`
+                            : `${transcriptCountForSubmit} ${transcriptCountForSubmit === 1 ? "transcript" : "transcripts"}, ${transcriptWordCount.toLocaleString("en-US")} words`}
+                        </span>
+                      {/if}
+                    {:else if transcriptProblems.length}
+                      <span data-interview-status="problem" class="flex items-center gap-[5px] text-[13px] leading-[19px] font-medium text-danger-ink-muted">
+                        <IconAlertCircle size={13} strokeWidth={2} class="text-danger" />
                         {transcriptCountForSubmit} of {transcriptCountForSubmit + transcriptProblems.length} can be read
                       </span>
                     {:else if transcriptCountForSubmit > 0}
-                      <span data-interview-status="ready" class="flex items-center gap-1.5 text-[13px] leading-[19px] font-medium text-success-ink-muted">
-                        <CheckIcon size={14} aria-hidden="true" />
+                      <span data-interview-status="ready" class="flex items-center gap-[5px] text-[13px] leading-[19px] font-medium text-success-ink-muted">
+                        <IconCheck size={13} strokeWidth={2.2} />
                         {transcriptWordCount.toLocaleString("en-US")} words
                       </span>
                     {/if}
@@ -2014,13 +2094,13 @@
                         const files = e.dataTransfer?.files;
                         if (files?.length) handleTranscriptFiles(Array.from(files));
                       }}
-                      class="flex min-h-12 w-full flex-wrap items-center gap-x-3 gap-y-1 rounded-[10px] border-[1.5px] border-dashed border-danger-line bg-danger-surface px-3.5 py-2 text-left"
+                      class="flex min-h-12 w-full flex-wrap items-center gap-x-3 gap-y-1 rounded-[10px] border-[1.5px] border-dashed border-danger-line bg-surface px-3.5 py-2 text-left"
                     >
-                      <WarningCircleIcon size={16} class="shrink-0 text-danger" aria-hidden="true" />
+                      <IconAlertCircle size={16} strokeWidth={1.7} class="shrink-0 text-danger-ink-muted" />
                       <span role="alert" class="text-[13px] leading-[19px] font-medium text-danger-ink">
                         {wrongTranscriptFile.video ? `${wrongTranscriptFile.name} is a video.` : `${wrongTranscriptFile.name} is not a transcript file.`}
                       </span>
-                      <span class="text-[13px] leading-[19px] text-danger-ink-muted">Add transcripts as Word, VTT, SRT or text.</span>
+                      <span class="text-[13px] leading-[19px] text-danger-body">Add transcripts as Word, VTT, SRT or text.</span>
                     </button>
                   {:else}
                     <div
@@ -2035,7 +2115,7 @@
                         if (files?.length) handleTranscriptFiles(Array.from(files));
                       }}
                       class={`flex min-h-12 items-center gap-3 rounded-[10px] border-[1.5px] border-dashed px-3.5 transition-colors ${
-                        transcriptDragOver ? "border-primary-selected bg-primary-wash" : "border-line bg-canvas"
+                        transcriptDragOver ? "border-primary-selected bg-primary-wash" : "border-line bg-new-project-canvas"
                       }`}
                       data-transcript-drop
                     >
@@ -2046,7 +2126,7 @@
                         </span>
                       {:else}
                         <button type="button" onclick={() => transcriptInput?.click()} class="flex items-center gap-3 rounded-md text-[13px] leading-[19px] font-medium text-ink hover:underline focus-visible:outline-2 focus-visible:outline-fir pointer-coarse:min-h-11">
-                          <UploadSimpleIcon size={16} class="text-ink-secondary" aria-hidden="true" />
+                          <IconUpload size={16} strokeWidth={1.6} class="text-primary-selected" />
                           Drop transcripts
                         </button>
                         <button type="button" data-open-paste onclick={() => (pasteOpen = !pasteOpen)} class="rounded-md text-[13px] leading-[19px] text-ink-muted hover:text-ink hover:underline focus-visible:outline-2 focus-visible:outline-fir pointer-coarse:min-h-11">
@@ -2072,19 +2152,26 @@
                     </div>
                   {/if}
                   {@render transcriptRows()}
-                  <div class="grid gap-4 pt-1 sm:grid-cols-[260px_minmax(0,1fr)]">
+                  <div class={`grid ${
+                    layout === "phone" ? "grid-cols-1 gap-3" : layout === "tablet" ? "grid-cols-2 gap-4" : "grid-cols-[260px_minmax(0,1fr)] gap-4"
+                  }`}>
                     <div class="flex flex-col gap-1.5">
                       <label for="interviewer" class={labelClass}>Interviewer</label>
-                      <SelectInput id="interviewer" bind:value={interviewerUserId} items={interviewerOptions} />
+                      <SelectInput id="interviewer" bind:value={interviewerUserId} items={interviewerOptions} class={selectFieldClass} />
                     </div>
                     <div class="flex flex-col gap-1.5">
                       <label for="interviewee" class={labelClass}>Interviewees</label>
-                      <div class="flex min-h-9 flex-wrap items-center gap-1.5 rounded-md border border-line bg-surface px-2 py-1 pointer-coarse:min-h-11">
+                      <div
+                        data-interviewees-field
+                        class={`flex flex-wrap items-center gap-2 border border-line bg-surface py-1 ${
+                          layout === "phone" ? "min-h-11 rounded-[10px] px-3" : "min-h-9 rounded-lg px-2.5 pointer-coarse:min-h-11"
+                        }`}
+                      >
                         {#each interviewees as name, i (name)}
-                          <span class="inline-flex h-6 items-center gap-1 rounded-sm bg-chrome px-2 text-xs font-medium text-ink-secondary">
+                          <span data-interviewee-chip class="inline-flex h-6 items-center gap-1 rounded-md bg-chrome px-2 text-xs leading-4 font-medium text-ink-secondary">
                             {name}
-                            <button type="button" aria-label={`Remove ${name}`} onclick={() => removeInterviewee(i)} class="text-ink-faint hover:text-danger-ink">
-                              <XIcon size={10} aria-hidden="true" />
+                            <button type="button" aria-label={`Remove ${name}`} onclick={() => removeInterviewee(i)} class="-mr-1 flex size-4 items-center justify-center text-ink-faint hover:text-danger-ink">
+                              <IconClose size={12} strokeWidth={1.8} />
                             </button>
                           </span>
                         {/each}
@@ -2100,18 +2187,18 @@
                             }
                           }}
                           onblur={addInterviewee}
-                          class="input-chromeless h-7 min-w-24 flex-1 bg-transparent text-sm text-ink placeholder:text-ink-faint"
+                          class="input-chromeless h-7 min-w-24 flex-1 bg-transparent text-sm leading-5 text-ink placeholder:text-ink-faint"
                         />
                       </div>
                     </div>
                   </div>
                 </NewProjectSection>
               {:else}
-                <NewProjectSection id="section-interview" number="02" title="Written PD" helper="The draft you want reviewed" gap="10px">
+                <NewProjectSection id="section-interview" number="02" title="Written PD" helper={layout === "phone" ? undefined : "The draft you want reviewed"} compact={layout === "phone"} gap={layout === "phone" ? "10px" : "14px"}>
                   {#snippet status()}
                     {#if pdDoc}
-                      <span data-written-pd-status class="flex items-center gap-1.5 text-[13px] leading-[19px] font-medium text-success-ink-muted">
-                        <CheckIcon size={14} aria-hidden="true" /> Ready to review
+                      <span data-written-pd-status class="flex items-center gap-[5px] text-[13px] leading-[19px] font-medium text-success-ink-muted">
+                        <IconCheck size={13} strokeWidth={2.2} /> Ready to review
                       </span>
                     {/if}
                   {/snippet}
@@ -2142,7 +2229,7 @@
                         if (file) handlePdFile(file);
                       }}
                       class={`flex min-h-24 flex-col items-center justify-center gap-1 rounded-xl border-[1.5px] border-dashed px-4 text-center transition-colors ${
-                        pdDragOver ? "border-primary-selected bg-primary-wash" : "border-line bg-canvas hover:bg-primary-wash"
+                        pdDragOver ? "border-primary-selected bg-primary-wash" : "border-line bg-new-project-canvas hover:bg-primary-wash"
                       }`}
                     >
                       {#if parsingPd}
@@ -2151,7 +2238,7 @@
                           Reading {parsingPd}...
                         </span>
                       {:else}
-                        <span class="text-sm leading-[18px] font-medium text-ink">Drop the written PD</span>
+                        <span class="text-[13px] leading-[18px] font-medium text-ink">Drop the written PD</span>
                         <span class="text-xs leading-4 text-ink-muted">Word, PDF or text</span>
                       {/if}
                     </button>
@@ -2168,30 +2255,37 @@
                         class="-my-1 flex size-7 flex-none items-center justify-center rounded-md text-ink-muted transition-colors hover:text-navy focus-visible:outline-2 focus-visible:outline-navy"
                         onclick={() => (pdNameHint = "")}
                       >
-                        <XIcon size={14} aria-hidden="true" />
+                        <IconClose size={14} strokeWidth={1.8} />
                       </button>
                     </div>
                   {/if}
-                  <p class="text-[13px] leading-[19px] text-ink-muted">Add the interview under Supporting documents if you want facts checked against it.</p>
+                  <p class="text-[13px] leading-[18px] text-ink-muted">Add the interview under Supporting documents if you want facts checked against it.</p>
                   {@render transcriptRows()}
                 </NewProjectSection>
               {/if}
 
-              <NewProjectSection id="section-supporting" number="03" title="Supporting documents" helper="Optional. Anything that backs up the claim.">
+              <NewProjectSection
+                id="section-supporting"
+                number="03"
+                title={layout === "phone" ? "Supporting" : "Supporting documents"}
+                helper={layout === "phone" ? undefined : layout === "tablet" ? "Optional" : "Optional. Anything that backs up the claim."}
+                compact={layout === "phone"}
+                gap={layout === "phone" ? "10px" : "14px"}
+              >
                 {#snippet action()}
                   <DropdownMenu.Root>
                     <DropdownMenu.Trigger data-add-supporting class="flex h-[30px] items-center gap-1.5 rounded-[7px] bg-chrome px-2.5 text-[13px] leading-[18px] font-medium text-ink transition-colors hover:bg-primary-wash focus-visible:outline-2 focus-visible:outline-fir pointer-coarse:h-11">
-                      <PlusIcon size={12} aria-hidden="true" /> Add <CaretDownIcon size={10} aria-hidden="true" />
+                      <IconPlus size={12} strokeWidth={2} /> Add <IconChevronDown size={11} strokeWidth={2.2} stroke-linejoin="miter" class="text-ink-muted" />
                     </DropdownMenu.Trigger>
                     <DropdownMenu.Portal>
-                      <DropdownMenu.Content align="end" sideOffset={6} class="z-[130] w-[300px] rounded-[10px] border border-line bg-surface p-1 shadow-popover">
-                        <DropdownMenu.Item onSelect={() => docsInput?.click()} data-add-upload class="flex min-h-9 cursor-default items-center gap-2.5 rounded-md px-2.5 text-[13px] text-ink outline-none data-highlighted:bg-primary-wash pointer-coarse:min-h-11">
-                          <UploadSimpleIcon size={14} class="text-ink-secondary" aria-hidden="true" />
+                      <DropdownMenu.Content align="end" sideOffset={6} data-add-menu class="z-[130] w-[300px] rounded-xl border border-line bg-surface p-1.5 shadow-menu">
+                        <DropdownMenu.Item onSelect={() => docsInput?.click()} data-add-upload class="flex h-8 cursor-default items-center gap-2 rounded-md px-2 text-[13px] leading-[19px] text-ink outline-none data-highlighted:bg-primary-wash pointer-coarse:h-11">
+                          <IconUpload size={15} strokeWidth={1.5} />
                           <span class="flex-1">Upload files</span>
-                          <span class="text-xs text-ink-muted">PDF, Word, Excel</span>
+                          <span class="text-xs leading-4 text-ink-faint">PDF, Word, Excel</span>
                         </DropdownMenu.Item>
-                        <DropdownMenu.Item onSelect={() => (docPasteOpen = true)} data-add-paste class="flex min-h-9 cursor-default items-center gap-2.5 rounded-md px-2.5 text-[13px] text-ink outline-none data-highlighted:bg-primary-wash pointer-coarse:min-h-11">
-                          <ClipboardTextIcon size={14} class="text-ink-secondary" aria-hidden="true" />
+                        <DropdownMenu.Item onSelect={() => (docPasteOpen = true)} data-add-paste class="flex h-8 cursor-default items-center gap-2 rounded-md px-2 text-[13px] leading-[19px] text-ink outline-none data-highlighted:bg-primary-wash pointer-coarse:h-11">
+                          <IconBook size={15} strokeWidth={1.5} />
                           <span class="flex-1">Paste text or notes</span>
                         </DropdownMenu.Item>
                       </DropdownMenu.Content>
@@ -2230,7 +2324,7 @@
                   role="group"
                   aria-label="Supporting documents"
                   data-supporting-grid
-                  class="grid grid-cols-1 gap-3 sm:grid-cols-2 md:max-xl:grid-cols-3"
+                  class={`grid ${layout === "phone" ? "grid-cols-1 gap-2.5" : layout === "tablet" ? "grid-cols-3 gap-2.5" : "grid-cols-2 gap-3"}`}
                   ondragover={(e) => { e.preventDefault(); docsDragOver = true; }}
                   ondragleave={() => (docsDragOver = false)}
                   ondrop={(e) => {
@@ -2245,7 +2339,7 @@
                       {doc}
                       categories={docCategories}
                       years={yearChoices}
-                      compact={layout === "tablet"}
+                      compact={layout !== "desktop"}
                       onPreview={() => { previewId = doc.id; previewOpen = true; }}
                       onRemove={() => removeDoc(doc.id)}
                       onReplace={() => replaceDoc(doc.id)}
@@ -2258,10 +2352,10 @@
                     data-drop-more
                     onclick={() => docsInput?.click()}
                     class={`flex min-h-24 flex-col items-center justify-center gap-1 rounded-xl border-[1.5px] border-dashed px-4 text-center transition-colors ${
-                      docsDragOver ? "border-primary-selected bg-primary-wash" : "border-line bg-canvas hover:bg-primary-wash"
+                      docsDragOver ? "border-primary-selected bg-primary-wash" : "border-line bg-new-project-canvas hover:bg-primary-wash"
                     }`}
                   >
-                    <span class="text-sm leading-[18px] font-medium text-ink">{docs.items.length ? "Drop more files" : "Drop files"}</span>
+                    <span class="text-[13px] leading-[18px] font-medium text-ink">{docs.items.length ? "Drop more files" : "Drop files"}</span>
                     <span class="text-xs leading-4 text-ink-muted">PDF, Word, Excel, text or email</span>
                   </button>
                 </div>
@@ -2277,7 +2371,7 @@
                           value={yearNotes.get(year) ?? ""}
                           oninput={(e) => yearNotes.set(year, e.currentTarget.value)}
                           placeholder="For example, what changed since last year's claim"
-                          class="field-control h-9 w-full rounded-md px-2.5 text-sm text-ink placeholder:text-ink-faint pointer-coarse:h-11"
+                          class={`field-control w-full text-sm leading-5 text-ink placeholder:text-ink-faint ${fieldSize}`}
                         />
                       </label>
                     {/each}
@@ -2285,40 +2379,47 @@
                 {/if}
               </NewProjectSection>
 
-              <NewProjectSection id="section-details" number="04" title="Details" helper="Optional" last={true}>
-                <div class="grid gap-4 sm:grid-cols-[260px_minmax(0,1fr)]">
+              <NewProjectSection id="section-details" number="04" title="Details" helper={layout === "phone" ? undefined : "Optional"} last={layout === "desktop"} compact={layout === "phone"} gap={layout === "phone" ? "12px" : "14px"}>
+                <div class={`grid ${
+                  layout === "phone" ? "grid-cols-1 gap-3" : layout === "tablet" ? "grid-cols-2 gap-x-4 gap-y-3.5" : "grid-cols-[260px_minmax(0,1fr)] gap-x-4 gap-y-3.5"
+                }`}>
                   <div class="flex flex-col gap-1.5">
                     <label for="projectNumber" class={labelClass}>Project number</label>
-                    <input id="projectNumber" bind:value={projectNumber} placeholder="For example, P01-A" class="field-control h-9 w-full rounded-md px-2.5 text-sm text-ink placeholder:text-ink-faint pointer-coarse:h-11" aria-invalid={!projectNumberValid} />
+                    <input id="projectNumber" bind:value={projectNumber} placeholder="For example, P01-A" class={`field-control w-full text-sm leading-5 text-ink placeholder:text-ink-faint pointer-coarse:h-11 ${fieldSize}`} aria-invalid={!projectNumberValid} />
                     {#if !projectNumberValid}
                       <p class="text-xs text-danger-ink-muted" role="alert">Use 1 to 20, a letter a to z, or both, like 2a.</p>
                     {/if}
                   </div>
-                  <div class="flex flex-col gap-1.5">
-                    {#if allTags.length > 0}
-                      <TagPicker {allTags} bind:selectedTagIds />
-                    {/if}
-                  </div>
-                  <label class="flex flex-col gap-1.5 sm:col-span-2">
+                  {#if allTags.length > 0}
+                    <div class="flex flex-col gap-1.5" data-tags-field>
+                      <span class={labelClass}>Tags</span>
+                      <TagPicker {allTags} bind:selectedTagIds label={null} variant="field" />
+                    </div>
+                  {/if}
+                  <label class={`flex flex-col gap-1.5 ${layout === "phone" ? "" : "col-span-2"}`}>
                     <span class={labelClass}>SR&ED title</span>
-                    <input id="sredTitle" bind:value={sredTitle} placeholder="Optional. You can set it later." class="field-control h-9 w-full rounded-md px-2.5 text-sm text-ink placeholder:text-ink-faint pointer-coarse:h-11" />
+                    <input id="sredTitle" bind:value={sredTitle} placeholder="Optional. You can set it later." class={`field-control w-full text-sm leading-5 text-ink placeholder:text-ink-faint pointer-coarse:h-11 ${fieldSize}`} />
                   </label>
                 </div>
               </NewProjectSection>
 
               <!-- H1, H2: How should we write it? as an inline section. -->
               {#if layout !== "desktop"}
-              <section id="section-mode" data-new-project-section="section-mode" class="flex scroll-mt-4 flex-col gap-3.5" aria-labelledby="section-mode-title">
-                <div class="flex items-baseline gap-2.5 border-t border-line-soft pt-[22px]">
+              <section id="section-mode" data-new-project-section="section-mode" class={`flex scroll-mt-4 flex-col ${layout === "phone" ? "gap-2.5" : "gap-3.5"}`} aria-labelledby="section-mode-title">
+                <div class="flex items-baseline gap-2.5">
                   <span class="font-mono text-xs leading-[22px] text-ink-faint" aria-hidden="true">05</span>
                   <h2 id="section-mode-title" class="text-[15px] leading-[22px] font-medium text-ink">
-                    {mode === "review" ? "How should we review it?" : "How should we write it?"}
+                    {layout === "phone"
+                      ? mode === "review" ? "How to review it" : "How to write it"
+                      : mode === "review" ? "How should we review it?" : "How should we write it?"}
                   </h2>
                 </div>
                 {#if mode === "generate"}
-                  <WriteModeCards bind:value={candidateMode} layout={layout === "tablet" ? "row" : "stack"} />
+                  <WriteModeCards bind:value={candidateMode} layout={layout === "tablet" ? "row" : "phone"} />
                 {/if}
-                {@render modelPicker()}
+                <div class={layout === "tablet" ? "w-[300px] max-w-full" : ""}>
+                  {@render modelPicker()}
+                </div>
                 <ul class="flex flex-col gap-1" data-bottom-checklist>
                   {#each checklist.filter((row) => row.state === "danger" || row.state === "warning") as row (row.id)}
                     <li class="text-[13px] text-danger-ink">{row.text}</li>
@@ -2330,17 +2431,29 @@
 
             <!-- H1, H2: sticky bottom bar with the start button. -->
             {#if layout !== "desktop"}
-            <div data-bottom-bar class="sticky bottom-0 z-10 mt-auto flex flex-col gap-2 border-t border-line-soft bg-surface px-4 py-3 sm:h-16 sm:flex-row sm:items-center sm:px-[88px] sm:py-0">
-              <p class={`min-w-0 flex-1 truncate text-[13px] leading-[18px] ${firstBlocking ? "text-danger-ink" : "text-ink-secondary"}`} data-bottom-summary>
-                {progress && committing ? progress : firstBlocking ? firstBlocking.text : readySummary}
-              </p>
+            <div
+              data-bottom-bar
+              class={`sticky bottom-0 z-10 mt-auto flex border-t border-line-soft bg-surface ${
+                layout === "phone" ? "flex-col gap-1.5 px-4 pt-3 pb-[30px]" : "h-[72px] flex-row items-center gap-3 px-8"
+              }`}
+            >
+              <!-- H2 shows only the button; the line stays when something
+                   blocks the start or a start is under way, so a disabled
+                   button always says why. -->
+              {#if layout !== "phone" || firstBlocking || (progress && committing)}
+                <p class={`min-w-0 flex-1 truncate text-[13px] leading-[18px] ${firstBlocking ? "text-danger-ink" : "text-ink-secondary"}`} data-bottom-summary>
+                  {progress && committing ? progress : firstBlocking ? firstBlocking.text : readySummary}
+                </p>
+              {/if}
               <button
                 type="button"
                 bind:this={bottomStartButton}
                 data-bottom-start
                 disabled={blocked || committing}
                 onclick={() => openStart(bottomStartButton)}
-                class="flex h-12 w-full items-center justify-center gap-2 rounded-[10px] bg-fir px-5 text-sm font-medium text-white hover:bg-navy-light disabled:cursor-not-allowed disabled:opacity-50 sm:h-10 sm:w-auto"
+                class={`flex shrink-0 items-center justify-center gap-2 bg-fir font-medium text-white hover:bg-navy-light focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fir focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 ${
+                  layout === "phone" ? "h-12 w-full rounded-[10px] text-base leading-5" : "h-9 rounded-lg px-4 text-sm leading-5 pointer-coarse:h-11"
+                }`}
               >
                 {startLabel}
               </button>
@@ -2350,15 +2463,18 @@
 
           <!-- Right column (desktop): How should we write it? -->
           {#if layout === "desktop"}
-          <aside data-right-column aria-label={mode === "review" ? "How should we review it?" : "How should we write it?"} class="flex w-[360px] shrink-0 flex-col gap-3 border-l border-line-soft bg-canvas px-6 pt-7 pb-6">
+          <aside data-right-column aria-label={mode === "review" ? "How should we review it?" : "How should we write it?"} class="flex w-[360px] shrink-0 flex-col gap-3 border-l border-line-soft bg-new-project-canvas px-6 pt-7 pb-6">
             <div class="sticky top-7 flex flex-col gap-3">
               <h2 class="text-[15px] leading-[22px] font-medium text-ink">{mode === "review" ? "How should we review it?" : "How should we write it?"}</h2>
               {#if mode === "generate"}
                 <WriteModeCards bind:value={candidateMode} />
               {/if}
               {@render modelPicker()}
-              <div class="mt-2.5">
+              <!-- E4: in a review the start sits straight under the model,
+                   with no box and no "Before you start". -->
+              <div class={mode === "review" ? "pt-2" : "mt-2.5"}>
                 <StartChecklist
+                  variant={mode === "review" ? "plain" : "box"}
                   rows={checklist}
                   {startLabel}
                   busy={committing}
@@ -2427,6 +2543,8 @@
       <SupportingDocPreview
         bind:open={previewOpen}
         doc={previewDoc}
+        categories={docCategories}
+        onCategory={(category) => previewId && docs.setCategory(previewId, category)}
         onRemove={() => previewId && removeDoc(previewId)}
         onReplace={() => previewId && replaceDoc(previewId)}
       />

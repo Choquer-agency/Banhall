@@ -5,7 +5,7 @@
    * form line count against the CRA limit (50, 100, 50). A Section we could
    * not find shows a warning and "Not found".
    */
-  import { CheckIcon, EyeIcon, WarningCircleIcon, XIcon } from "phosphor-svelte";
+  import { IconAlertCircle, IconCheck, IconClose, IconEye } from "$lib/components/icons";
   import Tooltip from "$lib/components/ui/Tooltip.svelte";
   import { sectionMetrics } from "../../../../convex/lib/lineLimits";
   import {
@@ -51,45 +51,45 @@
   });
 </script>
 
-<div data-review-pd-card class="flex gap-3.5 rounded-xl border border-line-soft bg-surface p-4">
-  <div class="flex h-[52px] w-10 shrink-0 flex-col gap-1 rounded-[3px] border border-line bg-surface px-1.5 pt-2" aria-hidden="true">
-    {#each [1, 0.8, 1, 0.9, 0.6] as width, index (index)}
-      <span class="h-0.5 rounded-full bg-gray-200" style={`width:${width * 100}%`}></span>
+<div data-review-pd-card class="flex gap-3.5 rounded-xl border border-line-soft bg-surface p-3.5">
+  <div data-review-pd-thumb class="flex h-[52px] w-10 shrink-0 flex-col gap-1 rounded-[4px] border border-line bg-surface px-1.5 py-[7px] shadow-pd-thumb" aria-hidden="true">
+    {#each [0.9, 0.7, 0.85, 0.6, 0.8] as width, index (index)}
+      <span class="h-[3px] shrink-0 rounded-[2px] bg-pd-thumb-line" style={`width:${width * 100}%`}></span>
     {/each}
   </div>
-  <div class="flex min-w-0 flex-1 flex-col gap-1">
+  <div class="flex min-w-0 flex-1 flex-col gap-0.5">
     <p class="truncate text-sm leading-5 font-medium text-ink">{name}</p>
-    <p class="text-[13px] leading-[18px] text-ink-muted" data-review-pd-uploaded>
+    <p class="text-xs leading-4 text-ink-muted" data-review-pd-uploaded>
       {titleFromFileName
         ? "Uploaded just now. We filled the project title from the file name."
         : "Uploaded just now."}
     </p>
-    <ul class="mt-2 flex flex-col gap-1.5">
+    <ul class="flex flex-col pt-2">
       {#each rows as row (row.key)}
-        <li data-review-section={row.number} data-found={row.found} class="flex min-h-6 items-center gap-2.5 text-[13px] leading-[18px]">
+        <li data-review-section={row.number} data-found={row.found} class="flex h-[30px] items-center gap-2 text-[13px] leading-[18px]">
           {#if row.found}
-            <CheckIcon size={13} class="shrink-0 text-success" aria-hidden="true" />
+            <IconCheck size={13} strokeWidth={2.2} class="shrink-0 text-success" />
           {:else}
-            <WarningCircleIcon size={14} class="shrink-0 text-warning" aria-hidden="true" />
+            <IconAlertCircle size={13} strokeWidth={2} class="shrink-0 text-warning" />
           {/if}
-          <span class="w-56 shrink-0 truncate text-ink">{row.number} {row.title}</span>
+          <span class="w-[220px] min-w-0 shrink truncate text-ink">{row.number} {row.title}</span>
           <span class={row.found ? "text-ink-muted" : "text-warning-ink-muted"} data-review-lines>{row.line}</span>
         </li>
       {/each}
     </ul>
   </div>
-  <div class="flex shrink-0 gap-0.5">
+  <div class="flex shrink-0 gap-0.5 self-start">
     <Tooltip text="Preview" delayDuration={300}>
       {#snippet children({ props })}
         <button {...props} type="button" aria-label={`Preview ${name}`} onclick={onPreview} class="flex size-7 items-center justify-center rounded-md text-ink-muted hover:bg-primary-wash hover:text-ink pointer-coarse:size-11">
-          <EyeIcon size={16} aria-hidden="true" />
+          <IconEye size={15} strokeWidth={1.6} />
         </button>
       {/snippet}
     </Tooltip>
     <Tooltip text="Remove" delayDuration={300}>
       {#snippet children({ props })}
-        <button {...props} type="button" aria-label="Remove file" onclick={onRemove} class="flex size-7 items-center justify-center rounded-md text-ink-muted hover:bg-danger-soft hover:text-danger-ink pointer-coarse:size-11">
-          <XIcon size={14} aria-hidden="true" />
+        <button {...props} type="button" aria-label="Remove file" onclick={onRemove} class="flex size-7 items-center justify-center rounded-md text-ink-faint hover:bg-danger-soft hover:text-danger-ink pointer-coarse:size-11">
+          <IconClose size={14} strokeWidth={1.8} />
         </button>
       {/snippet}
     </Tooltip>
