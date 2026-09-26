@@ -748,8 +748,16 @@ test("streams the Step-by-step Brief through the real SDK and writes located rea
   await t.finishAllScheduledFunctions(vi.runAllTimers);
 
   expect(requests.at(-1)?.stream).toBe(true);
-  const { stream: _stream, ...streamedBody } = requests.at(-1)!;
-  // Apart from the one field, the Step-by-step request is the Single one.
+  // Streaming asks for eager input streaming on the tool, so the API sends
+  // each entry as it is written instead of each whole array at once
+  // (fidelity broken behaviour 9). The Single request has neither field.
+  const streamedTools = requests.at(-1)!.tools as Array<Record<string, unknown>>;
+  expect(streamedTools.map((tool) => tool.eager_input_streaming)).toEqual([true]);
+  expect((requests[0].tools as Array<Record<string, unknown>>)[0]).not.toHaveProperty("eager_input_streaming");
+  const streamedBody: Record<string, unknown> = { ...requests.at(-1)! };
+  delete streamedBody.stream;
+  streamedBody.tools = streamedTools.map(({ eager_input_streaming: _eager, ...tool }) => tool);
+  // Apart from those two fields, the Step-by-step request is the Single one.
   expect(JSON.stringify(streamedBody).replace(/\b\d{7,}[A-Za-z]+\b/g, "<id>")).toBe(
     JSON.stringify(requests[0]).replace(/\b\d{7,}[A-Za-z]+\b/g, "<id>")
   );
@@ -800,4 +808,56 @@ test("streams the Step-by-step Brief through the real SDK and writes located rea
   expect(await t.run((ctx) => ctx.db.query("aiUsage").collect())).toEqual([
     expect.objectContaining({ callSite: "generation:brief", inputTokens: 90, outputTokens: 70, stopReason: "tool_use" }),
   ]);
+});
+
+test("writes the first reading facts while the Brief is still streaming (fidelity broken behaviour 9)", async () => {
+  resetGenerationModelCache();
+  resetGenerationPlaceholderCache();
+  const t = convexTest(schema, modules);
+  const ids = await streamingFixture(t);
+  const factCount = async () =>
+    (
+      await t.run((ctx) =>
+        ctx.db
+          .query("generationReadingFacts")
+          .withIndex("by_generationId_and_seq", (q) => q.eq("generationId", ids.generationId))
+          .collect()
+      )
+    ).length;
+  const seenBeforeEnd: number[] = [];
+  vi.stubGlobal(
+    "fetch",
+    vi.fn<typeof fetch>(async () => {
+      // The answer arrives one event at a time. Before the tool block ends,
+      // the facts written so far are counted.
+      const events = anthropicToolSse({ model, tool: BRIEF_REQUEST.toolName, input: streamedBrief, chunk: 17 })
+        .split("\n\n")
+        .filter(Boolean)
+        .map((event) => `${event}\n\n`);
+      const encoder = new TextEncoder();
+      return new Response(
+        new ReadableStream<Uint8Array>({
+          async pull(controller) {
+            const event = events.shift();
+            if (!event) {
+              controller.close();
+              return;
+            }
+            if (event.startsWith("event: content_block_stop")) {
+              await vi.waitFor(async () => expect(await factCount()).toBeGreaterThan(0));
+              seenBeforeEnd.push(await factCount());
+            }
+            controller.enqueue(encoder.encode(event));
+          },
+        }),
+        { status: 200, headers: { "content-type": "text/event-stream" } }
+      );
+    })
+  );
+  await deriveWith(t, ids, true);
+  await t.finishAllScheduledFunctions(vi.runAllTimers);
+  // Facts were on screen before the model finished its answer.
+  expect(seenBeforeEnd).toHaveLength(1);
+  expect(seenBeforeEnd[0]).toBeGreaterThan(0);
+  expect(await factCount()).toBe(3);
 });

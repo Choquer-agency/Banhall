@@ -144,9 +144,11 @@ export type ReadingFactsCtx = Pick<ActionCtx, "runMutation">;
 
 /**
  * Collects facts from the streamed tool input: `onToolInput` is the stream
- * handler (never throws), `finish` writes whatever is left. Writes are
- * batched at most every READING_FACTS_FLUSH_MS; located entries only, each
- * quote once.
+ * handler (never throws), `finish` writes whatever is left. Each entry is
+ * written as soon as it completes, batched at most every
+ * READING_FACTS_FLUSH_MS: a fact held back by that pace is written when the
+ * pace allows, not when the next entry happens to complete. Located entries
+ * only, each quote once.
  */
 export function createReadingFactsCollector(options: {
   ctx: ReadingFactsCtx;
@@ -166,6 +168,8 @@ export function createReadingFactsCollector(options: {
   let pending: ReadingFact[] = [];
   let lastFlush = 0;
   let queue: Promise<void> = Promise.resolve();
+  let trailing: ReturnType<typeof setTimeout> | null = null;
+  let finished = false;
 
   const flush = async () => {
     while (pending.length) {
@@ -193,7 +197,20 @@ export function createReadingFactsCollector(options: {
       seen.add(key);
       pending.push({ chip: candidate.chip, quote, ...placeOf(source, citation) });
     }
-    if (pending.length && now() - lastFlush >= READING_FACTS_FLUSH_MS) await flush();
+    if (!pending.length) return;
+    const wait = READING_FACTS_FLUSH_MS - (now() - lastFlush);
+    if (wait <= 0) {
+      await flush();
+      return;
+    }
+    if (trailing || finished) return;
+    trailing = setTimeout(() => {
+      trailing = null;
+      if (finished) return;
+      queue = queue.then(flush).catch((error: unknown) => {
+        console.warn("Reading facts could not be written", error);
+      });
+    }, wait);
   };
 
   return {
@@ -209,6 +226,9 @@ export function createReadingFactsCollector(options: {
       }
     },
     async finish() {
+      finished = true;
+      if (trailing) clearTimeout(trailing);
+      trailing = null;
       try {
         await queue;
         await flush();
