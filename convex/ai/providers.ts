@@ -446,12 +446,14 @@ async function recordedRequest<R extends { servedModel?: string; settleOutcome?:
 /**
  * Whether an answer cut off at the output limit counts toward rollback. A
  * cut-off section draft fails its section, so it counts as `output_limit` on
- * both gateways. A cut-off compression keeps the section it was given and
- * its step succeeds, so it counts on neither; its usage row still keeps the
- * stop reason (P3 sweep, approved 2026-09-25 by the lead).
+ * both gateways. A cut-off compression keeps the section it was given, and a
+ * cut-off repair keeps the draft it was fixing, so both steps succeed and
+ * count on neither gateway; their usage rows still keep the stop reason (P3
+ * sweep, approved 2026-09-25 by the lead).
  */
 function cutOffCounts(callSite: string): boolean {
-  return !generationSlotOf(callSite)?.startsWith("compression:");
+  const slot = generationSlotOf(callSite);
+  return !(slot?.startsWith("compression:") || slot?.startsWith("repair:"));
 }
 
 /** The Anthropic calls citations-mode extraction makes (see citationsExtractor). */

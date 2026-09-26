@@ -429,3 +429,41 @@ test("a cut-off compression is not counted toward rollback on either gateway; an
     "openai/gpt-6-sol": { successes: 1, failures: 0 },
   });
 });
+
+test("a cut-off repair keeps its draft and is not counted toward rollback on either gateway; a cut-off section draft is", async () => {
+  const t = convexTest(schema, modules);
+  vi.stubGlobal("fetch", vi.fn<typeof fetch>(async (input, init) => {
+    const url = new Request(input, init).url;
+    if (url.startsWith("https://openrouter.ai/")) {
+      return Response.json({
+        model: "openai/gpt-6-sol",
+        choices: [{ message: { content: "The repaired sec" }, finish_reason: "length" }],
+        usage: { prompt_tokens: 40, completion_tokens: 4096, cost: 0.001 },
+      });
+    }
+    return anthropicMessage([{ type: "text", text: "The repaired sec" }], "max_tokens", 4096);
+  }));
+  const send = (callSite: string) => runAction(t, async (ctx) => {
+    const anthropic = withOutcomeRecording(ctx, "claude-sonnet-5", callSite,
+      instrumentedAnthropic(ctx, { callSite }) as unknown as GenerationClient);
+    const openRouter = withOutcomeRecording(ctx, "openai/gpt-6-sol", callSite,
+      instrumentedOpenRouter(ctx, { callSite }));
+    const request = { max_tokens: 4096, messages: [{ role: "user" as const, content: "Repair this section." }] };
+    await anthropic.messages.create({ ...request, model: "claude-sonnet-5" }).catch(() => null);
+    await openRouter.messages.create({ ...request, model: "openai/gpt-6-sol" }).catch(() => null);
+  });
+  const buckets = async () => {
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
+    const rows = await t.run((ctx) => ctx.db.query("modelCallBuckets").collect());
+    return Object.fromEntries(rows.map((row) => [row.model, { successes: row.successes, failures: row.failures }]));
+  };
+
+  await send("generation:repair:242");
+  expect(await buckets()).toEqual({});
+
+  await send("generation:section:242");
+  expect(await buckets()).toEqual({
+    "claude-sonnet-5": { successes: 0, failures: 1 },
+    "openai/gpt-6-sol": { successes: 0, failures: 1 },
+  });
+});
