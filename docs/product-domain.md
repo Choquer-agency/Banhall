@@ -201,7 +201,9 @@ Legend:
 | Record delivery/filing outcome | Own project, exact revision required | All | All | `used_in_filing` only if explicitly granted in the Financial role implementation |
 | Read financial data | No by default; project-linked summaries may be added later | Yes | Yes | Yes |
 | Write/review financial data | No by default | Yes | Yes | Yes |
-| Manage users, invites, and roles | No | No | Yes | No |
+| See Team and pending invites | No | Yes | Yes | No |
+| Invite Consultants and Managers; resend or revoke those pending invites | No | Yes | Yes | No |
+| Invite Admins; change roles; manage users | No | No | Yes | No |
 | Configure models, tags, Brain, and global settings | No | No | Yes | No |
 | View operational alerts and usage administration | No | Manager analytics only where explicitly granted | Yes | No |
 
@@ -2533,6 +2535,19 @@ Lead decisions, approved 2026-09-25 by the lead; the owner delegated the calls t
 - **Chat time limit (r2 P3).** A reply the stream timer cut off is failed, not completed with a partial reply, and says "That response took too long, so I stopped it before it finished. Try again." Tests: `convex/chatTurns.test.ts`.
 - **A crashed chat reply (r1 P3-3).** The reaper runs every 2 minutes with a 14 minute cutoff (the 540 s stream window plus 5 minutes), so a thread is free within about 16 minutes instead of 25. The refusal now reads "A reply is still being written in this chat. Wait for it to finish, or press Stop if it seems stuck, then send again." Tests: `convex/chatTurns.test.ts`.
 - **Approval:** lead, 2026-09-25 (owner delegated the calls to the lead).
+
+### 2026-09-26: Round 2 UI (Team, invites, sign-in, shell)
+
+Amendment for the round 2 designs (`_bmad-output/design-explorations/2026-09-26-round-2-finalized/HANDOFF.md`, Paper page "Round 2, finalized").
+
+- **Managers see Team and invite (owner decision 47).** Owner, 2026-09-25, in the design session: "managers are like writers but can invite as well and see who has been invited and pending." Managers see the Team page (members and pending invites), invite Consultants and Managers, and resend or revoke those pending invites. Inviting an Admin, changing a role and managing users stay Admin only. The role matrix above is split into three rows to match.
+- **Who changes roles (decision 48, lead, owner delegated).** Admins only. An Owner or Developer account changes roles because it holds the Admin role, not because of its flag (`users.isOwner` and `users.isDeveloper` stay presentation only). UI copy says "An Admin changes roles".
+- **Alerts in the rail (decision 49, lead).** The Alerts board stays `ops.viewAlerts` (Admin). The Developer rail group shows Alerts only to a developer who also holds that capability; Feature requests stay visible to developers as before.
+- **Invite delivery and password reset without email (decision 50, lead).** The app has no email provider. Until the owner picks one, "Send invites" creates the invites and shows each link to copy (as the admin users page does today), "Resend" creates a fresh link to copy, and "Forgot password?" tells the person to ask an Admin, who can already set a temporary password. Choosing an email provider is an open owner decision.
+- **Invite names (decision 51, lead).** First and last name become optional when inviting; the person confirms or enters them when accepting (J5). The account keeps requiring both at acceptance.
+- **Models shown when starting (decision 52, lead).** The start and confirm modals show the models that will actually run: the `planning` role's model writes the ideas (decision 43) and the model the writer picked writes the report. The board's "Claude Fable 5.1" is sample text; Fable 5.1 is not selectable (decision 29).
+- **Consultant role line.** "Writes PDs, sees every project" matches the current visibility policy (internal projects are readable across the workspace).
+- **Approval:** decision 47 by the owner (quoted above); decisions 48 to 52 by the lead on 2026-09-25/26 under the owner's delegation.
 
 ## Amendment process
 

@@ -98,4 +98,15 @@ Decisions 44 to 46 below were made by the lead on 2026-09-25 under the same dele
 
 Security wave 1 (2026-09-25) made these calls under the lead's handoff; they wait for the owner's confirmation. Export and PD reviews count as editing the report (Owner, assigned writer, Manager, Admin), and marking a project final counts as a stage change (Owner, Manager, Admin). The alerts board is Admin only. Sign-in allows 10 attempts a minute per browser address. Error reports allow 10 a minute per signed-in user, 5 per browser session and 30 for all signed-out reports. Attached files are capped at 50 MB. A second chat message while a reply is still being written is refused, not queued. Project and dashboard lists stay open to accounts with no role until the owner decides otherwise (decision D1). The domain note is the 2026-09-25 (sixth) amendment in `docs/product-domain.md`.
 
-Still waiting on the owner: the OpenRouter account steps before `ANTHROPIC_TRANSPORT` is switched on (see decision 30).
+## Round 2 UI decisions, 2026-09-26
+
+| # | Question (plain terms) | Answer | Applied in |
+|---|---|---|---|
+| 47 | Can Managers see Team and invite people? | **Yes** (owner, 2026-09-25): Managers see members and pending invites, invite Consultants and Managers, and resend or revoke those invites. Admin invites, role changes and user management stay Admin only. | Amendment 2026-09-26 in `docs/product-domain.md`. |
+| 48 | Who changes roles? | **Admins only** (Owner and Developer are display flags on top of a role). | Same amendment. |
+| 49 | Do developers see the Alerts board? | **Only if they are also Admins**; the board stays Admin only. | Same amendment. |
+| 50 | How do invites and password resets work with no email provider? | **Links to copy, and "ask an Admin"**, until the owner picks an email provider. | Same amendment; email provider is an open owner decision. |
+| 51 | Must the inviter type names? | **No**; the person enters or confirms them when accepting. | Same amendment. |
+| 52 | Which models do the start modals show? | **The ones that run**: the planning model writes the ideas, the picked model writes the report. | Same amendment. |
+
+Still waiting on the owner: an email provider for invites and password resets (decision 50); the OpenRouter account steps before `ANTHROPIC_TRANSPORT` is switched on (see decision 30).
