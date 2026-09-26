@@ -895,8 +895,13 @@ export const getOutline = query({
   handler: async (ctx, args) => {
     const generation = await requireSeedRead(ctx, args.generationId);
     const editAccess = await getReportEditAccessOrNull(ctx, generation.projectId);
+    const outline = await getOutlineData(ctx, args.generationId);
     return {
-      ...(await getOutlineData(ctx, args.generationId)),
+      ...outline,
+      // Round 2 (F3 to F5): when each pending batch started, and how long
+      // this run's batches take, for the time-based step progress.
+      rows: await withPendingStarts(ctx, outline.rows),
+      expectedMs: await expectedSeedBatchMs(ctx, generation._id),
       // Mutation controls follow the same open-stage rule as decisionFence:
       // a failed, cancelled, signed-off or inactive run is read-only.
       canEdit:
@@ -921,7 +926,8 @@ export const getSubsection = query({
   args: { generationId: v.id("generations"), roleId: seedRoleIdValidator },
   handler: async (ctx, args) => {
     await requireSeedRead(ctx, args.generationId);
-    return getSubsectionData(ctx, args.generationId, args.roleId);
+    const data = await getSubsectionData(ctx, args.generationId, args.roleId);
+    return { ...data, pendingBatch: await pendingBatchOf(ctx, data.pendingBatchId) };
   },
 });
 export const getApprovalReview = query({
@@ -1096,3 +1102,49 @@ export const copyBriefToReadingFacts = internalMutation({
   returns: v.null(),
   handler: async (ctx, args) => await copyBriefToReadingFactsHandler(ctx, args),
 });
+
+// ─── Round 2 (F3 to F5): seed-step progress ─────────────────────────────────
+
+/** The first step's estimate before any batch of this run has finished. */
+export const DEFAULT_SEED_BATCH_MS = 20_000;
+
+/** A pending batch's timing (queued or running), or null. */
+async function pendingBatchOf(ctx: QueryCtx, batchId: Id<"seedBatches"> | null) {
+  if (!batchId) return null;
+  const batch = await ctx.db.get(batchId);
+  if (!batch || (batch.status !== "queued" && batch.status !== "running")) return null;
+  return {
+    status: batch.status,
+    queuedAt: batch.queuedAt,
+    ...(batch.startedAt !== undefined ? { startedAt: batch.startedAt } : {}),
+  };
+}
+
+async function withPendingStarts<R extends { pendingBatchId: Id<"seedBatches"> | null }>(ctx: QueryCtx, rows: R[]) {
+  const out: Array<R & { pendingStartedAt: number | null }> = [];
+  for (const row of rows) {
+    const pending = await pendingBatchOf(ctx, row.pendingBatchId);
+    out.push({ ...row, pendingStartedAt: pending ? (pending.startedAt ?? pending.queuedAt) : null });
+  }
+  return out;
+}
+
+/** The median time of this run's finished batches (shown or superseded), bounded. */
+async function expectedSeedBatchMs(ctx: QueryCtx, generationId: Id<"generations">): Promise<number> {
+  const durations: number[] = [];
+  for (const status of ["shown", "superseded"] as const) {
+    const rows = await ctx.db
+      .query("seedBatches")
+      .withIndex("by_generationId_and_status", (q) => q.eq("generationId", generationId).eq("status", status))
+      .take(50);
+    for (const row of rows) {
+      if (row.startedAt !== undefined && row.completedAt !== undefined && row.completedAt > row.startedAt) {
+        durations.push(row.completedAt - row.startedAt);
+      }
+    }
+  }
+  if (!durations.length) return DEFAULT_SEED_BATCH_MS;
+  durations.sort((a, b) => a - b);
+  const middle = Math.floor(durations.length / 2);
+  return durations.length % 2 ? durations[middle] : Math.round((durations[middle - 1] + durations[middle]) / 2);
+}

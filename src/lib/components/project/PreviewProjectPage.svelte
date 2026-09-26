@@ -2262,6 +2262,7 @@
             generationId={generation._id}
             {projectId}
             userId={user?._id ?? "anonymous"}
+            requestedRoleId={page.url.searchParams.get("step")}
             hostVisible={mainPaneVisible && !sourcesOpen}
             onReviewSummary={() => {
               summaryOpener = "trigger";

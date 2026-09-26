@@ -2,6 +2,7 @@
   import type { Snippet } from "svelte";
   import type { PdSubsectionRoleId } from "../../../../shared/pdSubsections";
   import type { SeedOutlineRow } from "./types";
+  import { seedProgress } from "./seedProgress";
 
   let {
     rows,
@@ -9,6 +10,8 @@
     onOpen,
     usageNotice = null,
     footer,
+    expectedMs = 20_000,
+    now = Date.now(),
   }: {
     rows: SeedOutlineRow[];
     activeRoleId: PdSubsectionRoleId;
@@ -17,7 +20,22 @@
     usageNotice?: string | null;
     /** The step's approval actions, pinned below the list. */
     footer?: Snippet;
+    /** Round 2 (F3, F5): the run's batch pace and the host's clock. */
+    expectedMs?: number;
+    now?: number;
   } = $props();
+
+  /** Estimated percent of a row whose batch is being written, else null. */
+  function pendingPercent(row: SeedOutlineRow): number | null {
+    const startedAt = (row as SeedOutlineRow & { pendingStartedAt?: number | null }).pendingStartedAt;
+    if (!row.pendingBatchId || startedAt === null || startedAt === undefined) return null;
+    return seedProgress(now, { status: "running", queuedAt: startedAt, startedAt }, expectedMs).percent;
+  }
+
+  function ringStyle(percent: number) {
+    const p = Math.max(2, percent);
+    return `background:conic-gradient(#2FD2C4 0%, #58BBF3 ${p * 0.35}%, #8438FF ${p * 0.72}%, #E879F9 ${p}%, var(--aurora-track) ${p}%, var(--aurora-track) 100%)`;
+  }
 
   const sections: Array<{ id: SeedOutlineRow["section"]; label: string }> = [
     { id: "s242", label: "242" },
@@ -145,6 +163,7 @@
         {@const active = row.roleId === activeRoleId}
         {@const kind = iconOf(row)}
         {@const count = countText(row)}
+        {@const writing = pendingPercent(row)}
         <button
           type="button"
           aria-current={active ? "step" : undefined}
@@ -154,10 +173,17 @@
             active ? "bg-primary-wash" : "hover:bg-gray-50"
           }`}
         >
-          {@render stateIcon(kind, active)}
+          {#if writing !== null}
+            <!-- Round 2 (F3, F5): a conic ring filled to the estimate. -->
+            <span class="relative inline-flex size-3.5 shrink-0 items-center justify-center rounded-full" style={ringStyle(writing)} aria-hidden="true" data-row-icon="writing" data-row-percent={writing}>
+              <span class="size-2.5 rounded-full bg-primary-wash"></span>
+            </span>
+          {:else}
+            {@render stateIcon(kind, active)}
+          {/if}
           <span
             class={`min-w-0 flex-1 truncate text-[13px] leading-[18px] ${
-              active
+              active || writing !== null
                 ? "font-medium text-ink"
                 : row.state === "skipped"
                   ? "text-ink-faint"
@@ -167,7 +193,9 @@
             }`}
           >{row.title}</span>
           <span class="sr-only">, {stateText(row)}</span>
-          {#if row.stale || row.outdated}
+          {#if writing !== null}
+            <span class="shrink-0 text-xs leading-4 text-ink-muted" data-row-progress>{writing}%</span>
+          {:else if row.stale || row.outdated}
             <span class="inline-flex shrink-0 items-center gap-1 text-[11px] leading-[14px] text-gap-text!" aria-hidden="true" data-row-marker={row.stale ? "stale" : "outdated"}>
               <span class="size-1.5 rounded-full bg-stale-dot"></span>{row.stale ? "stale" : "outdated"}
             </span>

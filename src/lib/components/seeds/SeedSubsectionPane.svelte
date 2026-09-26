@@ -10,6 +10,8 @@
   import Checkbox from "$lib/components/ui/Checkbox.svelte";
   import Spinner from "$lib/components/ui/Spinner.svelte";
   import Tooltip from "$lib/components/ui/Tooltip.svelte";
+  import AuroraMark from "$lib/components/ui/AuroraMark.svelte";
+  import { seedProgress, seedProgressLine } from "./seedProgress";
   import SeedCard from "./SeedCard.svelte";
   import { describeSource, EMPTY_SOURCE_ATTRIBUTION, missingSourceIds } from "./attribution";
   import type { QuoteCitation } from "./citations";
@@ -48,6 +50,8 @@
     onRegisterApproval = undefined,
     onOpenBrief = undefined,
     onOpenSource = undefined,
+    expectedMs = 20_000,
+    afterPicks = false,
   }: {
     generationId: Id<"generations">;
     title: string;
@@ -81,7 +85,43 @@
     onOpenBrief?: () => void;
     /** Opens a quoted source in its transcript, where the host has a route. */
     onOpenSource?: (citation: QuoteCitation) => void;
+    /** Round 2 (F3, F5): how long this run's batches take (seeds.getOutline). */
+    expectedMs?: number;
+    /** A step after approved ones reads the writer's picks too (F5 copy). */
+    afterPicks?: boolean;
   } = $props();
+
+  // Round 2 (F3, F5): the pending batch's time-based progress. An estimate:
+  // a seed batch is one structured call with no progress signal.
+  let progressNow = $state(Date.now());
+  $effect(() => {
+    if (!data.pendingBatchId) return;
+    progressNow = Date.now();
+    const timer = setInterval(() => (progressNow = Date.now()), 1_000);
+    return () => clearInterval(timer);
+  });
+  const pendingProgress = $derived(
+    data.pendingBatchId ? seedProgress(progressNow, data.pendingBatch ?? null, expectedMs) : null
+  );
+
+  // Mod Enter approves the step (I4), except while typing in a seed field,
+  // where Enter already saves.
+  const isMac = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
+  const approveHint = `${isMac ? "⌘" : "Ctrl"} Enter`;
+  function isTypingTarget(target: EventTarget | null) {
+    if (!(target instanceof HTMLElement)) return false;
+    return target.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName);
+  }
+  $effect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== "Enter" || !(isMac ? event.metaKey : event.ctrlKey) || event.shiftKey || event.altKey) return;
+      if (isTypingTarget(event.target) || !canEdit || approvalDisabled) return;
+      event.preventDefault();
+      void approveCurrent();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  });
 
   type ApprovalLayout = "outline" | "bar";
 
@@ -345,6 +385,8 @@
   );
   const approvalDisabled = $derived(
     busy ||
+      // Round 2 (F3): nothing to approve while the step's ideas are written.
+      !!data.pendingBatchId ||
       !approvalChallenge ||
       approvalSelectedCount === 0 ||
       data.state === "skipped" ||
@@ -619,11 +661,18 @@
             {/snippet}
           </Tooltip>
         {/if}
-        <Button
-          class={approvalButtonClass(layout)}
-          disabled={approvalDisabled}
-          onclick={approveCurrent}
-        >{isReopened ? "Confirm and approve" : "Approve and continue"}</Button>
+        <Tooltip text={approveHint} delayDuration={500}>
+          {#snippet children({ props })}
+            <Button
+              {...props}
+              class={approvalButtonClass(layout)}
+              disabled={approvalDisabled}
+              onclick={approveCurrent}
+              data-approve-step
+              aria-keyshortcuts={isMac ? "Meta+Enter" : "Control+Enter"}
+            >{isReopened ? "Confirm and approve" : "Approve and continue"}</Button>
+          {/snippet}
+        </Tooltip>
       </div>
     {/if}
   </div>
@@ -838,9 +887,29 @@
           {/if}
         </div>
       {/if}
-      {#if data.pendingBatchId}
-        <div class="mb-2.5 flex min-h-24 items-center justify-center gap-2 rounded-[10px] border border-line bg-surface text-body text-ink-muted">
-          <Spinner size="sm" /> Writing seeds…
+      {#if data.pendingBatchId && pendingProgress}
+        <!-- Round 2 (F3, F5): the step's progress row, an estimate. -->
+        <div class="mb-3 flex flex-wrap items-center gap-x-4 gap-y-2" data-seed-progress>
+          <div class="flex min-w-0 flex-1 items-center gap-2.5">
+            <AuroraMark size={20} />
+            <p class="min-w-0 text-[13px] leading-[18px] text-ink-secondary" data-seed-progress-line aria-live="polite">
+              {seedProgressLine(pendingProgress, afterPicks)}
+            </p>
+          </div>
+          <div
+            class="relative h-1 w-40 shrink-0 overflow-hidden rounded-full bg-[var(--aurora-track)]"
+            role="progressbar"
+            aria-label="Writing ideas"
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={pendingProgress.percent}
+            data-seed-progress-bar
+          >
+            <div
+              class="h-full rounded-full transition-[width] duration-700 ease-out motion-reduce:transition-none"
+              style={`width:${pendingProgress.percent}%;background:var(--aurora-linear)`}
+            ></div>
+          </div>
         </div>
       {/if}
 
@@ -851,6 +920,21 @@
             {#if canEdit && data.state !== "skipped"}
               <Button class="mt-3" size="sm" variant="secondary" disabled={busy} onclick={regenerateCurrent}>Try again</Button>
             {/if}
+          </div>
+        {:else if data.items.length === 0 && data.pendingBatchId}
+          <!-- Four skeleton cards while the step's ideas are written (F3). -->
+          <div class={`grid gap-2.5 ${twoColumns ? "grid-cols-[repeat(2,minmax(0,412px))]" : "grid-cols-1"}`} aria-hidden="true" data-seed-skeletons>
+            {#each [0, 1, 2, 3] as index (index)}
+              <div class="flex h-[170px] flex-col gap-3 rounded-xl border border-line-soft bg-surface p-4" data-seed-skeleton>
+                <div class="flex gap-2">
+                  <span class="h-5 w-20 rounded-[5px]" style="background:var(--skeleton-line)"></span>
+                  <span class="h-5 w-14 rounded-[5px]" style="background:var(--skeleton-line)"></span>
+                </div>
+                {#each ["100%", "92%", "64%"] as width (width)}
+                  <span class="h-2.5 rounded-full" style={`width:${width};background:var(--skeleton-line)`}></span>
+                {/each}
+              </div>
+            {/each}
           </div>
         {:else if data.items.length === 0 && !data.pendingBatchId}
           <div class="rounded-[10px] border border-dashed border-line p-6 text-center">
