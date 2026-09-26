@@ -20,6 +20,8 @@ import { takeProjectStart } from "$lib/workspace/projectIntentHandoff";
  */
 const MESSAGE =
   "Add a transcript or a current file. Last year's report alone can't be the source for this year's report.";
+const TRANSCRIPTS_MESSAGE =
+  "Add a new transcript or a current file. Last year's transcripts and report can't be the only sources for this year's report.";
 
 function buttonByText(text: string) {
   return [...document.querySelectorAll("button")].find(
@@ -99,6 +101,22 @@ function seedSource(fiscalYearEnd?: number) {
   });
 }
 
+/** Set the duplicate's fiscal year end to 2025-12-31 in the date picker. */
+async function moveFiscalYearTo2025() {
+  const field = document.querySelector<HTMLButtonElement>("#fiscalYearEnd")!;
+  field.click();
+  const day = () =>
+    document.querySelector<HTMLElement>(
+      '[data-bits-day][data-value="2025-12-31"]:not([data-outside-month])'
+    );
+  await expect.poll(() => document.querySelector('button[aria-label="Next"]')).not.toBeNull();
+  for (let page = 0; page < 30 && !day(); page += 1) {
+    document.querySelector<HTMLButtonElement>('button[aria-label="Next"]')!.click();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  }
+  day()!.click();
+}
+
 beforeEach(() => {
   localStorage.clear();
   __resetPage();
@@ -157,18 +175,7 @@ describe("/project/new with only last year's report (decision 42)", () => {
     // Move the fiscal year forward so the old report comes along as last
     // year's report, then untick the transcript and the current file.
     await expect.poll(() => document.querySelector("[data-copied-files]")).not.toBeNull();
-    const field = document.querySelector<HTMLButtonElement>("#fiscalYearEnd")!;
-    field.click();
-    const day = () =>
-      document.querySelector<HTMLElement>(
-        '[data-bits-day][data-value="2025-12-31"]:not([data-outside-month])'
-      );
-    await expect.poll(() => document.querySelector('button[aria-label="Next"]')).not.toBeNull();
-    for (let page = 0; page < 30 && !day(); page += 1) {
-      document.querySelector<HTMLButtonElement>('button[aria-label="Next"]')!.click();
-      await new Promise((resolve) => setTimeout(resolve, 0));
-    }
-    day()!.click();
+    await moveFiscalYearTo2025();
     await expect.poll(() => document.querySelector("[data-previous-year-report]")).not.toBeNull();
 
     await untick("Kickoff.docx");
@@ -186,6 +193,43 @@ describe("/project/new with only last year's report (decision 42)", () => {
     expect(document.body.textContent).not.toContain(MESSAGE);
     (await generateButton()).click();
     await expect.poll(() => __mutationCalls("projects:createProject").length).toBe(1);
+  });
+
+  // Lead note of 2026-09-25 (audit a4 #12): a year on, the transcripts
+  // copied from the original are last year's too.
+  it("blocks a card duplicate a year on with only last year's transcript and report, until a current file is ticked", async () => {
+    seedSource(Date.UTC(2024, 11, 31));
+    __setPageUrl("/project/new?from=project-1&drafts=iterative");
+    await render(NewProjectPage, {});
+
+    await expect.poll(() => document.querySelector("[data-copied-files]")).not.toBeNull();
+    await moveFiscalYearTo2025();
+    await expect.poll(() => document.querySelector("[data-previous-year-report]")).not.toBeNull();
+    await untick("Writer notes.md");
+    expect(copyBox("Kickoff.docx")?.getAttribute("aria-checked")).toBe("true");
+
+    await clickText("Next");
+    await expect.poll(() => document.body.textContent).toContain(TRANSCRIPTS_MESSAGE);
+    expect((await generateButton()).disabled).toBe(true);
+
+    buttonByText("Back")!.click();
+    await tick("Writer notes.md");
+    await clickText("Next");
+    await expect.poll(async () => (await generateButton()).disabled).toBe(false);
+    expect(document.body.textContent).not.toContain(TRANSCRIPTS_MESSAGE);
+  });
+
+  it("lets a same-year card duplicate draft from its copied transcript", async () => {
+    seedSource(Date.UTC(2024, 11, 31));
+    __setPageUrl("/project/new?from=project-1&drafts=iterative");
+    await render(NewProjectPage, {});
+
+    await expect.poll(() => document.querySelector("[data-copied-files]")).not.toBeNull();
+    await untick("Writer notes.md");
+    await clickText("Next");
+    await expect.poll(async () => (await generateButton()).disabled).toBe(false);
+    expect(document.body.textContent).not.toContain(TRANSCRIPTS_MESSAGE);
+    expect(document.body.textContent).not.toContain(MESSAGE);
   });
 
   it("blocks a plain ?from= copy in Generate PD whose only ticked file is a previous-year report", async () => {

@@ -5,6 +5,7 @@ import {
   getProjectAccess,
 } from "./lib/auth";
 import { requireReportEditAccess } from "./lib/roleCapabilities";
+import { provenanceForEdit } from "./lib/editProvenance";
 import { domainError, sha256 } from "./lib/contracts";
 import {
   applyReplacements,
@@ -154,7 +155,7 @@ export const acceptEdit = mutation({
       domainError("INVALID_INPUT", "This comment has no suggested edit");
     }
     // Accepting a client suggestion rewrites report prose: report.editProse.
-    await requireReportEditAccess(ctx, comment.projectId);
+    const { user } = await requireReportEditAccess(ctx, comment.projectId);
     // A second Accept (a double click, another tab) must not apply it again.
     if (comment.resolved) {
       domainError("INVALID_STATE", "This suggestion was already accepted or dismissed.");
@@ -212,7 +213,11 @@ export const acceptEdit = mutation({
       content,
       contentHash: await sha256(content),
       revisionNumber: revisionNumber + 1,
-      provenanceId: undefined,
+      provenanceId: await provenanceForEdit(ctx, report, content, {
+        actorId: user._id,
+        nextRevisionNumber: revisionNumber + 1,
+        now,
+      }),
       updatedAt: now,
     });
     await persistDeterministicFindings(ctx, report._id);

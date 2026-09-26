@@ -9,6 +9,7 @@ import { withPlaceholders } from "./placeholderClient";
 import { avoidTokenCollisions } from "../lib/deidentify";
 import { PD_REVIEW_SYSTEM_PROMPT } from "./prompts";
 import { generateStructured } from "./structured";
+import { startActionDeadline } from "./actionDeadline";
 import { pdReviewResultSchema } from "../../shared/pdReview";
 import type { z } from "zod";
 import type { ContextDoc } from "./analyzerAgent";
@@ -192,6 +193,9 @@ export const runPdReview = internalAction({
     projectId: v.id("projects"),
   },
   handler: async (ctx, args) => {
+    // Every request ends inside the Convex action limit (actionDeadline.ts),
+    // so a slow review fails here instead of being killed mid-run.
+    startActionDeadline(ctx);
     try {
       const input = await ctx.runQuery(internal.pdReviews.getReviewInput, {
         reviewId: args.reviewId,

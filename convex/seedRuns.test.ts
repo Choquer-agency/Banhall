@@ -1006,6 +1006,54 @@ describe("seed attempt transactions", () => {
     expect((await s.t.run(ctx => ctx.db.get(s.generationId)))?.seedRequestsReserved).toBe(2);
   });
 
+  // Audit 2026-09-25 a3 P3: a killed attempt fails when its own lease ends,
+  // not at the next reaper sweep up to ten minutes later.
+  it("schedules the attempt's own lease check, which fails a stuck running attempt", async () => {
+    const s = await fixture();
+    const dispatched = await openRole(s, "company_context");
+    if (dispatched.kind !== "dispatched") throw new Error("not dispatched");
+    const batch = await s.t.run((ctx) => ctx.db.get(dispatched.batchId));
+    const job = await s.t.run(async (ctx) =>
+      (await ctx.db.system.query("_scheduled_functions").collect()).find(
+        (row) => row.name === "seedRuns:expireAttempt" && row.args[0]?.batchId === dispatched.batchId
+      )
+    );
+    expect(job?.args[0]).toEqual({ batchId: dispatched.batchId, attemptId: batch?.attemptId });
+    expect(job?.scheduledTime).toBe(batch?.leaseExpiresAt);
+    const claim = await s.t.mutation(claimRef, { batchId: dispatched.batchId });
+    if (claim.kind !== "claimed") throw new Error("not claimed");
+
+    // Before the lease ends it changes nothing.
+    await s.t.mutation(internal.seedRuns.expireAttempt, { batchId: dispatched.batchId, attemptId: claim.batch.attemptId });
+    expect(await s.t.run((ctx) => ctx.db.get(dispatched.batchId))).toMatchObject({ status: "running" });
+
+    // Its action was killed: the lease ends and the check fails the attempt.
+    await s.t.run((ctx) => ctx.db.patch(dispatched.batchId, { leaseExpiresAt: Date.now() }));
+    await s.t.mutation(internal.seedRuns.expireAttempt, { batchId: dispatched.batchId, attemptId: claim.batch.attemptId });
+    expect(await s.t.run((ctx) => ctx.db.get(dispatched.batchId))).toMatchObject({
+      status: "failed",
+      error: "LEASE_EXPIRED",
+      requestsMade: 2,
+    });
+    expect((await s.t.run((ctx) => ctx.db.get(s.subsectionIds.company_context!)))?.pendingBatchId).toBeUndefined();
+  });
+
+  it("leaves a completed attempt and another attempt's row alone", async () => {
+    const s = await fixture();
+    const dispatched = await openRole(s, "company_context");
+    if (dispatched.kind !== "dispatched") throw new Error("not dispatched");
+    const claim = await s.t.mutation(claimRef, { batchId: dispatched.batchId });
+    if (claim.kind !== "claimed") throw new Error("not claimed");
+    await s.t.run((ctx) => ctx.db.patch(dispatched.batchId, { leaseExpiresAt: Date.now() }));
+    await s.t.mutation(internal.seedRuns.expireAttempt, { batchId: dispatched.batchId, attemptId: "another-attempt" });
+    expect(await s.t.run((ctx) => ctx.db.get(dispatched.batchId))).toMatchObject({ status: "running" });
+    await s.t.run((ctx) => ctx.db.patch(dispatched.batchId, { leaseExpiresAt: Date.now() + 60_000 }));
+    await s.t.mutation(completeRef, { batchId: dispatched.batchId, attemptId: claim.batch.attemptId, requestsMade: 1, seeds: validBatch });
+    await s.t.run((ctx) => ctx.db.patch(dispatched.batchId, { leaseExpiresAt: Date.now() }));
+    await s.t.mutation(internal.seedRuns.expireAttempt, { batchId: dispatched.batchId, attemptId: claim.batch.attemptId });
+    expect(await s.t.run((ctx) => ctx.db.get(dispatched.batchId))).toMatchObject({ status: "shown" });
+  });
+
   it("refuses a queued claim at its exact lease boundary before the reaper runs", async () => {
     const s = await fixture();
     const dispatched = await openRole(s, "company_context");

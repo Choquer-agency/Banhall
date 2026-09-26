@@ -25,6 +25,7 @@ import {
 import { requireAnthropicConfigured } from "./lib/providerConfig";
 import { pruneSnapshots, writePreEditSnapshot } from "./lib/snapshots";
 import { requireReportEditAccess } from "./lib/roleCapabilities";
+import { provenanceForEdit } from "./lib/editProvenance";
 import {
   applyReplacements,
   headingEditRefusal,
@@ -680,7 +681,11 @@ export const applyProposal = mutation({
       content,
       contentHash: await sha256(content),
       revisionNumber: revisionNumber + 1,
-      provenanceId: undefined,
+      provenanceId: await provenanceForEdit(ctx, report, content, {
+        actorId: applier._id,
+        nextRevisionNumber: revisionNumber + 1,
+        now,
+      }),
       updatedAt: now,
     });
     await persistDeterministicFindings(ctx, report._id);
@@ -738,7 +743,7 @@ export const markProposalApplied = mutation({
     const proposal = await ctx.db.get(args.proposalId);
     if (!proposal) domainError("NOT_FOUND", "Proposal not found");
     // report.editProse: this path writes the final document content.
-    await requireReportEditAccess(ctx, proposal.projectId);
+    const { user } = await requireReportEditAccess(ctx, proposal.projectId);
     const report = await ctx.db.get(proposal.reportId);
     if (!report || report.projectId !== proposal.projectId) {
       domainError("NOT_FOUND", "Report not found");
@@ -788,8 +793,12 @@ export const markProposalApplied = mutation({
       content: args.content,
       contentHash: await sha256(args.content),
       revisionNumber: revisionNumber + 1,
-      // Any writer edit requires a new provenance review for the exact revision.
-      provenanceId: undefined,
+      // Changed claims need review again; unchanged ones keep theirs.
+      provenanceId: await provenanceForEdit(ctx, report, args.content, {
+        actorId: user._id,
+        nextRevisionNumber: revisionNumber + 1,
+        now,
+      }),
       updatedAt: now,
     });
     await persistDeterministicFindings(ctx, report._id);

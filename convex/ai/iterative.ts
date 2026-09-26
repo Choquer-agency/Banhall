@@ -724,6 +724,7 @@ export const generateSection = internalAction({
         generationId: args.generationId,
         section: args.section,
         error,
+        attempt: run.attempt,
       });
     if (!input) {
       await fail("The frozen section inputs are unavailable.");
@@ -813,6 +814,7 @@ export const generateSection = internalAction({
         draftText: text,
         metrics: JSON.stringify(metrics),
         qa: JSON.stringify(findings),
+        attempt: run.attempt,
       });
     } catch (error) {
       await fail(describeProviderFailure(error));

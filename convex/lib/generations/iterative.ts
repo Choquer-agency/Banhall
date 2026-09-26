@@ -39,9 +39,11 @@ import { internal } from "../../_generated/api";
 import { buildTiptapDocument } from "../tiptapReport";
 import { sectionMetrics } from "../lineLimits";
 import { generationTranscriptIds } from "../transcripts";
+import { provenanceForWriterApprovedReport } from "../editProvenance";
 import { terminateSeedAttempts } from "../../seedRuns";
 import { bypassSeedEpisodes } from "../seedDecisionWrites";
 import { writeAgentOutputs } from "../generationOutputs";
+import { restorableProjectStatus } from "./restoreStatus";
 
 // ─── Iterative (section-by-section) generation lifecycle ─────────────────────
 //
@@ -203,6 +205,10 @@ export const completeSectionRunArgs = {
   draftText: v.string(),
   metrics: v.string(),
   qa: v.string(),
+  // The claimed attempt (audit 2026-09-25 a3 P3). A regenerate reuses the
+  // row with the next attempt, so a late result of an older attempt is
+  // dropped. Optional only for an action that claimed before this field.
+  attempt: v.optional(v.number()),
 };
 
 /** Handler of generations.completeSectionRun. */
@@ -212,6 +218,7 @@ export async function completeSectionRunHandler(
 ) {
   const run = await getSectionRun(ctx, args.generationId, args.section);
   if (!run || run.status !== "running") return;
+  if (args.attempt !== undefined && run.attempt !== args.attempt) return;
   const generation = await ctx.db.get(run.generationId);
   const project = await ctx.db.get(run.projectId);
   if (
@@ -250,6 +257,8 @@ export const failSectionRunArgs = {
   generationId: v.id("generations"),
   section: sectionValidator,
   error: v.string(),
+  // The claimed attempt, as for completeSectionRun.
+  attempt: v.optional(v.number()),
 };
 
 /** Handler of generations.failSectionRun. */
@@ -259,6 +268,7 @@ export async function failSectionRunHandler(
 ) {
   const run = await getSectionRun(ctx, args.generationId, args.section);
   if (!run || (run.status !== "running" && run.status !== "queued")) return;
+  if (args.attempt !== undefined && run.attempt !== args.attempt) return;
   const generation = await ctx.db.get(run.generationId);
   if (!generation) return;
   if (await isProjectDeleting(ctx, generation.projectId)) return;
@@ -627,7 +637,14 @@ export async function approveSectionDraftHandler(
     projectId: generation.projectId,
     content,
     agentOutputs,
-    provenanceId: undefined,
+    // Writer-approved Sections carry no quotes: every paragraph is a claim
+    // for a manager to review (amendment 2026-09-25, fifth).
+    provenanceId: await provenanceForWriterApprovedReport(ctx, {
+      projectId: generation.projectId,
+      generation,
+      content,
+      now,
+    }),
     label: `Iterative — ${run.label}`,
   });
 
@@ -842,7 +859,7 @@ export async function cancelIterativeGenerationHandler(
   for (const row of candidates) await ctx.db.delete(row._id);
   await ctx.db.patch(project._id, {
     activeGenerationId: undefined,
-    status: generation.previousProjectStatus ?? "draft",
+    status: restorableProjectStatus(generation.previousProjectStatus),
     updatedAt: now,
   });
   await refreshProjectGenerationActivity(ctx, generation.projectId);

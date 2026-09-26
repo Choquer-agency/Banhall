@@ -10,6 +10,7 @@ import {
   requireRole,
 } from "./lib/auth";
 import { requireReportEditAccess } from "./lib/roleCapabilities";
+import { provenanceForEdit } from "./lib/editProvenance";
 import {
   assertBoundedCitations,
   claimCitationValidator,
@@ -55,7 +56,7 @@ export const updateReportContent = mutation({
     if (!report) domainError("NOT_FOUND", "Report not found");
     // report.editProse (matrix: Consultant = own, Manager/Admin = all) is
     // enforced at this final mutation boundary, not only in the UI.
-    await requireReportEditAccess(ctx, report.projectId);
+    const { user } = await requireReportEditAccess(ctx, report.projectId);
     const revisionNumber = report.revisionNumber ?? 0;
     if (args.expectedRevisionNumber !== revisionNumber) {
       domainError("STALE_REVISION", "The report changed before this save completed");
@@ -63,13 +64,19 @@ export const updateReportContent = mutation({
     if (!args.content.trim() || args.content.length > 1_000_000) {
       domainError("INVALID_INPUT", "Report content is empty or exceeds 1,000,000 characters");
     }
+    const now = Date.now();
     await ctx.db.patch(args.reportId, {
       content: args.content,
       contentHash: await sha256(args.content),
       revisionNumber: revisionNumber + 1,
-      // Any writer edit requires a new provenance review for the exact revision.
-      provenanceId: undefined,
-      updatedAt: Date.now(),
+      // The new revision gets its own claim record: changed claims need
+      // review again, unchanged ones keep theirs (amendment 2026-09-25, fifth).
+      provenanceId: await provenanceForEdit(ctx, report, args.content, {
+        actorId: user._id,
+        nextRevisionNumber: revisionNumber + 1,
+        now,
+      }),
+      updatedAt: now,
     });
     await persistDeterministicFindings(ctx, args.reportId);
     return revisionNumber + 1;

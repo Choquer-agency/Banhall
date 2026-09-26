@@ -578,7 +578,8 @@ function lazyClient(
   ctx: ActionCtx,
   modelId: string,
   meta: GenerationCallMeta,
-  build: () => GenerationClient
+  build: () => GenerationClient,
+  signal?: AbortSignal
 ): GenerationClient {
   let resolved: Promise<GenerationClient> | undefined;
   const generationId = meta.attribution?.generationId;
@@ -593,11 +594,17 @@ function lazyClient(
         resolved = undefined;
         throw error;
       }));
-  return withOutcomeRecording(ctx, modelId, meta.callSite, {
-    messages: {
-      create: async (params) => (await resolve()).messages.create(params),
+  return withOutcomeRecording(
+    ctx,
+    modelId,
+    meta.callSite,
+    {
+      messages: {
+        create: async (params) => (await resolve()).messages.create(params),
+      },
     },
-  });
+    signal ? { signal } : {}
+  );
 }
 
 /**
@@ -625,25 +632,45 @@ export function seedClientForModel(
 /**
  * The client for a candidate model, routed by its gateway. Anthropic's SDK
  * client satisfies GenerationClient structurally, so agents typed against it
- * accept both.
+ * accept both. `signal` aborts every request of the client, such as a
+ * condense call past its time limit (audit 2026-09-25 a3 P2-2); an aborted
+ * request records no outcome for the model.
  */
 export function clientForModel(
   ctx: ActionCtx,
   modelId: string,
-  meta: GenerationCallMeta
+  meta: GenerationCallMeta,
+  options: { signal?: AbortSignal } = {}
 ): GenerationClient {
   assertGenerationCallSite(meta.callSite);
-  return lazyClient(ctx, modelId, meta, () => {
-    if (gatewayForModel(modelId) === "openrouter") {
-      return instrumentedOpenRouter(ctx, meta);
-    }
-    // Anthropic's response is a superset of GenerationResponse (extra block
-    // variants like thinking); safe to narrow: agents only read text/tool_use.
-    return instrumentedAnthropic(ctx, {
-      ...meta,
-      capability: "generation",
-    }) as unknown as GenerationClient;
-  });
+  const { signal } = options;
+  return lazyClient(
+    ctx,
+    modelId,
+    meta,
+    () => {
+      if (gatewayForModel(modelId) === "openrouter") {
+        return instrumentedOpenRouter(ctx, meta, signal ? { signal } : {});
+      }
+      // Anthropic's response is a superset of GenerationResponse (extra block
+      // variants like thinking); safe to narrow: agents only read text/tool_use.
+      const anthropic = instrumentedAnthropic(ctx, {
+        ...meta,
+        capability: "generation",
+      });
+      if (!signal) return anthropic as unknown as GenerationClient;
+      return {
+        messages: {
+          create: async (params) =>
+            (await anthropic.messages.create(
+              params as Anthropic.MessageCreateParamsNonStreaming,
+              { signal }
+            )) as unknown as GenerationResponse,
+        },
+      };
+    },
+    signal
+  );
 }
 
 /**

@@ -5,6 +5,7 @@ import { internal } from "../_generated/api";
 import { v } from "convex/values";
 import { z } from "zod";
 import { clientForRole } from "./providers";
+import { startActionDeadline } from "./actionDeadline";
 import { normalizeProviderError } from "./providers";
 import { OutputLimitError, firstResponseText, isCutOffStopReason } from "./openrouterCore";
 
@@ -85,6 +86,8 @@ export const processFinancialUpload = internalAction({
     uploadId: v.id("financialUploads"),
   },
   handler: async (ctx, args) => {
+    // Every request ends inside the Convex action limit (actionDeadline.ts).
+    startActionDeadline(ctx);
     const claimed = await ctx.runMutation(internal.financial.markUploadRunning, {
       projectId: args.projectId,
       uploadId: args.uploadId,

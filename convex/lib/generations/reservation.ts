@@ -40,7 +40,9 @@ import {
   isPreviousYearDocument,
   PREVIOUS_YEAR_ONLY_MESSAGE,
   PREVIOUS_YEAR_ONLY_REASON,
+  PREVIOUS_YEAR_TRANSCRIPTS_ONLY_MESSAGE,
 } from "../../../shared/previousYear";
+import { dashboardFiscalYear } from "../../../shared/dashboardProjection";
 import {
   requireAnthropicConfigured,
   requireOpenRouterConfigured,
@@ -57,6 +59,7 @@ import { requireReportEditAccess } from "../roleCapabilities";
 import { assertFrozenSourceBijection, resolveFrozenSourceId } from "../seedRevisions";
 import { startSummaryRecoveryRef } from "./seedStage";
 import { transitionGeneration } from "../generationTransitions";
+import { restorableProjectStatus } from "./restoreStatus";
 
 export const lengthTargetValidator = v.union(
   v.literal("concise"),
@@ -152,6 +155,39 @@ export function decideInputMode(totalChars: number): "full" | "digest" {
   return totalChars > TRANSCRIPT_BUDGET_CHARS ? "digest" : "full";
 }
 
+/**
+ * Decision 42, lead note of 2026-09-25: a transcript a duplicate copied from
+ * a project with an earlier fiscal year is last year's transcript, not a
+ * current-year source. Every other transcript counts, including a copy whose
+ * original row is gone or whose fiscal years are not both set.
+ */
+async function currentYearTranscriptCount(
+  ctx: MutationCtx,
+  project: Doc<"projects">,
+  transcripts: Doc<"transcripts">[]
+): Promise<number> {
+  const year = dashboardFiscalYear(project.fiscalYearEnd);
+  if (year === null) return transcripts.length;
+  const sourceYears = new Map<Id<"projects">, number | null>();
+  let count = 0;
+  for (const transcript of transcripts) {
+    const original = transcript.copiedFromTranscriptId
+      ? await ctx.db.get(transcript.copiedFromTranscriptId)
+      : null;
+    if (!original) {
+      count += 1;
+      continue;
+    }
+    if (!sourceYears.has(original.projectId)) {
+      const source = await ctx.db.get(original.projectId);
+      sourceYears.set(original.projectId, dashboardFiscalYear(source?.fiscalYearEnd));
+    }
+    const sourceYear = sourceYears.get(original.projectId) ?? null;
+    if (sourceYear === null || year <= sourceYear) count += 1;
+  }
+  return count;
+}
+
 export async function reserveGeneration(
   ctx: MutationCtx,
   project: Doc<"projects">,
@@ -184,24 +220,28 @@ export async function reserveGeneration(
   // Jul 17 meeting: some engagements have no interview at all (spreadsheet
   // only, drawings, a single email). A transcript-less generation is allowed
   // as long as there's at least one readable context document to work from.
-  if (transcripts.length === 0) {
+  if ((await currentYearTranscriptCount(ctx, project, transcripts)) === 0) {
     const docs = await ctx.db
       .query("projectDocuments")
       .withIndex("by_projectId", (q) => q.eq("projectId", project._id))
       .collect();
     const usable = docs.filter((d) => !d.archived && d.content.trim());
-    if (usable.length === 0) {
+    if (usable.length === 0 && transcripts.length === 0) {
       domainError(
         "INVALID_INPUT",
         "Add an interview transcript or at least one context document with readable text"
       );
     }
     // Decision 42 (2026-09-25): last year's report alone is not a source
-    // for this year's report. Checked before any paid call is scheduled.
+    // for this year's report, and neither are last year's transcripts a
+    // duplicate copied (lead note, 2026-09-25). Checked before any paid call
+    // is scheduled.
     if (usable.every(isPreviousYearDocument)) {
-      domainError("INVALID_INPUT", PREVIOUS_YEAR_ONLY_MESSAGE, {
-        reason: PREVIOUS_YEAR_ONLY_REASON,
-      });
+      domainError(
+        "INVALID_INPUT",
+        transcripts.length > 0 ? PREVIOUS_YEAR_TRANSCRIPTS_ONLY_MESSAGE : PREVIOUS_YEAR_ONLY_MESSAGE,
+        { reason: PREVIOUS_YEAR_ONLY_REASON }
+      );
     }
   }
   if (
@@ -342,7 +382,7 @@ export async function reserveGeneration(
     retryOfGenerationId,
     retryModelIds: persistedRetryModelIds,
     seededCandidates: seededCandidates || undefined,
-    previousProjectStatus: project.status,
+    previousProjectStatus: restorableProjectStatus(project.status),
     currentStep: "Queued",
     candidatesDone: seededCandidates,
     candidatesFailed: 0,
@@ -605,7 +645,7 @@ export async function retryFromSummaryHandler(
     // Summary recovery drafts on exactly the models the original froze.
     ...(failed.modelFreeze ? { modelFreeze: failed.modelFreeze } : {}),
     retryOfGenerationId: failed._id,
-    previousProjectStatus: project.status,
+    previousProjectStatus: restorableProjectStatus(project.status),
     currentStep: "Preparing Summary recovery",
     candidatesDone: 0,
     candidatesFailed: 0,
@@ -751,7 +791,7 @@ export async function retryFailedCandidatesHandler(
   });
   await ctx.db.patch(project._id, {
     activeGenerationId: undefined,
-    status: generation.previousProjectStatus ?? "draft",
+    status: restorableProjectStatus(generation.previousProjectStatus),
     updatedAt: now,
   });
   const resetProject = await ctx.db.get(project._id);

@@ -88,7 +88,14 @@ async function applyAndAssertFixture(f: Fixture) {
   expect(after.report?.content).not.toContain("exact target");
   expect(after.report?.revisionNumber).toBe(8);
   expect(after.report?.contentHash).toBe(await sha256(after.report?.content ?? ""));
-  expect(after.report?.provenanceId).toBeUndefined();
+  // Amendment 2026-09-25 (fifth): the new revision gets its own claim
+  // record, carried over from the old one, instead of none.
+  expect(after.report?.provenanceId).toBeDefined();
+  expect(after.report?.provenanceId).not.toBe(f.provenanceId);
+  const carried = await f.t.run((ctx) => ctx.db.get(after.report!.provenanceId!));
+  expect(carried).toMatchObject({
+    contentHash: after.report?.contentHash, generationId: f.generationId, status: "approved", claims: [],
+  });
   expect(after.latest?.content).toBe("LATEST REPORT MUST REMAIN UNCHANGED");
   expect(after.latest?.revisionNumber).toBe(2);
   expect(after.latest).toEqual(before.latest);
