@@ -1,6 +1,7 @@
 <script lang="ts">
   /**
-   * Settings "Signed in" (I1): how many devices hold a session, and Sign out
+   * Settings "Signed in" row (I1): how many devices hold a session as the
+   * row's muted line under the label, and Sign out
    * everywhere behind a confirm (not designed, proposed copy). Reads Better
    * Auth sessions through the same-origin /api/auth proxy. Other devices keep
    * working until their current Convex token expires (about 15 minutes):
@@ -13,6 +14,7 @@
   import { modalPop, overlayFade } from "$lib/motion";
   import { deviceLabel, sessionsLine } from "$lib/shell/deviceLabel";
   import { signOutLocally } from "$lib/shell/signOut";
+  import SettingsRow from "./SettingsRow.svelte";
 
   const device = deviceLabel();
   let otherSessions = $state<number | null>(null);
@@ -63,15 +65,18 @@
   );
 </script>
 
-<div data-sessions-row class="flex flex-wrap items-center gap-3">
-  <p data-sessions-line class="flex-1 text-sm leading-5 text-ink">{line}</p>
-  <button
-    type="button"
-    data-sign-out-everywhere
-    onclick={() => (confirmOpen = true)}
-    class="inline-flex h-8 items-center rounded-md bg-destructive-soft px-3.5 text-sm font-medium text-destructive-soft-ink transition-colors hover:bg-destructive-soft-hover hover:text-destructive-soft-ink-hover focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-danger motion-reduce:transition-none pointer-coarse:h-11"
-  >Sign out everywhere</button>
-</div>
+{#snippet sessionsHint()}<span data-sessions-line>{line}</span>{/snippet}
+
+<SettingsRow label="Signed in" hint={sessionsHint}>
+  <div data-sessions-row class="flex items-center gap-2">
+    <button
+      type="button"
+      data-sign-out-everywhere
+      onclick={() => (confirmOpen = true)}
+      class="inline-flex h-8 items-center rounded-lg bg-destructive-soft px-3.5 text-sm font-medium text-destructive-soft-ink transition-colors hover:bg-destructive-soft-hover hover:text-destructive-soft-ink-hover focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-danger motion-reduce:transition-none pointer-coarse:h-11"
+    >Sign out everywhere</button>
+  </div>
+</SettingsRow>
 
 <Dialog.Root bind:open={confirmOpen}>
   <Dialog.Portal>

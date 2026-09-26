@@ -2,7 +2,7 @@
   // I2 "What they cover": one row per area the org leaves to the writer,
   // from the stored analysis. Locked-rule conflicts (not on the board) sit
   // in a quiet disclosure under the list.
-  import { CheckIcon } from "phosphor-svelte";
+  import { IconCheck } from "$lib/components/icons";
   import AuroraMark from "$lib/components/ui/AuroraMark.svelte";
   import Disclosure from "$lib/components/ui/Disclosure.svelte";
   import DisclosureChevron from "$lib/components/ui/DisclosureChevron.svelte";
@@ -51,9 +51,9 @@
   </div>
   {#each rows as area (area.key)}
     {@const category = categories?.[area.key]}
-    <div data-coverage-row={area.key} data-covered={category?.addressed ? "true" : "false"} class="flex gap-2.5 border-b border-line-soft py-2.5 last:border-b-0">
+    <div data-coverage-row={area.key} data-covered={category?.addressed ? "true" : "false"} class="flex gap-2.5 border-b border-line-soft py-2.5">
       {#if category?.addressed}
-        <span aria-hidden="true" class="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-success-soft text-success"><CheckIcon size={12} weight="bold" /></span>
+        <span aria-hidden="true" data-covered-tick class="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-settings-covered text-fir"><IconCheck size={11} strokeWidth={3.2} /></span>
         <div class="flex min-w-0 flex-col gap-px">
           <span class="text-[13px] leading-[18px] font-medium text-ink">{area.label}</span>
           {#if category.evidence}<span class="text-xs leading-4 text-ink-muted [overflow-wrap:anywhere]">"{short(category.evidence)}"</span>{/if}

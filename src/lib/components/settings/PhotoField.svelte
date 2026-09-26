@@ -4,7 +4,7 @@
    * photo, "Change photo", and the rule line. The choice is staged; the page
    * saves it with the rest of the form.
    */
-  import { XIcon } from "phosphor-svelte";
+  import { IconClose } from "$lib/components/icons";
   import Avatar from "$lib/components/ui/Avatar.svelte";
   import { PHOTO_HINT, PHOTO_TYPES, photoProblem, type StagedPhoto } from "$lib/settings/photo";
 
@@ -61,9 +61,9 @@
           aria-label="Remove photo"
           onclick={remove}
           {disabled}
-          class="absolute -top-1 left-[34px] flex size-[22px] items-center justify-center rounded-full border border-line bg-surface text-ink-secondary shadow-sm transition-colors hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir motion-reduce:transition-none pointer-coarse:before:absolute pointer-coarse:before:-inset-3 pointer-coarse:before:content-['']"
+          class="absolute -top-1 left-[34px] flex size-[22px] items-center justify-center rounded-full border border-line bg-surface text-ink-secondary shadow-settings-badge transition-colors hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir motion-reduce:transition-none pointer-coarse:before:absolute pointer-coarse:before:-inset-3 pointer-coarse:before:content-['']"
         >
-          <XIcon size={11} weight="bold" aria-hidden="true" />
+          <IconClose size={11} strokeWidth={2.4} />
         </button>
       {/if}
     </div>
@@ -72,9 +72,9 @@
       data-photo-change
       onclick={() => input?.click()}
       {disabled}
-      class="inline-flex h-8 items-center rounded-md bg-chrome px-3.5 text-sm font-medium text-ink transition-colors hover:bg-primary-wash focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-fir disabled:opacity-50 motion-reduce:transition-none pointer-coarse:h-11"
+      class="inline-flex h-8 items-center rounded-lg bg-chrome px-3.5 text-sm font-medium text-ink transition-colors hover:bg-primary-wash focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-fir disabled:opacity-50 motion-reduce:transition-none pointer-coarse:h-11"
     >Change photo</button>
-    <span class="text-xs leading-4 text-ink-muted">{PHOTO_HINT}</span>
+    <span data-photo-hint class="text-xs leading-4 text-ink-muted">{PHOTO_HINT}</span>
     <input
       bind:this={input}
       type="file"

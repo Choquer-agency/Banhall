@@ -79,6 +79,67 @@ describe("/settings/writing (I2)", () => {
     );
   });
 
+  it("matches I2: ring, card radii, preview type, instructions type, ticks, locks and switches", async () => {
+    seedProfile();
+    await render(SettingsWritingPage, {});
+    await expect.poll(() => document.querySelector("[data-preview-paragraph]")).not.toBeNull();
+    const style = (selector: string) => getComputedStyle(document.querySelector<HTMLElement>(selector)!);
+
+    const ring = document.querySelector<HTMLElement>("[data-coverage-ring]")!;
+    expect([ring.getBoundingClientRect().width, ring.getBoundingClientRect().height]).toEqual([72, 72]);
+    expect((ring.firstElementChild as HTMLElement).getBoundingClientRect().width).toBe(58);
+    expect(ring.style.backgroundImage).toContain("conic-gradient");
+    expect(ring.style.backgroundImage).toContain("var(--color-settings-ring-pink) 50%, var(--aurora-track) 50%");
+
+    expect(style("[data-coverage-summary]").borderRadius).toBe("14px");
+    expect(style("[data-edit-instructions]").borderRadius).toBe("8px");
+    const on = switchFor("Use my writing preferences")!;
+    expect([on.getBoundingClientRect().width, on.getBoundingClientRect().height]).toEqual([36, 20]);
+    expect(getComputedStyle(on).backgroundColor).toBe("rgb(10, 58, 56)");
+
+    const preview = style("[data-style-preview]");
+    expect(preview.borderRadius).toBe("14px");
+    expect(preview.borderTopColor).toBe("rgb(233, 240, 239)");
+    expect(preview.paddingTop).toBe("22px");
+    expect(preview.boxShadow).toContain("rgba(5, 42, 40, 0.04) 0px 8px 24px 0px");
+    expect(style("[data-preview-heading]").fontSize).toBe("20px");
+    expect(style("[data-preview-heading]").lineHeight).toBe("26px");
+    expect(style("[data-preview-section]").letterSpacing).toBe("normal");
+    const active = document.querySelector<HTMLElement>('[data-preview-segment="preferences"]')!;
+    expect(getComputedStyle(active).backgroundColor).toBe("rgb(255, 255, 255)");
+    expect(getComputedStyle(active).boxShadow).toContain("rgba(5, 42, 40, 0.08) 0px 1px 2px 0px");
+    const mark = document.querySelector<HTMLElement>("[data-style-preview] [data-ai-mark]")!;
+    expect(mark.getBoundingClientRect().width).toBe(14);
+
+    expect(style("[data-instructions-excerpt]").fontSize).toBe("13px");
+    expect(style("[data-instructions-excerpt]").lineHeight).toBe("20px");
+    expect(style("[data-instructions-count]").color).toBe("rgb(147, 165, 161)");
+    expect(style("[data-instructions-edit]").fontSize).toBe("12px");
+
+    const tick = document.querySelector<HTMLElement>('[data-coverage-row="bannedWords"] [data-covered-tick]')!;
+    expect(getComputedStyle(tick).backgroundColor).toBe("rgb(207, 241, 238)");
+    expect(getComputedStyle(tick).color).toBe("rgb(10, 58, 56)");
+    const check = tick.querySelector("svg")!;
+    expect(check.querySelector("path")?.getAttribute("d")).toBe("M20 6 9 17l-5-5");
+    expect([check.getAttribute("width"), check.getAttribute("stroke-width")]).toEqual(["11", "3.2"]);
+    const lastRow = Array.from(document.querySelectorAll<HTMLElement>("[data-coverage-row]")).at(-1)!;
+    expect(getComputedStyle(lastRow).borderBottomWidth).toBe("1px");
+
+    expect(style('[data-win-card="bannedWords"]').borderRadius).toBe("12px");
+    const win = switchFor("Word list")!;
+    expect([win.getBoundingClientRect().width, win.getBoundingClientRect().height]).toEqual([36, 20]);
+    const lock = document.querySelector<SVGElement>('[data-win-card="repetitionCaps"] [data-locked] svg')!;
+    expect(lock.querySelector("path")?.getAttribute("d")).toBe(
+      "M6 11h12a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1v-8a1 1 0 0 1 1-1Z M8 11V8a4 4 0 0 1 8 0v3",
+    );
+    expect([lock.getAttribute("width"), lock.getAttribute("stroke-width")]).toEqual(["11", "2.2"]);
+
+    const save = saveButton()!;
+    expect(getComputedStyle(save).backgroundColor).toBe("rgb(227, 235, 233)");
+    expect(getComputedStyle(save).borderRadius).toBe("8px");
+    expect(style("[data-settings-save-bar]").marginTop).toBe("0px");
+  });
+
   it("says when nothing is covered", async () => {
     seedProfile({ coverage: undefined });
     await render(SettingsWritingPage, {});

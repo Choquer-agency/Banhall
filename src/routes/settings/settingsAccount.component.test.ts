@@ -88,6 +88,57 @@ describe("Settings Account (I1, I1b)", () => {
     await expect.poll(() => document.querySelector("[data-sessions-line]")?.textContent).toMatch(/^This .+ only\.$/);
   });
 
+  it("I1 matches the board: Save off fill, 8px radii, the session line under Signed in", async () => {
+    sessions(2);
+    __setQueryData("users:getCurrentUser", { ...me, imageUrl: "https://files.test/me.png" });
+    await render(AccountPage, {});
+    await expect.poll(() => document.querySelector("[data-sessions-line]")?.textContent).toMatch(/and 1 other device\.$/);
+    const save = saveButton();
+    expect(getComputedStyle(save).backgroundColor).toBe("rgb(227, 235, 233)");
+    expect(getComputedStyle(save).color).toBe("rgb(147, 165, 161)");
+    expect(getComputedStyle(save).borderRadius).toBe("8px");
+    expect(save.getBoundingClientRect().height).toBe(36);
+    // 24px section gap plus 4px above the save bar's hairline.
+    expect(getComputedStyle(document.querySelector<HTMLElement>("[data-settings-save-bar]")!).marginTop).toBe("4px");
+
+    // The session count is the row's muted line, under the label; the button stands alone.
+    const line = document.querySelector<HTMLElement>("[data-sessions-line]")!;
+    const signedInRow = line.closest<HTMLElement>("[data-settings-row]")!;
+    expect(signedInRow.firstElementChild?.textContent).toContain("Signed in");
+    expect(signedInRow.firstElementChild?.contains(line)).toBe(true);
+    expect(getComputedStyle(line.parentElement!).color).toBe("rgb(107, 127, 123)");
+    const signOut = document.querySelector<HTMLElement>("[data-sign-out-everywhere]")!;
+    expect(getComputedStyle(signOut).backgroundColor).toBe("rgb(254, 226, 226)");
+    expect(getComputedStyle(signOut).color).toBe("rgb(185, 28, 28)");
+    expect(getComputedStyle(signOut).borderRadius).toBe("8px");
+    expect(signOut.parentElement?.textContent?.trim()).toBe("Sign out everywhere");
+
+    const change = document.querySelector<HTMLElement>("[data-photo-change]")!;
+    expect(getComputedStyle(change).borderRadius).toBe("8px");
+    expect(change.getBoundingClientRect().height).toBe(32);
+    const badge = document.querySelector<HTMLElement>("[data-photo-remove]")!;
+    expect(getComputedStyle(badge).boxShadow).toContain("rgba(5, 42, 40, 0.12) 0px 1px 3px 0px");
+    const x = badge.querySelector("svg")!;
+    expect(x.querySelector("path")?.getAttribute("d")).toBe("M18 6 6 18M6 6l12 12");
+    expect([x.getAttribute("width"), x.getAttribute("stroke-width")]).toEqual(["11", "2.4"]);
+
+    const first = document.querySelector<HTMLInputElement>("#firstName")!;
+    expect(getComputedStyle(first).borderRadius).toBe("8px");
+    expect(first.getBoundingClientRect().height).toBe(36);
+    expect(getComputedStyle(first).fontSize).toBe("14px");
+  });
+
+  it("I1b: the name field in focus gets the primary-selected edge and the lagoon halo", async () => {
+    await render(AccountPage, {});
+    const first = page.getByLabelText("First");
+    await expect.element(first).toHaveValue("Johnny");
+    await first.click();
+    const input = first.element() as HTMLInputElement;
+    await expect
+      .poll(() => getComputedStyle(input).boxShadow)
+      .toBe("rgb(8, 122, 117) 0px 0px 0px 1.5px inset, rgba(13, 172, 165, 0.12) 0px 0px 0px 3px");
+  });
+
   it("I1b: typing enables Discard and Save; Discard restores", async () => {
     await render(AccountPage, {});
     const first = page.getByLabelText("First");

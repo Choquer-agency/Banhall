@@ -1,8 +1,8 @@
 <script lang="ts">
   /**
-   * Keyboard key chips (I4, I5): 24px tall, min 24px wide, radius 5, white
-   * with a `line` border, 12px/500 ink. A sequence reads "G then A" with a
-   * faint "then". `inline` renders the plain text hint used in menus and
+   * Keyboard key chips (I4, I5): 24px tall, min 24px wide, 7px sides, radius
+   * 6, white with a `line` border and a 1px `line` shadow below, 12px/500
+   * ink. A sequence reads "G then A" with a muted "then". `inline` renders the plain text hint used in menus and
    * tooltips ("⇧V", "Shift V", "G then A").
    */
   import {
@@ -37,10 +37,10 @@
   <span data-key-hint={id} class={`inline-flex items-center gap-1 ${className}`}>
     {#each keys as key, index (index)}
       {#if sequence && index > 0}
-        <span class="text-xs leading-4 text-ink-faint">then</span>
+        <span data-key-then class="px-0.5 text-xs leading-4 text-ink-muted">then</span>
       {/if}
       <kbd
-        class="inline-flex h-6 min-w-6 items-center justify-center rounded-[5px] border border-line bg-surface px-1.5 font-sans text-xs font-medium leading-4 text-ink"
+        class="inline-flex h-6 min-w-6 items-center justify-center rounded-[6px] border border-line bg-surface px-[7px] font-sans text-xs font-medium leading-4 text-ink shadow-key-chip"
       >{key}</kbd>
     {/each}
   </span>

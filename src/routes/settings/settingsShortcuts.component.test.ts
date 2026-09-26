@@ -56,7 +56,44 @@ describe("Settings Keyboard shortcuts (I4, I5)", () => {
     );
     const chip = document.querySelector<HTMLElement>("[data-shortcut-row] kbd")!;
     expect(chip.getBoundingClientRect().height).toBe(24);
-    expect(getComputedStyle(chip).borderRadius).toBe("5px");
+    expect(getComputedStyle(chip).borderRadius).toBe("6px");
+    expect(getComputedStyle(chip).paddingLeft).toBe("7px");
+    expect(getComputedStyle(chip).boxShadow).toContain("rgb(218, 229, 227) 0px 1px 0px 0px");
+    expect(getComputedStyle(document.querySelector<HTMLElement>("[data-key-then]")!).color).toBe("rgb(107, 127, 123)");
+  });
+
+  it("matches I4 and I5: the detected note on canvas, the white active segment and settings rows", async () => {
+    __setQueryData("users:getCurrentUser", { _id: "u", role: "admin", isDeveloper: true });
+    await render(ShortcutsPage, {});
+    const strip = document.querySelector<HTMLElement>("[data-shortcuts-detected]")!;
+    expect(getComputedStyle(strip).backgroundColor).toBe("rgb(249, 252, 251)");
+    expect(getComputedStyle(strip).borderRadius).toBe("12px");
+    expect([getComputedStyle(strip).paddingTop, getComputedStyle(strip).paddingLeft]).toEqual(["12px", "14px"]);
+    const check = strip.querySelector("svg")!;
+    expect(check.querySelector("path")?.getAttribute("d")).toBe("M20 6 9 17l-5-5");
+    expect([check.getAttribute("width"), check.getAttribute("stroke-width")]).toEqual(["15", "2"]);
+    expect(getComputedStyle(check).color).toBe("rgb(8, 122, 117)");
+
+    const group = document.querySelector<HTMLElement>("[data-shortcuts-platforms]")!;
+    expect(getComputedStyle(group).backgroundColor).toBe("rgb(234, 242, 241)");
+    expect(getComputedStyle(group).borderRadius).toBe("9px");
+    expect(getComputedStyle(group).paddingTop).toBe("3px");
+    await page.getByRole("button", { name: "Mac" }).click();
+    const mac = page.getByRole("button", { name: "Mac" }).element() as HTMLElement;
+    const windows = page.getByRole("button", { name: "Windows" }).element() as HTMLElement;
+    await expect.poll(() => getComputedStyle(mac).backgroundColor).toBe("rgb(255, 255, 255)");
+    expect(getComputedStyle(mac).color).toBe("rgb(22, 33, 31)");
+    expect(getComputedStyle(mac).boxShadow).toContain("rgba(5, 42, 40, 0.08) 0px 1px 2px 0px");
+    expect(mac.getBoundingClientRect().height).toBe(28);
+    expect(getComputedStyle(mac).borderRadius).toBe("6px");
+    expect(getComputedStyle(windows).color).toBe("rgb(79, 97, 93)");
+
+    const rowEls = Array.from(document.querySelectorAll<HTMLElement>("[data-shortcut-row]"));
+    const label = rowEls[0].firstElementChild as HTMLElement;
+    expect(getComputedStyle(label).fontWeight).toBe("500");
+    expect(getComputedStyle(rowEls[0]).paddingTop).toBe("16px");
+    expect(getComputedStyle(rowEls[0]).borderBottomWidth).toBe("1px");
+    expect(getComputedStyle(rowEls.at(-1)!).borderBottomWidth).toBe("0px");
   });
 
   it("hides Go to Admin and View as from a Consultant", async () => {

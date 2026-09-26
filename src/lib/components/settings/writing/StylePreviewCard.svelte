@@ -24,7 +24,7 @@
   ];
 </script>
 
-<section data-style-preview={variant} class="flex min-w-0 flex-1 flex-col gap-3.5 rounded-xl border border-line bg-surface px-[26px] py-5">
+<section data-style-preview={variant} class="flex min-w-0 flex-1 flex-col gap-3.5 rounded-[14px] border border-line-soft bg-surface px-[26px] py-[22px] shadow-settings-card">
   <div class="flex flex-wrap items-center gap-2.5">
     <h3 class="flex-1 text-[13px] leading-[18px] font-medium text-ink-muted">Preview</h3>
     <div role="radiogroup" aria-label="Preview style" class="flex gap-1 rounded-[10px] bg-chrome p-1">
@@ -35,14 +35,14 @@
           aria-checked={variant === segment.value}
           data-preview-segment={segment.value}
           onclick={() => (variant = segment.value)}
-          class={`h-[30px] rounded-[7px] px-3 text-[13px] leading-[18px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${variant === segment.value ? "bg-surface text-ink shadow-sm" : "text-ink-secondary hover:text-ink"}`}
+          class={`h-[30px] rounded-[7px] px-3 text-[13px] leading-[18px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${variant === segment.value ? "bg-surface text-ink shadow-settings-segment" : "text-ink-secondary hover:bg-primary-wash hover:text-ink"}`}
         >{segment.label}</button>
       {/each}
     </div>
   </div>
-  <p class="font-mono text-[11px] leading-[14px] tracking-[0.02em] text-ink-faint">Section 242</p>
-  <h4 class="font-serif text-[22px] leading-[26px] text-ink">Technological uncertainty</h4>
-  <div aria-live="polite" class="flex min-h-[8rem] flex-col gap-3">
+  <p data-preview-section class="font-mono text-[11px] leading-[14px] text-ink-faint">Section 242</p>
+  <h4 data-preview-heading class="font-serif text-[20px] font-normal leading-[26px] text-ink">Technological uncertainty</h4>
+  <div aria-live="polite" class="flex min-h-[8rem] flex-col gap-3.5">
     {#if preview.kind === "loading"}
       <div data-preview-loading role="status" aria-label="Writing the preview" class="flex flex-col gap-2.5 pt-1">
         {#each [100, 96, 88, 100, 72] as width, index (index)}
@@ -58,12 +58,12 @@
     {:else}
       <div data-preview-error class="flex flex-col items-start gap-2">
         <p role="alert" class="text-[13px] leading-5 text-danger-ink-muted">The preview could not be written. Try again.</p>
-        <button type="button" onclick={onRetry} class="rounded-[10px] bg-chrome px-3 py-1.5 text-[13px] font-medium text-ink hover:bg-primary-wash focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary">Try again</button>
+        <button type="button" onclick={onRetry} class="rounded-lg bg-chrome px-3 py-1.5 text-[13px] font-medium text-ink hover:bg-primary-wash focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary">Try again</button>
       </div>
     {/if}
   </div>
   <div class="flex items-center gap-2 border-t border-line-soft pt-1.5">
-    <AuroraMark size={16} />
+    <AuroraMark size={14} />
     <p class="text-xs leading-4 text-ink-muted">
       {variant === "preferences"
         ? "A sample 242 paragraph written with your preferences."

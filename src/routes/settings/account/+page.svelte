@@ -186,105 +186,116 @@
   <div class="flex min-h-[40vh] items-center justify-center"><Spinner /></div>
 {:else}
   {@const me = meQ.data}
-  <div data-settings-account class="flex flex-col">
-    <SettingsRow label="Photo" hint="Shown next to your name.">
-      <PhotoField
-        name={displayName(me, "")}
-        seed={me?._id}
-        currentUrl={me?.imageUrl ?? null}
-        bind:staged={photo}
-        disabled={saving}
-      />
-    </SettingsRow>
+  <div data-settings-account class="flex flex-col gap-6">
+    <div class="flex flex-col">
+      <SettingsRow label="Photo" hint="Shown next to your name.">
+        <PhotoField
+          name={displayName(me, "")}
+          seed={me?._id}
+          currentUrl={me?.imageUrl ?? null}
+          bind:staged={photo}
+          disabled={saving}
+        />
+      </SettingsRow>
 
-    <SettingsRow label="Name">
-      <div class="grid gap-2 sm:grid-cols-2">
-        <label class="flex flex-col gap-1.5">
-          <span class={fieldLabel}>First</span>
-          <input id="firstName" class="field-control h-9 w-full rounded-md px-2.5 text-sm text-ink placeholder:text-ink-faint disabled:opacity-60" bind:value={firstName} autocomplete="given-name" disabled={saving} />
-        </label>
-        <label class="flex flex-col gap-1.5">
-          <span class={fieldLabel}>Last</span>
-          <input id="lastName" class="field-control h-9 w-full rounded-md px-2.5 text-sm text-ink placeholder:text-ink-faint disabled:opacity-60" bind:value={lastName} autocomplete="family-name" disabled={saving} />
-        </label>
-      </div>
-    </SettingsRow>
+      <SettingsRow label="Name">
+        <div class="grid gap-2 sm:grid-cols-2">
+          <label class="flex flex-col gap-1.5">
+            <span class={fieldLabel}>First</span>
+            <input id="firstName" data-settings-name-input class="field-control settings-name-input h-9 w-full rounded-lg px-2.5 text-sm leading-5 text-ink placeholder:text-ink-faint disabled:opacity-60" bind:value={firstName} autocomplete="given-name" disabled={saving} />
+          </label>
+          <label class="flex flex-col gap-1.5">
+            <span class={fieldLabel}>Last</span>
+            <input id="lastName" data-settings-name-input class="field-control settings-name-input h-9 w-full rounded-lg px-2.5 text-sm leading-5 text-ink placeholder:text-ink-faint disabled:opacity-60" bind:value={lastName} autocomplete="family-name" disabled={saving} />
+          </label>
+        </div>
+      </SettingsRow>
 
-    <SettingsRow label="Email" hint="Managed by your sign-in.">
-      <p data-settings-email class="text-sm leading-5 text-ink">{me?.email ?? ""}</p>
-    </SettingsRow>
+      <SettingsRow label="Email" hint="Managed by your sign-in.">
+        <p data-settings-email class="text-sm leading-5 text-ink">{me?.email ?? ""}</p>
+      </SettingsRow>
 
-    <SettingsRow label="Role" hint="Set by an Admin in Team.">
-      <RoleChip role={me?.role ?? null} isOwner={me?.isOwner === true} isDeveloper={me?.isDeveloper === true} />
-    </SettingsRow>
+      <SettingsRow label="Role" hint="Set by an Admin in Team.">
+        <RoleChip role={me?.role ?? null} isOwner={me?.isOwner === true} isDeveloper={me?.isDeveloper === true} />
+      </SettingsRow>
 
-    <SettingsRow label="Signed in">
       <SessionsRow />
-    </SettingsRow>
 
-    <SettingsRow label="Password" hint="Use at least 8 characters. Changing it signs you out on your other devices." last>
-      {#if passwordOpen}
-        <form data-password-form class="flex max-w-xl flex-col gap-3" onsubmit={handlePasswordChange}>
-          <Input
-            id="current-password"
-            label="Current password"
-            type="password"
-            bind:value={currentPassword}
-            autocomplete="current-password"
-            required
-          />
-          <div class="grid gap-3 sm:grid-cols-2">
+      <SettingsRow label="Password" hint="Use at least 8 characters. Changing it signs you out on your other devices." last>
+        {#if passwordOpen}
+          <form data-password-form class="flex max-w-xl flex-col gap-3" onsubmit={handlePasswordChange}>
             <Input
-              id="new-password"
-              label="New password"
+              id="current-password"
+              label="Current password"
               type="password"
-              bind:value={newPassword}
-              autocomplete="new-password"
-              minlength={8}
+              bind:value={currentPassword}
+              autocomplete="current-password"
               required
             />
-            <Input
-              id="confirm-password"
-              label="Confirm new password"
-              type="password"
-              bind:value={confirmPassword}
-              autocomplete="new-password"
-              minlength={8}
-              required
-            />
-          </div>
-          {#if passwordError}
-            <p role="alert" class="rounded-md bg-danger-surface px-3 py-2 text-sm text-danger-ink-muted">{passwordError}</p>
-          {/if}
-          <div class="flex items-center justify-end gap-2">
-            <button
-              type="button"
-              onclick={() => {
-                passwordOpen = false;
-                passwordError = "";
-              }}
-              class="inline-flex h-9 items-center rounded-md px-3.5 text-sm font-medium text-ink-secondary transition-colors hover:bg-primary-wash hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-fir pointer-coarse:h-11"
-            >Cancel</button>
-            <button
-              type="submit"
-              disabled={!passwordReady || passwordSaving}
-              class="inline-flex h-9 items-center rounded-md bg-fir px-4 text-sm font-medium text-white transition-colors hover:bg-navy-light focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-fir disabled:opacity-50 pointer-coarse:h-11"
-            >{passwordSaving ? "Updating..." : "Update password"}</button>
-          </div>
-        </form>
-      {:else}
-        <button
-          type="button"
-          data-change-password
-          onclick={() => (passwordOpen = true)}
-          class="inline-flex h-8 items-center rounded-md bg-chrome px-3.5 text-sm font-medium text-ink transition-colors hover:bg-primary-wash focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-fir motion-reduce:transition-none pointer-coarse:h-11"
-        >Change password</button>
-      {/if}
-    </SettingsRow>
+            <div class="grid gap-3 sm:grid-cols-2">
+              <Input
+                id="new-password"
+                label="New password"
+                type="password"
+                bind:value={newPassword}
+                autocomplete="new-password"
+                minlength={8}
+                required
+              />
+              <Input
+                id="confirm-password"
+                label="Confirm new password"
+                type="password"
+                bind:value={confirmPassword}
+                autocomplete="new-password"
+                minlength={8}
+                required
+              />
+            </div>
+            {#if passwordError}
+              <p role="alert" class="rounded-md bg-danger-surface px-3 py-2 text-sm text-danger-ink-muted">{passwordError}</p>
+            {/if}
+            <div class="flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onclick={() => {
+                  passwordOpen = false;
+                  passwordError = "";
+                }}
+                class="inline-flex h-9 items-center rounded-lg px-3.5 text-sm font-medium text-ink-secondary transition-colors hover:bg-primary-wash hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-fir pointer-coarse:h-11"
+              >Cancel</button>
+              <button
+                type="submit"
+                disabled={!passwordReady || passwordSaving}
+                class="inline-flex h-9 items-center rounded-lg bg-fir px-4 text-sm font-medium text-white transition-colors hover:bg-navy-light focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-fir disabled:opacity-50 pointer-coarse:h-11"
+              >{passwordSaving ? "Updating..." : "Update password"}</button>
+            </div>
+          </form>
+        {:else}
+          <button
+            type="button"
+            data-change-password
+            onclick={() => (passwordOpen = true)}
+            class="inline-flex h-8 items-center rounded-lg bg-chrome px-3.5 text-sm font-medium text-ink transition-colors hover:bg-primary-wash focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-fir motion-reduce:transition-none pointer-coarse:h-11"
+          >Change password</button>
+        {/if}
+      </SettingsRow>
+    </div>
 
     {#if saveError}
-      <p role="alert" data-settings-save-error class="mt-3 rounded-md bg-danger-surface px-3 py-2 text-sm text-danger-ink-muted">{saveError}</p>
+      <p role="alert" data-settings-save-error class="rounded-md bg-danger-surface px-3 py-2 text-sm text-danger-ink-muted">{saveError}</p>
     {/if}
-    <SettingsSaveBar {dirty} {saving} onSave={save} onDiscard={discard} />
+    <SettingsSaveBar class="mt-1" {dirty} {saving} onSave={save} onDiscard={discard} />
   </div>
 {/if}
+
+<style>
+  /* I1b: the field being edited gets a 1.5px primary-selected edge and a 3px
+     lagoon halo. Scoped so it outranks the shared .field-control focus line. */
+  .settings-name-input:focus,
+  .settings-name-input:focus-visible {
+    box-shadow:
+      inset 0 0 0 1.5px var(--color-primary-selected),
+      0 0 0 3px var(--color-settings-field-ring);
+  }
+</style>

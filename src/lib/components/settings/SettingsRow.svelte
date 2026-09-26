@@ -14,7 +14,8 @@
     children,
   }: {
     label: string;
-    hint?: string | null;
+    /** Muted line under the label: plain text, or a snippet for live text. */
+    hint?: string | Snippet | null;
     /** Id of the control the label names, when there is exactly one. */
     labelFor?: string;
     last?: boolean;
@@ -32,7 +33,11 @@
     {:else}
       <span class="text-sm font-medium leading-5 text-ink">{label}</span>
     {/if}
-    {#if hint}<span class="text-[13px] leading-[18px] text-ink-muted">{hint}</span>{/if}
+    {#if typeof hint === "function"}
+      <span class="text-[13px] leading-[18px] text-ink-muted">{@render hint()}</span>
+    {:else if hint}
+      <span class="text-[13px] leading-[18px] text-ink-muted">{hint}</span>
+    {/if}
   </div>
   <div class="min-w-0 flex-1">
     {@render children()}

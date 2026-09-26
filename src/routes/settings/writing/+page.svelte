@@ -225,7 +225,7 @@
 
     <div class="flex flex-col items-start gap-6 lg:flex-row">
       <StylePreviewCard bind:variant {preview} onRetry={() => void loadPreview(variant)} />
-      <div class="flex w-full shrink-0 flex-col gap-3.5 lg:w-[360px]">
+      <div data-writing-side class="flex w-full shrink-0 flex-col gap-3.5 lg:w-[380px]">
         <InstructionsCard text={customInstructions} notice={prefillNotice} onEdit={() => (editorOpen = true)} />
         <CoverageList
           categories={coverage?.categories ?? null}
