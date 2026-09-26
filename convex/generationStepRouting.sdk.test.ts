@@ -29,6 +29,7 @@ import {
 } from "./ai/promptDefinitions";
 import { ANALYZER_REQUEST } from "./ai/analyzerAgent";
 import { BRIEF_REQUEST } from "./ai/brief";
+import { describeBriefOutcome } from "./lib/briefRender";
 import { QA_REQUEST } from "./ai/qaAgent";
 import { CHRONOLOGY_REQUEST } from "./ai/chronologyAgent";
 import {
@@ -773,5 +774,38 @@ describe("Single draft and Compare start the Brief beside the analysis (a1 findi
     expect(wire.events).toContain("submit_generation_brief:answer");
     expect(generation?.briefOutcome?.kind).toBe("derived");
     expect(await pendingJobs(f.t, [CANDIDATE_JOB])).toHaveLength(0);
+  });
+
+  // Review r2 P3 (2026-09-25): a Brief that finished after the failure added
+  // a progress line to the failed generation.
+  it("a Brief that finishes after the failure adds no progress line to the failed generation", async () => {
+    let f: Awaited<ReturnType<typeof fixture>> | undefined;
+    installFetch({
+      fail: ["submit_transcript_analysis"],
+      hold: {
+        // Answer only once the generation has failed.
+        submit_generation_brief: async () => {
+          for (let i = 0; i < 300; i += 1) {
+            const generation = f ? await f.t.run((ctx) => ctx.db.get(f!.generationId)) : null;
+            if (generation?.status === "failed") return;
+            await new Promise((resolve) => setTimeout(resolve, 10));
+          }
+          throw new Error("The generation never failed");
+        },
+      },
+    });
+    f = await fixture({ mode: "single", model: SONNET });
+    await f.t.action(internal.ai.pipeline.generateReport, { generationId: f.generationId });
+    const generation = await f.t.run((ctx) => ctx.db.get(f!.generationId));
+    expect(generation?.status).toBe("failed");
+    // Still recorded, so a retry can reuse it.
+    expect(generation?.briefOutcome?.kind).toBe("derived");
+    const lines = await f.t.run((ctx) =>
+      ctx.db
+        .query("generationProgress")
+        .withIndex("by_generationId_and_at", (q) => q.eq("generationId", f!.generationId))
+        .collect()
+    );
+    expect(lines.map((row) => row.message)).not.toContain(describeBriefOutcome({ kind: "derived" }));
   });
 });

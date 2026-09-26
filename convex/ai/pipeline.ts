@@ -984,8 +984,10 @@ export const generateReport = internalAction({
         generationId: genId,
         error: describeGenerationFailure(error),
       });
+    } finally {
       // The Brief never throws; it finishes (and stays reusable by its
-      // inputs) inside this action's deadline rather than being cut off.
+      // inputs) inside this action's deadline rather than being cut off,
+      // even when failGeneration itself throws (review r2 P3).
       await pendingBrief;
     }
   },

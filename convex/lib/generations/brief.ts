@@ -448,9 +448,14 @@ export async function recordBriefOutcomeHandler(
 ) {
   const generation = await ctx.db.get(args.generationId);
   if (!generation) return null;
-  await appendGenerationProgress(ctx, generation, [
-    describeBriefOutcome(args.outcome),
-  ]);
+  // A Brief that finishes after its generation failed (it runs beside the
+  // analysis) is still recorded, but adds no line after the failure (review
+  // r2 P3, 2026-09-25).
+  if (generation.status !== "failed") {
+    await appendGenerationProgress(ctx, generation, [
+      describeBriefOutcome(args.outcome),
+    ]);
+  }
   await ctx.db.patch(args.generationId, {
     briefOutcome: args.outcome,
   });
