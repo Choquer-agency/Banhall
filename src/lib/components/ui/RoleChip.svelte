@@ -14,6 +14,7 @@
     isDeveloper = false,
     kind = undefined,
     size = "md",
+    label = undefined,
     class: className = "",
   }: {
     role?: Role | null;
@@ -21,6 +22,8 @@
     isDeveloper?: boolean;
     kind?: RoleChipKind;
     size?: "md" | "sm";
+    /** Replaces the role name, keeping the role's colours ("Viewing as Consultant", D3). */
+    label?: string;
     class?: string;
   } = $props();
 
@@ -45,6 +48,6 @@
     data-role-chip={resolved}
     class={`inline-flex shrink-0 items-center whitespace-nowrap font-medium ${sizeStyles[size]} ${toneStyles[resolved]} ${className}`}
   >
-    {ROLE_CHIP_LABELS[resolved]}
+    {label ?? ROLE_CHIP_LABELS[resolved]}
   </span>
 {/if}

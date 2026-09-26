@@ -26,6 +26,14 @@ describe("RoleChip", () => {
     }
   });
 
+  it("takes a label in the role's colours for Viewing as (D3)", async () => {
+    await render(RoleChip, { kind: "consultant", size: "sm", label: "Viewing as Consultant" });
+    const element = chip()!;
+    expect(element.textContent?.trim()).toBe("Viewing as Consultant");
+    expect(getComputedStyle(element).backgroundColor).toBe(COLOURS.consultant[0]);
+    expect(getComputedStyle(element).color).toBe(COLOURS.consultant[1]);
+  });
+
   it("shows the stored writer role as Consultant", async () => {
     await render(RoleChip, { role: "writer" });
     expect(chip()?.dataset.roleChip).toBe("consultant");

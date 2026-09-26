@@ -71,6 +71,21 @@
   --color-workspace-shell: #FAFCFB;
   --color-workspace-page-icon: #E3F4F1;
 
+  /* Round 2 shell (WS1). Menus and flyouts (D1, A5), the View as dialog
+     (D2), the amber View as frame on the work panel (D3, the stale-dot
+     amber), and the purple avatar tone the boards use beside fir and teal. */
+  --shadow-menu: 0 12px 32px #052A281F, 0 2px 6px #052A2814;
+  --shadow-dialog: 0 24px 64px #052A2840;
+  --color-view-as-frame: var(--color-stale-dot);
+  --color-avatar-purple: #7E22CE;
+
+  /* The one dark toast (D3, D5, C1, F4): fir-black card, white 13px text, a
+     muted second line and a light lagoon action. Errors keep the red card. */
+  --color-toast: #132D2A;
+  --color-toast-ink: #FFFFFF;
+  --color-toast-muted: #B8C9C6;
+  --shadow-toast-dark: 0 12px 32px #052A2833;
+
   /* Role chips (RoleChip): soft fill + ink per role. */
   --color-role-owner: #C9EDE7;
   --color-role-owner-ink: #065F5B;
@@ -1206,22 +1221,30 @@ textarea.input-chromeless:focus-visible {
 
 
 /* ─── Toasts (svelte-sonner, mounted in +layout.svelte) ─────────────────────
-   One global notifier, top-right. State-colored: light state-tinted fill,
-   border + text in the state color, action button solid state color. */
+   One global notifier, bottom centre (round 2, D3 and D5). Default, success,
+   info and loading toasts are the dark card; errors keep the red card and
+   warnings the amber one (light state-tinted fill, border and text in the
+   state colour, solid action button). */
 
-[data-sonner-toaster] {
-  --error-bg: #fef2f2;
-  --error-border: #dc2626;
-  --error-text: #b91c1c;
-  --success-bg: #f0fdf4;
-  --success-border: #16a34a;
-  --success-text: #15803d;
-  --warning-bg: #fffbeb;
-  --warning-border: #d97706;
-  --warning-text: #b45309;
-  --info-bg: var(--color-primary-wash);
-  --info-border: var(--color-primary);
-  --info-text: var(--color-primary-dark);
+/* Outranks svelte-sonner's runtime-injected theme selector
+   (`[data-sonner-toaster][data-sonner-theme]`) so these variables win. */
+[data-sonner-toaster],
+html [data-sonner-toaster][data-sonner-theme] {
+  --normal-bg: var(--color-toast);
+  --normal-border: var(--color-toast);
+  --normal-text: var(--color-toast-ink);
+  --success-bg: var(--color-toast);
+  --success-border: var(--color-toast);
+  --success-text: var(--color-toast-ink);
+  --info-bg: var(--color-toast);
+  --info-border: var(--color-toast);
+  --info-text: var(--color-toast-ink);
+  --error-bg: var(--color-danger-surface);
+  --error-border: var(--color-danger);
+  --error-text: var(--color-danger-ink-muted);
+  --warning-bg: var(--color-warning-surface);
+  --warning-border: var(--color-warning);
+  --warning-text: var(--color-warning-ink-muted);
   font-family: var(--font-sans);
 }
 
@@ -1231,24 +1254,42 @@ textarea.input-chromeless:focus-visible {
 
 [data-sonner-toast] [data-button] {
   border-radius: 0.375rem;
-  font-weight: 600;
+  font-weight: 500;
 }
 
-/* Action buttons take the full state color with readable text on top. */
-[data-rich-colors="true"][data-sonner-toast][data-type="error"] [data-button] {
-  background: #dc2626;
-  color: #fff;
+[data-sonner-toast]:not([data-type="error"]):not([data-type="warning"]) {
+  padding: 10px 12px 10px 14px;
+  border-radius: 10px;
+  gap: 12px;
+  font-size: 13px;
+  line-height: 19px;
+  box-shadow: var(--shadow-toast-dark);
 }
-[data-rich-colors="true"][data-sonner-toast][data-type="success"] [data-button] {
-  background: #16a34a;
+
+[data-sonner-toast]:not([data-type="error"]):not([data-type="warning"]) [data-description] {
+  color: var(--color-toast-muted);
+}
+
+[data-sonner-toast]:not([data-type="error"]):not([data-type="warning"]) [data-icon] {
+  color: var(--color-toast-muted);
+}
+
+/* The dark card's action reads as a light lagoon text button ("Undo"). */
+[data-sonner-toast]:not([data-type="error"]):not([data-type="warning"]) [data-button] {
+  height: auto;
+  padding: 0 2px;
+  background: transparent;
+  color: var(--color-primary-light);
+  font-size: 13px;
+}
+
+/* Action buttons on the state cards take the solid state colour. */
+[data-rich-colors="true"][data-sonner-toast][data-type="error"] [data-button] {
+  background: var(--color-danger-action);
   color: #fff;
 }
 [data-rich-colors="true"][data-sonner-toast][data-type="warning"] [data-button] {
-  background: #d97706;
-  color: #fff;
-}
-[data-rich-colors="true"][data-sonner-toast][data-type="info"] [data-button] {
-  background: var(--color-primary-dark);
+  background: var(--color-warning-action);
   color: #fff;
 }
 
@@ -1257,6 +1298,13 @@ textarea.input-chromeless:focus-visible {
   background: inherit;
   color: inherit;
   border-color: currentColor;
+}
+
+/* View as (D3): an amber frame on the work panel while a developer views
+   Banhall as another role. The shell sets `data-view-as`; every work panel
+   (WorkspaceChrome, Home, the project page) carries `data-work-panel`. */
+[data-view-as] [data-work-panel] {
+  border: 2px solid var(--color-view-as-frame);
 }
 
 /* Fluid workbench type (2026-08-11): the report and assistant panes are

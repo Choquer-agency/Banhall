@@ -66,6 +66,7 @@
       {@render children()}
     </PageErrorBoundary>
     <ErrorMonitor />
-    <Toaster richColors closeButton position="top-right" toastOptions={{ class: "font-sans" }} />
+    <!-- Round 2 (D3, D5): one dark toast at the bottom centre; errors stay red. -->
+    <Toaster richColors closeButton position="bottom-center" toastOptions={{ class: "font-sans" }} />
   </div>
 </Tooltip.Provider>
