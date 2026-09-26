@@ -5,8 +5,10 @@ import NewProjectPage from "./+page.svelte";
 import { __resetPage, __setPageUrl } from "$lib/test/app-state-stub.svelte";
 import { __navigationCalls, __resetNavigation } from "$lib/test/app-navigation-stub";
 import {
+  __activeQueryArgs,
   __mutationCalls,
   __resetConvexStub,
+  __setMutationError,
   __setMutationResult,
   __setQueryData,
 } from "$lib/test/convex-svelte-stub.svelte";
@@ -192,6 +194,61 @@ describe("confirming starts the run with the leave-out lists (decision 56)", () 
       projectId: "project-new",
       candidateMode: "iterative",
     });
+  });
+
+  it("shows the run already going when the start is refused, and opens that project (F6)", async () => {
+    __setMutationError("generations:requestGeneration", {
+      data: {
+        code: "GENERATION_ACTIVE",
+        generationId: "gen-1",
+        requestedByName: "Sam Chen",
+        candidateMode: "single",
+        startedAt: String(Date.now() - 3 * 60_000),
+      },
+    });
+    await readyToStart();
+    await openStartDialog();
+    confirmButton()!.click();
+
+    await expect.poll(() => document.querySelector("[data-start-run-active]")).not.toBeNull();
+    expect(__activeQueryArgs("generations:getActiveRunSummary")).toEqual([{ projectId: "project-new" }]);
+    const box = document.querySelector<HTMLElement>("[data-start-run-active]")!;
+    expect(text(box)).toContain("Sam Chen is already running this project");
+    expect(text(box)).toContain("A Single draft started 3 min ago. One run at a time per project.");
+    expect(confirmButton()?.disabled).toBe(true);
+    // No second project, and nothing opened yet.
+    expect(__mutationCalls("projects:createProject")).toHaveLength(1);
+    expect(__navigationCalls.map((call) => call.url)).not.toContain("/project/project-new");
+
+    const openIt = [...box.querySelectorAll("button")].find((button) => text(button) === "Open it")!;
+    openIt.click();
+    await expect.poll(() => __navigationCalls.map((call) => call.url)).toContain("/project/project-new");
+  });
+
+  it("keeps the refused run current from getActiveRunSummary, and Close opens the project too (F6)", async () => {
+    __setMutationError("generations:requestGeneration", {
+      data: { code: "GENERATION_ACTIVE", generationId: "gen-1", requestedByName: "Sam Chen", candidateMode: "single", startedAt: String(Date.now()) },
+    });
+    __setQueryData("generations:getActiveRunSummary", {
+      generationId: "gen-1",
+      requestedByName: "Wendy Park",
+      isYou: true,
+      candidateMode: "iterative",
+      startedAt: Date.now() - 12 * 60_000,
+    });
+    await readyToStart();
+    await openStartDialog();
+    confirmButton()!.click();
+
+    await expect.poll(() => text(document.querySelector("[data-start-run-active]"))).toContain(
+      "You are already running this project"
+    );
+    expect(text(document.querySelector("[data-start-run-active]"))).toContain("A Step by step run started 12 min ago.");
+    const close = [...document.querySelectorAll<HTMLButtonElement>("[data-start-run-active] button")].find(
+      (button) => text(button) === "Close"
+    )!;
+    close.click();
+    await expect.poll(() => __navigationCalls.map((call) => call.url)).toContain("/project/project-new");
   });
 
   it("records the created project as opened, so Home lists it (broken behaviour 5)", async () => {

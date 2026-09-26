@@ -308,9 +308,11 @@ describe("readingMeta", () => {
 describe("StartRunDialog when a run is already going (F6)", () => {
   it("names who started which run and when, and waits for it", async () => {
     const onOpenActiveRun = vi.fn();
+    const onCancel = vi.fn();
     await render(StartRunDialog, props({
       activeRun: { generationId: "g-1", requestedByName: "Larry Moss", isYou: false, candidateMode: "iterative", startedAt: Date.now() - 12 * 60_000 },
       onOpenActiveRun,
+      onCancel,
     }));
     const box = q("[data-start-run-active] [data-status-callout]")!;
     expect(box.dataset.statusCallout).toBe("warning");
@@ -322,6 +324,8 @@ describe("StartRunDialog when a run is already going (F6)", () => {
     [...box.querySelectorAll("button")].find((button) => text(button) === "Close")!.click();
     await settle();
     expect(dialog()).toBeNull();
+    // Close is this state's Cancel: the host hears about it once.
+    expect(onCancel).toHaveBeenCalledTimes(1);
   });
 
   it("says You for the writer's own run", async () => {

@@ -56,6 +56,8 @@
     NO_SOURCE_MESSAGE,
   } from "$lib/components/project-new/newProjectChecklist";
   import StartRunDialog, {
+    activeRunFromError,
+    type ActiveRun,
     type StartRunExcluded,
     type StartRunSource,
   } from "$lib/components/generation/StartRunDialog.svelte";
@@ -994,6 +996,22 @@
     void commit(excluded);
   }
 
+  // F6 state 1: the start was refused because a run is already going on the
+  // project just created. The dialog opens again with the run's details,
+  // kept current by getActiveRunSummary, and both of its ways out open that
+  // project: a second start from here would create another project.
+  let runningProjectId = $state<Id<"projects"> | null>(null);
+  let refusedRun = $state<ActiveRun | null>(null);
+  const activeRunQ = useQuery(api.generations.getActiveRunSummary, () =>
+    runningProjectId ? { projectId: runningProjectId } : "skip"
+  );
+  const activeRun = $derived<ActiveRun | null>(
+    runningProjectId ? ((activeRunQ.data as ActiveRun | null | undefined) ?? refusedRun) : null
+  );
+  function openRunningProject() {
+    if (runningProjectId) openProject(runningProjectId, { title, client: clientName });
+  }
+
   async function uploadOriginal(file: File): Promise<Id<"_storage"> | undefined> {
     return uploadOriginalTransport({
       file,
@@ -1474,6 +1492,18 @@
       openProject(projectId, { title, client: clientName });
     } catch (e) {
       if (extractionLifetime.signal.aborted || isParseAbort(e)) return;
+      // F6: an expected refusal, not a crash.
+      const refused = createdProjectId
+        ? activeRunFromError(e, [user.data?.firstName, user.data?.lastName].filter(Boolean).join(" "))
+        : null;
+      if (refused && createdProjectId) {
+        committing = false;
+        progress = "";
+        refusedRun = refused;
+        runningProjectId = createdProjectId;
+        startOpen = true;
+        return;
+      }
       console.error(e);
       if (copyFailed && createdProjectId) {
         toast.error(copyFailedMessage(savedOwn));
@@ -2583,6 +2613,9 @@
         busy={committing}
         validate={validateExcluded}
         onConfirm={confirmStart}
+        onCancel={openRunningProject}
+        {activeRun}
+        onOpenActiveRun={openRunningProject}
         returnFocus={() => lastStartTrigger}
       />
     {/snippet}

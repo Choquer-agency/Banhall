@@ -201,6 +201,13 @@
     else unticked.add(id);
   }
 
+  // F6 Close is the Cancel of this state. Setting `open` from here skips
+  // onOpenChange, so it tells the host itself.
+  function closeActiveRun() {
+    open = false;
+    onCancel?.();
+  }
+
   function confirm() {
     if (problem || busy || activeRun) return;
     confirmedClose = true;
@@ -335,7 +342,7 @@
                     title={runCopy.title}
                     role="alert"
                     primaryAction={{ label: "Open it", onclick: () => onOpenActiveRun?.() }}
-                    secondaryAction={{ label: "Close", onclick: () => (open = false) }}
+                    secondaryAction={{ label: "Close", onclick: closeActiveRun }}
                   >
                     {runCopy.text}
                   </StatusCallout>
