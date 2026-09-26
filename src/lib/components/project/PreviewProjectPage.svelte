@@ -23,6 +23,7 @@
   import Button from "$lib/components/ui/Button.svelte";
   import Spinner from "$lib/components/ui/Spinner.svelte";
   import GenerationProgress from "$lib/components/generation/GenerationProgress.svelte";
+  import ReadingInterview from "$lib/components/generation/reading/ReadingInterview.svelte";
   import GenerationStatusChip from "$lib/components/generation/GenerationStatusChip.svelte";
   import SeedWorkspace from "$lib/components/seeds/SeedWorkspace.svelte";
   import SeedSummaryReview from "$lib/components/seeds/SeedSummaryReview.svelte";
@@ -1310,6 +1311,36 @@
   const showSeedRecovery = $derived(
     isSeedWorkflow && generation?.seedPhase === "draftFailed"
   );
+  // Round 2 (F2, decision 57): while a Step-by-step run reads the interview
+  // (its Brief), the panel shows only "Reading the interview": no tabs, no
+  // toolbar, no plan. A failed start shows its danger box there (F6);
+  // "Back to project" returns to the project page with its tabs.
+  let readingDismissed = $state(false);
+  // A new run reads its interview again, even after Back to project.
+  let readingFor: string | null = null;
+  $effect(() => {
+    const id = generation?._id ?? null;
+    if (id !== readingFor) {
+      readingFor = id;
+      readingDismissed = false;
+    }
+  });
+  const showReadingInterview = $derived(
+    isSeedWorkflow &&
+      generation?.seedPhase === "initializing" &&
+      !generation?.summaryVersionId &&
+      !readingDismissed
+  );
+  let viewportWidth = $state(typeof window === "undefined" ? 1440 : window.innerWidth);
+  $effect(() => {
+    const update = () => (viewportWidth = window.innerWidth);
+    update();
+    window.addEventListener("resize", update);
+    return () => window.removeEventListener("resize", update);
+  });
+  const readingLayout = $derived<"desktop" | "tablet" | "phone">(
+    viewportWidth >= 1280 ? "desktop" : viewportWidth >= 640 ? "tablet" : "phone"
+  );
   // A10: only the Seed phases that own the main surface suppress an existing
   // report and its actions; single, compare and legacy section runs keep
   // their prior report visibility while they generate.
@@ -1886,7 +1917,7 @@
     onFocusSearch={() => void goto(workspaceHref("/projects"))}
     drawerDescription="Navigate between work, projects, and account pages."
   >
-  <div class="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-workspace-rail" data-report-cohort="preview">
+  <div class="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-workspace-shell" data-report-cohort="preview">
     <!-- Top bar (ui-design-final.md section 2): the route's single h1 lives
          here; page actions sit at the right, the rest in the More menu. -->
     <ProjectTopBar
@@ -1978,10 +2009,18 @@
         {/if}
       {/snippet}
       {#snippet actions()}
-        {#if (showIterativeStepper || showSeedWorkspace) && (!isSeedWorkflow || generation?.seedCanEdit)}
-          <!-- Seed stage: the one top-bar cancel. While drafting after
-               sign-off the writing pill's Stop is the only cancel. -->
-          <Button variant="secondary" size="sm" class="h-9" onclick={() => (confirmCancelIterative = true)}>
+        {#if (showIterativeStepper || showSeedWorkspace || showReadingInterview) && (!isSeedWorkflow || generation?.seedCanEdit)}
+          <!-- Seed stage and Reading the interview (round 2, F2): the one
+               top-bar cancel, the filled destructive button. While drafting
+               after sign-off the writing pill's Stop is the only cancel. On a
+               phone the reading screen carries it at the bottom (H4). -->
+          <Button
+            variant="destructive-soft"
+            size="sm"
+            class={`h-9 px-3.5! py-0! ${showReadingInterview ? "max-sm:hidden" : ""}`}
+            data-top-bar-cancel-generation
+            onclick={() => (confirmCancelIterative = true)}
+          >
             Cancel generation
           </Button>
         {/if}
@@ -2030,7 +2069,30 @@
       {/snippet}
     </ProjectTopBar>
 
-    <div data-project-card class="mx-3 mb-3 flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-workspace-rail-line bg-surface">
+    <div
+      data-project-card
+      data-work-panel
+      class={`mx-3 mb-3 flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border ${
+        showReadingInterview ? "border-line-soft bg-canvas" : "border-workspace-rail-line bg-surface"
+      }`}
+    >
+      {#if showReadingInterview && generation}
+        <div class="min-h-0 flex-1 overflow-y-auto" data-reading-host>
+          {#key generation._id}
+            <ReadingInterview
+              generationId={generation._id}
+              failed={Boolean(generation.seedStageError)}
+              canEdit={generation.seedCanEdit}
+              layout={readingLayout}
+              onCancel={() => (confirmCancelIterative = true)}
+              onBack={() => {
+                readingDismissed = true;
+                selectTab("sources");
+              }}
+            />
+          {/key}
+        </div>
+      {:else}
       <PanelToolbar
         tabs={panelTabs}
         {activeTab}
@@ -2209,6 +2271,7 @@
             generationId={generation._id}
             {projectId}
             userId={user?._id ?? "anonymous"}
+            requestedRoleId={page.url.searchParams.get("step")}
             hostVisible={mainPaneVisible && !sourcesOpen}
             onReviewSummary={() => {
               summaryOpener = "trigger";
@@ -2759,6 +2822,7 @@
           {/if}
         </aside>
       </div>
+      {/if}
     </div>
     <!-- BNH-30: one-by-one replace stepper, Word-style "replace & find next" -->
     {#if replaceSession}

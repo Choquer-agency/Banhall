@@ -397,6 +397,9 @@ async function seedProjectRows(
     await ctx.db.insert("generationBriefEntries", {
       briefId, projectId, group: "storyline", text: "t", sourceId, sourceContentHash: "h", startOffset: 0, endOffset: 1, exactExcerpt: "c", createdAt: now,
     });
+    await ctx.db.insert("generationReadingFacts", {
+      generationId, projectId, seq: 1, chip: "Fact", quote: "q", sourceLabel: "Priya, line 1", createdAt: now,
+    });
     // One schema-populated row in every seed table proves both the AD-33 shape
     // and the registry-driven purge. These rows exercise optional references;
     // they are not intended to model one semantically valid workflow episode.

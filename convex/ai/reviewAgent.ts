@@ -210,10 +210,9 @@ export const runPdReview = internalAction({
       const reviewInput = packs
         ? { ...input, transcript: packs.join("\n\n"), transcriptKind: "facts" as const }
         : { ...input, transcriptKind: "text" as const };
-      const contextDocs: ContextDoc[] = await ctx.runQuery(
-        internal.documents.getContextDocsForGeneration,
-        { projectId: args.projectId }
-      );
+      // The project's context documents minus any the writer left out of
+      // this review (decision 56).
+      const contextDocs: ContextDoc[] = input.contextDocs;
 
 
       // Model catalog: PD review runs on the pd_review role's model.

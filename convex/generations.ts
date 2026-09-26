@@ -29,7 +29,11 @@ import {
   retryFromSummaryHandler,
   retryFailedCandidatesArgs,
   retryFailedCandidatesHandler,
+  activeRunSummary,
 } from "./lib/generations/reservation";
+import { getInternalProjectAccessOrNull } from "./lib/auth";
+import { findActiveGeneration } from "./lib/activeGeneration";
+import { ACTIVE_GENERATION_STATUSES } from "../shared/generationTransitions";
 import {
   beginGenerationArgs,
   beginGenerationHandler,
@@ -292,6 +296,29 @@ export const getGenerationRecovery = query({
 export const listGenerations = query({
   args: listGenerationsArgs,
   handler: listGenerationsHandler,
+});
+
+/**
+ * F6: the run a start dialog would meet, so it can say who is running this
+ * project before the writer confirms. Internal project read access; silent
+ * null otherwise. User-safe fields only.
+ */
+export const getActiveRunSummary = query({
+  args: { projectId: v.id("projects") },
+  handler: async (ctx, args) => {
+    const access = await getInternalProjectAccessOrNull(ctx, args.projectId);
+    if (!access) return null;
+    const active = await findActiveGeneration(ctx, access.project, ACTIVE_GENERATION_STATUSES);
+    if (!active) return null;
+    const summary = await activeRunSummary(ctx, active);
+    return {
+      generationId: summary.generationId,
+      requestedByName: summary.requestedByName,
+      isYou: summary.requestedBy === access.user._id,
+      candidateMode: summary.candidateMode,
+      startedAt: summary.startedAt,
+    };
+  },
 });
 
 export const requestGeneration = mutation({

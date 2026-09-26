@@ -14,6 +14,7 @@
   import BriefRailPanel from "$lib/components/brief/BriefRailPanel.svelte";
   import SeedOutline from "./SeedOutline.svelte";
   import SeedSubsectionPane from "./SeedSubsectionPane.svelte";
+  import IdeasReadyToast from "./IdeasReadyToast.svelte";
   import { seedSourceLabel, type SeedSourceAttribution } from "./attribution";
   import type { QuoteCitation } from "./citations";
   import { SEED_REVIEW_SUMMARY_TRIGGER_ID } from "./summaryFocus";
@@ -31,6 +32,7 @@
     onOpenSource = undefined,
     hostVisible = true,
     paneSwitchEnd = undefined,
+    requestedRoleId = null,
   }: {
     generationId: Id<"generations">;
     projectId: Id<"projects">;
@@ -46,6 +48,9 @@
     /** Host controls at the end of the narrow Outline/Seeds switch row (board
      * 3.6 puts the page's Details toggle there). Shown only with the switch. */
     paneSwitchEnd?: Snippet;
+    /** Round 2 (F6): `?step={roleId}` from the ideas-ready notice opens that
+     * step when it exists. */
+    requestedRoleId?: string | null;
   } = $props();
 
   // A failed read is retried by re-establishing the live subscriptions.
@@ -281,6 +286,8 @@
       try {
         const storedRole = localStorage.getItem(openRoleKey(owner));
         if (isRoleId(storedRole)) activeRoleId = storedRole;
+        // A deep link to a step wins over the remembered one.
+        if (isRoleId(requestedRoleId)) activeRoleId = requestedRoleId;
       } catch {
         // The open role is navigation state only, so the first role stands;
         // but a device that refuses this read cannot restore any draft
@@ -418,6 +425,48 @@
   const decidedCount = $derived(
     outline?.rows.filter((row) => row.state === "approved" || row.state === "skipped").length ?? 0
   );
+
+  // Round 2 (F3 to F5): the run's batch pace, a clock while any step's ideas
+  // are written, and whether the step on screen follows approved ones.
+  const expectedMs = $derived(outline?.expectedMs ?? 20_000);
+  const anyPending = $derived(!!outline?.rows.some((row) => row.pendingBatchId));
+  let progressNow = $state(Date.now());
+  $effect(() => {
+    if (!anyPending) return;
+    progressNow = Date.now();
+    const timer = setInterval(() => (progressNow = Date.now()), 1_000);
+    return () => clearInterval(timer);
+  });
+  const afterPicks = $derived.by(() => {
+    const index = PD_SUBSECTIONS.findIndex((definition) => definition.roleId === activeRoleId);
+    return !!outline?.rows.some(
+      (row) => row.state === "approved" && PD_SUBSECTIONS.findIndex((definition) => definition.roleId === row.roleId) < index
+    );
+  });
+
+  // Board F4: the ideas of the step on screen are ready.
+  let pendingOnScreen: { roleId: string; batchId: string } | null = null;
+  let ideasReady = $state<{ count: number; key: number } | null>(null);
+  $effect(() => {
+    const data = subsection;
+    if (!data) return;
+    untrack(() => {
+      if (data.pendingBatchId) {
+        pendingOnScreen = { roleId: data.roleId, batchId: data.pendingBatchId };
+        return;
+      }
+      const seen = pendingOnScreen;
+      if (!seen) return;
+      if (seen.roleId !== data.roleId) {
+        pendingOnScreen = null;
+        return;
+      }
+      if (data.shownBatchId === seen.batchId && data.items.length > 0) {
+        ideasReady = { count: data.items.length, key: Date.now() };
+      }
+      pendingOnScreen = null;
+    });
+  });
   // "Review summary" sits under approval when the step is reopened, when the
   // server says every step is decided, or for a reader who cannot approve.
   const reviewSummaryShown = $derived(
@@ -1036,6 +1085,8 @@
       >
         <SeedOutline
           rows={outline.rows}
+          {expectedMs}
+          now={progressNow}
           {activeRoleId}
           onOpen={openRoleFromOutline}
           usageNotice={outline.usage.notice ? `${outline.usage.requests} seed requests` : null}
@@ -1062,7 +1113,7 @@
           else return;
           event.preventDefault();
         }}
-        class="group relative -mx-1.5 hidden w-3 flex-none cursor-col-resize touch-none items-stretch justify-center focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary lg:flex"
+        class="group relative z-10 -mx-1.5 hidden w-3 flex-none cursor-col-resize touch-none items-stretch justify-center focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary lg:flex"
       >
         <span class={`w-px transition-colors motion-reduce:transition-none ${dragging ? "bg-primary" : "bg-transparent group-hover:bg-primary group-focus-visible:bg-primary"}`}></span>
       </button>
@@ -1070,7 +1121,7 @@
         bind:this={workPane}
         tabindex="-1"
         aria-label="Seed work"
-        class={`${mobilePane === "work" ? "flex" : "hidden"} min-h-0 min-w-0 flex-1 flex-col outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary lg:flex`}
+        class={`${mobilePane === "work" ? "flex" : "hidden"} relative min-h-0 min-w-0 flex-1 flex-col outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary lg:flex`}
       >
         {#if subsection}
           {#if subsectionError}
@@ -1108,9 +1159,20 @@
                 onApproved={continueAfterApproval}
                 onOpenBrief={openBrief}
                 {onOpenSource}
+                {expectedMs}
+                {afterPicks}
               />
             {/key}
           </div>
+          {#if ideasReady}
+            <div class="pointer-events-none absolute right-6 bottom-6 z-20 max-sm:right-4 max-sm:bottom-24" data-ideas-ready-host>
+              <div class="pointer-events-auto">
+                {#key ideasReady.key}
+                  <IdeasReadyToast count={ideasReady.count} onClose={() => (ideasReady = null)} />
+                {/key}
+              </div>
+            </div>
+          {/if}
         {:else if subsectionError}
           <div class="min-h-0 flex-1 overflow-y-auto px-4">
             {@render readFailure(`${activeDefinition.title} could not load.`, subsectionError)}

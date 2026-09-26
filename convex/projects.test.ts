@@ -2163,3 +2163,67 @@ describe("getProjectDetailsPanel (Details panel, 2026-09-24)", () => {
     });
   });
 });
+
+describe("findSameProject (E6)", () => {
+  const FYE_2026 = Date.UTC(2026, 5, 30);
+  async function withExisting() {
+    const f = await setup();
+    await f.t.run((ctx) => ctx.db.patch(f.ownerId, { firstName: "Priya", lastName: "Shah" }));
+    const { projectId } = await asActor(f.t, "owner").mutation(api.projects.createProject, {
+      title: "Adaptive Heat-Recovery Controller",
+      clientName: "Cedarline Systems",
+      fiscalYearEnd: FYE_2026,
+      mode: "generate",
+      transcripts: [],
+    });
+    return { ...f, existingId: projectId };
+  }
+  const query = (overrides: Partial<{ clientName: string; title: string; fiscalYearEnd: number }> = {}) => ({
+    clientName: "cedarline  systems",
+    title: "Adaptive heat recovery controller.",
+    fiscalYearEnd: Date.UTC(2026, 11, 31),
+    ...overrides,
+  });
+
+  test("matches client, title and fiscal year, ignoring case, spacing and punctuation", async () => {
+    const f = await withExisting();
+    const match = await asActor(f.t, "writer").query(api.projects.findSameProject, query());
+    const existing = await getProject(f.t, f.existingId);
+    expect(match).toEqual({
+      projectId: f.existingId,
+      title: "Adaptive Heat-Recovery Controller",
+      clientName: "Cedarline Systems",
+      workflowStage: existing?.workflowStage ?? null,
+      ownerName: "Priya Shah",
+      updatedAt: existing?.updatedAt,
+    });
+  });
+
+  test("a different year, title or client is not the same project", async () => {
+    const f = await withExisting();
+    const writer = asActor(f.t, "writer");
+    expect(await writer.query(api.projects.findSameProject, query({ fiscalYearEnd: Date.UTC(2025, 5, 30) }))).toBeNull();
+    expect(await writer.query(api.projects.findSameProject, query({ title: "Heat recovery controller" }))).toBeNull();
+    expect(await writer.query(api.projects.findSameProject, query({ clientName: "Cedar Line" }))).toBeNull();
+  });
+
+  test("skips a project being deleted", async () => {
+    const f = await withExisting();
+    await f.t.run((ctx) => ctx.db.patch(f.existingId, { deletionStartedAt: Date.now() }));
+    expect(await asActor(f.t, "writer").query(api.projects.findSameProject, query())).toBeNull();
+  });
+
+  test("serves every internal role and refuses a roleless or anonymous caller", async () => {
+    const f = await withExisting();
+    for (const actor of ["writer", "manager", "admin"] as const) {
+      expect(
+        (await asActor(f.t, actor).query(api.projects.findSameProject, query()))?.projectId,
+        actor
+      ).toBe(f.existingId);
+    }
+    await expect(asActor(f.t, "roleless").query(api.projects.findSameProject, query())).rejects.toThrow(
+      /internal role/
+    );
+    await expect(f.t.query(api.projects.findSameProject, query())).rejects.toThrow();
+  });
+});

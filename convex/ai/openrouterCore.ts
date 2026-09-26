@@ -82,10 +82,104 @@ export interface GenerationMessageParams {
   thinking?: { type: "disabled" };
 }
 
+/**
+ * Round 2 (F2, decision 57): what a streamed request reports while it runs.
+ * `onToolInput` receives the tool input JSON written so far (the whole text,
+ * not a delta); an empty string means the request started again.
+ */
+export type GenerationStreamHandlers = { onToolInput?: (snapshot: string) => void };
+
 export interface GenerationClient {
   messages: {
     create(params: GenerationMessageParams): Promise<GenerationResponse>;
+    /**
+     * The same request streamed (the Anthropic Messages API's server-sent
+     * events), resolving to the same response `create` would return. Only
+     * clients that can stream implement it; callers fall back to `create`.
+     */
+    createStreaming?(
+      params: GenerationMessageParams,
+      handlers: GenerationStreamHandlers
+    ): Promise<GenerationResponse>;
   };
+}
+
+/**
+ * Folds an Anthropic Messages event stream into the message `create` would
+ * have returned: content blocks (a tool_use block's input parsed from its
+ * `input_json_delta` pieces), the stop reason from `message_delta`, and the
+ * usage of `message_start` updated by `message_delta` (output tokens and any
+ * provider extras, such as OpenRouter's cost). A value that is not an event
+ * stream is returned as it is (a test double that answers with a message).
+ */
+export async function collectMessageStream(
+  stream: unknown,
+  handlers: GenerationStreamHandlers = {}
+): Promise<unknown> {
+  if (!stream || typeof stream !== "object" || !(Symbol.asyncIterator in stream)) return stream;
+  type Block = { type: string; [key: string]: unknown; partial?: string };
+  let message: Record<string, unknown> = {};
+  const blocks: Block[] = [];
+  let usage: Record<string, unknown> = {};
+  handlers.onToolInput?.("");
+  for await (const raw of stream as AsyncIterable<Record<string, unknown>>) {
+    const event = raw ?? {};
+    switch (event.type) {
+      case "message_start": {
+        message = { ...((event.message as Record<string, unknown>) ?? {}) };
+        usage = { ...((message.usage as Record<string, unknown>) ?? {}) };
+        break;
+      }
+      case "content_block_start": {
+        const block = { ...((event.content_block as Block) ?? { type: "text" }) };
+        if (block.type === "tool_use") block.partial = "";
+        if (block.type === "text" && typeof block.text !== "string") block.text = "";
+        blocks[Number(event.index ?? blocks.length)] = block;
+        break;
+      }
+      case "content_block_delta": {
+        const block = blocks[Number(event.index ?? blocks.length - 1)];
+        const delta = (event.delta ?? {}) as Record<string, unknown>;
+        if (!block) break;
+        if (delta.type === "input_json_delta" && typeof delta.partial_json === "string") {
+          block.partial = (block.partial ?? "") + delta.partial_json;
+          handlers.onToolInput?.(block.partial);
+        } else if (delta.type === "text_delta" && typeof delta.text === "string") {
+          block.text = `${typeof block.text === "string" ? block.text : ""}${delta.text}`;
+        }
+        break;
+      }
+      case "message_delta": {
+        const delta = (event.delta ?? {}) as Record<string, unknown>;
+        if ("stop_reason" in delta) message.stop_reason = delta.stop_reason;
+        if ("stop_sequence" in delta) message.stop_sequence = delta.stop_sequence;
+        if (event.usage && typeof event.usage === "object") usage = { ...usage, ...(event.usage as Record<string, unknown>) };
+        break;
+      }
+      case "error": {
+        const error = (event.error ?? {}) as { message?: string };
+        throw new Error(error.message ?? "The provider stream failed");
+      }
+      default:
+        break;
+    }
+  }
+  const content = blocks.filter(Boolean).map((block) => {
+    if (block.type !== "tool_use") return block;
+    const { partial, ...rest } = block;
+    let input: unknown = rest.input ?? {};
+    if (partial && partial.trim()) {
+      try {
+        input = JSON.parse(partial);
+      } catch {
+        // A tool input cut off mid-object: the stop reason says why, and the
+        // caller treats the answer as cut off (structured.ts).
+        input = {};
+      }
+    }
+    return { ...rest, input };
+  });
+  return { ...message, content, usage };
 }
 
 export type ChatCompletionsBody = {

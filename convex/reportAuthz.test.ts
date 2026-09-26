@@ -576,3 +576,49 @@ describe("inherited query and action blast radius", () => {
     expect(result.reportCopied).toBe(true);
   });
 });
+
+describe("start paths with leave-out lists (decision 56)", () => {
+  it("rejects ineligible actors on requestGeneration and startPdReview before reading the lists", async () => {
+    const f = await setup();
+    const documentId = await f.t.run((ctx) =>
+      ctx.db.insert("projectDocuments", {
+        projectId: f.projectId,
+        fileName: "Written PD.docx",
+        fileType: "docx",
+        content: "Written PD text",
+        source: "review_pd",
+        uploadedBy: "Owner",
+        createdAt: Date.now(),
+      })
+    );
+    const generationsBefore = await f.t.run((ctx) => ctx.db.query("generations").collect());
+    const reviewsBefore = await f.t.run((ctx) => ctx.db.query("pdReviews").collect());
+    for (const [label, actor, code] of rejectedActors(f)) {
+      expect(
+        await errorCode(() =>
+          actor.mutation(api.generations.requestGeneration, {
+            projectId: f.projectId,
+            candidateMode: "single",
+            confirmRegeneration: true,
+            excludeTranscriptIds: [f.destinationTranscriptId],
+            excludeDocumentIds: [documentId],
+          })
+        ),
+        `${label}: requestGeneration`
+      ).toBe(code);
+      expect(
+        await errorCode(() =>
+          actor.mutation(api.pdReviews.startPdReview, {
+            projectId: f.projectId,
+            documentId,
+            excludeTranscriptIds: [f.destinationTranscriptId],
+            excludeDocumentIds: [],
+          })
+        ),
+        `${label}: startPdReview`
+      ).toBe(code);
+    }
+    expect(await f.t.run((ctx) => ctx.db.query("generations").collect())).toEqual(generationsBefore);
+    expect(await f.t.run((ctx) => ctx.db.query("pdReviews").collect())).toEqual(reviewsBefore);
+  });
+});

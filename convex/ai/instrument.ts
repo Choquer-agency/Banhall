@@ -16,6 +16,7 @@ import {
   retryWaitFitsAnyAction,
 } from "./actionDeadline";
 import { COMPRESSION_REQUEST } from "./promptDefinitions";
+import { collectMessageStream, type GenerationStreamHandlers } from "./openrouterCore";
 import { domainError } from "../lib/contracts";
 import {
   TRANSPORT_CONFIGURATION,
@@ -608,8 +609,16 @@ export function instrumentedAnthropic(
   const originalCreate = messages.create.bind(messages);
   const instrumentedMessages = new Proxy(messages, {
     get(target, property, receiver) {
-      if (property !== "create") return Reflect.get(target, property, receiver);
-      return async (...args: unknown[]) => {
+      if (property !== "create" && property !== "createStreaming") {
+        return Reflect.get(target, property, receiver);
+      }
+      // Round 2 (F2, decision 57): `createStreaming(params, handlers)` sends
+      // the same request with `stream: true`, reports the tool input as it
+      // arrives, and records the same usage row from the final message.
+      const streaming = property === "createStreaming";
+      return async (...callArgs: unknown[]) => {
+        const handlers = streaming ? ((callArgs[1] ?? {}) as GenerationStreamHandlers) : undefined;
+        const args = streaming ? [callArgs[0]] : callArgs;
         // The action's deadline (actionDeadline.ts): throws before sending
         // when too little time is left; otherwise each attempt's timeout is
         // cut to the time left and each retry is decided when it happens
@@ -627,13 +636,17 @@ export function instrumentedAnthropic(
         const startedAt = Date.now();
         const request = adaptAnthropicRequest(args[0]);
         const prefixed = meta.attribution ? cacheGenerationPrefix(request) : request;
-        const body = viaOpenRouter ? openRouterWireBody(prefixed) : prefixed;
+        const wire = viaOpenRouter ? openRouterWireBody(prefixed) : prefixed;
+        const body = handlers ? { ...(wire as Record<string, unknown>), stream: true } : wire;
         const rest = args.slice(2);
+        // A streamed answer is read to its end inside the attempt, so a
+        // stream that breaks is retried like a failed request.
+        const finish = async (sent: unknown) => (handlers ? await collectMessageStream(await sent, handlers) : await sent);
         const sendRequest = async (): Promise<unknown> =>
           deadline === undefined || !defaults
-            ? await Reflect.apply(originalCreate, target, [body, ...args.slice(1)])
+            ? await finish(Reflect.apply(originalCreate, target, [body, ...args.slice(1)]))
             : await createWithinDeadline(
-                (options) => Reflect.apply(originalCreate, target, [body, options, ...rest]),
+                (options) => finish(Reflect.apply(originalCreate, target, [body, options, ...rest])),
                 args[1],
                 deadline,
                 defaults

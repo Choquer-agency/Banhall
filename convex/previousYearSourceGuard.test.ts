@@ -466,3 +466,56 @@ describe("Review PD is unaffected (decision 42)", () => {
     expect(reviews.map((review) => review.status)).toEqual(["running"]);
   });
 });
+
+describe("the rule runs on what the writer left in (decision 56)", () => {
+  it("refuses when unticking the only current file leaves last year's report", async () => {
+    const f = await setup();
+    const projectId = await freshProject(f, [], [
+      { fileName: "FY2024 PD.docx", category: "previous_pd", content: LAST_YEAR },
+      { fileName: "Notes.md", category: "writer_notes", content: "This year's tests." },
+    ]);
+    const notes = await f.t.run(async (ctx) =>
+      (
+        await ctx.db
+          .query("projectDocuments")
+          .withIndex("by_projectId", (q) => q.eq("projectId", projectId))
+          .collect()
+      ).find((row) => row.fileName === "Notes.md")!._id
+    );
+    expect(
+      await refusal(() =>
+        f.writer.mutation(api.generations.requestGeneration, {
+          projectId,
+          candidateMode: "iterative",
+          excludeDocumentIds: [notes],
+        })
+      )
+    ).toMatchObject(PREVIOUS_YEAR_ONLY);
+    await expectNothingReserved(f, projectId);
+  });
+
+  it("refuses when unticking the only transcript leaves last year's report", async () => {
+    const f = await setup();
+    const projectId = await freshProject(f, ["Interviewer: What was uncertain?\nEngineer: Heat."], [
+      { fileName: "FY2024 PD.docx", category: "previous_pd", content: LAST_YEAR },
+    ]);
+    const transcriptIds = await f.t.run(async (ctx) =>
+      (
+        await ctx.db
+          .query("transcripts")
+          .withIndex("by_projectId", (q) => q.eq("projectId", projectId))
+          .collect()
+      ).map((row) => row._id)
+    );
+    expect(
+      await refusal(() =>
+        f.writer.mutation(api.generations.requestGeneration, {
+          projectId,
+          candidateMode: "single",
+          excludeTranscriptIds: transcriptIds,
+        })
+      )
+    ).toMatchObject(PREVIOUS_YEAR_ONLY);
+    await expectNothingReserved(f, projectId);
+  });
+});

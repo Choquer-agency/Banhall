@@ -284,3 +284,140 @@ describe("CAP-9 PD provenance", () => {
     }
   });
 });
+
+describe("PD review leave-out lists (decision 56)", () => {
+  async function reviewSetup() {
+    vi.useFakeTimers();
+    vi.stubEnv("ANTHROPIC_API_KEY", "test-anthropic-key");
+    const { t, projectId } = await setup();
+    const ids = await t.run(async (ctx) => {
+      // Clear the failed fixture review so a start is allowed.
+      for (const row of await ctx.db.query("pdReviews").collect()) await ctx.db.delete(row._id);
+      const now = Date.now();
+      const writtenPd = (await ctx.db.query("projectDocuments").first())!._id;
+      const kept = await ctx.db.insert("projectDocuments", {
+        projectId,
+        fileName: "kept.md",
+        fileType: "md",
+        content: "Kept notes",
+        category: "writer_notes",
+        source: "context_input",
+        uploadedBy: authId,
+        createdAt: now,
+      });
+      const leftOut = await ctx.db.insert("projectDocuments", {
+        projectId,
+        fileName: "left-out.md",
+        fileType: "md",
+        content: "Left out notes",
+        category: "background",
+        source: "context_input",
+        uploadedBy: authId,
+        createdAt: now,
+      });
+      const keptTranscript = await ctx.db.insert("transcripts", {
+        projectId,
+        label: "Kept call",
+        content: "Kept interview",
+        createdAt: now,
+      });
+      const leftOutTranscript = await ctx.db.insert("transcripts", {
+        projectId,
+        label: "Left out call",
+        content: "Left out interview",
+        createdAt: now + 1,
+      });
+      return { writtenPd, kept, leftOut, keptTranscript, leftOutTranscript };
+    });
+    return { t, projectId, actor: t.withIdentity({ subject: authId }), ...ids };
+  }
+
+  it("stores the lists and the review input skips the left-out files", async () => {
+    try {
+      const f = await reviewSetup();
+      const reviewId = await f.actor.mutation(api.pdReviews.startPdReview, {
+        projectId: f.projectId,
+        documentId: f.writtenPd,
+        excludeDocumentIds: [f.leftOut],
+        excludeTranscriptIds: [f.leftOutTranscript],
+      });
+      expect((await f.t.run((ctx) => ctx.db.get(reviewId)))?.excludedSources).toEqual({
+        documentIds: [f.leftOut],
+        transcriptIds: [f.leftOutTranscript],
+      });
+      const input = await f.t.query(internal.pdReviews.getReviewInput, { reviewId });
+      expect(input?.contextDocs.map((doc) => doc.fileName)).toEqual(["kept.md"]);
+      expect(input?.transcript).toContain("Kept interview");
+      expect(input?.transcript).not.toContain("Left out interview");
+
+      // A retry keeps the same selection.
+      await f.t.mutation(internal.pdReviews.failPdReview, { reviewId, error: "test" });
+      const retryId = await f.actor.mutation(api.pdReviews.retryPdReview, { reviewId });
+      expect((await f.t.run((ctx) => ctx.db.get(retryId)))?.excludedSources).toEqual({
+        documentIds: [f.leftOut],
+        transcriptIds: [f.leftOutTranscript],
+      });
+    } finally {
+      vi.useRealTimers();
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("reads every context file when nothing is left out", async () => {
+    try {
+      const f = await reviewSetup();
+      const reviewId = await f.actor.mutation(api.pdReviews.startPdReview, {
+        projectId: f.projectId,
+        documentId: f.writtenPd,
+      });
+      expect((await f.t.run((ctx) => ctx.db.get(reviewId)))?.excludedSources).toBeUndefined();
+      const input = await f.t.query(internal.pdReviews.getReviewInput, { reviewId });
+      expect(input?.contextDocs.map((doc) => doc.fileName).sort()).toEqual(["kept.md", "left-out.md"]);
+    } finally {
+      vi.useRealTimers();
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("refuses leaving out the written PD or another project's file", async () => {
+    try {
+      const f = await reviewSetup();
+      await expect(
+        f.actor.mutation(api.pdReviews.startPdReview, {
+          projectId: f.projectId,
+          documentId: f.writtenPd,
+          excludeDocumentIds: [f.writtenPd],
+        })
+      ).rejects.toThrow(/always reviewed/);
+      const foreign = await f.t.run(async (ctx) => {
+        const user = (await ctx.db.query("users").first())!;
+        const other = await ctx.db.insert("projects", {
+          title: "Other",
+          clientName: "Client",
+          status: "draft",
+          createdBy: user._id,
+          ownerId: user._id,
+          shareToken: "other-review-token",
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+        });
+        return await ctx.db.insert("transcripts", {
+          projectId: other,
+          content: "Foreign",
+          createdAt: Date.now(),
+        });
+      });
+      await expect(
+        f.actor.mutation(api.pdReviews.startPdReview, {
+          projectId: f.projectId,
+          documentId: f.writtenPd,
+          excludeTranscriptIds: [foreign],
+        })
+      ).rejects.toThrow(/another project/);
+      expect(await f.t.run((ctx) => ctx.db.query("pdReviews").collect())).toEqual([]);
+    } finally {
+      vi.useRealTimers();
+      vi.unstubAllEnvs();
+    }
+  });
+});

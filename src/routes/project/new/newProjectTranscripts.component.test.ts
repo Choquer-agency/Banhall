@@ -14,9 +14,10 @@ import {
   __setQueryData,
 } from "$lib/test/convex-svelte-stub.svelte";
 import { takeProjectStart } from "$lib/workspace/projectIntentHandoff";
+import { fillBasics, openTranscriptPaste, pasteSupportingText, startButton, startFromPage } from "./newProjectTestSupport";
 
 /**
- * The wizard's transcript intake is an ordered list: several .docx files at
+ * New project's transcript intake is an ordered list: several .docx files at
  * once, one at a time, pastes, and — in the duplicate flow — the source
  * project's rows referenced by id so no transcript text is downloaded to the
  * browser and re-uploaded.
@@ -171,13 +172,15 @@ describe("/project/new transcript list", () => {
     await render(NewProjectPage, {});
 
     await expect.poll(() => document.querySelector("#title")).not.toBeNull();
-    await clickText("Paste text");
-    await expect.poll(() => transcriptTextarea()).not.toBeNull();
+    await openTranscriptPaste();
 
     await addPaste("First interview body");
     await expect.poll(itemLabels).toEqual(["Pasted transcript 1"]);
-    await expect.poll(() => transcriptTextarea()?.value).toBe("");
+    // The paste box closes once the text is a transcript.
+    await expect.poll(() => transcriptTextarea()).toBeNull();
 
+    await openTranscriptPaste();
+    expect(transcriptTextarea()?.value).toBe("");
     await addPaste("Second interview body");
     await expect
       .poll(itemLabels)
@@ -205,8 +208,8 @@ describe("/project/new transcript list", () => {
     // Word counts come out of the real mammoth extraction, per file and total.
     expect(itemWordCounts()).toEqual(["3 words", "2 words", "4 words"]);
     await expect
-      .poll(() => document.body.textContent)
-      .toContain("3 transcripts · 9 words");
+      .poll(() => document.querySelector('[data-checklist-row="transcripts"], [data-interview-status]')?.textContent)
+      .toContain("9 words");
 
     selectFiles([await docxFile("Day 4.docx", ["kappa", "lambda"])]);
     await expect
@@ -226,9 +229,10 @@ describe("/project/new transcript list", () => {
     await expect.poll(transcriptFileInput).not.toBeNull();
     selectFiles([new File(["notes"], "notes.pdf", { type: "application/pdf" })]);
 
+    // E5: the drop zone becomes a red box naming the file and the formats.
     await expect
-      .poll(() => document.body.textContent)
-      .toContain("Transcripts can be Word (.docx), WebVTT (.vtt), SubRip (.srt) or text (.txt) files.");
+      .poll(() => document.querySelector("[data-transcript-wrong-file]")?.textContent?.replace(/\s+/g, " ").trim())
+      .toBe("notes.pdf is not a transcript file. Add transcripts as Word, VTT, SRT or text.");
     expect(itemLabels()).toEqual([]);
   });
 
@@ -255,17 +259,8 @@ describe("/project/new transcript list", () => {
     );
     expect(formats).toEqual(["WebVTT, 7 words", "Zoom, 7 words"]);
 
-    setInputValue("#title", "Solar tracker");
-    setInputValue("#clientName", "Acme Labs");
-    await clickText("Next");
-    await expect
-      .poll(() =>
-        [...document.querySelectorAll("button")].some((button) =>
-          button.textContent?.includes("Generate Report")
-        )
-      )
-      .toBe(true);
-    await clickText("Generate Report");
+    await fillBasics();
+    await startFromPage();
     await expect.poll(() => __mutationCalls("projects:createProject").length).toBe(1);
     const created = __mutationCalls("projects:createProject")[0] as {
       transcripts: Array<{ content?: string; label?: string; sourceFormat?: string }>;
@@ -284,18 +279,12 @@ describe("/project/new transcript list", () => {
     __setPageUrl("/project/new");
     await render(NewProjectPage, {});
 
-    await expect.poll(() => document.querySelector("#title")).not.toBeNull();
-    setInputValue("#title", "Solar tracker");
-    setInputValue("#clientName", "Acme Labs");
-    await clickText("Next");
+    await fillBasics();
 
     await expect
-      .poll(() => document.body.textContent)
-      .toContain("Add a transcript or at least one context document first.");
-    const submit = [...document.querySelectorAll("button")].find((button) =>
-      button.textContent?.includes("Generate Report")
-    );
-    expect(submit?.disabled).toBe(true);
+      .poll(() => document.querySelector('[data-checklist-row="no-source"], [data-bottom-summary]')?.textContent)
+      .toContain("Add a transcript or at least one supporting document");
+    expect(startButton()?.disabled).toBe(true);
   });
 
   it("sends the list in order and no transcript id to generation", async () => {
@@ -306,26 +295,16 @@ describe("/project/new transcript list", () => {
     });
     await render(NewProjectPage, {});
 
-    await expect.poll(() => document.querySelector("#title")).not.toBeNull();
-    setInputValue("#title", "Solar tracker");
-    setInputValue("#clientName", "Acme Labs");
-    await clickText("Paste text");
-    await expect.poll(() => transcriptTextarea()).not.toBeNull();
+    await fillBasics();
+    await openTranscriptPaste();
     await addPaste("First interview body");
+    await openTranscriptPaste();
     await addPaste("Second interview body");
     await expect
       .poll(itemLabels)
       .toEqual(["Pasted transcript 1", "Pasted transcript 2"]);
 
-    await clickText("Next");
-    await expect
-      .poll(() =>
-        [...document.querySelectorAll("button")].some((button) =>
-          button.textContent?.includes("Generate Report")
-        )
-      )
-      .toBe(true);
-    await clickText("Generate Report");
+    await startFromPage();
 
     await expect
       .poll(() => __mutationCalls("projects:createProject").length)
@@ -367,15 +346,8 @@ describe("/project/new transcript originals", () => {
   });
 
   async function submit() {
-    setInputValue("#title", "Solar tracker");
-    setInputValue("#clientName", "Acme Labs");
-    await clickText("Next");
-    await expect
-      .poll(() =>
-        [...document.querySelectorAll("button")].some((button) => button.textContent?.includes("Generate Report"))
-      )
-      .toBe(true);
-    await clickText("Generate Report");
+    await fillBasics();
+    await startFromPage();
   }
 
   it("uploads each file's original and reads a Teams cue export with its speakers", async () => {
@@ -486,15 +458,14 @@ describe("/project/new duplicate prefill", () => {
     expect(itemLabels()).toEqual([]);
     expect(copiedBox("Day 1.docx")?.getAttribute("aria-checked")).toBe("true");
     expect(copiedBox("Day 2.docx")?.getAttribute("aria-checked")).toBe("true");
-    await expect.poll(() => document.body.textContent).toContain("2 transcripts · 30 words");
+    await expect.poll(() => document.querySelector("[data-interview-status]")?.textContent).toContain("30 words");
 
     copiedBox("Day 1.docx")!.click();
     await expect.poll(() => copiedBox("Day 1.docx")?.getAttribute("aria-checked")).toBe("false");
     // Still listed, marked, and out of the count.
     expect(copiedLabels()).toEqual(["Day 1.docx", "Day 2.docx"]);
     expect(copiedBox("Day 1.docx")!.closest("li")?.textContent).toContain("Not copied");
-    await expect.poll(() => document.body.textContent).toContain("10 words");
-    expect(document.body.textContent).not.toContain("2 transcripts");
+    await expect.poll(() => document.querySelector("[data-interview-status]")?.textContent).toContain("10 words");
   });
 
   it("leaves an unticked transcript out of createProject, and ticking it brings it back", async () => {
@@ -512,8 +483,7 @@ describe("/project/new duplicate prefill", () => {
     copiedBox("Day 2.docx")!.click();
     await expect.poll(() => copiedBox("Day 2.docx")?.getAttribute("aria-checked")).toBe("true");
 
-    await clickText("Next");
-    await clickText("Generate Report");
+    await startFromPage();
     await expect.poll(() => __mutationCalls("projects:createProject").length).toBe(1);
     expect(
       (__mutationCalls("projects:createProject")[0] as { transcripts: unknown[] }).transcripts
@@ -528,15 +498,7 @@ describe("/project/new duplicate prefill", () => {
     await render(NewProjectPage, {});
 
     await expect.poll(copiedLabels).toEqual(["Day 1.docx", "Day 2.docx"]);
-    await clickText("Next");
-    await expect
-      .poll(() =>
-        [...document.querySelectorAll("button")].some((button) =>
-          button.textContent?.includes("Generate Report")
-        )
-      )
-      .toBe(true);
-    await clickText("Generate Report");
+    await startFromPage();
 
     await expect
       .poll(() => __mutationCalls("projects:createProject").length)
@@ -570,18 +532,12 @@ describe("/project/new duplicate prefill", () => {
     await render(NewProjectPage, {});
 
     await expect.poll(() => document.querySelector("#title")).not.toBeNull();
-    // A context note is the only source, so the submit is allowed with an
-    // empty transcript list.
-    await clickTextContaining("Add files or paste text");
-    await clickText("Paste text instead");
-    const note = await pollFor<HTMLTextAreaElement>(
-      'textarea[placeholder="Paste text, notes, or links"]'
-    );
-    note.value = "Scoping call notes";
-    note.dispatchEvent(new Event("input", { bubbles: true }));
+    // A pasted supporting note is the only source, so the start is allowed
+    // with an empty transcript list.
+    await pasteSupportingText("Scoping call notes");
+    await expect.poll(() => document.querySelector("[data-supporting-card]")).not.toBeNull();
 
-    await clickText("Next");
-    await clickText("Generate Report");
+    await startFromPage();
 
     await expect
       .poll(() => __mutationCalls("projects:createProject").length)

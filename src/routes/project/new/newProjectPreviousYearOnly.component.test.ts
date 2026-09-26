@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { render } from "vitest-browser-svelte";
+import { page } from "vitest/browser";
 import NewProjectPage from "./+page.svelte";
 import { __resetPage, __setPageUrl } from "$lib/test/app-state-stub.svelte";
 import { __resetNavigation } from "$lib/test/app-navigation-stub";
@@ -10,12 +11,23 @@ import {
   __setQueryData,
 } from "$lib/test/convex-svelte-stub.svelte";
 import { takeProjectStart } from "$lib/workspace/projectIntentHandoff";
+import {
+  addSupportingFiles,
+  confirmButton,
+  fillBasics,
+  openStartDialog,
+  openTranscriptPaste,
+  setDocumentCategory,
+  startButton,
+} from "./newProjectTestSupport";
 
 /**
  * Decision 42 (2026-09-25): a draft is never built from last year's report
  * alone. When every transcript and current file is unticked or missing and
  * only previous-year files (or the original's report brought along as last
- * year's report) remain, Generate Report is disabled with a plain message.
+ * year's report) remain, the start button is disabled and "Before you start"
+ * carries the exact message (conflict 13). The start dialog checks the same
+ * rule on what the writer leaves ticked (decision 56).
  * The server refuses the same case (convex/previousYearSourceGuard.test.ts).
  */
 const MESSAGE =
@@ -23,27 +35,13 @@ const MESSAGE =
 const TRANSCRIPTS_MESSAGE =
   "Add a new transcript or a current file. Last year's transcripts and report can't be the only sources for this year's report.";
 
-function buttonByText(text: string) {
-  return [...document.querySelectorAll("button")].find(
-    (candidate) => candidate.textContent?.trim() === text
-  );
-}
-
-async function clickText(text: string) {
-  await expect.poll(() => buttonByText(text)?.disabled).toBe(false);
-  buttonByText(text)!.click();
-}
-
-async function generateButton() {
-  await expect.poll(() => buttonByText("Generate Report")).not.toBeUndefined();
-  return buttonByText("Generate Report")!;
-}
-
 function setInputValue(selector: string, value: string) {
   const field = document.querySelector<HTMLInputElement | HTMLTextAreaElement>(selector)!;
   field.value = value;
   field.dispatchEvent(new Event("input", { bubbles: true }));
 }
+
+const previousYearRow = () => document.querySelector('[data-checklist-row="previous-year"]')?.textContent?.trim();
 
 function document_(id: string, fileName: string, overrides: Record<string, unknown> = {}) {
   return {
@@ -117,7 +115,8 @@ async function moveFiscalYearTo2025() {
   day()!.click();
 }
 
-beforeEach(() => {
+beforeEach(async () => {
+  await page.viewport(1440, 900);
   localStorage.clear();
   __resetPage();
   __resetNavigation();
@@ -131,40 +130,43 @@ describe("/project/new with only last year's report (decision 42)", () => {
     __setPageUrl("/project/new");
     await render(NewProjectPage, {});
 
-    await expect.poll(() => document.querySelector("#title")).not.toBeNull();
-    setInputValue("#title", "Solar tracker");
-    setInputValue("#clientName", "Acme Labs");
+    await fillBasics();
 
-    // Open the Previous-year reports group and drop last year's PD into it.
-    const header = [...document.querySelectorAll("button")].find((button) =>
-      button.textContent?.includes("Previous-year reports")
-    );
-    header!.click();
-    await expect
-      .poll(() => document.querySelector('[role="region"][aria-label^="Files for fiscal"]'))
-      .not.toBeNull();
-    const transfer = new DataTransfer();
-    transfer.items.add(new File(["Last year's project description."], "FY2024 PD.txt", { type: "text/plain" }));
-    document
-      .querySelector('[role="region"][aria-label^="Files for fiscal"]')!
-      .dispatchEvent(new DragEvent("drop", { dataTransfer: transfer, bubbles: true, cancelable: true }));
-    await expect.poll(() => document.body.textContent).toContain("FY2024 PD.txt");
+    // Last year's PD as the only supporting document.
+    addSupportingFiles([new File(["Last year's project description."], "FY2024 PD.txt", { type: "text/plain" })]);
+    await setDocumentCategory("FY2024 PD.txt", "Previous-year reports");
 
-    await clickText("Next");
-    await expect.poll(() => document.body.textContent).toContain(MESSAGE);
-    expect((await generateButton()).disabled).toBe(true);
-    expect(document.body.textContent).not.toContain(
-      "Add a transcript or at least one context document first."
-    );
+    await expect.poll(previousYearRow).toContain(MESSAGE);
+    expect(startButton()!.disabled).toBe(true);
+    expect(document.querySelector('[data-checklist-row="no-source"]')).toBeNull();
 
     // A pasted transcript is a current-year source.
-    buttonByText("Back")!.click();
-    await clickText("Paste text");
-    await expect.poll(() => document.querySelector("#transcript")).not.toBeNull();
+    await openTranscriptPaste();
     setInputValue("#transcript", "Interviewer: What was uncertain?\nEngineer: The tracker drift.");
-    await clickText("Next");
-    await expect.poll(async () => (await generateButton()).disabled).toBe(false);
-    expect(document.body.textContent).not.toContain(MESSAGE);
+    await expect.poll(() => startButton()?.disabled).toBe(false);
+    expect(previousYearRow()).toBeUndefined();
+  });
+
+  it("refuses in the start dialog when unticking the transcript leaves last year's report", async () => {
+    __setPageUrl("/project/new");
+    await render(NewProjectPage, {});
+    await fillBasics();
+    addSupportingFiles([new File(["Last year's project description."], "FY2024 PD.txt", { type: "text/plain" })]);
+    await setDocumentCategory("FY2024 PD.txt", "Previous-year reports");
+    await openTranscriptPaste();
+    setInputValue("#transcript", "Interviewer: What was uncertain?\nEngineer: The tracker drift.");
+
+    await openStartDialog();
+    const transcriptRow = [...document.querySelectorAll<HTMLElement>("[data-start-run-row]")].find(
+      (row) => row.dataset.kind === "transcript"
+    )!;
+    transcriptRow.querySelector<HTMLElement>("[data-start-run-check]")!.click();
+    await expect
+      .poll(() => document.querySelector("[data-start-run-problem]")?.textContent?.trim())
+      .toBe(MESSAGE);
+    expect(confirmButton()!.disabled).toBe(true);
+    transcriptRow.querySelector<HTMLElement>("[data-start-run-check]")!.click();
+    await expect.poll(() => confirmButton()?.disabled).toBe(false);
   });
 
   it("blocks a card duplicate left with only last year's files and report, until a current file is ticked", async () => {
@@ -182,16 +184,14 @@ describe("/project/new with only last year's report (decision 42)", () => {
     await untick("Writer notes.md");
     expect(copyBox("FY2023 report.docx")?.getAttribute("aria-checked")).toBe("true");
 
-    await clickText("Next");
-    await expect.poll(() => document.body.textContent).toContain(MESSAGE);
-    expect((await generateButton()).disabled).toBe(true);
+    await expect.poll(previousYearRow).toContain(MESSAGE);
+    expect(startButton()!.disabled).toBe(true);
 
-    buttonByText("Back")!.click();
     await tick("Writer notes.md");
-    await clickText("Next");
-    await expect.poll(async () => (await generateButton()).disabled).toBe(false);
-    expect(document.body.textContent).not.toContain(MESSAGE);
-    (await generateButton()).click();
+    await expect.poll(() => startButton()?.disabled).toBe(false);
+    expect(previousYearRow()).toBeUndefined();
+    await openStartDialog();
+    confirmButton()!.click();
     await expect.poll(() => __mutationCalls("projects:createProject").length).toBe(1);
   });
 
@@ -208,15 +208,12 @@ describe("/project/new with only last year's report (decision 42)", () => {
     await untick("Writer notes.md");
     expect(copyBox("Kickoff.docx")?.getAttribute("aria-checked")).toBe("true");
 
-    await clickText("Next");
-    await expect.poll(() => document.body.textContent).toContain(TRANSCRIPTS_MESSAGE);
-    expect((await generateButton()).disabled).toBe(true);
+    await expect.poll(previousYearRow).toContain(TRANSCRIPTS_MESSAGE);
+    expect(startButton()!.disabled).toBe(true);
 
-    buttonByText("Back")!.click();
     await tick("Writer notes.md");
-    await clickText("Next");
-    await expect.poll(async () => (await generateButton()).disabled).toBe(false);
-    expect(document.body.textContent).not.toContain(TRANSCRIPTS_MESSAGE);
+    await expect.poll(() => startButton()?.disabled).toBe(false);
+    expect(previousYearRow()).toBeUndefined();
   });
 
   it("lets a same-year card duplicate draft from its copied transcript", async () => {
@@ -226,13 +223,11 @@ describe("/project/new with only last year's report (decision 42)", () => {
 
     await expect.poll(() => document.querySelector("[data-copied-files]")).not.toBeNull();
     await untick("Writer notes.md");
-    await clickText("Next");
-    await expect.poll(async () => (await generateButton()).disabled).toBe(false);
-    expect(document.body.textContent).not.toContain(TRANSCRIPTS_MESSAGE);
-    expect(document.body.textContent).not.toContain(MESSAGE);
+    await expect.poll(() => startButton()?.disabled).toBe(false);
+    expect(previousYearRow()).toBeUndefined();
   });
 
-  it("blocks a plain ?from= copy in Generate PD whose only ticked file is a previous-year report", async () => {
+  it("blocks a plain ?from= copy in Write a new PD whose only ticked file is a previous-year report", async () => {
     seedSource();
     __setPageUrl("/project/new?from=project-1");
     await render(NewProjectPage, {});
@@ -241,9 +236,8 @@ describe("/project/new with only last year's report (decision 42)", () => {
     await untick("Kickoff.docx");
     await untick("Writer notes.md");
 
-    await clickText("Next");
-    await expect.poll(() => document.body.textContent).toContain(MESSAGE);
-    expect((await generateButton()).disabled).toBe(true);
+    await expect.poll(previousYearRow).toContain(MESSAGE);
+    expect(startButton()!.disabled).toBe(true);
     expect(__mutationCalls("projects:createProject")).toHaveLength(0);
   });
 });

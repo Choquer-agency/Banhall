@@ -120,6 +120,7 @@ function subsection(overrides: Partial<SeedSubsectionData> = {}): SeedSubsection
     feedbackGroups: [],
     shownBatchId: "batch-1" as Id<"seedBatches">,
     pendingBatchId: null,
+    pendingBatch: null,
     approvalChallenge: {
       approvalChallenge: "challenge-exact",
       carriedSeedIds: ["seed-carried" as Id<"seeds">],
@@ -3476,5 +3477,193 @@ describe("Seed plan final UI (ui-design-final.md sections 3 and 11)", () => {
     await page.getByLabelText("Seed workspace").screenshot({ path: await captures.path("seed-plan-phone-390") });
     await regenerate.click();
     expect(__mutationCalls("seeds:regenerate")).toEqual([expect.objectContaining({ roleId: "passive_limitations" })]);
+  });
+});
+
+// ─── Round 2 (F3 to F5): seed-step progress ─────────────────────────────────
+
+const plainChallenge = {
+  approvalChallenge: "plain-challenge",
+  carriedSeedIds: [],
+  exclusionEntryIds: [],
+  changedRoleIds: [],
+  shownBatchOutdated: false,
+  exclusions: [],
+  contributionHashes: [],
+};
+const textOf = (node: Element | null | undefined) => (node?.textContent ?? "").replace(/\s+/g, " ").trim();
+
+describe("seed-step progress (F3, F5)", () => {
+  it("shows the progress row, four skeleton cards and a disabled approve while the first step is written", async () => {
+    const now = Date.now();
+    await render(
+      SeedSubsectionPane,
+      paneProps(
+        subsection({
+          items: [],
+          shownBatchId: null,
+          pendingBatchId: "batch-pending" as Id<"seedBatches">,
+          pendingBatch: { status: "running", queuedAt: now - 5_000, startedAt: now - 5_000 },
+          state: "generating",
+        }),
+        { expectedMs: 20_000 }
+      )
+    );
+    const row = document.querySelector<HTMLElement>("[data-seed-progress]")!;
+    expect(textOf(row.querySelector("[data-seed-progress-line]"))).toBe(
+      "Writing ideas from the interview. About 15 seconds left."
+    );
+    expect(row.querySelector('[data-ai-mark="aurora"]')).not.toBeNull();
+    const bar = row.querySelector<HTMLElement>("[data-seed-progress-bar]")!;
+    expect(getComputedStyle(bar).width).toBe("160px");
+    expect(Number(bar.getAttribute("aria-valuenow"))).toBeGreaterThanOrEqual(24);
+    const skeletons = [...document.querySelectorAll<HTMLElement>("[data-seed-skeleton]")];
+    expect(skeletons).toHaveLength(4);
+    expect(getComputedStyle(skeletons[0]).height).toBe("170px");
+    expect(document.body.textContent).not.toContain("Writing seeds…");
+    expect(document.querySelector<HTMLButtonElement>("[data-approve-step]")?.disabled).toBe(true);
+  });
+
+  it("says a later step also reads the picks so far, waits while queued and says Almost ready past the estimate", async () => {
+    const now = Date.now();
+    const view = await render(
+      SeedSubsectionPane,
+      paneProps(
+        subsection({
+          items: [],
+          pendingBatchId: "batch-pending" as Id<"seedBatches">,
+          pendingBatch: { status: "queued", queuedAt: now },
+          state: "generating",
+        }),
+        { expectedMs: 20_000, afterPicks: true }
+      )
+    );
+    expect(textOf(document.querySelector("[data-seed-progress-line]"))).toBe(
+      "Writing ideas from the interview and your picks so far. Waiting to start."
+    );
+    view.unmount();
+    await render(
+      SeedSubsectionPane,
+      paneProps(
+        subsection({
+          items: [],
+          pendingBatchId: "batch-pending" as Id<"seedBatches">,
+          pendingBatch: { status: "running", queuedAt: now - 60_000, startedAt: now - 60_000 },
+          state: "generating",
+        }),
+        { expectedMs: 20_000, afterPicks: true }
+      )
+    );
+    expect(textOf(document.querySelector("[data-seed-progress-line]"))).toBe(
+      "Writing ideas from the interview and your picks so far. Almost ready."
+    );
+    expect(document.querySelector("[data-seed-progress-bar]")?.getAttribute("aria-valuenow")).toBe("95");
+  });
+
+  it("draws a gradient ring with the percent on an outline row whose ideas are written", async () => {
+    const now = Date.now();
+    const rows = outline().rows.map((row, index) =>
+      index === 0
+        ? { ...row, state: "generating", pendingBatchId: "batch-pending", pendingStartedAt: now - 10_000 }
+        : { ...row, pendingStartedAt: null }
+    );
+    __setQueryData("seeds:getOutline", { ...outline(), rows, expectedMs: 20_000 });
+    __setQueryData("seeds:getSubsection", subsection({ items: [], pendingBatchId: "batch-pending" as Id<"seedBatches">, pendingBatch: { status: "running", queuedAt: now - 10_000, startedAt: now - 10_000 } }));
+    await render(SeedWorkspace, workspaceProps());
+    const first = () =>
+      document.querySelector<HTMLElement>('nav[aria-label="PD subsections"] button[data-row-state="generating"]');
+    await expect.poll(() => first()).not.toBeNull();
+    const ring = first()!.querySelector<HTMLElement>('[data-row-icon="writing"]')!;
+    expect(Number(ring.dataset.rowPercent)).toBeGreaterThanOrEqual(49);
+    expect(ring.getAttribute("style")).toContain("conic-gradient(");
+    expect(ring.getAttribute("style")).toContain("#8438FF");
+    expect(textOf(first()!.querySelector("[data-row-progress]"))).toMatch(/^\d+%$/);
+    // The other rows keep their icons.
+    expect(document.querySelectorAll('[data-row-icon="writing"]')).toHaveLength(1);
+  });
+});
+
+describe("ideas ready, Mod Enter and the step deep link (F4, I4, F6)", () => {
+  it("shows the ideas-ready toast when the step on screen gets its ideas, then leaves", async () => {
+    const pending = subsection({
+      items: [],
+      shownBatchId: null,
+      pendingBatchId: "batch-new" as Id<"seedBatches">,
+      pendingBatch: { status: "running", queuedAt: Date.now(), startedAt: Date.now() },
+      state: "generating",
+    });
+    __setQueryData("seeds:getOutline", outline());
+    __setQueryData("seeds:getSubsection", pending);
+    await render(SeedWorkspace, workspaceProps());
+    await expect.poll(() => document.querySelector("[data-seed-skeletons]")).not.toBeNull();
+    expect(document.querySelector("[data-ideas-ready-toast]")).toBeNull();
+
+    __setQueryData(
+      "seeds:getSubsection",
+      subsection({ items: twoSeeds(), shownBatchId: "batch-new" as Id<"seedBatches">, pendingBatchId: null, pendingBatch: null })
+    );
+    await expect.poll(() => document.querySelector("[data-ideas-ready-toast]")).not.toBeNull();
+    const toast = document.querySelector<HTMLElement>("[data-ideas-ready-toast]")!;
+    expect(textOf(toast)).toBe("2 ideas are ready Pick what fits, then approve to move on.");
+    expect(toast.querySelector('[data-ai-mark="aurora"]')).not.toBeNull();
+    expect(toast.closest("[data-ideas-ready-host]")).not.toBeNull();
+    toast.querySelector<HTMLButtonElement>('button[aria-label="Dismiss"]')!.click();
+    await expect.poll(() => document.querySelector("[data-ideas-ready-toast]")).toBeNull();
+  });
+
+  it("dismisses itself after 5 seconds, paused while hovered", async () => {
+    const IdeasReadyToast = (await import("./IdeasReadyToast.svelte")).default;
+    vi.useFakeTimers();
+    try {
+      const onClose = vi.fn();
+      await render(IdeasReadyToast, { count: 3, onClose });
+      const toast = document.querySelector<HTMLElement>("[data-ideas-ready-toast]")!;
+      toast.dispatchEvent(new MouseEvent("mouseenter"));
+      vi.advanceTimersByTime(8_000);
+      expect(onClose).not.toHaveBeenCalled();
+      toast.dispatchEvent(new MouseEvent("mouseleave"));
+      vi.advanceTimersByTime(5_000);
+      expect(onClose).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("approves with Mod Enter, but not while typing, and shows the shortcut", async () => {
+    await render(
+      SeedSubsectionPane,
+      paneProps(subsection({ approvalChallenge: plainChallenge }))
+    );
+    const approve = document.querySelector<HTMLButtonElement>("[data-approve-step]")!;
+    await expect.poll(() => approve.disabled).toBe(false);
+    expect(approve.getAttribute("aria-keyshortcuts")).toMatch(/^(Meta|Control)\+Enter$/);
+    const mac = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
+    const input = document.createElement("input");
+    document.body.appendChild(input);
+    input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", metaKey: mac, ctrlKey: !mac, bubbles: true }));
+    expect(__mutationCalls("seeds:approve")).toEqual([]);
+    input.remove();
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", metaKey: mac, ctrlKey: !mac, bubbles: true }));
+    await expect.poll(() => __mutationCalls("seeds:approve").length).toBe(1);
+    expect(__mutationCalls("seeds:approve")[0]).toMatchObject({ approvalChallenge: "plain-challenge" });
+  });
+
+  it("opens the step named by ?step= when it exists", async () => {
+    __setQueryData("seeds:getOutline", outline());
+    __setQueryData("seeds:getSubsection", subsection());
+    await render(SeedWorkspace, workspaceProps({ requestedRoleId: "hypothesis" }));
+    await expect
+      .poll(() => textOf(document.querySelector('nav[aria-label="PD subsections"] button[aria-current="step"]')))
+      .toContain(PD_SUBSECTIONS.find((row) => row.roleId === "hypothesis")!.title);
+    expect(__activeQueryArgs("seeds:getSubsection")).toContainEqual({ generationId, roleId: "hypothesis" });
+  });
+
+  it("ignores a ?step= that is not a step", async () => {
+    __setQueryData("seeds:getOutline", outline());
+    __setQueryData("seeds:getSubsection", subsection());
+    await render(SeedWorkspace, workspaceProps({ requestedRoleId: "not-a-step" }));
+    await expect
+      .poll(() => __activeQueryArgs("seeds:getSubsection"))
+      .toContainEqual({ generationId, roleId: PD_SUBSECTIONS[0].roleId });
   });
 });

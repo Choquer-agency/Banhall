@@ -647,7 +647,10 @@ export default defineSchema({
     .index("by_createdAt", ["createdAt"])
     .index("by_projectId", ["projectId"])
     .index("by_projectId_and_createdAt", ["projectId", "createdAt"])
-    .index("by_generationId", ["generationId"]),
+    .index("by_generationId", ["generationId"])
+    // Round 2 (F2): the recent Brief durations that pace "Reading the
+    // interview" (seeds.getReadingFacts).
+    .index("by_callSite_and_createdAt", ["callSite", "createdAt"]),
 
   transcripts: defineTable({
     projectId: v.id("projects"),
@@ -1050,6 +1053,14 @@ export default defineSchema({
     // successful candidates forward. The full compare pair remains in
     // compareModelIds for provenance; this bounded subset drives scheduling.
     retryModelIds: v.optional(v.array(v.string())),
+    // Round 2 (decision 56): files the writer unticked in the start dialog.
+    // The frozen sources skip them; retries freeze the same selection.
+    excludedSources: v.optional(
+      v.object({
+        documentIds: v.array(v.id("projectDocuments")),
+        transcriptIds: v.array(v.id("transcripts")),
+      })
+    ),
     seededCandidates: v.optional(v.number()),
     scheduledJobId: v.optional(v.id("_scheduled_functions")),
     previousProjectStatus: v.optional(
@@ -2714,6 +2725,14 @@ export default defineSchema({
     createdBy: v.string(),
     createdAt: v.number(),
     completedAt: v.optional(v.number()),
+    // Round 2 (decision 56): context files the writer unticked in the start
+    // dialog; the review agent does not read them.
+    excludedSources: v.optional(
+      v.object({
+        documentIds: v.array(v.id("projectDocuments")),
+        transcriptIds: v.array(v.id("transcripts")),
+      })
+    ),
   })
     .index("by_projectId", ["projectId"])
     // Stale-review reaper: running rows older than the cutoff.
@@ -3138,6 +3157,25 @@ export default defineSchema({
     .index("by_generationId", ["generationId"])
     // Latest-brief-for-project lookup (any inputsHash), used to diff a
     // re-derivation's entries against whatever the project last had.
+    .index("by_projectId", ["projectId"]),
+
+  // Round 2 (F2, decision 57): the facts "Reading the interview" shows while
+  // the Step-by-step Brief is written, located on the frozen transcript as
+  // they stream in. Display only: never generation input, never read by
+  // Seeds, the Summary, drafting or QA. Erased with the project.
+  generationReadingFacts: defineTable({
+    generationId: v.id("generations"),
+    projectId: v.id("projects"),
+    seq: v.number(),
+    chip: v.string(),
+    // At most 300 characters, names restored (decision 26).
+    quote: v.string(),
+    sourceLabel: v.string(),
+    speaker: v.optional(v.string()),
+    line: v.optional(v.number()),
+    createdAt: v.number(),
+  })
+    .index("by_generationId_and_seq", ["generationId", "seq"])
     .index("by_projectId", ["projectId"]),
 
   // Child rows of generationBriefs: individual entries (Storyline questions,
