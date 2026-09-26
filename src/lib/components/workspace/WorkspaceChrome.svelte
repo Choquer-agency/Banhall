@@ -137,10 +137,11 @@
     class={`flex min-h-0 min-w-0 flex-col overflow-hidden ${frame === "inset" ? "bg-workspace-shell px-3 pb-3" : "bg-surface"}`}
   >
     <!-- D4: while the page is hidden in a View as role, the bar names the
-         gated page on its own ("Admin"), with no breadcrumb or actions. -->
+         gated page on its own ("Admin") with its address as the muted line
+         ("banhall.app/admin"), and no breadcrumb or actions. -->
     <PageTopBar
       title={hiddenInView && viewAsGate ? VIEW_AS_GATE_PAGE_NAMES[viewAsGate] : title}
-      subtitle={hiddenInView ? null : (subtitle ?? description)}
+      subtitle={hiddenInView ? `${page.url.host}${page.url.pathname}` : (subtitle ?? description)}
       breadcrumb={hiddenInView ? null : breadcrumb}
       {icon}
       {iconSnippet}
