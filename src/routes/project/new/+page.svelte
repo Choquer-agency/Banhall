@@ -69,6 +69,7 @@
   import {
     isPreviousYearDocument,
     PREVIOUS_YEAR_ONLY_MESSAGE,
+    PREVIOUS_YEAR_TRANSCRIPTS_ONLY_MESSAGE,
     previousYearReportHeader,
   } from "../../../../shared/previousYear";
   import WorkspaceChrome from "$lib/components/workspace/WorkspaceChrome.svelte";
@@ -776,11 +777,22 @@
     pyRows.reduce((n, r) => n + r.files.filter((f) => !isImageFile(f.name)).length, 0) +
       pyNoteOnlyCount
   );
+  // Decision 42, lead note of 2026-09-25: once the fiscal year moves
+  // forward, the transcripts copied from the original are last year's too.
+  // The server counts them the same way.
+  const copiedLastYearTranscriptCount = $derived(
+    fiscalYearMovedForward
+      ? includedTranscriptItems.filter((item) => item.source.kind === "copy").length
+      : 0
+  );
   const hasCurrentSource = $derived(
-    transcriptCountForSubmit > 0 || currentTextualFileCount > 0 || copiedCurrentReadableCount > 0
+    transcriptCountForSubmit > copiedLastYearTranscriptCount ||
+      currentTextualFileCount > 0 ||
+      copiedCurrentReadableCount > 0
   );
   const hasAnySource = $derived(
     mode === "review" ||
+      transcriptCountForSubmit > 0 ||
       hasCurrentSource ||
       previousYearTextualFileCount > 0 ||
       copiedPreviousYearReadableCount > 0
@@ -789,6 +801,11 @@
   // last year's report alone is refused on the server too.
   const onlyPreviousYearSources = $derived(
     mode === "generate" && hasAnySource && !hasCurrentSource
+  );
+  const previousYearOnlyMessage = $derived(
+    copiedLastYearTranscriptCount > 0
+      ? PREVIOUS_YEAR_TRANSCRIPTS_ONLY_MESSAGE
+      : PREVIOUS_YEAR_ONLY_MESSAGE
   );
   const canCommit = $derived(hasAnySource && !onlyPreviousYearSources);
 
@@ -953,7 +970,7 @@
       return;
     }
     if (onlyPreviousYearSources) {
-      toast.error(PREVIOUS_YEAR_ONLY_MESSAGE);
+      toast.error(previousYearOnlyMessage);
       return;
     }
     if (transcriptsOverCap) {
@@ -2081,7 +2098,7 @@
                   : "Add a transcript or at least one context document first."}
               </span>
             {:else if onlyPreviousYearSources}
-              <span class="text-xs text-amber-600">{PREVIOUS_YEAR_ONLY_MESSAGE}</span>
+              <span class="text-xs text-amber-600">{previousYearOnlyMessage}</span>
             {/if}
             <Button
               type="button"

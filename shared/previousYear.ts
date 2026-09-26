@@ -27,6 +27,14 @@ export const PREVIOUS_YEAR_ONLY_REASON = "PREVIOUS_YEAR_ONLY_SOURCES";
 export const PREVIOUS_YEAR_ONLY_MESSAGE =
   "Add a transcript or a current file. Last year's report alone can't be the source for this year's report.";
 
+/**
+ * Decision 42, lead note of 2026-09-25: on a duplicate whose fiscal year is
+ * later than the original's, the transcripts copied from the original are
+ * last year's too. The same reason, with wording that names them.
+ */
+export const PREVIOUS_YEAR_TRANSCRIPTS_ONLY_MESSAGE =
+  "Add a new transcript or a current file. Last year's transcripts and report can't be the only sources for this year's report.";
+
 export function isPreviousYearDocument(document: { category?: string | null }): boolean {
   return document.category === PREVIOUS_YEAR_CATEGORY;
 }

@@ -8,6 +8,7 @@ import { buildTiptapDocument } from "./lib/tiptapReport";
 import {
   PREVIOUS_YEAR_ONLY_MESSAGE,
   PREVIOUS_YEAR_ONLY_REASON,
+  PREVIOUS_YEAR_TRANSCRIPTS_ONLY_MESSAGE,
   previousYearReportHeader,
 } from "../shared/previousYear";
 
@@ -283,17 +284,27 @@ describe("a card duplicate (decision 42)", () => {
   /** The wizard's card duplicate commit, a year on, minus the browser. */
   async function duplicate(
     f: Fixture,
-    options: { keepTranscript: boolean; leaveNotes: boolean }
+    options: {
+      keepTranscript: boolean;
+      leaveNotes: boolean;
+      newTranscript?: boolean;
+      sameYear?: boolean;
+    }
   ) {
     const from = await source(f);
     const { projectId, transcriptIds } = await f.writer.mutation(api.projects.createProject, {
       title: "Alloy furnace (copy)",
       clientName: "Forgeworks Inc.",
       mode: "generate",
-      fiscalYearEnd: FYE_2025,
-      transcripts: options.keepTranscript
-        ? [{ fromTranscriptId: from.sourceTranscriptId, label: "Kickoff interview.docx" }]
-        : [],
+      fiscalYearEnd: options.sameYear ? FYE_2024 : FYE_2025,
+      transcripts: [
+        ...(options.keepTranscript
+          ? [{ fromTranscriptId: from.sourceTranscriptId, label: "Kickoff interview.docx" }]
+          : []),
+        ...(options.newTranscript
+          ? [{ content: "Interviewer: What changed this year?\nEngineer: The new alloy.", label: "This year" }]
+          : []),
+      ],
     });
     await f.writer.action(api.projectDuplication.copyProjectContent, {
       fromProjectId: from.sourceProjectId,
@@ -301,7 +312,7 @@ describe("a card duplicate (decision 42)", () => {
       ...(transcriptIds[0] ? { targetTranscriptId: transcriptIds[0] } : {}),
       ...INPUTS_ONLY,
       ...(options.leaveNotes ? { excludeDocumentIds: [from.notesId] } : {}),
-      previousYearReport: true,
+      previousYearReport: !options.sameYear,
     });
     return projectId;
   }
@@ -331,9 +342,38 @@ describe("a card duplicate (decision 42)", () => {
     expect((await state(f, projectId)).generations).toHaveLength(1);
   });
 
-  it("drafts when the transcript comes along with last year's report", async () => {
+  // Lead note of 2026-09-25 (audit a4 #12): a year on, the transcripts
+  // copied from the original are last year's too.
+  it("refuses last year's copied transcript with last year's report", async () => {
     const f = await setup();
     const projectId = await duplicate(f, { keepTranscript: true, leaveNotes: true });
+    for (const candidateMode of ["compare", "single", "iterative"] as const) {
+      expect(
+        await refusal(() =>
+          f.writer.mutation(api.generations.requestGeneration, { projectId, candidateMode })
+        )
+      ).toMatchObject({ ...PREVIOUS_YEAR_ONLY, message: PREVIOUS_YEAR_TRANSCRIPTS_ONLY_MESSAGE });
+    }
+    await expectNothingReserved(f, projectId);
+  });
+
+  it("drafts when a new transcript comes along with last year's copied one", async () => {
+    const f = await setup();
+    const projectId = await duplicate(f, { keepTranscript: true, leaveNotes: true, newTranscript: true });
+    await f.writer.mutation(api.generations.requestGeneration, { projectId, candidateMode: "iterative" });
+    expect((await state(f, projectId)).generations).toHaveLength(1);
+  });
+
+  it("drafts when a current file comes along with last year's copied transcript", async () => {
+    const f = await setup();
+    const projectId = await duplicate(f, { keepTranscript: true, leaveNotes: false });
+    await f.writer.mutation(api.generations.requestGeneration, { projectId, candidateMode: "iterative" });
+    expect((await state(f, projectId)).generations).toHaveLength(1);
+  });
+
+  it("counts a copied transcript as current on a same-year duplicate", async () => {
+    const f = await setup();
+    const projectId = await duplicate(f, { keepTranscript: true, leaveNotes: true, sameYear: true });
     await f.writer.mutation(api.generations.requestGeneration, { projectId, candidateMode: "iterative" });
     expect((await state(f, projectId)).generations).toHaveLength(1);
   });
