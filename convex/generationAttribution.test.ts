@@ -1,5 +1,5 @@
 /// <reference types="vite/client" />
-import { convexTest } from "convex-test";
+import { convexTest, type TestConvex } from "convex-test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { internal, api } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
@@ -1563,6 +1563,20 @@ describe("generation entry handoffs through the real actions", () => {
 });
 
 describe("getGeneration attributable cost", () => {
+  // Cost, the prompt version and learned-guidance ids are usage
+  // administration: admins only (security wave 1, a2 P2-7).
+  async function adminAuthId(t: TestConvex<typeof schema>): Promise<string> {
+    const authId = "generation-attribution-admin";
+    await t.run(async (ctx) => {
+      const existing = await ctx.db
+        .query("users")
+        .withIndex("by_authId", (q) => q.eq("authId", authId))
+        .unique();
+      if (!existing) await ctx.db.insert("users", { authId, role: "admin" });
+    });
+    return authId;
+  }
+
   async function seedUsage(
     t: ReturnType<typeof convexTest>,
     rows: Array<{
@@ -1639,14 +1653,14 @@ describe("getGeneration attributable cost", () => {
     ]);
 
     const view = await t
-      .withIdentity({ subject: AUTH_ID })
+      .withIdentity({ subject: await adminAuthId(t) })
       .query(api.generations.getGeneration, { generationId });
     expect(view?.cost).toBe(0.875);
     expect(view?.promptVersion).toBe(PROMPT_VERSION);
     expect(view?.learningDigestIds).toEqual([digestId]);
 
     const otherView = await t
-      .withIdentity({ subject: AUTH_ID })
+      .withIdentity({ subject: await adminAuthId(t) })
       .query(api.generations.getGeneration, {
         generationId: otherGenerationId,
       });
@@ -1682,7 +1696,7 @@ describe("getGeneration attributable cost", () => {
     ]);
 
     const view = await t
-      .withIdentity({ subject: AUTH_ID })
+      .withIdentity({ subject: await adminAuthId(t) })
       .query(api.generations.getGeneration, { generationId: failedId });
     expect(view?.status).toBe("failed");
     expect(view?.cost).toBe(0.75);
@@ -1706,7 +1720,7 @@ describe("getGeneration attributable cost", () => {
     );
 
     const view = await t
-      .withIdentity({ subject: AUTH_ID })
+      .withIdentity({ subject: await adminAuthId(t) })
       .query(api.generations.getGeneration, { generationId });
     expect(view?.cost).toBe(0);
     expect(view?.cost).not.toBeNull();
@@ -1731,7 +1745,7 @@ describe("getGeneration attributable cost", () => {
     ]);
 
     const view = await t
-      .withIdentity({ subject: AUTH_ID })
+      .withIdentity({ subject: await adminAuthId(t) })
       .query(api.generations.getGeneration, { generationId: legacyId });
     expect(view).not.toBeNull();
     expect(view?.promptVersion).toBeNull();
@@ -1743,7 +1757,7 @@ describe("getGeneration attributable cost", () => {
     const t = convexTest(schema, modules);
     const fixture = await insertProjectFixture(t);
     const generationId = await t
-      .withIdentity({ subject: AUTH_ID })
+      .withIdentity({ subject: await adminAuthId(t) })
       .mutation(api.generations.requestGeneration, {
         projectId: fixture.projectId,
         candidateMode: "single",
@@ -1754,7 +1768,7 @@ describe("getGeneration attributable cost", () => {
     expect(reserved?.promptVersion).toBeUndefined();
 
     const view = await t
-      .withIdentity({ subject: AUTH_ID })
+      .withIdentity({ subject: await adminAuthId(t) })
       .query(api.generations.getGeneration, { generationId });
     expect(view?.promptVersion).toBeNull();
     expect(view?.learningDigestIds).toBeNull();
@@ -1770,7 +1784,7 @@ describe("getGeneration attributable cost", () => {
       }),
     ).resolves.toBe(true);
     const stamped = await t
-      .withIdentity({ subject: AUTH_ID })
+      .withIdentity({ subject: await adminAuthId(t) })
       .query(api.generations.getGeneration, { generationId });
     expect(stamped?.promptVersion).toBe(PROMPT_VERSION);
     expect(stamped?.learningDigestIds).toEqual([]);
@@ -1803,7 +1817,7 @@ describe("getGeneration attributable cost", () => {
     ]);
 
     const midFlight = await t
-      .withIdentity({ subject: AUTH_ID })
+      .withIdentity({ subject: await adminAuthId(t) })
       .query(api.generations.getGeneration, { generationId });
     expect(midFlight?.status).toBe("running");
     expect(midFlight?.cost).toBe(0.2);
@@ -1817,7 +1831,7 @@ describe("getGeneration attributable cost", () => {
       { generationId, callSite: "generation:section:242", costUsd: 0.3, createdAt: 2 },
     ]);
     const later = await t
-      .withIdentity({ subject: AUTH_ID })
+      .withIdentity({ subject: await adminAuthId(t) })
       .query(api.generations.getGeneration, { generationId });
     expect(later?.cost).toBeCloseTo(0.5, 10);
     expect(later?.learningDigestIds).toEqual([firstDigestId, secondDigestId]);
@@ -1885,7 +1899,7 @@ describe("getGeneration attributable cost", () => {
     await t.run((ctx) => ctx.db.delete(generationId));
     expect(
       await t
-        .withIdentity({ subject: AUTH_ID })
+        .withIdentity({ subject: await adminAuthId(t) })
         .query(api.generations.getGeneration, { generationId }),
     ).toBeNull();
   });
