@@ -91,7 +91,8 @@ export function buildChecklist(input: ChecklistInput): ChecklistRow[] {
               }
             : { id: "written-pd", state: "pending", text: "Add the written PD", blocking: true }
     );
-  } else if (input.transcripts.count > 0) {
+  } else if (input.transcripts.count > 0 && input.unreadableTranscripts === 0) {
+    // E5: a transcript that could not be read replaces this row.
     rows.push({
       id: "transcripts",
       state: "done",

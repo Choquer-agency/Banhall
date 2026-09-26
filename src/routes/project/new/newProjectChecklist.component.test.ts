@@ -17,7 +17,7 @@ const INPUT: ChecklistInput = {
   title: "Cold storage",
   transcripts: { count: 2, words: 14_820 },
   unreadableTranscripts: 1,
-  fiscalYearSet: false,
+  fiscalYearSet: true,
   scienceCodeSet: true,
   supporting: { count: 3, reading: 1 },
   duplicateName: true,
@@ -45,26 +45,26 @@ describe("StartChecklist", () => {
     const rows = [...document.querySelectorAll<HTMLElement>("[data-checklist-row]")];
     expect(rows.map((row) => [row.dataset.checklistRow, row.dataset.state])).toEqual([
       ["duplicate", "warning"],
-      ["transcripts", "done"],
+      // E5: the unreadable row replaces the transcripts row.
       ["unreadable", "danger"],
-      ["fiscal-science", "pending"],
+      ["fiscal-science", "done"],
       ["supporting", "reading"],
     ]);
     // The board icons (16px, stroke 1.8) in each state's colour (E1, E5, E6).
     const icon = (id: string) => document.querySelector<SVGElement>(`[data-checklist-row="${id}"] svg`)!;
     const colour = (id: string) => getComputedStyle(icon(id)).color;
-    expect(colour("transcripts")).toBe("rgb(22, 163, 74)");
+    expect(colour("fiscal-science")).toBe("rgb(22, 163, 74)");
     expect(colour("unreadable")).toBe("rgb(220, 38, 38)");
     expect(colour("duplicate")).toBe("rgb(217, 119, 6)");
     expect(colour("supporting")).toBe("rgb(147, 165, 161)");
-    expect(icon("transcripts").querySelector("path")!.getAttribute("d")).toBe(
+    expect(icon("fiscal-science").querySelector("path")!.getAttribute("d")).toBe(
       "M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18Z M8.5 12.3l2.4 2.4 4.6-4.9"
     );
     expect(icon("unreadable").querySelector("path")!.getAttribute("d")).toBe(
       "M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18Z M12 7.5V13 M12 16.3v.2"
     );
     expect(icon("supporting").querySelector("path")!.getAttribute("d")).toBe("M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18Z M12 7v5l3 2");
-    expect([icon("transcripts").getAttribute("width"), icon("transcripts").getAttribute("stroke-width")]).toEqual(["16", "1.8"]);
+    expect([icon("fiscal-science").getAttribute("width"), icon("fiscal-science").getAttribute("stroke-width")]).toEqual(["16", "1.8"]);
     // A problem row reads in ink; its action carries the colour (E5, E6).
     const rowText = (id: string) => document.querySelector<HTMLElement>(`[data-checklist-row="${id}"] > span`)!;
     expect(getComputedStyle(rowText("unreadable")).color).toBe("rgb(22, 33, 31)");

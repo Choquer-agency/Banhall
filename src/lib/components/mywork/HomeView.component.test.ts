@@ -247,6 +247,7 @@ describe("Home", () => {
       "Nothing to pick up yet. The last project you worked on shows up here."
     );
     expect(continueEmpty.className).not.toContain("border");
+    expect(document.querySelector("[data-home-continue-label]")).toBeNull();
   });
 
   it("keeps Add new under a With you table that has rows", async () => {
@@ -283,6 +284,41 @@ describe("Home", () => {
       "Internal review"
     );
     expect(recent.textContent).toContain("2 days ago");
+    // A1: no column header row under the chip; the headers stay for screen
+    // readers and the rows keep the board columns.
+    expect([...recent.querySelectorAll("th")].map((cell) => cell.textContent?.trim())).toEqual([
+      "Name",
+      "Client",
+      "Stage",
+      "Last edited",
+    ]);
+    expect(recent.querySelector<HTMLElement>("[data-home-column-header]")!.getBoundingClientRect().height).toBeLessThanOrEqual(1);
+    const chipRow = recent.querySelector<HTMLElement>("[data-home-view-chip]")!.closest("h2")!.parentElement!;
+    const firstRow = recent.querySelector<HTMLElement>('[data-home-row="proj-r1"]')!;
+    expect(Math.round(firstRow.getBoundingClientRect().top)).toBe(Math.round(chipRow.getBoundingClientRect().bottom));
+    const recentBox = recent.querySelector("table")!.getBoundingClientRect();
+    const name = firstRow.querySelector<HTMLElement>("[data-home-client-mark]")!;
+    expect(Math.round(name.getBoundingClientRect().left - recentBox.left)).toBe(28);
+    const stage = firstRow.querySelector<HTMLElement>("[data-home-stage-chip]")!.closest("td")!;
+    expect(Math.round(stage.getBoundingClientRect().width)).toBe(108);
+    // With you keeps its visible header row.
+    expect(table("home-with-you").querySelector<HTMLElement>("[data-home-column-header]")!.getBoundingClientRect().height).toBe(36);
+  });
+
+  it("keeps the board widths when the panel grows, so a collapsed rail shifts Home left (A4)", async () => {
+    seed();
+    __setPaginatedRows("myWork:listAssignedToMe", [assigned("a")]);
+    __setQueryData("myWork:listRecentProjects", [live("r1")]);
+    __setQueryData("myWork:getContinueWorking", summary("r1"));
+    // No rail in this mount: the panel is as wide as a collapsed-rail Home.
+    await mount([{ id: "proj-r1", title: "Project r1", openedAt: Date.now() - 12 * MINUTE }]);
+
+    await expect.poll(() => document.querySelector("[data-home-continue-card]")).not.toBeNull();
+    const tables = document.querySelector<HTMLElement>("[data-home-tables]")!.getBoundingClientRect();
+    expect(Math.round(tables.width)).toBe(752);
+    const column = document.querySelector<HTMLElement>("[data-home-continue]")!.parentElement!.getBoundingClientRect();
+    expect(Math.round(column.left - tables.right)).toBe(32);
+    expect(Math.round(column.width)).toBe(384);
   });
 
   it("shows no second table and reads no workspace projects without local history (decision 55)", async () => {
@@ -322,6 +358,12 @@ describe("Home", () => {
     expect(resume.textContent?.replace(/\s+/g, " ").trim()).toBe("Resume report →");
     expect(resume.querySelector('[aria-hidden="true"]')?.textContent).toBe("→");
     expect(document.querySelector("#home-continue-title")?.textContent).toBe("Continue working");
+    // A1: "Last worked on" at the right of the heading.
+    const label = document.querySelector<HTMLElement>("[data-home-continue-label]")!;
+    expect(label.textContent).toBe("Last worked on");
+    expect(label.getBoundingClientRect().right).toBeGreaterThan(
+      document.querySelector("#home-continue-title")!.getBoundingClientRect().right
+    );
   });
 
   it("resumes the latest edited work with you when nothing was opened here", async () => {

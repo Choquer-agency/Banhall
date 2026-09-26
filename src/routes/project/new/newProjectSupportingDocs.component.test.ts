@@ -155,6 +155,35 @@ describe("E1 supporting documents on the page", () => {
     expect(remove.querySelector("svg path")!.getAttribute("d")).toBe("M18 6 6 18M6 6l12 12");
   });
 
+  it("puts the drop card in the last row's free cell and never on a row of its own (E1, E4)", async () => {
+    await render(NewProjectPage, {});
+    const dropCard = () => document.querySelector<HTMLElement>("[data-drop-more]");
+    // No file yet: the drop card is the way in.
+    await expect.poll(() => text(dropCard())).toContain("Drop files");
+    addSupportingFiles([new File(["One."], "One.txt"), new File(["Two."], "Two.txt")]);
+    await expect.poll(() => document.querySelectorAll('[data-supporting-card][data-status="ready"]').length).toBe(2);
+    // Two cards fill the row: no empty card below them.
+    expect(dropCard()).toBeNull();
+    addSupportingFiles([new File(["Three."], "Three.txt")]);
+    await expect.poll(() => document.querySelectorAll('[data-supporting-card][data-status="ready"]').length).toBe(3);
+    // Three: the card takes the free cell beside the third file.
+    await expect.poll(() => text(dropCard())).toContain("Drop more files");
+    expect(Math.round(dropCard()!.getBoundingClientRect().top)).toBe(Math.round(card("Three.txt")!.getBoundingClientRect().top));
+  });
+
+  it("opens the Add menu 26px under the button, right edges aligned (E2)", async () => {
+    await render(NewProjectPage, {});
+    const trigger = document.querySelector<HTMLElement>("[data-add-supporting]")!;
+    await userEvent.click(trigger);
+    await expect.poll(() => document.querySelector("[data-add-menu]")).not.toBeNull();
+    const button = trigger.getBoundingClientRect();
+    // Measured once the open animation has settled.
+    const menu = () => document.querySelector<HTMLElement>("[data-add-menu]")!.getBoundingClientRect();
+    await expect
+      .poll(() => [Math.round(menu().top - button.bottom), Math.round(menu().right - button.right), Math.round(menu().width)])
+      .toEqual([26, 0, 300]);
+  });
+
   it("offers the five existing categories on the chip, never Work plan or Test results", async () => {
     await render(NewProjectPage, {});
     addSupportingFiles([new File(["Notes."], "Notes.txt")]);

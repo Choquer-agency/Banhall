@@ -1,9 +1,10 @@
 <!--
-  "Continue working" (ui-design-final.md section 9): the project to pick up
-  again, with its client, fiscal year and number, the assistant proposals
-  still waiting on its latest report, its stage and a Resume report link.
-  The company documents card from the board is not shown: no query returns
-  documents for a company yet.
+  "Continue working" (ui-design-final.md section 9; round 2 A1): the heading
+  with "Last worked on" at the right, then the project to pick up again, with
+  its client, fiscal year and number, the assistant proposals still waiting
+  on its latest report, its stage and a Resume report link. The company
+  documents card from the board is not shown: there is no company document
+  store yet (documents belong to one project).
 -->
 <script lang="ts">
   import { resolve } from "$app/paths";
@@ -43,8 +44,12 @@
 </script>
 
 <aside data-home-continue aria-labelledby="home-continue-title" class="flex min-w-0 flex-col gap-5">
-  <div class="flex h-11 shrink-0 items-center border-b border-line pb-4">
-    <h2 id="home-continue-title" class="text-base font-medium leading-6 text-ink">Continue working</h2>
+  <div class="flex h-11 shrink-0 items-center gap-2.5 border-b border-line pb-4">
+    <h2 id="home-continue-title" class="min-w-0 flex-1 text-base font-medium leading-6 text-ink">Continue working</h2>
+    {#if target !== null}
+      <!-- J7 has no label: there is nothing to pick up yet. -->
+      <span data-home-continue-label class="shrink-0 text-[11px] leading-4 text-ink-secondary">Last worked on</span>
+    {/if}
   </div>
 
   {#if target === undefined || (target && summary === undefined)}

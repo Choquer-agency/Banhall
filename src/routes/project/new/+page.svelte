@@ -56,6 +56,8 @@
     NO_SOURCE_MESSAGE,
   } from "$lib/components/project-new/newProjectChecklist";
   import StartRunDialog, {
+    activeRunFromError,
+    type ActiveRun,
     type StartRunExcluded,
     type StartRunSource,
   } from "$lib/components/generation/StartRunDialog.svelte";
@@ -64,7 +66,6 @@
   import {
     isTranscriptFileName,
     TRANSCRIPT_ACCEPT,
-    TRANSCRIPT_FORMAT_LABELS,
     type TranscriptSourceFormat,
   } from "../../../../shared/transcriptParse";
   import {
@@ -100,6 +101,7 @@
     IconUpload,
   } from "$lib/components/icons";
   import { takeProjectStart } from "$lib/workspace/projectIntentHandoff";
+  import { recordProjectOpen } from "$lib/workspace/recentProjects";
   import { parseDraftModeParam } from "$lib/workspace/projectDuplicate";
   import { page } from "$app/state";
   import { createRequestId } from "$lib/requestId";
@@ -157,7 +159,9 @@
   let scienceCode = $state("");
   let scienceOpen = $state(false);
   let title = $state("");
-  let sredTitle = $state(""); // BNH-23: formal SR&ED title
+  // BNH-23: formal SR&ED title. Round 2 (E1, E4) drops the field; a copy and
+  // a scheme-named PD still carry it, and the project page edits it.
+  let sredTitle = $state("");
   let clientName = $state("");
   // Flag 2026-08-14 (Michael): settable at creation, not only post-generation.
   let projectNumber = $state("");
@@ -702,6 +706,13 @@
     goto(path);
   }
 
+  // Opening a project from here counts as opening it: Home's Recently
+  // opened and Continue working pick it up (only link clicks were recorded).
+  function openProject(projectId: string, known: { title?: string; client?: string } = {}) {
+    recordProjectOpen({ id: projectId, ...known });
+    leaveTo(`/project/${projectId}`);
+  }
+
   $effect(() => {
     if (!auth.isLoading && !auth.isAuthenticated) {
       leaving = true;
@@ -905,7 +916,10 @@
     if (candidateMode === "single") return { title: pickedModelLabel, line: "Writes the draft, about 3 minutes" };
     const slot = (id: string) => (id ? modelLabelFor(id, capabilities) : "a random model");
     return {
-      title: `${slot(compareSlotA)} and ${slot(compareSlotB)}`.replace(/^a random/, "A random"),
+      title:
+        !compareSlotA && !compareSlotB
+          ? "Two random models"
+          : `${slot(compareSlotA)} and ${slot(compareSlotB)}`.replace(/^a random/, "A random"),
       line: "One draft each, you keep the better one",
     };
   });
@@ -980,6 +994,22 @@
   function confirmStart(excluded: StartRunExcluded) {
     startOpen = false;
     void commit(excluded);
+  }
+
+  // F6 state 1: the start was refused because a run is already going on the
+  // project just created. The dialog opens again with the run's details,
+  // kept current by getActiveRunSummary, and both of its ways out open that
+  // project: a second start from here would create another project.
+  let runningProjectId = $state<Id<"projects"> | null>(null);
+  let refusedRun = $state<ActiveRun | null>(null);
+  const activeRunQ = useQuery(api.generations.getActiveRunSummary, () =>
+    runningProjectId ? { projectId: runningProjectId } : "skip"
+  );
+  const activeRun = $derived<ActiveRun | null>(
+    runningProjectId ? ((activeRunQ.data as ActiveRun | null | undefined) ?? refusedRun) : null
+  );
+  function openRunningProject() {
+    if (runningProjectId) openProject(runningProjectId, { title, client: clientName });
   }
 
   async function uploadOriginal(file: File): Promise<Id<"_storage"> | undefined> {
@@ -1451,7 +1481,7 @@
         toast.error(copyFailedMessage(savedOwn));
         committing = false;
         progress = "";
-        leaveTo(`/project/${projectId}`);
+        openProject(projectId, { title, client: clientName });
         return;
       }
       if (skippedFiles.length) {
@@ -1459,15 +1489,27 @@
           `${skippedFiles.length} document(s) could not be uploaded and were skipped: ${skippedFiles.join(", ")}`
         );
       }
-      leaveTo(`/project/${projectId}`);
+      openProject(projectId, { title, client: clientName });
     } catch (e) {
       if (extractionLifetime.signal.aborted || isParseAbort(e)) return;
+      // F6: an expected refusal, not a crash.
+      const refused = createdProjectId
+        ? activeRunFromError(e, [user.data?.firstName, user.data?.lastName].filter(Boolean).join(" "))
+        : null;
+      if (refused && createdProjectId) {
+        committing = false;
+        progress = "";
+        refusedRun = refused;
+        runningProjectId = createdProjectId;
+        startOpen = true;
+        return;
+      }
       console.error(e);
       if (copyFailed && createdProjectId) {
         toast.error(copyFailedMessage(savedOwn));
         committing = false;
         progress = "";
-        leaveTo(`/project/${createdProjectId}`);
+        openProject(createdProjectId, { title, client: clientName });
         return;
       }
       // The project may already exist at this point (createProject succeeded,
@@ -1482,7 +1524,7 @@
             ? "The project was created but the PD review did not start. Open it and use Start PD review to retry."
             : "The project was created but generation did not start. Open it and use Generate to retry."
         );
-        leaveTo(`/project/${createdProjectId}`);
+        openProject(createdProjectId, { title, client: clientName });
       }
     }
   }
@@ -1620,6 +1662,10 @@
     currentSection = id;
     document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
   }
+  // The drop card fills the last row's free cell (E1); a full row gets none
+  // (E4, H1, H2), and Add stays the way in. With no file it is the only one.
+  const docColumns = $derived(layout === "phone" ? 1 : layout === "tablet" ? 3 : 2);
+  const showDropCard = $derived(docs.items.length === 0 || docs.items.length % docColumns !== 0);
   const firstBlocking = $derived(checklist.find((row) => row.blocking) ?? null);
   const readySummary = $derived(
     mode === "review"
@@ -1739,7 +1785,7 @@
             {/if}
             {#if layout !== "phone"}<span class="grow"></span>{/if}
             <span class={`shrink-0 text-ink-muted ${layout === "phone" ? "text-xs leading-4" : "text-[13px] leading-[19px]"}`} data-transcript-format>
-              {item.format && item.format !== "unknown" ? `${TRANSCRIPT_FORMAT_LABELS[item.format]}, ` : ""}{item.wordCount.toLocaleString("en-US")} words
+              {item.wordCount.toLocaleString("en-US")} words
             </span>
             {#if !included}
               <span class="shrink-0 text-xs text-ink-muted" data-transcript-not-copied>Not copied</span>
@@ -1796,6 +1842,29 @@
       </p>
     {/if}
   {/if}
+{/snippet}
+
+{#snippet detailsSection()}
+  <!-- H1, H2: below desktop Details follows "How should we write it?". -->
+  <NewProjectSection id="section-details" number={layout === "desktop" ? "04" : "05"} title="Details" helper={layout === "phone" ? undefined : "Optional"} last compact={layout === "phone"} gap={layout === "phone" ? "12px" : "14px"}>
+    <div class={`grid ${
+      layout === "phone" ? "grid-cols-1 gap-3" : layout === "tablet" ? "grid-cols-2 gap-x-4 gap-y-3.5" : "grid-cols-[260px_minmax(0,1fr)] gap-x-4 gap-y-3.5"
+    }`}>
+      <div class="flex flex-col gap-1.5">
+        <label for="projectNumber" class={labelClass}>Project number</label>
+        <input id="projectNumber" bind:value={projectNumber} placeholder="For example, P01-A" class={`field-control w-full text-sm leading-5 text-ink placeholder:text-ink-faint pointer-coarse:h-11 ${fieldSize}`} aria-invalid={!projectNumberValid} />
+        {#if !projectNumberValid}
+          <p class="text-xs text-danger-ink-muted" role="alert">Use 1 to 20, a letter a to z, or both, like 2a.</p>
+        {/if}
+      </div>
+      {#if allTags.length > 0}
+        <div class="flex flex-col gap-1.5" data-tags-field>
+          <span class={labelClass}>Tags</span>
+          <TagPicker {allTags} bind:selectedTagIds label={null} variant="field" />
+        </div>
+      {/if}
+    </div>
+  </NewProjectSection>
 {/snippet}
 
 {#snippet copiedFiles()}
@@ -1879,12 +1948,16 @@
 {:else}
   <!-- Round 2 (E1): one page inside the workspace chrome: the folder tile,
        the "Projects /" breadcrumb and a flush work panel the page lays out. -->
+  <!-- H1, H2: below desktop the page runs full bleed under a plain bar;
+       the phone bar leads with a back arrow that leaves as Cancel does. -->
   <WorkspaceChrome
     theme="light"
     title="New project"
     breadcrumb={{ label: "Projects", href: resolve("/projects") }}
     icon={IconFolder}
     panel="flush"
+    frame={layout === "desktop" ? "inset" : layout === "tablet" ? "bleed" : "phone"}
+    onBack={cancel}
   >
     {#snippet actions()}
       <Button
@@ -1991,7 +2064,7 @@
                       layout="stacked"
                       title={`${sameProject.clientName} already has this project${newFiscalYear !== null ? ` for FY ${newFiscalYear}` : ""}`}
                       role="status"
-                      primaryAction={{ label: "Open that project", onclick: () => leaveTo(`/project/${sameProject.projectId}`) }}
+                      primaryAction={{ label: "Open that project", onclick: () => openProject(sameProject.projectId, { title: sameProject.title, client: sameProject.clientName }) }}
                       secondaryAction={{ label: "It is a different project", onclick: () => dismissedDuplicates.add(duplicateKey) }}
                     >
                       {sameProjectText}
@@ -2039,10 +2112,13 @@
                       {/snippet}
                     </ScienceCodePicker>
                   </div>
-                  <div class="flex flex-col gap-1.5">
-                    <label for="industry" class={labelClass}>Industry</label>
-                    <IndustrySelect id="industry" bind:value={industry} canCreate={user.data?.role === "admin"} class={selectFieldClass} />
-                  </div>
+                  {#if layout !== "phone"}
+                    <!-- H2 leaves Industry out; the project page still sets it. -->
+                    <div class="flex flex-col gap-1.5">
+                      <label for="industry" class={labelClass}>Industry</label>
+                      <IndustrySelect id="industry" bind:value={industry} canCreate={user.data?.role === "admin"} class={selectFieldClass} />
+                    </div>
+                  {/if}
                 </div>
               </NewProjectSection>
 
@@ -2278,7 +2354,7 @@
                       <IconPlus size={12} strokeWidth={2} /> Add <IconChevronDown size={11} strokeWidth={2.2} stroke-linejoin="miter" class="text-ink-muted" />
                     </DropdownMenu.Trigger>
                     <DropdownMenu.Portal>
-                      <DropdownMenu.Content align="end" sideOffset={6} data-add-menu class="z-[130] w-[300px] rounded-xl border border-line bg-surface p-1.5 shadow-menu">
+                      <DropdownMenu.Content align="end" sideOffset={26} data-add-menu class="z-[130] w-[300px] rounded-xl border border-line bg-surface p-1.5 shadow-menu">
                         <DropdownMenu.Item onSelect={() => docsInput?.click()} data-add-upload class="flex h-8 cursor-default items-center gap-2 rounded-md px-2 text-[13px] leading-[19px] text-ink outline-none data-highlighted:bg-primary-wash pointer-coarse:h-11">
                           <IconUpload size={15} strokeWidth={1.5} />
                           <span class="flex-1">Upload files</span>
@@ -2347,6 +2423,7 @@
                       onYear={(year) => docs.setYear(doc.id, year)}
                     />
                   {/each}
+                  {#if showDropCard}
                   <button
                     type="button"
                     data-drop-more
@@ -2358,6 +2435,7 @@
                     <span class="text-[13px] leading-[18px] font-medium text-ink">{docs.items.length ? "Drop more files" : "Drop files"}</span>
                     <span class="text-xs leading-4 text-ink-muted">PDF, Word, Excel, text or email</span>
                   </button>
+                  {/if}
                 </div>
                 {#if docsError}
                   <p role="alert" class="text-xs text-danger-ink-muted">{docsError}</p>
@@ -2379,35 +2457,13 @@
                 {/if}
               </NewProjectSection>
 
-              <NewProjectSection id="section-details" number="04" title="Details" helper={layout === "phone" ? undefined : "Optional"} last={layout === "desktop"} compact={layout === "phone"} gap={layout === "phone" ? "12px" : "14px"}>
-                <div class={`grid ${
-                  layout === "phone" ? "grid-cols-1 gap-3" : layout === "tablet" ? "grid-cols-2 gap-x-4 gap-y-3.5" : "grid-cols-[260px_minmax(0,1fr)] gap-x-4 gap-y-3.5"
-                }`}>
-                  <div class="flex flex-col gap-1.5">
-                    <label for="projectNumber" class={labelClass}>Project number</label>
-                    <input id="projectNumber" bind:value={projectNumber} placeholder="For example, P01-A" class={`field-control w-full text-sm leading-5 text-ink placeholder:text-ink-faint pointer-coarse:h-11 ${fieldSize}`} aria-invalid={!projectNumberValid} />
-                    {#if !projectNumberValid}
-                      <p class="text-xs text-danger-ink-muted" role="alert">Use 1 to 20, a letter a to z, or both, like 2a.</p>
-                    {/if}
-                  </div>
-                  {#if allTags.length > 0}
-                    <div class="flex flex-col gap-1.5" data-tags-field>
-                      <span class={labelClass}>Tags</span>
-                      <TagPicker {allTags} bind:selectedTagIds label={null} variant="field" />
-                    </div>
-                  {/if}
-                  <label class={`flex flex-col gap-1.5 ${layout === "phone" ? "" : "col-span-2"}`}>
-                    <span class={labelClass}>SR&ED title</span>
-                    <input id="sredTitle" bind:value={sredTitle} placeholder="Optional. You can set it later." class={`field-control w-full text-sm leading-5 text-ink placeholder:text-ink-faint pointer-coarse:h-11 ${fieldSize}`} />
-                  </label>
-                </div>
-              </NewProjectSection>
+              {#if layout === "desktop"}{@render detailsSection()}{/if}
 
               <!-- H1, H2: How should we write it? as an inline section. -->
               {#if layout !== "desktop"}
-              <section id="section-mode" data-new-project-section="section-mode" class={`flex scroll-mt-4 flex-col ${layout === "phone" ? "gap-2.5" : "gap-3.5"}`} aria-labelledby="section-mode-title">
+              <section id="section-mode" data-new-project-section="section-mode" class={`flex scroll-mt-4 flex-col border-b border-line-soft ${layout === "phone" ? "gap-2.5 pb-[18px]" : "gap-3.5 pb-[22px]"}`} aria-labelledby="section-mode-title">
                 <div class="flex items-baseline gap-2.5">
-                  <span class="font-mono text-xs leading-[22px] text-ink-faint" aria-hidden="true">05</span>
+                  <span class="font-mono text-xs leading-[22px] text-ink-faint" aria-hidden="true">04</span>
                   <h2 id="section-mode-title" class="text-[15px] leading-[22px] font-medium text-ink">
                     {layout === "phone"
                       ? mode === "review" ? "How to review it" : "How to write it"
@@ -2426,6 +2482,7 @@
                   {/each}
                 </ul>
               </section>
+              {@render detailsSection()}
               {/if}
             </div>
 
@@ -2569,6 +2626,9 @@
         busy={committing}
         validate={validateExcluded}
         onConfirm={confirmStart}
+        onCancel={openRunningProject}
+        {activeRun}
+        onOpenActiveRun={openRunningProject}
         returnFocus={() => lastStartTrigger}
       />
     {/snippet}

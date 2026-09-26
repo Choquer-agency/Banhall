@@ -125,6 +125,11 @@
    * Focus: opening lands on the first checkbox (or Cancel with none);
    * closing without confirming returns focus to `returnFocus()`, the start
    * button that opened it.
+   *
+   * Placement: 140px from the top of the viewport, as on the boards. Two
+   * spacers of equal basis sit above and below; only the lower one grows,
+   * and both shrink alike, so a viewport too short for 140px above and
+   * below centres the dialog instead.
    */
   import { tick } from "svelte";
   import { SvelteSet } from "svelte/reactivity";
@@ -196,6 +201,13 @@
     else unticked.add(id);
   }
 
+  // F6 Close is the Cancel of this state. Setting `open` from here skips
+  // onOpenChange, so it tells the host itself.
+  function closeActiveRun() {
+    open = false;
+    onCancel?.();
+  }
+
   function confirm() {
     if (problem || busy || activeRun) return;
     confirmedClose = true;
@@ -222,7 +234,8 @@
         {/if}
       {/snippet}
     </Dialog.Overlay>
-    <div class="pointer-events-none fixed inset-0 z-[110] flex items-center justify-center p-4">
+    <div data-start-run-frame class="pointer-events-none fixed inset-0 z-[110] flex flex-col items-center p-4">
+      <div aria-hidden="true" class="min-h-0 shrink grow-0 basis-[124px]"></div>
       <Dialog.Content
         forceMount
         onOpenAutoFocus={(event) => {
@@ -245,7 +258,7 @@
               transition:modalPop
               data-start-run-dialog
               data-mode={mode}
-              class="pointer-events-auto flex max-h-[calc(100dvh-2rem)] w-full max-w-[580px] flex-col overflow-hidden rounded-[16px] border border-line bg-surface shadow-dialog"
+              class="pointer-events-auto flex max-h-[calc(100dvh-2rem)] w-full max-w-[580px] shrink-0 flex-col overflow-hidden rounded-[16px] border border-line bg-surface shadow-dialog"
             >
               <div class="flex items-start gap-4 pt-6 pr-5 pl-7">
                 <div class="flex min-w-0 flex-1 flex-col gap-1.5">
@@ -329,7 +342,7 @@
                     title={runCopy.title}
                     role="alert"
                     primaryAction={{ label: "Open it", onclick: () => onOpenActiveRun?.() }}
-                    secondaryAction={{ label: "Close", onclick: () => (open = false) }}
+                    secondaryAction={{ label: "Close", onclick: closeActiveRun }}
                   >
                     {runCopy.text}
                   </StatusCallout>
@@ -363,6 +376,7 @@
           {/if}
         {/snippet}
       </Dialog.Content>
+      <div aria-hidden="true" class="min-h-0 shrink grow basis-[124px]"></div>
     </div>
   </Dialog.Portal>
 </Dialog.Root>

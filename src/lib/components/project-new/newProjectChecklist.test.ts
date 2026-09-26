@@ -77,6 +77,9 @@ describe("buildChecklist", () => {
       action: { label: "Fix", target: "unreadable" },
       blocking: false,
     });
+    // The problem row takes the transcripts row's place.
+    expect(rows.map((row) => row.id)).not.toContain("transcripts");
+    expect(rows.map((row) => row.id).indexOf("unreadable")).toBe(1);
     expect(startBlocked(rows)).toBe(false);
   });
 

@@ -167,6 +167,7 @@ describe("WorkspaceChrome (round 2 frame)", () => {
     await browserPage.viewport(1440, 900);
     __setQueryData("users:getCurrentUser", developer);
     viewAs.enter("consultant");
+    __setPageUrl("/alerts");
     await render(WorkspaceChrome, { title: "Alerts", viewAsGate: "alerts", actions: action, children: tallContent });
     await expect.poll(() => document.querySelector("[data-view-as-hidden-page]")).not.toBeNull();
     expect(document.querySelector("[data-testid=tall-content]")).toBeNull();
@@ -174,6 +175,8 @@ describe("WorkspaceChrome (round 2 frame)", () => {
     const hidden = document.querySelector<HTMLElement>("[data-view-as-hidden-page]")!;
     expect(hidden.querySelector("h2")?.textContent?.trim()).toBe("Alerts is hidden in Consultant view");
     expect(document.querySelector("[data-page-top-bar] h1")?.textContent).toBe("Alerts");
+    // D4: the page's address as the muted line after the title.
+    expect(document.querySelector("[data-page-top-bar] [data-page-subtitle]")?.textContent).toBe("localhost:3001/alerts");
     expect(hidden.textContent).toContain(
       "Consultants cannot open Alerts, so this is what they would see. Exit the view to get back to it."
     );

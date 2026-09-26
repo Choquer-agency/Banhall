@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-svelte";
-import { userEvent } from "vitest/browser";
+import { page, userEvent } from "vitest/browser";
 import { tick } from "svelte";
 import StartRunDialog, {
   type StartRunSource,
@@ -204,6 +204,26 @@ describe("StartRunDialog board values (F1, G1 to G3)", () => {
   });
 });
 
+describe("StartRunDialog placement (F1, G1 to G3)", () => {
+  it("sits 140px from the top of the viewport, centred across it", async () => {
+    await page.viewport(1440, 900);
+    await render(StartRunDialog, props());
+    await settle();
+    const box = dialog()!.getBoundingClientRect();
+    expect(Math.round(box.top)).toBe(140);
+    expect(Math.round(box.left + box.width / 2)).toBe(720);
+  });
+
+  it("centres itself when the viewport is too short for 140px above and below", async () => {
+    await page.viewport(1440, 560);
+    await render(StartRunDialog, props());
+    await settle();
+    const box = dialog()!.getBoundingClientRect();
+    expect(box.top).toBeLessThan(140);
+    expect(Math.abs(box.top - (560 - box.bottom))).toBeLessThanOrEqual(1);
+  });
+});
+
 describe("StartRunDialog blocking", () => {
   it("disables confirm and says why when nothing is left ticked", async () => {
     await render(StartRunDialog, props({ sources: [SOURCES[0]] }));
@@ -288,9 +308,11 @@ describe("readingMeta", () => {
 describe("StartRunDialog when a run is already going (F6)", () => {
   it("names who started which run and when, and waits for it", async () => {
     const onOpenActiveRun = vi.fn();
+    const onCancel = vi.fn();
     await render(StartRunDialog, props({
       activeRun: { generationId: "g-1", requestedByName: "Larry Moss", isYou: false, candidateMode: "iterative", startedAt: Date.now() - 12 * 60_000 },
       onOpenActiveRun,
+      onCancel,
     }));
     const box = q("[data-start-run-active] [data-status-callout]")!;
     expect(box.dataset.statusCallout).toBe("warning");
@@ -302,6 +324,8 @@ describe("StartRunDialog when a run is already going (F6)", () => {
     [...box.querySelectorAll("button")].find((button) => text(button) === "Close")!.click();
     await settle();
     expect(dialog()).toBeNull();
+    // Close is this state's Cancel: the host hears about it once.
+    expect(onCancel).toHaveBeenCalledTimes(1);
   });
 
   it("says You for the writer's own run", async () => {

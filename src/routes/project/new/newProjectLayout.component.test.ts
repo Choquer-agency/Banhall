@@ -154,8 +154,10 @@ describe("E1 board values", () => {
     expect(getComputedStyle(document.querySelector("[data-transcript-drop]")!).backgroundColor).toBe("rgb(249, 252, 251)");
     const selected = document.querySelector<HTMLElement>('[data-right-column] [data-write-mode="iterative"]')!;
     expect(getComputedStyle(selected).backgroundColor).toBe("rgb(247, 252, 251)");
-    expect(selected.className).toContain("border-[1.5px]");
+    // E1: 1.5px of lagoon at any pixel density, a 1px border plus a 0.5px ring.
+    expect(getComputedStyle(selected).borderTopWidth).toBe("1px");
     expect(getComputedStyle(selected).borderTopColor).toBe("rgb(8, 122, 117)");
+    expect(getComputedStyle(selected).boxShadow).toContain("rgb(8, 122, 117) 0px 0px 0px 0.5px");
     const other = document.querySelector<HTMLElement>('[data-right-column] [data-write-mode="single"]')!;
     expect(getComputedStyle(other).backgroundColor).toBe("rgb(255, 255, 255)");
     const recommended = getComputedStyle(selected.querySelector("[data-recommended]")!);
@@ -280,6 +282,35 @@ describe("H1 tablet (1024)", () => {
     expect([cancel.height, cancel.fontSize]).toEqual(["32px", "14px"]);
   });
 
+  it("runs full bleed under a plain bar, with Details after How should we write it? (H1)", async () => {
+    await render(NewProjectPage, {});
+    await expect.poll(() => document.querySelector("[data-section-chips]")).not.toBeNull();
+    const bar = document.querySelector<HTMLElement>("[data-page-top-bar]")!;
+    expect(bar.dataset.variant).toBe("bleed");
+    expect(bar.querySelector("[data-page-icon-tile]")).toBeNull();
+    expect(bar.querySelector("[data-top-bar-bell]")).toBeNull();
+    expect(text(bar.querySelector("nav[aria-label=Breadcrumb]"))).toBe("Projects / New project");
+    // No inset panel: the page is white from the top bar down, edge to edge.
+    const panel = document.querySelector<HTMLElement>("[data-work-panel]")!;
+    expect(getComputedStyle(panel).borderTopWidth).toBe("0px");
+    expect(getComputedStyle(panel).borderTopLeftRadius).toBe("0px");
+    expect(Math.round(panel.getBoundingClientRect().right)).toBe(1024);
+    expect(Math.round(panel.getBoundingClientRect().left)).toBe(Math.round(bar.getBoundingClientRect().left));
+    // How should we write it? comes fourth, then Details.
+    const sections = [...document.querySelectorAll<HTMLElement>("[data-form-column] section[data-new-project-section]")];
+    expect(sections.map((section) => section.id)).toEqual([
+      "section-project",
+      "section-interview",
+      "section-supporting",
+      "section-mode",
+      "section-details",
+    ]);
+    expect(text(document.querySelector("#section-mode")?.querySelector("span.font-mono"))).toBe("04");
+    expect(text(document.querySelector("#section-details span.font-mono"))).toBe("05");
+    // Industry stays on the tablet.
+    expect(document.querySelector("#industry")).not.toBeNull();
+  });
+
   it("scrolls to a section from its chip and marks it current", async () => {
     await render(NewProjectPage, {});
     await expect.poll(() => document.querySelector("[data-section-chips]")).not.toBeNull();
@@ -312,9 +343,10 @@ describe("H2 phone (390)", () => {
     expect(text(document.querySelector('[data-section-chip="section-supporting"]'))).toBe("Supporting");
     const modes = [...document.querySelectorAll<HTMLElement>('[aria-label="Project mode"] [role="radio"]')];
     expect(modes.map((mode) => text(mode))).toEqual(["Write a new PD", "Review a PD"]);
-    // Mode cards stack as rows; Industry and the Model select stay (not on the board).
+    // Mode cards stack as rows; the Model select stays (not on the board).
+    // H2 leaves Industry out.
     expect(getComputedStyle(document.querySelector("#section-mode [data-write-mode-cards]")!).display).toBe("flex");
-    expect(document.querySelector("#industry")).not.toBeNull();
+    expect(document.querySelector("#industry")).toBeNull();
     expect(document.querySelector('#section-mode [data-model-picker="field"]')).not.toBeNull();
     const start = document.querySelector<HTMLElement>("[data-bottom-start]")!;
     expect(getComputedStyle(start).height).toBe("48px");
@@ -341,5 +373,28 @@ describe("H2 phone (390)", () => {
     for (const selector of ["#title", "[data-section-chip]", "[data-write-mode]", "[data-open-paste]"]) {
       expect(document.querySelector(selector)!.className, selector).toMatch(/pointer-coarse:(min-)?h-11/);
     }
+  });
+
+  it("leads with a back arrow bar and runs full bleed (H2)", async () => {
+    await render(NewProjectPage, {});
+    await expect.poll(() => document.querySelector("[data-page-top-bar]")).not.toBeNull();
+    const bar = document.querySelector<HTMLElement>("[data-page-top-bar]")!;
+    expect(bar.dataset.variant).toBe("phone");
+    expect(bar.getBoundingClientRect().height).toBe(52);
+    expect(text(bar.querySelector("h1"))).toBe("New project");
+    expect(bar.querySelector('button[aria-label="Open workspace navigation"]')).toBeNull();
+    expect(bar.querySelector("[data-page-icon-tile], [data-top-bar-bell], [data-page-breadcrumb]")).toBeNull();
+    expect(bar.querySelector("[data-new-project-cancel]")).not.toBeNull();
+    const panel = document.querySelector<HTMLElement>("[data-work-panel]")!;
+    expect(getComputedStyle(panel).borderTopWidth).toBe("0px");
+    expect(Math.round(panel.getBoundingClientRect().left)).toBe(0);
+    expect(Math.round(panel.getBoundingClientRect().right)).toBe(390);
+    // The form keeps 16px margins inside the full-bleed page.
+    expect(Math.round(document.querySelector<HTMLElement>("#title")!.getBoundingClientRect().left)).toBe(16);
+    const sections = [...document.querySelectorAll<HTMLElement>("[data-form-column] section[data-new-project-section]")];
+    expect(sections.map((section) => section.id).slice(-2)).toEqual(["section-mode", "section-details"]);
+    // Back leaves as Cancel does: to My work when nothing came before.
+    bar.querySelector<HTMLButtonElement>("[data-page-back]")!.click();
+    await expect.poll(() => __navigationCalls.map((call) => call.url)).toContain("/my-work");
   });
 });
