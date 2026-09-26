@@ -125,11 +125,14 @@
         }
       }, 10_000);
     } catch (err) {
-      console.error("Auth error:", err);
       // Only credential failures blame the email or password; an origin
       // rejection (127.0.0.1 or a LAN address) says to use the usual address.
       const failure = err instanceof SignInError ? err : null;
       const online = navigator.onLine;
+      // A refused sign-in (wrong password, rate limit, origin) or being
+      // offline is an expected answer shown under the field, not an app
+      // error: logging it would raise ErrorMonitor's "We noticed an error".
+      if (!failure && online) console.error("Auth error:", err);
       errorKind = signInErrorKind(failure, { online });
       error = signInErrorMessage(failure, { online, knownAccount: known !== null });
       submitting = false;

@@ -191,6 +191,32 @@ describe("/login", () => {
     await expect.poll(() => document.body.textContent).toContain("Signing you in...");
   });
 
+  it("does not log a refused sign-in as an app error (J2, J4)", async () => {
+    // ErrorMonitor turns every console.error into the "We noticed an error"
+    // toast, so an expected wrong password must stay out of the console.
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      signInEmail.mockResolvedValue(wrongCredentials);
+      render(LoginPage);
+      await submit("writer@banhall.com", "wrong password");
+      await expect.poll(alertText).toBe("Wrong email or password. Check both and try again.");
+      signInEmail.mockResolvedValue({
+        data: null,
+        error: { status: 429, statusText: "Too Many Requests", message: "Too many requests" },
+      });
+      await submit("writer@banhall.com", "wrong password");
+      await expect.poll(alertText).toBe("Too many sign-in attempts. Wait a minute, then try again.");
+      expect(consoleError).not.toHaveBeenCalled();
+
+      // A request that crashes outright is still reported.
+      signInEmail.mockRejectedValue(new Error("boom"));
+      await submit("writer@banhall.com", "wrong password");
+      await expect.poll(() => consoleError.mock.calls.length).toBe(1);
+    } finally {
+      consoleError.mockRestore();
+    }
+  });
+
   it("keeps the rate-limit and offline messages in the same slot without marking the fields", async () => {
     signInEmail.mockResolvedValue({
       data: null,
