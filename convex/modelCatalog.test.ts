@@ -2012,6 +2012,26 @@ describe("a built-in model taken out of the seed list", () => {
     expect(await row(t, "claude-fable-5-1")).toMatchObject({ status: "retired" });
   });
 
+  it("comes back as it was when it was retired while missing, or returned as a candidate (fable-3 review P3-1)", async () => {
+    const { t, writer } = await withSeededFable();
+    const missingSince = Date.parse("2026-09-20T08:45:00Z");
+    // An OpenRouter seed retired while OpenRouter no longer listed it, and a
+    // direct seed that "returned" turned into a candidate.
+    await t.run(async (ctx) => {
+      const byId = (modelId: string) =>
+        ctx.db.query("modelCatalog").withIndex("by_modelId", (q) => q.eq("modelId", modelId)).first();
+      const sol = await byId("openai/gpt-6-sol");
+      const opus = await byId("claude-opus-5-5");
+      await ctx.db.patch(sol!._id, { status: "retired", missingSince });
+      await ctx.db.patch(opus!._id, { status: "candidate" });
+    });
+    expect(await pickerIds(writer)).not.toContain("openai/gpt-6-sol");
+    await t.mutation(seedCatalogRef, {});
+    expect(await row(t, "openai/gpt-6-sol")).toMatchObject({ status: "enabled", source: "seed", missingSince });
+    expect(await row(t, "claude-opus-5-5")).toMatchObject({ status: "enabled", source: "seed" });
+    expect(await pickerIds(writer)).toEqual(expect.arrayContaining(["openai/gpt-6-sol", "claude-opus-5-5"]));
+  });
+
   it("stays enabled while a role still uses it", async () => {
     const { t, admin } = await withSeededFable();
     await admin.mutation(setRoleModelRef, { role: "chat", modelId: "claude-fable-5-1" });

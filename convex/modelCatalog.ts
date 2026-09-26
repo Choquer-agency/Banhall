@@ -177,10 +177,10 @@ async function adoptableAsSeed(
  * Insert every seed model the table does not hold yet, and enable a seed id
  * the refresh found first (adoptableAsSeed). An adopted row takes the seed's
  * label, description and reasoning and max-output declarations, and keeps
- * the provider's prices, slug and scores. A seed row this pass retired comes
- * back when its id is a seed again (a build rolled back, then forward); an
- * enabled seed row whose id is no longer a seed is retired unless a role
- * uses it. Role assignments, switch events and evaluations are never
+ * the provider's prices, slug and scores. A seed row the retire step below
+ * retired (under a build without that seed) comes back enabled when its id
+ * is a seed again (a build rolled back, then forward); an enabled seed row
+ * whose id is no longer a seed is retired unless a role uses it. Role assignments, switch events and evaluations are never
  * touched. Idempotent.
  */
 export async function ensureSeedCatalog(ctx: MutationCtx, now: number): Promise<number> {
@@ -193,9 +193,13 @@ export async function ensureSeedCatalog(ctx: MutationCtx, now: number): Promise<
       written += 1;
       continue;
     }
-    // Only the retire step below leaves a seed row retired without
-    // missingSince, so this undoes exactly that.
-    if (row.source === "seed" && row.status === "retired" && row.missingSince === undefined) {
+    // Only the retire step below leaves a seed row not enabled: seeds are
+    // inserted enabled, "gone" never retires an enabled row, and "returned"
+    // only turns such a retired row into a candidate. So every non-enabled
+    // seed row is undone here, with or without missingSince (fable-3 review
+    // P3-1); an OpenRouter seed OpenRouter stopped listing keeps its
+    // missingSince, as an enabled seed does.
+    if (row.source === "seed" && row.status !== "enabled") {
       await ctx.db.patch(row._id, { status: "enabled", updatedAt: now });
       written += 1;
       continue;
