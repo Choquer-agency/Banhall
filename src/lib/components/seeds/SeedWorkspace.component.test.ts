@@ -3606,6 +3606,10 @@ describe("ideas ready, Mod Enter and the step deep link (F4, I4, F6)", () => {
     const toast = document.querySelector<HTMLElement>("[data-ideas-ready-toast]")!;
     expect(textOf(toast)).toBe("2 ideas are ready Pick what fits, then approve to move on.");
     expect(toast.querySelector('[data-ai-mark="aurora"]')).not.toBeNull();
+    // Board F4: the shell's dark toast surface, 296px, radius 10.
+    expect(getComputedStyle(toast).backgroundColor).toBe("rgb(19, 45, 42)");
+    expect(toast.getBoundingClientRect().width).toBe(296);
+    expect(getComputedStyle(toast).borderRadius).toBe("10px");
     expect(toast.closest("[data-ideas-ready-host]")).not.toBeNull();
     toast.querySelector<HTMLButtonElement>('button[aria-label="Dismiss"]')!.click();
     await expect.poll(() => document.querySelector("[data-ideas-ready-toast]")).toBeNull();
@@ -3643,6 +3647,15 @@ describe("ideas ready, Mod Enter and the step deep link (F4, I4, F6)", () => {
     input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", metaKey: mac, ctrlKey: !mac, bubbles: true }));
     expect(__mutationCalls("seeds:approve")).toEqual([]);
     input.remove();
+    // Nor from inside an open dialog (the shell's shared typing-target rule).
+    const dialog = document.createElement("div");
+    dialog.setAttribute("role", "dialog");
+    const inside = document.createElement("button");
+    dialog.appendChild(inside);
+    document.body.appendChild(dialog);
+    inside.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", metaKey: mac, ctrlKey: !mac, bubbles: true }));
+    expect(__mutationCalls("seeds:approve")).toEqual([]);
+    dialog.remove();
     window.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", metaKey: mac, ctrlKey: !mac, bubbles: true }));
     await expect.poll(() => __mutationCalls("seeds:approve").length).toBe(1);
     expect(__mutationCalls("seeds:approve")[0]).toMatchObject({ approvalChallenge: "plain-challenge" });

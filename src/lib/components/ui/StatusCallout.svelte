@@ -11,7 +11,7 @@
 
 <script lang="ts">
   import type { Snippet } from "svelte";
-  import { CheckCircleIcon, WarningCircleIcon, XIcon } from "phosphor-svelte";
+  import { IconAlertCircle, IconCheckCircle, IconClose } from "$lib/components/icons";
   import Tooltip from "./Tooltip.svelte";
 
   /**
@@ -58,27 +58,27 @@
   > = {
     danger: {
       box: "border-danger-line bg-danger-surface",
-      icon: "text-danger",
+      icon: "text-danger-ink-muted",
       title: "text-danger-ink",
-      body: "text-danger-ink-muted",
+      body: "text-danger-body",
       primary: "bg-danger-action hover:bg-danger-action-hover focus-visible:outline-danger",
       secondary: "text-danger-ink focus-visible:outline-danger",
       dismiss: "text-danger hover:bg-danger-soft focus-visible:outline-danger",
     },
     warning: {
       box: "border-warning-line bg-warning-surface",
-      icon: "text-warning",
+      icon: "text-warning-ink-muted",
       title: "text-warning-ink",
-      body: "text-warning-ink-muted",
+      body: "text-warning-body",
       primary: "bg-warning-action hover:bg-warning-action-hover focus-visible:outline-warning",
       secondary: "text-warning-ink focus-visible:outline-warning",
       dismiss: "text-warning hover:bg-warning-soft focus-visible:outline-warning",
     },
     success: {
       box: "border-success-line bg-success-surface",
-      icon: "text-success",
+      icon: "text-success-ink-muted",
       title: "text-success-ink",
-      body: "text-success-ink-muted",
+      body: "text-success-body",
       primary: "bg-success-action hover:bg-success-action-hover focus-visible:outline-success",
       secondary: "text-success-ink focus-visible:outline-success",
       dismiss: "text-success hover:bg-success-soft focus-visible:outline-success",
@@ -89,33 +89,39 @@
   const inline = $derived(layout === "inline");
   const focusRing = "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2";
   const primaryClass = $derived(
-    `inline-flex h-8 shrink-0 items-center justify-center rounded-md px-3.5 text-sm font-medium text-white transition-colors motion-reduce:transition-none disabled:pointer-events-none disabled:opacity-50 ${focusRing} ${styles.primary}`
+    `inline-flex h-8 shrink-0 items-center justify-center rounded-lg px-3.5 text-sm leading-5 font-medium text-white transition-colors motion-reduce:transition-none disabled:pointer-events-none disabled:opacity-50 ${focusRing} ${styles.primary}`
   );
   const secondaryClass = $derived(
-    `inline-flex h-8 shrink-0 items-center rounded-md px-1.5 text-[13px] font-medium underline decoration-1 underline-offset-2 transition-colors hover:decoration-2 motion-reduce:transition-none disabled:pointer-events-none disabled:opacity-50 ${focusRing} ${styles.secondary}`
+    `inline-flex h-8 shrink-0 items-center rounded-md px-1.5 text-[13px] leading-[18px] font-medium underline decoration-1 underline-offset-2 transition-colors hover:decoration-2 motion-reduce:transition-none disabled:pointer-events-none disabled:opacity-50 ${focusRing} ${styles.secondary}`
   );
 </script>
 
-{#snippet action(item: StatusCalloutAction, cls: string)}
-  {#if item.href !== undefined}
-    <a href={item.href} onclick={item.onclick} class={cls}>{item.label}</a>
-  {:else}
-    <button type="button" onclick={item.onclick} disabled={item.disabled} class={cls}>{item.label}</button>
+<!-- The caller passes a snapshot, never the live prop: a render snippet
+     reads its argument lazily, so an action removed by the parent in the same
+     update could otherwise be read after it is gone. The guard keeps the
+     snippet safe even when it is handed nothing. -->
+{#snippet action(item: StatusCalloutAction | undefined, cls: string)}
+  {#if item}
+    {#if item.href !== undefined}
+      <a href={item.href} onclick={item.onclick} class={cls}>{item.label}</a>
+    {:else}
+      <button type="button" onclick={item.onclick} disabled={item.disabled} class={cls}>{item.label}</button>
+    {/if}
   {/if}
 {/snippet}
 
 <div
   data-status-callout={tone}
   {role}
-  class={`flex rounded-xl border ${inline ? "min-h-[52px] items-center gap-2.5 px-2.5 py-2" : "gap-3 p-3.5"} ${styles.box} ${className}`}
+  class={`flex border ${inline ? "min-h-[52px] items-center gap-2.5 rounded-[10px] px-2.5 py-2" : "gap-3 rounded-xl p-3.5"} ${styles.box} ${className}`}
 >
   <span class={`flex shrink-0 items-center justify-center ${inline ? "size-7" : "mt-px size-[18px]"} ${styles.icon}`}>
     {#if icon}
       {@render icon()}
     {:else if tone === "success"}
-      <CheckCircleIcon size={18} weight="bold" aria-hidden="true" />
+      <IconCheckCircle size={inline ? 16 : 18} strokeWidth={1.8} />
     {:else}
-      <WarningCircleIcon size={18} weight="bold" aria-hidden="true" />
+      <IconAlertCircle size={inline ? 16 : 18} strokeWidth={inline ? 1.7 : 1.8} />
     {/if}
   </span>
 
@@ -151,7 +157,7 @@
           onclick={onDismiss}
           class={`flex size-8 shrink-0 items-center justify-center rounded-md transition-colors motion-reduce:transition-none ${focusRing} ${styles.dismiss} ${inline ? "self-center" : "-my-1.5 -mr-1.5 self-start"}`}
         >
-          <XIcon size={14} weight="bold" aria-hidden="true" />
+          <IconClose size={14} strokeWidth={1.8} />
         </button>
       {/snippet}
     </Tooltip>

@@ -4,7 +4,7 @@
    * toast at the bottom right: the AI mark, "{n} ideas are ready" and what
    * to do next. It leaves after 5 seconds (paused while hovered or
    * focused); under reduced motion it appears and leaves without animation.
-   * The dark surface is fir until the shell's toast surface token lands.
+   * It uses the shell's one dark toast surface (`toast` tokens, D5).
    */
   import { onDestroy, untrack } from "svelte";
   import { fly } from "svelte/transition";
@@ -49,19 +49,19 @@
   onfocusin={pause}
   onfocusout={start}
   transition:fly={{ y: reducedMotion ? 0 : 8, duration: reducedMotion ? 0 : 200 }}
-  class="flex w-[320px] max-w-[calc(100vw-2rem)] items-start gap-3 rounded-xl bg-fir py-3 pr-2 pl-3.5 shadow-popover"
+  class="flex w-[296px] max-w-[calc(100vw-2rem)] items-start gap-2.5 rounded-[10px] bg-toast py-2.5 pr-1.5 pl-3 shadow-toast-dark"
 >
-  <AuroraMark size={20} />
+  <AuroraMark size={18} class="mt-px" />
   <div class="flex min-w-0 flex-1 flex-col gap-0.5">
-    <p class="text-[13px] leading-[18px] font-medium text-white">{count} {count === 1 ? "idea is" : "ideas are"} ready</p>
-    <p class="text-xs leading-4 text-white/75">Pick what fits, then approve to move on.</p>
+    <p class="text-xs leading-[17px] font-medium text-toast-ink">{count} {count === 1 ? "idea is" : "ideas are"} ready</p>
+    <p class="text-[11px] leading-[15px] text-toast-muted">Pick what fits, then approve to move on.</p>
   </div>
   <button
     type="button"
     aria-label="Dismiss"
     onclick={onClose}
-    class="flex size-7 shrink-0 items-center justify-center rounded-md text-white/75 transition-colors hover:bg-white/10 hover:text-white focus-visible:outline-2 focus-visible:outline-white pointer-coarse:size-11"
+    class="-my-1 flex size-6 shrink-0 items-center justify-center rounded-md text-toast-muted transition-colors hover:bg-white/10 hover:text-toast-ink focus-visible:outline-2 focus-visible:outline-white pointer-coarse:size-11"
   >
-    <XIcon size={14} aria-hidden="true" />
+    <XIcon size={12} aria-hidden="true" />
   </button>
 </div>

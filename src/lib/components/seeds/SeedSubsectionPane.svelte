@@ -29,6 +29,7 @@
     SeedSubsectionData,
   } from "./types";
   import { seedsApi } from "./api";
+  import { detectPlatform, isModEnter, isTypingTarget, shortcutHint } from "$lib/shell/shortcuts";
 
   let {
     generationId,
@@ -104,18 +105,14 @@
     data.pendingBatchId ? seedProgress(progressNow, data.pendingBatch ?? null, expectedMs) : null
   );
 
-  // Mod Enter approves the step (I4), except while typing in a seed field,
-  // where Enter already saves.
-  const isMac = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
-  const approveHint = `${isMac ? "⌘" : "Ctrl"} Enter`;
-  function isTypingTarget(target: EventTarget | null) {
-    if (!(target instanceof HTMLElement)) return false;
-    return target.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName);
-  }
+  // Mod Enter approves the step (I4), except while typing in a seed field
+  // (where Enter already saves), the editor or a dialog.
+  const platform = detectPlatform();
+  const approveHint = shortcutHint("approveContinue", platform);
   $effect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (event.key !== "Enter" || !(isMac ? event.metaKey : event.ctrlKey) || event.shiftKey || event.altKey) return;
-      if (isTypingTarget(event.target) || !canEdit || approvalDisabled) return;
+      if (event.defaultPrevented || !isModEnter(event)) return;
+      if (isTypingTarget(event) || !canEdit || approvalDisabled) return;
       event.preventDefault();
       void approveCurrent();
     };
@@ -669,7 +666,7 @@
               disabled={approvalDisabled}
               onclick={approveCurrent}
               data-approve-step
-              aria-keyshortcuts={isMac ? "Meta+Enter" : "Control+Enter"}
+              aria-keyshortcuts={platform === "mac" ? "Meta+Enter" : "Control+Enter"}
             >{isReopened ? "Confirm and approve" : "Approve and continue"}</Button>
           {/snippet}
         </Tooltip>

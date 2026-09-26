@@ -100,9 +100,9 @@
 
   /* Status families. The bare token is the solid (icons, dots); -soft is the
      chip and badge fill with -ink text; -surface and -line are the callout
-     box fill and border (boards E5, E6); -ink-muted is the callout paragraph,
-     an opaque stand-in for the boards' 75-80% opacity ink that keeps AA on
-     -surface; -action fills a button inside the box with white text (AA). */
+     box fill and border (boards E5, E6); -ink-muted is the darker ink (E5's
+     paragraph and icon, E6's icon); -action fills a button inside the box
+     (the board colours: E5 red #DC2626, E6 amber #D97706). */
   --color-danger: #DC2626;
   --color-danger-soft: #FEE2E2;
   --color-danger-ink: #991B1B;
@@ -111,6 +111,7 @@
   --color-danger-line: #FCA5A5;
   --color-danger-action: #DC2626;
   --color-danger-action-hover: #B91C1C;
+  --color-danger-body: #B91C1CCC;      /* E5 paragraph: #B91C1C at 80% */
 
   --color-warning: #D97706;
   --color-warning-soft: #FEF3C7;
@@ -118,8 +119,9 @@
   --color-warning-ink-muted: #B45309;
   --color-warning-surface: #FFFBEB;
   --color-warning-line: #FDE68A;
-  --color-warning-action: #B45309;
-  --color-warning-action-hover: #92400E;
+  --color-warning-action: #D97706;
+  --color-warning-action-hover: #B45309;
+  --color-warning-body: #92400EBF;     /* E6 paragraph: #92400E at 75% */
 
   --color-success: #16A34A;
   --color-success-soft: #DCFCE7;
@@ -127,8 +129,9 @@
   --color-success-ink-muted: #15803D;
   --color-success-surface: #F0FDF4;
   --color-success-line: #BBF7D0;
-  --color-success-action: #15803D;
-  --color-success-action-hover: #166534;
+  --color-success-action: #16A34A;
+  --color-success-action-hover: #15803D;
+  --color-success-body: #166534BF;     /* no board; mirrors E6 */
 
   /* "Recommended" label (board E1, How should we write it?). */
   --color-recommended: #BBF7D0;
