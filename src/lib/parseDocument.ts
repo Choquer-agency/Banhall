@@ -46,10 +46,12 @@ export interface ParsedDocument {
 }
 
 /** Reading progress for New project's supporting-document cards (E1): PDFs
- * report pages read over total; everything else is indeterminate. */
+ * report pages read over total; spreadsheets pass their worker phases
+ * through; everything else is indeterminate. Only "pages" is measurable. */
 export type ParseProgress =
   | { kind: "pages"; done: number; total: number }
-  | { kind: "indeterminate" };
+  | { kind: "indeterminate" }
+  | SpreadsheetProgress;
 
 export interface ParseOptions {
   signal?: AbortSignal;
@@ -58,6 +60,7 @@ export interface ParseOptions {
 
 import { capContent, MAX_CONTENT_CHARS } from "./documentContent";
 import { parseSpreadsheet } from "./spreadsheetClient";
+import type { SpreadsheetProgress } from "./spreadsheetProtocol";
 export { capContent } from "./documentContent";
 
 function parseAborted(): DOMException {
@@ -279,10 +282,7 @@ export async function parseFileToText(file: File, options: ParseOptions = {}): P
     return {
       fileName: name,
       fileType: "xlsx",
-      content: await parseSpreadsheet(file, {
-        signal,
-        onProgress: () => onProgress?.({ kind: "indeterminate" }),
-      }),
+      content: await parseSpreadsheet(file, { signal, onProgress }),
     };
   }
 
