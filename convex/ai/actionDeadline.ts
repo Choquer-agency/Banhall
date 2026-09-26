@@ -23,7 +23,9 @@
  *   fails with ActionTimeBudgetError: the time ran out, not the model.
  * - A retryable failure whose retry does not fit is thrown as it came, but
  *   marked (markStoppedByDeadline) so it is not counted against the model
- *   either. A failure that outlasts every retry it was allowed still counts.
+ *   either. A failure that outlasts every retry it was allowed still counts,
+ *   and so does one whose Retry-After wait no action could fit
+ *   (retryWaitFitsAnyAction).
  *
  * Only transport options change. Request bodies are never touched, and an
  * action that records no deadline sends exactly what it sent before.
@@ -141,12 +143,24 @@ export function retryFitsDeadline(deadline: number | undefined, now: number, del
 }
 
 /**
+ * Whether a retry wait of `delayMs` could fit any action: even one that just
+ * started has less than a useful attempt left after a longer wait (about
+ * 520 s). A failure whose retry the deadline refused for such a wait is not
+ * the time limit's doing, since no action could have waited it out, so it
+ * is left unmarked and counts like a failure with no retry left (fix-g
+ * review P3-1).
+ */
+export function retryWaitFitsAnyAction(delayMs: number): boolean {
+  return delayMs + MIN_USEFUL_REQUEST_MS <= ACTION_REQUEST_WINDOW_MS;
+}
+
+/**
  * The wait before Anthropic transport retry number `retryIndex` (0 for the
  * first), as the SDK computes it: the provider's `retry-after-ms` or
  * `Retry-After` (seconds or a date) when sent, otherwise 0.5 s doubling to
  * MAX_SDK_RETRY_BACKOFF_MS with up to 25 percent jitter. A long Retry-After
  * is not capped here; retryFitsDeadline refuses a wait the action cannot
- * afford.
+ * afford, and retryWaitFitsAnyAction decides whether that refusal counts.
  */
 export function anthropicRetryDelayMs(
   headers: { get(name: string): string | null } | undefined,

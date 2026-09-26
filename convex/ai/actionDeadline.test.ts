@@ -13,6 +13,7 @@ import {
   markStoppedByDeadline,
   requestBudget,
   retryFitsDeadline,
+  retryWaitFitsAnyAction,
   startActionDeadline,
   wasStoppedByDeadline,
 } from "./actionDeadline";
@@ -134,6 +135,14 @@ describe("action deadline arithmetic (cutoff review P2-2)", () => {
     expect(anthropicRetryDelayMs(undefined, 0, 0, () => 0)).toBe(500);
     expect(anthropicRetryDelayMs(undefined, 1, 0, () => 1)).toBe(750);
     expect(anthropicRetryDelayMs(undefined, 10, 0, () => 0)).toBe(MAX_SDK_RETRY_BACKOFF_MS);
+  });
+
+  it("tells a wait some action could fit from one none could (fix-g review P3-1)", () => {
+    const longest = ACTION_REQUEST_WINDOW_MS - MIN_USEFUL_REQUEST_MS;
+    expect(longest).toBe(520_000);
+    expect(retryWaitFitsAnyAction(0)).toBe(true);
+    expect(retryWaitFitsAnyAction(longest)).toBe(true);
+    expect(retryWaitFitsAnyAction(longest + 1)).toBe(false);
   });
 
   it("counts a provider failure that outlasts its retries, and never one the deadline stopped (fix-g review P2-2)", () => {
