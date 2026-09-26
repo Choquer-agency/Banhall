@@ -125,8 +125,7 @@ export const processFinancialUpload = internalAction({
           "Financial agent response was truncated at the max_tokens limit before completing"
         );
       }
-      const text =
-        firstResponseText(response);
+      const text = firstResponseText(response);
       let result: ReturnType<typeof parseTimesheetReply>;
       try {
         result = parseTimesheetReply(text);
