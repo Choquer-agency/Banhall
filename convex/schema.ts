@@ -2086,7 +2086,9 @@ export default defineSchema({
     // Per-minute reporting budgets: per signed-in user (and, with userId
     // unset, for all signed-out reports together) and per browser session.
     .index("by_userId_and_createdAt", ["userId", "createdAt"])
-    .index("by_sessionId_and_createdAt", ["sessionId", "createdAt"]),
+    .index("by_sessionId_and_createdAt", ["sessionId", "createdAt"])
+    // Retention sweep: bug reports (reportType "bug" or unset) by age.
+    .index("by_reportType_and_createdAt", ["reportType", "createdAt"]),
 
   // Non-destructive version history of the report (Google-Docs-style restore).
   reportSnapshots: defineTable({

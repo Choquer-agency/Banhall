@@ -77,4 +77,13 @@ crons.cron(
   {}
 );
 
+// Error reports: bug reports older than 30 days are deleted, a bounded batch
+// at a time (review r1 P2-2). Feature requests are kept.
+crons.cron(
+  "prune old error reports",
+  "50 9 * * *",
+  internal.errorReports.pruneOldErrorReports,
+  {}
+);
+
 export default crons;

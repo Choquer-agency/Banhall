@@ -1,9 +1,13 @@
 /// <reference types="vite/client" />
 import { convexTest } from "convex-test";
 import { describe, expect, it } from "vitest";
-import { api } from "./_generated/api";
+import { api, internal } from "./_generated/api";
 import schema from "./schema";
-import { ERROR_REPORT_BUDGET, ERROR_REPORT_LIMITS } from "./errorReports";
+import {
+  ERROR_REPORT_BUDGET,
+  ERROR_REPORT_LIMITS,
+  ERROR_REPORT_RETENTION_MS,
+} from "./errorReports";
 
 const modules = import.meta.glob("./**/*.ts");
 
@@ -56,14 +60,14 @@ async function rows(t: Awaited<ReturnType<typeof setup>>["t"]) {
 
 describe("reportError", () => {
   it("cuts oversized fields and keeps the newest breadcrumbs", async () => {
-    const { t } = await setup();
+    const { t, writer } = await setup();
     const crumbs = Array.from({ length: ERROR_REPORT_LIMITS.breadcrumbs + 20 }, (_, i) => ({
       type: "nav".repeat(100),
       label: `crumb ${i} `.repeat(100),
       detail: "d".repeat(ERROR_REPORT_LIMITS.breadcrumbDetail + 5),
       at: i,
     }));
-    await t.mutation(
+    await writer.mutation(
       api.errorReports.reportError,
       report({
         message: "m".repeat(1_000_000 - 1_000),
@@ -113,6 +117,29 @@ describe("reportError", () => {
     expect(await rows(t)).toHaveLength(ERROR_REPORT_BUDGET.signedOutTotal);
   });
 
+  // Review r1 P2-2 (2026-09-25): a signed-out script could still write about
+  // 3 GB a day.
+  it("holds all signed-out reports to about ten a minute, with a shorter stack", async () => {
+    const { t, writer } = await setup();
+    expect(ERROR_REPORT_BUDGET.signedOutTotal).toBeLessThanOrEqual(10);
+    expect(ERROR_REPORT_LIMITS.signedOutStack).toBeLessThan(ERROR_REPORT_LIMITS.stack);
+    let accepted = 0;
+    for (let i = 0; i < 40; i += 1) {
+      const id = await t.mutation(
+        api.errorReports.reportError,
+        report({ sessionId: `script-${i}`, stack: "s".repeat(100_000) })
+      );
+      if (id !== null) accepted += 1;
+    }
+    expect(accepted).toBe(ERROR_REPORT_BUDGET.signedOutTotal);
+    const signedOut = await rows(t);
+    expect(signedOut.every((row) => row.stack?.length === ERROR_REPORT_LIMITS.signedOutStack)).toBe(true);
+    // A signed-in report keeps the longer stack.
+    await writer.mutation(api.errorReports.reportError, report({ stack: "s".repeat(100_000) }));
+    const mine = (await rows(t)).find((row) => row.userId !== undefined);
+    expect(mine?.stack).toHaveLength(ERROR_REPORT_LIMITS.stack);
+  });
+
   it("lets the budget refill after the window", async () => {
     const { t, writer } = await setup();
     for (let i = 0; i < ERROR_REPORT_BUDGET.perUser; i += 1) {
@@ -155,6 +182,56 @@ describe("reading and changing reports is ops.viewAlerts (Admin only)", () => {
     await admin.mutation(api.errorReports.setStatus, { id, status: "resolved" });
     expect((await rows(t))[0].status).toBe("resolved");
     await admin.mutation(api.errorReports.deleteError, { id });
+    expect(await rows(t)).toHaveLength(0);
+  });
+});
+
+describe("retention sweep (review r1 P2-2)", () => {
+  async function seed(
+    t: Awaited<ReturnType<typeof setup>>["t"],
+    rowsToAdd: Array<{ ageMs: number; reportType?: "bug" | "feature"; status?: "open" | "resolved" }>
+  ) {
+    await t.run(async (ctx) => {
+      const now = Date.now();
+      for (const row of rowsToAdd) {
+        await ctx.db.insert("errorReports", {
+          kind: "auto",
+          ...(row.reportType ? { reportType: row.reportType } : {}),
+          message: `age ${row.ageMs}`,
+          url: "/",
+          breadcrumbs: [],
+          status: row.status ?? "open",
+          createdAt: now - row.ageMs,
+        });
+      }
+    });
+  }
+  const DAY = 24 * 60 * 60 * 1000;
+
+  it("deletes bug reports older than 30 days and keeps recent ones and feature requests", async () => {
+    const { t } = await setup();
+    await seed(t, [
+      { ageMs: ERROR_REPORT_RETENTION_MS + DAY, reportType: "bug" },
+      { ageMs: ERROR_REPORT_RETENTION_MS + DAY, reportType: "bug", status: "resolved" },
+      { ageMs: ERROR_REPORT_RETENTION_MS + DAY }, // before BNH-38: a bug
+      { ageMs: ERROR_REPORT_RETENTION_MS + DAY, reportType: "feature" },
+      { ageMs: ERROR_REPORT_RETENTION_MS - DAY, reportType: "bug" },
+      { ageMs: 0 },
+    ]);
+    expect(ERROR_REPORT_RETENTION_MS).toBe(30 * DAY);
+    expect(await t.mutation(internal.errorReports.pruneOldErrorReports, {})).toBe(3);
+    const left = await rows(t);
+    expect(left).toHaveLength(3);
+    expect(left.some((row) => row.reportType === "feature")).toBe(true);
+    expect(left.every((row) => row.reportType === "feature" || row.createdAt > Date.now() - ERROR_REPORT_RETENTION_MS)).toBe(true);
+  });
+
+  it("works in bounded batches", async () => {
+    const { t } = await setup();
+    await seed(t, Array.from({ length: 250 }, () => ({ ageMs: ERROR_REPORT_RETENTION_MS + DAY })));
+    expect(await t.mutation(internal.errorReports.pruneOldErrorReports, {})).toBe(200);
+    expect(await rows(t)).toHaveLength(50);
+    expect(await t.mutation(internal.errorReports.pruneOldErrorReports, {})).toBe(50);
     expect(await rows(t)).toHaveLength(0);
   });
 });

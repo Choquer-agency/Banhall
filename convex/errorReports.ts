@@ -1,6 +1,7 @@
 import { query, mutation, internalMutation, type MutationCtx } from "./_generated/server";
 import { v } from "convex/values";
 import type { Doc } from "./_generated/dataModel";
+import { internal } from "./_generated/api";
 import { getCurrentUserOrNull } from "./lib/auth";
 import { hasCapability, requireCapability } from "./lib/roleCapabilities";
 
@@ -18,6 +19,8 @@ const breadcrumbValidator = v.object({
 export const ERROR_REPORT_LIMITS = {
   message: 2_000,
   stack: 8_000,
+  // A signed-out sender's stack (review r1 P2-2): enough for the top frames.
+  signedOutStack: 2_000,
   source: 200,
   url: 2_000,
   userNote: 4_000,
@@ -39,8 +42,14 @@ export const ERROR_REPORT_BUDGET = {
   windowMs: 60_000,
   perUser: 10,
   perSession: 5,
-  signedOutTotal: 30,
+  // All signed-out reports together (review r1 P2-2, lowered from 30).
+  signedOutTotal: 10,
 } as const;
+
+/** Bug reports are kept this long, then the daily sweep deletes them
+ * (review r1 P2-2). Feature requests are a product board and are kept. */
+export const ERROR_REPORT_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
+const RETENTION_BATCH = 200;
 
 function cap(value: string, max: number): string {
   return value.length > max ? value.slice(0, max) : value;
@@ -120,7 +129,7 @@ export const reportError = mutation({
       // Auto-captured = always a bug; manual defaults to bug unless flagged feature.
       reportType: args.reportType ?? "bug",
       message: cap(args.message, L.message),
-      stack: capOptional(args.stack, L.stack),
+      stack: capOptional(args.stack, userId === undefined ? L.signedOutStack : L.stack),
       source: capOptional(args.source, L.source),
       url: cap(args.url, L.url),
       userNote: capOptional(args.userNote, L.userNote),
@@ -203,6 +212,36 @@ export const adminResolve = internalMutation({
       resolved += 1;
     }
     return resolved;
+  },
+});
+
+/**
+ * Retention sweep (daily cron): deletes bug reports, open or resolved, older
+ * than ERROR_REPORT_RETENTION_MS, a bounded batch at a time, and schedules
+ * itself again while a full batch was found. Rows with no reportType are bug
+ * reports from before BNH-38. Feature requests are never swept.
+ */
+export const pruneOldErrorReports = internalMutation({
+  args: {},
+  returns: v.number(),
+  handler: async (ctx): Promise<number> => {
+    const cutoff = Date.now() - ERROR_REPORT_RETENTION_MS;
+    let deleted = 0;
+    for (const reportType of [undefined, "bug"] as const) {
+      const old = await ctx.db
+        .query("errorReports")
+        .withIndex("by_reportType_and_createdAt", (q) =>
+          q.eq("reportType", reportType).lt("createdAt", cutoff)
+        )
+        .take(RETENTION_BATCH - deleted);
+      for (const row of old) await ctx.db.delete(row._id);
+      deleted += old.length;
+      if (deleted >= RETENTION_BATCH) break;
+    }
+    if (deleted >= RETENTION_BATCH) {
+      await ctx.scheduler.runAfter(0, internal.errorReports.pruneOldErrorReports, {});
+    }
+    return deleted;
   },
 });
 
