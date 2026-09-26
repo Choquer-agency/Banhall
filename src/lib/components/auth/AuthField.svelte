@@ -41,7 +41,7 @@
       bind:value
       aria-invalid={invalid ? "true" : undefined}
       {...rest}
-      class="h-full min-w-0 flex-1 border-0 bg-transparent p-0 text-[15px] leading-5 text-ink placeholder:text-ink-faint focus:outline-none focus:ring-0 disabled:opacity-60"
+      class="input-chromeless h-full min-w-0 flex-1 bg-transparent p-0 text-[15px] leading-5 text-ink placeholder:text-ink-faint disabled:opacity-60"
     />
     {@render trailing?.()}
   </div>

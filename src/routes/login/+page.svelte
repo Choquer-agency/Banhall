@@ -177,7 +177,7 @@
             tabindex="-1"
             aria-hidden="true"
             data-hidden-username
-            class="sr-only"
+            class="input-chromeless sr-only"
           />
         {:else}
           <AuthField

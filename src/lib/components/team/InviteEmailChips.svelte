@@ -94,6 +94,6 @@
     {onpaste}
     onblur={() => commit()}
     placeholder={chips.length ? "Add more, separate with commas" : "name@banhall.com, separate with commas"}
-    class="h-7 min-w-[12rem] flex-1 border-0 bg-transparent pl-1 text-[13px] text-ink placeholder:text-ink-faint focus:outline-none focus:ring-0"
+    class="input-chromeless h-7 min-w-[12rem] flex-1 bg-transparent pl-1 text-[13px] text-ink placeholder:text-ink-faint"
   />
 </div>

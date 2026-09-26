@@ -229,7 +229,7 @@
           <AuthField id="lastName" label="Last name" bind:value={lastName} autocomplete="family-name" maxlength={100} required />
         </div>
         <!-- Password managers file the new password under this address. -->
-        <input type="email" name="username" autocomplete="username" value={invite.email} readonly tabindex="-1" aria-hidden="true" class="sr-only" />
+        <input type="email" name="username" autocomplete="username" value={invite.email} readonly tabindex="-1" aria-hidden="true" class="input-chromeless sr-only" />
         <PasswordField
           id="password"
           label="Create a password"

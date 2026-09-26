@@ -75,7 +75,7 @@
         spellcheck="false"
         bind:value={password}
         disabled={saved}
-        class="h-10 min-w-0 flex-1 rounded-[10px] border border-line bg-surface px-3 font-mono text-[13px] text-ink focus:border-primary-selected focus:outline-none focus:ring-1 focus:ring-primary-selected disabled:bg-canvas"
+        class="field-control h-10 min-w-0 flex-1 rounded-[10px] px-3 font-mono text-[13px] text-ink disabled:bg-canvas"
       />
       <button type="button" onclick={() => { password = generateTemporaryPassword(); copied = false; }} disabled={saved} class="h-10 rounded-[10px] bg-chrome px-3 text-[13px] font-medium text-ink hover:bg-primary-wash disabled:opacity-50">New one</button>
       <button type="button" onclick={copy} class="h-10 rounded-[10px] bg-chrome px-3 text-[13px] font-medium text-ink hover:bg-primary-wash">{copied ? "Copied" : "Copy"}</button>
