@@ -111,6 +111,7 @@ import type * as lib_deidentify from "../lib/deidentify.js";
 import type * as lib_deviationInventory from "../lib/deviationInventory.js";
 import type * as lib_draftingInputsFailure from "../lib/draftingInputsFailure.js";
 import type * as lib_editDistance from "../lib/editDistance.js";
+import type * as lib_editProvenance from "../lib/editProvenance.js";
 import type * as lib_eligibleOwner from "../lib/eligibleOwner.js";
 import type * as lib_email from "../lib/email.js";
 import type * as lib_frozenWriterStyle from "../lib/frozenWriterStyle.js";
@@ -118,6 +119,7 @@ import type * as lib_gatedWorkflow from "../lib/gatedWorkflow.js";
 import type * as lib_generationIndexReads from "../lib/generationIndexReads.js";
 import type * as lib_generationOutputs from "../lib/generationOutputs.js";
 import type * as lib_generationProgress from "../lib/generationProgress.js";
+import type * as lib_generationSteps from "../lib/generationSteps.js";
 import type * as lib_generationTransitions from "../lib/generationTransitions.js";
 import type * as lib_generations_brief from "../lib/generations/brief.js";
 import type * as lib_generations_candidates from "../lib/generations/candidates.js";
@@ -132,6 +134,7 @@ import type * as lib_generations_projection from "../lib/generations/projection.
 import type * as lib_generations_reapers from "../lib/generations/reapers.js";
 import type * as lib_generations_redraft from "../lib/generations/redraft.js";
 import type * as lib_generations_reservation from "../lib/generations/reservation.js";
+import type * as lib_generations_restoreStatus from "../lib/generations/restoreStatus.js";
 import type * as lib_generations_scoring from "../lib/generations/scoring.js";
 import type * as lib_generations_seedGuards from "../lib/generations/seedGuards.js";
 import type * as lib_generations_seedStage from "../lib/generations/seedStage.js";
@@ -334,6 +337,7 @@ declare const fullApi: ApiFromModules<{
   "lib/deviationInventory": typeof lib_deviationInventory;
   "lib/draftingInputsFailure": typeof lib_draftingInputsFailure;
   "lib/editDistance": typeof lib_editDistance;
+  "lib/editProvenance": typeof lib_editProvenance;
   "lib/eligibleOwner": typeof lib_eligibleOwner;
   "lib/email": typeof lib_email;
   "lib/frozenWriterStyle": typeof lib_frozenWriterStyle;
@@ -341,6 +345,7 @@ declare const fullApi: ApiFromModules<{
   "lib/generationIndexReads": typeof lib_generationIndexReads;
   "lib/generationOutputs": typeof lib_generationOutputs;
   "lib/generationProgress": typeof lib_generationProgress;
+  "lib/generationSteps": typeof lib_generationSteps;
   "lib/generationTransitions": typeof lib_generationTransitions;
   "lib/generations/brief": typeof lib_generations_brief;
   "lib/generations/candidates": typeof lib_generations_candidates;
@@ -355,6 +360,7 @@ declare const fullApi: ApiFromModules<{
   "lib/generations/reapers": typeof lib_generations_reapers;
   "lib/generations/redraft": typeof lib_generations_redraft;
   "lib/generations/reservation": typeof lib_generations_reservation;
+  "lib/generations/restoreStatus": typeof lib_generations_restoreStatus;
   "lib/generations/scoring": typeof lib_generations_scoring;
   "lib/generations/seedGuards": typeof lib_generations_seedGuards;
   "lib/generations/seedStage": typeof lib_generations_seedStage;
