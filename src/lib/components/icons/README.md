@@ -52,9 +52,12 @@ These icons are copied from the Paper round 2 boards (A1 to J9, page "Round 2, f
 |  |  |  |  | 14 / 1.6 | F2, H3 | F2, H3 reading banner: "You can leave this page. We will let you know when the first..." |
 | `IconUser` | Account (single person) | `0 0 24 24` | 15 / 1.5 | 15 / 1.5 | D1 | D1 your menu: Account |
 | `IconLogout` | Sign out / revoke | `0 0 24 24` | 15 / 1.5 | 15 / 1.5 | C4, D1 | D1 your menu: Sign out; C4 pending-invite menu: Revoke invite (red) |
+| `IconFlag` | Flag an issue (not on the boards) | `0 0 24 24` | 15 / 1.5 | 15 / 1.5 | D1 | D1 your menu: Flag an issue (decision 53 added the item; drawn in the menu's line style) |
+| `IconMenu` | Open the navigation drawer (not on the boards) | `0 0 24 24` | 20 / 1.5 | 20 / 1.5 | none | Top bar below 1024px: opens the rail drawer (not designed; drawn in the rail's line style) |
 | `IconEye` | Preview / show / view as | `0 0 24 24` | 15 / 1.6 | 15, 16, 20 / 1.6 | D3, D4, E1-E6, F1, G1-G3, H1, H2, J1-J5, J8, J9 | E, F1, G, H1, H2 supporting document card: preview button (15px); J1-J5, J8, J9 password field: show password (16px); D3 "Now viewing as Consultant" toast (15px); D4 hidden-page notice tile (20px) |
 |  |  |  |  | 14 / 1.7 | D3, D4 | D3, D4 "Viewing as" banner, before the role dropdown |
 |  |  |  |  | 15 / 1.5 | D1 | D1 your menu: View as another role |
+| `IconEyeOff` | Hide password (not on the boards) | `0 0 24 24` | 16 / 1.6 | 16 / 1.6 | J1-J5, J8, J9 | Password field show/hide button once the password is shown: the board eye with a slash, same size and stroke |
 | `IconChevronDown` | Open a dropdown / expand | `0 0 24 24` | 14 / 1.8 | 14 / 1.8 | A2, A3, B1, C1, C3-C5, D1, D2, D5, E1-E6, F1, G1-G3, H1, H2, I1, I1b, I2-I5 | Rail footer role chip menu (Admin/Developer/Other chip); E, F1, G, H1, H2 form selects: Client, Science code, Industry, Model |
 |  |  |  |  | 10 / 2.4 (round/miter) | E1-E6, F1, G1-G3, H1, H2 | E, F1, G, H1, H2 file card document-kind chip ("Previous-year PD", "Work plan", "Test results", "Transcript"). Drawn with no stroke-linejoin (miter): pass stroke-linejoin="miter" to match exactly |
 |  |  |  |  | 11 / 2.2 (round/miter) | E1-E6, F1, G1-G3, H1, H2 | E, F1, G, H1, H2 Supporting documents "Add" button trailing chevron; E3 preview document-kind select. No stroke-linejoin (miter) on the board |
@@ -101,6 +104,7 @@ These icons are copied from the Paper round 2 boards (A1 to J9, page "Round 2, f
 | `IconMore` | More actions (horizontal dots) | `0 0 24 24` | 16 / 3 | 16, 18 / 3 | C1, C3-C5, H4 | C1, C3-C5 pending invite row: more menu (16px); H4 phone top bar: more (18px) |
 | `IconPencil` | Edit | `0 0 24 24` | 14 / 1.7 | 14 / 1.7 | F4 | F4 seed card footer: edit |
 | `IconComment` | Comment | `0 0 24 24` | 14 / 1.7 | 14 / 1.7 | F4 | F4 seed card footer: comment |
+| `IconQuote` | Quoted lines (not on the boards) | `0 0 24 24` | 14 / 1.7 | 14 / 1.7 | none | Seed card tools: Quoted lines, beside Edit and Give feedback when a quote is not underlined in a bullet (drawn in the card tools' line style) |
 | `IconRegenerate` | Regenerate | `0 0 24 24` | 14 / 1.8 | 14 / 1.8 | F3-F5 | F3-F5 section header: Regenerate button |
 | `IconLock` | Locked setting | `0 0 24 24` | 11 / 2.2 | 11 / 2.2 | I2 | I2 writing preferences: "Set by your organization" lock |
 |  |  |  |  | 10 / 2.6 (round/round) | G3 | G3 confirm dialog: draft file is always reviewed (locked checkbox) |
