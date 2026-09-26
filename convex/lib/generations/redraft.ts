@@ -55,6 +55,7 @@ import { loadBriefCheck } from "./brief";
 import { complianceNoteDraftValidator, complianceNoteRow } from "../complianceNote";
 import { ORDERED_SECTION_TITLES } from "../../ai/promptDefinitions";
 import { writePreEditSnapshot } from "../snapshots";
+import { provenanceForEdit } from "../editProvenance";
 import { persistDeterministicFindings } from "../qaFindings";
 import { readAgentOutputs, writeAgentOutputs } from "../generationOutputs";
 
@@ -789,9 +790,12 @@ export async function settleSeedRedraft(
         content: merged.content,
         contentHash: await sha256(merged.content),
         revisionNumber: (report.revisionNumber ?? 0) + 1,
-        // Like any change to the prose, the new revision needs its own
-        // provenance review.
-        provenanceId: undefined,
+        // Like any change to the prose: the redrafted Sections are new
+        // claims that need review, the writer's kept text keeps its state.
+        provenanceId: await provenanceForEdit(ctx, report, merged.content, {
+          nextRevisionNumber: (report.revisionNumber ?? 0) + 1,
+          now,
+        }),
         updatedAt: now,
       });
       await persistDeterministicFindings(ctx, report._id);

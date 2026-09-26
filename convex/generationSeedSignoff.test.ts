@@ -7350,6 +7350,16 @@ describe("Step-by-step writing: background QA, Stop and redraft (CAP-17, CAP-18)
     expect(report.content).toContain("Redraft draft 1.");
     expect(report.content).toContain("Redraft draft 2.");
     expect(report.content).not.toContain("[NOT GENERATED]");
+    // Amendment 2026-09-25 (fifth): the claim record follows the report
+    // through the writer's edit and the redraft. The redrafted paragraphs
+    // are new claims and the writer's rewritten one needs review again.
+    expect(stoppedReport.provenanceId).toBeDefined();
+    const claims = await s.t.run(async (ctx) =>
+      (await ctx.db.get(report.provenanceId!))?.claims ?? []);
+    const claimOf = (text: string) => claims.find((row) => row.claimText === text);
+    expect(claimOf("Writer edited 246 after the stop.")).toMatchObject({ section: "246", state: "needs_review" });
+    expect(claimOf("Redraft draft 1.")).toMatchObject({ section: "242", state: "needs_review", sources: [] });
+    expect(claimOf("Redraft draft 2.")).toMatchObject({ section: "244", state: "needs_review", sources: [] });
     // Every node outside the filled bodies is carried over unchanged.
     const before = JSON.parse(editedContent) as { content: unknown[] };
     const after = JSON.parse(report.content) as { content: unknown[] };

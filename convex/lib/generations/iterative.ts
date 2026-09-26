@@ -40,6 +40,7 @@ import { internal } from "../../_generated/api";
 import { buildTiptapDocument } from "../tiptapReport";
 import { sectionMetrics } from "../lineLimits";
 import { generationTranscriptIds } from "../transcripts";
+import { provenanceForWriterApprovedReport } from "../editProvenance";
 import { terminateSeedAttempts } from "../../seedRuns";
 import { bypassSeedEpisodes } from "../seedDecisionWrites";
 import { writeAgentOutputs } from "../generationOutputs";
@@ -627,7 +628,14 @@ export async function approveSectionDraftHandler(
     projectId: generation.projectId,
     content,
     agentOutputs,
-    provenanceId: undefined,
+    // Writer-approved Sections carry no quotes: every paragraph is a claim
+    // for a manager to review (amendment 2026-09-25, fifth).
+    provenanceId: await provenanceForWriterApprovedReport(ctx, {
+      projectId: generation.projectId,
+      generation,
+      content,
+      now,
+    }),
     label: `Iterative — ${run.label}`,
   });
 

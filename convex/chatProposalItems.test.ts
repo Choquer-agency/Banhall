@@ -317,7 +317,8 @@ describe("applyProposal over a proposal that carries a Completion Report", () =>
     expect(report?.revisionNumber).toBe(1);
     expect(report?.content).toContain("s242 paragraph 1 revised s2421.");
     expect(report?.content).not.toContain("s242 paragraph 1 body s2421.");
-    // AD-3: the pre-edit snapshot still lands, and provenance is cleared.
+    // AD-3: the pre-edit snapshot still lands; the report had no claim
+    // record, so it still has none.
     const snapshots = await f.t.run((ctx) =>
       ctx.db
         .query("reportSnapshots")

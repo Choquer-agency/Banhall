@@ -897,6 +897,16 @@ describe("approveSectionDraft", () => {
     // Every approved section survives, in SECTION_ORDER.
     expect(offsets.every((offset) => offset >= 0)).toBe(true);
     expect(offsets).toEqual([...offsets].sort((a, b) => a - b));
+    // Amendment 2026-09-25 (fifth): the writer-approved report gets a claim
+    // record, one claim per Section paragraph, each for a manager to review.
+    const provenance = await t.run(async (ctx) =>
+      state.reports[0]?.provenanceId ? await ctx.db.get(state.reports[0].provenanceId) : null);
+    expect(provenance).toMatchObject({ generationId, status: "needs_review" });
+    expect(provenance?.claims.map((row) => [row.section, row.claimText, row.state])).toEqual([
+      ["242", "Uncertainty text", "needs_review"],
+      ["244", "Work performed text", "needs_review"],
+      ["246", "Advancement approved", "needs_review"],
+    ]);
     expect(JSON.parse(state.outputs ?? "{}")).toMatchObject({
       section242: "Uncertainty text",
       section244: "Work performed text",
