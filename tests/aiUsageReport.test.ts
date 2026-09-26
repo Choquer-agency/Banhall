@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { isNativeCost, parseRows, summarize } from "../scripts/ai-usage-report.mjs";
+import { OPENROUTER_CREDIT_FEE, isNativeCost, parseRows, summarize, transportOf } from "../scripts/ai-usage-report.mjs";
 
 const rows = [
   { callSite: "chat_v2", model: "claude-sonnet-5", inputTokens: 1_000, outputTokens: 100, cacheReadInputTokens: 9_000, cacheCreationInputTokens: 0, costUsd: 1, createdAt: Date.UTC(2026, 8, 1) },
@@ -33,5 +33,28 @@ describe("ai usage report script", () => {
     expect(isNativeCost({ model: "claude-sonnet-5", costSource: "native" })).toBe(true);
     expect(isNativeCost({ model: "vendor/model" })).toBe(true);
     expect(isNativeCost({ model: "claude-sonnet-5" })).toBe(false);
+  });
+
+  test("groups by transport and served provider, and notes the OpenRouter credit fee", () => {
+    const withSwitch = [
+      ...rows,
+      { callSite: "generation:qa", model: "claude-sonnet-5", transport: "openrouter", servedProvider: "Anthropic", costSource: "native", inputTokens: 100, outputTokens: 10, costUsd: 0.75, createdAt: Date.UTC(2026, 8, 4) },
+    ];
+    expect(transportOf(withSwitch[0])).toBe("direct");
+    expect(transportOf(withSwitch[2])).toBe("openrouter");
+    expect(transportOf(withSwitch[3])).toBe("openrouter");
+    const byTransport = summarize(withSwitch, { by: "transport", reprice: false });
+    expect(byTransport.groups.map((group: { key: string; costUsd: number }) => [group.key, group.costUsd])).toEqual([
+      ["direct", 2],
+      ["openrouter", 1],
+    ]);
+    expect(byTransport.totals.openRouterCostUsd).toBeCloseTo(1, 10);
+    expect(OPENROUTER_CREDIT_FEE).toBe(0.055);
+    expect(byTransport.openRouterCreditFeeUsd).toBeCloseTo(0.055, 10);
+    const byProvider = summarize(withSwitch, { by: "servedProvider", reprice: false });
+    expect(byProvider.groups.map((group: { key: string; calls: number }) => [group.key, group.calls])).toEqual([
+      ["(not reported)", 3],
+      ["Anthropic", 1],
+    ]);
   });
 });
