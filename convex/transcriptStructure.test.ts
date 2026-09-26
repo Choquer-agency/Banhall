@@ -674,6 +674,8 @@ describe("speaker role rules", () => {
       ["Dana Rao", "Dana"],
       ["Dana Rao", "Dana W."],
       ["Dana (Acme)", "Dana"],
+      // A company in brackets that shares a word with a staff surname (fix-g review P3-3).
+      ["Dana (Whitfield Consulting)", "Dana Whitfield"],
     ] as const) {
       const guesses = roles(client, [roster]);
       const label = client.replace(/\s*\(.*\)$/, "");
@@ -694,6 +696,31 @@ describe("speaker role rules", () => {
       ]);
     }
     expect(roles("Dana Whitfield", ["Dana Whitfield"])[1]).toEqual(["Dana Whitfield", "interviewer", 0.95]);
+    // Near misses that are the same person (fix-g review P3-2): a hyphen or a
+    // space in a compound name, a middle name only on the roster, one half of
+    // a hyphenated surname, a suffix or credential, and the roster's email
+    // fallback label.
+    for (const [label, roster] of [
+      ["Jean Philippe Roy", "Jean-Philippe Roy"],
+      ["Jean-Philippe Roy", "Jean Philippe Roy"],
+      ["Mary Smith", "Mary Anne Smith"],
+      ["Dana Whitfield", "Dana Whitfield-Rao"],
+      ["Dana Whitfield", "Dana Whitfield Jr"],
+      ["Dana Whitfield", "Dana Whitfield, P.Eng."],
+      ["Dana Whitfield", "dana.whitfield@firm.com"],
+    ] as const) {
+      expect(roles(label, [roster])[1], `${label} / ${roster}`).toEqual([label, "interviewer", 0.95]);
+    }
+    // Still not a full name: the first name must be whole, and a surname is needed.
+    for (const [label, roster] of [
+      ["Jean Roy", "Jean-Philippe Roy"],
+      ["Anne Smith", "Mary Anne Smith"],
+      ["Dana Rao", "dana.whitfield@firm.com"],
+      ["Dana Jr", "Dana Whitfield Jr"],
+    ] as const) {
+      const [, role, confidence] = roles(label, [roster])[1];
+      expect(role === "interviewer" && confidence === 0.95, `${label} / ${roster}`).toBe(false);
+    }
   });
 
   it("builds a client named like a roster member as a client whose words stay evidence", async () => {
