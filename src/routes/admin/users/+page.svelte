@@ -1,6 +1,7 @@
 <script lang="ts">
   import AdminWorkspacePage from "$lib/components/admin/AdminWorkspacePage.svelte";
   import { resolve } from "$app/paths";
+  import { page } from "$app/state";
   import Button from "$lib/components/ui/Button.svelte";
   import Input from "$lib/components/ui/Input.svelte";
   import Checkbox from "$lib/components/ui/Checkbox.svelte";
@@ -222,6 +223,18 @@
   });
 
   const users = $derived(usersQ.data ?? []);
+
+  // Team's "Edit writing preferences" links here with ?user=<id>: open that
+  // person's row once the roster arrives.
+  let openedFromLink = false;
+  $effect(() => {
+    const target = page.url.searchParams.get("user");
+    if (openedFromLink || !target || !profilesQ.data) return;
+    const row = users.find((user) => user._id === target);
+    if (!row) return;
+    openedFromLink = true;
+    toggleFlavor(row._id);
+  });
   const expandedUser = $derived(
     users.find((user) => user._id === expandedUserId) ?? null
   );

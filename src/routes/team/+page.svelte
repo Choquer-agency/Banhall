@@ -1,9 +1,18 @@
 <script lang="ts">
-  // Round 2 Team page (C1, C2). The members table and pending invites land in
-  // the next commits; this reserves the route for the workspace rail.
-  import WorkspaceChrome from "$lib/components/workspace/WorkspaceChrome.svelte";
+  // Round 2 Team page (C1-C5). Everything lives in TeamPage so the component
+  // suite can mount it; the route only adds the sign-in redirect.
+  import { useAuth } from "@mmailaender/convex-better-auth-svelte/svelte";
+  import { goToLogin } from "$lib/auth/goToLogin";
+  import TeamPage from "$lib/components/team/TeamPage.svelte";
+
+  const auth = useAuth();
+  $effect(() => {
+    if (!auth.isLoading && !auth.isAuthenticated) void goToLogin();
+  });
 </script>
 
-<WorkspaceChrome title="Team">
-  <div data-work-panel class="px-14 pt-7"></div>
-</WorkspaceChrome>
+<svelte:head>
+  <title>Team - Banhall</title>
+</svelte:head>
+
+<TeamPage />
