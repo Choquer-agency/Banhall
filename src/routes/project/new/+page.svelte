@@ -2,6 +2,7 @@
   import { isParseAbort } from "$lib/spreadsheetClient";
   import { onDestroy, onMount } from "svelte";
   import { afterNavigate, beforeNavigate, goto } from "$app/navigation";
+  import { resolve } from "$app/paths";
   import { goToLogin } from "$lib/auth/goToLogin";
   import { toast } from "svelte-sonner";
   import { useAction, useConvexClient, useMutation, useQuery } from "convex-svelte";
@@ -97,6 +98,7 @@
   } from "../../../../shared/previousYear";
   import { WORKFLOW_STAGE_LABELS } from "../../../../shared/workflowLabels";
   import WorkspaceChrome from "$lib/components/workspace/WorkspaceChrome.svelte";
+  import { IconFolder } from "$lib/components/icons";
   import { takeProjectStart } from "$lib/workspace/projectIntentHandoff";
   import { parseDraftModeParam } from "$lib/workspace/projectDuplicate";
   import { page } from "$app/state";
@@ -1847,15 +1849,20 @@
     <Spinner />
   </div>
 {:else}
-  <!-- Round 2 (E1): one page inside the workspace chrome. The top bar tile,
-       breadcrumb and flush panel come with the shell's new props (WS1). -->
-  <WorkspaceChrome theme="light" title="New project">
+  <!-- Round 2 (E1): one page inside the workspace chrome: the folder tile,
+       the "Projects /" breadcrumb and a flush work panel the page lays out. -->
+  <WorkspaceChrome
+    theme="light"
+    title="New project"
+    breadcrumb={{ label: "Projects", href: resolve("/projects") }}
+    icon={IconFolder}
+    panel="flush"
+  >
     {#snippet actions()}
       <Button variant="destructive-soft" size="sm" class="h-9 px-3.5! py-0!" onclick={cancel} data-new-project-cancel>Cancel</Button>
     {/snippet}
     {#snippet children()}
-      <div class="flex min-h-full flex-col bg-workspace-shell px-2 pb-2 sm:px-3 sm:pb-3">
-        <div data-new-project-panel data-work-panel class="flex min-h-0 flex-1 overflow-hidden rounded-[10px] border border-line bg-surface">
+        <div data-new-project-panel class="flex min-h-full">
           <div class="flex min-w-0 flex-1 flex-col">
             <!-- H1, H2: section chips under the top bar below desktop. -->
             {#if layout !== "desktop"}
@@ -2366,7 +2373,6 @@
           </aside>
           {/if}
         </div>
-      </div>
 
       <input
         bind:this={transcriptInput}

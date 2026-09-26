@@ -13,6 +13,7 @@
   import { api } from "../../../../convex/_generated/api";
   import type { Id } from "../../../../convex/_generated/dataModel";
   import WorkspaceChrome from "$lib/components/workspace/WorkspaceChrome.svelte";
+  import { IconUsers } from "$lib/components/icons";
   import ViewAsHiddenPage from "$lib/components/shell/ViewAsHiddenPage.svelte";
   import { effectiveViewer } from "$lib/shell/viewAs.svelte";
   import { teamApi } from "$lib/team/api";
@@ -146,7 +147,7 @@
   }
 </script>
 
-<WorkspaceChrome title="Team">
+<WorkspaceChrome title="Team" icon={IconUsers} panel="flush" viewAsGate="team">
   {#snippet actions()}
     {#if user && canView && canInvite}
       <button
@@ -159,7 +160,7 @@
       </button>
     {/if}
   {/snippet}
-  <div data-work-panel data-team-page class="flex flex-col gap-5 px-6 pb-10 pt-7 md:px-14">
+  <div data-team-page class="flex flex-col gap-5 px-6 pb-10 pt-7 md:px-14">
     {#if user === undefined}
       <div data-team-loading class="flex flex-col gap-3" aria-busy="true">
         <div class="h-8 w-40 animate-pulse rounded bg-chrome"></div>
