@@ -650,6 +650,37 @@ describe("speaker role rules", () => {
     });
   });
 
+  it("matches the project's interviewer and writer by full name only (audit 2026-09-25 a4 #11)", () => {
+    const roles = (text: string, staffNames: string[]) =>
+      inferSpeakerRoles(parseTranscriptTurns(text), { staffNames, clientNames: [] }).map((g) => [
+        g.label,
+        g.role,
+        g.confidence,
+      ]);
+    // Writer Sam Lee; the client who answers is also called Sam. The client
+    // is never placed as interviewer from the shared first name.
+    const shared = [
+      "Jordan Ellis: What did you set out to build?",
+      "Sam: A predictive controller for feeder voltage, tested on two feeders over the summer.",
+      "Jordan Ellis: What made that hard?",
+      "Sam: We could not forecast net load fast enough when cloud cover changed.",
+    ].join("\n\n");
+    expect(roles(shared, ["Jordan Ellis", "Sam Lee"])).toEqual([
+      ["Jordan Ellis", "interviewer", 0.95],
+      ["Sam", "client", 0.75],
+    ]);
+    // A first name alone only leans toward interviewer, below the threshold.
+    const firstName = "Sam: What did you build?\n\nPriya Shah: A controller for feeder voltage.\n\nSam: Why?\n\nPriya Shah: The load moved.";
+    expect(roles(firstName, ["Sam Lee"])[0]).toEqual(["Sam", "interviewer", 0.6]);
+    expect(needsModelRole({ role: "interviewer", confidence: 0.6 })).toBe(true);
+    // The full name on the label still places the staff member outright.
+    expect(roles(firstName.replaceAll("Sam:", "Sam Lee:"), ["Sam Lee"])[0]).toEqual([
+      "Sam Lee",
+      "interviewer",
+      0.95,
+    ]);
+  });
+
   it("places a speaker from the roster outright only when the label holds the whole name (fix-e review P2-1)", () => {
     const interview = (client: string) =>
       parseTranscriptTurns(

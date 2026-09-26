@@ -161,18 +161,22 @@ function labelWithoutAffiliation(label: string): string {
     .split(/[([{]|\s[-‐‑]\s|[\u2013\u2014|@]/)[0];
 }
 
-/** A roster match on a first name alone: a guess below the model threshold. */
+/** A staff or roster match on a first name alone: a guess below the model
+ * threshold. */
 const ROSTER_FIRST_NAME_CONFIDENCE = 0.6;
 
 /**
  * Rule-based roles for every speaker label, in order of first appearance.
- * Names on the project record win; then a full name on the firm roster;
+ * Names on the project record win (the interviewer and writer by full name
+ * only, the interviewees by any name); then a full name on the firm roster;
  * then label hints such as "Interviewer (Dana)"; then, for what is left,
  * question share, talk share and who spoke first. A label that matches the
- * roster by a first name alone ("Dana" and staff member "Dana Whitfield")
- * is never placed at or above MODEL_ROLE_THRESHOLD on that match alone: a
- * client can share a first name with anyone at the firm, and a role at the
- * threshold leaves their words out of the evidence (review 2026-09-25).
+ * project's interviewer or writer, or the roster, by a first name alone
+ * ("Dana" and staff member "Dana Whitfield") is never placed at or above
+ * MODEL_ROLE_THRESHOLD on that match alone: a client can share a first name
+ * with anyone at the firm, and a role at the threshold leaves their words
+ * out of the evidence (review 2026-09-25; audit 2026-09-25 a4 #11 for the
+ * project's own staff).
  */
 export function inferSpeakerRoles(
   turns: readonly TranscriptTurn[],
@@ -182,7 +186,7 @@ export function inferSpeakerRoles(
   const totalWords = stats.reduce((sum, s) => sum + s.words, 0) || 1;
   const guesses = new Map<string, { role: TranscriptSpeakerRole; confidence: number }>();
 
-  const rosterFirstNameOnly = new Set<string>();
+  const firstNameOnly = new Set<string>();
   for (const s of stats) {
     const names = [s.label, ...s.rawLabels];
     // A full name is read from the label as written when there is one: the
@@ -195,7 +199,7 @@ export function inferSpeakerRoles(
           ? asWritten.some((label) => labelNamesPersonFully(label, name))
           : names.some((label) => labelNamesPerson(label, name))
       );
-    const staff = matches(context.staffNames);
+    const staff = matches(context.staffNames, true);
     const client = matches(context.clientNames);
     if (staff !== client) {
       guesses.set(s.label, { role: staff ? "interviewer" : "client", confidence: 0.95 });
@@ -206,7 +210,9 @@ export function inferSpeakerRoles(
         guesses.set(s.label, { role: "interviewer", confidence: 0.95 });
         continue;
       }
-      if (matches(context.rosterNames)) rosterFirstNameOnly.add(s.label);
+      if (matches(context.staffNames) || matches(context.rosterNames)) {
+        firstNameOnly.add(s.label);
+      }
     }
     const interviewerHint = s.rawLabels.some((raw) => INTERVIEWER_HINT.test(raw));
     const clientHint = s.rawLabels.some((raw) => CLIENT_HINT.test(raw));
@@ -250,12 +256,12 @@ export function inferSpeakerRoles(
     }
   }
 
-  // A first-name roster match only leans a label toward interviewer: it
-  // lifts a weak interviewer guess, or places a label nothing else could,
-  // always below the threshold. Evidence free of that ambiguity (a label
-  // hint, or the other of two speakers placed from the project record)
-  // keeps its own confidence.
-  for (const label of rosterFirstNameOnly) {
+  // A first-name staff or roster match only leans a label toward
+  // interviewer: it lifts a weak interviewer guess, or places a label
+  // nothing else could, always below the threshold. Evidence free of that
+  // ambiguity (a label hint, or the other of two speakers placed from the
+  // project record) keeps its own confidence.
+  for (const label of firstNameOnly) {
     const guess = guesses.get(label);
     if (!guess || guess.role === "unknown") {
       guesses.set(label, { role: "interviewer", confidence: ROSTER_FIRST_NAME_CONFIDENCE });
