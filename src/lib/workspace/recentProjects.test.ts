@@ -1,7 +1,10 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   MAX_RECENT_PROJECTS,
+  RECENT_PROJECTS_KEY,
+  loadRecentProjects,
   parseRecentProjects,
+  recordProjectOpen,
   recordRecentProject,
   type RecentProject,
 } from "./recentProjects";
@@ -79,5 +82,39 @@ describe("workspace recent projects", () => {
       { id: "a", title: "Alpha", stage: "client_review", client: "Acme", openedAt: 12345 },
       { id: "b", title: "Beta" },
     ]);
+  });
+});
+
+describe("recordProjectOpen", () => {
+  let store: Map<string, string>;
+  beforeEach(() => {
+    store = new Map();
+    vi.stubGlobal("localStorage", {
+      getItem: (key: string) => store.get(key) ?? null,
+      setItem: (key: string, value: string) => void store.set(key, value),
+    });
+  });
+
+  it("stores an open that no link click saw, most recent first", () => {
+    recordProjectOpen({ id: "a", title: "Alpha" }, 100);
+    recordProjectOpen({ id: "b", title: "Beta", client: "Acme Labs" }, 200);
+    expect(loadRecentProjects()).toEqual([
+      { id: "b", title: "Beta", client: "Acme Labs", openedAt: 200 },
+      { id: "a", title: "Alpha", openedAt: 100 },
+    ]);
+    expect(store.has(RECENT_PROJECTS_KEY)).toBe(true);
+  });
+
+  it("keeps what an earlier click recorded when the new open knows less", () => {
+    recordProjectOpen({ id: "a", title: "Alpha", stage: "drafting", client: "Acme Labs" }, 100);
+    recordProjectOpen({ id: "a" }, 300);
+    expect(loadRecentProjects()).toEqual([
+      { id: "a", title: "Alpha", stage: "drafting", client: "Acme Labs", openedAt: 300 },
+    ]);
+  });
+
+  it("names an unknown project Untitled project", () => {
+    recordProjectOpen({ id: "a" }, 100);
+    expect(loadRecentProjects()).toEqual([{ id: "a", title: "Untitled project", openedAt: 100 }]);
   });
 });

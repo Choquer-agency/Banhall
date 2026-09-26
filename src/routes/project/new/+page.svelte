@@ -100,6 +100,7 @@
     IconUpload,
   } from "$lib/components/icons";
   import { takeProjectStart } from "$lib/workspace/projectIntentHandoff";
+  import { recordProjectOpen } from "$lib/workspace/recentProjects";
   import { parseDraftModeParam } from "$lib/workspace/projectDuplicate";
   import { page } from "$app/state";
   import { createRequestId } from "$lib/requestId";
@@ -700,6 +701,13 @@
   function leaveTo(path: string) {
     leaving = true;
     goto(path);
+  }
+
+  // Opening a project from here counts as opening it: Home's Recently
+  // opened and Continue working pick it up (only link clicks were recorded).
+  function openProject(projectId: string, known: { title?: string; client?: string } = {}) {
+    recordProjectOpen({ id: projectId, ...known });
+    leaveTo(`/project/${projectId}`);
   }
 
   $effect(() => {
@@ -1451,7 +1459,7 @@
         toast.error(copyFailedMessage(savedOwn));
         committing = false;
         progress = "";
-        leaveTo(`/project/${projectId}`);
+        openProject(projectId, { title, client: clientName });
         return;
       }
       if (skippedFiles.length) {
@@ -1459,7 +1467,7 @@
           `${skippedFiles.length} document(s) could not be uploaded and were skipped: ${skippedFiles.join(", ")}`
         );
       }
-      leaveTo(`/project/${projectId}`);
+      openProject(projectId, { title, client: clientName });
     } catch (e) {
       if (extractionLifetime.signal.aborted || isParseAbort(e)) return;
       console.error(e);
@@ -1467,7 +1475,7 @@
         toast.error(copyFailedMessage(savedOwn));
         committing = false;
         progress = "";
-        leaveTo(`/project/${createdProjectId}`);
+        openProject(createdProjectId, { title, client: clientName });
         return;
       }
       // The project may already exist at this point (createProject succeeded,
@@ -1482,7 +1490,7 @@
             ? "The project was created but the PD review did not start. Open it and use Start PD review to retry."
             : "The project was created but generation did not start. Open it and use Generate to retry."
         );
-        leaveTo(`/project/${createdProjectId}`);
+        openProject(createdProjectId, { title, client: clientName });
       }
     }
   }
@@ -1991,7 +1999,7 @@
                       layout="stacked"
                       title={`${sameProject.clientName} already has this project${newFiscalYear !== null ? ` for FY ${newFiscalYear}` : ""}`}
                       role="status"
-                      primaryAction={{ label: "Open that project", onclick: () => leaveTo(`/project/${sameProject.projectId}`) }}
+                      primaryAction={{ label: "Open that project", onclick: () => openProject(sameProject.projectId, { title: sameProject.title, client: sameProject.clientName }) }}
                       secondaryAction={{ label: "It is a different project", onclick: () => dismissedDuplicates.add(duplicateKey) }}
                     >
                       {sameProjectText}

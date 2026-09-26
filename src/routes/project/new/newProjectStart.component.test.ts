@@ -11,6 +11,7 @@ import {
   __setQueryData,
 } from "$lib/test/convex-svelte-stub.svelte";
 import { takeProjectStart } from "$lib/workspace/projectIntentHandoff";
+import { RECENT_PROJECTS_KEY } from "$lib/workspace/recentProjects";
 import {
   addSupportingFiles,
   confirmButton,
@@ -190,5 +191,16 @@ describe("confirming starts the run with the leave-out lists (decision 56)", () 
       projectId: "project-new",
       candidateMode: "iterative",
     });
+  });
+
+  it("records the created project as opened, so Home lists it (broken behaviour 5)", async () => {
+    await readyToStart();
+    await openStartDialog();
+    confirmButton()!.click();
+    await expect.poll(() => __navigationCalls.map((call) => call.url)).toContain("/project/project-new");
+    const recents = JSON.parse(localStorage.getItem(RECENT_PROJECTS_KEY) ?? "[]");
+    expect(recents).toEqual([
+      expect.objectContaining({ id: "project-new", title: "Solar tracker", client: "Acme Labs", openedAt: expect.any(Number) }),
+    ]);
   });
 });
