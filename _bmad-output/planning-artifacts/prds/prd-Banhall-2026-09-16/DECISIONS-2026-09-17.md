@@ -82,4 +82,12 @@ Decisions 36 to 42 below were made by the lead on 2026-09-25: the owner delegate
 
 The lead also made three counting calls for automatic model rollback on 2026-09-25, under the same delegation. A retry refused because the provider's Retry-After wait (about 520 s or more) could not fit even a fresh action counts: that is not the action time limit's doing (decision 37 still excludes the rest). An answer cut off at the output limit counts only when it makes its step fail: section drafts, structured calls and science code suggestions. A cut-off compression, repair, Brain context blurb, feedback summary or changelog summary records nothing, the same on both gateways. A roster near miss (a name that matches a staff member's first name but not the whole name) only leans toward interviewer at 0.6, below the 0.7 threshold, so the model decides. Applied in fix/p3-sweep, 82005dfd and fix/cutoff-count; the domain notes are in `docs/product-domain.md`.
 
+Decisions 43 to 45 below were made by the lead on 2026-09-25 under the same delegation (correctness wave 1, branch `fix/correctness-wave1`). Each matching domain note is marked approved.
+
+| # | Question (plain terms) | Answer | Applied in |
+|---|---|---|---|
+| 43 | An edit clears the report's claim record, so an edited report can never be exported. What should an edit do instead? | **Carry the record over.** Unchanged claims keep their state, changed claims move to the new wording and need review again, deleted ones are dropped, and new paragraphs are new claims that need review. The existing manager review and filing gate then apply. Reports with no record stay blocked. | Amendment 2026-09-25 (fifth) in `docs/product-domain.md`. |
+| 44 | Should transcripts a duplicate copied from last year's project count as current sources for decision 42? | **No.** When the project's fiscal year is later than the original's, copied transcripts count as last year's, and a draft needs a new transcript or a current file. Server and wizard. | Decision 42 later note, `docs/product-domain.md`. |
+| 45 | May a label that matches the project's writer or interviewer by first name only be placed as interviewer at full confidence? | **No.** Staff on the project record match by full name only; a one-word match leans interviewer at 0.6 so the model decides, like the roster rule. | Transcript method note *Project staff by full name*, `docs/product-domain.md`. |
+
 Still waiting on the owner: the OpenRouter account steps before `ANTHROPIC_TRANSPORT` is switched on (see decision 30).
