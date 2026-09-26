@@ -33,6 +33,19 @@ describe("randomComparePair", () => {
     }
   });
 
+  it("keeps out a model flagged only by its catalog entry, outside the fixed id set (models-3 review P3-2)", () => {
+    const catalogFlagged = {
+      ...CANDIDATE_MODELS.find((model) => model.id === "claude-sonnet-5")!,
+      id: "claude-future-6",
+      forcedToolChoice: false as const,
+    };
+    for (let i = 0; i < 400; i += 1) {
+      for (const model of randomComparePair([...CANDIDATE_MODELS, catalogFlagged])) {
+        expect(model.id).not.toBe("claude-future-6");
+      }
+    }
+  });
+
   it("still returns two distinct Anthropic models", () => {
     const pair = randomComparePair(CANDIDATE_MODELS);
     expect(pair).toHaveLength(2);
