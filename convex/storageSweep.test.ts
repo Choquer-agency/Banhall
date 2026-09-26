@@ -119,6 +119,8 @@ const holders: Record<(typeof STORAGE_REFERENCE_FIELDS)[number], (ctx: MutationC
     ctx.db.insert("ingestionItems", ingestionItem({ textStorageId: storageId })),
   "transcripts.originalStorageId": (ctx, storageId, { projectId }) =>
     ctx.db.insert("transcripts", { projectId, content: "Dana: Hi.", createdAt: 1, originalStorageId: storageId }),
+  "users.imageStorageId": (ctx, storageId) =>
+    ctx.db.insert("users", { authId: `sweep-photo-${Math.random()}`, role: "writer", imageStorageId: storageId }),
 };
 
 function ingestionItem(files: { storageId?: Id<"_storage">; textStorageId?: Id<"_storage"> }) {
@@ -166,7 +168,7 @@ const KNOWN_SERVER_STORAGE_WRITERS: Record<string, string> = {
   "./ingestionSync.ts": "ingestionItems.storageId and textStorageId (ingestion.markItemProcessed)",
   "./ingestionPort.ts": "projectDocuments.storageId (the copied original)",
   "./projectDuplication.ts": "projectDocuments.storageId and transcripts.originalStorageId (projects.finishProjectContentCopy)",
-  "./documents.ts": "generateUploadUrl: the browser uploads, then saves the id (below)",
+  "./documents.ts": "generateUploadUrl: the browser uploads, then saves the id (below); a profile photo lands in users.imageStorageId (account.setMyPhoto)",
 };
 
 /** Browser code that uploads through `documents.generateUploadUrl`, and where the id is saved. */
@@ -178,6 +180,7 @@ const KNOWN_CLIENT_UPLOADERS: Record<string, string> = {
   "../src/lib/components/project/PreviewProjectPage.svelte": "transcripts.originalStorageId (add or replace)",
   "../src/lib/components/editor/FilesPanel.svelte": "projectDocuments.storageId (uploadDocument)",
   "../src/routes/project/new/+page.svelte": "projectDocuments.storageId and transcripts.originalStorageId",
+  "../src/routes/settings/account/+page.svelte": "users.imageStorageId (account.setMyPhoto)",
 };
 
 const convexSources = import.meta.glob(["./**/*.ts", "!./_generated/**", "!./**/*.test.ts"], {

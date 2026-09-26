@@ -6,6 +6,7 @@ import type { Id } from "./_generated/dataModel";
 import schema from "./schema";
 import { workItemKindForHandoffStage } from "../shared/workItems";
 import { WORKFLOW_STAGES } from "../shared/workflowStages";
+import { round2Api } from "./lib/round2Api";
 
 const modules = import.meta.glob("./**/*.ts");
 
@@ -606,6 +607,90 @@ describe("Details panel hand off (2026-09-24 amendment)", () => {
     const f = await setup();
     await f.t.run((ctx) => ctx.db.patch(f.projectId, { workflowVersion: 4 }));
     await expect(handOff(f, { expectedWorkflowVersion: 3 })).rejects.toThrow(/STALE_REVISION|changed/i);
+  });
+});
+
+describe("handoff notifications (round 2, WS1 spec section 7)", () => {
+  async function notificationsFor(f: Fixture, userId: Id<"users">) {
+    return await f.t.run((ctx) => ctx.db.query("notifications")
+      .withIndex("by_userId_and_createdAt", (q) => q.eq("userId", userId)).take(20));
+  }
+
+  it("tells the assignee once when someone else creates the item, even on a retried create", async () => {
+    const f = await setup();
+    const created = await createItem(f, { createRequestId: "notify-once" });
+    await createItem(f, { createRequestId: "notify-once" });
+    const item = await f.t.run((ctx) => ctx.db.get(created.workItemId));
+    const rows = await notificationsFor(f, f.assigneeId);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      kind: "handoff",
+      projectId: f.projectId,
+      title: "Work item project is with you",
+      body: "Drafting. Handed off by Owen.",
+      href: `/project/${f.projectId}`,
+      dedupeKey: `handoff:${created.workItemId}:${f.assigneeId}:${item!.updatedAt}`,
+    });
+    expect(await notificationsFor(f, f.ownerId)).toEqual([]);
+  });
+
+  it("names the new stage when the create confirms Internal review", async () => {
+    const f = await setup();
+    await f.owner.mutation(api.workItems.create, {
+      projectId: f.projectId, kind: "internal_review", assigneeId: f.assigneeId, blocking: true,
+      instructions: "Review", createRequestId: "notify-stage", confirmedStageChange: "internal_review",
+      expectedWorkflowVersion: 0,
+    });
+    const rows = await notificationsFor(f, f.assigneeId);
+    expect(rows.map((row) => row.body)).toEqual(["Internal review. Handed off by Owen."]);
+  });
+
+  it("creates nothing when the actor assigns themself", async () => {
+    const f = await setup();
+    await createItem(f, { assigneeId: f.ownerId });
+    expect(await notificationsFor(f, f.ownerId)).toEqual([]);
+    const all = await f.t.run((ctx) => ctx.db.query("notifications")
+      .withIndex("by_projectId", (q) => q.eq("projectId", f.projectId)).take(20));
+    expect(all).toEqual([]);
+  });
+
+  it("creates nothing when the assignee switched handoff notifications off", async () => {
+    const f = await setup();
+    await f.assignee.mutation(round2Api.notifications.setSetting, { key: "handoff", value: false });
+    await createItem(f);
+    expect(await notificationsFor(f, f.assigneeId)).toEqual([]);
+  });
+
+  it("tells the new assignee on reassign, and again after a reassign back", async () => {
+    const f = await setup();
+    const created = await createItem(f);
+    await f.owner.mutation(api.workItems.reassign, { workItemId: created.workItemId, toAssigneeId: f.otherId, expectedVersion: 0 });
+    const toOther = await notificationsFor(f, f.otherId);
+    expect(toOther).toHaveLength(1);
+    expect(toOther[0]).toMatchObject({ title: "Work item project is with you", body: "Drafting. Handed off by Owen." });
+    // The item's version moved, so a reassign back is a new handoff.
+    await new Promise((resolve) => setTimeout(resolve, 2));
+    await f.owner.mutation(api.workItems.reassign, { workItemId: created.workItemId, toAssigneeId: f.assigneeId, expectedVersion: 1 });
+    expect(await notificationsFor(f, f.assigneeId)).toHaveLength(2);
+    expect(await notificationsFor(f, f.otherId)).toHaveLength(1);
+  });
+
+  it("creates nothing when an actor reassigns the item to themself", async () => {
+    const f = await setup();
+    const created = await createItem(f);
+    await f.manager.mutation(api.workItems.reassign, { workItemId: created.workItemId, toAssigneeId: f.managerId, expectedVersion: 0 });
+    expect(await notificationsFor(f, f.managerId)).toEqual([]);
+  });
+
+  it("tells the assignee of a Details panel hand off with the chosen stage", async () => {
+    const f = await setup();
+    await f.manager.mutation(api.workItems.handOff, {
+      projectId: f.projectId, assigneeId: f.assigneeId, stage: "internal_review", note: "",
+      expectedWorkflowVersion: 0, createRequestId: "notify-handoff",
+    });
+    const rows = await notificationsFor(f, f.assigneeId);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ title: "Work item project is with you", body: "Internal review. Handed off by Mara." });
   });
 });
 
