@@ -1316,6 +1316,15 @@
   // toolbar, no plan. A failed start shows its danger box there (F6);
   // "Back to project" returns to the project page with its tabs.
   let readingDismissed = $state(false);
+  // A new run reads its interview again, even after Back to project.
+  let readingFor: string | null = null;
+  $effect(() => {
+    const id = generation?._id ?? null;
+    if (id !== readingFor) {
+      readingFor = id;
+      readingDismissed = false;
+    }
+  });
   const showReadingInterview = $derived(
     isSeedWorkflow &&
       generation?.seedPhase === "initializing" &&

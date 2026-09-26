@@ -524,6 +524,12 @@
     mode === "review" ? docs.items.filter((doc) => doc.category === "transcript") : []
   );
   const supportingFiles = $derived(docs.items.filter((doc) => doc.category !== "transcript" || mode !== "review"));
+  // Transcript chips belong to Review a written PD; back in Write a new PD a
+  // file keeps its place as an ordinary supporting document.
+  $effect(() => {
+    if (mode !== "generate") return;
+    for (const doc of docs.items) if (doc.category === "transcript") docs.setCategory(doc.id, "other");
+  });
 
   // E5: a file that is not a transcript replaces the drop zone with a red box;
   // one that holds no text shows as its own red row with Replace file.
@@ -1056,6 +1062,14 @@
       });
     }
     for (const doc of supportingTranscripts) {
+      if (doc.pastedText !== null) {
+        const pasted = readPastedTranscript(doc.pastedText);
+        entries.push({
+          key: `d:${doc.id}`,
+          arg: { content: pasted.content, label: doc.name, sourceFormat: pasted.format },
+        });
+        continue;
+      }
       if (!doc.transcript) continue;
       const originalStorageId = doc.file
         ? await uploadTranscriptOriginal(

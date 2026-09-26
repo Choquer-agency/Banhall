@@ -212,7 +212,7 @@ describe("E1 supporting documents on the page", () => {
     __setMutationResult("projects:createProject", { projectId: "project-new", transcriptIds: ["t-1"] });
     __setMutationResult("documents:uploadDocument", "document-1");
     __setMutationResult("documents:generateUploadUrl", "https://upload.test/url");
-    vi.stubGlobal("fetch", vi.fn<typeof fetch>().mockResolvedValue(Response.json({ storageId: "storage-1" })));
+    vi.stubGlobal("fetch", vi.fn<typeof fetch>().mockImplementation(async () => Response.json({ storageId: "storage-1" })));
     try {
       await render(NewProjectPage, {});
       await fillBasics();

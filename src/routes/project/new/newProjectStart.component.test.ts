@@ -114,7 +114,7 @@ describe("the start dialog names the models that run (decision 52)", () => {
 
 describe("confirming starts the run with the leave-out lists (decision 56)", () => {
   it("saves every file, then leaves the unticked transcript and file out of the run", async () => {
-    vi.stubGlobal("fetch", vi.fn<typeof fetch>().mockResolvedValue(Response.json({ storageId: "storage-1" })));
+    vi.stubGlobal("fetch", vi.fn<typeof fetch>().mockImplementation(async () => Response.json({ storageId: "storage-1" })));
     try {
       await readyToStart();
       addSupportingFiles([new File(["Scoping notes for the rig."], "Scoping.txt")]);
@@ -153,7 +153,7 @@ describe("confirming starts the run with the leave-out lists (decision 56)", () 
     document.querySelector<HTMLButtonElement>("[data-start-run-cancel]")!.click();
     addSupportingFiles([new File(["Scoping notes for the rig."], "Scoping.txt")]);
     await expect.poll(() => document.querySelector('[data-supporting-card][data-status="ready"]')).not.toBeNull();
-    vi.stubGlobal("fetch", vi.fn<typeof fetch>().mockResolvedValue(Response.json({ storageId: "storage-1" })));
+    vi.stubGlobal("fetch", vi.fn<typeof fetch>().mockImplementation(async () => Response.json({ storageId: "storage-1" })));
     try {
       await openStartDialog();
       const transcript = [...document.querySelectorAll<HTMLElement>("[data-start-run-row]")].find(

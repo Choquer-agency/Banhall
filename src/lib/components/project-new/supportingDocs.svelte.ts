@@ -92,7 +92,7 @@ export function supportingMeta(doc: SupportingDoc): string {
 
 /** True when a supporting document gives a draft readable text. */
 export function hasReadableText(doc: SupportingDoc): boolean {
-  if (doc.category === "transcript") return Boolean(doc.transcript?.content.trim());
+  if (doc.category === "transcript") return Boolean(doc.transcript?.content.trim() || doc.pastedText?.trim());
   if (doc.pastedText !== null) return doc.pastedText.trim().length > 0;
   if (doc.file && isImageFile(doc.file.name)) return false;
   // A file still being read counts: it is used as soon as it is ready.

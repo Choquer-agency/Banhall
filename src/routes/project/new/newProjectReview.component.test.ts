@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-svelte";
-import { page } from "vitest/browser";
+import { page, userEvent } from "vitest/browser";
 import NewProjectPage from "./+page.svelte";
 import { __resetPage, __setPageUrl } from "$lib/test/app-state-stub.svelte";
 import { __resetNavigation } from "$lib/test/app-navigation-stub";
@@ -105,7 +105,7 @@ describe("E4 Review a written PD", () => {
     __setMutationResult("projects:createProject", { projectId: "project-new", transcriptIds: ["transcript-new"] });
     __setMutationResult("documents:uploadDocument", "document-new");
     __setMutationResult("documents:generateUploadUrl", "https://upload.test/url");
-    vi.stubGlobal("fetch", vi.fn<typeof fetch>().mockResolvedValue(Response.json({ storageId: "storage-1" })));
+    vi.stubGlobal("fetch", vi.fn<typeof fetch>().mockImplementation(async () => Response.json({ storageId: "storage-1" })));
     try {
       await render(NewProjectPage, {});
       await fillBasics();
@@ -146,6 +146,38 @@ describe("E4 Review a written PD", () => {
         documentId: "document-new",
         excludeTranscriptIds: ["transcript-new"],
       });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("sends a transcript pasted under Supporting documents as a transcript", async () => {
+    __setMutationResult("projects:createProject", { projectId: "project-new", transcriptIds: ["transcript-new"] });
+    __setMutationResult("documents:uploadDocument", "document-new");
+    __setMutationResult("documents:generateUploadUrl", "https://upload.test/url");
+    vi.stubGlobal("fetch", vi.fn<typeof fetch>().mockImplementation(async () => Response.json({ storageId: "storage-1" })));
+    try {
+      await render(NewProjectPage, {});
+      await fillBasics();
+      await chooseMode("Review a written PD");
+      await dropWrittenPd();
+      await userEvent.click(document.querySelector<HTMLElement>("[data-add-supporting]")!);
+      await userEvent.click(document.querySelector<HTMLElement>("[data-add-paste]")!);
+      await expect.poll(() => document.querySelector('[aria-label="Type of pasted text"]')).not.toBeNull();
+      await userEvent.click(document.querySelector<HTMLElement>('[aria-label="Type of pasted text"]')!);
+      await userEvent.click(page.getByRole("option", { name: "Transcript", exact: true }));
+      const box = document.querySelector<HTMLTextAreaElement>('textarea[aria-label="Pasted text"]')!;
+      box.value = "Dana: We measured the leak rate every hour.";
+      box.dispatchEvent(new Event("input", { bubbles: true }));
+      await expect.poll(() => document.querySelector<HTMLButtonElement>("[data-add-pasted]")?.disabled).toBe(false);
+      document.querySelector<HTMLButtonElement>("[data-add-pasted]")!.click();
+      await expect.poll(() => document.querySelector('[data-supporting-card][data-category="transcript"]')).not.toBeNull();
+      await openStartDialog();
+      confirmButton()!.click();
+      await expect.poll(() => __mutationCalls("pdReviews:startPdReview").length).toBe(1);
+      expect((__mutationCalls("projects:createProject")[0] as { transcripts: unknown[] }).transcripts).toEqual([
+        { content: "Dana: We measured the leak rate every hour.", label: "Transcript (pasted)", sourceFormat: "paste" },
+      ]);
     } finally {
       vi.unstubAllGlobals();
     }
