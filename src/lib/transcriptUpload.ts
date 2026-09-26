@@ -123,12 +123,17 @@ export function readPastedTranscript(text: string): { content: string; format: T
 /**
  * Uploads the original bytes through a Convex upload URL and returns the
  * storage id, or null when the upload fails: the transcript text is what
- * generation reads, so a failed original upload never blocks it.
+ * generation reads, so a failed original upload never blocks it. The file
+ * is then claimed as this user's upload (`documents.claimUpload`), which is
+ * what lets `discardTranscriptOriginals` release it after a refusal; a
+ * failed claim only means the storage sweep releases it instead.
  */
 export async function uploadTranscriptOriginal(
   file: File,
-  generateUploadUrl: () => Promise<string>
+  generateUploadUrl: () => Promise<string>,
+  claimUpload?: (storageId: string) => Promise<unknown>
 ): Promise<string | null> {
+  let storageId: string | null;
   try {
     const url = await generateUploadUrl();
     const response = await fetch(url, {
@@ -138,10 +143,18 @@ export async function uploadTranscriptOriginal(
     });
     if (!response.ok) return null;
     const body = (await response.json()) as { storageId?: string };
-    return body.storageId ?? null;
+    storageId = body.storageId ?? null;
   } catch {
     return null;
   }
+  if (storageId && claimUpload) {
+    try {
+      await claimUpload(storageId);
+    } catch {
+      // Best effort, see above.
+    }
+  }
+  return storageId;
 }
 
 /**

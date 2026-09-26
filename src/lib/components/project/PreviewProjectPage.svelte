@@ -226,6 +226,7 @@
   const removeTranscriptMut = useMutation(api.transcripts.removeTranscript);
   const discardTranscriptOriginalsMut = useMutation(api.transcripts.discardTranscriptOriginals);
   const generateTranscriptUploadUrl = useMutation(api.documents.generateUploadUrl);
+  const claimTranscriptUpload = useMutation(api.documents.claimUpload);
   let transcriptBusy = $state(false);
 
   /**
@@ -245,7 +246,11 @@
         toast.error(`This transcript is already added (${duplicate.label}).`);
         return;
       }
-      const originalStorageId = await uploadTranscriptOriginal(file, () => generateTranscriptUploadUrl({}));
+      const originalStorageId = await uploadTranscriptOriginal(
+        file,
+        () => generateTranscriptUploadUrl({}),
+        (storageId) => claimTranscriptUpload({ storageId: storageId as Id<"_storage"> })
+      );
       const upload = {
         content: read.content,
         label: read.label,

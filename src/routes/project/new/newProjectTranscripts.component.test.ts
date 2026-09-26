@@ -431,6 +431,10 @@ describe("/project/new transcript originals", () => {
     expect(__mutationCalls("transcripts:discardTranscriptOriginals")[0]).toEqual({
       storageIds: ["storage-One.txt", "storage-Two.txt"],
     });
+    // Each original is claimed as this user's upload first (security wave 1).
+    expect(
+      __mutationCalls("documents:claimUpload").map((call) => (call as { storageId: string }).storageId).sort()
+    ).toEqual(["storage-One.txt", "storage-Two.txt"]);
     await expect.poll(() => error.mock.calls.map((call) => call[0])).toContain("Combined transcript text is too large");
     expect(__mutationCalls("generations:requestGeneration")).toEqual([]);
   });

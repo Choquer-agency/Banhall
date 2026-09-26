@@ -193,6 +193,9 @@ describe("project page transcript intake", () => {
     pickFile(new File([NEW_TEXT], "Follow up.txt", { type: "text/plain" }));
     await vi.waitFor(() => expect(error).toHaveBeenCalledWith("Combined transcript text is too large"));
     expect(__mutationCalls("transcripts:discardTranscriptOriginals")).toEqual([{ storageIds: ["storage-1"] }]);
+    // Security wave 1: the upload is claimed first, so the server lets this
+    // user (and only this user) release it.
+    expect(__mutationCalls("documents:claimUpload")).toEqual([{ storageId: "storage-1" }]);
     expect(success).not.toHaveBeenCalled();
     // The list is usable again: Add is not left busy.
     await vi.waitFor(() =>

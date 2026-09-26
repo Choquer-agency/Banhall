@@ -2,7 +2,7 @@ import { query, mutation, internalQuery } from "./_generated/server";
 import { v } from "convex/values";
 import {
   getInternalProjectAccessOrNull,
-  requireCurrentUser,
+  requireInternalActor,
 } from "./lib/auth";
 import { requireReportEditAccess } from "./lib/roleCapabilities";
 import { domainError } from "./lib/contracts";
@@ -11,7 +11,14 @@ import {
   deriveStoredProcessing,
 } from "../shared/documentStatus";
 import { requireAttemptKey, resolveUploadAttempt } from "./lib/uploadAttempts";
-import { deleteStorageIfUnreferenced, requireFreshUpload } from "./lib/storage";
+import {
+  claimUpload as claimFreshUpload,
+  deleteStorageIfUnreferenced,
+  isStorageReferenced,
+  requireFreshUpload,
+  requireNotClaimedByAnother,
+  uploadClaimFor,
+} from "./lib/storage";
 
 const fileTypeValidator = v.union(
   v.literal("txt"),
@@ -33,12 +40,29 @@ const categoryValidator = v.union(
   v.literal("other")
 );
 
-/** Short-lived URL the client POSTs the original file bytes to. */
+/** Short-lived URL the client POSTs the original file bytes to. Internal
+ * users only: a signed-in account with no role (or an anonymous one) cannot
+ * store files (a2 P3-3). */
 export const generateUploadUrl = mutation({
   args: {},
   handler: async (ctx) => {
-    await requireCurrentUser(ctx);
+    await requireInternalActor(ctx);
     return await ctx.storage.generateUploadUrl();
+  },
+});
+
+/**
+ * The browser claims a file it just uploaded (a2 P2-8), so only its uploader
+ * can release it again and nobody else can attach it. Returns whether the
+ * caller holds the claim: false when someone else claimed it first or a row
+ * already holds it.
+ */
+export const claimUpload = mutation({
+  args: { storageId: v.id("_storage") },
+  returns: v.boolean(),
+  handler: async (ctx, args) => {
+    const user = await requireInternalActor(ctx);
+    return await claimFreshUpload(ctx, args.storageId, user._id);
   },
 });
 
@@ -106,6 +130,16 @@ export const uploadDocument = mutation({
     // row already holds resolves as before).
     if (args.storageId && dup?.storageId !== args.storageId) {
       await requireFreshUpload(ctx, args.storageId);
+      // Like transcript originals: a file another row holds (another
+      // project's document, a Brain source) or another user's claimed
+      // upload cannot be attached here (a2 P2-8). A duplicate that already
+      // has its file attaches nothing, so it is not checked.
+      if (!dup?.storageId) {
+        if (await isStorageReferenced(ctx, args.storageId)) {
+          domainError("INVALID_INPUT", "The uploaded file is already in use. Upload it again.");
+        }
+        await requireNotClaimedByAnother(ctx, args.storageId, user._id);
+      }
     }
 
     if (dup) {
@@ -116,8 +150,12 @@ export const uploadDocument = mutation({
           ...(args.mimeType ? { mimeType: args.mimeType } : {}),
         });
       } else if (args.storageId && dup.storageId !== args.storageId) {
-        // Already have the file; reclaim the supplied bytes only if unreferenced.
-        await deleteStorageIfUnreferenced(ctx, args.storageId);
+        // Already have the file; reclaim the supplied bytes only if
+        // unreferenced and not another user's claimed upload.
+        const claim = await uploadClaimFor(ctx, args.storageId);
+        if (!claim || claim.userId === user._id) {
+          await deleteStorageIfUnreferenced(ctx, args.storageId);
+        }
       }
       // Backfill-on-touch: the dedupe key is (fileName, content), so the
       // derivation is identical by construction. Fill it in when missing;

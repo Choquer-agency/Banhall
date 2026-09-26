@@ -525,6 +525,7 @@ describe("discardTranscriptOriginals", () => {
   it("releases the original of a refused Add, and never a file a row holds", async () => {
     const f = await setup();
     const refused = await f.t.run((ctx) => ctx.storage.store(new Blob(["same text again"])));
+    expect(await f.writer.mutation(api.documents.claimUpload, { storageId: refused })).toBe(true);
     await expect(
       f.writer.mutation(api.transcripts.addTranscript, {
         projectId: f.projectId,
@@ -533,6 +534,7 @@ describe("discardTranscriptOriginals", () => {
       })
     ).rejects.toThrow(/already added/);
     const kept = await f.t.run((ctx) => ctx.storage.store(new Blob(["kept"])));
+    expect(await f.writer.mutation(api.documents.claimUpload, { storageId: kept })).toBe(true);
     await f.writer.mutation(api.transcripts.addTranscript, {
       projectId: f.projectId,
       content: SECOND,
@@ -546,6 +548,7 @@ describe("discardTranscriptOriginals", () => {
   it("leaves files older than an hour alone and refuses callers outside the team", async () => {
     const f = await setup();
     const old = await f.t.run((ctx) => ctx.storage.store(new Blob(["old upload"])));
+    await f.writer.mutation(api.documents.claimUpload, { storageId: old });
     vi.setSystemTime(Date.now() + 2 * 60 * 60 * 1000);
     await f.writer.mutation(api.transcripts.discardTranscriptOriginals, { storageIds: [old] });
     expect(await exists(f, old)).toBe(true);
@@ -556,6 +559,38 @@ describe("discardTranscriptOriginals", () => {
       ).rejects.toThrow();
     }
     expect(await exists(f, fresh)).toBe(true);
+  });
+
+  // Security wave 1 (a2 P2-8): Convex does not record who uploaded a file,
+  // so the browser claims each original; only the claimant can release it.
+  it("releases only files the caller claimed, never another user's upload", async () => {
+    const f = await setup();
+    const mine = await f.t.run((ctx) => ctx.storage.store(new Blob(["mine"])));
+    const theirs = await f.t.run((ctx) => ctx.storage.store(new Blob(["theirs"])));
+    const unclaimed = await f.t.run((ctx) => ctx.storage.store(new Blob(["unclaimed"])));
+    expect(await f.writer.mutation(api.documents.claimUpload, { storageId: mine })).toBe(true);
+    expect(await f.other.mutation(api.documents.claimUpload, { storageId: theirs })).toBe(true);
+    // The first claim wins.
+    expect(await f.writer.mutation(api.documents.claimUpload, { storageId: theirs })).toBe(false);
+    await f.writer.mutation(api.transcripts.discardTranscriptOriginals, {
+      storageIds: [mine, theirs, unclaimed],
+    });
+    expect(await exists(f, mine)).toBe(false);
+    expect(await exists(f, theirs)).toBe(true);
+    expect(await exists(f, unclaimed)).toBe(true);
+  });
+
+  it("refuses to attach another user's claimed upload", async () => {
+    const f = await setup();
+    const theirs = await f.t.run((ctx) => ctx.storage.store(new Blob(["theirs"])));
+    await f.other.mutation(api.documents.claimUpload, { storageId: theirs });
+    await expect(
+      f.writer.mutation(api.transcripts.addTranscript, {
+        projectId: f.projectId,
+        content: SECOND,
+        originalStorageId: theirs,
+      })
+    ).rejects.toThrow(/already in use/);
   });
 });
 

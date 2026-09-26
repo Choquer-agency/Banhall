@@ -47,6 +47,16 @@ export async function isStorageReferenced(
 export const FRESH_UPLOAD_MS = 60 * 60 * 1000;
 
 /**
+ * Largest file a save may attach (security wave 1, a2 P3-5). Upload URLs
+ * cannot carry a size limit, so the check happens when a save attaches the
+ * file; a refused file is left for the storage sweep.
+ */
+export const MAX_UPLOAD_BYTES = 50 * 1024 * 1024;
+
+/** Stale claims one new claim removes. */
+const UPLOAD_CLAIM_PRUNE_BATCH = 20;
+
+/**
  * Refuses a storage id a save may not attach: a file that is gone, or one
  * uploaded more than FRESH_UPLOAD_MS ago. Convex does not record who
  * uploaded a file, so freshness stands in for "the caller's own upload": an
@@ -62,6 +72,58 @@ export async function requireFreshUpload(
   if (!metadata || Date.now() - metadata._creationTime > FRESH_UPLOAD_MS) {
     domainError("INVALID_INPUT", message);
   }
+  if (metadata.size > MAX_UPLOAD_BYTES) {
+    domainError("INVALID_INPUT", "A file can be at most 50 MB");
+  }
+}
+
+export async function uploadClaimFor(
+  ctx: QueryCtx | MutationCtx,
+  storageId: Id<"_storage">,
+) {
+  return await ctx.db
+    .query("uploadClaims")
+    .withIndex("by_storageId", (q) => q.eq("storageId", storageId))
+    .first();
+}
+
+/**
+ * Refuses a file another user claimed as their own upload. An unclaimed
+ * file passes (uploads from before claims, and document uploads, which do
+ * not claim).
+ */
+export async function requireNotClaimedByAnother(
+  ctx: QueryCtx | MutationCtx,
+  storageId: Id<"_storage">,
+  userId: Id<"users">,
+): Promise<void> {
+  const claim = await uploadClaimFor(ctx, storageId);
+  if (claim && claim.userId !== userId) {
+    domainError("INVALID_INPUT", "The uploaded file is already in use. Upload it again.");
+  }
+}
+
+/**
+ * Records `userId` as the uploader of a fresh file no row holds. The first
+ * claim wins; returns whether the caller holds the claim afterwards.
+ */
+export async function claimUpload(
+  ctx: MutationCtx,
+  storageId: Id<"_storage">,
+  userId: Id<"users">,
+): Promise<boolean> {
+  await requireFreshUpload(ctx, storageId);
+  const existing = await uploadClaimFor(ctx, storageId);
+  if (existing) return existing.userId === userId;
+  if (await isStorageReferenced(ctx, storageId)) return false;
+  const now = Date.now();
+  await ctx.db.insert("uploadClaims", { storageId, userId, claimedAt: now });
+  const stale = await ctx.db
+    .query("uploadClaims")
+    .withIndex("by_claimedAt", (q) => q.lt("claimedAt", now - FRESH_UPLOAD_MS))
+    .take(UPLOAD_CLAIM_PRUNE_BATCH);
+  for (const row of stale) await ctx.db.delete(row._id);
+  return true;
 }
 
 /**

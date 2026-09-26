@@ -3392,6 +3392,21 @@ export default defineSchema({
   // stored files no row holds (`transcripts.sweepUnreferencedStorage`). In
   // "report" mode (the default) it only counts what it would delete; admins
   // read the latest run through `transcripts.getStorageSweepStatus`.
+  // Who uploaded a file that no row holds yet (security wave 1, a2 P2-8).
+  // Convex does not record an uploader, so the browser claims each
+  // transcript original right after uploading it; only the claimant may
+  // release it (transcripts.discardTranscriptOriginals) and nobody else may
+  // attach it. `storageId` is a plain string on purpose: a claim is not a
+  // hold, so the storage sweep and erasure ignore it. Claims older than
+  // FRESH_UPLOAD_MS mean nothing and are pruned as new ones arrive.
+  uploadClaims: defineTable({
+    storageId: v.string(),
+    userId: v.id("users"),
+    claimedAt: v.number(),
+  })
+    .index("by_storageId", ["storageId"])
+    .index("by_claimedAt", ["claimedAt"]),
+
   storageSweepRuns: defineTable({
     mode: v.union(v.literal("report"), v.literal("delete")),
     // Files created before this were looked at.
