@@ -116,6 +116,9 @@ describe("InviteDialog", () => {
     await page.viewport(1440, 900);
     await render(InviteDialog, { open: true, canInviteAdmin: true, onSend: vi.fn() });
     await expect.poll(dialog).not.toBeNull();
+    // C3: 150px from the top of the window, centred across it.
+    await expect.poll(() => dialog()!.getBoundingClientRect().top).toBe(150);
+    expect(dialog()!.getBoundingClientRect().left).toBe(450);
     const scrim = document.querySelector<HTMLElement>("[data-team-dialog-scrim]")!;
     expect(getComputedStyle(scrim).backgroundColor).toBe("rgba(1, 5, 5, 0.35)");
     expect(getComputedStyle(dialog()!).borderRadius).toBe("16px");

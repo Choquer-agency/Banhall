@@ -1,6 +1,7 @@
 <script lang="ts">
   // C5: confirm before a pending invite's link stops working. Keep invite
-  // (chrome) and the filled red Revoke invite, both 36px with radius 8.
+  // (chrome, focused on open) and the filled red Revoke invite, both 36px
+  // with radius 8. The board places it 320px from the top.
   import TeamDialog from "./TeamDialog.svelte";
 
   let {
@@ -16,11 +17,15 @@
     errorMessage?: string | null;
     onConfirm: () => void | Promise<void>;
   } = $props();
+
+  let keepButton: HTMLButtonElement | null = $state(null);
 </script>
 
 <TeamDialog
   bind:open
   width={460}
+  top={320}
+  initialFocus={() => keepButton}
   {busy}
   testId="revoke-invite-dialog"
   title={`Revoke the invite for ${email}?`}
@@ -32,7 +37,9 @@
   {#snippet footer()}
     <div class="flex items-center justify-end gap-2 pb-[18px] pl-7 pr-5 pt-5">
       <button
+        bind:this={keepButton}
         type="button"
+        data-keep-invite
         disabled={busy}
         onclick={() => (open = false)}
         class="h-9 rounded-lg bg-chrome px-3.5 text-sm leading-5 font-medium text-ink hover:bg-primary-wash focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:opacity-50"

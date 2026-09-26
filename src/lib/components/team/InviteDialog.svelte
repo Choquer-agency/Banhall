@@ -88,6 +88,7 @@
 <TeamDialog
   bind:open
   width={540}
+  top={150}
   busy={sending}
   testId="invite-dialog"
   title={results
