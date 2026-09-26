@@ -474,7 +474,9 @@ export async function outcomeCountsSince(
  * split role still on its carried-over assignment counts its predecessor's
  * rollbacks from before the split (lib/modelRoles.ts lastRoleSwitch). Never
  * rolls back to a model the role was rolled back from before, even one an
- * admin chose again since: admins are told instead (round 8).
+ * admin chose again since: admins are told instead (round 8). Never rolls
+ * back a role that does not switch on its own (roleAutoSwitches) from a model
+ * a person chose for it: admins are told instead.
  */
 export async function runProductionErrorCheck(
   ctx: MutationCtx,
@@ -496,7 +498,13 @@ export async function runProductionErrorCheck(
     );
     if (!verdict.rollback) continue;
     const rate = `${Math.round(verdict.errorRate * 100)} percent of ${verdict.calls} calls`;
-    const held = !enabled
+    // A role that never switches on its own (planning, checking and the
+    // other admin-chosen roles) is never switched back from a model a person
+    // chose for it (review r2 P3, 2026-09-25). One carried over from an
+    // automatic switch of its predecessor still rolls back with it.
+    const held = !roleAutoSwitches(role) && assignment.assignedBy === "user"
+      ? "An admin chooses this role's model, so it was not rolled back. Choose another on /admin/models if it keeps failing."
+      : !enabled
       ? "Automatic switching is off, so it was not rolled back."
       : (await rolledBackFrom(ctx, role, assignment.previousModelId))
         ? `The role was rolled back from its previous model, ${assignment.previousModelId}, before, so it was not rolled back to it. Choose a model for the role on /admin/models.`

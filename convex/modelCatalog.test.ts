@@ -441,6 +441,29 @@ describe("production error rollback", () => {
     expect(await writingModel(t)).toBe("x-ai/grok-4.7");
     expect((await notices(t)).filter((m) => m.includes("was not rolled back"))).toHaveLength(1);
   });
+
+  // Review r2 P3 (2026-09-25): automatic rollback reached the new roles.
+  it("never switches planning or checking back from a model an admin chose; admins are told", async () => {
+    const { t, admin } = await setup();
+    for (const role of ["planning", "checking"] as const) {
+      expect(roleAutoSwitches(role)).toBe(false);
+      await admin.mutation(setRoleModelRef, { role, modelId: "claude-opus-4-8" });
+    }
+    await failingCalls(t, "claude-opus-4-8", 15, 6);
+    expect(await t.mutation(checkProductionErrorsRef, {})).toEqual([
+      { role: "planning", modelId: "claude-opus-4-8", rolledBack: false },
+      { role: "checking", modelId: "claude-opus-4-8", rolledBack: false },
+    ]);
+    for (const role of ["planning", "checking"] as const) {
+      const assignment = await t.run((ctx) =>
+        ctx.db.query("modelRoleAssignments").withIndex("by_role", (q) => q.eq("role", role)).unique()
+      );
+      expect(assignment?.modelId).toBe("claude-opus-4-8");
+    }
+    const events = await t.run((ctx) => ctx.db.query("modelSwitchEvents").collect());
+    expect(events.some((event) => event.kind === "rollback")).toBe(false);
+    expect((await notices(t)).filter((m) => m.includes("An admin chooses this role's model"))).toHaveLength(2);
+  });
 });
 
 describe("models frozen per generation", () => {
