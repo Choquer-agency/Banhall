@@ -23,6 +23,32 @@ export function userErrorCode(error: unknown): string | null {
   return null;
 }
 
+/**
+ * Domain refusals the pages that trigger them already explain in their own
+ * UI: F6's "already running" callout and the project page's inline start
+ * error (GENERATION_ACTIVE), and the refresh prompts for a stale revision
+ * (STALE_REVISION, BRIEF_STALE). They are expected, not crashes.
+ */
+export const HANDLED_REFUSAL_CODES: ReadonlySet<string> = new Set([
+  "GENERATION_ACTIVE",
+  "STALE_REVISION",
+  "BRIEF_STALE",
+]);
+
+/**
+ * True for the Convex client's own log line about a function that failed
+ * with a handled refusal ("[CONVEX M(generations:requestGeneration)] ...
+ * Uncaught ConvexError: {"code":"GENERATION_ACTIVE",...}"). The client logs
+ * every failed call before the caller's catch runs, so ErrorMonitor uses this
+ * to keep an expected refusal from raising the crash toast. Any other failure,
+ * including a refusal with another code, is not one.
+ */
+export function isHandledRefusalLog(line: string): boolean {
+  if (!/^\[CONVEX [QMA?]\(/.test(line)) return false;
+  const code = userErrorCode(new Error(line));
+  return code !== null && HANDLED_REFUSAL_CODES.has(code);
+}
+
 /** The `reason` detail a domain error carries (for example "DRAFT_COMPLETE"), if any. */
 export function userErrorReason(error: unknown): string | null {
   if (isRecord(error) && isRecord(error.data) && typeof error.data.reason === "string") {

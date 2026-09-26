@@ -7,6 +7,7 @@
   import { overlayFade, modalPop } from "$lib/motion";
   import Spinner from "$lib/components/ui/Spinner.svelte";
   import { APP_ERROR_EVENT, type AppErrorDetail } from "./PageErrorBoundary.svelte";
+  import { isHandledRefusalLog } from "$lib/errors";
 
   type DetectedError = {
     message: string;
@@ -130,14 +131,17 @@
     window.addEventListener("error", onError);
     window.addEventListener("unhandledrejection", onRejection);
 
-    // Patch console.error → breadcrumb + banner (skip framework dev warnings).
+    // Patch console.error → breadcrumb + banner (skip framework dev warnings,
+    // and the Convex client's log of a refusal the page already handles, such
+    // as F6's GENERATION_ACTIVE; a caller that does not catch it still raises
+    // the toast through unhandledrejection).
     const origConsoleError = console.error;
     console.error = (...args: unknown[]) => {
       origConsoleError(...args);
       const first = typeof args[0] === "string" ? args[0] : "";
       const message = args.map(stringifyArg).join(" ").slice(0, 300);
       pushBreadcrumb({ type: "console", label: message });
-      if (!first.startsWith("Warning:") && message.trim()) {
+      if (!first.startsWith("Warning:") && !isHandledRefusalLog(first) && message.trim()) {
         detected = detected ?? { message };
         notifyError();
       }
