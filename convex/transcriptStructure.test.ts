@@ -366,10 +366,12 @@ describe("backfill of turns and speaker roles", () => {
     // One old label, one new: kept as it was.
     expect(byLabel.get("Priya Shah")).toMatchObject({ role: "client", roleSource: "consultant", confidence: 1 });
     // One old label, two new people: the old answer, as a guess below the
-    // model threshold where the rules could not place them.
-    for (const label of ["Jordan Ellis", "Raj Patel"]) {
-      expect(byLabel.get(label), label).toMatchObject({ role: "client", roleSource: "heuristic", confidence: 0.6 });
-    }
+    // model threshold where the rules could not place them. Raj's rule guess
+    // (client at 0.55) is weaker, so the old answer fills it in; Jordan, the
+    // questioner, keeps the rule's own interviewer guess at 0.6 (fix-b
+    // review P3-3).
+    expect(byLabel.get("Raj Patel")).toMatchObject({ role: "client", roleSource: "heuristic", confidence: 0.6 });
+    expect(byLabel.get("Jordan Ellis")).toMatchObject({ role: "interviewer", roleSource: "heuristic", confidence: 0.6 });
     expect(transcript?.speakerStatus).toBe("needs_check");
   });
 
