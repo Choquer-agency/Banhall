@@ -101,49 +101,39 @@ function collectStats(turns: readonly TranscriptTurn[]): Stats[] {
 
 const HONORIFICS = ["dr", "mr", "mrs", "ms", "prof"];
 
-/** Name suffixes and credentials, never a name part ("Jr", "P.Eng.", "PhD"). */
-const NAME_SUFFIXES = ["jr", "sr", "ii", "iii", "iv", "phd", "eng", "peng", "ceng", "cpa", "mba", "msc"];
-
 /**
- * A name's parts, split at spaces, commas and periods but not hyphens: a
- * compound name ("Jean-Philippe") is one part, kept with a plain hyphen.
- * Case, accents and apostrophes are normalized; initials ("W."), honorifics,
- * suffixes and credentials are dropped. An email (the roster's fallback
- * label) is read from its local part ("dana.whitfield@firm.com").
+ * A name's parts, split at spaces and commas but not hyphens: a compound
+ * given name ("Jean-Philippe") is one part. Case, accents, hyphens and
+ * apostrophes are normalized; initials ("W.") and honorifics are dropped.
  */
 function nameParts(name: string): string[] {
-  const trimmed = name.trim();
-  const source = /^[^\s@]+@[^\s@]+$/.test(trimmed) ? trimmed.slice(0, trimmed.indexOf("@")) : trimmed;
-  return source
+  return name
     .toLowerCase()
     .normalize("NFKD")
     .replace(/[\u0300-\u036f]/g, "")
     .split(/[^\p{L}\p{N}'’‐‑-]+/u)
-    .map((part) => part.replace(/['’]/g, "").replace(/[‐‑]/g, "-").replace(/^-+|-+$/g, ""))
-    .filter((part) => part.length >= 2 && !HONORIFICS.includes(part) && !NAME_SUFFIXES.includes(part));
+    .map((part) => part.replace(/['’‐‑-]/g, ""))
+    .filter((part) => part.length >= 2 && !HONORIFICS.includes(part));
 }
 
 /**
  * Whether a label names this person in full ("Dana Whitfield", "Whitfield,
- * Dana"): the label and the name both have at least two parts, and the
- * name's first and last parts are in the label. A given name alone
- * ("Jean-Philippe" or "Mary Anne" for Jean-Philippe Roy or Mary Anne Smith)
- * is not, and a one-word name ("Dana", "Dana W.") never matches in full
- * (fix-e review P2-1). Parts are compared across hyphens: every piece of the
- * first part must be in the label ("Jean Philippe Roy" for Jean-Philippe
- * Roy), and one piece of a hyphenated last part is enough ("Dana Whitfield"
- * for Dana Whitfield-Rao). A middle name on the roster alone, a suffix or
- * credential, and bracketed words on the label ("Dana (Whitfield
- * Consulting)") are ignored (fix-g review P3-2, P3-3).
+ * Dana"): the label and the name both have at least two parts, and every
+ * part of the name is in the label. A given name alone ("Jean-Philippe" or
+ * "Mary Anne" for Jean-Philippe Roy or Mary Anne Smith) is not, and a
+ * one-word name ("Dana", "Dana W.") never matches in full (fix-e review
+ * P2-1). Bracketed words on the label never count, so "Dana (Whitfield
+ * Consulting)" is not Dana Whitfield (fix-g review P3-3). A near miss of the
+ * same person (a hyphen written as a space, a middle name only on the
+ * roster, a suffix or credential such as "Jr" or "P.Eng.", an email roster
+ * label) is not a full name either: it matches as a first name, which only
+ * leans toward interviewer, so the model decides (P3 sweep, approved as
+ * adjusted 2026-09-25).
  */
 function labelNamesPersonFully(label: string, name: string): boolean {
   const labelParts = nameParts(label.replace(/\([^)]*\)/g, " "));
   const parts = nameParts(name);
-  if (labelParts.length < 2 || parts.length < 2) return false;
-  const pieces = new Set(labelParts.flatMap((part) => part.split("-")));
-  const first = parts[0].split("-");
-  const last = parts[parts.length - 1].split("-");
-  return first.every((piece) => pieces.has(piece)) && last.some((piece) => pieces.has(piece));
+  return labelParts.length >= 2 && parts.length >= 2 && parts.every((part) => labelParts.includes(part));
 }
 
 /** A roster match on a first name alone: a guess below the model threshold. */
