@@ -35,7 +35,6 @@ import {
   splitIntoWindows,
   type CondenseWindow,
 } from "./condenseAgent";
-import type { GenerationClient } from "./openrouterCore";
 import { MODEL } from "./model";
 import { generationPromptVersion } from "./promptProgram";
 import {
@@ -100,15 +99,20 @@ export function condenserFor(
     modelId: string;
   }
 ): BoundCondenser {
-  let client: GenerationClient | undefined;
-  const condense: BoundCondenser = async (args) =>
+  // One client per call, so each call's abort signal reaches its request.
+  const condense: BoundCondenser = async (args, signal) =>
     await condenseWindow(
-      (client ??= clientForModel(ctx, meta.modelId, {
-        callSite: "generation:condense",
-        projectId: meta.projectId,
-        ...(meta.userId ? { userId: meta.userId } : {}),
-        attribution: { generationId: meta.generationId },
-      })),
+      clientForModel(
+        ctx,
+        meta.modelId,
+        {
+          callSite: "generation:condense",
+          projectId: meta.projectId,
+          ...(meta.userId ? { userId: meta.userId } : {}),
+          attribution: { generationId: meta.generationId },
+        },
+        signal ? { signal } : {}
+      ),
       { ...args, modelId: meta.modelId }
     );
   condense.modelId = meta.modelId;
@@ -201,7 +205,8 @@ export async function ensureCondensedInputs(
   const condensed = await mapWithConcurrency(
     tasks,
     CONDENSE_CONCURRENCY,
-    async (task) => await withTimeout(condense(task.args), CONDENSE_TIMEOUT_MS)
+    async (task) =>
+      await withTimeout((signal) => condense(task.args, signal), CONDENSE_TIMEOUT_MS)
   );
   // `tasks` was flattened in plan order, so each plan's windows are a
   // contiguous slice of the results.
@@ -248,14 +253,25 @@ export async function ensureCondensedInputs(
   );
 }
 
-/** Rejects with CONDENSE_BUDGET_ERROR if `promise` has not settled in `ms`. */
-async function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+/**
+ * Rejects with CONDENSE_BUDGET_ERROR if `call` has not settled in `ms`, and
+ * aborts its request then, so a call past its limit stops running and
+ * billing (audit 2026-09-25 a3 P2-2).
+ */
+async function withTimeout<T>(
+  call: (signal: AbortSignal) => Promise<T>,
+  ms: number
+): Promise<T> {
+  const controller = new AbortController();
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     return await Promise.race([
-      promise,
+      call(controller.signal),
       new Promise<never>((_, reject) => {
-        timer = setTimeout(() => reject(new CondenseBudgetError()), ms);
+        timer = setTimeout(() => {
+          controller.abort(new CondenseBudgetError());
+          reject(new CondenseBudgetError());
+        }, ms);
       }),
     ]);
   } finally {
