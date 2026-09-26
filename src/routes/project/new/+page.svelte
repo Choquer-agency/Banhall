@@ -1607,8 +1607,9 @@
     mode === "review" ? "You get a feedback report. Your draft is never changed." : "You will check your files before anything starts."
   );
 
+  // The shared borderless field (inset line, lagoon on hover and focus).
   const fieldClass =
-    "h-9 w-full rounded-md border border-line bg-surface px-2.5 text-sm text-ink placeholder:text-ink-faint focus:border-primary-selected focus:outline-none pointer-coarse:h-11";
+    "field-control h-9 w-full rounded-md px-2.5 text-sm text-ink placeholder:text-ink-faint pointer-coarse:h-11";
   const labelClass = "text-xs leading-4 font-medium text-ink-secondary";
 </script>
 
@@ -1897,7 +1898,9 @@
                       bind:value={title}
                       required
                       placeholder="Project title"
-                      class={sameProject ? fieldClass.replace("border border-line", "border-[1.5px] border-warning") : fieldClass}
+                      class="field-control h-9 w-full rounded-md px-2.5 text-sm text-ink placeholder:text-ink-faint pointer-coarse:h-11"
+                      data-same-name={sameProject ? "true" : undefined}
+                      style={sameProject ? "box-shadow: inset 0 0 0 1.5px var(--color-warning)" : undefined}
                     />
                   </label>
                 </div>
@@ -2039,7 +2042,7 @@
                         bind:value={pasteDraft}
                         aria-label="Transcript text"
                         placeholder="Paste the full interview transcript here"
-                        class="rounded-md border border-line bg-surface px-3 py-2 font-serif text-sm leading-relaxed text-ink placeholder:font-sans placeholder:text-ink-faint focus:border-primary-selected focus:outline-none"
+                        class="field-control rounded-md px-3 py-2 font-serif text-sm leading-relaxed text-ink placeholder:font-sans placeholder:text-ink-faint"
                       ></textarea>
                       <div class="flex justify-end gap-2">
                         <Button type="button" size="sm" variant="ghost" onclick={() => { pasteOpen = false; pasteDraft = ""; }}>Cancel</Button>
@@ -2076,7 +2079,7 @@
                             }
                           }}
                           onblur={addInterviewee}
-                          class="h-7 min-w-24 flex-1 bg-transparent text-sm text-ink placeholder:text-ink-faint focus:outline-none"
+                          class="input-chromeless h-7 min-w-24 flex-1 bg-transparent text-sm text-ink placeholder:text-ink-faint"
                         />
                       </div>
                     </div>
@@ -2194,7 +2197,7 @@
                       bind:value={docPasteText}
                       aria-label="Pasted text"
                       placeholder="Paste notes or text here"
-                      class="rounded-md border border-line bg-surface px-3 py-2 text-sm leading-relaxed text-ink placeholder:text-ink-faint focus:border-primary-selected focus:outline-none"
+                      class="field-control rounded-md px-3 py-2 text-sm leading-relaxed text-ink placeholder:text-ink-faint"
                     ></textarea>
                     <div class="flex justify-end gap-2">
                       <Button type="button" size="sm" variant="ghost" onclick={() => { docPasteOpen = false; docPasteText = ""; }}>Cancel</Button>
@@ -2253,7 +2256,7 @@
                           value={yearNotes.get(year) ?? ""}
                           oninput={(e) => yearNotes.set(year, e.currentTarget.value)}
                           placeholder="For example, what changed since last year's claim"
-                          class={fieldClass}
+                          class="field-control h-9 w-full rounded-md px-2.5 text-sm text-ink placeholder:text-ink-faint pointer-coarse:h-11"
                         />
                       </label>
                     {/each}
@@ -2265,7 +2268,7 @@
                 <div class="grid gap-4 sm:grid-cols-[260px_minmax(0,1fr)]">
                   <div class="flex flex-col gap-1.5">
                     <label for="projectNumber" class={labelClass}>Project number</label>
-                    <input id="projectNumber" bind:value={projectNumber} placeholder="For example, P01-A" class={fieldClass} aria-invalid={!projectNumberValid} />
+                    <input id="projectNumber" bind:value={projectNumber} placeholder="For example, P01-A" class="field-control h-9 w-full rounded-md px-2.5 text-sm text-ink placeholder:text-ink-faint pointer-coarse:h-11" aria-invalid={!projectNumberValid} />
                     {#if !projectNumberValid}
                       <p class="text-xs text-danger-ink-muted" role="alert">Use 1 to 20, a letter a to z, or both, like 2a.</p>
                     {/if}
@@ -2277,7 +2280,7 @@
                   </div>
                   <label class="flex flex-col gap-1.5 sm:col-span-2">
                     <span class={labelClass}>SR&ED title</span>
-                    <input id="sredTitle" bind:value={sredTitle} placeholder="Optional. You can set it later." class={fieldClass} />
+                    <input id="sredTitle" bind:value={sredTitle} placeholder="Optional. You can set it later." class="field-control h-9 w-full rounded-md px-2.5 text-sm text-ink placeholder:text-ink-faint pointer-coarse:h-11" />
                   </label>
                 </div>
               </NewProjectSection>

@@ -66,7 +66,7 @@
         open = matches.length > 0;
       }}
       onfocus={() => (open = matches.length > 0)}
-      class="h-9 w-full rounded-md border border-line bg-surface pr-8 pl-2.5 text-sm text-ink placeholder:text-ink-faint focus:border-primary-selected focus:outline-none pointer-coarse:h-11"
+      class="field-control h-9 w-full rounded-md pr-8 pl-2.5 text-sm text-ink placeholder:text-ink-faint pointer-coarse:h-11"
     />
     <Combobox.Trigger
       aria-label="Show recorded clients"

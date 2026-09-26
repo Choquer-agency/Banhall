@@ -63,11 +63,11 @@ describe("E6 project already exists", () => {
     expect(text(box)).toContain("Cedarline Systems already has this project");
     expect(text(box)).toContain("Adaptive cold storage controls, Drafting, owned by Larry Moss, edited 12 min ago.");
     expect(text(box)).not.toMatch(/[‐-―·]/);
-    // The title field takes the 1.5px warning border.
+    // The title field takes the 1.5px warning line (inset, as every field).
     const title = document.querySelector<HTMLElement>("#title")!;
-    expect(getComputedStyle(title).borderTopColor).toBe("rgb(217, 119, 6)");
-    // 1.5px renders as one device pixel at a 1x ratio, so check the class.
-    expect(title.className).toContain("border-[1.5px]");
+    expect(title.dataset.sameName).toBe("true");
+    await expect.poll(() => getComputedStyle(title).boxShadow).toContain("rgb(217, 119, 6)");
+    expect(title.style.boxShadow).toContain("1.5px");
 
     const row = document.querySelector<HTMLElement>('[data-checklist-row="duplicate"]')!;
     expect(text(row)).toContain("Same name as an existing project");
