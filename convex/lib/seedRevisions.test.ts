@@ -997,6 +997,12 @@ describe("clipJsonEscapedUtf8 (Summary Self-check free text)", () => {
     const lone = `${"x".repeat(56)}\uD800${"y".repeat(10)}`;
     const clippedLone = clipJsonEscapedUtf8(lone, LIMIT);
     expect(clippedLone).toBe(`${"x".repeat(56)}…`);
+    // A cut right after a whole word, before its full stop, keeps the word
+    // (plan-coverage review P3-2).
+    const sentence = "The test matrix covered seal fatigue at five loads and counts. More text follows.";
+    const beforeStop = clipJsonEscapedUtf8(sentence, LIMIT);
+    expect(beforeStop).toBe("The test matrix covered seal fatigue at five loads and counts…");
+    expect(jsonEscapedUtf8Bytes(beforeStop)).toBeLessThanOrEqual(LIMIT);
     // Newlines escape to two bytes; text of only whitespace keeps a hard cut.
     const newlines = "\n".repeat(33);
     const clippedNewlines = clipJsonEscapedUtf8(newlines, LIMIT);
