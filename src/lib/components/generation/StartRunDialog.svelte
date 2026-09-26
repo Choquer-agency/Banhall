@@ -62,6 +62,57 @@
   }
 
   export const NOTHING_TICKED_MESSAGE = "Tick at least one transcript or current file.";
+
+  /** F6: a run already going on this project (user-safe fields only). */
+  export type ActiveRun = {
+    generationId: string;
+    requestedByName: string;
+    isYou: boolean;
+    candidateMode: "iterative" | "single" | "compare";
+    startedAt: number;
+  };
+
+  const RUN_LABELS: Record<ActiveRun["candidateMode"], string> = {
+    iterative: "Step by step run",
+    single: "Single draft",
+    compare: "Compare run",
+  };
+
+  /** "just now", "12 min ago", "3 hours ago", "yesterday", then a date. */
+  export function startedAgo(startedAt: number, now: number): string {
+    const minutes = Math.floor(Math.max(0, now - startedAt) / 60_000);
+    if (minutes < 1) return "just now";
+    if (minutes < 60) return `${minutes} min ago`;
+    const hours = Math.floor(minutes / 60);
+    if (hours < 24) return `${hours} ${hours === 1 ? "hour" : "hours"} ago`;
+    if (hours < 48) return "yesterday";
+    return `on ${new Date(startedAt).toLocaleDateString("en-US", { month: "short", day: "numeric" })}`;
+  }
+
+  export function activeRunCopy(run: ActiveRun, now: number): { title: string; text: string } {
+    return {
+      title: run.isYou ? "You are already running this project" : `${run.requestedByName} is already running this project`,
+      text: `A ${RUN_LABELS[run.candidateMode]} started ${startedAgo(run.startedAt, now)}. One run at a time per project.`,
+    };
+  }
+
+  /**
+   * The run a refused start named: GENERATION_ACTIVE carries its user-safe
+   * details (reservation.ts). Null for any other error.
+   */
+  export function activeRunFromError(error: unknown, currentUserName?: string | null): ActiveRun | null {
+    const data = (error as { data?: Record<string, unknown> } | null)?.data;
+    if (!data || data.code !== "GENERATION_ACTIVE" || typeof data.generationId !== "string") return null;
+    const mode = data.candidateMode;
+    const name = typeof data.requestedByName === "string" ? data.requestedByName : "Someone";
+    return {
+      generationId: data.generationId,
+      requestedByName: name,
+      isYou: Boolean(currentUserName) && name === currentUserName,
+      candidateMode: mode === "iterative" || mode === "single" ? mode : "compare",
+      startedAt: Number(data.startedAt) || Date.now(),
+    };
+  }
 </script>
 
 <script lang="ts">
@@ -82,6 +133,7 @@
   import AuroraMark from "$lib/components/ui/AuroraMark.svelte";
   import Button from "$lib/components/ui/Button.svelte";
   import FileIcon from "$lib/components/ui/FileIcon.svelte";
+  import StatusCallout from "$lib/components/ui/StatusCallout.svelte";
 
   let {
     open = $bindable(false),
@@ -94,6 +146,8 @@
     onConfirm,
     onCancel,
     returnFocus,
+    activeRun = null,
+    onOpenActiveRun,
   }: {
     open?: boolean;
     mode: StartRunMode;
@@ -108,6 +162,10 @@
     onConfirm: (excluded: StartRunExcluded) => void;
     onCancel?: () => void;
     returnFocus?: () => HTMLElement | null | undefined;
+    /** F6: a run already going on this project; the start waits for it. */
+    activeRun?: ActiveRun | null;
+    /** "Open it": go to the running project. */
+    onOpenActiveRun?: () => void;
   } = $props();
 
   const unticked = new SvelteSet<string>();
@@ -129,6 +187,7 @@
   const problem = $derived(
     blockingMessage ?? (nothingTicked ? NOTHING_TICKED_MESSAGE : (validate?.(excluded) ?? null))
   );
+  const runCopy = $derived(activeRun ? activeRunCopy(activeRun, Date.now()) : null);
   const copy = $derived(START_RUN_COPY[mode]);
 
   function toggle(id: string, next: boolean) {
@@ -137,7 +196,7 @@
   }
 
   function confirm() {
-    if (problem || busy) return;
+    if (problem || busy || activeRun) return;
     confirmedClose = true;
     onConfirm({ transcriptIds: [...excluded.transcriptIds], documentIds: [...excluded.documentIds] });
   }
@@ -262,6 +321,21 @@
               {#if problem}
                 <p role="alert" data-start-run-problem class="px-7 pt-2.5 text-xs leading-[17px] text-danger-ink-muted">{problem}</p>
               {/if}
+              {#if runCopy}
+                <!-- F6: one run at a time per project. -->
+                <div class="px-7 pt-3" data-start-run-active>
+                  <StatusCallout
+                    tone="warning"
+                    layout="stacked"
+                    title={runCopy.title}
+                    role="alert"
+                    primaryAction={{ label: "Open it", onclick: () => onOpenActiveRun?.() }}
+                    secondaryAction={{ label: "Close", onclick: () => (open = false) }}
+                  >
+                    {runCopy.text}
+                  </StatusCallout>
+                </div>
+              {/if}
 
               <div class="flex flex-wrap items-center gap-2 pt-[18px] pr-5 pb-5 pl-7">
                 <div class="flex min-w-0 flex-1 items-center gap-2" data-start-run-models>
@@ -279,7 +353,7 @@
                 <button
                   type="button"
                   data-start-run-confirm
-                  disabled={Boolean(problem) || busy}
+                  disabled={Boolean(problem) || busy || Boolean(activeRun)}
                   onclick={confirm}
                   class="inline-flex h-9 shrink-0 items-center justify-center rounded-lg bg-fir px-4 text-sm font-medium text-white transition-colors hover:bg-navy-light focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fir focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 motion-reduce:transition-none"
                 >

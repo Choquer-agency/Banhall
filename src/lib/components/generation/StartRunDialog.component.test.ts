@@ -215,3 +215,48 @@ describe("readingMeta", () => {
     expect(readingMeta(null)).toBe("Still reading");
   });
 });
+
+describe("StartRunDialog when a run is already going (F6)", () => {
+  it("names who started which run and when, and waits for it", async () => {
+    const onOpenActiveRun = vi.fn();
+    await render(StartRunDialog, props({
+      activeRun: { generationId: "g-1", requestedByName: "Larry Moss", isYou: false, candidateMode: "iterative", startedAt: Date.now() - 12 * 60_000 },
+      onOpenActiveRun,
+    }));
+    const box = q("[data-start-run-active] [data-status-callout]")!;
+    expect(box.dataset.statusCallout).toBe("warning");
+    expect(text(box)).toContain("Larry Moss is already running this project");
+    expect(text(box)).toContain("A Step by step run started 12 min ago. One run at a time per project.");
+    expect(q<HTMLButtonElement>("[data-start-run-confirm]")!.disabled).toBe(true);
+    [...box.querySelectorAll("button")].find((button) => text(button) === "Open it")!.click();
+    expect(onOpenActiveRun).toHaveBeenCalledTimes(1);
+    [...box.querySelectorAll("button")].find((button) => text(button) === "Close")!.click();
+    await settle();
+    expect(dialog()).toBeNull();
+  });
+
+  it("says You for the writer's own run", async () => {
+    await render(StartRunDialog, props({
+      activeRun: { generationId: "g-1", requestedByName: "Wendy Park", isYou: true, candidateMode: "single", startedAt: Date.now() },
+    }));
+    expect(text(q("[data-start-run-active]"))).toContain("You are already running this project");
+    expect(text(q("[data-start-run-active]"))).toContain("A Single draft started just now.");
+  });
+});
+
+describe("activeRunFromError", () => {
+  it("reads the GENERATION_ACTIVE details and ignores other errors", async () => {
+    const { activeRunFromError } = await import("./StartRunDialog.svelte");
+    const error = { data: { code: "GENERATION_ACTIVE", message: "x", generationId: "g-9", requestedByName: "Larry Moss", candidateMode: "compare", startedAt: "1000" } };
+    expect(activeRunFromError(error, "Wendy Park")).toEqual({
+      generationId: "g-9",
+      requestedByName: "Larry Moss",
+      isYou: false,
+      candidateMode: "compare",
+      startedAt: 1000,
+    });
+    expect(activeRunFromError(error, "Larry Moss")?.isYou).toBe(true);
+    expect(activeRunFromError({ data: { code: "INVALID_INPUT" } })).toBeNull();
+    expect(activeRunFromError(new Error("boom"))).toBeNull();
+  });
+});
