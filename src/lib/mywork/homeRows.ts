@@ -65,26 +65,6 @@ export function liveProjectRows(rows: readonly LiveProject[]): HomeRow[] {
   }));
 }
 
-type FlatProject = {
-  _id: string;
-  title: string;
-  clientName: string;
-  workflowStage?: WorkflowStage;
-  updatedAt: number;
-  deleting?: boolean;
-};
-
-export function flatProjectRows(rows: readonly FlatProject[]): HomeRow[] {
-  return rows.map((row) => ({
-    projectId: row._id,
-    title: row.title,
-    clientName: row.clientName,
-    stage: row.workflowStage ?? "intake",
-    editedAt: row.updatedAt,
-    ...(row.deleting ? { deleting: true } : {}),
-  }));
-}
-
 export type ContinueTarget = {
   projectId: string;
   /** "opened": the viewer opened it on this device; "with_you": latest edited work with the viewer. */

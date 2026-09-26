@@ -115,6 +115,10 @@ describe("Home", () => {
     const newProject = bar.querySelector<HTMLAnchorElement>("[data-home-new-project]")!;
     expect(newProject.getAttribute("href")).toBe("/project/new");
     expect(newProject.textContent?.trim()).toBe("New project");
+    // Round 2 shell parity: page icon tile, shell background, work panel.
+    expect(bar.querySelector("[data-home-page-icon]")?.className).toContain("bg-workspace-page-icon");
+    expect(document.querySelector("[data-home]")?.className).toContain("bg-workspace-shell");
+    expect(document.querySelector("[data-home-panel]")?.hasAttribute("data-work-panel")).toBe(true);
     // Home stays simple: no search field on the dashboard.
     expect(document.querySelector('input[type="search"], [role="searchbox"]')).toBeNull();
   });
@@ -180,21 +184,45 @@ describe("Home", () => {
     expect(getComputedStyle(chip("drafting")).fontWeight).toBe("400");
   });
 
-  it("says plainly when nothing is with you and keeps Add new", async () => {
+  it("shows the first-sign-in empty state inside the With you table (J7)", async () => {
     seed();
     __setPaginatedRows("myWork:listAssignedToMe", []);
-    __setPaginatedRows("dashboard:listFlatProjects", []);
     await mount();
 
-    await expect
-      .poll(() => table("home-with-you").querySelector("[data-home-table-empty]")?.textContent?.trim())
-      .toBe("Nothing is with you right now. Projects handed to you show up here.");
-    expect(table("home-with-you").querySelector("table")).toBeNull();
-    expect(document.querySelector("[data-home-add-new]")?.getAttribute("href")).toBe("/project/new");
-    expect(table("home-recent").querySelector("[data-home-table-empty]")?.textContent?.trim()).toBe(
-      "No projects yet. Start one with New project."
+    const withYou = table("home-with-you");
+    await expect.poll(() => withYou.querySelector("[data-home-table-empty]")?.textContent?.replace(/\s+/g, " ").trim()).toBe(
+      "No projects with you yet Start one, or a Manager can hand one to you."
     );
-    expect(document.querySelector("[data-home-continue-empty]")?.textContent).toContain("Nothing to resume yet");
+    // The chip keeps its count and the column header row stays.
+    expect(withYou.querySelector("[data-home-table-count]")?.textContent).toBe("0");
+    expect([...withYou.querySelectorAll("th")].map((cell) => cell.textContent?.trim())).toEqual([
+      "Name",
+      "Client",
+      "Stage",
+      "Last edited",
+    ]);
+    const empty = withYou.querySelector<HTMLElement>("[data-home-table-empty]")!;
+    expect(getComputedStyle(empty).paddingTop).toBe("56px");
+    const newProject = withYou.querySelector<HTMLAnchorElement>("[data-home-add-new]")!;
+    expect(newProject.textContent?.trim()).toBe("New project");
+    expect(newProject.getAttribute("href")).toBe("/project/new");
+    // No second table, no welcome banner, no get-started cards.
+    expect(document.querySelector('[data-home-table="home-recent"]')).toBeNull();
+    expect(document.body.textContent).not.toMatch(/Welcome|Get started/);
+    // Continue working: one quiet line, no card.
+    const continueEmpty = document.querySelector<HTMLElement>("[data-home-continue-empty]")!;
+    expect(continueEmpty.textContent?.trim()).toBe(
+      "Nothing to pick up yet. The last project you worked on shows up here."
+    );
+    expect(continueEmpty.className).not.toContain("border");
+  });
+
+  it("keeps Add new under a With you table that has rows", async () => {
+    seed();
+    __setPaginatedRows("myWork:listAssignedToMe", [assigned("a")]);
+    await mount();
+    await expect.poll(() => table("home-with-you").querySelector("table tbody")).not.toBeNull();
+    expect(document.querySelector("[data-home-add-new]")?.textContent?.trim()).toBe("Add new");
   });
 
   it("reads Recently opened live for the projects opened on this device", async () => {
@@ -225,17 +253,19 @@ describe("Home", () => {
     expect(recent.textContent).toContain("2 days ago");
   });
 
-  it("falls back to Recently edited when this device has no history", async () => {
+  it("shows no second table and reads no workspace projects without local history (decision 55)", async () => {
     seed();
-    __setPaginatedRows("myWork:listAssignedToMe", []);
+    __setPaginatedRows("myWork:listAssignedToMe", [assigned("a")]);
     __setPaginatedRows("dashboard:listFlatProjects", [
       { _id: "proj-e1", title: "Edited elsewhere", clientName: "Alder Research", workflowStage: "revisions", updatedAt: Date.now() - 5 * MINUTE },
     ]);
     await mount([]);
 
-    await expect.poll(() => rowTitles("home-recent")).toEqual(["Edited elsewhere"]);
-    expect(table("home-recent").querySelector("[data-home-view-chip]")?.textContent).toContain("Recently edited");
-    expect(__activeQueryArgs("dashboard:listFlatProjects")).toEqual([{ sortBy: "updated" }]);
+    await expect.poll(() => rowTitles("home-with-you")).toEqual(["Project a"]);
+    expect(document.querySelector('[data-home-table="home-recent"]')).toBeNull();
+    expect(document.body.textContent).not.toContain("Recently edited");
+    expect(document.body.textContent).not.toContain("Edited elsewhere");
+    expect(__isQueryActive("dashboard:listFlatProjects")).toBe(false);
     expect(__isQueryActive("myWork:listRecentProjects")).toBe(false);
   });
 
@@ -363,26 +393,17 @@ describe("Home", () => {
     await expect.poll(() => getComputedStyle(otherButton).opacity).toBe("1");
   });
 
-  it("offers no Duplicate without a role or on a project being deleted", async () => {
+  it("offers no Duplicate without a role", async () => {
     seed();
     __setPaginatedRows("myWork:listAssignedToMe", [assigned("a")]);
-    __setPaginatedRows("dashboard:listFlatProjects", [
-      { _id: "proj-e1", title: "Edited elsewhere", clientName: "Alder Research", workflowStage: "revisions", updatedAt: Date.now() - 5 * MINUTE },
-    ]);
     const roleless = await mount([]);
-    await expect.poll(() => rowTitles("home-recent")).toEqual(["Edited elsewhere"]);
+    await expect.poll(() => rowTitles("home-with-you")).toEqual(["Project a"]);
     expect(document.querySelector("[data-duplicate-project]")).toBeNull();
     roleless.unmount();
 
     __setQueryData("users:getCurrentUser", { _id: "u-1", firstName: "Jordan", role: "writer" });
-    __setPaginatedRows("dashboard:listFlatProjects", [
-      { _id: "proj-e1", title: "Edited elsewhere", clientName: "Alder Research", workflowStage: "revisions", updatedAt: Date.now() - 5 * MINUTE },
-      { _id: "proj-e2", title: "Being deleted", clientName: "Alder Research", workflowStage: "intake", updatedAt: Date.now() - 6 * MINUTE, deleting: true },
-    ]);
     await mount([]);
-    await expect.poll(() => rowTitles("home-recent")).toEqual(["Edited elsewhere", "Being deleted"]);
-    await expect.poll(() => document.querySelector('[data-duplicate-project="proj-e1"]')).not.toBeNull();
-    expect(document.querySelector('[data-duplicate-project="proj-e2"]')).toBeNull();
+    await expect.poll(() => document.querySelector('[data-duplicate-project="proj-a"]')).not.toBeNull();
   });
 
   it("stacks Continue working under the tables on a phone and hides the extra columns", async () => {

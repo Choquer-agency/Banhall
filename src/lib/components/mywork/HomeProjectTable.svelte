@@ -24,6 +24,7 @@
     bounded = false,
     now,
     first = false,
+    emptyLayout = "line",
     empty,
     footer,
   }: {
@@ -38,6 +39,11 @@
     now: number;
     /** The first table sits flush with the panel top; later ones get 40px above. */
     first?: boolean;
+    /**
+     * "line": one quiet line under the chip. "block" (J7): keep the column
+     * header row and centre the empty message inside the table.
+     */
+    emptyLayout?: "line" | "block";
     empty: Snippet;
     footer?: Snippet;
   } = $props();
@@ -49,6 +55,17 @@
     setProjectPagingContext({ ids: rows.map((row) => row.projectId), label, bounded });
   }
 </script>
+
+{#snippet columnHeaders()}
+  <thead>
+    <tr class="h-9 border-b border-line-soft text-[11px] leading-4 text-ink-muted">
+      <th scope="col" class="pl-2 font-normal">Name</th>
+      <th scope="col" class="w-[136px] font-normal max-sm:hidden">Client</th>
+      <th scope="col" class="w-[120px] font-normal">Stage</th>
+      <th scope="col" class="w-[84px] font-normal max-sm:hidden">Last edited</th>
+    </tr>
+  </thead>
+{/snippet}
 
 <section data-home-table={id} aria-labelledby={`${id}-label`}>
   <div class={`flex items-center gap-2 border-b border-line ${first ? "pb-4" : "pb-3 pt-10"}`}>
@@ -96,21 +113,22 @@
             </div>
           {/each}
         </div>
-      {:else if rows.length === 0}
+      {:else if rows.length === 0 && emptyLayout === "line"}
         <div data-home-table-empty class="border-b border-line-soft px-2 py-3.5 text-xs leading-5 text-ink-muted">
+          {@render empty()}
+        </div>
+      {:else if rows.length === 0}
+        <table class="w-full table-fixed border-collapse text-left">
+          <caption class="sr-only">{label}</caption>
+          {@render columnHeaders()}
+        </table>
+        <div data-home-table-empty class="flex flex-col items-center justify-center gap-1 border-b border-line-soft py-14 text-center">
           {@render empty()}
         </div>
       {:else}
         <table class="w-full table-fixed border-collapse text-left">
           <caption class="sr-only">{label}</caption>
-          <thead>
-            <tr class="h-9 border-b border-line-soft text-[11px] leading-4 text-ink-muted">
-              <th scope="col" class="pl-2 font-normal">Name</th>
-              <th scope="col" class="w-[136px] font-normal max-sm:hidden">Client</th>
-              <th scope="col" class="w-[120px] font-normal">Stage</th>
-              <th scope="col" class="w-[84px] font-normal max-sm:hidden">Last edited</th>
-            </tr>
-          </thead>
+          {@render columnHeaders()}
           <tbody>
             {#each rows as row (row.projectId)}
               <tr data-home-row={row.projectId} class="group/project relative h-11 border-b border-line-soft transition-colors hover:bg-primary-wash motion-reduce:transition-none">
