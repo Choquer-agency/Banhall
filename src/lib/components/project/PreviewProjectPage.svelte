@@ -1756,8 +1756,29 @@
           ? "plan"
           : "report"
   );
+  // Fidelity broken behaviour 6: a Step-by-step run's Sources tab counts
+  // the files the run was started with (its frozen transcripts and
+  // documents; files left out in the start dialog were never frozen), not
+  // every file on the project. The Seed workspace reads the same rows, so
+  // this shares its subscription. Other runs, and a read that is loading,
+  // failed or cut short, count the project's files as before.
+  const seedRunId = $derived(
+    isSeedWorkflow && generation
+      ? generation._id
+      : reportGenerationQ.data?.gatedWorkflow === "seeds"
+        ? reportGenerationQ.data._id
+        : null
+  );
+  const runSourcesQ = useQuery(seedsApi.getSourceAttribution, () =>
+    auth.isAuthenticated && seedRunId ? { generationId: seedRunId } : "skip"
+  );
+  const runFileCount = $derived.by(() => {
+    const read = runSourcesQ.data;
+    if (!seedRunId || !read || read.generationId !== seedRunId || !read.complete) return null;
+    return read.sources.filter((source) => source.kind === "transcript" || source.kind === "project_document").length;
+  });
   const sourceCount = $derived(
-    transcripts.length + (documentsQ.data ?? []).filter((doc) => !doc.archived).length
+    runFileCount ?? transcripts.length + (documentsQ.data ?? []).filter((doc) => !doc.archived).length
   );
   const panelTabs = $derived.by((): PanelTab[] => {
     const sources: PanelTab = { id: "sources", label: "Sources", count: sourceCount || null };

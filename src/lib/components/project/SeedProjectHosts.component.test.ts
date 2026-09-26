@@ -373,6 +373,39 @@ describe("Seed project hosts", () => {
     ]);
   });
 
+  it("counts only the files a Step-by-step run was started with on the Sources tab (F5)", async () => {
+    // Five files on the project; the run was started with three of them.
+    __setQueryData("transcripts:listTranscripts", [0, 1, 2].map((index) => ({
+      _id: `transcript-${index}`, label: `Interview ${index + 1}`, position: index, createdAt: 1, charCount: 60, wordCount: 10,
+    })));
+    __setQueryData("documents:listDocuments", [0, 1].map((index) => ({
+      _id: `document-${index}`, fileName: `spec-${index + 1}.pdf`, category: null, createdAt: 1, sizeChars: 10, archived: false, url: null,
+    })));
+    __setQueryData("seeds:getSourceAttribution", {
+      generationId: "generation-seed-host",
+      sources: [
+        { sourceId: "frozen-1", label: "Interview 1", kind: "transcript" },
+        { sourceId: "frozen-2", label: "Interview 1 facts", kind: "transcript_facts" },
+        { sourceId: "frozen-3", label: "Interview 2", kind: "transcript" },
+        { sourceId: "frozen-4", label: "spec-1.pdf", kind: "project_document" },
+        { sourceId: "frozen-5", label: "Storyline", kind: "writer_storyline" },
+      ],
+      complete: true,
+    });
+    await render(PreviewProjectPage, {});
+    await expect.element(browserPage.getByLabelText("Seed workspace")).toBeVisible();
+    const sourcesTab = () => document.querySelector('[data-panel-tab="sources"]')?.textContent?.replace(/\s+/g, " ").trim();
+    await expect.poll(sourcesTab).toBe("Sources 3");
+
+    // A read cut short says nothing it cannot back: the project's files count.
+    __setQueryData("seeds:getSourceAttribution", {
+      generationId: "generation-seed-host",
+      sources: [{ sourceId: "frozen-1", label: "Interview 1", kind: "transcript" }],
+      complete: false,
+    });
+    await expect.poll(sourcesTab).toBe("Sources 5");
+  });
+
   it("routes the current host from Seeds to Summary and back without the legacy stepper", async () => {
     await assertConnectedJourney(CurrentProjectPage);
   });
