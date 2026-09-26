@@ -953,7 +953,12 @@ export default defineSchema({
     // setting applied at reservation), and the frozen, reversible name
     // placeholder map every generation-owned provider call uses.
     transcriptFacts: v.optional(v.boolean()),
-    placeholders: v.optional(v.array(v.object({ token: v.string(), value: v.string() }))),
+    // 2026-09-25 widen: `bare` marks an entry whose id also restores when a
+    // model writes it without brackets. Maps frozen before then lack it and
+    // restore bracketed tokens only (Summary recovery copies them as is).
+    placeholders: v.optional(
+      v.array(v.object({ token: v.string(), value: v.string(), bare: v.optional(v.boolean()) }))
+    ),
     status: v.union(
       v.literal("reserved"),
       v.literal("running"),

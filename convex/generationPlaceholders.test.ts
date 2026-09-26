@@ -279,6 +279,8 @@ describe("bare placeholders at the HTTP boundary", () => {
     expect(tokens[0]).toBe("[CLIENT_2]");
     expect(tokens).not.toContain("[PERSON_1]");
     expect(map.find((entry) => entry.value === "Marcus Lindqvist")?.token).toBe("[PERSON_5]");
+    // Built since bare ids restore, so every entry carries the mark.
+    expect(map.every((entry) => entry.bare)).toBe(true);
 
     const bodies: string[] = [];
     stubResponse([{ type: "text", text: "PERSON_1 is the rig id on CLIENT_1, per PERSON_5 of CLIENT_2_BRAND." }], bodies);
@@ -296,6 +298,39 @@ describe("bare placeholders at the HTTP boundary", () => {
     expect(bodies[0]).toContain("[PERSON_5]: PERSON_1 in the logger is the rig id, and CLIENT_1 is the test bench.");
     expect(response.content).toEqual([
       { type: "text", text: "PERSON_1 is the rig id on CLIENT_1, per Marcus Lindqvist of Verdant Grid." },
+    ]);
+  });
+
+  it("restores only bracketed tokens for a generation whose map was frozen before bare ids were restored", async () => {
+    const f = await setup();
+    const generationId = await f.writer.mutation(api.generations.requestGeneration, {
+      projectId: f.projectId,
+      candidateMode: "single",
+    });
+    // A map frozen before the change has no mark on its entries.
+    await f.t.run(async (ctx) => {
+      const generation = await ctx.db.get(generationId);
+      const frozen = (generation?.placeholders ?? []).map(({ token, value }) => ({ token, value }));
+      expect(frozen.length).toBeGreaterThan(0);
+      await ctx.db.patch(generationId, { placeholders: frozen });
+    });
+    const bodies: string[] = [];
+    stubResponse([{ type: "text", text: "PERSON_4 of CLIENT_1_BRAND, per [PERSON_4] of [CLIENT_1_BRAND]." }], bodies);
+    const response = await f.t.action(async (ctx) =>
+      clientForModel(ctx, MODEL, {
+        callSite: "generation:analyzer",
+        projectId: f.projectId,
+        attribution: { generationId },
+      }).messages.create({
+        model: MODEL,
+        max_tokens: 100,
+        messages: [{ role: "user", content: "Marcus Lindqvist: A controller for Verdant Grid Technologies." }],
+      })
+    );
+    // The request is masked the same way either way.
+    expect(bodies[0]).toContain("[PERSON_4]: A controller for [CLIENT_1_SHORT].");
+    expect(response.content).toEqual([
+      { type: "text", text: "PERSON_4 of CLIENT_1_BRAND, per Marcus Lindqvist of Verdant Grid." },
     ]);
   });
 });
