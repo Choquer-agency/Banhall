@@ -2,7 +2,10 @@
   // I2 Preview: House style or With your preferences, a sample 242 paragraph
   // from ai/stylePreview. Loading shows grey skeleton lines.
   import AuroraMark from "$lib/components/ui/AuroraMark.svelte";
-  import type { StylePreviewVariant } from "$lib/settings/stylePreviewApi";
+  import type { FunctionArgs } from "convex/server";
+  import type { api } from "../../../../../convex/_generated/api";
+
+  type StylePreviewVariant = FunctionArgs<typeof api.ai.stylePreview.previewMyStyle>["variant"];
 
   let {
     variant = $bindable("preferences"),

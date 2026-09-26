@@ -2,7 +2,6 @@ import { cronJobs } from "convex/server";
 import { internal } from "./_generated/api";
 import { refreshCatalogRef } from "./lib/modelCatalogRefs";
 import { CHAT_TURN_STALE_MINUTES } from "./chatV2";
-import { round2Internal } from "./lib/round2Api";
 
 const crons = cronJobs();
 
@@ -95,7 +94,7 @@ crons.cron(
 crons.cron(
   "prune notifications",
   "10 10 * * *",
-  round2Internal.notifications.pruneOld,
+  internal.notifications.pruneOld,
   {}
 );
 

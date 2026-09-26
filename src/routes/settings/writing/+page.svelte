@@ -18,8 +18,7 @@
   import { untrack } from "svelte";
   import { toast } from "svelte-sonner";
   import { settingsPrefillDecision } from "$lib/settingsPrefill";
-  import { previewMyStyleRef, type StylePreviewVariant } from "$lib/settings/stylePreviewApi";
-  import type { FunctionReturnType } from "convex/server";
+  import type { FunctionArgs, FunctionReturnType } from "convex/server";
   import { api } from "../../../../convex/_generated/api";
   import type { Id } from "../../../../convex/_generated/dataModel";
   import { MAX_INSTRUCTIONS_CHARS } from "../../../../shared/writerProfileLimits";
@@ -156,6 +155,7 @@
   }
 
   // Preview: fetched per variant and kept until the saved profile changes.
+  type StylePreviewVariant = FunctionArgs<typeof api.ai.stylePreview.previewMyStyle>["variant"];
   let variant = $state<StylePreviewVariant>("preferences");
   type PreviewState =
     | { kind: "loading" }
@@ -169,7 +169,7 @@
     const generation = previewGeneration;
     previews[which] = { kind: "loading" };
     try {
-      const result = await client.action(previewMyStyleRef, { variant: which });
+      const result = await client.action(api.ai.stylePreview.previewMyStyle, { variant: which });
       if (generation !== previewGeneration) return;
       previews[which] =
         result.status === "ready"

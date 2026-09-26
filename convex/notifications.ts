@@ -17,7 +17,7 @@ import {
   isActiveInternalUser,
   resolveNotificationSettings,
 } from "./lib/notify";
-import { round2Internal } from "./lib/round2Api";
+import { internal } from "./_generated/api";
 import {
   DEFAULT_NOTIFICATION_SETTINGS,
   type NotificationKind,
@@ -198,7 +198,7 @@ export const pruneOld = internalMutation({
     const batch = old.slice(0, NOTIFICATION_PRUNE_BATCH);
     for (const row of batch) await ctx.db.delete(row._id);
     if (old.length > NOTIFICATION_PRUNE_BATCH) {
-      await ctx.scheduler.runAfter(0, round2Internal.notifications.pruneOld, {});
+      await ctx.scheduler.runAfter(0, internal.notifications.pruneOld, {});
     }
     return batch.length;
   },

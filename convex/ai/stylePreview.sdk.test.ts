@@ -2,7 +2,7 @@
 import { convexTest } from "convex-test";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import schema from "../schema";
-import { previewMyStyleRef } from "../../src/lib/settings/stylePreviewApi";
+import { api } from "../_generated/api";
 import { buildStylePreviewPrompt } from "./stylePreview";
 import { NO_STYLE_OVERRIDES } from "../../shared/styleOverrides";
 import { ROLE_POLICIES } from "../../shared/modelCatalog";
@@ -53,7 +53,7 @@ test("sends the house preview request through the real SDK and stores the decode
 
   const result = await t
     .withIdentity({ subject: "sdk-writer", tokenIdentifier: "sdk|writer" })
-    .action(previewMyStyleRef, { variant: "house" });
+    .action(api.ai.stylePreview.previewMyStyle, { variant: "house" });
   await t.finishAllScheduledFunctions(vi.runAllTimers);
 
   expect(result).toEqual({

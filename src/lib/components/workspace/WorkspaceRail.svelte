@@ -17,7 +17,6 @@
     IconWarning,
   } from "$lib/components/icons";
   import { api } from "../../../../convex/_generated/api";
-  import { round2Api } from "../../../../convex/lib/round2Api";
   import AnimatedSidebarToggleIcon from "$lib/components/workspace/AnimatedSidebarToggleIcon.svelte";
   import { displayName } from "$lib/displayName";
   import Tooltip from "$lib/components/ui/Tooltip.svelte";
@@ -80,7 +79,7 @@
   const unseenChangelogQ = useQuery(api.changelog.unseenCount, () =>
     auth.isAuthenticated ? {} : "skip"
   );
-  const attentionQ = useQuery(round2Api.adminAttention.getAttention, () =>
+  const attentionQ = useQuery(api.adminAttention.getAttention, () =>
     auth.isAuthenticated && canSeeAdmin(viewer) ? {} : "skip"
   );
   const attention = $derived(attentionQ.data ?? { total: 0, ingestionFailed: 0 });

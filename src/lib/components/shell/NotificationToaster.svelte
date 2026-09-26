@@ -16,7 +16,7 @@
   import { useMutation, useQuery } from "convex-svelte";
   import { useAuth } from "@mmailaender/convex-better-auth-svelte/svelte";
   import { IconClose } from "$lib/components/icons";
-  import { round2Api } from "../../../../convex/lib/round2Api";
+  import { api } from "../../../../convex/_generated/api";
   import type { Id } from "../../../../convex/_generated/dataModel";
   import { isAiNotificationKind } from "../../../../shared/notifications";
   import AuroraMark from "$lib/components/ui/AuroraMark.svelte";
@@ -25,10 +25,10 @@
   const MAX_CARDS = 3;
 
   const auth = useAuth();
-  const recentQ = useQuery(round2Api.notifications.listRecent, () =>
+  const recentQ = useQuery(api.notifications.listRecent, () =>
     auth.isAuthenticated ? {} : "skip"
   );
-  const markSeenMutation = useMutation(round2Api.notifications.markSeen);
+  const markSeenMutation = useMutation(api.notifications.markSeen);
 
   // Closed or opened in this tab: hidden at once, before the server echoes seenAt.
   let handled = $state<Record<string, true>>({});

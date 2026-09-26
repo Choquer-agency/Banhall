@@ -16,7 +16,6 @@
   import { canSeeAdmin } from "$lib/shell/navigation";
   import { createActivityHeartbeat } from "$lib/shell/activityHeartbeat";
   import { rememberAccount } from "$lib/auth/lastAccount";
-  import { teamApi } from "$lib/team/api";
   import { effectiveViewer, viewAs } from "$lib/shell/viewAs.svelte";
   import {
     RAIL_COLLAPSED_WIDTH,
@@ -95,7 +94,7 @@
   // Team "Last active" (C1): one heartbeat on mount and on window focus, at
   // most every 5 minutes per tab, only for internal users (markActive
   // refuses anyone else).
-  const markActive = useMutation(teamApi.markActive);
+  const markActive = useMutation(api.team.markActive);
   const heartbeat = createActivityHeartbeat(() => markActive({}));
   const internalUser = $derived(Boolean(userQ.data?.role) && userQ.data?.isAnonymous !== true);
   $effect(() => {

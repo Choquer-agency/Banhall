@@ -6,7 +6,6 @@ import type { Id } from "./_generated/dataModel";
 import schema from "./schema";
 import { workItemKindForHandoffStage } from "../shared/workItems";
 import { WORKFLOW_STAGES } from "../shared/workflowStages";
-import { round2Api } from "./lib/round2Api";
 
 const modules = import.meta.glob("./**/*.ts");
 
@@ -656,7 +655,7 @@ describe("handoff notifications (round 2, WS1 spec section 7)", () => {
 
   it("creates nothing when the assignee switched handoff notifications off", async () => {
     const f = await setup();
-    await f.assignee.mutation(round2Api.notifications.setSetting, { key: "handoff", value: false });
+    await f.assignee.mutation(api.notifications.setSetting, { key: "handoff", value: false });
     await createItem(f);
     expect(await notificationsFor(f, f.assigneeId)).toEqual([]);
   });

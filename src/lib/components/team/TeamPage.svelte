@@ -15,7 +15,6 @@
   import { IconPlusSmall, IconUsers } from "$lib/components/icons";
   import ViewAsHiddenPage from "$lib/components/shell/ViewAsHiddenPage.svelte";
   import { effectiveViewer } from "$lib/shell/viewAs.svelte";
-  import { teamApi } from "$lib/team/api";
   import { inviteLink } from "$lib/team/inviteEmails";
   import { userErrorMessage } from "$lib/errors";
   import { hasCapability } from "../../../../shared/capabilities";
@@ -37,7 +36,7 @@
   const canInvite = $derived(hasCapability(viewer.role, "invites.manage"));
   const isAdminViewer = $derived(hasCapability(viewer.role, "roles.manage"));
 
-  const membersQ = useQuery(teamApi.listMembers, () => (auth.isAuthenticated && realCanView ? {} : "skip"));
+  const membersQ = useQuery(api.team.listMembers, () => (auth.isAuthenticated && realCanView ? {} : "skip"));
   const invitesQ = useQuery(api.invites.listTeamInvites, () =>
     auth.isAuthenticated && realCanView ? {} : "skip",
   );

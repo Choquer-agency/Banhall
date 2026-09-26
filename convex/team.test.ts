@@ -2,7 +2,7 @@
 import { convexTest } from "convex-test";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import schema from "./schema";
-import { teamApi } from "../src/lib/team/api";
+import { api } from "./_generated/api";
 
 const modules = import.meta.glob("./**/*.ts");
 
@@ -54,7 +54,7 @@ describe("team.listMembers", () => {
       await ctx.db.insert("userActivity", { userId: managerId, lastActiveAt: 1234 });
     });
     for (const who of ["admin", "manager"]) {
-      const rows = await as(t, who).query(teamApi.listMembers, {});
+      const rows = await as(t, who).query(api.team.listMembers, {});
       expect(rows.map((row) => row.name)).toEqual([
         "Ada Admin",
         "Cy Consultant",
@@ -81,10 +81,10 @@ describe("team.listMembers", () => {
 
   test("Consultants, roleless and signed-out callers get an empty list", async () => {
     const { t } = await setup();
-    expect(await as(t, "writer").query(teamApi.listMembers, {})).toEqual([]);
-    expect(await as(t, "roleless").query(teamApi.listMembers, {})).toEqual([]);
-    expect(await as(t, "anon").query(teamApi.listMembers, {})).toEqual([]);
-    expect(await t.query(teamApi.listMembers, {})).toEqual([]);
+    expect(await as(t, "writer").query(api.team.listMembers, {})).toEqual([]);
+    expect(await as(t, "roleless").query(api.team.listMembers, {})).toEqual([]);
+    expect(await as(t, "anon").query(api.team.listMembers, {})).toEqual([]);
+    expect(await t.query(api.team.listMembers, {})).toEqual([]);
   });
 });
 
@@ -108,15 +108,15 @@ describe("team.markActive", () => {
       );
     const start = Date.now();
 
-    await as(t, "writer").mutation(teamApi.markActive, {});
+    await as(t, "writer").mutation(api.team.markActive, {});
     expect((await readRows()).map((row) => row.lastActiveAt)).toEqual([start]);
 
     vi.setSystemTime(start + 4 * 60 * 1000);
-    await as(t, "writer").mutation(teamApi.markActive, {});
+    await as(t, "writer").mutation(api.team.markActive, {});
     expect((await readRows()).map((row) => row.lastActiveAt)).toEqual([start]);
 
     vi.setSystemTime(start + 5 * 60 * 1000);
-    await as(t, "writer").mutation(teamApi.markActive, {});
+    await as(t, "writer").mutation(api.team.markActive, {});
     expect((await readRows()).map((row) => row.lastActiveAt)).toEqual([
       start + 5 * 60 * 1000,
     ]);
@@ -124,13 +124,13 @@ describe("team.markActive", () => {
 
   test("refuses signed-out, anonymous and roleless callers", async () => {
     const { t } = await setup();
-    await expect(t.mutation(teamApi.markActive, {})).rejects.toThrow(
+    await expect(t.mutation(api.team.markActive, {})).rejects.toThrow(
       /NOT_AUTHENTICATED|Authentication required/,
     );
-    await expect(as(t, "anon").mutation(teamApi.markActive, {})).rejects.toThrow(
+    await expect(as(t, "anon").mutation(api.team.markActive, {})).rejects.toThrow(
       /NOT_AUTHENTICATED|Authentication required/,
     );
-    await expect(as(t, "roleless").mutation(teamApi.markActive, {})).rejects.toThrow(
+    await expect(as(t, "roleless").mutation(api.team.markActive, {})).rejects.toThrow(
       /NOT_AUTHORIZED|role is required/,
     );
     const rows = await t.run(async (ctx) => ctx.db.query("userActivity").take(5));

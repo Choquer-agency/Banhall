@@ -2,7 +2,7 @@
 import { convexTest } from "convex-test";
 import { describe, expect, it } from "vitest";
 import schema from "./schema";
-import { round2Api } from "./lib/round2Api";
+import { api } from "./_generated/api";
 import { ATTENTION_INGESTION_FAILED_CAP } from "./adminAttention";
 
 const modules = import.meta.glob("./**/*.ts");
@@ -53,26 +53,26 @@ const zeros = { total: 0, ingestionFailed: 0 };
 describe("adminAttention.getAttention", () => {
   it("gives an Admin the failed OneDrive import count and one page needing a look", async () => {
     const f = await setup();
-    expect(await f.admin.query(round2Api.adminAttention.getAttention, {})).toEqual(zeros);
+    expect(await f.admin.query(api.adminAttention.getAttention, {})).toEqual(zeros);
     await addItems(f, "approved", 3);
     await addItems(f, "pending_review", 2);
-    expect(await f.admin.query(round2Api.adminAttention.getAttention, {})).toEqual(zeros);
+    expect(await f.admin.query(api.adminAttention.getAttention, {})).toEqual(zeros);
     await addItems(f, "failed", 4);
-    expect(await f.admin.query(round2Api.adminAttention.getAttention, {})).toEqual({ total: 1, ingestionFailed: 4 });
+    expect(await f.admin.query(api.adminAttention.getAttention, {})).toEqual({ total: 1, ingestionFailed: 4 });
   });
 
   it("gives Managers, Consultants and everyone else zeros without throwing", async () => {
     const f = await setup();
     await addItems(f, "failed", 2);
     for (const viewer of [f.manager, f.consultant, f.roleless, f.anonymous, f.t]) {
-      expect(await viewer.query(round2Api.adminAttention.getAttention, {})).toEqual(zeros);
+      expect(await viewer.query(api.adminAttention.getAttention, {})).toEqual(zeros);
     }
   });
 
   it("caps the failed count at 100", async () => {
     const f = await setup();
     await addItems(f, "failed", ATTENTION_INGESTION_FAILED_CAP + 5);
-    expect(await f.admin.query(round2Api.adminAttention.getAttention, {})).toEqual({
+    expect(await f.admin.query(api.adminAttention.getAttention, {})).toEqual({
       total: 1,
       ingestionFailed: ATTENTION_INGESTION_FAILED_CAP,
     });

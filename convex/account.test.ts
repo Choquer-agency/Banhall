@@ -4,7 +4,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import schema from "./schema";
-import { round2Api } from "./lib/round2Api";
 import { PROFILE_PHOTO_MAX_BYTES } from "./account";
 import { FRESH_UPLOAD_MS } from "./lib/storage";
 
@@ -76,7 +75,7 @@ describe("account.setMyPhoto", () => {
     const f = await setup();
     expect((await f.writer.query(api.users.getCurrentUser, {}))?.imageUrl).toBeNull();
     const png = await claimedUpload(f);
-    await f.writer.mutation(round2Api.account.setMyPhoto, { storageId: png });
+    await f.writer.mutation(api.account.setMyPhoto, { storageId: png });
     expect((await userRow(f, f.writerId))?.imageStorageId).toBe(png);
     expect(await claims(f, png)).toEqual([]);
     const me = await f.writer.query(api.users.getCurrentUser, {});
@@ -84,7 +83,7 @@ describe("account.setMyPhoto", () => {
     expect(typeof me?.imageUrl).toBe("string");
 
     const jpg = await claimedUpload(f, "writer", { type: "image/jpeg" });
-    await f.writer.mutation(round2Api.account.setMyPhoto, { storageId: jpg });
+    await f.writer.mutation(api.account.setMyPhoto, { storageId: jpg });
     expect((await userRow(f, f.writerId))?.imageStorageId).toBe(jpg);
   });
 
@@ -97,7 +96,7 @@ describe("account.setMyPhoto", () => {
     const f = await setup();
     const storageId = await claimedUpload(f, "writer", { type });
     await expect(
-      f.writer.mutation(round2Api.account.setMyPhoto, { storageId })
+      f.writer.mutation(api.account.setMyPhoto, { storageId })
     ).rejects.toThrow("Use a PNG or JPG file.");
     expect((await userRow(f, f.writerId))?.imageStorageId).toBeUndefined();
   });
@@ -106,12 +105,12 @@ describe("account.setMyPhoto", () => {
     const f = await setup();
     const tooBig = await claimedUpload(f, "writer", { type: "image/jpeg", size: PROFILE_PHOTO_MAX_BYTES + 1 });
     await expect(
-      f.writer.mutation(round2Api.account.setMyPhoto, { storageId: tooBig })
+      f.writer.mutation(api.account.setMyPhoto, { storageId: tooBig })
     ).rejects.toThrow("That photo is over 5 MB.");
     expect((await userRow(f, f.writerId))?.imageStorageId).toBeUndefined();
 
     const atCap = await claimedUpload(f, "writer", { type: "image/jpeg", size: PROFILE_PHOTO_MAX_BYTES });
-    await f.writer.mutation(round2Api.account.setMyPhoto, { storageId: atCap });
+    await f.writer.mutation(api.account.setMyPhoto, { storageId: atCap });
     expect((await userRow(f, f.writerId))?.imageStorageId).toBe(atCap);
   });
 
@@ -119,12 +118,12 @@ describe("account.setMyPhoto", () => {
     const f = await setup();
     const unclaimed = await upload(f, { type: "image/png" });
     await expect(
-      f.writer.mutation(round2Api.account.setMyPhoto, { storageId: unclaimed })
+      f.writer.mutation(api.account.setMyPhoto, { storageId: unclaimed })
     ).rejects.toThrow(/Upload it again/);
 
     const othersUpload = await claimedUpload(f, "other");
     await expect(
-      f.writer.mutation(round2Api.account.setMyPhoto, { storageId: othersUpload })
+      f.writer.mutation(api.account.setMyPhoto, { storageId: othersUpload })
     ).rejects.toThrow(/Upload it again/);
     expect((await userRow(f, f.writerId))?.imageStorageId).toBeUndefined();
     // The other person's upload and claim are untouched.
@@ -137,7 +136,7 @@ describe("account.setMyPhoto", () => {
     const storageId = await claimedUpload(f);
     vi.advanceTimersByTime(FRESH_UPLOAD_MS + 1);
     await expect(
-      f.writer.mutation(round2Api.account.setMyPhoto, { storageId })
+      f.writer.mutation(api.account.setMyPhoto, { storageId })
     ).rejects.toThrow(/Upload it again/);
   });
 
@@ -153,16 +152,16 @@ describe("account.setMyPhoto", () => {
       });
     });
     await expect(
-      f.writer.mutation(round2Api.account.setMyPhoto, { storageId })
+      f.writer.mutation(api.account.setMyPhoto, { storageId })
     ).rejects.toThrow(/already in use/);
   });
 
   it("replacing the photo releases the old file", async () => {
     const f = await setup();
     const first = await claimedUpload(f);
-    await f.writer.mutation(round2Api.account.setMyPhoto, { storageId: first });
+    await f.writer.mutation(api.account.setMyPhoto, { storageId: first });
     const second = await claimedUpload(f, "writer", { type: "image/jpeg" });
-    await f.writer.mutation(round2Api.account.setMyPhoto, { storageId: second });
+    await f.writer.mutation(api.account.setMyPhoto, { storageId: second });
     expect((await userRow(f, f.writerId))?.imageStorageId).toBe(second);
     expect(await blobExists(f, first)).toBe(false);
     expect(await blobExists(f, second)).toBe(true);
@@ -171,8 +170,8 @@ describe("account.setMyPhoto", () => {
   it("setting the current photo again is a no-op", async () => {
     const f = await setup();
     const storageId = await claimedUpload(f);
-    await f.writer.mutation(round2Api.account.setMyPhoto, { storageId });
-    await f.writer.mutation(round2Api.account.setMyPhoto, { storageId });
+    await f.writer.mutation(api.account.setMyPhoto, { storageId });
+    await f.writer.mutation(api.account.setMyPhoto, { storageId });
     expect((await userRow(f, f.writerId))?.imageStorageId).toBe(storageId);
     expect(await blobExists(f, storageId)).toBe(true);
   });
@@ -180,9 +179,9 @@ describe("account.setMyPhoto", () => {
   it("refuses signed-out, anonymous and roleless callers", async () => {
     const f = await setup();
     const storageId = await upload(f, { type: "image/png" });
-    await expect(f.t.mutation(round2Api.account.setMyPhoto, { storageId })).rejects.toThrow(/Authentication required/);
-    await expect(f.anonymous.mutation(round2Api.account.setMyPhoto, { storageId })).rejects.toThrow(/Authentication required/);
-    await expect(f.roleless.mutation(round2Api.account.setMyPhoto, { storageId })).rejects.toThrow(/active internal role/);
+    await expect(f.t.mutation(api.account.setMyPhoto, { storageId })).rejects.toThrow(/Authentication required/);
+    await expect(f.anonymous.mutation(api.account.setMyPhoto, { storageId })).rejects.toThrow(/Authentication required/);
+    await expect(f.roleless.mutation(api.account.setMyPhoto, { storageId })).rejects.toThrow(/active internal role/);
   });
 });
 
@@ -190,19 +189,19 @@ describe("account.removeMyPhoto", () => {
   it("clears the photo and deletes the file", async () => {
     const f = await setup();
     const storageId = await claimedUpload(f);
-    await f.writer.mutation(round2Api.account.setMyPhoto, { storageId });
-    await f.writer.mutation(round2Api.account.removeMyPhoto, {});
+    await f.writer.mutation(api.account.setMyPhoto, { storageId });
+    await f.writer.mutation(api.account.removeMyPhoto, {});
     expect((await userRow(f, f.writerId))?.imageStorageId).toBeUndefined();
     expect(await blobExists(f, storageId)).toBe(false);
     expect((await f.writer.query(api.users.getCurrentUser, {}))?.imageUrl).toBeNull();
     // Removing again is harmless.
-    await f.writer.mutation(round2Api.account.removeMyPhoto, {});
+    await f.writer.mutation(api.account.removeMyPhoto, {});
   });
 
   it("refuses signed-out, anonymous and roleless callers", async () => {
     const f = await setup();
-    await expect(f.t.mutation(round2Api.account.removeMyPhoto, {})).rejects.toThrow(/Authentication required/);
-    await expect(f.anonymous.mutation(round2Api.account.removeMyPhoto, {})).rejects.toThrow(/Authentication required/);
-    await expect(f.roleless.mutation(round2Api.account.removeMyPhoto, {})).rejects.toThrow(/active internal role/);
+    await expect(f.t.mutation(api.account.removeMyPhoto, {})).rejects.toThrow(/Authentication required/);
+    await expect(f.anonymous.mutation(api.account.removeMyPhoto, {})).rejects.toThrow(/Authentication required/);
+    await expect(f.roleless.mutation(api.account.removeMyPhoto, {})).rejects.toThrow(/active internal role/);
   });
 });

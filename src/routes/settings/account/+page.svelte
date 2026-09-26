@@ -18,7 +18,6 @@
   import { useAuth } from "@mmailaender/convex-better-auth-svelte/svelte";
   import { toast } from "svelte-sonner";
   import { api } from "../../../../convex/_generated/api";
-  import { round2Api } from "../../../../convex/lib/round2Api";
   import type { Id } from "../../../../convex/_generated/dataModel";
 
   const auth = useAuth();
@@ -29,8 +28,8 @@
   const changeMyPassword = useMutation(api.users.changeMyPassword);
   const generateUploadUrl = useMutation(api.documents.generateUploadUrl);
   const claimUpload = useMutation(api.documents.claimUpload);
-  const setMyPhoto = useMutation(round2Api.account.setMyPhoto);
-  const removeMyPhoto = useMutation(round2Api.account.removeMyPhoto);
+  const setMyPhoto = useMutation(api.account.setMyPhoto);
+  const removeMyPhoto = useMutation(api.account.removeMyPhoto);
   const discardUpload = useMutation(api.transcripts.discardTranscriptOriginals);
 
   // Name: first/last shown everywhere your work is labeled.

@@ -9,17 +9,16 @@
   import { useAuth } from "@mmailaender/convex-better-auth-svelte/svelte";
   import { toast } from "svelte-sonner";
   import { api } from "../../../../convex/_generated/api";
-  import { round2Api } from "../../../../convex/lib/round2Api";
   import { userErrorMessage } from "$lib/errors";
   import { hasCapability } from "../../../../shared/capabilities";
   import type { NotificationSettingKey } from "../../../../shared/notifications";
 
   const auth = useAuth();
   const meQ = useQuery(api.users.getCurrentUser, () => (auth.isAuthenticated ? {} : "skip"));
-  const settingsQ = useQuery(round2Api.notifications.getSettings, () =>
+  const settingsQ = useQuery(api.notifications.getSettings, () =>
     auth.isAuthenticated ? {} : "skip"
   );
-  const setSetting = useMutation(round2Api.notifications.setSetting);
+  const setSetting = useMutation(api.notifications.setSetting);
 
   // Invite accepted is for people who can invite: Managers and Admins
   // (decision 47, `invites.manage`).

@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Id } from "./_generated/dataModel";
 import schema from "./schema";
 import crons from "./crons";
-import { round2Api, round2Internal } from "./lib/round2Api";
+import { api, internal } from "./_generated/api";
 import { notify, type NotifyInput } from "./lib/notify";
 import {
   NOTIFICATION_PRUNE_BATCH,
@@ -112,10 +112,10 @@ describe("notify", () => {
 
   it("skips a kind the recipient switched off, and only that kind", async () => {
     const f = await setup();
-    await f.me.mutation(round2Api.notifications.setSetting, { key: "handoff", value: false });
+    await f.me.mutation(api.notifications.setSetting, { key: "handoff", value: false });
     expect(await send(f, input(f.meId, { kind: "handoff" }))).toBeNull();
     expect(await send(f, input(f.meId, { kind: "draft_ready" }))).not.toBeNull();
-    await f.me.mutation(round2Api.notifications.setSetting, { key: "handoff", value: true });
+    await f.me.mutation(api.notifications.setSetting, { key: "handoff", value: true });
     expect(await send(f, input(f.meId, { kind: "handoff" }))).not.toBeNull();
     expect((await rowsFor(f, f.meId)).map((row) => row.kind).sort()).toEqual(["draft_ready", "handoff"]);
   });
@@ -160,11 +160,11 @@ describe("notifications.listRecent", () => {
     await send(f, input(f.otherId, { title: "Theirs" }));
     vi.advanceTimersByTime(1000);
     await send(f, input(f.meId, { title: "Mine 2" }));
-    const mine = await f.me.query(round2Api.notifications.listRecent, {});
+    const mine = await f.me.query(api.notifications.listRecent, {});
     expect(mine.map((row) => row.title)).toEqual(["Mine 2", "Mine 1"]);
     expect(mine[0]).not.toHaveProperty("userId");
     expect(mine[0]).not.toHaveProperty("dedupeKey");
-    expect((await f.other.query(round2Api.notifications.listRecent, {})).map((row) => row.title)).toEqual(["Theirs"]);
+    expect((await f.other.query(api.notifications.listRecent, {})).map((row) => row.title)).toEqual(["Theirs"]);
   });
 
   it("keeps to the last 7 days and at most 20 rows", async () => {
@@ -175,7 +175,7 @@ describe("notifications.listRecent", () => {
       await send(f, input(f.meId, { title: `recent ${i}` }));
       vi.advanceTimersByTime(10);
     }
-    const rows = await f.me.query(round2Api.notifications.listRecent, {});
+    const rows = await f.me.query(api.notifications.listRecent, {});
     expect(rows).toHaveLength(NOTIFICATION_RECENT_LIMIT);
     expect(rows[0].title).toBe(`recent ${NOTIFICATION_RECENT_LIMIT + 4}`);
     expect(rows.at(-1)?.title).toBe("recent 5");
@@ -185,9 +185,9 @@ describe("notifications.listRecent", () => {
   it("returns an empty list to signed-out, anonymous and roleless callers", async () => {
     const f = await setup();
     await send(f, input(f.meId));
-    expect(await f.t.query(round2Api.notifications.listRecent, {})).toEqual([]);
-    expect(await f.anonymous.query(round2Api.notifications.listRecent, {})).toEqual([]);
-    expect(await f.roleless.query(round2Api.notifications.listRecent, {})).toEqual([]);
+    expect(await f.t.query(api.notifications.listRecent, {})).toEqual([]);
+    expect(await f.anonymous.query(api.notifications.listRecent, {})).toEqual([]);
+    expect(await f.roleless.query(api.notifications.listRecent, {})).toEqual([]);
   });
 });
 
@@ -196,10 +196,10 @@ describe("notifications.markSeen", () => {
     const f = await setup();
     const a = (await send(f, input(f.meId)))!;
     const b = (await send(f, input(f.meId)))!;
-    await f.me.mutation(round2Api.notifications.markSeen, { ids: [a] });
+    await f.me.mutation(api.notifications.markSeen, { ids: [a] });
     vi.advanceTimersByTime(5000);
-    await f.me.mutation(round2Api.notifications.markSeen, { ids: [a, b, a] });
-    const rows = await f.me.query(round2Api.notifications.listRecent, {});
+    await f.me.mutation(api.notifications.markSeen, { ids: [a, b, a] });
+    const rows = await f.me.query(api.notifications.listRecent, {});
     const seen = Object.fromEntries(rows.map((row) => [row._id, row.seenAt]));
     expect(seen[a]).toBe(START);
     expect(seen[b]).toBe(START + 5000);
@@ -210,7 +210,7 @@ describe("notifications.markSeen", () => {
     const mine = (await send(f, input(f.meId)))!;
     const theirs = (await send(f, input(f.otherId)))!;
     await expect(
-      f.me.mutation(round2Api.notifications.markSeen, { ids: [mine, theirs] })
+      f.me.mutation(api.notifications.markSeen, { ids: [mine, theirs] })
     ).rejects.toThrow(/your own notifications/);
     const rows = await f.t.run(async (ctx) => [await ctx.db.get(mine), await ctx.db.get(theirs)]);
     expect(rows.map((row) => row?.seenAt)).toEqual([undefined, undefined]);
@@ -220,23 +220,23 @@ describe("notifications.markSeen", () => {
     const f = await setup();
     const gone = (await send(f, input(f.meId)))!;
     await f.t.run((ctx) => ctx.db.delete(gone));
-    await expect(f.me.mutation(round2Api.notifications.markSeen, { ids: [gone] })).resolves.toBeNull();
+    await expect(f.me.mutation(api.notifications.markSeen, { ids: [gone] })).resolves.toBeNull();
   });
 
   it("accepts at most 50 ids", async () => {
     const f = await setup();
     const id = (await send(f, input(f.meId)))!;
     await expect(
-      f.me.mutation(round2Api.notifications.markSeen, { ids: Array.from({ length: 51 }, () => id) })
+      f.me.mutation(api.notifications.markSeen, { ids: Array.from({ length: 51 }, () => id) })
     ).rejects.toThrow(/at most 50/);
   });
 
   it("refuses signed-out, anonymous and roleless callers", async () => {
     const f = await setup();
     const id = (await send(f, input(f.meId)))!;
-    await expect(f.t.mutation(round2Api.notifications.markSeen, { ids: [id] })).rejects.toThrow(/Authentication required/);
-    await expect(f.anonymous.mutation(round2Api.notifications.markSeen, { ids: [id] })).rejects.toThrow(/Authentication required/);
-    await expect(f.roleless.mutation(round2Api.notifications.markSeen, { ids: [id] })).rejects.toThrow(/active internal role/);
+    await expect(f.t.mutation(api.notifications.markSeen, { ids: [id] })).rejects.toThrow(/Authentication required/);
+    await expect(f.anonymous.mutation(api.notifications.markSeen, { ids: [id] })).rejects.toThrow(/Authentication required/);
+    await expect(f.roleless.mutation(api.notifications.markSeen, { ids: [id] })).rejects.toThrow(/active internal role/);
   });
 });
 
@@ -245,18 +245,18 @@ describe("notification settings", () => {
 
   it("defaults every switch on, signed in or not", async () => {
     const f = await setup();
-    expect(await f.me.query(round2Api.notifications.getSettings, {})).toEqual(allOn);
-    expect(await f.t.query(round2Api.notifications.getSettings, {})).toEqual(allOn);
-    expect(await f.roleless.query(round2Api.notifications.getSettings, {})).toEqual(allOn);
+    expect(await f.me.query(api.notifications.getSettings, {})).toEqual(allOn);
+    expect(await f.t.query(api.notifications.getSettings, {})).toEqual(allOn);
+    expect(await f.roleless.query(api.notifications.getSettings, {})).toEqual(allOn);
   });
 
   it("upserts one row per person and never touches anyone else's", async () => {
     const f = await setup();
-    await f.me.mutation(round2Api.notifications.setSetting, { key: "qaFinished", value: false });
-    await f.me.mutation(round2Api.notifications.setSetting, { key: "inviteAccepted", value: false });
-    await f.me.mutation(round2Api.notifications.setSetting, { key: "inviteAccepted", value: true });
-    expect(await f.me.query(round2Api.notifications.getSettings, {})).toEqual({ ...allOn, qaFinished: false });
-    expect(await f.other.query(round2Api.notifications.getSettings, {})).toEqual(allOn);
+    await f.me.mutation(api.notifications.setSetting, { key: "qaFinished", value: false });
+    await f.me.mutation(api.notifications.setSetting, { key: "inviteAccepted", value: false });
+    await f.me.mutation(api.notifications.setSetting, { key: "inviteAccepted", value: true });
+    expect(await f.me.query(api.notifications.getSettings, {})).toEqual({ ...allOn, qaFinished: false });
+    expect(await f.other.query(api.notifications.getSettings, {})).toEqual(allOn);
     const rows = await f.t.run((ctx) =>
       ctx.db.query("notificationSettings").withIndex("by_userId", (q) => q.eq("userId", f.meId)).take(5)
     );
@@ -266,9 +266,9 @@ describe("notification settings", () => {
   it("refuses signed-out, anonymous and roleless callers", async () => {
     const f = await setup();
     const args = { key: "handoff" as const, value: false };
-    await expect(f.t.mutation(round2Api.notifications.setSetting, args)).rejects.toThrow(/Authentication required/);
-    await expect(f.anonymous.mutation(round2Api.notifications.setSetting, args)).rejects.toThrow(/Authentication required/);
-    await expect(f.roleless.mutation(round2Api.notifications.setSetting, args)).rejects.toThrow(/active internal role/);
+    await expect(f.t.mutation(api.notifications.setSetting, args)).rejects.toThrow(/Authentication required/);
+    await expect(f.anonymous.mutation(api.notifications.setSetting, args)).rejects.toThrow(/Authentication required/);
+    await expect(f.roleless.mutation(api.notifications.setSetting, args)).rejects.toThrow(/active internal role/);
   });
 });
 
@@ -285,7 +285,7 @@ describe("notifications.pruneOld", () => {
     const fresh = (await send(f, input(f.meId, { dedupeKey: "fresh" })))!;
     vi.advanceTimersByTime(DAY + 1);
 
-    const first = await f.t.mutation(round2Internal.notifications.pruneOld, {});
+    const first = await f.t.mutation(internal.notifications.pruneOld, {});
     expect(first).toBe(NOTIFICATION_PRUNE_BATCH);
     await f.t.finishAllScheduledFunctions(vi.runAllTimers);
     const left = await rowsFor(f, f.meId);

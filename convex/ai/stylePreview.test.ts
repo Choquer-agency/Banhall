@@ -2,7 +2,7 @@
 import { convexTest } from "convex-test";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import schema from "../schema";
-import { previewMyStyleRef } from "../../src/lib/settings/stylePreviewApi";
+import { api } from "../_generated/api";
 import {
   STYLE_PREVIEW_FIXTURE,
   STYLE_PREVIEW_LIMIT_MESSAGE,
@@ -107,7 +107,7 @@ describe("toPreviewParagraphs", () => {
 describe("previewMyStyle", () => {
   it("runs on the planning role and returns the sample", async () => {
     const { ana } = await setup();
-    const result = await ana.action(previewMyStyleRef, { variant: "preferences" });
+    const result = await ana.action(api.ai.stylePreview.previewMyStyle, { variant: "preferences" });
     expect(result).toEqual({
       status: "ready",
       cached: false,
@@ -126,16 +126,16 @@ describe("previewMyStyle", () => {
 
   it("serves a repeat view from the cache without a model call", async () => {
     const { ana } = await setup();
-    await ana.action(previewMyStyleRef, { variant: "preferences" });
-    const again = await ana.action(previewMyStyleRef, { variant: "preferences" });
+    await ana.action(api.ai.stylePreview.previewMyStyle, { variant: "preferences" });
+    const again = await ana.action(api.ai.stylePreview.previewMyStyle, { variant: "preferences" });
     expect(again).toMatchObject({ status: "ready", cached: true });
     expect(providerMocks.create).toHaveBeenCalledTimes(1);
   });
 
   it("shares the house sample across writers and keeps it free of anyone's instructions", async () => {
     const { t, ana, sam } = await setup();
-    await ana.action(previewMyStyleRef, { variant: "house" });
-    const forSam = await sam.action(previewMyStyleRef, { variant: "house" });
+    await ana.action(api.ai.stylePreview.previewMyStyle, { variant: "house" });
+    const forSam = await sam.action(api.ai.stylePreview.previewMyStyle, { variant: "house" });
     expect(forSam).toMatchObject({ status: "ready", cached: true });
     expect(providerMocks.create).toHaveBeenCalledTimes(1);
     const request = providerMocks.create.mock.calls[0]![0] as { messages: Array<{ content: string }> };
@@ -147,7 +147,7 @@ describe("previewMyStyle", () => {
 
   it("a change in the org modes makes a new house sample", async () => {
     const { t, ana } = await setup();
-    await ana.action(previewMyStyleRef, { variant: "house" });
+    await ana.action(api.ai.stylePreview.previewMyStyle, { variant: "house" });
     await t.run(async (ctx) => {
       const admin = await ctx.db.insert("users", { authId: "prev-admin", role: "admin" });
       await ctx.db.insert("appSettings", {
@@ -157,7 +157,7 @@ describe("previewMyStyle", () => {
         updatedAt: 1,
       });
     });
-    expect(await ana.action(previewMyStyleRef, { variant: "house" })).toMatchObject({ cached: false });
+    expect(await ana.action(api.ai.stylePreview.previewMyStyle, { variant: "house" })).toMatchObject({ cached: false });
     expect(providerMocks.create).toHaveBeenCalledTimes(2);
   });
 
@@ -166,7 +166,7 @@ describe("previewMyStyle", () => {
     const anaId = await t.run(async (ctx) =>
       (await ctx.db.query("users").withIndex("by_authId", (q) => q.eq("authId", "prev-ana")).unique())!._id,
     );
-    await ana.action(previewMyStyleRef, { variant: "house" });
+    await ana.action(api.ai.stylePreview.previewMyStyle, { variant: "house" });
     await t.run(async (ctx) => {
       for (let i = 1; i < STYLE_PREVIEW_DAILY_CAP; i += 1) {
         await ctx.db.insert("writerStylePreviews", {
@@ -180,18 +180,18 @@ describe("previewMyStyle", () => {
         });
       }
     });
-    expect(await ana.action(previewMyStyleRef, { variant: "preferences" })).toEqual({
+    expect(await ana.action(api.ai.stylePreview.previewMyStyle, { variant: "preferences" })).toEqual({
       status: "limit",
       message: STYLE_PREVIEW_LIMIT_MESSAGE,
     });
-    expect(await ana.action(previewMyStyleRef, { variant: "house" })).toMatchObject({ cached: true });
+    expect(await ana.action(api.ai.stylePreview.previewMyStyle, { variant: "house" })).toMatchObject({ cached: true });
     expect(providerMocks.create).toHaveBeenCalledTimes(1);
   });
 
   it("refuses signed-out and roleless callers before any model work", async () => {
     const { t, roleless } = await setup();
-    await expect(t.action(previewMyStyleRef, { variant: "house" })).rejects.toThrow(/Authentication required/);
-    await expect(roleless.action(previewMyStyleRef, { variant: "house" })).rejects.toThrow(
+    await expect(t.action(api.ai.stylePreview.previewMyStyle, { variant: "house" })).rejects.toThrow(/Authentication required/);
+    await expect(roleless.action(api.ai.stylePreview.previewMyStyle, { variant: "house" })).rejects.toThrow(
       /NOT_AUTHORIZED|role is required/,
     );
     expect(providerMocks.role).not.toHaveBeenCalled();
@@ -205,7 +205,7 @@ describe("previewMyStyle", () => {
       stop_reason: "max_tokens",
       usage: { input_tokens: 1, output_tokens: 1 },
     });
-    await expect(ana.action(previewMyStyleRef, { variant: "house" })).rejects.toThrow(/could not be written/);
+    await expect(ana.action(api.ai.stylePreview.previewMyStyle, { variant: "house" })).rejects.toThrow(/could not be written/);
     expect(await t.run((ctx) => ctx.db.query("writerStylePreviews").take(1))).toEqual([]);
   });
 });
