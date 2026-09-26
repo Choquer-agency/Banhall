@@ -12,6 +12,7 @@ import {
   __setQueryData,
 } from "$lib/test/convex-svelte-stub.svelte";
 import { takeProjectStart } from "$lib/workspace/projectIntentHandoff";
+import { openTranscriptPaste, startFromPage } from "./newProjectTestSupport";
 
 /**
  * Opening New project from the command menu while on a duplicate's New
@@ -122,11 +123,9 @@ describe("/project/new from the command menu on a duplicate", () => {
     // added here.
     setField("#title", "Fresh project");
     setField("#clientName", "New Client Ltd.");
-    buttonByText("Paste text")!.click();
-    await expect.poll(() => document.querySelector("#transcript")).not.toBeNull();
+    await openTranscriptPaste();
     setField("#transcript", "Interviewer: What was new?\nEngineer: The sensor.");
-    await clickText("Next");
-    await clickText("Generate Report");
+    await startFromPage();
 
     await expect.poll(() => __mutationCalls("generations:requestGeneration").length).toBe(1);
     const created = __mutationCalls("projects:createProject")[0] as {
@@ -139,7 +138,7 @@ describe("/project/new from the command menu on a duplicate", () => {
     expect(__mutationCalls("projectDuplication:copyProjectContent")).toEqual([]);
     expect(__mutationCalls("generations:requestGeneration")[0]).toMatchObject({
       projectId: "project-new",
-      candidateMode: "compare",
+      candidateMode: "iterative",
     });
     expect(warn.mock.calls.flat().join(" ")).not.toContain("derived_inert");
     warn.mockRestore();
@@ -160,8 +159,7 @@ describe("/project/new from the command menu on a duplicate", () => {
 
     await expect.poll(titleValue).toBe("Alloy furnace (copy)");
     await expect.poll(() => document.querySelector("[data-copied-files]")).not.toBeNull();
-    await clickText("Next");
-    await clickText("Generate Report");
+    await startFromPage();
     await expect.poll(() => __mutationCalls("projectDuplication:copyProjectContent").length).toBe(1);
 
     await newProjectFromCommandMenu();
@@ -201,8 +199,7 @@ describe("/project/new from the command menu on a duplicate", () => {
     await render(NewProjectRoute, {});
     await expect.poll(titleValue).toBe("Alloy furnace (copy)");
     await expect.poll(() => document.querySelector("[data-copied-files]")).not.toBeNull();
-    await clickText("Next");
-    await clickText("Generate Report");
+    await startFromPage();
     await expect.poll(() => __mutationCalls("projectDuplication:copyProjectContent").length).toBe(1);
     return (value: unknown) => finishCopy(value);
   }

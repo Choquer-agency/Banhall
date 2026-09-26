@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { toast } from "svelte-sonner";
 import { render } from "vitest-browser-svelte";
+import { page } from "vitest/browser";
 import NewProjectPage from "./+page.svelte";
 import { __resetPage, __setPageUrl } from "$lib/test/app-state-stub.svelte";
 import { __navigationCalls, __resetNavigation } from "$lib/test/app-navigation-stub";
@@ -10,12 +11,20 @@ import {
   __setMutationError,
   __setMutationResult,
   __setQueryData,
+  __setQueryDataForArgs,
 } from "$lib/test/convex-svelte-stub.svelte";
 import { takeProjectStart } from "$lib/workspace/projectIntentHandoff";
+import {
+  addSupportingFiles,
+  confirmButton,
+  openStartDialog,
+  startButton,
+  startFromPage,
+} from "./newProjectTestSupport";
 
 /**
  * Duplicate from a project card (2026-09-25): the card opens
- * /project/new?from=<id>&drafts=iterative. The wizard preselects Generate PD
+ * /project/new?from=<id>&drafts=iterative. The page preselects Write a new PD
  * and Step by step, shows the files the copy will bring along, copies the
  * inputs only (no old report, no PD reviews outside Review PD) and then
  * starts that generation like a new project. A bad `drafts` value is
@@ -23,9 +32,11 @@ import { takeProjectStart } from "$lib/workspace/projectIntentHandoff";
  * that starts nothing.
  */
 
+// A write-mode card reads "Step by step Recommended Pick the ideas first...",
+// so a card is found by the label it starts with.
 const radio = (group: string, label: string) =>
   [...document.querySelectorAll<HTMLButtonElement>(`[aria-label="${group}"] [role="radio"]`)].find(
-    (button) => button.textContent?.trim() === label
+    (button) => button.textContent?.replace(/\s+/g, " ").trim().startsWith(label)
   );
 const checked = (group: string, label: string) => radio(group, label)?.getAttribute("aria-checked");
 
@@ -72,15 +83,7 @@ function setFiscalYearEnd(value: string) {
 }
 
 async function commitFromReviewStep() {
-  await clickText("Next");
-  await expect
-    .poll(() =>
-      [...document.querySelectorAll("button")].some((button) =>
-        button.textContent?.includes("Generate Report")
-      )
-    )
-    .toBe(true);
-  await clickText("Generate Report");
+  await startFromPage();
 }
 
 function document_(
@@ -129,7 +132,8 @@ function seedSource(mode: "generate" | "review" = "generate") {
   });
 }
 
-beforeEach(() => {
+beforeEach(async () => {
+  await page.viewport(1440, 900);
   localStorage.clear();
   __resetPage();
   __resetNavigation();
@@ -139,7 +143,7 @@ beforeEach(() => {
 });
 
 describe("/project/new drafts preselection", () => {
-  it("preselects Generate PD and Step by step for a card duplicate", async () => {
+  it("preselects Write a new PD and Step by step for a card duplicate", async () => {
     seedSource();
     __setPageUrl("/project/new?from=project-1&drafts=iterative");
     await render(NewProjectPage, {});
@@ -148,8 +152,8 @@ describe("/project/new drafts preselection", () => {
       "Alloy furnace (copy)"
     );
     await expect.poll(() => checked("Draft generation mode", "Step by step")).toBe("true");
-    expect(checked("Project mode", "Generate PD")).toBe("true");
-    expect(checked("Draft generation mode", "Compare")).toBe("false");
+    expect(checked("Project mode", "Write a new PD")).toBe("true");
+    expect(checked("Draft generation mode", "Compare two drafts")).toBe("false");
   });
 
   it.each(["Iterative", "step-by-step", "", "iterative%20"])(
@@ -161,8 +165,9 @@ describe("/project/new drafts preselection", () => {
       await expect.poll(() => document.querySelector<HTMLInputElement>("#title")?.value).toBe(
         "Alloy furnace (copy)"
       );
-      await expect.poll(() => checked("Draft generation mode", "Compare")).toBe("true");
-      expect(checked("Draft generation mode", "Step by step")).toBe("false");
+      // Round 2 (E1): Step by step is the default when no valid mode is given.
+      await expect.poll(() => checked("Draft generation mode", "Step by step")).toBe("true");
+      expect(checked("Draft generation mode", "Compare two drafts")).toBe("false");
     }
   );
 
@@ -171,16 +176,16 @@ describe("/project/new drafts preselection", () => {
     await render(NewProjectPage, {});
 
     await expect.poll(() => checked("Draft generation mode", "Single draft")).toBe("true");
-    expect(checked("Project mode", "Generate PD")).toBe("true");
+    expect(checked("Project mode", "Write a new PD")).toBe("true");
   });
 
-  it("keeps a review project in Review PD", async () => {
+  it("keeps a review project in Review a written PD", async () => {
     seedSource("review");
     __setPageUrl("/project/new?from=project-1&drafts=iterative");
     await render(NewProjectPage, {});
 
-    await expect.poll(() => checked("Project mode", "Review PD")).toBe("true");
-    // Drafts modes belong to Generate PD, so none is on screen.
+    await expect.poll(() => checked("Project mode", "Review a written PD")).toBe("true");
+    // Drafts modes belong to Write a new PD, so none is on screen.
     expect(document.querySelector('[aria-label="Draft generation mode"]')).toBeNull();
   });
 });
@@ -243,7 +248,7 @@ describe("/project/new duplicate commit", () => {
     await expect.poll(() => document.querySelector<HTMLInputElement>("#title")?.value).toBe(
       "Alloy furnace (copy)"
     );
-    expect(checked("Draft generation mode", "Compare")).toBe("true");
+    expect(checked("Draft generation mode", "Step by step")).toBe("true");
     await commitFromReviewStep();
 
     await expect
@@ -326,9 +331,10 @@ describe("/project/new copied files", () => {
     expect(groupBox(section, "Writer's notes")?.getAttribute("aria-checked")).toBe("true");
     expect(section.textContent).not.toMatch(/[\u2013\u2014]/);
 
-    await clickText("Next");
-    await expect.poll(() => document.body.textContent).toContain("Copied files");
-    expect(document.body.textContent).toContain("4 from Alloy furnace");
+    // The start dialog lists every copied file with its type.
+    await openStartDialog();
+    const rows = [...document.querySelectorAll<HTMLElement>("[data-start-run-row]")];
+    expect(rows.filter((row) => row.dataset.startRunRow?.startsWith("c:")).map((row) => row.textContent?.includes("Copied from Alloy furnace"))).toEqual([true, true, true, true]);
   });
 
   it("keeps the reviewed PD in the list for a Review PD duplicate", async () => {
@@ -379,9 +385,8 @@ describe("/project/new copied files", () => {
     await render(NewProjectPage, {});
 
     await expect.poll(() => document.querySelector("[data-copied-files]")).not.toBeNull();
-    await clickText("Next");
-    await expect.poll(() => buttonByText("Generate Report")?.disabled).toBe(false);
-    expect(document.body.textContent).not.toContain("Add a transcript or at least one context document first.");
+    await expect.poll(() => startButton()?.disabled).toBe(false);
+    expect(document.querySelector('[data-checklist-row="no-source"]')).toBeNull();
   });
 
   it("does not count an archived or empty copy as a source", async () => {
@@ -395,11 +400,10 @@ describe("/project/new copied files", () => {
     await render(NewProjectPage, {});
 
     await expect.poll(() => document.querySelector("[data-copied-files]")).not.toBeNull();
-    await clickText("Next");
     await expect
-      .poll(() => document.body.textContent)
-      .toContain("Add a transcript or at least one context document first.");
-    expect(buttonByText("Generate Report")?.disabled).toBe(true);
+      .poll(() => document.querySelector('[data-checklist-row="no-source"]')?.textContent)
+      .toContain("Add a transcript or at least one supporting document");
+    expect(startButton()?.disabled).toBe(true);
   });
 
   it("shows no copied files for a new project", async () => {
@@ -509,7 +513,7 @@ describe("/project/new unticking copied files", () => {
     expect(copyArgs().excludeDocumentIds).toEqual(["doc-1", "doc-2"]);
   });
 
-  it("blocks Generate when everything is unticked, until a readable file is ticked", async () => {
+  it("blocks the start when everything is unticked, until a readable file is ticked", async () => {
     seedSource();
     __setQueryData("documents:listDocuments", [
       document_("doc-1", "Writer notes.md", { category: "writer_notes" }),
@@ -524,28 +528,54 @@ describe("/project/new unticking copied files", () => {
     document.querySelector<HTMLButtonElement>('[data-transcript-item] button[aria-label="Copy Kickoff.docx"]')!.click();
     await untick("Writer notes.md");
 
-    await clickText("Next");
     await expect
-      .poll(() => document.body.textContent)
+      .poll(() => document.querySelector('[data-checklist-row="no-source"]')?.textContent)
       .toContain("Tick a transcript or file from Alloy furnace, or add your own.");
-    expect(buttonByText("Generate Report")?.disabled).toBe(true);
+    expect(startButton()?.disabled).toBe(true);
 
-    buttonByText("Back")!.click();
-    await expect.poll(() => fileBox("Writer notes.md")).not.toBeNull();
     fileBox("Writer notes.md")!.click();
-    await clickText("Next");
-    await expect.poll(() => buttonByText("Generate Report")?.disabled).toBe(false);
+    await expect.poll(() => startButton()?.disabled).toBe(false);
   });
 
-  it("shows the ticked count on the review step", async () => {
+  it("lists only the ticked copies in the start dialog", async () => {
     seedSource();
     __setPageUrl("/project/new?from=project-1&drafts=iterative");
     await render(NewProjectPage, {});
 
-    await copiedSection();
+    const section = await copiedSection();
     await untick("Chat upload.pdf");
-    await clickText("Next");
-    await expect.poll(() => document.body.textContent).toContain("3 of 4 from Alloy furnace");
+    expect(section.querySelector("[data-copied-files-count]")?.textContent?.trim()).toBe("3 of 4 files");
+    await openStartDialog();
+    const copied = [...document.querySelectorAll<HTMLElement>("[data-start-run-row]")].filter((row) =>
+      row.dataset.startRunRow?.startsWith("c:")
+    );
+    expect(copied.map((row) => row.dataset.startRunRow)).toEqual(["c:doc-1", "c:doc-2", "c:doc-3"]);
+  });
+
+  it("leaves a copy unticked in the start dialog out of the run, not out of the project", async () => {
+    seedSource();
+    __setPageUrl("/project/new?from=project-1&drafts=iterative");
+    __setQueryData("documents:listDocuments", [
+      document_("doc-1", "Writer notes.md", { category: "writer_notes" }),
+      document_("doc-2", "Scoping.md", { category: "scoping_notes" }),
+    ]);
+    await render(NewProjectPage, {});
+    await copiedSection();
+    await openStartDialog();
+    document.querySelector<HTMLElement>('[data-start-run-check="c:doc-2"]')!.click();
+    await expect.poll(() => confirmButton()?.textContent?.trim()).toBe("Start with 2 files");
+    // After the copy, the page finds the copied rows in the new project.
+    __setQueryDataForArgs("documents:listDocuments", { projectId: "project-copy" }, [
+      document_("new-1", "Writer notes.md", { category: "writer_notes" }),
+      document_("new-2", "Scoping.md", { category: "scoping_notes" }),
+    ]);
+    confirmButton()!.click();
+    await expect.poll(() => __mutationCalls("generations:requestGeneration").length).toBe(1);
+    expect(copyArgs()).not.toHaveProperty("excludeDocumentIds");
+    expect(__mutationCalls("generations:requestGeneration")[0]).toMatchObject({
+      projectId: "project-copy",
+      excludeDocumentIds: ["new-2"],
+    });
   });
 
   it("sends no leave-out list when submitted before the file list loads", async () => {
@@ -642,7 +672,7 @@ describe("/project/new last year's report", () => {
     await render(NewProjectPage, {});
 
     await copiedSection();
-    await expect.poll(() => checked("Project mode", "Review PD")).toBe("true");
+    await expect.poll(() => checked("Project mode", "Review a written PD")).toBe("true");
     await pickFiscalYearEnd("2025-12-31", "Next");
     expect(reportRow()).toBeNull();
   });
@@ -650,35 +680,32 @@ describe("/project/new last year's report", () => {
 
 describe("/project/new Review PD duplicate", () => {
   async function dropPd(name: string) {
-    const input = document.querySelector<HTMLInputElement>(
-      'input[type="file"]:not([multiple]):not([accept=".docx"])'
-    );
+    const input = document.querySelector<HTMLInputElement>("[data-written-pd-input]");
     if (!input) throw new Error("Missing PD input");
     const transfer = new DataTransfer();
     transfer.items.add(new File(["Experimental development of a marine battery."], name));
     input.files = transfer.files;
     input.dispatchEvent(new Event("change", { bubbles: true }));
-    await expect.poll(() => document.body.textContent).toContain("words extracted");
+    await expect.poll(() => document.querySelector("[data-review-pd-card]")).not.toBeNull();
   }
 
-  it("keeps Review PD, never offers Step by step, and starts a review", async () => {
+  it("keeps Review a written PD, never offers Step by step, and starts a review", async () => {
     seedSource("review");
     __setMutationResult("documents:uploadDocument", "review-doc");
     __setPageUrl("/project/new?from=project-1&drafts=iterative");
     await render(NewProjectPage, {});
 
-    await expect.poll(() => checked("Project mode", "Review PD")).toBe("true");
-    const generate = radio("Project mode", "Generate PD")!;
+    await expect.poll(() => checked("Project mode", "Review a written PD")).toBe("true");
+    const generate = radio("Project mode", "Write a new PD")!;
     expect(generate.getAttribute("aria-disabled")).toBe("true");
     generate.click();
     await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(checked("Project mode", "Review PD")).toBe("true");
+    expect(checked("Project mode", "Review a written PD")).toBe("true");
     expect(document.querySelector('[aria-label="Draft generation mode"]')).toBeNull();
     expect(document.body.textContent).not.toContain("Step by step");
 
     await dropPd("Revised PD.txt");
-    await clickText("Next");
-    await clickText("Review PD");
+    await startFromPage();
 
     await expect.poll(() => __mutationCalls("pdReviews:startPdReview").length).toBe(1);
     expect(copyArgs()).toMatchObject({ includeReport: false, includeReviews: true });
@@ -826,21 +853,10 @@ describe("/project/new failed copy keeps the writer's own files (review D-2)", (
     "Some files from Alloy furnace were not copied. Add them on the project page. The files you added here were saved in this project, so a new duplicate would not include them.";
 
   async function addOwnContextFile(name: string) {
+    addSupportingFiles([new File(["Notes the writer added on the page."], name, { type: "text/plain" })]);
     await expect
-      .poll(() => document.querySelector('[role="region"][aria-label$=" files"] button'))
-      .not.toBeNull();
-    document.querySelector<HTMLButtonElement>('[role="region"][aria-label$=" files"] button')!.click();
-    await expect
-      .poll(() => document.querySelector('[role="region"][aria-label$=" files"] input[type="file"]'))
-      .not.toBeNull();
-    const input = document.querySelector<HTMLInputElement>(
-      '[role="region"][aria-label$=" files"] input[type="file"]'
-    )!;
-    const transfer = new DataTransfer();
-    transfer.items.add(new File(["Notes the writer added in the wizard."], name, { type: "text/plain" }));
-    input.files = transfer.files;
-    input.dispatchEvent(new Event("change", { bubbles: true }));
-    await expect.poll(() => document.body.textContent).toContain(name);
+      .poll(() => document.querySelector(`[data-supporting-card][data-status="ready"]`)?.textContent)
+      .toContain(name);
   }
 
   function stubUploads() {
@@ -921,17 +937,14 @@ describe("/project/new failed copy keeps the writer's own files (review D-2)", (
       __setPageUrl("/project/new?from=project-1&drafts=iterative");
       await render(NewProjectPage, {});
 
-      await expect.poll(() => checked("Project mode", "Review PD")).toBe("true");
-      const input = document.querySelector<HTMLInputElement>(
-        'input[type="file"]:not([multiple]):not([accept=".docx"])'
-      )!;
+      await expect.poll(() => checked("Project mode", "Review a written PD")).toBe("true");
+      const input = document.querySelector<HTMLInputElement>("[data-written-pd-input]")!;
       const transfer = new DataTransfer();
       transfer.items.add(new File(["Experimental development of a marine battery."], "Revised PD.txt"));
       input.files = transfer.files;
       input.dispatchEvent(new Event("change", { bubbles: true }));
-      await expect.poll(() => document.body.textContent).toContain("words extracted");
-      await clickText("Next");
-      await clickText("Review PD");
+      await expect.poll(() => document.querySelector("[data-review-pd-card]")).not.toBeNull();
+      await startFromPage();
 
       await expect
         .poll(() => __navigationCalls.map((call) => call.url))

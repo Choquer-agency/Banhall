@@ -27,7 +27,16 @@ export type ReadTranscript = {
   file: File;
 };
 
-export class TranscriptFileError extends Error {}
+/** Why a transcript file was refused, so New project can show E5's boxes. */
+export type TranscriptFileProblem = "type" | "size" | "unreadable" | "empty" | "too_long";
+
+export class TranscriptFileError extends Error {
+  readonly problem: TranscriptFileProblem;
+  constructor(message: string, problem: TranscriptFileProblem = "unreadable") {
+    super(message);
+    this.problem = problem;
+  }
+}
 
 /** The parts of a mammoth document element the text walk reads. */
 type DocxNode = { type: string; value?: string; breakType?: string; children?: DocxNode[] };
@@ -92,24 +101,25 @@ async function extractText(file: File): Promise<string> {
  */
 export async function readTranscriptFile(file: File): Promise<ReadTranscript> {
   if (!isTranscriptFileName(file.name)) {
-    throw new TranscriptFileError(`${file.name} is not a transcript file. ${TRANSCRIPT_FILE_TYPES_COPY}`);
+    throw new TranscriptFileError(`${file.name} is not a transcript file. ${TRANSCRIPT_FILE_TYPES_COPY}`, "type");
   }
   if (file.size > MAX_TRANSCRIPT_FILE_BYTES) {
-    throw new TranscriptFileError(`${file.name} is larger than 25 MB.`);
+    throw new TranscriptFileError(`${file.name} is larger than 25 MB.`, "size");
   }
   let raw: string;
   try {
     raw = await extractText(file);
   } catch {
-    throw new TranscriptFileError(`Couldn't read ${file.name}. Try another file.`);
+    throw new TranscriptFileError(`Couldn't read ${file.name}. Try another file.`, "unreadable");
   }
   const { format, content } = prepareTranscriptUpload({ fileName: file.name, text: raw, intake: "file" });
   if (!content.trim()) {
-    throw new TranscriptFileError(`Couldn't extract any text from ${file.name}.`);
+    throw new TranscriptFileError(`Couldn't extract any text from ${file.name}.`, "empty");
   }
   if (content.length > MAX_TRANSCRIPT_CHARS) {
     throw new TranscriptFileError(
-      `${file.name} is longer than 500,000 characters. Split it into two transcripts.`
+      `${file.name} is longer than 500,000 characters. Split it into two transcripts.`,
+      "too_long"
     );
   }
   return { label: file.name, content, format, formatLabel: TRANSCRIPT_FORMAT_LABELS[format], file };

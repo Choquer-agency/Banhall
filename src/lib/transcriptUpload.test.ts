@@ -235,3 +235,14 @@ describe("releaseOriginalsOnFailure", () => {
     expect(none).not.toHaveBeenCalled();
   });
 });
+
+describe("TranscriptFileError problems (E5)", () => {
+  it("says why a file was refused", async () => {
+    const { readTranscriptFile, TranscriptFileError } = await import("./transcriptUpload");
+    const video = await readTranscriptFile(new File(["x"], "demo.mp4")).catch((error) => error);
+    expect(video).toBeInstanceOf(TranscriptFileError);
+    expect(video.problem).toBe("type");
+    const empty = await readTranscriptFile(new File(["   "], "call.txt")).catch((error) => error);
+    expect(empty.problem).toBe("empty");
+  });
+});

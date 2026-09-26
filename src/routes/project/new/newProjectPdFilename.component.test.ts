@@ -6,6 +6,7 @@ import { __resetNavigation } from "$lib/test/app-navigation-stub";
 import { __resetAuthState } from "$lib/test/convex-auth-state-stub.svelte";
 import { __resetConvexStub, __setQueryData } from "$lib/test/convex-svelte-stub.svelte";
 import { takeProjectStart } from "$lib/workspace/projectIntentHandoff";
+import { chooseMode } from "./newProjectTestSupport";
 
 /**
  * PD file-name prefill (writer request 2026-09-09): in review mode a PD named
@@ -15,7 +16,8 @@ import { takeProjectStart } from "$lib/workspace/projectIntentHandoff";
  */
 const PD_NAME =
   "03 3GAMarine 2025-12-31 R1.LR.mo MarineBatteryElectricalandThermalBehaviourAdvancements.txt";
-const HINT = "Filled from the file name: project 3 · 3GA Marine · FYE 2025-12-31 · title · R1 · writer LR · reviewer MO";
+// Commas, not middle dots (round 2 copy rule).
+const HINT = "Filled from the file name: project 3, 3GA Marine, FYE 2025-12-31, title, R1, writer LR, reviewer MO";
 
 const field = (id: string) => document.querySelector<HTMLInputElement>(`#${id}`);
 function type(id: string, value: string) {
@@ -28,21 +30,18 @@ function type(id: string, value: string) {
 async function openReviewMode() {
   await render(NewProjectPage, {});
   await expect.poll(() => field("title")).not.toBeNull();
-  const radio = document.querySelector<HTMLButtonElement>('[role="radio"][aria-checked="false"]');
-  if (!radio) throw new Error("Missing review mode");
-  radio.click();
-  await expect.poll(() => document.body.textContent).toContain("Written PD to review");
+  await chooseMode("Review a written PD");
+  await expect.poll(() => document.querySelector("[data-written-pd-drop]")).not.toBeNull();
 }
 
 async function dropPd(name: string) {
-  // The PD slot is the only single-file input that is not the .docx-only transcript input.
-  const input = document.querySelector<HTMLInputElement>('input[type="file"]:not([multiple]):not([accept=".docx"])');
+  const input = document.querySelector<HTMLInputElement>("[data-written-pd-input]");
   if (!input) throw new Error("Missing PD input");
   const transfer = new DataTransfer();
   transfer.items.add(new File(["Experimental development of a marine battery."], name));
   input.files = transfer.files;
   input.dispatchEvent(new Event("change", { bubbles: true }));
-  await expect.poll(() => document.body.textContent).toContain("words extracted");
+  await expect.poll(() => document.querySelector("[data-review-pd-card]")).not.toBeNull();
 }
 
 beforeEach(() => {
@@ -69,6 +68,10 @@ it("fills the empty fields from a scheme-named PD and shows the hint", async () 
   expect(document.querySelector("#fiscalYearEnd")?.textContent).toContain("December 31, 2025");
   // Initials are informational only (hint text), never a person field.
   expect(document.body.textContent).toContain(HINT);
+  // E4: the PD card says where the title came from.
+  expect(document.querySelector("[data-review-pd-uploaded]")?.textContent?.trim()).toBe(
+    "Uploaded just now. We filled the project title from the file name."
+  );
 });
 
 it("never overwrites what the writer already typed", async () => {
@@ -83,7 +86,7 @@ it("never overwrites what the writer already typed", async () => {
   expect(field("sredTitle")?.value).toBe("Marine Battery Electricaland Thermal Behaviour Advancements");
   expect(document.body.textContent).toContain(
     // The SR&ED title was still empty, so "title" stays in the hint.
-    "Filled from the file name: project 3 · FYE 2025-12-31 · title · R1 · writer LR · reviewer MO"
+    "Filled from the file name: project 3, FYE 2025-12-31, title, R1, writer LR, reviewer MO"
   );
 });
 
@@ -95,7 +98,7 @@ it("dismisses the hint and clears it with the file; a non-scheme name shows none
   await expect.poll(() => document.body.textContent).not.toContain("Filled from the file name");
 
   document.querySelector<HTMLButtonElement>('[aria-label="Remove file"]')?.click();
-  await expect.poll(() => document.body.textContent).not.toContain("words extracted");
+  await expect.poll(() => document.querySelector("[data-review-pd-card]")).toBeNull();
   await dropPd("Final Report.txt");
   expect(document.body.textContent).not.toContain("Filled from the file name");
   // Fields filled by the first file are the writer's now and stay put.
