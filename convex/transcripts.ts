@@ -5,11 +5,11 @@ import type { Doc, Id } from "./_generated/dataModel";
 import {
   getInternalProjectAccessOrNull,
   requireInternalActor,
-  requireInternalProjectAccess,
   requireRole,
 } from "./lib/auth";
 import { domainError, sha256 } from "./lib/contracts";
-import { deleteStorageIfUnreferenced, isStorageReferenced } from "./lib/storage";
+import { requireReportEditAccess } from "./lib/roleCapabilities";
+import { deleteStorageIfUnreferenced, isStorageReferenced, uploadClaimFor } from "./lib/storage";
 import { findActiveGeneration } from "./lib/activeGeneration";
 import {
   transcriptSourceFormatValidator,
@@ -231,7 +231,9 @@ async function requireTranscriptChange(
   projectId: Id<"projects">,
   change: { content?: string; replacing?: Id<"transcripts"> }
 ) {
-  const { project, user } = await requireInternalProjectAccess(ctx, projectId);
+  // Transcripts are what the next draft reads: changing them is a
+  // report.editProse act (audit 2026-09-25, a2 P2-3).
+  const { project, user } = await requireReportEditAccess(ctx, projectId);
   if (await findActiveGeneration(ctx, project, ACTIVE_GENERATION_STATUSES)) {
     domainError(
       "GENERATION_ACTIVE",
@@ -389,7 +391,7 @@ export const replaceTranscript = mutation({
     const old = await ctx.db.get(args.transcriptId);
     if (!old) domainError("NOT_FOUND", "Transcript not found");
     if (old.archivedAt !== undefined) {
-      await requireInternalProjectAccess(ctx, old.projectId);
+      await requireReportEditAccess(ctx, old.projectId);
       domainError("INVALID_STATE", "This transcript was already replaced or removed");
     }
     const { project, active, contentHash } = await requireTranscriptChange(ctx, old.projectId, {
@@ -423,18 +425,23 @@ const DISCARD_ORIGINAL_WINDOW_MS = 60 * 60 * 1000;
  * new project that was then refused (duplicate, caps, active generation).
  * The bytes go to storage before the server checks anything, so without
  * this a refusal left interview text in storage that no row points to and
- * project erasure can never find. Only files no row holds and that were
- * uploaded in the last hour are deleted; anything else is left alone.
+ * project erasure can never find. Only files the caller claimed as their
+ * own upload (documents.claimUpload), that no row holds and that were
+ * uploaded in the last hour are deleted; anything else is left alone for
+ * the storage sweep (a2 P2-8).
  */
 export const discardTranscriptOriginals = mutation({
   args: { storageIds: v.array(v.id("_storage")) },
   returns: v.null(),
   handler: async (ctx, args) => {
-    await requireInternalActor(ctx);
+    const user = await requireInternalActor(ctx);
     const now = Date.now();
     for (const storageId of args.storageIds.slice(0, MAX_TRANSCRIPTS_PER_PROJECT)) {
+      const claim = await uploadClaimFor(ctx, storageId);
+      if (!claim || claim.userId !== user._id) continue;
       const metadata = await ctx.db.system.get("_storage", storageId);
       if (!metadata || now - metadata._creationTime > DISCARD_ORIGINAL_WINDOW_MS) continue;
+      await ctx.db.delete(claim._id);
       await deleteStorageIfUnreferenced(ctx, storageId);
     }
     return null;
@@ -793,7 +800,7 @@ export const getTranscriptSpeakers = query({
 async function requireSpeakerChange(ctx: MutationCtx, transcriptId: Id<"transcripts">) {
   const transcript = await ctx.db.get(transcriptId);
   if (!transcript) domainError("NOT_FOUND", "Transcript not found");
-  const { user } = await requireInternalProjectAccess(ctx, transcript.projectId);
+  const { user } = await requireReportEditAccess(ctx, transcript.projectId);
   return { transcript, user };
 }
 

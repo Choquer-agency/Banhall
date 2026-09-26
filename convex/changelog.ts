@@ -6,13 +6,13 @@
  */
 import { mutation, query, internalMutation, internalQuery } from "./_generated/server";
 import { v } from "convex/values";
-import { requireCurrentUser, requireRole } from "./lib/auth";
+import { requireInternalActor, requireRole } from "./lib/auth";
 import { domainError } from "./lib/contracts";
 
 export const listEntries = query({
   args: {},
   handler: async (ctx) => {
-    await requireCurrentUser(ctx);
+    await requireInternalActor(ctx);
     return await ctx.db
       .query("changelogEntries")
       .withIndex("by_publishedAt")
@@ -25,7 +25,7 @@ export const listEntries = query({
 export const unseenCount = query({
   args: {},
   handler: async (ctx) => {
-    const user = await requireCurrentUser(ctx);
+    const user = await requireInternalActor(ctx);
     const read = await ctx.db
       .query("changelogReads")
       .withIndex("by_userId", (q) => q.eq("userId", user._id))
@@ -42,7 +42,7 @@ export const unseenCount = query({
 export const markSeen = mutation({
   args: {},
   handler: async (ctx) => {
-    const user = await requireCurrentUser(ctx);
+    const user = await requireInternalActor(ctx);
     // Watermark must cover the newest entry, not just "now": pipeline entries
     // are stamped 23:59 UTC of their work day, which can be in the future —
     // a now-only watermark left today's entry unread and the badge stuck.

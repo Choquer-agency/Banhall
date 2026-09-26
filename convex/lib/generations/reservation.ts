@@ -51,7 +51,7 @@ import { projectPlaceholderMap } from "../transcriptPlaceholders";
 import { appendGenerationProgress } from "../generationProgress";
 import { refreshProjectGenerationActivity } from "../dashboardProjection";
 import { internal } from "../../_generated/api";
-import { requireInternalProjectAccess, requireCurrentUser } from "../auth";
+import { requireInternalActor } from "../auth";
 import { resolveGatedWorkflow } from "../gatedWorkflow";
 import { requireReportEditAccess } from "../roleCapabilities";
 import { assertFrozenSourceBijection, resolveFrozenSourceId } from "../seedRevisions";
@@ -429,7 +429,10 @@ export async function requestGenerationHandler(
   ctx: MutationCtx,
   args: ObjectType<typeof requestGenerationArgs>
 ) {
-  const { project, user } = await requireInternalProjectAccess(ctx, args.projectId);
+  // A new draft can replace the report everyone reads (single mode writes a
+  // new latest report with no selection step), so starting one is a
+  // report.editProse act, not just internal access (audit 2026-09-25, a2 P1-1).
+  const { project, user } = await requireReportEditAccess(ctx, args.projectId);
   const latestReport = await ctx.db
     .query("reports")
     .withIndex("by_projectId", (q) => q.eq("projectId", project._id))
@@ -465,7 +468,7 @@ export async function retryGenerationHandler(
   ctx: MutationCtx,
   args: ObjectType<typeof retryGenerationArgs>
 ) {
-  await requireCurrentUser(ctx);
+  await requireInternalActor(ctx);
   const failed = await ctx.db.get(args.generationId);
   if (!failed) domainError("NOT_FOUND", "Generation not found");
   if (failed.status !== "failed") {
@@ -474,7 +477,7 @@ export async function retryGenerationHandler(
   if (resolveGatedWorkflow(failed) === "seeds" && failed.summaryVersionId) {
     domainError("INVALID_INPUT", "Use Summary recovery for a signed-off seed generation");
   }
-  const { project, user } = await requireInternalProjectAccess(ctx, failed.projectId);
+  const { project, user } = await requireReportEditAccess(ctx, failed.projectId);
   return await reserveGeneration(
     ctx,
     project,
@@ -696,7 +699,7 @@ export async function retryFailedCandidatesHandler(
   if (generation.status !== "awaiting_selection") {
     domainError("INVALID_STATE", "Only a partial generation can retry failed drafts");
   }
-  const { project, user } = await requireInternalProjectAccess(ctx, generation.projectId);
+  const { project, user } = await requireReportEditAccess(ctx, generation.projectId);
   const runs = await ctx.db
     .query("generationCandidateRuns")
     .withIndex("by_generationId", (q) => q.eq("generationId", generation._id))

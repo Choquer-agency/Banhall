@@ -2,7 +2,8 @@ import type { MutationCtx, QueryCtx } from "../_generated/server";
 import type { Doc, Id } from "../_generated/dataModel";
 import { internal } from "../_generated/api";
 import { domainError, sha256 } from "./contracts";
-import { isStorageReferenced, requireFreshUpload } from "./storage";
+import { isStorageReferenced, requireFreshUpload, requireNotClaimedByAnother } from "./storage";
+import { requireInternalActor } from "./auth";
 import {
   TRANSCRIPT_PARSER_VERSION,
   type TranscriptSourceFormat,
@@ -494,5 +495,7 @@ export async function validatedOriginalStorage(
   if (await isStorageReferenced(ctx, storageId)) {
     domainError("INVALID_INPUT", "The uploaded transcript file is already in use. Upload it again.");
   }
+  // Another user's claimed upload is theirs to attach (a2 P2-8).
+  await requireNotClaimedByAnother(ctx, storageId, (await requireInternalActor(ctx))._id);
   return storageId;
 }

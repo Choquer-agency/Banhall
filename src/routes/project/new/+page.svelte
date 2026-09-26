@@ -94,6 +94,7 @@
   const uploadDocument = useMutation(api.documents.uploadDocument);
   const generateUploadUrl = useMutation(api.documents.generateUploadUrl);
   const discardTranscriptOriginals = useMutation(api.transcripts.discardTranscriptOriginals);
+  const claimUpload = useMutation(api.documents.claimUpload);
   const recordUploadAttempts = useMutation(api.uploadAttempts.recordUploadAttempts);
   const user = useQuery(api.users.getCurrentUser, () =>
     auth.isAuthenticated ? {} : "skip"
@@ -873,7 +874,11 @@
           return { fromTranscriptId: item.source.fromTranscriptId, label: item.label };
         }
         const originalStorageId = item.file
-          ? await uploadTranscriptOriginal(item.file, () => generateUploadUrl({}))
+          ? await uploadTranscriptOriginal(
+              item.file,
+              () => generateUploadUrl({}),
+              (storageId) => claimUpload({ storageId: storageId as Id<"_storage"> })
+            )
           : null;
         return {
           content: item.source.content,

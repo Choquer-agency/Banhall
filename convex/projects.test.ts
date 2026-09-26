@@ -671,7 +671,10 @@ describe("copied running PD reviews", () => {
       expect(copied.status).toBe("failed");
       expect(copied.error).toMatch(/source.*still running.*duplicated/i);
       expect(copied.documentId).not.toBe(source.documentId);
-      const retryId = await actor.mutation(api.pdReviews.retryPdReview, { reviewId: copied._id });
+      // Retrying a review needs report.editProse on the destination, which
+      // its Owner (the other writer) holds.
+      const destinationOwner = asActor(t, "writer");
+      const retryId = await destinationOwner.mutation(api.pdReviews.retryPdReview, { reviewId: copied._id });
       expect(retryId).not.toBe(copied._id);
       const after = await snapshot(t);
       expect(after.reviews.find((row) => row._id === retryId)).toMatchObject({
@@ -690,7 +693,7 @@ describe("copied running PD reviews", () => {
       })]);
       // Once this destination has a running retry, the normal guard still
       // rejects a second retry of the copied failed row without side effects.
-      await expect(actor.mutation(api.pdReviews.retryPdReview, {
+      await expect(destinationOwner.mutation(api.pdReviews.retryPdReview, {
         reviewId: copied._id,
       })).rejects.toMatchObject({ data: {
         code: "INVALID_INPUT", message: "A review is already running for this project",
@@ -1662,6 +1665,21 @@ describe("project number auto-lettering (meeting 2026-08-18)", () => {
     expect(a?.projectNumber).toBe("1a");
     expect(b?.projectNumber).toBe("1b");
     expect(c?.projectNumber).toBe("1c");
+  });
+
+  // Security wave 1 (a2 P3-2): the bare sibling is renamed only when the
+  // caller may edit that project's details; otherwise it keeps "1" (read as
+  // the "a" slot) and the caller's project still takes the next letter.
+  test("leaves a sibling the caller cannot edit alone and still letters the caller's project", async () => {
+    const { t, siblings, writerId } = await setupSiblings();
+    await t.run((ctx) => ctx.db.patch(siblings.a, { ownerId: writerId, projectNumber: "1" }));
+    await asActor(t, "owner").mutation(api.projects.setProjectNumber, {
+      projectId: siblings.b,
+      projectNumber: "1",
+    });
+    const [a, b] = await t.run(async (ctx) => [await ctx.db.get(siblings.a), await ctx.db.get(siblings.b)]);
+    expect(a?.projectNumber).toBe("1");
+    expect(b?.projectNumber).toBe("1b");
   });
 
   test("re-applying the same number to the same project does not self-collide", async () => {

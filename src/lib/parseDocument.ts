@@ -174,6 +174,9 @@ export async function parseFileToText(file: File, options: SpreadsheetParseOptio
     const loadingTask = pdfjs.getDocument({
       data: arrayBuffer,
       useSystemFonts: true,
+      // The Content Security Policy has no 'unsafe-eval'; text extraction
+      // never needs it, so pdf.js should not try.
+      isEvalSupported: false,
     });
     let text = "";
     let truncatedAtPage = 0;

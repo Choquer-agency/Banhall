@@ -235,6 +235,11 @@ describe("Ask assistant with a highlight (final round, item 2)", () => {
   it("keeps the highlight's place when the writer regenerates the prompt", async () => {
     const f = await setup(bodyComment);
     const first = await askWithHighlight(f, { text: "Work Performed", ...selection(3, "Work Performed") });
+    // The first reply has finished: a thread runs one turn at a time.
+    await f.t.mutation(internal.chatV2.finishTurn, {
+      agentThreadId: first.threadId, promptMessageId: first.messageId,
+      requestedStatus: "completed", endedAt: Date.now(), stepCount: 1,
+    });
     // Regenerate resends the stored prompt text, which carries only the excerpt.
     const again = await f.owner.mutation(api.chatV2.sendMessage, {
       reportId: f.reportId, threadId: first.threadId,

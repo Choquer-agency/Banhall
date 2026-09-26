@@ -6,6 +6,7 @@ import {
 } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
+import { requireReportEditAccess } from "./lib/roleCapabilities";
 import {
   getInternalProjectAccessOrNull,
   requireInternalProjectAccess,
@@ -36,7 +37,7 @@ export const startPdReview = mutation({
     documentId: v.id("projectDocuments"),
   },
   handler: async (ctx, args) => {
-    const { user } = await requireInternalProjectAccess(ctx, args.projectId);
+    const { user } = await requireReportEditAccess(ctx, args.projectId);
     requireAnthropicConfigured("review");
     const doc = await ctx.db.get(args.documentId);
     if (
@@ -94,7 +95,7 @@ export const retryPdReview = mutation({
   handler: async (ctx, args) => {
     const failed = await ctx.db.get(args.reviewId);
     if (!failed) domainError("NOT_FOUND", "Review not found");
-    const { user } = await requireInternalProjectAccess(ctx, failed.projectId);
+    const { user } = await requireReportEditAccess(ctx, failed.projectId);
     requireAnthropicConfigured("review");
     // `completed` is retryable too: older rows were stored before the result
     // was validated, so a review can be marked complete yet hold a payload the

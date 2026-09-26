@@ -62,6 +62,7 @@ async function setup(content: string) {
       clientName: "Verdant Grid",
       status: "draft",
       createdBy: writerId,
+      ownerId: writerId,
       shareToken: "fo-token",
       createdAt: 1,
       updatedAt: 1,

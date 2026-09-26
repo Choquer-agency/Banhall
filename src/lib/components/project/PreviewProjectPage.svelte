@@ -103,6 +103,7 @@
   import SingleModelPicker from "$lib/components/generation/SingleModelPicker.svelte";
   import GhostCompareDialog from "$lib/components/generation/GhostCompareDialog.svelte";
   import { displayName } from "$lib/displayName";
+  import { projectCapabilityAllows } from "../../../../shared/capabilities";
   import { setProposalSectionSource } from "$lib/chat/proposalSection";
 
   const auth = useAuth();
@@ -226,6 +227,7 @@
   const removeTranscriptMut = useMutation(api.transcripts.removeTranscript);
   const discardTranscriptOriginalsMut = useMutation(api.transcripts.discardTranscriptOriginals);
   const generateTranscriptUploadUrl = useMutation(api.documents.generateUploadUrl);
+  const claimTranscriptUpload = useMutation(api.documents.claimUpload);
   let transcriptBusy = $state(false);
 
   /**
@@ -245,7 +247,11 @@
         toast.error(`This transcript is already added (${duplicate.label}).`);
         return;
       }
-      const originalStorageId = await uploadTranscriptOriginal(file, () => generateTranscriptUploadUrl({}));
+      const originalStorageId = await uploadTranscriptOriginal(
+        file,
+        () => generateTranscriptUploadUrl({}),
+        (storageId) => claimTranscriptUpload({ storageId: storageId as Id<"_storage"> })
+      );
       const upload = {
         content: read.content,
         label: read.label,
@@ -351,11 +357,13 @@
   const transcripts = $derived(transcriptsQ.data ?? []);
   const openTranscript = $derived(openTranscriptQ.data);
   const user = $derived(userQ.data);
+  // Same authority as publishForReview: project.setStage (the current
+  // Owner, a Manager or an Admin), never createdBy.
   const canShare = $derived(
     Boolean(
       project &&
         user &&
-        (project.createdBy === user._id || user.role === "admin")
+        projectCapabilityAllows(user.role, "project.setStage", project, user._id)
     )
   );
   const pdReview = $derived(pdReviewQ.data);

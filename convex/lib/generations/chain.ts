@@ -37,7 +37,7 @@ import {
 import { ORDERED_SECTION_TITLES } from "../../ai/promptDefinitions";
 import { settleCandidateRun } from "./candidates";
 import { requireReportEditAccess } from "../roleCapabilities";
-import { requireInternalProjectAccess, getInternalProjectAccessOrNull } from "../auth";
+import { getInternalProjectAccessOrNull } from "../auth";
 
 // ─── Story 2: ordered, ungated section chain (single/compare, AD-24) ─────────
 //
@@ -682,7 +682,7 @@ export async function stopOrderedGenerationHandler(
     project = access.project;
     actorUserId = access.user._id;
   } else {
-    project = (await requireInternalProjectAccess(ctx, generation.projectId)).project;
+    project = (await requireReportEditAccess(ctx, generation.projectId)).project;
     if ((generation.candidateMode ?? "compare") === "iterative") {
       domainError(
         "INVALID_STATE",

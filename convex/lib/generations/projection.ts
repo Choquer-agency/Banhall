@@ -10,6 +10,7 @@ import type { Doc, Id } from "../../_generated/dataModel";
 import type { QueryCtx } from "../../_generated/server";
 import { v, type ObjectType } from "convex/values";
 import { getInternalProjectAccessOrNull } from "../auth";
+import { hasCapability } from "../../../shared/capabilities";
 import { resolveGatedWorkflow, resolveSeedPhase } from "../gatedWorkflow";
 import { SEED_INITIALIZATION_ERROR } from "./seedStage";
 import { getReportEditAccessOrNull } from "../roleCapabilities";
@@ -36,6 +37,41 @@ export function isVisibleGeneration(
   generation: Doc<"generations">
 ): generation is VisibleGeneration {
   return generation.status !== "superseded";
+}
+
+/**
+ * The agentOutputs keys the project page reads (QA scores and the
+ * chronology table). The rest (analysis, Brief, drafts, per-stage internals)
+ * is pipeline material for admins (security wave 1, a2 P2-7).
+ */
+const USER_FACING_AGENT_OUTPUT_KEYS = ["qa", "chronology"] as const;
+
+/** Whether this reader sees internal generation fields: agentOutputs in full,
+ * the prompt version, learned-guidance ids and cost. The matrix's
+ * "operational alerts and usage administration" row (ops.viewAlerts). */
+function seesGenerationInternals(user: Doc<"users">): boolean {
+  return hasCapability(user.role, "ops.viewAlerts");
+}
+
+/** agentOutputs as a reader may see it: whole for admins, otherwise only the
+ * user-facing keys (still a JSON string, the shape the page parses). */
+export function agentOutputsFor(
+  raw: string | undefined,
+  user: Doc<"users">
+): string | undefined {
+  if (raw === undefined || seesGenerationInternals(user)) return raw;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return undefined;
+  }
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return undefined;
+  const visible: Record<string, unknown> = {};
+  for (const key of USER_FACING_AGENT_OUTPUT_KEYS) {
+    if (key in parsed) visible[key] = (parsed as Record<string, unknown>)[key];
+  }
+  return JSON.stringify(visible);
 }
 
 export const GENERATION_HISTORY_LIMIT = 50;
@@ -148,8 +184,9 @@ export async function getLatestGenerationHandler(
       generation.error,
       "The generation did not complete. Try again."
     ),
-    // Read through the artifact rows since 2026-09-25 (dual read).
-    agentOutputs: await readAgentOutputs(ctx, generation),
+    // Read through the artifact rows since 2026-09-25 (dual read). Only the
+    // QA and chronology keys unless the reader is an admin.
+    agentOutputs: agentOutputsFor(await readAgentOutputs(ctx, generation), access.user),
   };
 }
 
@@ -195,12 +232,13 @@ export async function getGenerationHandler(
   args: ObjectType<typeof getGenerationArgs>
 ) {
   const generation = await ctx.db.get(args.generationId);
-  if (
-    !generation ||
-    !(await getInternalProjectAccessOrNull(ctx, generation.projectId))
-  ) {
+  const access = generation
+    ? await getInternalProjectAccessOrNull(ctx, generation.projectId)
+    : null;
+  if (!generation || !access) {
     return null;
   }
+  const internals = seesGenerationInternals(access.user);
   // D-4: a non-empty promptVersion is the sole "tracked" marker. Legacy rows
   // and reservations not yet stamped by beginGeneration read as untracked and
   // return null for all three provenance fields — never 0, which would be
@@ -215,7 +253,7 @@ export async function getGenerationHandler(
   // generation-owned provider calls (low hundreds at worst), so a single
   // collect() stays well inside query read limits; truncating would
   // silently under-report.
-  const usage = tracked
+  const usage = tracked && internals
     ? await ctx.db
         .query("aiUsage")
         .withIndex("by_generationId", (q) =>
@@ -237,12 +275,14 @@ export async function getGenerationHandler(
     requestedAt: generation.requestedAt,
     startedAt: generation.startedAt,
     completedAt: generation.completedAt,
-    // Read through the artifact rows since 2026-09-25 (dual read).
-    agentOutputs: await readAgentOutputs(ctx, generation),
+    // Read through the artifact rows since 2026-09-25 (dual read). The
+    // provenance fields and cost below are admin-only (a2 P2-7): for anyone
+    // else they read null, like an untracked row.
+    agentOutputs: agentOutputsFor(await readAgentOutputs(ctx, generation), access.user),
     /** Deployment-level prompt program hash, or null for untracked rows. */
-    promptVersion: tracked ? promptVersion : null,
+    promptVersion: tracked && internals ? promptVersion : null,
     /** Learned-guidance ids recorded so far, or null for untracked rows. */
-    learningDigestIds: tracked ? (generation.learningDigestIds ?? []) : null,
+    learningDigestIds: tracked && internals ? (generation.learningDigestIds ?? []) : null,
     /** Recorded attributable cost in US dollars: the sum of `costUsd` over
      * the `aiUsage` rows recorded against this generation. Individual rows
      * may themselves be estimated from token counts (`logUsage` falls back to
@@ -252,7 +292,7 @@ export async function getGenerationHandler(
      * simply absent. `null` means the generation is untracked, not that it
      * cost nothing. The tracked marker, not the emptiness of the usage read,
      * is what decides null-vs-0. */
-    cost: tracked
+    cost: tracked && internals
       ? (usage ?? []).reduce((total, row) => total + row.costUsd, 0)
       : null,
   };
@@ -327,7 +367,11 @@ export async function listGenerationsHandler(
     requestedAt: generation.requestedAt,
     startedAt: generation.startedAt,
     completedAt: generation.completedAt,
-    error: generation.error,
+    // Stored errors can carry raw provider text: same projection as the
+    // other readers (a2 P2-7).
+    error:
+      userSafeStoredError(generation.error, "The generation did not complete. Try again.") ??
+      undefined,
   }));
 }
 

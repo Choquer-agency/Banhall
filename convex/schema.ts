@@ -1607,6 +1607,8 @@ export default defineSchema({
       "promptMessageId",
     ])
     .index("by_agentThreadId_and_order", ["agentThreadId", "order"])
+    // One turn at a time per thread (security wave 1, a4 #17).
+    .index("by_agentThreadId_and_status", ["agentThreadId", "status"])
     .index("by_userId_and_status", ["userId", "status"])
     // Stale-turn reaper: sweep queued/running rows regardless of thread.
     .index("by_status", ["status"]),
@@ -2074,7 +2076,15 @@ export default defineSchema({
     // Jul 17: feature requests are visible to all writers; +1s are stored
     // inline (tiny volume — a handful of writers).
     upvoterIds: v.optional(v.array(v.id("users"))),
-  }).index("by_status", ["status"]),
+    // Security wave 1 (a2 P1-3): a random id the browser keeps for its
+    // session, so a signed-out reporter has a per-minute budget too.
+    sessionId: v.optional(v.string()),
+  })
+    .index("by_status", ["status"])
+    // Per-minute reporting budgets: per signed-in user (and, with userId
+    // unset, for all signed-out reports together) and per browser session.
+    .index("by_userId_and_createdAt", ["userId", "createdAt"])
+    .index("by_sessionId_and_createdAt", ["sessionId", "createdAt"]),
 
   // Non-destructive version history of the report (Google-Docs-style restore).
   reportSnapshots: defineTable({
@@ -3384,6 +3394,21 @@ export default defineSchema({
   // stored files no row holds (`transcripts.sweepUnreferencedStorage`). In
   // "report" mode (the default) it only counts what it would delete; admins
   // read the latest run through `transcripts.getStorageSweepStatus`.
+  // Who uploaded a file that no row holds yet (security wave 1, a2 P2-8).
+  // Convex does not record an uploader, so the browser claims each
+  // transcript original right after uploading it; only the claimant may
+  // release it (transcripts.discardTranscriptOriginals) and nobody else may
+  // attach it. `storageId` is a plain string on purpose: a claim is not a
+  // hold, so the storage sweep and erasure ignore it. Claims older than
+  // FRESH_UPLOAD_MS mean nothing and are pruned as new ones arrive.
+  uploadClaims: defineTable({
+    storageId: v.string(),
+    userId: v.id("users"),
+    claimedAt: v.number(),
+  })
+    .index("by_storageId", ["storageId"])
+    .index("by_claimedAt", ["claimedAt"]),
+
   storageSweepRuns: defineTable({
     mode: v.union(v.literal("report"), v.literal("delete")),
     // Files created before this were looked at.

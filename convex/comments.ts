@@ -3,7 +3,6 @@ import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
 import {
   getProjectAccess,
-  requireInternalProjectAccess,
 } from "./lib/auth";
 import { requireReportEditAccess } from "./lib/roleCapabilities";
 import { domainError, sha256 } from "./lib/contracts";
@@ -131,7 +130,7 @@ export const resolveComment = mutation({
   handler: async (ctx, args) => {
     const comment = await ctx.db.get(args.commentId);
     if (!comment) domainError("NOT_FOUND", "Comment not found");
-    await requireInternalProjectAccess(ctx, comment.projectId);
+    await requireReportEditAccess(ctx, comment.projectId);
     await ctx.db.patch(args.commentId, { resolved: true });
   },
 });
@@ -141,7 +140,7 @@ export const unresolveComment = mutation({
   handler: async (ctx, args) => {
     const comment = await ctx.db.get(args.commentId);
     if (!comment) domainError("NOT_FOUND", "Comment not found");
-    await requireInternalProjectAccess(ctx, comment.projectId);
+    await requireReportEditAccess(ctx, comment.projectId);
     await ctx.db.patch(args.commentId, { resolved: false });
   },
 });
@@ -227,7 +226,7 @@ export const deleteComment = mutation({
   handler: async (ctx, args) => {
     const comment = await ctx.db.get(args.commentId);
     if (!comment) return;
-    await requireInternalProjectAccess(ctx, comment.projectId);
+    await requireReportEditAccess(ctx, comment.projectId);
     await ctx.db.delete(args.commentId);
   },
 });

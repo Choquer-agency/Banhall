@@ -257,7 +257,8 @@ export {
 export { PROGRESS_BACKFILL_MAX_LINES } from "./lib/generations/migrations";
 
 /**
- * Requires internal project access. Strips internal agentOutputs.
+ * Requires internal project access. agentOutputs carries only the QA and
+ * chronology keys unless the reader is an admin.
  */
 export const getLatestGeneration = query({
   args: getLatestGenerationArgs,
@@ -285,7 +286,8 @@ export const getGenerationRecovery = query({
 });
 
 /**
- * Requires internal project access. Strips internal agentOutputs.
+ * Requires internal project access. No agentOutputs; stored errors pass
+ * through userSafeStoredError.
  */
 export const listGenerations = query({
   args: listGenerationsArgs,

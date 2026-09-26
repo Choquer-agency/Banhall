@@ -31,8 +31,10 @@ const witnessReadiness: Plugin = {
   },
 };
 
-export default mergeConfig(
-  baseConfig,
+// vite.config.ts exports a function (its CSP reads the build's env), so the
+// merge runs per invocation.
+export default defineConfig((configEnv) => mergeConfig(
+  baseConfig(configEnv),
   defineConfig({
     plugins: [witnessReadiness],
     // A cache of its own: this config's dependency graph (stubbed transport,
@@ -84,4 +86,4 @@ export default mergeConfig(
       ],
     },
   })
-);
+));

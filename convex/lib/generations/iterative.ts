@@ -21,7 +21,6 @@ import { transitionGeneration } from "../generationTransitions";
 import { refreshProjectGenerationActivity } from "../dashboardProjection";
 import {
   getInternalProjectAccessOrNull,
-  requireInternalProjectAccess,
   getCurrentUserOrNull,
   requireCurrentUser,
 } from "../auth";
@@ -468,7 +467,8 @@ export async function requireIterativeGeneration(
 ) {
   const generation = await ctx.db.get(generationId);
   if (!generation) domainError("NOT_FOUND", "Generation not found");
-  const { project, user } = await requireInternalProjectAccess(
+  // Approve, redraft and cancel all change the report's draft: report.editProse.
+  const { project, user } = await requireReportEditAccess(
     ctx,
     generation.projectId
   );

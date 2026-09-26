@@ -1,6 +1,8 @@
-import { query, mutation, internalMutation } from "./_generated/server";
+import { query, mutation, internalMutation, type MutationCtx } from "./_generated/server";
 import { v } from "convex/values";
+import type { Doc } from "./_generated/dataModel";
 import { getCurrentUserOrNull } from "./lib/auth";
+import { hasCapability, requireCapability } from "./lib/roleCapabilities";
 
 const breadcrumbValidator = v.object({
   type: v.string(),
@@ -10,10 +12,86 @@ const breadcrumbValidator = v.object({
 });
 
 /**
+ * Size caps for one report (security wave 1, a2 P1-3). Longer values are cut,
+ * not refused, so a real error still gets through with its start intact.
+ */
+export const ERROR_REPORT_LIMITS = {
+  message: 2_000,
+  stack: 8_000,
+  source: 200,
+  url: 2_000,
+  userNote: 4_000,
+  userAgent: 500,
+  sessionId: 64,
+  breadcrumbs: 50,
+  breadcrumbType: 50,
+  breadcrumbLabel: 300,
+  breadcrumbDetail: 1_000,
+} as const;
+
+/**
+ * Reports one sender may file per minute. Over the budget a report is dropped
+ * (reportError returns null) rather than refused, so the error banner never
+ * turns into an error of its own. Signed-out reports share one budget as well,
+ * since a session id is whatever the browser sends.
+ */
+export const ERROR_REPORT_BUDGET = {
+  windowMs: 60_000,
+  perUser: 10,
+  perSession: 5,
+  signedOutTotal: 30,
+} as const;
+
+function cap(value: string, max: number): string {
+  return value.length > max ? value.slice(0, max) : value;
+}
+
+function capOptional(value: string | undefined, max: number): string | undefined {
+  return value === undefined ? undefined : cap(value, max);
+}
+
+async function countSince(
+  query: AsyncIterable<Doc<"errorReports">>,
+  limit: number
+): Promise<number> {
+  let count = 0;
+  for await (const _row of query) {
+    count += 1;
+    if (count >= limit) break;
+  }
+  return count;
+}
+
+async function withinBudget(
+  ctx: MutationCtx,
+  userId: Doc<"users">["_id"] | undefined,
+  sessionId: string | undefined
+): Promise<boolean> {
+  const since = Date.now() - ERROR_REPORT_BUDGET.windowMs;
+  const byUser = ctx.db
+    .query("errorReports")
+    .withIndex("by_userId_and_createdAt", (q) => q.eq("userId", userId).gt("createdAt", since));
+  if (userId !== undefined) {
+    return (await countSince(byUser, ERROR_REPORT_BUDGET.perUser)) < ERROR_REPORT_BUDGET.perUser;
+  }
+  if ((await countSince(byUser, ERROR_REPORT_BUDGET.signedOutTotal)) >= ERROR_REPORT_BUDGET.signedOutTotal) {
+    return false;
+  }
+  if (sessionId === undefined) return true;
+  const bySession = ctx.db
+    .query("errorReports")
+    .withIndex("by_sessionId_and_createdAt", (q) =>
+      q.eq("sessionId", sessionId).gt("createdAt", since)
+    );
+  return (await countSince(bySession, ERROR_REPORT_BUDGET.perSession)) < ERROR_REPORT_BUDGET.perSession;
+}
+
+/**
  * Record an error report. Intentionally public and usable while unauthenticated
  * — the whole point is that anyone hitting an error (including clients on a
  * shared review link) can send it. If the caller is signed in we stamp their
- * id/email so we know who reported it.
+ * id/email so we know who reported it. Field sizes are capped and each sender
+ * has a per-minute budget (ERROR_REPORT_LIMITS, ERROR_REPORT_BUDGET).
  */
 export const reportError = mutation({
   args: {
@@ -26,17 +104,35 @@ export const reportError = mutation({
     userNote: v.optional(v.string()),
     breadcrumbs: v.array(breadcrumbValidator),
     userAgent: v.optional(v.string()),
+    sessionId: v.optional(v.string()),
   },
+  returns: v.union(v.id("errorReports"), v.null()),
   handler: async (ctx, args) => {
     const user = await getCurrentUserOrNull(ctx);
-    const userId = user?._id ?? null;
+    const userId = user?._id ?? undefined;
     const userEmail = user?.email ?? undefined;
+    const sessionId = capOptional(args.sessionId, ERROR_REPORT_LIMITS.sessionId);
+    if (!(await withinBudget(ctx, userId, sessionId))) return null;
 
+    const L = ERROR_REPORT_LIMITS;
     return await ctx.db.insert("errorReports", {
-      ...args,
+      kind: args.kind,
       // Auto-captured = always a bug; manual defaults to bug unless flagged feature.
       reportType: args.reportType ?? "bug",
-      userId: userId ?? undefined,
+      message: cap(args.message, L.message),
+      stack: capOptional(args.stack, L.stack),
+      source: capOptional(args.source, L.source),
+      url: cap(args.url, L.url),
+      userNote: capOptional(args.userNote, L.userNote),
+      breadcrumbs: args.breadcrumbs.slice(-L.breadcrumbs).map((crumb) => ({
+        type: cap(crumb.type, L.breadcrumbType),
+        label: cap(crumb.label, L.breadcrumbLabel),
+        detail: capOptional(crumb.detail, L.breadcrumbDetail),
+        at: crumb.at,
+      })),
+      userAgent: capOptional(args.userAgent, L.userAgent),
+      ...(sessionId ? { sessionId } : {}),
+      userId,
       userEmail,
       status: "open",
       createdAt: Date.now(),
@@ -44,12 +140,17 @@ export const reportError = mutation({
   },
 });
 
-/** All reports, newest first. Auth-only (this is an internal dev surface). */
+/**
+ * All reports, newest first. Stack traces and reporter emails are operational
+ * alerts: the matrix's ops.viewAlerts (Admin only). Anyone else gets nothing.
+ */
 export const listErrors = query({
   args: { includeResolved: v.optional(v.boolean()) },
   handler: async (ctx, args) => {
     const user = await getCurrentUserOrNull(ctx);
-    if (!user) return [];
+    if (!user || user.isAnonymous === true || !hasCapability(user.role, "ops.viewAlerts")) {
+      return [];
+    }
 
     const reports = await ctx.db.query("errorReports").order("desc").take(300);
     return args.includeResolved
@@ -63,7 +164,9 @@ export const openCount = query({
   args: {},
   handler: async (ctx) => {
     const user = await getCurrentUserOrNull(ctx);
-    if (!user) return 0;
+    if (!user || user.isAnonymous === true || !hasCapability(user.role, "ops.viewAlerts")) {
+      return 0;
+    }
     const open = await ctx.db
       .query("errorReports")
       .withIndex("by_status", (q) => q.eq("status", "open"))
@@ -78,8 +181,7 @@ export const setStatus = mutation({
     status: v.union(v.literal("open"), v.literal("resolved")),
   },
   handler: async (ctx, args) => {
-    const user = await getCurrentUserOrNull(ctx);
-    if (!user) throw new Error("Not authenticated");
+    await requireCapability(ctx, "ops.viewAlerts");
     await ctx.db.patch(args.id, { status: args.status });
   },
 });
@@ -107,8 +209,7 @@ export const adminResolve = internalMutation({
 export const deleteError = mutation({
   args: { id: v.id("errorReports") },
   handler: async (ctx, args) => {
-    const user = await getCurrentUserOrNull(ctx);
-    if (!user) throw new Error("Not authenticated");
+    await requireCapability(ctx, "ops.viewAlerts");
     await ctx.db.delete(args.id);
   },
 });

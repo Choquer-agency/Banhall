@@ -48,6 +48,21 @@
    * plus whatever note the user types, to the errorReports table.
    */
   const reportError = useMutation(api.errorReports.reportError);
+  // A random id for this browser session: the server gives each session a
+  // small per-minute budget of reports (signed-out reviewers included).
+  function errorSessionId(): string | undefined {
+    try {
+      const key = "banhall.errorSessionId";
+      let id = sessionStorage.getItem(key);
+      if (!id) {
+        id = crypto.randomUUID();
+        sessionStorage.setItem(key, id);
+      }
+      return id;
+    } catch {
+      return undefined;
+    }
+  }
   // Jul 17: show existing requests inside the feature flow so duplicates
   // surface before submission. Only fetched while the feature tab is open.
   let showExisting = $state(false);
@@ -202,7 +217,8 @@
     const d = detected;
     const isManual = modalMode === "manual";
     try {
-      await reportError({
+      const saved = await reportError({
+        sessionId: errorSessionId(),
         kind: isManual ? "manual" : "auto",
         reportType: isManual ? flagType : "bug",
         message: isManual
@@ -224,6 +240,10 @@
         userAgent:
           typeof navigator !== "undefined" ? navigator.userAgent : undefined,
       });
+      if (saved === null) {
+        sonner.error("Too many reports in the last minute. Try again in a minute.");
+        return;
+      }
       sonner.dismiss(ERROR_TOAST_ID);
       sonner.success("Sent. Thanks — we've got the details.");
       detected = null;

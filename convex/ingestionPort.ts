@@ -51,7 +51,7 @@ export const getItemForPort = internalQuery({
   }),
   handler: async (ctx, args) => {
     const user = await getCurrentUserOrNull(ctx);
-    if (user?.role !== "admin") domainError("NOT_AUTHORIZED", "Admin only");
+    if (user?.role !== "admin" || user.isAnonymous === true) domainError("NOT_AUTHORIZED", "Admin only");
     const item = await ctx.db.get(args.itemId);
     if (!item) domainError("NOT_FOUND", "Ingestion item not found");
     if (item.portedProjectId) {
@@ -102,7 +102,7 @@ export const finalizePort = internalMutation({
   }),
   handler: async (ctx, args) => {
     const user = await getCurrentUserOrNull(ctx);
-    if (!user || user.role !== "admin") {
+    if (!user || user.role !== "admin" || user.isAnonymous === true) {
       domainError("NOT_AUTHORIZED", "Admin only");
     }
     // Same authority as project creation: the porting admin becomes Creator

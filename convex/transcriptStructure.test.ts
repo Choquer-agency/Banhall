@@ -46,6 +46,7 @@ async function setup(
       clientName: "Verdant Grid",
       status: "draft",
       createdBy: writerId,
+      ownerId: writerId,
       shareToken: "ts-token",
       createdAt: now,
       updatedAt: now,

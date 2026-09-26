@@ -22,7 +22,8 @@ import { type IterativeSection, SECTION_ORDER, getSectionRun } from "./iterative
 import { transitionPostQa } from "../generationTransitions";
 import { appendGenerationProgress } from "../generationProgress";
 import { domainError } from "../contracts";
-import { getInternalProjectAccessOrNull, requireInternalProjectAccess } from "../auth";
+import { getInternalProjectAccessOrNull } from "../auth";
+import { requireReportEditAccess } from "../roleCapabilities";
 import { internal } from "../../_generated/api";
 import { readAgentOutputs, writeAgentOutputs } from "../generationOutputs";
 import { latestQaResult, qaResultIsCurrent, recordQaResult } from "../qaResults";
@@ -318,7 +319,7 @@ export async function requestReportQaHandler(
 ) {
   const generation = await ctx.db.get(args.generationId);
   if (!generation) domainError("NOT_FOUND", "Generation not found");
-  await requireInternalProjectAccess(ctx, generation.projectId);
+  await requireReportEditAccess(ctx, generation.projectId);
   // CAP-7: QA scores a report. A generation without one — a superseded
   // partial, a failed run, or a legacy row whose report was deleted — has
   // nothing to review, so refuse before any write or schedule.
