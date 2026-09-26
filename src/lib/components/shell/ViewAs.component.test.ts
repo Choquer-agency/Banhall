@@ -49,7 +49,41 @@ describe("View as (D2, D3, D5)", () => {
     await expect.element(page.getByRole("button", { name: "View as Manager" })).toBeVisible();
     const selected = document.querySelector<HTMLElement>('[data-view-as-card="manager"]')!;
     await expect.poll(() => getComputedStyle(selected).borderTopColor).toBe("rgb(10, 58, 56)");
-    await expect.poll(() => getComputedStyle(selected).backgroundColor).toBe("rgb(241, 250, 249)");
+    // D2: the selected card is a 1.5px fir border on #F7FCFB.
+    await expect.poll(() => getComputedStyle(selected).backgroundColor).toBe("rgb(247, 252, 251)");
+    // Chromium snaps a 1.5px border to whole device pixels, so check the rule itself.
+    expect(selected.className).toContain("data-[state=checked]:border-[1.5px]");
+    expect(getComputedStyle(cards[0]).borderTopWidth).toBe("1px");
+    expect(getComputedStyle(cards[0]).borderRadius).toBe("12px");
+    // Ticks in each role's colour (11px, stroke 2.4); a faint dash for what the role cannot open.
+    const tickColour = (role: string) =>
+      getComputedStyle(document.querySelector(`[data-view-as-card="${role}"] [data-view-as-tick]`)!).color;
+    expect(tickColour("owner")).toBe("rgb(8, 122, 117)");
+    expect(tickColour("manager")).toBe("rgb(14, 116, 144)");
+    expect(tickColour("consultant")).toBe("rgb(79, 97, 93)");
+    expect(tickColour("admin")).toBe("rgb(20, 71, 230)");
+    const tick = document.querySelector<SVGElement>('[data-view-as-card="owner"] [data-view-as-tick]')!;
+    expect(tick.getAttribute("width")).toBe("11");
+    expect(tick.getAttribute("stroke-width")).toBe("2.4");
+    expect(tick.querySelector("path")?.getAttribute("d")).toBe("M20 6 9 17l-5-5");
+    const dash = document.querySelector<SVGElement>('[data-view-as-card="manager"] [data-view-as-dash]')!;
+    expect(dash.querySelector("path")?.getAttribute("d")).toBe("M6 12h12");
+    expect(getComputedStyle(dash).color).toBe("rgb(147, 165, 161)");
+    // Footer buttons: 36px tall, radius 8; the scrim is #010505 at 35%.
+    const cancel = document.querySelector<HTMLElement>("[data-view-as-cancel]")!;
+    expect(getComputedStyle(cancel).borderRadius).toBe("8px");
+    expect(getComputedStyle(cancel).backgroundColor).toBe("rgb(254, 226, 226)");
+    expect(getComputedStyle(cancel).color).toBe("rgb(185, 28, 28)");
+    const confirmButton = document.querySelector<HTMLElement>("[data-view-as-confirm]")!;
+    expect(getComputedStyle(confirmButton).borderRadius).toBe("8px");
+    expect(confirmButton.getBoundingClientRect().height).toBe(36);
+    const close = document.querySelector<SVGElement>('[data-view-as-dialog] button[aria-label="Close"] svg')!;
+    expect(close.getAttribute("width")).toBe("18");
+    expect(close.getAttribute("stroke-width")).toBe("2");
+    const scrim = Array.from(document.querySelectorAll<HTMLElement>("div.fixed.inset-0")).find(
+      (element) => getComputedStyle(element).backgroundColor !== "rgba(0, 0, 0, 0)"
+    )!;
+    expect(getComputedStyle(scrim).backgroundColor).toBe("rgba(1, 5, 5, 0.35)");
   });
 
   it("D2: Cancel closes without entering; confirm enters, stores the role and toasts with Undo", async () => {
@@ -80,6 +114,19 @@ describe("View as (D2, D3, D5)", () => {
     expect(pill.getBoundingClientRect().height).toBe(36);
     expect(getComputedStyle(pill).backgroundColor).toBe("rgb(255, 251, 235)");
     expect(pill.textContent).toContain("Viewing as");
+    // D3: the board's eye (14 / 1.7) and chevron (12 / 2) in warning ink,
+    // and Exit underlined from the font's own position.
+    const svgs = Array.from(pill.querySelectorAll<SVGElement>("svg"));
+    expect(svgs[0].getAttribute("width")).toBe("14");
+    expect(svgs[0].getAttribute("stroke-width")).toBe("1.7");
+    expect(svgs[0].querySelector("path")?.getAttribute("d")).toContain("M2.5 12S6 5.5 12 5.5");
+    expect(getComputedStyle(svgs[0]).color).toBe("rgb(146, 64, 14)");
+    expect(svgs[1].getAttribute("width")).toBe("12");
+    expect(svgs[1].getAttribute("stroke-width")).toBe("2");
+    expect(svgs[1].querySelector("path")?.getAttribute("d")).toBe("m6 9 6 6 6-6");
+    const exit = pill.querySelector<HTMLElement>("[data-view-as-pill-exit]")!;
+    expect(getComputedStyle(exit).textUnderlinePosition).toBe("from-font");
+    expect(getComputedStyle(exit).textDecorationLine).toBe("underline");
     await page.getByRole("button", { name: "Viewing as Consultant. Switch role" }).click();
     await page.getByRole("menuitemradio", { name: "Manager" }).click();
     expect(viewAs.role).toBe("manager");

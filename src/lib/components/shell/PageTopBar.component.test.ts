@@ -27,6 +27,11 @@ describe("PageTopBar", () => {
     const bell = bar.querySelector<HTMLAnchorElement>("[data-top-bar-bell]")!;
     expect(bell.getAttribute("href")).toBe("/changelog");
     expect(bell.getBoundingClientRect().width).toBe(36);
+    // The board bell: 16px, stroke 1.5, secondary ink.
+    const bellIcon = bell.querySelector<SVGElement>("svg")!;
+    expect(bellIcon.getAttribute("width")).toBe("16");
+    expect(bellIcon.getAttribute("stroke-width")).toBe("1.5");
+    expect(bellIcon.querySelector("path")?.getAttribute("d")).toBe("M5 17h14l-2-3V9a5 5 0 0 0-10 0v5Z M10 21h4");
     await expect.poll(() => bell.querySelector("span.bg-primary")).not.toBeNull();
     expect(bell.getAttribute("aria-label")).toBe("What's new, 2 new updates");
   });

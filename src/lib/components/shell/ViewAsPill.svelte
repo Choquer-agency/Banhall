@@ -5,7 +5,7 @@
    * Exit. Only renders while a developer is viewing as another role.
    */
   import { DropdownMenu } from "bits-ui";
-  import { CaretDownIcon, CheckIcon, EyeIcon } from "phosphor-svelte";
+  import { IconCheck, IconChevronDown, IconEye } from "$lib/components/icons";
   import { VIEW_AS_LABELS, VIEW_AS_ROLES, viewAs, type ViewAsRole } from "$lib/shell/viewAs.svelte";
   import { exitViewAsWithToast } from "$lib/shell/viewAsActions";
 
@@ -18,7 +18,7 @@
   role="status"
   class="pointer-events-auto flex h-9 items-center gap-1 rounded-full border border-warning-line bg-warning-surface pl-3 pr-1 max-lg:w-full max-lg:justify-center"
 >
-  <EyeIcon size={14} class="shrink-0 text-warning-ink" aria-hidden="true" />
+  <IconEye size={14} strokeWidth={1.7} class="shrink-0 text-warning-ink" />
   <span class="pl-1 pr-1.5 text-[13px] leading-[18px] text-warning-ink">Viewing as</span>
   <DropdownMenu.Root bind:open={menuOpen}>
     <DropdownMenu.Trigger
@@ -27,7 +27,7 @@
       class="flex h-[26px] items-center gap-1 rounded-full border border-warning-line bg-surface px-2 text-[13px] font-medium leading-[18px] text-ink transition-colors hover:bg-warning-soft focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir motion-reduce:transition-none"
     >
       {VIEW_AS_LABELS[role]}
-      <CaretDownIcon size={12} weight="bold" class="text-warning-ink" aria-hidden="true" />
+      <IconChevronDown size={12} strokeWidth={2} class="shrink-0 text-warning-ink" />
     </DropdownMenu.Trigger>
     <DropdownMenu.Portal>
       <DropdownMenu.Content
@@ -49,7 +49,7 @@
             >
               {#snippet children({ checked })}
                 <span class="flex-1">{VIEW_AS_LABELS[option]}</span>
-                {#if checked}<CheckIcon size={14} class="text-primary-selected" aria-hidden="true" />{/if}
+                {#if checked}<IconCheck size={14} strokeWidth={2.2} class="shrink-0 text-primary-selected" />{/if}
               {/snippet}
             </DropdownMenu.RadioItem>
           {/each}
@@ -61,6 +61,6 @@
     type="button"
     data-view-as-pill-exit
     onclick={exitViewAsWithToast}
-    class="flex h-[26px] items-center rounded-full px-2.5 text-[13px] font-medium leading-[18px] text-warning-ink underline decoration-1 underline-offset-2 transition-colors hover:bg-warning-soft focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir motion-reduce:transition-none"
+    class="flex h-[26px] items-center rounded-full px-2.5 text-[13px] font-medium leading-[18px] text-warning-ink underline decoration-1 [text-underline-position:from-font] transition-colors hover:bg-warning-soft focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir motion-reduce:transition-none"
   >Exit</button>
 </div>

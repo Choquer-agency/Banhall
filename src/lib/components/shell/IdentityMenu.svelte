@@ -9,7 +9,7 @@
   import { DropdownMenu } from "bits-ui";
   import { goto } from "$app/navigation";
   import { resolve } from "$app/paths";
-  import { EyeIcon, FlagIcon, SignOutIcon, UserIcon } from "phosphor-svelte";
+  import { IconEye, IconFlag, IconLogout, IconUser } from "$lib/components/icons";
   import { toast } from "svelte-sonner";
   import Avatar from "$lib/components/ui/Avatar.svelte";
   import KeyHint from "$lib/components/shell/KeyHint.svelte";
@@ -71,9 +71,9 @@
       data-identity-menu
       side={placement === "above" ? "top" : "right"}
       align={placement === "above" ? "start" : "end"}
-      sideOffset={6}
+      sideOffset={8}
       preventScroll={false}
-      class={`${layer === "drawer" ? "z-[130]" : "z-[80]"} w-[252px] rounded-xl border border-line bg-surface p-1.5 shadow-menu`}
+      class={`${layer === "drawer" ? "z-[130]" : "z-[80]"} w-[252px] rounded-xl border border-line bg-surface p-1.5 shadow-menu outline-none`}
     >
       <div data-identity-menu-header class="flex items-center gap-2.5 p-2">
         <Avatar {name} {imageUrl} {seed} size={32} />
@@ -90,7 +90,7 @@
           void goto(resolve("/settings/account"));
         }}
       >
-        <UserIcon size={15} aria-hidden="true" class="shrink-0" />
+        <IconUser size={15} strokeWidth={1.5} class="shrink-0" />
         <span class="flex-1">Account</span>
       </DropdownMenu.Item>
       {#if isDeveloper}
@@ -102,7 +102,7 @@
             viewAs.dialogOpen = true;
           }}
         >
-          <EyeIcon size={15} aria-hidden="true" class="shrink-0" />
+          <IconEye size={15} strokeWidth={1.5} class="shrink-0" />
           <span class="flex-1">View as another role</span>
           <KeyHint id="viewAs" variant="inline" />
         </DropdownMenu.Item>
@@ -115,12 +115,12 @@
           window.dispatchEvent(new CustomEvent("banhall:flag-issue"));
         }}
       >
-        <FlagIcon size={15} aria-hidden="true" class="shrink-0" />
+        <IconFlag size={15} strokeWidth={1.5} class="shrink-0" />
         <span class="flex-1">Flag an issue</span>
       </DropdownMenu.Item>
       <DropdownMenu.Separator class="my-1 h-px bg-line-soft" />
       <DropdownMenu.Item class={item} disabled={signingOut} onSelect={signOut}>
-        <SignOutIcon size={15} aria-hidden="true" class="shrink-0" />
+        <IconLogout size={15} strokeWidth={1.5} class="shrink-0" />
         <span class="flex-1">{signingOut ? "Signing out..." : "Sign out"}</span>
       </DropdownMenu.Item>
     </DropdownMenu.Content>

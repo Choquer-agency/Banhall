@@ -9,7 +9,7 @@
   import { DropdownMenu } from "bits-ui";
   import { goto } from "$app/navigation";
   import { resolve } from "$app/paths";
-  import { CaretRightIcon } from "phosphor-svelte";
+  import { IconChevronRight } from "$lib/components/icons";
   import {
     ADMIN_GROUPS,
     ADMIN_INGESTION_PATH,
@@ -98,7 +98,8 @@
       data-admin-flyout
       side="right"
       align="start"
-      sideOffset={8}
+      sideOffset={16}
+      alignOffset={-2}
       preventScroll={false}
       onOpenAutoFocus={(event) => {
         // A hover preview must not steal focus from wherever it is.
@@ -106,17 +107,18 @@
       }}
       onpointerenter={pointerEnter}
       onpointerleave={pointerLeave}
-      class="z-[80] w-[252px] rounded-xl border border-line bg-surface p-1.5 shadow-menu"
+      class="z-[80] w-[252px] rounded-xl border border-line bg-surface p-1.5 shadow-menu outline-none"
     >
-      <div class="flex items-baseline gap-2 px-2 pb-1 pt-1.5">
+      <div data-admin-flyout-header class="flex items-center gap-2 px-2 pb-0.5 pt-1.5">
         <p class="text-[13px] font-medium leading-[18px] text-ink">Admin</p>
         {#if attentionTotal > 0}
           <p data-admin-flyout-attention class="text-xs leading-4 text-warning-ink-muted">{attentionTotal} needs a look</p>
         {/if}
       </div>
-      {#each ADMIN_GROUPS as group (group.key)}
+      {#each ADMIN_GROUPS as group, index (group.key)}
         <DropdownMenu.Group>
-          <DropdownMenu.GroupHeading class="px-2 pb-1 pt-2 text-[11px] leading-4 text-ink-secondary">{group.label}</DropdownMenu.GroupHeading>
+          <!-- A5: group headings in muted ink, 6px above the first and 12px above the rest. -->
+          <DropdownMenu.GroupHeading class={`px-2 pb-1 text-[11px] leading-4 text-ink-muted ${index === 0 ? "pt-1.5" : "pt-3"}`}>{group.label}</DropdownMenu.GroupHeading>
           {#each group.routes as route (route.href)}
             <DropdownMenu.Item class={item} data-admin-flyout-item={route.href} onSelect={() => go(route.href)}>
               <AdminRouteIcon icon={route.icon} />
@@ -128,9 +130,9 @@
           {/each}
         </DropdownMenu.Group>
       {/each}
-      <DropdownMenu.Separator class="my-1 h-px bg-line-soft" />
+      <DropdownMenu.Separator data-admin-flyout-rule class="my-1.5 h-px bg-line-soft" />
       <DropdownMenu.Item class={item} data-admin-flyout-open onSelect={() => go(ADMIN_LANDING_PATH)}>
-        <CaretRightIcon size={13} aria-hidden="true" class="shrink-0" />
+        <IconChevronRight size={15} strokeWidth={1.5} class="shrink-0 text-ink" />
         <span class="flex-1 text-ink">Open Admin</span>
         <KeyHint id="goAdmin" variant="inline" />
       </DropdownMenu.Item>

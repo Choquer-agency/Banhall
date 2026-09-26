@@ -40,7 +40,7 @@
     description?: string | null;
     /** Muted line beside the title (for example the Settings section name). */
     subtitle?: string | null;
-    /** Page icon in the top bar tile (a Phosphor icon component). */
+    /** Page icon in the top bar tile (a board icon from `$lib/components/icons`). */
     icon?: PageIcon;
     iconSnippet?: Snippet;
     /** Parent page link ("Admin /") shown before the title. */
@@ -123,10 +123,12 @@
        then the white work panel inset 12px, which owns the vertical scroll.
        `data-work-panel` is the shared hook for the View as frame. -->
   <div class="flex min-h-0 min-w-0 flex-col overflow-hidden bg-workspace-shell px-3 pb-3">
+    <!-- D4: while the page is hidden in a View as role, the bar names the
+         gated page on its own ("Admin"), with no breadcrumb or actions. -->
     <PageTopBar
-      {title}
-      subtitle={subtitle ?? description}
-      {breadcrumb}
+      title={hiddenInView && viewAsGate ? VIEW_AS_GATE_PAGE_NAMES[viewAsGate] : title}
+      subtitle={hiddenInView ? null : (subtitle ?? description)}
+      breadcrumb={hiddenInView ? null : breadcrumb}
       {icon}
       {iconSnippet}
       tone={theme === "dark" ? "dark" : "light"}
@@ -140,7 +142,7 @@
       data-work-panel
       data-work-panel-padding={panel === "padded" && !hiddenInView ? padding : "flush"}
       class={`min-h-0 min-w-0 flex-1 overflow-y-auto rounded-[10px] border border-line bg-surface ${hiddenInView ? "flex flex-col" : ""} ${
-        panel === "flush" || hiddenInView ? "" : padding === "admin" ? "px-5 pb-10 pt-7 md:px-10" : "px-5 pb-12 pt-8 md:px-14"
+        panel === "flush" || hiddenInView ? "" : padding === "admin" ? "px-5 py-7 md:px-10" : "px-5 pb-12 pt-8 md:px-14"
       }`}
     >
       {#if hiddenInView && viewAsGate}

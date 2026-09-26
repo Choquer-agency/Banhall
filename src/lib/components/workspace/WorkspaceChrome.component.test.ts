@@ -115,6 +115,13 @@ describe("WorkspaceChrome (round 2 frame)", () => {
     await expect.element(browserPage.getByRole("button", { name: "Close workspace navigation", exact: true })).toBeVisible();
     const drawer = document.querySelector<HTMLElement>("[data-workspace-drawer]")!;
     expect(drawer.querySelector('[data-rail-item="home"]')).not.toBeNull();
+    // Board close glyph (18 / 2) instead of the Phosphor X; board-style three lines to open.
+    const close = drawer.querySelector<SVGElement>('button[aria-label="Close workspace navigation"] svg')!;
+    expect(close.getAttribute("width")).toBe("18");
+    expect(close.getAttribute("stroke-width")).toBe("2");
+    expect(close.querySelector("path")?.getAttribute("d")).toBe("M18 6 6 18M6 6l12 12");
+    const open = document.querySelector<SVGElement>('button[aria-label="Open workspace navigation"] svg')!;
+    expect(open.querySelector("path")?.getAttribute("d")).toBe("M4 6h16 M4 12h16 M4 18h16");
     await browserPage.getByRole("button", { name: "Close workspace navigation", exact: true }).click();
     await expect.poll(() => drawer.isConnected).toBe(false);
   });
@@ -143,8 +150,9 @@ describe("WorkspaceChrome (round 2 frame)", () => {
     const bar = root.querySelector<HTMLElement>("[data-page-top-bar]")!.getBoundingClientRect();
     expect(pill.height).toBe(36);
     expect(Math.abs(pill.top + pill.height / 2 - (bar.top + bar.height / 2))).toBeLessThanOrEqual(1);
-    // Centred over the content column, not the whole window.
-    expect(Math.abs(pill.left + pill.width / 2 - (bar.left + bar.width / 2))).toBeLessThanOrEqual(14);
+    // D3, D4: centred on the window, as the boards draw it (not on the content column).
+    const shell = root.getBoundingClientRect();
+    expect(Math.abs(pill.left + pill.width / 2 - (shell.left + shell.width / 2))).toBeLessThanOrEqual(1);
   });
 
   it("D4: a gated page shows the hidden state in a view that cannot open it, and hides its actions", async () => {
@@ -157,6 +165,7 @@ describe("WorkspaceChrome (round 2 frame)", () => {
     expect(document.querySelector("[data-testid=page-action]")).toBeNull();
     const hidden = document.querySelector<HTMLElement>("[data-view-as-hidden-page]")!;
     expect(hidden.querySelector("h2")?.textContent?.trim()).toBe("Alerts is hidden in Consultant view");
+    expect(document.querySelector("[data-page-top-bar] h1")?.textContent).toBe("Alerts");
     expect(hidden.textContent).toContain(
       "Consultants cannot open Alerts, so this is what they would see. Exit the view to get back to it."
     );

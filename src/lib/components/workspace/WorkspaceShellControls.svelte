@@ -3,7 +3,7 @@
   // 1024px; from there the icons-only rail is on screen, and the rail owns its
   // collapse and expand buttons in both states (round 2, A4). `railHidden`
   // and `onToggleRail` stay in the contract for hosts that pass them.
-  import { ListIcon } from "phosphor-svelte";
+  import { IconMenu } from "$lib/components/icons";
   let {
     tone = "light",
     onOpenNavigation,
@@ -33,5 +33,5 @@
   onclick={onOpenNavigation}
   class={`-ml-2 flex ${buttonBase} lg:hidden`}
 >
-  <ListIcon size={20} weight="regular" aria-hidden="true" />
+  <IconMenu size={20} strokeWidth={1.5} />
 </button>

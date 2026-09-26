@@ -64,6 +64,37 @@ describe("AdminFlyout (A5)", () => {
     expect(panel.contains(document.activeElement)).toBe(false);
   });
 
+  it("A5 values: muted group headings, board icons, the 6px rule and the offset from the Admin tile", async () => {
+    const admin = await mountCollapsed(1);
+    admin.click();
+    await expect.poll(flyout).not.toBeNull();
+    const panel = flyout()!;
+    const headings = Array.from(panel.querySelectorAll<HTMLElement>('[role="group"] > :first-child'));
+    for (const heading of headings) expect(getComputedStyle(heading).color).toBe("rgb(107, 127, 123)");
+    expect(getComputedStyle(headings[0]).paddingTop).toBe("6px");
+    expect(getComputedStyle(headings[1]).paddingTop).toBe("12px");
+    expect(getComputedStyle(panel).borderRadius).toBe("12px");
+    const header = panel.querySelector<HTMLElement>("[data-admin-flyout-header]")!;
+    expect(getComputedStyle(header).paddingBottom).toBe("2px");
+    expect(getComputedStyle(header).alignItems).toBe("center");
+    // Board icons, 15px at stroke 1.5 (House rules is the open book).
+    const houseRules = panel.querySelector<SVGElement>('[data-admin-route-icon="house-rules"]')!;
+    expect(houseRules.getAttribute("width")).toBe("15");
+    expect(houseRules.getAttribute("stroke-width")).toBe("1.5");
+    expect(houseRules.querySelector("path")?.getAttribute("d")).toBe(
+      "M5 4.5h10.5a3 3 0 0 1 3 3v13H8a3 3 0 0 1-3-3Z M5 17.5a3 3 0 0 1 3-3h10.5"
+    );
+    const open = panel.querySelector<HTMLElement>("[data-admin-flyout-open] svg")!;
+    expect(open.querySelector("path")?.getAttribute("d")).toBe("m9 6 6 6-6 6");
+    expect(open.getAttribute("width")).toBe("15");
+    const rule = panel.querySelector<HTMLElement>("[data-admin-flyout-rule]")!;
+    expect(getComputedStyle(rule).marginTop).toBe("6px");
+    expect(getComputedStyle(rule).marginBottom).toBe("6px");
+    // 16px right of the 36px Admin tile (62px from the rail edge), 2px above it.
+    await expect.poll(() => Math.round(panel.getBoundingClientRect().left - admin.getBoundingClientRect().right)).toBe(16);
+    await expect.poll(() => panel.getBoundingClientRect().top - admin.getBoundingClientRect().top).toBeCloseTo(-2, 0);
+  });
+
   it("no attention line when nothing failed", async () => {
     const admin = await mountCollapsed(0);
     admin.click();

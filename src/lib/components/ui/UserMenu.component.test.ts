@@ -51,6 +51,13 @@ describe("UserMenu", () => {
     expect(document.querySelector("[data-account-menu-identity]")?.textContent).toContain("Admin Writer");
     await expect.element(page.getByRole("menuitem", { name: "Sign out", exact: true })).toBeVisible();
     await expect.poll(() => getComputedStyle(page.getByRole("menu").element()).opacity).toBe("1");
+    // Board icons (gear, sign out) at 16 / 1.5 instead of the Phosphor stand-ins.
+    const icons = Array.from(page.getByRole("menu").element().querySelectorAll<SVGElement>('[role="menuitem"] svg'));
+    expect(icons.map((icon) => [icon.getAttribute("viewBox"), icon.getAttribute("width"), icon.getAttribute("stroke-width")])).toEqual([
+      ["0 0 24 24", "16", "1.5"],
+      ["0 0 24 24", "16", "1.5"],
+    ]);
+    expect(icons[1].querySelector("path")?.getAttribute("d")).toBe("M15 4h4a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1h-4 M10 16l-4-4 4-4 M6 12h10");
     await page.screenshot({ path: "../../../../.vitest-attachments/Q6/avatar-current.png" });
   });
 

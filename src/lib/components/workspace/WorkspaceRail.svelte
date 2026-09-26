@@ -4,18 +4,18 @@
   import { useQuery } from "convex-svelte";
   import { useAuth } from "@mmailaender/convex-better-auth-svelte/svelte";
   import {
-    BuildingsIcon,
-    CaretDownIcon,
-    FolderSimpleIcon,
-    GearSixIcon,
-    HouseIcon,
-    LightbulbIcon,
-    MagnifyingGlassIcon,
-    MegaphoneIcon,
-    ShieldIcon,
-    UsersIcon,
-    WarningIcon,
-  } from "phosphor-svelte";
+    IconBuilding,
+    IconChevronDown,
+    IconFolder,
+    IconGear,
+    IconHome,
+    IconLightbulb,
+    IconMegaphone,
+    IconSearch,
+    IconShield,
+    IconUsers,
+    IconWarning,
+  } from "$lib/components/icons";
   import { api } from "../../../../convex/_generated/api";
   import { round2Api } from "../../../../convex/lib/round2Api";
   import AnimatedSidebarToggleIcon from "$lib/components/workspace/AnimatedSidebarToggleIcon.svelte";
@@ -150,6 +150,17 @@
   const idleRow = "text-ink-secondary hover:bg-workspace-rail-hover hover:text-ink";
   const selectedRow = "bg-workspace-rail-selected text-fir";
   const iconSize = $derived(collapsed ? 17 : 15);
+  const RAIL_ICONS = {
+    home: IconHome,
+    projects: IconFolder,
+    companies: IconBuilding,
+    team: IconUsers,
+    admin: IconShield,
+    alerts: IconWarning,
+    requests: IconLightbulb,
+    changelog: IconMegaphone,
+    settings: IconGear,
+  } as const satisfies Record<RailItemId, unknown>;
 
   function itemAttrs(item: RailItem) {
     return { "data-rail-item": item.id };
@@ -164,16 +175,10 @@
   row that opens the account menu (D1). Search lives in the collapsed rail
   and the command palette (Cmd K); Flag an issue moved to the account menu.
 -->
-{#snippet itemIcon(id: RailItemId)}
-  {#if id === "home"}<HouseIcon size={iconSize} aria-hidden="true" />
-  {:else if id === "projects"}<FolderSimpleIcon size={iconSize} aria-hidden="true" />
-  {:else if id === "companies"}<BuildingsIcon size={iconSize} aria-hidden="true" />
-  {:else if id === "team"}<UsersIcon size={iconSize} aria-hidden="true" />
-  {:else if id === "admin"}<ShieldIcon size={iconSize} aria-hidden="true" />
-  {:else if id === "alerts"}<WarningIcon size={iconSize} aria-hidden="true" />
-  {:else if id === "requests"}<LightbulbIcon size={iconSize} aria-hidden="true" />
-  {:else if id === "changelog"}<MegaphoneIcon size={iconSize} aria-hidden="true" />
-  {:else}<GearSixIcon size={iconSize} aria-hidden="true" />{/if}
+<!-- Board icons: 15px in the expanded rail, 17px tiles collapsed, stroke 1.5. -->
+{#snippet itemIcon(id: RailItemId, className: string = "")}
+  {@const Icon = RAIL_ICONS[id]}
+  <Icon size={iconSize} strokeWidth={1.5} data-rail-icon={id} class={`shrink-0 ${className}`} />
 {/snippet}
 
 {#snippet expandedRow(item: RailItem)}
@@ -212,16 +217,18 @@
     aria-expanded={adminOpen}
     aria-controls="workspace-admin-links"
     onclick={toggleAdmin}
-    class={`${rowBase} ${onAdminPage ? "text-ink hover:bg-workspace-rail-hover" : idleRow}`}
+    class={`${rowBase} ${adminOpen ? "text-ink hover:bg-workspace-rail-hover" : idleRow}`}
   >
-    {@render itemIcon("admin")}
+    <!-- B2, B3: while the group is open the label turns ink (the shield stays
+         secondary) and the attention dot moves down to its page's row. -->
+    {@render itemIcon("admin", adminOpen ? "text-ink-secondary" : "")}
     <span class="min-w-0 flex-1 translate-y-[0.5px] truncate">{item.label}</span>
-    {#if item.attention}
+    {#if item.attention && !adminOpen}
       <span data-rail-attention aria-label="Needs a look" class="size-1.5 shrink-0 rounded-full bg-stale-dot"></span>
     {/if}
-    <CaretDownIcon
+    <IconChevronDown
       size={14}
-      aria-hidden="true"
+      strokeWidth={1.8}
       data-admin-chevron={adminOpen ? "up" : "down"}
       class={`shrink-0 text-ink-muted transition-transform duration-300 motion-reduce:transition-none ${adminOpen ? "rotate-180" : "rotate-0"}`}
     />
@@ -333,7 +340,7 @@
           type="button"
           data-rail-identity
           aria-label={`${userName}, account menu`}
-          class={`flex w-full items-center gap-2 rounded-md px-1.5 text-left transition-colors hover:bg-workspace-rail-hover focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-1 focus-visible:outline-fir motion-reduce:transition-none ${variant === "rail" ? "h-11" : "min-h-12"} ${open ? "bg-workspace-rail-hover" : ""}`}
+          class={`flex w-full items-center gap-2 rounded-lg px-1.5 text-left transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-1 focus-visible:outline-fir motion-reduce:transition-none ${variant === "rail" ? "h-11" : "min-h-12"} ${open ? "bg-workspace-rail-selected" : "hover:bg-workspace-rail-hover"}`}
         >
           <Avatar name={userName} imageUrl={user?.imageUrl ?? null} seed={user?._id} size={24} />
           <span class="flex min-w-0 flex-1 flex-col">
@@ -383,7 +390,7 @@
               onclick={onToggleRail}
               class={`group ${iconRow} ${idleRow}`}
             >
-              <AnimatedSidebarToggleIcon direction="expand" />
+              <AnimatedSidebarToggleIcon direction="expand" size={17} />
             </button>
           {/snippet}
         </Tooltip>
@@ -398,7 +405,7 @@
             onclick={onFocusSearch}
             class={`${iconRow} ${idleRow}`}
           >
-            <MagnifyingGlassIcon size={17} aria-hidden="true" />
+            <IconSearch size={17} strokeWidth={1.5} />
           </button>
         {/snippet}
       </Tooltip>
@@ -452,7 +459,7 @@
                 onclick={onToggleRail}
                 class="group flex size-6 shrink-0 items-center justify-center rounded-[5px] p-0 text-ink-muted transition-colors hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir"
               >
-                <AnimatedSidebarToggleIcon direction="collapse" />
+                <AnimatedSidebarToggleIcon direction="collapse" size={16} />
               </button>
             {/snippet}
           </Tooltip>
@@ -463,8 +470,8 @@
     <div data-rail-scroll class="scrollbar-hidden flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain px-2">
       {#snippet groupBlock(group: (typeof groups)[number], first: boolean)}
         <div data-rail-group={group.id} class="flex flex-col">
-          <!-- Secondary ink: muted fails AA at 11px on the rail (review f2). -->
-          <p class={`px-2 pb-1 text-[11px] leading-4 text-ink-secondary ${first ? "pt-1.5" : "pt-4"}`}>{group.label}</p>
+          <!-- A1 to A3: 11px group labels in muted ink, as the boards draw them. -->
+          <p data-rail-group-label class={`px-2 pb-1 text-[11px] leading-4 text-ink-muted ${first ? "pt-1.5" : "pt-4"}`}>{group.label}</p>
           {#each group.items as item (item.id)}
             {#if item.id === "admin"}
               {@render adminGroup(item)}

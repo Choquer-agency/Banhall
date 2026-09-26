@@ -80,8 +80,9 @@
       class="flex w-full flex-col"
     >
       <header data-admin-page-heading class={`flex flex-col gap-1 ${flush ? "px-5 pt-7 md:px-10" : ""}`}>
-        <h2 class="font-serif text-display font-normal leading-[34px]">{title}</h2>
-        {#if description}<p class="text-[15px] leading-[22px] text-ink-secondary">{description}</p>{/if}
+        <h2 class="font-serif text-[28px] font-normal leading-[34px] text-ink">{title}</h2>
+        <!-- B3: the description is 14/20 in muted ink (the board, not the spec's 15px). -->
+        {#if description}<p data-admin-page-description class="text-sm leading-5 text-ink-muted">{description}</p>{/if}
       </header>
       <div class="pt-5">
         {@render children()}

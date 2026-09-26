@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { Snippet } from "svelte";
-  import { XIcon } from "phosphor-svelte";
+  import { IconClose } from "$lib/components/icons";
   import type { DashboardView } from "$lib/dashboard/viewMode";
   import WorkspaceRail from "$lib/components/workspace/WorkspaceRail.svelte";
   import WorkspaceRailResizeHandle from "$lib/components/workspace/WorkspaceRailResizeHandle.svelte";
@@ -193,11 +193,12 @@
   {@render children()}
 
   {#if viewing}
-    <!-- D3: centred over the 56px top bar of the content column; below 1024px
-         a full-width strip under the top bar (not designed, proposed). -->
+    <!-- D3, D4: the boards centre the pill on the window (not the content
+         column), 10px down inside the 56px top bar; below 1024px a
+         full-width strip under the top bar (not designed, proposed). -->
     <div
       data-view-as-layer
-      class="view-as-layer pointer-events-none absolute z-[60] flex items-center justify-center max-lg:inset-x-3 max-lg:top-14 lg:right-0 lg:top-0 lg:h-14"
+      class="pointer-events-none absolute z-[60] flex items-center justify-center max-lg:inset-x-3 max-lg:top-14 lg:inset-x-0 lg:top-0 lg:h-14"
     >
       <ViewAsPill role={viewing} />
     </div>
@@ -234,7 +235,7 @@
       aria-label="Close workspace navigation"
       class="absolute right-2 top-[max(0.375rem,env(safe-area-inset-top))] z-10 flex h-11 w-11 items-center justify-center rounded-md text-ink-muted transition-colors hover:bg-workspace-rail-hover hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-fir motion-reduce:transition-none"
     >
-      <XIcon size={20} weight="regular" aria-hidden="true" />
+      <IconClose size={18} strokeWidth={2} />
     </Drawer.Close>
     <WorkspaceRail
       variant="drawer"
@@ -267,18 +268,6 @@
 
   .workspace-shell-grid[data-rail-hidden] {
     --workspace-rail-col: var(--workspace-rail-collapsed-width, 56px);
-  }
-
-  /* The pill spans the content column: from the rail's edge to the right. */
-  @media (min-width: 64rem) {
-    .view-as-layer {
-      left: var(--workspace-rail-collapsed-width, 56px);
-    }
-  }
-  @media (min-width: 80rem) {
-    .view-as-layer {
-      left: var(--workspace-rail-col);
-    }
   }
 
   .workspace-shell-grid[data-rail-resizing] {

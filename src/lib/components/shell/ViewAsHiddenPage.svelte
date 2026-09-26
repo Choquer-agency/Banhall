@@ -5,7 +5,7 @@
    * fetched with the developer's real access by whatever renders after exit.
    */
   import { resolve } from "$app/paths";
-  import { EyeIcon } from "phosphor-svelte";
+  import { IconEye } from "$lib/components/icons";
   import { VIEW_AS_LABELS, VIEW_AS_PLURALS, viewAs } from "$lib/shell/viewAs.svelte";
   import { exitViewAsWithToast } from "$lib/shell/viewAsActions";
 
@@ -21,7 +21,7 @@
         aria-hidden="true"
         class="flex size-11 items-center justify-center rounded-xl border border-warning-line bg-warning-surface text-warning-ink"
       >
-        <EyeIcon size={20} />
+        <IconEye size={20} strokeWidth={1.6} />
       </span>
       <div class="flex flex-col items-center gap-1.5">
         <h2 class="font-serif text-2xl font-normal leading-[30px] text-ink">
@@ -34,13 +34,14 @@
       <div class="flex flex-wrap justify-center gap-2.5 pt-1.5">
         <a
           href={resolve("/my-work")}
-          class="inline-flex h-9 items-center justify-center rounded-md bg-chrome px-4 text-sm font-medium text-ink transition-colors hover:bg-primary-wash focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-fir motion-reduce:transition-none pointer-coarse:h-11"
+          data-view-as-home
+          class="inline-flex h-9 items-center justify-center rounded-lg bg-chrome px-4 text-sm font-medium text-ink transition-colors hover:bg-primary-wash focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-fir motion-reduce:transition-none pointer-coarse:h-11"
         >Back to Home</a>
         <button
           type="button"
           data-view-as-exit
           onclick={exitViewAsWithToast}
-          class="inline-flex h-9 items-center justify-center rounded-md bg-fir px-4 text-sm font-medium text-white transition-colors hover:bg-navy-light focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-fir motion-reduce:transition-none pointer-coarse:h-11"
+          class="inline-flex h-9 items-center justify-center rounded-lg bg-fir px-4 text-sm font-medium text-white transition-colors hover:bg-navy-light focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-fir motion-reduce:transition-none pointer-coarse:h-11"
         >Exit {VIEW_AS_LABELS[role]} view</button>
       </div>
     </div>

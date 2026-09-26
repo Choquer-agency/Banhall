@@ -9,7 +9,8 @@ import { page } from "vitest/browser";
 import { render } from "vitest-browser-svelte";
 import { createRawSnippet, flushSync } from "svelte";
 import { toast } from "svelte-sonner";
-import { CheckIcon, EyeIcon } from "phosphor-svelte";
+import ToastCheckIcon from "$lib/components/shell/ToastCheckIcon.svelte";
+import ToastEyeIcon from "$lib/components/shell/ToastEyeIcon.svelte";
 import { IconShield } from "$lib/components/icons";
 import WorkspaceChrome from "$lib/components/workspace/WorkspaceChrome.svelte";
 import ToastHarness from "$lib/test/ToastHarness.svelte";
@@ -117,12 +118,12 @@ describe("round 2 shell captures", () => {
   it("toasts: dark success and action toasts, red error toast", async () => {
     await render(ToastHarness, {});
     toast("Now viewing as Consultant. Your own access is unchanged.", {
-      icon: EyeIcon,
+      icon: ToastEyeIcon,
       action: { label: "Undo", onClick: () => {} },
       duration: 60_000,
     });
     toast.success("Changes saved", { duration: 60_000 });
-    toast("Back to Developer view", { icon: CheckIcon, duration: 60_000 });
+    toast("Back to Developer view", { icon: ToastCheckIcon, duration: 60_000 });
     toast.error("Could not save your changes.", { duration: 60_000 });
     await expect.poll(() => document.querySelectorAll("[data-sonner-toast]").length).toBe(4);
     const toasts = Array.from(document.querySelectorAll<HTMLElement>("[data-sonner-toast]"));
@@ -131,6 +132,26 @@ describe("round 2 shell captures", () => {
     expect(getComputedStyle(byText("Now viewing")).backgroundColor).toBe("rgb(19, 45, 42)");
     expect(getComputedStyle(byText("Now viewing").querySelector("[data-button]")!).color).toBe("rgb(69, 207, 201)");
     expect(getComputedStyle(byText("Could not save")).backgroundColor).toBe("rgb(254, 242, 242)");
+    // D3, D5: white 15px board icons, plain 13/19 text, 10px radius, the
+    // card hugs its text, and 14px on the right when there is no action.
+    const back = byText("Back to Developer view");
+    const backIcon = back.querySelector<SVGElement>('[data-toast-icon="check"]')!;
+    expect(backIcon.querySelector("path")?.getAttribute("d")).toBe("M20 6 9 17l-5-5");
+    expect(backIcon.getAttribute("width")).toBe("15");
+    expect(backIcon.getAttribute("stroke-width")).toBe("2");
+    expect(getComputedStyle(backIcon).color).toBe("rgb(255, 255, 255)");
+    const backTitle = back.querySelector<HTMLElement>("[data-title]")!;
+    expect(getComputedStyle(backTitle).fontWeight).toBe("400");
+    expect(getComputedStyle(backTitle).lineHeight).toBe("19px");
+    expect(getComputedStyle(back).borderRadius).toBe("10px");
+    expect(getComputedStyle(back).paddingLeft).toBe("14px");
+    expect(getComputedStyle(back).paddingRight).toBe("14px");
+    expect(back.getBoundingClientRect().width).toBeLessThan(300);
+    const viewing = byText("Now viewing");
+    expect(getComputedStyle(viewing).paddingRight).toBe("12px");
+    const eye = viewing.querySelector<SVGElement>('[data-toast-icon="eye"]')!;
+    expect(eye.getAttribute("stroke-width")).toBe("1.6");
+    expect(getComputedStyle(eye).color).toBe("rgb(255, 255, 255)");
     const toaster = document.querySelector<HTMLElement>("[data-sonner-toaster]")!;
     expect(toaster.dataset.yPosition).toBe("bottom");
     expect(toaster.dataset.xPosition).toBe("center");

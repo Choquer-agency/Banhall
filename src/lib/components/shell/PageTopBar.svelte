@@ -10,7 +10,7 @@
    */
   import type { Snippet } from "svelte";
   import { resolve } from "$app/paths";
-  import { BellIcon } from "phosphor-svelte";
+  import { IconBell } from "$lib/components/icons";
   import { useQuery } from "convex-svelte";
   import { useAuth } from "@mmailaender/convex-better-auth-svelte/svelte";
   import { api } from "../../../../convex/_generated/api";
@@ -59,13 +59,13 @@
     <PageIconTile {icon}>{@render iconSnippet?.()}</PageIconTile>
   {/if}
   {#if breadcrumb}
-    <nav aria-label="Breadcrumb" class="flex min-w-0 items-center gap-1.5 text-sm leading-5">
-      <a
-        href={breadcrumb.href}
-        data-page-breadcrumb
-        class="shrink-0 rounded-sm text-ink-muted transition-colors hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir motion-reduce:transition-none"
-      >{breadcrumb.label}</a>
-      <span aria-hidden="true" class="text-ink-muted">/</span>
+    <!-- B3: "Admin /" is one muted run, then the 10px bar gap, then the page. -->
+    <nav aria-label="Breadcrumb" class="flex min-w-0 items-center gap-2.5 text-sm leading-5">
+      <span class="shrink-0 whitespace-pre text-ink-muted"><a
+          href={breadcrumb.href}
+          data-page-breadcrumb
+          class="rounded-sm transition-colors hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir motion-reduce:transition-none"
+        >{breadcrumb.label}</a><span aria-hidden="true">{" /"}</span></span>
       <h1 aria-current="page" class="min-w-0 truncate font-medium text-ink">{title}</h1>
     </nav>
   {:else}
@@ -82,7 +82,7 @@
     aria-label={unseen > 0 ? `What's new, ${unseen} new update${unseen === 1 ? "" : "s"}` : "What's new"}
     class="relative flex size-9 shrink-0 items-center justify-center rounded-[7px] text-ink-secondary transition-colors hover:bg-primary-wash hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir motion-reduce:transition-none pointer-coarse:size-11"
   >
-    <BellIcon size={16} aria-hidden="true" />
+    <IconBell size={16} strokeWidth={1.5} />
     {#if unseen > 0}
       <span aria-hidden="true" class="absolute right-2.5 top-2 size-1.5 rounded-full bg-primary"></span>
     {/if}

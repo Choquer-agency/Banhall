@@ -3,14 +3,15 @@
  * the dark confirmation toasts the boards show.
  */
 import { toast } from "svelte-sonner";
-import { CheckIcon, EyeIcon } from "phosphor-svelte";
+import ToastCheckIcon from "$lib/components/shell/ToastCheckIcon.svelte";
+import ToastEyeIcon from "$lib/components/shell/ToastEyeIcon.svelte";
 import { VIEW_AS_LABELS, viewAs, type ViewAsRole } from "./viewAs.svelte";
 
 export function enterViewAsWithToast(role: ViewAsRole) {
   viewAs.enter(role);
   viewAs.dialogOpen = false;
   toast(`Now viewing as ${VIEW_AS_LABELS[role]}. Your own access is unchanged.`, {
-    icon: EyeIcon,
+    icon: ToastEyeIcon,
     action: {
       label: "Undo",
       onClick: () => viewAs.undo(),
@@ -20,5 +21,5 @@ export function enterViewAsWithToast(role: ViewAsRole) {
 
 export function exitViewAsWithToast() {
   viewAs.exit();
-  toast("Back to Developer view", { icon: CheckIcon });
+  toast("Back to Developer view", { icon: ToastCheckIcon });
 }

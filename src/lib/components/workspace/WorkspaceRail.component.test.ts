@@ -95,6 +95,46 @@ describe("WorkspaceRail (round 2)", () => {
     expect(badge.className).toContain("bg-primary-selected");
   });
 
+  it("A1 to A3 values: muted 11px group labels, board icons at 15 / 1.5, and the 16px collapse glyph", async () => {
+    seed("developerAdmin", { openAlerts: 4 });
+    await render(WorkspaceRail, baseProps({ onToggleRail: () => {} }));
+    await expect.poll(() => item("alerts")).not.toBeNull();
+    const labels = Array.from(nav().querySelectorAll<HTMLElement>("[data-rail-group-label]"));
+    expect(labels.map((label) => label.textContent?.trim())).toEqual(["Workspace", "Manage", "Developer", "Other"]);
+    for (const label of labels) {
+      expect(getComputedStyle(label).color).toBe("rgb(107, 127, 123)");
+      expect(getComputedStyle(label).fontSize).toBe("11px");
+      expect(getComputedStyle(label).lineHeight).toBe("16px");
+    }
+    const paths: Record<string, string> = {
+      home: "M3 10l9-7 9 7v10H3Z M9 20v-7h6v7",
+      projects: "M3 6h6l2 2h10v12H3Z",
+      team: "M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z M2 21a7 7 0 0 1 14 0 M16 3.5a4 4 0 0 1 0 7 M18 14a7 7 0 0 1 4 7",
+      admin: "M12 3 5 6v5.5c0 4.3 3 7.7 7 9.5 4-1.8 7-5.2 7-9.5V6Z",
+      alerts: "M12 9v4 M12 17h.01 M10.3 3.9 2.4 18a2 2 0 0 0 1.7 3h15.8a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z",
+    };
+    for (const [id, d] of Object.entries(paths)) {
+      const icon = item(id)!.querySelector<SVGElement>(`[data-rail-icon="${id}"]`)!;
+      expect(icon.getAttribute("viewBox")).toBe("0 0 24 24");
+      expect(icon.getAttribute("width")).toBe("15");
+      expect(icon.getAttribute("stroke-width")).toBe("1.5");
+      expect(icon.querySelector("path")?.getAttribute("d")).toBe(d);
+    }
+    // Admin chevron: the board's 14px, stroke 1.8, in muted ink.
+    const chevron = item("admin")!.querySelector<SVGElement>("[data-admin-chevron]")!;
+    expect(chevron.getAttribute("width")).toBe("14");
+    expect(chevron.getAttribute("stroke-width")).toBe("1.8");
+    expect(chevron.querySelector("path")?.getAttribute("d")).toBe("m6 9 6 6 6-6");
+    expect(getComputedStyle(chevron).color).toBe("rgb(107, 127, 123)");
+    const toggle = nav().querySelector<SVGElement>('[data-rail-toggle] svg[data-rail-toggle-icon="collapse"]')!;
+    expect(toggle.getAttribute("width")).toBe("16");
+    expect(toggle.querySelector("rect")).not.toBeNull();
+    expect(nav().querySelector('[data-rail-toggle] svg:not([data-rail-toggle-icon])')).toBeNull();
+    // The identity row: 44px, name 12/16 in ink.
+    const identity = nav().querySelector<HTMLElement>("[data-rail-identity]")!;
+    expect(identity.getBoundingClientRect().height).toBe(44);
+  });
+
   it("gives Home and Projects real links; Companies is the Projects view grouped by client", async () => {
     seed("consultant");
     await render(WorkspaceRail, baseProps());
@@ -174,9 +214,15 @@ describe("WorkspaceRail (round 2)", () => {
     expect(toggle.querySelector("[data-admin-chevron]")!.getAttribute("data-admin-chevron")).toBe("down");
     expect(nav().querySelector("[data-rail-admin-links]")).toBeNull();
 
+    expect(getComputedStyle(toggle.querySelector("span")!).color).toBe("rgb(79, 97, 93)");
+    expect(toggle.querySelector("[data-rail-attention]")).not.toBeNull();
+
     toggle.click();
     await expect.poll(() => toggle.getAttribute("aria-expanded")).toBe("true");
     expect(toggle.querySelector("[data-admin-chevron]")!.getAttribute("data-admin-chevron")).toBe("up");
+    // B2: open, the label is ink and the dot moves down to OneDrive import.
+    await expect.poll(() => getComputedStyle(toggle.querySelector("span")!).color).toBe("rgb(22, 33, 31)");
+    expect(toggle.querySelector("[data-rail-attention]")).toBeNull();
     const links = Array.from(nav().querySelectorAll<HTMLAnchorElement>("[data-admin-link]"));
     expect(links.map((link) => [link.textContent?.trim(), link.getAttribute("href")])).toEqual([
       ["House rules", "/admin/house-rules"],
@@ -202,6 +248,11 @@ describe("WorkspaceRail (round 2)", () => {
     const models = nav().querySelector<HTMLAnchorElement>('[data-admin-link="/admin/models"]')!;
     expect(models.getAttribute("aria-current")).toBe("page");
     expect(models.className).toContain("bg-workspace-rail-selected");
+    // B3: the open group's label is ink; its shield stays secondary; the chevron points up.
+    const admin = item("admin")!;
+    expect(getComputedStyle(admin.querySelector("span")!).color).toBe("rgb(22, 33, 31)");
+    expect(getComputedStyle(admin.querySelector('[data-rail-icon="admin"]')!).color).toBe("rgb(79, 97, 93)");
+    expect(admin.querySelector("[data-admin-chevron]")!.getAttribute("data-admin-chevron")).toBe("up");
   });
 
   it("A4: the collapsed rail is icons only in board order, with tooltips' names and no role chip", async () => {
@@ -224,6 +275,13 @@ describe("WorkspaceRail (round 2)", () => {
     expect(item("changelog")!.querySelector("[data-rail-badge]")).toBeNull();
     expect(item("admin")!.querySelector("[data-rail-attention]")).not.toBeNull();
     expect(nav().querySelector<HTMLElement>("[data-rail-identity] [data-avatar]")!.getBoundingClientRect().width).toBe(30);
+    // A4: 17px icons at stroke 1.5, the 17px expand glyph and the search glass.
+    expect(item("home")!.querySelector("svg")!.getAttribute("width")).toBe("17");
+    expect(item("home")!.querySelector("svg")!.getAttribute("stroke-width")).toBe("1.5");
+    expect(nav().querySelector('[data-rail-toggle] svg')!.getAttribute("width")).toBe("17");
+    const search = nav().querySelector<SVGElement>("[data-rail-search] svg")!;
+    expect(search.getAttribute("width")).toBe("17");
+    expect(search.querySelector("path")?.getAttribute("d")).toBe("M11 18a7 7 0 1 0 0-14 7 7 0 0 0 0 14Z M20 20l-4-4");
   });
 
   it("A5: the collapsed developer rail puts Alerts with a count and Feature requests near the bottom", async () => {
@@ -268,6 +326,19 @@ describe("WorkspaceRail (round 2)", () => {
     await page.getByRole("button", { name: "Johnny Nguyen, account menu" }).click();
     const menu = page.getByRole("menu");
     await expect.element(menu).toBeVisible();
+    // D1: the open row takes the selected fill at radius 8; the menu sits 8px above it.
+    const row = nav().querySelector<HTMLElement>("[data-rail-identity]")!;
+    await expect.poll(() => getComputedStyle(row).backgroundColor).toBe("rgb(233, 241, 239)");
+    expect(getComputedStyle(row).borderRadius).toBe("8px");
+    const menuPanel = document.querySelector<HTMLElement>("[data-identity-menu]")!;
+    await expect
+      .poll(() => Math.round(row.getBoundingClientRect().top - menuPanel.getBoundingClientRect().bottom))
+      .toBe(8);
+    const menuIcons = Array.from(menuPanel.querySelectorAll<SVGElement>('[role="menuitem"] svg'));
+    expect(menuIcons.map((icon) => icon.getAttribute("width"))).toEqual(["15", "15", "15", "15"]);
+    expect(menuIcons.map((icon) => icon.getAttribute("stroke-width"))).toEqual(["1.5", "1.5", "1.5", "1.5"]);
+    expect(menuIcons[0].querySelector("path")?.getAttribute("d")).toBe("M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z M4 21a8 8 0 0 1 16 0");
+    expect(menuIcons[3].querySelector("path")?.getAttribute("d")).toBe("M15 4h4a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1h-4 M10 16l-4-4 4-4 M6 12h10");
     const items = Array.from(document.querySelectorAll<HTMLElement>('[data-identity-menu] [role="menuitem"]')).map(
       (element) => element.textContent?.replace(/\s+/g, " ").trim()
     );

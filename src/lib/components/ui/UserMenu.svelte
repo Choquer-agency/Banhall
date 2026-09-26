@@ -8,7 +8,7 @@
   import { signOutLocally } from "$lib/shell/signOut";
   import { api } from "../../../../convex/_generated/api";
   import { displayName } from "$lib/displayName";
-  import { GearSixIcon, SignOutIcon } from "phosphor-svelte";
+  import { IconGear, IconLogout } from "$lib/components/icons";
   import { toast } from "svelte-sonner";
 
   const auth = useAuth();
@@ -99,7 +99,7 @@
         onSelect={() => goto(resolve("/settings")).catch(() => toast.error("Settings could not open. Please try again."))}
         class="flex h-11 min-h-11 w-full shrink-0 items-center gap-2.5 px-3.5 text-left text-sm text-ink-muted transition-colors hover:bg-primary-wash hover:text-ink focus-visible:bg-primary-wash focus-visible:text-ink focus-visible:outline-none"
       >
-        <GearSixIcon size={16} weight="regular" aria-hidden="true" class="shrink-0" />
+        <IconGear size={16} strokeWidth={1.5} class="shrink-0" />
         Settings
       </DropdownMenu.Item>
       <DropdownMenu.Item
@@ -107,7 +107,7 @@
         disabled={signingOut}
         class="flex h-11 min-h-11 w-full shrink-0 items-center gap-2.5 px-3.5 text-left text-sm text-ink-muted transition-colors hover:bg-red-50 hover:text-red-600 focus-visible:bg-red-50 focus-visible:text-red-600 focus-visible:outline-none data-[disabled]:opacity-50"
       >
-        <SignOutIcon size={16} weight="regular" aria-hidden="true" class="shrink-0" />
+        <IconLogout size={16} strokeWidth={1.5} class="shrink-0" />
         {signingOut ? "Signing out…" : "Sign out"}
       </DropdownMenu.Item>
       </div>
