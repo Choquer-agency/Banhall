@@ -7,6 +7,7 @@ import {
   type CandidateModelId,
   type ModelEntry,
 } from "../../shared/generationModels";
+import { domainError } from "../lib/contracts";
 
 export { CANDIDATE_MODELS, MODEL };
 
@@ -83,6 +84,15 @@ export function randomComparePair(
   pool: readonly CandidateModel[] = CANDIDATE_MODELS
 ): CandidateModel[] {
   const shuffled = pool.filter(eligibleForRandomDraw);
+  // Fewer than two would persist a pair that is not the one run
+  // (candidateModelsForMode needs exactly two), so refuse (models-2 review
+  // P3-3). Unreachable while four seeds can be drawn.
+  if (shuffled.length < 2) {
+    domainError(
+      "INVALID_STATE",
+      "Fewer than two models can be drawn for a random comparison. Choose the two models yourself."
+    );
+  }
   for (let i = shuffled.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
     [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
