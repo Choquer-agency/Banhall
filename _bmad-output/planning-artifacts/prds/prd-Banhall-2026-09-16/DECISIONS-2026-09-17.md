@@ -86,6 +86,6 @@ The lead also made three counting calls for automatic model rollback on 2026-09-
 
 | # | Question (plain terms) | Answer | Applied in |
 |---|---|---|---|
-| 43 | Which model runs each step of a report? | **The model the writer picks writes the report** (Section drafts, repairs, compression, redrafts). Helper steps need not use it: a `planning` role runs the analysis, the Brief and the seed cards, and a `checking` role runs the Self-check, consistency, QA and chronology. Both default to Sonnet 5, are frozen per generation, can be reassigned on `/admin/models` and do not switch on their own yet. Compression turns thinking off. | `docs/product-domain.md` (fifth note of 2026-09-25); branch `fix/model-routing`. |
+| 43 | Which model runs each step of a report? | **The model the writer picks writes the report** (Section drafts, repairs, compression, redrafts). Helper steps need not use it: a `planning` role runs the analysis, the Brief and the seed cards, and a `checking` role runs the Self-check, consistency, QA and chronology. Both default to Sonnet 5, are frozen per generation, can be reassigned on `/admin/models` and do not switch on their own yet. Compression turns thinking off. Single draft and Compare start the Brief beside the analysis, as Step by step does. | `docs/product-domain.md` (fifth note of 2026-09-25); branch `fix/model-routing`. |
 
 Still waiting on the owner: the OpenRouter account steps before `ANTHROPIC_TRANSPORT` is switched on (see decision 30).

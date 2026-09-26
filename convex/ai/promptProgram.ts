@@ -352,15 +352,34 @@ export const generationPromptProgram = {
   contractId: PROMPT_PROGRAM_CONTRACT_ID,
   topology: {
     modes: {
+      // 2026-09-25 (a1 finding 4): the Brief reads only the frozen sources,
+      // so it runs beside the Brain retrieval and the shared analysis, and
+      // both are joined before any candidate starts.
       single: [
-        "retrieval-brief-with-fallback-query",
-        "four-sequential-brain-searches-with-optional-rerank",
+        {
+          concurrentBeforeCandidates: [
+            "brief",
+            [
+              "retrieval-brief-with-fallback-query",
+              "four-sequential-brain-searches-with-optional-rerank",
+              "shared-analyzer",
+            ],
+          ],
+        },
         "candidate-pipeline",
         "promote-completed-candidate",
       ],
       compare: [
-        "retrieval-brief-with-fallback-query",
-        "four-sequential-brain-searches-with-optional-rerank",
+        {
+          concurrentBeforeCandidates: [
+            "brief",
+            [
+              "retrieval-brief-with-fallback-query",
+              "four-sequential-brain-searches-with-optional-rerank",
+              "shared-analyzer",
+            ],
+          ],
+        },
         "parallel-candidate-pipelines",
         "human-candidate-selection",
       ],
@@ -402,10 +421,11 @@ export const generationPromptProgram = {
       },
     },
     candidatePipeline: [
-      "analyzer",
-      // Story 1 (CAP-1/2/4): Brief stage after analyzer, before sections.
-      // Derives or reuses Storyline, Claim Exclusions, Confidence Map, Glossary Terms.
-      "brief",
+      // The analysis and the Brief (story 1: Storyline, Claim Exclusions,
+      // Confidence Map, Glossary Terms) are shared and arrive with the
+      // candidate; only a candidate queued before shared analysis existed
+      // runs its own analyzer.
+      "analyzer-for-legacy-queued-candidates-only",
       // Story 2 (CAP-5/9/10, AD-24): ordered, ungated section chain in
       // single/compare — one scheduled action per section in the Writer
       // Profile's Build Order (default 242 → 244 → 246), each with the prior

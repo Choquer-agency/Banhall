@@ -727,3 +727,51 @@ describe("requests on the wire (real SDK, fetch stubbed)", () => {
     expect(old.batch.model).toBe(OPUS);
   });
 });
+
+// ─── The Brief beside the analysis in Single draft and Compare ──────────────
+
+describe("Single draft and Compare start the Brief beside the analysis (a1 finding 4)", () => {
+  /** The analysis answers only once the Brief request was sent, or after 3 s. */
+  function analysisWaitsForBrief() {
+    let briefSent: () => void = () => {};
+    const sent = new Promise<void>((resolve) => {
+      briefSent = resolve;
+    });
+    return {
+      hold: {
+        submit_generation_brief: async () => briefSent(),
+        submit_transcript_analysis: () =>
+          Promise.race([sent, new Promise<void>((resolve) => setTimeout(resolve, 3_000))]),
+      },
+    };
+  }
+
+  it.each(["single", "compare"] as const)("%s sends the Brief before the analysis answers and joins it before any draft", async (mode) => {
+    const { hold } = analysisWaitsForBrief();
+    const wire = installFetch({ hold });
+    const f = await fixture({ mode, model: SONNET });
+    await f.t.action(internal.ai.pipeline.generateReport, { generationId: f.generationId });
+    const briefRequest = wire.events.indexOf("submit_generation_brief:request");
+    const analysisAnswer = wire.events.indexOf("submit_transcript_analysis:answer");
+    expect(briefRequest).toBeGreaterThanOrEqual(0);
+    expect(briefRequest).toBeLessThan(analysisAnswer);
+    // Joined before the candidates: the Brief is stored when the first one is created.
+    const generation = await f.t.run((ctx) => ctx.db.get(f.generationId));
+    expect(generation?.briefId).toBeDefined();
+    expect(generation?.briefOutcome?.kind).toBe("derived");
+    expect(await pendingJobs(f.t, [CANDIDATE_JOB])).toHaveLength(mode === "compare" ? 2 : 1);
+    expect(wire.events.filter((event) => event.startsWith("section"))).toEqual([]);
+  });
+
+  it("a failed analysis fails the generation after the Brief it started has finished", async () => {
+    const wire = installFetch({ fail: ["submit_transcript_analysis"] });
+    const f = await fixture({ mode: "single", model: SONNET });
+    await f.t.action(internal.ai.pipeline.generateReport, { generationId: f.generationId });
+    const generation = await f.t.run((ctx) => ctx.db.get(f.generationId));
+    expect(generation?.status).toBe("failed");
+    // The Brief ran to its end and stays reusable by its inputs.
+    expect(wire.events).toContain("submit_generation_brief:answer");
+    expect(generation?.briefOutcome?.kind).toBe("derived");
+    expect(await pendingJobs(f.t, [CANDIDATE_JOB])).toHaveLength(0);
+  });
+});

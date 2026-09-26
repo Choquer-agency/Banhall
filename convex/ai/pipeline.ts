@@ -697,6 +697,9 @@ export const generateReport = internalAction({
         generationId: genId,
         line,
       });
+    // The Brief while it runs beside the analysis: a failure elsewhere
+    // still waits for it before the action ends (its stage never throws).
+    let pendingBrief: Promise<void> | undefined;
 
     try {
       const scienceCode = normalizeCraScienceCode(input.scienceCode);
@@ -745,6 +748,45 @@ export const generateReport = internalAction({
         input = condensed;
       }
       const transcript = input.transcript;
+
+      // Owner decision 43: the analysis and the Brief run on the frozen
+      // planning model, whatever the mode. A generation frozen before step
+      // routing keeps its model: in compare the writing role's model frozen
+      // at reservation, independent of pair order; in single mode the
+      // selected model, as in iterative generation.
+      const legacyAnalysisModel = input.candidateMode === "compare"
+        ? (freeze?.roles.writing ?? MODEL)
+        : candidateModels[0]?.id ?? MODEL;
+      const shared = generationStepClients(ctx, {
+        freeze,
+        writerModel: candidateModels[0]?.id ?? MODEL,
+        legacyModel: () => legacyAnalysisModel,
+        meta: (callSite) => ({
+          callSite,
+          projectId,
+          ...(input.requestedBy ? { userId: input.requestedBy } : {}),
+          attribution: { generationId: genId },
+        }),
+      });
+
+      // Story 1 (CAP-1/2/4): derive or reuse the Generation Brief once,
+      // shared across every candidate below (same shape as shared analysis).
+      // It reads only the frozen sources, never the analysis, so it starts
+      // now, beside the Brain retrieval, the writer settings and the
+      // analysis (a1 finding 4, 2026-09-25), and is joined before any
+      // candidate drafts. Brief is read-only guidance, never required: the
+      // stage runner never throws; a failure is logged and the generation
+      // continues with no Brief rather than failing outright (Block-If: "a
+      // Brief with fewer entries beats a failed generation" extends to the
+      // stage itself). DW-109/DW-120: every attempt is recorded on
+      // generations.briefOutcome and narrated with one authored progress
+      // line.
+      const briefStage = runGenerationBriefStage(ctx, shared.client("generation:brief"), {
+        projectId,
+        generationId: genId,
+        model: shared.route("generation:brief").model,
+      });
+      pendingBrief = briefStage;
 
       // Bound and delimit what the analyzer sees, once per generation, and
       // record the outcome on the frozen rows before any candidate fans out.
@@ -872,25 +914,6 @@ export const generateReport = internalAction({
         await log(`Build Order not applied: ${orderedContext.buildOrderFallbackReason}.`);
       }
 
-      // Owner decision 43: the analysis and the Brief run on the frozen
-      // planning model, whatever the mode. A generation frozen before step
-      // routing keeps its model: in compare the writing role's model frozen
-      // at reservation, independent of pair order; in single mode the
-      // selected model, as in iterative generation.
-      const legacyAnalysisModel = input.candidateMode === "compare"
-        ? (freeze?.roles.writing ?? MODEL)
-        : candidateModels[0]?.id ?? MODEL;
-      const shared = generationStepClients(ctx, {
-        freeze,
-        writerModel: candidateModels[0]?.id ?? MODEL,
-        legacyModel: () => legacyAnalysisModel,
-        meta: (callSite) => ({
-          callSite,
-          projectId,
-          ...(input.requestedBy ? { userId: input.requestedBy } : {}),
-          attribution: { generationId: genId },
-        }),
-      });
       const analyzerRoute = shared.route("generation:analyzer");
       await log("Analyzing the transcript once for all candidate drafts.");
       const analysis = await runAnalyzerAgent(
@@ -911,19 +934,10 @@ export const generateReport = internalAction({
         }),
       });
 
-      // Story 1 (CAP-1/2/4): derive or reuse the Generation Brief once,
-      // shared across every candidate below (same shape as shared analysis).
-      // Brief is read-only guidance, never required — the stage runner never
-      // throws: a failure is logged and the generation continues with no
-      // Brief rather than failing outright (Block-If: "a Brief with fewer
-      // entries beats a failed generation" extends to the stage itself).
-      // DW-109/DW-120: every attempt is recorded on generations.briefOutcome
-      // and narrated with one authored progress line.
-      await runGenerationBriefStage(ctx, shared.client("generation:brief"), {
-        projectId,
-        generationId: genId,
-        model: shared.route("generation:brief").model,
-      });
+      // The Brief started beside the analysis above; every candidate reads
+      // it, so it is joined before the first one is created.
+      await briefStage;
+      pendingBrief = undefined;
 
       const candidateLabel =
         candidateModels.length === 1 ? "candidate draft" : "candidate drafts";
@@ -970,6 +984,9 @@ export const generateReport = internalAction({
         generationId: genId,
         error: describeGenerationFailure(error),
       });
+      // The Brief never throws; it finishes (and stays reusable by its
+      // inputs) inside this action's deadline rather than being cut off.
+      await pendingBrief;
     }
   },
 });
