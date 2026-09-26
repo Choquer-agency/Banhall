@@ -147,6 +147,27 @@ describe("InviteDialog", () => {
     expect(remove.querySelector("svg")?.getAttribute("stroke-width")).toBe("1.8");
     const field = document.querySelector<HTMLElement>("[data-invite-email-chips]")!;
     expect(getComputedStyle(field).borderRadius).toBe("8px");
+    // C3: the placeholder line is 18px, so a wrapped box is 1.5 + 8 + 26 +
+    // 6 + 18 + 8 + 1.5 = 69px (it was 77 with a 26px input line).
+    await typeEmails("d.cole@banhall.com a.long.address@banhall.com ");
+    await expect.poll(() => chips("valid").length).toBe(3);
+    const input = field.querySelector<HTMLElement>("input")!;
+    expect(input.getBoundingClientRect().height).toBe(18);
+    const lastChip = [...field.querySelectorAll<HTMLElement>('[data-email-chip="valid"]')].at(-1)!;
+    const inputBox = input.getBoundingClientRect();
+    if (inputBox.top > lastChip.getBoundingClientRect().bottom) {
+      // Wrapped onto its own line: 6px under the chips, 8px padding below.
+      expect(Math.round(inputBox.top - lastChip.getBoundingClientRect().bottom)).toBe(6);
+      expect(field.getBoundingClientRect().bottom - inputBox.bottom).toBe(9.5);
+    } else {
+      // Beside the last chip, centred on its 26px line.
+      expect(inputBox.top - lastChip.getBoundingClientRect().top).toBe(4);
+    }
+    // C3: the Role label is 16px under the email box and 8px above the options.
+    const label = document.querySelector<HTMLElement>("[data-invite-role-label]")!.getBoundingClientRect();
+    expect(Math.round(label.top - field.getBoundingClientRect().bottom)).toBe(16);
+    expect(Math.round(card("writer").getBoundingClientRect().top - label.bottom)).toBe(8);
+    expect(document.querySelector('[role="radiogroup"]')?.getAttribute("aria-labelledby")).toBe("invite-role-label");
 
     const cancel = page.getByRole("button", { name: "Cancel" }).element() as HTMLElement;
     expect(getComputedStyle(cancel).backgroundColor).toBe("rgb(254, 226, 226)");
