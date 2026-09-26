@@ -497,8 +497,12 @@ describe("Seed project hosts", () => {
       seedCanEdit: false,
     });
     mounted = await render(PreviewProjectPage, {});
-    await expect.element(browserPage.getByText("Seed preparation needs attention", { exact: true })).toBeVisible();
-    expect(browserPage.getByRole("button", { name: "Retry initialization", exact: true }).elements()).toHaveLength(0);
+    // Round 2 (F6): the preview host's reading screen shows the danger box,
+    // text only for someone who cannot edit.
+    await expect.element(browserPage.getByText("We could not read the transcripts", { exact: true })).toBeVisible();
+    for (const name of ["Try again", "Back to project", "Cancel generation", "Retry initialization"]) {
+      expect(browserPage.getByRole("button", { name, exact: true }).elements()).toHaveLength(0);
+    }
     mounted.unmount();
 
     document.body.innerHTML = "";
@@ -609,7 +613,9 @@ describe("Seed project hosts", () => {
       summaryVersionId: null,
       seedCanEdit: true,
     });
-    await expect.element(browserPage.getByRole("heading", { name: "Generating your report", exact: true })).toBeVisible();
+    // Round 2 (F2): the preview host reads the interview while the Brief is written.
+    await expect.element(browserPage.getByText("Reading the interview", { exact: true })).toBeVisible();
+    expect(browserPage.getByRole("tab", { name: "Plan" }).elements()).toHaveLength(0);
 
     __setQueryData("generations:getLatestGeneration", {
       _id: "generation-seed-host",
@@ -869,14 +875,15 @@ describe("Seed project hosts", () => {
       code: "INVALID_STATE",
       message: "Seed preparation is already running",
     }));
+    const copy = retryCopy(Component);
     await render(Component, {});
-    await expect.element(browserPage.getByText("Seed preparation needs attention", { exact: true })).toBeVisible();
+    await expect.element(browserPage.getByText(copy.title, { exact: true })).toBeVisible();
     expect(browserPage.getByLabelText("Seed workspace").elements()).toHaveLength(0);
     expect(document.body.textContent).not.toContain("Section-by-section draft");
-    await browserPage.getByRole("button", { name: "Retry initialization", exact: true }).click();
-    await expect.element(browserPage.getByRole("alert")).toHaveTextContent("Seed preparation is already running");
+    await browserPage.getByRole("button", { name: copy.retry, exact: true }).click();
+    await expect.poll(() => document.body.textContent).toContain("Seed preparation is already running");
     __setMutationResult("generations:retryInitializeSeedStage", null);
-    await browserPage.getByRole("button", { name: "Retry initialization", exact: true }).click();
+    await browserPage.getByRole("button", { name: copy.retry, exact: true }).click();
     expect(__mutationCalls("generations:retryInitializeSeedStage")).toEqual([
       { generationId: "generation-seed-host" },
       { generationId: "generation-seed-host" },
@@ -890,6 +897,13 @@ describe("Seed project hosts", () => {
   it("retries failed Seed initialization from the preview host and announces a refusal", async () => {
     await assertInitializationRetry(PreviewProjectPage);
   });
+
+  /** Round 2 (F6): the preview host's reading screen names the retry "Try again". */
+  function retryCopy(Component: typeof CurrentProjectPage | typeof PreviewProjectPage) {
+    return Component === PreviewProjectPage
+      ? { title: "We could not read the transcripts", retry: "Try again", pending: "Trying again..." }
+      : { title: "Seed preparation needs attention", retry: "Retry initialization", pending: "Retrying…" };
+  }
 
   async function assertInitializationRetryOwnership(Component: typeof CurrentProjectPage | typeof PreviewProjectPage) {
     // A3/A5 (R6-07): the retry checks current capability and refuses a
@@ -916,7 +930,8 @@ describe("Seed project hosts", () => {
       candidatesDone: 0,
     });
     __setQueryData("generations:getLatestGeneration", initializing("generation-seed-host"));
-    const retryButton = () => browserPage.getByRole("button", { name: "Retry initialization", exact: true });
+    const copy = retryCopy(Component);
+    const retryButton = () => browserPage.getByRole("button", { name: copy.retry, exact: true });
     const mounted = await render(Component, {});
     await expect.element(retryButton()).toBeEnabled();
 
@@ -936,7 +951,7 @@ describe("Seed project hosts", () => {
     element = retryButton().element() as HTMLElement;
     element.click();
     element.click();
-    await expect.element(browserPage.getByRole("button", { name: "Retrying…", exact: true })).toBeDisabled();
+    await expect.element(browserPage.getByRole("button", { name: copy.pending, exact: true })).toBeDisabled();
     expect(__mutationCalls("generations:retryInitializeSeedStage")).toEqual([{ generationId: "generation-seed-host" }]);
 
     // The generation is replaced while that retry is pending: the replacement
@@ -962,6 +977,39 @@ describe("Seed project hosts", () => {
 
   it("owns Seed initialization retry by capability, single submission and generation in the preview host (R6-07)", async () => {
     await assertInitializationRetryOwnership(PreviewProjectPage);
+  });
+
+  it("reads the interview in the preview host: no tabs, the round 2 top bar, and Cancel generation (F2)", async () => {
+    __setQueryData("generations:getLatestGeneration", {
+      _id: "generation-seed-host",
+      status: "running",
+      candidateMode: "iterative",
+      gatedWorkflow: "seeds",
+      seedPhase: "initializing",
+      seedStageVersion: 0,
+      summaryVersionId: null,
+      seedCanEdit: true,
+    });
+    __setQueryData("seeds:getReadingFacts", {
+      count: 2,
+      latest: [
+        { seq: 2, chip: "Fact", quote: "The loop held at peak load.", sourceLabel: "Priya, line 9" },
+        { seq: 1, chip: "Storyline", quote: "We could not predict flow.", sourceLabel: "Priya, line 4" },
+      ],
+      startedAt: Date.now(),
+      expectedMs: 45_000,
+      done: false,
+    });
+    await render(PreviewProjectPage, {});
+    await expect.element(browserPage.getByText("2 facts found so far", { exact: true })).toBeVisible();
+    expect(browserPage.getByRole("tab").elements()).toHaveLength(0);
+    const panel = document.querySelector<HTMLElement>("[data-project-card]")!;
+    expect(panel.hasAttribute("data-work-panel")).toBe(true);
+    expect(document.querySelector("[data-page-icon-tile]")).not.toBeNull();
+    const cancel = document.querySelector<HTMLButtonElement>("[data-top-bar-cancel-generation]")!;
+    expect(getComputedStyle(cancel).backgroundColor).toBe("rgb(254, 226, 226)");
+    cancel.click();
+    await expect.element(browserPage.getByText("Cancel this generation?", { exact: true })).toBeVisible();
   });
 
   it("keeps an explicit legacy sections generation on the section stepper", async () => {

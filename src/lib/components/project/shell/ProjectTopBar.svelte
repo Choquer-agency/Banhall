@@ -119,7 +119,10 @@
   </div>
   {@render leading?.()}
   <div class="flex min-w-0 flex-1 items-center gap-2 text-sm">
-    <FileTextIcon size={16} aria-hidden="true" class="shrink-0 text-primary-selected max-sm:hidden" />
+    <!-- Round 2 top bars: the page icon sits on a 26px tile. -->
+    <span data-page-icon-tile class="flex size-[26px] shrink-0 items-center justify-center rounded-sm bg-workspace-page-icon max-sm:hidden" aria-hidden="true">
+      <FileTextIcon size={15} class="text-primary-selected" />
+    </span>
     <a href={projectsHref} class="shrink-0 text-ink-muted transition-colors hover:text-ink max-sm:hidden">Projects</a>
     <span aria-hidden="true" class="text-ink-faint max-sm:hidden">/</span>
     <h1 data-project-heading class="min-w-0 truncate text-sm font-medium text-ink">{title}</h1>

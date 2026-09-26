@@ -8,6 +8,7 @@
 -->
 <script lang="ts">
   import AuroraMark from "$lib/components/ui/AuroraMark.svelte";
+  import AuroraProgressPill from "./AuroraProgressPill.svelte";
   import {
     clampPercent,
     orderedSections,
@@ -123,63 +124,37 @@
 >
   {#if live}
     <div class="sticky top-6 z-10 flex justify-center">
-      <div
-        bind:this={pillElement}
-        tabindex="-1"
+      <AuroraProgressPill
+        bind:element={pillElement}
+        tabindex={-1}
         data-writing-pill
         data-collapsed={collapsed ? "true" : "false"}
         inert={collapsed}
         aria-hidden={collapsed ? "true" : undefined}
-        class={`relative overflow-hidden rounded-full p-[2px] outline-none transition-[opacity,transform] duration-200 ease-out motion-reduce:transition-none ${
+        class={`transition-[opacity,transform] duration-200 ease-out motion-reduce:transition-none ${
           collapsed ? "pointer-events-none -translate-y-2 opacity-0" : "translate-y-0 opacity-100"
         }`}
-        style={`background:${TRACK};box-shadow:var(--shadow-toast-soft), 0 0 14px #8438FF29`}
+        {percent}
+        progressLabel="Draft progress"
+        valueText={detail}
       >
-        <!-- Border progress: the Aurora fill scales from the left edge. -->
-        <span
-          data-pill-progress
-          role="progressbar"
-          aria-label="Draft progress"
-          aria-valuemin={0}
-          aria-valuemax={100}
-          aria-valuenow={percent}
-          aria-valuetext={detail}
-          class="absolute inset-0 origin-left transition-transform duration-500 ease-out motion-reduce:transition-none"
-          style={`background:var(--aurora-linear);transform:scaleX(${percent / 100})`}
-        ></span>
-        <!-- Glint travelling to the leading edge. -->
-        <span
-          aria-hidden="true"
-          class="absolute inset-0 transition-transform duration-500 ease-out motion-reduce:transition-none"
-          style={`transform:translateX(${percent - 100}%)`}
-        >
-          <span class="absolute inset-y-0 right-0 w-12 overflow-hidden">
-            <span
-              data-pill-glint
-              class="aurora-glint block h-full w-full"
-              style="background:linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.95))"
-            ></span>
-          </span>
-        </span>
-        <div class="relative flex h-[42px] items-center gap-3 rounded-full bg-surface pl-3 pr-[5px]">
-          <AuroraMark size={22} />
-          <span class="text-sm font-medium leading-[18px] text-ink" aria-live="polite" data-pill-headline>{headline}</span>
-          <span class="text-[13px] leading-[18px] text-ink-muted" data-pill-detail>{detail}</span>
-          {#if progress.phase === "drafting" && onStop}
-            <button
-              type="button"
-              data-pill-stop
-              disabled={stopDisabled}
-              onclick={() => onStop?.()}
-              class="h-[30px] rounded-full bg-chrome px-3 text-xs font-medium text-ink transition-colors hover:bg-primary-wash focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:pointer-events-none disabled:opacity-50 motion-reduce:transition-none"
-            >
-              Stop
-            </button>
-          {:else}
-            <span class="w-[7px]" aria-hidden="true"></span>
-          {/if}
-        </div>
-      </div>
+        <AuroraMark size={22} />
+        <span class="text-sm font-medium leading-[18px] text-ink" aria-live="polite" data-pill-headline>{headline}</span>
+        <span class="text-[13px] leading-[18px] text-ink-muted" data-pill-detail>{detail}</span>
+        {#if progress.phase === "drafting" && onStop}
+          <button
+            type="button"
+            data-pill-stop
+            disabled={stopDisabled}
+            onclick={() => onStop?.()}
+            class="h-[30px] rounded-full bg-chrome px-3 text-xs font-medium text-ink transition-colors hover:bg-primary-wash focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:pointer-events-none disabled:opacity-50 motion-reduce:transition-none"
+          >
+            Stop
+          </button>
+        {:else}
+          <span class="w-[7px]" aria-hidden="true"></span>
+        {/if}
+      </AuroraProgressPill>
     </div>
 
     <!-- Corner ring (4.3): white inside, Aurora mark, conic progress border. -->
