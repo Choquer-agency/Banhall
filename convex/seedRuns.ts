@@ -104,6 +104,12 @@ const generateBatchRef = makeFunctionReference<
   void
 >("ai/seeds:generateBatch");
 
+const expireAttemptRef = makeFunctionReference<
+  "mutation",
+  { batchId: Id<"seedBatches">; attemptId: string },
+  null
+>("seedRuns:expireAttempt");
+
 type DispatchArgs = {
   generationId: Id<"generations">;
   roleId: PdSubsectionRoleId;
@@ -449,6 +455,13 @@ export async function dispatchSeedAttempt(
     contextRevision: loaded.contextRevision,
   });
   await ctx.scheduler.runAfter(0, generateBatchRef, { batchId });
+  // The attempt's own lease check (audit 2026-09-25 a3 P3): an attempt whose
+  // action was killed fails when its lease ends, not at the next reaper
+  // sweep up to ten minutes later.
+  await ctx.scheduler.runAfter(SEED_ATTEMPT_LEASE_MS, expireAttemptRef, {
+    batchId,
+    attemptId,
+  });
   return { kind: "dispatched", batchId };
 }
 
@@ -702,6 +715,34 @@ async function failSeedAttempt(
   }
   return { kind: "failed" as const };
 }
+
+/**
+ * Fails one attempt still queued or running when its lease ends, like the
+ * reaper sweep does. A settled attempt, or a newer attempt on the same
+ * row, is left alone.
+ */
+export const expireAttempt = internalMutation({
+  args: { batchId: v.id("seedBatches"), attemptId: v.string() },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const batch = await ctx.db.get(args.batchId);
+    if (
+      !batch ||
+      batch.attemptId !== args.attemptId ||
+      (batch.status !== "queued" && batch.status !== "running") ||
+      batch.leaseExpiresAt > Date.now()
+    ) {
+      return null;
+    }
+    await failSeedAttempt(ctx, {
+      batch,
+      requestsMade: batch.requestsReserved,
+      errorCode: "LEASE_EXPIRED",
+      actorSystem: true,
+    });
+    return null;
+  },
+});
 
 export const failAttempt = internalMutation({
   args: {
