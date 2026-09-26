@@ -2628,8 +2628,15 @@ describe("Seed plan final UI (ui-design-final.md sections 3 and 11)", () => {
     expect(row(/Advancement to science/).textContent).toContain("seeds failed");
     expect(row(/Specific/).textContent).toContain("approved, stale");
     expect(row(/Specific/).querySelector("[data-row-marker]")?.textContent?.trim()).toBe("stale");
-    // A count is faint and on the right; no preview or state line on screen.
-    expect(row(/Company \/ Context/).querySelector("[data-counts-complete]")?.textContent).toBe("2");
+    // A count is faint and on the right; an approved step shows none (F5).
+    // No preview or state line on screen.
+    expect(row(/Experimentation/).querySelector("[data-counts-complete]")?.textContent).toBe("1");
+    expect(row(/Company \/ Context/).querySelector("[data-counts-complete]")).toBeNull();
+    // F3: the three long step names are shortened in the Outline only.
+    const label = (roleTitle: RegExp) => row(roleTitle).querySelector(".truncate")?.textContent;
+    expect(label(/Previous-year/)).toBe("Previous-year work");
+    expect(label(/Specific/)).toBe("Specific advancements");
+    expect(label(/Goal improvements/)).toBe("Goal improvements");
     expect(container.textContent).not.toContain("Control loop evidence");
     expect(container.textContent).not.toContain("·");
     // Rows are one line high.
