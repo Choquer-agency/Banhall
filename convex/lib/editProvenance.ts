@@ -218,11 +218,54 @@ export function carryClaims(
   return { claims: out };
 }
 
+/** True when a row other than `report` points at this claim record: an
+ * export, a snapshot, a candidate or another report. Such a record is part of
+ * that row's history and is never changed or deleted by an edit. */
+async function heldElsewhere(
+  ctx: MutationCtx,
+  provenanceId: Id<"reportProvenance">,
+  reportId: Id<"reports"> | null
+): Promise<boolean> {
+  const reports = await ctx.db
+    .query("reports")
+    .withIndex("by_provenanceId", (q) => q.eq("provenanceId", provenanceId))
+    .take(2);
+  if (reports.some((row) => row._id !== reportId)) return true;
+  for (const table of ["reportExports", "reportSnapshots", "reportCandidates"] as const) {
+    const held = await ctx.db
+      .query(table)
+      .withIndex("by_provenanceId", (q) => q.eq("provenanceId", provenanceId))
+      .first();
+    if (held) return true;
+  }
+  return false;
+}
+
+/** Delete a claim record no report, export, snapshot or candidate holds any
+ * more (a snapshot the retention rule just pruned, say). */
+export async function deleteProvenanceIfUnheld(
+  ctx: MutationCtx,
+  provenanceId: Id<"reportProvenance">
+): Promise<void> {
+  if (await heldElsewhere(ctx, provenanceId, null)) return;
+  if (await ctx.db.get(provenanceId)) await ctx.db.delete(provenanceId);
+}
+
+function sameClaims(a: readonly Claim[], b: readonly Claim[]): boolean {
+  return JSON.stringify(a) === JSON.stringify(b);
+}
+
 /**
  * Write the claim record for a report revision a human edit produced.
- * Returns the new provenance id, or undefined when the previous revision had
+ * Returns the provenance id, or undefined when the previous revision had
  * no usable record (legacy reports stay unavailable, as before) or the edited
  * report has more claims than one record may hold.
+ *
+ * The editor autosaves every second of idle time, so an edit that leaves the
+ * claims and status as they were reuses the previous record (its content hash
+ * moves to the new revision) instead of inserting a copy. A record an export,
+ * snapshot, candidate or another report holds is never changed: the edit then
+ * inserts a new one. A superseded record nothing else holds is deleted.
  */
 export async function provenanceForEdit(
   ctx: MutationCtx,
@@ -239,7 +282,12 @@ export async function provenanceForEdit(
     previous.claims,
     `r${options.nextRevisionNumber}`
   );
-  if (!carried || carried.claims.length > MAX_CLAIMS_PER_REVISION) return undefined;
+  // The record the report drops. Nothing else may hold it once it is gone.
+  const pruneable = !(await heldElsewhere(ctx, previous._id, report._id));
+  if (!carried || carried.claims.length > MAX_CLAIMS_PER_REVISION) {
+    if (pruneable) await ctx.db.delete(previous._id);
+    return undefined;
+  }
   const claims: Claim[] = await Promise.all(
     carried.claims.map(async (claim) => ({
       ...claim,
@@ -259,13 +307,18 @@ export async function provenanceForEdit(
     : previous.status === "approved" && allApproved
       ? "approved"
       : "needs_review";
-  return await ctx.db.insert("reportProvenance", {
+  const contentHash = await sha256(nextContent);
+  if (pruneable && status === previous.status && sameClaims(claims, previous.claims)) {
+    await ctx.db.patch(previous._id, { contentHash });
+    return previous._id;
+  }
+  const nextId = await ctx.db.insert("reportProvenance", {
     projectId: previous.projectId,
     generationId: previous.generationId,
     sourceTranscriptId: previous.sourceTranscriptId,
     sourceTranscriptIds: previous.sourceTranscriptIds,
     digestIds: previous.digestIds,
-    contentHash: await sha256(nextContent),
+    contentHash,
     status,
     claims,
     createdAt: options.now,
@@ -274,6 +327,8 @@ export async function provenanceForEdit(
       ? { reviewedAt: previous.reviewedAt, reviewedBy: previous.reviewedBy }
       : {}),
   });
+  if (pruneable) await ctx.db.delete(previous._id);
+  return nextId;
 }
 
 /**

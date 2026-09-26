@@ -843,7 +843,8 @@ export default defineSchema({
     contentHash: v.optional(v.string()),
   })
     .index("by_projectId", ["projectId"])
-    .index("by_generationId", ["generationId"]),
+    .index("by_generationId", ["generationId"])
+    .index("by_provenanceId", ["provenanceId"]),
 
   comments: defineTable({
     projectId: v.id("projects"),
@@ -1515,7 +1516,8 @@ export default defineSchema({
   })
     .index("by_generationId", ["generationId"])
     .index("by_projectId", ["projectId"])
-    .index("by_generationId_and_model", ["generationId", "model"]),
+    .index("by_generationId_and_model", ["generationId", "model"])
+    .index("by_provenanceId", ["provenanceId"]),
 
   // BNH-48: writer's 1–10 score per candidate option. Candidate rows are
   // deleted once a draft is chosen, so model/label/position/AI-score are
@@ -2124,7 +2126,8 @@ export default defineSchema({
   })
     .index("by_reportId", ["reportId"])
     .index("by_projectId", ["projectId"])
-    .index("by_projectId_and_milestoneKey", ["projectId", "milestoneKey"]),
+    .index("by_projectId_and_milestoneKey", ["projectId", "milestoneKey"])
+    .index("by_provenanceId", ["provenanceId"]),
 
   // Terminal operational observations, independent of billing. No retrieval text.
   rerankOutcomes: defineTable({
@@ -2501,7 +2504,8 @@ export default defineSchema({
   })
     .index("by_projectId", ["projectId"])
     .index("by_reportId", ["reportId"])
-    .index("by_status_and_authorizedAt", ["status", "authorizedAt"]),
+    .index("by_status_and_authorizedAt", ["status", "authorizedAt"])
+    .index("by_provenanceId", ["provenanceId"]),
 
   // ─── BNH-29: writer's human QA score + feedback on a generated report ───────
   // One review per writer per report version. Surfaced to the admin alongside

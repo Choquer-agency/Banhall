@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 import { api } from "./_generated/api";
 import type { Doc } from "./_generated/dataModel";
 import { sha256 } from "./lib/contracts";
-import { carryClaims } from "./lib/editProvenance";
+import { carryClaims, deleteProvenanceIfUnheld } from "./lib/editProvenance";
 import { buildTiptapDocument } from "./lib/tiptapReport";
 import schema from "./schema";
 
@@ -458,5 +458,119 @@ describe("an edited report can be exported once its claims are reviewed", () => 
     const { report } = await reportAndProvenance(f);
     expect(report.provenanceId).toBeUndefined();
     expect(await blockers(f)).toContain("PROVENANCE_UNAVAILABLE");
+  });
+});
+
+// Review r2 P2-2 (2026-09-25): every autosave inserted a new claim record and
+// nothing deleted the old ones.
+describe("claim records do not pile up on autosave", () => {
+  async function provenanceRows(f: Fixture) {
+    return await f.t.run((ctx) =>
+      ctx.db
+        .query("reportProvenance")
+        .withIndex("by_projectId", (q) => q.eq("projectId", f.projectId))
+        .collect()
+    );
+  }
+  const retitle = (title: string) => ORIGINAL.replace("Alloy fatigue PD", title);
+
+  it("saves that leave every claim as it was reuse one record", async () => {
+    const f = await setup();
+    for (const [revision, title] of ["Draft one", "Draft two", "Draft three"].entries()) {
+      await f.writer.mutation(api.reports.updateReportContent, {
+        reportId: f.reportId,
+        content: retitle(title),
+        expectedRevisionNumber: revision,
+      });
+    }
+    const { report, provenance } = await reportAndProvenance(f);
+    expect(report.provenanceId).toBe(f.provenanceId);
+    expect(provenance).toMatchObject({
+      status: "approved",
+      contentHash: await sha256(retitle("Draft three")),
+    });
+    expect(await provenanceRows(f)).toHaveLength(1);
+    await expect(attestAndExport(f)).resolves.toMatchObject({ revisionNumber: 3 });
+  });
+
+  it("a save that changes a claim replaces the record and deletes the old one", async () => {
+    const f = await setup();
+    await f.writer.mutation(api.reports.updateReportContent, {
+      reportId: f.reportId,
+      content: doc(P242, REWRITTEN_244, P246),
+      expectedRevisionNumber: 0,
+    });
+    const rows = await provenanceRows(f);
+    expect(rows).toHaveLength(1);
+    const { report } = await reportAndProvenance(f);
+    expect(rows[0]._id).toBe(report.provenanceId);
+    expect(rows[0]._id).not.toBe(f.provenanceId);
+  });
+
+  it("never changes or deletes a record a snapshot or export holds", async () => {
+    const f = await setup();
+    await attestAndExport(f);
+    const snapshotId = await f.t.run((ctx) =>
+      ctx.db.insert("reportSnapshots", {
+        projectId: f.projectId,
+        reportId: f.reportId,
+        content: ORIGINAL,
+        reason: "manual",
+        createdByRole: "writer",
+        createdAt: Date.now(),
+        provenanceId: f.provenanceId,
+        contentHash: "held",
+      })
+    );
+    await f.writer.mutation(api.reports.updateReportContent, {
+      reportId: f.reportId,
+      content: retitle("Held"),
+      expectedRevisionNumber: 0,
+    });
+    const { report } = await reportAndProvenance(f);
+    expect(report.provenanceId).not.toBe(f.provenanceId);
+    const kept = await f.t.run((ctx) => ctx.db.get(f.provenanceId));
+    expect(kept?.contentHash).toBe(await sha256(ORIGINAL));
+    expect(await provenanceRows(f)).toHaveLength(2);
+
+    // Once the snapshot is gone the export still holds it.
+    await f.t.run(async (ctx) => {
+      await ctx.db.delete(snapshotId);
+      await deleteProvenanceIfUnheld(ctx, f.provenanceId);
+    });
+    expect(await f.t.run((ctx) => ctx.db.get(f.provenanceId))).not.toBeNull();
+  });
+
+  it("a record only a pruned snapshot held is deleted with it", async () => {
+    const f = await setup();
+    const { snapshotId, orphanId } = await f.t.run(async (ctx) => {
+      const orphanId = await ctx.db.insert("reportProvenance", {
+        projectId: f.projectId,
+        contentHash: "old",
+        status: "needs_review",
+        claims: [],
+        createdAt: 1,
+      });
+      const snapshotId = await ctx.db.insert("reportSnapshots", {
+        projectId: f.projectId,
+        reportId: f.reportId,
+        content: ORIGINAL,
+        reason: "manual",
+        createdByRole: "writer",
+        createdAt: 1,
+        provenanceId: orphanId,
+      });
+      return { snapshotId, orphanId };
+    });
+    await f.t.run((ctx) => deleteProvenanceIfUnheld(ctx, orphanId));
+    expect(await f.t.run((ctx) => ctx.db.get(orphanId))).not.toBeNull();
+    await f.t.run(async (ctx) => {
+      await ctx.db.delete(snapshotId);
+      await deleteProvenanceIfUnheld(ctx, orphanId);
+    });
+    expect(await f.t.run((ctx) => ctx.db.get(orphanId))).toBeNull();
+    // The report's own record is never taken.
+    await f.t.run((ctx) => deleteProvenanceIfUnheld(ctx, f.provenanceId));
+    expect(await f.t.run((ctx) => ctx.db.get(f.provenanceId))).not.toBeNull();
   });
 });
