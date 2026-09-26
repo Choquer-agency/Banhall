@@ -996,6 +996,60 @@ the dark workspace scope does not retint them. Live at `/styleguide`.
   "B Banhall" at the top of the rail with the dark wordmark, padding clipped:
   36px tall expanded, 40px wide collapsed.
 
+### 2026-09-26 amendment - round 2 shell (WS1)
+
+Boards A1 to A5, B1 to B3, D1 to D5, I1, I1b, I3 to I5; decision 53. Live at
+`/styleguide` ("Round 2 shell").
+
+- **Rail.** `WorkspaceRail` reads one model, `src/lib/shell/navigation.ts`:
+  Workspace (Home, Projects, Companies), Manage (Team for Managers and Admins,
+  Admin for `settings.configure`), Developer (Alerts with `ops.viewAlerts`,
+  Feature requests), Other (What's new, Settings) at the bottom, then the
+  identity row (avatar, name, `RoleChip size="sm"`) that opens the account
+  menu. Rows 32px (44px in the touch drawer), group labels 11px in secondary
+  ink (muted fails AA on the shell). Rail and frame use `workspace-shell`.
+  Collapsed (A4): 36px icon tiles with tooltips, the expand toggle and search
+  at the top, What's new as a 7px dot, Alerts as a red count, avatar 30px,
+  no role chip. The Admin icon opens the A5 flyout (hover after 150ms, or
+  Enter, Space, click). Expanded, Admin is a group with a chevron (down
+  closed, up open) and eight 28px rows under a left rule; it opens by itself
+  on admin pages and otherwise keeps the last choice (`railPreferences`).
+- **Top bar and panel.** `shell/PageTopBar` is the 56px bar: shell controls,
+  `PageIconTile` (26px, `workspace-page-icon`, primary icon), title with a
+  muted subtitle or an "Admin / Page" breadcrumb, then status, bell and
+  actions. `WorkspaceChrome` insets the white work panel 12px on the shell
+  (radius 10, `line` border, owns the scroll) and marks it `data-work-panel`.
+  `panel="padded"` gives 32px top with 56px sides (`padding="wide"`) or 28px
+  top with 40px sides (`padding="admin"`); `panel="flush"` leaves padding to
+  the page. Admin pages add a serif heading (display size, 34px line) and a
+  15px description.
+- **View as.** Presentation only. The pill (36px, `warning-surface` and
+  `warning-line`) sits over the centre of the top bar; the work panel takes a
+  2px `view-as-frame` border through `[data-view-as] [data-work-panel]`; the
+  rail chip reads "Viewing as {Role}" in that role's colours (`RoleChip`
+  `label`). Gated pages pass `viewAsGate` to `WorkspaceChrome` for the D4
+  hidden state.
+- **Menus and dialogs.** Round 2 menus and flyouts use `shadow-menu`, radius
+  12, padding 6, 32px items with 15px icons; the View as dialog uses
+  `shadow-dialog`, radius 16, a fir confirm and the filled destructive Cancel.
+- **Settings.** Full width, no sub-rail: a serif "Settings" heading and
+  `settings/SettingsTabs` (a `chrome` segmented bar; the active tab is the
+  primary fill with white text). `SettingsRow` is the 280px label column
+  row; `SettingsSaveBar` shows "No changes yet" until something changes, then
+  Discard and a fir "Save changes". The Notifications tab saves each
+  `ui/Switch` (32x18, `primary-selected` on, `gray-300` off) at once.
+- **Toast.** One dark card at the bottom centre for default, success, info
+  and loading toasts: `toast` fill, `toast-ink` 13px text, `toast-muted`
+  second line, a `primary-light` action, radius 10, `shadow-toast-dark`.
+  Errors keep the red card and warnings the amber one.
+- **Keys.** `src/lib/shell/shortcuts.ts` is the one registry. Hints detect the
+  platform (Mac symbols on a Mac, Ctrl and Shift elsewhere); `KeyHint` draws
+  24px key chips or the inline hint used in menus and tooltips (`Tooltip`
+  `hint`).
+- **Avatar.** `ui/Avatar` shows the photo or initials on fir, teal or
+  `avatar-purple`, picked from the user id so a person keeps one colour
+  (proposal; the boards state no rule).
+
 ## Panel motion (2026-08-10)
 
 Floating panels animate with a shadcn-style **pop** (owner direction,

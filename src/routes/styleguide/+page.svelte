@@ -10,6 +10,12 @@
   import FileIcon from "$lib/components/ui/FileIcon.svelte";
   import BanhallLogo from "$lib/components/ui/BanhallLogo.svelte";
   import BanhallRailMark from "$lib/components/ui/BanhallRailMark.svelte";
+  import Avatar from "$lib/components/ui/Avatar.svelte";
+  import Switch from "$lib/components/ui/Switch.svelte";
+  import KeyHint from "$lib/components/shell/KeyHint.svelte";
+  import PageIconTile from "$lib/components/shell/PageIconTile.svelte";
+  import SettingsTabs from "$lib/components/settings/SettingsTabs.svelte";
+  import { GearSixIcon } from "phosphor-svelte";
   import type { RoleChipKind } from "$lib/roles/roleChip";
   import ChatIcon from "$lib/components/ui/ChatIcon.svelte";
   import ProcessingStatusBadge from "$lib/components/upload/ProcessingStatusBadge.svelte";
@@ -92,6 +98,13 @@
   const shellTokens = [
     { name: "workspace-shell", cls: "bg-workspace-shell", hex: "#FAFCFB", role: "Round 2 rail and panel frame" },
     { name: "workspace-page-icon", cls: "bg-workspace-page-icon", hex: "#E3F4F1", role: "Page icon tile in the top bar" },
+  ];
+  // Round 2 shell (WS1).
+  let demoSwitch = $state(true);
+  const demoTabs = [
+    { key: "account", label: "Account", href: "#styleguide-tabs" },
+    { key: "writing", label: "Writing preferences", href: "#styleguide-tabs" },
+    { key: "notifications", label: "Notifications", href: "#styleguide-tabs" },
   ];
   const fileNames = ["Interview.docx", "Cost breakdown.xlsx", "Follow-up call.pdf", "Notes.txt", "Drawings.zip"];
 
@@ -339,6 +352,56 @@
         </div>
         <p class="mt-2 text-xs text-ink-muted">
           file-icon-vectors, vivid set. Anything that is not pdf, docx, xlsx or txt gets the neutral page.
+        </p>
+      </div>
+    </div>
+
+    <!-- Round 2 shell -->
+    <h2 class="text-label mt-12">Round 2 shell</h2>
+    <p class="mt-2 max-w-2xl text-xs text-ink-muted">
+      The rail, top bar, Settings and View as primitives. The View as frame is
+      <code class="text-data">view-as-frame</code> (#F59E0B) on any
+      <code class="text-data">[data-work-panel]</code> while viewing.
+    </p>
+    <div class="card mt-3 space-y-8 px-5 py-5">
+      <div>
+        <p class="text-label mb-2">Page icon tile and avatars</p>
+        <div class="flex flex-wrap items-center gap-3">
+          <PageIconTile icon={GearSixIcon} />
+          <Avatar name="Johnny Nguyen" tone="purple" size={24} />
+          <Avatar name="Jane Ellis" tone="fir" size={30} />
+          <Avatar name="Mo Reyes" tone="teal" size={32} />
+          <Avatar name="Ana Ruiz" tone="fir" size={52} />
+        </div>
+        <p class="mt-2 text-xs text-ink-muted">
+          Avatar tones fir, teal and purple (#7E22CE, <code class="text-data">avatar-purple</code>), picked from the user id.
+        </p>
+      </div>
+
+      <div>
+        <p class="text-label mb-2">Switch, key hints, tabs</p>
+        <div class="flex flex-wrap items-center gap-6">
+          <Switch label="Demo switch" bind:checked={demoSwitch} />
+          <KeyHint id="search" platform="mac" />
+          <KeyHint id="search" platform="windows" />
+          <KeyHint id="goAdmin" platform="mac" />
+          <KeyHint id="viewAs" variant="inline" platform="windows" />
+        </div>
+        <div id="styleguide-tabs" class="mt-4">
+          <SettingsTabs tabs={demoTabs} activeKey="account" />
+        </div>
+      </div>
+
+      <div>
+        <p class="text-label mb-2">Toast</p>
+        <div class="flex flex-wrap items-center gap-3">
+          <div class="inline-flex items-center gap-3 rounded-[10px] bg-toast py-2.5 pl-3.5 pr-3 text-[13px] text-toast-ink shadow-toast-dark">
+            Now viewing as Consultant. Your own access is unchanged.
+            <span class="font-medium text-primary-light">Undo</span>
+          </div>
+        </div>
+        <p class="mt-2 text-xs text-ink-muted">
+          <code class="text-data">toast</code> #132D2A, <code class="text-data">toast-muted</code> #B8C9C6, bottom centre. Errors keep the red card.
         </p>
       </div>
     </div>
