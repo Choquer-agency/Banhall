@@ -784,7 +784,9 @@ export const updateProposalWording = mutation({
   handler: async (ctx, args) => {
     const proposal = await ctx.db.get(args.proposalId);
     if (!proposal) domainError("NOT_FOUND", "Suggestion not found");
-    const { user } = await requireInternalProjectAccess(ctx, proposal.projectId);
+    // The owner applies stored wording as is, so rewording a pending
+    // suggestion is editing report prose (audit 2026-09-25, a2 P2-2).
+    const { user } = await requireReportEditAccess(ctx, proposal.projectId);
     if (isRecordOnlyProposal(proposal)) {
       domainError("INVALID_INPUT", "This record has nothing to reword.");
     }
@@ -858,7 +860,7 @@ export const rejectProposal = mutation({
   handler: async (ctx, args) => {
     const proposal = await ctx.db.get(args.proposalId);
     if (!proposal) throw new Error("Proposal not found");
-    await requireInternalProjectAccess(ctx, proposal.projectId);
+    await requireReportEditAccess(ctx, proposal.projectId);
     if (isRecordOnlyProposal(proposal)) {
       domainError("INVALID_INPUT", "This record has nothing to reject.");
     }

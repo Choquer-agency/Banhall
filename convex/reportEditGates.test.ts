@@ -284,3 +284,32 @@ describe("generation entry points need report.editProse (a2 P1-1, a4 #5)", () =>
     );
   });
 });
+
+describe("proposal wording and reject need report.editProse (a2 P2-2)", () => {
+  it("updateProposalWording", async () => {
+    await expectGate((f, a) =>
+      f.as(a).mutation(api.chatV2.updateProposalWording, {
+        proposalId: f.proposalId,
+        newText: "Injected prose.",
+      })
+    );
+  });
+
+  it("leaves the stored wording alone when a non-owner tries to reword it", async () => {
+    const f = await setup();
+    await errorCode(() =>
+      f.as("creator").mutation(api.chatV2.updateProposalWording, {
+        proposalId: f.proposalId,
+        newText: "Injected prose.",
+      })
+    );
+    const proposal = await f.t.run((ctx) => ctx.db.get(f.proposalId));
+    expect(proposal?.newText).toBe("Changed prose.");
+  });
+
+  it("rejectProposal", async () => {
+    await expectGate((f, a) =>
+      f.as(a).mutation(api.chatV2.rejectProposal, { proposalId: f.proposalId })
+    );
+  });
+});
