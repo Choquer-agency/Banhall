@@ -57,6 +57,10 @@ describe("next validation", () => {
     "/LOGIN",
     "/signup/abc",
     "/api/auth/sign-out",
+    "/%61pi/auth/get-session",
+    "/%6Cogin",
+    "/%53IGNUP",
+    "/%E0%A4%A",
     `/${"a".repeat(2048)}`,
   ])("rejects %j", (raw) => {
     expect(safeNextPath(raw)).toBeNull();
