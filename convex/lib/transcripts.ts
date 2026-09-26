@@ -1,6 +1,13 @@
 import type { MutationCtx, QueryCtx } from "../_generated/server";
 import type { Doc, Id } from "../_generated/dataModel";
-import { sha256 } from "./contracts";
+import { internal } from "../_generated/api";
+import { domainError, sha256 } from "./contracts";
+import { isStorageReferenced, requireFreshUpload, requireNotClaimedByAnother } from "./storage";
+import { requireInternalActor } from "./auth";
+import {
+  TRANSCRIPT_PARSER_VERSION,
+  type TranscriptSourceFormat,
+} from "../../shared/transcriptParse";
 
 type Ctx = QueryCtx | MutationCtx;
 
@@ -18,6 +25,31 @@ export const MAX_TOTAL_TRANSCRIPT_CHARS = 2_000_000;
 
 /** Per-transcript slice frozen into a `generationSources` row. */
 export const FROZEN_TRANSCRIPT_CHARS = 500_000;
+
+/**
+ * 2026-09-24 (transcript method): one transcript's text may not exceed the
+ * frozen slice, so freezing never cuts a new transcript and every turn and
+ * fact offset stays valid on the frozen row. Rows written before the cap
+ * keep working; generation still freezes their first 500 000 characters.
+ */
+export const MAX_TRANSCRIPT_CHARS = FROZEN_TRANSCRIPT_CHARS;
+
+/** Largest uploaded original transcript file kept in storage. */
+export const MAX_TRANSCRIPT_FILE_BYTES = 25 * 1024 * 1024;
+
+/**
+ * Rows one project's transcript history may hold, active and archived.
+ * Replace archives rather than deletes, so Add and Replace refuse once a
+ * project reaches it. Archived rows are counted on the project
+ * (`projects.archivedTranscriptCount`), never read, to enforce it.
+ */
+export const MAX_TRANSCRIPT_HISTORY_ROWS = 200;
+
+/**
+ * Active rows one project read takes: the 20 transcripts plus room for the
+ * empty placeholder rows older creation paths wrote.
+ */
+export const MAX_ACTIVE_TRANSCRIPT_ROWS_READ = 50;
 
 /**
  * Combined frozen transcript characters above which a generation condenses
@@ -55,6 +87,10 @@ export type TranscriptMetadata = {
   charCount: number;
   wordCount: number;
   contentHash?: string;
+  sourceFormat?: TranscriptSourceFormat;
+  speakerStatus?: "unchecked" | "needs_check" | "confirmed";
+  factsStatus?: "none" | "queued" | "ready" | "failed";
+  hasOriginal?: boolean;
 };
 
 export type TranscriptPart = { label: string; content: string };
@@ -75,13 +111,17 @@ export function transcriptMetadata(
     charCount: doc.content.length,
     wordCount: trimmed === "" ? 0 : trimmed.split(/\s+/).length,
     contentHash: doc.contentHash,
+    ...(doc.sourceFormat ? { sourceFormat: doc.sourceFormat } : {}),
+    ...(doc.speakerStatus ? { speakerStatus: doc.speakerStatus } : {}),
+    ...(doc.factsStatus ? { factsStatus: doc.factsStatus } : {}),
+    ...(doc.originalStorageId ? { hasOriginal: true } : {}),
   };
 }
 
 /**
  * The one definition of "a project's transcripts": ordered by `position` then
  * `createdAt` then `_id`, with empty rows dropped (ingestion writes a
- * placeholder row with empty content) and at most
+ * placeholder row with empty content), archived rows dropped, and at most
  * `MAX_TRANSCRIPTS_PER_PROJECT` returned. Full documents, because server-side
  * callers need the text; clients read metadata through `listTranscripts` and
  * one body at a time through `getTranscriptContent`.
@@ -90,13 +130,34 @@ export async function listProjectTranscripts(
   ctx: Ctx,
   projectId: Id<"projects">
 ): Promise<Doc<"transcripts">[]> {
-  const rows = await ctx.db
-    .query("transcripts")
-    .withIndex("by_projectId", (q) => q.eq("projectId", projectId))
-    .take(MAX_TRANSCRIPTS_PER_PROJECT + 1);
+  return projectTranscriptsFrom(await listActiveTranscriptRows(ctx, projectId));
+}
 
+/**
+ * Every row of a project that is not archived, empty placeholder rows
+ * included, in index order. Archived rows (Replace and Remove, 2026-09-24)
+ * stay whole for the generations that froze them but are not the project's
+ * transcripts any more, and they are never read here: the index range stops
+ * at `archivedAt` absent, so a project's reads do not grow with its history.
+ */
+export async function listActiveTranscriptRows(
+  ctx: Ctx,
+  projectId: Id<"projects">
+): Promise<Doc<"transcripts">[]> {
+  return await ctx.db
+    .query("transcripts")
+    .withIndex("by_projectId_and_archivedAt", (q) =>
+      q.eq("projectId", projectId).eq("archivedAt", undefined)
+    )
+    .take(MAX_ACTIVE_TRANSCRIPT_ROWS_READ);
+}
+
+/** A project's transcripts out of its active rows, as `listProjectTranscripts` returns them. */
+export function projectTranscriptsFrom(
+  rows: readonly Doc<"transcripts">[]
+): Doc<"transcripts">[] {
   return rows
-    .filter((row) => row.content.trim() !== "")
+    .filter((row) => row.content.trim() !== "" && row.archivedAt === undefined)
     .sort(compareTranscripts)
     .slice(0, MAX_TRANSCRIPTS_PER_PROJECT);
 }
@@ -231,6 +292,10 @@ export function describeTranscriptInput(parts: TranscriptPart[]): string {
  * Writes one transcript row with its hash, in list position. Empty text is not
  * a transcript: the row is skipped and `null` comes back, so a project created
  * from context documents alone carries no transcript rows at all.
+ *
+ * 2026-09-24: schedules the server-side turn and speaker build
+ * (`transcripts.buildTranscriptStructure`); turns are never taken from the
+ * client.
  */
 export async function insertTranscriptRow(
   ctx: MutationCtx,
@@ -239,35 +304,198 @@ export async function insertTranscriptRow(
     content: string;
     label?: string;
     position: number;
+    sourceFormat?: TranscriptSourceFormat;
+    originalStorageId?: Id<"_storage">;
   }
 ): Promise<Id<"transcripts"> | null> {
   if (args.content.trim() === "") return null;
-  return await ctx.db.insert("transcripts", {
+  const transcriptId = await ctx.db.insert("transcripts", {
     projectId: args.projectId,
     content: args.content,
     label: args.label ?? DEFAULT_TRANSCRIPT_LABEL,
     position: args.position,
     contentHash: await sha256(args.content),
     createdAt: Date.now(),
+    ...(args.sourceFormat ? { sourceFormat: args.sourceFormat } : {}),
+    ...(args.originalStorageId ? { originalStorageId: args.originalStorageId } : {}),
   });
+  await scheduleTranscriptStructure(ctx, transcriptId);
+  return transcriptId;
 }
 
 /**
  * Copies an existing transcript into another project by reference: the text
  * never leaves the backend, so the duplicate wizard does not download and
  * re-upload a megabyte of interview.
+ *
+ * 2026-09-24: turns are rebuilt from the copied text (deterministic, no model
+ * call), and the source's confirmed or model-placed speaker roles come along
+ * (`adoptDerivedRows`). The original file stays with the source row; the
+ * content copy clones it later, found through `copiedFromTranscriptId`.
  */
 export async function copyTranscriptRow(
   ctx: MutationCtx,
   source: Doc<"transcripts">,
   args: { projectId: Id<"projects">; position: number }
 ): Promise<Id<"transcripts">> {
-  return await ctx.db.insert("transcripts", {
+  const transcriptId = await ctx.db.insert("transcripts", {
     projectId: args.projectId,
     content: source.content,
     label: transcriptLabel(source),
     position: args.position,
     contentHash: source.contentHash ?? (await sha256(source.content)),
     createdAt: Date.now(),
+    ...(source.sourceFormat ? { sourceFormat: source.sourceFormat } : {}),
+    copiedFromTranscriptId: source._id,
   });
+  await adoptDerivedRows(ctx, transcriptId, source);
+  await scheduleTranscriptStructure(ctx, transcriptId);
+  return transcriptId;
+}
+
+/**
+ * A build chain older than this that never finished (its step threw, say)
+ * no longer holds the transcript: the backfill or a facts request may start
+ * a new one.
+ */
+export const STRUCTURE_BUILD_STALE_MS = 10 * 60_000;
+
+/** A fresh build chain id: its start time, then random hex. */
+export function newStructureBuildId(now = Date.now()): string {
+  const bytes = new Uint8Array(12);
+  crypto.getRandomValues(bytes);
+  return `${now.toString(36)}-${Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("")}`;
+}
+
+/** When the chain holding this id started; undefined for an id without a time. */
+export function structureBuildStartedAt(buildId: string | undefined): number | undefined {
+  const match = buildId ? /^([0-9a-z]+)-[0-9a-f]+$/.exec(buildId) : null;
+  if (!match) return undefined;
+  const at = parseInt(match[1], 36);
+  return Number.isFinite(at) ? at : undefined;
+}
+
+/** Whether a build chain holds this transcript right now. */
+export function structureBuildIsLive(transcript: Doc<"transcripts">, now = Date.now()): boolean {
+  const started = structureBuildStartedAt(transcript.structureBuildId);
+  return started !== undefined && now - started < STRUCTURE_BUILD_STALE_MS;
+}
+
+/**
+ * Starts the turn build of a new row, asking for the model's look at
+ * speakers. The row is marked before the build is scheduled, so the backfill
+ * leaves it to this build and a chain that takes it over still asks.
+ */
+export async function scheduleTranscriptStructure(
+  ctx: MutationCtx,
+  transcriptId: Id<"transcripts">
+): Promise<void> {
+  await ctx.db.patch(transcriptId, {
+    structureBuildId: newStructureBuildId(),
+    structureModelRoles: true,
+  });
+  await ctx.scheduler.runAfter(0, internal.transcripts.buildTranscriptStructure, {
+    transcriptId,
+    modelRoles: true,
+  });
+}
+
+/**
+ * Schedules a rule-only rebuild of a row whose turns are not at the current
+ * parser version, unless a build already holds it. Marks the row first, so
+ * repeated calls schedule once. Returns whether it scheduled one.
+ */
+export async function scheduleStructureRebuildIfStale(
+  ctx: MutationCtx,
+  transcript: Doc<"transcripts">
+): Promise<boolean> {
+  if (transcript.parserVersion === TRANSCRIPT_PARSER_VERSION) return false;
+  if (transcript.archivedAt !== undefined || transcript.content.trim() === "") return false;
+  const now = Date.now();
+  if (structureBuildIsLive(transcript, now)) return false;
+  await ctx.db.patch(transcript._id, { structureBuildId: newStructureBuildId(now) });
+  await ctx.scheduler.runAfter(0, internal.transcripts.buildTranscriptStructure, {
+    transcriptId: transcript._id,
+  });
+  return true;
+}
+
+/** Speaker rows a copy may carry over. */
+const ADOPT_SPEAKER_LIMIT = 100;
+
+/**
+ * Carries what was learned about a transcript's text to a new row holding the
+ * same text: speaker roles a consultant confirmed or the model placed, and
+ * its verified facts (`transcripts.copyTranscriptFacts`, scheduled). No
+ * model call. Rule-based roles are not copied; the rebuild derives
+ * them again against the new project's names.
+ */
+export async function adoptDerivedRows(
+  ctx: MutationCtx,
+  transcriptId: Id<"transcripts">,
+  source: Doc<"transcripts">
+): Promise<void> {
+  const target = await ctx.db.get(transcriptId);
+  if (!target) return;
+  const speakers = await ctx.db
+    .query("transcriptSpeakers")
+    .withIndex("by_transcriptId_and_label", (q) => q.eq("transcriptId", source._id))
+    .take(ADOPT_SPEAKER_LIMIT);
+  // Ready facts of the same text come along in the background, batched.
+  await ctx.scheduler.runAfter(0, internal.transcripts.copyTranscriptFacts, {
+    fromTranscriptId: source._id,
+    toTranscriptId: transcriptId,
+  });
+  for (const row of speakers) {
+    if (row.roleSource === "heuristic") continue;
+    await ctx.db.insert("transcriptSpeakers", {
+      transcriptId,
+      projectId: target.projectId,
+      label: row.label,
+      role: row.role,
+      roleSource: row.roleSource,
+      confidence: row.confidence,
+      turnCount: row.turnCount,
+      ...(row.sampleTurnIndex !== undefined ? { sampleTurnIndex: row.sampleTurnIndex } : {}),
+      ...(row.confirmedBy ? { confirmedBy: row.confirmedBy } : {}),
+      ...(row.confirmedAt ? { confirmedAt: row.confirmedAt } : {}),
+    });
+  }
+}
+
+/** Refuses text longer than one transcript may hold. */
+export function requireTranscriptTextWithinCap(content: string): void {
+  if (content.length > MAX_TRANSCRIPT_CHARS) {
+    domainError(
+      "INVALID_INPUT",
+      `A transcript can hold at most ${MAX_TRANSCRIPT_CHARS.toLocaleString("en-US")} characters. Split it into two transcripts.`
+    );
+  }
+}
+
+/**
+ * The uploaded original file, if it exists, was uploaded in the last hour
+ * (`requireFreshUpload`), fits the file limit and no row holds it yet. A
+ * file over the limit is refused (the client checks the size before
+ * uploading). An old orphan is refused, so no project can claim one. A file
+ * another row already holds is refused too: the transcript's reference
+ * would keep that row's file alive when its own project is erased
+ * (`deleteStorageIfUnreferenced`).
+ */
+export async function validatedOriginalStorage(
+  ctx: MutationCtx,
+  storageId: Id<"_storage">
+): Promise<Id<"_storage">> {
+  const metadata = await ctx.db.system.get("_storage", storageId);
+  if (!metadata) domainError("INVALID_INPUT", "The uploaded transcript file was not found");
+  await requireFreshUpload(ctx, storageId, "The uploaded transcript file is no longer available. Upload it again.");
+  if (metadata.size > MAX_TRANSCRIPT_FILE_BYTES) {
+    domainError("INVALID_INPUT", "A transcript file can be at most 25 MB");
+  }
+  if (await isStorageReferenced(ctx, storageId)) {
+    domainError("INVALID_INPUT", "The uploaded transcript file is already in use. Upload it again.");
+  }
+  // Another user's claimed upload is theirs to attach (a2 P2-8).
+  await requireNotClaimedByAnother(ctx, storageId, (await requireInternalActor(ctx))._id);
+  return storageId;
 }

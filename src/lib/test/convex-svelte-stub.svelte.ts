@@ -39,6 +39,23 @@ const mutationErrors = new Map<string, unknown>();
 // tests observe which subscriptions are live (args !== "skip") and HOW MANY
 // are live at once (subscription-budget assertions, H1).
 const argsGetters = new Map<string, Array<(() => unknown) | undefined>>();
+// Distinct consecutive argument values rendered hooks read, per function name,
+// so a suite can observe a subscription being dropped ("skip") and re-created.
+const argsHistory = new Map<string, unknown[]>();
+
+function recordArgs(name: string, args: unknown) {
+  const history = argsHistory.get(name) ?? [];
+  const last = history[history.length - 1];
+  if (history.length === 0 || JSON.stringify(last ?? null) !== JSON.stringify(args ?? null)) {
+    history.push(args);
+  }
+  argsHistory.set(name, history);
+}
+
+/** Every distinct consecutive argument value read by mounted hooks of `name`. */
+export function __queryArgsHistory(name: string) {
+  return [...(argsHistory.get(name) ?? [])];
+}
 
 function registerGetter(name: string, getArgs: (() => unknown) | undefined) {
   const list = argsGetters.get(name) ?? [];
@@ -104,6 +121,7 @@ export function __resetConvexStub() {
   registry.queryVariants = {};
   registry.pages = {};
   argsGetters.clear();
+  argsHistory.clear();
   calls.length = 0;
   mutationErrors.clear();
   clientQueries.length = 0;
@@ -148,6 +166,10 @@ export function useConvexClient() {
       clientQueries.push({ name, args });
       return queryData(name, args);
     },
+    // One-shot `client.action(...)`: recorded and answered like useAction.
+    action(action: FunctionReference<"action">, args?: unknown) {
+      return recordingCall(action)(args);
+    },
   };
 }
 
@@ -164,6 +186,7 @@ export function useQuery(query: FunctionReference<"query">, ...rest: unknown[]) 
   }
   return {
     get data() {
+      recordArgs(name, getArgs?.());
       if (skipped(getArgs)) return undefined;
       return queryData(name, getArgs?.());
     },

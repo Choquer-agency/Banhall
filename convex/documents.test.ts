@@ -1,7 +1,7 @@
 /// <reference types="vite/client" />
 import { convexTest } from "convex-test";
 import type { FunctionArgs } from "convex/server";
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 import { api } from "./_generated/api";
 import schema from "./schema";
 import { CAP_TRUNCATION_MARKER } from "../shared/documentStatus";
@@ -29,6 +29,7 @@ async function setup() {
       clientName: "Client",
       status: "draft",
       createdBy: writerId,
+      ownerId: writerId,
       shareToken: "status-project-token",
       createdAt: now,
       updatedAt: now,
@@ -125,6 +126,7 @@ describe("uploadDocument processing status", () => {
         clientName: "Client",
         status: "draft",
         createdBy: project.createdBy,
+        ownerId: project.createdBy,
         shareToken: "foreign-project-token",
         createdAt: Date.now(),
         updatedAt: Date.now(),
@@ -236,6 +238,39 @@ describe("uploadDocument processing status", () => {
     expect(state.orphanMetadata).toBeNull();
     expect(state.orphanUrl).toBeNull();
   });
+  test("attaches only a file uploaded in the last hour, and a retry of the same upload still resolves", async () => {
+    vi.useFakeTimers();
+    try {
+      const { t, projectId, writer } = await setup();
+      const args = { projectId, fileName: "notes.txt", fileType: "txt", content: "Readable notes" } satisfies FunctionArgs<typeof api.documents.uploadDocument>;
+      // An orphan left from long ago (an upload whose save never ran, or a
+      // file an erased project left behind) cannot be attached to a project.
+      const stale = await t.run((ctx) => ctx.storage.store(new Blob(["old interview text"])));
+      vi.setSystemTime(Date.now() + 2 * 60 * 60 * 1000);
+      await expect(writer.mutation(api.documents.uploadDocument, { ...args, storageId: stale })).rejects.toMatchObject({
+        data: { code: "INVALID_INPUT", message: "The uploaded file is no longer available. Upload it again." },
+      });
+      expect(await t.run((ctx) => ctx.db.query("projectDocuments").collect())).toEqual([]);
+      // A missing file is refused the same way.
+      const gone = await t.run(async (ctx) => {
+        const id = await ctx.storage.store(new Blob(["gone"]));
+        await ctx.storage.delete(id);
+        return id;
+      });
+      await expect(writer.mutation(api.documents.uploadDocument, { ...args, storageId: gone })).rejects.toMatchObject({
+        data: { code: "INVALID_INPUT" },
+      });
+      // A fresh upload attaches, and a retry that sends the same id again an
+      // hour later resolves to the same row.
+      const fresh = await t.run((ctx) => ctx.storage.store(new Blob(["new bytes"])));
+      const documentId = await writer.mutation(api.documents.uploadDocument, { ...args, storageId: fresh });
+      vi.setSystemTime(Date.now() + 2 * 60 * 60 * 1000);
+      expect(await writer.mutation(api.documents.uploadDocument, { ...args, storageId: fresh })).toBe(documentId);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   test("derives and persists a status for each kind of extraction outcome", async () => {
     const { t, projectId, writer } = await setup();
 

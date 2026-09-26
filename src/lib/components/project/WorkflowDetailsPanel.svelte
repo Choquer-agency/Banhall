@@ -232,7 +232,7 @@
                 {#if item.dueAt}
                   {@const due = formatDue(item.dueAt, now)}
                   {#if due}
-                    <p class="mt-1 text-xs text-ink-muted"><span class="text-data">{due.absolute}</span> · {due.relative}</p>
+                    <p class="mt-1 text-xs text-ink-muted"><span class="text-data">{due.absolute}</span>, {due.relative}</p>
                   {/if}
                 {/if}
               </div>

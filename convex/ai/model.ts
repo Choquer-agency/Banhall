@@ -1,9 +1,13 @@
 import {
   CANDIDATE_MODELS,
+  eligibleForRandomDraw,
   MODEL,
   RANDOM_COMPARISON_GATEWAY,
+  modelById,
   type CandidateModelId,
+  type ModelEntry,
 } from "../../shared/generationModels";
+import { domainError } from "../lib/contracts";
 
 export { CANDIDATE_MODELS, MODEL };
 
@@ -37,19 +41,33 @@ export const CANDIDATE_MODE_ROUTING = {
   },
 } as const;
 
-type CandidateModel = (typeof CANDIDATE_MODELS)[number];
+type CandidateModel = ModelEntry;
 
 /**
- * Resolve a persisted compare pair to model entries: filters to known
- * CANDIDATE_MODELS ids and dedupes. Returns the two entries when exactly 2
- * distinct valid ids remain; otherwise undefined (caller decides fallback).
+ * The roster a legacy in-flight compare generation (no persisted pair) ran
+ * before pairs were persisted: the three Anthropic models of that time.
+ * Pinned by id, so an Anthropic model added to the seed later never joins it.
+ */
+export const LEGACY_COMPARE_MODEL_IDS = [
+  MODEL,
+  "claude-opus-4-8",
+  "claude-haiku-4-5-20251001",
+] as const;
+
+/**
+ * Resolve a persisted compare pair to model entries: filters to known ids
+ * (seed, or registered from the generation's frozen catalog entries) and
+ * dedupes. Returns the two entries when exactly 2 distinct valid ids remain;
+ * otherwise undefined (caller decides fallback). `lookup` lets a mutation
+ * resolve against the catalog table instead of the runtime registry.
  */
 export function resolveCompareModels(
-  compareModelIds?: string[]
+  compareModelIds?: string[],
+  lookup: (id: string) => CandidateModel | undefined = modelById
 ): CandidateModel[] | undefined {
   if (!compareModelIds) return undefined;
   const valid = [...new Set(compareModelIds)]
-    .map((id) => CANDIDATE_MODELS.find((model) => model.id === id))
+    .map((id) => lookup(id))
     .filter((model): model is CandidateModel => model !== undefined);
   return valid.length === CANDIDATE_MODE_ROUTING.compare.explicitSelectionCount
     ? valid
@@ -57,15 +75,24 @@ export function resolveCompareModels(
 }
 
 /**
- * Two distinct random entries — Anthropic models only. A random draw must
- * never silently require the OpenRouter key or pick up a different cost
- * profile; OpenAI/Google models are always an explicit writer choice.
+ * Two distinct random entries from the models a writer may pick today (the
+ * catalog's enabled set), filtered by eligibleForRandomDraw: Anthropic models
+ * only, and Opus 5.5 as the one approved model that rejects a forced tool
+ * call. OpenAI/Google models are always an explicit writer choice.
  */
-export function randomComparePair(): CandidateModel[] {
-  const shuffled = CANDIDATE_MODELS.filter(
-    (model) =>
-      model.gateway === CANDIDATE_MODE_ROUTING.compare.randomPoolGateway
-  );
+export function randomComparePair(
+  pool: readonly CandidateModel[] = CANDIDATE_MODELS
+): CandidateModel[] {
+  const shuffled = pool.filter(eligibleForRandomDraw);
+  // Fewer than two would persist a pair that is not the one run
+  // (candidateModelsForMode needs exactly two), so refuse (models-2 review
+  // P3-3). Unreachable while four seeds can be drawn.
+  if (shuffled.length < 2) {
+    domainError(
+      "INVALID_STATE",
+      "Fewer than two models can be drawn for a random comparison. Choose the two models yourself."
+    );
+  }
   for (let i = shuffled.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
     [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
@@ -75,19 +102,20 @@ export function randomComparePair(): CandidateModel[] {
 
 export function candidateModelsForMode(
   mode: CandidateMode,
-  singleModelId?: CandidateModelId,
+  singleModelId?: string,
   compareModelIds?: string[]
 ) {
   if (mode === "compare") {
     // Legacy in-flight generations (no persisted pair) still run the original
-    // 3 Anthropic models — NOT the full roster, which now includes OpenRouter
-    // models that would 7x the run and require a second key. New requests
-    // always persist exactly 2 ids.
+    // 3 Anthropic models, NOT the full roster, which now includes OpenRouter
+    // models that would multiply the run and require a second key, and newer
+    // Anthropic models. New requests always persist exactly 2 ids.
     return (
       resolveCompareModels(compareModelIds) ??
-      CANDIDATE_MODELS.filter(
+      (CANDIDATE_MODELS as readonly CandidateModel[]).filter(
         (model) =>
-          model.gateway === CANDIDATE_MODE_ROUTING.compare.legacyFallbackGateway
+          model.gateway === CANDIDATE_MODE_ROUTING.compare.legacyFallbackGateway &&
+          (LEGACY_COMPARE_MODEL_IDS as readonly string[]).includes(model.id)
       )
     );
   }
@@ -96,14 +124,12 @@ export function candidateModelsForMode(
     mode === "iterative"
       ? CANDIDATE_MODE_ROUTING.iterative
       : CANDIDATE_MODE_ROUTING.single;
-  const selected = singleModelId
-    ? CANDIDATE_MODELS.find((model) => model.id === singleModelId)
-    : undefined;
+  // The selected id resolves through the registry, so a catalog model
+  // frozen on the generation (registered by the action) is honoured.
+  const selected = singleModelId ? modelById(singleModelId) : undefined;
   return [
     selected ??
-      CANDIDATE_MODELS.find(
-        (model) => model.id === routing.fallbackModelId
-      ) ??
-      CANDIDATE_MODELS[0],
+      modelById(routing.fallbackModelId) ??
+      (CANDIDATE_MODELS[0] as CandidateModel),
   ];
 }

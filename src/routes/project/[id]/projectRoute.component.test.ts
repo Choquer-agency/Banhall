@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { goto } from "$app/navigation";
 import { tick } from "svelte";
 import { render } from "vitest-browser-svelte";
-import { __resetAuthState } from "$lib/test/convex-auth-stub";
+import { __resetAuthState, __setAuthState } from "$lib/test/convex-auth-stub";
 import ProjectPage from "./+page.svelte";
 import { __resetPage, __setPageParams, __setPageUrl } from "$lib/test/app-state-stub.svelte";
 import { __resetNavigation } from "$lib/test/app-navigation-stub";
@@ -97,5 +97,23 @@ describe("/project/[id] route shape", () => {
     // And the component under the preview wrapper is really the preview page.
     await expect.poll(() => previewCohortMark(), { timeout: 30000 }).not.toBeNull();
     expect(__activeQueryCount("projects:getProject")).toBe(1);
+  }, 60000);
+
+  it("waits during the session check, then sends a signed-out visitor to login with the project as next", async () => {
+    // A full load after the 15-minute Convex JWT lapsed starts in the session
+    // check (no server auth state). That must not redirect or lose the page.
+    __setPageUrl("/project/project-1?tab=report#seed-2");
+    __setAuthState({ isLoading: true, isAuthenticated: false });
+    await render(ProjectPage, {});
+
+    await expect.poll(() => document.querySelector('[data-workspace-gate-pending="auth"]')).not.toBeNull();
+    await tick();
+    expect(gotoUrls()).toEqual([]);
+    expect(__activeQueryCount("projects:getProject")).toBe(0);
+
+    __setAuthState({ isLoading: false, isAuthenticated: false });
+    await expect.poll(gotoUrls).toEqual(["/login?next=%2Fproject%2Fproject-1%3Ftab%3Dreport%23seed-2"]);
+    expect(experience("current")).toBeNull();
+    expect(experience("preview")).toBeNull();
   }, 60000);
 });

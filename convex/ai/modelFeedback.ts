@@ -9,12 +9,8 @@
 import { action } from "../_generated/server";
 import { api, internal } from "../_generated/api";
 import { v } from "convex/values";
-import { instrumentedAnthropic } from "./instrument";
-import { CANDIDATE_MODELS } from "../../shared/generationModels";
-
-const SUMMARY_MODEL =
-  CANDIDATE_MODELS.find((m) => m.id.includes("haiku"))?.id ??
-  CANDIDATE_MODELS[0].id;
+import { clientForRole } from "./providers";
+import { HUMAN_PROSE_FOR_OWN_WORDING } from "../../shared/humanProse";
 
 export const summarizeModelFeedback = action({
   args: { model: v.string() },
@@ -27,15 +23,17 @@ export const summarizeModelFeedback = action({
       model: args.model,
     });
     if (!comments.length) return "No written feedback for this model yet.";
-    const client = instrumentedAnthropic(ctx, {
+    // Model catalog: the feedback_summary role's model, not a "haiku"
+    // substring match on the registry.
+    const { client, model } = await clientForRole(ctx, "feedback_summary", {
       callSite: "admin:model_feedback_summary",
-      capability: "generation",
       userId: user._id,
     });
     const list = comments.map((c) => `- (${c.score}/10) ${c.comment}`).join("\n");
     const response = await client.messages.create({
-      model: SUMMARY_MODEL,
+      model,
       max_tokens: 300,
+      system: HUMAN_PROSE_FOR_OWN_WORDING,
       messages: [
         {
           role: "user",

@@ -16,14 +16,13 @@
    * a pending request belongs to.
    */
   import AdminWorkspacePage from "$lib/components/admin/AdminWorkspacePage.svelte";
-  import { resolve } from "$app/paths";
   import Spinner from "$lib/components/ui/Spinner.svelte";
   import Button from "$lib/components/ui/Button.svelte";
   import Input from "$lib/components/ui/Input.svelte";
   import SelectInput from "$lib/components/ui/SelectInput.svelte";
   import Checkbox from "$lib/components/ui/Checkbox.svelte";
   import { userErrorMessage } from "$lib/errors";
-  import { goto } from "$app/navigation";
+  import { goToLogin } from "$lib/auth/goToLogin";
   import { useMutation, useQuery } from "convex-svelte";
   import { useAuth } from "@mmailaender/convex-better-auth-svelte/svelte";
   import { api } from "../../../../convex/_generated/api";
@@ -62,7 +61,7 @@
 
   $effect(() => {
     if (!auth.isLoading && !auth.isAuthenticated) {
-      goto(resolve("/login"), { replaceState: true });
+      goToLogin();
     }
   });
 
@@ -360,7 +359,7 @@
   </div>
 {:else}
   <AdminWorkspacePage
-    title="Paired Comparisons"
+    title="Paired comparisons"
     description="One human-judged record per project, pinned to the revision the judge read. Deviation and Corrections counts are the judge's own manual counts — never read from the tool."
   >
     <div class="flex flex-col gap-8">

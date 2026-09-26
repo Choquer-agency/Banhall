@@ -46,6 +46,7 @@ describe("generation recovery components", () => {
       candidatesDone: 1,
       candidatesFailed: 1,
     });
-    expect(container.textContent).toContain("Some drafts need retry");
+    expect(container.textContent).toContain("Some drafts need a retry");
+    expect(container.textContent).not.toContain("·");
   });
 });

@@ -1,9 +1,8 @@
 <script lang="ts">
   import AdminWorkspacePage from "$lib/components/admin/AdminWorkspacePage.svelte";
-  import { resolve } from "$app/paths";
   import Spinner from "$lib/components/ui/Spinner.svelte";
   import Checkbox from "$lib/components/ui/Checkbox.svelte";
-  import { goto } from "$app/navigation";
+  import { goToLogin } from "$lib/auth/goToLogin";
   import { useMutation, useQuery } from "convex-svelte";
   import { useAuth } from "@mmailaender/convex-better-auth-svelte/svelte";
   import { api } from "../../../../convex/_generated/api";
@@ -80,7 +79,7 @@
 
   $effect(() => {
     if (!auth.isLoading && !auth.isAuthenticated) {
-      goto(resolve("/login"), { replaceState: true });
+      goToLogin();
     }
   });
 
@@ -207,7 +206,7 @@
   </div>
 {:else}
   <AdminWorkspacePage
-    title="Consultant QA reviews"
+    title="QA reviews"
     description="Human quality scores alongside AI QA scores, for administrator review only."
   >
 

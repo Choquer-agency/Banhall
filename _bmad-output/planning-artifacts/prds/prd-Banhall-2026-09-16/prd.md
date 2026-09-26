@@ -2,7 +2,7 @@
 title: Banhall step-by-step PD generation — idea seeds before prose
 status: final
 created: 2026-09-16
-updated: 2026-09-17
+updated: 2026-09-24
 supersedes-in-part: ../prd-Banhall-2026-09-09/prd.md (its §5, §6.2, SM-C4 (09-09), OQ-5 (09-09) — see §10)
 ---
 
@@ -42,7 +42,7 @@ Why it matters: the September goal is a program the writers adopt. Larry's Rev A
 - **Predecessors** of a Subsection — the Subsections with a lower order in FR-2. **Successors** — those with a higher order. Dependency logic uses this order regardless of the order the writer visits Subsections.
 - **Decision Set** of a Subsection — the current active Seed Selections (final wording), Skips and active Feedback instructions of all its Predecessors, plus the Brief version and generation settings frozen at start. It is what a Batch for that Subsection is conditioned on.
 - **Context Revision** of a Subsection — a server-computed identifier of its Decision Set plus its own active Feedback. Every Batch records, immutably, the Context Revision it consumed (**consumed revision**).
-- **Idea Seed (Seed)** — one AI-proposed idea for one Subsection: one or two bullets, at most 25 words per bullet `[ASSUMPTION: cap chosen to make "1–2 brief bullets" testable]`, one or two Positioning Tags, a support status and its Seed Provenance. A Seed is not prose and never enters the report directly.
+- **Idea Seed (Seed)**: one AI-proposed idea for one Subsection: one or two bullets, at most 25 words per bullet as proposed by the AI `[ASSUMPTION: cap chosen to make "1-2 brief bullets" testable]`; a writer's edit is not capped (FR-11), one or two Positioning Tags, a support status and its Seed Provenance. A Seed is not prose and never enters the report directly.
 - **Seed Batch (Batch)** — the immutable result of one AI request sequence (an **attempt**) for one Subsection: three to five Seeds (or one to three Revised Seeds for a Feedback Batch) and the consumed revision. A Subsection may accumulate several Batches; **Outdated** is a Batch whose consumed revision differs from the Subsection's current Context Revision.
 - **Shown Set** — what the writer sees for a Subsection: its current Batch, any Revised Seeds returned by Feedback on it, and Seed Selections carried over from earlier Batches.
 - **Positioning Tag (Tag)** — a label from the closed set {Conservative, Aggressive, High-level, Detailed, Technical, Alternative angle} `[ASSUMPTION: set taken from the handoff; the chat brief's "sentiment tags or categories" is exploratory — OQ-8]`.
@@ -106,7 +106,7 @@ Larry is Banhall's lead writer. User journeys UJ-1 to UJ-4 are authored scenario
 - **UJ-4. Larry signs off the Summary and gets a draft that follows it.**
   - **Persona + context:** all thirteen decided; previous-year status was skipped (first-year project).
   - **Entry state:** the Outline offers **Review summary**.
-  - **Path:** the Summary Review is one readable page: three Section headings, thirteen Subsection blocks, the five experiments listed in full with individual Edit actions, the skipped Subsection shown as "Skipped", writer-asserted items marked. The length target, model and Writer Profile are shown read-only beside **Sign off and generate**. He fixes a bullet directly in the Summary, then signs off.
+  - **Path:** the Summary Review is one readable page: three Section headings, thirteen Subsection blocks, the five experiments listed in full with individual Edit actions, the skipped Subsection shown as "Skipped", writer-asserted items marked. The model is shown read-only beside **Sign off and generate**, with the Summary version only when the Summary has been regenerated. He fixes a bullet directly in the Summary, then signs off.
   - **Climax:** Prose Generation runs unattended as a normal generation; the report opens in the editor with 242, 244, 246 drafted from his Summary; the Brief rail and Compliance Notes work as today; the signed-off Summary is one click away, read-only.
   - **Resolution:** he starts editing prose that already tells the story he chose. If the draft still deviates, Coordinated Revision (2026-09-09 FR-13) is unchanged.
   - **Edge case:** Prose Generation fails on 244. The existing recovery surfaces apply; the signed-off Summary is not lost, and **Retry** re-drafts from the same Summary version without re-running the seed stage.
@@ -252,7 +252,7 @@ The writer can tick any number of Seeds in the Shown Set, including Seeds from e
 The writer can change a Seed's bullets in place; the edited wording is what carries forward. Realizes UJ-1.
 
 **Consequences (testable):**
-- Editing keeps the bullet cap, the sentence check and the one-or-two-bullet shape; the writer is told when they exceed them and cannot save until within them.
+- Editing keeps the one-or-two-bullet shape. The 25-word cap and the one-sentence check apply to AI-proposed Seeds only (FR-5); a writer's edit is never blocked by them. The editor shows no word counter; when an edited bullet exceeds 25 words or one sentence, a quiet "Long for a seed" note appears and saving still works. (Owner, 2026-09-23.)
 - An edited Seed shows "Edited · writer-asserted"; its original AI wording and original citations remain viewable as history ("original source"), and **Restore original wording** is always available.
 - An edit changes the Selection Revision if the Seed is selected (same effects as FR-10).
 
@@ -369,14 +369,14 @@ The Summary Review shows every Subsection's active Seed Selections in FR-2 order
 - Each Seed Selection of a Multiple Subsection is shown in full, directly on the page, with its own Edit action.
 - Section and Subsection navigation remains available while scrolling (sticky).
 - The view is a full-width state of the project page, not a modal; browser back returns to the workspace.
-- The view shows, read-only, the length target, the model and the Writer Profile applied, as frozen at start (FR-41).
+- The view shows, read-only beside the Sign-off action, the model used, and the Summary version only when the Summary has been regenerated (version 2 or later). The length target and the Writer Profile stay frozen at start and recorded at Sign-off (FR-41, FR-23) but are not shown on this view. (Owner, 2026-09-23.)
 
 #### FR-22: Edit within the Summary Review
 
 The writer can edit any Seed Selection's wording from the Summary Review without returning to the Subsection. Realizes UJ-4.
 
 **Consequences (testable):**
-- An edit here is a Seed Edit (FR-11) and obeys the same limits and the same staleness effects; if it stales any Subsection, readiness is withdrawn until resolved.
+- An edit here is a Seed Edit (FR-11) and follows the same rules and the same staleness effects; if it stales any Subsection, readiness is withdrawn until resolved.
 - The writer cannot add a free-text item that is not a Seed; new ideas are added by returning to the Subsection and giving Feedback or editing a Seed. `[NOTE FOR PM: keeps "the Dump is the maximum required input" honest; revisit if writers ask for it.]`
 
 #### FR-23: Sign-off closes the seed stage
@@ -428,7 +428,8 @@ Prose Generation drafts Section 242, 244 and 246 using each Section's Subsection
 Prose Generation creates the report through the existing report-creation path and hands off to post-generation QA as today. Realizes UJ-4.
 
 **Consequences (testable):**
-- No new prose writer is introduced; the generation completes with a report and QA is scheduled exactly as one-shot generations do.
+- No new prose writer is introduced; the generation completes with a report as soon as the three Sections are drafted and checked.
+- QA never delays the report. It starts automatically in the background once the report exists (owner, 2026-09-24; FR-44).
 - The generation record links the signed-off Summary version, so "which plan produced this report" is answerable.
 
 #### FR-27: Failure and retry keep the Summary
@@ -438,6 +439,27 @@ If Prose Generation fails, the signed-off Summary is retained and the writer can
 **Consequences (testable):**
 - Failure surfaces through the existing recovery surfaces; Retry starts a recovery generation bound to the same Summary version, reusing the frozen inputs and skipping the seed stage.
 - A stalled drafting run is recovered by the existing stale-generation mechanism. The human-gated seed stage itself is never reaped for inactivity. If a pending attempt has no completion after its 10-minute lease, the reaper marks it failed on its next pass (at most 20 minutes after dispatch). The Subsection returns to its prior state with a retry action. After three consecutive failed attempts a Subsection shows *failed* with the reason; Retry remains available without limit and a successful attempt is always usable. Guaranteed completion is not claimed under persistent model failure.
+
+#### FR-42: Writing progress the writer can see
+
+While Prose Generation runs, the Report tab shows the report forming, Section by Section, with honest progress. Realizes UJ-4. (Owner, 2026-09-24; Paper "Final screens" 4.1 to 4.4.)
+
+**Consequences (testable):**
+- A status pill at the top of the Report tab names the Section being written and shows overall progress as its border filling from left to right, with a percentage and a time estimate. Progress is driven by the existing per-Section run status; no per-token streaming is required.
+- A Section being written shows skeleton lines with a shimmer. When a Section finishes, its paragraphs fade in. Sections still queued are shown faint. Skeletons are either all grey or all Aurora, never mixed (grey is the default; Aurora is kept for testing).
+- Scrolling into the report collapses the pill into a progress ring in the bottom right; scrolling back or hovering reopens it.
+- When all three Sections land, the pill becomes a "Your draft is ready, QA is checking it" message that the writer can close, and that closes itself after 5 seconds.
+- All motion uses opacity and transform only and stops under reduced motion.
+
+#### FR-44: QA runs in the background and tells the writer when it is done
+
+QA starts on its own after the report is created and reports back without interrupting reading. Realizes UJ-4. (Owner, 2026-09-24; Paper "Final screens" 4.4 and 4.5.)
+
+**Consequences (testable):**
+- While QA runs, the QA toggle in the report toolbar shows a grey fill with a small spinner. No popover or message is attached to it.
+- When QA finishes, a notification appears in the bottom right with the overall score as a band-coloured chip and one row per Section (bar and score), with Later and Open QA. It stays until the writer opens QA or dismisses it.
+- The QA toggle always shows its score in the band colour. A small dot marks a result the writer has not opened yet and clears once QA is opened.
+- If QA fails, the report is unaffected and the toggle offers Re-run QA.
 
 #### FR-28: After generation, the Summary stays readable
 
@@ -469,6 +491,16 @@ The writer can cancel a Step-by-step generation at any point before Sign-off, as
 
 **Consequences (testable):**
 - Cancel ends the generation with the existing cancel semantics; seed records are retained for audit; no report is created.
+
+#### FR-43: Stop during Prose Generation
+
+The writer can stop Prose Generation after Sign-off from the writing status pill. Realizes UJ-4. (Owner, 2026-09-24.)
+
+**Consequences (testable):**
+- Stop keeps every Section already drafted and checked in the report; Sections not finished are left empty with a visible "Not drafted" marker. The report is created with what exists.
+- QA does not run on a stopped draft (the existing stopped-draft behaviour).
+- The signed-off Summary stays read-only and linked. The writer can finish the missing Sections by hand or with the assistant, or redraft them from the same Summary version: the redraft writes only the Sections marked "Not drafted" into the same report and keeps every edit made to the drafted Sections (owner decision 20, 2026-09-24).
+- Stop asks for confirmation and is recorded as an event (FR-33).
 
 #### FR-32: Legacy generations keep their surfaces
 
@@ -531,6 +563,15 @@ Below the large breakpoint the writer can still use every function.
 
 **Consequences (testable):**
 - All text meets the design system's contrast rule; interactive targets are at least 44 px on coarse pointers (design-system rule).
+
+#### FR-45: Report page layout controls
+
+The writer can choose how much of the page the report and the assistant take. (Owner, 2026-09-24; Paper "Final screens" row 5.)
+
+**Consequences (testable):**
+- A toolbar toggle switches the report between a centred reading column and full width, in the split view and the report-only view; the choice persists per browser.
+- The Assistant header has an expand control for a full-screen assistant (report hidden) and a collapse control to return to the split.
+- The info toggle opens project details as a right side panel: a status card (the stage with the current handoff person, plus Change stage and Hand off) above Industry, Fiscal year, Science code, Project number, Owner, Created and Edited, editable where the writer has permission; a compact popover gives a quick look with a link to the full panel. Handing off picks a person and a stage, with an optional note and no due date (owner 2026-09-24).
 
 ## 5. Cross-cutting non-functional requirements (NFRs)
 

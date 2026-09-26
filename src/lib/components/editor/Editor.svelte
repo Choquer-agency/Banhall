@@ -12,6 +12,9 @@
     onAskAI?: (sel) => void            — selection toolbar "Ask AI"; sel = { from, to, text } with
                                          the FULL selected text (no cap).
     editable?: boolean = true          — fixed at mount (extensions + editability).
+    readOnly?: boolean = false         - runtime lock on an editable editor: typing and the
+                                         editing chrome pause (for example while the server
+                                         fills Not drafted Sections); comments stay.
     commentRanges?: CommentRange[]     — comment highlight decorations (re-resolved by text).
     onHoverComment?: (id|null) => void — hover over a comment highlight.
 
@@ -30,7 +33,14 @@
 <script module lang="ts">
   import type { Node as PMNode } from "@tiptap/pm/model";
   import { Decoration, DecorationSet } from "@tiptap/pm/view";
+  import { NOT_GENERATED_PLACEHOLDER } from "../../../../convex/lib/tiptapReport";
   import type { CommentRange, FindReplaceMatch } from "$lib/components/editor/types";
+  import {
+    SECTION_HEADINGS_EXTERNAL,
+    rangeTouchesHiddenHeading,
+    type ReportLimitMeterSpec,
+    type SectionHeadingRefusal,
+  } from "$lib/components/editor/reportSectionHeadings";
   import { overflowStartOffset } from "../../../../convex/lib/lineLimits";
   import {
     reportSectionKeyForHeading,
@@ -251,13 +261,34 @@
     return { from: fromPos, to: toPos + 1 }; // +1 because to is exclusive in PM
   }
 
+  /**
+   * How the CRA limits show in the document. Classic: an end-of-section
+   * marker for every Section plus overflow tinting, both behind the limits
+   * toggle. Reading (ui-design-final.md section 8): a meter in the Section
+   * heading only when the Section is near or over a limit; overflow tinting
+   * still follows the toggle.
+   */
+  type LimitDecorationOptions = {
+    metrics: ReportSectionMetricMap;
+    endMarkers: boolean;
+    overflow: boolean;
+    headingMeters: boolean;
+  };
+
+  function limitMeterText(metric: ReportSectionMetricMap[ReportSectionKey]): string {
+    const gapLineSuffix =
+      metric.rawLines !== metric.lines ? ` (+${metric.rawLines - metric.lines} with gaps)` : "";
+    return `${metric.lines} / ${metric.limit} lines${gapLineSuffix}, ${metric.words} / ${metric.wordCap} words`;
+  }
+
   function buildSectionLimitDecorations(
     doc: PMNode,
-    metrics: ReportSectionMetricMap
+    { metrics, endMarkers, overflow, headingMeters }: LimitDecorationOptions
   ): Decoration[] {
     type OverflowSpan = { from: number; to: number; text: string; start: number };
     type SectionSource = { text: string; spans: OverflowSpan[] };
     const endPositions: Partial<Record<ReportSectionKey, number>> = {};
+    const headingRanges: Partial<Record<ReportSectionKey, { from: number; to: number }>> = {};
     const sectionSources: Partial<Record<ReportSectionKey, SectionSource>> = {};
     let currentSection: ReportSectionKey | null = null;
     let reachedQaTail = false;
@@ -267,6 +298,7 @@
       const heading = reportSectionKeyForHeading(node.toJSON());
       if (heading) {
         currentSection = heading;
+        headingRanges[heading] = { from: offset, to: offset + node.nodeSize };
         endPositions[heading] = offset + node.nodeSize;
         sectionSources[heading] = { text: "", spans: [] };
         return;
@@ -345,7 +377,19 @@
       if (position === undefined) continue;
       const metric = metrics[key];
       const state = limitState(metric);
-      if (state === "over") {
+      const headingRange = headingRanges[key];
+      if (headingMeters && headingRange && state !== "ok") {
+        const spec: ReportLimitMeterSpec = {
+          reportLimitMeter: {
+            state,
+            text: limitMeterText(metric),
+            description: limitWarning(line, metric),
+            percent: Math.max(metric.lines / metric.limit, metric.words / metric.wordCap) * 100,
+          },
+        };
+        markers.push(Decoration.node(headingRange.from, headingRange.to, {}, spec));
+      }
+      if (overflow && state === "over") {
         const source = sectionSources[key];
         const overflowAt = source ? overflowStartOffset(source.text, key) : null;
         if (source && overflowAt !== null) {
@@ -363,6 +407,7 @@
           }
         }
       }
+      if (!endMarkers) continue;
       markers.push(
         Decoration.widget(
           Math.min(position, doc.content.size),
@@ -383,11 +428,7 @@
             count.className = "cra-section-end__count";
             // [GAP: …] text is excluded from the CRA counts; surface the
             // with-gaps figure so writers know what resolving gaps costs.
-            const gapLineSuffix =
-              metric.rawLines !== metric.lines
-                ? ` (+${metric.rawLines - metric.lines} with gaps)`
-                : "";
-            count.textContent = `${metric.lines}/${metric.limit} lines${gapLineSuffix} · ${metric.words}/${metric.wordCap} words`;
+            count.textContent = limitMeterText(metric);
 
             chip.append(label, count);
             if (state !== "ok") {
@@ -410,7 +451,7 @@
     doc: PMNode,
     ranges: CommentRange[],
     aiRanges: Range[] = [],
-    sectionLimitMetrics?: ReportSectionMetricMap,
+    limitOptions?: LimitDecorationOptions,
     diffs: DiffPreview[] = []
   ) {
     const decorations: Decoration[] = [];
@@ -524,9 +565,21 @@
         })
       );
     }
-    if (sectionLimitMetrics) {
-      decorations.push(...buildSectionLimitDecorations(doc, sectionLimitMetrics));
+    if (limitOptions) {
+      decorations.push(...buildSectionLimitDecorations(doc, limitOptions));
     }
+    // A Section a stopped Step-by-step draft left empty keeps one
+    // "[NOT GENERATED]" paragraph; mark it "Not drafted" where it sits.
+    doc.forEach((node, offset) => {
+      if (node.type.name === "paragraph" && node.textContent.trim() === NOT_GENERATED_PLACEHOLDER) {
+        decorations.push(
+          Decoration.node(offset, offset + node.nodeSize, {
+            class: "not-drafted-placeholder",
+            "data-not-drafted": "true",
+          })
+        );
+      }
+    });
     return DecorationSet.create(doc, decorations);
   }
 
@@ -587,7 +640,7 @@
 </script>
 
 <script lang="ts">
-  import { onMount } from "svelte";
+  import { onDestroy, onMount } from "svelte";
   import { createEditor, EditorContent, type Editor } from "svelte-tiptap";
   import type { Editor as CoreEditor } from "@tiptap/core";
   import { getEditorExtensions } from "$lib/tiptapConfig";
@@ -603,8 +656,10 @@
     onAskAI,
     onResearch,
     editable = true,
+    readOnly = false,
     commentRanges = [],
     onHoverComment,
+    presentation = "classic",
   }: {
     content: string;
     onUpdate?: (json: string) => void | Promise<void>;
@@ -618,9 +673,30 @@
     onAskAI?: (selection: { from: number; to: number; text: string }) => void;
     onResearch?: (selection: ResearchSelection) => void;
     editable?: boolean;
+    readOnly?: boolean;
     commentRanges?: CommentRange[];
     onHoverComment?: (commentId: string | null) => void;
+    /**
+     * Fixed at mount. "reading" is the report page of ui-design-final.md
+     * section 8 (board 2.1): serif body, Section headings as label plus CRA
+     * question, and a limit meter in the heading only near a limit. "classic"
+     * keeps the earlier look for the rollback report page.
+     */
+    presentation?: "classic" | "reading";
   } = $props();
+  // svelte-ignore state_referenced_locally -- fixed at mount, like `editable`
+  const reading = presentation === "reading";
+
+  // A short, polite note when an edit is refused because it would change a
+  // hidden Section heading (review g1): otherwise the key press does nothing.
+  let headingNotice = $state<SectionHeadingRefusal | null>(null);
+  let headingNoticeTimer: ReturnType<typeof setTimeout> | undefined;
+  function showHeadingNotice(reason: SectionHeadingRefusal) {
+    headingNotice = reason;
+    clearTimeout(headingNoticeTimer);
+    headingNoticeTimer = setTimeout(() => (headingNotice = null), 4000);
+  }
+  onDestroy(() => clearTimeout(headingNoticeTimer));
 
   let editor = $state<Editor>();
   let slashMenu = $state<{
@@ -645,11 +721,23 @@
   let saveTimeout: ReturnType<typeof setTimeout> | undefined;
   let pendingSaveChain: Promise<void> = Promise.resolve();
   let lastQueuedContent: string | null = null;
-  // Apply external content changes (AI replace, restore, regenerate). Only the
-  // exact echo of our own last autosave is skipped — anything else is applied,
-  // so restores/replaces always reflect even right after an edit.
+  // Apply external content changes (AI replace, restore, regenerate). Echoes
+  // of our own recent autosaves are skipped; anything else is applied, so
+  // restores and replaces always reflect even right after an edit.
   let lastContent = "";
-  let lastSavedContent: string | null = null;
+  // Saves this editor has queued or has in flight (a document can appear more
+  // than once), plus the newest save the server acknowledged. Only these can
+  // come back from the subscription as echoes of this editor's own writes.
+  // Anything else, including an older saved version being restored, is
+  // external content and replaces the document.
+  let outstandingSaves: string[] = [];
+  let lastAcknowledgedSave: string | null = null;
+
+  function settleOutstanding(json: string, acknowledged: boolean) {
+    const index = outstandingSaves.indexOf(json);
+    if (index >= 0) outstandingSaves = [...outstandingSaves.slice(0, index), ...outstandingSaves.slice(index + 1)];
+    if (acknowledged) lastAcknowledgedSave = json;
+  }
 
   function refreshDocumentMetrics(ed: Editor | CoreEditor): string {
     if (measuredDoc === ed.state.doc) return currentDocumentJson;
@@ -670,12 +758,30 @@
     return currentDocumentJson;
   }
 
+  // Bumped whenever external content replaces the document. A save queued
+  // behind an in-flight one holds the document from before that replacement,
+  // so it is dropped rather than written over the newer server content.
+  let contentEpoch = 0;
+
   function enqueueSave(json: string): Promise<void> {
     if (!onUpdate || json === lastQueuedContent) return pendingSaveChain;
     const update = onUpdate;
+    const epoch = contentEpoch;
     lastQueuedContent = json;
-    lastSavedContent = json;
-    const save = pendingSaveChain.then(() => update(json));
+    outstandingSaves = [...outstandingSaves, json];
+    // A save from before an external replacement never touches the tracking:
+    // the replacement already cleared it, and settling late would either mark
+    // a replaced document as ours or remove a newer save's entry.
+    const save = pendingSaveChain.then(async () => {
+      if (epoch !== contentEpoch) return;
+      try {
+        await update(json);
+        if (epoch === contentEpoch) settleOutstanding(json, true);
+      } catch (error) {
+        if (epoch === contentEpoch) settleOutstanding(json, false);
+        throw error;
+      }
+    });
     pendingSaveChain = save.catch(() => {});
     return save;
   }
@@ -692,7 +798,11 @@
   onMount(() => {
     lastContent = content;
     const editorStore = createEditor({
-      extensions: getEditorExtensions({ editable }),
+      extensions: getEditorExtensions({
+        editable,
+        sectionHeadings: reading,
+        onSectionHeadingRefused: showHeadingNotice,
+      }),
       content: parseContent(content),
       editable,
       editorProps: {
@@ -743,7 +853,17 @@
     };
   });
 
-  // Apply external content changes (see lastContent/lastSavedContent above).
+  // Editing is live only when the editor was mounted editable and is not
+  // held read-only. The toggle emits no update, so it never schedules a save.
+  const canEdit = $derived(editable && !readOnly);
+  $effect(() => {
+    const ed = editor;
+    const next = canEdit;
+    if (!ed || ed.isEditable === next) return;
+    ed.setEditable(next, false);
+  });
+
+  // Apply external content changes (see lastContent/outstandingSaves above).
   $effect(() => {
     const c = content;
     const ed = editor;
@@ -751,10 +871,24 @@
     if (c !== lastContent) {
       lastContent = c;
       // Skip re-applying the round-trip echo of our own save.
-      if (c === lastSavedContent) return;
+      if (outstandingSaves.includes(c) || c === lastAcknowledgedSave) return;
       const parsed = parseContent(c);
       if (parsed) {
-        ed.commands.setContent(parsed, { emitUpdate: false });
+        // The server content wins: an autosave still waiting on its debounce,
+        // or queued behind an in-flight save, would write the replaced
+        // document back over it (for example a redraft of Not drafted
+        // Sections, a restore or an applied proposal).
+        if (saveTimeout) clearTimeout(saveTimeout);
+        saveTimeout = undefined;
+        contentEpoch += 1;
+        lastQueuedContent = null;
+        // Saves from before the replacement can no longer echo as ours: a
+        // later restore to one of those documents must be shown.
+        outstandingSaves = [];
+        lastAcknowledgedSave = null;
+        // The server's copy may replace the Section headings; the reading
+        // presentation otherwise refuses any change to them.
+        ed.chain().setMeta(SECTION_HEADINGS_EXTERNAL, true).setContent(parsed, { emitUpdate: false }).run();
         refreshDocumentMetrics(ed);
       }
     }
@@ -767,7 +901,18 @@
     if (!ed) return;
     const ranges = commentRanges;
     const ai = aiHighlights;
-    const metrics = limitOverlayVisible ? sectionLimitMetrics : undefined;
+    // Reading: heading meters always (they only show near a limit); the
+    // toggle keeps owning the overflow tint. Classic: everything behind it.
+    const metrics: LimitDecorationOptions | undefined = reading
+      ? {
+          metrics: sectionLimitMetrics,
+          endMarkers: false,
+          overflow: limitOverlayVisible,
+          headingMeters: true,
+        }
+      : limitOverlayVisible
+        ? { metrics: sectionLimitMetrics, endMarkers: true, overflow: true, headingMeters: false }
+        : undefined;
     const diffs = previewDiffs;
     let decoratedDoc: PMNode | null = null;
     let decorations: DecorationSet | null = null;
@@ -1030,9 +1175,13 @@
   ): FindReplaceMatch[] {
     if (!editor) return [];
     const out: FindReplaceMatch[] = [];
-    const found = findOccurrencesBatch(editor.state.doc, pairs.map((p) => p.find));
+    const doc = editor.state.doc;
+    const found = findOccurrencesBatch(doc, pairs.map((p) => p.find));
     pairs.forEach((p, i) => {
       for (const r of found[i]) {
+        // Section headings are load-bearing and the title is hidden: neither
+        // is ever edited by a proposal (review g1), so their text is no match.
+        if (rangeTouchesHiddenHeading(doc, r.from, r.to)) continue;
         out.push({
           from: r.from,
           to: r.to,
@@ -1044,9 +1193,12 @@
     return out.sort((a, b) => a.from - b.from);
   }
 
-  export function replaceRange(from: number, to: number, newText: string) {
-    if (!editor) return;
+  /** Replace one range; false when nothing changed (for example a refused edit). */
+  export function replaceRange(from: number, to: number, newText: string): boolean {
+    if (!editor) return false;
+    const before = editor.state.doc;
     editor.chain().insertContentAt({ from, to }, newText).run();
+    return !editor.state.doc.eq(before);
   }
 
   export function highlightRange(from: number, to: number, text: string) {
@@ -1086,14 +1238,14 @@
 </script>
 
 {#if editor}
-  <div class="group/editor relative">
+  <div class={`group/editor relative ${reading ? "report-reading" : ""}`} data-editor-presentation={presentation}>
     <!-- Block handles -->
-    {#if editable}
-      <BlockHandle {editor} />
+    {#if canEdit}
+      <BlockHandle {editor} compact={reading} />
     {/if}
 
     <!-- Floating toolbar on text selection -->
-    {#if editable}
+    {#if canEdit}
       <EditorToolbar
         {editor}
         onComment={handleComment}
@@ -1103,12 +1255,12 @@
     {/if}
 
     <!-- Comment-only bubble for read-only mode -->
-    {#if !editable && onComment}
+    {#if !canEdit && onComment}
       <EditorToolbar {editor} onComment={handleComment} commentOnly />
     {/if}
 
     <!-- Slash command menu -->
-    {#if editable}
+    {#if canEdit}
       <SlashCommandMenu
         {editor}
         isOpen={slashMenu.isOpen}
@@ -1119,6 +1271,22 @@
 
     <!-- The editor itself -->
     <EditorContent {editor} />
+
+    {#if reading && canEdit}
+      <p class="report-editor-hint" data-report-editor-hint>Type / for commands, or select text to ask the assistant</p>
+    {/if}
+    {#if reading}
+      <!-- Always mounted, so the live region announces its message. -->
+      <div class="pointer-events-none fixed inset-x-0 bottom-6 z-[85] flex justify-center px-4" role="status" aria-live="polite" data-heading-notice>
+        {#if headingNotice}
+          <p class="rounded-lg bg-navy px-4 py-2 font-sans text-[13px] leading-5 text-white shadow-popover">
+            {headingNotice === "paste"
+              ? "Section headings were left out of the paste."
+              : "Section headings stay as they are. Edit the text under them."}
+          </p>
+        {/if}
+      </div>
+    {/if}
 
     {#if editable}
       <div class="mt-4 border-t border-line-soft pt-2.5 font-sans">
@@ -1141,11 +1309,9 @@
             </svg>
             {limitOverlayVisible ? "Hide CRA limits" : "Show CRA limits"}
           </button>
-          <span class="flex flex-wrap items-center gap-x-1.5 text-[11px] text-ink-muted">
+          <span class="flex flex-wrap items-center gap-x-3 text-[11px] text-ink-muted">
             <span class="whitespace-nowrap"><strong class="font-medium text-ink-secondary">{lineCount}</strong> form lines</span>
-            <span aria-hidden="true">·</span>
             <span class="whitespace-nowrap"><strong class="font-medium text-ink-secondary">{wordCount}</strong> words</span>
-            <span aria-hidden="true">·</span>
             <span class="whitespace-nowrap"><strong class="font-medium text-ink-secondary">{charCount}</strong> characters</span>
           </span>
         </div>
@@ -1170,7 +1336,7 @@
                       ></div>
                     </div>
                     <span class={`flex-none whitespace-nowrap text-[11px] tabular-nums ${m.s === "over" ? "font-medium text-red-700" : m.s === "warning" ? "font-medium text-amber-600" : "text-ink-muted"}`}>
-                      {m.value}/{m.cap} {m.label}{m.raw !== m.value ? ` (+${m.raw - m.value} with gaps)` : ""}
+                      {m.value} / {m.cap} {m.label}{m.raw !== m.value ? ` (+${m.raw - m.value} with gaps)` : ""}
                     </span>
                   </div>
                 {/each}

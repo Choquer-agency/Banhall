@@ -3,8 +3,10 @@ import { defineConfig } from "vitest/config";
 import { svelte } from "@sveltejs/vite-plugin-svelte";
 import tailwindcss from "@tailwindcss/vite";
 import { playwright } from "@vitest/browser-playwright";
+import { reserveCaptureDirectory } from "./src/lib/test/captureReservation";
 
 const pointerSuite = "src/lib/components/workspace/WorkspaceChromePointer.component.test.ts";
+const repositoryRoot = fileURLToPath(new URL(".", import.meta.url));
 
 /**
  * PSOS-04 component tests: real Svelte components in headless Chromium.
@@ -70,6 +72,9 @@ export default defineConfig({
       "@tiptap/extension-highlight",
       "@tiptap/extension-placeholder",
       "@tiptap/extension-underline",
+      "@tiptap/pm/history",
+      "@tiptap/pm/model",
+      "@tiptap/pm/state",
       "@tiptap/pm/view",
       "@tiptap/starter-kit",
       "convex/browser",
@@ -95,6 +100,16 @@ export default defineConfig({
       enabled: true,
       headless: true,
       provider: playwright(),
+      commands: {
+        // Stories 5–6 captures (Verification, R5-09): a capture-bearing suite
+        // reserves its own fresh directory under `.vitest-attachments` for
+        // every invocation, so repeated or concurrent runs never overwrite a
+        // prior screenshot. Runs in Node; the suite receives the absolute path.
+        reserveCaptureDirectory: (context, label: string) =>
+          reserveCaptureDirectory(repositoryRoot, label, {
+            provenance: { testPath: context.testPath ?? null, sessionId: context.sessionId },
+          }),
+      },
       instances: [
         { browser: "chromium", exclude: [pointerSuite] },
         {

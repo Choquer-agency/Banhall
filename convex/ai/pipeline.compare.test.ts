@@ -160,6 +160,65 @@ async function flushScheduledUsage(t: ReturnType<typeof convexTest>) {
 
 const sectionRequests = [SECTION_242_REQUEST, SECTION_244_REQUEST, SECTION_246_REQUEST];
 
+// Complete request hashes captured by executing this same no-plan compare
+// fixture at pre-Story-4 baseline 20ab25e627657e716476b393fa463e828ea978c1.
+// They cover the full request objects, not values rebuilt from today's agent
+// constants. The retained baseline capture's SHA-256 is
+// 1e88981a71815a9b2c70b77c335f6ede7d6e9de5b3c632521ab543b70304ff6c.
+// Recaptured 2026-09-23 from the same fixture for the owner-directed
+// copy-skills change (dashfix + copywriting rules in RULES_HUMAN_PROSE, which
+// every section system prompt carries); previous values ad1f47f0..., 4f141cd3...,
+// 91dfb047.... Recaptured 2026-09-24 from the same fixture for cost phase 1:
+// the three lines now share one system prompt (SECTION_SHARED_SYSTEM_INTRO
+// plus the unchanged writing rules and output format) and open their user
+// message with the same cached block (the analysis JSON), with each line's
+// unchanged instructions and runtime blocks after it; previous values fd9a4107...,
+// 96663c9e..., b32eb92a.... Any other change to these requests is still
+// unintended.
+const HISTORICAL_NO_PLAN_SECTION_REQUEST_HASHES = [
+  "2bd255c79925e24f18538a5a2a8653ab3e75ac31511628f62d15ef801ec4ae0c",
+  "060b56f8c304a41f75600596da9f13d07706ac6b7cb4c1a3426acc99d0d25341",
+  "e018b20e612590133df7cf8777d446ece1a71d94818b8fbeb78f6e157f8eb8bc",
+] as const;
+
+async function completeRequestHash(params: GenerationMessageParams): Promise<string> {
+  const bytes = new TextEncoder().encode(JSON.stringify(params));
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  return [...new Uint8Array(digest)]
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+async function expectHistoricalNoPlanRequests(model: string): Promise<void> {
+  const requests = network.create.mock.calls
+    .map(([params]) => params as GenerationMessageParams)
+    .filter((params) =>
+      params.model === model &&
+      sectionRequests.some((section) => userText(params).startsWith(section.userPrefix)) &&
+      !userText(params).includes("Self-check repair")
+    );
+  expect(requests).toHaveLength(3);
+  expect(await Promise.all(requests.map(completeRequestHash)))
+    .toEqual(HISTORICAL_NO_PLAN_SECTION_REQUEST_HASHES);
+  // Cost phase 1: the three drafts share a byte-identical prefix (system
+  // plus the first user block, which carries the only breakpoint) and
+  // differ only after it.
+  const blocksOf = (params: GenerationMessageParams) => {
+    const content = params.messages[0].content;
+    if (typeof content === "string") throw new Error("section draft sent as a string");
+    return content;
+  };
+  const [first, ...rest] = requests;
+  for (const other of rest) {
+    expect(other.system).toBe(first.system);
+    expect(blocksOf(other)[0]).toEqual(blocksOf(first)[0]);
+    expect(blocksOf(other)[1]).not.toEqual(blocksOf(first)[1]);
+  }
+  expect(blocksOf(first)[0].cache_control).toEqual({ type: "ephemeral" });
+  expect(requests.flatMap((params) => blocksOf(params).filter((block) => block.cache_control)))
+    .toHaveLength(3);
+}
+
 describe("shared generation analysis", () => {
   it.each([pair, [...pair].reverse()])("analyzes once before fanout and shares persisted validated analysis (%s, %s)", async (...models) => {
     const t = convexTest(schema, modules);
@@ -187,10 +246,19 @@ describe("shared generation analysis", () => {
       styleOverrides: expect.any(Object),
     });
     await runCandidates(t);
-    expect(await t.run((ctx) => ctx.db.query("generationArtifacts").collect())).toEqual(before);
+    const afterRun = await t.run((ctx) => ctx.db.query("generationArtifacts").collect());
+    // The frozen inputs are unchanged; each candidate chain stored its
+    // payload once (2026-09-25) instead of carrying it in every schedule.
+    expect(afterRun.filter((row) => row.kind !== "ordered_payload")).toEqual(before);
+    const payloads = afterRun.filter((row) => row.kind === "ordered_payload");
+    expect(payloads).toHaveLength(2);
+    expect(new Set(payloads.map((row) => row.candidateRunId)).size).toBe(2);
+    for (const row of payloads) {
+      expect(row.orderedPayload?.analysis).toBe(frozenAnalysis?.content);
+    }
     expect(analyzerCalls()).toHaveLength(1);
     expect(analyzerCalls()[0][0].model).toBe(MODEL);
-    expect(analyzerCalls()[0][0].model).toBe(generationPromptProgram.calls.analyzer.model.compare.modelId);
+    expect(analyzerCalls()[0][0].model).toBe(generationPromptProgram.calls.analyzer.model.beforeStepRouting.compare.legacyModelId);
     const artifacts = await t.run((ctx) => ctx.db.query("generationArtifacts").collect());
     const analyses = artifacts.filter((row) => row.kind === "analysis");
     expect(analyses).toHaveLength(1);
@@ -204,11 +272,13 @@ describe("shared generation analysis", () => {
     for (const model of models) {
       for (const section of sectionRequests) {
         const drafts = network.create.mock.calls.filter(([params]) =>
-          params.model === model && userText(params).startsWith(section.userPrefix));
+          params.model === model && userText(params).startsWith(section.userPrefix) &&
+          userText(params).includes(section.taskMarker));
         expect(drafts).toHaveLength(1);
         expect(userText(drafts[0][0])).toContain(JSON.stringify(analysis, null, section.jsonIndentation));
       }
     }
+    await expectHistoricalNoPlanRequests("claude-opus-4-8");
     await flushScheduledUsage(t);
     const usage = await t.run((ctx) => ctx.db.query("aiUsage").collect());
     const analyzerUsage = usage.filter((row) => row.callSite === "generation:analyzer");
@@ -241,7 +311,7 @@ describe("shared analysis failure and compatibility", () => {
     await t.action(internal.ai.iterative.startIterativeGeneration, { generationId });
     expect(analyzerCalls()).toHaveLength(1);
     expect(analyzerCalls()[0][0].model).toBe("claude-opus-4-8");
-    expect(generationPromptProgram.calls.analyzer.model.iterative).toEqual({
+    expect(generationPromptProgram.calls.analyzer.model.beforeStepRouting.iterative).toEqual({
       kind: "candidate", fallbackModelId: MODEL,
     });
     expect(await t.run((ctx) => ctx.db.get(generationId))).toMatchObject({ status: "running" });
@@ -262,7 +332,7 @@ describe("shared analysis failure and compatibility", () => {
     await t.action(internal.ai.pipeline.generateReport, { generationId });
     expect(analyzerCalls()).toHaveLength(1);
     expect(analyzerCalls()[0][0].model).toBe("claude-opus-4-8");
-    expect(generationPromptProgram.calls.analyzer.model.single).toEqual({
+    expect(generationPromptProgram.calls.analyzer.model.beforeStepRouting.single).toEqual({
       kind: "candidate", fallbackModelId: MODEL,
     });
     expect(await candidateJobs(t)).toHaveLength(1);
@@ -277,6 +347,7 @@ describe("shared analysis failure and compatibility", () => {
     expect(projects[0].status).toBe("review");
     expect(projects[0].activeGenerationId).toBeUndefined();
     expect(analyzerCalls()).toHaveLength(1);
+    await expectHistoricalNoPlanRequests("claude-opus-4-8");
   });
 
   it("fails generation without scheduling candidates when shared analysis rejects", async () => {
@@ -324,7 +395,7 @@ describe("shared analysis failure and compatibility", () => {
     await drainOrderedChains(t);
     expect(analyzerCalls()).toHaveLength(1);
     expect(analyzerCalls()[0][0].model).toBe(pair[index]);
-    expect(generationPromptProgram.calls.analyzer.model.legacyCandidate).toEqual({
+    expect(generationPromptProgram.calls.analyzer.model.beforeStepRouting.legacyCandidate).toEqual({
       kind: "candidate", fallbackModelId: MODEL,
     });
     expect(await t.run((ctx) => ctx.db.get(legacy.candidateRunId))).toMatchObject({ status: "succeeded" });
@@ -362,7 +433,7 @@ it("shares one analysis across Anthropic and OpenRouter candidates without chang
   await runCandidates(t);
   expect(analyzerCalls()).toHaveLength(1);
   expect(analyzerCalls()[0][0].model).toBe(MODEL);
-  expect(analyzerCalls()[0][0].model).toBe(generationPromptProgram.calls.analyzer.model.compare.modelId);
+  expect(analyzerCalls()[0][0].model).toBe(generationPromptProgram.calls.analyzer.model.beforeStepRouting.compare.legacyModelId);
   expect(requests.some((request) => request.tool_choice?.function?.name === "submit_transcript_analysis")).toBe(false);
   const artifacts = await t.run((ctx) => ctx.db.query("generationArtifacts").collect());
   const analysis = JSON.parse(artifacts.find((row) => row.kind === "analysis")?.content ?? "null");
@@ -378,12 +449,14 @@ it("shares one analysis across Anthropic and OpenRouter candidates without chang
   }
   for (const section of sectionRequests) {
     const gatewayDrafts = requests.filter((request) => request.messages.some((message) =>
-      message.role === "user" && message.content.startsWith(section.userPrefix)));
+      message.role === "user" && message.content.startsWith(section.userPrefix) &&
+      message.content.includes(section.taskMarker)));
     expect(gatewayDrafts).toHaveLength(1);
     expect(gatewayDrafts[0].messages.find((message) => message.role === "user")?.content)
       .toContain(JSON.stringify(analysis, null, section.jsonIndentation));
     const directDrafts = network.create.mock.calls.filter(([params]) =>
-      params.model === pair[0] && userText(params).startsWith(section.userPrefix));
+      params.model === pair[0] && userText(params).startsWith(section.userPrefix) &&
+      userText(params).includes(section.taskMarker));
     expect(directDrafts).toHaveLength(1);
     expect(userText(directDrafts[0][0])).toContain(JSON.stringify(analysis, null, section.jsonIndentation));
   }

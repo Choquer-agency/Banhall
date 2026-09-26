@@ -17,7 +17,9 @@ import { buildTranscriptPromptText } from "../lib/transcripts";
 import { CONTEXT_INPUTS_GUIDANCE } from "./prompts";
 import { SEED_PROMPT_PROGRAM } from "./promptDefinitions";
 import { STRUCTURED_OUTPUT_PROGRAM } from "./structured";
+import type { GenerationTextBlock } from "./openrouterCore";
 import { NO_STYLE_OVERRIDES } from "../../shared/styleOverrides";
+import { readsFactPacks } from "../lib/seedFacts";
 import {
   MAX_SEED_PROMPT_UTF8_BYTES,
   SeedContextLimitError,
@@ -136,7 +138,7 @@ export function effectiveCategory(doc: ContextDoc): ContextDocCategory {
 export const CONTEXT_SCAFFOLDS = {
   withTranscriptPrefix: "Here is the interview transcript to analyze:\n\n",
   withoutTranscript:
-    "There is NO interview transcript for this project. Analyze the attached contextual materials below as the sole source. Anything the documents do not support must be flagged as a gap — never invent interview content.",
+    "There is NO interview transcript for this project. Analyze the attached contextual materials below as the sole source. Anything the documents do not support must be flagged as a gap; never invent interview content.",
   contextHeading: "\n\n# ATTACHED CONTEXTUAL MATERIALS\n",
   documentDelimiters: {
     beginPrefix: "--- BEGIN [",
@@ -315,11 +317,81 @@ export function cutToBudget(text: string, limit: number): string {
 }
 
 /**
+ * Digest mode means digests (cost phase 1). A generation over the transcript
+ * budget freezes a `transcript_digest` row per transcript next to the full
+ * `transcript` row; a consumer that read every row sent both, and one that
+ * filled a byte budget in row order spent it on the full text and cut the
+ * digests. This returns one row per source: each transcript that has a
+ * digest is replaced, in its own position, by that digest, and every other
+ * row is kept in order. Pure, so the Brief and the Seeds share one decision.
+ */
+export function preferDigestSources<
+  Row extends { kind: string; transcriptId?: string | null },
+>(rows: readonly Row[]): Row[] {
+  const digestByTranscript = new Map<string, Row>();
+  for (const row of rows) {
+    if (row.kind === "transcript_digest" && row.transcriptId) {
+      digestByTranscript.set(row.transcriptId, row);
+    }
+  }
+  const transcriptIds = new Set<string>();
+  for (const row of rows) {
+    if (row.kind === "transcript" && row.transcriptId) transcriptIds.add(row.transcriptId);
+  }
+  const out: Row[] = [];
+  for (const row of rows) {
+    const id = row.transcriptId ?? undefined;
+    if (row.kind === "transcript" && id && digestByTranscript.has(id)) {
+      out.push(digestByTranscript.get(id)!);
+      continue;
+    }
+    // A digest of a frozen transcript is placed where that transcript sits.
+    if (row.kind === "transcript_digest" && id && transcriptIds.has(id)) continue;
+    out.push(row);
+  }
+  return out;
+}
+
+/**
+ * The transcript method (2026-09-24, owner decision 27): when every frozen
+ * transcript has a fact pack, each transcript is read through its pack, in
+ * its own position, and digests are left out. Otherwise the packs a partial
+ * extraction froze are dropped and preferDigestSources decides, as before.
+ * Pure, so the Brief, the Seeds and every other reader of frozen rows share
+ * one decision. Callers keep every frozen row for citation validation: a
+ * claim read from a pack still cites the transcript row.
+ */
+export function preferFactSources<
+  Row extends { kind: string; transcriptId?: string | null },
+>(rows: readonly Row[]): Row[] {
+  if (!readsFactPacks(rows)) {
+    return preferDigestSources(rows.filter((row) => row.kind !== "transcript_facts"));
+  }
+  const packByTranscript = new Map<string, Row>();
+  for (const row of rows) {
+    if (row.kind === "transcript_facts" && row.transcriptId) {
+      packByTranscript.set(row.transcriptId, row);
+    }
+  }
+  const out: Row[] = [];
+  for (const row of rows) {
+    const pack = row.kind === "transcript" && row.transcriptId ? packByTranscript.get(row.transcriptId) : undefined;
+    if (pack) {
+      out.push(pack);
+      continue;
+    }
+    if (row.kind === "transcript_facts" || row.kind === "transcript_digest") continue;
+    out.push(row);
+  }
+  return out;
+}
+
+/**
  * Thousands-grouped count without Intl: the notice is part of the analyzer's
  * bytes, and every candidate must rebuild the identical message regardless of
  * the runtime's ICU data.
  */
-function formatCount(n: number): string {
+export function formatCount(n: number): string {
   return String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
 }
 
@@ -577,6 +649,8 @@ export type SeedPromptSource = {
   kind: string;
   content: string;
   contentHash: string;
+  /** Links a transcript and its digest or fact pack; see preferFactSources. */
+  transcriptId?: string;
 };
 
 export type SeedPromptProjection = {
@@ -597,6 +671,19 @@ export type SeedTrustedContextInput = {
   writerSettings: unknown;
   lengthTarget: string;
   maxPromptBytes?: number;
+  /**
+   * The role tail's reservation when the sources overflow. Given, the
+   * source allowance depends on generation-stable inputs only and an
+   * oversized role tail is refused (see buildSeedTrustedContext).
+   */
+  roleTailReserveBytes?: number;
+  /**
+   * How Seeds cite (2026-09-24): `facts` when every transcript is read
+   * through its fact pack (cite a fact id, or a document by excerpt),
+   * `offsets` otherwise (today). Generation-wide, so the cached prefix is
+   * still shared by every role.
+   */
+  citationMode?: "offsets" | "facts";
 };
 
 export function splitSeedWriterSettings(value: unknown): {
@@ -730,28 +817,43 @@ function sourceLabel(source: SeedPromptSource): string {
  */
 export function buildSeedTrustedContext(input: SeedTrustedContextInput): {
   userMessage: string;
+  /**
+   * `userMessage` split for prompt caching: `shared` (heading, guidance,
+   * Brief, sources) is the same for every role of one generation and mode;
+   * `role` (mode, objective, decisions and the rest) follows it. Their
+   * concatenation is exactly `userMessage`.
+   */
+  parts: { shared: string; role: string };
   promptBytes: number;
   sources: SeedPromptSourceReport[];
 } {
   const prompt = SEED_PROMPT_PROGRAM.user;
   const separator = prompt.delimiters.separator;
+  // Cost phase 1: everything the roles of one generation share comes first,
+  // so it forms one cacheable prefix; the role's own objective and state
+  // follow the sources. SEED_PROMPT_PROGRAM.user.order discloses this order.
   const beforeSources = [
     prompt.heading,
-    prompt.modeLabels[input.mode],
-    prompt.guidance,
-    seedBlock(prompt.blocks.objective, input.objective),
+    input.citationMode === "facts" ? prompt.factGuidance : prompt.guidance,
     seedBlock(prompt.blocks.brief, seedValue(input.brief)),
   ];
-  const afterSources = [
+  // The role-specific part of the tail (it differs between roles and modes).
+  const roleTail = [
+    prompt.modeLabels[input.mode],
+    seedBlock(prompt.blocks.objective, input.objective),
     seedBlock(prompt.blocks.decisions, input.projection.decisions),
     seedBlock(prompt.blocks.feedback, input.projection.feedback),
     seedBlock(
       prompt.blocks.target,
       input.projection.target ?? prompt.empty
     ),
+  ];
+  // Generation-wide, so the same for every role.
+  const generationTail = [
     seedBlock(prompt.blocks.settings, seedValue(input.writerSettings)),
     seedBlock(prompt.blocks.lengthTarget, input.lengthTarget),
   ];
+  const afterSources = [...roleTail, ...generationTail];
   const maxBytes = input.maxPromptBytes ?? MAX_SEED_PROMPT_UTF8_BYTES;
   const separatorBytes = utf8Bytes(separator);
   const fixedBytes =
@@ -765,25 +867,70 @@ export function buildSeedTrustedContext(input: SeedTrustedContextInput): {
     );
   }
 
+  const roleTailBytes = utf8Bytes(roleTail.join(separator));
+  /** The omission notice naming every source: the most it can ever need. */
+  const maximalOmissionNoticeBytes = () =>
+    utf8Bytes(
+      seedBlock(
+        prompt.blocks.sources,
+        `${prompt.truncation.omittedPrefix}${input.sources
+          .map((source) => source.sourceId)
+          .join(", ")}${prompt.truncation.omittedSuffix}`
+      )
+    );
+  const sourceBlocksFull = input.sources.map((source) =>
+    seedBlock(sourceLabel(source), neutralizeMarkers(source.content))
+  );
+  const fullSourceBytes = utf8Bytes(sourceBlocksFull.join(separator));
+  // Without a reservation (direct callers and tests), the sources take
+  // whatever the actual tail leaves, as before cost phase 1.
   let remaining = maxBytes - fixedBytes;
+  if (input.roleTailReserveBytes !== undefined) {
+    // Cost phase 1: the source allowance sits inside the cached block, so it
+    // is derived from generation-stable inputs only (limit, heading,
+    // guidance, Brief, sources, writer settings, length target), never from
+    // the role's own text. `stableBytes` is what sources and the role tail
+    // share. Sources that fit take their exact size and the rest goes to the
+    // role; sources that overflow keep the full omission disclosure, then
+    // leave the role its reservation, clamped to half of what remains so a
+    // very large Brief still leaves the sources room. A role tail larger
+    // than what is left is refused below; it never moves the cached source
+    // cutoff.
+    const stableBytes = maxBytes - fixedBytes + roleTailBytes;
+    const sourcesNeed =
+      input.sources.length > 0
+        ? fullSourceBytes
+        : utf8Bytes(seedBlock(prompt.blocks.sources, prompt.empty));
+    // Overflowing sources must always be able to disclose what they omit,
+    // so the maximal disclosure (every source id, generation-stable) is
+    // reserved first; the reservation and the half-space clamp apply only to
+    // what is left after it.
+    const disclosureBytes =
+      input.sources.length > 0 ? maximalOmissionNoticeBytes() + separatorBytes : 0;
+    const afterDisclosure = Math.max(0, stableBytes - disclosureBytes);
+    const overflowAllowance = Math.min(
+      stableBytes,
+      disclosureBytes +
+        Math.max(
+          afterDisclosure - input.roleTailReserveBytes,
+          Math.floor(afterDisclosure / 2)
+        )
+    );
+    const sourceAllowance = Math.max(0, Math.min(sourcesNeed, overflowAllowance));
+    const roleAllowance = stableBytes - sourceAllowance;
+    if (roleTailBytes > roleAllowance) {
+      throw new SeedContextLimitError(
+        "prompt_utf8_bytes",
+        `Seed role context (mode, objective, decisions, feedback and target) is ${roleTailBytes} UTF-8 bytes; its allowance is ${roleAllowance}`
+      );
+    }
+    remaining = sourceAllowance;
+  }
   const sourceBlocks: string[] = [];
   const reports: SeedPromptSourceReport[] = [];
-  const fullSourceBytes = utf8Bytes(
-    input.sources
-      .map((source) =>
-        seedBlock(sourceLabel(source), neutralizeMarkers(source.content))
-      )
-      .join(separator)
-  );
   let omissionReserveBytes = 0;
   if (input.sources.length > 0 && fullSourceBytes > remaining) {
-    const maximalNotice = seedBlock(
-      prompt.blocks.sources,
-      `${prompt.truncation.omittedPrefix}${input.sources
-        .map((source) => source.sourceId)
-        .join(", ")}${prompt.truncation.omittedSuffix}`
-    );
-    omissionReserveBytes = utf8Bytes(maximalNotice) + separatorBytes;
+    omissionReserveBytes = maximalOmissionNoticeBytes() + separatorBytes;
     if (omissionReserveBytes > remaining) {
       throw new SeedContextLimitError(
         "prompt_utf8_bytes",
@@ -887,11 +1034,9 @@ export function buildSeedTrustedContext(input: SeedTrustedContextInput): {
     sourceBlocks.push(empty);
   }
 
-  const userMessage = [
-    ...beforeSources,
-    sourceBlocks.join(separator),
-    ...afterSources,
-  ].join(separator);
+  const shared = [...beforeSources, sourceBlocks.join(separator)].join(separator);
+  const role = `${separator}${afterSources.join(separator)}`;
+  const userMessage = `${shared}${role}`;
   const promptBytes = utf8Bytes(userMessage);
   if (promptBytes > maxBytes) {
     throw new SeedContextLimitError(
@@ -902,20 +1047,35 @@ export function buildSeedTrustedContext(input: SeedTrustedContextInput): {
   if (input.maxPromptBytes === undefined) {
     assertSeedPromptWithinLimit(userMessage);
   }
-  return { userMessage, promptBytes, sources: reports };
+  return { userMessage, parts: { shared, role }, promptBytes, sources: reports };
 }
 
 /** Assemble the complete two-message request under one shared byte limit. */
 export function buildSeedPrompt(
-  input: Omit<SeedTrustedContextInput, "maxPromptBytes">
+  input: Omit<SeedTrustedContextInput, "maxPromptBytes" | "roleTailReserveBytes">
 ): {
   system: string;
   user: string;
+  /**
+   * `user` as two text blocks with a 1-hour cache breakpoint after the
+   * shared part: roles are drafted step by step at the writer's pace, often
+   * more than 5 minutes apart, and every later role of the same generation
+   * reads the frozen sources back at 0.1x.
+   */
+  userBlocks: GenerationTextBlock[];
   promptBytes: number;
   sources: SeedPromptSourceReport[];
 } {
   const settings = splitSeedWriterSettings(input.writerSettings);
   const system = buildSeedSystemPrompt(settings.styleOverrides);
+  // Digest mode means digests (cost phase 1): a transcript with a frozen
+  // digest reaches the prompt only as that digest, in the transcript's
+  // place, so the byte limit is never spent on both. Callers keep every
+  // frozen source for provenance validation. 2026-09-24 (transcript method):
+  // with a fact pack for every transcript, the packs take their place and
+  // Seeds cite fact ids.
+  const sources = preferFactSources(input.sources);
+  const citationMode = readsFactPacks(input.sources) ? ("facts" as const) : ("offsets" as const);
   const systemBytes = utf8Bytes(system);
   const repairReserveBytes =
     utf8Bytes(STRUCTURED_OUTPUT_PROGRAM.repairScaffold.prefix) +
@@ -929,6 +1089,9 @@ export function buildSeedPrompt(
   }
   const built = buildSeedTrustedContext({
     ...input,
+    sources,
+    citationMode,
+    roleTailReserveBytes: SEED_PROMPT_PROGRAM.request.roleTailReserveUtf8Bytes,
     writerSettings: settings.remaining,
     maxPromptBytes:
       MAX_SEED_PROMPT_UTF8_BYTES - systemBytes - repairReserveBytes,
@@ -937,6 +1100,14 @@ export function buildSeedPrompt(
   return {
     system,
     user: built.userMessage,
+    userBlocks: [
+      {
+        type: "text",
+        text: built.parts.shared,
+        cache_control: { ...SEED_PROMPT_PROGRAM.request.cacheControl },
+      },
+      { type: "text", text: built.parts.role },
+    ],
     promptBytes: systemBytes + built.promptBytes,
     sources: built.sources,
   };

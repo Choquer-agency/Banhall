@@ -8,6 +8,8 @@ import {
   CHAT_CONTEXT_OPTIONS,
   reportChatAgent,
 } from "./ai/chatAgentV2";
+import { CHAT_TURN_STALE_MINUTES } from "./chatV2";
+import crons from "./crons";
 import { APICallError, type ModelMessage } from "ai";
 import { CHAT_EVIDENCE_GUIDANCE } from "./ai/prompts";
 
@@ -179,6 +181,30 @@ describe("bounded chat context", () => {
     }));
     expect(JSON.stringify(messages)).toContain("Try again.");
   });
+  // Review r2 P3 (2026-09-25): a timer that fired after a tool step left the
+  // last step's finish reason, so a partial reply was marked completed.
+  test("marks a reply the time limit cut off as failed, not completed", async () => {
+    const f = await setup();
+    const { result, turn } = await sendQueuedTurn(f);
+    const timer = new AbortController();
+    vi.spyOn(AbortSignal, "timeout").mockReturnValue(timer.signal);
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(reportChatAgent, "streamText").mockResolvedValue({
+      consumeStream: async () => {
+        timer.abort(new DOMException("The operation timed out.", "TimeoutError"));
+      },
+      finishReason: Promise.resolve("tool-calls"),
+    } as unknown as Awaited<ReturnType<typeof reportChatAgent.streamText>>);
+    await f.t.action(internal.ai.chatAgentV2.streamChatReply, {
+      agentThreadId: result.threadId, promptMessageId: result.messageId, reportId: f.reportId,
+    });
+    expect((await f.t.run(ctx => ctx.db.get(turn._id)))?.status).toBe("failed");
+    const messages = await f.t.run(ctx => reportChatAgent.fetchContextMessages(ctx, {
+      userId: f.userId, threadId: result.threadId, contextOptions: CHAT_CONTEXT_OPTIONS,
+    }));
+    expect(JSON.stringify(messages)).toContain("took too long");
+  });
+
   test.each([false, true])("loads saved preferences and gates Brain tools with opt-in=%s", async allowBrain => {
     const f = await setup();
     await f.t.run(ctx => ctx.db.insert("writerProfiles", {
@@ -414,9 +440,13 @@ describe("bounded chat context", () => {
     if (!call) throw new Error("streamText call missing");
     expect(call[1]).toEqual({ threadId: result.threadId });
     expect(call[2]).toMatchObject({ promptMessageId: result.messageId });
+    // Under 30 rows the history window is the plain bound, so the frozen
+    // options object itself goes through. The context handler places the
+    // evidence around the history for prompt caching.
     expect(call[3]).toEqual({
       saveStreamDeltas: true,
       contextOptions: CHAT_CONTEXT_OPTIONS,
+      contextHandler: expect.any(Function),
     });
     expect(call[3]?.contextOptions).toBe(CHAT_CONTEXT_OPTIONS);
 
@@ -500,12 +530,11 @@ describe("bounded chat context", () => {
     const call = streamText.mock.calls[0];
     if (!call) throw new Error("streamText call missing");
     const system = String(call[2]?.system ?? "");
-    const messages = call[2]?.messages ?? [];
-    expect(messages).toHaveLength(1);
-    const evidence = String(
-      (messages[0] as { role: string; content: unknown }).content
-    );
-    expect((messages[0] as { role: string }).role).toBe("user");
+    const messages = (call[2]?.messages ?? []) as Array<{ role: string; content: unknown }>;
+    // Cached stable head plus the per-turn tail (report, decisions).
+    expect(messages).toHaveLength(2);
+    expect(messages.every((message) => message.role === "user")).toBe(true);
+    const evidence = messages.map((message) => String(message.content)).join("\n\n");
 
     // Not one byte of client evidence carries system authority.
     for (const secret of [reportBody, analyzerFinding, documentBody, decisionTarget]) {
@@ -743,13 +772,15 @@ describe("chat turn lifecycle", () => {
       promptMessageId: "prompt-idempotent",
       startedAt: 1_000,
     });
+    // Lease (a4 #17): the first start holds the turn; a duplicate start of
+    // the same running turn does not stream it a second time.
     await expect(
       t.mutation(internal.chatV2.markTurnStarted, {
         agentThreadId: "thread-idempotent",
         promptMessageId: "prompt-idempotent",
         startedAt: 2_000,
       })
-    ).resolves.toEqual({ shouldRun: true, status: "running" });
+    ).resolves.toEqual({ shouldRun: false, status: "running" });
     await t.mutation(internal.chatV2.finishTurn, {
       agentThreadId: "thread-idempotent",
       promptMessageId: "prompt-idempotent",
@@ -1044,6 +1075,49 @@ describe("chat turn lifecycle", () => {
 
 describe("failStaleChatTurns", () => {
   const MINUTES = 60 * 1000;
+
+  // Review r1 P3-3 (2026-09-25): a crashed reply held its thread for up to
+  // 25 minutes (a 15 minute cutoff swept every 10 minutes).
+  test("frees a crashed reply's thread within about 16 minutes, never inside the action's 10", async () => {
+    expect(CHAT_TURN_STALE_MINUTES).toBe(14);
+    const jobs = (crons as unknown as {
+      crons: Record<string, { name: string; args: unknown[]; schedule: { type: string; minutes?: number } }>;
+    }).crons;
+    const job = jobs["recover stale chat turns"];
+    expect(job?.name).toBe("chatV2:failStaleChatTurns");
+    expect(job?.schedule).toMatchObject({ type: "interval", minutes: 2 });
+    expect(job?.args).toEqual([{ olderThanMinutes: CHAT_TURN_STALE_MINUTES }]);
+
+    const setupResult = await setup();
+    const { t } = setupResult;
+    await insertMappedThread(setupResult, "thread-cutoff");
+    const base = Date.now();
+    const runningId = await insertTurn(t, {
+      agentThreadId: "thread-cutoff",
+      promptMessageId: "running",
+      order: 1,
+      status: "running",
+      startedAt: base,
+    });
+    // Still inside the action's own limit: left alone.
+    vi.setSystemTime(base + 10 * MINUTES);
+    await expect(t.mutation(internal.chatV2.failStaleChatTurns, {})).resolves.toEqual({ failed: 0 });
+    vi.setSystemTime(base + CHAT_TURN_STALE_MINUTES * MINUTES + 1);
+    await expect(t.mutation(internal.chatV2.failStaleChatTurns, {})).resolves.toEqual({ failed: 1 });
+    expect((await t.run((ctx) => ctx.db.get(runningId)))?.status).toBe("failed");
+  });
+
+  test("the refusal while a reply runs says to press Stop", async () => {
+    const f = await setup();
+    const { result } = await sendQueuedTurn(f);
+    await expect(
+      f.actor.mutation(api.chatV2.sendMessage, {
+        reportId: f.reportId,
+        content: "And another thing.",
+        threadId: result.threadId,
+      })
+    ).rejects.toThrow(/press Stop if it seems stuck/);
+  });
 
   test("fails stuck queued/running turns past the cutoff, leaves fresh and terminal turns", async () => {
     const setupResult = await setup();
@@ -1763,7 +1837,9 @@ describe("CAP-11 chat admission", () => {
     }
     expect(await state(s)).toEqual(before);
     await s.t.run(async (ctx) => { await ctx.db.insert("users", { authId: "other-sender", role: "writer" }); });
-    await s.t.withIdentity({ subject: "other-sender" }).mutation(api.chatV2.sendMessage, { reportId: s.reportId, content: "another sender", threadId: first.result.threadId });
+    // Another sender's turn does not use this user's queue slots. (It goes to
+    // its own thread: a thread runs one turn at a time.)
+    await s.t.withIdentity({ subject: "other-sender" }).mutation(api.chatV2.sendMessage, { reportId: s.reportId, content: "another sender", newThread: true });
     await s.t.mutation(internal.chatV2.markTurnStarted, { agentThreadId: first.result.threadId, promptMessageId: first.result.messageId, startedAt: Date.now() });
     await sendQueuedTurn(s);
   });
@@ -2006,4 +2082,77 @@ describe("CAP-11 chat admission", () => {
     expect(await state(s)).toEqual(before);
   });
 
+});
+
+describe("one turn at a time per thread (a4 #17)", () => {
+  async function turnsIn(s: Awaited<ReturnType<typeof setup>>, threadId: string) {
+    return await s.t.run((ctx) =>
+      ctx.db
+        .query("chatTurns")
+        .withIndex("by_agentThreadId_and_order", (q) => q.eq("agentThreadId", threadId))
+        .collect()
+    );
+  }
+
+  test("refuses a new message while the thread's reply is queued or running, and takes it once the reply ends", async () => {
+    const s = await setup();
+    const { result } = await sendQueuedTurn(s);
+    const again = () =>
+      s.actor.mutation(api.chatV2.sendMessage, {
+        reportId: s.reportId,
+        content: "And another thing.",
+        threadId: result.threadId,
+      });
+
+    await expect(again()).rejects.toMatchObject({ data: { code: "INVALID_STATE" } });
+    await s.t.mutation(internal.chatV2.markTurnStarted, {
+      agentThreadId: result.threadId,
+      promptMessageId: result.messageId,
+      startedAt: Date.now(),
+    });
+    await expect(again()).rejects.toMatchObject({ data: { code: "INVALID_STATE" } });
+    // "New chat" is a new thread, so it is not held up.
+    await expect(
+      s.actor.mutation(api.chatV2.sendMessage, { reportId: s.reportId, content: "Elsewhere.", newThread: true })
+    ).resolves.toBeDefined();
+    expect(await turnsIn(s, result.threadId)).toHaveLength(1);
+
+    await s.t.mutation(internal.chatV2.finishTurn, {
+      agentThreadId: result.threadId,
+      promptMessageId: result.messageId,
+      requestedStatus: "completed",
+      endedAt: Date.now(),
+      stepCount: 1,
+    });
+    await expect(again()).resolves.toMatchObject({ threadId: result.threadId });
+    expect(await turnsIn(s, result.threadId)).toHaveLength(2);
+  });
+
+  test("a stopped reply frees the thread", async () => {
+    const s = await setup();
+    const { turn, result } = await sendQueuedTurn(s);
+    await s.actor.mutation(api.chatV2.abortStreaming, { threadId: result.threadId, order: turn.order });
+    await expect(
+      s.actor.mutation(api.chatV2.sendMessage, {
+        reportId: s.reportId,
+        content: "Try again.",
+        threadId: result.threadId,
+      })
+    ).resolves.toMatchObject({ threadId: result.threadId });
+  });
+
+  test("a turn queued behind a running one in its thread fails instead of running beside it", async () => {
+    const s = await setup();
+    await insertMappedThread(s, "thread-lease");
+    await insertTurn(s.t, { agentThreadId: "thread-lease", promptMessageId: "p-1", order: 1, status: "queued" });
+    await insertTurn(s.t, { agentThreadId: "thread-lease", promptMessageId: "p-2", order: 2, status: "queued" });
+    await expect(
+      s.t.mutation(internal.chatV2.markTurnStarted, { agentThreadId: "thread-lease", promptMessageId: "p-1", startedAt: 1 })
+    ).resolves.toEqual({ shouldRun: true, status: "running" });
+    await expect(
+      s.t.mutation(internal.chatV2.markTurnStarted, { agentThreadId: "thread-lease", promptMessageId: "p-2", startedAt: 2 })
+    ).resolves.toEqual({ shouldRun: false, status: "failed" });
+    const statuses = (await turnsIn(s, "thread-lease")).map((row) => row.status);
+    expect(statuses).toEqual(["running", "failed"]);
+  });
 });

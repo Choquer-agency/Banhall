@@ -1,5 +1,7 @@
 import type Anthropic from "@anthropic-ai/sdk";
 import { generateStructured } from "../structured";
+import type { GenerationClient } from "../openrouterCore";
+import { pseudonymize, type PlaceholderMap } from "../../lib/deidentify";
 
 /**
  * Section-scoped retrieval queries for The Brain, extracted from the raw
@@ -28,9 +30,9 @@ export const RETRIEVAL_BRIEF_MODEL = "claude-haiku-4-5-20251001";
 /** Transcripts can be huge; the technical meat is captured well within this. */
 export const RETRIEVAL_BRIEF_TRANSCRIPT_CAP = 120_000;
 
-export const RETRIEVAL_BRIEF_SYSTEM_PROMPT = `You extract retrieval queries from an SR&ED interview transcript. Your output is used ONLY to search a database of past approved SR&ED reports for similar passages — it is never shown to anyone and never copied into a report.
+export const RETRIEVAL_BRIEF_SYSTEM_PROMPT = `You extract retrieval queries from an SR&ED interview transcript. Your output is used ONLY to search a database of past approved SR&ED reports for similar passages. It is never shown to anyone and never copied into a report.
 
-Write in dense technical language (the database contains polished report prose, so match that register, not conversational speech). No client or person names — describe the technology, not the company.`;
+Write in dense technical language (the database contains polished report prose, so match that register, not conversational speech). No client or person names: describe the technology, not the company.`;
 
 export const RETRIEVAL_BRIEF_SCHEMA: Anthropic.Tool.InputSchema = {
   type: "object",
@@ -43,17 +45,17 @@ export const RETRIEVAL_BRIEF_SCHEMA: Anthropic.Tool.InputSchema = {
     uncertainty: {
       type: "string",
       description:
-        "1-2 sentences: the scientific/technological uncertainty — what could not be known or predicted in advance and why standard practice was insufficient.",
+        "1-2 sentences: the scientific/technological uncertainty: what could not be known or predicted in advance and why standard practice was insufficient.",
     },
     work: {
       type: "string",
       description:
-        "1-2 sentences: the systematic experimental/iterative work performed — hypotheses tested, prototypes built, analyses run.",
+        "1-2 sentences: the systematic experimental/iterative work performed: hypotheses tested, prototypes built, analyses run.",
     },
     advancement: {
       type: "string",
       description:
-        "1-2 sentences: the scientific/technological advancement sought or achieved — the new capability or knowledge gained.",
+        "1-2 sentences: the scientific/technological advancement sought or achieved: the new capability or knowledge gained.",
     },
   },
   required: ["problem", "uncertainty", "work", "advancement"],
@@ -72,8 +74,11 @@ export const RETRIEVAL_BRIEF_REQUEST = {
   toolName: "submit_retrieval_brief",
   toolDescription:
     "Submit the four retrieval queries extracted from the transcript.",
-  maxTokens: 1024,
-  modelSelector: "fixed-retrieval-brief-model",
+  // 2026-09-25: raised from 1,024, which 28 of 61 recorded calls hit
+  // exactly. A cut-off answer now spends the repair attempt, then falls
+  // back to the title and transcript query.
+  maxTokens: 2048,
+  modelSelector: "frozen-retrieval-brief-role-model",
 } as const;
 
 /**
@@ -82,9 +87,11 @@ export const RETRIEVAL_BRIEF_REQUEST = {
  * — brief extraction must never break generation.
  */
 export async function buildRetrievalBrief(
-  client: Anthropic,
+  client: GenerationClient | Anthropic,
   title: string,
-  transcript: string
+  transcript: string,
+  // The retrieval_brief role's model, frozen on the generation.
+  model: string = RETRIEVAL_BRIEF_MODEL
 ): Promise<RetrievalBrief | null> {
   try {
     const brief = await generateStructured<RetrievalBrief>(client, {
@@ -94,7 +101,7 @@ export async function buildRetrievalBrief(
       description: RETRIEVAL_BRIEF_REQUEST.toolDescription,
       schema: RETRIEVAL_BRIEF_SCHEMA,
       maxTokens: RETRIEVAL_BRIEF_REQUEST.maxTokens,
-      model: RETRIEVAL_BRIEF_MODEL,
+      model,
     });
     // Guard against a model returning empty strings — worse than the fallback.
     if (!brief.problem?.trim() || !brief.uncertainty?.trim()) return null;
@@ -103,4 +110,58 @@ export async function buildRetrievalBrief(
     console.error("brain retrieval-brief extraction failed; using fallback query", err);
     return null;
   }
+}
+
+/** Characters one query part built from facts may hold. */
+export const RETRIEVAL_BRIEF_FACT_PART_CHARS = 800;
+
+const PACK_FACT_LINE =
+  /^\[F\d{1,3}-\d{1,5}\] \((uncertainty|hypothesis|experiment|result|advancement|context)\) (.+)$/gm;
+const PLACEHOLDER_TOKEN = /\[(?:CLIENT|PERSON)_\d+(?:_[A-Z]+)?\]/g;
+
+/**
+ * The retrieval brief of a generation that reads fact packs (2026-09-24,
+ * plan step 8), built from the frozen packs' own claims with no model call:
+ * uncertainty facts give the 242 query, experiments and hypotheses the 244
+ * one, advancements (or results) the 246 one. Names are dropped first
+ * (owner decision 26): the queries leave the app for the embedding service,
+ * and they should match on the technology, never the client. Deterministic
+ * in the packs. Null when the packs hold no uncertainty, so the caller makes
+ * today's call instead.
+ */
+export function retrievalBriefFromFacts(
+  packs: readonly string[],
+  placeholders: PlaceholderMap = []
+): RetrievalBrief | null {
+  const byType = new Map<string, string[]>();
+  for (const pack of packs) {
+    for (const match of pack.matchAll(PACK_FACT_LINE)) {
+      const claim = pseudonymize(match[2], placeholders)
+        .replace(PLACEHOLDER_TOKEN, "")
+        .replace(/\s+/g, " ")
+        .replace(/\s+([.,;:])/g, "$1")
+        .trim();
+      if (!claim) continue;
+      byType.set(match[1], [...(byType.get(match[1]) ?? []), claim]);
+    }
+  }
+  const of = (type: string) => byType.get(type) ?? [];
+  const join = (claims: readonly string[]) => {
+    const kept: string[] = [];
+    let used = 0;
+    for (const claim of claims) {
+      if (used + claim.length + 1 > RETRIEVAL_BRIEF_FACT_PART_CHARS) break;
+      kept.push(claim);
+      used += claim.length + 1;
+    }
+    return kept.join(" ");
+  };
+  const uncertainty = join(of("uncertainty"));
+  if (!uncertainty) return null;
+  return {
+    problem: join([...of("uncertainty").slice(0, 2), ...of("experiment").slice(0, 1), ...of("advancement").slice(0, 1)]),
+    uncertainty,
+    work: join([...of("experiment"), ...of("hypothesis")]) || uncertainty,
+    advancement: join(of("advancement")) || join(of("result")) || uncertainty,
+  };
 }

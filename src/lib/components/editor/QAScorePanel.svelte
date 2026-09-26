@@ -36,7 +36,7 @@
 
   interface QAGroup {
     key: "issues" | "warnings" | "correct";
-    label: "Issues" | "Warnings" | "Correct";
+    label: "Issues" | "Warnings" | "Strengths";
     items: QAGroupItem[];
   }
 
@@ -68,6 +68,8 @@
   import * as Tooltip from "$lib/components/ui/tooltip/index.js";
   import SelectInput from "$lib/components/ui/SelectInput.svelte";
   import { adjustedQaScores, issueDeduction } from "$lib/qaScoring";
+  import { qaBandColors } from "$lib/qa/qaBands";
+  import { formatEdited } from "$lib/components/project/details/detailsFormat";
   import { canOverrideQaSeverity } from "../../../../shared/roles";
   import { api } from "../../../../convex/_generated/api";
   import type { Id } from "../../../../convex/_generated/dataModel";
@@ -82,6 +84,10 @@
     onLocateGap,
     onRunQa,
     postQaStatus = null,
+    variant = "card",
+    title = "QA score",
+    onClose,
+    lastRunAt = null,
   }: {
     agentOutputs?: string | null;
     reportContent?: string | null;
@@ -95,7 +101,34 @@
     onRunQa?: () => Promise<void> | void;
     /** Server-side pass state — survives closing/reopening this panel. */
     postQaStatus?: "running" | "done" | "failed" | null;
+    /**
+     * "side" is the report page's QA panel (board 2.2): the panel draws its
+     * own header ("QA score", Re-run, close) and bleeds its footer to 24px.
+     * "card" keeps the host card's header and the Re-run in the score line.
+     */
+    variant?: "card" | "side";
+    title?: string;
+    onClose?: () => void;
+    /** When the scorecard was last produced, for "last run 2 min ago". */
+    lastRunAt?: number | null;
   } = $props();
+
+  const side = $derived(variant === "side");
+
+  // Refresh the "last run" phrase once a minute.
+  let now = $state(Date.now());
+  $effect(() => {
+    if (!lastRunAt) return;
+    const timer = setInterval(() => (now = Date.now()), 60_000);
+    return () => clearInterval(timer);
+  });
+  const lastRunLabel = $derived.by(() => {
+    if (!lastRunAt) return null;
+    const when = formatEdited(lastRunAt, now);
+    if (when === "Just now" || when === "Yesterday") return `last run ${when.toLowerCase()}`;
+    if (/ago$/.test(when)) return `last run ${when}`;
+    return `last run on ${when}`;
+  });
 
   // Local flag only bridges the click → server-status round trip.
   let runningQaLocal = $state(false);
@@ -238,7 +271,7 @@
       },
       {
         key: "correct",
-        label: "Correct",
+        label: "Strengths",
         items: section.strengths.map((text, originalIndex) => ({ kind: "strength" as const, text, originalIndex })),
       },
     ].filter((group) => group.items.length > 0) as QAGroup[];
@@ -302,9 +335,6 @@
   }
 
   const overall = $derived(adjustedScores.overall);
-  const band = $derived(
-    overall >= 80 ? "text-green-600" : overall >= 60 ? "text-amber-600" : "text-red-600"
-  );
 
   // Issues/strengths per section collapse by default so the rail stays scannable.
   let openSections = $state<Record<string, boolean>>({});
@@ -350,25 +380,35 @@
     return Number.isNaN(n) ? Number.MAX_SAFE_INTEGER : n;
   }
 
-  // Follow-ups grouped per line, lines ascending, paragraphs ascending within.
-  const gapGroups = $derived.by(() => {
-    const bySection = new Map<string, QAScorecard["gaps_requiring_client_followup"]>();
-    for (const gap of scorecard?.gaps_requiring_client_followup ?? []) {
-      const arr = bySection.get(gap.section) ?? [];
-      arr.push(gap);
-      bySection.set(gap.section, arr);
-    }
-    return [...bySection.entries()]
-      .sort((a, b) => lineOrder(a[0]) - lineOrder(b[0]) || a[0].localeCompare(b[0]))
-      .map(([section, items]) => ({
-        section,
-        // Section-wide gaps (no paragraph) sort after the located ones.
-        items: [...items].sort(
-          (a, b) => (a.paragraph ?? Infinity) - (b.paragraph ?? Infinity)
-        ),
-      }));
-  });
-  let openGapGroups = $state<Record<string, boolean>>({});
+  // Follow-ups in line order, paragraphs ascending within a line; a
+  // section-wide follow-up sorts after the located ones.
+  const followUps = $derived(
+    [...(scorecard?.gaps_requiring_client_followup ?? [])].sort(
+      (a, b) =>
+        lineOrder(a.section) - lineOrder(b.section) ||
+        a.section.localeCompare(b.section) ||
+        (a.paragraph ?? Infinity) - (b.paragraph ?? Infinity)
+    )
+  );
+
+  /** "244, P2" for a located follow-up; the line alone for a section-wide one. */
+  function followUpTag(gap: { section: string; paragraph?: number | null }): string {
+    return gap.paragraph != null ? `${gap.section}, P${gap.paragraph}` : gap.section;
+  }
+
+  const COMPLIANCE_LABELS: Record<string, string> = {
+    verbiage_present: "Verbiage present",
+    why_how_why_intact: "Why, how, why intact",
+    uncertainties_distinguished: "Uncertainties distinguished",
+  };
+
+  /** Sentence case for the compliance keys ("why_how_why_intact" reads "Why, how, why intact"). */
+  function complianceLabel(key: string): string {
+    const known = COMPLIANCE_LABELS[key];
+    if (known) return known;
+    const words = key.replace(/_/g, " ").trim();
+    return words.charAt(0).toUpperCase() + words.slice(1);
+  }
 
   // Show the saved review unless the writer is mid-edit (draft).
   const reviewScore = $derived(draft ? draft.score : myReview ? String(myReview.score) : "");
@@ -399,119 +439,141 @@
   }
 </script>
 
-{#if scorecard}
-  <div class="flex flex-col gap-6">
-    <!-- Score gauge -->
-    <div class="flex items-center gap-3.5">
-      <div class="relative h-14 w-14 flex-none">
-        <svg viewBox="0 0 36 36" class="h-14 w-14 -rotate-90">
-          <circle cx="18" cy="18" r="16" fill="none" class="stroke-gray-100" stroke-width="2" />
-          <circle
-            cx="18" cy="18" r="16" fill="none"
-            class={`${band} transition-[stroke-dashoffset] duration-700 ease-out`}
-            stroke="currentColor" stroke-width="2" stroke-linecap="round"
-            stroke-dasharray={2 * Math.PI * 16}
-            stroke-dashoffset={2 * Math.PI * 16 * (1 - overall / 100)}
-          />
-        </svg>
-        <div class="absolute inset-0 flex items-center justify-center">
-          <span class={`text-base font-semibold tabular-nums ${band}`}>{overall}</span>
-        </div>
-      </div>
-      <div class="min-w-0">
-        <p class="text-label">AI QA score</p>
-        <p class="mt-0.5 text-sm text-gray-600">
-          {overall >= 80 ? "Strong draft" : overall >= 60 ? "Needs attention" : "Significant issues"}
-          <span class="text-gray-400"> · /100</span>
-        </p>
-        {#if myReview}
-          <span class="mt-1 inline-flex items-center gap-1 rounded-full bg-navy/5 px-2 py-0.5 text-xs font-medium text-navy">
-            You: {myReview.score}
-          </span>
-        {/if}
-      </div>
-      {#if onRunQa}
-        <!-- Jul 17: rescan on demand — replaces the stored scorecard. -->
+{#snippet rerunButton(label: string)}
+  <button
+    type="button"
+    onclick={handleRunQa}
+    disabled={qaRunning}
+    title="Re-run the QA scorecard"
+    class="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md px-2 text-xs text-ink-secondary transition-colors hover:bg-primary-wash hover:text-ink disabled:opacity-60"
+  >
+    {#if qaRunning}
+      <span class="h-3 w-3 animate-spin rounded-full border-2 border-primary/30 border-t-primary motion-reduce:animate-none" aria-hidden="true"></span>
+      Running
+    {:else}
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M3 12a9 9 0 1 0 3-6.7L3 8" />
+        <path d="M3 3v5h5" />
+      </svg>
+      {label}
+    {/if}
+  </button>
+{/snippet}
+
+<div class={`flex flex-col ${side ? "gap-[22px]" : "gap-6"}`}>
+  {#if side}
+    <!-- Board 2.2 header: "QA score", Re-run and close; no icon. -->
+    <div class="flex h-7 shrink-0 items-center gap-2" data-qa-panel-header>
+      <h2 class="min-w-0 flex-1 text-sm leading-[18px] font-medium text-ink">{title}</h2>
+      {#if onRunQa && scorecard}
+        {@render rerunButton("Re-run")}
+      {/if}
+      {#if onClose}
         <button
           type="button"
-          onclick={handleRunQa}
-          disabled={qaRunning}
-          title="Re-run the QA scorecard"
-          class="ml-auto inline-flex shrink-0 items-center gap-1.5 self-start rounded-md px-2 py-1 text-xs font-medium text-gray-400 transition-colors hover:bg-primary-wash hover:text-navy disabled:opacity-60"
+          onclick={onClose}
+          title={`Close ${title}`}
+          aria-label={`Close ${title}`}
+          class="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-ink-muted transition-colors hover:bg-primary-wash hover:text-ink"
         >
-          {#if qaRunning}
-            <span class="h-3 w-3 animate-spin rounded-full border-2 border-primary/30 border-t-primary"></span>
-            Rescanning…
-          {:else}
-            <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
-            </svg>
-            Rescan
-          {/if}
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true">
+            <path d="M6 6l12 12M18 6L6 18" />
+          </svg>
         </button>
+      {/if}
+    </div>
+  {/if}
+
+{#if scorecard}
+    <!-- Score line (ui-design-final.md section 8, board 2.2): quiet "78/100"
+         with a band bar; the band colour carries the judgement. -->
+    <div class="flex items-start gap-3.5">
+      <div class="flex min-w-0 flex-1 flex-col gap-2" data-qa-score-line>
+        <p class="flex flex-wrap items-baseline gap-x-1.5 gap-y-0.5">
+          <span class="text-sm leading-5 font-medium tabular-nums text-ink-secondary" data-qa-overall>{overall}/100</span>
+          <span class="text-xs leading-4 text-ink-muted" data-qa-score-meta>AI QA score{lastRunLabel ? `, ${lastRunLabel}` : ""}</span>
+          {#if myReview}
+            <span class="ml-auto inline-flex items-center rounded-full bg-chrome px-2 py-0.5 text-[11px] text-ink-secondary">
+              You: {myReview.score}
+            </span>
+          {/if}
+        </p>
+        <div class="h-1 w-full overflow-hidden rounded-full bg-line-soft" aria-hidden="true">
+          <div
+            data-qa-overall-bar
+            class="h-full rounded-full transition-[width] duration-700 ease-out motion-reduce:transition-none"
+            style={`width: ${overall}%; background: ${qaBandColors(overall).bar}`}
+          ></div>
+        </div>
+        {#if postQaStatus === "failed"}
+          <!-- A failed re-run keeps the earlier scorecard (review f2 #1). -->
+          <p class="text-xs leading-4 text-red-700" data-qa-last-run-failed>
+            The last run failed. This score is from an earlier run.
+          </p>
+        {/if}
+      </div>
+      {#if onRunQa && !side}
+        <!-- Jul 17: re-run on demand, replacing the stored scorecard. -->
+        {@render rerunButton("Re-run")}
       {/if}
     </div>
 
     <!-- Per-section breakdown -->
-    <div>
-      <p class="text-label mb-2.5">Sections</p>
-      <div class="flex flex-col gap-3">
-        {#each Object.entries(scorecard.section_scores) as [key, section] (key)}
-          {@const sectionScore = adjustedScores.sections[key] ?? section.score}
-          {@const c = sectionScore >= 80 ? "bg-green-500" : sectionScore >= 60 ? "bg-amber-500" : "bg-red-500"}
-          {@const noteCount = section.issues.length + section.strengths.length}
-          {@const open = openSections[key] ?? false}
-          {@const qaGroups = sectionQaGroups(key, section)}
-          <div class="overflow-hidden rounded-lg border border-line-soft bg-gray-50/35">
-            <button
-              type="button"
-              onclick={() => (openSections[key] = !open)}
-              disabled={noteCount === 0}
-              aria-expanded={open}
-              class="flex w-full items-center gap-3 px-3 py-2.5 text-left transition-colors hover:bg-gray-50/80 disabled:hover:bg-transparent"
-            >
-              <span class="text-data w-8 flex-none font-semibold text-gray-700">{key}</span>
-              <div class="h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-gray-200">
-                <div class={`h-full rounded-full ${c} transition-[width] duration-700 ease-out`} style={`width: ${sectionScore}%`}></div>
-              </div>
-              <span class="text-data w-7 flex-none text-right font-semibold text-gray-700">{sectionScore}</span>
-              {#if noteCount > 0}
-                <span class="flex flex-none items-center gap-2">
-                  {#if section.issues.length > 0}
-                    <span class="flex items-center gap-1 text-[10px] tabular-nums text-red-600">
-                      <span class="h-1 w-1 rounded-full bg-red-400"></span>{section.issues.length}
-                    </span>
-                  {/if}
-                  {#if section.strengths.length > 0}
-                    <span class="flex items-center gap-1 text-[10px] tabular-nums text-green-700">
-                      <span class="h-1 w-1 rounded-full bg-green-500"></span>{section.strengths.length}
-                    </span>
-                  {/if}
-                  <svg
-                    class={`ml-0.5 h-3.5 w-3.5 text-gray-400 transition-transform duration-200 ${open ? "rotate-180" : ""}`}
-                    fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"
-                  >
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
-                  </svg>
+    <div class="flex flex-col gap-2">
+      <p class="text-[11px] leading-4 font-medium text-ink-muted">Sections</p>
+      {#each Object.entries(scorecard.section_scores) as [key, section] (key)}
+        {@const sectionScore = adjustedScores.sections[key] ?? section.score}
+        {@const noteCount = section.issues.length + section.strengths.length}
+        {@const open = openSections[key] ?? false}
+        {@const qaGroups = sectionQaGroups(key, section)}
+        <div class={`overflow-hidden rounded-md border border-line-soft ${open ? "bg-canvas" : ""}`} data-qa-section={key}>
+          <button
+            type="button"
+            onclick={() => (openSections[key] = !open)}
+            disabled={noteCount === 0}
+            aria-expanded={open}
+            class="flex h-9 w-full items-center gap-2.5 px-2.5 text-left transition-colors hover:bg-gray-50 disabled:hover:bg-transparent"
+          >
+            <span class="w-[26px] flex-none text-xs leading-4 font-medium tabular-nums text-ink">{key}</span>
+            <span class="h-1 min-w-0 flex-1 overflow-hidden rounded-full bg-line-soft" aria-hidden="true">
+              <span data-qa-section-bar class="block h-full rounded-full transition-[width] duration-700 ease-out motion-reduce:transition-none" style={`width: ${sectionScore}%; background: ${qaBandColors(sectionScore).bar}`}></span>
+            </span>
+            <span class="w-[22px] flex-none text-right text-xs leading-4 font-medium tabular-nums text-ink">{sectionScore}</span>
+            <span class="flex w-11 flex-none items-center gap-1.5">
+              {#if section.issues.length > 0}
+                <span class="flex items-center gap-[3px] text-[10px] leading-3 tabular-nums text-ink-muted" title={`${section.issues.length} issue${section.issues.length === 1 ? "" : "s"}`}>
+                  <span class="h-[5px] w-[5px] rounded-full bg-red-500" aria-hidden="true"></span>{section.issues.length}
                 </span>
               {/if}
-            </button>
-            {#if open && noteCount > 0}
-              <ul class="space-y-1 border-t border-line-soft bg-white/70 px-3 py-2.5">
-                {#each qaGroups as group (group.key)}
-                  <li class="flex items-center gap-2 px-0.5 pb-0.5 pt-1 first:pt-0">
-                    <span class={`text-[10px] font-semibold uppercase tracking-[0.08em] ${group.key === "issues" ? "text-red-700" : group.key === "warnings" ? "text-amber-700" : "text-green-700"}`}>{group.label}</span>
-                    <span class={`inline-flex h-4 min-w-4 flex-none items-center justify-center rounded-full px-1 text-[10px] font-semibold tabular-nums ${group.key === "issues" ? "bg-red-200/70 text-red-700" : group.key === "warnings" ? "bg-amber-200/70 text-amber-700" : "bg-green-200/70 text-green-700"}`}>{group.items.length}</span>
-                  </li>
-                  {#each group.items as row (`${row.kind}-${row.originalIndex}`)}
-                    {#if row.kind === "issue"}
-                      {@const issue = row.issue}
-                      {@const i = row.originalIndex}
-                      {@const itemKey = qaItemKey("issue", key, i)}
-                      {@const severity = effectiveSeverity(issue, itemKey)}
-                      {@const warning = severity === "warning"}
-                      {@const feedback = itemFeedback.get(itemKey)}
-                  <li class={`group relative rounded-md border px-2.5 py-2 pr-9 text-[12px] transition-colors ${warning ? "border-amber-200/80 bg-amber-50/35 hover:border-amber-300 hover:bg-amber-50/60" : "border-red-200/80 bg-red-50/35 hover:border-red-300 hover:bg-red-50/60"}`}>
+              {#if section.strengths.length > 0}
+                <span class="flex items-center gap-[3px] text-[10px] leading-3 tabular-nums text-ink-muted" title={`${section.strengths.length} strength${section.strengths.length === 1 ? "" : "s"}`}>
+                  <span class="h-[5px] w-[5px] rounded-full bg-green-500" aria-hidden="true"></span>{section.strengths.length}
+                </span>
+              {/if}
+            </span>
+            <svg
+              class={`h-3 w-3 flex-none text-ink-muted transition-transform duration-200 motion-reduce:transition-none ${open ? "rotate-180" : ""} ${noteCount === 0 ? "invisible" : ""}`}
+              fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"
+            >
+              <path d="M6 9l6 6 6-6" />
+            </svg>
+          </button>
+          {#if open && noteCount > 0}
+            <ul class="flex flex-col gap-2 px-2.5 pt-0.5 pb-3">
+              {#each qaGroups as group, groupIndex (group.key)}
+                <li class={`flex items-center gap-1.5 ${groupIndex > 0 ? "pt-1" : ""}`}>
+                  <span class={`text-[10px] leading-3 font-medium uppercase tracking-[0.06em] ${group.key === "issues" ? "text-red-700" : group.key === "warnings" ? "text-yellow-700" : "text-green-700"}`}>{group.label}</span>
+                  <span class={`inline-flex h-4 min-w-4 flex-none items-center justify-center rounded-full px-1 text-[10px] leading-3 font-medium tabular-nums ${group.key === "issues" ? "bg-red-100 text-red-700" : group.key === "warnings" ? "bg-gap-bg text-yellow-700" : "bg-green-100 text-green-700"}`}>{group.items.length}</span>
+                </li>
+                {#each group.items as row (`${row.kind}-${row.originalIndex}`)}
+                  {#if row.kind === "issue"}
+                    {@const issue = row.issue}
+                    {@const i = row.originalIndex}
+                    {@const itemKey = qaItemKey("issue", key, i)}
+                    {@const severity = effectiveSeverity(issue, itemKey)}
+                    {@const warning = severity === "warning"}
+                    {@const feedback = itemFeedback.get(itemKey)}
+                  <li class={`group relative rounded border py-2 pr-9 pl-2.5 text-xs leading-4 transition-colors ${warning ? "border-amber-200 bg-amber-50" : "border-red-200 bg-red-50"}`}>
                     <Tooltip.Root>
                       <Tooltip.Trigger>
                         {#snippet child({ props })}
@@ -520,12 +582,10 @@
                             type="button"
                             onclick={() => locateItem(key, issueParagraph(issue))}
                             disabled={!onLocateGap}
-                            class={`flex w-full items-start gap-2 text-left ${warning ? "text-amber-800" : "text-red-700"} disabled:cursor-default`}
+                            class={`flex w-full items-start gap-2 text-left ${warning ? "text-amber-900" : "text-red-900"} disabled:cursor-default`}
                           >
-                            <span class={`mt-1.5 h-1.5 w-1.5 flex-none rounded-full ${warning ? "bg-amber-500" : "bg-red-500"}`}></span>
-                            <span class="min-w-0 flex-1">
-                              <span class="block leading-relaxed">{displayIssueText(issue.text)}{!warning && issueDeduction(issue) > 0 ? ` (−${issueDeduction(issue)})` : ""}</span>
-                            </span>
+                            <span class={`mt-[5.5px] h-[5px] w-[5px] flex-none rounded-full ${warning ? "bg-amber-500" : "bg-red-500"}`}></span>
+                            <span class="min-w-0 flex-1">{displayIssueText(issue.text)}{!warning && issueDeduction(issue) > 0 ? ` (−${issueDeduction(issue)})` : ""}</span>
                           </button>
                         {/snippet}
                       </Tooltip.Trigger>
@@ -614,15 +674,15 @@
                       </Tooltip.Root>
                     {/if}
                   </li>
-                    {:else}
-                      {@const str = row.text}
-                      {@const i = row.originalIndex}
-                      {@const itemKey = qaItemKey("strength", key, i)}
-                      {@const feedback = itemFeedback.get(itemKey)}
-                  <li class="group relative rounded-md border border-line-soft bg-gray-50/35 px-2.5 py-2 pr-9 text-[12px] text-green-800 transition-colors hover:bg-gray-50/80">
+                  {:else}
+                    {@const str = row.text}
+                    {@const i = row.originalIndex}
+                    {@const itemKey = qaItemKey("strength", key, i)}
+                    {@const feedback = itemFeedback.get(itemKey)}
+                  <li class="group relative rounded border border-line-soft bg-surface py-2 pr-9 pl-2.5 text-xs leading-4 text-ink-secondary transition-colors">
                     <div class="flex w-full items-start gap-2 text-left">
-                      <span class="mt-1.5 h-1.5 w-1.5 flex-none rounded-full bg-green-500"></span>
-                      <span class="min-w-0 flex-1 leading-relaxed">{str}</span>
+                      <span class="mt-[5.5px] h-[5px] w-[5px] flex-none rounded-full bg-green-500"></span>
+                      <span class="min-w-0 flex-1">{str}</span>
                     </div>
                     {#if feedbackTarget}
                       <Tooltip.Root>
@@ -658,144 +718,96 @@
                       </Tooltip.Root>
                     {/if}
                   </li>
-                    {/if}
-                  {/each}
+                  {/if}
                 {/each}
-              </ul>
-            {/if}
-          </div>
-        {/each}
-      </div>
+              {/each}
+            </ul>
+          {/if}
+        </div>
+      {/each}
     </div>
 
-    <!-- CRA compliance -->
+    <!-- CRA compliance: green check or red cross chips. -->
     {#if Object.keys(scorecard.cra_compliance).length > 0}
-      <div>
-        <p class="text-label mb-2.5">CRA compliance</p>
-        <div class="flex flex-wrap gap-1.5">
+      <div class="flex flex-col gap-2">
+        <p class="text-[11px] leading-4 font-medium text-ink-muted">CRA compliance</p>
+        <ul class="flex flex-wrap gap-1.5">
           {#each Object.entries(scorecard.cra_compliance) as [key, value] (key)}
-            <span
-              class={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium ${
-                value ? "bg-green-50 text-green-700" : "bg-red-50 text-red-700"
+            <li
+              data-qa-compliance={value ? "pass" : "fail"}
+              class={`inline-flex h-[22px] items-center gap-[5px] rounded-full px-2 text-[11px] leading-[14px] ${
+                value ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"
               }`}
             >
               {#if value}
-                <svg class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3">
-                  <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <path d="M5 12l5 5L20 7" />
                 </svg>
               {:else}
-                <svg class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3">
-                  <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true">
+                  <path d="M6 6l12 12M18 6L6 18" />
                 </svg>
               {/if}
-              {key.replace(/_/g, " ")}
-            </span>
-          {/each}
-        </div>
-      </div>
-    {/if}
-
-    <!-- Language flags: typed rows, not pills — flags are phrases and wrap badly in pills -->
-    {#if scorecard.ai_language_flags.length > 0 || scorecard.superlative_flags.length > 0}
-      <div>
-        <p class="text-label mb-2.5">Language flags</p>
-        <ul class="space-y-1.5">
-          {#each scorecard.ai_language_flags as flag, i (`ai-${i}`)}
-            <li class="flex items-start gap-2">
-              <span class="mt-0.5 flex-none rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-700">AI</span>
-              <span class="min-w-0 text-xs leading-relaxed text-gray-700">{flag}</span>
-            </li>
-          {/each}
-          {#each scorecard.superlative_flags as flag, i (`sup-${i}`)}
-            <li class="flex items-start gap-2">
-              <span class="mt-0.5 flex-none rounded bg-red-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-red-700">Superlative</span>
-              <span class="min-w-0 text-xs leading-relaxed text-gray-700">{flag}</span>
+              <span class="sr-only">{value ? "Met:" : "Not met:"}</span>
+              {complianceLabel(key)}
             </li>
           {/each}
         </ul>
       </div>
     {/if}
 
-    <!-- Client follow-ups: one collapsible group per T661 line, paragraphs ascending -->
-    {#if gapGroups.length > 0}
-      <div>
-        <p class="text-label mb-2.5">Client follow-ups</p>
-        <div class="space-y-1.5">
-          {#each gapGroups as group (group.section)}
-            {@const open = openGapGroups[group.section] ?? gapGroups.length === 1}
-            <div class="overflow-hidden rounded-lg border border-amber-200/60">
-              <button
-                type="button"
-                onclick={() => (openGapGroups[group.section] = !open)}
-                aria-expanded={open}
-                class="flex w-full items-center gap-2 bg-amber-50/55 px-2.5 py-2 text-left transition-colors hover:bg-amber-50/90"
-              >
-                <span class="text-data font-semibold text-gap-text">Line {group.section}</span>
-                <span class="inline-flex h-4 min-w-4 flex-none items-center justify-center rounded-full bg-amber-200/70 px-1 text-[10px] font-semibold tabular-nums text-gap-text">
-                  {group.items.length}
-                </span>
-                <svg
-                  class={`ml-auto h-3.5 w-3.5 flex-none text-gap-text/50 transition-transform duration-200 ${open ? "rotate-180" : ""}`}
-                  fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"
-                >
-                  <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
-                </svg>
-              </button>
-              {#if open}
-                <div class="divide-y divide-amber-200/35 border-t border-amber-200/40 bg-amber-50/30">
-                  {#each group.items as gap, i (`${gap.paragraph}-${i}`)}
-                    {#if onLocateGap}
-                      {@const locate = onLocateGap}
-                      <button
-                        type="button"
-                        onclick={() => locate({ section: gap.section, paragraph: gap.paragraph ?? null })}
-                        class="group flex w-full items-start gap-2 px-2.5 py-2 text-left transition-colors hover:bg-amber-50/75"
-                      >
-                        <Tooltip.Root>
-                          <Tooltip.Trigger>
-                            {#snippet child({ props })}
-                              <span {...props} class="mt-0.5 flex-none">
-                                <svg class="h-3.5 w-3.5 text-gap-text/50 transition-colors group-hover:text-gap-text" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                                  <path stroke-linecap="round" stroke-linejoin="round" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
-                                  <path stroke-linecap="round" stroke-linejoin="round" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
-                                </svg>
-                              </span>
-                            {/snippet}
-                          </Tooltip.Trigger>
-                          <Tooltip.Content side="top" sideOffset={6}>Jump to this paragraph</Tooltip.Content>
-                        </Tooltip.Root>
-                        <span class="min-w-0">
-                          <span class="text-data block text-gap-text/70">
-                            {gap.paragraph != null ? `Paragraph ${gap.paragraph}` : "Whole section"}
-                          </span>
-                          <span class="mt-0.5 block text-xs leading-relaxed text-gap-text">{gap.question}</span>
-                        </span>
-                      </button>
-                    {:else}
-                      <div class="px-2.5 py-2">
-                        <p class="text-data text-gap-text/70">
-                          {gap.paragraph != null ? `Paragraph ${gap.paragraph}` : "Whole section"}
-                        </p>
-                        <p class="mt-0.5 text-xs leading-relaxed text-gap-text">{gap.question}</p>
-                      </div>
-                    {/if}
-                  {/each}
-                </div>
-              {/if}
-            </div>
+    <!-- Language flags: typed rows, not pills; flags are phrases and wrap badly in pills. -->
+    {#if scorecard.ai_language_flags.length > 0 || scorecard.superlative_flags.length > 0}
+      <div class="flex flex-col gap-2">
+        <p class="text-[11px] leading-4 font-medium text-ink-muted">Language flags</p>
+        <ul class="flex flex-col gap-2">
+          {#each scorecard.ai_language_flags as flag, i (`ai-${i}`)}
+            <li class="flex items-start gap-2">
+              <span class="flex h-[18px] flex-none items-center rounded bg-gap-bg px-1.5 text-[10px] leading-3 font-medium text-gap-text">AI</span>
+              <span class="min-w-0 text-xs leading-[18px] text-ink-secondary">{flag}</span>
+            </li>
           {/each}
-        </div>
+          {#each scorecard.superlative_flags as flag, i (`sup-${i}`)}
+            <li class="flex items-start gap-2">
+              <span class="flex h-[18px] flex-none items-center rounded bg-red-100 px-1.5 text-[10px] leading-3 font-medium text-red-700">Superlative</span>
+              <span class="min-w-0 text-xs leading-[18px] text-ink-secondary">{flag}</span>
+            </li>
+          {/each}
+        </ul>
+      </div>
+    {/if}
+
+    <!-- Client follow-ups: one simple row each, tagged "244, P2". -->
+    {#if followUps.length > 0}
+      <div class="flex flex-col gap-2">
+        <p class="text-[11px] leading-4 font-medium text-ink-muted">Client follow-ups</p>
+        <ul class="flex flex-col gap-2">
+          {#each followUps as gap, i (`${gap.section}-${gap.paragraph}-${i}`)}
+            <li class="flex flex-col gap-2 rounded-md border border-line-soft px-3 py-2.5" data-qa-follow-up>
+              <span class="flex h-[18px] w-max items-center rounded border border-line px-1.5 font-mono text-[10px] leading-3 text-ink-secondary">{followUpTag(gap)}</span>
+              <span class="text-xs leading-[18px] text-ink">{gap.question}</span>
+              {#if onLocateGap}
+                {@const locate = onLocateGap}
+                <button
+                  type="button"
+                  onclick={() => locate({ section: gap.section, paragraph: gap.paragraph ?? null })}
+                  class="w-max text-xs leading-4 text-primary-selected transition-colors hover:text-primary-dark hover:underline"
+                >{gap.paragraph != null ? "Jump to paragraph" : "Jump to section"}</button>
+              {/if}
+            </li>
+          {/each}
+        </ul>
       </div>
     {/if}
 
     <!-- Suggested improvements -->
     {#if scorecard.suggested_improvements.length > 0}
-      <div>
-        <p class="text-label mb-2.5">Suggested improvements</p>
-        <ul class="space-y-1.5">
+      <div class="flex flex-col gap-2">
+        <p class="text-[11px] leading-4 font-medium text-ink-muted">Suggested improvements</p>
+        <ul class="flex flex-col gap-1.5">
           {#each scorecard.suggested_improvements as imp, i (i)}
-            <li class="flex items-start gap-1.5 text-xs leading-relaxed text-gray-600">
-              <span class="mt-1.5 h-1 w-1 flex-none rounded-full bg-gray-400"></span>
+            <li class="flex items-start gap-2 text-xs leading-[18px] text-ink-secondary">
+              <span class="mt-[7px] h-1 w-1 flex-none rounded-full bg-gray-400" aria-hidden="true"></span>
               {imp}
             </li>
           {/each}
@@ -804,12 +816,13 @@
     {/if}
 
     <!-- BNH-29: writer's own review — after reading the AI's take. Full-bleed
-       footer section (negative margins cancel the rail's px-5/py-5 padding),
+       footer section (negative margins cancel the host's 20px, or 24px on the
+       side panel),
        same faint primary surface as the option-comment footer. -->
     {#if reportId}
-      <div class="-mx-5 -mb-5 mt-1 border-t border-primary/15 bg-primary/5 px-5 py-4">
+      <div class={`mt-1 border-t border-primary/15 bg-primary/5 py-4 ${side ? "-mx-6 -mb-6 px-6" : "-mx-5 -mb-5 px-5"}`}>
         <div class="flex items-center justify-between gap-2">
-          <p class="text-xs font-semibold text-navy">Your review</p>
+          <p class="text-xs font-medium text-navy">Your review</p>
           {#if hasReview && !dirty && !saving}
             <span class="inline-flex flex-none items-center gap-1 text-[10px] font-medium text-green-700">
               <svg class="h-2.5 w-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
@@ -830,9 +843,9 @@
             max="100"
             value={reviewScore}
             oninput={(e) => (draft = { score: e.currentTarget.value, comment: reviewComment })}
-            placeholder="0–100"
+            placeholder="0 to 100"
             aria-label="Your score out of 100"
-            class="field-control w-20 rounded-lg px-2.5 py-1.5 text-sm font-semibold text-navy placeholder:text-gray-400"
+            class="field-control w-20 rounded-lg px-2.5 py-1.5 text-sm font-medium text-navy placeholder:text-gray-400"
           />
           <span class="text-xs text-gray-400">/ 100</span>
         </div>
@@ -852,13 +865,12 @@
           type="button"
           onclick={saveReview}
           disabled={saving || reviewScore === "" || reviewComment.trim() === "" || (hasReview && !dirty)}
-          class="mt-2 inline-flex h-8 w-full items-center justify-center rounded-lg bg-primary px-3.5 text-sm font-semibold text-white transition-colors hover:bg-primary-dark disabled:opacity-50"
+          class="mt-2 inline-flex h-8 w-full items-center justify-center rounded-lg bg-primary-selected px-3.5 text-sm font-medium text-white transition-colors hover:bg-primary-dark disabled:opacity-50"
         >
           {saving ? "Saving…" : hasReview ? (dirty ? "Update review" : "Saved") : "Save review"}
         </button>
       </div>
     {/if}
-  </div>
 {:else}
   <div class="flex flex-col items-center gap-2 py-10 text-center">
     <svg class="h-8 w-8 text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
@@ -872,28 +884,28 @@
     {#if scorecardUnreadable}
       <p class="max-w-[280px] text-xs leading-relaxed text-ink-muted">
         The scoring finished, but the saved result didn't match the expected
-        format — so there is nothing to show. Running it again may produce a
+        format, so there is nothing to show. Running it again may produce a
         readable one.
       </p>
     {/if}
     {#if onRunQa}
       {#if qaRunning}
-        <p class="inline-flex items-center gap-2 text-xs text-gray-400">
-          <span class="h-3 w-3 animate-spin rounded-full border-2 border-primary/30 border-t-primary"></span>
-          Scoring the report — it keeps running even if you close this panel.
+        <p class="inline-flex items-center gap-2 text-xs text-ink-muted">
+          <span class="h-3 w-3 animate-spin rounded-full border-2 border-primary/30 border-t-primary motion-reduce:animate-none" aria-hidden="true"></span>
+          Scoring the report. It keeps running if you close this panel.
         </p>
       {:else}
         {#if !scorecardUnreadable}
           <p class="text-xs text-gray-400">
             {postQaStatus === "failed"
-              ? "The last QA pass failed — you can run it again."
+              ? "The last QA pass failed. You can run it again."
               : "Score the assembled report with the same QA agent other modes use."}
           </p>
         {/if}
         <button
           type="button"
           onclick={handleRunQa}
-          class="mt-1 rounded-lg bg-primary px-3.5 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-primary-dark"
+          class="mt-1 rounded-lg bg-primary-selected px-3.5 py-1.5 text-xs font-medium text-white transition-colors hover:bg-primary-dark"
         >
           {scorecardUnreadable ? "Run QA scorecard again" : "Run QA scorecard"}
         </button>
@@ -903,3 +915,4 @@
     {/if}
   </div>
 {/if}
+</div>

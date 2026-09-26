@@ -1,4 +1,6 @@
 import type { PdSubsectionRoleId } from "../../shared/pdSubsections";
+import { isDashClean } from "../../shared/humanProse";
+import { speakerOfTranscriptLine } from "../../shared/transcriptParse";
 
 export const SEED_TAGS = [
   "conservative",
@@ -23,6 +25,12 @@ export type SeedCandidateProvenance = {
   startOffset: number;
   endOffset: number;
   exactExcerpt: string;
+  /**
+   * 2026-09-24 (transcript method): the verified fact a transcript citation
+   * was resolved from (convex/lib/seedFacts.ts). Offsets are still what
+   * validation byte-checks; the id only says where they came from.
+   */
+  factId?: string;
 };
 
 export type SeedCandidate = {
@@ -35,6 +43,12 @@ export type SeedCandidate = {
 
 export type ValidatedSeedProvenance = SeedCandidateProvenance & {
   sourceContentHash: string;
+  /**
+   * Owner decision 25 outside facts mode (2026-09-25): the cited words
+   * include a speaker with no role yet. Citable; the quote card asks for a
+   * speaker check (decision 24).
+   */
+  needsSpeakerCheck?: true;
 };
 
 export type ValidatedSeedCandidate = Omit<SeedCandidate, "provenance"> & {
@@ -67,6 +81,7 @@ export type SeedValidationIssueCode =
   | "INVALID_BULLET_COUNT"
   | "BULLET_TOO_LONG"
   | "BULLET_NOT_ONE_SENTENCE"
+  | "BULLET_TYPOGRAPHIC_DASH"
   | "INVALID_TAG_COUNT"
   | "INVALID_TAG"
   | "DUPLICATE_TAG"
@@ -137,9 +152,7 @@ export function countSeedBulletWords(text: string): number {
   return trimmed === "" ? 0 : trimmed.split(/\s+/u).length;
 }
 
-export function isOneSeedSentence(text: string): boolean {
-  const trimmed = text.trim();
-  if (trimmed === "") return false;
+function seedSentenceTerminators(trimmed: string): number[] {
   const terminators: number[] = [];
   for (let index = 0; index < trimmed.length; index += 1) {
     const character = trimmed[index];
@@ -149,7 +162,29 @@ export function isOneSeedSentence(text: string): boolean {
     if (character === "." && isIgnoredPeriod(trimmed, index)) continue;
     terminators.push(index);
   }
+  return terminators;
+}
+
+export function isOneSeedSentence(text: string): boolean {
+  const trimmed = text.trim();
+  if (trimmed === "") return false;
+  const terminators = seedSentenceTerminators(trimmed);
   return terminators.length === 1 && terminators[0] === trimmed.length - 1;
+}
+
+/** Hard bound on one writer-edited bullet. The 25-word and one-sentence
+ * contract applies to AI-proposed Seeds only; this only stops abuse. */
+export const MAX_EDITED_BULLET_CHARS = 600;
+
+/** True when a writer's bullet runs past the AI Seed contract: more than
+ * MAX_BULLET_WORDS words or more than one sentence. Drives the soft
+ * "Long for a seed" note; it never blocks a save. A missing final full stop
+ * alone is not "long". */
+export function isLongForSeed(text: string): boolean {
+  const trimmed = text.trim();
+  if (trimmed === "") return false;
+  if (countSeedBulletWords(trimmed) > MAX_BULLET_WORDS) return true;
+  return seedSentenceTerminators(trimmed).some((index) => index < trimmed.length - 1);
 }
 
 function parseProvenance(value: unknown): SeedCandidateProvenance | null {
@@ -167,6 +202,7 @@ function parseProvenance(value: unknown): SeedCandidateProvenance | null {
     startOffset: value.startOffset,
     endOffset: value.endOffset,
     exactExcerpt: value.exactExcerpt,
+    ...(typeof value.factId === "string" ? { factId: value.factId } : {}),
   };
 }
 
@@ -286,8 +322,25 @@ function validatedProvenance(args: {
   );
   const provenance: ValidatedSeedProvenance[] = [];
   let invalid = args.malformedProvenance;
-  for (const citation of args.candidate.provenance) {
-    const source = byId.get(citation.sourceId);
+  for (const original of args.candidate.provenance) {
+    const source = byId.get(original.sourceId);
+    // 2026-09-24 (owner decision 26): the model reads placeholders, not
+    // names, so offsets it counts drift from the frozen text. Offsets were
+    // never trustworthy from a model; a verbatim excerpt at the wrong offsets
+    // is located in its own source and still byte-checked below.
+    // The occurrence nearest the model's own offset wins (review 2026-09-25):
+    // an excerpt the interviewer also said earlier must not move to their
+    // turn and take their speaker.
+    const located =
+      source &&
+      source.content.slice(original.startOffset, original.endOffset) !== original.exactExcerpt &&
+      original.exactExcerpt !== ""
+        ? nearestOccurrence(source.content, original.exactExcerpt, original.startOffset)
+        : -1;
+    const citation =
+      located !== -1
+        ? { ...original, startOffset: located, endOffset: located + original.exactExcerpt.length }
+        : original;
     const offsetsValid =
       Number.isInteger(citation.startOffset) &&
       Number.isInteger(citation.endOffset) &&
@@ -325,6 +378,78 @@ function validatedProvenance(args: {
   };
 }
 
+/**
+ * The result of the transcript speaker check for one validated citation
+ * (convex/lib/citationSpeakers.ts): kept at `startOffset`/`endOffset`, which
+ * may be another place of the same words in the same row, or null when the
+ * words are only the interviewer's or another speaker's.
+ */
+export type CheckedSeedCitation = {
+  startOffset: number;
+  endOffset: number;
+  needsSpeakerCheck: boolean;
+} | null;
+
+/**
+ * Owner decision 25 outside facts mode (2026-09-25): drops each citation
+ * the speaker check rejected, moves or marks the rest, and recomputes
+ * support the way validateSeed does. A Seed left with no citation is kept
+ * as writer-asserted; nothing fails. `checked[i]` is the result for
+ * `seed.provenance[i]`. `dropped` counts every citation not kept, a
+ * duplicate of a kept place included. Pure.
+ */
+export function withCheckedSpeakers(
+  seed: ValidatedSeedCandidate,
+  checked: readonly CheckedSeedCitation[]
+): { seed: ValidatedSeedCandidate; dropped: number } {
+  const provenance: ValidatedSeedProvenance[] = [];
+  const places = new Set<string>();
+  seed.provenance.forEach((citation, index) => {
+    const result = checked[index];
+    if (!result) return;
+    // Two citations moved to the same place are one citation.
+    const place = `${citation.sourceId}|${result.startOffset}|${result.endOffset}`;
+    if (places.has(place)) return;
+    places.add(place);
+    const { needsSpeakerCheck: _previous, ...rest } = citation;
+    provenance.push({
+      ...rest,
+      startOffset: result.startOffset,
+      endOffset: result.endOffset,
+      ...(result.needsSpeakerCheck ? { needsSpeakerCheck: true as const } : {}),
+    });
+  });
+  const support = provenance.length > 0 ? "source_supported" : "writer_asserted";
+  return {
+    seed: { ...seed, provenance, support, originalSupport: support },
+    dropped: seed.provenance.length - provenance.length,
+  };
+}
+
+/**
+ * The start of the occurrence of `excerpt` in `content` nearest `near` (the
+ * earlier one on a tie), or -1. A non-number `near` means the first.
+ */
+export function nearestOccurrence(content: string, excerpt: string, near: number): number {
+  if (excerpt === "") return -1;
+  const target = Number.isFinite(near) ? near : 0;
+  let best = -1;
+  for (let at = content.indexOf(excerpt); at !== -1; at = content.indexOf(excerpt, at + 1)) {
+    if (best === -1 || Math.abs(at - target) < Math.abs(best - target)) best = at;
+    if (at > target) break;
+  }
+  return best;
+}
+
+function withoutAdvancementLinks(candidate: SeedCandidate): SeedCandidate {
+  const {
+    uncertaintySeedId: _uncertainty,
+    experimentSeedIds: _experiments,
+    ...rest
+  } = candidate;
+  return rest;
+}
+
 export function validateSeed(args: {
   roleId: PdSubsectionRoleId;
   seed: unknown;
@@ -338,7 +463,13 @@ export function validateSeed(args: {
       issues: [{ code: "INVALID_SHAPE", message: "Seed has an invalid shape" }],
     };
   }
-  const { candidate } = parsed;
+  // Link fields belong to specific advancements only. The shared provider
+  // schema allows them on every role, so they are dropped elsewhere rather
+  // than stored on a Seed they cannot describe.
+  const candidate =
+    args.roleId === "specific_advancements"
+      ? parsed.candidate
+      : withoutAdvancementLinks(parsed.candidate);
   const issues: SeedValidationIssue[] = [];
   if (candidate.bullets.length < 1 || candidate.bullets.length > 2) {
     issues.push({
@@ -357,6 +488,14 @@ export function validateSeed(args: {
       issues.push({
         code: "BULLET_NOT_ONE_SENTENCE",
         message: "Seed bullet must contain exactly one terminated sentence",
+      });
+    }
+    // dashfix (owner, 2026-09-23): the plain hyphen is the only dash in an
+    // AI-written Seed. Provenance excerpts are verbatim and not checked here.
+    if (!isDashClean(bullet)) {
+      issues.push({
+        code: "BULLET_TYPOGRAPHIC_DASH",
+        message: "Seed bullet must use the plain hyphen, not an em dash, en dash or dash stand-in",
       });
     }
   }
@@ -468,22 +607,25 @@ export type SeedToolInputSchema = {
   [key: string]: unknown;
 };
 
-export function seedToolSchema(
-  roleId: PdSubsectionRoleId,
-  mode: SeedBatchMode
-): SeedToolInputSchema {
-  const advancementProperties =
-    roleId === "specific_advancements"
-      ? {
-          uncertaintySeedId: { type: "string" },
-          experimentSeedIds: {
-            type: "array",
-            minItems: 1,
-            uniqueItems: true,
-            items: { type: "string" },
-          },
-        }
-      : {};
+/**
+ * The forced tool schema every Seed request sends, whatever the role or
+ * mode. Role and mode constraints live in application validation.
+ */
+export function seedToolSchema(): SeedToolInputSchema {
+  // One schema for every role and both modes (cost phase 1): the tool
+  // definition renders before the system prompt, so a role- or mode-specific
+  // schema would split the cached prefix. Link fields are optional for every
+  // role and the array spans both modes' bounds; validateBatch and
+  // validateSeed enforce the role's links and the mode's count.
+  const advancementProperties = {
+    uncertaintySeedId: { type: "string" },
+    experimentSeedIds: {
+      type: "array",
+      minItems: 1,
+      uniqueItems: true,
+      items: { type: "string" },
+    },
+  };
   return {
     type: "object",
     additionalProperties: false,
@@ -491,8 +633,8 @@ export function seedToolSchema(
     properties: {
       seeds: {
         type: "array",
-        minItems: mode === "batch" ? MIN_BATCH_SEEDS : MIN_FEEDBACK_SEEDS,
-        maxItems: mode === "batch" ? MAX_BATCH_SEEDS : MAX_FEEDBACK_SEEDS,
+        minItems: Math.min(MIN_BATCH_SEEDS, MIN_FEEDBACK_SEEDS),
+        maxItems: Math.max(MAX_BATCH_SEEDS, MAX_FEEDBACK_SEEDS),
         items: {
           type: "object",
           additionalProperties: false,
@@ -536,4 +678,54 @@ export function seedToolSchema(
       },
     },
   };
+}
+
+/**
+ * Where a validated citation sits in its frozen transcript: the 1-based line
+ * of the excerpt's first non-blank character and, when the transcript names
+ * speakers, the speaker of that line or of the nearest turn above it. Stamped
+ * once when a Seed is written, because readers cannot afford to reread a
+ * frozen transcript (up to ~1 MiB) per citation.
+ */
+export type CitationLocation = { line: number; speaker?: string };
+
+/** Moved to shared/transcriptParse.ts (phase 3); re-exported unchanged. */
+export { speakerOfTranscriptLine };
+
+/**
+ * Locates each citation in one pass over `content`, reading no further than
+ * the last citation. Offsets must already be validated against `content`.
+ * Results come back in the order given.
+ */
+export function locateCitations(
+  content: string,
+  citations: readonly { startOffset: number; endOffset: number }[]
+): CitationLocation[] {
+  const targets = citations.map(({ startOffset, endOffset }, index) => {
+    let offset = startOffset;
+    while (offset < endOffset - 1 && /\s/.test(content[offset])) offset += 1;
+    return { offset, index };
+  });
+  const order = [...targets].sort((a, b) => a.offset - b.offset);
+  const result: CitationLocation[] = new Array(citations.length);
+  let lineStart = 0;
+  let lineNumber = 1;
+  let speaker: string | undefined;
+  for (const target of order) {
+    for (;;) {
+      const newline = content.indexOf("\n", lineStart);
+      const lineEnd = newline === -1 ? content.length : newline;
+      if (target.offset <= lineEnd || newline === -1) {
+        // Evaluate this line's own label once per line (idempotent).
+        const own = speakerOfTranscriptLine(content.slice(lineStart, lineEnd));
+        const current = own ?? speaker;
+        result[target.index] = current ? { line: lineNumber, speaker: current } : { line: lineNumber };
+        break;
+      }
+      speaker = speakerOfTranscriptLine(content.slice(lineStart, lineEnd)) ?? speaker;
+      lineStart = newline + 1;
+      lineNumber += 1;
+    }
+  }
+  return result;
 }

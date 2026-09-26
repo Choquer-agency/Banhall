@@ -89,7 +89,13 @@ describe("borderless form-control source contract", () => {
   it("keeps button-backed date fields on the same borderless contract", () => {
     for (const name of ["DatePicker.svelte", "DateRangePicker.svelte"]) {
       const source = readFileSync(join(dirname(fileURLToPath(import.meta.url)), name), "utf8");
-      expect(source.match(/<Popover\.Trigger[\s\S]*?class=(?:"[^"}]*"|\{`[\s\S]*?`\})/)?.[0], name).toContain("field-control");
+      // The default field trigger may live inline in Popover.Trigger or in a
+      // `fieldTrigger` snippet it renders (a caller-supplied trigger, such as
+      // the Details fiscal-year row, is a row button, not a data-entry field).
+      const trigger = /\{#snippet fieldTrigger\b/.test(source) ? /\{#snippet fieldTrigger\b/ : /<Popover\.Trigger/;
+      const from = source.search(trigger);
+      expect(from, name).toBeGreaterThanOrEqual(0);
+      expect(source.slice(from).match(/class=(?:"[^"}]*"|\{`[\s\S]*?`\})/)?.[0], name).toContain("field-control");
     }
   });
 

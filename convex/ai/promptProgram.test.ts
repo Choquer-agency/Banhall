@@ -13,6 +13,7 @@ import type { FunctionArgs } from "convex/server";
 import { api, internal } from "../_generated/api";
 import type { Doc, Id } from "../_generated/dataModel";
 import schema from "../schema";
+import { allGenerationProgress } from "../lib/generationProgress";
 // DW-107: the one definition of the Brief entry-row bound, so the over-bound
 // fixture below cannot drift from the reader that enforces it.
 import { MAX_BRIEF_ENTRY_ROWS } from "../generations";
@@ -26,6 +27,7 @@ import { readOrderedProfileContext } from "./pipeline";
 import { sectionMetrics } from "../lib/lineLimits";
 import { parseCanonicalReport } from "../../src/lib/reportSections";
 import { NOT_GENERATED_PLACEHOLDER } from "../lib/tiptapReport";
+import { agentOutputsOf } from "../lib/generationOutputs";
 
 const network = vi.hoisted(() => ({ create: vi.fn() }));
 vi.mock("@anthropic-ai/sdk", () => ({
@@ -93,7 +95,10 @@ function systemText(params: GenerationMessageParams): string {
 }
 function draftSectionOf(user: string): Section | null {
   for (const section of ["242", "244", "246"] as const) {
-    if (user.startsWith(SECTION_REQUESTS[section].userPrefix)) return section;
+    // Since cost phase 1 the three lines share their opening block; the
+    // line's own instructions open with its task marker.
+    const request = SECTION_REQUESTS[section];
+    if (user.startsWith(request.userPrefix) && user.includes(request.taskMarker)) return section;
   }
   return null;
 }
@@ -275,10 +280,19 @@ function firstDraftPrompts(): string[] {
     .filter((user) => draftSectionOf(user) !== null && !isRepair(user));
 }
 const priorBlock = (section: Section) =>
-  `### ${{ "242": "Line 242 — Uncertainty", "244": "Line 244 — Work performed", "246": "Line 246 — Advancement" }[section]} (DRAFTED)\n${DRAFTS[section]}`;
+  `### ${{ "242": "Line 242 (Uncertainty)", "244": "Line 244 (Work performed)", "246": "Line 246 (Advancement)" }[section]} (DRAFTED)\n${DRAFTS[section]}`;
 
+/** The generation row, with its progress lines read the way the queries read
+ * them (child rows since 2026-09-25, legacy array first). */
 async function generationOf(t: ReturnType<typeof convexTest>, generationId: Id<"generations">) {
-  return (await t.run((ctx) => ctx.db.get(generationId))) as Doc<"generations">;
+  return await t.run(async (ctx) => {
+    const generation = (await ctx.db.get(generationId)) as Doc<"generations">;
+    return {
+      ...generation,
+      progressLog: await allGenerationProgress(ctx, generationId),
+      agentOutputs: await agentOutputsOf(ctx, generationId),
+    };
+  });
 }
 
 describe("ordered, ungated generation (single)", () => {
@@ -572,6 +586,23 @@ describe("iterative mode is unchanged", () => {
     expect(generationPromptProgram.topology.modes.iterative.sections).toContain("one-shot-ghost-candidate-pipeline");
     expect(generationPromptProgram.topology.modes.iterative.seeds).toContain("seed-stage-human-gate");
     expect(generationPromptProgram.topology.modes.iterative.seeds).not.toContain("one-shot-ghost-candidate-pipeline");
+    // Owner decision 32 (2026-09-25): the seed stage opens after the Brief
+    // and the frozen writer style; retrieval and the analyzer run in the
+    // background until sign-off, and no section drafts before it.
+    expect(generationPromptProgram.topology.modes.iterative.seeds).toEqual([
+      "frozen-writer-style-artifact",
+      "brief",
+      "seed-stage-human-gate",
+      {
+        backgroundUntilSignOff: [
+          "retrieval-brief-with-fallback-query",
+          "four-sequential-brain-searches-with-optional-rerank",
+          "frozen-analyzer-brain-style-artifacts",
+        ],
+      },
+      "ordered-section-chain-after-sign-off",
+      "post-terminal-qa-and-chronology",
+    ]);
     expect(generationPromptProgram.topology.modes.iterative.selectedBy).toBe(
       "stored-gatedWorkflow"
     );
@@ -981,8 +1012,14 @@ describe("chain failure paths never strand a candidate", () => {
     const failed = notes.filter((note) => note.instruction === "Model Self-check");
     expect(failed.map((note) => note.section).sort()).toEqual(["242", "244", "246"]);
     expect(failed.every((note) => note.outcome === "not_applied" && note.reason.includes("Self-check call failed"))).toBe(true);
+    // Single, compare and legacy runs keep the note exactly as before the
+    // Summary diagnostics (2026-09-25): code only, no detail.
+    expect(failed.map((note) => note.reason)).toEqual(
+      Array(3).fill("Self-check call failed (unknown); deterministic checks only")
+    );
     const rows = await sectionRowsOf(t, generationId);
     expect(rows.map((row) => JSON.parse(row.selfCheck ?? "{}").modelCheck)).toEqual(["failed", "failed", "failed"]);
+    expect(rows.every((row) => !("modelCheckDetail" in JSON.parse(row.selfCheck ?? "{}")))).toBe(true);
   });
 
   it("a failed consistency call is recorded as advisory, still releases the last section and completes", async () => {
@@ -1287,5 +1324,36 @@ describe("stopOrderedGeneration in compare", () => {
     generation = await generationOf(t, generationId);
     expect(generation.status).toBe("completed");
     expect(generation.stoppedAfterSection).toBe("242");
+  });
+});
+
+describe("declared start of Single draft and Compare (a1 finding 4, 2026-09-25)", () => {
+  it("runs the Brief beside the retrieval brief, the Brain searches and the shared analysis, before any candidate", () => {
+    const concurrent = {
+      concurrentBeforeCandidates: [
+        "brief",
+        [
+          "retrieval-brief-with-fallback-query",
+          "four-sequential-brain-searches-with-optional-rerank",
+          "shared-analyzer",
+        ],
+      ],
+    };
+    expect(generationPromptProgram.topology.modes.single).toEqual([
+      concurrent,
+      "candidate-pipeline",
+      "promote-completed-candidate",
+    ]);
+    expect(generationPromptProgram.topology.modes.compare).toEqual([
+      concurrent,
+      "parallel-candidate-pipelines",
+      "human-candidate-selection",
+    ]);
+    // Candidates receive the shared analysis and Brief; only a candidate
+    // queued before shared analysis existed runs its own analyzer.
+    expect(generationPromptProgram.topology.candidatePipeline[0]).toBe(
+      "analyzer-for-legacy-queued-candidates-only"
+    );
+    expect(generationPromptProgram.topology.candidatePipeline).not.toContain("brief");
   });
 });

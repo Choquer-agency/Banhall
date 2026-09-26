@@ -5,6 +5,7 @@ import { checkBecauseClauses, sectionDeterministicFindings } from "../ai/qaCheck
 import { qaScorecardSchema } from "../../shared/qaScorecard";
 import { normalizeStyleOverrides, STYLE_OVERRIDE_KEYS, type StyleOverrides } from "../../shared/styleOverrides";
 import { extractReportSections } from "./tiptapReport";
+import { readAgentOutputs } from "./generationOutputs";
 
 function parseOverrides(raw: unknown): StyleOverrides {
   const known: Partial<StyleOverrides> = {};
@@ -39,18 +40,30 @@ export async function persistDeterministicFindings(ctx: MutationCtx, reportId: I
   const ref = await reportQaRef(report);
   // Byte-identical content cannot clear an established methodology failure by
   // advancing the revision (including a no-op save or a later restoration).
-  for (const message of ["why_how_why_intact", "uncertainties_distinguished"]) {
-    const previous = await ctx.db.query("qaFindings")
-      .withIndex("by_reportId_and_contentHash_and_check_and_message_and_blocking", q =>
-        q.eq("reportId", reportId).eq("contentHash", ref.contentHash)
-          .eq("check", "cra_methodology").eq("message", message).eq("blocking", true)).first();
-    if (previous) await storeFinding(ctx, ref, { section: "report", check: "cra_methodology", message, blocking: true });
+  // One read of this content's blocking methodology rows (a few per revision
+  // that restored the same bytes), matched on message in memory; it stops as
+  // soon as both messages are found.
+  const methodologyMessages = ["why_how_why_intact", "uncertainties_distinguished"];
+  const established = new Set<string>();
+  for await (const previous of ctx.db.query("qaFindings")
+    .withIndex("by_reportId_and_contentHash_and_check_and_blocking", q =>
+      q.eq("reportId", reportId).eq("contentHash", ref.contentHash)
+        .eq("check", "cra_methodology").eq("blocking", true))) {
+    if (methodologyMessages.includes(previous.message)) established.add(previous.message);
+    if (established.size === methodologyMessages.length) break;
+  }
+  for (const message of methodologyMessages) {
+    if (established.has(message)) {
+      await storeFinding(ctx, ref, { section: "report", check: "cra_methodology", message, blocking: true });
+    }
   }
   let overrides = normalizeStyleOverrides(undefined);
   if (report.generationId) {
     const generation = await ctx.db.get(report.generationId);
     try {
-      const outputs: unknown = JSON.parse(initialOutputs ?? generation?.agentOutputs ?? "{}");
+      const outputs: unknown = JSON.parse(
+        initialOutputs ?? (generation ? await readAgentOutputs(ctx, generation) : undefined) ?? "{}"
+      );
       if (outputs && typeof outputs === "object" && "styleOverrides" in outputs) {
         overrides = parseOverrides(outputs.styleOverrides);
       }

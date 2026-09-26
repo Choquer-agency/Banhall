@@ -13,6 +13,7 @@
   // dashed-border cue (text label lives on the column chip).
   import { resolve } from "$app/paths";
   import StageBadge from "$lib/components/ui/StageBadge.svelte";
+  import DuplicateProjectButton from "$lib/components/workspace/DuplicateProjectButton.svelte";
   import { generationActivityLabel } from "$lib/dashboard/generationActivity";
   import {
     STAGE_CARD_THEMES,
@@ -78,7 +79,7 @@
 
 <article
   data-project-board-card
-  class={`group relative flex min-h-40 max-w-full cursor-pointer flex-col overflow-hidden rounded-xl border shadow-sm transition-colors motion-reduce:transition-none ${theme.footerBg} ${paused ? "border-dashed border-violet-300" : "border-transparent"} ${theme.hoverBorder} ${theme.focusWithinBorder}`}
+  class={`group group/project relative flex min-h-40 max-w-full cursor-pointer flex-col overflow-hidden rounded-xl border shadow-sm transition-colors motion-reduce:transition-none ${theme.footerBg} ${paused ? "border-dashed border-violet-300" : "border-transparent"} ${theme.hoverBorder} ${theme.focusWithinBorder}`}
 >
   <header data-card-header class="flex min-w-0 items-start gap-2 rounded-t-xl px-2.5 py-2">
     {#if row.projectNumber}
@@ -98,6 +99,9 @@
       onclick={() => onOpen?.()}
       class={`block min-w-0 flex-1 truncate rounded-md text-[0.8125rem] font-medium leading-5 ${theme.headerText} after:absolute after:inset-0 after:content-[''] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy`}
     >{row.title}</a>
+    <!-- Hover or focus reveals Duplicate; it keeps its place in the header
+         either way, so the title never reflows. -->
+    <DuplicateProjectButton projectId={row.id} projectTitle={row.title} deleting={row.deleting} class="-my-1" />
   </header>
 
   {#if row.sredTitle}

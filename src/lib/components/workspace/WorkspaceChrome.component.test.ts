@@ -2,160 +2,183 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { page as browserPage, userEvent } from "vitest/browser";
 import { render } from "vitest-browser-svelte";
 import { createRawSnippet } from "svelte";
-import { authClient } from "$lib/authClient";
+import { IconGear } from "$lib/components/icons";
 import WorkspaceChrome from "./WorkspaceChrome.svelte";
 import { __resetPage, __setPageUrl } from "$lib/test/app-state-stub.svelte";
 import { __navigationCalls, __resetNavigation } from "$lib/test/app-navigation-stub";
-import { __resetConvexStub, __setQueryData } from "$lib/test/convex-svelte-stub.svelte";
+import { __mutationCalls, __resetConvexStub, __setQueryData } from "$lib/test/convex-svelte-stub.svelte";
+import { readLastAccount } from "$lib/auth/lastAccount";
+import { viewAs } from "$lib/shell/viewAs.svelte";
 
 vi.mock("$lib/authClient", () => ({ authClient: { signOut: vi.fn() } }));
 
 const tallContent = createRawSnippet(() => ({
   render: () => `<div data-testid="tall-content" style="height:1800px">Utility content</div>`,
 }));
+const action = createRawSnippet(() => ({
+  render: () => `<button type="button" data-testid="page-action">Add</button>`,
+}));
 
-describe("WorkspaceChrome", () => {
+const developer = { _id: "dev-1", firstName: "Johnny", lastName: "Nguyen", role: "admin", isDeveloper: true, imageUrl: null };
+
+describe("WorkspaceChrome (round 2 frame)", () => {
   beforeEach(() => {
-    vi.mocked(authClient.signOut).mockReset();
+    // A collapsed rail persisted by an earlier suite shows icons only; start
+    // from the expanded default.
+    localStorage.clear();
+    sessionStorage.clear();
+    viewAs.clear();
     __resetPage();
     __resetNavigation();
     __resetConvexStub();
     __setPageUrl("/settings");
     __setQueryData("myWork:getViewConfig", { killSwitch: false, ready: true });
+    __setQueryData("changelog:unseenCount", 0);
   });
 
-  it("uses the pale workspace rail and gives long utility content an internal vertical scroll owner", async () => {
+  it("draws the 56px top bar with the page tile on the shell background, and the panel owns the scroll", async () => {
     await browserPage.viewport(1440, 900);
-    await render(WorkspaceChrome, { title: "Settings", children: tallContent });
+    await render(WorkspaceChrome, { title: "Settings", subtitle: "Account", icon: IconGear, children: tallContent });
 
     const root = document.querySelector<HTMLElement>("[data-workspace-chrome]")!;
-    const main = root.querySelector<HTMLElement>("main")!;
+    const header = root.querySelector<HTMLElement>("[data-page-top-bar]")!;
+    const panel = root.querySelector<HTMLElement>("[data-work-panel]")!;
     const aside = root.querySelector<HTMLElement>("aside")!;
     expect(Math.round(root.getBoundingClientRect().height)).toBe(window.innerHeight);
-    expect(getComputedStyle(aside).backgroundColor).toBe("rgb(251, 251, 251)");
-    expect(main.scrollHeight).toBeGreaterThan(main.clientHeight);
-    main.scrollTop = 300;
-    expect(main.scrollTop).toBeGreaterThan(0);
-    expect(window.scrollY).toBe(0);
-    expect(root.textContent).toContain("Settings");
-  });
-
-  it("has no decorative title-side tick and exposes canonical workspace links", async () => {
-    await browserPage.viewport(1440, 900);
-    await render(WorkspaceChrome, { title: "Alerts & requests", children: tallContent });
-
-    const header = document.querySelector<HTMLElement>("[data-workspace-chrome] header")!;
+    expect(header.getBoundingClientRect().height).toBe(56);
     expect(header.hasAttribute("data-workspace-page-header")).toBe(true);
-    expect(header.className).toContain("h-[49px]");
-    expect(header.querySelector(".bg-primary.h-5.w-0\\.5")).toBeNull();
-    expect(document.querySelector('a[href="/projects"]')).not.toBeNull();
-    expect(document.querySelector('a[href="/my-work"]')).not.toBeNull();
+    const tile = header.querySelector<HTMLElement>("[data-page-icon-tile]")!;
+    expect(tile.getBoundingClientRect().width).toBe(26);
+    expect(getComputedStyle(tile).backgroundColor).toBe("rgb(227, 244, 241)");
+    expect(header.querySelector("h1")?.textContent).toBe("Settings");
+    expect(header.querySelector("[data-page-subtitle]")?.textContent).toBe("Account");
+    // Round 2 shell: the lighter #FAFCFB rail and frame.
+    expect(getComputedStyle(aside).backgroundColor).toBe("rgb(250, 252, 251)");
+    expect(getComputedStyle(panel.parentElement!).backgroundColor).toBe("rgb(250, 252, 251)");
+    expect(getComputedStyle(panel).borderRadius).toBe("10px");
+    expect(getComputedStyle(panel).backgroundColor).toBe("rgb(255, 255, 255)");
+    // Panel inset 12px from the frame on the sides and bottom.
+    const panelBox = panel.getBoundingClientRect();
+    expect(Math.round(window.innerHeight - panelBox.bottom)).toBe(12);
+    expect(panel.scrollHeight).toBeGreaterThan(panel.clientHeight);
+    panel.scrollTop = 300;
+    expect(panel.scrollTop).toBeGreaterThan(0);
+    expect(window.scrollY).toBe(0);
+    // Padded panel: 32px top, 56px sides (Settings, Team).
+    expect(getComputedStyle(panel).paddingTop).toBe("32px");
+    expect(getComputedStyle(panel).paddingLeft).toBe("56px");
   });
 
-  it("rail search opens the shell command palette in place — no navigation (2026-08-13)", async () => {
+  it("sends the Team activity heartbeat once on mount and remembers the signed-in account (J3)", async () => {
+    __setQueryData("users:getCurrentUser", { ...developer, email: "johnny@banhall.com" });
+    await render(WorkspaceChrome, { title: "Settings", children: tallContent });
+    await expect.poll(() => __mutationCalls("team:markActive").length).toBe(1);
+    // Focus within 5 minutes does not send another.
+    window.dispatchEvent(new Event("focus"));
+    expect(__mutationCalls("team:markActive")).toHaveLength(1);
+    await expect.poll(() => readLastAccount()?.name).toBe("Johnny Nguyen");
+    expect(readLastAccount()?.email).toBe("johnny@banhall.com");
+  });
+
+  it("sends no heartbeat for a signed-in person without a role", async () => {
+    __setQueryData("users:getCurrentUser", { _id: "u-2", firstName: "No", lastName: "Role", role: undefined });
+    await render(WorkspaceChrome, { title: "Settings", children: tallContent });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(__mutationCalls("team:markActive")).toHaveLength(0);
+  });
+
+  it("renders a breadcrumb link and puts page actions after the bell", async () => {
     await browserPage.viewport(1440, 900);
-    await render(WorkspaceChrome, { title: "Settings", children: tallContent });
-
-    document
-      .querySelector<HTMLButtonElement>('aside button[aria-label="Search projects"]')!
-      .click();
-
-    // The palette dialog mounts (light panel, portal outside the theme
-    // scope); the SPA does not leave the page.
-    await expect
-      .poll(() => document.querySelector('[data-command-root]'))
-      .not.toBeNull();
-    expect(
-      __navigationCalls.filter((call) => call.kind === "goto").map((call) => call.url)
-    ).not.toContain("/projects");
-  });
-
-  it.each(["cancel", "Escape"])("layers sign-out confirmation above the drawer and restores focus on %s", async (dismiss) => {
-    await browserPage.viewport(390, 844);
-    __setQueryData("users:getCurrentUser", {
-      _id: "admin-1",
-      firstName: "Ada",
-      lastName: "Admin",
-      email: "ada@example.test",
-      role: "admin",
+    await render(WorkspaceChrome, {
+      title: "House rules",
+      breadcrumb: { label: "Admin", href: "/admin/house-rules" },
+      padding: "admin",
+      actions: action,
+      children: tallContent,
     });
-    await render(WorkspaceChrome, { title: "Settings", children: tallContent });
-
-    document.querySelector<HTMLButtonElement>('button[aria-label="Open workspace navigation"]')!.click();
-    await expect.poll(() => document.querySelector('[role="dialog"]')).not.toBeNull();
-    await expect
-      .poll(() => document.activeElement?.getAttribute("aria-label"))
-      .toBe("Close workspace navigation");
-
-    const drawer = document.querySelector<HTMLElement>('[role="dialog"]')!;
-    const trigger = drawer.querySelector<HTMLButtonElement>('button[aria-label="Sign out"]')!;
-    const signOut = vi.mocked(authClient.signOut);
-    signOut.mockClear();
-    try {
-      trigger.focus();
-      await userEvent.keyboard("{Enter}");
-      await expect.element(browserPage.getByRole("dialog", { name: "Sign out?", exact: true })).toBeVisible();
-      const confirmation = Array.from(document.querySelectorAll<HTMLElement>('[role="dialog"]'))
-        .find((element) => element !== drawer)!;
-      expect(drawer.contains(confirmation)).toBe(false);
-      expect(Number.parseInt(getComputedStyle(confirmation.parentElement!).zIndex, 10))
-        .toBeGreaterThan(Number.parseInt(getComputedStyle(drawer).zIndex, 10));
-      const rows = Array.from(confirmation.querySelectorAll<HTMLButtonElement>("button"));
-      expect(rows.map((row) => row.textContent?.trim())).toEqual(["Stay signed in", "Sign out"]);
-      await expect.poll(() => rows.every((row) => row.getBoundingClientRect().height >= 44)).toBe(true);
-      expect(trigger.getBoundingClientRect().height).toBeGreaterThanOrEqual(44);
-      await expect.poll(() => confirmation.contains(document.activeElement)).toBe(true);
-      for (let step = 0; step < rows.length + 1; step += 1) {
-        await userEvent.keyboard("{Tab}");
-        expect(confirmation.contains(document.activeElement)).toBe(true);
-      }
-      for (let step = 0; step < rows.length + 1; step += 1) {
-        await userEvent.keyboard("{Shift>}{Tab}{/Shift}");
-        expect(confirmation.contains(document.activeElement)).toBe(true);
-      }
-      // Real hit tests account for ancestor stacking contexts, unlike z-index alone.
-      await expect.poll(() => rows.every((row) => {
-        const bounds = row.getBoundingClientRect();
-        return row.contains(document.elementFromPoint(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2));
-      })).toBe(true);
-      const drawerClose = drawer.querySelector<HTMLButtonElement>('button[aria-label="Close workspace navigation"]')!;
-      const closeBounds = drawerClose.getBoundingClientRect();
-      expect(drawer.contains(document.elementFromPoint(
-        closeBounds.x + closeBounds.width / 2, closeBounds.y + closeBounds.height / 2
-      ))).toBe(false);
-      if (dismiss === "cancel") {
-        await browserPage.getByRole("button", { name: "Stay signed in", exact: true }).click();
-      } else {
-        await userEvent.keyboard("{Escape}");
-      }
-      await expect.poll(() => document.activeElement).toBe(trigger);
-      await expect.poll(() => confirmation.isConnected).toBe(false);
-      expect(drawer.isConnected).toBe(true);
-      expect(signOut).not.toHaveBeenCalled();
-      expect(__navigationCalls.filter((call) => call.kind === "goto")).toEqual([]);
-      await browserPage.getByRole("button", { name: "Close workspace navigation", exact: true }).click();
-      await expect.poll(() => drawer.isConnected).toBe(false);
-    } finally {
-      signOut.mockClear();
-    }
+    const header = document.querySelector<HTMLElement>("[data-page-top-bar]")!;
+    const crumb = header.querySelector<HTMLAnchorElement>("[data-page-breadcrumb]")!;
+    expect(crumb.textContent).toBe("Admin");
+    expect(crumb.getAttribute("href")).toBe("/admin/house-rules");
+    expect(header.querySelector("h1")?.textContent).toBe("House rules");
+    const bell = header.querySelector("[data-top-bar-bell]")!;
+    const add = header.querySelector("[data-testid=page-action]")!;
+    expect(bell.compareDocumentPosition(add) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    const panel = document.querySelector<HTMLElement>("[data-work-panel]")!;
+    expect(getComputedStyle(panel).paddingLeft).toBe("40px");
   });
 
-  it("signs out once after confirmation and navigates to login", async () => {
+  it("keeps the drawer reachable below 1024px", async () => {
     await browserPage.viewport(390, 844);
-    const signOut = vi.mocked(authClient.signOut);
-    signOut.mockResolvedValueOnce({ data: { success: true }, error: null });
     await render(WorkspaceChrome, { title: "Settings", children: tallContent });
     await browserPage.getByRole("button", { name: "Open workspace navigation", exact: true }).click();
     await expect.element(browserPage.getByRole("button", { name: "Close workspace navigation", exact: true })).toBeVisible();
-    await browserPage.getByRole("button", { name: "Sign out", exact: true }).click();
-    const confirmation = browserPage.getByRole("dialog", { name: "Sign out?", exact: true });
-    await expect.element(confirmation).toBeVisible();
-    expect(signOut).not.toHaveBeenCalled();
-    await confirmation.getByRole("button", { name: "Sign out", exact: true }).click();
-    await expect.poll(() => signOut.mock.calls.length).toBe(1);
-    await expect.poll(() => __navigationCalls.filter((call) => call.kind === "goto"))
-      .toEqual([{ kind: "goto", url: "/login" }]);
-    await expect.element(confirmation).not.toBeInTheDocument();
+    const drawer = document.querySelector<HTMLElement>("[data-workspace-drawer]")!;
+    expect(drawer.querySelector('[data-rail-item="home"]')).not.toBeNull();
+    // Board close glyph (18 / 2) instead of the Phosphor X; board-style three lines to open.
+    const close = drawer.querySelector<SVGElement>('button[aria-label="Close workspace navigation"] svg')!;
+    expect(close.getAttribute("width")).toBe("18");
+    expect(close.getAttribute("stroke-width")).toBe("2");
+    expect(close.querySelector("path")?.getAttribute("d")).toBe("M18 6 6 18M6 6l12 12");
+    const open = document.querySelector<SVGElement>('button[aria-label="Open workspace navigation"] svg')!;
+    expect(open.querySelector("path")?.getAttribute("d")).toBe("M4 6h16 M4 12h16 M4 18h16");
+    await browserPage.getByRole("button", { name: "Close workspace navigation", exact: true }).click();
+    await expect.poll(() => drawer.isConnected).toBe(false);
   });
 
+  it("Cmd K opens the shell command palette in place, with no navigation", async () => {
+    await browserPage.viewport(1440, 900);
+    await render(WorkspaceChrome, { title: "Settings", children: tallContent });
+    await userEvent.keyboard("{Meta>}k{/Meta}");
+    await expect.poll(() => document.querySelector("[data-command-root]")).not.toBeNull();
+    expect(__navigationCalls.filter((call) => call.kind === "goto")).toEqual([]);
+    await userEvent.keyboard("{Escape}");
+  });
+
+  it("D3: while viewing as a role, the panel gets the amber frame and the pill sits over the top bar", async () => {
+    await browserPage.viewport(1440, 900);
+    __setQueryData("users:getCurrentUser", developer);
+    viewAs.enter("consultant");
+    await render(WorkspaceChrome, { title: "Settings", children: tallContent });
+    await expect.poll(() => document.querySelector("[data-view-as-pill]")).not.toBeNull();
+    const root = document.querySelector<HTMLElement>("[data-workspace-chrome]")!;
+    expect(root.dataset.viewAs).toBe("consultant");
+    const panel = root.querySelector<HTMLElement>("[data-work-panel]")!;
+    expect(getComputedStyle(panel).borderTopWidth).toBe("2px");
+    expect(getComputedStyle(panel).borderTopColor).toBe("rgb(245, 158, 11)");
+    const pill = document.querySelector<HTMLElement>("[data-view-as-pill]")!.getBoundingClientRect();
+    const bar = root.querySelector<HTMLElement>("[data-page-top-bar]")!.getBoundingClientRect();
+    expect(pill.height).toBe(36);
+    expect(Math.abs(pill.top + pill.height / 2 - (bar.top + bar.height / 2))).toBeLessThanOrEqual(1);
+    // D3, D4: centred on the window, as the boards draw it (not on the content column).
+    const shell = root.getBoundingClientRect();
+    expect(Math.abs(pill.left + pill.width / 2 - (shell.left + shell.width / 2))).toBeLessThanOrEqual(1);
+  });
+
+  it("D4: a gated page shows the hidden state in a view that cannot open it, and hides its actions", async () => {
+    await browserPage.viewport(1440, 900);
+    __setQueryData("users:getCurrentUser", developer);
+    viewAs.enter("consultant");
+    await render(WorkspaceChrome, { title: "Alerts", viewAsGate: "alerts", actions: action, children: tallContent });
+    await expect.poll(() => document.querySelector("[data-view-as-hidden-page]")).not.toBeNull();
+    expect(document.querySelector("[data-testid=tall-content]")).toBeNull();
+    expect(document.querySelector("[data-testid=page-action]")).toBeNull();
+    const hidden = document.querySelector<HTMLElement>("[data-view-as-hidden-page]")!;
+    expect(hidden.querySelector("h2")?.textContent?.trim()).toBe("Alerts is hidden in Consultant view");
+    expect(document.querySelector("[data-page-top-bar] h1")?.textContent).toBe("Alerts");
+    expect(hidden.textContent).toContain(
+      "Consultants cannot open Alerts, so this is what they would see. Exit the view to get back to it."
+    );
+    await browserPage.getByRole("button", { name: "Exit Consultant view" }).click();
+    await expect.poll(() => document.querySelector("[data-testid=tall-content]")).not.toBeNull();
+    expect(viewAs.role).toBeNull();
+  });
+
+  it("a gated page renders normally for the developer's own view", async () => {
+    await browserPage.viewport(1440, 900);
+    __setQueryData("users:getCurrentUser", developer);
+    await render(WorkspaceChrome, { title: "Alerts", viewAsGate: "alerts", children: tallContent });
+    await expect.poll(() => document.querySelector("[data-testid=tall-content]")).not.toBeNull();
+    expect(document.querySelector("[data-view-as-hidden-page]")).toBeNull();
+  });
 });

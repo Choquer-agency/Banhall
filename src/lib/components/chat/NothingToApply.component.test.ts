@@ -67,7 +67,18 @@ const items: Doc<"chatProposalItems">[] = [
   },
 ];
 
-const ACTION_NAMES = ["Apply", "Apply all", "Review individually", "Edit wording", "Reject", "Save & apply"];
+// Board 2.1 renamed Reject to Dismiss and moved Edit wording and Refine into
+// the card's More menu; the guard covers the old and the new names.
+const ACTION_NAMES = [
+  "Apply",
+  "Apply all",
+  "Review individually",
+  "Edit wording",
+  "Reject",
+  "Dismiss",
+  "More actions for this suggestion",
+  "Save & apply",
+];
 
 describe("zero-edit proposal card (DW-135)", () => {
   it("shows the blocked and conflicting findings and no apply action", async () => {
@@ -102,6 +113,8 @@ describe("zero-edit proposal card (DW-135)", () => {
       expect(page.getByRole("button", { name, exact: true }).elements(), name).toHaveLength(0);
     }
     expect(container.textContent).not.toContain("Suggested replacement");
+    expect(container.textContent).not.toContain("Suggested edit");
+    expect(container.querySelector("[data-proposed-edit]")).toBeNull();
     expect(container.textContent).not.toContain("Delete the selected passage");
     expect(container.textContent).not.toContain("Replaced in report");
     expect(__mutationCalls("chatV2:applyProposal")).toEqual([]);

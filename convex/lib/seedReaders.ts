@@ -175,9 +175,14 @@ export async function getOutlineData(
           : [],
       pendingBatchId: row.pendingBatchId ?? null,
       shownBatchId: row.shownBatchId ?? null,
+      // The approval time while the step is approved. The stored field keeps
+      // the last approval after a step leaves "approved", so it is not sent
+      // then.
+      approvedAt: row.state === "approved" ? (row.approvedAt ?? null) : null,
     });
   }
   return {
+    generationId,
     rows,
     readiness: computeSeedReadiness(state),
     usage: {
@@ -407,6 +412,7 @@ export async function getSubsectionData(
   if (truncated) approvalChallenge = null;
 
   return {
+    generationId,
     roleId,
     state: row.state,
     stale: isSeedSubsectionStale(row),
@@ -427,6 +433,9 @@ export async function getSubsectionData(
       })),
     shownBatchId: row.shownBatchId ?? null,
     pendingBatchId: row.pendingBatchId ?? null,
+    // A failed attempt restores the prior state until the third failure, so
+    // an empty step says the last attempt failed instead of "no seeds yet".
+    ...(row.consecutiveFailures > 0 ? { lastAttemptFailed: true as const } : {}),
     approvalChallenge,
     seedStageVersion: state.generation.seedStageVersion ?? 0,
     truncated,
@@ -686,6 +695,71 @@ export async function listBatchesData(
   };
 }
 
+/** The generation settings the Summary shows read-only beside sign-off. A
+ * recovery generation carries the origin's frozen copies of these fields. */
+export function frozenSeedSettings(generation: Doc<"generations">) {
+  return {
+    lengthTarget: generation.lengthTarget ?? "standard",
+    modelId: generation.singleModelId ?? null,
+    writerProfile: generation.writerSettings
+      ? {
+          state: generation.writerSettings.profileState,
+          source: generation.writerSettings.source,
+          fileName: generation.writerSettings.fileName ?? null,
+        }
+      : null,
+  };
+}
+
+/** Cited excerpts shown as exact-quote underlines in the Summary (decision
+ * 17). A hand-edited item is the writer's own wording and carries none. Uses
+ * the same bounded read as a Seed card on the plan (up to
+ * SEED_DECISION_COLLECTION_ROWS citations, within the page's read budget), so
+ * a phrase underlined on the plan keeps its underline here. When the cap or
+ * the budget stops the read short, `truncated` says so; the item is never
+ * silently missing citations. */
+type SummaryCitation = {
+  sourceId: Doc<"seedProvenance">["sourceId"];
+  exactExcerpt: string;
+  /** Stamped when the Seed was written; absent when the source gives none. */
+  speaker?: string;
+  line?: number;
+  /** 2026-09-25: the cited turn's speaker had no role (decision 24). */
+  needsSpeakerCheck?: boolean;
+};
+
+async function summaryCitations(
+  ctx: QueryCtx,
+  budget: ReturnType<typeof readerBudget>,
+  seed: Doc<"seeds">,
+  edited: boolean
+): Promise<{ provenance: SummaryCitation[]; provenanceTruncated: boolean }> {
+  if (edited) return { provenance: [], provenanceTruncated: false };
+  const read = await budget.list(
+    ctx.db
+      .query("seedProvenance")
+      .withIndex("by_seedId", (q) => q.eq("seedId", seed._id)),
+    SEED_DECISION_COLLECTION_ROWS
+  );
+  const provenance: SummaryCitation[] = [];
+  for (const citation of read.rows) {
+    if (
+      citation.projectId !== seed.projectId ||
+      citation.generationId !== seed.generationId
+    ) {
+      domainError("INVALID_STATE", "Seed provenance ownership mismatch");
+    }
+    provenance.push({
+      sourceId: citation.sourceId,
+      exactExcerpt: citation.exactExcerpt,
+      ...(citation.speaker !== undefined ? { speaker: citation.speaker } : {}),
+      ...(citation.line !== undefined ? { line: citation.line } : {}),
+      ...(citation.needsSpeakerCheck ? { needsSpeakerCheck: true } : {}),
+    });
+  }
+  return { provenance, provenanceTruncated: !read.complete };
+}
+
 type LiveSummaryItem = {
   kind: "selection";
   seedId: Id<"seeds">;
@@ -693,6 +767,12 @@ type LiveSummaryItem = {
   subsectionKind: Doc<"seedSubsections">["kind"];
   bullets: string[];
   support: Doc<"seeds">["support"];
+  /** The writer changed the wording (not derived from `support`: a
+   * generated Seed can start as writer_asserted). */
+  edited: boolean;
+  provenance: SummaryCitation[];
+  /** Citations exist beyond `provenance` (row cap or read budget). */
+  provenanceTruncated: boolean;
   tags: string[];
   uncertaintySeedId: Id<"seeds"> | null;
   experimentSeedIds: Id<"seeds">[];
@@ -757,6 +837,13 @@ export async function getSummaryData(
         maximumRowsRead: MAX_PAGE_SIZE,
       });
     budget.account(result.page);
+    // Items frozen since 2026-09-24 store the authoritative `edited` flag
+    // (the selection carried `editedBullets` at sign-off, even when the text
+    // matches the generated wording). Older rows lack it, so for those
+    // `edited` compares the final wording with the Seed's generated bullets
+    // (immutable). One point read per item on a page already capped at
+    // MAX_PAGE_SIZE rows; Seed rows hold one or two short bullets.
+    const page = [];
     for (const item of result.page) {
       if (
         item.projectId !== generation.projectId ||
@@ -764,13 +851,28 @@ export async function getSummaryData(
       ) {
         domainError("INVALID_STATE", "Frozen Summary ownership mismatch");
       }
-    }
-    return {
-      page: result.page.map((item) => ({
+      const seed = await ctx.db.get(item.seedId);
+      budget.account(seed);
+      if (
+        !seed ||
+        seed.projectId !== generation.projectId ||
+        seed.roleId !== item.roleId
+      ) {
+        domainError("INVALID_STATE", "Frozen Summary ownership mismatch");
+      }
+      const edited =
+        item.edited ??
+        stableSerialize(item.bullets) !== stableSerialize(seed.bullets);
+      page.push({
         ...item,
         kind: "selection" as const,
         subsectionKind: item.kind,
-      })),
+        edited,
+        ...(await summaryCitations(ctx, budget, seed, edited)),
+      });
+    }
+    return {
+      page,
       skippedRoleIds: version.skippedRoleIds,
       isDone: result.isDone,
       continueCursor: JSON.stringify({
@@ -779,8 +881,12 @@ export async function getSummaryData(
       }),
       partial: !result.isDone || cursor !== null,
       frozen: true,
+      generationId: generation._id,
       summaryVersionId: summaryId,
+      // Shown beside the model only from version 2 on (PRD FR-21).
+      summaryVersion: version.version,
       seedStageVersion: generation.seedStageVersion ?? 0,
+      settings: frozenSeedSettings(generation),
       budget: budget.snapshot(),
     };
   }
@@ -833,8 +939,11 @@ export async function getSummaryData(
       }),
       partial: cursor !== null,
       frozen: false,
+      generationId: generation._id,
       summaryVersionId: null,
+      summaryVersion: null,
       seedStageVersion: generation.seedStageVersion ?? 0,
+      settings: frozenSeedSettings(generation),
       budget: budget.snapshot(),
     };
   }
@@ -895,6 +1004,8 @@ export async function getSummaryData(
       subsectionKind: definition.kind,
       bullets: materializeFinalWording(seed, selection),
       support: selection.editedBullets ? "writer_asserted" : seed.support,
+      edited: selection.editedBullets !== undefined,
+      ...(await summaryCitations(ctx, budget, seed, selection.editedBullets !== undefined)),
       tags: seed.tags,
       uncertaintySeedId: seed.uncertaintySeedId ?? null,
       experimentSeedIds: seed.experimentSeedIds ?? [],
@@ -921,8 +1032,11 @@ export async function getSummaryData(
     }),
     partial: !isDone || cursor !== null,
     frozen: false,
+    generationId: generation._id,
     summaryVersionId: null,
+    summaryVersion: null,
     seedStageVersion: generation.seedStageVersion ?? 0,
+    settings: frozenSeedSettings(generation),
     budget: budget.snapshot(),
   };
 }

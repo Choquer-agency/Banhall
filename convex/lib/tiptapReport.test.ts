@@ -1,6 +1,11 @@
 import { describe, expect, test } from "vitest";
 import { buildTiptapDocument, textToParagraphs, extractReportSections } from "./tiptapReport";
-import { NOT_GENERATED_PLACEHOLDER, sectionParagraphs } from "./tiptapReport";
+import {
+  fillNotDraftedSections,
+  NOT_GENERATED_PLACEHOLDER,
+  notDraftedReportSections,
+  sectionParagraphs,
+} from "./tiptapReport";
 
 describe("textToParagraphs", () => {
   test("splits on blank lines and drops empty paragraphs", () => {
@@ -147,5 +152,64 @@ describe("buildTiptapDocument for a stopped ordered generation", () => {
     const text = "first para\n\n  \n\nsecond\nsoft wrap\n\n\nthird";
     expect(sectionParagraphs(text)).toEqual(["first para", "second\nsoft wrap", "third"]);
     expect(textToParagraphs(text)).toHaveLength(sectionParagraphs(text).length);
+  });
+});
+
+describe("Not drafted Sections (redraft after Stop)", () => {
+  const stopped = () =>
+    JSON.stringify(buildTiptapDocument("Title", "Drafted 242.", null, null));
+
+  test("lists only Section bodies that are still the untouched placeholder", () => {
+    expect(notDraftedReportSections(stopped())).toEqual(["s244", "s246"]);
+    expect(notDraftedReportSections("plain text report")).toEqual([]);
+  });
+
+  test("fills a placeholder and carries every other node over unchanged", () => {
+    const before = JSON.parse(stopped()) as { content: unknown[] };
+    const result = fillNotDraftedSections(stopped(), {
+      s244: "Work one.\n\nWork two.",
+    });
+    expect(result.filled).toEqual(["s244"]);
+    expect(result.skipped).toEqual([]);
+    const after = JSON.parse(result.content) as { content: unknown[] };
+    // Title, 242 heading and body, divider, 244 heading are identical.
+    expect(after.content.slice(0, 5)).toEqual(before.content.slice(0, 5));
+    expect(after.content.slice(5, 7)).toEqual([
+      { type: "paragraph", content: [{ type: "text", text: "Work one." }] },
+      { type: "paragraph", content: [{ type: "text", text: "Work two." }] },
+    ]);
+    // The 246 placeholder and its heading are untouched.
+    expect(after.content.slice(7)).toEqual(before.content.slice(6));
+    expect(notDraftedReportSections(result.content)).toEqual(["s246"]);
+  });
+
+  test("never overwrites a Section the writer typed into or already drafted", () => {
+    const typed = stopped().replace(
+      NOT_GENERATED_PLACEHOLDER,
+      `${NOT_GENERATED_PLACEHOLDER} and a note from the writer`
+    );
+    const result = fillNotDraftedSections(typed, {
+      s242: "Replacement 242.",
+      s244: "Draft 244.",
+      s246: "Draft 246.",
+    });
+    expect(result.filled).toEqual(["s246"]);
+    expect(result.skipped).toEqual(["s242", "s244"]);
+    expect(result.content).toContain("Drafted 242.");
+    expect(result.content).toContain("and a note from the writer");
+  });
+
+  test("tolerates empty paragraphs around the placeholder and refuses duplicate headings", () => {
+    const doc = JSON.parse(stopped()) as { content: Array<Record<string, unknown>> };
+    const index = doc.content.findIndex((node) =>
+      JSON.stringify(node).includes(NOT_GENERATED_PLACEHOLDER)
+    );
+    doc.content.splice(index, 0, { type: "paragraph" });
+    expect(fillNotDraftedSections(JSON.stringify(doc), { s244: "Draft." }).filled)
+      .toEqual(["s244"]);
+    const heading244 = doc.content.find((node) => JSON.stringify(node).includes("Line 244"));
+    doc.content.push(heading244 as Record<string, unknown>);
+    expect(fillNotDraftedSections(JSON.stringify(doc), { s244: "Draft." }).filled)
+      .toEqual([]);
   });
 });

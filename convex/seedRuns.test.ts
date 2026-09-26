@@ -22,6 +22,8 @@ import type {
 import { PD_SUBSECTIONS, type PdSubsectionRoleId } from "../shared/pdSubsections";
 import { emptyContextRevision, emptySelectionRevision } from "./lib/seedRevisions";
 import { loadSeedDispatchSnapshot } from "./lib/seedSnapshotLoader";
+import { buildSeedPrompt, seedPromptProjection } from "./ai/trustedContext";
+import { terminateSeedRoleAttempt } from "./seedRuns";
 
 const modules = import.meta.glob("./**/*.ts");
 
@@ -336,6 +338,155 @@ describe("seed attempt transactions", () => {
     expect(await s.t.run((ctx) => ctx.db.query("seedBatches").take(3))).toHaveLength(1);
   });
 
+  it("keeps every frozen source for validation and prompts with the digest only (cost phase 1)", async () => {
+    const s = await fixture();
+    const full = "Full transcript text. ".repeat(20);
+    const digest = "Condensed transcript.";
+    const ids = await s.t.run(async (ctx) => {
+      const transcriptId = await ctx.db.insert("transcripts", {
+        projectId: s.projectId,
+        content: full,
+        createdAt: 1,
+      });
+      const base = {
+        generationId: s.generationId,
+        projectId: s.projectId,
+        truncated: false,
+        capturedAt: 1,
+      };
+      const fullId = await ctx.db.insert("generationSources", {
+        ...base, kind: "transcript", label: "Long interview", transcriptId,
+        content: full, contentHash: "full-hash", originalLength: full.length,
+      });
+      const documentId = await ctx.db.insert("generationSources", {
+        ...base, kind: "project_document", label: "other:notes.md",
+        content: "Notes.", contentHash: "notes-hash", originalLength: 6,
+      });
+      // Condensing runs after reservation, so the digest row comes last.
+      const digestId = await ctx.db.insert("generationSources", {
+        ...base, kind: "transcript_digest", label: "Long interview", transcriptId,
+        content: digest, contentHash: "digest-hash", originalLength: digest.length,
+      });
+      return { fullId, documentId, digestId };
+    });
+    const dispatched = await openRole(s, "company_context");
+    if (dispatched.kind !== "dispatched") throw new Error("attempt was not dispatched");
+    const claim = await s.t.mutation(claimRef, { batchId: dispatched.batchId });
+    if (claim.kind !== "claimed") throw new Error("attempt was not claimed");
+    // The claim keeps every frozen source for provenance validation...
+    expect(claim.input.sources.map((source) => source._id)).toEqual([
+      s.sourceId,
+      ids.fullId,
+      ids.documentId,
+      ids.digestId,
+    ]);
+    // ...and the prompt reads the digest in the transcript's place.
+    const prompt = buildSeedPrompt({
+      mode: "batch",
+      objective: claim.role.objective,
+      brief: { ...claim.input.brief, entries: claim.input.briefEntries },
+      sources: claim.input.sources.map((source) => ({
+        sourceId: source._id,
+        label: source.label,
+        kind: source.kind,
+        content: source.content,
+        contentHash: source.contentHash,
+        ...(source.transcriptId ? { transcriptId: source.transcriptId } : {}),
+      })),
+      projection: seedPromptProjection(claim.context),
+      writerSettings: claim.input.writerSettings,
+      lengthTarget: claim.input.lengthTarget,
+    });
+    expect(prompt.user).not.toContain(full);
+    expect(prompt.sources.map((source) => source.sourceId)).toEqual([
+      s.sourceId,
+      ids.digestId,
+      ids.documentId,
+    ]);
+  });
+
+  it("stamps speaker and line on transcript citations from the frozen source", async () => {
+    const s = await fixture();
+    const transcript = [
+      "Interviewer (Dana): What did you build?",
+      "",
+      "Priya: We run four sites, all refrigerated.",
+      "The coastal site failed twice.",
+    ].join("\r\n");
+    const document = "Scoping notes\nThe pump failed twice.";
+    const { transcriptId, documentId } = await s.t.run(async (ctx) => ({
+      transcriptId: await ctx.db.insert("generationSources", {
+        generationId: s.generationId,
+        projectId: s.projectId,
+        kind: "transcript",
+        label: "Site interview",
+        content: transcript,
+        contentHash: "transcript-hash",
+        truncated: false,
+        originalLength: transcript.length,
+        capturedAt: 1,
+      }),
+      documentId: await ctx.db.insert("generationSources", {
+        generationId: s.generationId,
+        projectId: s.projectId,
+        kind: "project_document",
+        label: "scoping:notes.docx",
+        content: document,
+        contentHash: "document-hash",
+        truncated: false,
+        originalLength: document.length,
+        capturedAt: 1,
+      }),
+    }));
+    const citation = (
+      sourceId: Id<"generationSources">,
+      content: string,
+      exactExcerpt: string
+    ) => {
+      const startOffset = content.indexOf(exactExcerpt);
+      return { sourceId, startOffset, endOffset: startOffset + exactExcerpt.length, exactExcerpt };
+    };
+    const dispatched = await openRole(s, "company_context");
+    if (dispatched.kind !== "dispatched") throw new Error("attempt was not dispatched");
+    const claim = await s.t.mutation(claimRef, { batchId: dispatched.batchId });
+    if (claim.kind !== "claimed") throw new Error("attempt was not claimed");
+    const [first, ...rest] = validBatch;
+    expect(
+      await s.t.mutation(completeRef, {
+        batchId: dispatched.batchId,
+        attemptId: claim.batch.attemptId,
+        requestsMade: 1,
+        seeds: [
+          {
+            ...first,
+            provenance: [
+              citation(transcriptId, transcript, "The coastal site failed twice."),
+              citation(transcriptId, transcript, "What did you build?"),
+              citation(documentId, document, "The pump failed twice."),
+              citation(s.sourceId, "Evidence alpha supports the work.", "Evidence alpha"),
+            ],
+          },
+          ...rest,
+        ],
+      })
+    ).toMatchObject({ kind: "completed", seeds: 3 });
+    const rows = await s.t.run((ctx) => ctx.db.query("seedProvenance").take(10));
+    const byExcerpt = new Map(rows.map((row) => [row.exactExcerpt, row]));
+    expect(byExcerpt.get("The coastal site failed twice.")).toMatchObject({
+      speaker: "Priya",
+      line: 4,
+    });
+    expect(byExcerpt.get("What did you build?")).toMatchObject({ speaker: "Dana", line: 1 });
+    // A transcript without speaker labels still gives the line.
+    expect(byExcerpt.get("Evidence alpha")).toMatchObject({ line: 1 });
+    expect(byExcerpt.get("Evidence alpha")?.speaker).toBeUndefined();
+    // Documents carry neither: their extracted lines are not what a reader sees.
+    const documentRow = byExcerpt.get("The pump failed twice.");
+    expect(documentRow).toBeDefined();
+    expect(documentRow?.speaker).toBeUndefined();
+    expect(documentRow?.line).toBeUndefined();
+  });
+
   it("deduplicates a command before the changed context and preserves terminal history", async () => {
     const s = await fixture();
     const commandId = "stable-regenerate-command";
@@ -570,6 +721,74 @@ describe("seed attempt transactions", () => {
     expect(unlimited.kind).toBe("dispatched");
   });
 
+  it("tells the pane the last attempt failed until a batch is shown", async () => {
+    const s = await fixture();
+    const first = await openRole(s, "company_context");
+    if (first.kind !== "dispatched") throw new Error("attempt was not dispatched");
+    const firstBatch = await s.t.run((ctx) => ctx.db.get(first.batchId));
+    await s.t.mutation(failRef, {
+      batchId: first.batchId,
+      attemptId: firstBatch!.attemptId,
+      requestsMade: 1,
+      errorCode: "PROVIDER_FAILED",
+    });
+    const read = () =>
+      s.writer.query(api.seeds.getSubsection, {
+        generationId: s.generationId,
+        roleId: "company_context",
+      });
+    // One failure restores the prior state, so only the flag says it failed.
+    expect(await read()).toMatchObject({
+      state: "untouched",
+      items: [],
+      pendingBatchId: null,
+      lastAttemptFailed: true,
+    });
+
+    const retried = await s.t.mutation(dispatchRef, {
+      generationId: s.generationId,
+      roleId: "company_context",
+      operation: "retry",
+      commandId: "retry-after-one",
+      actorUserId: s.userId,
+    });
+    if (retried.kind !== "dispatched") throw new Error("retry was not dispatched");
+    const claim = await s.t.mutation(claimRef, { batchId: retried.batchId });
+    if (claim.kind !== "claimed") throw new Error("retry was not claimed");
+    await s.t.mutation(completeRef, {
+      batchId: retried.batchId,
+      attemptId: claim.batch.attemptId,
+      requestsMade: 1,
+      seeds: validBatch,
+    });
+    const shown = await read();
+    expect(shown.items.length).toBeGreaterThan(0);
+    expect(shown).not.toHaveProperty("lastAttemptFailed");
+  });
+
+  it("does not count a stopped attempt as a failed one (step-by-step review s1 P3-2)", async () => {
+    const s = await fixture();
+    const dispatched = await openRole(s, "company_context");
+    if (dispatched.kind !== "dispatched") throw new Error("attempt was not dispatched");
+    // As skip does while seeds are still being written.
+    await s.t.run(async (ctx) => {
+      const row = await ctx.db.get(s.subsectionIds.company_context!);
+      await terminateSeedRoleAttempt(ctx, row!);
+    });
+    const state = await s.t.run(async (ctx) => ({
+      batch: await ctx.db.get(dispatched.batchId),
+      row: await ctx.db.get(s.subsectionIds.company_context!),
+    }));
+    expect(state.batch).toMatchObject({ status: "failed", error: "GENERATION_TERMINATED" });
+    expect(state.row).toMatchObject({ consecutiveFailures: 0 });
+    expect(state.row?.pendingBatchId).toBeUndefined();
+    const pane = await s.writer.query(api.seeds.getSubsection, {
+      generationId: s.generationId,
+      roleId: "company_context",
+    });
+    expect(pane).not.toHaveProperty("lastAttemptFailed");
+  });
+
   it("cancellation terminalizes the pending attempt before clearing ownership", async () => {
     const s = await fixture();
     const dispatched = await openRole(s, "company_context");
@@ -785,6 +1004,54 @@ describe("seed attempt transactions", () => {
     expect(await s.t.mutation(completeRef, { ...identity, requestsMade: 1, seeds: validBatch })).toMatchObject({ kind: "completed" });
     expect(await s.t.run(ctx => ctx.db.get(dispatched.batchId))).toMatchObject({ status: "shown", requestsMade: 2, settledAt });
     expect((await s.t.run(ctx => ctx.db.get(s.generationId)))?.seedRequestsReserved).toBe(2);
+  });
+
+  // Audit 2026-09-25 a3 P3: a killed attempt fails when its own lease ends,
+  // not at the next reaper sweep up to ten minutes later.
+  it("schedules the attempt's own lease check, which fails a stuck running attempt", async () => {
+    const s = await fixture();
+    const dispatched = await openRole(s, "company_context");
+    if (dispatched.kind !== "dispatched") throw new Error("not dispatched");
+    const batch = await s.t.run((ctx) => ctx.db.get(dispatched.batchId));
+    const job = await s.t.run(async (ctx) =>
+      (await ctx.db.system.query("_scheduled_functions").collect()).find(
+        (row) => row.name === "seedRuns:expireAttempt" && row.args[0]?.batchId === dispatched.batchId
+      )
+    );
+    expect(job?.args[0]).toEqual({ batchId: dispatched.batchId, attemptId: batch?.attemptId });
+    expect(job?.scheduledTime).toBe(batch?.leaseExpiresAt);
+    const claim = await s.t.mutation(claimRef, { batchId: dispatched.batchId });
+    if (claim.kind !== "claimed") throw new Error("not claimed");
+
+    // Before the lease ends it changes nothing.
+    await s.t.mutation(internal.seedRuns.expireAttempt, { batchId: dispatched.batchId, attemptId: claim.batch.attemptId });
+    expect(await s.t.run((ctx) => ctx.db.get(dispatched.batchId))).toMatchObject({ status: "running" });
+
+    // Its action was killed: the lease ends and the check fails the attempt.
+    await s.t.run((ctx) => ctx.db.patch(dispatched.batchId, { leaseExpiresAt: Date.now() }));
+    await s.t.mutation(internal.seedRuns.expireAttempt, { batchId: dispatched.batchId, attemptId: claim.batch.attemptId });
+    expect(await s.t.run((ctx) => ctx.db.get(dispatched.batchId))).toMatchObject({
+      status: "failed",
+      error: "LEASE_EXPIRED",
+      requestsMade: 2,
+    });
+    expect((await s.t.run((ctx) => ctx.db.get(s.subsectionIds.company_context!)))?.pendingBatchId).toBeUndefined();
+  });
+
+  it("leaves a completed attempt and another attempt's row alone", async () => {
+    const s = await fixture();
+    const dispatched = await openRole(s, "company_context");
+    if (dispatched.kind !== "dispatched") throw new Error("not dispatched");
+    const claim = await s.t.mutation(claimRef, { batchId: dispatched.batchId });
+    if (claim.kind !== "claimed") throw new Error("not claimed");
+    await s.t.run((ctx) => ctx.db.patch(dispatched.batchId, { leaseExpiresAt: Date.now() }));
+    await s.t.mutation(internal.seedRuns.expireAttempt, { batchId: dispatched.batchId, attemptId: "another-attempt" });
+    expect(await s.t.run((ctx) => ctx.db.get(dispatched.batchId))).toMatchObject({ status: "running" });
+    await s.t.run((ctx) => ctx.db.patch(dispatched.batchId, { leaseExpiresAt: Date.now() + 60_000 }));
+    await s.t.mutation(completeRef, { batchId: dispatched.batchId, attemptId: claim.batch.attemptId, requestsMade: 1, seeds: validBatch });
+    await s.t.run((ctx) => ctx.db.patch(dispatched.batchId, { leaseExpiresAt: Date.now() }));
+    await s.t.mutation(internal.seedRuns.expireAttempt, { batchId: dispatched.batchId, attemptId: claim.batch.attemptId });
+    expect(await s.t.run((ctx) => ctx.db.get(dispatched.batchId))).toMatchObject({ status: "shown" });
   });
 
   it("refuses a queued claim at its exact lease boundary before the reaper runs", async () => {

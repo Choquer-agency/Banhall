@@ -4,6 +4,7 @@ import {
   findDashConnectors,
   isDashClean,
   RULES_HUMAN_PROSE,
+  RULES_SEED_WORDING,
 } from "./humanProse";
 
 const hits = (t: string) => findDashConnectors(t).length;
@@ -27,16 +28,24 @@ describe("findDashConnectors", () => {
     expect(hits("Étude – résumé")).toBe(1);
   });
 
-  it("leaves compounds, ranges, closed en dashes, and minus signs alone", () => {
+  it("leaves hyphenated compounds, hyphen ranges, paired names, and minus signs alone", () => {
     const clean = [
       "Wall-to-batch heat transfer in the in-situ reactor ran 10-20 minutes over 2019-2024.",
-      "Held at -5 °C with a five-year plan, a 3–1 result, pH 7-8, ISO 9001-2015, part AB-123-X.",
-      "The Newton–Raphson solver on a Ni–Cd cell, plotted on a T–S diagram, pp. 12–15.",
+      "Held at -5 °C with a five-year plan, a 3-1 result, pH 7-8, ISO 9001-2015, part AB-123-X.",
+      "The Newton-Raphson solver on a Ni-Cd cell, plotted on a T-S diagram, pp. 12-15.",
       "For 10 - 20 minutes over the 2019 - 2024 period at 5% - 10%.",
       "Where a - b = c and T2 - T1 = ΔT.",
     ].join(" ");
     expect(findDashConnectors(clean)).toEqual([]);
     expect(isDashClean(clean)).toBe(true);
+  });
+
+  it("flags every en dash and typographic hyphen, closed ranges and paired names included (dashfix)", () => {
+    expect(hits("a 3–1 result")).toBe(1);
+    expect(hits("The Newton–Raphson solver")).toBe(1);
+    expect(hits("pp. 12–15")).toBe(1);
+    expect(hits("non\u2010linear, non\u2011breaking, figure\u2012dash")).toBe(3);
+    expect(isDashClean("2019–2024")).toBe(false);
   });
 
   it("ignores dashes that are line structure, not punctuation", () => {
@@ -81,5 +90,20 @@ describe("RULES_HUMAN_PROSE", () => {
   it("is the always-on block the writing agents receive", () => {
     expect(RULES_HUMAN_PROSE).toMatch(/^HUMAN PROSE \(MANDATORY/);
     expect(RULES_HUMAN_PROSE).toContain("Never use an em dash");
+  });
+
+  it("carries the dashfix hyphen rule and copywriting's plain-language rules, not its sales tactics", () => {
+    expect(RULES_HUMAN_PROSE).toContain('the plain hyphen "-" is the only dash');
+    expect(RULES_HUMAN_PROSE).toContain("Ranges and paired names take the plain hyphen");
+    expect(RULES_HUMAN_PROSE).toContain("Verbatim quotations");
+    expect(RULES_HUMAN_PROSE).toContain("Clear over clever");
+    expect(RULES_HUMAN_PROSE).toContain("no calls to action, rhetorical questions, jokes or benefit claims");
+  });
+});
+
+describe("RULES_SEED_WORDING", () => {
+  it("never tells a Seed to split into two sentences and contains no dash of its own", () => {
+    expect(RULES_SEED_WORDING).toContain("never split a bullet into two sentences");
+    expect(findDashConnectors(RULES_SEED_WORDING)).toEqual([]);
   });
 });

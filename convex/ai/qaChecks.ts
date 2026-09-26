@@ -310,20 +310,20 @@ export function runDeterministicChecks(
 ): string {
   const because = checkBecauseClauses(section242);
 
-  let summary = `## Pre-Computed Structural Checks (VERIFIED PROGRAMMATICALLY — use these as given, do not re-evaluate)\n\n`;
+  let summary = `## Pre-Computed Structural Checks (VERIFIED PROGRAMMATICALLY: use these as given, do not re-evaluate)\n\n`;
 
   // CRA openers
   summary += `### CRA Opener Detection (246 advancement paragraphs)\n`;
   if (overrides.reportSkeleton) {
-    summary += `WAIVED by writer profile — this writer's own document defines the section architecture, so positional opener detection does not apply. Do not deduct for missing signal phrases.\n`;
+    summary += `WAIVED by writer profile: this writer's own document defines the section architecture, so positional opener detection does not apply. Do not deduct for missing signal phrases.\n`;
   } else if (overrides.openingClauses) {
-    summary += `WAIVED (house rule off by default, or waived by writer profile) — literal opening clauses are not required for this writer. Do not deduct for missing signal phrases.\n`;
+    summary += `WAIVED (house rule off by default, or waived by writer profile): literal opening clauses are not required for this writer. Do not deduct for missing signal phrases.\n`;
   } else {
     const openers = checkCRAOpeners(section246);
     summary += `Scanned every paragraph after the opening paragraph. The default skeleton mandates no paragraph count, so decide by content which of these are advancement paragraphs; a scanned ${pdSubsectionRoleLabel("project_status", "qaScan")} or ${pdSubsectionRoleLabel("goal_improvements", "qaScan")} paragraph does not count.\n`;
     summary += `Qualifying openers found: ${openers.count}/${openers.total}\n`;
     for (const r of openers.results) {
-      summary += `- P${r.paragraph}: ${r.passes ? "PASS" : "FAIL"} — "${r.firstSentence}"\n`;
+      summary += `- P${r.paragraph}: ${r.passes ? "PASS" : "FAIL"}: "${r.firstSentence}"\n`;
     }
   }
   summary += `\n`;
@@ -332,14 +332,14 @@ export function runDeterministicChecks(
   summary += `### BECAUSE Clause Detection (242, all paragraphs)\n`;
   summary += `Uncertainties with BECAUSE clauses: ${because.withBecause}/${because.uncertaintyCount}\n`;
   for (const d of because.details) {
-    summary += `- ${d.hasBecause ? "PASS" : "FAIL"} — "${d.excerpt}"\n`;
+    summary += `- ${d.hasBecause ? "PASS" : "FAIL"}: "${d.excerpt}"\n`;
   }
   summary += `\n`;
 
   // Banned words
   summary += `### Banned Word Scan\n`;
   if (overrides.bannedWords) {
-    summary += `WAIVED by writer profile — the default banned-word list does not apply to this writer. Do not flag or deduct for those terms.\n`;
+    summary += `WAIVED by writer profile: the default banned-word list does not apply to this writer. Do not flag or deduct for those terms.\n`;
   } else {
     const banned = checkBannedWords(section242, section244, section246);
     if (banned.found.length === 0) {
@@ -369,7 +369,7 @@ export function runDeterministicChecks(
   // Repetition
   summary += `### Repetition Count\n`;
   if (overrides.repetitionCaps) {
-    summary += `WAIVED by writer profile — repetition caps do not apply to this writer. Do not flag or deduct for phrase repetition.\n`;
+    summary += `WAIVED by writer profile: repetition caps do not apply to this writer. Do not flag or deduct for phrase repetition.\n`;
   } else {
     const repetition = checkRepetition(section242, section244, section246);
     summary += `- "systematic investigation/experimentation": ${repetition.systematicInvestigation} occurrences ${repetition.systematicInvestigation > 3 ? "(OVER LIMIT of 3)" : "(within limit)"}\n`;

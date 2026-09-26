@@ -7,6 +7,7 @@
   import DateRangePicker from "$lib/components/ui/DateRangePicker.svelte";
   import { cad, USD_TO_CAD } from "$lib/currency";
   import { goto } from "$app/navigation";
+  import { goToLogin } from "$lib/auth/goToLogin";
   import { useQuery } from "convex-svelte";
   import { useStableQuery } from "$lib/stableQuery.svelte";
   import { useAuth } from "@mmailaender/convex-better-auth-svelte/svelte";
@@ -69,7 +70,7 @@
 
   $effect(() => {
     if (!auth.isLoading && !auth.isAuthenticated) {
-      goto(resolve("/login"), { replaceState: true });
+      goToLogin();
     } else if (accessQ.data === false) {
       goto(resolve("/dashboard"), { replaceState: true });
     }
@@ -109,7 +110,7 @@
   </div>
 {:else}
   <AdminWorkspacePage
-    title="AI usage & cost"
+    title="AI usage and cost"
     description={`Token consumption and estimated spend in CAD at a ${USD_TO_CAD.toFixed(2)} USD conversion rate.`}
   >
 

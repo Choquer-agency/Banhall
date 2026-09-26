@@ -434,7 +434,7 @@ describe("project duplication", () => {
     });
 
     const result = await asActor(t, "owner").mutation(
-      api.projects.prepareProjectContentCopy,
+      internal.projects.prepareProjectContentCopy,
       {
         fromProjectId: projectId,
         toProjectId: destinationProjectId,
@@ -510,10 +510,9 @@ describe("project duplication", () => {
 });
 
 describe("copied running PD reviews", () => {
-  const copyEntries = [
-    api.projects.prepareProjectContentCopy,
-    api.projects.copyProjectDocuments,
-  ];
+  // The legacy public copyProjectDocuments is gone (owner decision 35,
+  // 2026-09-25); the internal prepare mutation is the one row copy.
+  const copyEntries = [internal.projects.prepareProjectContentCopy];
   const copyTime = 1_800_000_000_000;
 
   async function fixture() {
@@ -672,7 +671,10 @@ describe("copied running PD reviews", () => {
       expect(copied.status).toBe("failed");
       expect(copied.error).toMatch(/source.*still running.*duplicated/i);
       expect(copied.documentId).not.toBe(source.documentId);
-      const retryId = await actor.mutation(api.pdReviews.retryPdReview, { reviewId: copied._id });
+      // Retrying a review needs report.editProse on the destination, which
+      // its Owner (the other writer) holds.
+      const destinationOwner = asActor(t, "writer");
+      const retryId = await destinationOwner.mutation(api.pdReviews.retryPdReview, { reviewId: copied._id });
       expect(retryId).not.toBe(copied._id);
       const after = await snapshot(t);
       expect(after.reviews.find((row) => row._id === retryId)).toMatchObject({
@@ -691,7 +693,7 @@ describe("copied running PD reviews", () => {
       })]);
       // Once this destination has a running retry, the normal guard still
       // rejects a second retry of the copied failed row without side effects.
-      await expect(actor.mutation(api.pdReviews.retryPdReview, {
+      await expect(destinationOwner.mutation(api.pdReviews.retryPdReview, {
         reviewId: copied._id,
       })).rejects.toMatchObject({ data: {
         code: "INVALID_INPUT", message: "A review is already running for this project",
@@ -1665,6 +1667,21 @@ describe("project number auto-lettering (meeting 2026-08-18)", () => {
     expect(c?.projectNumber).toBe("1c");
   });
 
+  // Security wave 1 (a2 P3-2): the bare sibling is renamed only when the
+  // caller may edit that project's details; otherwise it keeps "1" (read as
+  // the "a" slot) and the caller's project still takes the next letter.
+  test("leaves a sibling the caller cannot edit alone and still letters the caller's project", async () => {
+    const { t, siblings, writerId } = await setupSiblings();
+    await t.run((ctx) => ctx.db.patch(siblings.a, { ownerId: writerId, projectNumber: "1" }));
+    await asActor(t, "owner").mutation(api.projects.setProjectNumber, {
+      projectId: siblings.b,
+      projectNumber: "1",
+    });
+    const [a, b] = await t.run(async (ctx) => [await ctx.db.get(siblings.a), await ctx.db.get(siblings.b)]);
+    expect(a?.projectNumber).toBe("1");
+    expect(b?.projectNumber).toBe("1b");
+  });
+
   test("re-applying the same number to the same project does not self-collide", async () => {
     const { t, siblings } = await setupSiblings();
     await asActor(t, "owner").mutation(api.projects.setProjectNumber, {
@@ -2025,5 +2042,188 @@ describe("seedDemoProject writes a listable transcript row", () => {
     expect(rows[0].label).toBe("Cascade Hydroponics interview");
     expect(rows[0].position).toBe(0);
     expect(rows[0].contentHash).toMatch(/^[0-9a-f]{64}$/);
+  });
+});
+
+describe("getProjectDetailsPanel (Details panel, 2026-09-24)", () => {
+  async function panelSetup() {
+    const t = convexTest(schema, modules);
+    const ids = await t.run(async (ctx) => {
+      const ownerId = await ctx.db.insert("users", { authId: "dp-owner", role: "writer", firstName: "Owen", lastName: "Park" });
+      const viewerId = await ctx.db.insert("users", { authId: "dp-viewer", role: "writer", firstName: "Vera" });
+      const reviewerId = await ctx.db.insert("users", { authId: "dp-reviewer", role: "writer", firstName: "Sam", lastName: "Chen" });
+      const managerId = await ctx.db.insert("users", { authId: "dp-manager", role: "manager", firstName: "Mara" });
+      await ctx.db.insert("users", { authId: "dp-roleless", firstName: "None" });
+      const projectId = await ctx.db.insert("projects", {
+        title: "Details project", clientName: "Client", status: "review", createdBy: ownerId, ownerId,
+        shareToken: "details-project", workflowStage: "drafting", workflowVersion: 0,
+        industry: "manufacturing", fiscalYearEnd: Date.UTC(2026, 5, 30), scienceCode: "2.03.01",
+        projectNumber: "3", createdAt: 1_000, updatedAt: 2_000,
+      });
+      return { ownerId, viewerId, reviewerId, managerId, projectId };
+    });
+    return {
+      t, ...ids,
+      owner: t.withIdentity({ subject: "dp-owner" }),
+      viewer: t.withIdentity({ subject: "dp-viewer" }),
+      reviewer: t.withIdentity({ subject: "dp-reviewer" }),
+      manager: t.withIdentity({ subject: "dp-manager" }),
+      roleless: t.withIdentity({ subject: "dp-roleless" }),
+    };
+  }
+
+  test("returns the contract shape for the Owner with no handoff", async () => {
+    const f = await panelSetup();
+    const panel = await f.owner.query(api.projects.getProjectDetailsPanel, { projectId: f.projectId });
+    expect(panel).toEqual({
+      stage: "drafting",
+      workflowVersion: 0,
+      industry: "manufacturing",
+      fiscalYearEnd: Date.UTC(2026, 5, 30),
+      scienceCode: "2.03.01",
+      projectNumber: "3",
+      owner: { userId: f.ownerId, label: "Owen Park", initials: "OP", isYou: true },
+      createdAt: 1_000,
+      editedAt: 2_000,
+      currentHandoff: null,
+      permissions: { canEditDetails: true, canChangeStage: true, canHandOff: true },
+    });
+  });
+
+  test("shows the current handoff and moves editedAt with a stage change", async () => {
+    const f = await panelSetup();
+    const { workItemId } = await f.owner.mutation(api.workItems.handOff, {
+      projectId: f.projectId, assigneeId: f.reviewerId, stage: "internal_review",
+      note: "Please check 242", expectedWorkflowVersion: 0, createRequestId: "dp-handoff",
+    });
+    const panel = await f.owner.query(api.projects.getProjectDetailsPanel, { projectId: f.projectId });
+    expect(panel?.stage).toBe("internal_review");
+    expect(panel?.workflowVersion).toBe(1);
+    expect(panel?.currentHandoff).toEqual({
+      workItemId, assigneeId: f.reviewerId, assigneeLabel: "Sam Chen", initials: "SC",
+      isYou: false, note: "Please check 242",
+    });
+    const project = await f.t.run((ctx) => ctx.db.get(f.projectId));
+    expect(project?.updatedAt).toBe(2_000);
+    expect(panel?.editedAt).toBe(project?.workflowUpdatedAt);
+    expect(panel!.editedAt).toBeGreaterThan(2_000);
+
+    // The reviewer holds the handoff: they may edit details and complete the
+    // review, but not hand the project on.
+    const asReviewer = await f.reviewer.query(api.projects.getProjectDetailsPanel, { projectId: f.projectId });
+    expect(asReviewer?.currentHandoff?.isYou).toBe(true);
+    expect(asReviewer?.owner?.isYou).toBe(false);
+    expect(asReviewer?.permissions).toEqual({ canEditDetails: true, canChangeStage: true, canHandOff: false });
+  });
+
+  test("editedAt follows a plain stage change", async () => {
+    const f = await panelSetup();
+    await f.owner.mutation(api.projectWorkflow.setWorkflowStage, {
+      projectId: f.projectId, toStage: "client_review", expectedVersion: 0,
+    });
+    const panel = await f.owner.query(api.projects.getProjectDetailsPanel, { projectId: f.projectId });
+    const project = await f.t.run((ctx) => ctx.db.get(f.projectId));
+    expect(panel?.stage).toBe("client_review");
+    expect(panel?.editedAt).toBe(project?.workflowUpdatedAt);
+    expect(panel!.editedAt).toBeGreaterThan(project!.updatedAt);
+  });
+
+  test("gives a viewer no edit, stage or handoff permission and a Manager all three", async () => {
+    const f = await panelSetup();
+    const asViewer = await f.viewer.query(api.projects.getProjectDetailsPanel, { projectId: f.projectId });
+    expect(asViewer?.owner).toMatchObject({ userId: f.ownerId, isYou: false });
+    expect(asViewer?.permissions).toEqual({ canEditDetails: false, canChangeStage: false, canHandOff: false });
+    const asManager = await f.manager.query(api.projects.getProjectDetailsPanel, { projectId: f.projectId });
+    expect(asManager?.permissions).toEqual({ canEditDetails: true, canChangeStage: true, canHandOff: true });
+  });
+
+  test("returns null to a roleless or signed-out caller", async () => {
+    const f = await panelSetup();
+    expect(await f.roleless.query(api.projects.getProjectDetailsPanel, { projectId: f.projectId })).toBeNull();
+    await expect(f.t.query(api.projects.getProjectDetailsPanel, { projectId: f.projectId })).resolves.toBeNull();
+  });
+
+  test("uses null for absent facts and a stale handoff pointer", async () => {
+    const f = await panelSetup();
+    await f.t.run(async (ctx) => {
+      const itemId = await ctx.db.insert("workItems", {
+        projectId: f.projectId, kind: "other", assigneeId: f.reviewerId, assignerId: f.ownerId,
+        dueSortAt: 1, instructions: "", blocking: true, status: "canceled", version: 1,
+        createRequestId: "dp-stale", createRequestFingerprint: "dp-stale", createdAt: 1, updatedAt: 1,
+      });
+      await ctx.db.patch(f.projectId, {
+        industry: undefined, fiscalYearEnd: undefined, scienceCode: undefined, projectNumber: undefined,
+        workflowStage: undefined, currentHandoffId: itemId,
+      });
+    });
+    const panel = await f.owner.query(api.projects.getProjectDetailsPanel, { projectId: f.projectId });
+    expect(panel).toMatchObject({
+      stage: "intake", industry: null, fiscalYearEnd: null, scienceCode: null, projectNumber: null,
+      currentHandoff: null,
+    });
+  });
+});
+
+describe("findSameProject (E6)", () => {
+  const FYE_2026 = Date.UTC(2026, 5, 30);
+  async function withExisting() {
+    const f = await setup();
+    await f.t.run((ctx) => ctx.db.patch(f.ownerId, { firstName: "Priya", lastName: "Shah" }));
+    const { projectId } = await asActor(f.t, "owner").mutation(api.projects.createProject, {
+      title: "Adaptive Heat-Recovery Controller",
+      clientName: "Cedarline Systems",
+      fiscalYearEnd: FYE_2026,
+      mode: "generate",
+      transcripts: [],
+    });
+    return { ...f, existingId: projectId };
+  }
+  const query = (overrides: Partial<{ clientName: string; title: string; fiscalYearEnd: number }> = {}) => ({
+    clientName: "cedarline  systems",
+    title: "Adaptive heat recovery controller.",
+    fiscalYearEnd: Date.UTC(2026, 11, 31),
+    ...overrides,
+  });
+
+  test("matches client, title and fiscal year, ignoring case, spacing and punctuation", async () => {
+    const f = await withExisting();
+    const match = await asActor(f.t, "writer").query(api.projects.findSameProject, query());
+    const existing = await getProject(f.t, f.existingId);
+    expect(match).toEqual({
+      projectId: f.existingId,
+      title: "Adaptive Heat-Recovery Controller",
+      clientName: "Cedarline Systems",
+      workflowStage: existing?.workflowStage ?? null,
+      ownerName: "Priya Shah",
+      updatedAt: existing?.updatedAt,
+    });
+  });
+
+  test("a different year, title or client is not the same project", async () => {
+    const f = await withExisting();
+    const writer = asActor(f.t, "writer");
+    expect(await writer.query(api.projects.findSameProject, query({ fiscalYearEnd: Date.UTC(2025, 5, 30) }))).toBeNull();
+    expect(await writer.query(api.projects.findSameProject, query({ title: "Heat recovery controller" }))).toBeNull();
+    expect(await writer.query(api.projects.findSameProject, query({ clientName: "Cedar Line" }))).toBeNull();
+  });
+
+  test("skips a project being deleted", async () => {
+    const f = await withExisting();
+    await f.t.run((ctx) => ctx.db.patch(f.existingId, { deletionStartedAt: Date.now() }));
+    expect(await asActor(f.t, "writer").query(api.projects.findSameProject, query())).toBeNull();
+  });
+
+  test("serves every internal role and refuses a roleless or anonymous caller", async () => {
+    const f = await withExisting();
+    for (const actor of ["writer", "manager", "admin"] as const) {
+      expect(
+        (await asActor(f.t, actor).query(api.projects.findSameProject, query()))?.projectId,
+        actor
+      ).toBe(f.existingId);
+    }
+    await expect(asActor(f.t, "roleless").query(api.projects.findSameProject, query())).rejects.toThrow(
+      /internal role/
+    );
+    await expect(f.t.query(api.projects.findSameProject, query())).rejects.toThrow();
   });
 });

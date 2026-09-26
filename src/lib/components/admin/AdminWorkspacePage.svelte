@@ -9,6 +9,8 @@
   import AppNav from "$lib/components/ui/AppNav.svelte";
   import PageBar from "$lib/components/ui/PageBar.svelte";
   import WorkspaceChrome from "$lib/components/workspace/WorkspaceChrome.svelte";
+  import { IconShield } from "$lib/components/icons";
+  import { resolve } from "$app/paths";
 
   let {
     title,
@@ -27,6 +29,7 @@
   } = $props();
 
   const useCurrentPresentation = $derived(page.url.searchParams.get("workspace") === "current");
+
   const contentWidth = $derived(
     width === "compact" ? "max-w-3xl" : "max-w-[var(--container-shell)]"
   );
@@ -53,24 +56,37 @@
     </main>
   </div>
 {:else}
+  <!-- Round 2 B3: 56px top bar with the shield tile and "Admin / {title}",
+       page actions in the top bar, then the padded panel with the serif
+       heading and description. Full width, no sub-rail. While a developer
+       views Banhall as a role without settings.configure, WorkspaceChrome
+       shows the D4 hidden-page state instead (`viewAsGate`). -->
   <WorkspaceChrome
     {title}
-    {description}
+    icon={IconShield}
+    breadcrumb={{ label: "Admin", href: resolve("/admin/house-rules") }}
     theme="light"
+    panel={flush ? "flush" : "padded"}
+    padding="admin"
+    viewAsGate="admin"
     currentExperienceHref={currentPresentationHref}
     currentExperienceLabel="Current admin page"
     {actions}
   >
-    <!-- Workspace presentation is full width (2026-08-10 direction: every
-         page except Home spans the plane); the `?workspace=current`
-         rollback keeps its centered widths above. -->
     <div
       data-admin-presentation="workspace"
       data-admin-content-width={width}
       data-admin-content-flush={flush ? "" : undefined}
-      class={flush ? "w-full" : "w-full page-gutter page-gutter-y pb-8"}
+      class="flex w-full flex-col"
     >
-      {@render children()}
+      <header data-admin-page-heading class={`flex flex-col gap-1 ${flush ? "px-5 pt-7 md:px-10" : ""}`}>
+        <h2 class="font-serif text-[28px] font-normal leading-[34px] text-ink">{title}</h2>
+        <!-- B3: the description is 14/20 in muted ink (the board, not the spec's 15px). -->
+        {#if description}<p data-admin-page-description class="text-sm leading-5 text-ink-muted">{description}</p>{/if}
+      </header>
+      <div class="pt-5">
+        {@render children()}
+      </div>
     </div>
   </WorkspaceChrome>
 {/if}

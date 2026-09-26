@@ -246,6 +246,8 @@ export type FrozenSeedActionInput = {
       | "contentHash"
       | "truncated"
       | "originalLength"
+      | "transcriptId"
+      | "factSpans"
     >
   >;
   writerSettings: {
@@ -319,14 +321,23 @@ export async function loadFrozenSeedActionInput(
       ),
     MAX_SEED_SOURCE_ROWS,
   );
-  const settingsRead = await budget.one(() =>
-    ctx.db
-      .query("generationArtifacts")
-      .withIndex("by_generationId_and_kind", (q) =>
-        q.eq("generationId", args.generation._id).eq("kind", "brain_blocks"),
-      )
-      .unique(),
-  );
+  // The frozen writer style: its own artifact since the reordered start
+  // (owner decision 32, 2026-09-25), so Seeds never wait for Brain
+  // retrieval; inside `brain_blocks` for generations started before it.
+  const styleArtifact = (kind: "writer_style" | "brain_blocks") =>
+    budget.one(() =>
+      ctx.db
+        .query("generationArtifacts")
+        .withIndex("by_generationId_and_kind", (q) =>
+          q.eq("generationId", args.generation._id).eq("kind", kind),
+        )
+        .unique(),
+    );
+  const styleRead = await styleArtifact("writer_style");
+  const settingsRead =
+    styleRead.kind === "loaded" && styleRead.value === null
+      ? await styleArtifact("brain_blocks")
+      : styleRead;
   if (
     !entryRead.complete ||
     !sourceRead.complete ||
@@ -379,14 +390,21 @@ export async function loadFrozenSeedActionInput(
         endOffset: entry.endOffset,
         exactExcerpt: entry.exactExcerpt,
       })),
+    // Every frozen source, digested transcripts included: provenance
+    // validation needs them all, since a Brief citation can point at the
+    // original transcript. buildSeedPrompt picks the digest-only view.
     sources: sources.map((source) => ({
       _id: source._id,
       kind: source.kind,
       label: source.label,
       content: source.content,
       contentHash: source.contentHash,
+      ...(source.transcriptId ? { transcriptId: source.transcriptId } : {}),
       truncated: source.truncated,
       originalLength: source.originalLength,
+      // 2026-09-24 (transcript method): the verified spans behind each fact
+      // id of a frozen pack, which a Seed citing a fact resolves to.
+      ...(source.factSpans ? { factSpans: source.factSpans } : {}),
     })),
     writerSettings: {
       profile: args.generation.writerSettings,

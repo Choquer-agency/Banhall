@@ -2,12 +2,13 @@
   import AppNav from "$lib/components/ui/AppNav.svelte";
   import PageBar from "$lib/components/ui/PageBar.svelte";
   import WorkspaceChrome from "$lib/components/workspace/WorkspaceChrome.svelte";
+  import { IconMegaphone } from "$lib/components/icons";
   import WorkspaceGate from "$lib/workspace/WorkspaceGate.svelte";
   import Spinner from "$lib/components/ui/Spinner.svelte";
   import Button from "$lib/components/ui/Button.svelte";
   import SelectInput from "$lib/components/ui/SelectInput.svelte";
   import { userErrorMessage } from "$lib/errors";
-  import { goto } from "$app/navigation";
+  import { goToLogin } from "$lib/auth/goToLogin";
   import { useQuery, useMutation } from "convex-svelte";
   import { useAuth } from "@mmailaender/convex-better-auth-svelte/svelte";
   import { Streamdown } from "svelte-streamdown";
@@ -27,7 +28,7 @@
 
   $effect(() => {
     if (!auth.isLoading && !auth.isAuthenticated) {
-      goto("/login", { replaceState: true });
+      goToLogin();
     }
   });
 
@@ -194,7 +195,7 @@
       </div>
     {/snippet}
     {#snippet preview()}
-      <WorkspaceChrome title="What's new" description="Features and fixes shipped to Banhall">
+      <WorkspaceChrome title="What's new" description="Features and fixes shipped to Banhall" icon={IconMegaphone}>
         {#snippet children()}
           {@render changelogContent(false)}
         {/snippet}

@@ -1,16 +1,25 @@
 "use node";
 
-import { internalAction } from "../_generated/server";
+import { internalAction, type ActionCtx } from "../_generated/server";
+import type { Id } from "../_generated/dataModel";
 import { internal } from "../_generated/api";
 import { v } from "convex/values";
-import { instrumentedAnthropic } from "./instrument";
+import { clientForRole } from "./providers";
+import { withPlaceholders } from "./placeholderClient";
+import { avoidTokenCollisions } from "../lib/deidentify";
 import { PD_REVIEW_SYSTEM_PROMPT } from "./prompts";
 import { generateStructured } from "./structured";
+import { startActionDeadline } from "./actionDeadline";
 import { pdReviewResultSchema } from "../../shared/pdReview";
 import type { z } from "zod";
-import { MODEL } from "./model";
 import type { ContextDoc } from "./analyzerAgent";
 import { normalizeProviderError } from "./providers";
+import {
+  CHARS_PER_TOKEN,
+  cutToBudget,
+  formatCount,
+  truncationNotice,
+} from "./trustedContext";
 
 /** BNH-39: structured feedback report for an externally written PD. */
 export interface PdReviewResult {
@@ -22,7 +31,10 @@ export interface PdReviewResult {
   suggested_strengthening: string[];
 }
 
-const PD_REVIEW_SCHEMA = {
+export const PD_REVIEW_TOOL = "submit_pd_review";
+export const PD_REVIEW_MAX_TOKENS = 4096;
+
+export const PD_REVIEW_SCHEMA = {
   type: "object",
   properties: {
     summary: {
@@ -47,7 +59,7 @@ const PD_REVIEW_SCHEMA = {
       type: "array",
       items: { type: "string" },
       description:
-        "Areas to improve — eligibility or audit risks, each referencing the offending passage.",
+        "Areas to improve: eligibility or audit risks, each referencing the offending passage.",
     },
     suggested_strengthening: {
       type: "array",
@@ -65,12 +77,125 @@ const PD_REVIEW_SCHEMA = {
   ],
 } as const;
 
+/**
+ * Input budget for a PD review (cost phase 1). The review used to send the
+ * written PD, every transcript joined and every supporting document whole,
+ * with no bound. The PD under review is the primary input and is spent
+ * first; the transcript and the documents follow in that order. Starting
+ * values sized like the analyzer's (150k tokens overall).
+ */
+export const PD_REVIEW_INPUT_BUDGET = {
+  totalTokens: 150_000,
+  pdTokens: 60_000,
+  transcriptTokens: 60_000,
+  perDocumentTokens: 10_000,
+  maxDocuments: 12,
+} as const;
+
+/**
+ * 2026-09-24 (transcript method, plan step 8): the heading over the verified
+ * fact packs that replace the transcript text when every transcript has
+ * them. Each pack quotes the client verbatim.
+ */
+export const PD_REVIEW_FACTS_HEADING =
+  "## Verified interview facts (context; quotes are verbatim from the transcripts)";
+
+export type PdReviewInputBudget = {
+  totalTokens: number;
+  pdTokens: number;
+  transcriptTokens: number;
+  perDocumentTokens: number;
+  maxDocuments: number;
+};
+
+/**
+ * The review's user message, deterministic for the same inputs. A cut keeps
+ * a prefix and says how much was dropped; documents that do not fit at all
+ * are counted in one closing line rather than silently disappearing.
+ */
+export function buildPdReviewUserMessage(
+  input: {
+    title: string;
+    clientName: string;
+    fileName: string;
+    pdContent: string;
+    transcript: string;
+    /** `facts` when `transcript` holds the verified fact packs (plan step 8). */
+    transcriptKind?: "text" | "facts";
+  },
+  contextDocs: ReadonlyArray<Pick<ContextDoc, "fileName" | "category" | "content">>,
+  budget: PdReviewInputBudget = PD_REVIEW_INPUT_BUDGET
+): string {
+  const chars = (tokens: number) => Math.max(0, tokens) * CHARS_PER_TOKEN;
+  let remaining = chars(budget.totalTokens);
+  const spend = (text: string, capTokens: number): string | null => {
+    const kept = cutToBudget(text, Math.min(chars(capTokens), remaining));
+    if (!kept.length) return null;
+    remaining -= kept.length;
+    return kept.length < text.length
+      ? `${kept}\n${truncationNotice(text.length - kept.length, text.length)}`
+      : kept;
+  };
+  const parts = [
+    `Review the following SR&ED Project Description for "${input.title}" (client: ${input.clientName}).`,
+    `## Written PD under review (${input.fileName})\n${spend(input.pdContent, budget.pdTokens) ?? ""}`,
+  ];
+  if (input.transcript) {
+    const transcript = spend(input.transcript, budget.transcriptTokens);
+    const heading =
+      input.transcriptKind === "facts"
+        ? PD_REVIEW_FACTS_HEADING
+        : "## Interview transcript (context)";
+    parts.push(
+      `${heading}\n${transcript ?? truncationNotice(input.transcript.length, input.transcript.length)}`
+    );
+  }
+  let omitted = 0;
+  contextDocs.forEach((doc, index) => {
+    const body = index < budget.maxDocuments ? spend(doc.content, budget.perDocumentTokens) : null;
+    if (body === null) {
+      omitted += 1;
+      return;
+    }
+    parts.push(`## Supporting document: ${doc.fileName} (${doc.category})\n${body}`);
+  });
+  if (omitted > 0) {
+    parts.push(
+      `[${formatCount(omitted)} further supporting document(s) were omitted to fit the context budget.]`
+    );
+  }
+  return parts.join("\n\n");
+}
+
+/** Every listed pack, or null when any is missing or cannot be read. */
+async function livePacks(
+  ctx: ActionCtx,
+  plan: ReadonlyArray<{ transcriptId: Id<"transcripts">; position: number; label: string }>
+): Promise<string[] | null> {
+  if (plan.length === 0) return null;
+  const packs: string[] = [];
+  for (const entry of plan) {
+    try {
+      const pack = await ctx.runQuery(internal.transcriptDigests.renderLiveFactPack, entry);
+      if (pack === null) return null;
+      packs.push(pack);
+    } catch (error) {
+      console.warn("A fact pack could not be read for the PD review", error instanceof Error ? error.message : String(error));
+      return null;
+    }
+  }
+  return packs;
+}
+
 export const runPdReview = internalAction({
   args: {
     reviewId: v.id("pdReviews"),
     projectId: v.id("projects"),
   },
   handler: async (ctx, args) => {
+    // Every request ends inside the Convex action limit (actionDeadline.ts),
+    // so a slow review fails here instead of being killed mid-run.
+    startActionDeadline(ctx);
     try {
       const input = await ctx.runQuery(internal.pdReviews.getReviewInput, {
         reviewId: args.reviewId,
@@ -78,37 +203,45 @@ export const runPdReview = internalAction({
       if (!input || !input.pdContent.trim()) {
         throw new Error("Uploaded PD has no extractable text");
       }
-      const contextDocs: ContextDoc[] = await ctx.runQuery(
-        internal.documents.getContextDocsForGeneration,
-        { projectId: args.projectId }
-      );
+      // Plan step 8: the verified fact packs replace the transcript text when
+      // every transcript has them. Each renders in its own query; any gap or
+      // failure keeps today's text (review 2026-09-25, P3-7).
+      const packs = await livePacks(ctx, input.factPacks);
+      const reviewInput = packs
+        ? { ...input, transcript: packs.join("\n\n"), transcriptKind: "facts" as const }
+        : { ...input, transcriptKind: "text" as const };
+      // The project's context documents minus any the writer left out of
+      // this review (decision 56).
+      const contextDocs: ContextDoc[] = input.contextDocs;
 
-      const parts = [
-        `Review the following SR&ED Project Description for "${input.title}" (client: ${input.clientName}).`,
-        `## Written PD under review (${input.fileName})\n${input.pdContent}`,
-      ];
-      if (input.transcript) {
-        parts.push(`## Interview transcript (context)\n${input.transcript}`);
-      }
-      for (const doc of contextDocs) {
-        parts.push(
-          `## Supporting document — ${doc.fileName} (${doc.category})\n${doc.content}`
-        );
-      }
 
-      const anthropic = instrumentedAnthropic(ctx, {
+      // Model catalog: PD review runs on the pd_review role's model.
+      const { client: roleClient, model } = await clientForRole(ctx, "pd_review", {
         callSite: "pd_review",
         capability: "review",
         projectId: args.projectId,
         ...(input.createdBy ? { userId: input.createdBy } : {}),
       });
-      const result = await generateStructured<PdReviewResult>(anthropic, {
+      // Owner decision 26 (2026-09-24): names become placeholders in the
+      // request, and the review is restored before it is stored.
+      // Checked against every text the call sends, so a source that already
+      // holds placeholder-style tokens never has them restored into names.
+      const client = withPlaceholders(
+        roleClient,
+        avoidTokenCollisions(input.placeholders ?? [], [
+          input.pdContent,
+          reviewInput.transcript,
+          ...contextDocs.map((doc) => doc.content),
+        ])
+      );
+      const result = await generateStructured<PdReviewResult>(client, {
+        model,
         system: PD_REVIEW_SYSTEM_PROMPT,
-        user: parts.join("\n\n"),
-        toolName: "submit_pd_review",
+        user: buildPdReviewUserMessage(reviewInput, contextDocs),
+        toolName: PD_REVIEW_TOOL,
         description: "Submit the structured feedback report for the written PD.",
         schema: PD_REVIEW_SCHEMA as never,
-        maxTokens: 4096,
+        maxTokens: PD_REVIEW_MAX_TOKENS,
         // Validate before storing. An unreadable result used to be saved as
         // `completed`, which rendered a blank report the writer could not
         // retry (retry only accepts `failed`). Now it lands in the catch below
@@ -119,7 +252,7 @@ export const runPdReview = internalAction({
       await ctx.runMutation(internal.pdReviews.completePdReview, {
         reviewId: args.reviewId,
         result: JSON.stringify(result),
-        model: MODEL,
+        model,
       });
     } catch (error) {
       const normalized = normalizeProviderError(error);

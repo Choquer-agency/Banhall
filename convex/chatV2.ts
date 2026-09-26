@@ -25,8 +25,14 @@ import {
 import { requireAnthropicConfigured } from "./lib/providerConfig";
 import { pruneSnapshots, writePreEditSnapshot } from "./lib/snapshots";
 import { requireReportEditAccess } from "./lib/roleCapabilities";
+import { provenanceForEdit } from "./lib/editProvenance";
 import {
   applyReplacements,
+  headingEditRefusal,
+  highlightLocation,
+  locateSelection,
+  SELECTION_GONE,
+  type SelectionLocation,
   scrubBannedWords,
   type PMNode,
 } from "./lib/reportEdits";
@@ -61,6 +67,7 @@ import {
 } from "./ai/chatEvidence";
 import { projectRollingCostUsdUnits, usdDecimalUnits } from "./aiUsage";
 import type { Doc, Id } from "./_generated/dataModel";
+import { outputArtifact, outputsInArtifacts } from "./lib/generationOutputs";
 
 // ─── Agent-based chat plumbing (BNH-10 P2; sole pipeline since Jul 22) ───────
 // The @convex-dev/agent component owns threads/messages/stream deltas.
@@ -308,6 +315,45 @@ async function assertChatAdmission(
   }
 }
 
+/**
+ * The thread's queued or running turn other than `exceptPromptMessageId`, if
+ * any. A thread runs one turn at a time (a4 #17): two tabs, or a double send,
+ * must not stream two replies into one conversation and pay for both.
+ */
+async function otherActiveTurn(
+  ctx: QueryCtx,
+  agentThreadId: string,
+  exceptPromptMessageId?: string,
+  statuses: ReadonlyArray<"running" | "queued"> = ["running", "queued"]
+) {
+  for (const status of statuses) {
+    const turns = await ctx.db
+      .query("chatTurns")
+      .withIndex("by_agentThreadId_and_status", (q) =>
+        q.eq("agentThreadId", agentThreadId).eq("status", status)
+      )
+      .take(2);
+    const other = turns.find((turn) => turn.promptMessageId !== exceptPromptMessageId);
+    if (other) return other;
+  }
+  return null;
+}
+
+/** The report text the writer highlighted for a prompt, when the turn stored it. */
+async function turnHighlight(
+  ctx: QueryCtx,
+  agentThreadId: string,
+  promptMessageId: string
+): Promise<{ text: string; from: number; to: number } | undefined> {
+  const turn = await ctx.db
+    .query("chatTurns")
+    .withIndex("by_agentThreadId_and_promptMessageId", (q) =>
+      q.eq("agentThreadId", agentThreadId).eq("promptMessageId", promptMessageId)
+    )
+    .unique();
+  return turn?.highlight;
+}
+
 export const sendMessage = mutation({
   args: {
     reportId: v.id("reports"),
@@ -368,6 +414,13 @@ export const sendMessage = mutation({
 
     await assertChatAdmission(ctx, report.projectId, userId);
 
+    if (agentThreadId && (await otherActiveTurn(ctx, agentThreadId))) {
+      domainError(
+        "INVALID_STATE",
+        "A reply is still being written in this chat. Wait for it to finish, or press Stop if it seems stuck, then send again."
+      );
+    }
+
     if (!agentThreadId) {
       const title = args.content.trim().slice(0, 60) || "New chat";
       agentThreadId = await createThread(ctx, components.agent, { userId, title });
@@ -395,6 +448,23 @@ export const sendMessage = mutation({
       message: { role: "user", content: `${args.content}${excerpt}${refinement}` },
     });
 
+    // Keep the highlight's positions on the turn, so a proposal aimed at it
+    // is judged by where it sits. A regenerated prompt carries the excerpt in
+    // its text only: reuse the positions an earlier turn stored for it.
+    let highlight = args.highlight
+      ? { text: args.highlight.text, from: args.highlight.from, to: args.highlight.to }
+      : undefined;
+    const quoted = !highlight
+      ? /\[Writer highlighted this excerpt from the report\]:\n"""([\s\S]*?)"""/.exec(args.content)?.[1]
+      : undefined;
+    if (quoted) {
+      const earlier = await ctx.db
+        .query("chatTurns")
+        .withIndex("by_agentThreadId_and_order", (q) => q.eq("agentThreadId", agentThreadId))
+        .order("desc")
+        .take(50);
+      highlight = earlier.find((turn) => turn.highlight?.text === quoted)?.highlight;
+    }
     await ctx.db.insert("chatTurns", {
       userId,
       agentThreadId,
@@ -402,6 +472,7 @@ export const sendMessage = mutation({
       order: message.order,
       status: "queued",
       stepCount: 0,
+      ...(highlight ? { highlight } : {}),
     });
 
     await ctx.scheduler.runAfter(0, internal.ai.chatAgentV2.streamChatReply, {
@@ -538,7 +609,49 @@ export const applyProposal = mutation({
       await ctx.db.patch(args.proposalId, { state: "stale" });
       return { applied: false as const, count: 0, reason: bulkResult.reason };
     }
-    const { doc: updated, count } = bulkResult ?? applyReplacements(parsed as PMNode, pairs);
+    const direct = bulkResult ? null : applyReplacements(parsed as PMNode, pairs);
+    const { doc: updated, count } = bulkResult ?? direct!;
+    // Producer-declared single-target proposals (older research proposals
+    // predate the flag, hence the researchSessionId fallback).
+    const requireUniqueTarget =
+      proposal.requireUniqueTarget ?? proposal.researchSessionId !== undefined;
+    // Heading and title text is never edited. A research edit carries the
+    // writer's selection, which decides; any other edit is refused only when
+    // heading or title text is its sole match.
+    if (direct) {
+      let location: SelectionLocation | undefined;
+      if (proposal.researchSessionId) {
+        const session = await ctx.db.get(proposal.researchSessionId);
+        if (session && session.reportId === proposal.reportId) {
+          // Made in the report editor: never part of a heading's text.
+          location = locateSelection(
+            parsed as PMNode,
+            { from: session.selectionFrom, to: session.selectionTo, text: session.selectedText },
+            { partialHeadingText: false }
+          );
+        }
+      } else if (proposal.promptMessageId) {
+        // An Ask assistant edit: the writer's highlight decides when the
+        // edit targets it.
+        const highlight = await turnHighlight(ctx, proposal.agentThreadId, proposal.promptMessageId);
+        for (const pair of highlight ? pairs : []) {
+          const probe = applyReplacements(parsed as PMNode, [pair]);
+          const found = highlightLocation(
+            parsed as PMNode,
+            highlight!,
+            pair.find,
+            probe.skippedInHeadings + probe.skippedInTitle
+          );
+          if (found !== undefined) location = found;
+          if (found !== undefined && found !== "body") break;
+        }
+      }
+      const refusal = headingEditRefusal(direct, location);
+      if (refusal) {
+        await ctx.db.patch(args.proposalId, { state: "stale" });
+        return { applied: false as const, count: 0, reason: refusal };
+      }
+    }
     if (count === 0) {
       await ctx.db.patch(args.proposalId, { state: "stale" });
       return {
@@ -548,10 +661,6 @@ export const applyProposal = mutation({
           "Couldn't find the original passage in the current report. This suggestion may be based on wording that was rejected or already changed.",
       };
     }
-    // Producer-declared single-target proposals (older research proposals
-    // predate the flag, hence the researchSessionId fallback).
-    const requireUniqueTarget =
-      proposal.requireUniqueTarget ?? proposal.researchSessionId !== undefined;
     if (requireUniqueTarget && count !== 1) {
       domainError(
         "STALE_REVISION",
@@ -572,7 +681,11 @@ export const applyProposal = mutation({
       content,
       contentHash: await sha256(content),
       revisionNumber: revisionNumber + 1,
-      provenanceId: undefined,
+      provenanceId: await provenanceForEdit(ctx, report, content, {
+        actorId: applier._id,
+        nextRevisionNumber: revisionNumber + 1,
+        now,
+      }),
       updatedAt: now,
     });
     await persistDeterministicFindings(ctx, report._id);
@@ -630,7 +743,7 @@ export const markProposalApplied = mutation({
     const proposal = await ctx.db.get(args.proposalId);
     if (!proposal) domainError("NOT_FOUND", "Proposal not found");
     // report.editProse: this path writes the final document content.
-    await requireReportEditAccess(ctx, proposal.projectId);
+    const { user } = await requireReportEditAccess(ctx, proposal.projectId);
     const report = await ctx.db.get(proposal.reportId);
     if (!report || report.projectId !== proposal.projectId) {
       domainError("NOT_FOUND", "Report not found");
@@ -680,8 +793,12 @@ export const markProposalApplied = mutation({
       content: args.content,
       contentHash: await sha256(args.content),
       revisionNumber: revisionNumber + 1,
-      // Any writer edit requires a new provenance review for the exact revision.
-      provenanceId: undefined,
+      // Changed claims need review again; unchanged ones keep theirs.
+      provenanceId: await provenanceForEdit(ctx, report, args.content, {
+        actorId: user._id,
+        nextRevisionNumber: revisionNumber + 1,
+        now,
+      }),
       updatedAt: now,
     });
     await persistDeterministicFindings(ctx, report._id);
@@ -707,7 +824,9 @@ export const updateProposalWording = mutation({
   handler: async (ctx, args) => {
     const proposal = await ctx.db.get(args.proposalId);
     if (!proposal) domainError("NOT_FOUND", "Suggestion not found");
-    const { user } = await requireInternalProjectAccess(ctx, proposal.projectId);
+    // The owner applies stored wording as is, so rewording a pending
+    // suggestion is editing report prose (audit 2026-09-25, a2 P2-2).
+    const { user } = await requireReportEditAccess(ctx, proposal.projectId);
     if (isRecordOnlyProposal(proposal)) {
       domainError("INVALID_INPUT", "This record has nothing to reword.");
     }
@@ -781,7 +900,7 @@ export const rejectProposal = mutation({
   handler: async (ctx, args) => {
     const proposal = await ctx.db.get(args.proposalId);
     if (!proposal) throw new Error("Proposal not found");
-    await requireInternalProjectAccess(ctx, proposal.projectId);
+    await requireReportEditAccess(ctx, proposal.projectId);
     if (isRecordOnlyProposal(proposal)) {
       domainError("INVALID_INPUT", "This record has nothing to reject.");
     }
@@ -845,15 +964,22 @@ export const markTurnStarted = internalMutation({
 
     if (!turn) return { shouldRun: true, status: "running" as const };
     if (turn.status === "queued") {
+      // Lease (a4 #17): sendMessage refuses a second turn while one is
+      // active, so this only meets turns queued before that check. One
+      // running turn per thread; a turn queued behind it fails, and the
+      // writer sends again.
+      if (await otherActiveTurn(ctx, args.agentThreadId, args.promptMessageId, ["running"])) {
+        await ctx.db.patch(turn._id, { status: "failed", endedAt: args.startedAt });
+        return { shouldRun: false, status: "failed" as const };
+      }
       await ctx.db.patch(turn._id, {
         status: "running",
         ...(turn.startedAt === undefined ? { startedAt: args.startedAt } : {}),
       });
       return { shouldRun: true, status: "running" as const };
     }
-    if (turn.status === "running") {
-      return { shouldRun: true, status: "running" as const };
-    }
+    // Already running: the first start holds the turn; a second start of the
+    // same turn (a duplicate action) does not stream it again.
     return { shouldRun: false, status: turn.status };
   },
 });
@@ -904,19 +1030,28 @@ export const finishTurn = internalMutation({
 });
 
 /**
+ * A queued or running turn this old is stranded: the reply's stream stops at
+ * 540 s (chatStreamTimeoutMs) and the action at 10 minutes, so 14 minutes is
+ * the stream window plus 5 minutes. The reaper runs every 2 minutes, so a
+ * crashed reply holds its thread for at most about 16 minutes (review r1 P3-3;
+ * it was up to 25). Stop frees the thread at once.
+ */
+export const CHAT_TURN_STALE_MINUTES = 14;
+
+/**
  * Cron reaper (mirrors generations.failStaleGenerations): finishTurn only
  * runs from streamChatReply's own success/catch paths, so a hard action death
  * (deploy restart, timeout, OOM) strands a turn in "queued"/"running" and the
  * composer ticks "Working…" forever. Fail anything active past the cutoff —
  * the UI already renders failed turns, and the writer just sends again.
  * Status-CAS: terminal turns (completed/failed/aborted) are never touched.
- * `npx convex run chatV2:failStaleChatTurns '{"olderThanMinutes":15}'`
+ * `npx convex run chatV2:failStaleChatTurns '{"olderThanMinutes":14}'`
  */
 export const failStaleChatTurns = internalMutation({
   args: { olderThanMinutes: v.optional(v.number()) },
   returns: v.object({ failed: v.number() }),
   handler: async (ctx, args) => {
-    const cutoff = Date.now() - (args.olderThanMinutes ?? 15) * 60 * 1000;
+    const cutoff = Date.now() - (args.olderThanMinutes ?? CHAT_TURN_STALE_MINUTES) * 60 * 1000;
     let failed = 0;
     for (const status of ["queued", "running"] as const) {
       const turns = await ctx.db
@@ -1023,6 +1158,9 @@ export const saveProposal = internalMutation({
 
     const pairs = proposalPairs(args);
     const items = args.items ?? [];
+    const highlight = args.promptMessageId
+      ? await turnHighlight(ctx, args.agentThreadId, args.promptMessageId)
+      : undefined;
     // DW-135 (AD-28 amendment, approved 2026-09-14): a Coordinated Revision may
     // carry zero edits when every finding is blocked or conflicting. The rule
     // is the same one the tool's schema applies, re-checked here over the item
@@ -1051,7 +1189,25 @@ export const saveProposal = internalMutation({
         return { ok: false as const, reason: "The suggestion did not include text to replace." };
       }
       for (const pair of pairs) {
-        const { count } = applyReplacements(parsed as PMNode, [pair]);
+        const probe = applyReplacements(parsed as PMNode, [pair]);
+        const { count } = probe;
+        // Heading and title text is never edited. An edit aimed at the text
+        // the writer highlighted is judged by where the highlight sits; any
+        // other edit only when heading or title text is its sole match (say
+        // so rather than "not in the report").
+        const refusal = headingEditRefusal(
+          probe,
+          highlight
+            ? highlightLocation(parsed as PMNode, highlight, pair.find, probe.skippedInHeadings + probe.skippedInTitle)
+            : undefined
+        );
+        if (refusal) {
+          return {
+            ok: false as const,
+            reason:
+              refusal === SELECTION_GONE ? refusal : `${refusal} Target the passage in the report prose instead.`,
+          };
+        }
         if (count === 0) {
           return {
             ok: false as const,
@@ -1062,7 +1218,7 @@ export const saveProposal = internalMutation({
         if (args.kind === "edit" && count !== 1) {
           return {
             ok: false as const,
-            reason: `The proposed target matches ${count} places. Include more surrounding words so it identifies exactly one passage.`,
+            reason: `The proposed target matches ${count} places in the report prose. Include more surrounding words so it matches only the one passage you mean.`,
           };
         }
       }
@@ -1613,8 +1769,14 @@ export const getChatContextV2 = internalQuery({
     const ownGeneration = report.generationId
       ? budget.charge(await ctx.db.get(report.generationId))
       : null;
-    let generation = ownGeneration;
-    if (!generation?.agentOutputs) {
+    // A generation's outputs live on its row (legacy) or, since 2026-09-25,
+    // in a generationArtifacts row, which is charged when it is read.
+    const outputsOf = async (row: Doc<"generations">) =>
+      outputsInArtifacts(row)
+        ? budget.charge(await outputArtifact(ctx, row._id, "agent_outputs"))?.content
+        : row.agentOutputs;
+    let agentOutputs = ownGeneration ? await outputsOf(ownGeneration) : undefined;
+    if (!agentOutputs) {
       const completed = budget.charge(
         await ctx.db
           .query("generations")
@@ -1624,7 +1786,10 @@ export const getChatContextV2 = internalQuery({
           .order("desc")
           .take(10)
       );
-      generation = completed.find((row) => row.agentOutputs) ?? null;
+      for (const row of completed) {
+        agentOutputs = await outputsOf(row);
+        if (agentOutputs) break;
+      }
     }
 
     const documents = budget.charge(
@@ -1668,7 +1833,7 @@ export const getChatContextV2 = internalQuery({
 
     return {
       reportContent: report.content ?? null,
-      agentOutputs: generation?.agentOutputs ?? null,
+      agentOutputs: agentOutputs ?? null,
       documents: documents
         .filter((d) => !d.archived) // BNH-24: archived docs are out of AI context
         // CAP-3/CAP-4: provenance travels with the document. Trust and the

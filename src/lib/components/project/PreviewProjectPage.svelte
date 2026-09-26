@@ -8,23 +8,44 @@
 </script>
 
 <script lang="ts">
-  import { goto } from "$app/navigation";
+  import { onDestroy, tick, untrack } from "svelte";
+  import { goto, pushState } from "$app/navigation";
+  import { goToLogin } from "$lib/auth/goToLogin";
   import { resolve } from "$app/paths";
   import WorkspaceShell from "$lib/components/workspace/WorkspaceShell.svelte";
-  import WorkspaceShellControls from "$lib/components/workspace/WorkspaceShellControls.svelte";
   import { page } from "$app/state";
   import { useConvexClient, useQuery, useMutation, useAction } from "convex-svelte";
   import { useAuth } from "@mmailaender/convex-better-auth-svelte/svelte";
-  import { scale } from "svelte/transition";
   import { overlayFade, modalPop } from "$lib/motion";
   import { api } from "../../../../convex/_generated/api";
   import type { Id } from "../../../../convex/_generated/dataModel";
   import ProjectStateBadge from "$lib/components/dashboard/ProjectStateBadge.svelte";
   import Button from "$lib/components/ui/Button.svelte";
   import Spinner from "$lib/components/ui/Spinner.svelte";
-  import ChatIcon from "$lib/components/ui/ChatIcon.svelte";
   import GenerationProgress from "$lib/components/generation/GenerationProgress.svelte";
+  import ReadingInterview from "$lib/components/generation/reading/ReadingInterview.svelte";
   import GenerationStatusChip from "$lib/components/generation/GenerationStatusChip.svelte";
+  import SeedWorkspace from "$lib/components/seeds/SeedWorkspace.svelte";
+  import SeedSummaryReview from "$lib/components/seeds/SeedSummaryReview.svelte";
+  import SeedInitializationRecovery from "$lib/components/seeds/SeedInitializationRecovery.svelte";
+  import { seedsApi } from "$lib/components/seeds/api";
+  import {
+    focusSummaryOpener,
+    SEED_SIGNED_OFF_SUMMARY_TRIGGER_ID,
+    SEED_SUMMARY_TAB_ID,
+  } from "$lib/components/seeds/summaryFocus";
+  import {
+    focusGenerationProgress,
+    GENERATION_PROGRESS_HEADING_ID,
+    GENERATION_PROGRESS_REGION_ID,
+  } from "$lib/components/generation/progressFocus";
+  import SeedDraftingView from "$lib/components/generation/writing/SeedDraftingView.svelte";
+  import StopDraftingDialog from "$lib/components/generation/writing/StopDraftingDialog.svelte";
+  import NotDraftedBanner from "$lib/components/generation/writing/NotDraftedBanner.svelte";
+  import DraftReadyToast from "$lib/components/generation/writing/DraftReadyToast.svelte";
+  import { seedRedraftAttempt } from "$lib/components/generation/writing/draftProgress";
+  import { notDraftedReportSections } from "../../../../convex/lib/tiptapReport";
+  import { PD_SECTION_HEADINGS } from "../../../../shared/pdSubsections";
   import Editor from "$lib/components/editor/Editor.svelte";
   import type {
     CommentRange,
@@ -32,8 +53,6 @@
     WriterEditorHandle,
   } from "$lib/components/editor/types";
   import QAScorePanel from "$lib/components/editor/QAScorePanel.svelte";
-  import QALauncher from "$lib/components/qa/QALauncher.svelte";
-  import Tooltip from "$lib/components/ui/Tooltip.svelte";
   import ChronologyTable from "$lib/components/editor/ChronologyTable.svelte";
   import ModelTestSummary from "$lib/components/editor/ModelTestSummary.svelte";
   import FilesPanel from "$lib/components/editor/FilesPanel.svelte";
@@ -41,19 +60,33 @@
   import DisclosureChevron from "$lib/components/ui/DisclosureChevron.svelte";
   import { normalizeExtractedText } from "$lib/parseDocument";
   import { projectPagingPosition } from "$lib/workspace/projectPagingContext";
-  import ProjectHighlights from "$lib/components/project/ProjectHighlights.svelte";
   import FilingReadinessPanel from "$lib/components/evidence/FilingReadinessPanel.svelte";
   import LogsPanel from "$lib/components/editor/LogsPanel.svelte";
   import CommentOverlay from "$lib/components/comments/CommentOverlay.svelte";
   import LazyModule from "$lib/components/ui/LazyModule.svelte";
-  import EditableText from "$lib/components/project/EditableText.svelte";
   import PdReviewReport from "$lib/components/review-pd/PdReviewReport.svelte";
   import PdReviewStart from "$lib/components/review-pd/PdReviewStart.svelte";
-  import TagPicker from "$lib/components/project-new/TagPicker.svelte";
   import SelectInput from "$lib/components/ui/SelectInput.svelte";
-  import IndustryField from "$lib/components/project/IndustryField.svelte";
-  import FiscalYearField from "$lib/components/project/FiscalYearField.svelte";
-  import ScienceCodeField from "$lib/components/project/ScienceCodeField.svelte";
+  import ProjectTopBar, { type TopBarMoreItem } from "$lib/components/project/shell/ProjectTopBar.svelte";
+  import PanelToolbar, { type PanelTab } from "$lib/components/project/shell/PanelToolbar.svelte";
+  import QaToggle from "$lib/components/qa/QaToggle.svelte";
+  import QaFinishedNotice from "$lib/components/qa/QaFinishedNotice.svelte";
+  import { qaSectionScores } from "$lib/qa/qaSectionScores";
+  import { markQaDismissed, markQaSeen, readQaSeen, type QaSeenState } from "$lib/qa/qaSeen";
+  import SourcesView from "$lib/components/project/shell/SourcesView.svelte";
+  import TranscriptSpeakersPopover from "$lib/components/project/shell/TranscriptSpeakersPopover.svelte";
+  import {
+    readTranscriptFile,
+    releaseOriginalsOnFailure,
+    TranscriptFileError,
+    transcriptContentHash,
+    uploadTranscriptOriginal,
+  } from "$lib/transcriptUpload";
+  import DetailsPanel from "$lib/components/project/details/DetailsPanel.svelte";
+  import DetailsPopover from "$lib/components/project/details/DetailsPopover.svelte";
+  import DetailsMore from "$lib/components/project/details/DetailsMore.svelte";
+  import { useDetailsData } from "$lib/components/project/details/detailsData.svelte";
+  import type { WorkflowStage } from "../../../../shared/workflowStages";
   import ExportValidationDialog from "$lib/components/export/ExportValidationDialog.svelte";
   import {
     canonicalizeExportPreflight,
@@ -62,18 +95,17 @@
     type CanonicalExportReport,
     type ExportValidationResult,
   } from "$lib/exportValidation";
-  import { userErrorCode, userErrorMessage } from "$lib/errors";
+  import { userErrorCode, userErrorMessage, userErrorReason } from "$lib/errors";
   import { flushOutboxFor } from "$lib/uploads/outboxFlush";
   import { toast } from "svelte-sonner";
-  import { comparePairFromSlots, type CandidateModelId } from "../../../../shared/generationModels";
+  import { comparePairFromSlots } from "../../../../shared/generationModels";
+  import { pickerModels } from "$lib/modelPicker";
   import ComparePairPicker from "$lib/components/generation/ComparePairPicker.svelte";
   import SingleModelPicker from "$lib/components/generation/SingleModelPicker.svelte";
   import GhostCompareDialog from "$lib/components/generation/GhostCompareDialog.svelte";
   import { displayName } from "$lib/displayName";
-  import {
-    PROJECT_TYPE_LABELS,
-    effectiveProjectType,
-  } from "../../../../shared/projectTypes";
+  import { projectCapabilityAllows } from "../../../../shared/capabilities";
+  import { setProposalSectionSource } from "$lib/chat/proposalSection";
 
   const auth = useAuth();
   // New-UI shell wiring (2026-08-10): same contract WorkspaceChrome uses —
@@ -105,6 +137,11 @@
   const generationQ = useQuery(api.generations.getLatestGeneration, () =>
     auth.isAuthenticated ? { projectId } : "skip"
   );
+  const reportGenerationQ = useQuery(api.generations.getGenerationSeedView, () =>
+    auth.isAuthenticated && reportQ.data?.generationId
+      ? { generationId: reportQ.data.generationId }
+      : "skip"
+  );
   const transcriptsQ = useQuery(api.transcripts.listTranscripts, () =>
     auth.isAuthenticated ? { projectId } : "skip"
   );
@@ -129,8 +166,14 @@
     if (choice !== "default") return choice;
     return projectQ.data?.mode === "review" ? null : (transcripts?.[0]?._id ?? null);
   });
+  // 2026-09-24 (transcript method): opening a transcript queues its fact
+  // extraction in the background; the server ignores it when the method is
+  // off or the facts already exist.
+  const requestTranscriptFacts = useMutation(api.transcripts.requestTranscriptFacts);
   function toggleTranscript(transcriptId: Id<"transcripts">) {
-    openChoice = openTranscriptId === transcriptId ? null : transcriptId;
+    const opening = openTranscriptId !== transcriptId;
+    openChoice = opening ? transcriptId : null;
+    if (opening) void requestTranscriptFacts({ transcriptId }).catch(() => {});
   }
 
   // Metadata only above; the body of the one open transcript below. A project
@@ -151,15 +194,9 @@
       ? { projectId, reportId: reportQ.data._id }
       : "skip"
   );
-  const viewSummaryQ = useQuery(api.reportViews.getViewSummary, () =>
-    auth.isAuthenticated ? { projectId } : "skip"
-  );
   // BNH-39: review-mode projects show the AI feedback report on the written PD.
   const pdReviewQ = useQuery(api.pdReviews.getLatestPdReview, () =>
     auth.isAuthenticated ? { projectId } : "skip"
-  );
-  const tagsQ = useQuery(api.tags.listTags, () =>
-    auth.isAuthenticated ? {} : "skip"
   );
   // 2026-09-15 metadata gate: the same scope the metadata mutations enforce
   // (Owner, open-work-item collaborator, Manager, Admin). While the answer is
@@ -174,14 +211,6 @@
   const canEditDetails = $derived(
     editAccessQ.error ? false : (editAccessQ.data?.canEditDetails ?? true)
   );
-  // 2026-08-11 (second) amendment: a review project links back to the source
-  // project it reviews. Gated on sourceProjectId so non-review projects (the
-  // overwhelming majority) subscribe to nothing extra.
-  const sourceProjectQ = useQuery(api.projects.getProject, () =>
-    auth.isAuthenticated && projectQ.data?.sourceProjectId
-      ? { projectId: projectQ.data.sourceProjectId }
-      : "skip"
-  );
 
   const generateReport = useMutation(api.generations.requestGeneration);
   const recordUploadAttempts = useMutation(api.uploadAttempts.recordUploadAttempts);
@@ -189,42 +218,115 @@
   const updateReport = useMutation(api.reports.updateReportContent);
   const createSnapshot = useMutation(api.snapshots.createManualSnapshot);
   const markProposalApplied = useMutation(api.chatV2.markProposalApplied);
-  const updateTitles = useMutation(api.projects.updateProjectTitles);
-  const updateClientName = useMutation(api.projects.updateProjectClientName);
-  const updateProjectNumber = useMutation(api.projects.setProjectNumber);
-  // Per-company project number / draft letter (2026-08-11 amendment).
-  // Mirrors the server rule: "1".."20", a letter "A".."Z", or combined "2A".
-  const PROJECT_NUMBER_PATTERN = /^(?:[1-9][0-9]?[A-Z]?|[A-Z])$/;
-  let projectNumberError = $state("");
-  async function saveProjectNumber(value: string) {
-    projectNumberError = "";
-    const next = value.trim().toUpperCase();
-    const numericPart = next.match(/^[0-9]+/)?.[0];
-    if (
-      next &&
-      (!PROJECT_NUMBER_PATTERN.test(next) ||
-        (numericPart !== undefined && Number(numericPart) > 20))
-    ) {
-      projectNumberError = "Use 1–20, a letter A–Z, or combined like 2A.";
-      return;
-    }
-    try {
-      await updateProjectNumber({
-        projectId,
-        projectNumber: next || undefined,
-      });
-    } catch (error) {
-      projectNumberError = userErrorMessage(
-        error,
-        "The project number could not be updated."
-      );
-    }
-  }
-  const updateProjectTags = useMutation(api.projects.updateProjectTags);
   const authorizeExport = useMutation(api.reports.authorizeExport);
   const completeExport = useMutation(api.reports.completeExport);
   const failExport = useMutation(api.reports.failExport);
   const publishForReview = useMutation(api.projects.publishForReview);
+  // 2026-09-24 (transcript method): Add, Replace and Remove on the Sources tab.
+  const addTranscriptMut = useMutation(api.transcripts.addTranscript);
+  const replaceTranscriptMut = useMutation(api.transcripts.replaceTranscript);
+  const removeTranscriptMut = useMutation(api.transcripts.removeTranscript);
+  const discardTranscriptOriginalsMut = useMutation(api.transcripts.discardTranscriptOriginals);
+  const generateTranscriptUploadUrl = useMutation(api.documents.generateUploadUrl);
+  const claimTranscriptUpload = useMutation(api.documents.claimUpload);
+  let transcriptBusy = $state(false);
+
+  /**
+   * Reads a transcript file and stores it as a new or replacing row. The
+   * duplicate check leaves out the row being replaced, as the server does.
+   * When the server refuses the change, the original file uploaded for it
+   * is released again.
+   */
+  async function storeTranscriptFile(file: File, replacing: string | null) {
+    if (transcriptBusy) return;
+    transcriptBusy = true;
+    try {
+      const read = await readTranscriptFile(file);
+      const hash = await transcriptContentHash(read.content);
+      const duplicate = transcripts.find((row) => row.contentHash === hash && row._id !== replacing);
+      if (duplicate) {
+        toast.error(`This transcript is already added (${duplicate.label}).`);
+        return;
+      }
+      const originalStorageId = await uploadTranscriptOriginal(
+        file,
+        () => generateTranscriptUploadUrl({}),
+        (storageId) => claimTranscriptUpload({ storageId: storageId as Id<"_storage"> })
+      );
+      const upload = {
+        content: read.content,
+        label: read.label,
+        sourceFormat: read.format,
+        ...(originalStorageId ? { originalStorageId: originalStorageId as Id<"_storage"> } : {}),
+      };
+      await releaseOriginalsOnFailure(
+        originalStorageId ? [originalStorageId] : [],
+        (storageIds) => discardTranscriptOriginalsMut({ storageIds: storageIds as Id<"_storage">[] }),
+        () =>
+          replacing
+            ? replaceTranscriptMut({ transcriptId: replacing as Id<"transcripts">, ...upload })
+            : addTranscriptMut({ projectId, ...upload })
+      );
+      toast.success(replacing ? `Replaced with ${file.name}` : `Added ${file.name}`);
+    } catch (error) {
+      toast.error(
+        error instanceof TranscriptFileError
+          ? error.message
+          : userErrorMessage(error, "The transcript could not be saved.")
+      );
+    } finally {
+      transcriptBusy = false;
+    }
+  }
+
+  // Speakers popover: one transcript's speaker rows, subscribed only while
+  // its popover is open.
+  let speakersOpenFor = $state<string | null>(null);
+  const speakersQ = useQuery(api.transcripts.getTranscriptSpeakers, () =>
+    speakersOpenFor ? { transcriptId: speakersOpenFor as Id<"transcripts"> } : "skip"
+  );
+  const setSpeakerRoleMut = useMutation(api.transcripts.setSpeakerRole);
+  const confirmSpeakersMut = useMutation(api.transcripts.confirmSpeakers);
+  let speakersBusy = $state(false);
+
+  async function setSpeakerRole(
+    transcriptId: string,
+    label: string,
+    role: "interviewer" | "client" | "other"
+  ) {
+    speakersBusy = true;
+    try {
+      await setSpeakerRoleMut({ transcriptId: transcriptId as Id<"transcripts">, label, role });
+    } catch (error) {
+      toast.error(userErrorMessage(error, "The speaker's role could not be saved."));
+    } finally {
+      speakersBusy = false;
+    }
+  }
+
+  async function confirmSpeakers(transcriptId: string) {
+    speakersBusy = true;
+    try {
+      await confirmSpeakersMut({ transcriptId: transcriptId as Id<"transcripts"> });
+    } catch (error) {
+      toast.error(userErrorMessage(error, "The speakers could not be confirmed."));
+    } finally {
+      speakersBusy = false;
+    }
+  }
+
+  async function removeTranscript(transcriptId: string) {
+    if (transcriptBusy) return;
+    transcriptBusy = true;
+    try {
+      await removeTranscriptMut({ transcriptId: transcriptId as Id<"transcripts"> });
+      toast.success("Transcript removed");
+    } catch (error) {
+      toast.error(userErrorMessage(error, "The transcript could not be removed."));
+    } finally {
+      transcriptBusy = false;
+    }
+  }
   // 2026-08-11 (second) amendment: start PD-review mode from this project's
   // written report — creates the associated review project (inherited title,
   // writer, documents, transcript; report snapshot as the PD under review)
@@ -250,25 +352,22 @@
 
   const project = $derived(projectQ.data);
   const report = $derived(reportQ.data);
+  // Suggested-edit cards in the assistant name their Section ("Suggested edit for 242").
+  setProposalSectionSource(() => report?.content);
   const generation = $derived(generationQ.data);
   const transcripts = $derived(transcriptsQ.data ?? []);
   const openTranscript = $derived(openTranscriptQ.data);
   const user = $derived(userQ.data);
+  // Same authority as publishForReview: project.setStage (the current
+  // Owner, a Manager or an Admin), never createdBy.
   const canShare = $derived(
     Boolean(
       project &&
         user &&
-        (project.createdBy === user._id || user.role === "admin")
+        projectCapabilityAllows(user.role, "project.setStage", project, user._id)
     )
   );
-  const viewSummary = $derived(viewSummaryQ.data);
   const pdReview = $derived(pdReviewQ.data);
-  const allTags = $derived(tagsQ.data ?? []);
-  const writerLabel = $derived(project?.writer?.trim() || "Unknown writer");
-  const interviewerLabel = $derived(project?.interviewer?.trim() || null);
-  const interviewees = $derived(
-    (project?.interviewees ?? []).map((name) => name.trim()).filter(Boolean)
-  );
 
   let editorRef: WriterEditorHandle | null = $state(null);
   let lastSnapshotAt = 0;
@@ -331,10 +430,6 @@
   let workspaceMaximized = $state(false);
   let candidateMaximized = $state(false);
   let generationError = $state("");
-  // string[] (not Id<"tags">[]) so it can bind into the shared TagPicker.
-  let selectedTagIds = $state<string[]>([]);
-  let tagsSaving = $state(false);
-  let tagError = $state("");
 
   // BNH-30: one-by-one replace-and-scan-next session.
   type ReplaceMatch = { from: number; to: number; replaceWith: string; text: string };
@@ -388,6 +483,10 @@
     }
     const ed = editorRef;
     if (!ed || !report || replaceSession || finishingReplace) return;
+    if (reportReadOnly) {
+      notifyReplace("Drafting the missing sections. Editing resumes when they are in.");
+      return;
+    }
     const matches = ed.findReplaceMatches(pairs);
     if (matches.length === 0) {
       notifyReplace(
@@ -489,8 +588,11 @@
     const sess = replaceSession;
     const ed = editorRef;
     if (!sess?.current || !ed || finishingReplace) return;
-    ed.replaceRange(sess.current.from, sess.current.to, sess.current.replaceWith);
-    advanceReplace(sess.current.from + sess.current.replaceWith.length, 1);
+    // Count only a replacement that changed the document; a refused one is
+    // stepped over like "Keep original" (review g1).
+    const changed = ed.replaceRange(sess.current.from, sess.current.to, sess.current.replaceWith);
+    if (changed) advanceReplace(sess.current.from + sess.current.replaceWith.length, 1);
+    else advanceReplace(sess.current.to, 0);
   }
 
   function keepOriginalAndNext() {
@@ -508,9 +610,13 @@
     for (let i = 0; i < 5000; i++) {
       const m = ed.findReplaceMatches(sess.pairs).find((x) => x.from >= cursor);
       if (!m) break;
-      ed.replaceRange(m.from, m.to, m.replaceWith);
-      cursor = m.from + m.replaceWith.length;
-      replaced++;
+      if (ed.replaceRange(m.from, m.to, m.replaceWith)) {
+        cursor = m.from + m.replaceWith.length;
+        replaced++;
+      } else {
+        // Refused: step past it instead of finding it again.
+        cursor = m.to;
+      }
     }
     void finishReplaceSession({ ...sess, replaced });
   }
@@ -527,30 +633,29 @@
   }
 
   function handleAskAI(selection: { from: number; to: number; text: string }) {
-    chatOpen = true;
-    qaOpen = false;
-    railView = "chat";
-    mobileWorkspaceView = "assistant";
+    void leaveDetailsThen(() => openSidePanel("chat"));
     pendingChatHighlight = selection;
   }
 
   function handleResearch(selection: ResearchSelection) {
-    chatOpen = true;
-    qaOpen = false;
-    railView = "chat";
+    void leaveDetailsThen(() => openSidePanel("chat"));
     pendingChatHighlight = null;
     pendingResearch = selection;
-    mobileWorkspaceView = "assistant";
   }
 
-  // BNH-14: resizable, closable chat rail. Width + open state persist across
-  // sessions (localStorage). Drag clamps keep both panes usable: chat never
-  // narrower than 24% nor wider than 55% of the workspace. (2026-07-03: the
-  // rail stays right-docked and resizable; only open/close changed — the
-  // panel now pops up from the bottom instead of sliding in from the side.)
+  // Side slot (ui-design-final.md section 8): the Assistant, QA and Details
+  // share one right panel, 400px by default, resized with a hairline divider
+  // (pointer and keyboard). Chat and QA open state persist as before; the
+  // width persists per browser. The intake context split keeps its ratio
+  // clamps below.
   const CHAT_MIN = 0.24;
   const CHAT_MAX = 0.55;
-  let chatRatio = $state(0.31);
+  const SIDE_PANEL_MIN = 320;
+  const SIDE_PANEL_MAX = 640;
+  const SIDE_PANEL_DEFAULT = 400;
+  const clampSidePanel = (width: number) =>
+    Math.round(Math.min(SIDE_PANEL_MAX, Math.max(SIDE_PANEL_MIN, width)));
+  let sidePanelWidth = $state(SIDE_PANEL_DEFAULT);
   let chatOpen = $state(true);
   let chatPreferencesReady = $state(false);
   let chatFocus = $state(false);
@@ -562,9 +667,17 @@
     media.addEventListener("change", update);
     return () => media.removeEventListener("change", update);
   });
+  // Narrow screens show one pane at a time: the report, or the side panel
+  // ("assistant" names every side panel: Assistant, QA or Details).
   let mobileWorkspaceView = $state<"report" | "assistant">("report");
-  let projectDetailsOpen = $state(false);
-  const projectDetailsBodyId = "project-details-body";
+  let detailsOpen = $state(false);
+  let detailsView = $state<"details" | "handoff">("details");
+  let handOffStage = $state<WorkflowStage | null>(null);
+  let detailsPeekOpen = $state(false);
+  let detailsButton = $state<HTMLButtonElement | null>(null);
+  // Sources tab: the main surfaces stay mounted (hidden) so no draft or
+  // editor state is lost while it shows.
+  let sourcesOpen = $state(false);
   // Intake workbench (2026-08-08 Obvious-parity amendment): the NO-REPORT
   // state mirrors the report workbench's split — a persistent left CONTEXT
   // pane (files evidence + interview transcript) beside the primary intake/
@@ -602,14 +715,90 @@
   );
   let intakeEl: HTMLDivElement | null = $state(null);
   let contextDragging = $state(false);
-  // BNH-47: QA rail panel — independent toggle; opening either closes the
-  // other so the right rail hosts one passive-review surface at a time.
+  // BNH-47: QA rail panel. Opening one side panel closes the others so the
+  // side slot hosts one surface at a time.
   let qaOpen = $state(false);
-  // Which card occupies the rail (also while both are closed, for the sink
-  // animation and so exactly one card is in flow at a time).
-  let railView = $state<"chat" | "qa">("chat");
+  // Which surface occupies the side slot (also while all are closed, so
+  // exactly one is in flow at a time).
+  let railView = $state<"chat" | "qa" | "details">("chat");
   let workspaceEl: HTMLDivElement | null = $state(null);
   let dragging = $state(false);
+
+  function openSidePanel(view: "chat" | "qa" | "details") {
+    chatOpen = view === "chat";
+    qaOpen = view === "qa";
+    detailsOpen = view === "details";
+    railView = view;
+    if (view !== "chat") chatFocus = false;
+    mobileWorkspaceView = "assistant";
+  }
+  function closeSidePanel() {
+    chatOpen = false;
+    qaOpen = false;
+    detailsOpen = false;
+    chatFocus = false;
+    mobileWorkspaceView = "report";
+  }
+  // Narrow screens show the side panel only as their active pane.
+  const sidePanelOnScreen = $derived(desktopAssistant || mobileWorkspaceView === "assistant");
+  function toggleSidePanel(view: "chat" | "qa" | "details") {
+    const open = view === "chat" ? chatOpen : view === "qa" ? qaOpen : detailsOpen;
+    if (open && sidePanelOnScreen) closeSidePanel();
+    else openSidePanel(view);
+  }
+  function openDetails(view: "details" | "handoff" = "details", stage: WorkflowStage | null = null) {
+    detailsView = view;
+    handOffStage = stage;
+    detailsPeekOpen = false;
+    openSidePanel("details");
+  }
+  // Leaving an open Details panel from the host (the toolbar toggles, Ask
+  // assistant, Open QA) first lets it save a pending project number edit; a
+  // failed save keeps it open with the error instead of losing the edit.
+  let detailsPanel = $state<{ requestClose: () => Promise<boolean> } | undefined>();
+  // The Assistant's pinned composer, measured, so a corner notice can sit above it.
+  let assistantComposerHeight = $state(0);
+  // One leave at a time: a second click while the save runs is ignored, so
+  // two toggles cannot open and at once close a panel (review g2 B5).
+  let leavingDetails = false;
+  async function leaveDetailsThen(next: () => void) {
+    if (leavingDetails) return;
+    const panel = detailsOpen && railView === "details" ? detailsPanel : undefined;
+    // Nothing to save: act at once (synchronously, as callers expect).
+    if (!panel) {
+      next();
+      return;
+    }
+    leavingDetails = true;
+    try {
+      if (await panel.requestClose()) {
+        next();
+      } else if (!sidePanelOnScreen) {
+        // The failed save sits in a panel a phone tab moved off screen:
+        // bring it back so the writer sees the error (review g2 B4).
+        mobileWorkspaceView = "assistant";
+      }
+    } finally {
+      leavingDetails = false;
+    }
+  }
+  // The Details (i) toggle, wherever it sits: the panel toolbar, or beside
+  // the narrow Outline/Seeds switch during the seed stage (board 3.6). On a
+  // narrow screen the toggle moves between those two places, so keyboard
+  // focus follows it to the one now shown (review g2 B9).
+  async function toggleDetails() {
+    const focused = document.activeElement;
+    const fromToggle =
+      focused instanceof HTMLElement && (focused === detailsButton || focused.hasAttribute("data-seed-details-toggle"));
+    if (detailsOpen && sidePanelOnScreen) await leaveDetailsThen(closeSidePanel);
+    else openDetails();
+    await tick();
+    if (!fromToggle || (focused.isConnected && focused.getClientRects().length > 0)) return;
+    const counterpart = [detailsButton, document.querySelector<HTMLElement>("[data-seed-details-toggle]")].find(
+      (element): element is HTMLElement => !!element && element !== focused && element.isConnected && element.getClientRects().length > 0
+    );
+    counterpart?.focus();
+  }
 
   // Send any upload failures this user queued while offline. Page-level rather
   // than inside FilesPanel so it runs in every state of the page, including the
@@ -629,8 +818,8 @@
   $effect(() => {
     // Restore once from locals only — reading component state here would make
     // this effect re-run on every toggle and stomp the user's click.
-    const r = localStorage.getItem("banhall_chat_ratio");
-    if (r) chatRatio = Math.min(CHAT_MAX, Math.max(CHAT_MIN, parseFloat(r)));
+    const w = Number(localStorage.getItem("banhall_side_panel_width"));
+    if (Number.isFinite(w) && w > 0) sidePanelWidth = clampSidePanel(w);
     const c = localStorage.getItem("banhall_intake_context_ratio");
     if (c) contextRatio = Math.min(CHAT_MAX, Math.max(CHAT_MIN, parseFloat(c)));
     contextOpen = localStorage.getItem("banhall_intake_context_open") !== "0";
@@ -643,7 +832,7 @@
     chatPreferencesReady = true;
   });
   $effect(() => {
-    localStorage.setItem("banhall_chat_ratio", String(chatRatio));
+    localStorage.setItem("banhall_side_panel_width", String(sidePanelWidth));
     localStorage.setItem("banhall_intake_context_ratio", String(contextRatio));
     localStorage.setItem("banhall_intake_context_open", contextOpen ? "1" : "0");
     localStorage.setItem("banhall_chat_open", chatOpen ? "1" : "0");
@@ -656,8 +845,7 @@
     function onMove(e: MouseEvent) {
       if (!dragging || !workspaceEl) return;
       const rect = workspaceEl.getBoundingClientRect();
-      const ratio = (e.clientX - rect.left) / rect.width;
-      chatRatio = Math.min(CHAT_MAX, Math.max(CHAT_MIN, ratio));
+      sidePanelWidth = clampSidePanel(rect.right - e.clientX);
     }
     function onUp() {
       if (dragging) {
@@ -681,7 +869,7 @@
     document.body.style.cursor = "col-resize";
   }
   function adjustRail(delta: number) {
-    chatRatio = Math.min(CHAT_MAX, Math.max(CHAT_MIN, chatRatio + delta));
+    sidePanelWidth = clampSidePanel(sidePanelWidth + delta);
   }
 
   // Intake context-pane resize — same drag/keyboard grammar as the assistant
@@ -733,30 +921,12 @@
 
   $effect(() => {
     if (!auth.isLoading && !auth.isAuthenticated) {
-      goto("/login", { replaceState: true });
+      goToLogin();
     }
   });
   $effect(() => {
     if (report && pendingSaves === 0) localRevision = report.revisionNumber ?? 0;
   });
-  $effect(() => {
-    if (project) selectedTagIds = [...(project.tagIds ?? [])];
-  });
-
-  // Persist every TagPicker toggle; on failure re-sync from the server row.
-  async function handleTagsChange(ids: string[]) {
-    if (!project) return;
-    tagsSaving = true;
-    tagError = "";
-    try {
-      await updateProjectTags({ projectId, tagIds: ids as Id<"tags">[] });
-    } catch (error) {
-      selectedTagIds = [...(project.tagIds ?? [])];
-      tagError = userErrorMessage(error, "The project tags could not be updated.");
-    } finally {
-      tagsSaving = false;
-    }
-  }
 
 
   async function handleEditorUpdate(json: string) {
@@ -812,7 +982,9 @@
   // the items list gates the values. Cast where the mutation needs the union.
   let lengthTarget = $state<string>("standard");
   let candidateMode = $state<"compare" | "single" | "iterative">("compare");
-  let singleModelId = $state<CandidateModelId | "">("");
+  let singleModelId = $state<string>("");
+  // Model catalog: the random compare fill draws from the selectable set.
+  const modelCapabilitiesQ = useQuery(api.providerReadiness.getCapabilities, () => ({}));
   // Compare mode runs exactly 2 models — two slots, each a model or Random.
   let compareSlotA = $state("");
   let compareSlotB = $state("");
@@ -849,7 +1021,11 @@
           : {}),
         ...(candidateMode === "compare"
           ? (() => {
-              const pair = comparePairFromSlots(compareSlotA, compareSlotB);
+              const pair = comparePairFromSlots(
+                compareSlotA,
+                compareSlotB,
+                pickerModels(modelCapabilitiesQ.data)
+              );
               return pair ? { compareModelIds: pair } : {};
             })()
           : {}),
@@ -1090,19 +1266,188 @@
   // CandidateSelection. "reserved"/pre-fan-out still shows the progress card
   // (the stepper has nothing to show until section runs exist).
   const isIterative = $derived(generation?.candidateMode === "iterative");
+  const isSeedWorkflow = $derived(
+    isIterative && generation?.gatedWorkflow === "seeds"
+  );
+  let seedSummaryRequested = $state(false);
+  $effect(() => {
+    seedSummaryRequested = page.url.searchParams.get("view") === "summary";
+  });
+  const seedSummaryOpen = $derived(
+    seedSummaryRequested &&
+      (isSeedWorkflow ||
+        (reportGenerationQ.data?.gatedWorkflow === "seeds" && !!reportGenerationQ.data.summaryVersionId))
+  );
+  const showSeedWorkspace = $derived(
+    isSeedWorkflow && generation?.seedPhase === "seeding" && !seedSummaryOpen
+  );
+  // A legacy section-approval run owns the main surface for its whole active
+  // life (running or awaiting input), and a compare run owns it while it
+  // awaits candidate selection; a report-owned frozen Summary URL never
+  // renders beside either and becomes reachable again once it ends (A10, R6-05).
   const showIterativeStepper = $derived(
-    isIterative &&
+    isIterative && !isSeedWorkflow &&
       (generation?.status === "running" || generation?.status === "awaiting_input")
   );
+  const showSeedSummary = $derived(
+    seedSummaryRequested &&
+      ((isSeedWorkflow && generation?.seedPhase === "seeding") ||
+        (!showIterativeStepper &&
+          generation?.status !== "awaiting_selection" &&
+          !(isSeedWorkflow &&
+            (generation?.seedPhase === "initializing" ||
+              generation?.seedPhase === "drafting" ||
+              generation?.seedPhase === "draftFailed")) &&
+          reportGenerationQ.data?.gatedWorkflow === "seeds" &&
+          !!reportGenerationQ.data.summaryVersionId))
+  );
+  const seedSummaryOwner = $derived(
+    isSeedWorkflow && generation?.seedPhase === "seeding"
+      ? generation
+      : reportGenerationQ.data?.gatedWorkflow === "seeds"
+        ? reportGenerationQ.data
+        : null
+  );
+  const showSeedRecovery = $derived(
+    isSeedWorkflow && generation?.seedPhase === "draftFailed"
+  );
+  // Round 2 (F2, decision 57): while a Step-by-step run reads the interview
+  // (its Brief), the panel shows only "Reading the interview": no tabs, no
+  // toolbar, no plan. A failed start shows its danger box there (F6);
+  // "Back to project" returns to the project page with its tabs.
+  let readingDismissed = $state(false);
+  // A new run reads its interview again, even after Back to project.
+  let readingFor: string | null = null;
+  $effect(() => {
+    const id = generation?._id ?? null;
+    if (id !== readingFor) {
+      readingFor = id;
+      readingDismissed = false;
+    }
+  });
+  const showReadingInterview = $derived(
+    isSeedWorkflow &&
+      generation?.seedPhase === "initializing" &&
+      !generation?.summaryVersionId &&
+      !readingDismissed
+  );
+  let viewportWidth = $state(typeof window === "undefined" ? 1440 : window.innerWidth);
+  $effect(() => {
+    const update = () => (viewportWidth = window.innerWidth);
+    update();
+    window.addEventListener("resize", update);
+    return () => window.removeEventListener("resize", update);
+  });
+  const readingLayout = $derived<"desktop" | "tablet" | "phone">(
+    viewportWidth >= 1280 ? "desktop" : viewportWidth >= 640 ? "tablet" : "phone"
+  );
+  // A10: only the Seed phases that own the main surface suppress an existing
+  // report and its actions; single, compare and legacy section runs keep
+  // their prior report visibility while they generate.
+  const showSeedDrafting = $derived(
+    isSeedWorkflow &&
+      (generation?.seedPhase === "initializing" || generation?.seedPhase === "drafting")
+  );
+  // A7: leaving Summary Review returns focus to the trigger the host
+  // re-creates (Back action, browser history). When an accepted sign-off
+  // replaces the Seed surfaces with Seed drafting instead, no trigger exists:
+  // focus moves to the generation-progress heading once it renders, whether
+  // the generation subscription changes before or after the sign-off command
+  // resolves.
+  let seedSummaryWasShown = false;
+  let seedSignOffAccepted = false;
+  // A5/A7: this host's lifetime fences every deferred Seed operation below. A
+  // response or callback arriving after the host was destroyed changes no
+  // URL, Summary state or focus.
+  let hostDisposed = false;
+  onDestroy(() => {
+    hostDisposed = true;
+  });
+  // A deferred focus operation belongs to the host lifetime, project, user,
+  // generation and transition that scheduled it (A5/A7, R5-04). That
+  // ownership is rechecked after rendering and before focusing, so an obsolete
+  // callback never focuses a replacement page, and a newer transition
+  // supersedes an older one still waiting to render.
+  let seedFocusToken = 0;
+  // Which control opened Summary Review, so leaving it returns focus there:
+  // the panel toolbar's Summary tab, or the workspace "Review summary"
+  // trigger (also the destination after a browser-history return).
+  let summaryOpener: "tab" | "trigger" = "trigger";
+  function scheduleSeedFocus(transition: "return" | "drafting") {
+    const token = ++seedFocusToken;
+    const opener = summaryOpener;
+    const owner = {
+      projectId: String(projectId),
+      userId: user?._id ?? "anonymous",
+      generationId: String(generation?._id ?? ""),
+    };
+    void tick().then(() => {
+      if (hostDisposed || token !== seedFocusToken) return;
+      if (
+        String(projectId) !== owner.projectId ||
+        (user?._id ?? "anonymous") !== owner.userId ||
+        String(generation?._id ?? "") !== owner.generationId
+      ) return;
+      if (showSeedDrafting) {
+        // The same generation entered Seed drafting: the progress surface is
+        // the destination of an accepted sign-off and of a return that
+        // coincides with it.
+        focusGenerationProgress();
+      } else if (transition === "return" && !showSeedSummary) {
+        focusSummaryOpener(opener);
+      }
+    });
+  }
+  $effect(() => {
+    const shown = showSeedSummary;
+    const drafting = showSeedDrafting;
+    const phase = generation?.seedPhase;
+    untrack(() => {
+      if (seedSummaryWasShown && !shown) scheduleSeedFocus("return");
+      else if (seedSignOffAccepted && drafting) scheduleSeedFocus("drafting");
+      // The accepted sign-off is consumed by drafting, or dropped once the
+      // run has left the seed stage without it.
+      if (drafting || (phase !== "seeding" && !shown)) seedSignOffAccepted = false;
+      seedSummaryWasShown = shown;
+    });
+  });
+  // A5/A7: an accepted sign-off completes only for the generation and user
+  // that submitted it, and only while this host lives. A response arriving
+  // after the host was destroyed, or after that generation or user was
+  // replaced, changes no URL, Summary state or focus. The same generation
+  // entering drafting before the command resolves still completes normally.
+  function completeSeedSignOff(submitted: { generationId: string; userId: string }) {
+    if (hostDisposed) return;
+    if (
+      String(generation?._id) !== String(submitted.generationId) ||
+      (user?._id ?? "anonymous") !== submitted.userId
+    ) return;
+    seedSignOffAccepted = true;
+    setSeedSummary(false);
+  }
   const isGenerating = $derived(
     generation?.status === "reserved" ||
-      (generation?.status === "running" && !isIterative)
+      (generation?.status === "running" &&
+        (!isIterative ||
+          (isSeedWorkflow &&
+            (generation?.seedPhase === "initializing" || generation?.seedPhase === "drafting"))))
   );
   const awaitingSelection = $derived(generation?.status === "awaiting_selection");
+  // The server refuses transcript changes while any generation is active
+  // (convex/transcripts.ts); the Sources tab says so up front.
+  const transcriptChangesBlocked = $derived(
+    generation?.status === "reserved" ||
+      generation?.status === "running" ||
+      generation?.status === "awaiting_selection" ||
+      generation?.status === "awaiting_input"
+  );
   // A failed generation gets the progress/retry view — except in review mode,
   // where the PD review stays the main view (its own retry CTA regenerates).
   const showFailedGeneration = $derived(
-    generation?.status === "failed" && !report && project?.mode !== "review"
+    generation?.status === "failed" &&
+      !showSeedRecovery &&
+      !report &&
+      project?.mode !== "review"
   );
   // The intake workbench renders when no report exists and nothing louder
   // (generation progress, selection, stepper) owns the page — the same
@@ -1113,14 +1458,426 @@
       !isGenerating &&
       !awaitingSelection &&
       !showIterativeStepper &&
+      !showSeedWorkspace &&
+      !showSeedSummary &&
+      !showSeedRecovery &&
       !showFailedGeneration
   );
+
+  function setSeedSummary(open: boolean) {
+    const url = new URL(page.url);
+    if (open) url.searchParams.set("view", "summary");
+    else if (url.searchParams.get("view") === "summary") url.searchParams.delete("view");
+    pushState(`${url.pathname}${url.search}`, {});
+    seedSummaryRequested = open;
+  }
+
+  // The report surface and its actions (Export, Send for review, the top-bar
+  // More menu, the Assistant and QA toggles) show only when no generation
+  // surface owns the page.
+  const reportActionsVisible = $derived(
+    Boolean(report) &&
+      !awaitingSelection &&
+      !showIterativeStepper &&
+      !showSeedSummary &&
+      !showSeedWorkspace &&
+      !showSeedRecovery &&
+      !showSeedDrafting
+  );
+
+  // Writing view (ui-design-final.md sections 6 and 7). A signed-off
+  // Step-by-step run drafts into the Report tab: the pill, the skeleton and
+  // the corner ring replace the centred progress card for these runs only;
+  // single, compare and legacy section runs keep GenerationProgress. The
+  // same progress read serves the completed report of a signed-off run:
+  // whether a "Draft the rest" redraft is live, and when a run this page
+  // watched has just finished.
+  const writingGenerationId = $derived(
+    isSeedWorkflow && generation?.seedPhase === "drafting" && generation.summaryVersionId
+      ? generation._id
+      : null
+  );
+  const reportSeedGenerationId = $derived(
+    report &&
+      reportGenerationQ.data?.gatedWorkflow === "seeds" &&
+      reportGenerationQ.data.summaryVersionId &&
+      reportGenerationQ.data._id === report.generationId
+      ? reportGenerationQ.data._id
+      : null
+  );
+  const draftProgressGenerationId = $derived(writingGenerationId ?? reportSeedGenerationId);
+  const draftProgressQ = useQuery(api.generations.getSeedDraftProgress, () =>
+    auth.isAuthenticated && draftProgressGenerationId
+      ? { generationId: draftProgressGenerationId }
+      : "skip"
+  );
+  const draftProgress = $derived(draftProgressGenerationId ? draftProgressQ.data : undefined);
+  // `null` means the server does not treat the run as a signed-off Seed
+  // draft, and a failed read cannot show honest progress: in both cases the
+  // page falls back to the centred progress card.
+  const showWritingView = $derived(
+    writingGenerationId !== null && draftProgress !== null && !draftProgressQ.error
+  );
+  let writingScrollEl = $state<HTMLElement | null>(null);
+
+  // A7 continued: focus that landed on the progress region while the draft
+  // progress was loading moves to the writing view's heading once it renders.
+  $effect(() => {
+    if (!showWritingView || !draftProgress) return;
+    void tick().then(() => {
+      if (hostDisposed) return;
+      if (document.activeElement?.id === GENERATION_PROGRESS_REGION_ID) focusGenerationProgress();
+    });
+  });
+
+  // Stop (FR-43, owner decision 20): the pill's Stop opens the confirmation;
+  // only its primary asks the server to stop after the Section in progress.
+  const stopDraftingMut = useMutation(api.generations.stopOrderedGeneration);
+  let stopDialogOpen = $state(false);
+  let stopError = $state<string | null>(null);
+  const writingSectionNumber = $derived.by(() => {
+    const progress = draftProgress;
+    if (!progress?.currentSectionKey) return null;
+    return progress.sections.find((section) => section.key === progress.currentSectionKey)?.number ?? null;
+  });
+  function openStopDialog() {
+    stopError = null;
+    stopDialogOpen = true;
+  }
+  async function confirmStopDrafting() {
+    const generationId = writingGenerationId;
+    if (!generationId) return;
+    stopError = null;
+    try {
+      await stopDraftingMut({ generationId });
+    } catch (error) {
+      stopError =
+        userErrorReason(error) === "DRAFT_COMPLETE"
+          ? "Every section is already drafted. The report is being put together, so there is nothing left to stop."
+          : userErrorCode(error) === "STALE_REVISION"
+            ? "This draft is no longer running."
+            : userErrorMessage(error, "The draft could not be stopped. Try again.");
+      throw error;
+    }
+  }
+
+  // "Not drafted" Sections of a stopped report: the Sections whose body is
+  // still exactly the placeholder, so a Section the writer filled by hand is
+  // never offered for redrafting.
+  const notDraftedSections = $derived.by(() => {
+    if (!report || !reportSeedGenerationId) return [];
+    return notDraftedReportSections(report.content).map((key) => ({
+      number: PD_SECTION_HEADINGS[key].number,
+      title: PD_SECTION_HEADINGS[key].title,
+    }));
+  });
+  const redraftLive = $derived(
+    reportSeedGenerationId !== null &&
+      draftProgressGenerationId === reportSeedGenerationId &&
+      draftProgress?.phase === "drafting"
+  );
+  const redraftMut = useMutation(api.generations.redraftMissingSections);
+  let redraftError = $state<string | null>(null);
+  // The latest redraft attempt's terminal status and sanitized error, when
+  // the progress read carries them (optional field, read defensively).
+  const redraftAttempt = $derived(seedRedraftAttempt(draftProgress));
+  const redraftFailure = $derived(
+    reportSeedGenerationId !== null && redraftAttempt?.status === "failed"
+      ? { error: redraftAttempt.error }
+      : null
+  );
+  // "Draft the rest" holds the report read-only from the click until the
+  // server content with the filled Sections is in (or the attempt ends): the
+  // pending autosave is flushed first, and no keystroke can land between the
+  // server merge and the editor taking the merged document. While the
+  // redraft is live the progress read keeps it read-only (redraftLive); the
+  // hold covers the flush, the request, and a response that arrives before
+  // the live phase is visible.
+  type RedraftHold = {
+    token: number;
+    generationId: string;
+    baselineAttemptId: string | null;
+    requested: boolean;
+  };
+  let redraftHold = $state.raw<RedraftHold | null>(null);
+  let redraftHoldToken = 0;
+  const reportReadOnly = $derived(redraftLive || redraftHold !== null);
+  $effect(() => {
+    const hold = redraftHold;
+    if (!hold) return;
+    const generationId = reportSeedGenerationId ? String(reportSeedGenerationId) : null;
+    const phase = draftProgress?.phase;
+    const attempt = redraftAttempt;
+    untrack(() => {
+      if (redraftHold?.token !== hold.token) return;
+      // Another report or generation took the page: nothing to wait for.
+      if (generationId !== hold.generationId) {
+        redraftHold = null;
+        return;
+      }
+      if (!hold.requested) return;
+      const attemptEnded =
+        attempt !== null && attempt.attemptId !== hold.baselineAttemptId && attempt.status !== "running";
+      // The request resolved: the live phase (redraftLive) now keeps the
+      // report read-only until the merged content arrives with its end.
+      if (attemptEnded || (phase !== undefined && phase !== "drafting")) redraftHold = null;
+    });
+  });
+  async function draftTheRest() {
+    const generationId = reportSeedGenerationId;
+    if (!generationId || redraftHold) return;
+    redraftError = null;
+    const token = ++redraftHoldToken;
+    redraftHold = {
+      token,
+      generationId: String(generationId),
+      baselineAttemptId: redraftAttempt?.attemptId ?? null,
+      requested: false,
+    };
+    const release = () => {
+      if (redraftHold?.token === token) redraftHold = null;
+    };
+    try {
+      // Every edit the writer made is saved before the server merges.
+      await flushEditor();
+    } catch {
+      release();
+      redraftError = "Your latest edits could not be saved, so the missing sections were not drafted. Try again.";
+      return;
+    }
+    try {
+      const result = await redraftMut({ generationId });
+      if (result.status === "nothing_to_draft") {
+        release();
+        toast.info("Every section already has text, so there was nothing to draft.");
+      } else if (redraftHold?.token === token) {
+        redraftHold = { ...redraftHold, requested: true };
+      }
+    } catch (error) {
+      release();
+      const code = userErrorCode(error);
+      redraftError =
+        code === "GENERATION_ACTIVE"
+          ? "Another draft is running for this project. Try again when it finishes."
+          : code === "NOT_AUTHORIZED"
+            ? "You do not have permission to edit this report, so you cannot draft the missing sections."
+            : userErrorReason(error) === "NOT_STOPPED"
+              ? "This draft was not stopped, so there are no missing sections to draft."
+              : userErrorMessage(error, "Could not start drafting the missing sections. Try again.");
+    }
+  }
+
+  // Draft ready (4.4): a run this page watched while it was writing that
+  // then completes with every Section drafted. A stopped run shows the
+  // Not drafted banner instead.
+  const watchedDrafts = new Set<string>();
+  let draftReadyFor = $state<string | null>(null);
+  $effect(() => {
+    const id = writingGenerationId ?? (redraftLive ? reportSeedGenerationId : null);
+    if (id) untrack(() => watchedDrafts.add(String(id)));
+  });
+  $effect(() => {
+    const id = reportSeedGenerationId ? String(reportSeedGenerationId) : null;
+    if (!id || !reportActionsVisible || draftProgress?.phase !== "completed") return;
+    if (generation?._id !== reportSeedGenerationId || generation?.status !== "completed") return;
+    if (notDraftedSections.length > 0) return;
+    untrack(() => {
+      if (!watchedDrafts.has(id)) return;
+      watchedDrafts.delete(id);
+      draftReadyFor = id;
+    });
+  });
+
+  // Effective side-panel visibility (see sidePanelOpen): the Assistant and QA
+  // render only beside the report, so elsewhere their saved open state keeps
+  // no panel, divider or full screen on the page.
+  const sideSurfacesAvailable = $derived(Boolean(report && user && reportActionsVisible));
+  const chatShown = $derived(chatOpen && sideSurfacesAvailable);
+  const qaShown = $derived(qaOpen && sideSurfacesAvailable);
+  // The persisted open state (chatOpen, qaOpen) is a preference. A surface
+  // the page does not offer right now (Seed phases, writing, intake) takes
+  // no room: the side panel is open only for a surface that can show.
+  const sidePanelOpen = $derived(chatShown || qaShown || detailsOpen);
+  const assistantFull = $derived(chatFocus && chatShown);
+  // Whether the main pane (the tab content) is on screen: not behind
+  // Assistant full screen, and not replaced by the side panel on a narrow
+  // screen.
+  const mainPaneVisible = $derived(
+    !assistantFull && !(sidePanelOpen && mobileWorkspaceView === "assistant" && !desktopAssistant)
+  );
+  // The Assistant's composer is on screen where the corner notice would sit.
+  const noticeAboveComposer = $derived(
+    railView === "chat" && chatShown && assistantComposerHeight > 0 && !mainPaneVisible
+  );
+
+  // Panel toolbar tabs (ui-design-final.md section 2). A Step-by-step run
+  // shows Plan, Summary, Report and Sources; everything else Report and
+  // Sources. Tabs map onto the existing surfaces: Summary is still the
+  // `?view=summary` state with its focus and fencing rules.
+  const seedMode = $derived(isSeedWorkflow || reportGenerationQ.data?.gatedWorkflow === "seeds");
+  const seeding = $derived(isSeedWorkflow && generation?.seedPhase === "seeding");
+  const seedOutlineQ = useQuery(seedsApi.getOutline, () =>
+    auth.isAuthenticated && seeding && generation ? { generationId: generation._id } : "skip"
+  );
+  // Board 3.6: below the large breakpoint the seed stage puts the Details
+  // toggle beside the Outline/Seeds switch, so the toolbar drops its own.
+  // While the panel covers the narrow screen, the toolbar toggle returns so
+  // it can be closed where the seed workspace is hidden.
+  // The pane switch exists only while the seed workspace shows its Outline
+  // (not on Sources, not while the Outline loads); the toolbar keeps the
+  // toggle otherwise (review g2 B8).
+  const seedDetailsInPaneSwitch = $derived(
+    showSeedWorkspace &&
+      !sourcesOpen &&
+      seedOutlineQ.data?.generationId === generation?._id &&
+      !desktopAssistant &&
+      !(detailsOpen && sidePanelOnScreen)
+  );
+  const planReady = $derived(Boolean(seeding && seedOutlineQ.data?.readiness?.ready));
+  const signedOffSummaryAvailable = $derived(
+    Boolean(report) &&
+      !awaitingSelection &&
+      !showIterativeStepper &&
+      !showSeedWorkspace &&
+      !showSeedRecovery &&
+      !showSeedDrafting &&
+      reportGenerationQ.data?.gatedWorkflow === "seeds" &&
+      !!reportGenerationQ.data.summaryVersionId
+  );
+  const seedSignedOff = $derived(
+    seedMode && !seeding && (signedOffSummaryAvailable || showSeedDrafting || showSeedRecovery || !!generation?.summaryVersionId)
+  );
+  const activeTab = $derived<PanelTab["id"]>(
+    sourcesOpen
+      ? "sources"
+      : showSeedSummary || showSeedRecovery
+        ? "summary"
+        : showSeedWorkspace
+          ? "plan"
+          : "report"
+  );
+  const sourceCount = $derived(
+    transcripts.length + (documentsQ.data ?? []).filter((doc) => !doc.archived).length
+  );
+  const panelTabs = $derived.by((): PanelTab[] => {
+    const sources: PanelTab = { id: "sources", label: "Sources", count: sourceCount || null };
+    if (!seedMode) return [{ id: "report", label: "Report" }, sources];
+    return [
+      { id: "plan", label: "Plan", done: seedSignedOff || planReady, disabled: !seeding },
+      {
+        id: "summary",
+        label: "Summary",
+        done: seedSignedOff,
+        status: seeding && planReady ? "Ready" : null,
+        disabled: !(seeding || signedOffSummaryAvailable || showSeedSummary || showSeedRecovery),
+        ...(signedOffSummaryAvailable
+          ? { triggerId: SEED_SIGNED_OFF_SUMMARY_TRIGGER_ID, ariaLabel: "Signed-off Summary" }
+          : { triggerId: SEED_SUMMARY_TAB_ID }),
+      },
+      { id: "report", label: "Report", disabled: seeding },
+      sources,
+    ];
+  });
+  function selectTab(id: PanelTab["id"]) {
+    // Every tab shows main content: leave Assistant full screen, and on a
+    // narrow screen show the main pane instead of the side panel.
+    chatFocus = false;
+    mobileWorkspaceView = "report";
+    if (id === "sources") {
+      sourcesOpen = true;
+      mobileWorkspaceView = "report";
+      return;
+    }
+    sourcesOpen = false;
+    if (id === "summary") {
+      if (!showSeedSummary && !showSeedRecovery) {
+        summaryOpener = "tab";
+        setSeedSummary(true);
+      }
+      return;
+    }
+    if (id === "report") mobileWorkspaceView = "report";
+    if (showSeedSummary) setSeedSummary(false);
+  }
+
+  // Details panel data and actions go through one adapter module.
+  const details = useDetailsData({
+    projectId: () => projectId,
+    currentUserId: () => userQ.data?._id,
+    canEditDetails: () => canEditDetails,
+    panelOpen: () => detailsOpen,
+    teamNeeded: () => detailsOpen && detailsView === "handoff",
+  });
+
+  // QA toggle and the "QA finished" notice (ui-design-final.md section 7):
+  // the score and Section rows come from the stored scorecard; "seen" is
+  // browser-local per generation and QA completion (src/lib/qa/qaSeen.ts).
+  const qaScores = $derived(qaSectionScores(generation?.agentOutputs ?? null));
+  const qaScore = $derived(qaScores?.overall ?? null);
+  const qaState = $derived<"idle" | "running" | "done">(
+    generation?.postQaStatus === "running" ? "running" : qaScore !== null ? "done" : "idle"
+  );
+  const qaCompletedAt = $derived(generation?.postQaCompletedAt ?? null);
+  let qaSeenTick = $state(0);
+  const qaSeen = $derived.by((): QaSeenState | null => {
+    void qaSeenTick;
+    if (!generation || qaCompletedAt === null || qaState !== "done") return null;
+    return readQaSeen(String(generation._id), qaCompletedAt);
+  });
+  const qaUnseen = $derived(qaSeen !== null && qaSeen !== "seen");
+  // The QA panel is rendered and on screen: its side surface is the one in
+  // the slot, and on a narrow screen the side panel is the active pane.
+  const qaOnScreen = $derived(qaShown && railView === "qa" && sidePanelOnScreen);
+  // Showing QA marks the current result seen: no notice, no dot. A restored
+  // or kept-open preference whose panel is not on screen marks nothing.
+  $effect(() => {
+    if (!qaOnScreen || !generation || qaCompletedAt === null || qaState !== "done") return;
+    const generationId = String(generation._id);
+    const completedAt = qaCompletedAt;
+    untrack(() => {
+      if (readQaSeen(generationId, completedAt) === "seen") return;
+      markQaSeen(generationId, completedAt);
+      qaSeenTick += 1;
+    });
+  });
+  function dismissQaNotice() {
+    if (!generation || qaCompletedAt === null) return;
+    markQaDismissed(String(generation._id), qaCompletedAt);
+    qaSeenTick += 1;
+  }
+  function openQaFromNotice() {
+    void leaveDetailsThen(() => openSidePanel("qa"));
+  }
+  const showQaFinished = $derived(
+    reportActionsVisible && qaSeen === "unseen" && !qaOnScreen
+  );
+
+  const topBarMoreItems = $derived.by((): TopBarMoreItem[] => {
+    if (!reportActionsVisible) return [];
+    return [
+      {
+        id: "ai-review",
+        label: startingReview ? "Starting AI review..." : "Start AI review",
+        onSelect: handleStartAiReview,
+        disabled: startingReview,
+      },
+      ...(canShare
+        ? [{ id: "share", label: sharing ? "Publishing..." : "Share review link", onSelect: handleCopyShareLink, disabled: sharing }]
+        : []),
+      ...(ghostSnapshot
+        ? [{ id: "compare", label: "Compare with the one-shot draft", onSelect: () => (ghostCompareOpen = true) }]
+        : []),
+      { id: "history", label: "History", onSelect: () => (showHistory = true) },
+      { id: "financial", label: "Financial", href: `/project/${projectId}/financial` },
+    ];
+  });
 </script>
 
 <svelte:window
+  onpopstate={() => (seedSummaryRequested = new URL(window.location.href).searchParams.get("view") === "summary")}
   onkeydown={(e) => {
-    if (e.key === "Escape" && chatFocus && !replaceSession) chatFocus = false;
-    else if (e.key === "Escape" && chatOpen && !replaceSession) {
+    if (e.key === "Escape" && assistantFull && !replaceSession) chatFocus = false;
+    else if (e.key === "Escape" && chatShown && !replaceSession) {
       chatOpen = false;
       mobileWorkspaceView = "report";
     }
@@ -1160,307 +1917,36 @@
     onFocusSearch={() => void goto(workspaceHref("/projects"))}
     drawerDescription="Navigate between work, projects, and account pages."
   >
-  <div class="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-canvas" data-report-cohort="preview">
-
-    <!-- Read-only twin of EditableText's body variant for viewers outside the
-         metadata edit scope: the same value, no pencil, honest empty. -->
-    {#snippet readonlyValue(value: string)}
-      <p class="min-w-0 truncate text-gray-800">
-        {#if value}
-          {value}
-        {:else}
-          <span class="italic text-gray-400">Not set</span>
-        {/if}
-      </p>
-    {/snippet}
-
-    {#snippet projectMetadata()}
-      <div data-project-overview class="mb-5 border-b border-line-soft pb-4">
-        <div class="flex min-w-0 items-center gap-3">
-          <!-- headingLevel 2: the workspace bar below AppNav carries the page's
-               single h1 (a11y P0 — one unambiguous main heading per route). -->
-          <div class="min-w-0 flex-1">
-            {#if canEditDetails}
-              <EditableText
-                value={project.title}
-                placeholder="Set internal title"
-                variant="heading"
-                headingLevel={2}
-                headingClass="text-xl font-medium tracking-tight text-ink"
-                label="internal project title"
-                required
-                onSave={async (value) => {
-                  await updateTitles({ projectId, title: value.trim() });
-                }}
-              />
-            {:else}
-              <h2 class="min-w-0 break-words text-xl font-medium tracking-tight text-ink">
-                {project.title || "Set internal title"}
-              </h2>
-            {/if}
-          </div>
-          <button
-            data-project-details-toggle
-            type="button"
-            onclick={() => (projectDetailsOpen = !projectDetailsOpen)}
-            aria-expanded={projectDetailsOpen}
-            aria-controls={projectDetailsBodyId}
-            class="flex min-h-9 shrink-0 items-center gap-1.5 rounded-md px-2 text-xs font-medium text-ink-muted transition-colors hover:bg-primary-wash hover:text-primary-selected focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy motion-reduce:transition-none pointer-coarse:min-h-11"
-          >
-            Project details
-            <DisclosureChevron open={projectDetailsOpen} tone="neutral" class="size-3.5" />
-          </button>
-        </div>
-        <!-- Highlights band (2026-08-13, Attio-research P1): the project's
-             load-bearing facts at a glance, honest empties included.
-             mt-5 (2026-08-19): the divider needs clear air below the title. -->
-        <div class="mt-5">
-          <ProjectHighlights {projectId} fiscalYearEnd={project.fiscalYearEnd ?? null} padBottom={projectDetailsOpen} />
-        </div>
-        <!-- Attribute rows (same amendment): the Attio record-page grammar —
-             fixed label column + value per row — replacing the stacked
-             label-over-value grid. Editing affordances are unchanged. The
-             rows are progressively disclosed so the report remains primary. -->
-        <Disclosure id={projectDetailsBodyId} open={projectDetailsOpen}>
-          <!-- No top border here: a border on the collapsing body pops at the
-               end of the Disclosure exit. The highlights band's own border
-               and padding carry the separation in both states. -->
-          <div data-project-details class="@container pt-1">
-            <div class="grid grid-cols-1 gap-x-8 text-[13px] @2xl:grid-cols-2">
-          <div class="grid min-h-9 grid-cols-[6.5rem_minmax(0,1fr)] items-center gap-x-3 py-1 @md:grid-cols-[7.5rem_minmax(0,1fr)] @2xl:col-span-2">
-            <span class="text-label">SR&amp;ED title</span>
-            <div class="min-w-0">
-              {#if canEditDetails}
-                <EditableText
-                  value={project.sredTitle ?? ""}
-                  placeholder="Add the formal SR&ED title (finalize at the end)"
-                  label="SR&ED title"
-                  onSave={async (value) => {
-                    await updateTitles({ projectId, sredTitle: value });
-                  }}
-                />
-              {:else}
-                {@render readonlyValue(project.sredTitle ?? "")}
-              {/if}
-            </div>
-          </div>
-          <div class="grid min-h-9 grid-cols-[6.5rem_minmax(0,1fr)] items-center gap-x-3 py-1 @md:grid-cols-[7.5rem_minmax(0,1fr)]">
-            <span class="text-label">Client</span>
-            <!-- 2026-09-10 writer flag: a misnamed company was stuck. Same
-                 EditableText affordance as the SR&ED title row. -->
-            <div class="min-w-0">
-              {#if canEditDetails}
-                <EditableText
-                  value={project.clientName}
-                  placeholder="Set client name"
-                  label="client name"
-                  required
-                  onSave={async (value) => {
-                    await updateClientName({ projectId, clientName: value.trim() });
-                  }}
-                />
-              {:else}
-                {@render readonlyValue(project.clientName)}
-              {/if}
-            </div>
-          </div>
-          <div class="grid min-h-9 grid-cols-[6.5rem_minmax(0,1fr)] items-center gap-x-3 py-1 @md:grid-cols-[7.5rem_minmax(0,1fr)]">
-            <!-- Domain truth (product-domain vocabulary): `project.writer` is
-                 the writer metadata field, NOT the immutable Creator
-                 (`projects.createdBy`). Labelling it "Created by" conflated
-                 Writer with Creator; the field now says what it holds. -->
-            <span class="text-label">Writer</span>
-            <p class="min-w-0 truncate text-gray-800">{writerLabel}</p>
-          </div>
-          {#if interviewerLabel}
-            <div class="grid min-h-9 grid-cols-[6.5rem_minmax(0,1fr)] items-center gap-x-3 py-1 @md:grid-cols-[7.5rem_minmax(0,1fr)]">
-              <span class="text-label">Interviewer</span>
-              <p class="min-w-0 truncate text-gray-800">{interviewerLabel}</p>
-            </div>
-          {/if}
-          {#if interviewees.length > 0}
-            <div class="grid min-h-9 grid-cols-[6.5rem_minmax(0,1fr)] items-center gap-x-3 py-1 @md:grid-cols-[7.5rem_minmax(0,1fr)]">
-              <span class="text-label">Interviewees</span>
-              <p class="min-w-0 text-gray-800">{interviewees.join(", ")}</p>
-            </div>
-          {/if}
-          <div class="grid min-h-9 grid-cols-[6.5rem_minmax(0,1fr)] items-center gap-x-3 py-1 @md:grid-cols-[7.5rem_minmax(0,1fr)]">
-            <span class="text-label">Created</span>
-            <p class="min-w-0 text-gray-800">
-              {new Date(project.createdAt).toLocaleDateString("en-US", {
-                year: "numeric",
-                month: "long",
-                day: "numeric",
-              })}
-            </p>
-          </div>
-          <div class="grid min-h-9 grid-cols-[6.5rem_minmax(0,1fr)] items-center gap-x-3 py-1 @md:grid-cols-[7.5rem_minmax(0,1fr)]">
-            <span class="text-label">Fiscal year-end</span>
-            <div class="min-w-0">
-              <FiscalYearField
-                {projectId}
-                fiscalYearEnd={project.fiscalYearEnd ?? null}
-                readonly={!canEditDetails}
-              />
-            </div>
-          </div>
-          <div class="grid min-h-9 grid-cols-[6.5rem_minmax(0,1fr)] items-center gap-x-3 py-1 @md:grid-cols-[7.5rem_minmax(0,1fr)]">
-            <span class="text-label">Industry</span>
-            <div class="min-w-0">
-              <IndustryField
-                {projectId}
-                industry={project.industry ?? null}
-                canCreate={user?.role === "admin"}
-                readonly={!canEditDetails}
-              />
-            </div>
-          </div>
-          <div class="grid min-h-9 grid-cols-[6.5rem_minmax(0,1fr)] items-center gap-x-3 py-1 @md:grid-cols-[7.5rem_minmax(0,1fr)]">
-            <span class="text-label">Project #</span>
-            <div class="min-w-0">
-              {#if canEditDetails}
-                <EditableText
-                  value={project.projectNumber ?? ""}
-                  placeholder="e.g. 2, A, or 2a"
-                  label="project number"
-                  onSave={saveProjectNumber}
-                />
-              {:else}
-                {@render readonlyValue(project.projectNumber ?? "")}
-              {/if}
-              {#if projectNumberError}
-                <p class="mt-1 text-xs text-red-700" role="alert">{projectNumberError}</p>
-              {/if}
-            </div>
-          </div>
-          <div class="grid min-h-9 grid-cols-[6.5rem_minmax(0,1fr)] items-center gap-x-3 py-1 @md:grid-cols-[7.5rem_minmax(0,1fr)]">
-            <span class="text-label">Project type</span>
-            <p class="min-w-0 truncate text-gray-800">
-              {PROJECT_TYPE_LABELS[effectiveProjectType(project)]}
-            </p>
-          </div>
-          <div class="grid min-h-9 grid-cols-[6.5rem_minmax(0,1fr)] items-center gap-x-3 py-1 @md:grid-cols-[7.5rem_minmax(0,1fr)]">
-            <span class="text-label">Science code</span>
-            <div class="min-w-0">
-              <ScienceCodeField
-                {projectId}
-                scienceCode={project.scienceCode ?? null}
-                readonly={!canEditDetails}
-              />
-            </div>
-          </div>
-          {#if project.sourceProjectId}
-            <!-- 2026-08-11 (second) amendment: navigational association only —
-                 the review project links to the project it reviews. -->
-            <div class="grid min-h-9 grid-cols-[6.5rem_minmax(0,1fr)] items-center gap-x-3 py-1 @md:grid-cols-[7.5rem_minmax(0,1fr)]">
-              <span class="text-label">Reviews</span>
-              <p class="min-w-0 truncate">
-                <a
-                  href={`/project/${project.sourceProjectId}`}
-                  class="text-sm text-primary-selected hover:underline"
-                >
-                  {sourceProjectQ.data?.title ?? "Open source project"}
-                </a>
-              </p>
-            </div>
-          {/if}
-          <div class="grid min-h-9 grid-cols-[6.5rem_minmax(0,1fr)] items-start gap-x-3 py-1 @md:grid-cols-[7.5rem_minmax(0,1fr)] @2xl:col-span-2">
-            <span class="text-label pt-1.5">
-              Tags{#if tagsSaving}<span class="ml-2 normal-case tracking-normal text-ink-muted">Saving…</span>{/if}
-            </span>
-            <div class="min-w-0">
-              <TagPicker
-                {allTags}
-                bind:selectedTagIds
-                label={null}
-                onChange={handleTagsChange}
-                readonly={!canEditDetails}
-              />
-              {#if tagError}
-                <p class="mt-1 text-xs text-red-700" role="alert">{tagError}</p>
-              {/if}
-            </div>
-          </div>
-        </div>
-        {#if viewSummary && viewSummary.totalViews > 0}
-          <div class="mt-3 flex flex-wrap items-center gap-3">
-            <div class="flex items-center gap-1.5 text-xs text-ink-muted">
-              <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                <path stroke-linecap="round" stroke-linejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-              </svg>
-              {viewSummary.totalViews} view{viewSummary.totalViews !== 1 ? "s" : ""}
-            </div>
-            {#each viewSummary.uniqueViewers as viewer (`${viewer.name}-${viewer.type}`)}
-              <span class="inline-flex items-center gap-1 rounded-full bg-chrome px-2 py-0.5 text-xs text-gray-500">
-                {viewer.name}
-                <span class="text-ink-muted">
-                  {new Date(viewer.lastViewed).toLocaleDateString("en-US", {
-                    month: "short",
-                    day: "numeric",
-                  })}
-                </span>
-              </span>
-            {/each}
-          </div>
-        {/if}
-          </div>
-        </Disclosure>
-      </div>
-    {/snippet}
-
-    <!-- Page bar — the second band of the dense two-level workspace header
-         (Obvious anatomy: ~54px app bar + 44px project bar). It carries the
-         page's SINGLE h1 project title beside the workflow control so every
-         generation state keeps one unambiguous main heading (a11y P0). -->
-    <header data-workspace-page-header class="flex h-[49px] shrink-0 items-center gap-2 border-b border-workspace-rail-line px-3 sm:px-4">
-      <WorkspaceShellControls
-        tone="light"
-        onOpenNavigation={() => (navigationOpen = true)}
-        {railHidden}
-        onToggleRail={() => (railHidden = !railHidden)}
-      />
-      <div class="flex min-w-0 flex-1 items-center gap-2">
-        {#if report && user && !chatOpen && !awaitingSelection && !showIterativeStepper}
-          <!-- Obvious puts the reopen-panel control at the FAR LEFT with the
-               open-panel glyph, not a chat icon in the right cluster. -->
-          <button
-            type="button"
-            title="Open AI assistant"
-            aria-label="Open AI assistant"
-            onclick={() => {
-              qaOpen = false;
-              chatOpen = true;
-              railView = "chat";
-              mobileWorkspaceView = "assistant";
-            }}
-            class="flex size-7 shrink-0 items-center justify-center rounded-full text-ink-muted transition-colors hover:bg-chrome/60 hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy motion-reduce:transition-none pointer-coarse:size-11"
-          >
-            <svg class="h-[18px] w-[18px]" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M4 7C4 5.343 5.343 4 7 4h10c1.657 0 3 1.343 3 3v10c0 1.657-1.343 3-3 3H7c-1.657 0-3-1.343-3-3V7zM15 5v14" />
-            </svg>
-          </button>
-        {/if}
+  <div class="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-workspace-shell" data-report-cohort="preview">
+    <!-- Top bar (ui-design-final.md section 2): the route's single h1 lives
+         here; page actions sit at the right, the rest in the More menu. -->
+    <ProjectTopBar
+      title={project.title}
+      projectsHref={workspaceHref("/projects")}
+      {railHidden}
+      onToggleRail={() => (railHidden = !railHidden)}
+      onOpenNavigation={() => (navigationOpen = true)}
+      moreItems={topBarMoreItems}
+      flush={showReadingInterview}
+    >
+      {#snippet leading()}
         {#if showIntakeWorkbench && !contextOpen}
-          <!-- Same far-left reopen grammar as the assistant rail: the panel
-               that closed comes back from where Obvious puts it. Desktop only —
+          <!-- The intake context pane reopens from the far left, desktop only;
                narrow screens keep the Work/Context switch. -->
           <button
             type="button"
             title="Show project context"
             aria-label="Show project context"
             onclick={() => (contextOpen = true)}
-            class="hidden size-7 shrink-0 items-center justify-center rounded-full text-ink-muted transition-colors hover:bg-chrome/60 hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy motion-reduce:transition-none lg:flex"
+            class="hidden size-8 shrink-0 items-center justify-center rounded-lg text-ink-muted transition-colors hover:bg-primary-wash hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy motion-reduce:transition-none lg:flex"
           >
             <svg class="h-[18px] w-[18px]" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true">
               <path stroke-linecap="round" stroke-linejoin="round" d="M4 7C4 5.343 5.343 4 7 4h10c1.657 0 3 1.343 3 3v10c0 1.657-1.343 3-3 3H7c-1.657 0-3-1.343-3-3V7zM15 5v14" />
             </svg>
           </button>
         {/if}
-        <!-- Single h1 for the route (a11y P0), carried by the thin header. -->
-        <h1 data-project-heading class="min-w-0 truncate text-sm font-medium text-ink max-sm:sr-only">
-          {project.title}
-        </h1>
+      {/snippet}
+      {#snippet status()}
         {#if !project.workflowStage}
           <ProjectStateBadge workflowStage={project.workflowStage} legacyStatus={project.status} />
         {/if}
@@ -1470,16 +1956,13 @@
               status={generation.status}
               candidatesDone={generation.candidatesDone ?? 0}
               candidatesFailed={generation.candidatesFailed ?? 0}
+              surface="light"
             />
           </span>
         {/if}
-      </div>
-      <div class="flex shrink-0 items-center gap-1">
         {#if pagingPosition}
-          <!-- "N of M in <where>" — flow-state paging over the bounded page
-               the invoking list stashed; count keeps the + qualifier when
-               that page was bounded. No subscriptions: prev/next navigate
-               within the already-loaded id list. -->
+          <!-- "N of M in <where>": flow-state paging over the bounded page the
+               invoking list stashed. No subscriptions. -->
           <span data-paging-context class="hidden items-center gap-0.5 lg:flex">
             <span class="whitespace-nowrap text-xs text-ink-muted">
               <span class="text-data">{pagingPosition.index + 1} of {pagingPosition.total}{pagingPosition.bounded ? "+" : ""}</span>
@@ -1494,7 +1977,7 @@
                 const id = pagingPosition?.prevId;
                 if (id) void goto(resolve("/project/[id]", { id }));
               }}
-              class="flex size-7 items-center justify-center rounded-full text-ink-muted transition-colors hover:bg-chrome/60 hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy disabled:cursor-default disabled:opacity-40 disabled:hover:bg-transparent motion-reduce:transition-none"
+              class="flex size-7 items-center justify-center rounded-md text-ink-muted transition-colors hover:bg-primary-wash hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy disabled:cursor-default disabled:opacity-40 disabled:hover:bg-transparent motion-reduce:transition-none"
             >
               <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7" /></svg>
             </button>
@@ -1507,14 +1990,14 @@
                 const id = pagingPosition?.nextId;
                 if (id) void goto(resolve("/project/[id]", { id }));
               }}
-              class="flex size-7 items-center justify-center rounded-full text-ink-muted transition-colors hover:bg-chrome/60 hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy disabled:cursor-default disabled:opacity-40 disabled:hover:bg-transparent motion-reduce:transition-none"
+              class="flex size-7 items-center justify-center rounded-md text-ink-muted transition-colors hover:bg-primary-wash hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy disabled:cursor-default disabled:opacity-40 disabled:hover:bg-transparent motion-reduce:transition-none"
             >
               <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" /></svg>
             </button>
           </span>
         {/if}
         {#if saving}
-          <span class="hidden text-xs text-ink-faint sm:inline">Saving…</span>
+          <span class="hidden text-xs text-ink-faint sm:inline">Saving...</span>
         {/if}
         {#if saveError}
           <span class="hidden max-w-60 truncate text-xs text-red-700 sm:inline" role="alert">Save failed: {saveError}</span>
@@ -1525,74 +2008,57 @@
         {#if showIterativeStepper && generation?.iterativeModelLabel}
           <span class="hidden text-xs text-ink-muted sm:inline">Model: {generation.iterativeModelLabel}</span>
         {/if}
-        {#if showIterativeStepper}
-          <button
-            type="button"
+      {/snippet}
+      {#snippet actions()}
+        {#if (showIterativeStepper || showSeedWorkspace || showReadingInterview) && (!isSeedWorkflow || generation?.seedCanEdit)}
+          <!-- Seed stage and Reading the interview (round 2, F2 to F5): the
+               one top-bar cancel, the filled destructive button, 36px with
+               14px sides on F2 and 16px on F3 to F5, 32px on a tablet (H3).
+               While drafting after sign-off the writing pill's Stop is the
+               only cancel. On a phone the reading screen carries it at the
+               bottom (H4). -->
+          <Button
+            variant="destructive-soft"
+            size="sm"
+            class={`h-9 py-0! ${showReadingInterview ? "px-3.5! max-sm:hidden sm:max-xl:h-8" : "px-4!"}`}
+            data-top-bar-cancel-generation
             onclick={() => (confirmCancelIterative = true)}
-            class="flex h-7 items-center rounded-full px-2.5 text-xs text-ink-muted transition-colors hover:bg-chrome/60 hover:text-red-700 motion-reduce:transition-none"
           >
-            Cancel iterative draft
-          </button>
+            Cancel generation
+          </Button>
         {/if}
-        {#if report && !awaitingSelection && !showIterativeStepper}
-          <!-- 2026-08-11: start PD-review mode from this written report — the
-               review lives as an associated project (sourceProjectId). -->
-          <button type="button" title="Start AI review" aria-label={startingReview ? "Starting AI review…" : "Start AI review"} onclick={handleStartAiReview} disabled={startingReview} class="flex size-7 shrink-0 items-center justify-center rounded-full text-ink-muted transition-colors hover:bg-chrome/60 hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy disabled:opacity-40 motion-reduce:transition-none pointer-coarse:size-11">
-            <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z" />
-            </svg>
-          </button>
-          {#if canShare}
-            <button type="button" title="Publish and copy review link" aria-label={sharing ? "Publishing…" : "Share"} onclick={handleCopyShareLink} disabled={sharing} class="flex size-7 shrink-0 items-center justify-center rounded-full text-ink-muted transition-colors hover:bg-chrome/60 hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy disabled:opacity-40 motion-reduce:transition-none pointer-coarse:size-11">
-              <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" />
-              </svg>
-            </button>
-          {/if}
-          {#if ghostSnapshot}
-            <button type="button" title="Compare with the one-shot draft" aria-label="Compare drafts" onclick={() => (ghostCompareOpen = true)} class="flex size-7 shrink-0 items-center justify-center rounded-full text-ink-muted transition-colors hover:bg-chrome/60 hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy disabled:opacity-40 motion-reduce:transition-none pointer-coarse:size-11">
-              <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M9 4v16m6-16v16M4 8h4m8 0h4M4 16h4m8 0h4M6 4h12a2 2 0 012 2v12a2 2 0 01-2 2H6a2 2 0 01-2-2V6a2 2 0 012-2z" />
-              </svg>
-            </button>
-          {/if}
-          <button type="button" title="History" aria-label="History" onclick={() => (showHistory = true)} class="flex size-7 shrink-0 items-center justify-center rounded-full text-ink-muted transition-colors hover:bg-chrome/60 hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy disabled:opacity-40 motion-reduce:transition-none pointer-coarse:size-11">
-            <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-          </button>
-          <button
-            type="button"
-            title={workspaceMaximized ? "Exit focus mode" : "Enter focus mode"}
-            aria-label={workspaceMaximized ? "Exit focus mode" : "Enter focus mode"}
-            onclick={() => (workspaceMaximized = !workspaceMaximized)}
-            class="flex size-7 shrink-0 items-center justify-center rounded-full text-ink-muted transition-colors hover:bg-chrome/60 hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy disabled:opacity-40 motion-reduce:transition-none pointer-coarse:size-11"
+        {#if reportActionsVisible}
+          <!-- Board 2.1: 36px buttons, 13px labels, radius 7. -->
+          <Button
+            variant="secondary"
+            size="sm"
+            class="h-9 gap-1.5 rounded-[7px]! px-3! text-[13px]!"
+            aria-label={exporting ? "Exporting..." : "Export .docx"}
+            onclick={handleExport}
+            disabled={exporting}
           >
-            <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true">
-              {#if workspaceMaximized}
-                <path stroke-linecap="round" stroke-linejoin="round" d="M9 9H4.5M9 9V4.5M15 9h4.5M15 9V4.5M9 15H4.5M9 15v4.5M15 15h4.5M15 15v4.5" />
-              {:else}
-                <path stroke-linecap="round" stroke-linejoin="round" d="M7 3H3v4M3 3l6 6m8-6h4v4m0-4-6 6M7 21H3v-4m0 4 6-6m8 6h4v-4m0 4-6-6" />
-              {/if}
-            </svg>
-          </button>
-          <button type="button" title="Export .docx" aria-label={exporting ? "Exporting…" : "Export .docx"} onclick={handleExport} disabled={exporting} class="flex size-7 shrink-0 items-center justify-center rounded-full text-ink-muted transition-colors hover:bg-chrome/60 hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy disabled:opacity-40 motion-reduce:transition-none pointer-coarse:size-11">
-            <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true">
+            <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true">
               <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
             </svg>
-          </button>
-          <a title="Financial" aria-label="Financial" href={`/project/${projectId}/financial`} class="flex size-7 shrink-0 items-center justify-center rounded-full text-ink-muted transition-colors hover:bg-chrome/60 hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy disabled:opacity-40 motion-reduce:transition-none pointer-coarse:size-11">
-            <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-          </a>
+            <span class="max-sm:sr-only">Export</span>
+          </Button>
+          <Button
+            size="sm"
+            class="h-9 rounded-[7px]! px-3.5! text-[13px]! max-sm:hidden"
+            data-send-for-review
+            disabled={!details.data?.permissions.canHandOff}
+            title={details.data && !details.data.permissions.canHandOff ? (details.handOffReason ?? undefined) : undefined}
+            onclick={() => void leaveDetailsThen(() => openDetails("handoff", "internal_review"))}
+          >
+            Send for review
+          </Button>
         {:else if awaitingSelection}
           <button
             type="button"
             title={candidateMaximized ? "Exit focus mode" : "Enter focus mode"}
             aria-label={candidateMaximized ? "Exit focus mode" : "Enter focus mode"}
             onclick={() => (candidateMaximized = !candidateMaximized)}
-            class="flex size-7 shrink-0 items-center justify-center rounded-full text-ink-muted transition-colors hover:bg-chrome/60 hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy disabled:opacity-40 motion-reduce:transition-none pointer-coarse:size-11"
+            class="flex size-8 shrink-0 items-center justify-center rounded-lg text-ink-muted transition-colors hover:bg-primary-wash hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy motion-reduce:transition-none pointer-coarse:size-11"
           >
             <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true">
               {#if candidateMaximized}
@@ -1603,18 +2069,192 @@
             </svg>
           </button>
         {/if}
-      </div>
-    </header>
+      {/snippet}
+    </ProjectTopBar>
 
-    <!-- Generation progress — no metadata header; the progress card is the page -->
-    {#if generation && (isGenerating || showFailedGeneration)}
+    <div
+      data-project-card
+      data-work-panel
+      class={`mx-3 mb-3 flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border ${
+        showReadingInterview
+          ? "border-line-soft bg-reading-panel max-xl:mx-0 max-xl:mb-0 max-xl:rounded-none max-xl:border-0"
+          : "border-line-soft bg-surface"
+      }`}
+    >
+      {#if showReadingInterview && generation}
+        <div class="min-h-0 flex-1 overflow-y-auto" data-reading-host>
+          {#key generation._id}
+            <ReadingInterview
+              generationId={generation._id}
+              failed={Boolean(generation.seedStageError)}
+              canEdit={generation.seedCanEdit}
+              layout={readingLayout}
+              onCancel={() => (confirmCancelIterative = true)}
+              onBack={() => {
+                readingDismissed = true;
+                selectTab("sources");
+              }}
+            />
+          {/key}
+        </div>
+      {:else}
+      <PanelToolbar
+        tabs={panelTabs}
+        {activeTab}
+        onSelectTab={selectTab}
+        showFullWidth={reportActionsVisible && !sourcesOpen && !assistantFull}
+        fullWidth={workspaceMaximized}
+        onToggleFullWidth={() => (workspaceMaximized = !workspaceMaximized)}
+        showDetails={!seedDetailsInPaneSwitch}
+        detailsActive={detailsOpen && sidePanelOnScreen}
+        onToggleDetails={toggleDetails}
+        bind:detailsButton
+        showAssistant={reportActionsVisible && !!user}
+        showQa={reportActionsVisible && !!user}
+        assistantActive={chatShown && sidePanelOnScreen}
+        onToggleAssistant={() => void leaveDetailsThen(() => toggleSidePanel("chat"))}
+      >
+        {#snippet detailsPeek()}
+          <DetailsPopover
+            data={details.data}
+            anchor={detailsButton}
+            bind:open={detailsPeekOpen}
+            disabled={detailsOpen}
+            onOpenAll={() => openDetails()}
+          />
+        {/snippet}
+        {#snippet qa()}
+          {#if reportActionsVisible && user}
+            <QaToggle
+              state={qaState}
+              score={qaScore}
+              unseen={qaUnseen}
+              active={qaShown && sidePanelOnScreen}
+              onToggle={() => void leaveDetailsThen(() => toggleSidePanel("qa"))}
+            />
+          {/if}
+        {/snippet}
+      </PanelToolbar>
+
+      <div bind:this={workspaceEl} data-project-body class="flex min-h-0 flex-1 overflow-hidden">
+        <div
+          data-project-main
+          inert={assistantFull}
+          class={`relative flex min-h-0 min-w-0 flex-1 flex-col ${assistantFull ? "hidden" : ""} ${sidePanelOpen && mobileWorkspaceView === "assistant" ? "max-lg:hidden" : ""}`}
+        >
+          <!-- Draft ready (board 4.4): where the writing pill was, top centre
+               of the Report tab. Export and Send for review are back in the
+               top bar. -->
+          {#if draftReadyFor && reportActionsVisible && !sourcesOpen}
+            <div class="pointer-events-none absolute inset-x-0 top-6 z-30 flex justify-center px-4" data-draft-ready-host>
+              <div class="pointer-events-auto max-w-full">
+                {#key draftReadyFor}
+                  <DraftReadyToast
+                    qaRunning={generation?.postQaStatus === "running"}
+                    onClose={() => (draftReadyFor = null)}
+                  />
+                {/key}
+              </div>
+            </div>
+          {/if}
+          <!-- QA finished (board 4.5): 24px inside the report panel's bottom
+               right corner until opened or dismissed; it scrolls rather than
+               clips in a short window. -->
+          {#if showQaFinished && qaScores && mainPaneVisible}
+            <div class="absolute bottom-6 right-6 z-[85] max-h-[calc(100%-3rem)] overflow-y-auto max-sm:inset-x-4 max-sm:bottom-4 max-sm:max-h-[calc(100%-2rem)]" data-qa-finished-host>
+              {@render qaFinishedNotice()}
+            </div>
+          {/if}
+          {#if sourcesOpen}
+            <div class="min-h-0 flex-1 overflow-y-auto">
+              <SourcesView
+                transcripts={transcripts}
+                documents={documentsQ.data ?? []}
+                loading={transcriptsQ.data === undefined || documentsQ.data === undefined}
+                canEditTranscripts={!!user?.role}
+                transcriptsBlockedReason={transcriptChangesBlocked
+                  ? "Transcripts can't change while a report is generating."
+                  : null}
+                {transcriptBusy}
+                onAddTranscript={(file) => storeTranscriptFile(file, null)}
+                onReplaceTranscript={(transcriptId, file) => storeTranscriptFile(file, transcriptId)}
+                onRemoveTranscript={removeTranscript}
+                transcriptSpeakers={transcriptSpeakersChip}
+              />
+            </div>
+          {/if}
+          <div class={`flex min-h-0 flex-1 flex-col ${sourcesOpen ? "hidden" : ""}`}>
+    {#if generation && showWritingView}
+      <!-- Writing view (ui-design-final.md section 6, boards 4.1 to 4.3): the
+           signed-off Step-by-step draft writes into the Report tab. The
+           transform makes this pane the containing block of the fixed corner
+           ring, so the ring sits in the report panel's corner. -->
+      <div class="relative flex min-h-0 flex-1 flex-col [transform:translateZ(0)]" data-writing-pane>
+        <div bind:this={writingScrollEl} class="min-h-0 flex-1 overflow-y-auto" data-writing-scroll>
+          <!-- A7: the region receives focus when Seed drafting replaces
+               Summary Review, and hands it to the draft's heading once the
+               progress read arrives. -->
+          <div
+            id={GENERATION_PROGRESS_REGION_ID}
+            role="region"
+            aria-label="Generation progress"
+            tabindex="-1"
+            class="mx-auto w-full max-w-[808px] px-6 pb-24 pt-6 outline-none"
+          >
+            {#if draftProgress}
+              {#key generation._id}
+                <SeedDraftingView
+                  progress={draftProgress}
+                  reportTitle={project.title}
+                  headingId={GENERATION_PROGRESS_HEADING_ID}
+                  scrollContainer={writingScrollEl}
+                  onStop={generation.seedCanEdit ? openStopDialog : undefined}
+                  stopDisabled={stopDialogOpen}
+                />
+              {/key}
+            {:else}
+              <p class="flex items-center justify-center gap-2 py-16 text-body text-ink-muted">
+                <Spinner size="sm" /> Loading the draft...
+              </p>
+            {/if}
+          </div>
+        </div>
+      </div>
+      <StopDraftingDialog
+        bind:open={stopDialogOpen}
+        currentSectionNumber={writingSectionNumber}
+        errorMessage={stopError}
+        onConfirm={confirmStopDrafting}
+        onCancel={() => (stopError = null)}
+      />
+    {:else if generation && (isGenerating || showFailedGeneration)}
+      <!-- Generation progress: no metadata header; the progress card is the page. -->
       <!-- `my-auto` rather than `items-center`: a centred flex child that
            overflows its scroll container cannot be scrolled back to at the top
            edge. Auto margins centre it identically while it fits, and yield
            when the files panel below makes the content taller than the view. -->
       <div class="flex min-h-0 flex-1 overflow-y-auto">
-        <div class="mx-auto my-auto w-full max-w-3xl px-6 py-8">
+        <!-- A7: the region receives focus when Seed drafting replaces Summary
+             Review, and hands it to the progress heading once that renders. -->
+        <div
+          id={GENERATION_PROGRESS_REGION_ID}
+          role="region"
+          aria-label="Generation progress"
+          tabindex="-1"
+          class="mx-auto my-auto w-full max-w-3xl rounded-xl px-6 py-8 outline-none focus-visible:ring-2 focus-visible:ring-navy"
+        >
           <GenerationProgress generationId={generation._id} />
+          {#if isSeedWorkflow && generation.seedStageError}
+            <!-- A5 (R6-07): a retry's pending state and refusal belong to the
+                 user and generation that submitted it. -->
+            {#key `${user?._id}:${generation._id}`}
+              <SeedInitializationRecovery
+                generationId={generation._id}
+                message={generation.seedStageError}
+                canEdit={generation.seedCanEdit}
+              />
+            {/key}
+          {/if}
           {#if !report}
             <!-- Uploads that failed on the way in have no other home while a
                  generation is running or has failed — the editor (and its files
@@ -1624,6 +2264,75 @@
             </div>
           {/if}
         </div>
+      </div>
+    {/if}
+
+    {#if generation && showSeedWorkspace}
+      <div class="min-h-0 flex-1 overflow-hidden">
+        <!-- Every Seed surface is keyed by its full owner, so no local state,
+             pending work or draft buffer crosses a user or generation. -->
+        {#key `${user?._id}:${generation._id}`}
+          <SeedWorkspace
+            generationId={generation._id}
+            {projectId}
+            userId={user?._id ?? "anonymous"}
+            requestedRoleId={page.url.searchParams.get("step")}
+            hostVisible={mainPaneVisible && !sourcesOpen}
+            onReviewSummary={() => {
+              summaryOpener = "trigger";
+              setSeedSummary(true);
+            }}
+          >
+            {#snippet paneSwitchEnd()}
+              <!-- Board 3.6: the page's Details toggle beside the switch. -->
+              <button
+                type="button"
+                data-seed-details-toggle
+                aria-pressed={detailsOpen && sidePanelOnScreen}
+                aria-label="Details"
+                onclick={toggleDetails}
+                class={`flex size-10 shrink-0 items-center justify-center rounded-lg transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir motion-reduce:transition-none pointer-coarse:size-11 ${
+                  detailsOpen && sidePanelOnScreen
+                    ? "bg-workspace-rail-selected text-fir"
+                    : "text-ink-secondary hover:bg-primary-wash hover:text-ink"
+                }`}
+              >
+                <svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10" /><path d="M12 16v-4M12 8h.01" /></svg>
+              </button>
+            {/snippet}
+          </SeedWorkspace>
+        {/key}
+      </div>
+    {/if}
+
+    {#if seedSummaryOwner && showSeedSummary}
+      <div class="min-h-0 flex-1 overflow-hidden">
+        {#key `${user?._id}:${seedSummaryOwner._id}:${seedSummaryOwner.summaryVersionId ?? "live"}`}
+          <SeedSummaryReview
+            generationId={seedSummaryOwner._id}
+            userId={user?._id ?? "anonymous"}
+            versionId={seedSummaryOwner.summaryVersionId}
+            readOnly={seedSummaryOwner.seedPhase !== "seeding"}
+            focusHeadingOnMount
+            onClose={() => setSeedSummary(false)}
+            onSignedOff={completeSeedSignOff}
+          />
+        {/key}
+      </div>
+    {/if}
+
+    {#if generation && showSeedRecovery}
+      <div class="min-h-0 flex-1 overflow-hidden">
+        {#key `${user?._id}:${generation._id}:${generation.summaryVersionId}`}
+          <SeedSummaryReview
+            generationId={generation._id}
+            userId={user?._id ?? "anonymous"}
+            versionId={generation.summaryVersionId}
+            readOnly
+            recovery
+            canRecover={generation.seedCanEdit}
+          />
+        {/key}
       </div>
     {/if}
 
@@ -1656,37 +2365,40 @@
       </p>
     {/if}
 
-    <!-- Report + Agent workbench. Wide screens mirror the inspected Obvious
-         composition (conversation left, artifact right); narrow screens use
-         one explicit pane at a time so neither surface is percentage-squeezed. -->
-    {#if !awaitingSelection && !showIterativeStepper && report}
-      {#if user}
-        <div class="flex shrink-0 items-center justify-center gap-0.5 border-b border-line-soft bg-white px-3 py-2 lg:hidden" role="group" aria-label="Project workspace pane">
-          <button
-            type="button"
-            aria-pressed={mobileWorkspaceView === "report"}
-            onclick={() => (mobileWorkspaceView = "report")}
-            class={`min-h-11 rounded-full px-4 text-sm font-medium transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy ${mobileWorkspaceView === "report" ? "bg-navy text-white" : "text-ink-muted hover:bg-primary-wash hover:text-navy"}`}
-          >Report</button>
-          <button
-            type="button"
-            aria-pressed={mobileWorkspaceView === "assistant"}
-            onclick={() => {
-              chatOpen = true;
-              qaOpen = false;
-              railView = "chat";
-              mobileWorkspaceView = "assistant";
-            }}
-            class={`min-h-11 rounded-full px-4 text-sm font-medium transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy ${mobileWorkspaceView === "assistant" ? "bg-navy text-white" : "text-ink-muted hover:bg-primary-wash hover:text-navy"}`}
-          >Agent</button>
-        </div>
-      {/if}
-      <div bind:this={workspaceEl} data-project-workspace class="mx-auto flex min-h-0 w-full max-w-full flex-1 flex-col overflow-hidden transition-[max-width] duration-[325ms] ease-out motion-reduce:transition-none lg:flex-row-reverse">
-        <div inert={chatFocus} class={`[container-type:inline-size] ${mobileWorkspaceView === "report" && !chatFocus ? "flex" : "hidden"} min-h-0 min-w-0 w-full flex-1 flex-col overflow-y-auto ${chatFocus ? "lg:hidden" : "lg:flex"}`}>
-            <div data-report-surface class={`w-full max-w-full px-4 transition-[padding] duration-[325ms] ease-out motion-reduce:transition-none sm:px-6 ${workspaceMaximized ? "py-5 sm:py-6" : "py-6 sm:py-8"}`}>
-              <!-- Project info header -->
-              {@render projectMetadata()}
-
+    <!-- Report surface (ui-design-final.md section 8, row 5): a centred
+         660px reading column, or full width with 48px side padding beside a
+         side panel and 96px when the report is alone. -->
+    {#if reportActionsVisible && report}
+      <div data-project-workspace class="flex min-h-0 w-full flex-1 flex-col overflow-hidden">
+        <div class="[container-type:inline-size] flex min-h-0 min-w-0 w-full flex-1 flex-col overflow-y-auto">
+            <div
+              data-report-surface
+              data-report-width={workspaceMaximized ? "full" : "reading"}
+              class={`w-full pt-11 pb-10 transition-[padding,max-width] duration-[325ms] ease-out motion-reduce:transition-none ${workspaceMaximized ? (sidePanelOpen ? "px-6 lg:px-12" : "px-6 lg:px-24") : "mx-auto max-w-[708px] px-6"}`}
+            >
+              <!-- Board 2.1: the report opens on its serif title. The top bar
+                   holds the page h1; the document's own title heading stays
+                   hidden in the editor. -->
+              <h2 data-report-title class="mb-0.5 font-serif text-[28px] leading-9 font-normal text-ink [text-wrap:balance]">
+                {project.title}
+              </h2>
+              {#if notDraftedSections.length > 0}
+                <!-- A stopped Step-by-step draft (FR-43, owner decision 20). -->
+                <div class="mt-6">
+                  <NotDraftedBanner
+                    missingSections={notDraftedSections}
+                    onDraftRest={draftTheRest}
+                    pending={reportReadOnly}
+                    errorMessage={redraftError}
+                    failedAttempt={redraftFailure}
+                    disabled={!reportGenerationQ.data?.seedCanEdit}
+                  />
+                </div>
+              {:else if reportReadOnly}
+                <p class="mt-4 text-[13px] leading-5 text-ink-secondary" role="status" data-redraft-status>
+                  Drafting the missing sections. Editing resumes when they are in.
+                </p>
+              {/if}
               <!-- Editor column -->
               <Editor
                 bind:this={editorRef}
@@ -1696,17 +2408,16 @@
                 onAskAI={handleAskAI}
                 onResearch={handleResearch}
                 editable={true}
+                readOnly={reportReadOnly}
                 {commentRanges}
                 onHoverComment={(id) => (hoveredCommentId = id)}
+                presentation="reading"
               />
 
-              <!-- Supporting panels (QA moved to the right rail — BNH-47) -->
+              <!-- Supporting panels (QA lives in the side panel, BNH-47) -->
               <div class="mt-8 mb-12">
                 <!-- 2026-08-11 (second) amendment: review-mode projects keep
-                     the AI feedback visible ALONGSIDE the PD in the editor.
-                     Previously the review report only rendered in the
-                     no-report intake state, so a review project with a report
-                     (e.g. created from an existing project) hid its feedback. -->
+                     the AI feedback visible ALONGSIDE the PD in the editor. -->
                 {#if project.mode === "review" && pdReview}
                   <div class="mb-4">
                     <PdReviewReport
@@ -1740,158 +2451,385 @@
               </div>
             </div>
           </div>
+      </div>
+    {/if}
+    <!-- No report, not generating: the INTAKE WORKBENCH (2026-08-08
+         Obvious-parity amendment). Desktop ≥lg mirrors the report
+         workbench's split anatomy: a persistent left CONTEXT pane (files
+         evidence + interview transcript, the project's conversation-like
+         source material) beside the primary intake/generation work surface,
+         each owning its own vertical scroll, with the same resizable
+         separator grammar. This replaces the single 768px long-scroll
+         column whose transcript drove a ~27k-px page. Narrow screens use
+         explicit Work/Context switches with one pane visible at a time.
+         The state stays HONEST: no report and no chat exist here; the
+         left pane is source context, never a fabricated conversation. -->
+    {#if showIntakeWorkbench}
+      <div class="flex shrink-0 items-center justify-center gap-0.5 border-b border-line-soft bg-white px-3 py-2 lg:hidden" role="group" aria-label="Project intake pane">
+        <button
+          type="button"
+          aria-pressed={mobileIntakeView === "work"}
+          onclick={() => (mobileIntakeView = "work")}
+          class={`min-h-11 rounded-full px-4 text-sm font-medium transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy ${mobileIntakeView === "work" ? "bg-navy text-white" : "text-ink-muted hover:bg-primary-wash hover:text-navy"}`}
+        >Work</button>
+        <button
+          type="button"
+          aria-pressed={mobileIntakeView === "context"}
+          onclick={() => (mobileIntakeView = "context")}
+          class={`min-h-11 rounded-full px-4 text-sm font-medium transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy ${mobileIntakeView === "context" ? "bg-navy text-white" : "text-ink-muted hover:bg-primary-wash hover:text-navy"}`}
+        >Context</button>
+      </div>
+      <!-- DOM order = work → separator → context (primary surface first for
+           focus order, matching the report workbench); lg:flex-row-reverse
+           places context on the LEFT visually, like the inspected Obvious
+           project composition. -->
+      <div bind:this={intakeEl} data-intake-workbench class="mx-auto flex min-h-0 w-full max-w-[var(--container-shell)] flex-1 overflow-hidden lg:flex-row-reverse">
+        <main
+          aria-label="Project intake and generation"
+          data-intake-pane="work"
+          class={`${mobileIntakeView === "work" ? "flex" : "hidden"} min-h-0 flex-1 flex-col overflow-y-auto lg:flex`}
+        >
+          <div class="mx-auto w-full max-w-3xl px-6 py-8">
+            <!-- Project attributes live in the persistent left context pane;
+                 this primary plane begins with the actual work, matching the
+                 Attio record/detail split. -->
 
-        <!-- Draggable divider -->
-        {#if report && user && (chatOpen || qaOpen) && !chatFocus}
+            {#if project.mode === "review" && generation?.status === "failed"}
+              <div class="mb-8 rounded-lg border border-red-200 bg-red-50 px-3 py-2.5">
+                <p class="text-sm text-red-700">
+                  The comparison draft stopped before it completed. Use “Generate PD for comparison” below to try again.
+                </p>
+              </div>
+            {/if}
+
+            {#if project.mode === "review" && pdReview}
+              <PdReviewReport
+                review={pdReview}
+                hasTranscript={transcripts.length > 0}
+                onGenerate={handleGenerateFromReview}
+              />
+            {:else if project.mode === "review" && pdReviewQ.data === null}
+              <!-- Stranded review project (2026-08-07 flag): no review row
+                   exists, so the report block renders nothing and the writer
+                   had no recovery path. Offer start/upload here. -->
+              <PdReviewStart projectId={project._id} />
+            {/if}
+
+            {#if canGenerate}
+              <section aria-labelledby="intake-generation-heading" class="mt-8">
+                <h2 id="intake-generation-heading" class="text-sm font-semibold uppercase tracking-wide text-gray-400">
+                  Draft generation
+                </h2>
+                <div class="mt-3 flex flex-wrap items-center gap-2">
+                  {#if project.mode !== "review"}
+                    <div
+                      class="inline-grid grid-cols-3 gap-1 rounded-lg bg-chrome p-1"
+                      role="radiogroup"
+                      aria-label="Draft generation mode"
+                    >
+                      {#each [
+                        { id: "compare", label: "Compare" },
+                        { id: "single", label: "Single draft" },
+                        { id: "iterative", label: "Step by step" },
+                      ] as const as opt (opt.id)}
+                        <button
+                          type="button"
+                          role="radio"
+                          aria-checked={candidateMode === opt.id}
+                          onclick={() => (candidateMode = opt.id)}
+                          class={`rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy ${
+                            candidateMode === opt.id
+                              ? "bg-white text-navy shadow-sm ring-1 ring-gray-200"
+                              : "text-gray-500 hover:text-gray-700"
+                          }`}
+                        >
+                          {opt.label}
+                        </button>
+                      {/each}
+                    </div>
+                  {/if}
+                  {#if project.mode !== "review"}
+                    {#if candidateMode !== "compare"}
+                      <SingleModelPicker bind:value={singleModelId} />
+                    {:else}
+                      <ComparePairPicker bind:slotA={compareSlotA} bind:slotB={compareSlotB} />
+                    {/if}
+                  {/if}
+                  <SelectInput
+                    size="sm"
+                    bind:value={lengthTarget}
+                    items={[
+                      { value: "concise", label: "Concise (~70% of limit)" },
+                      { value: "standard", label: "Standard (~90%)" },
+                      { value: "full", label: "Full (to the line limit)" },
+                    ]}
+                    class="w-52"
+                  />
+                  <Button
+                    onclick={handleRegenerate}
+                    class="text-xs"
+                  >
+                    Generate Report
+                  </Button>
+                </div>
+              </section>
+            {/if}
+          </div>
+        </main>
+
+        <!-- Draggable separator between context and work (desktop only) -->
+        {#if contextOpen}
+        <button
+          type="button"
+          onmousedown={startContextDrag}
+          role="slider"
+          aria-label="Resize context panel"
+          aria-orientation="vertical"
+          aria-valuemin={Math.round(CHAT_MIN * 100)}
+          aria-valuemax={Math.round(CHAT_MAX * 100)}
+          aria-valuenow={Math.round(contextRatio * 100)}
+          onkeydown={(event) => {
+            if (event.key === "ArrowLeft") adjustContext(-0.02);
+            else if (event.key === "ArrowRight") adjustContext(0.02);
+            else if (event.key === "Home") contextRatio = CHAT_MIN;
+            else if (event.key === "End") contextRatio = CHAT_MAX;
+            else return;
+            event.preventDefault();
+          }}
+          title="Drag or use arrow keys to resize"
+          class="group hidden w-3 flex-none cursor-col-resize items-center justify-center focus-visible:outline focus-visible:outline-2 focus-visible:outline-navy lg:flex"
+        >
+          <div class="h-10 w-1 rounded-full bg-gray-300 transition-colors group-hover:bg-primary"></div>
+        </button>
+        {/if}
+
+        <aside
+          aria-label="Project context"
+          data-intake-pane="context"
+          inert={!contextOpen && mobileIntakeView !== "context"}
+          class={`${mobileIntakeView === "context" ? "flex" : "hidden"} min-h-0 w-full flex-1 flex-col overflow-hidden bg-white lg:flex lg:w-[var(--context-width)] lg:flex-none ${contextOpen ? "lg:border-r lg:border-line-soft" : "lg:opacity-0"} ${contextDragging ? "" : "lg:transition-[width,opacity] lg:duration-[325ms] lg:ease-out motion-reduce:transition-none"}`}
+          style={`--context-width: ${contextOpen ? contextRatio * 100 : 0}%`}
+        >
+          <!-- Pane header: names the surface and carries the close control
+               (assistant-rail grammar). Desktop only; narrow screens close
+               via the Work/Context switch. -->
+          <div class={`hidden shrink-0 items-center justify-between pt-4 lg:flex ${contextOpen ? "px-5" : "lg:px-0"}`}>
+            <h2 class="text-label">Context</h2>
+            <button
+              type="button"
+              title="Close context panel"
+              aria-label="Close project context"
+              onclick={() => (contextOpen = false)}
+              class="flex size-7 items-center justify-center rounded-full text-ink-muted transition-colors hover:bg-chrome/60 hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy motion-reduce:transition-none"
+            >
+              <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+          <div class={`min-h-0 flex-1 overflow-y-auto py-6 lg:pt-3 ${contextOpen ? "px-5" : "px-5 lg:px-0"}`}>
+            <!-- Reachable later: a project with no report still has to show
+                 what happened to its uploads. -->
+            <FilesPanel {projectId} />
+
+            {#if transcripts.length > 0}
+              <div class="mt-6">
+                <h2 class="text-sm font-medium uppercase tracking-wide text-gray-400">
+                  {transcripts.length === 1 ? "Transcript" : "Transcripts"}
+                </h2>
+                <!-- One disclosure per transcript, one body loaded at a time:
+                     the open row subscribes its content, the rest cost their
+                     metadata only. -->
+                {#each transcripts as transcriptRow (transcriptRow._id)}
+                  {@const bodyId = `${transcriptBodyIdPrefix}-${transcriptRow._id}`}
+                  {@const open = openTranscriptId === transcriptRow._id}
+                  <h3 class="m-0 mt-1">
+                    <button
+                      type="button"
+                      onclick={() => toggleTranscript(transcriptRow._id)}
+                      aria-expanded={open}
+                      aria-controls={bodyId}
+                      class="flex min-h-9 w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left transition-colors hover:bg-primary-wash focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-navy motion-reduce:transition-none"
+                    >
+                      <span class="truncate text-sm text-ink">
+                        {transcriptRow.label}
+                      </span>
+                      {#if transcriptRow.wordCount > 0}
+                        <span class="ml-1 flex-shrink-0 text-xs text-gray-400">
+                          {transcriptRow.wordCount.toLocaleString()} words
+                        </span>
+                      {/if}
+                      <span class="ml-auto flex items-center" aria-hidden="true">
+                        <DisclosureChevron {open} />
+                      </span>
+                    </button>
+                  </h3>
+                  <Disclosure id={bodyId} {open}>
+                    <div class="pt-1">
+                      {#if openTranscript?._id === transcriptRow._id}
+                        <div class="rounded-lg border border-gray-200 bg-white p-4">
+                          <p class="whitespace-pre-wrap font-serif text-sm leading-relaxed text-gray-700">
+                            {normalizeExtractedText(openTranscript.content)}
+                          </p>
+                        </div>
+                      {:else}
+                        <p class="text-sm text-gray-400">
+                          Loading transcript...
+                        </p>
+                      {/if}
+                    </div>
+                  </Disclosure>
+                {/each}
+              </div>
+            {/if}
+          </div>
+        </aside>
+      </div>
+    {/if}
+
+          </div>
+        </div>
+
+        <!-- Twenty-style hairline resize divider between the page and the
+             side panel (pointer and keyboard). -->
+        {#if sidePanelOpen && !assistantFull}
           <button
             type="button"
             onmousedown={startDrag}
             role="slider"
             aria-label="Resize assistant panel"
             aria-orientation="vertical"
-            aria-valuemin={Math.round(CHAT_MIN * 100)}
-            aria-valuemax={Math.round(CHAT_MAX * 100)}
-            aria-valuenow={Math.round(chatRatio * 100)}
+            aria-valuemin={SIDE_PANEL_MIN}
+            aria-valuemax={SIDE_PANEL_MAX}
+            aria-valuenow={sidePanelWidth}
+            aria-valuetext={`${sidePanelWidth} pixels`}
             onkeydown={(event) => {
-              if (event.key === "ArrowLeft") adjustRail(-0.02);
-              else if (event.key === "ArrowRight") adjustRail(0.02);
-              else if (event.key === "Home") chatRatio = CHAT_MIN;
-              else if (event.key === "End") chatRatio = CHAT_MAX;
+              if (event.key === "ArrowLeft") adjustRail(16);
+              else if (event.key === "ArrowRight") adjustRail(-16);
+              else if (event.key === "Home") sidePanelWidth = SIDE_PANEL_MIN;
+              else if (event.key === "End") sidePanelWidth = SIDE_PANEL_MAX;
               else return;
               event.preventDefault();
             }}
             title="Drag or use arrow keys to resize"
-            class="group hidden w-3 flex-none cursor-col-resize items-center justify-center focus-visible:outline focus-visible:outline-2 focus-visible:outline-navy lg:flex"
+            data-side-panel-divider
+            class="group relative hidden w-px flex-none cursor-col-resize bg-line-soft focus-visible:outline-none lg:block"
           >
-            <div class="h-10 w-1 rounded-full bg-gray-300 transition-colors group-hover:bg-primary"></div>
+            <span aria-hidden="true" class={`absolute inset-y-0 -left-[3px] w-[7px] transition-colors group-hover:bg-primary/25 group-focus-visible:bg-primary/40 ${dragging ? "bg-primary/40" : ""}`}></span>
+            <span aria-hidden="true" class={`absolute inset-y-0 left-0 w-px transition-colors group-hover:bg-primary-selected group-focus-visible:bg-primary-selected ${dragging ? "bg-primary-selected" : ""}`}></span>
           </button>
         {/if}
 
-        <!-- Chat rail — right-docked + resizable. Open/close is a bottom-up
-             pop (reference: 21st.dev glowing assistant): the panel rises from
-             the bottom with a slight overshoot and sinks away on close. The
-             panel stays mounted so chat state survives close/reopen. -->
-        {#if report && user}
-          <aside
-            class={`relative [container-type:inline-size] ${mobileWorkspaceView === "assistant" || chatFocus ? "flex" : "hidden"} min-h-0 w-full flex-1 flex-col overflow-hidden bg-white lg:flex lg:w-[var(--assistant-width)] lg:flex-none ${chatOpen || qaOpen || chatFocus ? "lg:border-r lg:border-line-soft" : ""} ${dragging ? "" : "transition-all duration-[325ms] ease-out"}`}
-            style={`--assistant-width: ${chatFocus ? "100%" : chatOpen || qaOpen ? `${chatRatio * 100}%` : "0%"}`}
-          >
-            <!-- BNH-47: QA review — shared rail card (in flow; exactly one
-                 of chat/QA is in flow at a time via railView) -->
-            {#if railView === "qa"}
-              <LazyModule load={() => import("$lib/components/qa/QARailPanel.svelte")} label="QA review">
-                {#snippet children(QARailPanel)}
-                  <QARailPanel
-                    open={qaOpen}
-                    onClose={() => {
-                      qaOpen = false;
-                      mobileWorkspaceView = "report";
-                    }}
-                    modelName={generation?.selectedModelLabel ?? generation?.iterativeModelLabel ?? null}
-                    agentOutputs={generation?.agentOutputs}
-                    reportContent={report.content}
-                    reportId={report._id}
-                    onLocateGap={locateGap}
-                    onRunQa={generation?.status === "completed"
-                      ? async () => {
-                          await requestReportQaMut({ generationId: generation._id });
-                        }
-                      : undefined}
-                    postQaStatus={generation?.postQaStatus ?? null}
-                  />
+        <!-- Side slot: Assistant, QA or Details, 400px by default. The chat
+             stays mounted so its state survives close and reopen; in
+             Assistant full screen it takes the page and centres the
+             conversation in a 720px column. -->
+        <aside
+          data-side-panel={sidePanelOpen ? railView : undefined}
+          aria-label="Side panel"
+          class={`relative min-h-0 flex-col overflow-hidden bg-surface ${sidePanelOpen && (mobileWorkspaceView === "assistant" || assistantFull) ? "flex w-full flex-1" : "hidden"} lg:flex lg:flex-none lg:w-[var(--side-panel-width)] ${dragging ? "" : "lg:transition-[width] lg:duration-[325ms] lg:ease-out motion-reduce:transition-none"}`}
+          style={`--side-panel-width: ${assistantFull ? "100%" : sidePanelOpen ? `${sidePanelWidth}px` : "0px"}`}
+        >
+          {#if detailsOpen && railView === "details"}
+            <div class="h-full" style={`min-width: ${SIDE_PANEL_MIN}px`}>
+              <DetailsPanel
+                bind:this={detailsPanel}
+                data={details.data}
+                error={details.error}
+                bind:view={detailsView}
+                {handOffStage}
+                team={details.team}
+                teamLoading={details.teamLoading}
+                teamError={details.teamError}
+                changeStageReason={details.changeStageReason}
+                handOffReason={details.handOffReason}
+                canCreateIndustry={user?.role === "admin"}
+                onChangeStage={details.changeStage}
+                onHandOff={details.handOff}
+                onSaveIndustry={details.saveIndustry}
+                onSaveFiscalYear={details.saveFiscalYear}
+                onSaveScienceCode={details.saveScienceCode}
+                onSaveProjectNumber={details.saveProjectNumber}
+                onSuggestScienceCode={details.data?.permissions.canEditDetails ? details.suggestScienceCode : undefined}
+                onClose={closeSidePanel}
+              >
+                {#snippet more()}
+                  <DetailsMore {projectId} {project} {canEditDetails} {details} />
                 {/snippet}
-              </LazyModule>
+              </DetailsPanel>
+            </div>
+          {/if}
+          {#if report && user && reportActionsVisible}
+            <!-- BNH-47: QA review (exactly one side surface in flow at a time) -->
+            {#if railView === "qa"}
+              <div class="h-full" style={`min-width: ${SIDE_PANEL_MIN}px`}>
+                <LazyModule load={() => import("$lib/components/qa/QARailPanel.svelte")} label="QA score">
+                  {#snippet children(QARailPanel)}
+                    <QARailPanel
+                      variant="side"
+                      title="QA score"
+                      lastRunAt={generation?.postQaStatus === "failed"
+                        ? null
+                        : (generation?.postQaCompletedAt ?? generation?.completedAt ?? null)}
+                      open={qaOpen}
+                      onClose={closeSidePanel}
+                      agentOutputs={generation?.agentOutputs}
+                      reportContent={report.content}
+                      reportId={report._id}
+                      onLocateGap={locateGap}
+                      onRunQa={generation?.status === "completed"
+                        ? async () => {
+                            await requestReportQaMut({ generationId: generation._id });
+                          }
+                        : undefined}
+                      postQaStatus={generation?.postQaStatus ?? null}
+                    />
+                  {/snippet}
+                </LazyModule>
+              </div>
             {/if}
             <div
-              class={`chat-rise relative flex h-full origin-bottom flex-col overflow-hidden bg-white ${chatOpen ? "" : "is-closed"} ${railView !== "chat" ? "hidden" : ""}`}
+              class={`chat-rise relative flex h-full origin-bottom flex-col overflow-hidden bg-surface ${chatOpen ? "" : "is-closed"} ${railView !== "chat" ? "hidden" : ""}`}
               role="dialog"
               aria-label="AI assistant"
               inert={!chatOpen}
             >
-              <button
-                onclick={() => {
-                  chatOpen = false;
-                  chatFocus = false;
-                  mobileWorkspaceView = "report";
-                }}
-                title="Close assistant (Esc)"
-                aria-label="Close assistant"
-                class="absolute right-2.5 top-1.5 z-10 flex size-7 items-center justify-center rounded-full text-ink-muted transition-colors hover:bg-chrome/60 hover:text-ink motion-reduce:transition-none"
-              >
-                <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                  <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
-              <LazyModule load={() => import("$lib/components/chat/AgentChatPanel.svelte")} label="assistant" active={chatPreferencesReady && chatOpen && railView === "chat" && (desktopAssistant || mobileWorkspaceView === "assistant" || chatFocus)}>
-                {#snippet children(AgentChatPanel)}
-                  <AgentChatPanel
-                      {projectId}
-                      reportId={report._id}
-                      pendingHighlight={pendingChatHighlight}
-                      onClearHighlight={() => (pendingChatHighlight = null)}
-                      {pendingResearch}
-                      onClearResearch={() => (pendingResearch = null)}
-                      onReferenceText={(texts, scrollTo) => editorRef?.highlightText(texts, scrollTo)}
-                      onReviewReplacements={startReplaceReview}
-                      onPreviewProposal={(pairs, on) => {
-                        if (on && pairs.length) editorRef?.previewProposal(pairs);
-                        else editorRef?.clearProposalPreview();
-                      }}
-                      reviewingId={replaceSession?.messageId ?? null}
-                      onBeforeApply={flushEditor}
-                      isFull={chatFocus}
-                      onToggleFull={() => {
-                        chatOpen = true;
-                        qaOpen = false;
-                        railView = "chat";
-                        chatFocus = !chatFocus;
-                        if (chatFocus) mobileWorkspaceView = "assistant";
-                      }}
-                    />
-                {/snippet}
-              </LazyModule>
+              <div class={assistantFull ? "mx-auto flex h-full w-full max-w-[720px] flex-col" : "flex h-full flex-col"} data-assistant-column={assistantFull ? "full" : "side"}>
+                <LazyModule load={() => import("$lib/components/chat/AgentChatPanel.svelte")} label="assistant" active={chatPreferencesReady && chatOpen && railView === "chat" && (desktopAssistant || mobileWorkspaceView === "assistant" || assistantFull)}>
+                  {#snippet children(AgentChatPanel)}
+                    <AgentChatPanel
+                        {projectId}
+                        reportId={report._id}
+                        pendingHighlight={pendingChatHighlight}
+                        onClearHighlight={() => (pendingChatHighlight = null)}
+                        {pendingResearch}
+                        onClearResearch={() => (pendingResearch = null)}
+                        onReferenceText={(texts, scrollTo) => editorRef?.highlightText(texts, scrollTo)}
+                        onReviewReplacements={startReplaceReview}
+                        onPreviewProposal={(pairs, on) => {
+                          if (on && pairs.length) editorRef?.previewProposal(pairs);
+                          else editorRef?.clearProposalPreview();
+                        }}
+                        reviewingId={replaceSession?.messageId ?? null}
+                        onBeforeApply={flushEditor}
+                        closeInset={false}
+                        bind:composerHeight={assistantComposerHeight}
+                        isFull={assistantFull}
+                        onToggleFull={() => {
+                          openSidePanel("chat");
+                          chatFocus = !chatFocus;
+                        }}
+                      />
+                  {/snippet}
+                </LazyModule>
+              </div>
             </div>
-          </aside>
-        {/if}
-
-        <!-- Launcher pills when the respective panel is closed -->
-        {#if report && user && !chatOpen}
-          <Tooltip text="Open AI assistant" side="left" delayDuration={300}>
-            {#snippet children({ props })}
-              <button
-                {...props}
-                in:scale={{ duration: 200, start: 0.6, delay: 240 }}
-                out:scale={{ duration: 150, start: 0.6 }}
-                onclick={() => {
-                  qaOpen = false;
-                  chatOpen = true;
-                  railView = "chat";
-                  mobileWorkspaceView = "assistant";
-                }}
-                aria-label="Open AI assistant"
-                class="chat-pill-glow fixed bottom-6 right-6 z-[70] flex h-11 w-11 items-center justify-center rounded-full bg-navy text-white transition-transform hover:scale-105"
-              >
-                <ChatIcon class="h-4.5 w-4.5" />
-              </button>
-            {/snippet}
-          </Tooltip>
-        {/if}
-        {#if report && user && !qaOpen}
-          <QALauncher
-            right={chatOpen ? "1.5rem" : "5rem"}
-            onOpen={() => {
-              chatOpen = false;
-              qaOpen = true;
-              railView = "qa";
-              chatFocus = false;
-              mobileWorkspaceView = "assistant";
-            }}
-          />
-        {/if}
+          {/if}
+        </aside>
       </div>
-    {/if}
-
-    <!-- BNH-30: one-by-one replace stepper — Word-style "replace & find next" -->
+      {/if}
+    </div>
+    <!-- BNH-30: one-by-one replace stepper, Word-style "replace & find next" -->
     {#if replaceSession}
       <div class="fixed bottom-6 left-1/2 z-[80] -translate-x-1/2">
         <div class="card flex items-center gap-3 px-4 py-3 shadow-xl">
@@ -1918,7 +2856,7 @@
               onclick={replaceAndNext}
               class="inline-flex items-center gap-1 rounded-lg bg-primary-selected px-3 py-2 text-xs font-semibold text-white transition-colors hover:bg-primary-dark"
             >
-              Replace · Next
+              Replace and next
               <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M13 7l5 5m0 0l-5 5m5-5H6" />
               </svg>
@@ -1949,6 +2887,34 @@
       </div>
     {/if}
 
+    {#snippet qaFinishedNotice()}
+      {#if qaScores}
+        <QaFinishedNotice
+          overallScore={qaScores.overall}
+          sections={qaScores.sections}
+          completedAt={qaCompletedAt}
+          onOpen={openQaFromNotice}
+          onLater={dismissQaNotice}
+          onDismiss={dismissQaNotice}
+        />
+      {/if}
+    {/snippet}
+    <!-- QA finished while the report pane is off screen (Assistant full
+         screen, or the side panel on a phone): the window corner instead. -->
+    {#if showQaFinished && qaScores && !mainPaneVisible}
+      <!-- Over the Assistant (full screen, or the phone side panel) it sits
+           above the composer so it never covers Send (review g2 B7). -->
+      <div
+        class="fixed bottom-6 right-6 z-[85] max-h-[calc(100dvh-3rem)] overflow-y-auto max-sm:inset-x-4 max-sm:bottom-4"
+        style={noticeAboveComposer
+          ? `bottom: calc(${assistantComposerHeight}px + 1.5rem); max-height: calc(100dvh - ${assistantComposerHeight}px - 3rem)`
+          : undefined}
+        data-qa-finished-host
+      >
+        {@render qaFinishedNotice()}
+      </div>
+    {/if}
+
     <!-- BNH-30: transient notice (e.g. text not found to replace) -->
     {#if replaceNotice}
       <div class="fixed bottom-6 left-1/2 z-[85] -translate-x-1/2 rounded-lg bg-navy px-4 py-2 text-sm text-white shadow-xl">
@@ -1957,7 +2923,7 @@
     {/if}
 
     <!-- Comment authoring + hover overlay (single view) -->
-    {#if !awaitingSelection && !showIterativeStepper && report && user}
+    {#if !awaitingSelection && !showIterativeStepper && !showSeedSummary && !showSeedWorkspace && !showSeedRecovery && !showSeedDrafting && report && user}
       <CommentOverlay
         {projectId}
         reportId={report._id}
@@ -1989,13 +2955,13 @@
                   Re-running generates one fresh draft and adds it directly as a
                   new report version.
                 {:else if candidateMode === "iterative"}
-                  Re-running drafts the report section by section — you review and
-                  approve each section — and adds a new report version at the end.
+                  Re-running plans the report idea by idea. You sign off the plan,
+                  then it is drafted and added as a new report version.
                 {:else}
                   Re-running generates two fresh candidate drafts and adds a new
                   report version after you select one.
                 {/if}
-                Previous results are preserved in version history — nothing is deleted.
+                Previous results are preserved in version history; nothing is deleted.
               </p>
             </div>
           </div>
@@ -2136,243 +3102,6 @@
       </div>
     {/if}
 
-    <!-- No report, not generating — the INTAKE WORKBENCH (2026-08-08
-         Obvious-parity amendment). Desktop ≥lg mirrors the report
-         workbench's split anatomy: a persistent left CONTEXT pane (files
-         evidence + interview transcript — the project's conversation-like
-         source material) beside the primary intake/generation work surface,
-         each owning its own vertical scroll, with the same resizable
-         separator grammar. This replaces the single 768px long-scroll
-         column whose transcript drove a ~27k-px page. Narrow screens use
-         explicit Work/Context switches with one pane visible at a time.
-         The state stays HONEST: no report and no chat exist here — the
-         left pane is source context, never a fabricated conversation. -->
-    {#if showIntakeWorkbench}
-      <div class="flex shrink-0 items-center justify-center gap-0.5 border-b border-line-soft bg-white px-3 py-2 lg:hidden" role="group" aria-label="Project intake pane">
-        <button
-          type="button"
-          aria-pressed={mobileIntakeView === "work"}
-          onclick={() => (mobileIntakeView = "work")}
-          class={`min-h-11 rounded-full px-4 text-sm font-medium transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy ${mobileIntakeView === "work" ? "bg-navy text-white" : "text-ink-muted hover:bg-primary-wash hover:text-navy"}`}
-        >Work</button>
-        <button
-          type="button"
-          aria-pressed={mobileIntakeView === "context"}
-          onclick={() => (mobileIntakeView = "context")}
-          class={`min-h-11 rounded-full px-4 text-sm font-medium transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy ${mobileIntakeView === "context" ? "bg-navy text-white" : "text-ink-muted hover:bg-primary-wash hover:text-navy"}`}
-        >Context</button>
-      </div>
-      <!-- DOM order = work → separator → context (primary surface first for
-           focus order, matching the report workbench); lg:flex-row-reverse
-           places context on the LEFT visually, like the inspected Obvious
-           project composition. -->
-      <div bind:this={intakeEl} data-intake-workbench class="mx-auto flex min-h-0 w-full max-w-[var(--container-shell)] flex-1 overflow-hidden lg:flex-row-reverse">
-        <main
-          aria-label="Project intake and generation"
-          data-intake-pane="work"
-          class={`${mobileIntakeView === "work" ? "flex" : "hidden"} min-h-0 flex-1 flex-col overflow-y-auto lg:flex`}
-        >
-          <div class="mx-auto w-full max-w-3xl px-6 py-8">
-            <!-- Project attributes live in the persistent left context pane;
-                 this primary plane begins with the actual work, matching the
-                 Attio record/detail split. -->
-
-            {#if project.mode === "review" && generation?.status === "failed"}
-              <div class="mb-8 rounded-lg border border-red-200 bg-red-50 px-3 py-2.5">
-                <p class="text-sm text-red-700">
-                  The comparison draft stopped before it completed. Use “Generate PD for comparison” below to try again.
-                </p>
-              </div>
-            {/if}
-
-            {#if project.mode === "review" && pdReview}
-              <PdReviewReport
-                review={pdReview}
-                hasTranscript={transcripts.length > 0}
-                onGenerate={handleGenerateFromReview}
-              />
-            {:else if project.mode === "review" && pdReviewQ.data === null}
-              <!-- Stranded review project (2026-08-07 flag): no review row
-                   exists, so the report block renders nothing and the writer
-                   had no recovery path. Offer start/upload here. -->
-              <PdReviewStart projectId={project._id} />
-            {/if}
-
-            {#if canGenerate}
-              <section aria-labelledby="intake-generation-heading" class="mt-8">
-                <h2 id="intake-generation-heading" class="text-sm font-semibold uppercase tracking-wide text-gray-400">
-                  Draft generation
-                </h2>
-                <div class="mt-3 flex flex-wrap items-center gap-2">
-                  {#if project.mode !== "review"}
-                    <div
-                      class="inline-grid grid-cols-3 gap-1 rounded-lg bg-chrome p-1"
-                      role="radiogroup"
-                      aria-label="Draft generation mode"
-                    >
-                      {#each [
-                        { id: "compare", label: "Compare" },
-                        { id: "single", label: "Single draft" },
-                        { id: "iterative", label: "Section by section" },
-                      ] as const as opt (opt.id)}
-                        <button
-                          type="button"
-                          role="radio"
-                          aria-checked={candidateMode === opt.id}
-                          onclick={() => (candidateMode = opt.id)}
-                          class={`rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy ${
-                            candidateMode === opt.id
-                              ? "bg-white text-navy shadow-sm ring-1 ring-gray-200"
-                              : "text-gray-500 hover:text-gray-700"
-                          }`}
-                        >
-                          {opt.label}
-                        </button>
-                      {/each}
-                    </div>
-                  {/if}
-                  {#if project.mode !== "review"}
-                    {#if candidateMode !== "compare"}
-                      <SingleModelPicker bind:value={singleModelId} />
-                    {:else}
-                      <ComparePairPicker bind:slotA={compareSlotA} bind:slotB={compareSlotB} />
-                    {/if}
-                  {/if}
-                  <SelectInput
-                    size="sm"
-                    bind:value={lengthTarget}
-                    items={[
-                      { value: "concise", label: "Concise (~70% of limit)" },
-                      { value: "standard", label: "Standard (~90%)" },
-                      { value: "full", label: "Full (to the line limit)" },
-                    ]}
-                    class="w-52"
-                  />
-                  <Button
-                    onclick={handleRegenerate}
-                    class="text-xs"
-                  >
-                    Generate Report
-                  </Button>
-                </div>
-              </section>
-            {/if}
-          </div>
-        </main>
-
-        <!-- Draggable separator between context and work (desktop only) -->
-        {#if contextOpen}
-        <button
-          type="button"
-          onmousedown={startContextDrag}
-          role="slider"
-          aria-label="Resize context panel"
-          aria-orientation="vertical"
-          aria-valuemin={Math.round(CHAT_MIN * 100)}
-          aria-valuemax={Math.round(CHAT_MAX * 100)}
-          aria-valuenow={Math.round(contextRatio * 100)}
-          onkeydown={(event) => {
-            if (event.key === "ArrowLeft") adjustContext(-0.02);
-            else if (event.key === "ArrowRight") adjustContext(0.02);
-            else if (event.key === "Home") contextRatio = CHAT_MIN;
-            else if (event.key === "End") contextRatio = CHAT_MAX;
-            else return;
-            event.preventDefault();
-          }}
-          title="Drag or use arrow keys to resize"
-          class="group hidden w-3 flex-none cursor-col-resize items-center justify-center focus-visible:outline focus-visible:outline-2 focus-visible:outline-navy lg:flex"
-        >
-          <div class="h-10 w-1 rounded-full bg-gray-300 transition-colors group-hover:bg-primary"></div>
-        </button>
-        {/if}
-
-        <aside
-          aria-label="Project context"
-          data-intake-pane="context"
-          inert={!contextOpen && mobileIntakeView !== "context"}
-          class={`${mobileIntakeView === "context" ? "flex" : "hidden"} min-h-0 w-full flex-1 flex-col overflow-hidden bg-white lg:flex lg:w-[var(--context-width)] lg:flex-none ${contextOpen ? "lg:border-r lg:border-line-soft" : "lg:opacity-0"} ${contextDragging ? "" : "lg:transition-[width,opacity] lg:duration-[325ms] lg:ease-out motion-reduce:transition-none"}`}
-          style={`--context-width: ${contextOpen ? contextRatio * 100 : 0}%`}
-        >
-          <!-- Pane header: names the surface and carries the close control
-               (assistant-rail grammar). Desktop only — narrow screens close
-               via the Work/Context switch. -->
-          <div class={`hidden shrink-0 items-center justify-between pt-4 lg:flex ${contextOpen ? "px-5" : "lg:px-0"}`}>
-            <h2 class="text-label">Context</h2>
-            <button
-              type="button"
-              title="Close context panel"
-              aria-label="Close project context"
-              onclick={() => (contextOpen = false)}
-              class="flex size-7 items-center justify-center rounded-full text-ink-muted transition-colors hover:bg-chrome/60 hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy motion-reduce:transition-none"
-            >
-              <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </button>
-          </div>
-          <div class={`min-h-0 flex-1 overflow-y-auto py-6 lg:pt-3 ${contextOpen ? "px-5" : "px-5 lg:px-0"}`}>
-            <div data-project-record-details>
-              {@render projectMetadata()}
-            </div>
-            <!-- Reachable later: a project with no report still has to show
-                 what happened to its uploads. -->
-            <FilesPanel {projectId} />
-
-            {#if transcripts.length > 0}
-              <div class="mt-6">
-                <h2 class="text-sm font-medium uppercase tracking-wide text-gray-400">
-                  {transcripts.length === 1 ? "Transcript" : "Transcripts"}
-                </h2>
-                <!-- One disclosure per transcript, one body loaded at a time:
-                     the open row subscribes its content, the rest cost their
-                     metadata only. -->
-                {#each transcripts as transcriptRow (transcriptRow._id)}
-                  {@const bodyId = `${transcriptBodyIdPrefix}-${transcriptRow._id}`}
-                  {@const open = openTranscriptId === transcriptRow._id}
-                  <h3 class="m-0 mt-1">
-                    <button
-                      type="button"
-                      onclick={() => toggleTranscript(transcriptRow._id)}
-                      aria-expanded={open}
-                      aria-controls={bodyId}
-                      class="flex min-h-9 w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left transition-colors hover:bg-primary-wash focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-navy motion-reduce:transition-none"
-                    >
-                      <span class="truncate text-sm text-ink">
-                        {transcriptRow.label}
-                      </span>
-                      {#if transcriptRow.wordCount > 0}
-                        <span class="flex-shrink-0 text-xs text-gray-400">
-                          · {transcriptRow.wordCount.toLocaleString()} words
-                        </span>
-                      {/if}
-                      <span class="ml-auto flex items-center" aria-hidden="true">
-                        <DisclosureChevron {open} />
-                      </span>
-                    </button>
-                  </h3>
-                  <Disclosure id={bodyId} {open}>
-                    <div class="pt-1">
-                      {#if openTranscript?._id === transcriptRow._id}
-                        <div class="rounded-lg border border-gray-200 bg-white p-4">
-                          <p class="whitespace-pre-wrap font-serif text-sm leading-relaxed text-gray-700">
-                            {normalizeExtractedText(openTranscript.content)}
-                          </p>
-                        </div>
-                      {:else}
-                        <p class="text-sm text-gray-400">
-                          Loading transcript...
-                        </p>
-                      {/if}
-                    </div>
-                  </Disclosure>
-                {/each}
-              </div>
-            {/if}
-          </div>
-        </aside>
-      </div>
-    {/if}
-
     {#if ghostSnapshot && report}
       <GhostCompareDialog
         bind:open={ghostCompareOpen}
@@ -2387,11 +3116,11 @@
       <div class="fixed inset-0 z-[100] flex items-center justify-center bg-navy/30 px-4" role="dialog" aria-modal="true" aria-labelledby="cancel-iterative-title">
         <div class="card w-full max-w-md p-6 shadow-xl">
           <h3 id="cancel-iterative-title" class="text-base font-semibold text-gray-900">
-            Cancel this section-by-section draft?
+            Cancel this generation?
           </h3>
           <p class="mt-1.5 text-sm leading-relaxed text-gray-600">
-            Approved sections and drafts in progress will be discarded, and the project
-            returns to its previous state. This cannot be undone.
+            Approved steps, approved sections and drafts in progress are discarded, and the
+            project returns to its previous state. This cannot be undone.
           </p>
           <div class="mt-5 flex justify-end gap-2">
             <button
@@ -2399,7 +3128,7 @@
               onclick={() => (confirmCancelIterative = false)}
               class="rounded-lg px-4 py-2 text-sm font-medium text-gray-600 transition-colors hover:bg-chrome"
             >
-              Keep drafting
+              Keep working
             </button>
             <button
               type="button"
@@ -2410,7 +3139,7 @@
               {#if cancellingIterative}
                 <Spinner size="sm" class="h-3.5 w-3.5 border-white" />
               {/if}
-              Cancel draft
+              Cancel generation
             </button>
           </div>
         </div>
@@ -2419,3 +3148,19 @@
   </div>
   </WorkspaceShell>
 {/if}
+
+{#snippet transcriptSpeakersChip(row: { _id: string; label: string; speakerStatus?: "unchecked" | "needs_check" | "confirmed" })}
+  <TranscriptSpeakersPopover
+    transcriptId={row._id}
+    transcriptLabel={row.label}
+    status={row.speakerStatus}
+    speakers={speakersOpenFor === row._id ? (speakersQ.data ?? undefined) : undefined}
+    busy={speakersBusy}
+    onOpenChange={(open) => {
+      if (open) speakersOpenFor = row._id;
+      else if (speakersOpenFor === row._id) speakersOpenFor = null;
+    }}
+    onSetRole={(label, role) => setSpeakerRole(row._id, label, role)}
+    onConfirm={() => confirmSpeakers(row._id)}
+  />
+{/snippet}

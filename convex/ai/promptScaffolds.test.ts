@@ -1,7 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { buildTrustedContext, DEFAULT_CONTEXT_BUDGET } from "./trustedContext";
 import { CONDENSE_SCHEMA, CONDENSE_SYSTEM_PROMPT } from "./condenseAgent";
-import { BRIEF_REQUEST, BRIEF_SCHEMA, BRIEF_SYSTEM_PROMPT } from "./brief";
+import {
+  BRIEF_INPUT_BUDGET,
+  BRIEF_OMITTED_SOURCES_NOTICE,
+  BRIEF_REQUEST,
+  BRIEF_SCHEMA,
+  BRIEF_SYSTEM_PROMPT,
+} from "./brief";
 import {
   ANALYSIS_TOOL_SCHEMA,
   STYLE_ANALYSIS_REQUEST,
@@ -18,11 +24,32 @@ import {
 } from "../lib/transcripts";
 import { priorSectionsBlock } from "./iterative";
 import { buildStyleGuidance, lengthBudgetBlock, toContextDocs } from "./pipeline";
-import { CONTEXT_INPUTS_GUIDANCE, waivedCategoryLabels } from "./prompts";
+import {
+  CONTEXT_INPUTS_GUIDANCE,
+  SUMMARY_PLAN_SELF_CHECK_SYSTEM_PROMPT,
+  waivedCategoryLabels,
+} from "./prompts";
 import { numberParagraphs } from "./qaAgent";
 import { CHARS_PER_LINE, LINE_LIMITS, wordBudget } from "../lib/lineLimits";
 import { NO_STYLE_OVERRIDES } from "../../shared/styleOverrides";
-import { SEED_PROMPT_PROGRAM } from "./promptDefinitions";
+import {
+  SEED_PROMPT_PROGRAM,
+  SUMMARY_PLAN_SELF_CHECK_REQUEST,
+  SUMMARY_PLAN_SELF_CHECK_SCHEMA,
+} from "./promptDefinitions";
+import {
+  FROZEN_SUMMARY_PLAN_CHECKS_SCAFFOLD,
+  FROZEN_SUMMARY_PLAN_SCAFFOLD,
+  MAX_SUMMARY_ORDINARY_VERDICTS,
+  MAX_SUMMARY_PLAN_CHECK_INPUT_UTF8_BYTES,
+  MAX_SUMMARY_PLAN_VERDICTS,
+  MAX_SUMMARY_SELF_CHECK_RESPONSE_UTF8_BYTES,
+  SUMMARY_ORDINARY_LABEL_PROJECTION_VERSION,
+  SUMMARY_PLAN_SERIALIZER_VERSION,
+} from "../lib/seedRevisions";
+import { seedToolSchemaForFacts } from "../lib/seedFacts";
+import { FACTS_SCHEMA, FACTS_SYSTEM_PROMPT } from "./transcriptFactsAgent";
+import { FACTS_VERSION } from "../lib/transcriptFacts";
 
 /**
  * Story 10 split the inline prompt templates into fragment tables that both
@@ -37,7 +64,7 @@ describe("prompt scaffold composition", () => {
     const words = wordBudget("s244", "standard");
     const lines = LINE_LIMITS.s244;
     expect(lengthBudgetBlock("s244", "standard")).toBe(
-      `\n\n# LENGTH BUDGET (CRA form constraint — hard requirement)\nThe CRA form field for this section holds at most ${lines} lines of ${CHARS_PER_LINE} characters, and EVERY blank line between paragraphs also costs one full line. Write AT MOST ${words} words total. Prefer fewer, denser paragraphs (each blank line spent on a paragraph break is a line of content lost). Do NOT pad. If the material exceeds the budget, keep the most technically load-bearing content and cut the rest.`,
+      `\n\n# LENGTH BUDGET (CRA form constraint, hard requirement)\nThe CRA form field for this section holds at most ${lines} lines of ${CHARS_PER_LINE} characters, and EVERY blank line between paragraphs also costs one full line. Write AT MOST ${words} words total. Prefer fewer, denser paragraphs (each blank line spent on a paragraph break is a line of content lost). Do NOT pad. If the material exceeds the budget, keep the most technically load-bearing content and cut the rest.`,
     );
   });
 
@@ -76,7 +103,7 @@ describe("prompt scaffold composition", () => {
         { section: "s244", text: "Approved 244 text." },
       ]),
     ).toBe(
-      "\n\n## Approved prior sections (canonical — the writer has reviewed and edited these; align terminology, chronology, and claims with them; do not contradict them)\n### Line 242 — Uncertainty (APPROVED)\nApproved 242 text.\n\n### Line 244 — Work performed (APPROVED)\nApproved 244 text.",
+      "\n\n## Approved prior sections (canonical: the writer has reviewed and edited these; align terminology, chronology, and claims with them; do not contradict them)\n### Line 242 (Uncertainty) (APPROVED)\nApproved 242 text.\n\n### Line 244 (Work performed) (APPROVED)\nApproved 244 text.",
     );
   });
 
@@ -161,15 +188,16 @@ describe("prompt scaffold composition", () => {
  * moves promptVersion and is disclosed on every generation that reads them.
  */
 describe("the condense call belongs to the prompt program (AC5)", () => {
-  it("declares the call with its fixed model, schema and single-attempt policy", () => {
+  it("declares the call with its frozen condense-role model, schema and single-attempt policy", () => {
     expect(generationPromptProgram.calls.condense).toEqual({
       kind: "structured",
       systemTemplate: CONDENSE_SYSTEM_PROMPT,
       request: generationPromptProgram.calls.condense.request,
       schema: CONDENSE_SCHEMA,
       model: {
-        kind: "fixed",
-        modelId: generationPromptProgram.configuration.models.defaultModelId,
+        kind: "frozen-role",
+        role: "condense",
+        legacyModelId: generationPromptProgram.configuration.models.defaultModelId,
       },
       thinking: { kind: "omitted" },
       structuredPolicy: "single-attempt",
@@ -214,8 +242,19 @@ describe("the condense call belongs to the prompt program (AC5)", () => {
       kind: "structured",
       systemTemplate: BRIEF_SYSTEM_PROMPT,
       request: BRIEF_REQUEST,
+      // Cost phase 1: the Brief's input selection and budget are disclosed.
+      // 2026-09-24 (transcript method): fact packs first, then digests.
+      inputSelection: "fact-pack-else-digest-replaces-its-transcript",
+      factModeCitations: "quote-located-in-a-verified-fact-span-on-the-transcript-row",
+      contextBudget: BRIEF_INPUT_BUDGET,
+      omittedSourcesNotice: BRIEF_OMITTED_SOURCES_NOTICE,
       schema: BRIEF_SCHEMA,
-      model: { kind: "candidate", fallbackModelId: generationPromptProgram.calls.brief.model.fallbackModelId },
+      // Owner decision 43: the frozen planning model; the selected model before step routing.
+      model: {
+        kind: "generation-step",
+        step: "brief",
+        beforeStepRouting: { kind: "candidate", fallbackModelId: generationPromptProgram.calls.brief.model.beforeStepRouting.fallbackModelId },
+      },
       thinking: { kind: "omitted" },
       structuredPolicy: "two-attempt-repair",
       callSite: "generation:brief",
@@ -237,13 +276,11 @@ describe("the condense call belongs to the prompt program (AC5)", () => {
       generationPromptProgram.templates.seeds.roles.find(
         (role) => role.roleId === "specific_advancements"
       )
-    ).toMatchObject({
-      objective: expect.any(String),
-      schemas: {
-        batch: expect.objectContaining({ type: "object" }),
-        feedback: expect.objectContaining({ type: "object" }),
-      },
-    });
+    ).toMatchObject({ objective: expect.any(String) });
+    // Cost phase 1: one provider schema for every role and both modes.
+    expect(generationPromptProgram.calls.seeds.schema).toBe(
+      generationPromptProgram.calls.seedFeedback.schema
+    );
     expect(generationPromptProgram.calls.seeds).toMatchObject({
       systemTemplate: SEED_PROMPT_PROGRAM.systemPolicy,
       userScaffold: SEED_PROMPT_PROGRAM.user,
@@ -279,15 +316,49 @@ describe("the condense call belongs to the prompt program (AC5)", () => {
         ...generationPromptProgram.calls,
         seeds: {
           ...generationPromptProgram.calls.seeds,
-          schemaByRole: {
-            ...generationPromptProgram.calls.seeds.schemaByRole,
-            active_uncertainties: { type: "object", required: [] },
-          },
+          schema: { type: "object", required: [] },
         },
       },
     });
     expect(changedObjective).not.toBe(current);
     expect(changedSchema).not.toBe(current);
+  });
+
+  it("declares the fact-mode Seed schema and guidance (2026-09-24, transcript method)", async () => {
+    expect(generationPromptProgram.calls.seeds.factSchema).toEqual(seedToolSchemaForFacts());
+    expect(generationPromptProgram.calls.seedFeedback.factSchema).toBe(
+      generationPromptProgram.calls.seeds.factSchema
+    );
+    expect(SEED_PROMPT_PROGRAM.user.factGuidance).toContain("cite it by its factId");
+    expect(SEED_PROMPT_PROGRAM.user.factGuidance).toContain(
+      "Never cite a transcript by excerpt or by character offsets."
+    );
+    // The same link rules as the offsets guidance.
+    expect(SEED_PROMPT_PROGRAM.user.factGuidance).toContain(
+      "When there are no frozen experiment selections, omit both link fields."
+    );
+    expect(generationPromptProgram.calls.transcriptFacts).toMatchObject({
+      systemTemplate: FACTS_SYSTEM_PROMPT,
+      adapters: { openrouter: { schema: FACTS_SCHEMA } },
+      model: { kind: "frozen-role", role: "condense" },
+      callSite: "generation:facts",
+    });
+    expect(generationPromptProgram.configuration.transcriptFacts.factsVersion).toBe(FACTS_VERSION);
+    const current = await hashPromptProgram(generationPromptProgram);
+    const changedGuidance = await hashPromptProgram({
+      ...generationPromptProgram,
+      templates: {
+        ...generationPromptProgram.templates,
+        seeds: {
+          ...generationPromptProgram.templates.seeds,
+          scaffolds: {
+            ...SEED_PROMPT_PROGRAM,
+            user: { ...SEED_PROMPT_PROGRAM.user, factGuidance: "Changed." },
+          },
+        },
+      },
+    });
+    expect(changedGuidance).not.toBe(current);
   });
 
   it("declares the settings-document classifier with the PSOS-50 prompt, request and schema verbatim (story 3, AD-27)", async () => {
@@ -297,8 +368,9 @@ describe("the condense call belongs to the prompt program (AC5)", () => {
       request: STYLE_ANALYSIS_REQUEST,
       schema: ANALYSIS_TOOL_SCHEMA,
       model: {
-        kind: "fixed",
-        modelId: generationPromptProgram.configuration.models.defaultModelId,
+        kind: "frozen-role",
+        role: "analysis",
+        legacyModelId: generationPromptProgram.configuration.models.defaultModelId,
       },
       thinking: { kind: "omitted" },
       structuredPolicy: "single-attempt",
@@ -329,6 +401,153 @@ describe("the condense call belongs to the prompt program (AC5)", () => {
     expect(edited).not.toBe(current);
     // The unedited program hashes stably.
     expect(await hashPromptProgram({ ...generationPromptProgram })).toBe(current);
+  });
+
+  it("fingerprints the executable Summary plan and its conditional Self-check contract", async () => {
+    expect(SUMMARY_PLAN_SELF_CHECK_SCHEMA.additionalProperties).toBe(false);
+    expect(SUMMARY_PLAN_SELF_CHECK_SCHEMA.properties.verdicts.items.additionalProperties)
+      .toBe(false);
+    expect(SUMMARY_PLAN_SELF_CHECK_SCHEMA.properties.storylineQuestion.additionalProperties)
+      .toBe(false);
+    const planSchema = SUMMARY_PLAN_SELF_CHECK_SCHEMA.properties.planVerdicts.items;
+    expect(planSchema.additionalProperties).toBe(false);
+    expect(planSchema.oneOf).toEqual([
+      { required: ["itemId"] },
+      { required: ["skippedRoleId"] },
+    ]);
+    expect(planSchema.required).not.toContain("paragraph");
+    expect(generationPromptProgram.calls.selfCheck.summaryPlan).toEqual({
+      systemTemplate: SUMMARY_PLAN_SELF_CHECK_SYSTEM_PROMPT,
+      requestScaffold: SUMMARY_PLAN_SELF_CHECK_REQUEST,
+      schema: SUMMARY_PLAN_SELF_CHECK_SCHEMA,
+      structuredPolicy: "single-attempt-no-repair",
+      encodedJsonRecovery: "disabled",
+    });
+    expect(generationPromptProgram.templates.seeds.summaryPlan).toEqual({
+      drafting: FROZEN_SUMMARY_PLAN_SCAFFOLD,
+      checks: FROZEN_SUMMARY_PLAN_CHECKS_SCAFFOLD,
+      serializerVersion: SUMMARY_PLAN_SERIALIZER_VERSION,
+      ordinaryLabelProjectionVersion:
+        SUMMARY_ORDINARY_LABEL_PROJECTION_VERSION,
+      capacity: {
+        maxOrdinaryVerdicts: MAX_SUMMARY_ORDINARY_VERDICTS,
+        maxPlanVerdicts: MAX_SUMMARY_PLAN_VERDICTS,
+        maxCheckInputUtf8Bytes: MAX_SUMMARY_PLAN_CHECK_INPUT_UTF8_BYTES,
+        maxResponseUtf8Bytes: MAX_SUMMARY_SELF_CHECK_RESPONSE_UTF8_BYTES,
+      },
+    });
+    const current = await hashPromptProgram(generationPromptProgram);
+    const changedSelfCheck = await hashPromptProgram({
+      ...generationPromptProgram,
+      calls: {
+        ...generationPromptProgram.calls,
+        selfCheck: {
+          ...generationPromptProgram.calls.selfCheck,
+          summaryPlan: {
+            ...generationPromptProgram.calls.selfCheck.summaryPlan,
+            systemTemplate: `${SUMMARY_PLAN_SELF_CHECK_SYSTEM_PROMPT}\nChanged.`,
+          },
+        },
+      },
+    });
+    const changedPlanScaffold = await hashPromptProgram({
+      ...generationPromptProgram,
+      templates: {
+        ...generationPromptProgram.templates,
+        seeds: {
+          ...generationPromptProgram.templates.seeds,
+          summaryPlan: {
+            ...generationPromptProgram.templates.seeds.summaryPlan,
+            drafting: {
+              ...generationPromptProgram.templates.seeds.summaryPlan.drafting,
+              precedence: `${FROZEN_SUMMARY_PLAN_SCAFFOLD.precedence} Changed.`,
+            },
+          },
+        },
+      },
+    });
+    const changedStructuredPolicy = await hashPromptProgram({
+      ...generationPromptProgram,
+      calls: {
+        ...generationPromptProgram.calls,
+        selfCheck: {
+          ...generationPromptProgram.calls.selfCheck,
+          summaryPlan: {
+            ...generationPromptProgram.calls.selfCheck.summaryPlan,
+            structuredPolicy: "changed-policy" as "single-attempt-no-repair",
+          },
+        },
+      },
+    });
+    const changedSerializerVersion = await hashPromptProgram({
+      ...generationPromptProgram,
+      templates: {
+        ...generationPromptProgram.templates,
+        seeds: {
+          ...generationPromptProgram.templates.seeds,
+          summaryPlan: {
+            ...generationPromptProgram.templates.seeds.summaryPlan,
+            serializerVersion: "summary-plan-jsonl-v2",
+          },
+        },
+      },
+    });
+    const changedOrdinaryProjectionVersion = await hashPromptProgram({
+      ...generationPromptProgram,
+      templates: {
+        ...generationPromptProgram.templates,
+        seeds: {
+          ...generationPromptProgram.templates.seeds,
+          summaryPlan: {
+            ...generationPromptProgram.templates.seeds.summaryPlan,
+            ordinaryLabelProjectionVersion: "summary-ordinary-labels-v2",
+          },
+        },
+      },
+    });
+    const changedEncodedJsonPolicy = await hashPromptProgram({
+      ...generationPromptProgram,
+      calls: {
+        ...generationPromptProgram.calls,
+        selfCheck: {
+          ...generationPromptProgram.calls.selfCheck,
+          summaryPlan: {
+            ...generationPromptProgram.calls.selfCheck.summaryPlan,
+            encodedJsonRecovery: "enabled" as "disabled",
+          },
+        },
+      },
+    });
+    expect(SUMMARY_PLAN_SELF_CHECK_REQUEST.maxTokens).toBe(
+      MAX_SUMMARY_SELF_CHECK_RESPONSE_UTF8_BYTES
+    );
+    const changedAllowanceProgram = structuredClone(generationPromptProgram);
+    Object.assign(
+      changedAllowanceProgram.calls.selfCheck.summaryPlan.requestScaffold,
+      { maxTokens: 4096 }
+    );
+    const changedSummaryAllowance = await hashPromptProgram(changedAllowanceProgram);
+    const changedCapacityProgram = structuredClone(generationPromptProgram);
+    Object.assign(
+      changedCapacityProgram.templates.seeds.summaryPlan.capacity,
+      { maxResponseUtf8Bytes: 4_096 }
+    );
+    const changedResponseCapacity = await hashPromptProgram(changedCapacityProgram);
+    const changedSchemaProgram = structuredClone(generationPromptProgram);
+    Object.assign(
+      changedSchemaProgram.calls.selfCheck.summaryPlan.schema,
+      { additionalProperties: true }
+    );
+    const changedSummarySchema = await hashPromptProgram(changedSchemaProgram);
+    expect(changedSelfCheck).not.toBe(current);
+    expect(changedPlanScaffold).not.toBe(current);
+    expect(changedSerializerVersion).not.toBe(current);
+    expect(changedOrdinaryProjectionVersion).not.toBe(current);
+    expect(changedStructuredPolicy).not.toBe(current);
+    expect(changedEncodedJsonPolicy).not.toBe(current);
+    expect(changedSummarySchema).not.toBe(current);
+    expect(changedSummaryAllowance).not.toBe(current);
+    expect(changedResponseCapacity).not.toBe(current);
   });
 
   it("moves promptVersion, so no generation reports a stale contract", async () => {

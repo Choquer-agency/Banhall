@@ -12,7 +12,7 @@ import { internalAction } from "../_generated/server";
 import { detectFirstPersonPreference } from "../../shared/humanProse";
 import { internal } from "../_generated/api";
 import { v } from "convex/values";
-import { clientForModel } from "./providers";
+import { generationStepClients, registerGenerationModels, startActionDeadline } from "./providers";
 import { runQAAgent } from "./qaAgent";
 import { runChronologyAgent } from "./chronologyAgent";
 import type { TranscriptAnalysis } from "./analyzerAgent";
@@ -25,6 +25,10 @@ import type { Id } from "../_generated/dataModel";
 export const runReportQa = internalAction({
   args: { generationId: v.id("generations"), attemptStartedAt: v.optional(v.number()) },
   handler: async (ctx, args) => {
+    // The action's deadline bounds every provider request (actionDeadline.ts).
+    startActionDeadline(ctx);
+    // Model catalog: routing and output budgets read the frozen models.
+    const freeze = await registerGenerationModels(ctx, args.generationId).catch(() => null);
     const attempt = await ctx.runQuery(internal.generations.getPostQaAttempt, {
       generationId: args.generationId,
     });
@@ -52,13 +56,14 @@ export const runReportQa = internalAction({
       return;
     }
 
-    // Routed by the report's model gateway (may be an OpenRouter model;
-    // undefined model → Anthropic default via gatewayForModel fallback).
-    const clientFor = (
-      callSite: string,
-      learningDigestIds?: Id<"learningDigests">[]
-    ) =>
-      clientForModel(ctx, input.model ?? "", {
+    // Owner decision 43: the generation's frozen checking model scores the
+    // report. A generation frozen before step routing keeps the report's
+    // model (may be an OpenRouter model; undefined model → Anthropic
+    // default via gatewayForModel fallback).
+    const steps = generationStepClients(ctx, {
+      freeze,
+      writerModel: input.model ?? "",
+      meta: (callSite, learningDigestIds) => ({
         callSite,
         projectId: input.projectId,
         ...(input.requestedBy ? { userId: input.requestedBy } : {}),
@@ -66,15 +71,33 @@ export const runReportQa = internalAction({
           generationId: args.generationId,
           ...(learningDigestIds?.length ? { learningDigestIds } : {}),
         },
-      });
+      }),
+    });
+    const clientFor = steps.client;
+    // The model each request names; undefined sends the default, as before.
+    const modelFor = (callSite: string) => steps.route(callSite).model || undefined;
 
     // Reviewer calibration digest and (for legacy generations without a
     // frozen copy) the live style policy load in parallel — both optional,
     // neither may block the scorecard.
+    const frozen = "frozenQaInputs" in input ? input.frozenQaInputs : undefined;
     const calibrationPromise = (async (): Promise<
-      | { content: string; digestId: Id<"learningDigests"> }
+      | { content: string; digestId?: Id<"learningDigests"> }
       | undefined
     > => {
+      // CAP-18: a signed-off seed run scores under the calibration frozen at
+      // generation start, exactly as its former inline QA did; never the
+      // live digest.
+      if (frozen) {
+        return frozen.qaCalibration?.trim()
+          ? {
+              content: frozen.qaCalibration,
+              ...(frozen.qaCalibrationDigestId
+                ? { digestId: frozen.qaCalibrationDigestId }
+                : {}),
+            }
+          : undefined;
+      }
       try {
         const digest = await ctx.runQuery(internal.learning.getActiveDigest, {
           kind: "qa_calibration",
@@ -97,8 +120,13 @@ export const runReportQa = internalAction({
     }> => {
       // Frozen waivers carry no preference text, so first-person intent is
       // unknown on that path; the QA prompt falls back to report-based detection.
-      if (input.styleOverrides) {
-        return { overrides: normalizeStyleOverrides(input.styleOverrides), firstPerson: null };
+      if (input.styleOverrides || frozen) {
+        return {
+          overrides: normalizeStyleOverrides(input.styleOverrides),
+          // A seed run froze the writer's instructions too, so its intent is
+          // known; the inline QA it replaces read it the same way.
+          firstPerson: frozen ? detectFirstPersonPreference(frozen.writerFlavor) : null,
+        };
       }
       try {
         const profile = await ctx.runQuery(
@@ -129,13 +157,13 @@ export const runReportQa = internalAction({
         runQAAgent(
           clientFor(
             "generation:post_qa",
-            calibration ? [calibration.digestId] : undefined
+            calibration?.digestId ? [calibration.digestId] : undefined
           ),
           analysis,
           input.section242,
           input.section244,
           input.section246,
-          input.model,
+          modelFor("generation:post_qa"),
           calibration?.content,
           style.overrides,
           style.firstPerson
@@ -143,7 +171,7 @@ export const runReportQa = internalAction({
         runChronologyAgent(
           clientFor("generation:post_chronology"),
           analysis,
-          input.model
+          modelFor("generation:post_chronology")
         ),
       ]);
       if (qaSettled.status === "rejected") {

@@ -1,14 +1,14 @@
 /**
- * Admin-tunable app settings (one row per key). First setting: the default
- * generation model — used whenever a writer doesn't explicitly pick a model
- * (single/iterative modes, and the "Default" picker option). Falls back to
- * the registry default (shared/generationModels MODEL) when unset.
+ * Admin-tunable app settings (one row per key). The default generation model
+ * is now the model catalog's writing role (convex/lib/modelRoles.ts): the
+ * model used whenever a writer doesn't explicitly pick one. The legacy
+ * "defaultModel" row is still honoured until the role is first assigned.
  */
 import { mutation, internalQuery, internalMutation, type QueryCtx, type MutationCtx } from "./_generated/server";
 import { v } from "convex/values";
 import { requireRole } from "./lib/auth";
 import { domainError } from "./lib/contracts";
-import { MODEL, modelById } from "../shared/generationModels";
+import { assignRoleModelByHand, roleModelId } from "./lib/modelRoles";
 import type { Doc, Id } from "./_generated/dataModel";
 import {
   DEFAULT_CONTEXT_BUDGET,
@@ -19,7 +19,6 @@ import {
   type ChatEvidenceBudget,
 } from "./ai/chatEvidence";
 
-const DEFAULT_MODEL_KEY = "defaultModel";
 const ANALYZER_CONTEXT_BUDGET_KEY = "ai.analyzerContextBudgetTokens";
 const ANALYZER_TRANSCRIPT_BUDGET_KEY = "ai.analyzerTranscriptBudgetTokens";
 const ANALYZER_DOCUMENT_BUDGET_KEY = "ai.analyzerDocumentBudgetTokens";
@@ -60,14 +59,13 @@ async function assertMyWorkReady(ctx: MutationCtx) {
   }
 }
 
+/**
+ * The default generation model: the writing role's current model. A stale
+ * assignment or setting (a retired model) falls back to the role default
+ * rather than breaking generations.
+ */
 export async function defaultModelId(ctx: QueryCtx | MutationCtx): Promise<string> {
-  const row = await ctx.db
-    .query("appSettings")
-    .withIndex("by_key", (q) => q.eq("key", DEFAULT_MODEL_KEY))
-    .unique();
-  // A stale setting (model removed from the registry) falls back to the
-  // registry default rather than breaking generations.
-  return row && modelById(row.value) ? row.value : MODEL;
+  return await roleModelId(ctx, "writing");
 }
 
 /**
@@ -208,32 +206,12 @@ export const setMyWorkRollout = mutation({
   },
 });
 
+/** Manual choice of the writing role's model (logged as a manual switch). */
 export const setDefaultModel = mutation({
   args: { modelId: v.string() },
   handler: async (ctx, args) => {
     const user = await requireRole(ctx, ["admin"]);
-    if (!modelById(args.modelId)) {
-      domainError("INVALID_INPUT", "Unknown model id");
-    }
-    const now = Date.now();
-    const existing = await ctx.db
-      .query("appSettings")
-      .withIndex("by_key", (q) => q.eq("key", DEFAULT_MODEL_KEY))
-      .unique();
-    if (existing) {
-      await ctx.db.patch(existing._id, {
-        value: args.modelId,
-        updatedBy: user._id,
-        updatedAt: now,
-      });
-    } else {
-      await ctx.db.insert("appSettings", {
-        key: DEFAULT_MODEL_KEY,
-        value: args.modelId,
-        updatedBy: user._id,
-        updatedAt: now,
-      });
-    }
+    await assignRoleModelByHand(ctx, "writing", args.modelId, user._id);
   },
 });
 
@@ -264,6 +242,137 @@ export const setChatAdmissionLimits = mutation({
     }
     await setSetting(ctx, CHAT_DAILY_BUDGET_KEY, String(args.dailyBudgetUsd), user._id);
     await setSetting(ctx, CHAT_MAX_QUEUED_TURNS_KEY, String(args.maxQueuedTurns), user._id);
+    return null;
+  },
+});
+
+// ─── Transcript method (2026-09-24; owner decisions 26 and 27) ─────────────
+
+/** Where fact packs replace digests or full text. Default: today's path. */
+export const TRANSCRIPT_FACTS_MODE_KEY = "transcripts.factsMode";
+/** Emergency switch for name placeholders; on unless an admin turns it off. */
+export const TRANSCRIPT_PLACEHOLDERS_KEY = "transcripts.placeholders";
+
+export type TranscriptFactsMode = "off" | "long" | "all";
+
+const transcriptFactsModeValidator = v.union(v.literal("off"), v.literal("long"), v.literal("all"));
+
+/**
+ * `off` (default): today's path, digests over the budget and full text
+ * under it. `long`: fact packs replace digests for projects over the budget
+ * (decision 27). `all`: small projects read fact packs too, once the offline
+ * evaluation shows they match (scripts/transcript-facts-eval.mjs). Any other
+ * stored value reads as `off`.
+ */
+export async function transcriptFactsMode(ctx: QueryCtx | MutationCtx): Promise<TranscriptFactsMode> {
+  const row = await ctx.db
+    .query("appSettings")
+    .withIndex("by_key", (q) => q.eq("key", TRANSCRIPT_FACTS_MODE_KEY))
+    .unique();
+  const value = row?.value.trim();
+  return value === "long" || value === "all" ? value : "off";
+}
+
+/**
+ * Owner decision 26: placeholders always, for every model. The setting only
+ * exists as an emergency switch; anything but "off" means on.
+ */
+export async function transcriptPlaceholdersEnabled(ctx: QueryCtx | MutationCtx): Promise<boolean> {
+  const row = await ctx.db
+    .query("appSettings")
+    .withIndex("by_key", (q) => q.eq("key", TRANSCRIPT_PLACEHOLDERS_KEY))
+    .unique();
+  return row?.value.trim() !== "off";
+}
+
+async function writeTranscriptMethod(
+  ctx: MutationCtx,
+  args: { factsMode?: TranscriptFactsMode; placeholders?: boolean },
+  userId: Id<"users">
+) {
+  if (args.factsMode !== undefined) await setSetting(ctx, TRANSCRIPT_FACTS_MODE_KEY, args.factsMode, userId);
+  if (args.placeholders !== undefined) {
+    await setSetting(ctx, TRANSCRIPT_PLACEHOLDERS_KEY, args.placeholders ? "on" : "off", userId);
+  }
+}
+
+/** Admin only ("Configure models, tags, Brain, and global settings"). */
+export const setTranscriptMethod = mutation({
+  args: {
+    factsMode: v.optional(transcriptFactsModeValidator),
+    placeholders: v.optional(v.boolean()),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const user = await requireRole(ctx, ["admin"]);
+    await writeTranscriptMethod(ctx, args, user._id);
+    return null;
+  },
+});
+
+/** The same switch from the Convex dashboard, recorded against an admin. */
+export const setTranscriptMethodInternal = internalMutation({
+  args: {
+    adminId: v.id("users"),
+    factsMode: v.optional(transcriptFactsModeValidator),
+    placeholders: v.optional(v.boolean()),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const admin = await ctx.db.get(args.adminId);
+    if (!admin || admin.role !== "admin" || admin.isAnonymous === true) {
+      throw new Error("An active administrator is required");
+    }
+    await writeTranscriptMethod(ctx, args, admin._id);
+    return null;
+  },
+});
+
+// ─── Sweep of stored files no row holds (2026-09-25) ────────────────────────
+
+/**
+ * What the daily sweep of unreferenced files does
+ * (`transcripts.sweepUnreferencedStorage`): `report` (default) counts and
+ * records what it would delete and deletes nothing; `delete` deletes them;
+ * `off` does nothing. Deleting needs an admin's explicit switch.
+ */
+export const STORAGE_SWEEP_MODE_KEY = "storage.sweepUnreferenced";
+
+export type StorageSweepMode = "off" | "report" | "delete";
+
+export const storageSweepModeValidator = v.union(v.literal("off"), v.literal("report"), v.literal("delete"));
+
+/** Only an exact "delete" deletes and "off" stops it; anything else reports. */
+export async function storageSweepMode(ctx: QueryCtx | MutationCtx): Promise<StorageSweepMode> {
+  const row = await ctx.db
+    .query("appSettings")
+    .withIndex("by_key", (q) => q.eq("key", STORAGE_SWEEP_MODE_KEY))
+    .unique();
+  const value = row?.value.trim();
+  return value === "off" || value === "delete" ? value : "report";
+}
+
+/** Admin only ("Configure models, tags, Brain, and global settings"). */
+export const setStorageSweepMode = mutation({
+  args: { mode: storageSweepModeValidator },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const user = await requireRole(ctx, ["admin"]);
+    await setSetting(ctx, STORAGE_SWEEP_MODE_KEY, args.mode, user._id);
+    return null;
+  },
+});
+
+/** The same switch from the Convex dashboard, recorded against an admin. */
+export const setStorageSweepModeInternal = internalMutation({
+  args: { adminId: v.id("users"), mode: storageSweepModeValidator },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const admin = await ctx.db.get(args.adminId);
+    if (!admin || admin.role !== "admin" || admin.isAnonymous === true) {
+      throw new Error("An active administrator is required");
+    }
+    await setSetting(ctx, STORAGE_SWEEP_MODE_KEY, args.mode, admin._id);
     return null;
   },
 });

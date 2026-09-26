@@ -1,6 +1,7 @@
 <script lang="ts">
   import AdminWorkspacePage from "$lib/components/admin/AdminWorkspacePage.svelte";
   import { resolve } from "$app/paths";
+  import { page } from "$app/state";
   import Button from "$lib/components/ui/Button.svelte";
   import Input from "$lib/components/ui/Input.svelte";
   import Checkbox from "$lib/components/ui/Checkbox.svelte";
@@ -8,7 +9,7 @@
   import Spinner from "$lib/components/ui/Spinner.svelte";
   import RoleGuideSheet from "$lib/components/roles/RoleGuideSheet.svelte";
   import { userErrorMessage } from "$lib/errors";
-  import { goto } from "$app/navigation";
+  import { goToLogin } from "$lib/auth/goToLogin";
   import { useQuery, useMutation } from "convex-svelte";
   import { useAuth } from "@mmailaender/convex-better-auth-svelte/svelte";
   import { api } from "../../../../convex/_generated/api";
@@ -45,70 +46,6 @@
     currentUserQ.data?.isDeveloper === true || currentUserQ.data?.isOwner === true
   );
   const setTemporaryPassword = useMutation(api.users.setTemporaryPassword);
-
-  // Invite-only membership: create/list/revoke invites (admin only).
-  const invitesQ = useQuery(api.invites.listInvites, () =>
-    auth.isAuthenticated && isAdmin ? {} : "skip"
-  );
-  const createInvite = useMutation(api.invites.createInvite);
-  const revokeInvite = useMutation(api.invites.revokeInvite);
-
-  let inviteFirst = $state("");
-  let inviteLast = $state("");
-  let inviteEmail = $state("");
-  let inviteRole = $state<string>("writer");
-  // Same shape the browser's type="email" accepts — one non-space local part,
-  // @, domain with a dot.
-  const inviteValid = $derived(
-    Boolean(
-      inviteFirst.trim() &&
-        inviteLast.trim() &&
-        /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(inviteEmail.trim())
-    )
-  );
-  let inviteSending = $state(false);
-  let inviteError = $state("");
-  let lastInviteLink = $state("");
-  let copiedInviteId = $state<string | null>(null);
-
-  function inviteLink(token: string): string {
-    return `${location.origin}/signup/${token}`;
-  }
-
-  async function handleCreateInvite() {
-    if (inviteSending) return;
-    inviteError = "";
-    lastInviteLink = "";
-    inviteSending = true;
-    try {
-      const { token } = await createInvite({
-        email: inviteEmail,
-        firstName: inviteFirst,
-        lastName: inviteLast,
-        role: inviteRole as Role,
-      });
-      lastInviteLink = inviteLink(token);
-      await navigator.clipboard.writeText(lastInviteLink).catch(() => {});
-      inviteFirst = "";
-      inviteLast = "";
-      inviteEmail = "";
-      inviteRole = "writer";
-    } catch (cause) {
-      inviteError = userErrorMessage(cause, "The invite could not be created.");
-    } finally {
-      inviteSending = false;
-    }
-  }
-
-  async function copyInvite(id: string, token: string) {
-    try {
-      await navigator.clipboard.writeText(inviteLink(token));
-      copiedInviteId = id;
-      setTimeout(() => (copiedInviteId = null), 1600);
-    } catch {
-      /* clipboard unavailable */
-    }
-  }
 
   // Per-writer flavor (Phase A): admins can view/edit each user's custom
   // writing instructions from an expandable row.
@@ -281,11 +218,23 @@
 
   $effect(() => {
     if (!auth.isLoading && !auth.isAuthenticated) {
-      goto(resolve("/login"), { replaceState: true });
+      goToLogin();
     }
   });
 
   const users = $derived(usersQ.data ?? []);
+
+  // Team's "Edit writing preferences" links here with ?user=<id>: open that
+  // person's row once the roster arrives.
+  let openedFromLink = false;
+  $effect(() => {
+    const target = page.url.searchParams.get("user");
+    if (openedFromLink || !target || !profilesQ.data) return;
+    const row = users.find((user) => user._id === target);
+    if (!row) return;
+    openedFromLink = true;
+    toggleFlavor(row._id);
+  });
   const expandedUser = $derived(
     users.find((user) => user._id === expandedUserId) ?? null
   );
@@ -366,7 +315,7 @@
 {:else}
   <AdminWorkspacePage
     title="Users & roles"
-    description="Invite team members, assign roles, and review what each role can do."
+    description="Assign roles, manage accounts, and review what each role can do."
   >
     {#snippet actions()}
       {#if isAdmin}
@@ -391,102 +340,9 @@
           Role management is available to administrators only.
         </p>
       {:else}
-        <!-- Invite a team member: accounts are invite-only -->
-        <section class="card p-6">
-          <h2 class="text-title">Invite a team member</h2>
-          <p class="mt-0.5 text-xs text-gray-500">
-            Creates a one-time signup link (valid 7 days) — copy it and send it
-            to them yourself.
-          </p>
-          <!-- Full-width responsive grid: 1 col on phones, 2 on small, all
-               five cells on one row from lg up (email gets the widest track,
-               button hugs its content aligned to the field baseline). -->
-          <form
-            class="mt-4 grid w-full grid-cols-1 items-end gap-3 sm:grid-cols-2 lg:grid-cols-[1fr_1fr_1.6fr_1fr_auto]"
-            onsubmit={(e) => {
-              e.preventDefault();
-              handleCreateInvite();
-            }}
-          >
-            <Input id="invite-first" label="First name" bind:value={inviteFirst} required class="w-full" />
-            <Input id="invite-last" label="Last name" bind:value={inviteLast} required class="w-full" />
-            <Input id="invite-email" label="Email" type="email" bind:value={inviteEmail} required class="w-full" />
-            <div class="flex flex-col gap-1.5">
-              <label for="invite-role" class="text-sm font-medium text-gray-700">Role</label>
-              <SelectInput id="invite-role" bind:value={inviteRole} items={ROLE_ITEMS} class="w-full" />
-            </div>
-            <button
-              type="submit"
-              disabled={inviteSending || !inviteValid}
-              title={inviteValid ? undefined : "Fill in first name, last name, and a valid email"}
-              class="inline-flex h-11 items-center justify-center gap-2 whitespace-nowrap rounded-lg bg-primary-selected px-4 text-sm font-semibold text-white transition-colors hover:bg-primary-dark disabled:cursor-not-allowed disabled:opacity-50 sm:col-span-2 lg:col-span-1"
-            >
-              {#if inviteSending}
-                <Spinner size="sm" class="h-3.5 w-3.5 border-white" />
-              {/if}
-              Create invite
-            </button>
-          </form>
-          {#if inviteError}
-            <p role="alert" class="mt-3 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">{inviteError}</p>
-          {/if}
-          {#if lastInviteLink}
-            <div class="mt-3 flex items-center gap-2 rounded-lg bg-primary-wash px-3 py-2">
-              <span class="min-w-0 flex-1 truncate font-mono text-xs text-navy">{lastInviteLink}</span>
-              <button
-                type="button"
-                onclick={() => navigator.clipboard.writeText(lastInviteLink)}
-                class="flex-none rounded-md bg-white px-2.5 py-1 text-xs font-medium text-navy transition-colors hover:bg-gray-50"
-              >
-                Copy
-              </button>
-            </div>
-            <p class="mt-1.5 text-xs text-gray-400">Link copied to your clipboard.</p>
-          {/if}
-
-          {#if (invitesQ.data ?? []).length}
-            <div class="mt-5 border-t border-gray-100 pt-4">
-              <h3 class="text-xs font-semibold uppercase tracking-wide text-gray-400">Invites</h3>
-              <ul class="mt-2 flex flex-col gap-1.5">
-                {#each invitesQ.data ?? [] as invite (invite._id)}
-                  <li class="flex items-center gap-3 rounded-lg px-2 py-1.5 text-sm hover:bg-gray-50">
-                    <span class="min-w-0 flex-1 truncate">
-                      <span class="font-medium text-gray-800">{invite.firstName} {invite.lastName}</span>
-                      <span class="text-gray-400"> · {invite.email} · {ROLE_LABELS[invite.role]}</span>
-                    </span>
-                    <span
-                      class={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${
-                        invite.status === "pending"
-                          ? "bg-primary-wash text-primary-dark"
-                          : invite.status === "accepted"
-                            ? "bg-primary text-white"
-                            : "bg-gray-100 text-gray-500"
-                      }`}
-                    >
-                      {invite.status}
-                    </span>
-                    {#if invite.status === "pending"}
-                      <button
-                        type="button"
-                        onclick={() => copyInvite(invite._id, invite.token)}
-                        class="rounded-md px-2 py-1 text-xs font-medium text-gray-500 transition-colors hover:bg-primary-wash hover:text-navy"
-                      >
-                        {copiedInviteId === invite._id ? "Copied" : "Copy link"}
-                      </button>
-                      <button
-                        type="button"
-                        onclick={() => revokeInvite({ inviteId: invite._id })}
-                        class="rounded-md px-2 py-1 text-xs font-medium text-ink-faint transition-colors hover:bg-red-50 hover:text-red-600"
-                      >
-                        Revoke
-                      </button>
-                    {/if}
-                  </li>
-                {/each}
-              </ul>
-            </div>
-          {/if}
-        </section>
+        <p data-invites-moved class="text-sm text-ink-secondary">
+          Invites moved to <a class="font-medium text-primary-selected hover:text-primary-dark" href={resolve("/team")}>Team</a>.
+        </p>
 
         {#if error}
           <p role="alert" class="mt-4 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">

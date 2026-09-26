@@ -3,11 +3,17 @@ import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
 import {
   getProjectAccess,
-  requireInternalProjectAccess,
 } from "./lib/auth";
 import { requireReportEditAccess } from "./lib/roleCapabilities";
+import { provenanceForEdit } from "./lib/editProvenance";
 import { domainError, sha256 } from "./lib/contracts";
-import { applyReplacements, type PMNode } from "./lib/reportEdits";
+import {
+  applyReplacements,
+  headingEditRefusal,
+  locateSelection,
+  SELECTION_GONE,
+  type PMNode,
+} from "./lib/reportEdits";
 import { pruneSnapshots, writePreEditSnapshot } from "./lib/snapshots";
 
 const COMMENTER_COLORS = [
@@ -125,7 +131,7 @@ export const resolveComment = mutation({
   handler: async (ctx, args) => {
     const comment = await ctx.db.get(args.commentId);
     if (!comment) domainError("NOT_FOUND", "Comment not found");
-    await requireInternalProjectAccess(ctx, comment.projectId);
+    await requireReportEditAccess(ctx, comment.projectId);
     await ctx.db.patch(args.commentId, { resolved: true });
   },
 });
@@ -135,7 +141,7 @@ export const unresolveComment = mutation({
   handler: async (ctx, args) => {
     const comment = await ctx.db.get(args.commentId);
     if (!comment) domainError("NOT_FOUND", "Comment not found");
-    await requireInternalProjectAccess(ctx, comment.projectId);
+    await requireReportEditAccess(ctx, comment.projectId);
     await ctx.db.patch(args.commentId, { resolved: false });
   },
 });
@@ -149,7 +155,11 @@ export const acceptEdit = mutation({
       domainError("INVALID_INPUT", "This comment has no suggested edit");
     }
     // Accepting a client suggestion rewrites report prose: report.editProse.
-    await requireReportEditAccess(ctx, comment.projectId);
+    const { user } = await requireReportEditAccess(ctx, comment.projectId);
+    // A second Accept (a double click, another tab) must not apply it again.
+    if (comment.resolved) {
+      domainError("INVALID_STATE", "This suggestion was already accepted or dismissed.");
+    }
     const report = await ctx.db.get(comment.reportId);
     if (!report || report.projectId !== comment.projectId) {
       domainError("NOT_FOUND", "The commented report revision is unavailable");
@@ -168,6 +178,18 @@ export const acceptEdit = mutation({
     const applied = applyReplacements(document, [
       { find: comment.highlightText, replaceWith: comment.suggestedEdit },
     ]);
+    // The review link shows heading text, so the client's stored selection
+    // decides: in a Section heading or the title it is refused (the body
+    // match must not be edited instead); in the body it applies there.
+    const refusal = headingEditRefusal(
+      applied,
+      locateSelection(document, {
+        from: comment.highlightFrom,
+        to: comment.highlightTo,
+        text: comment.highlightText,
+      })
+    );
+    if (refusal) domainError(refusal === SELECTION_GONE ? "STALE_REVISION" : "INVALID_INPUT", refusal);
     if (applied.count !== 1) {
       domainError(
         "STALE_REVISION",
@@ -191,7 +213,11 @@ export const acceptEdit = mutation({
       content,
       contentHash: await sha256(content),
       revisionNumber: revisionNumber + 1,
-      provenanceId: undefined,
+      provenanceId: await provenanceForEdit(ctx, report, content, {
+        actorId: user._id,
+        nextRevisionNumber: revisionNumber + 1,
+        now,
+      }),
       updatedAt: now,
     });
     await persistDeterministicFindings(ctx, report._id);
@@ -205,7 +231,7 @@ export const deleteComment = mutation({
   handler: async (ctx, args) => {
     const comment = await ctx.db.get(args.commentId);
     if (!comment) return;
-    await requireInternalProjectAccess(ctx, comment.projectId);
+    await requireReportEditAccess(ctx, comment.projectId);
     await ctx.db.delete(args.commentId);
   },
 });

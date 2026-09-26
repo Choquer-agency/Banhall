@@ -19,7 +19,7 @@ import {
 
 type RoleEventKind = Exclude<
   Doc<"seedDecisionEvents">["kind"],
-  "initialized" | "signOff" | "cancel"
+  "initialized" | "signOff" | "cancel" | "stop"
 >;
 type EventFields = Partial<
   Pick<

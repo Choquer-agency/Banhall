@@ -1,155 +1,452 @@
 <script lang="ts">
-  import { untrack } from "svelte";
-  import { goto } from "$app/navigation";
   import { resolve } from "$app/paths";
   import { page } from "$app/state";
   import { useQuery } from "convex-svelte";
   import { useAuth } from "@mmailaender/convex-better-auth-svelte/svelte";
   import {
-    ArrowSquareOutIcon,
-    BellIcon,
-    BrainIcon,
-    CaretDownIcon,
-    ChartBarIcon,
-    ClipboardTextIcon,
-    CloudArrowDownIcon,
-    FlagIcon,
-    FolderSimpleIcon,
-    GearSixIcon,
-    HouseIcon,
-    LightbulbIcon,
-    MagnifyingGlassIcon,
-    MegaphoneIcon,
-    PlusIcon,
-    SlidersHorizontalIcon,
-    TagIcon,
-    UserGearIcon,
-  } from "phosphor-svelte";
+    IconBuilding,
+    IconChevronDown,
+    IconFolder,
+    IconGear,
+    IconHome,
+    IconLightbulb,
+    IconMegaphone,
+    IconSearch,
+    IconShield,
+    IconUsers,
+    IconWarning,
+  } from "$lib/components/icons";
   import { api } from "../../../../convex/_generated/api";
-  import { ROLE_LABELS } from "../../../../shared/roles";
+  import { round2Api } from "../../../../convex/lib/round2Api";
   import AnimatedSidebarToggleIcon from "$lib/components/workspace/AnimatedSidebarToggleIcon.svelte";
   import { displayName } from "$lib/displayName";
   import Tooltip from "$lib/components/ui/Tooltip.svelte";
-  import UserMenu from "$lib/components/ui/UserMenu.svelte";
+  import Avatar from "$lib/components/ui/Avatar.svelte";
+  import RoleChip from "$lib/components/ui/RoleChip.svelte";
+  import BanhallRailMark from "$lib/components/ui/BanhallRailMark.svelte";
+  import IdentityMenu from "$lib/components/shell/IdentityMenu.svelte";
+  import AdminFlyout from "$lib/components/shell/AdminFlyout.svelte";
+  import { ADMIN_INGESTION_PATH, ADMIN_RAIL_ROUTES } from "$lib/dashboard/adminRoutes";
   import type { DashboardView } from "$lib/dashboard/viewMode";
+  import { roleChipKind } from "$lib/roles/roleChip";
+  import {
+    badgeLabel,
+    canSeeAdmin,
+    canSeeAlerts,
+    companiesHrefFrom,
+    railGroups,
+    selectedRailItem,
+    type RailItem,
+    type RailItemId,
+  } from "$lib/shell/navigation";
+  import { detectPlatform, shortcutHint } from "$lib/shell/shortcuts";
+  import { VIEW_AS_LABELS, effectiveViewer } from "$lib/shell/viewAs.svelte";
+  import { loadRailPreferences, persistRailPreferences } from "$lib/workspace/railPreferences";
 
   let {
     variant = "rail",
-    collapsed = false,
+    collapsed: collapsedProp = false,
     displayedView,
     myWorkAvailable,
     myWorkHref,
     projectsHref,
-    currentDashboardHref,
-    currentExperienceLabel = "Current dashboard",
     onFocusSearch,
     onNavigate,
     onToggleRail = null,
   }: {
     variant?: "rail" | "drawer";
-    /** Kept for shell API compatibility; desktop collapse removes the rail. */
+    /** Desktop collapsed rail: icons only (the drawer always renders expanded). */
     collapsed?: boolean;
     displayedView: DashboardView | null;
     myWorkAvailable: boolean;
     myWorkHref: string;
     projectsHref: string;
-    currentDashboardHref: string;
-    currentExperienceLabel?: string;
     onFocusSearch: () => void;
     onNavigate?: () => void;
+    /** Collapse (expanded) or expand (collapsed) the desktop rail; null hides the toggle. */
     onToggleRail?: (() => void) | null;
   } = $props();
 
+  // Only the desktop rail collapses; the drawer always renders expanded.
+  const collapsed = $derived(variant === "rail" && collapsedProp);
   const auth = useAuth();
   const userQ = useQuery(api.users.getCurrentUser, () => (auth.isAuthenticated ? {} : "skip"));
-  const isDeveloper = $derived(userQ.data?.isDeveloper === true);
-  // Workspace Owner exposure (2026-08-19): reveals admin navigation like
-  // isDeveloper does. Distinct from a project's Owner.
-  const isOwner = $derived(userQ.data?.isOwner === true);
+  const user = $derived(userQ.data);
+  // Every rail decision reads the effective viewer (View as applied, D3).
+  const viewer = $derived(effectiveViewer(user));
   const openAlertsQ = useQuery(api.errorReports.openCount, () =>
-    auth.isAuthenticated && isDeveloper ? {} : "skip"
+    auth.isAuthenticated && canSeeAlerts(viewer) ? {} : "skip"
   );
   const unseenChangelogQ = useQuery(api.changelog.unseenCount, () =>
     auth.isAuthenticated ? {} : "skip"
   );
-  const openAlerts = $derived(openAlertsQ.data ?? 0);
-  const unseenChangelog = $derived(unseenChangelogQ.data ?? 0);
-  const user = $derived(userQ.data);
+  const attentionQ = useQuery(round2Api.adminAttention.getAttention, () =>
+    auth.isAuthenticated && canSeeAdmin(viewer) ? {} : "skip"
+  );
+  const attention = $derived(attentionQ.data ?? { total: 0, ingestionFailed: 0 });
   const userName = $derived(displayName(user, "Account"));
-  const userRole = $derived(
-    user?.isDeveloper
-      ? "Developer"
-      : user?.isOwner
-        ? "Owner"
-        : user?.role
-          ? ROLE_LABELS[user.role]
-          : "Workspace member"
-  );
-  const userInitials = $derived.by(() => {
-    if (user?.firstName || user?.lastName) {
-      return (((user.firstName?.[0] ?? "") + (user.lastName?.[0] ?? "")).toUpperCase() || "?");
-    }
-    const name = user?.name?.trim();
-    if (name) {
-      const parts = name.split(/\s+/);
-      return (((parts[0]?.[0] ?? "") + (parts[1]?.[0] ?? "")).toUpperCase() || "?");
-    }
-    return user?.email?.[0]?.toUpperCase() ?? "?";
+
+  const selected = $derived.by((): RailItemId | null => {
+    const url = page.url;
+    if (displayedView === "my_work") return "home";
+    if (displayedView === "all_projects") return "projects";
+    return selectedRailItem(url);
   });
-  const pathname = $derived(page.url.pathname);
-  // The desktop rail keeps the records visible as part of the information
-  // architecture. The touch drawer starts compact so short viewports reach
-  // primary and utility navigation without opening into an overfull column.
-  let adminOpen = $state(untrack(() => variant === "rail"));
 
-  // Attio-density: 28px rows on desktop, 44px minimum in the touch drawer.
-  // A drawer opened in a narrow desktop window returns to the compact rail
-  // rhythm through the fine-pointer media rule below.
-  // Labels carry translate-y-[0.5px]: Geist caps sit ~0.5px above the
-  // 16px Phosphor glyphs when both are flex-centred, which reads as text
-  // floating high. Measured at 1x and 2x DPR (2026-08-22).
-  const rowHeight = $derived(variant === "rail" ? "h-7" : "min-h-11");
-  const rowBase = $derived(
-    `${rowHeight} workspace-rail-row flex w-full items-center gap-2 rounded-md pl-2 pr-1 [&>svg]:shrink-0 text-left text-sm font-medium leading-5 tracking-[-0.01em] transition-colors duration-150 ease-out focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir motion-reduce:transition-none`
+  const groups = $derived(
+    railGroups(
+      viewer,
+      {
+        myWorkHref,
+        projectsHref,
+        companiesHref: companiesHrefFrom(projectsHref),
+        // WS2 lands the /team route; until then the path is not a typed route id.
+        teamHref: `${resolve("/")}team`,
+        adminHref: resolve("/admin/house-rules"),
+        alertsHref: resolve("/alerts"),
+        requestsHref: resolve("/requests"),
+        changelogHref: resolve("/changelog"),
+        settingsHref: resolve("/settings"),
+      },
+      {
+        unseenChangelog: unseenChangelogQ.data ?? 0,
+        openAlerts: openAlertsQ.data ?? 0,
+        adminAttention: attention.total,
+      }
+    )
   );
-  const idleRow = "text-ink hover:bg-workspace-rail-hover";
-  const selectedRow = "bg-workspace-rail-selected font-semibold text-ink";
+  const topGroups = $derived(groups.filter((group) => group.id === "workspace" || group.id === "manage"));
+  const bottomGroups = $derived(groups.filter((group) => group.id === "developer" || group.id === "other"));
 
-  const ADMIN_LINKS = [
-    { href: "/admin/brain", label: "The Brain", icon: "brain", tone: "bg-blue-500" },
-    { href: "/admin/ingestion", label: "OneDrive ingestion", icon: "ingestion", tone: "bg-cyan-500" },
-    { href: "/admin/tags", label: "Project tags", icon: "tag", tone: "bg-orange-500" },
-    { href: "/admin/learning", label: "Learning health", icon: "usage", tone: "bg-primary-dark" },
-    { href: "/admin/reviews", label: "QA reviews", icon: "reviews", tone: "bg-teal-500" },
-    { href: "/admin/users", label: "Users & roles", icon: "users", tone: "bg-sky-500" },
-    { href: "/admin/house-rules", label: "House rules", icon: "reviews", tone: "bg-rose-500" },
-    { href: "/admin/models", label: "Model preferences", icon: "models", tone: "bg-violet-500" },
-    { href: "/admin/usage", label: "AI usage & cost", icon: "usage", tone: "bg-emerald-500" },
-  ] as const;
+  const platform = detectPlatform();
+  const collapseHint = shortcutHint("collapseRail", platform);
+  const searchHint = shortcutHint("search", platform);
+
+  // B1, B2: the Admin group opens by itself on any admin page; elsewhere it
+  // keeps the last choice (persisted, closed by default).
+  const onAdminPage = $derived(selected === "admin");
+  let adminChoice = $state(loadRailPreferences().adminOpen);
+  const adminOpen = $derived(onAdminPage || adminChoice);
+  function toggleAdmin() {
+    adminChoice = !adminOpen;
+    persistRailPreferences({ adminOpen: adminChoice });
+  }
+  const pathname = $derived(page.url.pathname);
+
+  const identityChip = $derived(roleChipKind(viewer.viewing ? { role: viewer.role, isOwner: viewer.isOwner } : {
+    role: user?.role ?? null,
+    isOwner: user?.isOwner === true,
+    isDeveloper: user?.isDeveloper === true,
+  }));
+
+  // Board A1: 32px rows on desktop, 44px minimum in the touch drawer.
+  const rowHeight = $derived(variant === "rail" ? "h-8" : "min-h-11");
+  const rowBase = $derived(
+    `${rowHeight} workspace-rail-row flex w-full items-center gap-2 rounded-md px-2 [&>svg]:shrink-0 text-left text-[13px] font-normal leading-[19px] transition-colors duration-150 ease-out focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir motion-reduce:transition-none`
+  );
+  // A4: 36px icon tiles, radius 6, 17px icons, a tooltip each.
+  const iconRow =
+    "workspace-rail-row relative flex size-9 shrink-0 items-center justify-center rounded-md transition-colors duration-150 ease-out focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir motion-reduce:transition-none";
+  const idleRow = "text-ink-secondary hover:bg-workspace-rail-hover hover:text-ink";
+  const selectedRow = "bg-workspace-rail-selected text-fir";
+  const iconSize = $derived(collapsed ? 17 : 15);
+  const RAIL_ICONS = {
+    home: IconHome,
+    projects: IconFolder,
+    companies: IconBuilding,
+    team: IconUsers,
+    admin: IconShield,
+    alerts: IconWarning,
+    requests: IconLightbulb,
+    changelog: IconMegaphone,
+    settings: IconGear,
+  } as const satisfies Record<RailItemId, unknown>;
+
+  function itemAttrs(item: RailItem) {
+    return { "data-rail-item": item.id };
+  }
 </script>
+
+<!--
+  Round 2 rail (boards A1 to A5, B1, B2; decision 53): the Banhall mark,
+  Workspace (Home, Projects, Companies), Manage (Team, Admin) for roles that
+  have it, Developer (Alerts with ops.viewAlerts, Feature requests) for
+  developers, Other (What's new, Settings) at the bottom, then the identity
+  row that opens the account menu (D1). Search lives in the collapsed rail
+  and the command palette (Cmd K); Flag an issue moved to the account menu.
+-->
+<!-- Board icons: 15px in the expanded rail, 17px tiles collapsed, stroke 1.5. -->
+{#snippet itemIcon(id: RailItemId, className: string = "")}
+  {@const Icon = RAIL_ICONS[id]}
+  <Icon size={iconSize} strokeWidth={1.5} data-rail-icon={id} class={`shrink-0 ${className}`} />
+{/snippet}
+
+{#snippet expandedRow(item: RailItem)}
+  {@const isSelected = selected === item.id}
+  {@const disabled = item.id === "home" && !myWorkAvailable}
+  <a
+    {...itemAttrs(item)}
+    href={item.href}
+    aria-current={isSelected ? "page" : undefined}
+    aria-disabled={disabled ? "true" : undefined}
+    onclick={(event) => {
+      if (disabled) {
+        event.preventDefault();
+        return;
+      }
+      onNavigate?.();
+    }}
+    class={`${rowBase} ${isSelected ? selectedRow : idleRow}`}
+  >
+    {@render itemIcon(item.id)}
+    <span class="min-w-0 flex-1 translate-y-[0.5px] truncate">{item.label}</span>
+    {#if item.badge}
+      <span
+        data-rail-badge={item.badge.tone}
+        class={`flex h-[18px] min-w-5 shrink-0 items-center justify-center rounded-full px-1.5 text-[10px] font-medium leading-3 text-white ${item.badge.tone === "danger" ? "bg-danger" : "bg-primary-selected"}`}
+      >{badgeLabel(item.badge.count)}</span>
+    {/if}
+  </a>
+{/snippet}
+
+{#snippet adminGroup(item: RailItem)}
+  <button
+    type="button"
+    data-rail-item="admin"
+    data-admin-group-toggle
+    aria-expanded={adminOpen}
+    aria-controls="workspace-admin-links"
+    onclick={toggleAdmin}
+    class={`${rowBase} ${adminOpen ? "text-ink hover:bg-workspace-rail-hover" : idleRow}`}
+  >
+    <!-- B2, B3: while the group is open the label turns ink (the shield stays
+         secondary) and the attention dot moves down to its page's row. -->
+    {@render itemIcon("admin", adminOpen ? "text-ink-secondary" : "")}
+    <span class="min-w-0 flex-1 translate-y-[0.5px] truncate">{item.label}</span>
+    {#if item.attention && !adminOpen}
+      <span data-rail-attention aria-label="Needs a look" class="size-1.5 shrink-0 rounded-full bg-stale-dot"></span>
+    {/if}
+    <IconChevronDown
+      size={14}
+      strokeWidth={1.8}
+      data-admin-chevron={adminOpen ? "up" : "down"}
+      class={`shrink-0 text-ink-muted transition-transform duration-300 motion-reduce:transition-none ${adminOpen ? "rotate-180" : "rotate-0"}`}
+    />
+  </button>
+  {#if adminOpen}
+    <div id="workspace-admin-links" data-rail-admin-links class="relative flex flex-col">
+      <span aria-hidden="true" class="absolute bottom-1 left-[15px] top-1 w-px bg-line"></span>
+      {#each ADMIN_RAIL_ROUTES as route (route.href)}
+        {@const href = resolve(route.href as "/")}
+        {@const current = pathname === href || pathname.startsWith(`${href}/`)}
+        <a
+          {href}
+          data-admin-link={route.href}
+          aria-current={current ? "page" : undefined}
+          onclick={() => onNavigate?.()}
+          class={`${variant === "rail" ? "h-7" : "min-h-11"} workspace-rail-row flex items-center gap-2 rounded-md pl-[31px] pr-2 text-[13px] leading-[19px] transition-colors duration-150 ease-out focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir motion-reduce:transition-none ${current ? selectedRow : idleRow}`}
+        >
+          <span class="min-w-0 flex-1 truncate">{route.label}</span>
+          {#if route.href === ADMIN_INGESTION_PATH && attention.ingestionFailed > 0}
+            <span data-rail-attention aria-label={`${attention.ingestionFailed} failed`} class="size-1.5 shrink-0 rounded-full bg-stale-dot"></span>
+          {/if}
+        </a>
+      {/each}
+    </div>
+  {/if}
+{/snippet}
+
+{#snippet collapsedRow(item: RailItem)}
+  {@const isSelected = selected === item.id}
+  {@const disabled = item.id === "home" && !myWorkAvailable}
+  <Tooltip text={item.label} side="right" delayDuration={300}>
+    {#snippet children({ props })}
+      <a
+        {...props}
+        {...itemAttrs(item)}
+        href={item.href}
+        aria-label={item.badge && item.id === "alerts" ? `${item.label}, ${item.badge.count} open` : item.label}
+        aria-current={isSelected ? "page" : undefined}
+        aria-disabled={disabled ? "true" : undefined}
+        onclick={(event) => {
+          if (disabled) {
+            event.preventDefault();
+            return;
+          }
+          onNavigate?.();
+        }}
+        class={`${iconRow} ${isSelected ? selectedRow : idleRow}`}
+      >
+        {@render itemIcon(item.id)}
+        {#if item.id === "changelog" && item.badge}
+          <!-- A4: What's new shows a 7px dot here, not a count. -->
+          <span data-rail-dot aria-hidden="true" class="absolute right-1.5 top-1.5 size-[7px] rounded-full border-[1.5px] border-gray-50 bg-primary-selected"></span>
+        {:else if item.badge}
+          <span
+            data-rail-badge={item.badge.tone}
+            aria-hidden="true"
+            class="absolute right-px top-px flex h-4 min-w-4 items-center justify-center rounded-full border-[1.5px] border-gray-50 bg-danger px-1 text-[9px] font-medium leading-none text-white"
+          >{badgeLabel(item.badge.count)}</span>
+        {/if}
+      </a>
+    {/snippet}
+  </Tooltip>
+{/snippet}
+
+{#snippet collapsedAdmin(item: RailItem)}
+  <AdminFlyout attentionTotal={attention.total} ingestionFailed={attention.ingestionFailed} {onNavigate}>
+    {#snippet trigger({ props })}
+      <button
+        {...props}
+        type="button"
+        data-rail-item="admin"
+        aria-label={item.attention ? "Admin, needs a look" : "Admin"}
+        class={`${iconRow} ${onAdminPage ? selectedRow : idleRow}`}
+      >
+        {@render itemIcon("admin")}
+        {#if item.attention}
+          <span data-rail-attention aria-hidden="true" class="absolute right-1.5 top-1.5 size-[7px] rounded-full border-[1.5px] border-gray-50 bg-stale-dot"></span>
+        {/if}
+      </button>
+    {/snippet}
+  </AdminFlyout>
+{/snippet}
+
+{#snippet identity()}
+  <IdentityMenu
+    name={userName}
+    email={user?.email ?? null}
+    imageUrl={user?.imageUrl ?? null}
+    seed={user?._id}
+    isDeveloper={user?.isDeveloper === true}
+    placement={collapsed ? "right" : "above"}
+    layer={variant === "drawer" ? "drawer" : "app"}
+    {onNavigate}
+  >
+    {#snippet trigger({ props, open })}
+      {#if collapsed}
+        <button
+          {...props}
+          type="button"
+          data-rail-identity
+          aria-label={`${userName}, account menu`}
+          class="flex size-9 items-center justify-center rounded-full focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir"
+        >
+          <Avatar name={userName} imageUrl={user?.imageUrl ?? null} seed={user?._id} size={30} />
+        </button>
+      {:else}
+        <button
+          {...props}
+          type="button"
+          data-rail-identity
+          aria-label={`${userName}, account menu`}
+          class={`flex w-full items-center gap-2 rounded-lg px-1.5 text-left transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-1 focus-visible:outline-fir motion-reduce:transition-none ${variant === "rail" ? "h-11" : "min-h-12"} ${open ? "bg-workspace-rail-selected" : "hover:bg-workspace-rail-hover"}`}
+        >
+          <Avatar name={userName} imageUrl={user?.imageUrl ?? null} seed={user?._id} size={24} />
+          <span class="flex min-w-0 flex-1 flex-col">
+            <span class="truncate text-xs font-medium leading-4 text-ink">{userName}</span>
+            {#if identityChip}
+              <span class="flex pt-0.5">
+                <RoleChip
+                  kind={identityChip}
+                  size="sm"
+                  label={viewer.viewing ? `Viewing as ${VIEW_AS_LABELS[viewer.viewing]}` : undefined}
+                />
+              </span>
+            {/if}
+          </span>
+        </button>
+      {/if}
+    {/snippet}
+  </IdentityMenu>
+{/snippet}
 
 <nav
   aria-label="Workspace"
-  data-collapsed-compat={collapsed ? "" : undefined}
-  class={`flex h-full min-h-0 flex-col bg-workspace-rail text-ink ${variant === "drawer" ? "pb-[max(0.5rem,env(safe-area-inset-bottom))] pt-[env(safe-area-inset-top)]" : "pb-2"}`}
+  data-rail-collapsed={collapsed ? "" : undefined}
+  class={`flex h-full min-h-0 flex-col bg-workspace-shell text-ink ${variant === "drawer" ? "pb-[max(0.5rem,env(safe-area-inset-bottom))] pt-[env(safe-area-inset-top)]" : "pb-2.5"}`}
 >
-  <div class="flex min-h-0 flex-1 flex-col">
-    <div data-rail-drawer-header class="shrink-0 bg-workspace-rail">
-      <div class={`flex h-12 items-center pl-3 ${variant === "drawer" ? "pr-14" : "pr-[13px]"}`}>
+  {#if collapsed}
+    <div class="flex min-h-0 flex-1 flex-col items-center gap-0.5">
+      <a
+        href={myWorkHref}
+        aria-label="Banhall home"
+        onclick={onNavigate}
+        class="mb-1.5 mt-3.5 flex h-7 items-center rounded-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-fir"
+      >
+        <BanhallRailMark collapsed />
+      </a>
+      {#if onToggleRail}
+        <Tooltip text="Expand the rail" hint={collapseHint} side="right" delayDuration={300}>
+          {#snippet children({ props })}
+            <button
+              {...props}
+              type="button"
+              data-rail-toggle
+              data-rail-direction="expand"
+              aria-controls="workspace-rail"
+              aria-label="Expand navigation rail"
+              aria-expanded="false"
+              onclick={onToggleRail}
+              class={`group ${iconRow} ${idleRow}`}
+            >
+              <AnimatedSidebarToggleIcon direction="expand" size={17} />
+            </button>
+          {/snippet}
+        </Tooltip>
+      {/if}
+      <Tooltip text="Search" hint={searchHint} side="right" delayDuration={300}>
+        {#snippet children({ props })}
+          <button
+            {...props}
+            type="button"
+            data-rail-search
+            aria-label="Search projects"
+            onclick={onFocusSearch}
+            class={`${iconRow} ${idleRow}`}
+          >
+            <IconSearch size={17} strokeWidth={1.5} />
+          </button>
+        {/snippet}
+      </Tooltip>
+      <div data-rail-scroll class="scrollbar-hidden flex min-h-0 w-full flex-1 flex-col items-center gap-0.5 overflow-y-auto overscroll-contain">
+        {#each topGroups as group (group.id)}
+          <span aria-hidden="true" class="my-1.5 h-px w-6 shrink-0 bg-line"></span>
+          {#each group.items as item (item.id)}
+            {#if item.id === "admin"}
+              {@render collapsedAdmin(item)}
+            {:else}
+              {@render collapsedRow(item)}
+            {/if}
+          {/each}
+        {/each}
+        <div class="min-h-4 flex-1" aria-hidden="true"></div>
+        {#each bottomGroups as group, index (group.id)}
+          {#if index > 0}<span aria-hidden="true" class="my-1.5 h-px w-6 shrink-0 bg-line"></span>{/if}
+          {#each group.items as item (item.id)}
+            {@render collapsedRow(item)}
+          {/each}
+        {/each}
+      </div>
+      <span aria-hidden="true" class="mt-1.5 h-px w-10 shrink-0 bg-line-soft"></span>
+      <div class="flex flex-col items-center pb-2 pt-2.5">
+        {@render identity()}
+      </div>
+    </div>
+  {:else}
+    <div data-rail-drawer-header class="shrink-0 bg-workspace-shell">
+      <div class={`flex h-14 items-center gap-2 pl-3 ${variant === "drawer" ? "pr-14" : "pr-3"}`}>
         <a
-          href={resolve("/dashboard")}
-          aria-label={`${userName} dashboard`}
+          href={myWorkHref}
+          aria-label="Banhall home"
           onclick={onNavigate}
-          class="flex min-w-0 flex-1 items-center gap-2 rounded-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-fir"
+          class="flex min-w-0 items-center rounded-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-fir"
         >
-          <span class="flex h-7 w-7 shrink-0 items-center justify-center rounded-[5px] bg-fir text-[0.6875rem] font-semibold text-white" aria-hidden="true">{userInitials}</span>
-          <span class="min-w-0 flex-1">
-            <span class="block truncate text-sm font-medium leading-4 text-ink">{userName}</span>
-            <span class="block truncate text-[0.6875rem] leading-4 text-ink-muted">{userRole}</span>
-          </span>
+          <BanhallRailMark />
         </a>
+        <div class="flex-1"></div>
         {#if variant === "rail" && onToggleRail}
-          <Tooltip text="Collapse sidebar" side="bottom" delayDuration={300}>
+          <Tooltip text="Collapse the rail" hint={collapseHint} side="bottom" delayDuration={300}>
             {#snippet children({ props })}
               <button
                 {...props}
@@ -160,215 +457,45 @@
                 aria-label="Collapse navigation rail"
                 aria-expanded="true"
                 onclick={onToggleRail}
-                class="group flex h-6 w-6 shrink-0 items-center justify-center p-0 text-ink-muted transition-colors hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir"
+                class="group flex size-6 shrink-0 items-center justify-center rounded-[5px] p-0 text-ink-muted transition-colors hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir"
               >
-                <AnimatedSidebarToggleIcon direction="collapse" />
+                <AnimatedSidebarToggleIcon direction="collapse" size={16} />
               </button>
             {/snippet}
           </Tooltip>
         {/if}
       </div>
-
-      <div class={`flex items-center gap-2 pb-0 pl-3 pr-[13px] ${variant === "drawer" ? "mb-2 pt-1.5" : "mb-3 pt-2.5"}`}>
-        <button
-          type="button"
-          aria-label="Search projects"
-          onclick={onFocusSearch}
-          class={`${variant === "rail" ? "h-7" : "min-h-11"} workspace-rail-control flex min-w-0 flex-1 items-center gap-1.5 rounded-md bg-workspace-control pl-1.5 pr-1 text-sm font-medium text-ink transition-colors hover:bg-workspace-rail-hover focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir motion-reduce:transition-none`}
-        >
-          <MagnifyingGlassIcon size={16} weight="regular" aria-hidden="true" />
-          <span>Search</span>
-          <kbd class="ml-auto rounded-sm px-1.5 text-xs font-medium text-ink-faint">⌘K</kbd>
-        </button>
-        <Tooltip text="New project" side="bottom" delayDuration={300}>
-          {#snippet children({ props })}
-            <a
-              {...props}
-              href={resolve("/project/new")}
-              aria-label="New project"
-              onclick={onNavigate}
-              class={`${variant === "rail" ? "h-7 w-7" : "h-11 w-11"} flex shrink-0 items-center justify-center rounded-md bg-action-primary text-action-primary-foreground transition-colors hover:bg-action-primary-hover focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir motion-reduce:transition-none`}
-            >
-              <PlusIcon size={16} weight="regular" aria-hidden="true" />
-            </a>
-          {/snippet}
-        </Tooltip>
-      </div>
     </div>
 
-    <div data-rail-scroll class="scrollbar-hidden flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain">
-      <div class="flex flex-col gap-px px-2">
-        <a
-          href={myWorkHref}
-          class={`${rowBase} ${displayedView === "my_work" ? selectedRow : idleRow}`}
-          aria-current={displayedView === "my_work" ? "page" : undefined}
-          aria-disabled={!myWorkAvailable}
-          onclick={(event) => {
-            if (!myWorkAvailable) {
-              event.preventDefault();
-              return;
-            }
-            onNavigate?.();
-          }}
-        >
-          <HouseIcon size={16} weight="regular" aria-hidden="true" />
-          <span class="min-w-0 translate-y-[0.5px] truncate">Home</span>
-        </a>
-
-        <a
-          href={projectsHref}
-          class={`${rowBase} ${displayedView === "all_projects" ? selectedRow : idleRow}`}
-          aria-current={displayedView === "all_projects" ? "page" : undefined}
-          onclick={onNavigate}
-        >
-          <FolderSimpleIcon size={16} weight="regular" aria-hidden="true" />
-          <span class="min-w-0 translate-y-[0.5px] truncate">Projects</span>
-        </a>
-      </div>
-
-      {#if userQ.data?.role === "admin" && (isDeveloper || isOwner)}
-        <div data-rail-admin class="mt-5 flex flex-col gap-[3px] px-2">
-          <button
-            type="button"
-            data-admin-group-toggle
-            aria-expanded={adminOpen}
-            aria-controls="workspace-admin-links"
-            onclick={() => (adminOpen = !adminOpen)}
-            class={`${rowBase} ${pathname.startsWith(resolve("/admin")) ? "text-ink" : idleRow}`}
-          >
-            <CaretDownIcon
-              size={12}
-              weight="bold"
-              aria-hidden="true"
-              class={`ml-0.5 shrink-0 text-ink-muted transition-transform duration-300 ${adminOpen ? "rotate-0" : "-rotate-90"}`}
-            />
-            <span class="text-xs font-medium leading-4 text-ink-muted">Admin</span>
-          </button>
-          {#if adminOpen}
-            <div id="workspace-admin-links" class="flex flex-col gap-1">
-              {#each ADMIN_LINKS as link (link.href)}
-                <a
-                  href={resolve(link.href)}
-                  onclick={onNavigate}
-                  class={`${rowBase} ${pathname.startsWith(resolve(link.href)) ? selectedRow : idleRow}`}
-                  aria-current={pathname.startsWith(resolve(link.href)) ? "page" : undefined}
-                >
-                  <span
-                    data-admin-icon-tone={link.icon}
-                    class={`flex h-4 w-4 shrink-0 items-center justify-center rounded-[3px] text-white ${link.tone}`}
-                  >
-                    {#if link.icon === "brain"}<BrainIcon size={12} weight="bold" aria-hidden="true" />
-                    {:else if link.icon === "ingestion"}<CloudArrowDownIcon size={12} weight="bold" aria-hidden="true" />
-                    {:else if link.icon === "tag"}<TagIcon size={12} weight="bold" aria-hidden="true" />
-                    {:else if link.icon === "reviews"}<ClipboardTextIcon size={12} weight="bold" aria-hidden="true" />
-                    {:else if link.icon === "users"}<UserGearIcon size={12} weight="bold" aria-hidden="true" />
-                    {:else if link.icon === "models"}<SlidersHorizontalIcon size={12} weight="bold" aria-hidden="true" />
-                    {:else}<ChartBarIcon size={12} weight="bold" aria-hidden="true" />{/if}
-                  </span>
-                  <span class="min-w-0 translate-y-[0.5px] truncate">{link.label}</span>
-                </a>
-              {/each}
-            </div>
-          {/if}
-        </div>
-      {/if}
-
-      <div class="min-h-4 flex-1" aria-hidden="true"></div>
-
-      <div data-rail-utilities class="mb-1 border-t border-workspace-rail-line px-2 pt-2">
-        <div class="flex flex-col gap-px">
-          {#if isDeveloper}
-            <a
-              href={resolve("/alerts")}
-              onclick={onNavigate}
-              class={`${rowBase} ${pathname.startsWith(resolve("/alerts")) ? selectedRow : idleRow}`}
-              aria-current={pathname.startsWith(resolve("/alerts")) ? "page" : undefined}
-            >
-              <BellIcon size={16} weight="regular" aria-hidden="true" />
-              <span class="min-w-0 translate-y-[0.5px] truncate">Alerts</span>
-              {#if openAlerts > 0}
-                <span class="ml-auto flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-red-500 px-1 text-[0.625rem] font-semibold leading-none text-white">{openAlerts > 99 ? "99+" : openAlerts}</span>
-              {/if}
-            </a>
-            <a
-              href={resolve("/requests")}
-              onclick={onNavigate}
-              class={`${rowBase} ${pathname.startsWith(resolve("/requests")) ? selectedRow : idleRow}`}
-              aria-current={pathname.startsWith(resolve("/requests")) ? "page" : undefined}
-            >
-              <LightbulbIcon size={16} weight="regular" aria-hidden="true" />
-              <span class="min-w-0 translate-y-[0.5px] truncate">Feature requests</span>
-            </a>
-          {/if}
-          <a
-            href={resolve("/changelog")}
-            onclick={onNavigate}
-            class={`${rowBase} ${pathname.startsWith(resolve("/changelog")) ? selectedRow : idleRow}`}
-            aria-current={pathname.startsWith(resolve("/changelog")) ? "page" : undefined}
-          >
-            <MegaphoneIcon size={16} weight="regular" aria-hidden="true" />
-            <span class="min-w-0 translate-y-[0.5px] truncate">What's new</span>
-            {#if unseenChangelog > 0}
-              <span class="ml-auto flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-primary px-1 text-[0.625rem] font-semibold leading-none text-white">{unseenChangelog > 99 ? "99+" : unseenChangelog}</span>
+    <div data-rail-scroll class="scrollbar-hidden flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain px-2">
+      {#snippet groupBlock(group: (typeof groups)[number], first: boolean)}
+        <div data-rail-group={group.id} class="flex flex-col">
+          <!-- A1 to A3: 11px group labels in muted ink, as the boards draw them. -->
+          <p data-rail-group-label class={`px-2 pb-1 text-[11px] leading-4 text-ink-muted ${first ? "pt-1.5" : "pt-4"}`}>{group.label}</p>
+          {#each group.items as item (item.id)}
+            {#if item.id === "admin"}
+              {@render adminGroup(item)}
+            {:else}
+              {@render expandedRow(item)}
             {/if}
-          </a>
-          <!-- Flag issue is for every user (2026-08-19): bug reports and
-               feature requests come from the whole team, not just devs. -->
-          <button
-            type="button"
-            data-rail-flag-issue
-            onclick={() => {
-              onNavigate?.();
-              window.dispatchEvent(new CustomEvent("banhall:flag-issue"));
-            }}
-            class={`${rowBase} ${idleRow}`}
-          >
-            <FlagIcon size={16} weight="regular" aria-hidden="true" />
-            <span class="min-w-0 translate-y-[0.5px] truncate">Flag issue</span>
-          </button>
-          {#if isDeveloper}
-            <button
-              type="button"
-              data-workspace-escape
-              onclick={() => {
-                onNavigate?.();
-                goto(currentDashboardHref);
-              }}
-              class={`${rowBase} ${idleRow}`}
-            >
-              <ArrowSquareOutIcon size={16} weight="regular" aria-hidden="true" />
-              <span class="min-w-0 translate-y-[0.5px] truncate">{currentExperienceLabel}</span>
-            </button>
-          {/if}
+          {/each}
         </div>
+      {/snippet}
+      {#each topGroups as group, index (group.id)}
+        {@render groupBlock(group, index === 0)}
+      {/each}
+      <div class="min-h-4 flex-1" aria-hidden="true"></div>
+      {#each bottomGroups as group (group.id)}
+        {@render groupBlock(group, false)}
+      {/each}
+    </div>
+
+    <div class="shrink-0 px-2">
+      <div class="border-t border-line-soft">
+        {@render identity()}
       </div>
     </div>
-  </div>
-
-  <div class="border-t border-workspace-rail-line px-2 pt-2">
-    <!-- One composite footer surface: Settings owns the active state while
-         sign-out remains an adjacent action inside the same visual group. -->
-    <div
-      data-rail-account-actions
-      class={`flex items-center rounded-md transition-colors duration-150 ease-out motion-reduce:transition-none ${pathname.startsWith(resolve("/settings")) ? "bg-workspace-rail-selected" : "hover:bg-workspace-rail-hover"}`}
-    >
-      <a
-        href={resolve("/settings")}
-        aria-current={pathname.startsWith(resolve("/settings")) ? "page" : undefined}
-        onclick={onNavigate}
-        class={`flex min-w-0 flex-1 items-center gap-2 rounded-l-md px-2 text-left text-sm font-medium text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir ${variant === "rail" ? "h-9" : "h-11"} ${pathname.startsWith(resolve("/settings")) ? "font-semibold" : ""}`}
-      >
-        <GearSixIcon size={16} weight="regular" aria-hidden="true" class="shrink-0" />
-        <span class="min-w-0 flex-1 truncate">Settings</span>
-      </a>
-      <UserMenu
-        tone="light"
-        menuTheme="light"
-        menuLayer={variant === "drawer" ? "drawer" : "app"}
-        triggerVariant="rail"
-      />
-    </div>
-  </div>
+  {/if}
 </nav>
 
 <style>
@@ -377,8 +504,8 @@
      devices retain the 44px targets supplied by the base drawer classes. */
   @media (pointer: fine) {
     :global([data-workspace-drawer] .workspace-rail-row) {
-      height: 1.75rem;
-      min-height: 1.75rem;
+      height: 2rem;
+      min-height: 2rem;
     }
   }
 </style>

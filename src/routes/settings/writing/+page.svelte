@@ -1,102 +1,90 @@
 <script lang="ts">
-  // /settings/writing: personal style instructions + house-style waivers.
-  import Checkbox from "$lib/components/ui/Checkbox.svelte";
+  // /settings/writing (round 2, I2): how many areas the writer's
+  // instructions cover, a Preview with and without them, the instructions,
+  // what they cover, and where the writer's preferences win over the house
+  // rules. Everything is staged and saved together from the save bar.
   import Spinner from "$lib/components/ui/Spinner.svelte";
-  import Button from "$lib/components/ui/Button.svelte";
+  import SettingsSaveBar from "$lib/components/settings/SettingsSaveBar.svelte";
+  import CoverageSummaryCard from "$lib/components/settings/writing/CoverageSummaryCard.svelte";
+  import StylePreviewCard from "$lib/components/settings/writing/StylePreviewCard.svelte";
+  import InstructionsCard from "$lib/components/settings/writing/InstructionsCard.svelte";
+  import CoverageList from "$lib/components/settings/writing/CoverageList.svelte";
+  import PreferenceWinsGrid from "$lib/components/settings/writing/PreferenceWinsGrid.svelte";
+  import InstructionsEditorDialog from "$lib/components/settings/writing/InstructionsEditorDialog.svelte";
   import { userErrorMessage } from "$lib/errors";
   import { useQuery, useMutation, useConvexClient } from "convex-svelte";
   import { useAuth } from "@mmailaender/convex-better-auth-svelte/svelte";
-  import { LockSimpleIcon, ArrowsOutSimpleIcon } from "phosphor-svelte";
-  import { Dialog } from "bits-ui";
   import { page } from "$app/state";
-  import { overlayFade, modalPop } from "$lib/motion";
+  import { untrack } from "svelte";
+  import { toast } from "svelte-sonner";
   import { settingsPrefillDecision } from "$lib/settingsPrefill";
+  import { previewMyStyleRef, type StylePreviewVariant } from "$lib/settings/stylePreviewApi";
   import type { FunctionReturnType } from "convex/server";
   import { api } from "../../../../convex/_generated/api";
   import type { Id } from "../../../../convex/_generated/dataModel";
   import { MAX_INSTRUCTIONS_CHARS } from "../../../../shared/writerProfileLimits";
   import {
     STYLE_OVERRIDE_KEYS,
-    STYLE_OVERRIDE_META,
     DEFAULT_HOUSE_RULE_MODES,
     normalizeStyleOverrides,
     styleOverridesEqual,
     type StyleOverrides,
   } from "../../../../shared/styleOverrides";
 
-  const PLACEHOLDER =
-    "e.g. Prefer short declarative sentences. Lead each iteration with the hypothesis tested. Avoid the passive voice in the work narrative.";
-
   const auth = useAuth();
+  const client = useConvexClient();
   const profileQ = useQuery(api.writerProfiles.getMyProfile, () =>
     auth.isAuthenticated ? {} : "skip"
   );
   const saveMyProfile = useMutation(api.writerProfiles.saveMyProfile);
 
-  // Writing preferences, same non-dirty re-seed: an admin editing this
-  // user's flavor from /admin/users shows up here live unless the user is
-  // mid-edit (their draft wins until save).
+  // The draft, re-seeded from the server while the writer has not edited it:
+  // an admin editing this profile from /admin/users shows up live unless the
+  // writer is mid-edit (their draft wins until save).
   let customInstructions = $state("");
   let overrides = $state<StyleOverrides>(normalizeStyleOverrides());
-  let prefSeed = $state<{
-    text: string;
-    overrides: StyleOverrides;
-  } | null>(null);
-  const overridesEqual = styleOverridesEqual;
-  // Dirty = the draft differs from the seeded server snapshot; Save stays
-  // disabled until something actually changed.
+  let enabled = $state(true);
+  let seed = $state<{ text: string; overrides: StyleOverrides; enabled: boolean } | null>(null);
   const dirty = $derived(
-    prefSeed !== null &&
-      (customInstructions !== prefSeed.text ||
-        !overridesEqual(overrides, prefSeed.overrides))
+    seed !== null &&
+      (customInstructions !== seed.text ||
+        enabled !== seed.enabled ||
+        !styleOverridesEqual(overrides, seed.overrides))
   );
   $effect(() => {
     if (profileQ.data === undefined) return;
     const serverText = profileQ.data?.customInstructions ?? "";
     const serverOverrides = normalizeStyleOverrides(profileQ.data?.styleOverrides);
+    // A writer with no profile yet starts On: saving preferences means use them.
+    const serverEnabled = profileQ.data?.enabled ?? true;
     const serverChanged =
-      prefSeed === null ||
-      serverText !== prefSeed.text ||
-      !overridesEqual(serverOverrides, prefSeed.overrides);
-    if (serverChanged && !dirty) {
+      seed === null ||
+      serverText !== seed.text ||
+      serverEnabled !== seed.enabled ||
+      !styleOverridesEqual(serverOverrides, seed.overrides);
+    if (serverChanged && !untrack(() => dirty)) {
       customInstructions = serverText;
       overrides = { ...serverOverrides };
-      prefSeed = { text: serverText, overrides: serverOverrides };
+      enabled = serverEnabled;
+      seed = { text: serverText, overrides: serverOverrides, enabled: serverEnabled };
     }
   });
 
-  // Expanded editor: the inline textarea stays short; the dialog edits the
-  // same bound value full-height.
   let editorOpen = $state(false);
-  // Autofocus lands the caret at the end and scrolls a long draft to the
-  // bottom; open at the top instead so the user reads from the start.
-  function focusAtStart(el: HTMLTextAreaElement) {
-    requestAnimationFrame(() => {
-      el.focus({ preventScroll: true });
-      el.setSelectionRange(0, 0);
-      el.scrollTop = 0;
-    });
-  }
-
   let saving = $state(false);
-  let saved = $state(false);
-  let error = $state("");
-  const preferencesTooLong = $derived(
-    customInstructions.length > MAX_INSTRUCTIONS_CHARS
-  );
+  const tooLong = $derived(customInstructions.length > MAX_INSTRUCTIONS_CHARS);
 
-  // PSOS-50: org-level governance of each house-style category. "enforced"
-  // and "off" lock the toggle's DISPLAYED state; the writer's own underlying
-  // choice in `overrides` is preserved and still what gets saved.
+  // PSOS-50: org governance of each category. "enforced" and "off" lock the
+  // switch; the writer's own saved choice stays underneath.
   const modesQ = useQuery(api.houseStyle.getModesForMe, () =>
     auth.isAuthenticated ? {} : "skip"
   );
   const modes = $derived(modesQ.data ?? DEFAULT_HOUSE_RULE_MODES);
 
   // Story 3 (CAP-8): ?fromGeneration=<id> accepts that generation's save
-  // offer as a prefill; nothing is saved until the writer saves. The
-  // decision lives in the pure settingsPrefillDecision; this effect only
-  // feeds it and applies its result, once per fromGeneration value.
+  // offer as a prefill; nothing is saved until the writer saves. The decision
+  // lives in the pure settingsPrefillDecision; this effect feeds it and
+  // applies its result, once per fromGeneration value.
   const fromGeneration = $derived(page.url.searchParams.get("fromGeneration"));
   const writerSettingsQ = useQuery(api.writerProfiles.getGenerationWriterSettings, () =>
     auth.isAuthenticated && fromGeneration
@@ -109,7 +97,7 @@
     const decision = settingsPrefillDecision({
       fromGeneration,
       prefilledFor,
-      seeded: prefSeed !== null,
+      seeded: seed !== null,
       modesLoaded: modesQ.data !== undefined,
       profileError: profileQ.error,
       modesError: modesQ.error,
@@ -128,276 +116,141 @@
     prefillNotice = decision.kind === "unchanged" ? "" : decision.notice;
   });
 
-  // "Analyze my instructions": classify the free-text preferences against
-  // the six categories, pre-tick the writer-choice waivers it addresses,
-  // and report what will/won't apply. Transient page state, not persisted.
-  type StyleAnalysis = FunctionReturnType<
-    typeof api.ai.styleAnalysis.analyzeMyInstructions
-  >;
-  const client = useConvexClient();
-  let analyzing = $state(false);
-  let analysis = $state<StyleAnalysis | null>(null);
-  let analysisError = $state("");
+  // "What they cover": the stored analysis of the saved text. Locked-rule
+  // conflicts come from the latest run on this page (not stored).
+  type StyleAnalysis = FunctionReturnType<typeof api.ai.styleAnalysis.analyzeMyInstructions>;
+  const coverage = $derived(profileQ.data?.coverage ?? null);
+  const covered = $derived(
+    coverage ? STYLE_OVERRIDE_KEYS.filter((key) => coverage.categories[key].addressed).length : 0
+  );
+  let checking = $state(false);
+  let checkError = $state("");
+  let conflicts = $state<StyleAnalysis["lockedConflicts"]>([]);
 
-  function truncateExcerpt(excerpt: string): string {
-    return excerpt.length > 140 ? `${excerpt.slice(0, 140).trimEnd()}…` : excerpt;
-  }
-
-  async function handleAnalyze() {
-    // Wait for the real governance modes: pre-ticking against the
-    // DEFAULT_HOUSE_RULE_MODES fallback could tick (and later persist) a
-    // waiver for a category the org has set to "enforced".
-    if (analyzing || !customInstructions.trim() || modesQ.data === undefined) return;
-    analysisError = "";
-    analyzing = true;
+  /**
+   * Analyse the SAVED text and store it as coverage. Pre-ticks the areas it
+   * covers, only where the org leaves the choice to the writer, and never
+   * un-ticks a manual choice. Waits for the real modes: pre-ticking against
+   * the defaults could tick a waiver for a category the org enforces.
+   */
+  async function checkCoverage(text: string) {
+    if (checking || modesQ.data === undefined) return;
+    checkError = "";
+    checking = true;
     try {
-      const result = await client.action(
-        api.ai.styleAnalysis.analyzeMyInstructions,
-        { text: customInstructions }
-      );
-      // Only turn waivers ON, and only where the writer still has the choice
-      // (never untick a manual selection, never touch governed categories).
+      const result = await client.action(api.ai.styleAnalysis.analyzeMyInstructions, {
+        text,
+        persist: true,
+      });
       for (const key of STYLE_OVERRIDE_KEYS) {
         if (result.categories[key].addressed && modes[key] === "writer_choice") {
           overrides[key] = true;
         }
       }
-      analysis = result;
+      conflicts = result.lockedConflicts;
     } catch (cause) {
-      analysisError = userErrorMessage(cause, "Could not analyze your instructions.");
+      checkError = userErrorMessage(cause, "Your instructions could not be checked. Try again.");
     } finally {
-      analyzing = false;
+      checking = false;
     }
   }
 
-  async function handleSave() {
-    if (saving || preferencesTooLong || !dirty) return;
-    error = "";
-    saved = false;
-    saving = true;
+  // Preview: fetched per variant and kept until the saved profile changes.
+  let variant = $state<StylePreviewVariant>("preferences");
+  type PreviewState =
+    | { kind: "loading" }
+    | { kind: "ready"; paragraphs: string[] }
+    | { kind: "limit"; message: string }
+    | { kind: "error" };
+  let previews = $state<Partial<Record<StylePreviewVariant, PreviewState>>>({});
+  let previewGeneration = 0;
+
+  async function loadPreview(which: StylePreviewVariant) {
+    const generation = previewGeneration;
+    previews[which] = { kind: "loading" };
     try {
-      // Saving here always turns the profile on: a writer saving preferences
-      // wants them used. Admins keep the per-user off switch on /admin/users.
-      await saveMyProfile({ customInstructions, enabled: true, styleOverrides: { ...overrides } });
-      prefSeed = { text: customInstructions, overrides: { ...overrides } };
-      saved = true;
-      setTimeout(() => (saved = false), 2500);
+      const result = await client.action(previewMyStyleRef, { variant: which });
+      if (generation !== previewGeneration) return;
+      previews[which] =
+        result.status === "ready"
+          ? { kind: "ready", paragraphs: result.paragraphs }
+          : { kind: "limit", message: result.message };
+    } catch {
+      if (generation === previewGeneration) previews[which] = { kind: "error" };
+    }
+  }
+
+  $effect(() => {
+    if (!auth.isAuthenticated || seed === null) return;
+    const which = variant;
+    if (untrack(() => previews[which]) === undefined) void loadPreview(which);
+  });
+  const preview = $derived<PreviewState>(previews[variant] ?? { kind: "loading" });
+
+  async function handleSave() {
+    if (saving || tooLong || !dirty || !seed) return;
+    saving = true;
+    const textChanged = customInstructions.trim() !== seed.text.trim();
+    try {
+      await saveMyProfile({ customInstructions, enabled, styleOverrides: { ...overrides } });
+      seed = { text: customInstructions.trim(), overrides: { ...overrides }, enabled };
+      customInstructions = customInstructions.trim();
+      toast.success("Writing preferences saved. New drafts use them.");
+      // The saved profile changed, so the samples are out of date.
+      previewGeneration += 1;
+      previews = {};
+      if (textChanged) void checkCoverage(customInstructions);
     } catch (cause) {
-      error = userErrorMessage(cause, "Could not save your writing preferences.");
+      toast.error(userErrorMessage(cause, "Could not save your writing preferences."));
     } finally {
       saving = false;
     }
   }
+
+  function discard() {
+    if (!seed) return;
+    customInstructions = seed.text;
+    overrides = { ...seed.overrides };
+    enabled = seed.enabled;
+  }
 </script>
 
-<svelte:head><title>Writing preferences · Settings</title></svelte:head>
+<svelte:head><title>Writing preferences - Settings</title></svelte:head>
 
 {#if profileQ.data === undefined}
   <div class="flex min-h-[40vh] items-center justify-center"><Spinner /></div>
 {:else}
-  <div class="divide-y divide-line-soft">
-  <section class="settings-row">
-    <div class="settings-row-heading">
-      <h2 class="text-title">Writing preferences</h2>
-      <p class="mt-1 text-sm text-ink-muted">
-        Describe how you like to write and every report you generate will
-        follow it. The CRA line length limits always apply. House style rules
-        and the default report skeleton (the content each line covers, in
-        order, in as many paragraphs as the material warrants) apply too,
-        unless you tick one below to let your instructions take over.
-        Mandated opening clauses are off unless your organization turns them
-        on. Check what applies reads your instructions and ticks the rules
-        they cover for you.
-      </p>
+  <div data-writing-preferences class="flex flex-col gap-6">
+    <CoverageSummaryCard {covered} bind:enabled onEdit={() => (editorOpen = true)} />
+
+    <div class="flex flex-col items-start gap-6 lg:flex-row">
+      <StylePreviewCard bind:variant {preview} onRetry={() => void loadPreview(variant)} />
+      <div data-writing-side class="flex w-full shrink-0 flex-col gap-3.5 lg:w-[380px]">
+        <InstructionsCard text={customInstructions} notice={prefillNotice} onEdit={() => (editorOpen = true)} />
+        <CoverageList
+          categories={coverage?.categories ?? null}
+          {modes}
+          {conflicts}
+          {checking}
+          canCheck={Boolean(seed?.text.trim()) && modesQ.data !== undefined}
+          error={checkError}
+          onCheck={() => void checkCoverage(seed?.text ?? "")}
+        />
+      </div>
     </div>
-    <div class="settings-row-form max-w-4xl!">
-      <div>
-        <div class="flex items-center justify-between gap-2">
-          <label for="style-instructions" class="text-label">Your style instructions</label>
-          <Button type="button" variant="ghost" size="xs" class="gap-1.5" onclick={() => (editorOpen = true)}>
-            <ArrowsOutSimpleIcon size={14} weight="bold" aria-hidden="true" />
-            Open editor
-          </Button>
-        </div>
-        <textarea
-          id="style-instructions"
-          rows={5}
-          bind:value={customInstructions}
-          placeholder={PLACEHOLDER}
-          class="field-control mt-2 block min-h-24 w-full resize-y rounded-lg px-3.5 py-2.5 text-sm leading-relaxed text-ink placeholder:text-ink-faint"
-        ></textarea>
-        <span
-          class={`mt-1 block text-right text-xs ${preferencesTooLong ? "text-red-600" : "text-ink-faint"}`}
-          aria-live={preferencesTooLong ? "polite" : "off"}
-        >
-          {customInstructions.length.toLocaleString()} / {MAX_INSTRUCTIONS_CHARS.toLocaleString()} characters
-        </span>
-        {#if prefillNotice}
-          <p role="status" class="mt-2 text-body text-ink-secondary">{prefillNotice}</p>
-        {/if}
-      </div>
 
-      <div class="mt-5">
-        <!-- Label left, Check action right on one row. -->
-        <div class="flex flex-wrap items-center justify-between gap-2">
-          <span class="text-label">Rules your instructions can replace</span>
-          <Button
-            type="button"
-            variant="secondary"
-            size="sm"
-            class="gap-1.5"
-            onclick={handleAnalyze}
-            disabled={analyzing || !customInstructions.trim() || modesQ.data === undefined}
-          >
-            {#if analyzing}
-              <Spinner size="sm" class="h-3.5 w-3.5" />
-            {/if}
-            {analyzing ? "Checking…" : "Check what applies"}
-          </Button>
-        </div>
-        <div class="mt-3 flex flex-col gap-3">
-          {#each STYLE_OVERRIDE_KEYS as key (key)}
-            {@const mode = modes[key]}
-            <div>
-              {#if mode === "writer_choice"}
-                <Checkbox
-                  bind:checked={overrides[key]}
-                  labelText={STYLE_OVERRIDE_META[key].label}
-                />
-                <p class="ml-[26px] mt-0.5 max-w-2xl text-xs text-ink-faint">
-                  {STYLE_OVERRIDE_META[key].description}
-                </p>
-              {:else}
-                <!-- Governed by the org: the checkbox shows the FORCED
-                     state and is not bound to `overrides`; the writer's
-                     own choice is preserved underneath and still saved. -->
-                <Checkbox checked={mode === "off"} disabled>
-                  {#snippet label()}
-                    <span class="inline-flex items-center gap-1.5 text-sm text-ink-muted">
-                      {STYLE_OVERRIDE_META[key].label}
-                      {#if mode === "enforced"}
-                        <LockSimpleIcon size={13} weight="bold" aria-hidden="true" class="text-ink-faint" />
-                      {/if}
-                    </span>
-                  {/snippet}
-                </Checkbox>
-                <p class="ml-[26px] mt-0.5 max-w-2xl text-xs text-ink-faint">
-                  {mode === "enforced"
-                    ? "Your organization always enforces this rule."
-                    : "Off for everyone in your organization; your own instructions govern this area."}
-                </p>
-              {/if}
-            </div>
-          {/each}
-        </div>
+    <PreferenceWinsGrid bind:overrides {modes} />
 
-        {#if analysis}
-          <div role="status" class="mt-4 rounded-lg border border-line-soft bg-canvas px-4 py-3">
-            <p class="text-xs font-semibold text-ink-secondary">
-              What your instructions cover
-            </p>
-            <ul class="mt-2 flex flex-col gap-1.5">
-              {#each STYLE_OVERRIDE_KEYS as key (key)}
-                {@const category = analysis.categories[key]}
-                {#if category.addressed && modes[key] === "enforced"}
-                  <li class="flex items-baseline gap-1.5 text-xs text-ink-muted">
-                    <LockSimpleIcon size={12} weight="bold" aria-hidden="true" class="flex-none translate-y-px" />
-                    <span>Covered, but your organization always enforces {STYLE_OVERRIDE_META[key].label}</span>
-                  </li>
-                {:else if category.addressed && (modes[key] === "off" || overrides[key])}
-                  <li class="flex items-baseline gap-1.5 text-xs text-ink">
-                    <span aria-hidden="true" class="flex-none font-semibold text-primary">✓</span>
-                    <span>Will apply: your instructions replace {STYLE_OVERRIDE_META[key].label}</span>
-                  </li>
-                {:else if category.addressed}
-                  <!-- Addressed, but the writer left this override unticked
-                       (the house rule still governs). Never report an
-                       addressed category as "Not addressed". -->
-                  <li class="flex items-baseline gap-1.5 text-xs text-ink-muted">
-                    <span aria-hidden="true" class="flex-none">–</span>
-                    <span>Covered, but {STYLE_OVERRIDE_META[key].label} is unticked, so the house rule still applies</span>
-                  </li>
-                {:else}
-                  <li class="flex items-baseline gap-1.5 text-xs text-ink-faint">
-                    <span aria-hidden="true" class="flex-none">–</span>
-                    <span>Not covered: {STYLE_OVERRIDE_META[key].label}</span>
-                  </li>
-                {/if}
-              {/each}
-            </ul>
-            {#if analysis.lockedConflicts.length}
-              <div class="mt-3 rounded-lg bg-amber-50 px-3 py-2">
-                <p class="flex items-baseline gap-1.5 text-xs font-semibold text-amber-800">
-                  <LockSimpleIcon size={12} weight="bold" aria-hidden="true" class="flex-none translate-y-px" />
-                  These parts conflict with CRA-locked rules and will be ignored:
-                </p>
-                <ul class="mt-1.5 flex flex-col gap-1">
-                  {#each analysis.lockedConflicts as conflict, index (index)}
-                    <li class="text-xs text-amber-800">
-                      “{truncateExcerpt(conflict.excerpt)}”
-                      <span class="text-amber-700"> ({conflict.rule})</span>
-                    </li>
-                  {/each}
-                </ul>
-              </div>
-            {/if}
-          </div>
-        {/if}
-        {#if analysisError}
-          <p role="alert" class="mt-3 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">
-            {analysisError}
-          </p>
-        {/if}
-      </div>
-
-      <div class="mt-4 flex items-center justify-end gap-3">
-        {#if saved}
-          <span role="status" class="text-xs text-primary">Preferences saved</span>
-        {/if}
-        <Button size="sm" onclick={handleSave} disabled={saving || preferencesTooLong || !dirty}>
-          {saving ? "Saving…" : "Save preferences"}
-        </Button>
-      </div>
-
-      {#if error}
-        <p role="alert" class="mt-4 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">
-          {error}
-        </p>
-      {/if}
-    </div>
-  </section>
+    <SettingsSaveBar
+      {dirty}
+      {saving}
+      disabled={tooLong}
+      idleText="No changes yet. Changes apply to new drafts only."
+      saveLabel="Save preferences"
+      onSave={handleSave}
+      onDiscard={discard}
+    />
   </div>
 {/if}
 
-<Dialog.Root bind:open={editorOpen}>
-  <Dialog.Portal>
-    <Dialog.Overlay forceMount>{#snippet child({ props, open: isOpen })}{#if isOpen}<div {...props} transition:overlayFade class="fixed inset-0 z-[130] bg-[#052A28]/80"></div>{/if}{/snippet}</Dialog.Overlay>
-    <div class="pointer-events-none fixed inset-0 z-[130] flex items-end sm:items-center sm:justify-center sm:p-4">
-      <Dialog.Content forceMount>{#snippet child({ props, open: isOpen })}{#if isOpen}
-        <div {...props} transition:modalPop class="pointer-events-auto flex h-[90dvh] w-full flex-col rounded-t-2xl bg-white p-5 shadow-xl sm:h-[80dvh] sm:max-w-3xl sm:rounded-xl">
-          <Dialog.Title class="text-title">Your style instructions</Dialog.Title>
-          <Dialog.Description class="mt-1 text-sm text-ink-secondary">
-            This is the same draft as the settings page. Close the editor, then save your preferences.
-          </Dialog.Description>
-          <textarea
-            aria-label="Your style instructions"
-            use:focusAtStart
-            bind:value={customInstructions}
-            placeholder={PLACEHOLDER}
-            class="field-control mt-4 block min-h-0 w-full flex-1 resize-none rounded-lg px-3.5 py-2.5 text-sm leading-relaxed text-ink placeholder:text-ink-faint"
-          ></textarea>
-          <div class="mt-3 flex items-center justify-between gap-3">
-            <span class={`text-xs ${preferencesTooLong ? "text-red-600" : "text-ink-faint"}`}>
-              {customInstructions.length.toLocaleString()} / {MAX_INSTRUCTIONS_CHARS.toLocaleString()} characters
-            </span>
-            <Dialog.Close>
-              {#snippet child({ props })}
-                <Button {...props} size="sm" variant="secondary">Back to settings</Button>
-              {/snippet}
-            </Dialog.Close>
-          </div>
-        </div>
-      {/if}{/snippet}</Dialog.Content>
-    </div>
-  </Dialog.Portal>
-</Dialog.Root>
+<InstructionsEditorDialog bind:open={editorOpen} bind:value={customInstructions} />

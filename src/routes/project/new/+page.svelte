@@ -1,128 +1,188 @@
 <script lang="ts">
   import { isParseAbort } from "$lib/spreadsheetClient";
-  import { onDestroy } from "svelte";
-  import { goto } from "$app/navigation";
+  import { onDestroy, onMount } from "svelte";
+  import { afterNavigate, beforeNavigate, goto } from "$app/navigation";
+  import { resolve } from "$app/paths";
+  import { goToLogin } from "$lib/auth/goToLogin";
   import { toast } from "svelte-sonner";
-  import { useAction, useMutation, useQuery } from "convex-svelte";
+  import { useAction, useConvexClient, useMutation, useQuery } from "convex-svelte";
   import { useAuth } from "@mmailaender/convex-better-auth-svelte/svelte";
   import { api } from "../../../../convex/_generated/api";
   import type { Id } from "../../../../convex/_generated/dataModel";
+  import { DropdownMenu, Label } from "bits-ui";
   import Button from "$lib/components/ui/Button.svelte";
-  import Input from "$lib/components/ui/Input.svelte";
-  import FiscalYearEndInput from "$lib/components/project/FiscalYearEndInput.svelte";
   import Spinner from "$lib/components/ui/Spinner.svelte";
-  import {
-    parseFileToText,
-    isImageFile,
-    isSupportedFile,
-    SUPPORTED_ACCEPT,
-    SUPPORTED_LABEL,
-  } from "$lib/parseDocument";
+  import FileIcon from "$lib/components/ui/FileIcon.svelte";
+  import StatusCallout from "$lib/components/ui/StatusCallout.svelte";
+  import AuroraMark from "$lib/components/ui/AuroraMark.svelte";
+  import Tooltip from "$lib/components/ui/Tooltip.svelte";
+  import Checkbox from "$lib/components/ui/Checkbox.svelte";
+  import SelectInput from "$lib/components/ui/SelectInput.svelte";
+  import DatePicker from "$lib/components/ui/DatePicker.svelte";
+  import IndustrySelect from "$lib/components/ui/IndustrySelect.svelte";
+  import ScienceCodePicker from "$lib/components/project/details/ScienceCodePicker.svelte";
+  import { fiscalYearParts, formatEdited, scienceCodeDisplay } from "$lib/components/project/details/detailsFormat";
+  import { isSupportedFile, parseFileToText, SUPPORTED_ACCEPT, SUPPORTED_LABEL } from "$lib/parseDocument";
   import { CONTEXT_CATEGORIES, type ContextCategoryId } from "$lib/contextCategories";
-  import {
-    MAX_TOTAL_TRANSCRIPT_CHARS,
-    MAX_TRANSCRIPTS_PER_PROJECT,
-  } from "../../../../convex/lib/transcripts";
+  import { MAX_TOTAL_TRANSCRIPT_CHARS, MAX_TRANSCRIPTS_PER_PROJECT } from "../../../../convex/lib/transcripts";
   import { userErrorMessage } from "$lib/errors";
   import { uploadOriginal as uploadOriginalTransport } from "$lib/uploads/originalUpload";
   import { appendOutbox } from "$lib/uploads/attemptOutbox";
   import { shouldDropOutboxEntry, withUploadTimeout } from "$lib/uploads/outboxFlush";
-  import {
-    emptyStaged,
-    guessFileType,
-    type Staged,
-    type StagedCategory,
-    type PyRow,
-  } from "$lib/components/project-new/shared";
-  import CategoryRow from "$lib/components/project-new/CategoryRow.svelte";
-  import SelectInput from "$lib/components/ui/SelectInput.svelte";
-  import PreviousYearRow from "$lib/components/project-new/PreviousYearRow.svelte";
+  import { guessFileType } from "$lib/components/project-new/shared";
   import TagPicker from "$lib/components/project-new/TagPicker.svelte";
-  import IndustrySelect from "$lib/components/ui/IndustrySelect.svelte";
-  import { industryLabel } from "$lib/industries";
-  import { CRA_SCIENCE_CODE_ITEMS, scienceCodeLabel } from "../../../../shared/craScienceCodes";
+  import NewProjectSection from "$lib/components/project-new/NewProjectSection.svelte";
+  import ClientCombobox from "$lib/components/project-new/ClientCombobox.svelte";
+  import WriteModeCards from "$lib/components/project-new/WriteModeCards.svelte";
+  import StartChecklist from "$lib/components/project-new/StartChecklist.svelte";
+  import SupportingDocCard from "$lib/components/project-new/SupportingDocCard.svelte";
+  import SupportingDocPreview from "$lib/components/project-new/SupportingDocPreview.svelte";
+  import ReviewPdCard from "$lib/components/project-new/ReviewPdCard.svelte";
+  import {
+    SupportingDocs,
+    CATEGORY_LABELS,
+    CATEGORY_ORDER,
+    hasReadableText,
+    readingEtaSeconds,
+    supportingMeta,
+    countWords,
+    type SupportingCategory,
+    type SupportingDoc,
+  } from "$lib/components/project-new/supportingDocs.svelte";
+  import {
+    buildChecklist,
+    startBlocked,
+    startButtonLabel,
+    NO_SOURCE_MESSAGE,
+  } from "$lib/components/project-new/newProjectChecklist";
+  import StartRunDialog, {
+    type StartRunExcluded,
+    type StartRunSource,
+  } from "$lib/components/generation/StartRunDialog.svelte";
   import { parsePdFilename } from "../../../../shared/pdFilename";
-  import { SINGLE_MODEL_ITEMS, comparePairFromSlots, comparePairLabel, type CandidateModelId } from "../../../../shared/generationModels";
+  import { detectPdSections as detectSections } from "../../../../shared/pdSectionDetect";
+  import {
+    isTranscriptFileName,
+    TRANSCRIPT_ACCEPT,
+    TRANSCRIPT_FORMAT_LABELS,
+    type TranscriptSourceFormat,
+  } from "../../../../shared/transcriptParse";
+  import {
+    readPastedTranscript,
+    readTranscriptFile,
+    releaseOriginalsOnFailure,
+    TranscriptFileError,
+    uploadTranscriptOriginal,
+  } from "$lib/transcriptUpload";
+  import { comparePairFromSlots } from "../../../../shared/generationModels";
+  import { modelLabelFor, pickerModels, defaultModelIdFor } from "$lib/modelPicker";
   import ComparePairPicker from "$lib/components/generation/ComparePairPicker.svelte";
   import SingleModelPicker from "$lib/components/generation/SingleModelPicker.svelte";
-  import Tooltip from "$lib/components/ui/Tooltip.svelte";
+  import { SvelteMap, SvelteSet } from "svelte/reactivity";
+  import { dashboardFiscalYear } from "../../../../shared/dashboardProjection";
+  import {
+    isPreviousYearDocument,
+    PREVIOUS_YEAR_ONLY_MESSAGE,
+    PREVIOUS_YEAR_TRANSCRIPTS_ONLY_MESSAGE,
+    previousYearReportHeader,
+  } from "../../../../shared/previousYear";
+  import { WORKFLOW_STAGE_LABELS } from "../../../../shared/workflowLabels";
   import WorkspaceChrome from "$lib/components/workspace/WorkspaceChrome.svelte";
-  import { displayName } from "$lib/displayName";
+  import {
+    IconAlertCircle,
+    IconBook,
+    IconCalendar,
+    IconCheck,
+    IconChevronDown,
+    IconClose,
+    IconFolder,
+    IconPlus,
+    IconUpload,
+  } from "$lib/components/icons";
   import { takeProjectStart } from "$lib/workspace/projectIntentHandoff";
+  import { parseDraftModeParam } from "$lib/workspace/projectDuplicate";
   import { page } from "$app/state";
   import { createRequestId } from "$lib/requestId";
+  import { registerSaveHold, SAVE_HOLD_ESCAPE_MS } from "$lib/workspace/saveHold";
 
   const extractionLifetime = new AbortController();
   onDestroy(() => extractionLifetime.abort());
 
-  // Jul 17 meeting: transcript + context inputs merged onto one page so
-  // writers see every upload slot at once (no more drawings in the
-  // transcript field because the doc slots were hidden on a later step).
-  const STEPS = ["Details & files", "Review"];
-
   const auth = useAuth();
+  const client = useConvexClient();
   const createProject = useMutation(api.projects.createProject);
   const generateReport = useMutation(api.generations.requestGeneration);
   const startPdReview = useMutation(api.pdReviews.startPdReview);
   const uploadDocument = useMutation(api.documents.uploadDocument);
   const generateUploadUrl = useMutation(api.documents.generateUploadUrl);
+  const discardTranscriptOriginals = useMutation(api.transcripts.discardTranscriptOriginals);
+  const claimUpload = useMutation(api.documents.claimUpload);
   const recordUploadAttempts = useMutation(api.uploadAttempts.recordUploadAttempts);
-  const user = useQuery(api.users.getCurrentUser, () =>
-    auth.isAuthenticated ? {} : "skip"
-  );
+  const user = useQuery(api.users.getCurrentUser, () => (auth.isAuthenticated ? {} : "skip"));
   // BNH-22: team roster for the interviewer picker.
-  const teamQ = useQuery(api.users.listTeam, () =>
-    auth.isAuthenticated ? {} : "skip"
-  );
+  const teamQ = useQuery(api.users.listTeam, () => (auth.isAuthenticated ? {} : "skip"));
   const interviewerOptions = $derived([
     { value: "", label: "Not set" },
     ...(teamQ.data ?? []).map((member) => ({
       value: member.id,
-      label:
-        member.email && member.email !== member.name
-          ? `${member.name} (${member.email})`
-          : member.name,
+      label: member.email && member.email !== member.name ? `${member.name} (${member.email})` : member.name,
     })),
   ]);
   // BNH-35: available tags for the tag selector.
-  const tagsQ = useQuery(api.tags.listTags, () =>
-    auth.isAuthenticated ? {} : "skip"
-  );
+  const tagsQ = useQuery(api.tags.listTags, () => (auth.isAuthenticated ? {} : "skip"));
   const allTags = $derived(tagsQ.data ?? []);
+  // Client suggestions: the recorded client names (first page, D1 read).
+  const companiesQ = useQuery(api.dashboard.listCompanies, () =>
+    auth.isAuthenticated ? { paginationOpts: { numItems: 40, cursor: null } } : "skip"
+  );
+  const clientSuggestions = $derived(
+    ((companiesQ.data as { page?: Array<{ clientName: string }> } | undefined)?.page ?? []).map(
+      (row) => row.clientName
+    )
+  );
 
-  // The authenticated creator is always the initial Owner.
-  const writerName = $derived(user.data ? displayName(user.data, "Unknown team member") : "");
-
-  let step = $state(0);
-  // BNH-39: generate a new PD from a transcript, or review an existing written PD.
+  // BNH-39: write a new PD from a transcript, or review an existing written PD.
   let mode = $state<"generate" | "review">("generate");
-  let candidateMode = $state<"compare" | "single" | "iterative">("compare");
-  let singleModelId = $state<CandidateModelId | "">("");
-  // Compare mode runs exactly 2 models — two slots, each a model or Random.
+  // Round 2 (E1): Step by step is the default; a card duplicate's drafts= still decides.
+  let candidateMode = $state<"compare" | "single" | "iterative">("iterative");
+  let singleModelId = $state<string>("");
+  // Model catalog: the selectable models, the writing role's default and the
+  // planning and pd_review models the start dialog names (decision 52).
+  const modelCapabilitiesQ = useQuery(api.providerReadiness.getCapabilities, () => ({}));
+  // Compare mode runs exactly 2 models: two slots, each a model or Random.
   let compareSlotA = $state("");
   let compareSlotB = $state("");
   // BNH-10: routes Brain retrieval. Only admins can extend the vocabulary.
   let industry = $state("");
   let scienceCode = $state("");
+  let scienceOpen = $state(false);
   let title = $state("");
   let sredTitle = $state(""); // BNH-23: formal SR&ED title
   let clientName = $state("");
   // Flag 2026-08-14 (Michael): settable at creation, not only post-generation.
   let projectNumber = $state("");
   const projectNumberValid = $derived(
-    !projectNumber.trim() ||
-      /^(?:[1-9][0-9]?[A-Za-z]?|[A-Za-z])$/.test(projectNumber.trim())
+    !projectNumber.trim() || /^(?:[1-9][0-9]?[A-Za-z]?|[A-Za-z])$/.test(projectNumber.trim())
   );
   let interviewerUserId = $state("");
-  const interviewerName = $derived(
-    (teamQ.data ?? []).find((member) => member.id === interviewerUserId)?.name ?? ""
-  );
   // BNH-22: client-side interview participants (multi-entry).
   let interviewees = $state<string[]>([]);
   let intervieweeDraft = $state("");
   // BNH-35: selected tag ids.
   let selectedTagIds = $state<string[]>([]);
   let fiscalYearEnd = $state(""); // yyyy-mm-dd (BNH-36)
+  const FISCAL_QUICK_PICKS = [
+    { label: "Mar 31", month: 3, day: 31 },
+    { label: "Jun 30", month: 6, day: 30 },
+    { label: "Sep 30", month: 9, day: 30 },
+    { label: "Dec 31", month: 12, day: 31 },
+  ] as const;
+  const fiscalDisplay = $derived(
+    /^\d{4}-\d{2}-\d{2}$/.test(fiscalYearEnd)
+      ? fiscalYearParts(new Date(`${fiscalYearEnd}T00:00:00`).getTime())
+      : null
+  );
+  const scienceDisplay = $derived(scienceCodeDisplay(scienceCode || null));
 
   function addInterviewee() {
     const name = intervieweeDraft.trim();
@@ -135,6 +195,7 @@
   function removeInterviewee(idx: number) {
     interviewees = interviewees.filter((_, i) => i !== idx);
   }
+
   // A project carries an ordered list of transcripts. An item is either text
   // this browser holds (an extracted .docx, or a paste) or a reference to a
   // row on the source project, copied server-side by the duplicate flow.
@@ -143,25 +204,26 @@
     label: string;
     wordCount: number;
     charCount: number;
+    // 2026-09-24: the detected format, and the file its text came from (its
+    // original bytes are uploaded with the project).
+    format?: TranscriptSourceFormat;
+    file?: File;
     source:
       | { kind: "upload" | "paste"; content: string }
-      | { kind: "copy"; fromTranscriptId: Id<"transcripts"> };
+      // A copied row stays in the list when unticked (owner decision 35,
+      // 2026-09-25), so the writer can tick it again.
+      | { kind: "copy"; fromTranscriptId: Id<"transcripts">; included: boolean };
   };
   let transcriptItems = $state<TranscriptItem[]>([]);
   let pasteDraft = $state("");
+  let pasteOpen = $state(false);
   let transcriptItemSeq = 0;
-  // BNH-31: one input method shown at a time — upload or paste — so the page
-  // stays short. Both append to the same list.
-  let transcriptTab = $state<"upload" | "paste">("upload");
-
-  function countWords(text: string) {
-    return text.trim().split(/\s+/).filter(Boolean).length;
-  }
 
   function addTextTranscript(
     kind: "upload" | "paste",
     label: string,
-    content: string
+    content: string,
+    extra: { format?: TranscriptSourceFormat; file?: File } = {}
   ) {
     transcriptItems = [
       ...transcriptItems,
@@ -170,6 +232,7 @@
         label,
         wordCount: countWords(content),
         charCount: content.length,
+        ...extra,
         source: { kind, content },
       },
     ];
@@ -178,19 +241,42 @@
   function addPastedTranscript() {
     const text = pasteDraft.trim();
     if (!text) return;
-    const pastedCount =
-      transcriptItems.filter((item) => item.source.kind === "paste").length + 1;
-    addTextTranscript("paste", `Pasted transcript ${pastedCount}`, text);
+    const pastedCount = transcriptItems.filter((item) => item.source.kind === "paste").length + 1;
+    const pasted = readPastedTranscript(text);
+    addTextTranscript("paste", `Pasted transcript ${pastedCount}`, pasted.content, { format: pasted.format });
     pasteDraft = "";
+    pasteOpen = false;
   }
 
   function removeTranscriptItem(id: string) {
     transcriptItems = transcriptItems.filter((item) => item.id !== id);
   }
 
-  // Duplicate flow: /project/new?from=<projectId> prefills the wizard from an
+  function setTranscriptIncluded(id: string, included: boolean) {
+    transcriptItems = transcriptItems.map((item) =>
+      item.id === id && item.source.kind === "copy" ? { ...item, source: { ...item.source, included } } : item
+    );
+  }
+
+  const isTranscriptIncluded = (item: TranscriptItem) => item.source.kind !== "copy" || item.source.included;
+  // What createProject will receive: an unticked copy stays behind.
+  const includedTranscriptItems = $derived(transcriptItems.filter(isTranscriptIncluded));
+
+  // Duplicate flow: /project/new?from=<projectId> prefills the page from an
   // existing project (setup + transcript now; documents copied on commit).
   const fromProjectId = page.url.searchParams.get("from");
+
+  // Duplicate from a project card or row (2026-09-25): `drafts=<mode>`
+  // preselects that Drafts mode (only an exact Drafts mode id counts;
+  // anything else is ignored). A duplicate that carries it is a duplicate to
+  // draft again: the copy brings the inputs (transcripts, files and their
+  // originals, identity evidence) but not the old report, nor PD reviews
+  // unless this is a Review PD project, and then the selected generation or
+  // review starts exactly as for a new project. The plain `?from=` link (the
+  // old dashboard's Duplicate) stays a full clone that starts nothing.
+  const draftsParam = parseDraftModeParam(page.url.searchParams.get("drafts"));
+  const generateAfterDuplicate = Boolean(fromProjectId && draftsParam);
+  if (draftsParam && !fromProjectId) candidateMode = draftsParam;
 
   // Home's large start-project prompt is navigation/prefill, not generation:
   // it hands a short editable intent across one immediate client-side route
@@ -204,24 +290,19 @@
     if (!title && projectStartPrefill.title) title = projectStartPrefill.title;
     if (!transcriptItems.length && projectStartPrefill.transcriptText) {
       // A file handed over from Home is already an item; loose text stays in
-      // the paste box so the writer can still edit it before creating.
+      // the paste box so the writer can still edit it before starting.
       if (projectStartPrefill.transcriptFileName) {
-        addTextTranscript(
-          "upload",
-          projectStartPrefill.transcriptFileName,
-          projectStartPrefill.transcriptText
-        );
-        transcriptTab = "upload";
+        addTextTranscript("upload", projectStartPrefill.transcriptFileName, projectStartPrefill.transcriptText);
       } else {
         pasteDraft = projectStartPrefill.transcriptText;
-        transcriptTab = "paste";
+        pasteOpen = true;
       }
     }
   });
 
   // Client-scoped creation (2026-08-06 second amendment):
   // /project/new?client=<recorded name> prefills the free-text client name
-  // from a client lane/section header. Editable text only — never a durable
+  // from a client lane/section header. Editable text only, never a durable
   // Client reference; creation still always enters intake with the creator
   // as Owner. The duplicate flow's richer prefill wins when both are set.
   const clientPrefill = page.url.searchParams.get("client")?.trim() ?? "";
@@ -234,32 +315,152 @@
 
   // Fiscal-year prefill (client/fiscal group quick-create, 2026-08-11):
   // /project/new?fye=YYYY-MM-DD prefills the optional fiscal year-end
-  // alongside the client prefill. Strictly validated before applying —
-  // anything else is ignored. Same guard grammar as the client prefill:
-  // the duplicate flow's richer prefill wins, and a value the user already
-  // typed is never overwritten.
+  // alongside the client prefill. Strictly validated before applying;
+  // anything else is ignored. The duplicate flow's richer prefill wins, and
+  // a value the user already typed is never overwritten.
   const fyePrefill = page.url.searchParams.get("fye")?.trim() ?? "";
   let fyePrefillApplied = $state(false);
   $effect(() => {
     if (!fyePrefill || fromProjectId || fyePrefillApplied) return;
     fyePrefillApplied = true;
-    if (!fiscalYearEnd && /^\d{4}-\d{2}-\d{2}$/.test(fyePrefill)) {
-      fiscalYearEnd = fyePrefill;
-    }
+    if (!fiscalYearEnd && /^\d{4}-\d{2}-\d{2}$/.test(fyePrefill)) fiscalYearEnd = fyePrefill;
   });
   const sourceProjectQ = useQuery(api.projects.getProject, () =>
-    auth.isAuthenticated && fromProjectId
-      ? { projectId: fromProjectId as Id<"projects"> }
-      : "skip"
+    auth.isAuthenticated && fromProjectId ? { projectId: fromProjectId as Id<"projects"> } : "skip"
   );
   // Metadata only: a duplicate never downloads transcript text to re-upload
   // it, the server copies the rows by reference.
   const sourceTranscriptsQ = useQuery(api.transcripts.listTranscripts, () =>
-    auth.isAuthenticated && fromProjectId
+    auth.isAuthenticated && fromProjectId ? { projectId: fromProjectId as Id<"projects"> } : "skip"
+  );
+  // What the copy will bring along besides the transcripts: the source's
+  // files, listed so the writer sees them before creating. The copy itself
+  // still happens on commit (projectDuplication.copyProjectContent).
+  const sourceDocumentsQ = useQuery(api.documents.listDocuments, () =>
+    auth.isAuthenticated && fromProjectId ? { projectId: fromProjectId as Id<"projects"> } : "skip"
+  );
+  // A duplicate to draft again leaves PD reviews and the written PDs they
+  // reviewed behind unless it is a Review PD project.
+  const copyReviews = $derived(!generateAfterDuplicate || mode === "review");
+  const copiedDocuments = $derived(
+    fromProjectId
+      ? (sourceDocumentsQ.data ?? []).filter((document) => copyReviews || document.source !== "review_pd")
+      : []
+  );
+  type CopiedDocument = (typeof copiedDocuments)[number];
+
+  // Fiscal years as the server reads them (dashboardFiscalYear on the stored
+  // time), so the page and copyProjectContent agree on "later".
+  const sourceFiscalYear = $derived(dashboardFiscalYear(sourceProjectQ.data?.fiscalYearEnd));
+  const fiscalYearEndMs = $derived(
+    /^\d{4}-\d{2}-\d{2}$/.test(fiscalYearEnd) ? new Date(`${fiscalYearEnd}T00:00:00`).getTime() : null
+  );
+  const newFiscalYear = $derived(fiscalYearEndMs === null ? null : dashboardFiscalYear(fiscalYearEndMs));
+  const fiscalYearMovedForward = $derived(
+    sourceFiscalYear !== null && newFiscalYear !== null && newFiscalYear > sourceFiscalYear
+  );
+
+  // Owner decision 35 (2026-09-25): every copied file has a tick box, ticked
+  // by default, and anything unticked stays behind. A PD ported in for the
+  // original's own year starts unticked on a same-year duplicate. Only the
+  // writer's own choices are stored, so that default follows the fiscal year.
+  const documentChoices = new SvelteMap<string, boolean>();
+  const isPortedSameYear = (document: CopiedDocument) =>
+    document.source === "ingestion_port" && !fiscalYearMovedForward;
+  const isDocumentIncluded = (document: CopiedDocument) =>
+    documentChoices.get(document._id) ?? !isPortedSameYear(document);
+  // A leave-out list rather than a copy list: while the list is still
+  // loading it is empty, and an empty list copies everything.
+  const excludedDocumentIds = $derived(
+    copiedDocuments.filter((document) => !isDocumentIncluded(document)).map((document) => document._id)
+  );
+
+  // Last year's report (owner decision 35): a card duplicate in Generate PD
+  // can bring the original's report in as a Previous-year report, but only
+  // once the fiscal year moves forward. The server applies the same rule.
+  const sourceReportQ = useQuery(api.projects.getDuplicateSourceReport, () =>
+    auth.isAuthenticated && fromProjectId && generateAfterDuplicate
       ? { projectId: fromProjectId as Id<"projects"> }
       : "skip"
   );
+  const offerPreviousYearReport = $derived(
+    generateAfterDuplicate && mode === "generate" && fiscalYearMovedForward && sourceReportQ.data?.hasText === true
+  );
+  let previousYearReportIncluded = $state(true);
+  const sendPreviousYearReport = $derived(offerPreviousYearReport && previousYearReportIncluded);
+
+  // Same grouping and order as the project's files; written PDs under
+  // review, then other files the source kept without a category (chat
+  // uploads), close the list.
+  const copiedDocumentGroups = $derived.by(() => {
+    const known = new Set<string>(CONTEXT_CATEGORIES.map((category) => category.id));
+    const groups = CONTEXT_CATEGORIES.map((category) => ({
+      id: category.id as string,
+      label: category.label,
+      files: copiedDocuments.filter((document) => document.category === category.id),
+    }));
+    groups.push({
+      id: "review_pd",
+      label: "Written PDs reviewed",
+      files: copiedDocuments.filter(
+        (document) => document.source === "review_pd" && (!document.category || !known.has(document.category))
+      ),
+    });
+    groups.push({
+      id: "uncategorized",
+      label: "Chat and other uploads",
+      files: copiedDocuments.filter(
+        (document) => document.source !== "review_pd" && (!document.category || !known.has(document.category))
+      ),
+    });
+    return groups.filter(
+      (group) => group.files.length > 0 || (group.id === "previous_pd" && offerPreviousYearReport)
+    );
+  });
+  const groupHasReport = (groupId: string) => groupId === "previous_pd" && offerPreviousYearReport;
+  function groupTicks(group: { id: string; files: CopiedDocument[] }) {
+    const ticks = group.files.map(isDocumentIncluded);
+    if (groupHasReport(group.id)) ticks.push(previousYearReportIncluded);
+    return ticks;
+  }
+  function setGroupIncluded(group: { id: string; files: CopiedDocument[] }, included: boolean) {
+    for (const document of group.files) documentChoices.set(document._id, included);
+    if (groupHasReport(group.id)) previousYearReportIncluded = included;
+  }
+  const copiedTotalCount = $derived(copiedDocuments.length + (offerPreviousYearReport ? 1 : 0));
+  const copiedIncludedCount = $derived(
+    copiedDocuments.length - excludedDocumentIds.length + (sendPreviousYearReport ? 1 : 0)
+  );
+  const copiedCountLabel = $derived(
+    copiedIncludedCount === copiedTotalCount ? `${copiedTotalCount}` : `${copiedIncludedCount} of ${copiedTotalCount}`
+  );
+  const copiedFilesNote = $derived(
+    !generateAfterDuplicate
+      ? "Ticked files are copied when you create the project."
+      : mode === "generate"
+        ? `Ticked files are copied into the new project and read for the draft. ${
+            offerPreviousYearReport
+              ? "The old report can come along as last year's report."
+              : "The old report stays with the original."
+          }`
+        : "Ticked files are copied into the new project as context for the review. The old report stays with the original."
+  );
+  const anythingUnticked = $derived(
+    excludedDocumentIds.length > 0 ||
+      transcriptItems.some((item) => !isTranscriptIncluded(item)) ||
+      (offerPreviousYearReport && !previousYearReportIncluded)
+  );
+  const copySourceTitle = $derived(sourceProjectQ.data?.title ?? "the original project");
+  // Review D-6: a tick row is a 44px touch target on touch screens, and a
+  // tap anywhere on it (the name included) toggles its box. The label's
+  // ::after covers the row; the box sits above it and stays clickable.
+  const TICK_ROW = "relative flex min-w-0 items-center gap-2 pointer-coarse:min-h-11";
+  const STRETCHED_LABEL = "after:absolute after:inset-0";
   const copyProjectContent = useAction(api.projectDuplication.copyProjectContent);
+  // Owner decision 35 (2026-09-25): a copy of a Review PD project stays a
+  // Review PD project, so Write a new PD, and with it Step by step, is not
+  // offered.
+  const modeLocked = $derived(Boolean(fromProjectId) && sourceProjectQ.data?.mode === "review");
 
   let prefilled = $state(false);
   $effect(() => {
@@ -272,12 +473,13 @@
     industry = source.industry ?? "";
     scienceCode = source.scienceCode ?? "";
     mode = source.mode ?? "generate";
+    // Drafts modes belong to Write a new PD. A review project stays a review
+    // project; its Drafts choice only shows if the writer switches mode.
+    if (draftsParam) candidateMode = draftsParam;
     interviewerUserId = source.interviewerUserId ?? "";
     interviewees = source.interviewees ?? [];
     selectedTagIds = (source.tagIds ?? []) as string[];
-    if (source.fiscalYearEnd) {
-      fiscalYearEnd = new Date(source.fiscalYearEnd).toISOString().slice(0, 10);
-    }
+    if (source.fiscalYearEnd) fiscalYearEnd = new Date(source.fiscalYearEnd).toISOString().slice(0, 10);
   });
   let transcriptsPrefilled = $state(false);
   $effect(() => {
@@ -292,59 +494,111 @@
       label: row.label,
       wordCount: row.wordCount,
       charCount: row.charCount,
-      source: { kind: "copy" as const, fromTranscriptId: row._id },
+      ...(row.sourceFormat ? { format: row.sourceFormat } : {}),
+      source: { kind: "copy" as const, fromTranscriptId: row._id, included: true },
     }));
   });
-  let staged = $state<Staged>(emptyStaged());
 
-  // BNH-31: drag-and-drop a transcript file on the Details step.
+  // Supporting documents are read as soon as they are added (E1).
+  const baseYear = new Date().getFullYear() - 1;
+  const docs = new SupportingDocs({
+    lifetime: extractionLifetime.signal,
+    defaultYear: () => (newFiscalYear !== null ? newFiscalYear - 1 : baseYear),
+  });
+  // One optional note per previous-year fiscal year (BNH-9 / BNH-26): it is
+  // stored with that year's reports, or on its own when none held text.
+  const yearNotes = new SvelteMap<number, string>();
+  const previousYears = $derived(
+    [...new Set(docs.items.filter((doc) => doc.category === "previous_pd").map((doc) => doc.year))].sort(
+      (a, b) => b - a
+    )
+  );
+  const yearChoices = $derived.by(() => {
+    const top = (newFiscalYear ?? new Date().getFullYear()) - 1;
+    return Array.from({ length: 8 }, (_, index) => top - index);
+  });
+  const docCategories = $derived<SupportingCategory[]>(
+    mode === "review" ? ["transcript", ...CATEGORY_ORDER] : [...CATEGORY_ORDER]
+  );
+  // In Review a written PD, transcripts come in through Supporting documents
+  // with the Transcript chip; they are stored as transcripts.
+  const supportingTranscripts = $derived(
+    mode === "review" ? docs.items.filter((doc) => doc.category === "transcript") : []
+  );
+  const supportingFiles = $derived(docs.items.filter((doc) => doc.category !== "transcript" || mode !== "review"));
+  // Transcript chips belong to Review a written PD; back in Write a new PD a
+  // file keeps its place as an ordinary supporting document.
+  $effect(() => {
+    if (mode !== "generate") return;
+    for (const doc of docs.items) if (doc.category === "transcript") docs.setCategory(doc.id, "other");
+  });
+
+  // E5: a file that is not a transcript replaces the drop zone with a red box;
+  // one that holds no text shows as its own red row with Replace file.
   let transcriptInput: HTMLInputElement | null = $state(null);
   let transcriptDragOver = $state(false);
   let parsingTranscript = $state<string | null>(null);
-  let transcriptFileError = $state("");
+  let wrongTranscriptFile = $state<{ name: string; video: boolean } | null>(null);
+  type TranscriptProblem = { id: string; name: string; text: string };
+  let transcriptProblems = $state<TranscriptProblem[]>([]);
+  let problemSeq = 0;
+  let replacingProblemId: string | null = null;
+  const VIDEO_OR_AUDIO = /\.(mp4|mov|m4v|avi|mkv|webm|wmv|mp3|m4a|wav|aac|ogg|flac)$/i;
 
-  // Jul 17 meeting: transcripts are Teams exports — .docx only. Anything else
-  // belongs in the supporting-document slots below; the copy-paste tab stays
-  // as the fallback for the rare non-Teams interview (Google Meet etc.).
-  // Each imported file becomes a row in the list; the extracted text is kept
-  // behind the scenes instead of being dumped into a textarea.
+  // Transcripts arrive as Teams or Otter .docx, WebVTT, SubRip or text
+  // exports (2026-09-24, the transcript method). Anything else belongs in
+  // Supporting documents; the paste flow stays as the fallback. Each imported
+  // file becomes a row with its detected format; the text stays behind the
+  // scenes.
   async function handleTranscriptFiles(files: File[]) {
-    const accepted = files.filter((file) =>
-      file.name.toLowerCase().endsWith(".docx")
-    );
-    transcriptFileError =
-      accepted.length === files.length
-        ? ""
-        : `Transcripts must be Word (.docx) files — Teams exports are. Put other documents in the context slots below, or paste the transcript text instead.`;
+    const wrong = files.find((file) => !isTranscriptFileName(file.name));
+    wrongTranscriptFile = wrong ? { name: wrong.name, video: VIDEO_OR_AUDIO.test(wrong.name) } : null;
+    const accepted = files.filter((file) => isTranscriptFileName(file.name));
     for (const file of accepted) {
       parsingTranscript = file.name;
       try {
-        const parsed = await parseFileToText(file, { signal: extractionLifetime.signal });
-        const text = parsed.content.trim();
-        if (!text) {
-          transcriptFileError = `Couldn't extract any text from ${file.name}.`;
-        } else {
-          addTextTranscript("upload", file.name, text);
-          toast.success(`Imported ${file.name}`);
+        const read = await readTranscriptFile(file);
+        addTextTranscript("upload", read.label, read.content, { format: read.format, file });
+        if (replacingProblemId) {
+          transcriptProblems = transcriptProblems.filter((problem) => problem.id !== replacingProblemId);
         }
-      } catch {
-        transcriptFileError = `Couldn't read ${file.name}. Try another file.`;
+      } catch (error) {
+        const text =
+          error instanceof TranscriptFileError
+            ? error.problem === "empty"
+              ? "We could not find any text in this file."
+              : error.message
+            : `Couldn't read ${file.name}. Try another file.`;
+        if (replacingProblemId) {
+          transcriptProblems = transcriptProblems.map((problem) =>
+            problem.id === replacingProblemId ? { ...problem, name: file.name, text } : problem
+          );
+        } else {
+          transcriptProblems = [...transcriptProblems, { id: `p-${problemSeq++}`, name: file.name, text }];
+        }
       } finally {
         parsingTranscript = null;
       }
     }
+    replacingProblemId = null;
   }
 
-  // BNH-39 review mode: the existing written PD to review (required).
+  function replaceProblem(id: string) {
+    replacingProblemId = id;
+    transcriptInput?.click();
+  }
+
+  // BNH-39 review mode: the existing written PD to review (required), read at once.
   let pdInput: HTMLInputElement | null = $state(null);
   let pdDragOver = $state(false);
   let parsingPd = $state<string | null>(null);
   let pdFileError = $state("");
-  let pdDoc = $state<{ name: string; content: string; file: File } | null>(null);
+  let pdDoc = $state<{ name: string; content: string; file: File; pageOffsets?: number[] } | null>(null);
+  let pdTitleFromName = $state(false);
 
   async function handlePdFile(file: File) {
     if (!isSupportedFile(file.name)) {
-      pdFileError = `Can't read ${file.name} — unsupported type. Supported: ${SUPPORTED_LABEL}.`;
+      pdFileError = `We cannot read ${file.name}. Use ${SUPPORTED_LABEL}.`;
       return;
     }
     pdFileError = "";
@@ -353,13 +607,13 @@
       const parsed = await parseFileToText(file, { signal: extractionLifetime.signal });
       const text = parsed.content.trim();
       if (!text) {
-        pdFileError = `Couldn't extract any text from ${file.name}.`;
+        pdFileError = `We could not find any text in ${file.name}.`;
       } else {
-        pdDoc = { name: file.name, content: text, file };
+        pdDoc = { name: file.name, content: text, file, pageOffsets: parsed.pageOffsets };
         if (mode === "review") prefillFromPdFileName(file.name);
       }
-    } catch {
-      pdFileError = `Couldn't read ${file.name}. Try another file.`;
+    } catch (error) {
+      if (!isParseAbort(error)) pdFileError = `We could not read ${file.name}. Try another file.`;
     } finally {
       parsingPd = null;
     }
@@ -368,13 +622,13 @@
   // PD file-name prefill (writer request 2026-09-09): the firm names PDs
   // "03 3GAMarine 2025-12-31 R1.LR.mo ProjectTitle.docx", so a dropped PD
   // already carries the project number, client, fiscal year-end and title.
-  // Same guard grammar as the other prefills: only a field the writer has
-  // left empty is filled, never one they typed. The initials are shown in
-  // the hint only — the domain contract forbids inferring the Owner or a
-  // writer from metadata, so they never set a person field.
+  // Only a field the writer has left empty is filled, never one they typed.
+  // The initials are shown in the hint only: the domain contract forbids
+  // inferring the Owner or a writer from metadata.
   let pdNameHint = $state("");
   function prefillFromPdFileName(fileName: string) {
     pdNameHint = "";
+    pdTitleFromName = false;
     const parsed = parsePdFilename(fileName);
     if (!parsed) return;
     const filled: string[] = [];
@@ -392,136 +646,340 @@
     }
     if (parsed.title && (!sredTitle.trim() || !title.trim())) {
       if (!sredTitle.trim()) sredTitle = parsed.title;
-      if (!title.trim()) title = parsed.title;
+      if (!title.trim()) {
+        title = parsed.title;
+        pdTitleFromName = true;
+      }
       filled.push("title");
     }
     if (!filled.length) return;
     if (parsed.revision) filled.push(`R${parsed.revision}`);
     if (parsed.writerInitials) filled.push(`writer ${parsed.writerInitials}`);
     if (parsed.reviewerInitials) filled.push(`reviewer ${parsed.reviewerInitials}`);
-    pdNameHint = `Filled from the file name: ${filled.join(" · ")}`;
+    pdNameHint = `Filled from the file name: ${filled.join(", ")}`;
   }
 
-  // Previous-year reports get a structured year-by-year UI (BNH-9 / BNH-26).
-  // Multiple files + an optional note per year; the year label is editable, so
-  // each row carries a stable id (year alone isn't safe identity once editable).
-  const baseYear = new Date().getFullYear() - 1;
-  let pyId = 1;
-  let pyRows = $state<PyRow[]>([{ id: "py-0", year: baseYear, note: "", files: [] }]);
   let committing = $state(false);
+  // When the current save began, for the way out of a stalled one.
+  let commitStartedAt = 0;
   let progress = $state("");
+  // Set when the page itself navigates away (to the new project or to sign
+  // in), so the guard below lets that navigation through.
+  let leaving = false;
 
-  $effect(() => {
-    if (!auth.isLoading && !auth.isAuthenticated) goto("/login", { replaceState: true });
+  // Review D-3: leaving while the project saves would destroy the page
+  // mid-save (a new query remounts it) and strand a half-made project. Hold
+  // every other navigation until the save opens the project. The root
+  // layout's deploy-update reload asks the same hold.
+  onMount(() => registerSaveHold(() => committing && !leaving));
+  beforeNavigate((navigation) => {
+    if (!committing || leaving) return;
+    navigation.cancel();
+    // Closing the tab or reloading: the browser asks the writer to confirm.
+    if (navigation.type === "leave") return;
+    const target = navigation.to?.url;
+    if (target && Date.now() - commitStartedAt >= SAVE_HOLD_ESCAPE_MS) {
+      // A save this slow may have stalled (offline, for example), so the
+      // writer can go. Leaving for another page destroys the page, which
+      // stops the save before it starts a draft or a PD review.
+      toast.warning(
+        "Saving is taking longer than usual. If you leave now, the project may be only partly saved and its draft may not start.",
+        {
+          duration: 10_000,
+          action: {
+            label: "Leave anyway",
+            onClick: () => leaveTo(`${target.pathname}${target.search}${target.hash}`),
+          },
+        }
+      );
+      return;
+    }
+    toast.info("Your project is still being saved. It opens when it is ready.");
   });
 
+  function leaveTo(path: string) {
+    leaving = true;
+    goto(path);
+  }
+
+  $effect(() => {
+    if (!auth.isLoading && !auth.isAuthenticated) {
+      leaving = true;
+      goToLogin();
+    }
+  });
+
+  // Cancel leaves for the page the writer came from, else My work. While a
+  // save holds navigation, the hold rules above apply.
+  let cameFrom: string | null = null;
+  afterNavigate(({ from }) => {
+    if (from?.url && from.url.pathname !== page.url.pathname) cameFrom = `${from.url.pathname}${from.url.search}`;
+  });
+  function cancel() {
+    goto(cameFrom ?? "/my-work");
+  }
+
   const draftWordCount = $derived(countWords(pasteDraft));
-  const wordCount = $derived(
-    transcriptItems.reduce((total, item) => total + item.wordCount, 0) +
+  const transcriptWordCount = $derived(
+    includedTranscriptItems.reduce((total, item) => total + item.wordCount, 0) +
+      supportingTranscripts.reduce((total, doc) => total + doc.words, 0) +
       draftWordCount
   );
   const transcriptCharCount = $derived(
-    transcriptItems.reduce((total, item) => total + item.charCount, 0) +
+    includedTranscriptItems.reduce((total, item) => total + item.charCount, 0) +
+      supportingTranscripts.reduce((total, doc) => total + (doc.transcript?.content.length ?? 0), 0) +
       pasteDraft.trim().length
   );
   // Server caps, checked here so the writer hears about it before the upload
   // loop runs (convex/lib/transcripts.ts holds the one definition).
   const transcriptCountForSubmit = $derived(
-    transcriptItems.length + (pasteDraft.trim() ? 1 : 0)
+    includedTranscriptItems.length + supportingTranscripts.length + (pasteDraft.trim() ? 1 : 0)
   );
   const transcriptsOverCap = $derived(
-    transcriptCountForSubmit > MAX_TRANSCRIPTS_PER_PROJECT ||
-      transcriptCharCount > MAX_TOTAL_TRANSCRIPT_CHARS
+    transcriptCountForSubmit > MAX_TRANSCRIPTS_PER_PROJECT || transcriptCharCount > MAX_TOTAL_TRANSCRIPT_CHARS
   );
-  const pyFileCount = $derived(pyRows.reduce((n, r) => n + r.files.length, 0));
-  const pyNoteOnlyCount = $derived(
-    pyRows.filter((r) => r.files.length === 0 && r.note.trim()).length
-  );
-  const fileCount = $derived(
-    CONTEXT_CATEGORIES.reduce(
-      (n, c) =>
-        c.id === "previous_pd"
-          ? n
-          : n + staged[c.id].files.length + (staged[c.id].text.trim() ? 1 : 0),
-      0
-    ) +
-      pyFileCount +
-      pyNoteOnlyCount
+  const overCapMessage = $derived(
+    transcriptsOverCap
+      ? `A project takes at most ${MAX_TRANSCRIPTS_PER_PROJECT} transcripts and ${(MAX_TOTAL_TRANSCRIPT_CHARS / 1000).toLocaleString()}k characters of transcript text. Remove one to start.`
+      : null
   );
 
-  function addPyFiles(id: string, files: File[]) {
-    pyRows = pyRows.map((r) => (r.id === id ? { ...r, files: [...r.files, ...files] } : r));
-  }
-  function removePyFile(id: string, idx: number) {
-    pyRows = pyRows.map((r) =>
-      r.id === id ? { ...r, files: r.files.filter((_, i) => i !== idx) } : r
+  // The sources a draft would read, after the start dialog's leave-out lists
+  // (decision 56). The previous-year rule (decision 42) and the readable-
+  // source rule run on what remains; the server checks both again.
+  type Sources = { hasAny: boolean; hasCurrent: boolean; previousYearMessage: string | null };
+  function sourcesAfter(excluded: StartRunExcluded = { transcriptIds: [], documentIds: [] }): Sources {
+    const leftOut = new Set([...excluded.transcriptIds, ...excluded.documentIds]);
+    const transcripts = [
+      ...includedTranscriptItems.map((item) => ({ key: `t:${item.id}`, copy: item.source.kind === "copy" })),
+      ...supportingTranscripts.map((doc) => ({ key: `d:${doc.id}`, copy: false })),
+      ...(pasteDraft.trim() ? [{ key: "t:draft", copy: false }] : []),
+    ].filter((item) => !leftOut.has(item.key));
+    // Decision 42, lead note of 2026-09-25: once the fiscal year moves
+    // forward, the transcripts copied from the original are last year's too.
+    const lastYearTranscripts = fiscalYearMovedForward ? transcripts.filter((item) => item.copy).length : 0;
+    const ownFiles = supportingFiles.filter(
+      (doc) => doc.category !== "transcript" && !leftOut.has(`d:${doc.id}`) && hasReadableText(doc)
     );
+    const currentOwn = ownFiles.filter((doc) => doc.category !== "previous_pd").length;
+    const previousOwn = ownFiles.filter((doc) => doc.category === "previous_pd").length;
+    // Ticked copied text the AI can read counts as a source. Same test as the
+    // server's (non-archived, non-empty); the old report has text by definition.
+    const copiedReadable = copiedDocuments.filter(
+      (document) =>
+        isDocumentIncluded(document) &&
+        !document.archived &&
+        document.sizeChars > 0 &&
+        !leftOut.has(`c:${document._id}`)
+    );
+    const currentCopied = copiedReadable.filter((document) => !isPreviousYearDocument(document)).length;
+    const previousCopied =
+      copiedReadable.filter(isPreviousYearDocument).length + (sendPreviousYearReport ? 1 : 0);
+    const notes = previousYears.some((year) => (yearNotes.get(year) ?? "").trim()) ? 1 : 0;
+    const hasCurrent = transcripts.length > lastYearTranscripts || currentOwn > 0 || currentCopied > 0;
+    const hasAny = mode === "review" || transcripts.length > 0 || hasCurrent || previousOwn + notes + previousCopied > 0;
+    const onlyPrevious = mode === "generate" && hasAny && !hasCurrent;
+    return {
+      hasAny,
+      hasCurrent,
+      previousYearMessage: onlyPrevious
+        ? lastYearTranscripts > 0
+          ? PREVIOUS_YEAR_TRANSCRIPTS_ONLY_MESSAGE
+          : PREVIOUS_YEAR_ONLY_MESSAGE
+        : null,
+    };
   }
-  function updatePyYear(id: string, year: number) {
-    pyRows = pyRows.map((r) => (r.id === id ? { ...r, year } : r));
-  }
-  function updatePyNote(id: string, note: string) {
-    pyRows = pyRows.map((r) => (r.id === id ? { ...r, note } : r));
-  }
-  function removePyYear(id: string) {
-    if (pyRows.length > 1) pyRows = pyRows.filter((r) => r.id !== id);
-  }
-  function addPyYear() {
-    const minYear = Math.min(...pyRows.map((r) => r.year));
-    pyRows = [...pyRows, { id: `py-${pyId++}`, year: minYear - 1, note: "", files: [] }];
-  }
+  const sources = $derived(sourcesAfter());
 
-  function updateCategory(id: ContextCategoryId, patch: Partial<StagedCategory>) {
-    staged = { ...staged, [id]: { ...staged[id], ...patch } };
-  }
-
-  // Step 0 is complete only when every required input is filled; Next stays
-  // disabled until then (fiscal year-end is optional — BNH feedback 2026-07-09).
-  // Jul 17 meeting: the transcript is no longer required up front — some
-  // engagements only have a spreadsheet/drawings/an email. Generation still
-  // needs at least one source (transcript OR context docs), checked at commit.
-  const detailsValid = $derived(
-    Boolean(
-      title.trim() &&
-        clientName.trim() &&
-        projectNumberValid &&
-        (mode === "review" ? pdDoc : true)
-    )
+  // E6: the same client, title and fiscal year as an existing project. The
+  // query runs 400ms after the writer stops typing; "It is a different
+  // project" dismisses the warning for this client and title.
+  let duplicateArgs = $state<{ clientName: string; title: string; fiscalYearEnd?: number } | null>(null);
+  $effect(() => {
+    const next = {
+      clientName: clientName.trim(),
+      title: title.trim(),
+      ...(fiscalYearEndMs !== null ? { fiscalYearEnd: fiscalYearEndMs } : {}),
+    };
+    const timer = setTimeout(() => {
+      duplicateArgs = next.clientName && next.title ? next : null;
+    }, 400);
+    return () => clearTimeout(timer);
+  });
+  const sameProjectQ = useQuery(api.projects.findSameProject, () =>
+    auth.isAuthenticated && duplicateArgs && !fromProjectId ? duplicateArgs : "skip"
   );
-  const canGoNext = $derived(step !== 0 || detailsValid);
-
-  // At least one generation source: a transcript, or any staged context item
-  // that yields text. Images are reference-only (no extraction), so an
-  // image-only project would fail the backend's readable-source check.
-  const textualFileCount = $derived(
-    CONTEXT_CATEGORIES.reduce(
-      (n, c) =>
-        c.id === "previous_pd"
-          ? n
-          : n +
-            staged[c.id].files.filter((f) => !isImageFile(f.name)).length +
-            (staged[c.id].text.trim() ? 1 : 0),
-      0
-    ) +
-      pyRows.reduce(
-        (n, r) => n + r.files.filter((f) => !isImageFile(f.name)).length,
-        0
-      ) +
-      pyNoteOnlyCount
+  const dismissedDuplicates = new SvelteSet<string>();
+  const duplicateKey = $derived(`${clientName.trim().toLowerCase()}|${title.trim().toLowerCase()}`);
+  const sameProject = $derived(
+    sameProjectQ.data && duplicateArgs && !dismissedDuplicates.has(duplicateKey) ? sameProjectQ.data : null
   );
-  const hasAnySource = $derived(
-    mode === "review" || transcriptCountForSubmit > 0 || textualFileCount > 0
-  );
+  const sameProjectText = $derived.by(() => {
+    if (!sameProject) return "";
+    const stage = sameProject.workflowStage ? WORKFLOW_STAGE_LABELS[sameProject.workflowStage] : null;
+    const edited = formatEdited(sameProject.updatedAt, Date.now());
+    return [
+      sameProject.title,
+      stage,
+      sameProject.ownerName ? `owned by ${sameProject.ownerName}` : null,
+      `edited ${edited.charAt(0).toLowerCase()}${edited.slice(1)}.`,
+    ]
+      .filter(Boolean)
+      .join(", ");
+  });
 
-  function goNext() {
-    if (step === 0 && !detailsValid) {
-      if (!title.trim() || !clientName.trim())
-        toast.error("Project title and client name are required.");
-      else if (mode === "review")
-        toast.error("Upload the written PD to review.");
-      return;
+  const readingCount = $derived(supportingFiles.filter((doc) => doc.status === "reading").length);
+  const checklist = $derived(
+    buildChecklist({
+      mode,
+      clientName,
+      title,
+      transcripts: { count: transcriptCountForSubmit, words: transcriptWordCount },
+      unreadableTranscripts: transcriptProblems.length,
+      fiscalYearSet: Boolean(fiscalYearEnd),
+      scienceCodeSet: Boolean(scienceCode),
+      supporting: { count: supportingFiles.length + copiedIncludedCount, reading: readingCount },
+      duplicateName: Boolean(sameProject),
+      previousYearMessage: sources.previousYearMessage,
+      noSource: !sources.hasAny,
+      ...(fromProjectId && anythingUnticked
+        ? { noSourceMessage: `Tick a transcript or file from ${copySourceTitle}, or add your own.` }
+        : {}),
+      projectNumberInvalid: !projectNumberValid,
+      overCapMessage,
+      writtenPd: parsingPd ? "reading" : pdDoc ? "ready" : pdFileError ? "failed" : "missing",
+    })
+  );
+  const blocked = $derived(startBlocked(checklist));
+  const startLabel = $derived(startButtonLabel(mode, candidateMode));
+
+  function scrollToTarget(target: string) {
+    const selector =
+      target === "duplicate"
+        ? "[data-same-project]"
+        : target === "unreadable"
+          ? "[data-transcript-problem]"
+          : target === "project-number"
+            ? "#projectNumber"
+            : target === "written-pd"
+              ? "#section-interview"
+              : null;
+    const element = selector ? document.querySelector<HTMLElement>(selector) : null;
+    element?.scrollIntoView({ behavior: "smooth", block: "center" });
+    if (target === "project-number") element?.focus();
+  }
+
+  // ─── Start dialog (F1, G1 to G3) ───────────────────────────────────────────
+  let startOpen = $state(false);
+  let startButton: HTMLButtonElement | null = $state(null);
+  let bottomStartButton: HTMLButtonElement | null = $state(null);
+  let lastStartTrigger: HTMLElement | null = null;
+  let now = $state(Date.now());
+  $effect(() => {
+    if (!startOpen && readingCount === 0) return;
+    const timer = setInterval(() => (now = Date.now()), 1000);
+    return () => clearInterval(timer);
+  });
+
+  const capabilities = $derived(modelCapabilitiesQ.data);
+  const pickedModelLabel = $derived(
+    modelLabelFor(singleModelId || defaultModelIdFor(capabilities), capabilities)
+  );
+  const dialogModels = $derived.by(() => {
+    if (mode === "review") {
+      return {
+        title: capabilities?.pdReviewModelLabel ?? "The review model",
+        line: "Reviews the draft, you get a feedback report",
+      };
     }
-    step = Math.min(step + 1, STEPS.length - 1);
+    if (candidateMode === "iterative") {
+      const planning = capabilities?.planningModelLabel ?? pickedModelLabel;
+      return {
+        title: planning,
+        line:
+          planning === pickedModelLabel
+            ? "Writes the ideas and the report."
+            : `Writes the ideas. ${pickedModelLabel} writes the report.`,
+      };
+    }
+    if (candidateMode === "single") return { title: pickedModelLabel, line: "Writes the draft, about 3 minutes" };
+    const slot = (id: string) => (id ? modelLabelFor(id, capabilities) : "a random model");
+    return {
+      title: `${slot(compareSlotA)} and ${slot(compareSlotB)}`.replace(/^a random/, "A random"),
+      line: "One draft each, you keep the better one",
+    };
+  });
+
+  function transcriptMeta(item: { wordCount: number; format?: TranscriptSourceFormat }) {
+    return `${item.wordCount.toLocaleString("en-US")} words`;
+  }
+
+  const dialogSources = $derived.by((): StartRunSource[] => {
+    const rows: StartRunSource[] = [];
+    if (mode === "review" && pdDoc) {
+      const found = docsSectionCount(pdDoc.content, pdDoc.pageOffsets);
+      rows.push({
+        id: "pd",
+        kind: "writtenPd",
+        name: pdDoc.name,
+        typeLabel: "Written PD",
+        meta: `${countWords(pdDoc.content).toLocaleString("en-US")} words, ${found === 3 ? "all 3 sections found" : `${found} of 3 sections found`}`,
+        locked: true,
+      });
+    }
+    for (const item of includedTranscriptItems) {
+      rows.push({ id: `t:${item.id}`, kind: "transcript", name: item.label, typeLabel: "Transcript", meta: transcriptMeta(item) });
+    }
+    for (const doc of docs.items) {
+      const asTranscript = mode === "review" && doc.category === "transcript";
+      rows.push({
+        id: `d:${doc.id}`,
+        kind: asTranscript ? "transcript" : "document",
+        name: doc.name,
+        typeLabel: CATEGORY_LABELS[doc.category],
+        meta: supportingMeta(doc),
+        reading: doc.status === "reading",
+        readingEtaSeconds: readingEtaSeconds(doc, now),
+      });
+    }
+    for (const document of copiedDocuments.filter(isDocumentIncluded)) {
+      rows.push({
+        id: `c:${document._id}`,
+        kind: "document",
+        name: document.fileName,
+        typeLabel: document.category && document.category in CATEGORY_LABELS
+          ? CATEGORY_LABELS[document.category as ContextCategoryId]
+          : document.source === "review_pd"
+            ? "Written PD"
+            : "Other supporting docs",
+        meta: `Copied from ${copySourceTitle}`,
+      });
+    }
+    return rows;
+  });
+
+  function docsSectionCount(content: string, pageOffsets?: number[]) {
+    return new Set(detectSections(content, pageOffsets).map((section) => section.section)).size;
+  }
+
+  function openStart(trigger: HTMLElement | null) {
+    if (blocked || committing) return;
+    // A paste still in the box becomes a transcript first, as it always has.
+    if (pasteDraft.trim() && mode === "generate") addPastedTranscript();
+    lastStartTrigger = trigger;
+    startOpen = true;
+  }
+
+  function validateExcluded(excluded: StartRunExcluded): string | null {
+    if (mode === "review") return null;
+    const after = sourcesAfter(excluded);
+    if (!after.hasAny) return NO_SOURCE_MESSAGE;
+    return after.previousYearMessage;
+  }
+
+  function confirmStart(excluded: StartRunExcluded) {
+    startOpen = false;
+    void commit(excluded);
   }
 
   async function uploadOriginal(file: File): Promise<Id<"_storage"> | undefined> {
@@ -535,17 +993,12 @@
 
   /**
    * Durable record of a failed upload during the commit loop, falling back to
-   * the local outbox when the network is down. Never throws — one unrecorded
+   * the local outbox when the network is down. Never throws: one unrecorded
    * failure must not sink a project that is otherwise being created.
    */
-  async function recordFailedWizardAttempt(
+  async function recordFailedAttempt(
     projectId: Id<"projects">,
-    a: {
-      attemptKey: string;
-      fileName: string;
-      fileSizeBytes?: number;
-      origin: "context_input" | "review_pd";
-    }
+    a: { attemptKey: string; fileName: string; fileSizeBytes?: number; origin: "context_input" | "review_pd" }
   ) {
     try {
       await withUploadTimeout(
@@ -555,9 +1008,7 @@
             {
               attemptKey: a.attemptKey,
               fileName: a.fileName,
-              ...(a.fileSizeBytes !== undefined
-                ? { fileSizeBytes: a.fileSizeBytes }
-                : {}),
+              ...(a.fileSizeBytes !== undefined ? { fileSizeBytes: a.fileSizeBytes } : {}),
               origin: a.origin,
               failureCode: "upload_failed" as const,
             },
@@ -582,115 +1033,280 @@
     }
   }
 
-  /** The transcript list as createProject takes it, paste draft included. */
-  function transcriptArgs() {
-    const items = transcriptItems.map((item) =>
-      item.source.kind === "copy"
-        ? { fromTranscriptId: item.source.fromTranscriptId, label: item.label }
-        : { content: item.source.content, label: item.label }
-    );
+  /**
+   * The transcript list as createProject takes it, with the start dialog id
+   * of each entry so the leave-out list can name the created rows. Each
+   * uploaded file's original bytes go to storage first; a failed upload only
+   * drops the original, never the transcript.
+   */
+  async function transcriptArgs() {
+    const entries: Array<{ key: string; arg: Parameters<typeof createProject>[0]["transcripts"][number] }> = [];
+    for (const item of includedTranscriptItems) {
+      if (item.source.kind === "copy") {
+        entries.push({ key: `t:${item.id}`, arg: { fromTranscriptId: item.source.fromTranscriptId, label: item.label } });
+        continue;
+      }
+      const originalStorageId = item.file
+        ? await uploadTranscriptOriginal(
+            item.file,
+            () => generateUploadUrl({}),
+            (storageId) => claimUpload({ storageId: storageId as Id<"_storage"> })
+          )
+        : null;
+      entries.push({
+        key: `t:${item.id}`,
+        arg: {
+          content: item.source.content,
+          label: item.label,
+          ...(item.format ? { sourceFormat: item.format } : {}),
+          ...(originalStorageId ? { originalStorageId: originalStorageId as Id<"_storage"> } : {}),
+        },
+      });
+    }
+    for (const doc of supportingTranscripts) {
+      if (doc.pastedText !== null) {
+        const pasted = readPastedTranscript(doc.pastedText);
+        entries.push({
+          key: `d:${doc.id}`,
+          arg: { content: pasted.content, label: doc.name, sourceFormat: pasted.format },
+        });
+        continue;
+      }
+      if (!doc.transcript) continue;
+      const originalStorageId = doc.file
+        ? await uploadTranscriptOriginal(
+            doc.file,
+            () => generateUploadUrl({}),
+            (storageId) => claimUpload({ storageId: storageId as Id<"_storage"> })
+          )
+        : null;
+      entries.push({
+        key: `d:${doc.id}`,
+        arg: {
+          content: doc.transcript.content,
+          label: doc.transcript.label,
+          sourceFormat: doc.transcript.format,
+          ...(originalStorageId ? { originalStorageId: originalStorageId as Id<"_storage"> } : {}),
+        },
+      });
+    }
     const draft = pasteDraft.trim();
     if (draft) {
-      const pastedCount =
-        transcriptItems.filter((item) => item.source.kind === "paste").length + 1;
-      items.push({ content: draft, label: `Pasted transcript ${pastedCount}` });
+      const pastedCount = transcriptItems.filter((item) => item.source.kind === "paste").length + 1;
+      const pasted = readPastedTranscript(draft);
+      entries.push({
+        key: "t:draft",
+        arg: { content: pasted.content, label: `Pasted transcript ${pastedCount}`, sourceFormat: pasted.format },
+      });
     }
-    return items;
+    return entries;
   }
 
-  async function commit() {
-    if (!hasAnySource) {
-      toast.error(
-        "Add an interview transcript or at least one context document before generating."
-      );
-      return;
+  // What the writer added here themselves, by the name the copy failure
+  // message uses for each (review D-2).
+  function ownUploadNames(): string[] {
+    const names: string[] = [];
+    for (const doc of supportingFiles) names.push(doc.name);
+    for (const year of previousYears) {
+      if ((yearNotes.get(year) ?? "").trim()) names.push(`Previous-year note (FY ${year})`);
     }
-    if (transcriptsOverCap) {
-      toast.error(
-        `A project takes at most ${MAX_TRANSCRIPTS_PER_PROJECT} transcripts and ${(MAX_TOTAL_TRANSCRIPT_CHARS / 1000).toLocaleString()}k characters of transcript text. Remove one and try again.`
-      );
-      return;
+    if (mode === "review" && pdDoc) names.push(pdDoc.name);
+    return names;
+  }
+
+  /**
+   * Review F1 and D-2: after a failed copy the project is never drafted or
+   * reviewed, but the writer's own files are still saved. Say what was not
+   * copied, and which of their own files did not make it either.
+   */
+  function copyFailedMessage(saved: string[]) {
+    const unsaved = ownUploadNames();
+    for (const name of saved) {
+      const index = unsaved.indexOf(name);
+      if (index >= 0) unsaved.splice(index, 1);
     }
-    committing = true;
-    let createdProjectId: Id<"projects"> | null = null;
+    let message = `Some files from ${copySourceTitle} were not copied.`;
+    if (!saved.length) {
+      message += " Duplicate again, or add them on the project page.";
+      if (unsaved.length) message += ` These files you added were not saved either: ${unsaved.join(", ")}.`;
+    } else {
+      // Review P3-3: the writer's own files are in this project now, so a
+      // new duplicate would not have them. Point at this project instead.
+      message += ` Add them on the project page. ${
+        unsaved.length ? "Some of the files you added here were" : "The files you added here were"
+      } saved in this project, so a new duplicate would not include them.`;
+      if (unsaved.length) message += ` These were not saved: ${unsaved.join(", ")}.`;
+    }
+    if (mode === "review" && pdDoc && saved.includes(pdDoc.name)) {
+      message += " Start the PD review on the project page once the missing files are added.";
+    }
+    return message;
+  }
+
+  /** The copied documents' ids in the new project, by the source row they came from. */
+  async function copiedDocumentIds(projectId: Id<"projects">): Promise<Map<string, Id<"projectDocuments">>> {
+    const mapping = new Map<string, Id<"projectDocuments">>();
     try {
-      progress = "Creating project…";
-      const { projectId, transcriptIds } = await createProject({
-        title: title.trim(),
-        ...(sredTitle.trim() ? { sredTitle: sredTitle.trim() } : {}),
-        clientName: clientName.trim(),
-        ...(interviewerUserId
-          ? { interviewerUserId: interviewerUserId as Id<"users"> }
-          : {}),
-        ...(interviewees.length ? { interviewees } : {}),
-        ...(selectedTagIds.length
-          ? { tagIds: selectedTagIds as Id<"tags">[] }
-          : {}),
-        ...(fiscalYearEnd
-          ? { fiscalYearEnd: new Date(`${fiscalYearEnd}T00:00:00`).getTime() }
-          : {}),
-        ...(industry ? { industry } : {}),
-        ...(scienceCode ? { scienceCode } : {}),
-        ...(projectNumber.trim() ? { projectNumber: projectNumber.trim() } : {}),
-        mode,
-        transcripts: transcriptArgs(),
-      });
+      const rows = ((await client.query(api.documents.listDocuments, { projectId })) ?? []) as Array<{
+        _id: Id<"projectDocuments">;
+        fileName: string;
+        category?: string | null;
+        source?: string;
+      }>;
+      const used = new Set<string>();
+      for (const document of copiedDocuments.filter(isDocumentIncluded)) {
+        const match = rows.find(
+          (row) =>
+            !used.has(row._id) &&
+            row.fileName === document.fileName &&
+            (row.category ?? null) === (document.category ?? null)
+        );
+        if (match) {
+          used.add(match._id);
+          mapping.set(document._id, match._id);
+        }
+      }
+    } catch (error) {
+      console.error("Could not list the copied files", error);
+    }
+    return mapping;
+  }
+
+  async function commit(excluded: StartRunExcluded = { transcriptIds: [], documentIds: [] }) {
+    if (committing) return;
+    const leftOut = new Set([...excluded.transcriptIds, ...excluded.documentIds]);
+    committing = true;
+    commitStartedAt = Date.now();
+    let createdProjectId: Id<"projects"> | null = null;
+    let copyFailed = false;
+    // The writer's own files saved so far, by ownUploadNames' names.
+    const savedOwn: string[] = [];
+    try {
+      // Ticked files still being read are waited for; the rest are saved
+      // after the run starts, so unticking one starts without it.
+      const tickedReading = supportingFiles.filter(
+        (doc) => doc.status === "reading" && !leftOut.has(`d:${doc.id}`)
+      );
+      for (const doc of tickedReading) {
+        progress = `Reading ${doc.name}, then starting...`;
+        await docs.whenRead([doc.id]);
+        extractionLifetime.signal.throwIfAborted();
+      }
+      progress = "Creating project...";
+      const entries = await transcriptArgs();
+      const transcripts = entries.map((entry) => entry.arg);
+      const originals = transcripts.flatMap((item) =>
+        "originalStorageId" in item && item.originalStorageId ? [item.originalStorageId] : []
+      );
+      // A refused createProject releases the transcript originals it was
+      // given; nothing else would ever point to them.
+      const { projectId, transcriptIds } = await releaseOriginalsOnFailure(
+        originals,
+        (storageIds) => discardTranscriptOriginals({ storageIds: storageIds as Id<"_storage">[] }),
+        () =>
+          createProject({
+            title: title.trim(),
+            ...(sredTitle.trim() ? { sredTitle: sredTitle.trim() } : {}),
+            clientName: clientName.trim(),
+            ...(interviewerUserId ? { interviewerUserId: interviewerUserId as Id<"users"> } : {}),
+            ...(interviewees.length ? { interviewees } : {}),
+            ...(selectedTagIds.length ? { tagIds: selectedTagIds as Id<"tags">[] } : {}),
+            ...(fiscalYearEndMs !== null ? { fiscalYearEnd: fiscalYearEndMs } : {}),
+            ...(industry ? { industry } : {}),
+            ...(scienceCode ? { scienceCode } : {}),
+            ...(projectNumber.trim() ? { projectNumber: projectNumber.trim() } : {}),
+            mode,
+            transcripts,
+          })
+      );
       extractionLifetime.signal.throwIfAborted();
       createdProjectId = projectId;
+      const excludeTranscriptIds = entries
+        .map((entry, index) => (leftOut.has(entry.key) ? transcriptIds[index] : null))
+        .filter((id): id is Id<"transcripts"> => Boolean(id));
+      const excludeDocumentIds: Id<"projectDocuments">[] = [];
 
-      // Duplicate flow: clone the complete project input package — support
-      // docs, archived docs, review PDs, original file bytes, and identity
-      // evidence. The transcripts were copied by reference inside
+      // Duplicate flow: clone the project input package (support docs,
+      // archived docs, review PDs, original file bytes, transcript originals
+      // included, and identity evidence), minus anything the writer
+      // unticked. The transcripts were copied by reference inside
       // createProject above, so the action never shares storage ownership
       // with the source project.
       if (fromProjectId) {
-        progress = "Copying all project materials…";
-        await copyProjectContent({
-          fromProjectId: fromProjectId as Id<"projects">,
-          toProjectId: projectId,
-          ...(transcriptIds[0] ? { targetTranscriptId: transcriptIds[0] } : {}),
-        });
+        progress = "Copying all project materials...";
+        try {
+          await copyProjectContent({
+            fromProjectId: fromProjectId as Id<"projects">,
+            toProjectId: projectId,
+            ...(transcriptIds[0] ? { targetTranscriptId: transcriptIds[0] } : {}),
+            // A duplicate to draft again copies inputs only (see draftsParam).
+            ...(generateAfterDuplicate ? { includeReport: false, includeReviews: copyReviews } : {}),
+            ...(excludedDocumentIds.length
+              ? { excludeDocumentIds: excludedDocumentIds as Id<"projectDocuments">[] }
+              : {}),
+            ...(sendPreviousYearReport ? { previousYearReport: true } : {}),
+          });
+          if ([...leftOut].some((key) => key.startsWith("c:"))) {
+            const mapping = await copiedDocumentIds(projectId);
+            for (const key of leftOut) {
+              if (!key.startsWith("c:")) continue;
+              const id = mapping.get(key.slice(2));
+              if (id) excludeDocumentIds.push(id);
+            }
+          }
+        } catch (copyError) {
+          if (extractionLifetime.signal.aborted) return;
+          console.error(copyError);
+          // Review F1: the project exists but may lack the copied files, so
+          // it is never drafted or reviewed below. The writer's own files do
+          // not depend on the copy, so they are still saved (review D-2).
+          copyFailed = true;
+        }
       }
 
-      // One unreadable/oversized doc must never sink the whole project —
+      // One unreadable or oversized doc must never sink the whole project:
       // skip it, tell the writer which ones were skipped, and keep going.
       const skippedFiles: string[] = [];
-      const uploadFile = async (
-        file: File,
-        category: ContextCategoryId,
-        prefix = ""
-      ): Promise<"stored_text" | "stored_empty" | "failed"> => {
+      const uploadDoc = async (doc: SupportingDoc, prefix = ""): Promise<"stored_text" | "stored_empty" | "failed"> => {
         extractionLifetime.signal.throwIfAborted();
-        progress = `Uploading ${file.name}…`;
+        const category = doc.category as ContextCategoryId;
+        progress = `Uploading ${doc.name}...`;
+        if (doc.pastedText !== null) {
+          const id = await uploadDocument({
+            projectId,
+            fileName: doc.name,
+            fileType: "txt",
+            content: prefix + doc.pastedText,
+            source: "context_input",
+            category,
+            intake: "pasted",
+          });
+          if (leftOut.has(`d:${doc.id}`) && id) excludeDocumentIds.push(id);
+          savedOwn.push(doc.name);
+          return "stored_text";
+        }
+        const file = doc.file!;
         const attemptKey = createRequestId();
         try {
-          let parsed;
-          let extractionFailed = false;
-          try {
-            parsed = await parseFileToText(file, { signal: extractionLifetime.signal });
-          } catch (error) {
-            if (isParseAbort(error)) throw error;
-            extractionFailed = true;
-            parsed = {
-              fileName: file.name,
-              fileType: guessFileType(file.name),
-              content: "",
-            };
-          }
+          await docs.whenRead([doc.id]);
+          const current = docs.get(doc.id) ?? doc;
+          const extractionFailed = current.status === "failed";
+          const content = current.parsed?.content ?? "";
+          const fileType = current.parsed?.fileType ?? guessFileType(file.name);
           // Only prefix content we actually extracted. Prefixing an empty
-          // extraction would store boilerplate the server reads as real text,
-          // and the file would report "Ready for AI" when nothing can be read
-          // from it — a lie on exactly the file the receipt exists to flag.
+          // extraction would store boilerplate the server reads as real
+          // text, and the file would report "Ready for AI" when nothing can
+          // be read from it.
           extractionLifetime.signal.throwIfAborted();
           const storageId = await uploadOriginal(file);
           extractionLifetime.signal.throwIfAborted();
-          const hasText = parsed.content.trim().length > 0;
-          await withUploadTimeout(
+          const hasText = content.trim().length > 0;
+          const id = await withUploadTimeout(
             uploadDocument({
               projectId,
               fileName: file.name,
-              fileType: parsed.fileType,
-              content: hasText ? prefix + parsed.content : "",
+              fileType,
+              content: hasText ? prefix + content : "",
               source: "context_input",
               category,
               extractionOutcome: extractionFailed ? "failed" : "ok",
@@ -700,6 +1316,8 @@
             })
           );
           extractionLifetime.signal.throwIfAborted();
+          if (leftOut.has(`d:${doc.id}`) && id) excludeDocumentIds.push(id);
+          savedOwn.push(file.name);
           return hasText ? "stored_text" : "stored_empty";
         } catch (e) {
           extractionLifetime.signal.throwIfAborted();
@@ -707,7 +1325,7 @@
           console.error(`upload failed for ${file.name}`, e);
           skippedFiles.push(file.name);
           // The toast is transient; this is what survives the navigation.
-          await recordFailedWizardAttempt(projectId, {
+          await recordFailedAttempt(projectId, {
             attemptKey,
             fileName: file.name,
             fileSizeBytes: file.size,
@@ -717,69 +1335,54 @@
         }
       };
 
-      // Previous-year reports — tagged with their fiscal year + optional note.
-      for (const row of pyRows) {
-        const noteLine = row.note.trim() ? `Note: ${row.note.trim()}\n` : "";
-        // The note rides along inside the prefix, so it only survives if some
-        // file in this row actually stored text.
-        let noteCarried = false;
-        for (const file of row.files) {
-          const outcome = await uploadFile(
-            file,
-            "previous_pd",
-            `[Previous-year report — fiscal ${row.year}]\n${noteLine}\n`
-          );
-          if (outcome === "stored_text") noteCarried = true;
-        }
-        // A note no file carried still holds useful prior-year context. This is
-        // a strict superset of the old "no files at all" condition: a row whose
-        // files were all unreadable now keeps the note instead of losing it
-        // silently along with the prefix.
-        if (row.note.trim() && !noteCarried) {
+      // Ticked files first, in SR&ED weight order; left-out files still
+      // being read are saved after the run starts.
+      const order = (doc: SupportingDoc) => CATEGORY_ORDER.indexOf(doc.category as ContextCategoryId);
+      const toSave = supportingFiles
+        .filter((doc) => doc.category !== "transcript")
+        .sort((a, b) => order(a) - order(b));
+      const later = toSave.filter((doc) => doc.status === "reading" && leftOut.has(`d:${doc.id}`));
+      const first = toSave.filter((doc) => !later.includes(doc));
+
+      // Previous-year reports carry their fiscal year and that year's note.
+      const noteCarried = new Set<number>();
+      const saveOne = async (doc: SupportingDoc) => {
+        if (doc.category !== "previous_pd") return uploadDoc(doc);
+        const note = (yearNotes.get(doc.year) ?? "").trim();
+        const outcome = await uploadDoc(
+          doc,
+          `${previousYearReportHeader(doc.year)}${note ? `Note: ${note}\n` : ""}\n`
+        );
+        if (outcome === "stored_text") noteCarried.add(doc.year);
+        return outcome;
+      };
+      for (const doc of first) await saveOne(doc);
+      // A note no file carried still holds useful prior-year context.
+      const saveNotes = async () => {
+        for (const year of previousYears) {
+          const note = (yearNotes.get(year) ?? "").trim();
+          if (!note || noteCarried.has(year)) continue;
           extractionLifetime.signal.throwIfAborted();
           await uploadDocument({
             projectId,
-            fileName: `Previous-year note (FY ${row.year})`,
+            fileName: `Previous-year note (FY ${year})`,
             fileType: "txt",
-            content: `[Previous-year note — fiscal ${row.year}]\n\n${row.note.trim()}`,
+            content: `[Previous-year note — fiscal ${year}]\n\n${note}`,
             source: "context_input",
             category: "previous_pd",
             intake: "pasted",
           });
+          savedOwn.push(`Previous-year note (FY ${year})`);
         }
-      }
-
-      // Other categories.
-      for (const cat of CONTEXT_CATEGORIES) {
-        if (cat.id === "previous_pd") continue;
-        const s = staged[cat.id];
-        for (const file of s.files) {
-          await uploadFile(file, cat.id);
-        }
-        if (s.text.trim()) {
-          extractionLifetime.signal.throwIfAborted();
-          await uploadDocument({
-            projectId,
-            fileName: `${cat.label} (pasted)`,
-            fileType: "txt",
-            content: s.text,
-            source: "context_input",
-            category: cat.id,
-            intake: "pasted",
-          });
-        }
-      }
+      };
+      if (later.every((doc) => doc.category !== "previous_pd")) await saveNotes();
 
       extractionLifetime.signal.throwIfAborted();
       if (mode === "review" && pdDoc) {
-        // Runs for duplicates too. This was `if (fromProjectId) ... else if`,
-        // which silently discarded the staged PD on a duplicated review
-        // project — no review_pd upload, no review, and the project page had
-        // nothing to show (the 2026-08-07 stranded-review flag). Duplicates
-        // still skip auto-generation below; only the review start is shared.
-        // BNH-39: store the written PD (no category — it must NOT feed a later
+        // Runs for duplicates too (the 2026-08-07 stranded-review flag).
+        // BNH-39: store the written PD (no category: it must NOT feed a later
         // generation as context; the review agent reads it directly).
-        progress = `Uploading ${pdDoc.name}…`;
+        progress = `Uploading ${pdDoc.name}...`;
         const storageId = await uploadOriginal(pdDoc.file);
         extractionLifetime.signal.throwIfAborted();
         const pdAttemptKey = createRequestId();
@@ -799,7 +1402,7 @@
           );
         } catch (e) {
           extractionLifetime.signal.throwIfAborted();
-          await recordFailedWizardAttempt(projectId, {
+          await recordFailedAttempt(projectId, {
             attemptKey: pdAttemptKey,
             fileName: pdDoc.name,
             fileSizeBytes: pdDoc.file.size,
@@ -807,68 +1410,466 @@
           });
           throw e;
         }
+        savedOwn.push(pdDoc.name);
         if (!storageId) {
           toast.warning(`The PD text was saved, but the original file ‘${pdDoc.name}’ could not be uploaded.`);
         }
         extractionLifetime.signal.throwIfAborted();
-        progress = "Starting PD review…";
-        await startPdReview({ projectId, documentId });
-      } else if (fromProjectId) {
-        progress = "Opening duplicate…";
+        if (!copyFailed) {
+          progress = "Starting PD review...";
+          await startPdReview({
+            projectId,
+            documentId,
+            ...(excludeDocumentIds.length ? { excludeDocumentIds } : {}),
+            ...(excludeTranscriptIds.length ? { excludeTranscriptIds } : {}),
+          });
+        }
+      } else if (copyFailed || (fromProjectId && !generateAfterDuplicate)) {
+        progress = "Opening duplicate...";
       } else {
         extractionLifetime.signal.throwIfAborted();
-        progress = "Starting generation…";
+        progress = "Starting generation...";
         await generateReport({
           projectId,
           candidateMode,
-          ...(candidateMode !== "compare" && singleModelId
-            ? { singleModelId }
-            : {}),
+          ...(candidateMode !== "compare" && singleModelId ? { singleModelId } : {}),
           ...(candidateMode === "compare"
             ? (() => {
-                const pair = comparePairFromSlots(compareSlotA, compareSlotB);
+                const pair = comparePairFromSlots(compareSlotA, compareSlotB, pickerModels(modelCapabilitiesQ.data));
                 return pair ? { compareModelIds: pair } : {};
               })()
             : {}),
+          ...(excludeDocumentIds.length ? { excludeDocumentIds } : {}),
+          ...(excludeTranscriptIds.length ? { excludeTranscriptIds } : {}),
         });
+      }
+      // Files the writer left out while they were still being read.
+      for (const doc of later) await saveOne(doc);
+      if (later.some((doc) => doc.category === "previous_pd")) await saveNotes();
+      extractionLifetime.signal.throwIfAborted();
+      if (copyFailed) {
+        toast.error(copyFailedMessage(savedOwn));
+        committing = false;
+        progress = "";
+        leaveTo(`/project/${projectId}`);
+        return;
       }
       if (skippedFiles.length) {
         toast.error(
           `${skippedFiles.length} document(s) could not be uploaded and were skipped: ${skippedFiles.join(", ")}`
         );
       }
-      extractionLifetime.signal.throwIfAborted();
-      goto(`/project/${projectId}`);
+      leaveTo(`/project/${projectId}`);
     } catch (e) {
       if (extractionLifetime.signal.aborted || isParseAbort(e)) return;
       console.error(e);
+      if (copyFailed && createdProjectId) {
+        toast.error(copyFailedMessage(savedOwn));
+        committing = false;
+        progress = "";
+        leaveTo(`/project/${createdProjectId}`);
+        return;
+      }
       // The project may already exist at this point (createProject succeeded,
       // a later step failed). Land the writer on it rather than stranding them
-      // on the wizard with work they can't see.
-      const message = userErrorMessage(
-        e,
-        "Something went wrong creating the project. Please try again."
-      );
-      toast.error(message);
+      // on the page with work they can't see.
+      toast.error(userErrorMessage(e, "Something went wrong creating the project. Please try again."));
       committing = false;
       progress = "";
       if (createdProjectId) {
         toast.error(
           mode === "review"
-            ? "The project was created but the PD review did not start — open it and use Start PD review to retry."
-            : "The project was created but generation did not start — open it and use Generate to retry."
+            ? "The project was created but the PD review did not start. Open it and use Start PD review to retry."
+            : "The project was created but generation did not start. Open it and use Generate to retry."
         );
-        goto(`/project/${createdProjectId}`);
+        leaveTo(`/project/${createdProjectId}`);
       }
     }
   }
+
+  // ─── Supporting documents: add menu, paste, preview ───────────────────────
+  let docsInput: HTMLInputElement | null = $state(null);
+  let replaceInput: HTMLInputElement | null = $state(null);
+  let replacingDocId: string | null = null;
+  let docsDragOver = $state(false);
+  let docsError = $state("");
+  let docPasteOpen = $state(false);
+  let docPasteText = $state("");
+  let docPasteCategory = $state<SupportingCategory>("writer_notes");
+  let previewId = $state<string | null>(null);
+  let previewOpen = $state(false);
+  let pdPreviewOpen = $state(false);
+  const previewDoc = $derived(previewId ? (docs.get(previewId) ?? null) : null);
+  const pdPreviewDoc = $derived<SupportingDoc | null>(
+    pdDoc
+      ? {
+          id: "pd",
+          name: pdDoc.name,
+          file: pdDoc.file,
+          pastedText: null,
+          category: "other",
+          categoryTouched: true,
+          year: baseYear,
+          status: "ready",
+          progress: null,
+          startedAt: 0,
+          finishedAt: 0,
+          parsed: { fileName: pdDoc.name, fileType: guessFileType(pdDoc.name), content: pdDoc.content, pageOffsets: pdDoc.pageOffsets },
+          transcript: null,
+          error: null,
+          sections: [],
+          words: countWords(pdDoc.content),
+        }
+      : null
+  );
+
+  // Review a written PD takes transcript exports here too (E4).
+  const isCaptionFile = (name: string) => /\.(vtt|srt)$/i.test(name);
+  function addSupportingFiles(files: File[]) {
+    const accepted = (file: File) => isSupportedFile(file.name) || (mode === "review" && isCaptionFile(file.name));
+    const ok = files.filter(accepted);
+    const rejected = files.filter((file) => !accepted(file)).map((file) => file.name);
+    docsError = rejected.length ? `We cannot read ${rejected.join(", ")}. Use ${SUPPORTED_LABEL}.` : "";
+    if (!ok.length) return;
+    if (mode === "review") {
+      // Transcript exports go to the transcripts table.
+      const transcripts = ok.filter((file) => isCaptionFile(file.name));
+      const others = ok.filter((file) => !transcripts.includes(file));
+      if (transcripts.length) docs.add(transcripts, "transcript");
+      if (others.length) docs.add(others);
+      return;
+    }
+    docs.add(ok);
+  }
+
+  function replaceDoc(id: string) {
+    replacingDocId = id;
+    previewOpen = false;
+    replaceInput?.click();
+  }
+
+  function removeDoc(id: string) {
+    docs.remove(id);
+    if (previewId === id) {
+      previewOpen = false;
+      previewId = null;
+    }
+  }
+
+  function addDocPaste() {
+    const text = docPasteText.trim();
+    if (!text) return;
+    docs.addPasted(text, docPasteCategory);
+    docPasteText = "";
+    docPasteOpen = false;
+  }
+
+  // ─── Tablet and phone (H1, H2): section chips and the bottom bar ──────────
+  // One layout at a time, so no control renders twice: desktop from 1280px
+  // (the right column), tablet from 640px, phone below.
+  let viewportWidth = $state(typeof window === "undefined" ? 1440 : window.innerWidth);
+  onMount(() => {
+    const update = () => (viewportWidth = window.innerWidth);
+    update();
+    window.addEventListener("resize", update);
+    return () => window.removeEventListener("resize", update);
+  });
+  const layout = $derived<"desktop" | "tablet" | "phone">(
+    viewportWidth >= 1280 ? "desktop" : viewportWidth >= 640 ? "tablet" : "phone"
+  );
+  // Interview helper: the E1 line; below desktop the count and words take
+  // its place once transcripts are in (H1, H2; the status snippet).
+  const interviewHelper = $derived(
+    layout === "phone" || (layout === "tablet" && transcriptCountForSubmit > 0 && !transcriptProblems.length)
+      ? undefined
+      : "Transcripts the PD is written from"
+  );
+  const sectionChips = $derived([
+    { id: "section-project", label: "Project", short: "Project", done: Boolean(clientName.trim() && title.trim()) },
+    {
+      id: "section-interview",
+      label: mode === "review" ? "Written PD" : "Interview",
+      short: mode === "review" ? "Written PD" : "Interview",
+      done: mode === "review" ? Boolean(pdDoc) : transcriptCountForSubmit > 0,
+    },
+    {
+      id: "section-supporting",
+      label: "Supporting documents",
+      short: "Supporting",
+      done: supportingFiles.length > 0 && readingCount === 0,
+    },
+    { id: "section-details", label: "Details", short: "Details", done: Boolean(projectNumber.trim() || selectedTagIds.length) },
+    { id: "section-mode", label: mode === "review" ? "How to review it" : "How to write it", short: "How", done: true },
+  ]);
+  let currentSection = $state("section-project");
+  let formColumn: HTMLElement | null = $state(null);
+  $effect(() => {
+    const root = formColumn;
+    if (!root || typeof IntersectionObserver === "undefined") return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const visible = entries.filter((entry) => entry.isIntersecting).sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top);
+        if (visible[0]) currentSection = visible[0].target.id;
+      },
+      { rootMargin: "-20% 0px -60% 0px" }
+    );
+    for (const section of root.querySelectorAll("section[data-new-project-section]")) observer.observe(section);
+    return () => observer.disconnect();
+  });
+  function jumpTo(id: string) {
+    currentSection = id;
+    document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+  const firstBlocking = $derived(checklist.find((row) => row.blocking) ?? null);
+  const readySummary = $derived(
+    mode === "review"
+      ? `Ready: written PD, ${supportingFiles.length} supporting ${supportingFiles.length === 1 ? "document" : "documents"}`
+      : `Ready: ${transcriptCountForSubmit} ${transcriptCountForSubmit === 1 ? "transcript" : "transcripts"}, ${supportingFiles.length + copiedIncludedCount} supporting ${supportingFiles.length + copiedIncludedCount === 1 ? "document" : "documents"}`
+  );
+  const startNote = $derived(
+    mode === "review" ? "You get a feedback report. Your draft is never changed." : "You will check your files before anything starts."
+  );
+
+  // The shared borderless field (inset line, lagoon on hover and focus):
+  // 36px, radius 8 and 10px padding (E1); 44px, radius 10 and 12px padding
+  // with 13px labels on the phone (H2).
+  const fieldSize = $derived(
+    layout === "phone" ? "h-11 rounded-[10px] px-3" : "h-9 rounded-lg px-2.5 pointer-coarse:h-11"
+  );
+  const fieldClass = $derived(
+    `field-control w-full text-sm leading-5 text-ink placeholder:text-ink-faint ${fieldSize}`
+  );
+  const labelClass = $derived(
+    layout === "phone"
+      ? "text-[13px] leading-[18px] font-medium text-ink-secondary"
+      : "text-xs leading-4 font-medium text-ink-secondary"
+  );
+  // bits-ui select fields (Industry, Interviewer) draw a 44px input; the
+  // board field is 36px with a 14px 1.8 chevron in faint ink (E1).
+  const selectFieldClass = $derived(
+    layout === "phone"
+      ? "[&_input]:h-11! [&_input]:rounded-[10px]! [&_input]:px-3!"
+      : "[&_input]:h-9! [&_input]:px-2.5! pointer-coarse:[&_input]:h-11! [&_button]:right-[3px]! [&_button_svg]:[stroke-width:1.8]"
+  );
 </script>
 
-{#snippet row(label: string, value: string)}
-  <div class="flex justify-between border-b border-gray-100 py-1.5 last:border-0">
-    <span class="text-gray-400">{label}</span>
-    <span class="max-w-[60%] truncate text-right text-gray-800">{value}</span>
+{#snippet modelPicker()}
+  <div class="flex flex-col gap-1.5 pt-1">
+    <span class={labelClass}>Model</span>
+    {#if mode === "review"}
+      <!-- E4 draws a select; the review model is read-only (decision 56),
+           so the field has no chevron. -->
+      <div data-review-model class="flex h-9 items-center gap-2 rounded-lg border border-line bg-surface px-2.5 text-sm leading-5 text-ink">
+        <AuroraMark size={18} />
+        <span class="truncate">{capabilities?.pdReviewModelLabel ?? "The review model"}</span>
+      </div>
+    {:else if candidateMode !== "compare"}
+      <SingleModelPicker bind:value={singleModelId} size="field" />
+    {:else}
+      <ComparePairPicker bind:slotA={compareSlotA} bind:slotB={compareSlotB} size="field" />
+    {/if}
   </div>
+{/snippet}
+
+{#snippet modeSwitch()}
+  {@const fullWidth = layout === "phone"}
+  <div
+    class={`flex shrink-0 gap-1 rounded-[10px] bg-chrome p-1 ${fullWidth ? "w-full" : ""}`}
+    role="radiogroup"
+    aria-label="Project mode"
+  >
+    {#each [
+      { id: "generate", label: "Write a new PD", short: "Write a new PD" },
+      { id: "review", label: "Review a written PD", short: "Review a PD" },
+    ] as const as opt (opt.id)}
+      {@const locked = modeLocked && opt.id !== "review"}
+      <!-- aria-disabled, not disabled, so the tooltip still opens. -->
+      <Tooltip text={locked ? "A copy of a Review PD project stays a Review PD project." : opt.label}>
+        {#snippet children({ props })}
+          <button
+            {...props}
+            type="button"
+            role="radio"
+            aria-checked={mode === opt.id}
+            aria-disabled={locked ? "true" : undefined}
+            onclick={() => {
+              if (!locked) mode = opt.id;
+            }}
+            class={`flex items-center justify-center rounded-[7px] px-3 font-medium transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-fir pointer-coarse:h-11 ${
+              fullWidth ? "h-9 flex-1 text-sm leading-[18px]" : layout === "tablet" ? "h-8 text-[13px] leading-[18px]" : "h-[30px] text-[13px] leading-[18px]"
+            } ${
+              mode === opt.id
+                ? "bg-primary-selected text-white"
+                : locked
+                  ? "cursor-not-allowed text-ink-faint"
+                  : "text-ink-secondary hover:bg-primary-wash hover:text-ink"
+            }`}
+          >
+            {fullWidth ? opt.short : opt.label}
+          </button>
+        {/snippet}
+      </Tooltip>
+    {/each}
+  </div>
+{/snippet}
+
+{#snippet transcriptRows()}
+  {#if transcriptItems.length || transcriptProblems.length}
+    <ul class="flex flex-col" data-transcript-list>
+      {#each transcriptItems as item (item.id)}
+        {@const copied = item.source.kind === "copy"}
+        {@const included = isTranscriptIncluded(item)}
+        <li
+          data-transcript-item
+          data-included={included ? "true" : "false"}
+          class={`relative flex items-center gap-2.5 ${
+            layout === "phone" ? "min-h-10" : `min-h-11 py-1.5 ${transcriptProblems.length ? "border-b border-line-soft" : "border-b border-line-soft last:border-b-0"}`
+          }`}
+        >
+          <span class="flex size-7 shrink-0 items-center justify-center"><FileIcon name={item.file?.name ?? item.label} size={28} /></span>
+          <span class={`flex min-w-0 flex-1 ${layout === "phone" ? "flex-col" : "flex-row items-center gap-2.5"}`}>
+            {#if copied}
+              <!-- The whole row toggles the tick box (review D-6). -->
+              <Label.Root
+                for={`copy-transcript-${item.id}`}
+                class={`block min-w-0 truncate text-[13px] font-medium text-ink ${layout === "phone" ? "leading-[18px]" : "leading-[19px]"} ${STRETCHED_LABEL}`}
+              >{item.label}</Label.Root>
+            {:else}
+              <span data-transcript-name class={`block min-w-0 truncate text-[13px] font-medium text-ink ${layout === "phone" ? "leading-[18px]" : "leading-[19px]"}`}>{item.label}</span>
+            {/if}
+            {#if layout !== "phone"}<span class="grow"></span>{/if}
+            <span class={`shrink-0 text-ink-muted ${layout === "phone" ? "text-xs leading-4" : "text-[13px] leading-[19px]"}`} data-transcript-format>
+              {item.format && item.format !== "unknown" ? `${TRANSCRIPT_FORMAT_LABELS[item.format]}, ` : ""}{item.wordCount.toLocaleString("en-US")} words
+            </span>
+            {#if !included}
+              <span class="shrink-0 text-xs text-ink-muted" data-transcript-not-copied>Not copied</span>
+            {/if}
+          </span>
+          {#if copied}
+            <!-- A copied transcript is unticked, not removed, so the writer
+                 can tick it again (owner decision 35). -->
+            <span class="relative z-10 flex">
+              <Checkbox
+                id={`copy-transcript-${item.id}`}
+                checked={included}
+                aria-label={`Copy ${item.label}`}
+                onCheckedChange={(checked) => setTranscriptIncluded(item.id, checked)}
+              />
+            </span>
+          {:else}
+            {#if layout !== "phone"}<IconCheck size={14} strokeWidth={2} class="shrink-0 text-success" role="img" aria-hidden="false" aria-label="Read" data-transcript-read />{/if}
+            <Tooltip text="Remove" delayDuration={300}>
+              {#snippet children({ props })}
+                <button
+                  {...props}
+                  type="button"
+                  onclick={() => removeTranscriptItem(item.id)}
+                  aria-label={`Remove ${item.label}`}
+                  class="flex size-7 shrink-0 items-center justify-center rounded-md text-ink-faint transition-colors hover:bg-danger-soft hover:text-danger-ink pointer-coarse:size-11"
+                >
+                  <IconClose size={14} strokeWidth={1.8} />
+                </button>
+              {/snippet}
+            </Tooltip>
+          {/if}
+        </li>
+      {/each}
+    </ul>
+    {#each transcriptProblems as problem (problem.id)}
+      <div data-transcript-problem class="my-1">
+        <StatusCallout
+          tone="danger"
+          layout="inline"
+          title={problem.name}
+          role="alert"
+          primaryAction={{ label: "Replace file", onclick: () => replaceProblem(problem.id) }}
+          onDismiss={() => (transcriptProblems = transcriptProblems.filter((row) => row.id !== problem.id))}
+        >
+          {#snippet icon()}<FileIcon name={problem.name} size={28} />{/snippet}
+          {problem.text}
+        </StatusCallout>
+      </div>
+    {/each}
+    {#if fiscalYearMovedForward && transcriptItems.some((item) => item.source.kind === "copy")}
+      <p data-transcripts-year-note class="text-xs text-ink-muted">
+        These transcripts are from FY {sourceFiscalYear}. Untick any that don't cover this year's work.
+      </p>
+    {/if}
+  {/if}
+{/snippet}
+
+{#snippet copiedFiles()}
+  {#if copiedDocumentGroups.length}
+    <!-- Duplicate: the source's files. They are not staged here; the server
+         copies the ticked ones when the project is created, originals
+         included (owner decision 35). -->
+    <section data-copied-files aria-labelledby="copied-files-title" class="rounded-xl border border-line-soft bg-surface px-4 py-3">
+      <div class="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5">
+        <h3 id="copied-files-title" class="min-w-0 truncate text-sm font-medium text-ink">Files from {copySourceTitle}</h3>
+        <p data-copied-files-count class="text-xs text-ink-muted">{copiedCountLabel} file{copiedTotalCount === 1 ? "" : "s"}</p>
+      </div>
+      <p data-copied-files-note class="mt-0.5 text-xs text-ink-muted">{copiedFilesNote}</p>
+      <div class="mt-2.5 flex flex-col gap-2.5">
+        {#each copiedDocumentGroups as group (group.id)}
+          {@const ticks = groupTicks(group)}
+          {@const allTicked = ticks.every(Boolean)}
+          {@const someTicked = ticks.some(Boolean)}
+          <div data-copied-files-group={group.id}>
+            <div class={TICK_ROW}>
+              <span class="relative z-10 flex">
+                <Checkbox
+                  id={`copy-group-${group.id}`}
+                  checked={allTicked}
+                  indeterminate={someTicked && !allTicked}
+                  aria-label={`Copy all ${group.label}`}
+                  onCheckedChange={(checked) => setGroupIncluded(group, checked)}
+                />
+              </span>
+              <Label.Root for={`copy-group-${group.id}`} class={`text-xs font-medium text-ink-muted ${STRETCHED_LABEL}`}>{group.label}</Label.Root>
+            </div>
+            <ul class="mt-1 flex flex-col gap-1 text-sm text-ink-secondary">
+              {#each group.files as file (file._id)}
+                {@const included = isDocumentIncluded(file)}
+                <li data-copied-file={file._id} data-included={included ? "true" : "false"} class={TICK_ROW}>
+                  <span class="relative z-10 flex">
+                    <Checkbox
+                      id={`copy-file-${file._id}`}
+                      checked={included}
+                      aria-label={`Copy ${file.fileName}`}
+                      onCheckedChange={(checked) => documentChoices.set(file._id, checked)}
+                    />
+                  </span>
+                  <Label.Root for={`copy-file-${file._id}`} class={`flex min-w-0 ${STRETCHED_LABEL}`}><span class="min-w-0 truncate">{file.fileName}</span></Label.Root>
+                  {#if file.archived}
+                    <span class="shrink-0 text-xs text-ink-muted">Archived, not read for the draft</span>
+                  {:else if isPortedSameYear(file)}
+                    <span class="shrink-0 text-xs text-ink-muted">
+                      {sourceFiscalYear !== null && newFiscalYear === sourceFiscalYear
+                        ? `PD for FY ${sourceFiscalYear}, the same year as this project`
+                        : "PD for the original's fiscal year"}
+                    </span>
+                  {/if}
+                </li>
+              {/each}
+              {#if groupHasReport(group.id)}
+                <li data-previous-year-report data-included={previousYearReportIncluded ? "true" : "false"} class={TICK_ROW}>
+                  <span class="relative z-10 flex">
+                    <Checkbox
+                      id="copy-previous-year-report"
+                      bind:checked={previousYearReportIncluded}
+                      aria-label={`Copy ${copySourceTitle} report (FY ${sourceFiscalYear})`}
+                    />
+                  </span>
+                  <Label.Root for="copy-previous-year-report" class={`flex min-w-0 ${STRETCHED_LABEL}`}><span class="min-w-0 truncate">{copySourceTitle} report (FY {sourceFiscalYear})</span></Label.Root>
+                  <span class="shrink-0 text-xs text-ink-muted">Made from the original's latest report</span>
+                </li>
+              {/if}
+            </ul>
+          </div>
+        {/each}
+      </div>
+    </section>
+  {/if}
 {/snippet}
 
 {#if auth.isLoading || !auth.isAuthenticated}
@@ -876,672 +1877,700 @@
     <Spinner />
   </div>
 {:else}
-  <!-- New-UI shell (2026-08-10, owner direction): the wizard lives in the
-       light workspace chrome — rail + thin header — matching Home/Projects
-       instead of the classic AppNav/PageBar ledger bands. -->
+  <!-- Round 2 (E1): one page inside the workspace chrome: the folder tile,
+       the "Projects /" breadcrumb and a flush work panel the page lays out. -->
   <WorkspaceChrome
     theme="light"
     title="New project"
-    description={mode === "review"
-      ? "AI feedback report on an existing written PD"
-      : "Generate an SR&ED project description"}
+    breadcrumb={{ label: "Projects", href: resolve("/projects") }}
+    icon={IconFolder}
+    panel="flush"
   >
     {#snippet actions()}
-      {#if writerName}
-        <Tooltip text="Set automatically to the signed-in user">
-          {#snippet children({ props })}
-            <span {...props} class="whitespace-nowrap text-sm font-medium text-ink-secondary">
-              Consultant · {writerName}
-            </span>
-          {/snippet}
-        </Tooltip>
-      {/if}
+      <Button
+        variant="destructive-soft"
+        size="sm"
+        class={`px-3.5! py-0! ${
+          layout === "phone"
+            ? "h-11 text-[15px]! leading-5!"
+            : layout === "tablet"
+              ? "h-8 leading-5! pointer-coarse:h-11"
+              : "h-9 text-[13px]! leading-[18px]! pointer-coarse:h-11"
+        }`}
+        onclick={cancel}
+        data-new-project-cancel>Cancel</Button
+      >
     {/snippet}
     {#snippet children()}
-    <main class="mx-auto w-full max-w-[var(--container-shell)] page-gutter page-gutter-y pb-8">
-      <!-- Step indicator — segment bar: two labeled progress segments, the
-           ledger idiom (a rule that fills) instead of numbered circles. -->
-      <div class="mx-auto mb-6 w-full max-w-sm">
-        <div class="flex gap-1.5" aria-label="Setup steps">
-          {#each STEPS as label, i (label)}
-            <button
-              type="button"
-              aria-current={i === step ? "step" : undefined}
-              onclick={() => { if (i < step) step = i; }}
-              disabled={i > step}
-              class={`group flex-1 pb-1.5 text-left ${i < step ? "cursor-pointer" : "cursor-default"}`}
+        <div data-new-project-panel class="flex min-h-full">
+          <div class="flex min-w-0 flex-1 flex-col">
+            <!-- H1, H2: section chips under the top bar below desktop. -->
+            {#if layout !== "desktop"}
+            <nav
+              aria-label="Sections"
+              data-section-chips
+              class={`sticky top-0 z-10 flex gap-2 overflow-x-auto border-b border-line-soft bg-new-project-canvas scrollbar-hidden ${
+                layout === "phone" ? "px-4 py-2.5" : "px-8 py-3"
+              }`}
             >
-              <span
-                class={`text-[11px] font-medium tracking-wide transition-colors ${
-                  i === step
-                    ? "text-navy"
-                    : i < step
-                      ? "text-primary-dark group-hover:text-navy"
-                      : "text-gray-300"
-                }`}
-              >
-                {i < step ? "✓ " : ""}{label}
-              </span>
-              <span
-                class={`mt-1 block h-0.5 rounded-full transition-colors ${
-                  i <= step ? "bg-primary" : "bg-gray-200"
-                }`}
-              ></span>
-            </button>
-          {/each}
-        </div>
-      </div>
-
-      <!-- Step 1 — details -->
-      {#if step === 0}
-        <div class="flex flex-col gap-4">
-          <div>
-            <h2 class="text-title">Project details</h2>
-            <p class="mt-0.5 text-xs text-gray-500">
-              {mode === "generate"
-                ? "Enter the basics, then drop a transcript file or paste it below."
-                : "Enter the basics, then upload the written PD you want reviewed."}
-            </p>
-          </div>
-
-          <!-- Mode and draft-generation controls -->
-          <!-- Generation controls — separated from the field grid below by a
-               hairline so the row reads as its own band. -->
-          <div class="mb-6 mt-2 flex flex-wrap items-center gap-x-10 gap-y-5 border-b border-gray-100 pb-6">
-            <!-- BNH-39: Generate vs Review mode -->
-            <div class="flex items-center gap-2">
-              <span class="text-xs font-medium text-gray-500">Mode</span>
-              <div class="flex gap-1 rounded-lg bg-chrome p-1" role="radiogroup" aria-label="Project mode">
-                {#each [
-                  { id: "generate", label: "Generate PD", hint: "Draft a new PD from an interview transcript" },
-                  { id: "review", label: "Review PD", hint: "AI feedback report on an existing written PD" },
-                ] as const as opt (opt.id)}
-                  <Tooltip text={opt.hint}>
-                    {#snippet children({ props })}
-                      <button
-                        {...props}
-                        type="button"
-                        role="radio"
-                        aria-checked={mode === opt.id}
-                        onclick={() => (mode = opt.id)}
-                        class={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy ${
-                          mode === opt.id
-                            ? "bg-primary-selected text-white"
-                            : "text-gray-500 hover:bg-primary-wash hover:text-navy"
-                        }`}
-                      >
-                        {opt.label}
-                      </button>
-                    {/snippet}
-                  </Tooltip>
-                {/each}
-              </div>
-            </div>
-            {#if mode === "generate"}
-              <div class="flex items-center gap-2">
-                <span class="text-xs font-medium text-gray-500">Drafts</span>
-                <div class="flex gap-1 rounded-lg bg-chrome p-1" role="radiogroup" aria-label="Draft generation mode">
-                  {#each [
-                    { id: "compare", label: "Compare", hint: "Generate two alternatives and choose one" },
-                    { id: "single", label: "Single draft", hint: "Generate one draft and open it directly" },
-                    { id: "iterative", label: "Section by section", hint: "Draft one section at a time — review and approve each before the next" },
-                  ] as const as opt (opt.id)}
-                    <Tooltip text={opt.hint}>
-                      {#snippet children({ props })}
-                        <button
-                          {...props}
-                          type="button"
-                          role="radio"
-                          aria-checked={candidateMode === opt.id}
-                          onclick={() => (candidateMode = opt.id)}
-                          class={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy ${
-                            candidateMode === opt.id
-                              ? "bg-primary-selected text-white"
-                              : "text-gray-500 hover:bg-primary-wash hover:text-navy"
-                          }`}
-                        >
-                          {opt.label}
-                        </button>
-                      {/snippet}
-                    </Tooltip>
-                  {/each}
-                </div>
-              </div>
-              <div class="ml-auto">
-                {#if candidateMode !== "compare"}
-                  <SingleModelPicker bind:value={singleModelId} size="md" />
-                {:else}
-                  <ComparePairPicker bind:slotA={compareSlotA} bind:slotB={compareSlotB} size="md" />
-                {/if}
-              </div>
-            {/if}
-          </div>
-          <div class="grid gap-x-5 gap-y-4 sm:grid-cols-2 xl:grid-cols-4">
-            <Input id="title" label="Internal project title" bind:value={title} placeholder="Project Verdant F2024" required />
-            <Input id="sredTitle" label="SR&ED title (optional — finalize later)" bind:value={sredTitle} placeholder="e.g. Development of a multi-home SoC estimation system" />
-            <Input id="clientName" label="Client name" bind:value={clientName} placeholder="GreenStem Nurseries Inc." required />
-            <div>
-              <Input
-                id="projectNumber"
-                label="Project number (optional)"
-                bind:value={projectNumber}
-                placeholder="e.g. 1, 2a, or b"
-              />
-              {#if !projectNumberValid}
-                <p class="mt-1 text-xs text-red-700" role="alert">
-                  Use 1–20, a letter a–z, or combined like 2a.
-                </p>
-              {/if}
-            </div>
-            <!-- BNH-22: interviewer selectable from the team roster -->
-            <div class="flex flex-col gap-1.5">
-              <label for="interviewer" class="text-sm font-medium text-gray-700">Interviewer</label>
-              <SelectInput id="interviewer" bind:value={interviewerUserId} items={interviewerOptions} />
-            </div>
-            <!-- BNH-22: multiple client-side interviewees -->
-            <div class="flex flex-col gap-1.5">
-              <label for="interviewee" class="text-sm font-medium text-gray-700">Interviewees (client)</label>
-              <div class="flex gap-2">
-                <input
-                  id="interviewee"
-                  type="text"
-                  bind:value={intervieweeDraft}
-                  placeholder="Add a name, press Enter"
-                  onkeydown={(e) => {
-                    if (e.key === "Enter") {
-                      e.preventDefault();
-                      addInterviewee();
-                    }
-                  }}
-                  class="field-control h-[42px] min-w-0 flex-1 rounded-lg px-3.5 text-sm text-gray-900 placeholder:text-gray-400"
-                />
-                <Button type="button" variant="secondary" onclick={addInterviewee} disabled={!intervieweeDraft.trim()}>
-                  Add
-                </Button>
-              </div>
-              {#if interviewees.length}
-                <div class="flex flex-wrap gap-1.5">
-                  {#each interviewees as name, i (name)}
-                    <span class="inline-flex items-center gap-1 rounded-full bg-chrome px-2.5 py-1 text-xs text-gray-700">
-                      {name}
-                      <button
-                        type="button"
-                        aria-label={`Remove ${name}`}
-                        onclick={() => removeInterviewee(i)}
-                        class="text-gray-400 transition-colors hover:text-red-500"
-                      >
-                        ×
-                      </button>
-                    </span>
-                  {/each}
-                </div>
-              {/if}
-            </div>
-            <div class="flex flex-col gap-1.5">
-              <label for="industry" class="text-sm font-medium text-gray-700">Industry</label>
-              <IndustrySelect id="industry" bind:value={industry} canCreate={user.data?.role === "admin"} />
-            </div>
-            <div class="flex flex-col gap-1.5">
-              <label for="scienceCode" class="text-sm font-medium text-gray-700">Science code</label>
-              <SelectInput id="scienceCode" bind:value={scienceCode} items={CRA_SCIENCE_CODE_ITEMS} class="max-w-full" />
-            </div>
-            <FiscalYearEndInput bind:value={fiscalYearEnd} />
-          </div>
-
-          <!-- BNH-35: project tags -->
-          {#if allTags.length > 0}
-            <TagPicker {allTags} bind:selectedTagIds />
-          {/if}
-          <!-- BNH-39: written PD upload (review mode only) -->
-          {#if mode === "review"}
-            <div class="flex flex-col gap-1.5">
-              <span class="text-sm font-medium text-gray-700">
-                Written PD to review<span class="ml-0.5 text-red-500" aria-hidden="true">*</span>
-              </span>
-              {#if pdDoc}
-                <div class="flex items-center justify-between rounded-xl border border-gray-200 bg-white px-4 py-3">
-                  <div class="flex min-w-0 items-center gap-2.5">
-                    <svg class="h-5 w-5 flex-none text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
-                      <path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                    </svg>
-                    <div class="min-w-0">
-                      <p class="truncate text-sm font-medium text-gray-800">{pdDoc.name}</p>
-                      <p class="text-xs text-gray-400">
-                        {pdDoc.content.split(/\s+/).filter(Boolean).length.toLocaleString()} words extracted
-                      </p>
-                    </div>
-                  </div>
-                  <button
-                    type="button"
-                    onclick={() => {
-                      pdDoc = null;
-                      pdNameHint = "";
-                    }}
-                    aria-label="Remove file"
-                    class="flex-none rounded-md p-1.5 text-gray-400 transition-colors hover:text-red-500"
-                  >
-                    <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                      <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
-                    </svg>
-                  </button>
-                </div>
-              {:else}
+              {#each sectionChips as chip (chip.id)}
+                {@const current = currentSection === chip.id}
                 <button
                   type="button"
-                  onclick={() => pdInput?.click()}
-                  ondragover={(e) => { e.preventDefault(); pdDragOver = true; }}
-                  ondragleave={() => (pdDragOver = false)}
-                  ondrop={(e) => {
-                    e.preventDefault();
-                    pdDragOver = false;
-                    const file = e.dataTransfer?.files?.[0];
-                    if (file) handlePdFile(file);
-                  }}
-                  class={`flex cursor-pointer flex-col items-center justify-center gap-1.5 rounded-xl border-2 border-dashed px-4 py-7 text-center transition-colors ${
-                    pdDragOver
-                      ? "border-primary bg-primary/5"
-                      : "border-gray-200 bg-canvas hover:border-gray-300"
+                  data-section-chip={chip.id}
+                  aria-current={current ? "true" : undefined}
+                  onclick={() => jumpTo(chip.id)}
+                  class={`flex h-[30px] shrink-0 items-center gap-1.5 rounded-full px-3 text-[13px] leading-[18px] font-medium transition-colors pointer-coarse:h-11 ${
+                    current
+                      ? "border-[1.5px] border-primary-selected bg-surface text-ink"
+                      : chip.done
+                        ? "border border-transparent bg-workspace-rail-selected text-fir"
+                        : "border border-line bg-surface text-ink-muted"
                   }`}
                 >
-                  {#if parsingPd}
-                    <span class="inline-flex items-center gap-2 text-sm text-navy">
-                      <Spinner size="sm" class="border-navy/30 border-t-navy" />
-                      Reading {parsingPd}…
-                    </span>
-                  {:else}
-                    <svg class="h-7 w-7 text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
-                      <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
-                    </svg>
-                    <span class="text-sm font-medium text-gray-600">
-                      Drag the written PD here, or click to browse
-                    </span>
-                    <span class="text-xs text-gray-400">Word (.docx), PDF, or .txt</span>
-                  {/if}
+                  {#if current}<span class="size-1.5 rounded-full bg-primary-selected" aria-hidden="true"></span>{:else if chip.done}<IconCheck size={12} strokeWidth={2.4} class="text-primary-selected" />{/if}
+                  {layout === "phone" ? chip.short : chip.label}
                 </button>
-              {/if}
-              <input
-                bind:this={pdInput}
-                type="file"
-                accept={SUPPORTED_ACCEPT}
-                class="hidden"
-                onchange={(e) => {
-                  const file = e.currentTarget.files?.[0];
-                  if (file) handlePdFile(file);
-                  e.currentTarget.value = "";
-                }}
-              />
-              {#if pdFileError}
-                <p class="text-xs text-red-600">{pdFileError}</p>
-              {/if}
-              {#if pdNameHint}
-                <div class="flex items-center gap-2 rounded-md bg-primary-wash px-3 py-1.5" role="status">
-                  <p class="min-w-0 flex-1 text-xs text-ink-secondary">{pdNameHint}</p>
-                  <button
-                    type="button"
-                    aria-label="Dismiss the file-name hint"
-                    class="-my-1 flex h-7 w-7 flex-none items-center justify-center rounded-md text-ink-muted transition-colors hover:text-navy focus-visible:outline focus-visible:outline-2 focus-visible:outline-navy motion-reduce:transition-none"
-                    onclick={() => (pdNameHint = "")}
-                  >
-                    <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true">
-                      <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
-                    </svg>
-                  </button>
-                </div>
-              {/if}
-            </div>
-          {/if}
+              {/each}
+            </nav>
+            {/if}
 
-          <!-- Extra top gap isolates the transcript section from the fields above. -->
-          <div class="mt-4 flex flex-col gap-1.5">
-            <div class="flex flex-wrap items-center justify-between gap-3">
-              <label for="transcript" class="flex flex-wrap items-baseline gap-x-1.5 text-xs font-medium text-gray-700">
-                <span>Interview transcript</span>
-                {#if mode === "review"}
-                  <span class="font-normal text-gray-400">(optional — adds context for the review)</span>
-                {:else}
-                  <span class="font-normal text-gray-400">(optional if you add context documents on the next step)</span>
+            <div
+              bind:this={formColumn}
+              data-form-column
+              class={`flex w-full flex-col ${
+                layout === "desktop"
+                  ? "max-w-[854px] gap-[22px] px-10 py-6"
+                  : layout === "tablet"
+                    ? "gap-[22px] px-8 pt-7 pb-7"
+                    : "gap-[18px] px-4 pt-[18px] pb-6"
+              }`}
+            >
+              <!-- H2: the phone top bar already names the page, so the heading
+                   stays for screen readers and the mode switch leads. -->
+              <header class={layout === "phone" ? "flex flex-col" : "flex flex-row items-end gap-4"}>
+                <div class={layout === "phone" ? "sr-only" : "flex min-w-0 flex-1 flex-col gap-1"}>
+                  <h1 class="font-serif text-[28px] leading-[34px] text-ink">New project</h1>
+                  <p class="text-sm leading-5 text-ink-muted" data-new-project-subtitle>
+                    {mode === "review" ? "Add the draft and the basics." : "Add the interview and the basics."}{layout === "desktop" ? " You become the project Owner." : ""}
+                  </p>
+                </div>
+                {@render modeSwitch()}
+              </header>
+
+              <NewProjectSection id="section-project" number="01" title="Project" helper={layout === "phone" ? undefined : "The basics"} compact={layout === "phone"} gap={layout === "phone" ? "12px" : "14px"}>
+                <div class={`grid ${
+                  layout === "phone" ? "grid-cols-1 gap-3" : layout === "tablet" ? "grid-cols-2 gap-x-4 gap-y-3.5" : "grid-cols-[260px_minmax(0,1fr)] gap-x-4 gap-y-3.5"
+                }`}>
+                  <label class="flex flex-col gap-1.5">
+                    <span class={labelClass}>Client</span>
+                    <ClientCombobox
+                      id="clientName"
+                      bind:value={clientName}
+                      suggestions={clientSuggestions}
+                      inputClass={layout === "phone" ? "h-11 rounded-[10px] pl-3" : "h-9 rounded-lg pl-2.5 pointer-coarse:h-11"}
+                    />
+                  </label>
+                  <label class="flex flex-col gap-1.5">
+                    <span class={labelClass}>Project title</span>
+                    <input
+                      id="title"
+                      bind:value={title}
+                      required
+                      placeholder="Project title"
+                      class={`field-control w-full text-sm leading-5 text-ink placeholder:text-ink-faint pointer-coarse:h-11 ${fieldSize}`}
+                      data-same-name={sameProject ? "true" : undefined}
+                      style={sameProject ? "box-shadow: inset 0 0 0 1.5px var(--color-same-name-line)" : undefined}
+                    />
+                  </label>
+                </div>
+                {#if sameProject}
+                  <div data-same-project>
+                    <StatusCallout
+                      tone="warning"
+                      layout="stacked"
+                      title={`${sameProject.clientName} already has this project${newFiscalYear !== null ? ` for FY ${newFiscalYear}` : ""}`}
+                      role="status"
+                      primaryAction={{ label: "Open that project", onclick: () => leaveTo(`/project/${sameProject.projectId}`) }}
+                      secondaryAction={{ label: "It is a different project", onclick: () => dismissedDuplicates.add(duplicateKey) }}
+                    >
+                      {sameProjectText}
+                    </StatusCallout>
+                  </div>
                 {/if}
-              </label>
-              <div class="flex items-center gap-3">
-                {#if wordCount > 0}
-                  <span class="text-xs text-gray-400">
-                    {transcriptItems.length > 1
-                      ? `${transcriptItems.length} transcripts · `
-                      : ""}{wordCount.toLocaleString()} words
-                  </span>
-                {/if}
-                <!-- BNH-31: upload OR paste — one shown at a time to keep the page short -->
-                <div class="flex gap-1 rounded-lg bg-chrome p-1" role="tablist" aria-label="Transcript input method">
-                  {#each [
-                    { id: "upload", label: "Upload file" },
-                    { id: "paste", label: "Paste text" },
-                  ] as const as tab (tab.id)}
+                <div class={`grid ${
+                  layout === "phone" ? "grid-cols-1 gap-3" : layout === "tablet" ? "grid-cols-3 gap-x-4 gap-y-3.5" : "grid-cols-[260px_minmax(0,1fr)] gap-x-4 gap-y-3.5"
+                }`}>
+                  <div class="flex flex-col gap-1.5">
+                    <span class={labelClass} id="fiscal-year-label">Fiscal year</span>
+                    <DatePicker
+                      id="fiscalYearEnd"
+                      bind:value={fiscalYearEnd}
+                      heading="Year end"
+                      quickPicks={FISCAL_QUICK_PICKS}
+                      helper="The fiscal year takes the year of its end date."
+                    >
+                      {#snippet trigger({ props })}
+                        <button {...props} type="button" aria-labelledby="fiscal-year-label" data-fiscal-year class={`${fieldClass} flex items-center gap-2 text-left`}>
+                          <IconCalendar size={15} strokeWidth={1.5} class="shrink-0 text-ink-muted" />
+                          {#if fiscalDisplay}
+                            <span class="text-ink">{fiscalDisplay.year}</span>
+                            <span class="min-w-0 truncate text-ink-muted"><span class="hidden sm:inline">({fiscalDisplay.date})</span><span class="sm:hidden">({fiscalDisplay.date.replace(/, \d{4}$/, "")})</span></span>
+                          {:else}
+                            <span class="text-ink-faint">Choose the year end</span>
+                          {/if}
+                        </button>
+                      {/snippet}
+                    </DatePicker>
+                  </div>
+                  <div class="flex flex-col gap-1.5">
+                    <span class={labelClass} id="science-code-label">Science code</span>
+                    <ScienceCodePicker value={scienceCode || null} bind:open={scienceOpen} onSelect={(code) => { scienceCode = code ?? ""; }}>
+                      {#snippet trigger({ props })}
+                        <button {...props} type="button" id="scienceCode" aria-labelledby="science-code-label" data-science-code class={`${fieldClass} flex items-center gap-2 text-left`}>
+                          {#if scienceDisplay}
+                            {#if layout !== "phone"}<span class="font-mono font-medium text-ink">{scienceDisplay.code}</span>{/if}
+                            <span class={`min-w-0 flex-1 truncate ${layout === "phone" ? "text-ink" : "text-ink-muted"}`}>{scienceDisplay.label}</span>
+                          {:else}
+                            <span class="min-w-0 flex-1 truncate text-ink-faint">Choose a science code</span>
+                          {/if}
+                          <IconChevronDown size={14} strokeWidth={1.8} class="shrink-0 text-ink-faint" />
+                        </button>
+                      {/snippet}
+                    </ScienceCodePicker>
+                  </div>
+                  <div class="flex flex-col gap-1.5">
+                    <label for="industry" class={labelClass}>Industry</label>
+                    <IndustrySelect id="industry" bind:value={industry} canCreate={user.data?.role === "admin"} class={selectFieldClass} />
+                  </div>
+                </div>
+              </NewProjectSection>
+
+              {#if mode === "generate"}
+                <!-- H1, H2: once transcripts are in, the helper carries the
+                     count and the words instead of the status at the right. -->
+                <NewProjectSection
+                  id="section-interview"
+                  number="02"
+                  title="Interview"
+                  helper={interviewHelper}
+                  statusInline={layout !== "desktop" && !transcriptProblems.length}
+                  compact={layout === "phone"}
+                  gap={layout === "phone" ? "6px" : layout === "tablet" ? "8px" : "10px"}
+                >
+                  {#snippet status()}
+                    {#if layout !== "desktop" && !transcriptProblems.length}
+                      {#if transcriptCountForSubmit > 0}
+                        <!-- H1, H2: the count sits where the helper was. -->
+                        <span data-interview-status="ready" class="text-[13px] leading-[19px] text-ink-muted">
+                          {layout === "phone"
+                            ? `${transcriptWordCount.toLocaleString("en-US")} words`
+                            : `${transcriptCountForSubmit} ${transcriptCountForSubmit === 1 ? "transcript" : "transcripts"}, ${transcriptWordCount.toLocaleString("en-US")} words`}
+                        </span>
+                      {/if}
+                    {:else if transcriptProblems.length}
+                      <span data-interview-status="problem" class="flex items-center gap-[5px] text-[13px] leading-[19px] font-medium text-danger-ink-muted">
+                        <IconAlertCircle size={13} strokeWidth={2} class="text-danger" />
+                        {transcriptCountForSubmit} of {transcriptCountForSubmit + transcriptProblems.length} can be read
+                      </span>
+                    {:else if transcriptCountForSubmit > 0}
+                      <span data-interview-status="ready" class="flex items-center gap-[5px] text-[13px] leading-[19px] font-medium text-success-ink-muted">
+                        <IconCheck size={13} strokeWidth={2.2} />
+                        {transcriptWordCount.toLocaleString("en-US")} words
+                      </span>
+                    {/if}
+                  {/snippet}
+                  {#if wrongTranscriptFile}
+                    <!-- E5: a file that is not a transcript. -->
                     <button
                       type="button"
-                      role="tab"
-                      aria-selected={transcriptTab === tab.id}
-                      onclick={() => (transcriptTab = tab.id)}
-                      class={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy ${
-                        transcriptTab === tab.id
-                          ? "bg-primary-selected text-white"
-                          : "text-gray-500 hover:bg-primary-wash hover:text-navy"
+                      data-transcript-wrong-file
+                      onclick={() => transcriptInput?.click()}
+                      ondragover={(e) => { e.preventDefault(); transcriptDragOver = true; }}
+                      ondragleave={() => (transcriptDragOver = false)}
+                      ondrop={(e) => {
+                        e.preventDefault();
+                        transcriptDragOver = false;
+                        const files = e.dataTransfer?.files;
+                        if (files?.length) handleTranscriptFiles(Array.from(files));
+                      }}
+                      class="flex min-h-12 w-full flex-wrap items-center gap-x-3 gap-y-1 rounded-[10px] border-[1.5px] border-dashed border-danger-line bg-surface px-3.5 py-2 text-left"
+                    >
+                      <IconAlertCircle size={16} strokeWidth={1.7} class="shrink-0 text-danger-ink-muted" />
+                      <span role="alert" class="text-[13px] leading-[19px] font-medium text-danger-ink">
+                        {wrongTranscriptFile.video ? `${wrongTranscriptFile.name} is a video.` : `${wrongTranscriptFile.name} is not a transcript file.`}
+                      </span>
+                      <span class="text-[13px] leading-[19px] text-danger-body">Add transcripts as Word, VTT, SRT or text.</span>
+                    </button>
+                  {:else}
+                    <div
+                      role="group"
+                      aria-label="Add transcripts"
+                      ondragover={(e) => { e.preventDefault(); transcriptDragOver = true; }}
+                      ondragleave={() => (transcriptDragOver = false)}
+                      ondrop={(e) => {
+                        e.preventDefault();
+                        transcriptDragOver = false;
+                        const files = e.dataTransfer?.files;
+                        if (files?.length) handleTranscriptFiles(Array.from(files));
+                      }}
+                      class={`flex min-h-12 items-center gap-3 rounded-[10px] border-[1.5px] border-dashed px-3.5 transition-colors ${
+                        transcriptDragOver ? "border-primary-selected bg-primary-wash" : "border-line bg-new-project-canvas"
+                      }`}
+                      data-transcript-drop
+                    >
+                      {#if parsingTranscript}
+                        <span class="inline-flex items-center gap-2 text-[13px] text-ink">
+                          <Spinner size="sm" class="border-navy/30 border-t-navy" />
+                          Reading {parsingTranscript}...
+                        </span>
+                      {:else}
+                        <button type="button" onclick={() => transcriptInput?.click()} class="flex items-center gap-3 rounded-md text-[13px] leading-[19px] font-medium text-ink hover:underline focus-visible:outline-2 focus-visible:outline-fir pointer-coarse:min-h-11">
+                          <IconUpload size={16} strokeWidth={1.6} class="text-primary-selected" />
+                          Drop transcripts
+                        </button>
+                        <button type="button" data-open-paste onclick={() => (pasteOpen = !pasteOpen)} class="rounded-md text-[13px] leading-[19px] text-ink-muted hover:text-ink hover:underline focus-visible:outline-2 focus-visible:outline-fir pointer-coarse:min-h-11">
+                          or paste the text
+                        </button>
+                      {/if}
+                    </div>
+                  {/if}
+                  {#if pasteOpen}
+                    <div class="flex flex-col gap-2" data-paste-panel>
+                      <textarea
+                        id="transcript"
+                        rows={8}
+                        bind:value={pasteDraft}
+                        aria-label="Transcript text"
+                        placeholder="Paste the full interview transcript here"
+                        class="field-control rounded-md px-3 py-2 font-serif text-sm leading-relaxed text-ink placeholder:font-sans placeholder:text-ink-faint"
+                      ></textarea>
+                      <div class="flex justify-end gap-2">
+                        <Button type="button" size="sm" variant="ghost" onclick={() => { pasteOpen = false; pasteDraft = ""; }}>Cancel</Button>
+                        <Button type="button" size="sm" variant="secondary" disabled={!pasteDraft.trim()} onclick={addPastedTranscript}>Add transcript</Button>
+                      </div>
+                    </div>
+                  {/if}
+                  {@render transcriptRows()}
+                  <div class={`grid ${
+                    layout === "phone" ? "grid-cols-1 gap-3" : layout === "tablet" ? "grid-cols-2 gap-4" : "grid-cols-[260px_minmax(0,1fr)] gap-4"
+                  }`}>
+                    <div class="flex flex-col gap-1.5">
+                      <label for="interviewer" class={labelClass}>Interviewer</label>
+                      <SelectInput id="interviewer" bind:value={interviewerUserId} items={interviewerOptions} class={selectFieldClass} />
+                    </div>
+                    <div class="flex flex-col gap-1.5">
+                      <label for="interviewee" class={labelClass}>Interviewees</label>
+                      <div
+                        data-interviewees-field
+                        class={`flex flex-wrap items-center gap-2 border border-line bg-surface py-1 ${
+                          layout === "phone" ? "min-h-11 rounded-[10px] px-3" : "min-h-9 rounded-lg px-2.5 pointer-coarse:min-h-11"
+                        }`}
+                      >
+                        {#each interviewees as name, i (name)}
+                          <span data-interviewee-chip class="inline-flex h-6 items-center gap-1 rounded-md bg-chrome px-2 text-xs leading-4 font-medium text-ink-secondary">
+                            {name}
+                            <button type="button" aria-label={`Remove ${name}`} onclick={() => removeInterviewee(i)} class="-mr-1 flex size-4 items-center justify-center text-ink-faint hover:text-danger-ink">
+                              <IconClose size={12} strokeWidth={1.8} />
+                            </button>
+                          </span>
+                        {/each}
+                        <input
+                          id="interviewee"
+                          type="text"
+                          bind:value={intervieweeDraft}
+                          placeholder={interviewees.length ? "Add another" : "Add a name, press Enter"}
+                          onkeydown={(e) => {
+                            if (e.key === "Enter") {
+                              e.preventDefault();
+                              addInterviewee();
+                            }
+                          }}
+                          onblur={addInterviewee}
+                          class="input-chromeless h-7 min-w-24 flex-1 bg-transparent text-sm leading-5 text-ink placeholder:text-ink-faint"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </NewProjectSection>
+              {:else}
+                <NewProjectSection id="section-interview" number="02" title="Written PD" helper={layout === "phone" ? undefined : "The draft you want reviewed"} compact={layout === "phone"} gap={layout === "phone" ? "10px" : "14px"}>
+                  {#snippet status()}
+                    {#if pdDoc}
+                      <span data-written-pd-status class="flex items-center gap-[5px] text-[13px] leading-[19px] font-medium text-success-ink-muted">
+                        <IconCheck size={13} strokeWidth={2.2} /> Ready to review
+                      </span>
+                    {/if}
+                  {/snippet}
+                  {#if pdDoc}
+                    <ReviewPdCard
+                      name={pdDoc.name}
+                      content={pdDoc.content}
+                      pageOffsets={pdDoc.pageOffsets}
+                      titleFromFileName={pdTitleFromName}
+                      onPreview={() => (pdPreviewOpen = true)}
+                      onRemove={() => {
+                        pdDoc = null;
+                        pdNameHint = "";
+                        pdTitleFromName = false;
+                      }}
+                    />
+                  {:else}
+                    <button
+                      type="button"
+                      data-written-pd-drop
+                      onclick={() => pdInput?.click()}
+                      ondragover={(e) => { e.preventDefault(); pdDragOver = true; }}
+                      ondragleave={() => (pdDragOver = false)}
+                      ondrop={(e) => {
+                        e.preventDefault();
+                        pdDragOver = false;
+                        const file = e.dataTransfer?.files?.[0];
+                        if (file) handlePdFile(file);
+                      }}
+                      class={`flex min-h-24 flex-col items-center justify-center gap-1 rounded-xl border-[1.5px] border-dashed px-4 text-center transition-colors ${
+                        pdDragOver ? "border-primary-selected bg-primary-wash" : "border-line bg-new-project-canvas hover:bg-primary-wash"
                       }`}
                     >
-                      {tab.label}
+                      {#if parsingPd}
+                        <span class="inline-flex items-center gap-2 text-[13px] text-ink">
+                          <Spinner size="sm" class="border-navy/30 border-t-navy" />
+                          Reading {parsingPd}...
+                        </span>
+                      {:else}
+                        <span class="text-[13px] leading-[18px] font-medium text-ink">Drop the written PD</span>
+                        <span class="text-xs leading-4 text-ink-muted">Word, PDF or text</span>
+                      {/if}
                     </button>
+                  {/if}
+                  {#if pdFileError}
+                    <p role="alert" class="text-xs text-danger-ink-muted">{pdFileError}</p>
+                  {/if}
+                  {#if pdNameHint}
+                    <div class="flex items-center gap-2 rounded-md bg-primary-wash px-3 py-1.5" role="status">
+                      <p class="min-w-0 flex-1 text-xs text-ink-secondary">{pdNameHint}</p>
+                      <button
+                        type="button"
+                        aria-label="Dismiss the file-name hint"
+                        class="-my-1 flex size-7 flex-none items-center justify-center rounded-md text-ink-muted transition-colors hover:text-navy focus-visible:outline-2 focus-visible:outline-navy"
+                        onclick={() => (pdNameHint = "")}
+                      >
+                        <IconClose size={14} strokeWidth={1.8} />
+                      </button>
+                    </div>
+                  {/if}
+                  <p class="text-[13px] leading-[18px] text-ink-muted">Add the interview under Supporting documents if you want facts checked against it.</p>
+                  {@render transcriptRows()}
+                </NewProjectSection>
+              {/if}
+
+              <NewProjectSection
+                id="section-supporting"
+                number="03"
+                title={layout === "phone" ? "Supporting" : "Supporting documents"}
+                helper={layout === "phone" ? undefined : layout === "tablet" ? "Optional" : "Optional. Anything that backs up the claim."}
+                compact={layout === "phone"}
+                gap={layout === "phone" ? "10px" : "14px"}
+              >
+                {#snippet action()}
+                  <DropdownMenu.Root>
+                    <DropdownMenu.Trigger data-add-supporting class="flex h-[30px] items-center gap-1.5 rounded-[7px] bg-chrome px-2.5 text-[13px] leading-[18px] font-medium text-ink transition-colors hover:bg-primary-wash focus-visible:outline-2 focus-visible:outline-fir pointer-coarse:h-11">
+                      <IconPlus size={12} strokeWidth={2} /> Add <IconChevronDown size={11} strokeWidth={2.2} stroke-linejoin="miter" class="text-ink-muted" />
+                    </DropdownMenu.Trigger>
+                    <DropdownMenu.Portal>
+                      <DropdownMenu.Content align="end" sideOffset={6} data-add-menu class="z-[130] w-[300px] rounded-xl border border-line bg-surface p-1.5 shadow-menu">
+                        <DropdownMenu.Item onSelect={() => docsInput?.click()} data-add-upload class="flex h-8 cursor-default items-center gap-2 rounded-md px-2 text-[13px] leading-[19px] text-ink outline-none data-highlighted:bg-primary-wash pointer-coarse:h-11">
+                          <IconUpload size={15} strokeWidth={1.5} />
+                          <span class="flex-1">Upload files</span>
+                          <span class="text-xs leading-4 text-ink-faint">PDF, Word, Excel</span>
+                        </DropdownMenu.Item>
+                        <DropdownMenu.Item onSelect={() => (docPasteOpen = true)} data-add-paste class="flex h-8 cursor-default items-center gap-2 rounded-md px-2 text-[13px] leading-[19px] text-ink outline-none data-highlighted:bg-primary-wash pointer-coarse:h-11">
+                          <IconBook size={15} strokeWidth={1.5} />
+                          <span class="flex-1">Paste text or notes</span>
+                        </DropdownMenu.Item>
+                      </DropdownMenu.Content>
+                    </DropdownMenu.Portal>
+                  </DropdownMenu.Root>
+                {/snippet}
+                {@render copiedFiles()}
+                {#if docPasteOpen}
+                  <div class="flex flex-col gap-2 rounded-xl border border-line-soft p-3" data-doc-paste>
+                    <div class="flex flex-wrap items-center gap-2">
+                      <span class={labelClass}>Paste as</span>
+                      <div class="w-56">
+                        <SelectInput
+                          size="sm"
+                          ariaLabel="Type of pasted text"
+                          value={docPasteCategory}
+                          onValueChange={(next) => (docPasteCategory = next as SupportingCategory)}
+                          items={docCategories.map((category) => ({ value: category, label: CATEGORY_LABELS[category] }))}
+                        />
+                      </div>
+                    </div>
+                    <textarea
+                      rows={6}
+                      bind:value={docPasteText}
+                      aria-label="Pasted text"
+                      placeholder="Paste notes or text here"
+                      class="field-control rounded-md px-3 py-2 text-sm leading-relaxed text-ink placeholder:text-ink-faint"
+                    ></textarea>
+                    <div class="flex justify-end gap-2">
+                      <Button type="button" size="sm" variant="ghost" onclick={() => { docPasteOpen = false; docPasteText = ""; }}>Cancel</Button>
+                      <Button type="button" size="sm" variant="secondary" disabled={!docPasteText.trim()} onclick={addDocPaste} data-add-pasted>Add</Button>
+                    </div>
+                  </div>
+                {/if}
+                <div
+                  role="group"
+                  aria-label="Supporting documents"
+                  data-supporting-grid
+                  class={`grid ${layout === "phone" ? "grid-cols-1 gap-2.5" : layout === "tablet" ? "grid-cols-3 gap-2.5" : "grid-cols-2 gap-3"}`}
+                  ondragover={(e) => { e.preventDefault(); docsDragOver = true; }}
+                  ondragleave={() => (docsDragOver = false)}
+                  ondrop={(e) => {
+                    e.preventDefault();
+                    docsDragOver = false;
+                    const files = e.dataTransfer?.files;
+                    if (files?.length) addSupportingFiles(Array.from(files));
+                  }}
+                >
+                  {#each docs.items as doc (doc.id)}
+                    <SupportingDocCard
+                      {doc}
+                      categories={docCategories}
+                      years={yearChoices}
+                      compact={layout !== "desktop"}
+                      onPreview={() => { previewId = doc.id; previewOpen = true; }}
+                      onRemove={() => removeDoc(doc.id)}
+                      onReplace={() => replaceDoc(doc.id)}
+                      onCategory={(category) => docs.setCategory(doc.id, category)}
+                      onYear={(year) => docs.setYear(doc.id, year)}
+                    />
                   {/each}
+                  <button
+                    type="button"
+                    data-drop-more
+                    onclick={() => docsInput?.click()}
+                    class={`flex min-h-24 flex-col items-center justify-center gap-1 rounded-xl border-[1.5px] border-dashed px-4 text-center transition-colors ${
+                      docsDragOver ? "border-primary-selected bg-primary-wash" : "border-line bg-new-project-canvas hover:bg-primary-wash"
+                    }`}
+                  >
+                    <span class="text-[13px] leading-[18px] font-medium text-ink">{docs.items.length ? "Drop more files" : "Drop files"}</span>
+                    <span class="text-xs leading-4 text-ink-muted">PDF, Word, Excel, text or email</span>
+                  </button>
                 </div>
-              </div>
+                {#if docsError}
+                  <p role="alert" class="text-xs text-danger-ink-muted">{docsError}</p>
+                {/if}
+                {#if previousYears.length}
+                  <div class="flex flex-col gap-2" data-year-notes>
+                    {#each previousYears as year (year)}
+                      <label class="flex flex-col gap-1.5">
+                        <span class={labelClass}>Note on the FY {year} report <span class="font-normal text-ink-muted">(optional)</span></span>
+                        <input
+                          value={yearNotes.get(year) ?? ""}
+                          oninput={(e) => yearNotes.set(year, e.currentTarget.value)}
+                          placeholder="For example, what changed since last year's claim"
+                          class={`field-control w-full text-sm leading-5 text-ink placeholder:text-ink-faint ${fieldSize}`}
+                        />
+                      </label>
+                    {/each}
+                  </div>
+                {/if}
+              </NewProjectSection>
+
+              <NewProjectSection id="section-details" number="04" title="Details" helper={layout === "phone" ? undefined : "Optional"} last={layout === "desktop"} compact={layout === "phone"} gap={layout === "phone" ? "12px" : "14px"}>
+                <div class={`grid ${
+                  layout === "phone" ? "grid-cols-1 gap-3" : layout === "tablet" ? "grid-cols-2 gap-x-4 gap-y-3.5" : "grid-cols-[260px_minmax(0,1fr)] gap-x-4 gap-y-3.5"
+                }`}>
+                  <div class="flex flex-col gap-1.5">
+                    <label for="projectNumber" class={labelClass}>Project number</label>
+                    <input id="projectNumber" bind:value={projectNumber} placeholder="For example, P01-A" class={`field-control w-full text-sm leading-5 text-ink placeholder:text-ink-faint pointer-coarse:h-11 ${fieldSize}`} aria-invalid={!projectNumberValid} />
+                    {#if !projectNumberValid}
+                      <p class="text-xs text-danger-ink-muted" role="alert">Use 1 to 20, a letter a to z, or both, like 2a.</p>
+                    {/if}
+                  </div>
+                  {#if allTags.length > 0}
+                    <div class="flex flex-col gap-1.5" data-tags-field>
+                      <span class={labelClass}>Tags</span>
+                      <TagPicker {allTags} bind:selectedTagIds label={null} variant="field" />
+                    </div>
+                  {/if}
+                  <label class={`flex flex-col gap-1.5 ${layout === "phone" ? "" : "col-span-2"}`}>
+                    <span class={labelClass}>SR&ED title</span>
+                    <input id="sredTitle" bind:value={sredTitle} placeholder="Optional. You can set it later." class={`field-control w-full text-sm leading-5 text-ink placeholder:text-ink-faint pointer-coarse:h-11 ${fieldSize}`} />
+                  </label>
+                </div>
+              </NewProjectSection>
+
+              <!-- H1, H2: How should we write it? as an inline section. -->
+              {#if layout !== "desktop"}
+              <section id="section-mode" data-new-project-section="section-mode" class={`flex scroll-mt-4 flex-col ${layout === "phone" ? "gap-2.5" : "gap-3.5"}`} aria-labelledby="section-mode-title">
+                <div class="flex items-baseline gap-2.5">
+                  <span class="font-mono text-xs leading-[22px] text-ink-faint" aria-hidden="true">05</span>
+                  <h2 id="section-mode-title" class="text-[15px] leading-[22px] font-medium text-ink">
+                    {layout === "phone"
+                      ? mode === "review" ? "How to review it" : "How to write it"
+                      : mode === "review" ? "How should we review it?" : "How should we write it?"}
+                  </h2>
+                </div>
+                {#if mode === "generate"}
+                  <WriteModeCards bind:value={candidateMode} layout={layout === "tablet" ? "row" : "phone"} />
+                {/if}
+                <div class={layout === "tablet" ? "w-[300px] max-w-full" : ""}>
+                  {@render modelPicker()}
+                </div>
+                <ul class="flex flex-col gap-1" data-bottom-checklist>
+                  {#each checklist.filter((row) => row.state === "danger" || row.state === "warning") as row (row.id)}
+                    <li class="text-[13px] text-danger-ink">{row.text}</li>
+                  {/each}
+                </ul>
+              </section>
+              {/if}
             </div>
 
-            {#if transcriptItems.length}
-              <!-- The project's transcripts, in the order they will be read.
-                   Same chip grammar as the context-document rows below. -->
-              <ul class="flex flex-col gap-1.5">
-                {#each transcriptItems as item (item.id)}
-                  <li class="flex items-center justify-between gap-3 rounded-xl border border-gray-200 bg-white px-4 py-3">
-                    <span class="flex min-w-0 items-center gap-2.5">
-                      <span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-blue-50 text-blue-500">
-                        <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
-                          <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
-                        </svg>
-                      </span>
-                      <span class="min-w-0">
-                        <span class="block truncate text-sm font-medium text-gray-800">{item.label}</span>
-                        <span class="block text-xs text-gray-400">{item.wordCount.toLocaleString()} words</span>
-                      </span>
-                    </span>
-                    <button
-                      type="button"
-                      onclick={() => removeTranscriptItem(item.id)}
-                      aria-label={`Remove ${item.label}`}
-                      class="shrink-0 rounded-md px-2 py-1 text-xs font-medium text-red-700 transition-colors hover:bg-red-50"
-                    >
-                      Remove
-                    </button>
-                  </li>
-                {/each}
-              </ul>
-            {/if}
-
-            {#if transcriptTab === "upload"}
-              <!-- BNH-31: large drag-and-drop zone; every drop or selection
-                   appends to the list, so several Teams exports can go in at
-                   once or one at a time. -->
+            <!-- H1, H2: sticky bottom bar with the start button. -->
+            {#if layout !== "desktop"}
+            <div
+              data-bottom-bar
+              class={`sticky bottom-0 z-10 mt-auto flex border-t border-line-soft bg-surface ${
+                layout === "phone" ? "flex-col gap-1.5 px-4 pt-3 pb-[30px]" : "h-[72px] flex-row items-center gap-3 px-8"
+              }`}
+            >
+              <!-- H2 shows only the button; the line stays when something
+                   blocks the start or a start is under way, so a disabled
+                   button always says why. -->
+              {#if layout !== "phone" || firstBlocking || (progress && committing)}
+                <p class={`min-w-0 flex-1 truncate text-[13px] leading-[18px] ${firstBlocking ? "text-danger-ink" : "text-ink-secondary"}`} data-bottom-summary>
+                  {progress && committing ? progress : firstBlocking ? firstBlocking.text : readySummary}
+                </p>
+              {/if}
               <button
                 type="button"
-                onclick={() => transcriptInput?.click()}
-                ondragover={(e) => { e.preventDefault(); transcriptDragOver = true; }}
-                ondragleave={() => (transcriptDragOver = false)}
-                ondrop={(e) => {
-                  e.preventDefault();
-                  transcriptDragOver = false;
-                  const files = e.dataTransfer?.files;
-                  if (files?.length) handleTranscriptFiles(Array.from(files));
-                }}
-                class={`flex cursor-pointer items-center justify-center gap-2.5 rounded-xl border border-dashed px-4 py-4 text-center transition-colors ${
-                  transcriptDragOver
-                    ? "border-primary bg-primary/10"
-                    : "border-primary/40 bg-primary-wash hover:border-primary hover:bg-primary/10"
+                bind:this={bottomStartButton}
+                data-bottom-start
+                disabled={blocked || committing}
+                onclick={() => openStart(bottomStartButton)}
+                class={`flex shrink-0 items-center justify-center gap-2 bg-fir font-medium text-white hover:bg-navy-light focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fir focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 ${
+                  layout === "phone" ? "h-12 w-full rounded-[10px] text-base leading-5" : "h-9 rounded-lg px-4 text-sm leading-5 pointer-coarse:h-11"
                 }`}
               >
-                {#if parsingTranscript}
-                  <span class="inline-flex items-center gap-2 text-sm text-navy">
-                    <Spinner size="sm" class="border-navy/30 border-t-navy" />
-                    Reading {parsingTranscript}…
-                  </span>
-                {:else}
-                  <svg class="h-5 w-5 text-primary/60" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
-                  </svg>
-                  <span class="text-xs font-medium text-primary-dark">
-                    {transcriptItems.length
-                      ? "Drag more transcripts here, or click to browse"
-                      : "Drag the transcript here, or click to browse"}
-                  </span>
-                  <span class="text-[11px] text-primary-dark/60">
-                    Word (.docx) — the Teams export
-                  </span>
-                {/if}
+                {startLabel}
               </button>
-            {:else}
-              <textarea
-                id="transcript"
-                rows={12}
-                bind:value={pasteDraft}
-                placeholder="Paste the full interview transcript here"
-                class="field-control rounded-lg px-3.5 py-2.5 font-serif text-sm leading-relaxed text-gray-900 placeholder:font-sans placeholder:text-gray-400"
-              ></textarea>
-              <div class="flex justify-end">
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="secondary"
-                  disabled={!pasteDraft.trim()}
-                  onclick={addPastedTranscript}
-                >
-                  Add transcript
-                </Button>
+            </div>
+            {/if}
+          </div>
+
+          <!-- Right column (desktop): How should we write it? -->
+          {#if layout === "desktop"}
+          <aside data-right-column aria-label={mode === "review" ? "How should we review it?" : "How should we write it?"} class="flex w-[360px] shrink-0 flex-col gap-3 border-l border-line-soft bg-new-project-canvas px-6 pt-7 pb-6">
+            <div class="sticky top-7 flex flex-col gap-3">
+              <h2 class="text-[15px] leading-[22px] font-medium text-ink">{mode === "review" ? "How should we review it?" : "How should we write it?"}</h2>
+              {#if mode === "generate"}
+                <WriteModeCards bind:value={candidateMode} />
+              {/if}
+              {@render modelPicker()}
+              <!-- E4: in a review the start sits straight under the model,
+                   with no box and no "Before you start". -->
+              <div class={mode === "review" ? "pt-2" : "mt-2.5"}>
+                <StartChecklist
+                  variant={mode === "review" ? "plain" : "box"}
+                  rows={checklist}
+                  {startLabel}
+                  busy={committing}
+                  busyLabel={committing && progress ? progress : null}
+                  note={startNote}
+                  bind:startButton
+                  onStart={() => openStart(startButton)}
+                  onAction={scrollToTarget}
+                />
               </div>
-            {/if}
-            <input
-              bind:this={transcriptInput}
-              type="file"
-              accept=".docx"
-              multiple
-              class="hidden"
-              onchange={(e) => {
-                if (e.currentTarget.files?.length) {
-                  handleTranscriptFiles(Array.from(e.currentTarget.files));
-                }
-                e.currentTarget.value = "";
-              }}
-            />
-            {#if transcriptFileError}
-              <p class="text-xs text-red-600">{transcriptFileError}</p>
-            {/if}
-          </div>
-          <!-- Context & files — one ledger card of divided rows (Jul 20).
-               Each category is a row: label ledger-style on the left, staged
-               chips in the middle, actions right; the whole row is a drop
-               target. Ordered by SR&ED weight, so the card reads as the
-               weighting table it actually is. -->
-          <div class="mt-5">
-            <div class="flex items-baseline justify-between gap-3">
-              <h2 class="text-title">Context & files</h2>
-              <p class="text-xs text-gray-400">
-                All optional · {fileCount} item{fileCount === 1 ? "" : "s"} attached
-              </p>
             </div>
-            <div class="card mt-2.5 divide-y divide-gray-100 overflow-hidden">
-              {#each CONTEXT_CATEGORIES as cat (cat.id)}
-                {#if cat.id === "previous_pd"}
-                  <PreviousYearRow
-                    def={cat}
-                    rows={pyRows}
-                    onAddFiles={addPyFiles}
-                    onRemoveFile={removePyFile}
-                    onUpdateYear={updatePyYear}
-                    onUpdateNote={updatePyNote}
-                    onRemoveYear={removePyYear}
-                    onAddYear={addPyYear}
-                  />
-                {:else}
-                  <CategoryRow
-                    def={cat}
-                    value={staged[cat.id]}
-                    onAddFiles={(fs) => updateCategory(cat.id, { files: [...staged[cat.id].files, ...fs] })}
-                    onRemoveFile={(idx) =>
-                      updateCategory(cat.id, {
-                        files: staged[cat.id].files.filter((_, i) => i !== idx),
-                      })}
-                    onText={(text) => updateCategory(cat.id, { text })}
-                  />
-                {/if}
-              {/each}
-            </div>
-          </div>
+          </aside>
+          {/if}
         </div>
-      {/if}
 
-      <!-- Step 2 — review -->
-      {#if step === 1}
-        <div class="flex flex-col gap-4">
-          <div>
-            <h2 class="text-title">{mode === "generate" ? "Review & generate" : "Review & start"}</h2>
-            <p class="mt-0.5 text-xs text-gray-500">
-              {mode === "generate"
-                ? "Confirm everything looks right, then generate the draft report."
-                : "Confirm everything looks right, then start the AI review of the written PD."}
-            </p>
-          </div>
-          <div class="card p-4 text-sm">
-            {@render row("Mode", mode === "generate" ? "Generate PD" : "Review PD")}
-            {#if mode === "generate"}
-              {@render row(
-                "Draft generation",
-                candidateMode === "compare"
-                  ? "Compare 2 drafts"
-                  : candidateMode === "iterative"
-                    ? "Section by section"
-                    : "Single draft"
-              )}
-              {#if candidateMode === "compare"}
-                {@render row("Models", comparePairLabel(compareSlotA, compareSlotB))}
-              {/if}
-              {#if candidateMode !== "compare"}
-                {@render row(
-                  "Model",
-                  SINGLE_MODEL_ITEMS.find((item) => item.value === singleModelId)?.label ?? SINGLE_MODEL_ITEMS[0].label
-                )}
-              {/if}
-            {/if}
-            {@render row("Project", title || "—")}
-            {@render row("Client", clientName || "—")}
-            {#if industry}
-              {@render row("Industry", industryLabel(industry))}
-            {/if}
-            {#if scienceCode}
-              {@render row("Science code", scienceCodeLabel(scienceCode))}
-            {/if}
-            {#if writerName}
-              {@render row("Creator & initial Owner", writerName)}
-            {/if}
-            {#if interviewerName}
-              {@render row("Interviewer", interviewerName)}
-            {/if}
-            {#if interviewees.length}
-              {@render row("Interviewees", interviewees.join(", "))}
-            {/if}
-            {#if selectedTagIds.length}
-              {@render row(
-                "Tags",
-                allTags
-                  .filter((t) => selectedTagIds.includes(t._id))
-                  .map((t) => t.name)
-                  .join(", ")
-              )}
-            {/if}
-            {#if mode === "review"}
-              {@render row("Written PD", pdDoc?.name ?? "—")}
-            {/if}
-            {@render row(
-              "Transcripts",
-              transcriptCountForSubmit > 0
-                ? `${transcriptCountForSubmit} · ${wordCount.toLocaleString()} words`
-                : "None"
-            )}
-            {@render row("Context items", fileCount > 0 ? `${fileCount} attached` : "None")}
-          </div>
-          {#if fileCount > 0}
-            <div class="card p-4">
-              {#if pyFileCount > 0 || pyNoteOnlyCount > 0}
-                <div class="mb-2">
-                  <p class="text-label">Previous-year reports</p>
-                  <ul class="mt-0.5 text-sm text-gray-700">
-                    {#each pyRows.filter((r) => r.files.length || r.note.trim()) as r (r.id)}
-                      <li class="truncate">
-                        <span class="text-gray-400">FY {r.year}:</span>
-                        {r.files.length
-                          ? r.files.map((f) => f.name).join(", ")
-                          : "note only"}
-                        {#if r.note.trim()}
-                          <span class="text-gray-400">
-                            — “{r.note.trim().slice(0, 50)}{r.note.trim().length > 50 ? "…" : ""}”
-                          </span>
-                        {/if}
-                      </li>
-                    {/each}
-                  </ul>
-                </div>
-              {/if}
-              {#each CONTEXT_CATEGORIES.filter((c) => c.id !== "previous_pd" && (staged[c.id].files.length || staged[c.id].text.trim())) as c (c.id)}
-                <div class="mb-2 last:mb-0">
-                  <p class="text-label">{c.label}</p>
-                  <ul class="mt-0.5 text-sm text-gray-700">
-                    {#each staged[c.id].files as f, i (i)}
-                      <li class="truncate">• {f.name}</li>
-                    {/each}
-                    {#if staged[c.id].text.trim()}
-                      <li>• Pasted notes ({staged[c.id].text.trim().length} chars)</li>
-                    {/if}
-                  </ul>
-                </div>
-              {/each}
-            </div>
-          {/if}
-          {#if committing && progress}
-            <div class="flex items-center gap-2 rounded-lg bg-chrome px-3 py-2 text-sm text-navy">
-              <Spinner size="sm" class="h-3.5 w-3.5 border-navy" />
-              {progress}
-            </div>
-          {/if}
-        </div>
-      {/if}
+      <input
+        bind:this={transcriptInput}
+        type="file"
+        accept={TRANSCRIPT_ACCEPT}
+        multiple
+        class="hidden"
+        data-transcript-input
+        onchange={(e) => {
+          if (e.currentTarget.files?.length) handleTranscriptFiles(Array.from(e.currentTarget.files));
+          e.currentTarget.value = "";
+        }}
+      />
+      <input
+        bind:this={pdInput}
+        type="file"
+        accept={SUPPORTED_ACCEPT}
+        class="hidden"
+        data-written-pd-input
+        onchange={(e) => {
+          const file = e.currentTarget.files?.[0];
+          if (file) handlePdFile(file);
+          e.currentTarget.value = "";
+        }}
+      />
+      <input
+        bind:this={docsInput}
+        type="file"
+        accept={mode === "review" ? `${SUPPORTED_ACCEPT},.vtt,.srt` : SUPPORTED_ACCEPT}
+        multiple
+        class="hidden"
+        data-supporting-input
+        onchange={(e) => {
+          if (e.currentTarget.files?.length) addSupportingFiles(Array.from(e.currentTarget.files));
+          e.currentTarget.value = "";
+        }}
+      />
+      <input
+        bind:this={replaceInput}
+        type="file"
+        accept={SUPPORTED_ACCEPT}
+        class="hidden"
+        data-replace-input
+        onchange={(e) => {
+          const file = e.currentTarget.files?.[0];
+          if (file && replacingDocId) docs.replace(replacingDocId, file);
+          replacingDocId = null;
+          e.currentTarget.value = "";
+        }}
+      />
 
-      <!-- Nav -->
-      <div class="mt-8 flex items-center justify-between">
-        <div>
-          {#if step > 0}
-            <Button type="button" variant="ghost" onclick={() => (step -= 1)} disabled={committing}>
-              Back
-            </Button>
-          {:else}
-            <a href="/dashboard">
-              <Button type="button" variant="ghost">Cancel</Button>
-            </a>
-          {/if}
-        </div>
-        <div class="flex items-center gap-3">
-          {#if step < STEPS.length - 1}
-            <Button type="button" onclick={goNext} disabled={!canGoNext}>
-              {step === 0 ? "Next" : "Continue"}
-            </Button>
-          {:else}
-            {#if !hasAnySource}
-              <span class="text-xs text-amber-600">
-                Add a transcript or at least one context document first.
-              </span>
-            {/if}
-            <Button
-              type="button"
-              onclick={commit}
-              disabled={committing || !hasAnySource}
-            >
-              {#if committing}
-                <Spinner size="sm" class="mr-2 h-3.5 w-3.5 border-white" />
-                Working…
-              {:else}
-                <svg class="mr-1.5 h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                  <path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
-                </svg>
-                {mode === "generate" ? "Generate Report" : "Review PD"}
-              {/if}
-            </Button>
-          {/if}
-        </div>
-      </div>
-    </main>
+      <SupportingDocPreview
+        bind:open={previewOpen}
+        doc={previewDoc}
+        categories={docCategories}
+        onCategory={(category) => previewId && docs.setCategory(previewId, category)}
+        onRemove={() => previewId && removeDoc(previewId)}
+        onReplace={() => previewId && replaceDoc(previewId)}
+      />
+      <SupportingDocPreview
+        bind:open={pdPreviewOpen}
+        doc={pdPreviewDoc}
+        onRemove={() => {
+          pdPreviewOpen = false;
+          pdDoc = null;
+          pdNameHint = "";
+        }}
+        onReplace={() => {
+          pdPreviewOpen = false;
+          pdInput?.click();
+        }}
+      />
+      <StartRunDialog
+        bind:open={startOpen}
+        mode={mode === "review" ? "review" : candidateMode}
+        sources={dialogSources}
+        models={dialogModels}
+        busy={committing}
+        validate={validateExcluded}
+        onConfirm={confirmStart}
+        returnFocus={() => lastStartTrigger}
+      />
     {/snippet}
   </WorkspaceChrome>
 {/if}

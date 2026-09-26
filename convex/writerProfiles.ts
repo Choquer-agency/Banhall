@@ -10,8 +10,14 @@ import type { Id } from "./_generated/dataModel";
 import {
   getInternalProjectAccessOrNull,
   requireCurrentUser,
+  requireInternalActor,
   requireRole,
 } from "./lib/auth";
+import {
+  coverageCategoriesValidator,
+  writerCoverageValidator,
+} from "./lib/writerCoverage";
+import { firmDateParts, firmDateStartUtc } from "../shared/firmTime";
 import { domainError, sha256 } from "./lib/contracts";
 import { isProjectDeleting } from "./lib/projectDeletion";
 import { MAX_INSTRUCTIONS_CHARS } from "../shared/writerProfileLimits";
@@ -98,6 +104,7 @@ const profileValidator = v.object({
   styleOverrides: v.optional(styleOverridesValidator),
   buildOrder: v.optional(v.array(v.string())),
   selfCheckRules: v.optional(v.array(selfCheckRuleValidator)),
+  coverage: v.optional(writerCoverageValidator),
   updatedBy: v.id("users"),
   createdAt: v.number(),
   updatedAt: v.number(),
@@ -213,6 +220,9 @@ async function upsertProfile(
       customInstructions,
       enabled,
       ...optionalFields,
+      // Round 2 (I2): coverage describes one exact text; new text drops it
+      // until the page runs the analysis again.
+      ...(existing.customInstructions !== customInstructions ? { coverage: undefined } : {}),
       updatedBy,
       updatedAt: now,
     });
@@ -283,6 +293,7 @@ export const listProfiles = query({
       customInstructions: v.string(),
       enabled: v.boolean(),
       styleOverrides: v.optional(styleOverridesValidator),
+      coverage: v.optional(writerCoverageValidator),
       updatedAt: v.number(),
       userName: v.optional(v.string()),
       userEmail: v.optional(v.string()),
@@ -300,6 +311,7 @@ export const listProfiles = query({
           customInstructions: profile.customInstructions,
           enabled: profile.enabled,
           styleOverrides: profile.styleOverrides,
+          ...(profile.coverage ? { coverage: profile.coverage } : {}),
           updatedAt: profile.updatedAt,
           userName: user?.name,
           userEmail: user?.email,
@@ -339,6 +351,110 @@ export const saveProfileForUser = mutation({
         ? undefined
         : validateSelfCheckRules(args.selfCheckRules)
     );
+    return null;
+  },
+});
+
+/**
+ * Round 2 (I2): store the "What they cover" analysis for the caller's saved
+ * instructions. The action passes the hash of the text it analysed; nothing
+ * is stored unless that is still the saved text, so an analysis that
+ * finishes after another save can never describe the wrong words.
+ */
+export const recordMyCoverage = internalMutation({
+  args: { textHash: v.string(), categories: coverageCategoriesValidator },
+  returns: v.boolean(),
+  handler: async (ctx, args) => {
+    const user = await requireCurrentUser(ctx);
+    const profile = await ctx.db
+      .query("writerProfiles")
+      .withIndex("by_userId", (q) => q.eq("userId", user._id))
+      .unique();
+    if (!profile) return false;
+    if ((await sha256(profile.customInstructions.trim())) !== args.textHash) return false;
+    await ctx.db.patch(profile._id, {
+      coverage: { textHash: args.textHash, analyzedAt: Date.now(), categories: args.categories },
+    });
+    return true;
+  },
+});
+
+// ─── Round 2 (I2, decision 58): Writing preferences Preview ────────────────
+
+export const STYLE_PREVIEW_DAILY_CAP = 20;
+const previewVariantValidator = v.union(v.literal("house"), v.literal("preferences"));
+
+/**
+ * Everything the Preview action needs about the caller, resolved the way a
+ * generation resolves it (getEffectiveWriterStyle, org modes included). The
+ * house variant is the house rules alone: org-wide "off" modes still apply,
+ * the caller's own waivers and instructions do not.
+ */
+export const getStylePreviewContext = internalQuery({
+  args: { variant: previewVariantValidator },
+  returns: v.object({
+    userId: v.id("users"),
+    instructions: v.union(v.string(), v.null()),
+    styleOverrides: normalizedStyleOverridesValidator,
+    modes: v.record(v.string(), v.string()),
+    usedToday: v.number(),
+  }),
+  handler: async (ctx, args) => {
+    const user = await requireInternalActor(ctx);
+    const style = await getEffectiveWriterStyle(
+      ctx,
+      args.variant === "preferences" ? user._id : undefined,
+    );
+    const modes = await getHouseRuleModes(ctx);
+    const dayStart = firmDateStartUtc(firmDateParts(Date.now()));
+    const today = await ctx.db
+      .query("writerStylePreviews")
+      .withIndex("by_requestedBy_and_createdAt", (q) =>
+        q.eq("requestedBy", user._id).gte("createdAt", dayStart),
+      )
+      .take(STYLE_PREVIEW_DAILY_CAP + 1);
+    return {
+      userId: user._id,
+      instructions: args.variant === "preferences" ? style.customInstructions : null,
+      styleOverrides: style.styleOverrides,
+      modes: { ...modes },
+      usedToday: today.length,
+    };
+  },
+});
+
+export const getCachedStylePreview = internalQuery({
+  args: { inputsHash: v.string() },
+  returns: v.union(v.array(v.string()), v.null()),
+  handler: async (ctx, args) => {
+    await requireInternalActor(ctx);
+    const row = await ctx.db
+      .query("writerStylePreviews")
+      .withIndex("by_inputsHash", (q) => q.eq("inputsHash", args.inputsHash))
+      .first();
+    return row?.paragraphs ?? null;
+  },
+});
+
+export const recordStylePreview = internalMutation({
+  args: {
+    variant: previewVariantValidator,
+    inputsHash: v.string(),
+    paragraphs: v.array(v.string()),
+    model: v.string(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const user = await requireInternalActor(ctx);
+    await ctx.db.insert("writerStylePreviews", {
+      ...(args.variant === "preferences" ? { userId: user._id } : {}),
+      requestedBy: user._id,
+      variant: args.variant,
+      inputsHash: args.inputsHash,
+      paragraphs: args.paragraphs.slice(0, 2),
+      model: args.model,
+      createdAt: Date.now(),
+    });
     return null;
   },
 });
@@ -583,9 +699,10 @@ const settingsCandidateValidator = v.object({
   contentHash: v.string(),
 });
 
-// Every frozen source a generation can hold: one transcript and one digest
-// row per transcript, 50 context documents, and a writer Storyline.
-const MAX_GENERATION_SOURCES = 2 * MAX_TRANSCRIPTS_PER_PROJECT + 52;
+// Every frozen source a generation can hold: one transcript, one digest and
+// (2026-09-24) one fact pack row per transcript, 50 context documents, and
+// a writer Storyline.
+const MAX_GENERATION_SOURCES = 3 * MAX_TRANSCRIPTS_PER_PROJECT + 52;
 
 /** A cached waiver analysis at exactly this classifier version, or null. */
 async function readSettingsAnalysis(

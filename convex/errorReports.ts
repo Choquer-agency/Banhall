@@ -1,6 +1,9 @@
-import { query, mutation, internalMutation } from "./_generated/server";
+import { query, mutation, internalMutation, type MutationCtx } from "./_generated/server";
 import { v } from "convex/values";
+import type { Doc } from "./_generated/dataModel";
+import { internal } from "./_generated/api";
 import { getCurrentUserOrNull } from "./lib/auth";
+import { hasCapability, requireCapability } from "./lib/roleCapabilities";
 
 const breadcrumbValidator = v.object({
   type: v.string(),
@@ -10,10 +13,113 @@ const breadcrumbValidator = v.object({
 });
 
 /**
+ * Size caps for one report (security wave 1, a2 P1-3). Longer values are cut,
+ * not refused, so a real error still gets through with its start intact.
+ */
+export const ERROR_REPORT_LIMITS = {
+  message: 2_000,
+  stack: 8_000,
+  // A signed-out sender's stack (review r1 P2-2): enough for the top frames.
+  signedOutStack: 2_000,
+  source: 200,
+  url: 2_000,
+  userNote: 4_000,
+  userAgent: 500,
+  sessionId: 64,
+  breadcrumbs: 50,
+  breadcrumbType: 50,
+  breadcrumbLabel: 300,
+  breadcrumbDetail: 1_000,
+} as const;
+
+/**
+ * Reports one sender may file per minute. Over the budget a report is dropped
+ * (reportError returns null) rather than refused, so the error banner never
+ * turns into an error of its own. Signed-out reports share one budget as well,
+ * since a session id is whatever the browser sends.
+ */
+export const ERROR_REPORT_BUDGET = {
+  windowMs: 60_000,
+  perUser: 10,
+  perSession: 5,
+  // All signed-out reports together (review r1 P2-2, lowered from 30).
+  signedOutTotal: 10,
+} as const;
+
+/** Bug reports are kept this long, then the daily sweep deletes them
+ * (review r1 P2-2). Feature requests are a product board and are kept. */
+export const ERROR_REPORT_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
+/**
+ * Rows the sweep deletes per run. A report at every field cap is about 84,000
+ * characters, up to about 250 KB in UTF-8, so 40 rows stay well under Convex's
+ * 16 MiB per transaction (deletion review, 2026-09-25).
+ */
+export const ERROR_REPORT_RETENTION_BATCH = 40;
+/** Extra rows the sweep reads past a batch to step over kept system notices. */
+const RETENTION_SCAN_SLACK = 20;
+
+/**
+ * Sources the server itself writes notices under (convex/transcripts.ts
+ * storage sweep, convex/lib/modelRoles.ts catalog notices). Some are raised
+ * once, so an open one is kept past the retention window; a report a browser
+ * sends can never claim one of these sources.
+ */
+export const SYSTEM_NOTICE_SOURCES: ReadonlySet<string> = new Set(["storage-sweep", "model-catalog"]);
+
+function clientSource(source: string | undefined): string | undefined {
+  return source !== undefined && SYSTEM_NOTICE_SOURCES.has(source) ? `client:${source}` : source;
+}
+
+function cap(value: string, max: number): string {
+  return value.length > max ? value.slice(0, max) : value;
+}
+
+function capOptional(value: string | undefined, max: number): string | undefined {
+  return value === undefined ? undefined : cap(value, max);
+}
+
+async function countSince(
+  query: AsyncIterable<Doc<"errorReports">>,
+  limit: number
+): Promise<number> {
+  let count = 0;
+  for await (const _row of query) {
+    count += 1;
+    if (count >= limit) break;
+  }
+  return count;
+}
+
+async function withinBudget(
+  ctx: MutationCtx,
+  userId: Doc<"users">["_id"] | undefined,
+  sessionId: string | undefined
+): Promise<boolean> {
+  const since = Date.now() - ERROR_REPORT_BUDGET.windowMs;
+  const byUser = ctx.db
+    .query("errorReports")
+    .withIndex("by_userId_and_createdAt", (q) => q.eq("userId", userId).gt("createdAt", since));
+  if (userId !== undefined) {
+    return (await countSince(byUser, ERROR_REPORT_BUDGET.perUser)) < ERROR_REPORT_BUDGET.perUser;
+  }
+  if ((await countSince(byUser, ERROR_REPORT_BUDGET.signedOutTotal)) >= ERROR_REPORT_BUDGET.signedOutTotal) {
+    return false;
+  }
+  if (sessionId === undefined) return true;
+  const bySession = ctx.db
+    .query("errorReports")
+    .withIndex("by_sessionId_and_createdAt", (q) =>
+      q.eq("sessionId", sessionId).gt("createdAt", since)
+    );
+  return (await countSince(bySession, ERROR_REPORT_BUDGET.perSession)) < ERROR_REPORT_BUDGET.perSession;
+}
+
+/**
  * Record an error report. Intentionally public and usable while unauthenticated
  * — the whole point is that anyone hitting an error (including clients on a
  * shared review link) can send it. If the caller is signed in we stamp their
- * id/email so we know who reported it.
+ * id/email so we know who reported it. Field sizes are capped and each sender
+ * has a per-minute budget (ERROR_REPORT_LIMITS, ERROR_REPORT_BUDGET).
  */
 export const reportError = mutation({
   args: {
@@ -26,17 +132,38 @@ export const reportError = mutation({
     userNote: v.optional(v.string()),
     breadcrumbs: v.array(breadcrumbValidator),
     userAgent: v.optional(v.string()),
+    sessionId: v.optional(v.string()),
   },
+  returns: v.union(v.id("errorReports"), v.null()),
   handler: async (ctx, args) => {
     const user = await getCurrentUserOrNull(ctx);
-    const userId = user?._id ?? null;
+    const userId = user?._id ?? undefined;
     const userEmail = user?.email ?? undefined;
+    const sessionId = capOptional(args.sessionId, ERROR_REPORT_LIMITS.sessionId);
+    if (!(await withinBudget(ctx, userId, sessionId))) return null;
 
+    const L = ERROR_REPORT_LIMITS;
     return await ctx.db.insert("errorReports", {
-      ...args,
-      // Auto-captured = always a bug; manual defaults to bug unless flagged feature.
-      reportType: args.reportType ?? "bug",
-      userId: userId ?? undefined,
+      kind: args.kind,
+      // Auto-captured = always a bug; manual defaults to bug unless flagged
+      // feature. Only a signed-in writer may file a feature request: signed-out
+      // rows are never feature requests, so the retention sweep always covers
+      // them (deletion review, 2026-09-25).
+      reportType: userId === undefined ? "bug" : (args.reportType ?? "bug"),
+      message: cap(args.message, L.message),
+      stack: capOptional(args.stack, userId === undefined ? L.signedOutStack : L.stack),
+      source: capOptional(clientSource(args.source), L.source),
+      url: cap(args.url, L.url),
+      userNote: capOptional(args.userNote, L.userNote),
+      breadcrumbs: args.breadcrumbs.slice(-L.breadcrumbs).map((crumb) => ({
+        type: cap(crumb.type, L.breadcrumbType),
+        label: cap(crumb.label, L.breadcrumbLabel),
+        detail: capOptional(crumb.detail, L.breadcrumbDetail),
+        at: crumb.at,
+      })),
+      userAgent: capOptional(args.userAgent, L.userAgent),
+      ...(sessionId ? { sessionId } : {}),
+      userId,
       userEmail,
       status: "open",
       createdAt: Date.now(),
@@ -44,12 +171,17 @@ export const reportError = mutation({
   },
 });
 
-/** All reports, newest first. Auth-only (this is an internal dev surface). */
+/**
+ * All reports, newest first. Stack traces and reporter emails are operational
+ * alerts: the matrix's ops.viewAlerts (Admin only). Anyone else gets nothing.
+ */
 export const listErrors = query({
   args: { includeResolved: v.optional(v.boolean()) },
   handler: async (ctx, args) => {
     const user = await getCurrentUserOrNull(ctx);
-    if (!user) return [];
+    if (!user || user.isAnonymous === true || !hasCapability(user.role, "ops.viewAlerts")) {
+      return [];
+    }
 
     const reports = await ctx.db.query("errorReports").order("desc").take(300);
     return args.includeResolved
@@ -63,7 +195,9 @@ export const openCount = query({
   args: {},
   handler: async (ctx) => {
     const user = await getCurrentUserOrNull(ctx);
-    if (!user) return 0;
+    if (!user || user.isAnonymous === true || !hasCapability(user.role, "ops.viewAlerts")) {
+      return 0;
+    }
     const open = await ctx.db
       .query("errorReports")
       .withIndex("by_status", (q) => q.eq("status", "open"))
@@ -78,8 +212,7 @@ export const setStatus = mutation({
     status: v.union(v.literal("open"), v.literal("resolved")),
   },
   handler: async (ctx, args) => {
-    const user = await getCurrentUserOrNull(ctx);
-    if (!user) throw new Error("Not authenticated");
+    await requireCapability(ctx, "ops.viewAlerts");
     await ctx.db.patch(args.id, { status: args.status });
   },
 });
@@ -104,11 +237,53 @@ export const adminResolve = internalMutation({
   },
 });
 
+/**
+ * Retention sweep (daily cron): deletes bug reports, open or resolved, older
+ * than ERROR_REPORT_RETENTION_MS, a bounded batch at a time, and schedules
+ * itself again while a full batch was found. Rows with no reportType are bug
+ * reports from before BNH-38. Feature requests are never swept.
+ */
+export const pruneOldErrorReports = internalMutation({
+  args: {},
+  returns: v.number(),
+  handler: async (ctx): Promise<number> => {
+    const cutoff = Date.now() - ERROR_REPORT_RETENTION_MS;
+    let deleted = 0;
+    let more = false;
+    for (const reportType of [undefined, "bug"] as const) {
+      const room = ERROR_REPORT_RETENTION_BATCH - deleted;
+      if (room <= 0) break;
+      const old = await ctx.db
+        .query("errorReports")
+        .withIndex("by_reportType_and_createdAt", (q) =>
+          q.eq("reportType", reportType).lt("createdAt", cutoff)
+        )
+        .take(room + RETENTION_SCAN_SLACK);
+      let taken = 0;
+      for (const row of old) {
+        // An open system notice stays until someone resolves it.
+        if (row.status === "open" && row.source !== undefined && SYSTEM_NOTICE_SOURCES.has(row.source)) continue;
+        if (taken >= room) {
+          more = true;
+          break;
+        }
+        await ctx.db.delete(row._id);
+        taken += 1;
+      }
+      deleted += taken;
+      if (old.length === room + RETENTION_SCAN_SLACK) more = true;
+    }
+    if (more) {
+      await ctx.scheduler.runAfter(0, internal.errorReports.pruneOldErrorReports, {});
+    }
+    return deleted;
+  },
+});
+
 export const deleteError = mutation({
   args: { id: v.id("errorReports") },
   handler: async (ctx, args) => {
-    const user = await getCurrentUserOrNull(ctx);
-    if (!user) throw new Error("Not authenticated");
+    await requireCapability(ctx, "ops.viewAlerts");
     await ctx.db.delete(args.id);
   },
 });

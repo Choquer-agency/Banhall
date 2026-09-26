@@ -61,6 +61,38 @@ export function citeQuote<T extends FrozenSource>(
 }
 
 /**
+ * Every place a verbatim quote occurs, in citeQuote's order (sources in the
+ * given order, then position), at most `limit`. The first is exactly what
+ * citeQuote returns. A caller that must skip some places (an interviewer's
+ * turn, owner decision 25) takes the first acceptable one.
+ */
+export function quoteOccurrences<T extends FrozenSource>(
+  sources: T[],
+  quote: string,
+  limit: number
+): Citation[] {
+  const found: Citation[] = [];
+  if (!quote) return found;
+  for (const source of sources) {
+    for (
+      let at = source.content.indexOf(quote);
+      at !== -1 && found.length < limit;
+      at = source.content.indexOf(quote, at + 1)
+    ) {
+      found.push({
+        sourceId: source._id,
+        sourceContentHash: source.contentHash,
+        exactExcerpt: quote,
+        startOffset: at,
+        endOffset: at + quote.length,
+      });
+    }
+    if (found.length >= limit) break;
+  }
+  return found;
+}
+
+/**
  * Byte-match validation identical in behaviour to `reports.createProvenance`:
  * the source's contentHash matches, the offsets are in range, and the exact
  * slice equals the claimed excerpt.

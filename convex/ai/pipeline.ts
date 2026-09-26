@@ -4,9 +4,20 @@ import { internalAction, type ActionCtx } from "../_generated/server";
 import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { v } from "convex/values";
-import { instrumentedAnthropic } from "./instrument";
-import { clientForModel } from "./providers";
-import type { GenerationClient } from "./openrouterCore";
+import {
+  clientForModel,
+  describeProviderFailure,
+  generationStepClients,
+  registerGenerationModels,
+  startActionDeadline,
+} from "./providers";
+import {
+  OutputLimitError,
+  firstResponseText,
+  isCutOffStopReason,
+  type GenerationClient,
+  type GenerationResponse,
+} from "./openrouterCore";
 import { runAnalyzerAgent, parseTranscriptAnalysis, type TranscriptAnalysis } from "./analyzerAgent";
 import { runGenerationBriefStage } from "./brief";
 import {
@@ -24,8 +35,9 @@ import { runSection244Agent } from "./section244Agent";
 import { runSection246Agent } from "./section246Agent";
 import { runQAAgent } from "./qaAgent";
 import { runChronologyAgent } from "./chronologyAgent";
-import { MODEL, CANDIDATE_MODELS, candidateModelsForMode } from "./model";
-import { normalizeProviderError } from "./providers";
+import { MODEL, candidateModelsForMode } from "./model";
+import { modelById, type ModelEntry } from "../../shared/generationModels";
+import { RETRIEVAL_BRIEF_MODEL } from "./brain/query";
 import { buildTiptapDocument } from "../lib/tiptapReport";
 import {
   retrieveBrainBlocks,
@@ -43,11 +55,14 @@ import { sha256 } from "../lib/contracts";
 import {
   describeTranscriptInput,
   mapClaimToPart,
+  type TranscriptCitation,
 } from "../lib/transcripts";
+import type { FactQuoteCitation } from "../lib/seedFacts";
 import {
-  anthropicCondenser,
+  condenserFor,
   describeGenerationFailure,
   ensureCondensedInputs,
+  ensureFactInputs,
 } from "./condense";
 import { normalizeCraScienceCode } from "../../shared/craScienceCodes";
 import {
@@ -64,7 +79,7 @@ import { waivedCategoryLabels } from "./prompts";
 import { readOrderedProfileContext } from "./writerStyle";
 import { resolveGenerationWriterSettings } from "./writerSettings";
 import { detectFirstPersonPreference } from "../../shared/humanProse";
-import { currentPromptVersion } from "./promptProgram";
+import { generationPromptVersion } from "./promptProgram";
 import { orderedProfileContextValidator } from "../lib/orderedChain";
 import {
   COMPRESSION_REQUEST,
@@ -104,18 +119,29 @@ export async function compressSection(
 ): Promise<string> {
   const m = sectionMetrics(text, section);
   const words = Math.round(wordBudget(section, target) * squeeze);
-  const response = await anthropic.messages.create({
-    model: modelId,
-    max_tokens: COMPRESSION_REQUEST.maxTokens,
-    system: COMPRESSION_REQUEST.system,
-    messages: [
-      {
-        role: "user",
-        content: `${COMPRESSION_REQUEST.userScaffold.prefix}${m.lines}${COMPRESSION_REQUEST.userScaffold.linesToWords}${m.words}${COMPRESSION_REQUEST.userScaffold.wordsToLimit}${m.limit}${COMPRESSION_REQUEST.userScaffold.limitToChars}${CHARS_PER_LINE}${COMPRESSION_REQUEST.userScaffold.charsToTarget}${words}${COMPRESSION_REQUEST.userScaffold.targetToText}${text}`,
-      },
-    ],
-  });
-  const out = response.content[0]?.type === "text" ? response.content[0].text.trim() : "";
+  let response: GenerationResponse;
+  try {
+    response = await anthropic.messages.create({
+      model: modelId,
+      max_tokens: COMPRESSION_REQUEST.maxTokens,
+      system: COMPRESSION_REQUEST.system,
+      messages: [
+        {
+          role: "user",
+          content: `${COMPRESSION_REQUEST.userScaffold.prefix}${m.lines}${COMPRESSION_REQUEST.userScaffold.linesToWords}${m.words}${COMPRESSION_REQUEST.userScaffold.wordsToLimit}${m.limit}${COMPRESSION_REQUEST.userScaffold.limitToChars}${CHARS_PER_LINE}${COMPRESSION_REQUEST.userScaffold.charsToTarget}${words}${COMPRESSION_REQUEST.userScaffold.targetToText}${text}`,
+        },
+      ],
+    });
+  } catch (error) {
+    // The OpenRouter adapter throws on a cut-off answer; treat it exactly
+    // like the direct Anthropic cut-off below instead of failing the section.
+    if (error instanceof OutputLimitError) return text;
+    throw error;
+  }
+  // A reply cut off at the token limit (thinking shares the budget on Opus
+  // 5.5 and Fable 5.1) is a partial section; keep the original instead.
+  if (isCutOffStopReason(response.stop_reason)) return text;
+  const out = firstResponseText(response).trim();
   return out || text;
 }
 
@@ -295,16 +321,56 @@ export type ProvenanceDraft = {
   section: "242" | "244" | "246";
   claimText: string;
   sourceQuote?: string;
+  /**
+   * 2026-09-24 (transcript method, plan step 8): the quote's own span on
+   * the frozen transcript row when it came from a verified fact, so it is
+   * cited where the fact was verified, never at another occurrence.
+   */
+  citation?: TranscriptCitation;
 };
 
+/** A verified fact quote on its frozen transcript row (getGenerationInput). */
+export type FactQuote = Pick<
+  FactQuoteCitation,
+  "sourceId" | "sourceContentHash" | "startOffset" | "endOffset" | "exactExcerpt"
+>;
+
+/**
+ * Pairs each paragraph of the drafted sections with the quote that shares
+ * the most words with it. The pool is the analyzer's useful quotes found
+ * verbatim in the transcript text, or, when the generation reads fact packs,
+ * the packs' verified client quotes (plan step 8), each with its citation.
+ */
 export function provenanceDrafts(
   sections: Array<{ section: ProvenanceDraft["section"]; text: string }>,
   transcript: string,
-  usefulQuotes: string[]
+  usefulQuotes: string[],
+  factQuotes?: readonly FactQuote[]
 ): ProvenanceDraft[] {
-  const exactQuotes = usefulQuotes
-    .map((quote) => quote.trim().replace(/^['"]|['"]$/g, ""))
-    .filter((quote) => quote.length >= 20 && transcript.includes(quote));
+  const citations = new Map<string, TranscriptCitation>();
+  if (factQuotes) {
+    for (const quote of factQuotes) {
+      if (quote.exactExcerpt.length < 20 || citations.has(quote.exactExcerpt)) continue;
+      citations.set(quote.exactExcerpt, {
+        generationSourceId: quote.sourceId as Id<"generationSources">,
+        sourceContentHash: quote.sourceContentHash,
+        exactExcerpt: quote.exactExcerpt,
+        startOffset: quote.startOffset,
+        endOffset: quote.endOffset,
+      });
+    }
+  }
+  const exactQuotes = factQuotes
+    ? [...citations.keys()]
+    : usefulQuotes
+        .map((quote) => quote.trim().replace(/^['"]|['"]$/g, ""))
+        .filter((quote) => quote.length >= 20 && transcript.includes(quote));
+  // Each quote is tokenized once, not once per paragraph (review 2026-09-25,
+  // P3-8): in fact mode the pool can hold thousands of quotes.
+  const quoteTokens = exactQuotes.map((quote) => ({
+    quote,
+    tokens: new Set(quote.toLowerCase().match(/[a-z0-9]{4,}/g) ?? []),
+  }));
   const drafts: ProvenanceDraft[] = [];
   for (const { section, text } of sections) {
     const paragraphs = text
@@ -318,10 +384,9 @@ export function provenanceDrafts(
       );
       let sourceQuote: string | undefined;
       let bestOverlap = 1;
-      for (const quote of exactQuotes) {
-        const quoteTokens = new Set(quote.toLowerCase().match(/[a-z0-9]{4,}/g) ?? []);
+      for (const { quote, tokens } of quoteTokens) {
         let overlap = 0;
-        for (const token of quoteTokens) {
+        for (const token of tokens) {
           if (claimTokens.has(token)) overlap += 1;
         }
         if (overlap > bestOverlap) {
@@ -329,11 +394,13 @@ export function provenanceDrafts(
           sourceQuote = quote;
         }
       }
+      const citation = sourceQuote ? citations.get(sourceQuote) : undefined;
       drafts.push({
         claimId: `${section}-${index + 1}`,
         section,
         claimText,
         sourceQuote,
+        ...(citation ? { citation } : {}),
       });
     });
   }
@@ -352,14 +419,23 @@ export async function recordCandidateProvenance(
       transcriptId?: Id<"transcripts">;
       transcriptIds?: Id<"transcripts">[];
       digestIds?: Id<"transcriptDigests">[];
+      /** Present when the generation reads fact packs. */
+      transcriptReading?: "facts" | "digest" | "full";
+      transcriptRows?: Parameters<typeof mapClaimToPart>[0];
     };
     content: string;
     claimDrafts: ProvenanceDraft[];
   }
 ) {
+  // Reading fact packs, a claim cites the frozen transcript row, never the
+  // pack (plan step 8); every other generation cites what it read, as before.
+  const parts =
+    args.input.transcriptReading === "facts" && args.input.transcriptRows
+      ? args.input.transcriptRows
+      : args.input.transcriptParts;
   const claims = await Promise.all(
     args.claimDrafts.map(async (claim) => {
-      const citation = mapClaimToPart(args.input.transcriptParts, claim);
+      const citation = claim.citation ?? mapClaimToPart(parts, claim);
       return {
         claimId: claim.claimId,
         section: claim.section,
@@ -420,7 +496,14 @@ export async function runPipelineForModel(
   // Story 1 (CAP-1/2/4): the stored Brief, rendered as an AD-11 delimited
   // data block. "" when the generation has no Brief (not yet derived, or
   // derivation failed — Brief is read-only guidance, never generation-fatal).
-  briefBlock: string = ""
+  briefBlock: string = "",
+  // 2026-09-24 (plan step 8): the verified fact quotes a generation reading
+  // fact packs cites from; absent otherwise.
+  factQuotes?: readonly FactQuote[],
+  // Owner decision 43: the model each call site's request names, from the
+  // same step routing as `anthropicFor`. Every call names `modelId` when
+  // absent, as before step routing.
+  modelFor: (callSite: string) => string = () => modelId
 ): Promise<{
   content: string;
   agentOutputs: string;
@@ -430,7 +513,7 @@ export async function runPipelineForModel(
   const analysis = sharedAnalysis ?? await runAnalyzerAgent(
     anthropicFor("generation:analyzer"),
     analyzerUserMessage,
-    modelId,
+    modelFor("generation:analyzer"),
     brainExemplars.analyzer
   );
   const styleGuidance = buildStyleGuidance(draftStyle, writerFlavor, styleOverrides);
@@ -475,8 +558,8 @@ export async function runPipelineForModel(
   // have received — losing a full multi-model draft because a scorecard came
   // back malformed is far worse than shipping the draft with no scorecard.
   const [qaSettled, chronologySettled] = await Promise.allSettled([
-    runQAAgent(anthropicFor("generation:qa", qaDigestIds), analysis, section242, section244, section246, modelId, qaCalibration, styleOverrides, detectFirstPersonPreference(writerFlavor)),
-    runChronologyAgent(anthropicFor("generation:chronology"), analysis, modelId),
+    runQAAgent(anthropicFor("generation:qa", qaDigestIds), analysis, section242, section244, section246, modelFor("generation:qa"), qaCalibration, styleOverrides, detectFirstPersonPreference(writerFlavor)),
+    runChronologyAgent(anthropicFor("generation:chronology"), analysis, modelFor("generation:chronology")),
   ]);
   if (qaSettled.status === "rejected") {
     console.error("QA scorecard failed; continuing without it", qaSettled.reason);
@@ -500,7 +583,8 @@ export async function runPipelineForModel(
       { section: "246", text: section246 },
     ],
     transcript,
-    analysis.useful_quotes
+    analysis.useful_quotes,
+    factQuotes
   );
   return {
     content: JSON.stringify(doc),
@@ -537,7 +621,7 @@ export async function beginTrackedGeneration(
     error instanceof Error ? error.message : String(error);
   let promptVersion: string;
   try {
-    promptVersion = await currentPromptVersion();
+    promptVersion = await generationPromptVersion(ctx, generationId);
   } catch (error) {
     await ctx.runMutation(internal.generations.failGeneration, {
       generationId,
@@ -568,6 +652,8 @@ export const generateReport = internalAction({
   args: { generationId: v.id("generations") },
   handler: async (ctx, args) => {
     const actionStartedAt = Date.now();
+    // The action's deadline bounds every provider request (actionDeadline.ts).
+    startActionDeadline(ctx, actionStartedAt);
     if (!(await beginTrackedGeneration(ctx, args.generationId))) return;
     const reservedInput = await ctx.runQuery(
       internal.generations.getGenerationInput,
@@ -586,19 +672,22 @@ export const generateReport = internalAction({
     const title = input.title || "Untitled Report";
     const lengthTarget: LengthTarget = input.lengthTarget;
     const contextDocs = toContextDocs(input.contextDocs);
+    // Model catalog: register every model frozen at reservation before any
+    // routing decision, so a catalog-added model resolves like a seed one.
+    const freeze = await registerGenerationModels(ctx, genId);
     const candidateModels = input.retryModelIds?.length
       ? input.retryModelIds
-          .map((id) => CANDIDATE_MODELS.find((model) => model.id === id))
-          .filter((model): model is (typeof CANDIDATE_MODELS)[number] => model !== undefined)
+          .map((id) => modelById(id))
+          .filter((model): model is ModelEntry => model !== undefined)
       : candidateModelsForMode(
           input.candidateMode,
           input.singleModelId,
           input.compareModelIds
         );
     const seededCandidates = input.seededCandidates ?? 0;
-    const retrievalBriefClient = instrumentedAnthropic(ctx, {
+    const retrievalBriefModel = freeze?.roles.retrieval_brief ?? RETRIEVAL_BRIEF_MODEL;
+    const retrievalBriefClient = clientForModel(ctx, retrievalBriefModel, {
       callSite: "generation:retrieval_brief",
-      capability: "generation",
       projectId,
       ...(input.requestedBy ? { userId: input.requestedBy } : {}),
       attribution: { generationId: genId },
@@ -608,6 +697,9 @@ export const generateReport = internalAction({
         generationId: genId,
         line,
       });
+    // The Brief while it runs beside the analysis: a failure elsewhere
+    // still waits for it before the action ends (its stage never throws).
+    let pendingBrief: Promise<void> | undefined;
 
     try {
       const scienceCode = normalizeCraScienceCode(input.scienceCode);
@@ -619,17 +711,35 @@ export const generateReport = internalAction({
       // Over-budget transcript sets are reduced to stored digests and frozen
       // as their own source rows before anything reads the transcript text;
       // the re-read below returns the digest parts every later step cites.
-      if (input.inputMode === "digest") {
+      // 2026-09-24 (transcript method, decision 27): a generation frozen to
+      // read fact packs extracts and freezes them first; any gap falls back
+      // to today's path below.
+      const factsReady = input.transcriptFacts
+        ? await ensureFactInputs(
+            ctx,
+            {
+              generationId: genId,
+              elapsedMs: Date.now() - actionStartedAt,
+              modelId: freeze?.roles.condense ?? MODEL,
+              ...(input.requestedBy ? { userId: input.requestedBy } : {}),
+            },
+            log
+          )
+        : false;
+      if (!factsReady && input.inputMode === "digest") {
         await ensureCondensedInputs(
           ctx,
           { generationId: genId, elapsedMs: Date.now() - actionStartedAt },
           log,
-          anthropicCondenser(ctx, {
+          condenserFor(ctx, {
             generationId: genId,
             projectId,
             ...(input.requestedBy ? { userId: input.requestedBy } : {}),
+            modelId: freeze?.roles.condense ?? MODEL,
           })
         );
+      }
+      if (factsReady || input.inputMode === "digest") {
         const condensed = await ctx.runQuery(
           internal.generations.getGenerationInput,
           { generationId: args.generationId }
@@ -638,6 +748,45 @@ export const generateReport = internalAction({
         input = condensed;
       }
       const transcript = input.transcript;
+
+      // Owner decision 43: the analysis and the Brief run on the frozen
+      // planning model, whatever the mode. A generation frozen before step
+      // routing keeps its model: in compare the writing role's model frozen
+      // at reservation, independent of pair order; in single mode the
+      // selected model, as in iterative generation.
+      const legacyAnalysisModel = input.candidateMode === "compare"
+        ? (freeze?.roles.writing ?? MODEL)
+        : candidateModels[0]?.id ?? MODEL;
+      const shared = generationStepClients(ctx, {
+        freeze,
+        writerModel: candidateModels[0]?.id ?? MODEL,
+        legacyModel: () => legacyAnalysisModel,
+        meta: (callSite) => ({
+          callSite,
+          projectId,
+          ...(input.requestedBy ? { userId: input.requestedBy } : {}),
+          attribution: { generationId: genId },
+        }),
+      });
+
+      // Story 1 (CAP-1/2/4): derive or reuse the Generation Brief once,
+      // shared across every candidate below (same shape as shared analysis).
+      // It reads only the frozen sources, never the analysis, so it starts
+      // now, beside the Brain retrieval, the writer settings and the
+      // analysis (a1 finding 4, 2026-09-25), and is joined before any
+      // candidate drafts. Brief is read-only guidance, never required: the
+      // stage runner never throws; a failure is logged and the generation
+      // continues with no Brief rather than failing outright (Block-If: "a
+      // Brief with fewer entries beats a failed generation" extends to the
+      // stage itself). DW-109/DW-120: every attempt is recorded on
+      // generations.briefOutcome and narrated with one authored progress
+      // line.
+      const briefStage = runGenerationBriefStage(ctx, shared.client("generation:brief"), {
+        projectId,
+        generationId: genId,
+        model: shared.route("generation:brief").model,
+      });
+      pendingBrief = briefStage;
 
       // Bound and delimit what the analyzer sees, once per generation, and
       // record the outcome on the frozen rows before any candidate fans out.
@@ -663,7 +812,13 @@ export const generateReport = internalAction({
         transcript,
         industry: input.industry ?? null,
         scienceCode: scienceCode ?? null,
+        // Plan step 8: reading fact packs, the retrieval brief comes from
+        // their claims with no call.
+        ...(input.transcriptReading === "facts"
+          ? { factPacks: input.transcriptParts.map((part) => part.content), placeholders: input.placeholders }
+          : {}),
         retrievalBriefClient,
+        retrievalBriefModel,
         log,
       });
 
@@ -700,10 +855,11 @@ export const generateReport = internalAction({
         generationId: genId,
         projectId,
         requestedBy: input.requestedBy,
+        // The analysis role's model frozen at reservation.
+        model: freeze?.roles.analysis ?? MODEL,
         clientFor: (callSite) =>
-          instrumentedAnthropic(ctx, {
+          clientForModel(ctx, freeze?.roles.analysis ?? MODEL, {
             callSite,
-            capability: "generation",
             projectId,
             ...(input.requestedBy ? { userId: input.requestedBy } : {}),
             attribution: { generationId: genId },
@@ -758,21 +914,12 @@ export const generateReport = internalAction({
         await log(`Build Order not applied: ${orderedContext.buildOrderFallbackReason}.`);
       }
 
-      // Compare analysis uses the default model, independent of pair order.
-      // Single mode preserves its selected model, as in iterative generation.
-      const analysisModel = input.candidateMode === "compare"
-        ? MODEL
-        : candidateModels[0]?.id ?? MODEL;
+      const analyzerRoute = shared.route("generation:analyzer");
       await log("Analyzing the transcript once for all candidate drafts.");
       const analysis = await runAnalyzerAgent(
-        clientForModel(ctx, analysisModel, {
-          callSite: "generation:analyzer",
-          projectId,
-          ...(input.requestedBy ? { userId: input.requestedBy } : {}),
-          attribution: { generationId: genId },
-        }),
+        shared.client("generation:analyzer"),
         analyzerContext.userMessage,
-        analysisModel,
+        analyzerRoute.model,
         brainBlocks.analyzer
       );
       const serializedAnalysis = JSON.stringify(analysis);
@@ -787,20 +934,10 @@ export const generateReport = internalAction({
         }),
       });
 
-      // Story 1 (CAP-1/2/4): derive or reuse the Generation Brief once,
-      // shared across every candidate below (same shape as shared analysis).
-      // Brief is read-only guidance, never required — the stage runner never
-      // throws: a failure is logged and the generation continues with no
-      // Brief rather than failing outright (Block-If: "a Brief with fewer
-      // entries beats a failed generation" extends to the stage itself).
-      // DW-109/DW-120: every attempt is recorded on generations.briefOutcome
-      // and narrated with one authored progress line.
-      await runGenerationBriefStage(ctx, clientForModel(ctx, analysisModel, {
-        callSite: "generation:brief",
-        projectId,
-        ...(input.requestedBy ? { userId: input.requestedBy } : {}),
-        attribution: { generationId: genId },
-      }), { projectId, generationId: genId, model: analysisModel });
+      // The Brief started beside the analysis above; every candidate reads
+      // it, so it is joined before the first one is created.
+      await briefStage;
+      pendingBrief = undefined;
 
       const candidateLabel =
         candidateModels.length === 1 ? "candidate draft" : "candidate drafts";
@@ -847,6 +984,11 @@ export const generateReport = internalAction({
         generationId: genId,
         error: describeGenerationFailure(error),
       });
+    } finally {
+      // The Brief never throws; it finishes (and stays reusable by its
+      // inputs) inside this action's deadline rather than being cut off,
+      // even when failGeneration itself throws (review r2 P3).
+      await pendingBrief;
     }
   },
 });
@@ -877,6 +1019,8 @@ export const generateCandidate = internalAction({
     orderedContext: v.optional(orderedProfileContextValidator),
   },
   handler: async (ctx, args) => {
+    // The action's deadline bounds every provider request (actionDeadline.ts).
+    startActionDeadline(ctx);
     const run = await ctx.runMutation(internal.generations.claimCandidateRun, {
       candidateRunId: args.candidateRunId,
     });
@@ -891,24 +1035,28 @@ export const generateCandidate = internalAction({
       });
       return;
     }
-    // Routed by the candidate model's gateway: Anthropic models use the
-    // direct SDK, OpenAI/Google models go through OpenRouter. Usage from both
-    // lands in the same aiUsage table.
-    const clientFor = (
-      callSite: string,
-      learningDigestIds?: Id<"learningDigests">[]
-    ) =>
-      clientForModel(ctx, run.model, {
-        callSite,
-        projectId: run.projectId,
-        ...(input.requestedBy ? { userId: input.requestedBy } : {}),
-        attribution: {
-          generationId: run.generationId,
-          candidateRunId: args.candidateRunId,
-          ...(learningDigestIds?.length ? { learningDigestIds } : {}),
-        },
-      });
     try {
+      // Routed by each step's model (owner decision 43: the candidate model
+      // writes, the frozen planning and checking models help) and its
+      // gateway: Anthropic models use the direct SDK, OpenAI/Google models go
+      // through OpenRouter. Usage from both lands in the same aiUsage table.
+      const freeze = await registerGenerationModels(ctx, args.generationId);
+      const steps = generationStepClients(ctx, {
+        freeze,
+        writerModel: run.model,
+        meta: (callSite, learningDigestIds) => ({
+          callSite,
+          projectId: run.projectId,
+          ...(input.requestedBy ? { userId: input.requestedBy } : {}),
+          attribution: {
+            generationId: run.generationId,
+            candidateRunId: args.candidateRunId,
+            ...(learningDigestIds?.length ? { learningDigestIds } : {}),
+          },
+        }),
+      });
+      const clientFor = steps.client;
+
       const sharedAnalysis = args.analysis === undefined
         ? undefined
         : parseTranscriptAnalysis(args.analysis);
@@ -925,7 +1073,7 @@ export const generateCandidate = internalAction({
         const analysis = sharedAnalysis ?? await runAnalyzerAgent(
           clientFor("generation:analyzer"),
           analyzerUserMessage,
-          run.model,
+          steps.route("generation:analyzer").model,
           args.brainExemplars.analyzer
         );
         const orderedContext =
@@ -973,7 +1121,9 @@ export const generateCandidate = internalAction({
           args.writerFlavor,
           normalizeStyleOverrides(args.styleOverrides),
           sharedAnalysis,
-          briefBlock
+          briefBlock,
+          input.factQuotes,
+          (callSite) => steps.route(callSite).model
         );
       const provenanceId = await recordCandidateProvenance(ctx, {
         projectId: run.projectId,
@@ -990,10 +1140,9 @@ export const generateCandidate = internalAction({
         provenanceId,
       });
     } catch (error) {
-      const normalized = normalizeProviderError(error);
       await ctx.runMutation(internal.generations.completeCandidateRun, {
         candidateRunId: args.candidateRunId,
-        error: `${normalized.code}: ${normalized.message}`,
+        error: describeProviderFailure(error),
       });
     }
   },

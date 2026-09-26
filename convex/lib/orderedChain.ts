@@ -246,5 +246,10 @@ export const orderedPayloadValidator = v.object({
   writerFlavor: v.optional(v.string()),
   styleOverrides: v.optional(styleOverridesValidator),
   orderedContext: orderedProfileContextValidator,
+  // Present only for the seeds workflow. The immutable Summary is loaded by
+  // id at each fenced claim; legacy/single/compare payload bytes stay valid.
+  summaryVersionId: v.optional(v.id("summaryVersions")),
+  // Seeds freeze the already-resolved style guidance at initialization.
+  frozenStyleGuidance: v.optional(v.string()),
 });
 export type OrderedPayload = Infer<typeof orderedPayloadValidator>;

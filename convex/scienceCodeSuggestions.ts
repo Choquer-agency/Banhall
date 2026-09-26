@@ -1,13 +1,14 @@
 import { action } from "./_generated/server";
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
-import { MODEL } from "./ai/model";
-import { instrumentedAnthropic } from "./ai/instrument";
+import { clientForRole } from "./ai/providers";
+import { gatewayForModel } from "../shared/generationModels";
 import {
   CRA_SCIENCE_CODES,
   normalizeCraScienceCode,
   scienceCodeLabel,
 } from "../shared/craScienceCodes";
+import { firstResponseText } from "./ai/openrouterCore";
 
 const MAX_CONTEXT_CHARS = 80_000;
 
@@ -37,15 +38,17 @@ export const suggest = action({
       .join("\n\n")
       .slice(0, MAX_CONTEXT_CHARS);
 
-    const anthropic = instrumentedAnthropic(ctx, {
+    // Model catalog: the suggestion runs on the science_code role's model.
+    const { client, model } = await clientForRole(ctx, "science_code", {
       callSite: "science-code-suggestion",
-      capability: "generation",
       projectId: args.projectId,
       userId: identity.tokenIdentifier,
     });
-    const response = await anthropic.messages.create({
-      model: MODEL,
-      max_tokens: 16,
+    const response = await client.messages.create({
+      model,
+      // A bare code needs 16 tokens on a direct Anthropic model; an
+      // OpenRouter reasoning model spends its thinking from the same budget.
+      max_tokens: gatewayForModel(model) === "anthropic" ? 16 : 2048,
       system:
         "Choose the single best CRA T4088 line 206 field-of-science or technology code for the project. Return only the exact numeric code from the supplied catalog, with no explanation, punctuation, or formatting. If the evidence is insufficient, return NONE.",
       messages: [
@@ -56,7 +59,7 @@ export const suggest = action({
       ],
     });
     const output =
-      response.content[0]?.type === "text" ? response.content[0].text : "";
+      firstResponseText(response);
     const code = normalizeCraScienceCode(output);
     return code ? { code, label: scienceCodeLabel(code) } : null;
   },

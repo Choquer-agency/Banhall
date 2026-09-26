@@ -1,5 +1,9 @@
-import { normalizeExclusionMatch } from "./claimExclusionMatcher";
+import {
+  matchesClaimExclusion,
+  normalizeExclusionMatch,
+} from "./claimExclusionMatcher";
 import { LINE_LIMITS, WORD_CAPS, sectionMetrics } from "./lineLimits";
+import { STORYLINE_QUESTION_WITHHELD_REASON } from "./storylineQuestionNote";
 import { sectionParagraphs } from "./tiptapReport";
 import { matchGlossaryTerms } from "./glossaryMatcher";
 import {
@@ -38,6 +42,11 @@ export type ModelVerdict = {
   outcome: "applied" | "not_applied";
   reason: string;
   repairGuidance?: string;
+  /**
+   * Summary only, in memory only: the unclipped guidance or reason the one
+   * repair call uses when clipping shortened the stored text. Never stored.
+   */
+  repairText?: string;
 };
 
 /** One finding from the assembled-draft consistency pass. */
@@ -165,6 +174,8 @@ export function runDeterministicSelfCheck(input: {
   profile: OrderedProfileContext;
   /** The first section in production order carries the Build Order row. */
   isFirstInOrder: boolean;
+  /** Signed plan items whose matching Brief exclusions were human-confirmed. */
+  confirmedPlanConflicts?: readonly (readonly string[])[];
 }): DeterministicSelfCheck {
   const { section, text, brief, profile, isFirstInOrder } = input;
   const key = sectionKeyOf(section);
@@ -358,17 +369,25 @@ export function runDeterministicSelfCheck(input: {
       });
       return;
     }
+    const confirmedPlanConflict = (input.confirmedPlanConflicts ?? []).some(
+      (wording) =>
+        matchesClaimExclusion(wording, exclusion.text, exclusion.exactExcerpt)
+    );
     add(
       `exclusion:${index}`,
       {
         instruction,
         paragraphIndex: found,
         outcome: "not_applied",
-        tier: "none",
-        reason: `excluded claim appears in paragraph ${found + 1} (${label})`,
+        tier: confirmedPlanConflict ? "conflict" : "none",
+        reason: confirmedPlanConflict
+          ? `writer-confirmed signed-plan conflict appears in paragraph ${found + 1} (${label}); retained and not repaired`
+          : `excluded claim appears in paragraph ${found + 1} (${label})`,
       },
-      true,
-      `Paragraph ${found + 1}: remove the excluded claim "${exclusion.text}"; it is outside the eligible work (${label}) and must not be claimed.`
+      !confirmedPlanConflict,
+      confirmedPlanConflict
+        ? undefined
+        : `Paragraph ${found + 1}: remove the excluded claim "${exclusion.text}"; it is outside the eligible work (${label}) and must not be claimed.`
     );
   });
 
@@ -406,7 +425,7 @@ export function repairIssues(
     .map((entry) => entry.guidance ?? entry.row.reason);
   for (const verdict of verdicts) {
     if (verdict.outcome !== "not_applied") continue;
-    const fix = verdict.repairGuidance?.trim() || verdict.reason;
+    const fix = verdict.repairText ?? (verdict.repairGuidance?.trim() || verdict.reason);
     const where =
       verdict.paragraphIndex === undefined
         ? "Whole section"
@@ -437,9 +456,14 @@ export function assembleSectionNotes(input: {
   before: DeterministicSelfCheck;
   after: DeterministicSelfCheck | null;
   verdicts: ModelVerdict[];
-  modelCheck: { ok: true } | { ok: false; reason: string };
+  modelCheck: { ok: true } | { ok: false; reason: string; detail?: string };
   /** `recorded`: a storylineQuestion entry is inserted on the Brief. */
   storylineQuestion: { question: string; recorded: boolean } | null;
+  /**
+   * Summary only: why the model's Storyline question was withheld (field
+   * names and byte counts, never model text). Absent everywhere else.
+   */
+  storylineQuestionWithheld?: string;
   repair: { attempted: boolean; succeeded: boolean; failureReason?: string };
   finalText: string;
 }): { rows: ComplianceNoteDraft[]; summary: SelfCheckSummary } {
@@ -524,6 +548,20 @@ export function assembleSectionNotes(input: {
       })
     );
   }
+  if (input.storylineQuestionWithheld) {
+    rows.push(
+      noteDraft({
+        section,
+        paragraphIndex: 0,
+        source: "model",
+        instruction: "Storyline",
+        outcome: "not_applied",
+        tier: "none",
+        // Plain words only: the byte detail stays in the summary and the log.
+        reason: STORYLINE_QUESTION_WITHHELD_REASON,
+      })
+    );
+  }
   if (!input.modelCheck.ok) {
     rows.push(
       noteDraft({
@@ -532,7 +570,9 @@ export function assembleSectionNotes(input: {
         instruction: "Model Self-check",
         outcome: "not_applied",
         tier: "none",
-        reason: `Self-check call failed (${input.modelCheck.reason}); deterministic checks only`,
+        reason: `Self-check call failed (${input.modelCheck.reason}${
+          input.modelCheck.detail ? `: ${input.modelCheck.detail}` : ""
+        }); deterministic checks only`,
       })
     );
   }
@@ -553,6 +593,12 @@ export function assembleSectionNotes(input: {
       failedChecks,
       remainingFailures,
       modelCheck: input.modelCheck.ok ? "ok" : "failed",
+      ...(!input.modelCheck.ok && input.modelCheck.detail
+        ? { modelCheckDetail: input.modelCheck.detail }
+        : {}),
+      ...(input.storylineQuestionWithheld
+        ? { storylineQuestionWithheld: input.storylineQuestionWithheld }
+        : {}),
     },
   };
 }
@@ -580,10 +626,15 @@ export function consistencyNoteDrafts(
   );
 }
 
-/** The pass-level row recorded on the last section in production order. */
+/** The pass-level row recorded on the last section in production order.
+ * `reportChanged`: the report kept changing while the pass ran, so its
+ * findings described text that was gone and none were stored. */
 export function consistencySummaryNote(
   section: SectionNumber,
-  outcome: { ok: true; findings: number } | { ok: false; reason: string }
+  outcome:
+    | { ok: true; findings: number }
+    | { ok: false; reason: string }
+    | { ok: false; reportChanged: true }
 ): ComplianceNoteDraft {
   return noteDraft({
     section,
@@ -593,6 +644,8 @@ export function consistencySummaryNote(
     tier: "none",
     reason: outcome.ok
       ? `consistency pass ran over the assembled draft: ${outcome.findings} finding(s)`
-      : `consistency pass call failed (${outcome.reason})`,
+      : "reportChanged" in outcome
+        ? "consistency pass skipped: the report changed while it ran, so no findings were stored"
+        : `consistency pass call failed (${outcome.reason})`,
   });
 }

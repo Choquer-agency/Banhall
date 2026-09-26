@@ -7,6 +7,7 @@ import { __resetConvexStub, __setQueryData, __setMutationResult, __mutationCalls
 import { __resetPage, __setPageUrl } from "$lib/test/app-state-stub.svelte";
 import { __resetNavigation, __navigationCalls } from "$lib/test/app-navigation-stub";
 import { stashProjectStart } from "$lib/workspace/projectIntentHandoff";
+import { addSupportingFiles, pasteSupportingText, startFromPage } from "./newProjectTestSupport";
 afterEach(() => vi.restoreAllMocks());
 it.each([
   { outcome: "resolve", source: "paste" },
@@ -25,22 +26,14 @@ it.each([
   __setMutationResult("documents:generateUploadUrl", "https://upload.test/original");
   vi.spyOn(globalThis, "fetch").mockResolvedValue(Response.json({ storageId: "original-bytes" }));
   const view = await render(NewProject);
-  await page.getByRole("button", { name: /^Writer's notes/ }).click();
+  await expect.poll(() => document.querySelector("#title")).not.toBeNull();
   if (source === "attachment") {
-    const input = document.querySelector('[aria-label="Writer\'s notes files"] input[type="file"]');
-    if (!(input instanceof HTMLInputElement)) throw new Error("Writer notes upload input missing");
-    const files = new DataTransfer();
-    files.items.add(new File(["Attached technical observations."], "supporting-notes.txt"));
-    input.files = files.files;
-    input.dispatchEvent(new Event("change", { bubbles: true }));
+    addSupportingFiles([new File(["Attached technical observations."], "supporting-notes.txt")]);
+    await expect.poll(() => document.querySelector('[data-supporting-card][data-status="ready"]')).not.toBeNull();
   } else {
-    const paste = [...document.querySelectorAll("button")].find(button => button.textContent?.includes("Paste text instead"));
-    if (!paste) throw new Error("Context paste control missing");
-    paste.click();
-    await page.getByPlaceholder("Paste text, notes, or links").fill("Supporting technical observations.");
+    await pasteSupportingText("Supporting technical observations.");
   }
-  await page.getByRole("button", { name: "Next", exact: true }).click();
-  await page.getByRole("button", { name: "Generate Report", exact: true }).click();
+  await startFromPage();
   await expect.poll(() => __mutationCalls("documents:uploadDocument").length).toBe(1);
   if (source === "attachment") {
     expect(__mutationCalls("documents:uploadDocument")).toEqual([expect.objectContaining({ fileName: "supporting-notes.txt", content: "Attached technical observations.", storageId: "original-bytes" })]);

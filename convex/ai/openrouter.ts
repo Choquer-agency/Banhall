@@ -17,11 +17,15 @@ import {
   recordGenerationHandoff,
   scheduleUsage,
   type GenerationAttribution,
+  type UsageTap,
 } from "./instrument";
+import { modelById } from "../../shared/generationModels";
+import { estimateCostFromTable } from "../../shared/modelPricing";
 import {
   toChatCompletions,
   fromChatCompletions,
   openRouterUsage,
+  requestCacheWriteTtl,
   shouldRetryStatus,
   retryDelayMs,
   isAbortLikeError,
@@ -29,6 +33,13 @@ import {
   type ChatCompletionsResponse,
   type GenerationClient,
 } from "./openrouterCore";
+import {
+  ActionTimeBudgetError,
+  MIN_USEFUL_REQUEST_MS,
+  actionDeadline,
+  markStoppedByDeadline,
+  requestBudget,
+} from "./actionDeadline";
 
 export type { GenerationClient } from "./openrouterCore";
 
@@ -41,6 +52,29 @@ const DEFAULT_TIMEOUT_MS = 180_000;
 
 const sleep = (ms: number) =>
   new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+/** One attempt's signal: its own timeout, and the caller's abort if given. */
+function attemptSignal(timeoutMs: number, caller: AbortSignal | undefined): AbortSignal {
+  const timeout = AbortSignal.timeout(timeoutMs);
+  if (!caller) return timeout;
+  const combined = new AbortController();
+  const abort = (source: AbortSignal) => () => combined.abort(source.reason);
+  if (caller.aborted) combined.abort(caller.reason);
+  caller.addEventListener("abort", abort(caller), { once: true });
+  timeout.addEventListener("abort", abort(timeout), { once: true });
+  return combined.signal;
+}
+
+/**
+ * The request was aborted by its caller (a fact extraction past its time
+ * limit, or one whose sibling window failed). Named AbortError, so outcome
+ * recording counts nothing against the model.
+ */
+function callerAbortError(): OpenRouterError {
+  const error = new OpenRouterError("OpenRouter request aborted by the caller");
+  error.name = "AbortError";
+  return error;
+}
 
 /** Error shaped like the Anthropic SDK's (status + message) so
  *  normalizeProviderError classifies both gateways the same way. */
@@ -75,19 +109,50 @@ export async function openRouterChatCompletion(
     timeoutMs?: number;
     /** Transport retries. Defaults to the shared generation policy. */
     maxRetries?: number;
+    onUsage?: UsageTap;
+    /** App ids of fallback models sent in the body's `models` array. */
+    fallbackModels?: readonly string[];
+    /**
+     * Aborts the request (and every retry) when the caller gives up, such
+     * as a fact extraction past its time limit (2026-09-25).
+     */
+    signal?: AbortSignal;
   }
 ): Promise<ChatCompletionsResponse> {
   const apiKey = requireOpenRouterConfigured();
-  const timeoutMs = input.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  const defaultTimeoutMs = input.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const maxAttempts = (input.maxRetries ?? OPENROUTER_MAX_RETRIES) + 1;
+  // The action's deadline (actionDeadline.ts): throws before sending when
+  // too little time is left. Each attempt's timeout is cut to the time left,
+  // and a retry is sent only if a useful attempt still fits after its delay.
+  // Transport only: the body is never touched.
+  const deadline = actionDeadline(ctx);
+  // Reads the clock only under a deadline, so an action without one runs
+  // exactly as before.
+  const attemptBudget = () =>
+    requestBudget({
+      deadline,
+      now: deadline === undefined ? 0 : Date.now(),
+      timeoutMs: defaultTimeoutMs,
+      maxRetries: 0,
+    });
+  const retryFits = (delayMs: number) =>
+    deadline === undefined || deadline - Date.now() - delayMs >= MIN_USEFUL_REQUEST_MS;
+  attemptBudget();
   await recordGenerationHandoff(ctx, input.attribution);
   const startedAt = Date.now();
   let response!: Response;
   let text!: string;
+  // Set when the deadline refused a retry the status called for.
+  let retryStoppedByDeadline = false;
   // Bounded retry with backoff for transient gateway failures (429/5xx/
   // network). Retry decisions and delays are pure functions in
   // openrouterCore.ts; this loop only executes them.
   for (let attempt = 0; ; attempt += 1) {
+    // A caller that gave up is never sent a (re)try (review 2026-09-25, P3-b).
+    if (input.signal?.aborted) throw callerAbortError();
+    const budget = attemptBudget();
+    const timeoutMs = budget.timeoutMs;
     try {
       response = await fetch(OPENROUTER_URL, {
         method: "POST",
@@ -99,19 +164,26 @@ export async function openRouterChatCompletion(
           ...(input.headers ?? {}),
         },
         body: JSON.stringify(input.body),
-        signal: AbortSignal.timeout(timeoutMs),
+        signal: attemptSignal(timeoutMs, input.signal),
       });
     } catch (error) {
       // A timed-out attempt already spent its full time budget — retrying it
       // would overrun the action limit, so only pre-response network failures
       // are retried.
+      // The caller's own abort is reported as such, never as a timeout, and
+      // never retried; only this attempt's own timer is a timeout.
+      if (input.signal?.aborted) throw callerAbortError();
       if (isAbortLikeError(error)) {
+        // Cut short by the action's deadline: the time ran out, not the model.
+        if (budget.shortened) throw new ActionTimeBudgetError();
         throw new OpenRouterError(
           `OpenRouter request timed out after ${timeoutMs}ms`
         );
       }
       if (attempt + 1 >= maxAttempts) throw error;
       const delay = retryDelayMs(attempt, null, Math.random);
+      // The time ran out before the retry: not counted against the model.
+      if (!retryFits(delay)) throw markStoppedByDeadline(error);
       console.warn(
         `OpenRouter fetch failed (attempt ${attempt + 1}/${maxAttempts}), retrying in ${delay}ms:`,
         error instanceof Error ? error.message : String(error)
@@ -122,7 +194,15 @@ export async function openRouterChatCompletion(
     // Read as text first: gateway errors are not always JSON (HTML error
     // pages, plaintext proxy failures), and discarding that body left
     // status-only errors that were impossible to diagnose.
-    text = await response.text();
+    try {
+      text = await response.text();
+    } catch (error) {
+      // The body read runs under the same attempt timer.
+      if (isAbortLikeError(error) && budget.shortened && !input.signal?.aborted) {
+        throw new ActionTimeBudgetError();
+      }
+      throw error;
+    }
     if (
       response.ok ||
       attempt + 1 >= maxAttempts ||
@@ -135,6 +215,10 @@ export async function openRouterChatCompletion(
       response.headers.get("retry-after"),
       Math.random
     );
+    if (!retryFits(delay)) {
+      retryStoppedByDeadline = true;
+      break;
+    }
     console.warn(
       `OpenRouter returned ${response.status} (attempt ${attempt + 1}/${maxAttempts}), retrying in ${delay}ms`
     );
@@ -149,17 +233,33 @@ export async function openRouterChatCompletion(
   const body = (raw ?? {}) as ChatCompletionsResponse;
   if (!response.ok) {
     const detail = body.error?.message ?? text.trim().slice(0, 300);
-    throw new OpenRouterError(
+    const failure = new OpenRouterError(
       `OpenRouter request failed with status ${response.status}${
         detail ? `: ${detail}` : ""
       }`,
       response.status
     );
+    throw retryStoppedByDeadline ? markStoppedByDeadline(failure) : failure;
   }
   // Mirrors instrumentedAnthropic: a successful response is never turned into
   // an app failure by usage logging.
-  const usage = openRouterUsage(body);
+  const usage = openRouterUsage(body, {
+    cacheWriteTtl: requestCacheWriteTtl(input.body),
+  });
+  // After a fallback the answer came from another model: bill that model.
+  const usageModel = servingModelId(input.model, input.fallbackModels, body.model);
+  // The raw finish reason ("length" is a cut-off answer), recorded even when
+  // fromChatCompletions then refuses the response.
+  const finishReason = body.choices?.[0]?.finish_reason;
+  const stopReason =
+    typeof finishReason === "string" && finishReason.length > 0 ? finishReason : undefined;
   if (usage) {
+    input.onUsage?.({
+      model: usageModel,
+      costUsd: usage.costUsd ?? estimateCostFromTable(usageModel, usage),
+      ...(usage.costUsd !== undefined ? { nativeCostUsd: usage.costUsd } : {}),
+      tokens: usage,
+    });
     await scheduleUsage(ctx, {
       ...(input.projectId ? { projectId: input.projectId } : {}),
       ...(input.userId ? { userId: input.userId } : {}),
@@ -173,14 +273,38 @@ export async function openRouterChatCompletion(
           }
         : {}),
       callSite: input.callSite,
-      model: input.model,
+      model: usageModel,
       inputTokens: usage.inputTokens,
       outputTokens: usage.outputTokens,
       cacheReadInputTokens: usage.cacheReadInputTokens,
+      ...(usage.cacheCreationInputTokens !== undefined
+        ? { cacheCreationInputTokens: usage.cacheCreationInputTokens }
+        : {}),
+      ...(usage.cacheCreation1hInputTokens !== undefined
+        ? { cacheCreation1hInputTokens: usage.cacheCreation1hInputTokens }
+        : {}),
       ...(usage.costUsd !== undefined ? { costUsd: usage.costUsd } : {}),
+      ...(stopReason ? { stopReason } : {}),
     });
   }
   return body;
+}
+
+/**
+ * The app model id that answered: the requested model, or the fallback
+ * whose id (or request id) OpenRouter reports in the response.
+ */
+export function servingModelId(
+  requested: string,
+  fallbacks: readonly string[] | undefined,
+  answered: unknown
+): string {
+  if (!fallbacks?.length || typeof answered !== "string") return requested;
+  return (
+    [requested, ...fallbacks].find(
+      (id) => id === answered || modelById(id)?.requestId === answered
+    ) ?? requested
+  );
 }
 
 export function instrumentedOpenRouter(
@@ -190,11 +314,16 @@ export function instrumentedOpenRouter(
     projectId?: Id<"projects">;
     userId?: string;
     attribution?: GenerationAttribution;
+    onUsage?: UsageTap;
   },
   options: {
     timeoutMs?: number;
     maxRetries?: number;
     preserveMaxTokens?: boolean;
+    /** Helper roles only: models to fall back to, in order. */
+    fallbackModels?: readonly string[];
+    /** Aborts every request of this client (see openRouterChatCompletion). */
+    signal?: AbortSignal;
   } = {}
 ): GenerationClient {
   return {
@@ -203,12 +332,23 @@ export function instrumentedOpenRouter(
         const body = await openRouterChatCompletion(ctx, {
           body: toChatCompletions(params, {
             preserveMaxTokens: options.preserveMaxTokens,
+            ...(options.fallbackModels ? { fallbackModels: options.fallbackModels } : {}),
           }),
           model: params.model,
           ...options,
           ...meta,
         });
-        return fromChatCompletions(body);
+        // Outcomes are attributed to the model that actually answered.
+        const served = servingModelId(params.model, options.fallbackModels, body.model);
+        try {
+          const response = fromChatCompletions(body);
+          return served === params.model ? response : { ...response, servedModel: served };
+        } catch (error) {
+          if (served !== params.model && error instanceof Error) {
+            Object.assign(error, { servedModel: served });
+          }
+          throw error;
+        }
       },
     },
   };

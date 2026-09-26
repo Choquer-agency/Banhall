@@ -7,6 +7,7 @@
     | "secondary"
     | "ghost"
     | "danger-ghost"
+    | "destructive-soft"
     | "link";
 
   const variantStyles: Record<Variant, string> = {
@@ -15,7 +16,7 @@
     "primary-outline":
       "border border-action-primary bg-transparent text-action-primary hover:bg-action-primary hover:text-action-primary-foreground focus-visible:ring-action-primary",
     secondary:
-      "border border-line bg-chrome text-ink hover:bg-primary-wash focus-visible:ring-primary",
+      "border border-transparent bg-chrome text-ink hover:bg-primary-wash focus-visible:ring-primary",
     ghost:
       "border border-transparent text-ink-secondary hover:bg-primary-wash hover:text-ink focus-visible:ring-primary",
     // Destructive actions take a red hover (design system rule 9). A class
@@ -24,6 +25,10 @@
     // order rather than by the caller.
     "danger-ghost":
       "border border-transparent text-red-600 hover:bg-red-50 hover:text-red-700 focus-visible:ring-red-500",
+    // Round 2 filled destructive button: soft red fill, red ink (Cancel in
+    // the start and confirm modals, Revoke in C5). Hover deepens both.
+    "destructive-soft":
+      "border border-transparent bg-destructive-soft text-destructive-soft-ink hover:bg-destructive-soft-hover hover:text-destructive-soft-ink-hover focus-visible:ring-danger",
     link:
       "p-0! text-action-primary hover:text-action-primary-hover focus-visible:ring-action-primary",
   };

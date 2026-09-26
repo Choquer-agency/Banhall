@@ -65,21 +65,8 @@ describe("WorkspaceHeader", () => {
     expect(document.querySelector("[data-rail-toggle]")).toBeNull();
   });
 
-  it("reports the expand affordance while the rail is collapsed and omits the control when unwired", async () => {
+  it("leaves the collapsed-state expand control to the rail too (round 2, A4)", async () => {
     await render(WorkspaceHeader, baseProps({ railHidden: true, onToggleRail: () => {} }));
-    expect(
-      document.querySelector("[data-rail-toggle]")?.getAttribute("aria-label")
-    ).toBe("Expand navigation rail");
-    expect(document.querySelector("[data-rail-toggle]")?.getAttribute("aria-expanded")).toBe(
-      "false"
-    );
-    expect(document.querySelector("[data-rail-toggle]")?.getAttribute("data-rail-direction")).toBe(
-      "expand"
-    );
-    expect(document.querySelector("[data-rail-toggle]")?.querySelectorAll("svg")).toHaveLength(2);
-
-    document.body.innerHTML = "";
-    await render(WorkspaceHeader, baseProps());
     expect(document.querySelector("[data-rail-toggle]")).toBeNull();
   });
 

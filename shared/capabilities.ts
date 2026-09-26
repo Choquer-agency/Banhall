@@ -17,6 +17,8 @@ export const CAPABILITIES = [
   "outcome.recordDelivery",
   "financial.read",
   "financial.write",
+  "team.view",
+  "invites.manage",
   "roles.manage",
   "settings.configure",
   "ops.viewAlerts",
@@ -66,6 +68,8 @@ export const ROLE_CAPABILITY_PRESETS: Record<CapabilityRole, CapabilityPreset> =
     "outcome.recordDelivery": own,
     "financial.read": none,
     "financial.write": none,
+    "team.view": none,
+    "invites.manage": none,
     "roles.manage": none,
     "settings.configure": none,
     "ops.viewAlerts": none,
@@ -88,6 +92,10 @@ export const ROLE_CAPABILITY_PRESETS: Record<CapabilityRole, CapabilityPreset> =
     "outcome.recordDelivery": all,
     "financial.read": all,
     "financial.write": all,
+    // Decision 47: Managers see Team and invite Consultants and Managers.
+    // `canManageInvite` keeps Admin invites behind `roles.manage`.
+    "team.view": all,
+    "invites.manage": all,
     "roles.manage": none,
     "settings.configure": none,
     "ops.viewAlerts": none,
@@ -144,6 +152,8 @@ export const ROLE_CAPABILITY_PRESETS: Record<CapabilityRole, CapabilityPreset> =
       level: "none",
       planned: { level: "all" },
     },
+    "team.view": none,
+    "invites.manage": none,
     "roles.manage": none,
     "settings.configure": none,
     "ops.viewAlerts": none,
@@ -188,6 +198,11 @@ export const CAPABILITY_GROUPS = [
     id: "financial",
     label: "Financial",
     capabilities: ["financial.read", "financial.write"],
+  },
+  {
+    id: "team",
+    label: "Team and invites",
+    capabilities: ["team.view", "invites.manage"],
   },
   {
     id: "administration",
@@ -238,4 +253,35 @@ export function listCapabilityMatrix() {
       financial: ROLE_CAPABILITY_PRESETS.financial[capability],
     })),
   }));
+}
+
+/**
+ * Decision 47: `invites.manage` lets a Manager invite Consultants and
+ * Managers and resend, re-role or revoke those pending invites. An Admin
+ * invite stays behind `roles.manage` (Admin only).
+ */
+export function canManageInvite(
+  viewerRole: CapabilityRole | null | undefined,
+  inviteRole: Role
+): boolean {
+  return inviteRole === "admin"
+    ? hasCapability(viewerRole, "roles.manage")
+    : hasCapability(viewerRole, "invites.manage");
+}
+
+/**
+ * Whether a user holds a capability on one project, for UI gating: `all`
+ * holds everywhere, `own` only on a project whose Owner (`ownerId`) is the
+ * user. `createdBy` is never consulted. Convex enforces the real rule (which
+ * for some capabilities also counts an open work item); this only decides
+ * whether to offer the action.
+ */
+export function projectCapabilityAllows(
+  role: CapabilityRole | null | undefined,
+  capability: Capability,
+  project: { ownerId?: string | null },
+  userId: string
+): boolean {
+  const level = getEffectiveCapabilityLevel(role, capability);
+  return level === "all" || (level === "own" && project.ownerId === userId);
 }

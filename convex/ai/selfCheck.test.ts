@@ -14,15 +14,44 @@ import type { FunctionArgs } from "convex/server";
 import { api, internal } from "../_generated/api";
 import type { Doc, Id } from "../_generated/dataModel";
 import schema from "../schema";
-import type { GenerationMessageParams } from "./openrouterCore";
+import type { GenerationClient, GenerationMessageParams } from "./openrouterCore";
 import { SECTION_242_REQUEST } from "./section242Agent";
 import { SECTION_244_REQUEST } from "./section244Agent";
 import { SECTION_246_REQUEST } from "./section246Agent";
-import { COMPRESSION_REQUEST, ORDERED_PROMPT_SCAFFOLDS } from "./promptDefinitions";
+import {
+  COMPRESSION_REQUEST,
+  ORDERED_PROMPT_SCAFFOLDS,
+  SELF_CHECK_REQUEST,
+  SELF_CHECK_SCHEMA,
+  SUMMARY_PLAN_SELF_CHECK_REQUEST,
+  SUMMARY_PLAN_SELF_CHECK_SCHEMA,
+} from "./promptDefinitions";
 import { SEQUENTIAL_CALLS_PER_GENERATE_CANDIDATE } from "./providers";
 import { sectionMetrics } from "../lib/lineLimits";
 import { assembleSectionNotes, runDeterministicSelfCheck } from "../lib/selfCheckRules";
 import type { OrderedProfileContext } from "../lib/orderedChain";
+import { planComplianceNoteDrafts } from "./orderedGeneration";
+import {
+  runModelSelfCheck,
+  selfCheckFailureDiagnostic,
+  type SelfCheckPlanCheck,
+} from "./selfCheck";
+import {
+  SELF_CHECK_SYSTEM_PROMPT,
+  SUMMARY_PLAN_SELF_CHECK_SYSTEM_PROMPT,
+} from "./prompts";
+import {
+  jsonEscapedUtf8Bytes,
+  MAX_SUMMARY_SELF_CHECK_GUIDANCE_ESCAPED_UTF8_BYTES,
+  MAX_SUMMARY_SELF_CHECK_QUESTION_ESCAPED_UTF8_BYTES,
+  MAX_SUMMARY_SELF_CHECK_REASON_ESCAPED_UTF8_BYTES,
+  MAX_SUMMARY_SELF_CHECK_RESPONSE_UTF8_BYTES,
+  projectSummaryOrdinaryChecks,
+  serializeFrozenSummaryPlanChecks,
+} from "../lib/seedRevisions";
+import { agentOutputsOf } from "../lib/generationOutputs";
+import type { PdSubsectionRoleId } from "../../shared/pdSubsections";
+import planCoverageReplayKit from "../../test-data/plan-coverage-replay.json?raw";
 
 const network = vi.hoisted(() => ({ create: vi.fn() }));
 vi.mock("@anthropic-ai/sdk", () => ({
@@ -106,7 +135,10 @@ function userText(params: GenerationMessageParams | Anthropic.MessageCreateParam
 }
 function draftSectionOf(user: string): Section | null {
   for (const section of ["242", "244", "246"] as const) {
-    if (user.startsWith(SECTION_REQUESTS[section].userPrefix)) return section;
+    // Since cost phase 1 the three lines share their opening block; the
+    // line's own instructions open with its task marker.
+    const request = SECTION_REQUESTS[section];
+    if (user.startsWith(request.userPrefix) && user.includes(request.taskMarker)) return section;
   }
   return null;
 }
@@ -253,7 +285,12 @@ async function generate(script: Script = {}) {
   const sectionRows = await t.run((ctx) =>
     ctx.db.query("generationSectionRuns").withIndex("by_generationId", (q) => q.eq("generationId", generationId)).collect()
   );
-  const generation = (await t.run((ctx) => ctx.db.get(generationId))) as Doc<"generations">;
+  // The row, with its agent outputs read the way readers read them (child
+  // rows since 2026-09-25).
+  const generation = (await t.run(async (ctx) => {
+    const row = (await ctx.db.get(generationId)) as Doc<"generations">;
+    return { ...row, agentOutputs: await agentOutputsOf(ctx, generationId) };
+  }));
   // Surface a failed candidate's own error instead of a bare status mismatch.
   const runErrors = (await t.run((ctx) => ctx.db.query("generationCandidateRuns").collect()))
     .map((run) => run.error)
@@ -286,7 +323,783 @@ function selfCheckPrompt(section: Section): string {
   return prompts[0];
 }
 
+async function completeSelfCheckRequestHash(
+  params: GenerationMessageParams
+): Promise<string> {
+  const bytes = new TextEncoder().encode(JSON.stringify(params));
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  return [...new Uint8Array(digest)]
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
+}
+
 describe("Self-check before display (CAP-9)", () => {
+  it("keeps the legacy Self-check provider request unchanged when no Summary plan exists", async () => {
+    const create = vi.fn(async (params: GenerationMessageParams) => ({
+      content: [{
+        type: "tool_use" as const,
+        id: "legacy-self-check",
+        name: params.tool_choice?.name ?? "submit_self_check",
+        input: { verdicts: [] },
+      }],
+      usage: { input_tokens: 1, output_tokens: 1 },
+    }));
+    const result = await runModelSelfCheck({ messages: { create } } as GenerationClient, {
+      section: "242",
+      text: "One legacy paragraph.",
+      storylineText: "Legacy storyline.",
+      confidenceMap: [{ text: "Legacy confidence.", confidence: "partial" }],
+      glossaryCandidates: ["control loop"],
+      writerInstructions: "Use the saved writer voice.",
+      rules: [{ instruction: "Keep the uncertainty explicit.", paragraphIndex: 0 }],
+      model: "claude-opus-4-8",
+    });
+    expect(result.planVerdicts).toEqual([]);
+    expect(create).toHaveBeenCalledTimes(1);
+    const [request] = create.mock.calls[0];
+    expect(request).toEqual({
+      model: "claude-opus-4-8",
+      max_tokens: SELF_CHECK_REQUEST.maxTokens,
+      system: SELF_CHECK_SYSTEM_PROMPT,
+      tools: [{
+        name: SELF_CHECK_REQUEST.toolName,
+        description: SELF_CHECK_REQUEST.toolDescription,
+        input_schema: SELF_CHECK_SCHEMA,
+      }],
+      tool_choice: { type: "tool", name: SELF_CHECK_REQUEST.toolName },
+      messages: [{
+        role: "user",
+        content:
+          "Run the Self-check on the drafted section below. Paragraphs are numbered [P1], [P2], ...; name the paragraph each verdict concerns (0 for the whole section).\n\n" +
+          "--- BEGIN [SECTION DRAFT: Line 242 (Uncertainty)] ---\n" +
+          "[P1] One legacy paragraph.\n" +
+          "--- END [SECTION DRAFT: Line 242 (Uncertainty)] ---\n\n" +
+          "--- BEGIN [STORYLINE] ---\nLegacy storyline.\n--- END [STORYLINE] ---\n\n" +
+          "--- BEGIN [CONFIDENCE MAP] ---\n[C1] (partial) Legacy confidence.\n--- END [CONFIDENCE MAP] ---\n\n" +
+          "--- BEGIN [GLOSSARY CANDIDATES (Glossary Terms not found verbatim in the section)] ---\n" +
+          "- control loop\n" +
+          "--- END [GLOSSARY CANDIDATES (Glossary Terms not found verbatim in the section)] ---\n\n" +
+          "--- BEGIN [WRITER INSTRUCTIONS] ---\n" +
+          "Use the saved writer voice.\n\n" +
+          "[R1] (paragraph 1) Keep the uncertainty explicit.\n" +
+          "--- END [WRITER INSTRUCTIONS] ---",
+      }],
+    });
+    // Captured from baseline 20ab25e627657e716476b393fa463e828ea978c1
+    // with this nonempty Storyline/confidence/glossary/profile/rule fixture,
+    // then recaptured 2026-09-23 for the owner-directed copy-skills change
+    // (shared human-prose rules on the Self-check prompt; section titles
+    // without an em dash). This literal hash is independent of current
+    // prompt/schema exports.
+    expect(await completeSelfCheckRequestHash(request)).toBe(
+      "4fa5d7184a93e08a953f2c5a5fdd9a7f94a667a1da247059d7dd2b1b69f478c1"
+    );
+  });
+
+  it("gives only the Summary-plan Self-check an output allowance that covers its admitted response bytes", async () => {
+    // A byte-level tokenizer never needs more tokens than bytes, so an
+    // allowance at least as large as the admitted response always fits it.
+    expect(MAX_SUMMARY_SELF_CHECK_RESPONSE_UTF8_BYTES).toBe(16_384);
+    expect(SUMMARY_PLAN_SELF_CHECK_REQUEST.maxTokens).toBe(16_384);
+    expect(SUMMARY_PLAN_SELF_CHECK_REQUEST.maxTokens).toBeGreaterThanOrEqual(
+      MAX_SUMMARY_SELF_CHECK_RESPONSE_UTF8_BYTES
+    );
+    // The legacy Self-check allowance is unchanged.
+    expect(SELF_CHECK_REQUEST.maxTokens).toBe(4096);
+    const check: SelfCheckPlanCheck = {
+      itemId: "item-1",
+      roleId: "company_context",
+      mergedItemIds: ["item-1"],
+      instruction: "cover",
+      confirmedExclusion: false,
+      wording: ["Frozen wording."],
+      relationshipReferences: [],
+      sourceReferences: [],
+    };
+    const create = vi.fn(async (params: GenerationMessageParams) => ({
+      content: [{
+        type: "tool_use" as const,
+        id: "summary-allowance",
+        name: params.tool_choice?.name ?? "submit_self_check",
+        input: {
+          verdicts: [],
+          planVerdicts: [{
+            itemId: "item-1",
+            mergedItemIds: ["item-1"],
+            paragraph: 1,
+            outcome: "applied",
+            reason: "Covered.",
+          }],
+        },
+      }],
+      usage: { input_tokens: 1, output_tokens: 1 },
+    }));
+    await runModelSelfCheck({ messages: { create } } as GenerationClient, {
+      section: "242",
+      text: "One paragraph.",
+      storylineText: "",
+      confidenceMap: [],
+      glossaryCandidates: [],
+      rules: [],
+      model: "claude-opus-4-8",
+      planChecks: [check],
+      planChecksBlock: serializeFrozenSummaryPlanChecks([check]),
+    });
+    expect(create).toHaveBeenCalledTimes(1);
+    const [request] = create.mock.calls[0];
+    expect(request.system).toBe(SUMMARY_PLAN_SELF_CHECK_SYSTEM_PROMPT);
+    expect(request.max_tokens).toBe(16_384);
+  });
+
+  it.each(["missing tool output", "malformed adapter output", "invalid field type"] as const)(
+    "uses one Summary attempt for %s",
+    async (failure) => {
+      const check: SelfCheckPlanCheck = {
+        itemId: "item-1",
+        roleId: "company_context",
+        mergedItemIds: ["item-1"],
+        instruction: "cover",
+        confirmedExclusion: false,
+        wording: ["Frozen wording."],
+        relationshipReferences: [],
+        sourceReferences: [],
+      };
+      const create = vi.fn(async (params: GenerationMessageParams) => {
+        if (failure === "missing tool output") {
+          return {
+            content: [{ type: "text" as const, text: "No tool." }],
+            usage: { input_tokens: 1, output_tokens: 1 },
+          };
+        }
+        if (failure === "malformed adapter output") {
+          const { MalformedOutputError } = await import("./openrouterCore");
+          throw new MalformedOutputError("malformed tool JSON");
+        }
+        return {
+          content: [{
+            type: "tool_use" as const,
+            id: "invalid-summary-shape",
+            name: params.tool_choice?.name ?? "submit_self_check",
+            input: {
+              verdicts: [],
+              planVerdicts: [{
+                itemId: "item-1",
+                mergedItemIds: ["item-1"],
+                paragraph: 1,
+                outcome: 7,
+                reason: "Invalid outcome type.",
+              }],
+            },
+          }],
+          usage: { input_tokens: 1, output_tokens: 1 },
+        };
+      });
+      const result = runModelSelfCheck({ messages: { create } } as GenerationClient, {
+        section: "242",
+        text: "One paragraph.",
+        storylineText: "",
+        confidenceMap: [],
+        glossaryCandidates: [],
+        rules: [],
+        model: "claude-opus-4-8",
+        planChecks: [check],
+        planChecksBlock: serializeFrozenSummaryPlanChecks([check]),
+      });
+      await expect(result).rejects.toThrow();
+      expect(create).toHaveBeenCalledTimes(1);
+    }
+  );
+
+  it.each([
+    {
+      case: "multibyte reason",
+      field: "reason",
+      maximum: MAX_SUMMARY_SELF_CHECK_REASON_ESCAPED_UTF8_BYTES,
+      atLimit: "é".repeat(32),
+      aboveLimit: `${"é".repeat(32)}x`,
+    },
+    {
+      case: "JSON-escaped reason",
+      field: "reason",
+      maximum: MAX_SUMMARY_SELF_CHECK_REASON_ESCAPED_UTF8_BYTES,
+      atLimit: "\n".repeat(32),
+      aboveLimit: `${"\n".repeat(32)}x`,
+    },
+    {
+      case: "multibyte repair guidance",
+      field: "repairGuidance",
+      maximum: MAX_SUMMARY_SELF_CHECK_GUIDANCE_ESCAPED_UTF8_BYTES,
+      atLimit: "é".repeat(48),
+      aboveLimit: `${"é".repeat(48)}x`,
+    },
+    {
+      case: "JSON-escaped repair guidance",
+      field: "repairGuidance",
+      maximum: MAX_SUMMARY_SELF_CHECK_GUIDANCE_ESCAPED_UTF8_BYTES,
+      atLimit: "\n".repeat(48),
+      aboveLimit: `${"\n".repeat(48)}x`,
+    },
+  ] as const)(
+    "advertises the Summary byte limit for $case text and clips text above it",
+    async ({ field, maximum, atLimit, aboveLimit }) => {
+      expect(jsonEscapedUtf8Bytes(atLimit)).toBe(maximum);
+      expect(jsonEscapedUtf8Bytes(aboveLimit)).toBe(maximum + 1);
+      const fieldSchema = field === "reason"
+        ? SUMMARY_PLAN_SELF_CHECK_SCHEMA.properties.verdicts.items.properties.reason
+        : SUMMARY_PLAN_SELF_CHECK_SCHEMA.properties.verdicts.items.properties.repairGuidance;
+      expect(aboveLimit.length).toBeLessThanOrEqual(
+        fieldSchema.maxLength
+      );
+
+      const check: SelfCheckPlanCheck = {
+        itemId: "item-1",
+        roleId: "company_context",
+        mergedItemIds: ["item-1"],
+        instruction: "cover",
+        confirmedExclusion: false,
+        wording: ["Frozen wording."],
+        relationshipReferences: [],
+        sourceReferences: [],
+      };
+      const execute = async (boundedValue: string) => {
+        const create = vi.fn(async (params: GenerationMessageParams) => ({
+          content: [{
+            type: "tool_use" as const,
+            id: "summary-byte-boundary",
+            name: params.tool_choice?.name ?? "submit_self_check",
+            input: {
+              verdicts: [{
+                paragraph: 1,
+                check: "storyline",
+                instruction: "storyline",
+                outcome: "applied",
+                reason: field === "reason" ? boundedValue : "Applied.",
+                ...(field === "repairGuidance"
+                  ? { repairGuidance: boundedValue }
+                  : {}),
+              }],
+              planVerdicts: [{
+                itemId: "item-1",
+                mergedItemIds: ["item-1"],
+                paragraph: 1,
+                outcome: "applied",
+                reason: "Covered.",
+              }],
+            },
+          }],
+          usage: { input_tokens: 1, output_tokens: 1 },
+        }));
+        const result = runModelSelfCheck(
+          { messages: { create } } as GenerationClient,
+          {
+            section: "242",
+            text: "One paragraph.",
+            storylineText: "Frozen storyline.",
+            confidenceMap: [],
+            glossaryCandidates: [],
+            rules: [],
+            model: "claude-opus-4-8",
+            planChecks: [check],
+            planChecksBlock: serializeFrozenSummaryPlanChecks([check]),
+          }
+        );
+        return { create, result };
+      };
+
+      const accepted = await execute(atLimit);
+      await expect(accepted.result).resolves.toMatchObject({
+        verdicts: [{ outcome: "applied" }],
+      });
+      expect(accepted.create).toHaveBeenCalledTimes(1);
+      const [request] = accepted.create.mock.calls[0];
+      expect(request.tools?.[0]).toMatchObject({
+        input_schema: SUMMARY_PLAN_SELF_CHECK_SCHEMA,
+      });
+      const properties = SUMMARY_PLAN_SELF_CHECK_SCHEMA.properties;
+      const boundedProviderFields = [
+        properties.verdicts.items.properties.instruction,
+        properties.verdicts.items.properties.reason,
+        properties.verdicts.items.properties.repairGuidance,
+        properties.storylineQuestion.properties.question,
+        properties.storylineQuestion.properties.sectionClaim,
+        properties.storylineQuestion.properties.storylineAlternative,
+        properties.planVerdicts.items.properties.itemId,
+        properties.planVerdicts.items.properties.skippedRoleId,
+        properties.planVerdicts.items.properties.mergedItemIds.items,
+        properties.planVerdicts.items.properties.reason,
+        properties.planVerdicts.items.properties.repairGuidance,
+      ];
+      for (const field of boundedProviderFields) {
+        expect(field.description).toContain(
+          `Return at most ${field.maxLength} JSON-escaped UTF-8 bytes`
+        );
+        expect(field.description).toContain(
+          "measured after JSON string escaping and excluding the surrounding quotes"
+        );
+        expect(field.description).toContain(
+          `maxLength=${field.maxLength} is a conservative character bound; ` +
+          "the escaped-byte limit is authoritative"
+        );
+      }
+
+      // Over-long free text used to reject the whole check (2026-09-25:
+      // real reasons run 90 to 280 bytes). It is now clipped to the limit
+      // and the check is accepted with the clipped text.
+      const clipped = await execute(aboveLimit);
+      const value = await clipped.result;
+      expect(clipped.create).toHaveBeenCalledTimes(1);
+      expect(value.verdicts).toHaveLength(1);
+      expect(value.planVerdicts[0]).toMatchObject({ outcome: "applied", paragraphIndex: 0 });
+      const kept = field === "reason"
+        ? value.verdicts[0]?.reason
+        : value.verdicts[0]?.repairGuidance;
+      expect(kept).toBeDefined();
+      expect(jsonEscapedUtf8Bytes(kept ?? "")).toBeLessThanOrEqual(maximum);
+      expect(kept?.endsWith("…")).toBe(true);
+    }
+  );
+
+  it("accepts only finite integer plan paragraphs inside the actual Section", async () => {
+    const check: SelfCheckPlanCheck = {
+      itemId: "item-1",
+      roleId: "company_context",
+      mergedItemIds: ["item-1"],
+      instruction: "cover" as const,
+      confirmedExclusion: false,
+      wording: ["Frozen wording."],
+      relationshipReferences: [],
+      sourceReferences: [],
+    };
+    for (const paragraph of [-1, 0, 1.5, undefined, 3]) {
+      const create = vi.fn(async (params: GenerationMessageParams) => ({
+        content: [{
+          type: "tool_use" as const,
+          id: "plan-paragraph",
+          name: params.tool_choice?.name ?? "submit_self_check",
+          input: {
+            verdicts: [],
+            planVerdicts: [{
+              itemId: "item-1",
+              mergedItemIds: ["item-1"],
+              ...(paragraph === undefined ? {} : { paragraph }),
+              outcome: "applied",
+              reason: "Covered.",
+            }],
+          },
+        }],
+        usage: { input_tokens: 1, output_tokens: 1 },
+      }));
+      const result = await runModelSelfCheck({ messages: { create } } as GenerationClient, {
+        section: "242",
+        text: "Paragraph one.\n\nParagraph two.",
+        storylineText: "",
+        confidenceMap: [],
+        glossaryCandidates: [],
+        rules: [],
+        model: "claude-opus-4-8",
+        planChecks: [check],
+        planChecksBlock: serializeFrozenSummaryPlanChecks([check]),
+      });
+      expect(result.planVerdicts[0], String(paragraph)).toMatchObject({
+        outcome: "not_applied",
+        reason: "Applied plan verdict did not identify valid paragraph evidence.",
+        actionableRepair: false,
+      });
+      expect(result.planVerdicts[0]?.paragraphIndex, String(paragraph)).toBeUndefined();
+    }
+    const create = vi.fn(async (params: GenerationMessageParams) => ({
+      content: [{
+        type: "tool_use" as const,
+        id: "valid-plan-paragraph",
+        name: params.tool_choice?.name ?? "submit_self_check",
+        input: {
+          verdicts: [],
+          planVerdicts: [{
+            itemId: "item-1",
+            mergedItemIds: ["item-1"],
+            paragraph: 2,
+            outcome: "applied",
+            reason: "Covered.",
+          }],
+        },
+      }],
+      usage: { input_tokens: 1, output_tokens: 1 },
+    }));
+    const accepted = await runModelSelfCheck({ messages: { create } } as GenerationClient, {
+      section: "242",
+      text: "Paragraph one.\n\nParagraph two.",
+      storylineText: "",
+      confidenceMap: [],
+      glossaryCandidates: [],
+      rules: [],
+      model: "claude-opus-4-8",
+      planChecks: [check],
+      planChecksBlock: serializeFrozenSummaryPlanChecks([check]),
+    });
+    expect(accepted.planVerdicts[0]).toMatchObject({
+      outcome: "applied",
+      paragraphIndex: 1,
+    });
+  });
+
+  it.each([null, "1"])(
+    "downgrades nonnumeric plan paragraph %j without rejecting valid siblings",
+    async (paragraph) => {
+      const checks: SelfCheckPlanCheck[] = ["item-1", "item-2"].map((itemId) => ({
+        itemId,
+        roleId: "company_context",
+        mergedItemIds: [itemId],
+        instruction: "cover",
+        confirmedExclusion: false,
+        wording: [`Frozen ${itemId}.`],
+        relationshipReferences: [],
+        sourceReferences: [],
+      }));
+      const create = vi.fn(async (params: GenerationMessageParams) => ({
+        content: [{
+          type: "tool_use" as const,
+          id: "nonnumeric-plan-paragraph",
+          name: params.tool_choice?.name ?? "submit_self_check",
+          input: {
+            verdicts: [],
+            planVerdicts: [
+              {
+                itemId: "item-1",
+                mergedItemIds: ["item-1"],
+                paragraph,
+                outcome: "applied",
+                reason: "Invalid evidence scope.",
+              },
+              {
+                itemId: "item-2",
+                mergedItemIds: ["item-2"],
+                paragraph: 1,
+                outcome: "applied",
+                reason: "Covered.",
+              },
+            ],
+          },
+        }],
+        usage: { input_tokens: 1, output_tokens: 1 },
+      }));
+      const result = await runModelSelfCheck(
+        { messages: { create } } as GenerationClient,
+        {
+          section: "242",
+          text: "Paragraph one.",
+          storylineText: "",
+          confidenceMap: [],
+          glossaryCandidates: [],
+          rules: [],
+          model: "claude-opus-4-8",
+          planChecks: checks,
+          planChecksBlock: serializeFrozenSummaryPlanChecks(checks),
+        }
+      );
+      expect(result.planVerdicts).toEqual([
+        expect.objectContaining({ itemId: "item-1", outcome: "not_applied" }),
+        expect.objectContaining({ itemId: "item-2", outcome: "applied", paragraphIndex: 0 }),
+      ]);
+      expect(result.planVerdicts[0]?.paragraphIndex).toBeUndefined();
+      expect(create).toHaveBeenCalledTimes(1);
+    }
+  );
+
+  it("rejects encoded Summary roots without unwrapping", async () => {
+    const check: SelfCheckPlanCheck = {
+      itemId: "item-1",
+      roleId: "company_context",
+      mergedItemIds: ["item-1"],
+      instruction: "cover",
+      confirmedExclusion: false,
+      wording: ["Frozen wording."],
+      relationshipReferences: [],
+      sourceReferences: [],
+    };
+    const create = vi.fn(async (params: GenerationMessageParams) => ({
+      content: [{
+        type: "tool_use" as const,
+        id: "encoded-summary-root",
+        name: params.tool_choice?.name ?? "submit_self_check",
+        input: JSON.stringify({
+          verdicts: [],
+          planVerdicts: [{
+            itemId: "item-1",
+            mergedItemIds: ["item-1"],
+            paragraph: 1,
+            outcome: "applied",
+            reason: "Covered.",
+          }],
+        }),
+      }],
+      usage: { input_tokens: 1, output_tokens: 1 },
+    }));
+    await expect(runModelSelfCheck(
+      { messages: { create } } as GenerationClient,
+      {
+        section: "242",
+        text: "Paragraph one.",
+        storylineText: "",
+        confidenceMap: [],
+        glossaryCandidates: [],
+        rules: [],
+        model: "claude-opus-4-8",
+        planChecks: [check],
+        planChecksBlock: serializeFrozenSummaryPlanChecks([check]),
+      }
+    )).rejects.toThrow("unexpected shape");
+    expect(create).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    ["mismatched", "Frozen Summary plan-check serialization mismatch", "tampered", ""],
+    ["oversized", "Expanded Summary plan checks exceed", "unused", "x".repeat(64_000)],
+  ] as const)("refuses a %s Summary plan-check block before any provider call", async (
+    _case,
+    message,
+    planChecksBlock,
+    exactExcerpt
+  ) => {
+    const check: SelfCheckPlanCheck = {
+      itemId: "item-1",
+      roleId: "company_context",
+      mergedItemIds: ["item-1"],
+      instruction: "cover" as const,
+      confirmedExclusion: false,
+      wording: ["Frozen wording."],
+      relationshipReferences: [],
+      sourceReferences: [{
+        originatingItemId: "item-1",
+        sourceId: "source-1",
+        exactExcerpt,
+      }],
+    };
+    const create = vi.fn();
+    const result = runModelSelfCheck({ messages: { create } } as GenerationClient, {
+      section: "242",
+      text: "One paragraph.",
+      storylineText: "",
+      confidenceMap: [],
+      glossaryCandidates: [],
+      rules: [],
+      model: "claude-opus-4-8",
+      planChecks: [check],
+      planChecksBlock,
+    });
+    await expect(result).rejects.toThrow(message);
+    expect(create).not.toHaveBeenCalled();
+  });
+
+  it("accepts one complete mixed ordinary/plan response and rejects every malformed whole response", async () => {
+    const checks: SelfCheckPlanCheck[] = [
+      {
+        itemId: "item-a",
+        roleId: "specific_advancements",
+        mergedItemIds: ["item-a", "item-b"],
+        instruction: "cover",
+        confirmedExclusion: false,
+        support: "source_supported",
+        wording: ["Advancement A."],
+        relationshipReferences: [],
+        sourceReferences: [],
+      },
+      {
+        itemId: "item-b",
+        roleId: "specific_advancements",
+        mergedItemIds: ["item-a", "item-b"],
+        instruction: "cover",
+        confirmedExclusion: false,
+        support: "writer_asserted",
+        wording: ["Advancement B."],
+        relationshipReferences: [],
+        sourceReferences: [],
+      },
+      {
+        skippedRoleId: "prior_year_status",
+        roleId: "prior_year_status",
+        mergedItemIds: [],
+        instruction: "skip",
+        confirmedExclusion: false,
+        wording: [],
+        relationshipReferences: [],
+        sourceReferences: [],
+      },
+    ];
+    const valid = {
+      verdicts: [
+        { paragraph: 1, check: "storyline", instruction: "storyline", outcome: "applied", reason: "Applied." },
+        { paragraph: 1, check: "confidence", instruction: "confidence:C1", outcome: "applied", reason: "Applied." },
+        { paragraph: 1, check: "glossary", instruction: "glossary:G1", outcome: "applied", reason: "Applied." },
+        { paragraph: 1, check: "instruction", instruction: "writer:profile", outcome: "applied", reason: "Applied." },
+        { paragraph: 1, check: "instruction", instruction: "rule:R1", outcome: "applied", reason: "Applied." },
+      ],
+      planVerdicts: checks.map((check) => ({
+        ...(check.itemId ? { itemId: check.itemId } : {}),
+        ...(check.skippedRoleId ? { skippedRoleId: check.skippedRoleId } : {}),
+        mergedItemIds: [...check.mergedItemIds],
+        paragraph: 1,
+        outcome: "applied",
+        reason: "Applied.",
+      })),
+      storylineQuestion: {
+        question: "Which result is supported?",
+        sectionClaim: "The result was stable.",
+        confidenceEntry: 1,
+        storylineAlternative: "The result may be stable.",
+      },
+    };
+    const input = {
+      section: "242" as const,
+      text: "One paragraph covers the plan.",
+      storylineText: "Frozen storyline.",
+      confidenceMap: [{ text: "Confidence entry.", confidence: "partial" }],
+      glossaryCandidates: ["control loop"],
+      writerInstructions: "Use direct language.",
+      rules: [{ instruction: "State the result." }],
+      model: "claude-opus-4-8",
+      planChecks: checks,
+      planChecksBlock: serializeFrozenSummaryPlanChecks(checks),
+    };
+    const execute = async (response: typeof valid) => {
+      const create = vi.fn(async (params: GenerationMessageParams) => ({
+        content: [{
+          type: "tool_use" as const,
+          id: "summary-output-validation",
+          name: params.tool_choice?.name ?? "submit_self_check",
+          input: response,
+        }],
+        usage: { input_tokens: 1, output_tokens: 1 },
+      }));
+      const result = runModelSelfCheck(
+        { messages: { create } } as GenerationClient,
+        input
+      );
+      return { create, result };
+    };
+
+    const accepted = await execute(structuredClone(valid));
+    await expect(accepted.result).resolves.toMatchObject({
+      verdicts: [
+        { instruction: "Storyline" },
+        { instruction: "Confidence Map: Confidence entry." },
+        { instruction: "Glossary Term: control loop" },
+        { instruction: "Use direct language." },
+        { instruction: "State the result." },
+      ],
+      planVerdicts: [
+        { itemId: "item-a", mergedItemIds: ["item-a", "item-b"] },
+        { itemId: "item-b", mergedItemIds: ["item-a", "item-b"] },
+        { skippedRoleId: "prior_year_status", mergedItemIds: [] },
+      ],
+    });
+    expect(accepted.create).toHaveBeenCalledTimes(1);
+
+    const malformed: Array<[string, (response: typeof valid) => void]> = [
+      ["omitted ordinary row", (response) => { response.verdicts.pop(); }],
+      ["omitted ordinary reason", (response) => { Reflect.deleteProperty(response.verdicts[0], "reason"); }],
+      ["omitted Skip merge array", (response) => { Reflect.deleteProperty(response.planVerdicts[2], "mergedItemIds"); }],
+      ["duplicate ordinary row", (response) => { response.verdicts[4] = { ...response.verdicts[0] }; }],
+      ["unknown ordinary label", (response) => { response.verdicts[0].instruction = "unknown"; }],
+      ["omitted plan row", (response) => { response.planVerdicts.pop(); }],
+      ["duplicate plan row", (response) => { response.planVerdicts[2] = { ...response.planVerdicts[0] }; }],
+      ["unknown plan reference", (response) => { response.planVerdicts[0].itemId = "unknown-item"; }],
+      ["incomplete merge ids", (response) => { response.planVerdicts[0].mergedItemIds = ["item-a"]; }],
+      ["overlong returned id", (response) => { response.planVerdicts[0].itemId = "x".repeat(65); }],
+      ["ordinary paragraph numeric limit", (response) => { response.verdicts[0].paragraph = 10_000_000_000; }],
+      ["plan paragraph numeric limit", (response) => { response.planVerdicts[0].paragraph = 10_000_000_000; }],
+      ["Storyline numeric limit", (response) => { response.storylineQuestion.confidenceEntry = 10_000_000_000; }],
+      ["negative Storyline entry", (response) => { response.storylineQuestion.confidenceEntry = -1; }],
+      ["oversized negative Storyline entry", (response) => { response.storylineQuestion.confidenceEntry = -10_000_000_000; }],
+      ["oversized unknown root property", (response) => { Object.assign(response, { unknownRoot: "x".repeat(MAX_SUMMARY_SELF_CHECK_RESPONSE_UTF8_BYTES + 1) }); }],
+      ["oversized unknown nested property", (response) => { Object.assign(response.planVerdicts[0], { unknownNested: "x".repeat(MAX_SUMMARY_SELF_CHECK_RESPONSE_UTF8_BYTES + 1) }); }],
+      ["unknown root property", (response) => { Object.assign(response, { unknownRoot: true }); }],
+      ["unknown ordinary property", (response) => { Object.assign(response.verdicts[0], { unknownOrdinary: true }); }],
+      ["unknown plan property", (response) => { Object.assign(response.planVerdicts[0], { unknownPlan: true }); }],
+      ["unknown Storyline property", (response) => { Object.assign(response.storylineQuestion, { unknownQuestion: true }); }],
+      ["both plan identities", (response) => { response.planVerdicts[0].skippedRoleId = "prior_year_status"; }],
+    ];
+    for (const [name, mutate] of malformed) {
+      const response = structuredClone(valid);
+      mutate(response);
+      const rejected = await execute(response);
+      await expect(rejected.result, name).rejects.toThrow();
+      expect(rejected.create, name).toHaveBeenCalledTimes(1);
+    }
+
+    // An overlong escaped free-text field no longer rejects the whole
+    // response: it is clipped to its limit and the rest is kept as returned.
+    const overlong = structuredClone(valid);
+    overlong.verdicts[0].reason = "\n".repeat(33);
+    const clipped = await execute(overlong);
+    const value = await clipped.result;
+    expect(clipped.create).toHaveBeenCalledTimes(1);
+    expect(value.verdicts).toHaveLength(valid.verdicts.length);
+    expect(value.planVerdicts.map((verdict) => verdict.outcome))
+      .toEqual(["applied", "applied", "applied"]);
+    expect(value.storylineQuestion?.question).toBe("Which result is supported?");
+  });
+
+  it.each([
+    [-1, false],
+    [1.5, false],
+    [0, true],
+    [1, true],
+    [2, false],
+  ] as const)("validates Summary ordinary paragraph %s", async (paragraph, accepted) => {
+    const check: SelfCheckPlanCheck = {
+      itemId: "item-1",
+      roleId: "company_context",
+      mergedItemIds: ["item-1"],
+      instruction: "cover",
+      confirmedExclusion: false,
+      wording: ["Frozen wording."],
+      relationshipReferences: [],
+      sourceReferences: [],
+    };
+    const create = vi.fn(async (params: GenerationMessageParams) => ({
+      content: [{
+        type: "tool_use" as const,
+        id: "ordinary-paragraph",
+        name: params.tool_choice?.name ?? "submit_self_check",
+        input: {
+          verdicts: [{
+            paragraph,
+            check: "storyline",
+            instruction: "storyline",
+            outcome: "applied",
+            reason: "Applied.",
+          }],
+          planVerdicts: [{
+            itemId: "item-1",
+            mergedItemIds: ["item-1"],
+            paragraph: 1,
+            outcome: "applied",
+            reason: "Applied.",
+          }],
+        },
+      }],
+      usage: { input_tokens: 1, output_tokens: 1 },
+    }));
+    const result = runModelSelfCheck({ messages: { create } } as GenerationClient, {
+      section: "242",
+      text: "One paragraph.",
+      storylineText: "Frozen storyline.",
+      confidenceMap: [],
+      glossaryCandidates: [],
+      rules: [],
+      model: "claude-opus-4-8",
+      planChecks: [check],
+      planChecksBlock: serializeFrozenSummaryPlanChecks([check]),
+    });
+    if (!accepted) {
+      await expect(result).rejects.toThrow();
+    } else {
+      const value = await result;
+      expect(value.verdicts[0]?.paragraphIndex).toBe(paragraph === 0 ? undefined : 0);
+    }
+    expect(create).toHaveBeenCalledTimes(1);
+  });
+
   it("an excluded claim triggers exactly one repair and the row records repaired: true", async () => {
     const drafted = `${CLEAN["242"]}\n\n${EXCLUDED} to reflect the new product.`;
     const { notes, sectionRows, generation, t, generationId } = await generate({
@@ -689,6 +1502,414 @@ describe("deterministic Self-check rules", () => {
     expect(reasonFor(true)).toContain("Storyline question raised in the Brief: Which result holds?");
     expect(reasonFor(false)).toContain("Storyline question not recorded in the Brief");
     expect(reasonFor(false)).not.toContain("raised in the Brief");
+  });
+
+  it("writes one plan row per item and Skip, retains merges, and never repairs confirmed exclusions", () => {
+    const summaryVersionId = "summary" as Id<"summaryVersions">;
+    const first = "item-1" as Id<"summaryItems">;
+    const second = "item-2" as Id<"summaryItems">;
+    const rows = planComplianceNoteDrafts({
+      section: "246",
+      summaryVersionId,
+      checks: [
+        {
+          itemId: first,
+          roleId: "specific_advancements",
+          mergedItemIds: [first, second],
+          instruction: "cover",
+          confirmedExclusion: false,
+          wording: ["First advancement."],
+          relationshipReferences: [],
+          sourceReferences: [],
+        },
+        {
+          itemId: second,
+          roleId: "specific_advancements",
+          mergedItemIds: [first, second],
+          instruction: "cover",
+          confirmedExclusion: true,
+          wording: ["Excluded advancement."],
+          relationshipReferences: [],
+          sourceReferences: [],
+        },
+        {
+          skippedRoleId: "project_status",
+          roleId: "project_status",
+          mergedItemIds: [],
+          instruction: "skip",
+          confirmedExclusion: false,
+          wording: [],
+          relationshipReferences: [],
+          sourceReferences: [],
+        },
+      ],
+      verdicts: [
+        { itemId: first, mergedItemIds: [first, second], paragraphIndex: 1, outcome: "applied", reason: "Covered." },
+        { itemId: second, mergedItemIds: [first, second], paragraphIndex: 1, outcome: "applied", reason: "Covered." },
+        { skippedRoleId: "project_status", mergedItemIds: [], paragraphIndex: 2, outcome: "applied", reason: "Absent." },
+      ],
+    });
+    expect(rows).toHaveLength(3);
+    expect(rows[0]).toMatchObject({ outcome: "applied", paragraphIndex: 1, planRef: { itemId: first, mergedItemIds: [first, second] } });
+    expect(rows[1]).toMatchObject({ outcome: "not_applied", tier: "conflict", repaired: false, planRef: { itemId: second, mergedItemIds: [first, second] } });
+    expect(rows[1].paragraphIndex).toBeUndefined();
+    expect(rows[2]).toMatchObject({ outcome: "applied", planRef: { skippedRoleId: "project_status", mergedItemIds: [] } });
+  });
+});
+
+// ─── Summary plan coverage replay (2026-09-25) ──────────────────────────────
+//
+// Every real Step-by-step run reported "plan coverage unavailable": the
+// Summary Self-check passed its schema, then the completeness check rejected
+// the whole response because real reasons run 90 to 280 bytes against a
+// 64-byte reservation. This replays the saved Line 244 input of a real Opus
+// run (fictional demo data) answered with 33 reasons Sonnet 5 really wrote.
+
+type PlanCoverageReplayKit = {
+  case: {
+    model: string;
+    section: "244";
+    text: string;
+    storylineText: string;
+    confidenceMap: Array<{ text: string; confidence?: string }>;
+    items: Array<{
+      itemId: string;
+      roleId: PdSubsectionRoleId;
+      support: "source_supported" | "writer_asserted";
+      bullets: string[];
+    }>;
+  };
+  recordedReasons: string[];
+};
+const planCoverageReplay = JSON.parse(planCoverageReplayKit) as PlanCoverageReplayKit;
+
+function replayPlanChecks(): SelfCheckPlanCheck[] {
+  return planCoverageReplay.case.items.map((item) => ({
+    itemId: item.itemId,
+    roleId: item.roleId,
+    mergedItemIds: [item.itemId],
+    instruction: "cover" as const,
+    confirmedExclusion: false,
+    support: item.support,
+    wording: item.bullets,
+    relationshipReferences: [],
+    sourceReferences: [],
+  }));
+}
+
+function replayInput() {
+  const planChecks = replayPlanChecks();
+  return {
+    section: planCoverageReplay.case.section,
+    text: planCoverageReplay.case.text,
+    storylineText: planCoverageReplay.case.storylineText,
+    confidenceMap: planCoverageReplay.case.confidenceMap,
+    glossaryCandidates: [] as string[],
+    rules: [] as Array<{ instruction: string }>,
+    model: planCoverageReplay.case.model,
+    planChecks,
+    planChecksBlock: serializeFrozenSummaryPlanChecks(planChecks),
+  };
+}
+
+/** The evidence paragraph (1-based) for each ordinary label and plan item. */
+const REPLAY_ORDINARY_PARAGRAPHS = [0, 3, 3, 1, 1, 4, 4, 5, 5, 5];
+const REPLAY_PLAN_PARAGRAPHS = [1, 1, 2, 3];
+
+function replayResponse() {
+  const input = replayInput();
+  const reasons = planCoverageReplay.recordedReasons;
+  let next = 0;
+  const reason = () => reasons[next++ % reasons.length];
+  const ordinary = projectSummaryOrdinaryChecks({
+    storylineText: input.storylineText,
+    confidenceMap: input.confidenceMap,
+    glossaryTerms: input.glossaryCandidates,
+    rules: input.rules,
+  });
+  return {
+    verdicts: ordinary.map((check, index) => ({
+      paragraph: REPLAY_ORDINARY_PARAGRAPHS[index] ?? 0,
+      check: check.check,
+      instruction: check.label,
+      outcome: "applied",
+      reason: reason(),
+    })),
+    planVerdicts: input.planChecks.map((check, index) => ({
+      itemId: check.itemId,
+      mergedItemIds: [...check.mergedItemIds],
+      paragraph: REPLAY_PLAN_PARAGRAPHS[index],
+      outcome: "applied",
+      reason: reason(),
+    })),
+    storylineQuestion: null,
+  };
+}
+
+function replayClient(response: unknown) {
+  return {
+    messages: {
+      create: vi.fn(async (params: GenerationMessageParams) => ({
+        content: [{
+          type: "tool_use" as const,
+          id: "plan-coverage-replay",
+          name: params.tool_choice?.name ?? "submit_self_check",
+          input: response,
+        }],
+        usage: { input_tokens: 1, output_tokens: 1 },
+      })),
+    },
+  };
+}
+
+describe("Summary plan coverage replay (recorded Opus 244 case)", () => {
+  it("accepts real-length reasons by clipping them, with every plan item applied on its paragraph", async () => {
+    const response = replayResponse();
+    const input = replayInput();
+    // The recorded shape: 5 paragraphs, 10 labels, 4 plan items.
+    expect(input.text.split(/\n\s*\n/)).toHaveLength(5);
+    expect(response.verdicts).toHaveLength(10);
+    expect(response.planVerdicts).toHaveLength(4);
+    const sentReasons = [
+      ...response.verdicts.map((verdict) => verdict.reason),
+      ...response.planVerdicts.map((verdict) => verdict.reason),
+    ];
+    // Real reasons, most of them over the 64-byte reservation.
+    expect(sentReasons.filter((reason) =>
+      jsonEscapedUtf8Bytes(reason) > MAX_SUMMARY_SELF_CHECK_REASON_ESCAPED_UTF8_BYTES
+    ).length).toBeGreaterThanOrEqual(10);
+    // The whole response still fits the 16,384-byte limit.
+    expect(new TextEncoder().encode(JSON.stringify(response)).byteLength)
+      .toBeLessThanOrEqual(MAX_SUMMARY_SELF_CHECK_RESPONSE_UTF8_BYTES);
+
+    const client = replayClient(response);
+    const result = await runModelSelfCheck(client as GenerationClient, input);
+
+    expect(client.messages.create).toHaveBeenCalledTimes(1);
+    expect(result.planVerdicts).toHaveLength(4);
+    expect(result.planVerdicts.map((verdict) => verdict.outcome))
+      .toEqual(["applied", "applied", "applied", "applied"]);
+    expect(result.planVerdicts.map((verdict) => verdict.paragraphIndex))
+      .toEqual([0, 0, 1, 2]);
+    expect(result.planVerdicts.map((verdict) => verdict.itemId))
+      .toEqual(planCoverageReplay.case.items.map((item) => item.itemId));
+    expect(result.verdicts).toHaveLength(10);
+    expect(result.verdicts.every((verdict) => verdict.outcome === "applied")).toBe(true);
+    const keptReasons = [
+      ...result.verdicts.map((verdict) => verdict.reason),
+      ...result.planVerdicts.map((verdict) => verdict.reason),
+    ];
+    keptReasons.forEach((kept, index) => {
+      const sent = sentReasons[index] ?? "";
+      expect(jsonEscapedUtf8Bytes(kept)).toBeLessThanOrEqual(
+        MAX_SUMMARY_SELF_CHECK_REASON_ESCAPED_UTF8_BYTES
+      );
+      if (jsonEscapedUtf8Bytes(sent) <= MAX_SUMMARY_SELF_CHECK_REASON_ESCAPED_UTF8_BYTES) {
+        expect(kept).toBe(sent.trim());
+      } else {
+        expect(kept.endsWith("…")).toBe(true);
+        expect(sent.startsWith(kept.slice(0, -1))).toBe(true);
+      }
+    });
+  });
+
+  const REPLAY_QUESTION = {
+    question: "Should the Storyline name the primer and cure hold?",
+    sectionClaim: "The primer and the 40°C hold removed primer-layer failure.",
+    storylineAlternative: "Low-temperature bonds held their strength once a primer and cure hold were added.",
+    confidenceEntry: 1,
+  };
+  const LONG_QUESTION_TEXT =
+    "The section shows that bonds cured at 60°C kept their lap shear strength through 200 cycles only after the silane primer and the 2-hour 40°C hold were added, which the Storyline never says.";
+
+  it.each(["question", "sectionClaim", "storylineAlternative"] as const)(
+    "withholds the Storyline question when its %s needed clipping, and keeps full coverage",
+    async (field) => {
+      const response = {
+        ...replayResponse(),
+        storylineQuestion: { ...REPLAY_QUESTION, [field]: LONG_QUESTION_TEXT },
+      };
+      const sentBytes = jsonEscapedUtf8Bytes(LONG_QUESTION_TEXT);
+      expect(sentBytes).toBeGreaterThan(MAX_SUMMARY_SELF_CHECK_QUESTION_ESCAPED_UTF8_BYTES);
+      expect(new TextEncoder().encode(JSON.stringify(response)).byteLength)
+        .toBeLessThanOrEqual(MAX_SUMMARY_SELF_CHECK_RESPONSE_UTF8_BYTES);
+      const client = replayClient(response);
+      const result = await runModelSelfCheck(client as GenerationClient, replayInput());
+
+      expect(client.messages.create).toHaveBeenCalledTimes(1);
+      // Coverage is complete and unchanged: only the optional question goes.
+      expect(result.planVerdicts.map((verdict) => verdict.outcome))
+        .toEqual(["applied", "applied", "applied", "applied"]);
+      expect(result.planVerdicts.map((verdict) => verdict.paragraphIndex))
+        .toEqual([0, 0, 1, 2]);
+      expect(result.verdicts).toHaveLength(10);
+      expect(result.storylineQuestion).toBeNull();
+      expect(result.storylineQuestionWithheld).toBe(
+        `${field} is ${sentBytes} escaped bytes, limit ${MAX_SUMMARY_SELF_CHECK_QUESTION_ESCAPED_UTF8_BYTES}`
+      );
+      // The recorded reason never carries the model's own words.
+      expect(result.storylineQuestionWithheld).not.toContain(LONG_QUESTION_TEXT.slice(0, 20));
+    }
+  );
+
+  it("keeps clipped repair text in memory for the repair and stores only the clipped text", async () => {
+    const longGuidance =
+      "Add one sentence to paragraph 2 that names the silane primer and the 2-hour 40°C hold, and keep the rest of the paragraph as it is.";
+    const shortGuidance = "Name the primer in paragraph 2.";
+    const response = replayResponse();
+    const recorded = planCoverageReplay.recordedReasons;
+    const longReason = recorded.find((reason) =>
+      jsonEscapedUtf8Bytes(reason) > MAX_SUMMARY_SELF_CHECK_REASON_ESCAPED_UTF8_BYTES) ?? "";
+    expect(jsonEscapedUtf8Bytes(longGuidance))
+      .toBeGreaterThan(MAX_SUMMARY_SELF_CHECK_GUIDANCE_ESCAPED_UTF8_BYTES);
+    Object.assign(response.planVerdicts[0], {
+      outcome: "not_applied",
+      reason: longReason,
+      repairGuidance: longGuidance,
+    });
+    Object.assign(response.planVerdicts[1], {
+      outcome: "not_applied",
+      reason: longReason,
+      repairGuidance: shortGuidance,
+    });
+    Object.assign(response.verdicts[1], { outcome: "not_applied", reason: longReason });
+    const result = await runModelSelfCheck(
+      replayClient(response) as GenerationClient,
+      replayInput()
+    );
+
+    const [clipped, inLimit, applied] = result.planVerdicts;
+    expect(clipped?.repairGuidance?.endsWith("…")).toBe(true);
+    expect(jsonEscapedUtf8Bytes(clipped?.repairGuidance ?? ""))
+      .toBeLessThanOrEqual(MAX_SUMMARY_SELF_CHECK_GUIDANCE_ESCAPED_UTF8_BYTES);
+    expect(clipped?.repairText).toBe(longGuidance);
+    // In-limit guidance is what the repair uses, so no copy is kept.
+    expect(inLimit?.repairGuidance).toBe(shortGuidance);
+    expect(inLimit).not.toHaveProperty("repairText");
+    expect(applied?.outcome).toBe("applied");
+    expect(applied).not.toHaveProperty("repairText");
+    // An ordinary verdict without guidance repairs from its whole reason.
+    expect(result.verdicts[1]?.reason.endsWith("…")).toBe(true);
+    expect(result.verdicts[1]?.repairText).toBe(longReason.trim());
+    expect(result.verdicts[0]).not.toHaveProperty("repairText");
+  });
+
+  it("keeps an in-limit Storyline question exactly as the model wrote it", async () => {
+    const response = { ...replayResponse(), storylineQuestion: REPLAY_QUESTION };
+    const client = replayClient(response);
+    const result = await runModelSelfCheck(client as GenerationClient, replayInput());
+    expect(result.storylineQuestion).toEqual({
+      question: REPLAY_QUESTION.question,
+      sectionClaim: REPLAY_QUESTION.sectionClaim,
+      storylineAlternative: REPLAY_QUESTION.storylineAlternative,
+      confidenceEntryIndex: 0,
+    });
+    expect(result).not.toHaveProperty("storylineQuestionWithheld");
+    expect(result.planVerdicts.every((verdict) => verdict.outcome === "applied")).toBe(true);
+  });
+
+  it.each([
+    {
+      name: "a wrong item id",
+      mutate: (response: ReturnType<typeof replayResponse>) => {
+        response.planVerdicts[1].itemId = "not-a-signed-off-item";
+      },
+      detail: "plan verdict 2: itemId of 21 escaped bytes matches no plan check",
+    },
+    {
+      // Neither reference: no unrelated item may be named in the reason.
+      name: "a plan verdict with no reference",
+      mutate: (response: ReturnType<typeof replayResponse>) => {
+        Reflect.deleteProperty(response.planVerdicts[1], "itemId");
+      },
+      detail: "plan verdict 2: needs exactly one non-empty itemId or skippedRoleId",
+    },
+    {
+      name: "a plan verdict with an empty itemId",
+      mutate: (response: ReturnType<typeof replayResponse>) => {
+        response.planVerdicts[2].itemId = "";
+      },
+      detail: "plan verdict 3: needs exactly one non-empty itemId or skippedRoleId",
+    },
+    {
+      name: "empty mergedItemIds",
+      mutate: (response: ReturnType<typeof replayResponse>) => {
+        response.planVerdicts[0].mergedItemIds = [];
+      },
+      detail: `plan verdict 1 (item ${planCoverageReplay.case.items[0]?.itemId}): mergedItemIds has 0 ids, expected [${planCoverageReplay.case.items[0]?.itemId}] in that order`,
+    },
+    {
+      name: "a duplicate label",
+      mutate: (response: ReturnType<typeof replayResponse>) => {
+        response.verdicts[2] = { ...response.verdicts[1] };
+      },
+      detail: "ordinary verdict 3 (confidence:C1): label repeats",
+    },
+    {
+      name: "an out-of-range paragraph",
+      mutate: (response: ReturnType<typeof replayResponse>) => {
+        response.verdicts[4].paragraph = 6;
+      },
+      detail: "ordinary verdict 5 (confidence:C4): paragraph 6 is not a whole number from 0 to 5",
+    },
+    {
+      name: "a response over 16,384 bytes",
+      mutate: (response: ReturnType<typeof replayResponse>) => {
+        response.verdicts[0].reason = "The section matches the Storyline. ".repeat(480);
+      },
+      detail: "response failed validation: (root) Summary Self-check response exceeds its UTF-8 byte budget",
+    },
+  ])("still rejects the whole check for $name and names why", async ({ mutate, detail }) => {
+    const response = replayResponse();
+    mutate(response);
+    const client = replayClient(response);
+    const error = await runModelSelfCheck(client as GenerationClient, replayInput())
+      .then(() => null, (caught: unknown) => caught);
+    expect(error).toBeInstanceOf(Error);
+    expect(client.messages.create).toHaveBeenCalledTimes(1);
+    const diagnostic = selfCheckFailureDiagnostic(error);
+    expect(diagnostic).toContain(detail);
+    // The diagnostic never carries the model's own words.
+    for (const reason of planCoverageReplay.recordedReasons) {
+      expect(diagnostic).not.toContain(reason.slice(0, 24));
+    }
+    expect(diagnostic).not.toContain("not-a-signed-off-item");
+  });
+
+  it("names an answer cut off at the output limit as that, not as invalid JSON", async () => {
+    const response = replayResponse();
+    const client = {
+      messages: {
+        create: vi.fn(async (params: GenerationMessageParams) => ({
+          content: [{
+            type: "tool_use" as const,
+            id: "plan-coverage-cut-off",
+            name: params.tool_choice?.name ?? "submit_self_check",
+            input: response,
+          }],
+          stop_reason: "max_tokens",
+          usage: { input_tokens: 1, output_tokens: 1 },
+        })),
+      },
+    };
+    const error = await runModelSelfCheck(client as GenerationClient, replayInput())
+      .then(() => null, (caught: unknown) => caught);
+    // One call: the Summary Self-check has no repair attempt.
+    expect(client.messages.create).toHaveBeenCalledTimes(1);
+    const { OutputLimitError } = await import("./openrouterCore");
+    expect(error).toBeInstanceOf(OutputLimitError);
+    expect(selfCheckFailureDiagnostic(error)).toBe("answer was cut off at the output limit");
+  });
+
+  it("describes failures without a checked response by their kind only", async () => {
+    expect(selfCheckFailureDiagnostic(new Error("provider said: secret client text")))
+      .toBe("no response to check");
+    expect(selfCheckFailureDiagnostic(
+      new Error("submit_self_check: model did not return structured output")
+    )).toBe("no tool output");
+    const { MalformedOutputError } = await import("./openrouterCore");
+    expect(selfCheckFailureDiagnostic(new MalformedOutputError("{\"reason\": \"model text\"")))
+      .toBe("tool output was not valid JSON");
   });
 });
 

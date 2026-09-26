@@ -223,6 +223,47 @@ describe("createReviewFromProject", () => {
     );
   });
 
+  it("clones each transcript's original file into the review project", async () => {
+    const { t, asWriter, sourceProjectId } = await setup();
+    await addSourceReport(t, sourceProjectId);
+    const originals = await t.run(async (ctx) => {
+      const rows = await ctx.db
+        .query("transcripts")
+        .withIndex("by_projectId", (q) => q.eq("projectId", sourceProjectId))
+        .collect();
+      const ids: Id<"_storage">[] = [];
+      for (const row of rows) {
+        const storageId = await ctx.storage.store(new Blob([`${row.label} original`]));
+        await ctx.db.patch(row._id, { originalStorageId: storageId });
+        ids.push(storageId);
+      }
+      return ids;
+    });
+    const { projectId: reviewProjectId } = await asWriter.action(
+      api.reviewFromProject.createReviewFromProject,
+      { projectId: sourceProjectId }
+    );
+    const copies = await t.run(async (ctx) => {
+      const rows = await ctx.db
+        .query("transcripts")
+        .withIndex("by_projectId", (q) => q.eq("projectId", reviewProjectId))
+        .collect();
+      return await Promise.all(
+        rows.map(async (row) => ({
+          storageId: row.originalStorageId,
+          bytes: row.originalStorageId
+            ? await (await ctx.storage.get(row.originalStorageId))?.text()
+            : undefined,
+        }))
+      );
+    });
+    expect(copies.map((copy) => copy.bytes).sort()).toEqual([
+      "Follow-up B original",
+      "Kickoff A original",
+    ]);
+    for (const copy of copies) expect(originals).not.toContain(copy.storageId);
+  });
+
   it("creates no transcript rows when the source has none", async () => {
     const { t, asWriter, sourceProjectId } = await setup([]);
     await addSourceReport(t, sourceProjectId);

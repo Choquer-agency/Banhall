@@ -5,6 +5,10 @@
   import Button from "$lib/components/ui/Button.svelte";
   import { userErrorMessage } from "$lib/errors";
   import { safeGenerationActivity } from "$lib/generation/recovery";
+  import {
+    GENERATION_PROGRESS_HEADING_ID,
+    GENERATION_PROGRESS_REGION_ID,
+  } from "./progressFocus";
 
   /**
    * Live generation progress card (port of src/components/generation/GenerationProgress.tsx).
@@ -20,9 +24,17 @@
   const generation = $derived(generationQ.data);
 
   let scrollEl: HTMLDivElement | null = $state(null);
+  let headingEl: HTMLHeadingElement | null = $state(null);
   let showLog = $state(false);
   let now = $state(0);
   const activityId = "generation-activity";
+
+  // A host that moved focus to the progress region before this exact
+  // generation arrived hands it to the heading once the heading renders (A7).
+  $effect(() => {
+    if (!headingEl || document.activeElement?.id !== GENERATION_PROGRESS_REGION_ID) return;
+    headingEl.focus();
+  });
 
   const activity = $derived(
     generation
@@ -126,7 +138,12 @@
   <div class="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
     <!-- Heading -->
     <div class="flex items-baseline justify-between gap-3">
-      <h3 class="text-sm font-semibold text-gray-900">
+      <h3
+        id={GENERATION_PROGRESS_HEADING_ID}
+        bind:this={headingEl}
+        tabindex="-1"
+        class="rounded-md text-sm font-semibold text-gray-900 outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy"
+      >
         {isQueued ? "Preparing report generation" : isRunning ? "Generating your report" : isComplete ? "Report generated" : "Generation failed"}
       </h3>
       {#if isActive}

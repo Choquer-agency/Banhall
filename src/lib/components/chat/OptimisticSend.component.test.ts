@@ -48,17 +48,23 @@ beforeEach(() => {
 it("requires an explicit Brain choice for each message and preserves it only for retry", async () => {
   __setMutationError(sendName, new Error("Connection unavailable"));
   await render(AgentChatPanel, { reportId, projectId });
-  const brain = page.getByRole("checkbox", { name: "Use Brain examples for this message" });
-  await expect.element(brain).not.toBeChecked();
+  // Board 2.1 tucks the Brain choice into the composer's + menu; a chip shows while it is on.
+  const brainChip = () => page.getByText("Brain examples", { exact: true });
+  const brain = page.getByRole("menuitemcheckbox", { name: "Use Brain examples for this message" });
+  await page.getByRole("button", { name: "Add to message", exact: true }).click();
+  await expect.element(brain).toHaveAttribute("aria-checked", "false");
   await brain.click();
+  await expect.element(brain).toHaveAttribute("aria-checked", "true");
+  await userEvent.keyboard("{Escape}");
+  await expect.element(brainChip()).toBeVisible();
   await writeAndSend("Use a past report as a structure example.");
   await expect.element(retry()).toBeEnabled();
-  await expect.element(brain).not.toBeChecked();
+  expect(brainChip().elements()).toHaveLength(0);
   expect(__mutationCalls(sendName)[0]).toMatchObject({ allowBrain: true });
   __setMutationResult(sendName, { threadId: "thread-1", messageId: "brain-prompt" });
   await retry().click();
   expect(__mutationCalls(sendName)[1]).toEqual(__mutationCalls(sendName)[0]);
-  await expect.element(brain).not.toBeChecked();
+  expect(brainChip().elements()).toHaveLength(0);
   await page.screenshot({ path: "../../../../.audit/chat-reliability/composer-after.png" });
 });
 
@@ -159,7 +165,9 @@ it("captures refinement before edits and retries the original proposal id", asyn
   await render(AgentChatPanel, { reportId, projectId });
   // A durable answer makes the proposal available in the transcript.
   __setPaginatedRows("chatV2:listMessages", [row("question", "Original question"), row("answer", "Original answer", 1, "assistant")]);
-  await page.getByRole("button", { name: "Refine with AI", exact: true }).click();
+  // Refine lives in the suggested-edit card's More menu (board 2.1).
+  await page.getByRole("button", { name: "More actions for this suggestion", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Refine with AI", exact: true }).click();
   await writeAndSend("Make it more specific");
   await composer().fill("New refinement draft");
   first.reject(new Error("Refinement unavailable"));

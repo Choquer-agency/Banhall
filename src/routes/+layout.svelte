@@ -8,6 +8,7 @@
   import { authClient } from "$lib/authClient";
   import { updated } from "$app/state";
   import { beforeNavigate } from "$app/navigation";
+  import { shouldReloadForUpdate } from "$lib/workspace/saveHold";
   import { PUBLIC_CONVEX_URL } from "$env/static/public";
   import PageErrorBoundary from "$lib/components/errors/PageErrorBoundary.svelte";
   import ErrorMonitor from "$lib/components/errors/ErrorMonitor.svelte";
@@ -28,9 +29,11 @@
   // Deploy skew: after a new Vercel deployment the old build's hashed chunks
   // 404. When a new app version is detected, turn the next client-side
   // navigation into a full-page load so the browser picks up fresh HTML.
-  beforeNavigate(({ willUnload, to }) => {
-    if (updated.current && !willUnload && to?.url) {
-      location.href = to.url.href;
+  // Not while a page holds navigation for a save (review D-3): that page
+  // cancels the navigation, and a full load would leave anyway.
+  beforeNavigate((navigation) => {
+    if (shouldReloadForUpdate(updated.current, navigation) && navigation.to) {
+      location.href = navigation.to.url.href;
     }
   });
 
@@ -63,6 +66,7 @@
       {@render children()}
     </PageErrorBoundary>
     <ErrorMonitor />
-    <Toaster richColors closeButton position="top-right" toastOptions={{ class: "font-sans" }} />
+    <!-- Round 2 (D3, D5): one dark toast at the bottom centre; errors stay red. -->
+    <Toaster richColors closeButton position="bottom-center" toastOptions={{ class: "font-sans" }} />
   </div>
 </Tooltip.Provider>

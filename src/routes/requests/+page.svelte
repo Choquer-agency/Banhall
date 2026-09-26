@@ -2,9 +2,10 @@
   import AppNav from "$lib/components/ui/AppNav.svelte";
   import PageBar from "$lib/components/ui/PageBar.svelte";
   import WorkspaceChrome from "$lib/components/workspace/WorkspaceChrome.svelte";
+  import { IconLightbulb } from "$lib/components/icons";
   import WorkspaceGate from "$lib/workspace/WorkspaceGate.svelte";
   import Spinner from "$lib/components/ui/Spinner.svelte";
-  import { goto } from "$app/navigation";
+  import { goToLogin } from "$lib/auth/goToLogin";
   import { useQuery, useMutation } from "convex-svelte";
   import { useAuth } from "@mmailaender/convex-better-auth-svelte/svelte";
   import { api } from "../../../convex/_generated/api";
@@ -17,7 +18,7 @@
 
   $effect(() => {
     if (!auth.isLoading && !auth.isAuthenticated) {
-      goto("/login", { replaceState: true });
+      goToLogin();
     }
   });
 
@@ -103,7 +104,7 @@
       </div>
     {/snippet}
     {#snippet preview()}
-      <WorkspaceChrome title="Feature requests" description="Shared product suggestions and priorities">
+      <WorkspaceChrome title="Feature requests" description="Shared product suggestions and priorities" icon={IconLightbulb} viewAsGate="requests">
         {#snippet children()}
           {@render requestsContent(false)}
         {/snippet}

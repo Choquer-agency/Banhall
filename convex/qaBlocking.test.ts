@@ -277,7 +277,7 @@ describe("CAP-8 review regressions", () => {
   test("project copy persists deterministic findings for the destination report", async () => {
     const f = await setup(contentFor(FAILURE));
     const toProjectId = await f.t.run(ctx => ctx.db.insert("projects", { title: "Copy", clientName: "Client", createdBy: f.ownerId, ownerId: f.ownerId, status: "draft", shareToken: "copy", createdAt: 1, updatedAt: 1 }));
-    const copy = await f.actor.mutation(api.projects.prepareProjectContentCopy, { fromProjectId: f.projectId, toProjectId });
+    const copy = await f.actor.mutation(internal.projects.prepareProjectContentCopy, { fromProjectId: f.projectId, toProjectId });
     if (!copy.reportId) throw new Error("No copied report");
     const copied = { ...f, reportId: copy.reportId, projectId: toProjectId };
     expect(await rows(copied)).toEqual(expect.arrayContaining([expect.objectContaining({ ...(await ref(copied)), check: "because_clause", blocking: true })]));

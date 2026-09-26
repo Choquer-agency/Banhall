@@ -8,6 +8,7 @@
     proposalReferences,
   } from "../../../../shared/chatProposals";
   import NothingToApplyCard from "./NothingToApplyCard.svelte";
+  import { useProposalSection } from "$lib/chat/proposalSection";
   import ProposedEditCard from "./ProposedEditCard.svelte";
 
   type Proposal = Doc<"chatProposals">;
@@ -46,12 +47,15 @@
   // DW-135: an all-blocked/conflicting revision has no edits and no action;
   // it renders as a record of its findings, never as a suggestion card.
   const recordOnly = $derived(isRecordOnlyProposal(proposal));
+  const sectionOf = useProposalSection();
+  const section = $derived(sectionOf(proposal.targetText ?? proposal.replacements?.[0]?.find));
 </script>
 
 {#if recordOnly}
 <NothingToApplyCard proposalId={proposal._id} />
 {:else}
 <ProposedEditCard
+  {section}
   newText={proposal.newText}
   targetText={proposal.targetText}
   replacements={proposal.replacements}

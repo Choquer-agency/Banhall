@@ -16,6 +16,8 @@ import {
 const AUDIT = "brain:listBrainAudit";
 const SOURCES = "brain:listBrainSources";
 const STATS = "brain:brainStats";
+// Signed-out redirects carry the page as `next` (src/lib/auth/next.ts).
+const LOGIN = "/login?next=%2Fadmin%2Fbrain";
 type Audit = NonNullable<FunctionReturnType<typeof api.brain.listBrainAudit>>;
 const NOW = Date.UTC(2026, 8, 5, 12);
 // Opaque fixture IDs are never dereferenced by this route or query stub.
@@ -116,7 +118,7 @@ describe("/admin/brain actual audit route", () => {
   it("skips audit and navigates to login for a signed-out visitor", async () => {
     __setAuthState({ isAuthenticated: false, isLoading: false });
     render(BrainPage);
-    await expect.poll(() => __navigationCalls.some(call => call.kind === "goto" && call.url === "/login")).toBe(true);
+    await expect.poll(() => __navigationCalls.some(call => call.kind === "goto" && call.url === LOGIN)).toBe(true);
     subscription(AUDIT, []);
     subscription(STATS, []);
     subscription(SOURCES, []);
@@ -127,7 +129,7 @@ describe("/admin/brain actual audit route", () => {
     await openAudit();
     subscription(AUDIT, [{}]);
     __setAuthState({ isAuthenticated: false, isLoading: false });
-    await expect.poll(() => __navigationCalls.some(call => call.url === "/login")).toBe(true);
+    await expect.poll(() => __navigationCalls.some(call => call.url === LOGIN)).toBe(true);
     subscription(AUDIT, []);
     subscription(STATS, []);
     expect(rows()).toHaveLength(0);
@@ -151,7 +153,7 @@ describe("/admin/brain actual audit route", () => {
     subscription(AUDIT, [{}]);
     subscription(STATS, [{}]);
     expect(rows()).toHaveLength(0);
-    expect(__navigationCalls.some(call => call.url === "/login")).toBe(false);
+    expect(__navigationCalls.some(call => call.url.startsWith("/login"))).toBe(false);
     __setAuthState({ isLoading: false });
     await expect.poll(() => rows().length).toBe(audit.length);
     subscription(AUDIT, [{}]);

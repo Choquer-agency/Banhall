@@ -304,7 +304,7 @@ describe("style-override waivers", () => {
     expect(summary).toContain("### Repetition Count\nWAIVED by writer profile");
     expect(summary).not.toContain('"novel"');
     // No opener FAIL lines despite section246Fail having no qualifying openers.
-    expect(summary).not.toContain("FAIL —");
+    expect(summary).not.toContain("FAIL:");
     // BECAUSE detection still runs (both fixtures' uncertainty sentences pass).
     expect(summary).toContain("### BECAUSE Clause Detection (242, all paragraphs)");
     expect(summary).toContain("Uncertainties with BECAUSE clauses: 2/2");
@@ -338,7 +338,7 @@ describe("style-override waivers", () => {
     );
     expect(summary).toContain("### CRA Opener Detection (246 advancement paragraphs)\nWAIVED");
     expect(summary).toContain("Uncertainties with BECAUSE clauses: 1/2");
-    expect(summary).toContain("FAIL —");
+    expect(summary).toContain("FAIL:");
     expect(summary).toContain("No banned words found.");
   });
 

@@ -8,7 +8,9 @@
 </script>
 
 <script lang="ts">
-  import { goto } from "$app/navigation";
+  import { onDestroy, tick, untrack } from "svelte";
+  import { pushState } from "$app/navigation";
+  import { goToLogin } from "$lib/auth/goToLogin";
   import { page } from "$app/state";
   import { useConvexClient, useQuery, useMutation } from "convex-svelte";
   import { useAuth } from "@mmailaender/convex-better-auth-svelte/svelte";
@@ -35,6 +37,17 @@
   import QALauncher from "$lib/components/qa/QALauncher.svelte";
   import BriefLauncher from "$lib/components/brief/BriefLauncher.svelte";
   import BriefRailPanel from "$lib/components/brief/BriefRailPanel.svelte";
+  import SeedWorkspace from "$lib/components/seeds/SeedWorkspace.svelte";
+  import SeedSummaryReview from "$lib/components/seeds/SeedSummaryReview.svelte";
+  import SeedInitializationRecovery from "$lib/components/seeds/SeedInitializationRecovery.svelte";
+  import {
+    focusSummaryReturnTrigger,
+    SEED_SIGNED_OFF_SUMMARY_TRIGGER_ID,
+  } from "$lib/components/seeds/summaryFocus";
+  import {
+    focusGenerationProgress,
+    GENERATION_PROGRESS_REGION_ID,
+  } from "$lib/components/generation/progressFocus";
   import Tooltip from "$lib/components/ui/Tooltip.svelte";
   import ChronologyTable from "$lib/components/editor/ChronologyTable.svelte";
   import ModelTestSummary from "$lib/components/editor/ModelTestSummary.svelte";
@@ -65,11 +78,13 @@
   import { userErrorCode, userErrorMessage } from "$lib/errors";
   import { flushOutboxFor } from "$lib/uploads/outboxFlush";
   import { toast } from "svelte-sonner";
-  import { comparePairFromSlots, type CandidateModelId } from "../../../../shared/generationModels";
+  import { comparePairFromSlots } from "../../../../shared/generationModels";
+  import { pickerModels } from "$lib/modelPicker";
   import ComparePairPicker from "$lib/components/generation/ComparePairPicker.svelte";
   import SingleModelPicker from "$lib/components/generation/SingleModelPicker.svelte";
   import GhostCompareDialog from "$lib/components/generation/GhostCompareDialog.svelte";
   import { displayName } from "$lib/displayName";
+  import { projectCapabilityAllows } from "../../../../shared/capabilities";
 
   const auth = useAuth();
   const convex = useConvexClient();
@@ -83,6 +98,11 @@
   );
   const generationQ = useQuery(api.generations.getLatestGeneration, () =>
     auth.isAuthenticated ? { projectId } : "skip"
+  );
+  const reportGenerationQ = useQuery(api.generations.getGenerationSeedView, () =>
+    auth.isAuthenticated && reportQ.data?.generationId
+      ? { generationId: reportQ.data.generationId }
+      : "skip"
   );
   const transcriptsQ = useQuery(api.transcripts.listTranscripts, () =>
     auth.isAuthenticated ? { projectId } : "skip"
@@ -180,11 +200,13 @@
           (documentsQ.data ?? []).some((doc) => !doc.archived && doc.sizeChars > 0)))
   );
   const user = $derived(userQ.data);
+  // Same authority as publishForReview: project.setStage (the current
+  // Owner, a Manager or an Admin), never createdBy.
   const canShare = $derived(
     Boolean(
       project &&
         user &&
-        (project.createdBy === user._id || user.role === "admin")
+        projectCapabilityAllows(user.role, "project.setStage", project, user._id)
     )
   );
   const viewSummary = $derived(viewSummaryQ.data);
@@ -577,7 +599,7 @@
 
   $effect(() => {
     if (!auth.isLoading && !auth.isAuthenticated) {
-      goto("/login", { replaceState: true });
+      goToLogin();
     }
   });
   $effect(() => {
@@ -656,7 +678,9 @@
   // the items list gates the values. Cast where the mutation needs the union.
   let lengthTarget = $state<string>("standard");
   let candidateMode = $state<"compare" | "single" | "iterative">("compare");
-  let singleModelId = $state<CandidateModelId | "">("");
+  let singleModelId = $state<string>("");
+  // Model catalog: the random compare fill draws from the selectable set.
+  const modelCapabilitiesQ = useQuery(api.providerReadiness.getCapabilities, () => ({}));
   // Compare mode runs exactly 2 models — two slots, each a model or Random.
   let compareSlotA = $state("");
   let compareSlotB = $state("");
@@ -693,7 +717,11 @@
           : {}),
         ...(candidateMode === "compare"
           ? (() => {
-              const pair = comparePairFromSlots(compareSlotA, compareSlotB);
+              const pair = comparePairFromSlots(
+                compareSlotA,
+                compareSlotB,
+                pickerModels(modelCapabilitiesQ.data)
+              );
               return pair ? { compareModelIds: pair } : {};
             })()
           : {}),
@@ -934,20 +962,154 @@
   // CandidateSelection. "reserved"/pre-fan-out still shows the progress card
   // (the stepper has nothing to show until section runs exist).
   const isIterative = $derived(generation?.candidateMode === "iterative");
+  const isSeedWorkflow = $derived(
+    isIterative && generation?.gatedWorkflow === "seeds"
+  );
+  let seedSummaryRequested = $state(false);
+  $effect(() => {
+    seedSummaryRequested = page.url.searchParams.get("view") === "summary";
+  });
+  const seedSummaryOpen = $derived(
+    seedSummaryRequested &&
+      (isSeedWorkflow ||
+        (reportGenerationQ.data?.gatedWorkflow === "seeds" && !!reportGenerationQ.data.summaryVersionId))
+  );
+  const showSeedWorkspace = $derived(
+    isSeedWorkflow && generation?.seedPhase === "seeding" && !seedSummaryOpen
+  );
+  // A legacy section-approval run owns the main surface for its whole active
+  // life (running or awaiting input), and a compare run owns it while it
+  // awaits candidate selection; a report-owned frozen Summary URL never
+  // renders beside either and becomes reachable again once it ends (A10, R6-05).
   const showIterativeStepper = $derived(
-    isIterative &&
+    isIterative && !isSeedWorkflow &&
       (generation?.status === "running" || generation?.status === "awaiting_input")
   );
+  const showSeedSummary = $derived(
+    seedSummaryRequested &&
+      ((isSeedWorkflow && generation?.seedPhase === "seeding") ||
+        (!showIterativeStepper &&
+          generation?.status !== "awaiting_selection" &&
+          !(isSeedWorkflow &&
+            (generation?.seedPhase === "initializing" ||
+              generation?.seedPhase === "drafting" ||
+              generation?.seedPhase === "draftFailed")) &&
+          reportGenerationQ.data?.gatedWorkflow === "seeds" &&
+          !!reportGenerationQ.data.summaryVersionId))
+  );
+  const seedSummaryOwner = $derived(
+    isSeedWorkflow && generation?.seedPhase === "seeding"
+      ? generation
+      : reportGenerationQ.data?.gatedWorkflow === "seeds"
+        ? reportGenerationQ.data
+        : null
+  );
+  const showSeedRecovery = $derived(
+    isSeedWorkflow && generation?.seedPhase === "draftFailed"
+  );
+  // A10: only the Seed phases that own the main surface suppress an existing
+  // report and its actions; single, compare and legacy section runs keep
+  // their prior report visibility while they generate.
+  const showSeedDrafting = $derived(
+    isSeedWorkflow &&
+      (generation?.seedPhase === "initializing" || generation?.seedPhase === "drafting")
+  );
+  // A7: leaving Summary Review returns focus to the trigger the host
+  // re-creates (Back action, browser history). When an accepted sign-off
+  // replaces the Seed surfaces with Seed drafting instead, no trigger exists:
+  // focus moves to the generation-progress heading once it renders, whether
+  // the generation subscription changes before or after the sign-off command
+  // resolves.
+  let seedSummaryWasShown = false;
+  let seedSignOffAccepted = false;
+  // A5/A7: this host's lifetime fences every deferred Seed operation below. A
+  // response or callback arriving after the host was destroyed changes no
+  // URL, Summary state or focus.
+  let hostDisposed = false;
+  onDestroy(() => {
+    hostDisposed = true;
+  });
+  // A deferred focus operation belongs to the host lifetime, project, user,
+  // generation and transition that scheduled it (A5/A7, R5-04). That
+  // ownership is rechecked after rendering and before focusing, so an obsolete
+  // callback never focuses a replacement page, and a newer transition
+  // supersedes an older one still waiting to render.
+  let seedFocusToken = 0;
+  function scheduleSeedFocus(transition: "return" | "drafting") {
+    const token = ++seedFocusToken;
+    const owner = {
+      projectId: String(projectId),
+      userId: user?._id ?? "anonymous",
+      generationId: String(generation?._id ?? ""),
+    };
+    void tick().then(() => {
+      if (hostDisposed || token !== seedFocusToken) return;
+      if (
+        String(projectId) !== owner.projectId ||
+        (user?._id ?? "anonymous") !== owner.userId ||
+        String(generation?._id ?? "") !== owner.generationId
+      ) return;
+      if (showSeedDrafting) {
+        // The same generation entered Seed drafting: the progress surface is
+        // the destination of an accepted sign-off and of a return that
+        // coincides with it.
+        focusGenerationProgress();
+      } else if (transition === "return" && !showSeedSummary) {
+        focusSummaryReturnTrigger();
+      }
+    });
+  }
+  $effect(() => {
+    const shown = showSeedSummary;
+    const drafting = showSeedDrafting;
+    const phase = generation?.seedPhase;
+    untrack(() => {
+      if (seedSummaryWasShown && !shown) scheduleSeedFocus("return");
+      else if (seedSignOffAccepted && drafting) scheduleSeedFocus("drafting");
+      // The accepted sign-off is consumed by drafting, or dropped once the
+      // run has left the seed stage without it.
+      if (drafting || (phase !== "seeding" && !shown)) seedSignOffAccepted = false;
+      seedSummaryWasShown = shown;
+    });
+  });
+  // A5/A7: an accepted sign-off completes only for the generation and user
+  // that submitted it, and only while this host lives. A response arriving
+  // after the host was destroyed, or after that generation or user was
+  // replaced, changes no URL, Summary state or focus. The same generation
+  // entering drafting before the command resolves still completes normally.
+  function completeSeedSignOff(submitted: { generationId: string; userId: string }) {
+    if (hostDisposed) return;
+    if (
+      String(generation?._id) !== String(submitted.generationId) ||
+      (user?._id ?? "anonymous") !== submitted.userId
+    ) return;
+    seedSignOffAccepted = true;
+    setSeedSummary(false);
+  }
   const isGenerating = $derived(
     generation?.status === "reserved" ||
-      (generation?.status === "running" && !isIterative)
+      (generation?.status === "running" &&
+        (!isIterative ||
+          (isSeedWorkflow &&
+            (generation?.seedPhase === "initializing" || generation?.seedPhase === "drafting"))))
   );
   const awaitingSelection = $derived(generation?.status === "awaiting_selection");
   // A failed generation gets the progress/retry view — except in review mode,
   // where the PD review stays the main view (its own retry CTA regenerates).
   const showFailedGeneration = $derived(
-    generation?.status === "failed" && !report && project?.mode !== "review"
+    generation?.status === "failed" &&
+      !showSeedRecovery &&
+      !report &&
+      project?.mode !== "review"
   );
+
+  function setSeedSummary(open: boolean) {
+    const url = new URL(page.url);
+    if (open) url.searchParams.set("view", "summary");
+    else if (url.searchParams.get("view") === "summary") url.searchParams.delete("view");
+    pushState(`${url.pathname}${url.search}`, {});
+    seedSummaryRequested = open;
+  }
 
   // Story 4: the Brief's three reads. ONE generation id feeds every Brief
   // surface — while a generation runs it is that generation (the Brief fills
@@ -991,6 +1153,7 @@
 </script>
 
 <svelte:window
+  onpopstate={() => (seedSummaryRequested = new URL(window.location.href).searchParams.get("view") === "summary")}
   onkeydown={(e) => {
     if (e.key === "Escape" && chatOpen && !replaceSession) chatOpen = false;
   }}
@@ -1192,7 +1355,7 @@
         {/if}
       {/snippet}
       {#snippet actions()}
-        {#if showIterativeStepper}
+        {#if (showIterativeStepper || showSeedWorkspace) && (!isSeedWorkflow || generation?.seedCanEdit)}
           <button
             type="button"
             onclick={() => (confirmCancelIterative = true)}
@@ -1201,7 +1364,21 @@
             Cancel iterative draft
           </button>
         {/if}
-        {#if report && !awaitingSelection && !showIterativeStepper}
+        {#if report && !awaitingSelection && !showIterativeStepper && !showSeedSummary && !showSeedWorkspace && !showSeedRecovery && !showSeedDrafting}
+            {#if reportGenerationQ.data?.gatedWorkflow === "seeds" && reportGenerationQ.data.summaryVersionId}
+              <IconAction
+                id={SEED_SIGNED_OFF_SUMMARY_TRIGGER_ID}
+                label="Signed-off Summary"
+                title="Open the signed-off Summary"
+                onclick={() => setSeedSummary(true)}
+              >
+                {#snippet icon()}
+                  <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M6 4h12v16H6zM9 8h6M9 12h6M9 16h4" />
+                  </svg>
+                {/snippet}
+              </IconAction>
+            {/if}
             {#if canShare}
               <IconAction
                 label={sharing ? "Publishing…" : "Share"}
@@ -1297,8 +1474,27 @@
            edge. Auto margins centre it identically while it fits, and yield
            when the files panel below makes the content taller than the view. -->
       <div class="flex min-h-0 flex-1 overflow-y-auto">
-        <div class="mx-auto my-auto w-full max-w-3xl px-6 py-8">
+        <!-- A7: the region receives focus when Seed drafting replaces Summary
+             Review, and hands it to the progress heading once that renders. -->
+        <div
+          id={GENERATION_PROGRESS_REGION_ID}
+          role="region"
+          aria-label="Generation progress"
+          tabindex="-1"
+          class="mx-auto my-auto w-full max-w-3xl rounded-xl px-6 py-8 outline-none focus-visible:ring-2 focus-visible:ring-navy"
+        >
           <GenerationProgress generationId={generation._id} />
+          {#if isSeedWorkflow && generation.seedStageError}
+            <!-- A5 (R6-07): a retry's pending state and refusal belong to the
+                 user and generation that submitted it. -->
+            {#key `${user?._id}:${generation._id}`}
+              <SeedInitializationRecovery
+                generationId={generation._id}
+                message={generation.seedStageError}
+                canEdit={generation.seedCanEdit}
+              />
+            {/key}
+          {/if}
           {#if isGenerating && briefGenerationId}
             <!-- Story 4: the Brief fills in beside the progress card — its
                  Inputs band is readable before any report exists. The same
@@ -1316,6 +1512,52 @@
             </div>
           {/if}
         </div>
+      </div>
+    {/if}
+
+    {#if generation && showSeedWorkspace}
+      <div class="min-h-0 flex-1 overflow-hidden">
+        <!-- Every Seed surface is keyed by its full owner, so no local state,
+             pending work or draft buffer crosses a user or generation. -->
+        {#key `${user?._id}:${generation._id}`}
+          <SeedWorkspace
+            generationId={generation._id}
+            {projectId}
+            userId={user?._id ?? "anonymous"}
+            onReviewSummary={() => setSeedSummary(true)}
+          />
+        {/key}
+      </div>
+    {/if}
+
+    {#if seedSummaryOwner && showSeedSummary}
+      <div class="min-h-0 flex-1 overflow-hidden">
+        {#key `${user?._id}:${seedSummaryOwner._id}:${seedSummaryOwner.summaryVersionId ?? "live"}`}
+          <SeedSummaryReview
+            generationId={seedSummaryOwner._id}
+            userId={user?._id ?? "anonymous"}
+            versionId={seedSummaryOwner.summaryVersionId}
+            readOnly={seedSummaryOwner.seedPhase !== "seeding"}
+            focusHeadingOnMount
+            onClose={() => setSeedSummary(false)}
+            onSignedOff={completeSeedSignOff}
+          />
+        {/key}
+      </div>
+    {/if}
+
+    {#if generation && showSeedRecovery}
+      <div class="min-h-0 flex-1 overflow-hidden">
+        {#key `${user?._id}:${generation._id}:${generation.summaryVersionId}`}
+          <SeedSummaryReview
+            generationId={generation._id}
+            userId={user?._id ?? "anonymous"}
+            versionId={generation.summaryVersionId}
+            readOnly
+            recovery
+            canRecover={generation.seedCanEdit}
+          />
+        {/key}
       </div>
     {/if}
 
@@ -1349,7 +1591,7 @@
     {/if}
 
     <!-- Editor workspace + chat rail (single view, resizable — BNH-14) -->
-    {#if !awaitingSelection && !showIterativeStepper && report}
+    {#if !awaitingSelection && !showIterativeStepper && !showSeedSummary && !showSeedWorkspace && !showSeedRecovery && !showSeedDrafting && report}
       <div bind:this={workspaceEl} class={`mx-auto flex min-h-0 w-full flex-1 overflow-hidden transition-[max-width] duration-[325ms] ease-out motion-reduce:transition-none ${workspaceMaximized ? "max-w-full" : "max-w-[var(--container-shell)]"}`}>
         <div class="min-h-0 flex-1 overflow-y-auto">
             <div class={`mx-auto transition-[max-width,padding] duration-[325ms] ease-out motion-reduce:transition-none ${workspaceMaximized ? "max-w-full px-7 py-6" : railOpen ? "max-w-report px-10 py-10" : "max-w-[var(--container-shell)] px-10 py-10"}`}>
@@ -1806,7 +2048,7 @@
     {/if}
 
     <!-- No report, not generating — review-mode feedback report or transcript -->
-    {#if !report && !isGenerating && !awaitingSelection && !showIterativeStepper && !showFailedGeneration}
+    {#if !report && !isGenerating && !awaitingSelection && !showIterativeStepper && !showSeedWorkspace && !showSeedSummary && !showSeedRecovery && !showFailedGeneration}
       <main class="mx-auto w-full max-w-3xl min-h-0 flex-1 overflow-y-auto px-6 py-8">
         {@render projectMetadata()}
 
@@ -1857,7 +2099,7 @@
                     {#each [
                       { id: "compare", label: "Compare" },
                       { id: "single", label: "Single draft" },
-                      { id: "iterative", label: "Section by section" },
+                      { id: "iterative", label: "Step by step" },
                     ] as const as opt (opt.id)}
                       <button
                         type="button"

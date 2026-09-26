@@ -4,14 +4,19 @@ import { convexTest } from "convex-test";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { z } from "zod";
 import schema from "../schema";
+import type { Id } from "../_generated/dataModel";
 import {
+  BRIEF_INPUT_BUDGET,
   BRIEF_REQUEST,
   BRIEF_SCHEMA,
   BRIEF_SYSTEM_PROMPT,
   buildBriefUserMessage,
   deriveOrReuseBrief,
 } from "./brief";
-import { clientForModel } from "./providers";
+import { clientForModel, resetGenerationModelCache, resetGenerationPlaceholderCache } from "./providers";
+import { internal } from "../_generated/api";
+import { sha256 } from "../lib/contracts";
+import { anthropicToolSse, sseResponse } from "../anthropicSse.fixture";
 
 // Keep the Anthropic SDK, structured decoding, citation resolution and Convex
 // persistence real. Only the HTTP transport is replaced.
@@ -168,6 +173,41 @@ test("serializes stable Brief source-kind tags and excludes a writer Storyline",
   expect(message).not.toContain("Excluded bytes.");
 });
 
+test("reads a digested transcript through its digest only (cost phase 1)", () => {
+  const transcriptId = "transcript-1" as Id<"transcripts">;
+  const message = buildBriefUserMessage([
+    { kind: "transcript", label: "Interview", content: "FULL-TRANSCRIPT-BYTES", transcriptId },
+    { kind: "project_document", label: "Notes", content: "Document bytes." },
+    { kind: "transcript_digest", label: "Interview", content: "DIGEST-BYTES", transcriptId },
+  ]);
+  expect(message).not.toContain("FULL-TRANSCRIPT-BYTES");
+  expect(message.indexOf("DIGEST-BYTES")).toBeGreaterThan(-1);
+  // The digest takes the transcript's place, ahead of the documents.
+  expect(message.indexOf("DIGEST-BYTES")).toBeLessThan(message.indexOf("Document bytes."));
+});
+
+test("spends a deterministic budget: per-source cut with a notice, then whole sources omitted", () => {
+  const budget = { totalTokens: 10, perSourceTokens: 6 }; // 40 and 24 characters
+  const sources = [
+    { kind: "transcript", label: "A", content: "a".repeat(30) },
+    { kind: "project_document", label: "B", content: "b".repeat(20) },
+    { kind: "project_document", label: "C", content: "c".repeat(5) },
+    { kind: "project_document", label: "D", content: "" },
+  ] satisfies Parameters<typeof buildBriefUserMessage>[0];
+  const message = buildBriefUserMessage(sources, budget);
+  expect(message).toBe(buildBriefUserMessage(sources, budget));
+  // A keeps 24 of 30; B gets the remaining 16 of 20; C gets nothing.
+  expect(message).toContain(`${"a".repeat(24)}\n[TRUNCATED: 6 of 30 characters omitted to fit the context budget.]`);
+  expect(message).toContain(`${"b".repeat(16)}\n[TRUNCATED: 4 of 20 characters omitted to fit the context budget.]`);
+  expect(message).not.toContain("[C] ---");
+  // An empty source costs nothing and still shows as a block.
+  expect(message).toContain("--- BEGIN [SOURCE_KIND=project_document] [D] ---");
+  expect(message.endsWith("[1 further source(s) were omitted to fit the context budget.]")).toBe(true);
+  // The default budget never touches ordinary sources.
+  expect(buildBriefUserMessage(sources)).not.toContain("TRUNCATED");
+  expect(BRIEF_INPUT_BUDGET).toEqual({ totalTokens: 150_000, perSourceTokens: 100_000 });
+});
+
 test("serializes reconciliation instructions through the real Brief SDK and persists a representative reconciled response", async () => {
   const t = convexTest(schema, modules);
   const fixture = await t.run(async (ctx) => {
@@ -292,7 +332,7 @@ test("serializes reconciliation instructions through the real Brief SDK and pers
   expect(request.method).toBe("POST");
   expect(request.headers.get("x-api-key")).toBe("synthetic-brief-sdk-key");
   const requestBody = requestBodySchema.parse(await request.json());
-  expect(requestBody.max_tokens).toBe(8192);
+  expect(requestBody.max_tokens).toBe(16_000);
   expect(requestBody).toEqual({
     model,
     max_tokens: BRIEF_REQUEST.maxTokens,
@@ -534,4 +574,230 @@ test("serializes reconciliation instructions through the real Brief SDK and pers
     );
   }
   expect(await t.run((ctx) => ctx.db.query("aiUsage").collect())).toHaveLength(1);
+});
+
+// ─── Round 2 (F2, decision 57): the Step-by-step Brief streams ──────────────
+
+const MERIDIAN = [
+  "Jordan Ellis: So the bond line fails at the standard cure?",
+  "Sam Okafor: Yes, the bond line fails at the standard cure because the foam cores deform at 120 degrees.",
+  "Jordan Ellis: Why could you not just buy a low-temperature adhesive?",
+  "Sam Okafor: No supplier had one that held above 80 degrees in service, so we formulated our own.",
+].join("\n\n");
+const ROLES = { "Jordan Ellis": "interviewer", "Sam Okafor": "client" } as const;
+// The model reads placeholders (decision 26); its quotes come back with them.
+const PLACEHOLDERS = [{ token: "[PERSON_1]", value: "Sam Okafor" }];
+
+const streamedBrief = {
+  storyline: "The team formulated its own adhesive after supplier products failed above 80 degrees.",
+  storylineClaims: [
+    // Client words, written with the placeholder the model saw.
+    { text: "The bond line failed at the standard cure.", quote: "[PERSON_1]: Yes, the bond line fails at the standard cure" },
+    // The interviewer's question alone: never shown (decision 25).
+    { text: "Buying an adhesive was considered.", quote: "Why could you not just buy a low-temperature adhesive?" },
+  ],
+  claimExclusions: [{ text: "Supplier pricing", quote: "No supplier had one", reason: "business_risk" }],
+  confidenceMap: [
+    { text: "No supplier product held above 80 degrees.", quote: "No supplier had one that held above 80 degrees in service", confidence: "established" },
+    { text: "Invented.", quote: "A fourth supplier passed every test.", confidence: "unresolved" },
+    { text: "Discredited.", quote: "the foam cores deform at 120 degrees", confidence: "unreliable" },
+  ],
+  glossaryTerms: [{ term: "foam cores" }],
+};
+
+async function streamingFixture(
+  t: ReturnType<typeof convexTest<typeof schema.tables>>,
+  mode: "iterative" | "single" = "iterative"
+) {
+  const ids = await t.run(async (ctx) => {
+    const now = Date.now();
+    const userId = await ctx.db.insert("users", { authId: "stream-writer", role: "admin" });
+    const projectId = await ctx.db.insert("projects", {
+      title: "Meridian bonding",
+      clientName: "Meridian Materials",
+      status: "generating",
+      createdBy: userId,
+      shareToken: crypto.randomUUID(),
+      createdAt: now,
+      updatedAt: now,
+    });
+    const transcriptId = await ctx.db.insert("transcripts", {
+      projectId,
+      content: MERIDIAN,
+      contentHash: await sha256(MERIDIAN),
+      label: "Meridian interview",
+      position: 0,
+      createdAt: now,
+    });
+    const generationId = await ctx.db.insert("generations", {
+      projectId,
+      transcriptId,
+      transcriptIds: [transcriptId],
+      status: "running",
+      candidateMode: mode,
+      ...(mode === "iterative" ? { gatedWorkflow: "seeds" as const, seedStageVersion: 0 } : {}),
+      lengthTarget: "standard",
+      requestedBy: userId,
+      startedAt: now,
+      previousProjectStatus: "draft",
+      learningDigestIds: [],
+      placeholders: PLACEHOLDERS,
+    });
+    await ctx.db.patch(projectId, { activeGenerationId: generationId });
+    await ctx.db.insert("generationSources", {
+      generationId,
+      projectId,
+      kind: "transcript",
+      transcriptId,
+      label: "Meridian interview",
+      content: MERIDIAN,
+      contentHash: await sha256(MERIDIAN),
+      truncated: false,
+      originalLength: MERIDIAN.length,
+      capturedAt: now,
+    });
+    return { userId, projectId, transcriptId, generationId };
+  });
+  await t.mutation(internal.transcripts.buildTranscriptStructure, { transcriptId: ids.transcriptId });
+  await t.run(async (ctx) => {
+    for (const row of await ctx.db
+      .query("transcriptSpeakers")
+      .withIndex("by_transcriptId_and_label", (q) => q.eq("transcriptId", ids.transcriptId))
+      .collect()) {
+      await ctx.db.patch(row._id, { role: ROLES[row.label as keyof typeof ROLES], roleSource: "consultant" });
+    }
+  });
+  return ids;
+}
+
+async function deriveWith(
+  t: ReturnType<typeof convexTest<typeof schema.tables>>,
+  ids: Awaited<ReturnType<typeof streamingFixture>>,
+  seedStartup: boolean
+) {
+  return await t.action(async (ctx) =>
+    deriveOrReuseBrief(
+      ctx,
+      clientForModel(ctx, model, {
+        callSite: "generation:brief",
+        projectId: ids.projectId,
+        attribution: { generationId: ids.generationId },
+      }),
+      { projectId: ids.projectId, generationId: ids.generationId, model, ...(seedStartup ? { seedStartup: true } : {}) }
+    )
+  );
+}
+
+async function entriesOf(t: ReturnType<typeof convexTest<typeof schema.tables>>, briefId: Id<"generationBriefs">) {
+  return (
+    await t.run((ctx) =>
+      ctx.db.query("generationBriefEntries").withIndex("by_briefId", (q) => q.eq("briefId", briefId)).collect()
+    )
+  ).map(({ group, text, exactExcerpt, startOffset, endOffset, confidence }) => ({
+    group,
+    text,
+    exactExcerpt,
+    startOffset,
+    endOffset,
+    confidence,
+  }));
+}
+
+test("streams the Step-by-step Brief through the real SDK and writes located reading facts in order", async () => {
+  resetGenerationModelCache();
+  resetGenerationPlaceholderCache();
+  const requests: Array<Record<string, unknown>> = [];
+  vi.stubGlobal(
+    "fetch",
+    vi.fn<typeof fetch>(async (input, init) => {
+      const json = JSON.parse(await new Request(input, init).text()) as Record<string, unknown>;
+      requests.push(json);
+      // The request carries the placeholder, never the client's name.
+      expect(JSON.stringify(json)).not.toContain("Sam Okafor");
+      if (json.stream === true) {
+        return sseResponse(
+          anthropicToolSse({ model, tool: BRIEF_REQUEST.toolName, input: streamedBrief, chunk: 17, usage: { input_tokens: 90, output_tokens: 70 } })
+        );
+      }
+      return Response.json({
+        id: "msg_unstreamed",
+        type: "message",
+        role: "assistant",
+        model,
+        content: [{ type: "tool_use", id: "tool_brief", name: BRIEF_REQUEST.toolName, input: streamedBrief }],
+        stop_reason: "tool_use",
+        stop_sequence: null,
+        usage: { input_tokens: 90, output_tokens: 70 },
+      });
+    })
+  );
+
+  // The same answer, unstreamed (Single draft), on its own project.
+  const plain = convexTest(schema, modules);
+  const plainIds = await streamingFixture(plain, "single");
+  const unstreamed = await deriveWith(plain, plainIds, false);
+  await plain.finishAllScheduledFunctions(vi.runAllTimers);
+  expect(requests.at(-1)).not.toHaveProperty("stream");
+  expect(await plain.run((ctx) => ctx.db.query("generationReadingFacts").collect())).toEqual([]);
+
+  resetGenerationModelCache();
+  resetGenerationPlaceholderCache();
+  const t = convexTest(schema, modules);
+  const ids = await streamingFixture(t);
+  const streamed = await deriveWith(t, ids, true);
+  await t.finishAllScheduledFunctions(vi.runAllTimers);
+
+  expect(requests.at(-1)?.stream).toBe(true);
+  const { stream: _stream, ...streamedBody } = requests.at(-1)!;
+  // Apart from the one field, the Step-by-step request is the Single one.
+  expect(JSON.stringify(streamedBody).replace(/\b\d{7,}[A-Za-z]+\b/g, "<id>")).toBe(
+    JSON.stringify(requests[0]).replace(/\b\d{7,}[A-Za-z]+\b/g, "<id>")
+  );
+
+  // The streamed answer is parsed to the same Brief as the unstreamed one.
+  if (unstreamed.kind !== "derived" || streamed.kind !== "derived") throw new Error("Expected derived Briefs");
+  expect(await entriesOf(t, streamed.briefId)).toEqual(await entriesOf(plain, unstreamed.briefId));
+
+  const facts = await t.run((ctx) =>
+    ctx.db
+      .query("generationReadingFacts")
+      .withIndex("by_generationId_and_seq", (q) => q.eq("generationId", ids.generationId))
+      .collect()
+  );
+  expect(facts.map(({ seq, chip, quote, sourceLabel, speaker, line }) => ({ seq, chip, quote, sourceLabel, speaker, line }))).toEqual([
+    {
+      seq: 1,
+      chip: "Storyline",
+      // The placeholder is restored before anything is stored.
+      quote: "Sam Okafor: Yes, the bond line fails at the standard cure",
+      sourceLabel: "Sam Okafor, line 3",
+      speaker: "Sam Okafor",
+      line: 3,
+    },
+    {
+      seq: 2,
+      chip: "Fact",
+      quote: "No supplier had one that held above 80 degrees in service",
+      sourceLabel: "Sam Okafor, line 7",
+      speaker: "Sam Okafor",
+      line: 7,
+    },
+    {
+      seq: 3,
+      chip: "Term",
+      quote: "Sam Okafor: Yes, the bond line fails at the standard cure because the foam cores deform at 120 degrees.",
+      sourceLabel: "Sam Okafor, line 3",
+      speaker: "Sam Okafor",
+      line: 3,
+    },
+  ]);
+  // The interviewer-only quote, the unlocated quote, the unreliable entry and
+  // the Claim Exclusion are never shown.
+  expect(JSON.stringify(facts)).not.toContain("Why could you not");
+  expect(JSON.stringify(facts)).not.toContain("A fourth supplier");
+  expect(JSON.stringify(facts)).not.toContain("[PERSON_1]");
+  // One usage row per request, streamed or not.
+  expect(await t.run((ctx) => ctx.db.query("aiUsage").collect())).toEqual([
+    expect.objectContaining({ callSite: "generation:brief", inputTokens: 90, outputTokens: 70, stopReason: "tool_use" }),
+  ]);
 });

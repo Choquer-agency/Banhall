@@ -24,6 +24,7 @@
     type InclusionRow,
   } from "$lib/brief";
   import type { Snippet } from "svelte";
+  import { isClippedStorylineAlternative } from "../../../../convex/lib/seedRevisions";
 
   /**
    * Story 4 brief-rail (DESIGN.md › brief-rail, EXPERIENCE.md › brief-rail).
@@ -36,6 +37,9 @@
     storylineText: string;
     storylineOrigin: "writer" | "derived" | "edited";
     editedSinceGeneration: boolean;
+    runBriefVersion?: number | null;
+    appliesToNextGeneration?: boolean;
+    regenerationDisabled?: boolean;
     entries: BriefEntryLike[];
   };
   type InclusionView = {
@@ -299,6 +303,16 @@
     </header>
   {/if}
 
+  {#if brief?.runBriefVersion !== undefined}
+    <div class="mx-4 mt-2 rounded-lg bg-gray-50 px-3 py-2 text-data text-ink-muted">
+      <p>This generation uses Brief v{brief.runBriefVersion ?? "unknown"}.</p>
+      <p class="mt-1">Displayed Brief: v{brief.version}.</p>
+      {#if brief.appliesToNextGeneration}
+        <p class="mt-1 text-gap-text!">Your newer Brief edits apply to the next generation.</p>
+      {/if}
+    </div>
+  {/if}
+
   <p class="sr-only" aria-live="polite">
     {grouped.openQuestions.length > 0 ? "Storyline question raised" : ""}
   </p>
@@ -310,6 +324,10 @@
   {/if}
 
   {#each grouped.openQuestions as question (question._id)}
+    <!-- A question stored before clipped questions were withheld can carry a
+         shortened alternative; the server refuses it as the whole Storyline,
+         so the rail does not offer it. -->
+    {@const alternativeClipped = isClippedStorylineAlternative(question.question?.alternativeText ?? "")}
     <section aria-label="Storyline question" class="mx-4 mt-3 rounded-md bg-gap-bg p-3">
       <p class="text-body text-gap-text!">{question.question?.questionText}</p>
       <div class="mt-2 grid grid-cols-1 gap-3 @md:grid-cols-2">
@@ -330,15 +348,22 @@
         </div>
       </div>
       {#if canEdit}
+        {#if alternativeClipped}
+          <p class="mt-3 text-body text-gap-text!" data-question-alternative-clipped>
+            The suggested new Storyline was cut short, so it can't replace yours. Edit the Storyline yourself, or keep it.
+          </p>
+        {/if}
         <div class="mt-3 flex flex-wrap items-center gap-2">
-          <Button
-            variant="primary"
-            size="sm"
-            class="min-h-11"
-            onclick={() => onResolveQuestion(question, "use_evidence")}
-          >
-            Use the section's evidence
-          </Button>
+          {#if !alternativeClipped}
+            <Button
+              variant="primary"
+              size="sm"
+              class="min-h-11"
+              onclick={() => onResolveQuestion(question, "use_evidence")}
+            >
+              Use the section's evidence
+            </Button>
+          {/if}
           <Button
             variant="ghost"
             size="sm"
@@ -387,11 +412,19 @@
     {/if}
   </div>
 
-  {#if brief?.editedSinceGeneration && onRegenerate}
+  {#if brief?.editedSinceGeneration && (onRegenerate || brief.regenerationDisabled)}
     <div class="border-t border-line-soft p-4">
-      <Button variant="secondary" class="min-h-11 w-full" onclick={onRegenerate}>
+      <Button
+        variant="secondary"
+        class="min-h-11 w-full"
+        onclick={onRegenerate}
+        disabled={brief.regenerationDisabled || !onRegenerate}
+      >
         Regenerate with this Brief
       </Button>
+      {#if brief.regenerationDisabled}
+        <p class="mt-2 text-data text-ink-muted">Available after the active generation finishes.</p>
+      {/if}
     </div>
   {/if}
 </aside>

@@ -3,6 +3,7 @@
   import Button from "$lib/components/ui/Button.svelte";
   import Spinner from "$lib/components/ui/Spinner.svelte";
   import { goto } from "$app/navigation";
+  import { goToLogin } from "$lib/auth/goToLogin";
   import { resolve } from "$app/paths";
   import { useAuth } from "@mmailaender/convex-better-auth-svelte/svelte";
   import { Dialog, DropdownMenu, Tabs } from "bits-ui";
@@ -66,7 +67,7 @@
   const runsQ = useQuery(api.ingestion.listSyncRuns, () => auth.isAuthenticated ? {} : "skip");
 
   $effect(() => {
-    if (!auth.isLoading && !auth.isAuthenticated) goto(resolve("/login"), { replaceState: true });
+    if (!auth.isLoading && !auth.isAuthenticated) goToLogin();
   });
 
   const stats = $derived(statsQ.data);
@@ -451,7 +452,7 @@
 {#if auth.isLoading || !auth.isAuthenticated}
   <div class="flex flex-1 items-center justify-center bg-canvas"><Spinner /></div>
 {:else}
-  <AdminWorkspacePage title="OneDrive ingestion" description="Review historical PDs and transcripts before anything enters the Brain." flush>
+  <AdminWorkspacePage title="OneDrive import" description="Review historical PDs and transcripts before anything enters the Brain." flush>
     {#if stats === null}
       <p class="mt-8 text-sm text-ink-muted">Admin access only.</p>
     {:else}

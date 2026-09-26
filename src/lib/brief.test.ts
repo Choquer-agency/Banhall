@@ -44,17 +44,17 @@ describe("Brief rail helpers (story 4)", () => {
 
   it("inclusionHeader counts documents against the cap", () => {
     expect(inclusionHeader({ documentsInContext: 12, documentsTotal: 40, cap: 12 })).toBe(
-      "12 of 40 documents in context · cap 12"
+      "12 of 40 documents in context, cap 12"
     );
   });
 
   it("inclusionHeader qualifies a truncated total with the bounded-count plus (DW-133)", () => {
     expect(
       inclusionHeader({ documentsInContext: 12, documentsTotal: 1000, cap: 12, documentsTruncated: true })
-    ).toBe("12 of 1000+ documents in context · cap 12");
+    ).toBe("12 of 1000+ documents in context, cap 12");
     expect(
       inclusionHeader({ documentsInContext: 12, documentsTotal: 40, cap: 12, documentsTruncated: false })
-    ).toBe("12 of 40 documents in context · cap 12");
+    ).toBe("12 of 40 documents in context, cap 12");
   });
 
   it("inclusionHeader qualifies both counts when the frozen sources were cut short (DW-133 review 2)", () => {
@@ -68,19 +68,19 @@ describe("Brief rail helpers (story 4)", () => {
         documentsTruncated: true,
         sourcesTruncated: true,
       })
-    ).toBe("12+ of 40+ documents in context · cap 12");
+    ).toBe("12+ of 40+ documents in context, cap 12");
   });
 
   it("inclusionStatusText never words an unrecorded row and appends the reason", () => {
     expect(inclusionStatusText({ inclusion: null })).toBe("");
     expect(inclusionStatusText({ inclusion: "not_included", reason: "archived" })).toBe(
-      "not included · archived"
+      "not included (archived)"
     );
     expect(inclusionStatusText({ inclusion: "not_included", reason: "unreadable" })).toBe(
-      "not included · could not read"
+      "not included (could not read)"
     );
     expect(inclusionStatusText({ inclusion: "not_included", reason: "not_captured" })).toBe(
-      "not included · not captured"
+      "not included (not captured)"
     );
     expect(inclusionStatusText({ inclusion: "condensed" })).toBe("condensed");
   });
@@ -107,12 +107,12 @@ describe("Brief rail helpers (story 4)", () => {
     expect(grouped.openQuestions).toEqual([open]);
   });
 
-  it("changeSummary reads 'N added · N removed' only when something changed", () => {
+  it("changeSummary reads 'N added, N removed' only when something changed", () => {
     expect(changeSummary([{ change: "unchanged" }, {}])).toBeNull();
     expect(
       changeSummary([{ change: "added" }, { change: "added" }, { change: "removed" }, { change: "unchanged" }])
-    ).toBe("2 added · 1 removed");
-    expect(changeSummary([{ change: "removed" }])).toBe("0 added · 1 removed");
+    ).toBe("2 added, 1 removed");
+    expect(changeSummary([{ change: "removed" }])).toBe("0 added, 1 removed");
     expect(liveCount([{ change: "added" }, { change: "removed" }, {}])).toBe(2);
   });
 
@@ -125,7 +125,7 @@ describe("Brief rail helpers (story 4)", () => {
     expect(sourceChipLabel(entry({}))).toBe("Interview transcript");
     expect(
       sourceChipLabel(entry({ source: { label: "Interview transcript", kind: "transcript_digest" } }))
-    ).toBe("Interview transcript · digest");
+    ).toBe("Interview transcript (digest)");
     expect(
       sourceChipLabel(entry({ source: { label: "background:specs.pdf", kind: "project_document" } }))
     ).toBe("specs.pdf");

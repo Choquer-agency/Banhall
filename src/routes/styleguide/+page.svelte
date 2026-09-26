@@ -5,6 +5,18 @@
   import Badge from "$lib/components/ui/Badge.svelte";
   import StageBadge from "$lib/components/ui/StageBadge.svelte";
   import Input from "$lib/components/ui/Input.svelte";
+  import RoleChip from "$lib/components/ui/RoleChip.svelte";
+  import StatusCallout from "$lib/components/ui/StatusCallout.svelte";
+  import FileIcon from "$lib/components/ui/FileIcon.svelte";
+  import BanhallLogo from "$lib/components/ui/BanhallLogo.svelte";
+  import BanhallRailMark from "$lib/components/ui/BanhallRailMark.svelte";
+  import Avatar from "$lib/components/ui/Avatar.svelte";
+  import Switch from "$lib/components/ui/Switch.svelte";
+  import KeyHint from "$lib/components/shell/KeyHint.svelte";
+  import PageIconTile from "$lib/components/shell/PageIconTile.svelte";
+  import SettingsTabs from "$lib/components/settings/SettingsTabs.svelte";
+  import { IconGear } from "$lib/components/icons";
+  import type { RoleChipKind } from "$lib/roles/roleChip";
   import ChatIcon from "$lib/components/ui/ChatIcon.svelte";
   import ProcessingStatusBadge from "$lib/components/upload/ProcessingStatusBadge.svelte";
   import { WORKFLOW_STAGES } from "../../../shared/workflowStages";
@@ -75,6 +87,26 @@
     { step: "50", cls: "bg-gray-50", role: "Wash" },
   ];
   const statuses = ["draft", "generating", "review", "client_review", "final"];
+
+  // Round 2 foundations (HANDOFF "Global rules added this round").
+  const roleChipKinds: RoleChipKind[] = ["owner", "admin", "manager", "consultant", "developer"];
+  const statusFamilies = [
+    { name: "danger", solid: "bg-danger", soft: "bg-danger-soft text-danger-ink", hex: "#DC2626, #FEE2E2 / #991B1B" },
+    { name: "warning", solid: "bg-warning", soft: "bg-warning-soft text-warning-ink", hex: "#D97706, #FEF3C7 / #92400E" },
+    { name: "success", solid: "bg-success", soft: "bg-success-soft text-success-ink", hex: "#16A34A, #DCFCE7 / #166534" },
+  ];
+  const shellTokens = [
+    { name: "workspace-shell", cls: "bg-workspace-shell", hex: "#FAFCFB", role: "Round 2 rail and panel frame" },
+    { name: "workspace-page-icon", cls: "bg-workspace-page-icon", hex: "#E3F4F1", role: "Page icon tile in the top bar" },
+  ];
+  // Round 2 shell (WS1).
+  let demoSwitch = $state(true);
+  const demoTabs = [
+    { key: "account", label: "Account", href: "#styleguide-tabs" },
+    { key: "writing", label: "Writing preferences", href: "#styleguide-tabs" },
+    { key: "notifications", label: "Notifications", href: "#styleguide-tabs" },
+  ];
+  const fileNames = ["Interview.docx", "Cost breakdown.xlsx", "Follow-up call.pdf", "Notes.txt", "Drawings.zip"];
 
   // Chat primitives — static specimen data.
   let demoPrompt = $state("");
@@ -176,6 +208,7 @@
         <Button variant="secondary">Secondary</Button>
         <Button variant="ghost">Ghost</Button>
         <Button variant="link">Link</Button>
+        <Button variant="destructive-soft">Cancel</Button>
         <Button disabled>Disabled</Button>
       </div>
       <div>
@@ -196,6 +229,180 @@
       </div>
       <div class="max-w-xs">
         <Input id="sg-input" label="Field label" placeholder="Placeholder text…" />
+      </div>
+    </div>
+
+    <!-- Round 2 foundations -->
+    <h2 class="text-label mt-12">Round 2 foundations</h2>
+    <p class="mt-2 max-w-2xl text-xs text-ink-muted">
+      Tokens and primitives from the round 2 handoff. Light surfaces only: the dark
+      workspace scope does not retint them.
+    </p>
+    <div class="card mt-3 space-y-8 px-5 py-5">
+      <div>
+        <p class="text-label mb-2">Shell</p>
+        <div class="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          {#each shellTokens as c (c.name)}
+            <div class="overflow-hidden rounded-lg border border-line">
+              <div class={`h-10 ${c.cls}`}></div>
+              <div class="px-3 py-2">
+                <p class="text-sm font-medium text-ink">{c.name}</p>
+                <p class="text-data text-ink-muted">{c.hex}</p>
+                <p class="mt-1 text-xs text-ink-muted">{c.role}</p>
+              </div>
+            </div>
+          {/each}
+        </div>
+      </div>
+
+      <div>
+        <p class="text-label mb-2">Logo</p>
+        <div class="flex flex-wrap items-center gap-4">
+          <div class="rounded-lg border border-line bg-canvas px-4 py-2">
+            <BanhallLogo height={56} />
+          </div>
+          <div class="rounded-lg bg-fir px-4 py-2">
+            <BanhallLogo tone="white" height={56} />
+          </div>
+          <div class="flex h-14 w-[200px] items-center gap-2 rounded-lg bg-workspace-shell px-3">
+            <BanhallRailMark />
+          </div>
+          <div class="flex h-14 w-14 items-center justify-center rounded-lg bg-workspace-shell">
+            <BanhallRailMark collapsed />
+          </div>
+        </div>
+        <p class="mt-2 text-xs text-ink-muted">
+          <code class="text-data">BanhallLogo</code> dark on light, white on dark, 52 to 64px tall.
+          <code class="text-data">BanhallRailMark</code> expanded and collapsed rail.
+        </p>
+      </div>
+
+      <div>
+        <p class="text-label mb-2">Role chips</p>
+        <div class="flex flex-wrap items-center gap-2">
+          {#each roleChipKinds as kind (kind)}
+            <RoleChip {kind} />
+          {/each}
+        </div>
+        <div class="mt-2 flex flex-wrap items-center gap-2">
+          {#each roleChipKinds as kind (kind)}
+            <RoleChip {kind} size="sm" />
+          {/each}
+        </div>
+        <p class="mt-2 text-xs text-ink-muted">
+          20px (Team, invites, View as) and 16px (rail identity). The stored writer role shows as Consultant.
+        </p>
+      </div>
+
+      <div>
+        <p class="text-label mb-2">Status colours</p>
+        <div class="grid gap-3 sm:grid-cols-3">
+          {#each statusFamilies as family (family.name)}
+            <div class="flex items-center gap-3 rounded-lg border border-line px-3 py-2">
+              <span class={`size-3 shrink-0 rounded-full ${family.solid}`} aria-hidden="true"></span>
+              <span class={`inline-flex h-5 items-center rounded-[5px] px-[7px] text-xs font-medium ${family.soft}`}>{family.name}</span>
+              <span class="text-data text-ink-muted">{family.hex}</span>
+            </div>
+          {/each}
+        </div>
+        <div class="mt-3 flex items-center gap-3">
+          <span class="inline-flex h-5 items-center rounded-[5px] bg-recommended px-1.5 text-xs font-medium text-recommended-ink">Recommended</span>
+          <span class="text-data text-ink-muted">#BBF7D0 / #14532D</span>
+        </div>
+      </div>
+
+      <div class="max-w-2xl space-y-3">
+        <p class="text-label">Status callouts</p>
+        <StatusCallout
+          tone="danger"
+          layout="inline"
+          title="Follow-up call, Sep 19.pdf"
+          primaryAction={{ label: "Replace file" }}
+          onDismiss={() => {}}
+          dismissLabel="Remove file"
+        >
+          {#snippet icon()}<FileIcon name="Follow-up call, Sep 19.pdf" />{/snippet}
+          We could not find any text. It looks like a scanned image.
+        </StatusCallout>
+        <StatusCallout
+          tone="warning"
+          title="Cedarline already has this project for FY 2026"
+          primaryAction={{ label: "Open that project" }}
+          secondaryAction={{ label: "It is a different project" }}
+        >
+          Adaptive cold storage controls, Drafting, owned by Larry Moss, edited 12 min ago.
+        </StatusCallout>
+        <StatusCallout tone="success" title="Invites sent" onDismiss={() => {}}>
+          Each link works for 7 days. You can resend it from Team.
+        </StatusCallout>
+        <p class="text-xs text-ink-muted">
+          The paragraph and buttons use the box's own colour family.
+        </p>
+      </div>
+
+      <div>
+        <p class="text-label mb-2">File icons</p>
+        <div class="flex flex-wrap items-end gap-5">
+          {#each fileNames as name (name)}
+            <div class="flex flex-col items-center gap-1.5">
+              <FileIcon {name} size={40} />
+              <span class="text-xs text-ink-muted">{name}</span>
+            </div>
+          {/each}
+        </div>
+        <p class="mt-2 text-xs text-ink-muted">
+          file-icon-vectors, vivid set. Anything that is not pdf, docx, xlsx or txt gets the neutral page.
+        </p>
+      </div>
+    </div>
+
+    <!-- Round 2 shell -->
+    <h2 class="text-label mt-12">Round 2 shell</h2>
+    <p class="mt-2 max-w-2xl text-xs text-ink-muted">
+      The rail, top bar, Settings and View as primitives. The View as frame is
+      <code class="text-data">view-as-frame</code> (#F59E0B) on any
+      <code class="text-data">[data-work-panel]</code> while viewing.
+    </p>
+    <div class="card mt-3 space-y-8 px-5 py-5">
+      <div>
+        <p class="text-label mb-2">Page icon tile and avatars</p>
+        <div class="flex flex-wrap items-center gap-3">
+          <PageIconTile icon={IconGear} />
+          <Avatar name="Johnny Nguyen" tone="purple" size={24} />
+          <Avatar name="Jane Ellis" tone="fir" size={30} />
+          <Avatar name="Mo Reyes" tone="teal" size={32} />
+          <Avatar name="Ana Ruiz" tone="fir" size={52} />
+        </div>
+        <p class="mt-2 text-xs text-ink-muted">
+          Avatar tones fir, teal and purple (#7E22CE, <code class="text-data">avatar-purple</code>), picked from the user id.
+        </p>
+      </div>
+
+      <div>
+        <p class="text-label mb-2">Switch, key hints, tabs</p>
+        <div class="flex flex-wrap items-center gap-6">
+          <Switch label="Demo switch" bind:checked={demoSwitch} />
+          <KeyHint id="search" platform="mac" />
+          <KeyHint id="search" platform="windows" />
+          <KeyHint id="goAdmin" platform="mac" />
+          <KeyHint id="viewAs" variant="inline" platform="windows" />
+        </div>
+        <div id="styleguide-tabs" class="mt-4">
+          <SettingsTabs tabs={demoTabs} activeKey="account" />
+        </div>
+      </div>
+
+      <div>
+        <p class="text-label mb-2">Toast</p>
+        <div class="flex flex-wrap items-center gap-3">
+          <div class="inline-flex items-center gap-3 rounded-[10px] bg-toast py-2.5 pl-3.5 pr-3 text-[13px] text-toast-ink shadow-toast-dark">
+            Now viewing as Consultant. Your own access is unchanged.
+            <span class="font-medium text-primary-light">Undo</span>
+          </div>
+        </div>
+        <p class="mt-2 text-xs text-ink-muted">
+          <code class="text-data">toast</code> #132D2A, <code class="text-data">toast-muted</code> #B8C9C6, bottom centre. Errors keep the red card.
+        </p>
       </div>
     </div>
 

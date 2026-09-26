@@ -2,6 +2,7 @@ import { v, ConvexError, getConvexSize } from "convex/values";
 import {
   query,
   mutation,
+  internalMutation,
   type MutationCtx,
   type QueryCtx,
 } from "./_generated/server";
@@ -11,9 +12,13 @@ import {
   type PdSubsectionRoleId,
 } from "../shared/pdSubsections";
 import { requireCurrentUser, requireInternalProjectAccess } from "./lib/auth";
-import { requireReportEditAccess } from "./lib/roleCapabilities";
+import {
+  getReportEditAccessOrNull,
+  requireReportEditAccess,
+} from "./lib/roleCapabilities";
 import { domainError } from "./lib/contracts";
 import { resolveGatedWorkflow } from "./lib/gatedWorkflow";
+import { draftingInputsView } from "./lib/generations/draftingInputs";
 import { createReadBudget, DOCUMENT_HEADROOM } from "./lib/readBudget";
 import {
   loadSeedDecisionState,
@@ -29,7 +34,7 @@ import {
   stableSerialize,
 } from "./lib/seedRevisions";
 import { computeEditDistance } from "./lib/editDistance";
-import { countSeedBulletWords, isOneSeedSentence } from "./lib/seedContract";
+import { MAX_EDITED_BULLET_CHARS } from "./lib/seedContract";
 import {
   buildSeedApprovalChallenge,
   unlinkedAdvancementIds,
@@ -46,6 +51,13 @@ import {
   terminateSeedRoleAttempt,
 } from "./seedRuns";
 import { readSeedReadiness } from "./lib/seedReadiness";
+import { MAX_SEED_SOURCE_ROWS } from "./lib/seedSnapshotLoader";
+import {
+  appendReadingFactsHandler,
+  copyBriefToReadingFactsHandler,
+  getReadingFactsHandler,
+  readingFactValidator,
+} from "./lib/readingFacts";
 
 export const seedRoleIdValidator = v.union(
   ...PD_SUBSECTIONS.map((r) => v.literal(r.roleId)),
@@ -124,17 +136,18 @@ function validCommand(commandId: string) {
   if (!commandId || commandId.length > 128)
     domainError("INVALID_INPUT", "A bounded command identity is required");
 }
+// A writer's edit keeps the one-or-two-bullet shape but is never held to the
+// AI Seed's 25-word, one-sentence contract (PRD FR-11, owner 2026-09-23); the
+// client shows a soft "Long for a seed" note instead.
 function validBullets(bullets: string[]) {
   if (
     bullets.length < 1 ||
     bullets.length > 2 ||
-    bullets.some(
-      (b) => !b.trim() || countSeedBulletWords(b) > 25 || !isOneSeedSentence(b),
-    )
+    bullets.some((b) => !b.trim() || b.length > MAX_EDITED_BULLET_CHARS)
   )
     domainError(
       "INVALID_INPUT",
-      "Seeds require one or two bullets, each at most 25 words and one sentence",
+      `Seeds require one or two non-empty bullets, each at most ${MAX_EDITED_BULLET_CHARS} characters`,
     );
 }
 async function currentVersion(
@@ -871,6 +884,7 @@ export const getReadiness = query({
 });
 
 import {
+  frozenSeedSettings,
   getOutlineData,
   getSubsectionData,
   listBatchesData,
@@ -879,15 +893,152 @@ import {
 export const getOutline = query({
   args: { generationId: v.id("generations") },
   handler: async (ctx, args) => {
-    await requireSeedRead(ctx, args.generationId);
-    return getOutlineData(ctx, args.generationId);
+    const generation = await requireSeedRead(ctx, args.generationId);
+    const editAccess = await getReportEditAccessOrNull(ctx, generation.projectId);
+    const outline = await getOutlineData(ctx, args.generationId);
+    return {
+      ...outline,
+      // Round 2 (F3 to F5): when each pending batch started, and how long
+      // this run's batches take, for the time-based step progress.
+      rows: await withPendingStarts(ctx, outline.rows),
+      expectedMs: await expectedSeedBatchMs(ctx, generation._id),
+      // Mutation controls follow the same open-stage rule as decisionFence:
+      // a failed, cancelled, signed-off or inactive run is read-only.
+      canEdit:
+        editAccess !== null &&
+        generation.status === "awaiting_input" &&
+        !generation.summaryVersionId &&
+        editAccess.project.activeGenerationId === generation._id,
+      workflow: resolveGatedWorkflow(generation),
+      // Owner decision 32: the analysis and Brain retrieval prepared in the
+      // background. Sign-off needs "ready"; "failed" offers a retry and says
+      // why, as a code only.
+      draftingInputs: draftingInputsView(generation),
+      frozen: {
+        briefVersionId: generation.briefVersionId ?? null,
+        summaryVersionId: generation.summaryVersionId ?? null,
+        ...frozenSeedSettings(generation),
+      },
+    };
   },
 });
 export const getSubsection = query({
   args: { generationId: v.id("generations"), roleId: seedRoleIdValidator },
   handler: async (ctx, args) => {
     await requireSeedRead(ctx, args.generationId);
-    return getSubsectionData(ctx, args.generationId, args.roleId);
+    const data = await getSubsectionData(ctx, args.generationId, args.roleId);
+    return { ...data, pendingBatch: await pendingBatchOf(ctx, data.pendingBatchId) };
+  },
+});
+export const getApprovalReview = query({
+  args: common,
+  handler: async (ctx, args) => {
+    const generation = await requireSeedRead(ctx, args.generationId);
+    if (
+      !Number.isSafeInteger(args.expectedSeedStageVersion) ||
+      args.expectedSeedStageVersion !== (generation.seedStageVersion ?? 0)
+    ) {
+      domainError("STALE_REVISION", "Seed decisions changed; refresh and retry");
+    }
+    const state = await loadSeedDecisionState(ctx, {
+      generationId: args.generationId,
+      requireComplete: true,
+      roleId: args.roleId,
+      budget: createReadBudget({
+        maxBytes: SEED_DECISION_READ_BYTES,
+        maxRanges: SEED_DECISION_READ_RANGES,
+        reservedBytes: 3 * DOCUMENT_HEADROOM,
+      }),
+    });
+    const row = state.subsections.find((candidate) => candidate.roleId === args.roleId);
+    if (!row || row.projectId !== generation.projectId) {
+      domainError("INVALID_STATE", "Seed subsection is missing");
+    }
+    return {
+      approvalChallenge: await buildSeedApprovalChallenge(ctx, state, row),
+      selectedCount: state.selectionRows.filter(
+        (selection) => selection.roleId === args.roleId && selection.selected,
+      ).length,
+      seedStageVersion: generation.seedStageVersion ?? 0,
+    };
+  },
+});
+/** Readable names for the frozen sources Seed provenance cites. The rows are
+ * immutable, so this subscription stays cached while decisions change. */
+export const getSourceAttribution = query({
+  args: { generationId: v.id("generations") },
+  handler: async (ctx, args) => {
+    const generation = await requireSeedRead(ctx, args.generationId);
+    const budget = createReadBudget({
+      maxBytes: SEED_DECISION_READ_BYTES,
+      maxRanges: 1,
+    });
+    const read = await budget.list(
+      ctx.db
+        .query("generationSources")
+        .withIndex("by_generationId", (q) =>
+          q.eq("generationId", generation._id),
+        ),
+      MAX_SEED_SOURCE_ROWS,
+    );
+    return {
+      generationId: generation._id,
+      sources: read.rows
+        .filter((source) => source.projectId === generation.projectId)
+        .map((source) => ({
+          sourceId: source._id,
+          label: source.label,
+          kind: source.kind,
+        })),
+      complete: read.complete,
+    };
+  },
+});
+/** Bounded recovery for names a partial attribution read left out: at most
+ * `MAX_SEED_SOURCE_ROWS` exact ids, each read by key under the same byte
+ * budget and returned only when it is one of this generation's own frozen
+ * sources. `complete: false` says the budget stopped the walk, so the client
+ * can refuse honestly instead of retrying forever. */
+export const getSourceAttributionByIds = query({
+  args: {
+    generationId: v.id("generations"),
+    sourceIds: v.array(v.id("generationSources")),
+  },
+  handler: async (ctx, args) => {
+    const generation = await requireSeedRead(ctx, args.generationId);
+    const requested = [...new Set(args.sourceIds)];
+    if (requested.length > MAX_SEED_SOURCE_ROWS)
+      domainError(
+        "INVALID_INPUT",
+        `At most ${MAX_SEED_SOURCE_ROWS} source names can be recovered per request`,
+        { reason: "SEED_PROCESSING_LIMIT" },
+      );
+    const budget = createReadBudget({
+      maxBytes: SEED_DECISION_READ_BYTES,
+      maxRanges: MAX_SEED_SOURCE_ROWS,
+    });
+    const sources: Array<{
+      sourceId: Id<"generationSources">;
+      label: string;
+      kind: Doc<"generationSources">["kind"];
+    }> = [];
+    let complete = true;
+    for (const sourceId of requested) {
+      const read = await budget.one(() => ctx.db.get(sourceId));
+      if (read.kind === "not-loaded") {
+        complete = false;
+        break;
+      }
+      const source = read.value;
+      if (
+        !source ||
+        source.generationId !== generation._id ||
+        source.projectId !== generation.projectId
+      )
+        continue;
+      sources.push({ sourceId: source._id, label: source.label, kind: source.kind });
+    }
+    return { generationId: generation._id, sources, complete };
   },
 });
 export const listBatches = query({
@@ -926,3 +1077,74 @@ export const getSummary = query({
     );
   },
 });
+
+// ─── Round 2 (F2, decision 57): Reading the interview ───────────────────────
+// Registered here rather than in a new convex/readingFacts.ts module so the
+// generated API types need no codegen run; the logic lives in
+// lib/readingFacts.ts.
+
+/** The pill and the three newest facts found so far; null without read access. */
+export const getReadingFacts = query({
+  args: { generationId: v.id("generations") },
+  handler: async (ctx, args) => await getReadingFactsHandler(ctx, args),
+});
+
+/** Facts located as the Brief streams in; fenced by the run still starting. */
+export const appendReadingFacts = internalMutation({
+  args: { generationId: v.id("generations"), facts: v.array(readingFactValidator) },
+  returns: v.null(),
+  handler: async (ctx, args) => await appendReadingFactsHandler(ctx, args),
+});
+
+/** A reused Brief's located entries, shown at once. */
+export const copyBriefToReadingFacts = internalMutation({
+  args: { generationId: v.id("generations"), briefId: v.id("generationBriefs") },
+  returns: v.null(),
+  handler: async (ctx, args) => await copyBriefToReadingFactsHandler(ctx, args),
+});
+
+// ─── Round 2 (F3 to F5): seed-step progress ─────────────────────────────────
+
+/** The first step's estimate before any batch of this run has finished. */
+export const DEFAULT_SEED_BATCH_MS = 20_000;
+
+/** A pending batch's timing (queued or running), or null. */
+async function pendingBatchOf(ctx: QueryCtx, batchId: Id<"seedBatches"> | null) {
+  if (!batchId) return null;
+  const batch = await ctx.db.get(batchId);
+  if (!batch || (batch.status !== "queued" && batch.status !== "running")) return null;
+  return {
+    status: batch.status,
+    queuedAt: batch.queuedAt,
+    ...(batch.startedAt !== undefined ? { startedAt: batch.startedAt } : {}),
+  };
+}
+
+async function withPendingStarts<R extends { pendingBatchId: Id<"seedBatches"> | null }>(ctx: QueryCtx, rows: R[]) {
+  const out: Array<R & { pendingStartedAt: number | null }> = [];
+  for (const row of rows) {
+    const pending = await pendingBatchOf(ctx, row.pendingBatchId);
+    out.push({ ...row, pendingStartedAt: pending ? (pending.startedAt ?? pending.queuedAt) : null });
+  }
+  return out;
+}
+
+/** The median time of this run's finished batches (shown or superseded), bounded. */
+async function expectedSeedBatchMs(ctx: QueryCtx, generationId: Id<"generations">): Promise<number> {
+  const durations: number[] = [];
+  for (const status of ["shown", "superseded"] as const) {
+    const rows = await ctx.db
+      .query("seedBatches")
+      .withIndex("by_generationId_and_status", (q) => q.eq("generationId", generationId).eq("status", status))
+      .take(50);
+    for (const row of rows) {
+      if (row.startedAt !== undefined && row.completedAt !== undefined && row.completedAt > row.startedAt) {
+        durations.push(row.completedAt - row.startedAt);
+      }
+    }
+  }
+  if (!durations.length) return DEFAULT_SEED_BATCH_MS;
+  durations.sort((a, b) => a - b);
+  const middle = Math.floor(durations.length / 2);
+  return durations.length % 2 ? durations[middle] : Math.round((durations[middle - 1] + durations[middle]) / 2);
+}

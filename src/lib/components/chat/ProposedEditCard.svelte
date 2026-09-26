@@ -1,11 +1,14 @@
 <script lang="ts">
-  import { onMount } from "svelte";
+  import { onMount, tick } from "svelte";
   import Spinner from "$lib/components/ui/Spinner.svelte";
   import { ActionButton } from "$lib/components/chat/primitives";
+  import { DropdownMenu } from "bits-ui";
   import { diffWords, proposedTextChanges } from "$lib/diff";
   import { userErrorMessage } from "$lib/errors";
 
   interface Props {
+    /** Report Section the edit targets ("242"), for "Suggested edit for 242". */
+    section?: string | null;
     newText?: string;
     targetText?: string;
     replacements?: { find: string; replaceWith: string }[];
@@ -27,6 +30,7 @@
 
   // Alias the prop so it does not shadow the `$state` rune.
   let {
+    section = null,
     newText,
     targetText,
     replacements,
@@ -45,6 +49,11 @@
   let error = $state<string | null>(null);
   let editing = $state(false);
   let editedWording = $state<string[]>([]);
+  let cardEl = $state<HTMLDivElement | null>(null);
+  // Set when a More menu item is chosen: that action places focus itself, so
+  // the menu must not hand it back to its trigger. Escape or a click outside
+  // still returns focus to the trigger (review g2 B3).
+  let menuActionChosen = false;
 
   // Session-local by design: remounting a proposal always returns to neutral.
   let showChanges = $state(false);
@@ -89,10 +98,13 @@
     }
   }
 
-  function startEditing() {
+  async function startEditing() {
     editedWording = changes.map((change) => change.after);
     editing = true;
     error = null;
+    // The More menu that opened this is gone; hand focus to the first field.
+    await tick();
+    cardEl?.querySelector("textarea")?.focus();
   }
 
   function cancelEditing() {
@@ -168,15 +180,21 @@
     {/if}
   </div>
 {:else}
-<div class="mt-2 overflow-hidden rounded-lg border border-line bg-white">
-  <div class="flex items-center gap-2 border-b border-line-soft px-3 py-2">
-    <span class="h-1.5 w-1.5 rounded-full bg-primary" aria-hidden="true"></span>
-    <p class="text-[11px] font-semibold text-ink-secondary">
-      {editing ? "Edit suggestion" : replacements && replacements.length > 0 ? `${changes.length} suggested replacements` : "Suggested replacement"}
-    </p>
-  </div>
+<!-- Board 2.1 suggested-edit card: a quiet label, the serif wording, then
+     Apply (primary) and Dismiss (quiet). Edit wording and Refine live in the
+     card's More menu. -->
+<div bind:this={cardEl} class="mt-2 flex flex-col rounded-[10px] bg-gray-50 px-4 py-3.5" data-proposed-edit>
+  <p class="text-[11px] leading-4 text-ink-muted" data-proposed-edit-label>
+    {editing
+      ? "Edit suggestion"
+      : replacements && replacements.length > 0
+        ? `${changes.length} suggested replacement${changes.length === 1 ? "" : "s"}${section ? ` in ${section}` : ""}`
+        : section
+          ? `Suggested edit for ${section}`
+          : "Suggested edit"}
+  </p>
 
-  <div class="max-h-56 overflow-y-auto px-3 py-2.5">
+  <div class="max-h-72 overflow-y-auto pt-1.5">
     {#if editing}
       <div class="flex flex-col gap-3">
         {#each editedWording as wording, index (index)}
@@ -200,15 +218,15 @@
     <div>
     {#if replacements && replacements.length > 0}
       <div class="flex flex-col gap-2">
-        <p class="text-label">
-          {changes.length} replacement{changes.length === 1 ? "" : "s"} — applied to every occurrence
+        <p class="text-[11px] leading-4 text-ink-muted">
+          {changes.length} replacement{changes.length === 1 ? "" : "s"}, applied to every occurrence
         </p>
         {#each changes as change, changeIndex (changeIndex)}
           <div class="border-l-2 border-primary/20 pl-2.5">
             {#if diffInCard}
               <p
                 aria-label={`Replacement ${changeIndex + 1} changes`}
-                class="whitespace-pre-wrap font-serif text-sm leading-relaxed text-gray-900"
+                class="whitespace-pre-wrap font-serif text-sm leading-[22px] text-ink"
               >
                 {#each diffGroups[changeIndex] ?? [] as part, partIndex (partIndex)}
                   {#if part.type === "removed"}
@@ -221,7 +239,7 @@
                 {/each}
               </p>
             {:else if change.after}
-              <p class="whitespace-pre-wrap font-serif text-sm leading-relaxed text-gray-900">
+              <p class="whitespace-pre-wrap font-serif text-sm leading-[22px] text-ink">
                 {change.after}
               </p>
             {:else}
@@ -233,7 +251,7 @@
     {:else if diffInCard && changes.length === 1}
       <p
         aria-label="Proposed changes"
-        class="whitespace-pre-wrap font-serif text-sm leading-relaxed text-gray-900"
+        class="whitespace-pre-wrap font-serif text-sm leading-[22px] text-ink"
       >
         {#each diffGroups[0] ?? [] as part, i (i)}
           {#if part.type === "removed"}
@@ -246,7 +264,7 @@
         {/each}
       </p>
     {:else if newText}
-      <p class="whitespace-pre-wrap font-serif text-sm leading-relaxed text-gray-900">
+      <p class="whitespace-pre-wrap font-serif text-sm leading-[22px] text-ink">
         {newText}
       </p>
     {:else}
@@ -257,11 +275,10 @@
   </div>
 
   {#if editing}
-    <div class="flex items-center justify-end gap-1.5 border-t border-line-soft bg-canvas-subtle px-3 py-2">
-      <ActionButton variant="ghost" class="min-h-8 px-2.5" onclick={cancelEditing} disabled={busy}>Cancel</ActionButton>
+    <div class="flex items-center gap-3.5 pt-3">
       <ActionButton
         variant="primary"
-        class="min-h-8 px-2.5"
+        class="min-h-0 rounded-md px-3 py-1.5 leading-[18px]"
         onclick={saveWording}
         disabled={busy}
         loading={busy}
@@ -269,96 +286,97 @@
       >
         Save & apply
       </ActionButton>
+      <button type="button" class="text-xs leading-[18px] text-ink-secondary transition-colors hover:text-ink disabled:opacity-50" onclick={cancelEditing} disabled={busy}>Cancel</button>
     </div>
   {:else if changes.length > 0 && !onPreviewInDoc}
     <!-- Card-local diff toggle — only when there's no live report preview
          (e.g. share-link chat); with a preview the toggle lives in the
          actions row instead of "Show in document". -->
-    <div class="flex items-center justify-end border-t border-line-soft px-3 py-1">
+    <div class="flex items-center justify-end pt-2">
       {@render changesToggle("Show changes")}
     </div>
   {/if}
 
   <!-- Actions -->
   {#if !editing}
-  <div class="flex flex-wrap items-center gap-1 border-t border-line-soft bg-canvas-subtle px-3 py-2">
+  <div class="flex flex-wrap items-center gap-x-3.5 gap-y-2 pt-3">
     {#if editState === "pending" && reviewing}
       <span class="inline-flex items-center gap-1.5 text-xs font-medium text-navy">
         <Spinner size="sm" class="h-3 w-3 border-navy/30 border-t-navy" />
         Stepping through in the document…
       </span>
     {:else if editState === "pending"}
-      {#if onReviewOneByOne}
-        <ActionButton variant="secondary" class="min-h-8 px-2.5" onclick={onReviewOneByOne} disabled={busy}>
-          Review individually
-        </ActionButton>
-        <ActionButton
-          variant="primary"
-          class="min-h-8 px-2.5"
-          onclick={() => handle(onReplace)}
-          disabled={busy}
-          loading={busy}
-          loadingLabel="Applying…"
-        >
-          Apply all
-        </ActionButton>
-      {:else}
-        <ActionButton
-          variant="primary"
-          class="min-h-8 px-2.5"
-          onclick={() => handle(onReplace)}
-          disabled={busy}
-          loading={busy}
-          loadingLabel="Applying…"
-        >
-          Apply
-        </ActionButton>
-      {/if}
-      {#if onEditWording}
-        <ActionButton variant="secondary" class="min-h-8 px-2.5" onclick={startEditing} disabled={busy}>
-          Edit wording
-        </ActionButton>
-      {/if}
-      {#if onRefine}
-        <ActionButton variant="ghost" class="min-h-8 px-2.5" onclick={() => handle(onRefine)} disabled={busy}>
-          Refine with AI
-        </ActionButton>
-      {/if}
-      <ActionButton variant="danger" class="min-h-8 px-2.5" onclick={() => handle(onReject)} disabled={busy}>
-        Reject
+      <ActionButton
+        variant="primary"
+        class="min-h-0 rounded-md px-3 py-1.5 leading-[18px]"
+        onclick={() => handle(onReplace)}
+        disabled={busy}
+        loading={busy}
+        loadingLabel="Applying…"
+      >
+        {onReviewOneByOne ? "Apply all" : "Apply"}
       </ActionButton>
-    {:else if editState === "applied"}
-      <span class="inline-flex items-center gap-1 text-xs font-medium text-green-600">
-        <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
-        </svg>
-        Replaced in report
-      </span>
-    {:else}
-      <span class="text-xs text-gray-400">Rejected</span>
+      {#if onReviewOneByOne}
+        <button type="button" class="text-xs leading-[18px] text-ink-secondary transition-colors hover:text-ink disabled:opacity-50" onclick={onReviewOneByOne} disabled={busy}>
+          Review individually
+        </button>
+      {/if}
+      <button type="button" class="text-xs leading-[18px] text-ink-secondary transition-colors hover:text-ink disabled:opacity-50" onclick={() => handle(onReject)} disabled={busy}>
+        Dismiss
+      </button>
     {/if}
 
-    {#if onPreviewInDoc && changes.length > 0}
-      <span class="ml-auto">
+    <span class="ml-auto flex items-center gap-1">
+      {#if onPreviewInDoc && changes.length > 0}
         {@render changesToggle("Show changes")}
-      </span>
-    {:else if onShowInDoc}
-      <ActionButton
-        variant="ghost"
-        onclick={onShowInDoc}
-        class="ml-auto"
-      >
-        <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
-        </svg>
-        Show in document
-      </ActionButton>
-    {/if}
+      {:else if onShowInDoc}
+        <ActionButton variant="ghost" onclick={onShowInDoc} class="min-h-7 px-2">
+          <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+          </svg>
+          Show in document
+        </ActionButton>
+      {/if}
+      {#if editState === "pending" && !reviewing && (onEditWording || onRefine)}
+        <DropdownMenu.Root>
+          <DropdownMenu.Trigger
+            aria-label="More actions for this suggestion"
+            title="More actions"
+            disabled={busy}
+            class="flex size-7 items-center justify-center rounded-md text-ink-muted transition-colors hover:bg-chrome/60 hover:text-ink data-[state=open]:bg-chrome/60 disabled:opacity-50 motion-reduce:transition-none"
+          >
+            <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+              <circle cx="5" cy="12" r="1.75" /><circle cx="12" cy="12" r="1.75" /><circle cx="19" cy="12" r="1.75" />
+            </svg>
+          </DropdownMenu.Trigger>
+          <DropdownMenu.Portal>
+            <!-- A chosen action places focus (the composer or the wording
+                 field); only then is focus not handed back to this trigger. -->
+            <DropdownMenu.Content side="bottom" align="end" sideOffset={6} onCloseAutoFocus={(event) => {
+              if (menuActionChosen) event.preventDefault();
+              menuActionChosen = false;
+            }} class="z-[100] w-44 rounded-xl border border-line bg-white p-1 shadow-lg">
+              {#if onEditWording}
+                <DropdownMenu.Item onSelect={() => { menuActionChosen = true; void startEditing(); }} class="flex min-h-8 w-full items-center rounded-md px-2 text-[13px] text-ink outline-none hover:bg-primary-wash focus:bg-primary-wash">
+                  Edit wording
+                </DropdownMenu.Item>
+              {/if}
+              {#if onRefine}
+                {@const refine = onRefine}
+                <DropdownMenu.Item onSelect={() => { menuActionChosen = true; void handle(refine); }} class="flex min-h-8 w-full items-center rounded-md px-2 text-[13px] text-ink outline-none hover:bg-primary-wash focus:bg-primary-wash">
+                  Refine with AI
+                </DropdownMenu.Item>
+              {/if}
+            </DropdownMenu.Content>
+          </DropdownMenu.Portal>
+        </DropdownMenu.Root>
+      {/if}
+    </span>
   </div>
   {/if}
 
   {#if error}
-    <p class="border-t border-red-100 bg-red-50 px-3 py-2 text-xs text-red-600">
+    <p class="mt-2.5 rounded-md bg-red-50 px-2.5 py-2 text-xs text-red-600" role="alert">
       {error}
     </p>
   {/if}

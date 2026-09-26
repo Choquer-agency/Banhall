@@ -24,12 +24,24 @@ import {
   MAX_WORK_ITEM_RESOLUTION_CHARS,
   MAX_WORK_ITEM_DUE_AT,
   workItemDueSortAt,
+  handoffStageRefusal,
+  workItemKindForHandoffStage,
 } from "../shared/workItems";
 import { requireEligibleProjectOwner } from "./lib/eligibleOwner";
 import { deleteOversightForItem, syncOversightForItem } from "./lib/workItemOversight";
 import { patchProjectWorkflowStage } from "./lib/dashboardProjection";
 import { findWorkflowTransition } from "../shared/workflowTransitions";
 import { isProjectDeleting } from "./lib/projectDeletion";
+import {
+  requireWorkflowStageEdge,
+  requireWorkflowStageRequirements,
+  workflowAuthorities,
+  writeWorkflowStageChange,
+} from "./projectWorkflow";
+import { notify } from "./lib/notify";
+import { notificationCopy } from "../shared/notifications";
+import { WORKFLOW_STAGE_LABELS } from "../shared/workflowLabels";
+import type { WorkflowStage } from "../shared/workflowStages";
 
 function validateVersion(expectedVersion: number) {
   if (!Number.isInteger(expectedVersion) || expectedVersion < 0) {
@@ -163,6 +175,39 @@ async function patchWorkflowPointer(
     currentHandoffId,
     workflowVersion: workflowVersion(project) + 1,
     workflowUpdatedAt: Date.now(),
+  });
+}
+
+/**
+ * Round 2 (WS1 spec section 7): tells the assignee a project landed with
+ * them, when someone else created or reassigned the item. The dedupe key
+ * carries `updatedAt`, so a later reassignment back to the same person
+ * notifies again while a retried write does not.
+ */
+async function notifyHandoff(
+  ctx: MutationCtx,
+  args: {
+    item: Pick<Doc<"workItems">, "_id" | "assigneeId" | "updatedAt">;
+    project: Doc<"projects">;
+    actor: Doc<"users">;
+    stage: WorkflowStage;
+  }
+) {
+  const { item, project, actor, stage } = args;
+  if (item.assigneeId === actor._id) return;
+  const copy = notificationCopy.handoff({
+    project: project.title,
+    stage: WORKFLOW_STAGE_LABELS[stage],
+    name: userDisplayLabel(actor),
+  });
+  await notify(ctx, {
+    userId: item.assigneeId,
+    kind: "handoff",
+    projectId: project._id,
+    title: copy.title,
+    body: copy.body,
+    href: `/project/${project._id}`,
+    dedupeKey: `handoff:${item._id}:${item.assigneeId}:${item.updatedAt}`,
   });
 }
 
@@ -321,6 +366,9 @@ export const create = mutation({
       });
       const createdItem = await ctx.db.get(workItemId);
       if (createdItem) await syncOversightForItem(ctx, createdItem, { ...project, ownerId: project.ownerId });
+      if (createdItem) {
+        await notifyHandoff(ctx, { item: createdItem, project, actor: user, stage: "internal_review" });
+      }
       return {
         status: "created" as const,
         workItemId,
@@ -332,12 +380,210 @@ export const create = mutation({
     if (args.blocking) await patchWorkflowPointer(ctx, project, workItemId);
     const createdItem = await ctx.db.get(workItemId);
     if (createdItem) await syncOversightForItem(ctx, createdItem, project);
+    if (createdItem) {
+      await notifyHandoff(ctx, { item: createdItem, project, actor: user, stage: fromStage });
+    }
     return {
       status: "created" as const,
       workItemId,
       version: 0,
       workflowVersion: args.blocking ? workflowVersion(project) + 1 : workflowVersion(project),
       stageChanged: false,
+    };
+  },
+});
+
+/**
+ * Details-panel Hand off (docs/product-domain.md, 2026-09-24 amendment): one
+ * mutation names a person and a stage. The item is always blocking, its kind
+ * comes from the stage, the note may be empty, and an open blocking handoff
+ * is canceled in the same transaction. When the stage differs from the
+ * current one, pressing Hand off is the confirmation of that stage change,
+ * which follows the transition matrix through the same helpers as
+ * `projectWorkflow.setWorkflowStage`.
+ */
+export const handOff = mutation({
+  args: {
+    projectId: v.id("projects"),
+    assigneeId: v.id("users"),
+    stage: workflowStageValidator,
+    note: v.string(),
+    expectedWorkflowVersion: v.number(),
+    createRequestId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const actor = await requireInternalActor(ctx);
+    const project = await ctx.db.get(args.projectId);
+    if (!project) domainError("NOT_FOUND", "Project not found");
+    const { user } = await requireCapability(ctx, "workItem.create", {
+      ownedBy: project.ownerId ? [project.ownerId] : [],
+    });
+    // Owner, Manager or Admin only: a current handoff assignee who is none of
+    // those cannot hand the project on.
+    const authorities = await workflowAuthorities(ctx, project, user);
+    if (!authorities.has("owner") && !authorities.has("manager") && !authorities.has("admin")) {
+      domainError("NOT_AUTHORIZED", "Only the project owner, a manager, or an administrator can hand off this project");
+    }
+    if (await isProjectDeleting(ctx, project._id)) {
+      domainError("NOT_FOUND", "Project not found");
+    }
+    const note = boundedText(args.note, MAX_WORK_ITEM_INSTRUCTIONS_CHARS, "Note");
+    validateVersion(args.expectedWorkflowVersion);
+    const createRequestId = boundedText(
+      args.createRequestId,
+      MAX_WORK_ITEM_CREATE_REQUEST_ID_CHARS,
+      "Create request ID",
+      true
+    );
+    const kind = workItemKindForHandoffStage(args.stage);
+    const fingerprint = JSON.stringify({
+      handOff: true,
+      projectId: args.projectId,
+      assigneeId: args.assigneeId,
+      stage: args.stage,
+      note,
+      expectedWorkflowVersion: args.expectedWorkflowVersion,
+    });
+    const replays = await ctx.db
+      .query("workItems")
+      .withIndex("by_assignerId_and_createRequestId", (q) =>
+        q.eq("assignerId", actor._id).eq("createRequestId", createRequestId)
+      )
+      .take(2);
+    if (replays.length > 1) domainError("INVALID_STATE", "Duplicate work-item create request IDs exist");
+    const replay = replays[0];
+    if (replay) {
+      if (replay.createRequestFingerprint !== fingerprint) {
+        domainError("INVALID_INPUT", "This create request ID was already used with different values");
+      }
+      const replayProject = await ctx.db.get(replay.projectId);
+      return {
+        status: "noop" as const,
+        workItemId: replay._id,
+        workflowVersion: replayProject ? workflowVersion(replayProject) : 0,
+      };
+    }
+    if (workflowVersion(project) !== args.expectedWorkflowVersion) {
+      domainError("STALE_REVISION", "The project workflow changed while you were reviewing it");
+    }
+
+    const fromStage = project.workflowStage ?? "intake";
+    const stageChanges = fromStage !== args.stage;
+    let stageNote: string | undefined;
+    // The stage rules the Hand off view also reads (shared/workItems.ts), so
+    // the view never offers a stage refused here. "requirement" refusals are
+    // raised below by requireWorkflowStageRequirements with their own codes.
+    const refusal = handoffStageRefusal(fromStage, args.stage);
+    if (refusal === "reopen_first") {
+      domainError("INVALID_STATE", "Reopen this project before assigning new work");
+    }
+    if (refusal === "abandons") {
+      // A handoff opens new work, and a project cannot enter Abandoned
+      // while any work item is open.
+      domainError("INVALID_STATE", "A handoff cannot move a project to Abandoned");
+    }
+    if (refusal === "review_decision") {
+      domainError(
+        "INVALID_STATE",
+        "Complete an internal review with Change stage, which records the review decision"
+      );
+    }
+    if (stageChanges) {
+      const edge = findWorkflowTransition(fromStage, args.stage);
+      // The handoff note is the audit note on edges that require one; an
+      // empty note is refused there by the shared edge policy.
+      const { transition, note: auditNote } = requireWorkflowStageEdge({
+        fromStage,
+        toStage: args.stage,
+        authorities,
+        note: edge?.requiresNote ? note : undefined,
+      });
+      await requireWorkflowStageRequirements(ctx, project, transition);
+      stageNote = auditNote;
+    }
+
+    const assignee = await eligibleAssignee(ctx, args.assigneeId);
+    const existing = await getOpenBlocking(ctx, project._id);
+    if (existing ? project.currentHandoffId !== existing._id : project.currentHandoffId) {
+      domainError("INVALID_STATE", "The project's current handoff pointer is inconsistent");
+    }
+
+    const now = Date.now();
+    if (existing) {
+      // The existing replacement rule: the open blocking handoff is canceled
+      // in this transaction and the pointer moves to the new item below.
+      const reason = `Replaced by a handoff to ${userDisplayLabel(assignee)}`.slice(
+        0,
+        MAX_WORK_ITEM_RESOLUTION_CHARS
+      );
+      const version = existing.version + 1;
+      await ctx.db.patch(existing._id, {
+        status: "canceled",
+        completedAt: now,
+        completedBy: user._id,
+        resolutionNote: reason,
+        version,
+        updatedAt: now,
+      });
+      await ctx.db.insert("workItemEvents", {
+        workItemId: existing._id, projectId: project._id, type: "canceled", actorId: user._id,
+        at: now, itemVersion: version, detail: { reason },
+      });
+      await deleteOversightForItem(ctx, existing._id);
+    }
+
+    const workItemId = await ctx.db.insert("workItems", {
+      projectId: project._id,
+      kind,
+      assigneeId: args.assigneeId,
+      assignerId: user._id,
+      dueSortAt: workItemDueSortAt(undefined),
+      instructions: note,
+      blocking: true,
+      status: "open",
+      version: 0,
+      createRequestId,
+      createRequestFingerprint: fingerprint,
+      createdAt: now,
+      updatedAt: now,
+    });
+    await ctx.db.insert("workItemEvents", {
+      workItemId,
+      projectId: project._id,
+      type: "created",
+      actorId: user._id,
+      at: now,
+      itemVersion: 0,
+      detail: { kind, assigneeId: args.assigneeId, blocking: true },
+    });
+
+    const nextWorkflowVersion = workflowVersion(project) + 1;
+    const pointerPatch = {
+      currentHandoffId: workItemId,
+      workflowVersion: nextWorkflowVersion,
+      workflowUpdatedAt: now,
+    };
+    if (stageChanges) {
+      await writeWorkflowStageChange(ctx, {
+        project,
+        actorId: user._id,
+        toStage: args.stage,
+        note: stageNote,
+        at: now,
+        extraPatch: pointerPatch,
+      });
+    } else {
+      await ctx.db.patch(project._id, pointerPatch);
+    }
+    const createdItem = await ctx.db.get(workItemId);
+    if (createdItem) await syncOversightForItem(ctx, createdItem, project);
+    if (createdItem) {
+      await notifyHandoff(ctx, { item: createdItem, project, actor: user, stage: args.stage });
+    }
+    return {
+      status: "created" as const,
+      workItemId,
+      workflowVersion: nextWorkflowVersion,
     };
   },
 });
@@ -371,6 +617,12 @@ export const reassign = mutation({
     });
     if (item.blocking) await patchWorkflowPointer(ctx, project, item._id);
     await syncOversightForItem(ctx, { ...item, assigneeId: args.toAssigneeId, version, updatedAt: now }, project);
+    await notifyHandoff(ctx, {
+      item: { _id: item._id, assigneeId: args.toAssigneeId, updatedAt: now },
+      project,
+      actor: user,
+      stage: project.workflowStage ?? "intake",
+    });
     return { status: "updated" as const, version };
   },
 });

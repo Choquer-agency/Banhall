@@ -6,7 +6,7 @@
 -->
 <script lang="ts">
   import ModelLogo from "./ModelLogo.svelte";
-  import { CANDIDATE_MODELS } from "../../../../shared/generationModels";
+  import { pickerModels } from "$lib/modelPicker";
   import { useQuery } from "convex-svelte";
   import { api } from "../../../../convex/_generated/api";
 
@@ -25,22 +25,18 @@
 
   // Grey out models whose gateway key isn't configured (e.g. OpenAI/Google
   // without OPENROUTER_API_KEY). While loading, assume everything available.
+  // The model catalog's selectable set; seed list only while loading.
   const capabilitiesQ = useQuery(api.providerReadiness.getCapabilities, () => ({}));
-  const available = $derived(
-    new Set(
-      capabilitiesQ.data?.availableCandidateModels ??
-        CANDIDATE_MODELS.map((m) => m.id as string)
-    )
-  );
-
   const rows = $derived(
-    CANDIDATE_MODELS.filter((m) => m.id !== excludeId).map((m) => ({
-      id: m.id as string,
-      label: m.label,
-      provider: m.provider,
-      description: m.description,
-      disabled: !available.has(m.id),
-    }))
+    pickerModels(capabilitiesQ.data)
+      .filter((m) => m.id !== excludeId)
+      .map((m) => ({
+        id: m.id,
+        label: m.label,
+        provider: m.provider,
+        description: m.description,
+        disabled: !m.available,
+      }))
   );
   const filtered = $derived(
     search.trim()

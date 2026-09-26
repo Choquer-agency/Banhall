@@ -17,6 +17,7 @@ import type {
   edit,
   giveFeedback,
   getSubsection,
+  getApprovalReview,
   restoreWording,
   select,
   withdrawFeedback,
@@ -64,6 +65,7 @@ function queryRef<Export>(name: string) {
 }
 
 const getSubsectionRef = queryRef<typeof getSubsection>("seeds:getSubsection");
+const getApprovalReviewRef = queryRef<typeof getApprovalReview>("seeds:getApprovalReview");
 const approveRef = mutationRef<typeof approve>("seeds:approve");
 const selectRef = mutationRef<typeof select>("seeds:select");
 const deselectRef = mutationRef<typeof deselect>("seeds:deselect");
@@ -357,6 +359,79 @@ async function seedBatch(
 }
 
 describe("public seed approval", () => {
+  test("provides a fenced server challenge when card projection is truncated", async () => {
+    const fixture = await approvalFixture();
+    await fixture.t.run(async (ctx) => {
+      const largeExcerpt = "y".repeat(600_000);
+      for (let index = 0; index < 7; index += 1) {
+        await ctx.db.insert("seedProvenance", {
+          seedId: fixture.seedId,
+          projectId: fixture.projectId,
+          generationId: fixture.generationId,
+          sourceId: fixture.sourceId,
+          sourceContentHash: "source-hash",
+          startOffset: 0,
+          endOffset: 1,
+          exactExcerpt: largeExcerpt,
+        });
+      }
+    });
+
+    const projected = await subsection(fixture);
+    expect(projected.truncated).toBe(true);
+    expect(projected.approvalChallenge).toBeNull();
+    const review = await fixture.writer.query(getApprovalReviewRef, {
+      generationId: fixture.generationId,
+      roleId: fixture.roleId,
+      expectedSeedStageVersion: projected.seedStageVersion,
+    });
+    expect(review.selectedCount).toBe(1);
+    await fixture.writer.mutation(approveRef, {
+      generationId: fixture.generationId,
+      roleId: fixture.roleId,
+      expectedSeedStageVersion: review.seedStageVersion,
+      approvalChallenge: review.approvalChallenge.approvalChallenge,
+      acknowledgedCarriedSeedIds: review.approvalChallenge.carriedSeedIds,
+      acknowledgedExclusionEntryIds: review.approvalChallenge.exclusionEntryIds,
+    });
+    const approved = await fixture.t.run((ctx) => ctx.db.get(fixture.subsectionId));
+    expect(approved?.state).toBe("approved");
+  });
+
+  test("refuses an approval review that exceeds the server decision budget", async () => {
+    const fixture = await approvalFixture();
+    await fixture.t.run(async (ctx) => {
+      const largeExcerpt = "y".repeat(600_000);
+      for (let index = 0; index < 7; index += 1) {
+        await ctx.db.insert("generationBriefEntries", {
+          briefId: fixture.briefId,
+          projectId: fixture.projectId,
+          group: "claimExclusion",
+          text: `Excluded ${index}`,
+          reason: "routine_engineering",
+          sourceId: fixture.sourceId,
+          sourceContentHash: "source-hash",
+          startOffset: 0,
+          endOffset: 1,
+          exactExcerpt: largeExcerpt,
+          createdAt: index,
+        });
+      }
+    });
+
+    await expect(fixture.writer.query(getApprovalReviewRef, {
+      generationId: fixture.generationId,
+      roleId: fixture.roleId,
+      expectedSeedStageVersion: 0,
+    })).rejects.toMatchObject({
+      data: {
+        code: "INVALID_INPUT",
+        reason: "SEED_PROCESSING_LIMIT",
+        roleId: fixture.roleId,
+      },
+    });
+  });
+
   test("requires the exact carried and exclusion lists and writes no prose", async () => {
     const fixture = await approvalFixture({
       bullet: "Routine maintenance constrained the measured trial.",

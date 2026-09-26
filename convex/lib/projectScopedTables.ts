@@ -60,7 +60,13 @@ export type ProjectScopedTable = {
   index?: string;
   children?: readonly ProjectScopedChild[];
   /** Field typed `v.id("_storage")` whose bytes the row owns. */
-  blob?: "storageId";
+  blob?: "storageId" | "originalStorageId";
+  /**
+   * Field holding an agent component thread id the row owns. After the row
+   * is deleted the purge schedules the component's own deletion of that
+   * thread, its messages and streams (`projects.deleteAgentChatThread`).
+   */
+  componentThread?: "agentThreadId";
   /**
    * `detach` only: sibling fields that describe the cleared reference (a
    * document id or timestamp of the link) and are cleared with it. The
@@ -77,10 +83,17 @@ export const PROJECT_SCOPED_TABLES = [
   { table: "oversightSyncing", field: "projectId", disposition: "delete", index: "by_projectId" },
   { table: "oversightRebuilds", field: "projectId", disposition: "delete", index: "by_projectId_and_status" },
   { table: "workItems", field: "projectId", disposition: "delete", index: "by_projectId_and_status" },
-  // Transcripts and their digests.
+  // Transcripts, their derived rows (digests; 2026-09-24 turns, speakers,
+  // facts and fact runs) and the uploaded original file.
   { table: "transcriptDigests", field: "projectId", disposition: "delete", index: "by_projectId" },
-  { table: "transcripts", field: "projectId", disposition: "delete", index: "by_projectId" },
+  { table: "transcriptFacts", field: "projectId", disposition: "delete", index: "by_projectId" },
+  { table: "transcriptFactRuns", field: "projectId", disposition: "delete", index: "by_projectId" },
+  { table: "transcriptSpeakers", field: "projectId", disposition: "delete", index: "by_projectId" },
+  { table: "transcriptTurns", field: "projectId", disposition: "delete", index: "by_projectId" },
+  { table: "transcripts", field: "projectId", disposition: "delete", index: "by_projectId", blob: "originalStorageId" },
   // Generation-owned rows, leaves first.
+  { table: "generationProgress", field: "projectId", disposition: "delete", index: "by_projectId" },
+  { table: "generationQaResults", field: "projectId", disposition: "delete", index: "by_projectId" },
   { table: "sectionEditEvents", field: "projectId", disposition: "delete", index: "by_projectId" },
   { table: "complianceNotes", field: "projectId", disposition: "delete", index: "by_projectId" },
   // Step-by-step seed-stage rows (AD-33), leaves before their parents.
@@ -97,6 +110,8 @@ export const PROJECT_SCOPED_TABLES = [
   { table: "summaryVersions", field: "projectId", disposition: "delete", index: "by_projectId" },
   { table: "generationBriefEntries", field: "projectId", disposition: "delete", index: "by_projectId" },
   { table: "generationBriefs", field: "projectId", disposition: "delete", index: "by_projectId" },
+  // Round 2 (F2): display-only facts shown while the Brief is written.
+  { table: "generationReadingFacts", field: "projectId", disposition: "delete", index: "by_projectId" },
   { table: "generationSources", field: "projectId", disposition: "delete", index: "by_projectId_and_generationId" },
   { table: "generationSectionRuns", field: "projectId", disposition: "delete", index: "by_projectId" },
   { table: "generationCandidateRuns", field: "projectId", disposition: "delete", index: "by_projectId" },
@@ -127,10 +142,12 @@ export const PROJECT_SCOPED_TABLES = [
     field: "projectId",
     disposition: "delete",
     index: "by_projectId",
+    // The component's thread, messages and streams hold the chat text; they
+    // are deleted by the component itself, scheduled once this row is gone
+    // (security wave 1, a2 P2-6).
+    componentThread: "agentThreadId",
     children: [
-      // App-owned turn timing keyed by the component thread id string; the
-      // component's own thread/message rows are not purged here (story 0
-      // never touches component-owned rows).
+      // App-owned turn timing keyed by the component thread id string.
       {
         table: "chatTurns",
         field: "agentThreadId",
@@ -176,6 +193,9 @@ export const PROJECT_SCOPED_TABLES = [
   { table: "financialUploads", field: "projectId", disposition: "delete", index: "by_projectId" },
   { table: "projectIdentityEvidence", field: "projectId", disposition: "delete", index: "by_projectId" },
   { table: "settingsDocumentAnalyses", field: "projectId", disposition: "delete", index: "by_projectId_and_contentHash_and_classifierVersion" },
+  // Round 2 in-app notifications about the project (WS1). Rows without a
+  // project (invite accepted) are not touched here; the age prune removes them.
+  { table: "notifications", field: "projectId", disposition: "delete", index: "by_projectId" },
   // Rows that outlive the project: clear the reference.
   { table: "aiUsage", field: "projectId", disposition: "detach", index: "by_projectId" },
   { table: "brainFeedbackQueue", field: "projectId", disposition: "detach", index: "by_projectId" },

@@ -3,7 +3,10 @@ import type { z } from "zod";
 import { MODEL } from "./model";
 import {
   MalformedOutputError,
+  OutputLimitError,
+  isCutOffStopReason,
   type GenerationClient,
+  type GenerationMessageContent,
   type GenerationResponse,
 } from "./openrouterCore";
 
@@ -14,6 +17,11 @@ export const STRUCTURED_OUTPUT_PROGRAM = {
     suffix:
       ". Return the complete tool object and include every required field.",
     runtimeSentinel: "{{runtime.validationSummary}}",
+    // 2026-09-25: the validation summary for an answer the provider stopped
+    // at the output token limit, on either gateway. The repair runs with the
+    // same limit, so it asks for a shorter answer.
+    cutOffSummary:
+      "it was cut off at the output token limit before it finished, so write a shorter answer",
   },
   request: {
     defaultMaxTokens: 8192,
@@ -22,9 +30,30 @@ export const STRUCTURED_OUTPUT_PROGRAM = {
     userRole: "user",
     toolChoice: { type: "tool", selection: "named", forced: true },
     retryUserPolicy: "reuse-original-and-append-repair-scaffold",
+    // Cost phase 1: a block-form user message keeps its cached prefix on
+    // the repair attempt; the scaffold is appended as one more text block.
+    retryBlockPolicy: "append-repair-scaffold-as-uncached-text-block",
     thinking: { kind: "omitted" },
   },
 } as const;
+
+/**
+ * The final validation failure of a structured call. The message is the same
+ * as before; `issues` adds each failing path and zod issue code so a caller
+ * can record why without storing model text. A custom issue also keeps its
+ * message, which the schema author wrote.
+ */
+export class StructuredValidationError extends Error {
+  readonly issues: ReadonlyArray<{ path: string; code: string; message?: string }>;
+  constructor(
+    message: string,
+    issues: ReadonlyArray<{ path: string; code: string; message?: string }>
+  ) {
+    super(message);
+    this.name = "StructuredValidationError";
+    this.issues = issues;
+  }
+}
 
 /**
  * Models sometimes wrap their tool output in a JSON string — occasionally more
@@ -52,7 +81,9 @@ function unwrapEncodedJson(value: unknown, depth = 0): unknown {
  * Get structured JSON from the model via tool-use. On Anthropic the API
  * returns the tool input already parsed and schema-valid. On OpenRouter the
  * adapter parses function-call arguments and throws a clean provider error on
- * malformed/truncated JSON (surfaces as a failed candidate run).
+ * malformed/truncated JSON (surfaces as a failed candidate run). An answer
+ * either gateway stopped at `max_tokens` is cut off and never accepted: it
+ * spends the repair attempt, then fails with OutputLimitError.
  *
  * Pass `validate` to enforce the shape at this boundary. The provider's JSON
  * Schema is advisory — a model can and does return values that violate it, and
@@ -67,7 +98,11 @@ export async function generateStructured<T>(
   rawClient: GenerationClient | Anthropic,
   opts: {
     system: string;
-    user: string;
+    /**
+     * The user message. Block form carries a cache breakpoint after a shared
+     * prefix (see GenerationTextBlock); a string is sent as it always was.
+     */
+    user: GenerationMessageContent;
     toolName: string;
     description: string;
     schema?: Anthropic.Tool.InputSchema;
@@ -81,6 +116,24 @@ export async function generateStructured<T>(
      * for a bounded wall clock.
      */
     attempts?: number;
+    /**
+     * Legacy calls accept a JSON-encoded root string as a compatibility
+     * recovery. Strict raw-boundary callers can disable that recovery.
+     */
+    encodedJsonRecovery?: boolean;
+    /**
+     * Called each time an answer is cut off at the output token limit, on
+     * either gateway, even when the repair then succeeds or fails another
+     * way. Request bytes are unchanged.
+     */
+    onCutOff?: () => void;
+    /**
+     * Round 2 (F2, decision 57): stream the first attempt and report the
+     * tool input written so far (see GenerationStreamHandlers). Only when the
+     * client can stream; the request then gains `stream: true` and nothing
+     * else. Repairs and validation are unchanged and never stream.
+     */
+    onPartialToolInput?: (json: string) => void;
   }
 ): Promise<T> {
   const client = rawClient as GenerationClient;
@@ -92,13 +145,23 @@ export async function generateStructured<T>(
   // malformed analysis fail much later after more paid generation work.
   for (let attempt = 0; attempt < attempts; attempt += 1) {
     const lastAttempt = attempt === attempts - 1;
-    const user =
+    const repair = `${STRUCTURED_OUTPUT_PROGRAM.repairScaffold.prefix}${validationSummary}${STRUCTURED_OUTPUT_PROGRAM.repairScaffold.suffix}`;
+    const user: GenerationMessageContent =
       attempt === 0
         ? opts.user
-        : `${opts.user}${STRUCTURED_OUTPUT_PROGRAM.repairScaffold.prefix}${validationSummary}${STRUCTURED_OUTPUT_PROGRAM.repairScaffold.suffix}`;
+        : typeof opts.user === "string"
+          ? `${opts.user}${repair}`
+          : [...opts.user, { type: "text", text: repair }];
     let res: GenerationResponse;
+    const stream =
+      attempt === 0 && opts.onPartialToolInput && client.messages.createStreaming
+        ? client.messages.createStreaming.bind(client.messages)
+        : null;
+    const onToolInput = opts.onPartialToolInput;
+    const send = (params: Parameters<GenerationClient["messages"]["create"]>[0]) =>
+      stream && onToolInput ? stream(params, { onToolInput }) : client.messages.create(params);
     try {
-      res = await client.messages.create({
+      res = await send({
         model: opts.model ?? MODEL,
         max_tokens:
           opts.maxTokens ?? STRUCTURED_OUTPUT_PROGRAM.request.defaultMaxTokens,
@@ -126,34 +189,75 @@ export async function generateStructured<T>(
       // rejection, so it spends the same single repair attempt. Provider
       // errors (auth, billing, rate limit) are not repairable by re-prompting
       // and keep failing fast; the transport already retries rate limits.
+      if (error instanceof OutputLimitError) opts.onCutOff?.();
       if (lastAttempt || !(error instanceof MalformedOutputError)) throw error;
-      validationSummary = error.message;
+      validationSummary =
+        error instanceof OutputLimitError
+          ? STRUCTURED_OUTPUT_PROGRAM.repairScaffold.cutOffSummary
+          : error.message;
       console.warn(
         `${opts.toolName}: retrying after malformed provider output — ${error.message}`
       );
       continue;
     }
 
+    // Model catalog: a forced-tool request's outcome is recorded only now,
+    // after this validation, so usable JSON in an unusable shape counts as
+    // a failure of the model that answered (providers.ts).
+    const settle = async (result: { ok: true } | { ok: false; code: string }) =>
+      await res.settleOutcome?.(result);
+
+    // An answer stopped at the output token limit is cut off, even when the
+    // partial tool input would pass validation: most schemas default their
+    // trailing lists to empty, so a cut analysis or Brief used to be saved as
+    // complete. The same failure the OpenRouter adapter raises for
+    // `finish_reason: "length"`: it spends the one repair attempt, then fails.
+    if (isCutOffStopReason(res.stop_reason)) {
+      opts.onCutOff?.();
+      await settle({ ok: false, code: "output_limit" });
+      validationSummary = STRUCTURED_OUTPUT_PROGRAM.repairScaffold.cutOffSummary;
+      console.warn(
+        `${opts.toolName}: answer cut off at the output token limit (stop reason: ${res.stop_reason})`
+      );
+      if (!lastAttempt) continue;
+      throw new OutputLimitError(
+        `${opts.toolName}: response was truncated at the max_tokens limit before completing`
+      );
+    }
+
     const block = res.content.find((item) => item.type === "tool_use");
     if (!block || block.type !== "tool_use") {
+      await settle({ ok: false, code: "no_tool_output" });
       validationSummary = "the required tool was not called";
       if (!lastAttempt) continue;
       throw new Error(`${opts.toolName}: model did not return structured output`);
     }
-    if (!opts.validate) return block.input as T;
+    if (!opts.validate) {
+      await settle({ ok: true });
+      return block.input as T;
+    }
 
     // Validate the value as returned FIRST: a tool whose output is legitimately
     // a JSON-looking string must not be silently parsed into an object.
     // Unwrapping is a recovery path, not a preprocessing step.
     const asReturned = opts.validate.safeParse(block.input);
-    if (asReturned.success) return asReturned.data;
+    if (asReturned.success) {
+      await settle({ ok: true });
+      return asReturned.data;
+    }
 
-    const unwrapped = unwrapEncodedJson(block.input);
+    const unwrapped = opts.encodedJsonRecovery === false
+      ? block.input
+      : unwrapEncodedJson(block.input);
     const parsed =
       unwrapped === block.input
         ? asReturned
         : opts.validate.safeParse(unwrapped);
-    if (parsed.success) return parsed.data;
+    if (parsed.success) {
+      await settle({ ok: true });
+      return parsed.data;
+    }
+    await settle({ ok: false, code: "invalid_output" });
 
     validationSummary = parsed.error.issues
       .slice(0, 3)
@@ -164,8 +268,13 @@ export async function generateStructured<T>(
       JSON.stringify(parsed.error.issues.slice(0, 10))
     );
     if (!lastAttempt) continue;
-    throw new Error(
-      `${opts.toolName}: model returned an unexpected shape — ${validationSummary}`
+    throw new StructuredValidationError(
+      `${opts.toolName}: model returned an unexpected shape: ${validationSummary}`,
+      parsed.error.issues.slice(0, 10).map((issue) => ({
+        path: issue.path.map(String).join(".") || "(root)",
+        code: issue.code,
+        ...(issue.code === "custom" ? { message: issue.message } : {}),
+      }))
     );
   }
 

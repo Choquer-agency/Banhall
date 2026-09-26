@@ -12,7 +12,10 @@ import {
 import { MODEL } from "./ai/model";
 import { buildSeedPrompt, seedPromptProjection } from "./ai/trustedContext";
 import { domainError } from "./lib/contracts";
+import { notifyIdeasReady } from "./lib/generations/notifications";
+import { resolveGenerationStep } from "./lib/generationSteps";
 import { reconcileRestoredSeedApproval } from "./lib/seedDecisionWrites";
+import { checkSeedSpeakers, citationSpeakerReader } from "./lib/citationSpeakers";
 import { resolveGatedWorkflow } from "./lib/gatedWorkflow";
 import {
   SEED_ATTEMPT_LEASE_MS,
@@ -35,7 +38,9 @@ import {
 } from "./lib/seedSnapshotLoader";
 import {
   SEED_TAGS,
+  locateCitations,
   validateBatch,
+  type CitationLocation,
   type FrozenSeedSource,
   type SeedReferenceContext,
 } from "./lib/seedContract";
@@ -43,6 +48,12 @@ import {
   adjustSeedRequestsReserved,
   bumpSeedStageVersion,
 } from "./generations";
+import {
+  factModeCitations,
+  factStamp,
+  readsFactPacks,
+  type FactSource,
+} from "./lib/seedFacts";
 
 const seedRoleIdValidator = v.union(
   ...PD_SUBSECTIONS.map((subsection) => v.literal(subsection.roleId))
@@ -64,6 +75,9 @@ const seedCandidateValidator = v.object({
       startOffset: v.number(),
       endOffset: v.number(),
       exactExcerpt: v.string(),
+      // 2026-09-24 (transcript method): the fact a transcript citation was
+      // resolved from; checked against the frozen spans below.
+      factId: v.optional(v.string()),
     })
   ),
   uncertaintySeedId: v.optional(v.id("seeds")),
@@ -91,6 +105,12 @@ const generateBatchRef = makeFunctionReference<
   { batchId: Id<"seedBatches"> },
   void
 >("ai/seeds:generateBatch");
+
+const expireAttemptRef = makeFunctionReference<
+  "mutation",
+  { batchId: Id<"seedBatches">; attemptId: string },
+  null
+>("seedRuns:expireAttempt");
 
 type DispatchArgs = {
   generationId: Id<"generations">;
@@ -335,6 +355,7 @@ export async function dispatchSeedAttempt(
         kind: source.kind,
         content: source.content,
         contentHash: source.contentHash,
+        ...(source.transcriptId ? { transcriptId: source.transcriptId } : {}),
       })),
       projection: seedPromptProjection(loaded.snapshot),
       writerSettings: frozen.writerSettings,
@@ -372,7 +393,13 @@ export async function dispatchSeedAttempt(
     status: "queued",
     queuedAt: now,
     leaseExpiresAt: now + SEED_ATTEMPT_LEASE_MS,
-    model: generation.singleModelId ?? MODEL,
+    // Owner decision 43: seed cards run on the generation's frozen planning
+    // model; a generation frozen before step routing keeps the writer's.
+    model: resolveGenerationStep({
+      freeze: generation.modelFreeze,
+      step: args.operation === "feedback" ? "seedFeedback" : "seeds",
+      writerModel: generation.singleModelId ?? MODEL,
+    }).model,
     slot:
       args.operation === "feedback"
         ? `generation:seedFeedback:${args.roleId}`
@@ -436,6 +463,13 @@ export async function dispatchSeedAttempt(
     contextRevision: loaded.contextRevision,
   });
   await ctx.scheduler.runAfter(0, generateBatchRef, { batchId });
+  // The attempt's own lease check (audit 2026-09-25 a3 P3): an attempt whose
+  // action was killed fails when its lease ends, not at the next reaper
+  // sweep up to ten minutes later.
+  await ctx.scheduler.runAfter(SEED_ATTEMPT_LEASE_MS, expireAttemptRef, {
+    batchId,
+    attemptId,
+  });
   return { kind: "dispatched", batchId };
 }
 
@@ -638,7 +672,13 @@ async function failSeedAttempt(
     .take(2);
   const subsection = subsectionRows.length === 1 ? subsectionRows[0] : null;
   if (subsection?.pendingBatchId === current._id) {
-    const failures = subsection.consecutiveFailures + 1;
+    // A deliberate stop (skip, cancel, deletion) is not a failed attempt: it
+    // neither says "Writing seeds for this step failed" nor counts toward
+    // the three-failure state (step-by-step review s1 P3-2).
+    const failures =
+      args.errorCode === "GENERATION_TERMINATED"
+        ? subsection.consecutiveFailures
+        : subsection.consecutiveFailures + 1;
     const wasGenerating = subsection.state === "generating";
     const restored = wasGenerating
       ? subsection.priorState ?? "untouched"
@@ -683,6 +723,34 @@ async function failSeedAttempt(
   }
   return { kind: "failed" as const };
 }
+
+/**
+ * Fails one attempt still queued or running when its lease ends, like the
+ * reaper sweep does. A settled attempt, or a newer attempt on the same
+ * row, is left alone.
+ */
+export const expireAttempt = internalMutation({
+  args: { batchId: v.id("seedBatches"), attemptId: v.string() },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const batch = await ctx.db.get(args.batchId);
+    if (
+      !batch ||
+      batch.attemptId !== args.attemptId ||
+      (batch.status !== "queued" && batch.status !== "running") ||
+      batch.leaseExpiresAt > Date.now()
+    ) {
+      return null;
+    }
+    await failSeedAttempt(ctx, {
+      batch,
+      requestsMade: batch.requestsReserved,
+      errorCode: "LEASE_EXPIRED",
+      actorSystem: true,
+    });
+    return null;
+  },
+});
 
 export const failAttempt = internalMutation({
   args: {
@@ -788,13 +856,43 @@ export const completeAttempt = internalMutation({
       content: source.content,
       contentHash: source.contentHash,
     }));
+    // Transcript method (plan step 7, owner decision 25): with a fact pack
+    // for every transcript, a transcript row is cited only at a verified
+    // span of the fact the citation names, and a pack or digest row never.
+    // Other generations keep today's rule and carry no fact ids.
+    const factSources: FactSource[] = sources.map((source) => ({
+      sourceId: source._id,
+      kind: source.kind,
+      content: source.content,
+      contentHash: source.contentHash,
+      ...(source.transcriptId ? { transcriptId: source.transcriptId } : {}),
+      ...(source.factSpans ? { factSpans: source.factSpans } : {}),
+    }));
+    const factMode = readsFactPacks(sources);
+    let factDropped = 0;
+    const candidateSeeds = args.seeds.map((seed) => {
+      if (!factMode) {
+        return {
+          ...seed,
+          provenance: seed.provenance.map(({ factId: _factId, ...citation }) => citation),
+        };
+      }
+      const { kept, dropped } = factModeCitations(seed.provenance, factSources);
+      factDropped += dropped;
+      // Each dropped citation stays as a malformed item, so the Seed
+      // contract reports it like any other bad citation (review P3-5).
+      return { ...seed, provenance: [...kept, ...Array.from({ length: dropped }, () => null)] };
+    });
     const validation = validateBatch({
       roleId: batch.roleId,
       mode: batch.operation === "feedback" ? "feedback" : "batch",
-      seeds: args.seeds,
+      seeds: candidateSeeds,
       referenceContext,
       frozenSources,
     });
+    if (factDropped > 0) {
+      console.warn(`Seed batch ${batch._id}: ${factDropped} citation(s) outside the frozen fact spans were dropped`);
+    }
     if (!validation.ok) {
       return await failSeedAttempt(ctx, {
         batch,
@@ -825,7 +923,26 @@ export const completeAttempt = internalMutation({
       });
     }
 
-    const preparedSeeds = validation.seeds.map((seed) => ({
+    // Owner decision 25 outside facts mode (2026-09-25): a transcript
+    // citation of only the interviewer's or another speaker's words is
+    // dropped (a Seed left with none stays, writer-asserted), and one of a
+    // speaker with no role yet is marked for a speaker check. Facts mode
+    // already cites verified client spans only. Transcripts without stored
+    // turns keep today's byte check alone.
+    let checkedSeeds = validation.seeds;
+    if (!factMode) {
+      const speakerChecked = await checkSeedSpeakers(
+        citationSpeakerReader(ctx),
+        validation.seeds,
+        new Map(sources.map((source) => [source._id as string, source]))
+      );
+      checkedSeeds = speakerChecked.seeds;
+      if (speakerChecked.dropped > 0) {
+        console.warn(`Seed batch ${batch._id}: ${speakerChecked.dropped} citation(s) of interviewer or other speakers' words were dropped`);
+      }
+    }
+
+    const preparedSeeds = checkedSeeds.map((seed) => ({
       seed,
       uncertaintySeedId: seed.uncertaintySeedId
         ? ctx.db.normalizeId("seeds", seed.uncertaintySeedId)
@@ -851,6 +968,30 @@ export const completeAttempt = internalMutation({
         requestsMade: args.requestsMade,
         errorCode: "INVALID_OUTPUT",
       });
+    }
+
+    // Speaker and line are stamped now, from the frozen transcript already in
+    // hand, so readers never reread it. One pass per cited transcript;
+    // documents, digests and the storyline carry neither. A citation that
+    // came from a fact also gets the fact id and its turn's speaker, role
+    // and time (2026-09-24, transcript method).
+    const locations = new Map<object, CitationLocation>();
+    const transcriptCitations = new Map<
+      string,
+      (typeof preparedSeeds)[number]["provenance"][number]["citation"][]
+    >();
+    for (const { provenance } of preparedSeeds) {
+      for (const { citation } of provenance) {
+        const list = transcriptCitations.get(citation.sourceId) ?? [];
+        list.push(citation);
+        transcriptCitations.set(citation.sourceId, list);
+      }
+    }
+    for (const source of sources) {
+      const cited = transcriptCitations.get(source._id);
+      if (!cited || source.kind !== "transcript") continue;
+      const located = locateCitations(source.content, cited);
+      cited.forEach((citation, index) => locations.set(citation, located[index]));
     }
 
     for (let order = 0; order < preparedSeeds.length; order += 1) {
@@ -890,6 +1031,9 @@ export const completeAttempt = internalMutation({
           startOffset: citation.startOffset,
           endOffset: citation.endOffset,
           exactExcerpt: citation.exactExcerpt,
+          ...locations.get(citation),
+          ...(citation.needsSpeakerCheck ? { needsSpeakerCheck: true } : {}),
+          ...(factMode ? factStamp(factSources, citation) : null),
         });
       }
     }
@@ -930,6 +1074,12 @@ export const completeAttempt = internalMutation({
       contextRevision: batch.consumedContextRevision,
       outcome: "shown",
     });
+    // Round 2 (WS3 F6): the writer who opened this step may have left the
+    // page. Only an `open` Batch notifies (never a prefetch); the dedupe key
+    // keeps it to the first one per step.
+    if (batch.operation === "open") {
+      await notifyIdeasReady(ctx, generation, batch.roleId);
+    }
     return { kind: "completed" as const, seeds: validation.seeds.length };
   },
 });

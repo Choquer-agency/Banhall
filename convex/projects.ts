@@ -6,10 +6,11 @@ import {
   internalMutation,
   internalQuery,
   type MutationCtx,
+  type QueryCtx,
 } from "./_generated/server";
 import { v } from "convex/values";
 import type { GenericDatabaseWriter, GenericDataModel, GenericDocument } from "convex/server";
-import { internal } from "./_generated/api";
+import { components, internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import {
   PROJECT_ERASURE_REGISTRY_VERSION,
@@ -18,7 +19,7 @@ import {
   type ProjectScopedChild,
   type ProjectScopedTable,
 } from "./lib/projectScopedTables";
-import { deleteStorageIfUnreferenced } from "./lib/storage";
+import { deleteStorageIfUnreferenced, STORAGE_REFERENCE_FIELDS } from "./lib/storage";
 import {
   getInternalProjectAccessOrNull,
   getFilingReadiness,
@@ -26,25 +27,38 @@ import {
   requireInternalProjectAccess,
   requireProjectCreatorOrAdmin,
   requireCurrentUser,
+  requireInternalActor,
   requireRole,
 } from "./lib/auth";
 import {
   getTeamRosterMemberOrNull,
+  isTeamRosterMember,
   resolveLiveUserLabel,
   userDisplayLabel,
 } from "./lib/teamRoster";
 import { domainError, projectTypeValidator, sha256 } from "./lib/contracts";
 import { effectiveProjectType } from "../shared/projectTypes";
 import {
+  getEffectiveCapabilityLevel,
   getReportEditAccessOrNull,
   requireCapability,
   requireProjectMetadataAccess,
 } from "./lib/roleCapabilities";
+import {
+  userInitials,
+  validCurrentHandoff,
+  workflowAuthorities,
+} from "./projectWorkflow";
+import { WORKFLOW_TRANSITIONS } from "../shared/workflowTransitions";
 import { workflowStageRank } from "../shared/workflowStages";
 import { normalizeCraScienceCode } from "../shared/craScienceCodes";
-import { deriveStoredProcessing } from "../shared/documentStatus";
+import { deriveProcessingStatus, deriveStoredProcessing } from "../shared/documentStatus";
+import { previousYearReportHeader } from "../shared/previousYear";
+import { extractPlainText } from "./lib/reportEdits";
 import { canUseIndustry, industrySlug } from "../shared/industries";
 import { findActiveGeneration } from "./lib/activeGeneration";
+import { transitionGeneration } from "./lib/generationTransitions";
+import { createPurgeGuard, type PurgeGuard } from "./lib/purgeBudget";
 import {
   projectDashboardProjectionPatch,
   stageCountBucket,
@@ -53,22 +67,40 @@ import {
 } from "./lib/dashboardProjection";
 import {
   dashboardCompanyKey,
+  dashboardFiscalYear,
   dashboardFiscalYearRank,
+  normalizeDashboardText,
 } from "../shared/dashboardProjection";
 import {
   MAX_TOTAL_TRANSCRIPT_CHARS,
   MAX_TRANSCRIPTS_PER_PROJECT,
   copyTranscriptRow,
   insertTranscriptRow,
+  listProjectTranscripts,
   projectTranscriptPromptText,
+  requireTranscriptTextWithinCap,
+  validatedOriginalStorage,
 } from "./lib/transcripts";
+import { transcriptSourceFormatValidator } from "./lib/transcriptValidators";
+import type { TranscriptSourceFormat } from "../shared/transcriptParse";
 
 type TranscriptInput =
-  | { content: string; label?: string }
+  | {
+      content: string;
+      label?: string;
+      sourceFormat?: TranscriptSourceFormat;
+      originalStorageId?: Id<"_storage">;
+    }
   | { fromTranscriptId: Id<"transcripts">; label?: string };
 
 type ResolvedTranscript =
-  | { kind: "content"; content: string; label?: string }
+  | {
+      kind: "content";
+      content: string;
+      label?: string;
+      sourceFormat?: TranscriptSourceFormat;
+      originalStorageId?: Id<"_storage">;
+    }
   | { kind: "copy"; source: Doc<"transcripts"> };
 
 /**
@@ -89,6 +121,7 @@ async function resolveTranscriptInputs(
     );
   }
   const resolved: ResolvedTranscript[] = [];
+  const originals = new Set<string>();
   for (const input of inputs) {
     if ("fromTranscriptId" in input) {
       const source = await ctx.db.get(input.fromTranscriptId);
@@ -101,7 +134,32 @@ async function resolveTranscriptInputs(
       continue;
     }
     if (input.content.trim() === "") continue;
-    resolved.push({ kind: "content", content: input.content, label: input.label });
+    // 2026-09-24: one transcript may not exceed the frozen slice, and the
+    // same text twice is refused rather than stored twice.
+    requireTranscriptTextWithinCap(input.content);
+    if (
+      resolved.some((item) =>
+        item.kind === "content" ? item.content === input.content : item.source.content === input.content
+      )
+    ) {
+      domainError("INVALID_INPUT", `${input.label ?? "This transcript"} is already added`);
+    }
+    if (input.originalStorageId) {
+      // One file backs one transcript; no row holds it yet either.
+      if (originals.has(input.originalStorageId)) {
+        domainError("INVALID_INPUT", "The uploaded transcript file is already in use. Upload it again.");
+      }
+      originals.add(input.originalStorageId);
+    }
+    resolved.push({
+      kind: "content",
+      content: input.content,
+      label: input.label,
+      ...(input.sourceFormat ? { sourceFormat: input.sourceFormat } : {}),
+      ...(input.originalStorageId
+        ? { originalStorageId: await validatedOriginalStorage(ctx, input.originalStorageId) }
+        : {}),
+    });
   }
   const totalChars = resolved.reduce(
     (total, item) =>
@@ -185,6 +243,55 @@ export const listProjects = query({
  * industry picker so ad-hoc industries typed by one writer become options
  * for everyone.
  */
+/** Title comparison for the duplicate-name check: the dashboard's text
+ * normalization with punctuation and symbols removed. */
+export function sameProjectTitleKey(title: string): string {
+  return normalizeDashboardText(title)
+    .replace(/[\p{P}\p{S}]/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/**
+ * E6: an existing project with the same client, title and fiscal year, so New
+ * project can warn before a second copy is made. Internal read (D1: internal
+ * projects are readable across the workspace). Reads one company and year
+ * through the dashboard index; projects being deleted are skipped.
+ */
+export const findSameProject = query({
+  args: {
+    clientName: v.string(),
+    title: v.string(),
+    fiscalYearEnd: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    await requireInternalActor(ctx);
+    const titleKey = sameProjectTitleKey(args.title);
+    if (!titleKey || !args.clientName.trim()) return null;
+    const rows = await ctx.db
+      .query("projects")
+      .withIndex("by_dashboardCompanyKey_and_dashboardFiscalYearRank", (q) =>
+        q
+          .eq("dashboardCompanyKey", dashboardCompanyKey(args.clientName))
+          .eq("dashboardFiscalYearRank", dashboardFiscalYearRank(args.fiscalYearEnd))
+      )
+      .take(200);
+    const match = rows.find(
+      (row) => row.deletionStartedAt === undefined && sameProjectTitleKey(row.title) === titleKey
+    );
+    if (!match) return null;
+    const owner = match.ownerId ? await ctx.db.get(match.ownerId) : null;
+    return {
+      projectId: match._id,
+      title: match.title,
+      clientName: match.clientName,
+      workflowStage: match.workflowStage ?? null,
+      ownerName: owner ? userDisplayLabel(owner) : null,
+      updatedAt: match.updatedAt,
+    };
+  },
+});
+
 export const listIndustries = query({
   args: {},
   handler: async (ctx) => {
@@ -366,8 +473,12 @@ async function resolveProjectNumberCollision(
   }
   if (!collides) return normalized;
   // The existing bare sibling is renamed to "<n>a" in the same transaction so
-  // the pair reads 1a/1b instead of 1/1b (owner direction 2026-08-19).
-  if (bareSibling) {
+  // the pair reads 1a/1b instead of 1/1b (owner direction 2026-08-19), but
+  // only when the caller may edit that project's details (security wave 1,
+  // a2 P3-2). Otherwise the sibling keeps its bare number, which already
+  // reads as the "a" slot, and the caller's project still takes the next
+  // free letter.
+  if (bareSibling && (await getReportEditAccessOrNull(ctx, bareSibling._id))) {
     await ctx.db.patch(bareSibling._id, {
       projectNumber: `${normalized}a`,
       updatedAt: Date.now(),
@@ -628,6 +739,29 @@ export const getProject = query({
 });
 
 /**
+ * Whether a duplicate can bring the original's report in as last year's
+ * report (owner decision 35, 2026-09-25): the latest report's version and
+ * whether it has readable text. The report itself stays on the server.
+ */
+export const getDuplicateSourceReport = query({
+  args: { projectId: v.id("projects") },
+  returns: v.union(v.null(), v.object({ version: v.number(), hasText: v.boolean() })),
+  handler: async (ctx, args) => {
+    if (!(await getInternalProjectAccessOrNull(ctx, args.projectId))) return null;
+    const report = await ctx.db
+      .query("reports")
+      .withIndex("by_projectId", (q) => q.eq("projectId", args.projectId))
+      .order("desc")
+      .first();
+    if (!report) return null;
+    return {
+      version: report.version ?? 1,
+      hasText: extractPlainText(report.content).trim().length > 0,
+    };
+  },
+});
+
+/**
  * Owner decision (2026-09-15): the project pages only offer metadata
  * controls to people the single-project metadata mutations will accept —
  * the Owner, a collaborator with an open work item, a Manager or an Admin
@@ -641,6 +775,80 @@ export const getProjectEditAccess = query({
     return {
       canEditDetails:
         (await getReportEditAccessOrNull(ctx, args.projectId)) !== null,
+    };
+  },
+});
+
+/**
+ * The report page's Details panel (story 5-6 owner amendment, 2026-09-24;
+ * ui-design-final section 8). One bounded read: the project, its Owner, the
+ * validated current handoff and its assignee, plus at most 100 open work
+ * items for the edit decision. `editedAt` is the later of `updatedAt` and
+ * `workflowUpdatedAt`, because stage and handoff writes do not bump
+ * `updatedAt`. Permissions mirror the mutations they front:
+ * `requireProjectMetadataAccess` for details, the transition matrix for
+ * stage changes, and Owner/Manager/Admin plus `workItem.create` for Hand off.
+ * An outsider, a roleless user or an anonymous caller gets `null`.
+ */
+export const getProjectDetailsPanel = query({
+  args: { projectId: v.id("projects") },
+  handler: async (ctx, args) => {
+    const access = await getInternalProjectAccessOrNull(ctx, args.projectId);
+    if (!access) return null;
+    const { project, user } = access;
+    if (getEffectiveCapabilityLevel(user.role, "project.readInternal") === "none") {
+      return null;
+    }
+    const stage = project.workflowStage ?? "intake";
+    const [ownerDoc, handoff, authorities, editAccess] = await Promise.all([
+      project.ownerId ? ctx.db.get(project.ownerId) : Promise.resolve(null),
+      validCurrentHandoff(ctx, project),
+      workflowAuthorities(ctx, project, user),
+      getReportEditAccessOrNull(ctx, project._id),
+    ]);
+    const owner = isTeamRosterMember(ownerDoc) ? ownerDoc : null;
+    const assignee = handoff ? await ctx.db.get(handoff.assigneeId) : null;
+    const createLevel = getEffectiveCapabilityLevel(user.role, "workItem.create");
+    const canCreateWork =
+      createLevel === "all" || (createLevel === "own" && project.ownerId === user._id);
+    return {
+      stage,
+      workflowVersion: project.workflowVersion ?? 0,
+      industry: project.industry ?? null,
+      fiscalYearEnd: project.fiscalYearEnd ?? null,
+      scienceCode: project.scienceCode ?? null,
+      projectNumber: project.projectNumber ?? null,
+      owner: owner
+        ? {
+            userId: owner._id,
+            label: userDisplayLabel(owner),
+            initials: userInitials(owner),
+            isYou: owner._id === user._id,
+          }
+        : null,
+      createdAt: project.createdAt,
+      editedAt: Math.max(project.updatedAt, project.workflowUpdatedAt ?? 0),
+      currentHandoff: handoff
+        ? {
+            workItemId: handoff._id,
+            assigneeId: handoff.assigneeId,
+            assigneeLabel: assignee ? userDisplayLabel(assignee) : "Unknown team member",
+            initials: assignee ? userInitials(assignee) : "?",
+            isYou: handoff.assigneeId === user._id,
+            note: handoff.instructions,
+          }
+        : null,
+      permissions: {
+        canEditDetails: editAccess !== null,
+        canChangeStage: WORKFLOW_TRANSITIONS.some(
+          (transition) =>
+            transition.from === stage &&
+            transition.authorities.some((authority) => authorities.has(authority))
+        ),
+        canHandOff:
+          canCreateWork &&
+          (authorities.has("owner") || authorities.has("manager") || authorities.has("admin")),
+      },
     };
   },
 });
@@ -719,7 +927,13 @@ export const createProject = mutation({
     // round-trips a megabyte of interview through the client.
     transcripts: v.array(
       v.union(
-        v.object({ content: v.string(), label: v.optional(v.string()) }),
+        v.object({
+          content: v.string(),
+          label: v.optional(v.string()),
+          // 2026-09-24: the detected format and the uploaded original file.
+          sourceFormat: v.optional(transcriptSourceFormatValidator),
+          originalStorageId: v.optional(v.id("_storage")),
+        }),
         v.object({
           fromTranscriptId: v.id("transcripts"),
           label: v.optional(v.string()),
@@ -853,6 +1067,10 @@ export const createProject = mutation({
               content: transcript.content,
               label: transcript.label,
               position,
+              ...(transcript.sourceFormat ? { sourceFormat: transcript.sourceFormat } : {}),
+              ...(transcript.originalStorageId
+                ? { originalStorageId: transcript.originalStorageId }
+                : {}),
             });
       if (transcriptId) transcriptIds.push(transcriptId);
     }
@@ -869,6 +1087,15 @@ type ProjectDocumentCopy = {
   storageId?: Id<"_storage">;
 };
 
+/** A copied transcript and the source original file its bytes come from. */
+type TranscriptOriginalCopy = {
+  transcriptId: Id<"transcripts">;
+  storageId: Id<"_storage">;
+};
+
+/** Most files a duplicate may leave behind, the same bound as the copy read. */
+const MAX_EXCLUDED_DOCUMENTS = 250;
+
 async function requireDuplicatePair(
   ctx: MutationCtx,
   fromProjectId: Id<"projects">,
@@ -883,19 +1110,246 @@ async function requireDuplicatePair(
   return { user, source, target };
 }
 
-async function copyProjectInputRows(
+/**
+ * The public duplicate copy writes only into a project the caller has just
+ * made (owner decision 35, 2026-09-25): created by them, with no report and
+ * no files yet. The wizard copies before it uploads its own staged files, so
+ * a fresh duplicate always passes, and running the copy a second time is
+ * refused instead of copying every row again.
+ */
+async function requireFreshCopyTarget(
+  ctx: MutationCtx,
+  user: Doc<"users">,
+  target: Doc<"projects">
+) {
+  if (target.createdBy !== user._id) {
+    domainError("NOT_AUTHORIZED", "Files can only be copied into a project you just created");
+  }
+  const [report, document, evidence] = await Promise.all([
+    ctx.db
+      .query("reports")
+      .withIndex("by_projectId", (q) => q.eq("projectId", target._id))
+      .first(),
+    ctx.db
+      .query("projectDocuments")
+      .withIndex("by_projectId", (q) => q.eq("projectId", target._id))
+      .first(),
+    ctx.db
+      .query("projectIdentityEvidence")
+      .withIndex("by_projectId", (q) => q.eq("projectId", target._id))
+      .first(),
+  ]);
+  if (report || document || evidence) {
+    domainError(
+      "INVALID_STATE",
+      "Files can only be copied into a new project that has no report or files yet"
+    );
+  }
+  // A draft already running would read the project half copied, and a
+  // copied report would land beside the one it is writing.
+  if (
+    await findActiveGeneration(ctx, target, [
+      "reserved",
+      "running",
+      "awaiting_selection",
+      "awaiting_input",
+    ])
+  ) {
+    domainError(
+      "INVALID_STATE",
+      "Files can only be copied into a new project that is not drafting yet"
+    );
+  }
+}
+
+/**
+ * The transcript the copied report cites must be one of the new project's
+ * own, never a row from another project.
+ */
+async function requireTargetTranscript(
+  ctx: MutationCtx,
+  toProjectId: Id<"projects">,
+  transcriptId: Id<"transcripts"> | undefined
+) {
+  if (!transcriptId) return;
+  const transcript = await ctx.db.get(transcriptId);
+  if (!transcript || transcript.projectId !== toProjectId) {
+    domainError("INVALID_INPUT", "The transcript is not in the new project");
+  }
+}
+
+/**
+ * What a content copy carries besides the project inputs. Both includes
+ * default to true, the full clone the old dashboard's Duplicate and the
+ * review-from-project flow rely on. A duplicate made to draft again
+ * (2026-09-25, the card Duplicate) passes `includeReport: false` so the new
+ * project starts with no report, no copied QA findings and its own draft
+ * status, and `includeReviews: false` unless it is a Review PD project.
+ *
+ * Owner decision 35 (2026-09-25) adds two more. Each can only narrow the
+ * copy or add one file the server builds itself; neither can widen what a
+ * caller reaches.
+ */
+const copyScopeArgs = {
+  /** The source's latest report (with its QA findings and review status). */
+  includeReport: v.optional(v.boolean()),
+  /** PD reviews and the written PDs they reviewed (`review_pd` documents). */
+  includeReviews: v.optional(v.boolean()),
+  /**
+   * Source files the writer unticked. A leave-out list, so an empty or
+   * missing list copies everything. Ids for files deleted since are ignored;
+   * an id from another project is refused.
+   */
+  excludeDocumentIds: v.optional(v.array(v.id("projectDocuments"))),
+  /**
+   * Bring the source's latest report in as a Previous-year report. Only for
+   * a new project with a later fiscal year than the source, and only when the
+   * report itself is not copied.
+   */
+  previousYearReport: v.optional(v.boolean()),
+};
+
+type CopyScope = {
+  fromProjectId: Id<"projects">;
+  toProjectId: Id<"projects">;
+  targetTranscriptId?: Id<"transcripts">;
+  includeReport?: boolean;
+  includeReviews?: boolean;
+  excludeDocumentIds?: Id<"projectDocuments">[];
+  previousYearReport?: boolean;
+  requireFreshTarget?: boolean;
+};
+
+async function excludedDocumentSet(
+  ctx: MutationCtx,
+  fromProjectId: Id<"projects">,
+  ids: Id<"projectDocuments">[] | undefined
+) {
+  const excluded = new Set<Id<"projectDocuments">>(ids ?? []);
+  if (excluded.size > MAX_EXCLUDED_DOCUMENTS) {
+    domainError("INVALID_INPUT", "Too many files to leave out");
+  }
+  for (const id of excluded) {
+    const document = await ctx.db.get(id);
+    // Deleted in the original while the wizard was open: nothing to skip.
+    if (!document) continue;
+    if (document.projectId !== fromProjectId) {
+      domainError("INVALID_INPUT", "A file to leave out is not in the original project");
+    }
+  }
+  return excluded;
+}
+
+/**
+ * The previous-year report a year-over-year duplicate brings in: the source's
+ * latest report as plain text, filed under Previous-year reports with the
+ * same first line the wizard writes above an uploaded previous-year file.
+ */
+async function insertPreviousYearReport(
   ctx: MutationCtx,
   args: {
-    fromProjectId: Id<"projects">;
-    toProjectId: Id<"projects">;
-    targetTranscriptId?: Id<"transcripts">;
+    user: Doc<"users">;
+    source: Doc<"projects">;
+    target: Doc<"projects">;
+    includeReport: boolean;
+    now: number;
   }
-) {
-  const { user } = await requireDuplicatePair(
+): Promise<Id<"projectDocuments"> | undefined> {
+  const { user, source, target } = args;
+  if (args.includeReport) {
+    domainError(
+      "INVALID_INPUT",
+      "The old report can come along as the report or as last year's report, not both"
+    );
+  }
+  if ((target.mode ?? "generate") === "review") {
+    domainError("INVALID_INPUT", "A Review PD project does not take last year's report");
+  }
+  const sourceYear = dashboardFiscalYear(source.fiscalYearEnd);
+  const targetYear = dashboardFiscalYear(target.fiscalYearEnd);
+  if (sourceYear === null || targetYear === null || targetYear <= sourceYear) {
+    domainError(
+      "INVALID_INPUT",
+      "Set a later fiscal year to bring the old report in as last year's report"
+    );
+  }
+  const report = await ctx.db
+    .query("reports")
+    .withIndex("by_projectId", (q) => q.eq("projectId", source._id))
+    .order("desc")
+    .first();
+  if (!report) return undefined;
+  const text = extractPlainText(report.content).trim();
+  if (!text) return undefined;
+
+  const fileName = `${source.title} (report v${report.version ?? 1}, FY ${sourceYear}).txt`;
+  const content = `${previousYearReportHeader(sourceYear)}\n${text}`;
+  const derived = deriveProcessingStatus({
+    fileName,
+    content,
+    extractionFailed: false,
+    intake: "file",
+  });
+  return await ctx.db.insert("projectDocuments", {
+    projectId: target._id,
+    fileName,
+    fileType: "txt",
+    content,
+    category: "previous_pd",
+    // A context file, so Replace on the Files panel treats it like one.
+    source: "context_input",
+    processingStatus: derived.status,
+    processingDetail: derived.detail,
+    uploadedBy: userDisplayLabel(user),
+    // CAP-3: the acting internal user chose to bring this report in.
+    ...(user.role ? { uploaderRole: user.role } : {}),
+    createdAt: args.now,
+  });
+}
+
+/**
+ * Copied transcripts carry the text but not the uploaded file. Pair each
+ * transcript of the new project that was copied from a row of the source
+ * project (`copiedFromTranscriptId`, set by `copyTranscriptRow`) with that
+ * row's original, so the action can clone the file too. Pasted text that
+ * only matches a source transcript is not a copy and gets no file, and a
+ * transcript the writer left unticked was never created, so it has nothing
+ * to pair with.
+ *
+ * Its own query rather than part of prepare, so the copy transaction does
+ * not also read every transcript of both projects: only the new project's
+ * active rows are read here, plus the one source row each copy came from.
+ */
+async function transcriptOriginalCopies(
+  ctx: QueryCtx,
+  fromProjectId: Id<"projects">,
+  toProjectId: Id<"projects">
+): Promise<TranscriptOriginalCopy[]> {
+  const copies: TranscriptOriginalCopy[] = [];
+  for (const row of await listProjectTranscripts(ctx, toProjectId)) {
+    if (row.originalStorageId || !row.copiedFromTranscriptId) continue;
+    const source = await ctx.db.get(row.copiedFromTranscriptId);
+    if (!source?.originalStorageId || source.projectId !== fromProjectId) continue;
+    // The file must be the one this text came from; `copyTranscriptRow`
+    // hashes a source row that predates stored hashes the same way.
+    const sourceHash = source.contentHash ?? (await sha256(source.content));
+    if (sourceHash !== row.contentHash) continue;
+    copies.push({ transcriptId: row._id, storageId: source.originalStorageId });
+  }
+  return copies;
+}
+
+async function copyProjectInputRows(ctx: MutationCtx, args: CopyScope) {
+  const { user, source, target } = await requireDuplicatePair(
     ctx,
     args.fromProjectId,
     args.toProjectId
   );
+  if (args.requireFreshTarget) await requireFreshCopyTarget(ctx, user, target);
+  await requireTargetTranscript(ctx, args.toProjectId, args.targetTranscriptId);
+  const includeReport = args.includeReport ?? true;
+  const includeReviews = args.includeReviews ?? true;
+  const excluded = await excludedDocumentSet(ctx, args.fromProjectId, args.excludeDocumentIds);
   const now = Date.now();
   const documents = await ctx.db
     .query("projectDocuments")
@@ -907,6 +1361,10 @@ async function copyProjectInputRows(
   // Copy every support document, including archived records and review-mode PDs.
   // Storage ids are filled by the action after it clones the original bytes.
   for (const doc of documents) {
+    if (!includeReviews && doc.source === "review_pd") continue;
+    // Unticked in the wizard. Evidence and PD reviews tied to it drop out
+    // below through `docIdMap`.
+    if (excluded.has(doc._id)) continue;
     // A duplicate must report the same truth as its source. Rows that predate
     // PSOS-04 carry no status, so derive it from the copied content — the same
     // function the read-time fallback and the backfill use.
@@ -939,6 +1397,10 @@ async function copyProjectInputRows(
     });
   }
 
+  const previousYearReportId = args.previousYearReport
+    ? await insertPreviousYearReport(ctx, { user, source, target, includeReport, now })
+    : undefined;
+
   const evidence = await ctx.db
     .query("projectIdentityEvidence")
     .withIndex("by_projectId", (q) => q.eq("projectId", args.fromProjectId))
@@ -966,11 +1428,13 @@ async function copyProjectInputRows(
     evidenceCopied += 1;
   }
 
-  const sourceReport = await ctx.db
-    .query("reports")
-    .withIndex("by_projectId", (q) => q.eq("projectId", args.fromProjectId))
-    .order("desc")
-    .first();
+  const sourceReport = includeReport
+    ? await ctx.db
+        .query("reports")
+        .withIndex("by_projectId", (q) => q.eq("projectId", args.fromProjectId))
+        .order("desc")
+        .first()
+    : null;
   let reportId: Id<"reports"> | undefined;
   if (sourceReport) {
     const contentHash = sourceReport.contentHash ?? (await sha256(sourceReport.content));
@@ -996,10 +1460,12 @@ async function copyProjectInputRows(
     });
   }
 
-  const reviews = await ctx.db
-    .query("pdReviews")
-    .withIndex("by_projectId", (q) => q.eq("projectId", args.fromProjectId))
-    .take(100);
+  const reviews = includeReviews
+    ? await ctx.db
+        .query("pdReviews")
+        .withIndex("by_projectId", (q) => q.eq("projectId", args.fromProjectId))
+        .take(100)
+    : [];
   let pdReviewsCopied = 0;
   for (const review of reviews) {
     const documentId = docIdMap.get(review.documentId);
@@ -1047,23 +1513,45 @@ async function copyProjectInputRows(
     evidenceCopied,
     pdReviewsCopied,
     ...(reportId ? { reportId } : {}),
+    ...(previousYearReportId ? { previousYearReportId } : {}),
   };
 }
 
-// Called by projectDuplication:copyProjectContent. This mutation creates the
-// destination rows atomically; the action then clones any original file bytes.
-export const prepareProjectContentCopy = mutation({
+// Called only by projectDuplication.copyProjectContentBetween. This mutation
+// creates the destination rows atomically; the action then clones any
+// original file bytes. Internal since owner decision 35 (2026-09-25): the
+// storage ids it hands out must never reach a client.
+export const prepareProjectContentCopy = internalMutation({
   args: {
     fromProjectId: v.id("projects"),
     toProjectId: v.id("projects"),
     targetTranscriptId: v.optional(v.id("transcripts")),
+    ...copyScopeArgs,
+    /** Set by the public duplicate action; see requireFreshCopyTarget. */
+    requireFreshTarget: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
     return await copyProjectInputRows(ctx, args);
   },
 });
 
-export const finishProjectContentCopy = mutation({
+// Called only by projectDuplication.copyProjectContentBetween, after
+// prepare: which copied transcripts have an original file to clone.
+export const planTranscriptOriginalCopies = internalQuery({
+  args: {
+    fromProjectId: v.id("projects"),
+    toProjectId: v.id("projects"),
+  },
+  handler: async (ctx, args) => {
+    await requireInternalProjectAccess(ctx, args.fromProjectId);
+    await requireInternalProjectAccess(ctx, args.toProjectId);
+    return await transcriptOriginalCopies(ctx, args.fromProjectId, args.toProjectId);
+  },
+});
+
+// Internal: it attaches storage ids, so only the copy action, which made
+// every one of them a moment ago with `ctx.storage.store`, may call it.
+export const finishProjectContentCopy = internalMutation({
   args: {
     toProjectId: v.id("projects"),
     storageCopies: v.array(
@@ -1071,6 +1559,14 @@ export const finishProjectContentCopy = mutation({
         documentId: v.id("projectDocuments"),
         storageId: v.id("_storage"),
       })
+    ),
+    transcriptCopies: v.optional(
+      v.array(
+        v.object({
+          transcriptId: v.id("transcripts"),
+          storageId: v.id("_storage"),
+        })
+      )
     ),
   },
   handler: async (ctx, args) => {
@@ -1082,23 +1578,20 @@ export const finishProjectContentCopy = mutation({
       }
       await ctx.db.patch(copy.documentId, { storageId: copy.storageId });
     }
+    for (const copy of args.transcriptCopies ?? []) {
+      const transcript = await ctx.db.get(copy.transcriptId);
+      if (!transcript || transcript.projectId !== args.toProjectId) {
+        domainError("INVALID_INPUT", "Copied transcript does not belong to this project");
+      }
+      // One file per transcript: a row that gained an original meanwhile
+      // keeps it, and the spare clone is released.
+      if (transcript.originalStorageId) {
+        await ctx.storage.delete(copy.storageId);
+        continue;
+      }
+      await ctx.db.patch(copy.transcriptId, { originalStorageId: copy.storageId });
+    }
     return null;
-  },
-});
-
-/** Legacy text-only entry point retained for older clients during rollout. */
-export const copyProjectDocuments = mutation({
-  args: {
-    fromProjectId: v.id("projects"),
-    toProjectId: v.id("projects"),
-  },
-  handler: async (ctx, args) => {
-    const result = await copyProjectInputRows(ctx, args);
-    return {
-      copied: result.documents.length,
-      evidenceCopied: result.evidenceCopied,
-      pdReviewsCopied: result.pdReviewsCopied,
-    };
   },
 });
 
@@ -1157,7 +1650,13 @@ export const finalizeProject = mutation({
     reportId: v.id("reports"),
   },
   handler: async (ctx, args) => {
+    // Marking the project final is a status change: the same authority as
+    // publish (project.setStage; current Owner, Manager or Admin). Audit
+    // 2026-09-25, a2 P2-3.
     const { project } = await requireInternalProjectAccess(ctx, args.projectId);
+    await requireCapability(ctx, "project.setStage", {
+      ownedBy: project.ownerId ? [project.ownerId] : [],
+    });
     const report = await ctx.db.get(args.reportId);
     if (!report || report.projectId !== args.projectId) {
       domainError("NOT_AUTHORIZED", "Report does not belong to this project");
@@ -1239,6 +1738,13 @@ export const PROJECT_PURGE_WRITE_BUDGET = 1000;
  * transaction read limit before its continuation is scheduled.
  */
 export const PROJECT_PURGE_MAX_BYTES_READ = 4 * 1024 * 1024;
+// Everything else a page reads (inline children such as generation
+// artifacts, which carry agent outputs, chain payloads and Brain provenance
+// since 2026-09-25, and the second read Convex charges for every delete and
+// patch) is bounded by the page's read guard (convex/lib/purgeBudget.ts):
+// it checks the transaction's real usage before each child read and each row
+// delete or patch, and ends the page on the same cursor before any limit is
+// reached.
 const CHILD_BATCH_SIZE = 100;
 /**
  * Terminalization bounds. Generations are read by (projectId, status), so
@@ -1384,8 +1890,7 @@ async function terminalizeLiveGenerationWork(
     for (const generation of generations) {
       await terminateSeedAttempts(ctx, generation._id);
       await cancelScheduledJob(ctx, generation.scheduledJobId);
-      await ctx.db.patch(generation._id, {
-        status: "failed",
+      await transitionGeneration(ctx, generation, "failed", {
         completedAt: now,
         error: PROJECT_DELETED_ERROR,
         // A post-QA attempt in flight can no longer settle: saveReportQa
@@ -1503,16 +2008,19 @@ async function scheduleChildCleanup(
 }
 
 /**
- * Delete one registry row with its inline children, within `budget` writes.
- * Returns `deleted: false` when a child batch filled up or the budget ran
- * out; the parent then stays in its index range, so the page that retries
- * from the same cursor picks it up again.
+ * Delete one registry row with its inline children, within `budget` writes
+ * and the page's read guard. Returns `deleted: false` when a child batch
+ * filled up, the guard refused another read or delete, or the write budget
+ * ran out; the parent then stays in its index range, so the page that
+ * retries from the same cursor picks it up again (children already deleted
+ * are gone from its child range).
  */
 async function deleteRowWithChildren(
   ctx: MutationCtx,
   entry: ProjectScopedTable,
   row: GenericDocument,
-  budget: number
+  budget: number,
+  guard: PurgeGuard
 ): Promise<{ deleted: boolean; writes: number }> {
   const db = ctx.db as unknown as ErasureDb;
   let writes = 0;
@@ -1522,18 +2030,45 @@ async function deleteRowWithChildren(
     if (parentKey === undefined) continue;
     const limit = Math.min(CHILD_BATCH_SIZE, budget - writes);
     if (limit <= 0) return { deleted: false, writes };
-    const children = await db
+    if (!(await guard.canQuery())) return { deleted: false, writes };
+    // Read first, then delete: the stream is closed before any delete, and
+    // each read reserves room for its own delete.
+    const rows: GenericDocument[] = [];
+    let complete = false;
+    const stream = db
       .query(child.table)
       .withIndex(child.index, (q) => q.eq(child.field, parentKey))
-      .take(limit);
-    for (const childRow of children) {
+      [Symbol.asyncIterator]();
+    try {
+      while (await guard.canReadChild()) {
+        const next = await stream.next();
+        if (next.done) {
+          complete = true;
+          break;
+        }
+        // One row past the batch only proves more remain; it is not deleted.
+        const willDelete = rows.length < limit;
+        guard.noteChildRead(next.value, willDelete);
+        if (!willDelete) break;
+        rows.push(next.value);
+      }
+    } finally {
+      await stream.return?.();
+    }
+    for (const childRow of rows) {
       await db.delete(rowId(childRow));
+      guard.noteChildDeleted(childRow);
       writes += 1;
     }
-    if (children.length === limit) return { deleted: false, writes };
+    // More children than one batch, or than the page may read: keep the
+    // parent for the next page.
+    if (!complete) return { deleted: false, writes };
   }
   if (writes >= budget) return { deleted: false, writes };
+  const ownsBlob = entry.blob !== undefined && typeof row[entry.blob] === "string";
+  if (!(await guard.canTouchRow(row, ownsBlob))) return { deleted: false, writes };
   await db.delete(rowId(row));
+  guard.noteRowTouched(row, ownsBlob);
   writes += 1;
   if (entry.blob) {
     const storageId = row[entry.blob];
@@ -1545,8 +2080,38 @@ async function deleteRowWithChildren(
   for (const child of entry.children ?? []) {
     if (child.cleanup === "scheduled") await scheduleChildCleanup(ctx, child, rowId(row));
   }
+  if (entry.componentThread) {
+    const agentThreadId = row[entry.componentThread];
+    if (typeof agentThreadId === "string") {
+      await ctx.scheduler.runAfter(0, internal.projects.deleteAgentChatThread, { agentThreadId });
+    }
+  }
   return { deleted: true, writes };
 }
+
+/**
+ * Project erasure's last step for a chat thread (a2 P2-6): the agent
+ * component deletes the thread, its messages and streams in its own pages.
+ * A thread id the component does not know (a legacy or already deleted
+ * thread) is logged and skipped, so erasure never stalls on it.
+ */
+export const deleteAgentChatThread = internalMutation({
+  args: { agentThreadId: v.string() },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    try {
+      await ctx.runMutation(components.agent.threads.deleteAllForThreadIdAsync, {
+        threadId: args.agentThreadId,
+      });
+    } catch (error) {
+      console.warn("deleteAgentChatThread: component refused the thread id", {
+        agentThreadId: args.agentThreadId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+    return null;
+  },
+});
 
 /** The final page: detach review projects from the source, then delete the row. */
 async function finalizeProjectPurge(
@@ -1620,15 +2185,34 @@ export const purgeProjectPage = internalMutation({
 
     let writes = 0;
     let budgetExhausted = false;
+    // Covers the whole transaction from here on: the project row and this
+    // page are already read, every child read and every delete or patch
+    // (Convex reads the row again) is checked before it happens.
+    const guard = createPurgeGuard({
+      readMetrics: async () => {
+        try {
+          return await ctx.meta.getTransactionMetrics();
+        } catch {
+          return null;
+        }
+      },
+      alreadyRead: [project, ...page.page],
+      blobCheckFields: STORAGE_REFERENCE_FIELDS.length,
+    });
     for (const row of page.page) {
       if (writes >= PROJECT_PURGE_WRITE_BUDGET) {
         budgetExhausted = true;
         break;
       }
       if (entry.disposition === "detach") {
+        if (!(await guard.canTouchRow(row, false))) {
+          budgetExhausted = true;
+          break;
+        }
         const patch: Record<string, undefined> = { [entry.field]: undefined };
         for (const sibling of entry.clearWith ?? []) patch[sibling] = undefined;
         await db.patch(rowId(row), patch);
+        guard.noteRowTouched(row, false);
         writes += 1;
         continue;
       }
@@ -1636,7 +2220,8 @@ export const purgeProjectPage = internalMutation({
         ctx,
         entry,
         row,
-        PROJECT_PURGE_WRITE_BUDGET - writes
+        PROJECT_PURGE_WRITE_BUDGET - writes,
+        guard
       );
       writes += result.writes;
       if (!result.deleted) {

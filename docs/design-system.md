@@ -454,6 +454,71 @@ accessibility defect is copied.
   (`banhall_intake_context_ratio`). Below `lg`: explicit Work/Context
   `aria-pressed` switches, one pane visible at a time, ≥44px targets. The
   state remains honest: no chat, composer, or report is implied.
+- **Seed workspace and Summary Review.** The Seed workspace (the Plan, final
+  UI contract `ui-design-final.md` section 3) keeps a persistent Outline at
+  `lg`+ with independent pane scrolling and a keyboard- and pointer-operable
+  Outline width of 240 to 400px (default 300px, 240px below 1280px) kept under
+  the `seeds.outlineWidth` browser key. Narrow layouts show one pane at a time
+  through a segmented `Outline n/13 | Seeds` switch. Approval is pinned: in the
+  Outline footer on desktop (`Approve and continue`, or `Confirm and approve`
+  above `Review summary` on a reopened step) and in a bottom bar with a
+  regenerate icon on phones. Seed cards sit in two 412px columns when the pane
+  is wide enough and one column otherwise. Summary Review is a full-width in-page state with a browser-history
+  entry. It has no separate jump list; its Section headings stay sticky within
+  the Summary scroll owner, while incomplete pagination remains visibly
+  partial. Beside Sign off it shows only the model, plus the Summary version
+  from version 2. Seed edits never block on the AI Seed's 25-word,
+  one-sentence contract; past it a quiet "Long for a seed" note appears.
+  The Brief opens in the shared right drawer from the step header More menu,
+  so it never creates a third docked pane: focus moves into the drawer, and
+  Escape or Close returns it to the More menu trigger. Choosing a Subsection from the
+  narrow Outline moves focus to the Work pane heading it reveals. Entering
+  Summary Review (trigger or browser history) moves focus to its heading;
+  leaving it returns focus to the recreated `Review summary` or `Signed-off
+  Summary` trigger, so the non-modal transition never strands keyboard focus.
+  Cited-source names carry the state of their read: loading, unavailable
+  (with an explicit retry), pending or not retrieved, or not on record; a
+  missing name is never shown as an attributed source. An Outline read that
+  stayed within the server's safe processing limit is qualified, never
+  definitive: Outline counts read `N+` with an accessible `partial read`
+  note (rows carry no previews), a `Reload Outline` action is the safe
+  recovery, and readiness remains the server's. Retention copy is truthful: while browser
+  storage mirrors unsaved text the copy names the device; when it cannot, a
+  persistence notice says the text stays in the open workspace or review only,
+  and every unsaved item is one browser record of its own (`seeds.draft:` and
+  `seeds.summaryDraft:` keys ending in the item id): tabs write and remove
+  their own records only, never a shared collection, so overlapping tabs keep
+  each other's independent items. Decision controls and displayed-Batch
+  bookkeeping need a current successful Subsection read: while a subscription
+  is re-established the retained cards stay readable under a `Waiting for the
+  live read` status with their actions off. A truncated card projection
+  labels its selected count `N+ selected in the shown seeds, complete count
+  pending` until the complete server review supplies its own count. The
+  Outline resize handle is a horizontal slider driven by pointer events (one
+  captured gesture, released on pointer up, cancel or destruction) and by
+  Left/Right/Home/End. When an accepted sign-off replaces Summary Review with
+  Seed drafting, focus moves to the generation-progress heading (the progress
+  region until that heading renders); a sign-off that completes after the host
+  was destroyed or its generation or user replaced changes nothing. A
+  report-owned frozen Summary URL never renders beside an active legacy
+  section stepper; it resolves normally once the stepper no longer owns the
+  page. Deferred focus moves (the Summary return and sign-off drafting in the
+  hosts, the narrow Outline-to-Work heading handoff, the Summary heading on
+  entry) belong to the surface, project, user, generation and transition that
+  scheduled them and are rechecked after rendering, so an obsolete callback
+  never focuses a replacement page. Summary Review tells incomplete server
+  readiness apart from decision blockers: when the server could not compute
+  readiness within its safe processing limit it says so, keeps sign-off off
+  and offers `Reload plan status`; only complete readiness lists `Blocked
+  by:` roles. A role absent from a still-incomplete Summary aggregate reads
+  `Selected items may be on pages that did not load`, never `No selected
+  items`, until the review is complete. A refused Subsection open is
+  announced only for the role, owner and request that submitted it, with a
+  `Retry` that resubmits against the current capability and stage version.
+  Stories 5–6 component captures land in a fresh per-invocation directory
+  under `.vitest-attachments/stories5-6/captures/`, reserved exclusively
+  through the `reserveCaptureDirectory` browser command, never on a fixed
+  path.
 - **Accessibility corrections shipped with this amendment** (from the same
   authenticated audit): heading names are the titles themselves with edit
   controls as adjacent siblings (`EditableText`); the Files panel is a real
@@ -889,6 +954,121 @@ authenticated Attio measurement pass. Presentation only.
   section and state hierarchy; filenames remain visually primary through
   column position and ink contrast without turning every sheet row into a
   heading.
+
+### 2026-09-26 amendment - round 2 foundations
+
+Owner-picked round 2 boards (`_bmad-output/design-explorations/2026-09-26-round-2-finalized/HANDOFF.md`,
+"Global rules added this round"). These tokens and primitives are light-only:
+the dark workspace scope does not retint them. Live at `/styleguide`.
+
+- **Shell.** `workspace-shell` (`#FAFCFB`) is the lighter rail and the frame
+  around the work panel; `workspace-page-icon` (`#E3F4F1`) is the tile behind
+  the page icon in the top bar. They sit beside `workspace-rail`, which keeps
+  its current value until the round 2 shell adopts the new token.
+- **Role chips.** `role-<kind>` fill with `role-<kind>-ink` text for owner,
+  admin, manager, consultant and developer. `ui/RoleChip` takes the stored
+  role (writer shows as Consultant) plus the Owner and Developer display flags,
+  resolved Developer, then Owner, then the role, as in the rail identity row.
+  20px chip (radius 5, 12px/500) by default; `size="sm"` is the 16px rail
+  identity chip.
+- **Status families.** For `danger`, `warning` and `success`: the bare token
+  is the solid (icons, dots); `-soft` with `-ink` is a chip; `-surface` and
+  `-line` are the callout box; `-ink-muted` is the callout paragraph;
+  `-action` and `-action-hover` fill a button inside the box with white text.
+  The boards draw the paragraph as the ink at 75 to 80% opacity and the amber
+  and green buttons with the solid colour; both measure under 4.5:1, so the
+  tokens use opaque 700-tier values of the same hue instead (every pair is AA).
+  `recommended` / `recommended-ink` is the "Recommended" label.
+- **Filled destructive button.** Button `variant="destructive-soft"`
+  (`destructive-soft` fill, `destructive-soft-ink` text, deeper on hover).
+  Cancel in the start and confirm modals and Revoke use it.
+- **Status callout.** `ui/StatusCallout` is the error, warning and success
+  box. Its paragraph and buttons stay in the box's own colour family.
+  `layout="stacked"` (E6) puts actions under the text; `layout="inline"` (E5)
+  keeps a file row on one line. Replace the tone icon with the `icon` snippet.
+- **File icons.** `ui/FileIcon` renders the `file-icon-vectors` vivid set for
+  pdf, docx, xlsx and txt, and the neutral blank page for anything else. Only
+  those five SVGs are imported; they render through `<img>` because each SVG
+  carries global class styles that would clash when inlined.
+- **Logo.** `ui/BanhallLogo` renders `static/banhall-logo-dark.png` on light
+  backgrounds and `banhall-logo-white.png` on dark, 52 to 64px tall including
+  the built-in padding. `ui/BanhallRailMark` replaces the boards' placeholder
+  "B Banhall" at the top of the rail with the dark wordmark, padding clipped:
+  36px tall expanded, 40px wide collapsed.
+
+### 2026-09-26 amendment - round 2 shell (WS1)
+
+Boards A1 to A5, B1 to B3, D1 to D5, I1, I1b, I3 to I5; decision 53. Live at
+`/styleguide` ("Round 2 shell").
+
+- **Rail.** `WorkspaceRail` reads one model, `src/lib/shell/navigation.ts`:
+  Workspace (Home, Projects, Companies), Manage (Team for Managers and Admins,
+  Admin for `settings.configure`), Developer (Alerts with `ops.viewAlerts`,
+  Feature requests), Other (What's new, Settings) at the bottom, then the
+  identity row (avatar, name, `RoleChip size="sm"`) that opens the account
+  menu. Rows 32px (44px in the touch drawer), group labels 11px in muted ink
+  as the boards draw them (integration, 2026-09-26). Rail and frame use `workspace-shell`.
+  Collapsed (A4): 36px icon tiles with tooltips, the expand toggle and search
+  at the top, What's new as a 7px dot, Alerts as a red count, avatar 30px,
+  no role chip. The Admin icon opens the A5 flyout (hover after 150ms, or
+  Enter, Space, click). Expanded, Admin is a group with a chevron (down
+  closed, up open) and eight 28px rows under a left rule; it opens by itself
+  on admin pages and otherwise keeps the last choice (`railPreferences`).
+- **Top bar and panel.** `shell/PageTopBar` is the 56px bar: shell controls,
+  `PageIconTile` (26px, `workspace-page-icon`, primary icon), title with a
+  muted subtitle or an "Admin / Page" breadcrumb, then status, bell and
+  actions. `WorkspaceChrome` insets the white work panel 12px on the shell
+  (radius 10, `line` border, owns the scroll) and marks it `data-work-panel`.
+  `panel="padded"` gives 32px top with 56px sides (`padding="wide"`) or 28px
+  top with 40px sides (`padding="admin"`); `panel="flush"` leaves padding to
+  the page. Admin pages add a serif heading (display size, 34px line) and a
+  15px description.
+- **View as.** Presentation only. The pill (36px, `warning-surface` and
+  `warning-line`) sits over the centre of the top bar; the work panel takes a
+  2px `view-as-frame` border through `[data-view-as] [data-work-panel]`; the
+  rail chip reads "Viewing as {Role}" in that role's colours (`RoleChip`
+  `label`). Gated pages pass `viewAsGate` to `WorkspaceChrome` for the D4
+  hidden state.
+- **Menus and dialogs.** Round 2 menus and flyouts use `shadow-menu`, radius
+  12, padding 6, 32px items with 15px icons; the View as dialog uses
+  `shadow-dialog`, radius 16, a fir confirm and the filled destructive Cancel.
+- **Settings.** Full width, no sub-rail: a serif "Settings" heading and
+  `settings/SettingsTabs` (a `chrome` segmented bar; the active tab is the
+  primary fill with white text). `SettingsRow` is the 280px label column
+  row; `SettingsSaveBar` shows "No changes yet" until something changes, then
+  Discard and a fir "Save changes". The Notifications tab saves each
+  `ui/Switch` (32x18, `primary-selected` on, `gray-300` off) at once.
+- **Toast.** One dark card at the bottom centre for default, success, info
+  and loading toasts: `toast` fill, `toast-ink` 13px text, `toast-muted`
+  second line, a `primary-light` action, radius 10, `shadow-toast-dark`.
+  Errors keep the red card and warnings the amber one.
+- **Keys.** `src/lib/shell/shortcuts.ts` is the one registry. Hints detect the
+  platform (Mac symbols on a Mac, Ctrl and Shift elsewhere); `KeyHint` draws
+  24px key chips or the inline hint used in menus and tooltips (`Tooltip`
+  `hint`).
+- **Avatar.** `ui/Avatar` shows the photo or initials on fir, teal or
+  `avatar-purple`, picked from the user id so a person keeps one colour
+  (proposal; the boards state no rule).
+
+### 2026-09-26 amendment - round 2 integration: the boards win
+
+The owner asked for the round 2 screens to match the Paper boards exactly.
+
+- **Icons.** Round 2 screens draw the boards' own icons from
+  `src/lib/components/icons/` (one Svelte component per icon, `currentColor`,
+  the board's viewBox, `size` and `strokeWidth` props). Its README maps each
+  icon to the boards and places it appears, with the size and stroke used
+  there. Phosphor stays on screens no round 2 board covers. The top bar tile
+  takes these icons at 15px, stroke 1.8.
+- **Board colours are tokens.** Every board value without a token got one in
+  `layout.css`, grouped by area. The contrast substitutions are reversed:
+  callout paragraphs use the boards' ink at 80% (red) and 75% (amber)
+  (`danger-body`, `warning-body`), the amber callout button is `#D97706`,
+  and the rail group label is muted ink.
+- **Reading the Paper JSX.** Paper's `text-label`, `text-data`, `text-ui`,
+  `text-body`, `text-title` and `text-display` are 11, 12, 13, 14, 18 and
+  28px sans; its `rounded-sm`, `rounded-md` and `rounded-card` are 6, 8 and
+  12px. Translate by value: the app's utilities with the same names differ.
 
 ## Panel motion (2026-08-10)
 

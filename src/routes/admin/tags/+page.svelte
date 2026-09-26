@@ -1,11 +1,10 @@
 <script lang="ts">
   import AdminWorkspacePage from "$lib/components/admin/AdminWorkspacePage.svelte";
-  import { resolve } from "$app/paths";
   import Spinner from "$lib/components/ui/Spinner.svelte";
   import Button from "$lib/components/ui/Button.svelte";
   import SelectInput from "$lib/components/ui/SelectInput.svelte";
   import { userErrorMessage } from "$lib/errors";
-  import { goto } from "$app/navigation";
+  import { goToLogin } from "$lib/auth/goToLogin";
   import { useQuery, useMutation } from "convex-svelte";
   import { useAuth } from "@mmailaender/convex-better-auth-svelte/svelte";
   import { api } from "../../../../convex/_generated/api";
@@ -30,7 +29,7 @@
 
   $effect(() => {
     if (!auth.isLoading && !auth.isAuthenticated) {
-      goto(resolve("/login"), { replaceState: true });
+      goToLogin();
     }
   });
 

@@ -28,6 +28,15 @@ as needed for the features you use. `env.example` lists the declared optional
 app names separately from direct environment reads and the installed auth
 library's secret. These backend settings are not frontend assignments.
 
+`ANTHROPIC_TRANSPORT` chooses where Anthropic models run. Leave it unset (or
+`direct`) to call Anthropic with `ANTHROPIC_API_KEY`. Set it to `openrouter`
+to call them through OpenRouter, pinned to Anthropic's own endpoint and billed
+to OpenRouter credits, with `OPENROUTER_ANTHROPIC_API_KEY` (or
+`OPENROUTER_API_KEY`). The report chat assistant still calls Anthropic
+directly. Before switching, turn off prompt logging and data use in the
+OpenRouter account; to roll back, set it to `direct`. The full note is under
+owner decision 30 in `docs/product-domain.md`.
+
 With `npx convex dev` running, start the app in another terminal:
 
 ```bash
@@ -38,6 +47,29 @@ The app runs at `http://localhost:3001`. For a frontend deployment, supply the
 matching `PUBLIC_CONVEX_URL` and `PUBLIC_CONVEX_SITE_URL` settings.
 `PUBLIC_BUILD_TIME` is an optional timestamp you supply at build/deploy time;
 blank or invalid values hide the stamp.
+
+### Several local apps at once
+
+Browsers share cookies across every port on `localhost`. Two Banhall apps
+running at once, such as a test app on 5173 and the demo on 5175, overwrite
+each other's sign-in. Give each Convex deployment its own cookie names with
+`BETTER_AUTH_COOKIE_PREFIX`:
+
+| Apps | Value |
+| --- | --- |
+| Apps on the e2e deployment | `banhall-e2e` |
+| The demo app | `banhall-demo` |
+
+Set the value in two places, and keep them the same: on the Convex deployment,
+and in that checkout's `.env.local` so the SvelteKit server reads the same
+cookies. Restart the app after changing `.env.local`. Apps that use the same
+Convex deployment share one sign-in. Changing the value signs that app out
+once. Use letters, digits, dots, underscores and hyphens only.
+
+Leave it unset in production and on preview deployments. Unset keeps the
+default `better-auth.*` cookie names, so nobody is signed out. Open local apps
+at `http://localhost:<port>`; `127.0.0.1` and LAN addresses are not trusted
+for sign-in.
 
 ## Verification
 

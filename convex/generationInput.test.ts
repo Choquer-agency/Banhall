@@ -43,6 +43,7 @@ async function setup(seeds: Seed[], documents: string[] = []) {
       clientName: "Client",
       status: "draft",
       createdBy: userId,
+      ownerId: userId,
       shareToken: "gen-input-token",
       createdAt: now,
       updatedAt: now,
@@ -109,12 +110,12 @@ describe("reserveGeneration freezes the project's transcripts", () => {
       const generation = await t.run((ctx) => ctx.db.get(generationId));
       expect(generation?.status).toBe("reserved");
       expect(generation?.gatedWorkflow).toBe(
-        candidateMode === "iterative" ? "sections" : undefined
+        candidateMode === "iterative" ? "seeds" : undefined
       );
       expect(await t.run((ctx) => ctx.db.query("seedSubsections").collect())).toEqual([]);
       const state = await authed.query(api.generations.getIterativeState, { generationId });
       if (candidateMode === "iterative") {
-        expect(state?.gatedWorkflow).toBe("sections");
+        expect(state?.gatedWorkflow).toBe("seeds");
         await t.run((ctx) => ctx.db.patch(generationId, { gatedWorkflow: undefined }));
         expect((await authed.query(api.generations.getIterativeState, { generationId }))
           ?.gatedWorkflow).toBe("sections");
@@ -256,6 +257,40 @@ describe("requestGeneration reads the project's transcripts (AC5)", () => {
 });
 
 describe("retries re-freeze from the project's current transcripts (AC5)", () => {
+  it.each([
+    { label: "absent legacy", gatedWorkflow: undefined, expected: "sections" },
+    { label: "explicit legacy", gatedWorkflow: "sections" as const, expected: "sections" },
+    { label: "unsigned Seed", gatedWorkflow: "seeds" as const, expected: "seeds" },
+  ])("preserves the $label iterative workflow", async ({ gatedWorkflow, expected }) => {
+    const { t, authed, projectId, transcriptIds } = await setup([
+      { content: "Retry workflow evidence" },
+    ]);
+    const failedId = await t.run(async (ctx) => {
+      const id = await ctx.db.insert("generations", {
+        projectId,
+        transcriptId: transcriptIds[0],
+        transcriptIds,
+        status: "failed",
+        requestedBy: (await ctx.db.query("users").first())!._id,
+        candidateMode: "iterative",
+        gatedWorkflow,
+        singleModelId: "claude-sonnet-5",
+        previousProjectStatus: "draft",
+        candidatesDone: 0,
+        candidatesFailed: 1,
+        startedAt: Date.now(),
+      });
+      await ctx.db.patch(projectId, { activeGenerationId: id });
+      return id;
+    });
+
+    const retryId = await authed.mutation(api.generations.retryGeneration, {
+      generationId: failedId,
+    });
+    const retry = await t.run((ctx) => ctx.db.get(retryId));
+    expect(retry?.gatedWorkflow).toBe(expected);
+  });
+
   it("retryGeneration picks up a transcript added after the failure", async () => {
     const { t, authed, projectId, transcriptIds } = await setup([
       { label: "First", position: 0, content: "Alpha body" },
@@ -629,5 +664,276 @@ describe("the analyzer context budget travels with the frozen input", () => {
     ).resolves.toBeNull();
     const row = await t.run((ctx) => ctx.db.get(foreign._id));
     expect(row?.contextBudget).toBeUndefined();
+  });
+});
+
+describe("leave-out lists at reservation (decision 56)", () => {
+  async function allSources(t: TestConvex, generationId: Id<"generations">) {
+    return await t.run((ctx) =>
+      ctx.db
+        .query("generationSources")
+        .withIndex("by_generationId", (q) => q.eq("generationId", generationId))
+        .collect()
+    );
+  }
+  async function documentIds(t: TestConvex, projectId: Id<"projects">) {
+    return await t.run(async (ctx) =>
+      (
+        await ctx.db
+          .query("projectDocuments")
+          .withIndex("by_projectId", (q) => q.eq("projectId", projectId))
+          .collect()
+      ).map((row) => row._id)
+    );
+  }
+
+  it("does not freeze excluded transcripts or documents and stores the selection", async () => {
+    const { t, authed, projectId, transcriptIds } = await setup(
+      [
+        { label: "Kept", position: 0, content: "Alpha body" },
+        { label: "Left out", position: 1, content: "Bravo body" },
+      ],
+      ["Kept notes", "Left out notes"]
+    );
+    const [keptDoc, leftOutDoc] = await documentIds(t, projectId);
+    const generationId = await authed.mutation(api.generations.requestGeneration, {
+      projectId,
+      candidateMode: "single",
+      excludeTranscriptIds: [transcriptIds[1]],
+      excludeDocumentIds: [leftOutDoc],
+    });
+    const sources = await allSources(t, generationId);
+    expect(sources.filter((row) => row.kind === "transcript").map((row) => row.content)).toEqual([
+      "Alpha body",
+    ]);
+    expect(
+      sources.filter((row) => row.kind === "project_document").map((row) => row.projectDocumentId)
+    ).toEqual([keptDoc]);
+    const generation = await t.run((ctx) => ctx.db.get(generationId));
+    expect(generation?.transcriptIds).toEqual([transcriptIds[0]]);
+    expect(generation?.excludedSources).toEqual({
+      documentIds: [leftOutDoc],
+      transcriptIds: [transcriptIds[1]],
+    });
+  });
+
+  it("stores nothing when nothing is left out", async () => {
+    const { t, authed, projectId } = await setup([{ content: "Alpha body" }]);
+    const generationId = await authed.mutation(api.generations.requestGeneration, {
+      projectId,
+      candidateMode: "single",
+      excludeTranscriptIds: [],
+      excludeDocumentIds: [],
+    });
+    expect((await t.run((ctx) => ctx.db.get(generationId)))?.excludedSources).toBeUndefined();
+  });
+
+  it("refuses ids from another project and writes nothing", async () => {
+    const { t, authed, projectId, userId } = await setup([{ content: "Alpha body" }]);
+    const foreign = await t.run(async (ctx) => {
+      const otherProject = await ctx.db.insert("projects", {
+        title: "Other",
+        clientName: "Client",
+        status: "draft",
+        createdBy: userId,
+        ownerId: userId,
+        shareToken: "other-token",
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      });
+      const transcriptId = await ctx.db.insert("transcripts", {
+        projectId: otherProject,
+        content: "Foreign",
+        createdAt: Date.now(),
+      });
+      const documentId = await ctx.db.insert("projectDocuments", {
+        projectId: otherProject,
+        fileName: "foreign.txt",
+        fileType: "txt",
+        content: "Foreign doc",
+        source: "upload",
+        uploadedBy: userId,
+        createdAt: Date.now(),
+      });
+      return { transcriptId, documentId };
+    });
+    expect(
+      await errorCode(() =>
+        authed.mutation(api.generations.requestGeneration, {
+          projectId,
+          candidateMode: "single",
+          excludeTranscriptIds: [foreign.transcriptId],
+        })
+      )
+    ).toBe("INVALID_INPUT");
+    expect(
+      await errorCode(() =>
+        authed.mutation(api.generations.requestGeneration, {
+          projectId,
+          candidateMode: "single",
+          excludeDocumentIds: [foreign.documentId],
+        })
+      )
+    ).toBe("INVALID_INPUT");
+    expect(await t.run((ctx) => ctx.db.query("generations").collect())).toEqual([]);
+  });
+
+  it("ignores a deleted id", async () => {
+    const { t, authed, projectId, transcriptIds } = await setup([
+      { content: "Alpha body" },
+      { content: "Bravo body" },
+    ]);
+    await t.run((ctx) => ctx.db.delete(transcriptIds[1]));
+    const generationId = await authed.mutation(api.generations.requestGeneration, {
+      projectId,
+      candidateMode: "single",
+      excludeTranscriptIds: [transcriptIds[1]],
+    });
+    const generation = await t.run((ctx) => ctx.db.get(generationId));
+    expect(generation?.excludedSources).toBeUndefined();
+    expect((await frozenSources(t, generationId)).map((row) => row.content)).toEqual(["Alpha body"]);
+  });
+
+  it("refuses more than 250 ids of one kind", async () => {
+    const { t, authed, projectId } = await setup([{ content: "Alpha" }]);
+    // The cap counts distinct ids, so the list needs 251 real rows.
+    const many = await t.run(async (ctx) => {
+      const ids: Id<"transcripts">[] = [];
+      for (let index = 0; index < 251; index += 1) {
+        ids.push(
+          await ctx.db.insert("transcripts", {
+            projectId,
+            content: "",
+            createdAt: Date.now() + index,
+            archivedAt: Date.now(),
+          })
+        );
+      }
+      return ids;
+    });
+    expect(
+      await errorCode(() =>
+        authed.mutation(api.generations.requestGeneration, {
+          projectId,
+          candidateMode: "single",
+          excludeTranscriptIds: many,
+        })
+      )
+    ).toBe("INVALID_INPUT");
+  });
+
+  it("refuses when excluding every readable source", async () => {
+    const { authed, projectId, transcriptIds } = await setup([{ content: "Alpha body" }]);
+    expect(
+      await errorCode(() =>
+        authed.mutation(api.generations.requestGeneration, {
+          projectId,
+          candidateMode: "single",
+          excludeTranscriptIds: transcriptIds,
+        })
+      )
+    ).toBe("INVALID_INPUT");
+  });
+
+  it("retryGeneration freezes the same selection", async () => {
+    const { t, authed, projectId, transcriptIds } = await setup([
+      { label: "Kept", position: 0, content: "Alpha body" },
+      { label: "Left out", position: 1, content: "Bravo body" },
+    ]);
+    const failedId = await t.run(async (ctx) =>
+      ctx.db.insert("generations", {
+        projectId,
+        transcriptId: transcriptIds[0],
+        status: "failed",
+        requestedBy: (await ctx.db.query("users").first())!._id,
+        candidateMode: "single",
+        singleModelId: "claude-sonnet-5",
+        previousProjectStatus: "draft",
+        candidatesDone: 0,
+        candidatesFailed: 1,
+        startedAt: Date.now(),
+        excludedSources: { documentIds: [], transcriptIds: [transcriptIds[1]] },
+      })
+    );
+    const retryId = await authed.mutation(api.generations.retryGeneration, {
+      generationId: failedId,
+    });
+    expect((await frozenSources(t, retryId)).map((row) => row.label)).toEqual(["Kept"]);
+    expect((await t.run((ctx) => ctx.db.get(retryId)))?.excludedSources).toEqual({
+      documentIds: [],
+      transcriptIds: [transcriptIds[1]],
+    });
+  });
+});
+
+describe("a run already going (F6)", () => {
+  async function withActiveRun() {
+    const f = await setup([{ content: "Alpha body" }]);
+    await f.t.run((ctx) =>
+      ctx.db.patch(f.userId, { firstName: "Priya", lastName: "Shah" })
+    );
+    const generationId = await f.authed.mutation(api.generations.requestGeneration, {
+      projectId: f.projectId,
+      candidateMode: "iterative",
+    });
+    return { ...f, generationId };
+  }
+
+  it("names the active run in the refusal's user-safe details", async () => {
+    const f = await withActiveRun();
+    const generation = await f.t.run((ctx) => ctx.db.get(f.generationId));
+    let data: Record<string, unknown> | undefined;
+    try {
+      await f.authed.mutation(api.generations.requestGeneration, {
+        projectId: f.projectId,
+        candidateMode: "single",
+      });
+    } catch (error) {
+      data = (error as { data?: Record<string, unknown> }).data;
+    }
+    expect(data).toEqual({
+      code: "GENERATION_ACTIVE",
+      message: "A generation is already active for this project",
+      generationId: f.generationId,
+      requestedByName: "Priya Shah",
+      candidateMode: "iterative",
+      startedAt: String(generation!.startedAt),
+    });
+  });
+
+  it("getActiveRunSummary serves internal roles and is silent for everyone else", async () => {
+    const f = await withActiveRun();
+    await f.t.run(async (ctx) => {
+      await ctx.db.insert("users", { authId: "summary-manager", role: "manager", firstName: "Mara" });
+      await ctx.db.insert("users", { authId: "summary-admin", role: "admin" });
+      await ctx.db.insert("users", { authId: "summary-roleless" });
+    });
+    const generation = await f.t.run((ctx) => ctx.db.get(f.generationId));
+    expect(await f.authed.query(api.generations.getActiveRunSummary, { projectId: f.projectId })).toEqual({
+      generationId: f.generationId,
+      requestedByName: "Priya Shah",
+      isYou: true,
+      candidateMode: "iterative",
+      startedAt: generation!.startedAt,
+    });
+    for (const subject of ["summary-manager", "summary-admin"]) {
+      expect(
+        await f.t
+          .withIdentity({ subject })
+          .query(api.generations.getActiveRunSummary, { projectId: f.projectId }),
+        subject
+      ).toMatchObject({ isYou: false, requestedByName: "Priya Shah" });
+    }
+    expect(await f.t.query(api.generations.getActiveRunSummary, { projectId: f.projectId })).toBeNull();
+    expect(
+      await f.t
+        .withIdentity({ subject: "summary-roleless" })
+        .query(api.generations.getActiveRunSummary, { projectId: f.projectId })
+    ).toBeNull();
+  });
+
+  it("returns null when nothing is running", async () => {
+    const { authed, projectId } = await setup([{ content: "Alpha body" }]);
+    expect(await authed.query(api.generations.getActiveRunSummary, { projectId })).toBeNull();
   });
 });

@@ -9,8 +9,10 @@
   `dashboard.searchProjects` subscription the Projects view uses (live only
   while the palette is open with a settled query — no standing
   subscriptions); admin destinations are the shared ADMIN_ROUTES list,
-  admin-role gated exactly like UserMenu. Creation stays navigation into
-  the wizard (new projects begin in Intake).
+  gated like the rail (settings.configure on the effective viewer, decision
+  53). Round 2 adds Team, Keyboard shortcuts, Flag an issue and, for
+  developers, the Current dashboard escape that left the rail. Creation
+  stays navigation into the wizard (new projects begin in Intake).
 -->
 <script lang="ts">
   import { goto } from "$app/navigation";
@@ -21,6 +23,8 @@
   import { useAuth } from "@mmailaender/convex-better-auth-svelte/svelte";
   import { api } from "../../../../convex/_generated/api";
   import { ADMIN_ROUTES } from "$lib/dashboard/adminRoutes";
+  import { canSeeAdmin, canViewTeam } from "$lib/shell/navigation";
+  import { effectiveViewer } from "$lib/shell/viewAs.svelte";
   import { searchShortcutHint } from "$lib/workspace/searchContinuity";
   import { popIn, popOut } from "$lib/motion/panelMotion";
   import StageBadge from "$lib/components/ui/StageBadge.svelte";
@@ -29,19 +33,24 @@
     open = $bindable(false),
     myWorkHref = "/my-work",
     projectsHref = "/projects",
+    currentDashboardHref = null,
+    currentExperienceLabel = "Current dashboard",
   }: {
     open?: boolean;
     /** Canonical rail hrefs (carry the layout/group params) so palette and
      * rail can never navigate to different variants of the same view. */
     myWorkHref?: string;
     projectsHref?: string;
+    /** The `?workspace=current` escape, offered to developers (decision 53). */
+    currentDashboardHref?: string | null;
+    currentExperienceLabel?: string;
   } = $props();
 
   const auth = useAuth();
   const userQ = useQuery(api.users.getCurrentUser, () =>
     auth.isAuthenticated && open ? {} : "skip"
   );
-  const isAdmin = $derived(userQ.data?.role === "admin");
+  const viewer = $derived(effectiveViewer(userQ.data));
 
   let query = $state("");
   // Debounced server query — one search subscription per settled query,
@@ -67,14 +76,23 @@
   const destinations = $derived.by((): Destination[] => {
     // myWorkHref/projectsHref arrive pre-built from the shell host (they
     // carry the canonical layout/group params); the rest resolve here.
-    const base: Destination[] = [
+    const list: Destination[] = [
       { href: myWorkHref, label: "Home", keywords: "home my work" },
       { href: projectsHref, label: "Projects", keywords: "projects board list" },
-      { href: resolve("/settings"), label: "Settings", keywords: "settings account" },
     ];
-    return isAdmin
-      ? [...base, ...ADMIN_ROUTES.map((r) => ({ href: resolve(r.href), label: r.label, keywords: "admin" }))]
-      : base;
+    // WS2 lands the /team route; the path is not a typed route id yet.
+    if (canViewTeam(viewer.role)) list.push({ href: `${resolve("/")}team`, label: "Team", keywords: "team people invite members" });
+    list.push(
+      { href: resolve("/settings"), label: "Settings", keywords: "settings account" },
+      { href: resolve("/settings/shortcuts" as "/"), label: "Keyboard shortcuts", keywords: "keys shortcuts help" }
+    );
+    if (canSeeAdmin(viewer)) {
+      list.push(...ADMIN_ROUTES.map((r) => ({ href: resolve(r.href as "/"), label: r.label, keywords: "admin" })));
+    }
+    if (viewer.isDeveloper && currentDashboardHref) {
+      list.push({ href: currentDashboardHref, label: currentExperienceLabel, keywords: "developer current dashboard classic" });
+    }
+    return list;
   });
   // Static entries filter by simple inclusion; server results arrive
   // pre-ranked, so bits' own scorer stays off (shouldFilter=false).
@@ -87,6 +105,14 @@
   const newProjectVisible = $derived(
     matchesQuery({ href: "", label: "New project", keywords: "create start wizard add" })
   );
+  const flagIssueVisible = $derived(
+    matchesQuery({ href: "", label: "Flag an issue", keywords: "bug report problem feedback" })
+  );
+
+  function flagIssue() {
+    open = false;
+    window.dispatchEvent(new CustomEvent("banhall:flag-issue"));
+  }
 
   const shortcutHint = searchShortcutHint();
 
@@ -191,20 +217,28 @@
                       </Command.Group>
                     {/if}
 
-                    {#if newProjectVisible}
+                    {#if newProjectVisible || flagIssueVisible}
                       <Command.Group>
                         <Command.GroupHeading class="text-label px-2.5 pb-1 pt-2">Actions</Command.GroupHeading>
                         <Command.GroupItems>
+                          {#if newProjectVisible}
                           <Command.Item value="action:new-project" onSelect={() => go(resolve("/project/new"))} class={itemClass}>
                             <svg class="h-4 w-4 shrink-0 text-ink-faint" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" d="M12 5v14M5 12h14" /></svg>
                             New project
                             <span class="ml-auto text-[11px] text-ink-faint">Opens the wizard</span>
                           </Command.Item>
+                          {/if}
+                          {#if flagIssueVisible}
+                            <Command.Item value="action:flag-issue" onSelect={flagIssue} class={itemClass}>
+                              <svg class="h-4 w-4 shrink-0 text-ink-faint" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M5 21V4m0 0h11l-2 4 2 4H5" /></svg>
+                              Flag an issue
+                            </Command.Item>
+                          {/if}
                         </Command.GroupItems>
                       </Command.Group>
                     {/if}
 
-                    {#if !settled && visibleDestinations.length === 0 && !newProjectVisible}
+                    {#if !settled && visibleDestinations.length === 0 && !newProjectVisible && !flagIssueVisible}
                       <p class="px-2.5 py-6 text-center text-[13px] text-ink-muted">Nothing matches.</p>
                     {/if}
                   </Command.Viewport>

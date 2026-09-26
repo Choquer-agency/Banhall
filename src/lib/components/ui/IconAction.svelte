@@ -9,6 +9,7 @@
     onclick,
     href,
     disabled,
+    id,
   }: {
     icon: Snippet;
     label: string;
@@ -16,6 +17,8 @@
     onclick?: () => void;
     href?: string;
     disabled?: boolean;
+    /** Stable element id for hosts that return focus to this action. */
+    id?: string;
   } = $props();
 
   const className =
@@ -31,11 +34,11 @@
 {/snippet}
 
 {#if href}
-  <a {href} title={title ?? label} class={className}>
+  <a {href} {id} title={title ?? label} class={className}>
     {@render inner()}
   </a>
 {:else}
-  <button type="button" title={title ?? label} {onclick} {disabled} class={className}>
+  <button type="button" {id} title={title ?? label} {onclick} {disabled} class={className}>
     {@render inner()}
   </button>
 {/if}

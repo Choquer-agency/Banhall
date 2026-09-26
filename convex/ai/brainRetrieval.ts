@@ -10,7 +10,10 @@ import type { ActionCtx } from "../_generated/server";
 import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { formatBrainExemplars } from "./brain/retrieve";
-import { buildRetrievalBrief } from "./brain/query";
+import { buildRetrievalBrief, retrievalBriefFromFacts } from "./brain/query";
+import type { PlaceholderMap } from "../lib/deidentify";
+import type { BrainProvenanceEntry } from "../lib/generationOutputs";
+import type { GenerationClient } from "./openrouterCore";
 
 /**
  * Per-consumer Brain exemplar prompt blocks — each drafter sees exemplars of
@@ -68,8 +71,26 @@ export async function retrieveBrainBlocks(
     transcript: string;
     industry?: string | null;
     scienceCode?: string | null;
-    retrievalBriefClient: Anthropic;
+    retrievalBriefClient: GenerationClient | Anthropic;
+    /** The generation's frozen retrieval-brief model. */
+    retrievalBriefModel?: string;
+    /**
+     * 2026-09-24 (plan step 8): the frozen fact packs of a generation that
+     * reads them. The brief is then built from their claims, with no call.
+     */
+    factPacks?: readonly string[];
+    /** The generation's frozen name map, dropped from queries built from facts. */
+    placeholders?: PlaceholderMap;
     log: (line: string) => Promise<unknown>;
+    /**
+     * Records the exemplars and the retrieval brief. By default they are
+     * written at once; the Step-by-step background step collects them and
+     * writes them with its attempt-fenced completion instead.
+     */
+    recordProvenance?: (
+      exemplars: BrainProvenanceEntry[],
+      brief: string | undefined
+    ) => Promise<unknown>;
   }
 ): Promise<BrainExemplarBlocks> {
   const brainBlocks: BrainExemplarBlocks = { ...EMPTY_BRAIN_BLOCKS };
@@ -78,11 +99,14 @@ export async function retrieveBrainBlocks(
     scienceCode: params.scienceCode ?? null,
   };
   try {
-    const brief = await buildRetrievalBrief(
-      params.retrievalBriefClient,
-      params.title,
-      params.transcript
-    );
+    const brief =
+      (params.factPacks ? retrievalBriefFromFacts(params.factPacks, params.placeholders) : null) ??
+      (await buildRetrievalBrief(
+        params.retrievalBriefClient,
+        params.title,
+        params.transcript,
+        params.retrievalBriefModel
+      ));
     const fallbackQuery = `${params.title}${BRAIN_GENERATION_QUERY_PROGRAM.fallbackTitleTranscriptSeparator}${params.transcript.slice(
       0,
       BRAIN_FALLBACK_TRANSCRIPT_CHARS
@@ -146,11 +170,16 @@ export async function retrieveBrainBlocks(
     }
 
     if (provenance.length > 0) {
-      await ctx.runMutation(internal.generations.setBrainProvenance, {
-        generationId: params.generationId,
-        exemplars: provenance,
-        brief: brief ? JSON.stringify(brief) : undefined,
-      });
+      const briefJson = brief ? JSON.stringify(brief) : undefined;
+      if (params.recordProvenance) {
+        await params.recordProvenance(provenance, briefJson);
+      } else {
+        await ctx.runMutation(internal.generations.setBrainProvenance, {
+          generationId: params.generationId,
+          exemplars: provenance,
+          brief: briefJson,
+        });
+      }
       const perSection = ["242", "244", "246"]
         .map((s) => `${s}: ${provenance.filter((p) => p.section === s).length}`)
         .join(", ");
