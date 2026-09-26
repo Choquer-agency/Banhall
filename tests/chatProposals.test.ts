@@ -441,10 +441,14 @@ describe("proposal rejection", () => {
     await f.caller.mutation(api.chatV2.rejectProposal, { proposalId: f.proposalId });
     expect((await state(f)).proposal?.state).toBe("rejected");
   });
-  test("an unrelated authenticated writer can reject a proposal", async () => {
+  // Security wave 1 (a2 P2-2): rejecting is report.editProse, like applying.
+  test("an unrelated authenticated writer cannot reject a proposal", async () => {
     const f = await createFixture("writer", "unrelated-writer");
-    await f.caller.mutation(api.chatV2.rejectProposal, { proposalId: f.proposalId });
-    expect((await state(f)).proposal?.state).toBe("rejected");
+    const before = await state(f);
+    await expect(f.caller.mutation(api.chatV2.rejectProposal, { proposalId: f.proposalId }))
+      .rejects.toMatchObject({ data: { code: "NOT_AUTHORIZED" } });
+    expect(await state(f)).toEqual(before);
+    expect(before.proposal?.state).toBe("pending");
   });
   test("a manager cannot reject an applied proposal or change its audit state", async () => {
     const f = await createFixture("manager");
