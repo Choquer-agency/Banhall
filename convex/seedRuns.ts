@@ -651,7 +651,13 @@ async function failSeedAttempt(
     .take(2);
   const subsection = subsectionRows.length === 1 ? subsectionRows[0] : null;
   if (subsection?.pendingBatchId === current._id) {
-    const failures = subsection.consecutiveFailures + 1;
+    // A deliberate stop (skip, cancel, deletion) is not a failed attempt: it
+    // neither says "Writing seeds for this step failed" nor counts toward
+    // the three-failure state (step-by-step review s1 P3-2).
+    const failures =
+      args.errorCode === "GENERATION_TERMINATED"
+        ? subsection.consecutiveFailures
+        : subsection.consecutiveFailures + 1;
     const wasGenerating = subsection.state === "generating";
     const restored = wasGenerating
       ? subsection.priorState ?? "untouched"
