@@ -417,7 +417,7 @@ export const sendMessage = mutation({
     if (agentThreadId && (await otherActiveTurn(ctx, agentThreadId))) {
       domainError(
         "INVALID_STATE",
-        "A reply is still being written in this chat. Wait for it to finish or stop it, then send again."
+        "A reply is still being written in this chat. Wait for it to finish, or press Stop if it seems stuck, then send again."
       );
     }
 
@@ -1030,19 +1030,28 @@ export const finishTurn = internalMutation({
 });
 
 /**
+ * A queued or running turn this old is stranded: the reply's stream stops at
+ * 540 s (chatStreamTimeoutMs) and the action at 10 minutes, so 14 minutes is
+ * the stream window plus 5 minutes. The reaper runs every 2 minutes, so a
+ * crashed reply holds its thread for at most about 16 minutes (review r1 P3-3;
+ * it was up to 25). Stop frees the thread at once.
+ */
+export const CHAT_TURN_STALE_MINUTES = 14;
+
+/**
  * Cron reaper (mirrors generations.failStaleGenerations): finishTurn only
  * runs from streamChatReply's own success/catch paths, so a hard action death
  * (deploy restart, timeout, OOM) strands a turn in "queued"/"running" and the
  * composer ticks "Working…" forever. Fail anything active past the cutoff —
  * the UI already renders failed turns, and the writer just sends again.
  * Status-CAS: terminal turns (completed/failed/aborted) are never touched.
- * `npx convex run chatV2:failStaleChatTurns '{"olderThanMinutes":15}'`
+ * `npx convex run chatV2:failStaleChatTurns '{"olderThanMinutes":14}'`
  */
 export const failStaleChatTurns = internalMutation({
   args: { olderThanMinutes: v.optional(v.number()) },
   returns: v.object({ failed: v.number() }),
   handler: async (ctx, args) => {
-    const cutoff = Date.now() - (args.olderThanMinutes ?? 15) * 60 * 1000;
+    const cutoff = Date.now() - (args.olderThanMinutes ?? CHAT_TURN_STALE_MINUTES) * 60 * 1000;
     let failed = 0;
     for (const status of ["queued", "running"] as const) {
       const turns = await ctx.db

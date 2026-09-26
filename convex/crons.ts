@@ -1,6 +1,7 @@
 import { cronJobs } from "convex/server";
 import { internal } from "./_generated/api";
 import { refreshCatalogRef } from "./lib/modelCatalogRefs";
+import { CHAT_TURN_STALE_MINUTES } from "./chatV2";
 
 const crons = cronJobs();
 
@@ -27,11 +28,13 @@ crons.interval(
   internal.generations.failStalePostQa,
   { olderThanMinutes: 15 }
 );
+// A crashed chat reply holds its thread until this sweep (review r1 P3-3):
+// every 2 minutes, for turns past the 540 s stream window plus 5 minutes.
 crons.interval(
   "recover stale chat turns",
-  { minutes: 10 },
+  { minutes: 2 },
   internal.chatV2.failStaleChatTurns,
-  { olderThanMinutes: 15 }
+  { olderThanMinutes: CHAT_TURN_STALE_MINUTES }
 );
 
 // Learning loop: nightly safety nets for the feedback digests. The main

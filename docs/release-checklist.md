@@ -144,7 +144,7 @@ Sign in on the production URL, then:
 5. **Step by step:** on a test project, start Step by step; the first Seeds appear, and the Summary sign-off opens.
 6. **Chat:** ask the report chat one question; it answers.
 7. **Admin pages:** `/admin/models` loads with today's refresh, and `/admin/learning` shows Learning health.
-8. **Crons:** in the dashboard, Schedules, Cron Jobs lists "recover stale report generations", "recover stale PD reviews", "recover stale post-QA passes", "recover stale chat turns" (every 10 minutes), "reconcile stalled oversight rebuilds", "resume stalled My work backfills" (every 5 minutes), and the daily "refresh QA calibration digest", "refresh draft style digest", "refresh model catalog" and "release unreferenced files".
+8. **Crons:** in the dashboard, Schedules, Cron Jobs lists "recover stale report generations", "recover stale PD reviews", "recover stale post-QA passes" (every 10 minutes), "recover stale chat turns" (every 2 minutes), "reconcile stalled oversight rebuilds", "resume stalled My work backfills" (every 5 minutes), and the daily "refresh QA calibration digest", "refresh draft style digest", "refresh model catalog", "release unreferenced files" and "prune old error reports".
 9. **Logs:** the Convex logs show no new errors in the first 15 minutes. In particular, after the sign-in in item 1 there is no error starting "AUTH_PROXY_SECRET"; if there is one, the secret is missing or too short on Convex (step 4). A different value on Vercel is not logged, so copy both from the same source.
 
 **Check:** every item passes. If one fails, roll back (below).

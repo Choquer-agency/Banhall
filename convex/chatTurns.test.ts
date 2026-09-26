@@ -8,6 +8,8 @@ import {
   CHAT_CONTEXT_OPTIONS,
   reportChatAgent,
 } from "./ai/chatAgentV2";
+import { CHAT_TURN_STALE_MINUTES } from "./chatV2";
+import crons from "./crons";
 import { APICallError, type ModelMessage } from "ai";
 import { CHAT_EVIDENCE_GUIDANCE } from "./ai/prompts";
 
@@ -1073,6 +1075,49 @@ describe("chat turn lifecycle", () => {
 
 describe("failStaleChatTurns", () => {
   const MINUTES = 60 * 1000;
+
+  // Review r1 P3-3 (2026-09-25): a crashed reply held its thread for up to
+  // 25 minutes (a 15 minute cutoff swept every 10 minutes).
+  test("frees a crashed reply's thread within about 16 minutes, never inside the action's 10", async () => {
+    expect(CHAT_TURN_STALE_MINUTES).toBe(14);
+    const jobs = (crons as unknown as {
+      crons: Record<string, { name: string; args: unknown[]; schedule: { type: string; minutes?: number } }>;
+    }).crons;
+    const job = jobs["recover stale chat turns"];
+    expect(job?.name).toBe("chatV2:failStaleChatTurns");
+    expect(job?.schedule).toMatchObject({ type: "interval", minutes: 2 });
+    expect(job?.args).toEqual([{ olderThanMinutes: CHAT_TURN_STALE_MINUTES }]);
+
+    const setupResult = await setup();
+    const { t } = setupResult;
+    await insertMappedThread(setupResult, "thread-cutoff");
+    const base = Date.now();
+    const runningId = await insertTurn(t, {
+      agentThreadId: "thread-cutoff",
+      promptMessageId: "running",
+      order: 1,
+      status: "running",
+      startedAt: base,
+    });
+    // Still inside the action's own limit: left alone.
+    vi.setSystemTime(base + 10 * MINUTES);
+    await expect(t.mutation(internal.chatV2.failStaleChatTurns, {})).resolves.toEqual({ failed: 0 });
+    vi.setSystemTime(base + CHAT_TURN_STALE_MINUTES * MINUTES + 1);
+    await expect(t.mutation(internal.chatV2.failStaleChatTurns, {})).resolves.toEqual({ failed: 1 });
+    expect((await t.run((ctx) => ctx.db.get(runningId)))?.status).toBe("failed");
+  });
+
+  test("the refusal while a reply runs says to press Stop", async () => {
+    const f = await setup();
+    const { result } = await sendQueuedTurn(f);
+    await expect(
+      f.actor.mutation(api.chatV2.sendMessage, {
+        reportId: f.reportId,
+        content: "And another thing.",
+        threadId: result.threadId,
+      })
+    ).rejects.toThrow(/press Stop if it seems stuck/);
+  });
 
   test("fails stuck queued/running turns past the cutoff, leaves fresh and terminal turns", async () => {
     const setupResult = await setup();
