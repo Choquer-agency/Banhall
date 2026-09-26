@@ -2599,6 +2599,16 @@ Lead decisions, owner delegated, 2026-09-26. Records what WS3 built under decisi
 - **Duplicate projects.** The same-project check (`projects.findSameProject`) is a read for internal users only; it never blocks, it offers "Open that project" or "It is a different project" (E6).
 - **Approval:** lead, 2026-09-26, under the owner's delegation.
 
+### 2026-09-26 (sixth): Owner decisions 59 to 65
+
+Owner, 2026-09-26. Full table in `DECISIONS-2026-09-17.md`.
+
+- **Home (decision 59).** The Home projects table has no tick-box column until a bulk action exists.
+- **Company files, OneDrive, email (decisions 60, 61, 63).** No change: files stay per project, OneDrive import stays one shared Admin connection, and invites and password resets stay copy links and "ask an Admin" (decision 50).
+- **Provider fallback (decision 64).** Direct Anthropic stays the default transport. When a direct call fails because the Anthropic account is out of credit, the same request goes through the Anthropic-pinned OpenRouter transport, and later calls use OpenRouter until direct works again. Only a credit failure triggers this; rate limits, overload and auth errors do not. Developers see one Alerts notice per switch. This is a stop-gap until Banhall fully moves to OpenRouter (decision 30).
+- **Brief prepared ahead (decision 65).** Banhall may prepare the Brief before a run starts, so Step by step shows its first ideas sooner. The cost (about 10-20 cents per project, even if no run starts) is accepted. A prepared Brief is adopted only when it was built from exactly the run's sources and settings; otherwise the run builds its own. The detailed rule is recorded with the build.
+- **Approval:** owner, 2026-09-26.
+
 ## Amendment process
 
 A change to vocabulary, an invariant, a transition edge, or a decision above requires:

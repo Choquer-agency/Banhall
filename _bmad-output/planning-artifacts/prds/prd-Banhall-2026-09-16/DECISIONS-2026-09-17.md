@@ -111,4 +111,18 @@ Security wave 1 (2026-09-25) made these calls under the lead's handoff; they wai
 
 Decisions 53 to 58 (round 2 build rules: shell and navigation, Team and invites, Home, New project and starting, Reading the interview, Settings and profiles) are recorded in full in the `docs/product-domain.md` amendment "2026-09-26 (second)"; lead calls under the owner's delegation.
 
-Still waiting on the owner: an email provider for invites and password resets (decision 50); the OpenRouter account steps before `ANTHROPIC_TRANSPORT` is switched on (see decision 30).
+The owner has since answered both open points: no email provider for now (decision 63) and OpenRouter as the fallback when Anthropic credit runs out (decision 64).
+
+## Owner decisions, 2026-09-26 (later)
+
+The owner answered the seven open questions in plain terms.
+
+| # | Question (plain terms) | Answer | Applied in |
+|---|---|---|---|
+| 59 | Home rows have tick boxes that do nothing. What should happen? | **Remove them** until there is something to do with several projects at once. | Amendment 2026-09-26 (sixth); branch `ui/decisions-home-logo`. |
+| 60 | Should Banhall remember company files (like financials) per company? | **Not now.** Files stay per project. | No change. |
+| 61 | Should each writer connect their own OneDrive? | **No, keep it shared**: one connection set up by an Admin. | No change. |
+| 62 | What goes in the small square logo spot (folded rail)? | **A mark made from our logo**: the ring-and-triangle "a" from the Banhall wordmark. | Branch `ui/decisions-home-logo`. |
+| 63 | Connect an email service for invites and password resets? | **No, keep copy links** and "ask an Admin" (decision 50 stays). | No change. |
+| 64 | How should OpenRouter be used? | **Direct Anthropic first; when its credit runs out, fall back to OpenRouter automatically** until Banhall fully moves over. The OpenRouter key is already set on both backends. | Amendment 2026-09-26 (sixth); branch `ai/openrouter-credit-fallback`. |
+| 65 | Should the Brief be prepared before Generate so the first ideas show in about 10-20 seconds, at about 10-20 cents per project even if no run starts? | **Yes.** | Amendment 2026-09-26 (sixth); design first, then build. |
