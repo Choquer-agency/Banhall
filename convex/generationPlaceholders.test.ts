@@ -181,6 +181,126 @@ describe("placeholders frozen on a generation", () => {
 });
 
 /**
+ * Review 2026-09-25: models sometimes write a placeholder without its
+ * brackets (`CLIENT_1_BRAND`, "led by PERSON_2"). The restore at the
+ * provider boundary takes a bare id the frozen map issued, and only that.
+ */
+describe("bare placeholders at the HTTP boundary", () => {
+  function stubResponse(content: unknown[], bodies: string[]) {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        bodies.push(await new Request(input, init).text());
+        return Response.json({
+          id: "msg_bare",
+          type: "message",
+          role: "assistant",
+          model: MODEL,
+          content,
+          stop_reason: "tool_use",
+          stop_sequence: null,
+          usage: { input_tokens: 10, output_tokens: 5 },
+        });
+      })
+    );
+  }
+
+  it("restores bare ids in text and nested tool input, leaving ids the map never issued", async () => {
+    const f = await setup();
+    const generationId = await f.writer.mutation(api.generations.requestGeneration, {
+      projectId: f.projectId,
+      candidateMode: "single",
+    });
+    const bodies: string[] = [];
+    stubResponse(
+      [
+        { type: "text", text: "CLIENT_1_BRAND's controller, led by PERSON_4; PERSON_1_FIRST asked. CLIENT_10 and XPERSON_1 stay." },
+        {
+          type: "tool_use",
+          id: "tool_1",
+          name: "t",
+          input: {
+            claims: [{ text: "PERSON_3 confirmed CLIENT_1_SHORT's result", quote: "A controller for [CLIENT_1_SHORT]." }],
+            meta: { ids: ["PERSON_9", "CLIENT_1_OTHER", "PERSON_4_LAST"] },
+          },
+        },
+      ],
+      bodies
+    );
+    const response = await f.t.action(async (ctx) =>
+      clientForModel(ctx, MODEL, {
+        callSite: "generation:analyzer",
+        projectId: f.projectId,
+        attribution: { generationId },
+      }).messages.create({
+        model: MODEL,
+        max_tokens: 100,
+        messages: [
+          {
+            role: "user",
+            content: "Dana Whitfield: What did you build?\n\nMarcus Lindqvist: A controller for Verdant Grid Technologies.",
+          },
+        ],
+      })
+    );
+    expect(bodies).toHaveLength(1);
+    // The request is masked exactly as before.
+    expect(bodies[0]).toContain("[PERSON_1]: What did you build?\\n\\n[PERSON_4]: A controller for [CLIENT_1_SHORT].");
+    expect(response.content).toEqual([
+      { type: "text", text: "Verdant Grid's controller, led by Marcus Lindqvist; Dana asked. CLIENT_10 and XPERSON_1 stay." },
+      {
+        type: "tool_use",
+        id: "tool_1",
+        name: "t",
+        input: {
+          claims: [{ text: "Priya Shah confirmed Verdant Grid Technologies's result", quote: "A controller for Verdant Grid Technologies." }],
+          meta: { ids: ["PERSON_9", "CLIENT_1_OTHER", "Lindqvist"] },
+        },
+      },
+    ]);
+  });
+
+  it("renumbers the frozen map past a literal bare id in a transcript, so the id is never restored into a name", async () => {
+    const f = await setup();
+    await f.t.run(async (ctx) => {
+      await ctx.db.insert("transcripts", {
+        projectId: f.projectId,
+        content: "Marcus Lindqvist: PERSON_1 in the logger is the rig id, and CLIENT_1 is the test bench.",
+        createdAt: 2,
+        position: 1,
+      });
+    });
+    const generationId = await f.writer.mutation(api.generations.requestGeneration, {
+      projectId: f.projectId,
+      candidateMode: "single",
+    });
+    const map = (await f.t.run((ctx) => ctx.db.get(generationId)))?.placeholders ?? [];
+    const tokens = map.map((entry) => entry.token);
+    expect(tokens[0]).toBe("[CLIENT_2]");
+    expect(tokens).not.toContain("[PERSON_1]");
+    expect(map.find((entry) => entry.value === "Marcus Lindqvist")?.token).toBe("[PERSON_5]");
+
+    const bodies: string[] = [];
+    stubResponse([{ type: "text", text: "PERSON_1 is the rig id on CLIENT_1, per PERSON_5 of CLIENT_2_BRAND." }], bodies);
+    const response = await f.t.action(async (ctx) =>
+      clientForModel(ctx, MODEL, {
+        callSite: "generation:analyzer",
+        projectId: f.projectId,
+        attribution: { generationId },
+      }).messages.create({
+        model: MODEL,
+        max_tokens: 100,
+        messages: [{ role: "user", content: "Marcus Lindqvist: PERSON_1 in the logger is the rig id, and CLIENT_1 is the test bench." }],
+      })
+    );
+    expect(bodies[0]).toContain("[PERSON_5]: PERSON_1 in the logger is the rig id, and CLIENT_1 is the test bench.");
+    expect(response.content).toEqual([
+      { type: "text", text: "PERSON_1 is the rig id on CLIENT_1, per Marcus Lindqvist of Verdant Grid." },
+    ]);
+  });
+});
+
+/**
  * Review 2026-09-25: speaker rows are written by a build scheduled after the
  * transcript is saved, and three demo drafts started 28 to 53 ms after the
  * save froze maps without the speakers' names. The map now parses the text
