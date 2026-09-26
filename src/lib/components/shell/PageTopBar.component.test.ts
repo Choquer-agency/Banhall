@@ -58,4 +58,53 @@ describe("PageTopBar", () => {
     expect(order[0].compareDocumentPosition(order[1]) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(order[1].compareDocumentPosition(order[2]) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
+
+  it("bleed (H1): white, a soft line under it, 20px sides, and no tile or bell", async () => {
+    await render(PageTopBar, {
+      title: "New project",
+      breadcrumb: { label: "Projects", href: "/projects" },
+      icon: IconGear,
+      variant: "bleed",
+      onOpenNavigation: vi.fn(),
+      actions,
+    });
+    const bar = document.querySelector<HTMLElement>("[data-page-top-bar]")!;
+    const style = getComputedStyle(bar);
+    expect([bar.getBoundingClientRect().height, style.paddingLeft, style.backgroundColor]).toEqual([56, "20px", "rgb(255, 255, 255)"]);
+    expect(style.borderBottomWidth).toBe("1px");
+    expect(style.borderBottomColor).toBe("rgb(233, 240, 239)");
+    expect(bar.querySelector("[data-page-icon-tile]")).toBeNull();
+    expect(bar.querySelector("[data-top-bar-bell]")).toBeNull();
+    expect(bar.querySelector("nav[aria-label=Breadcrumb]")?.textContent?.replace(/\s+/g, " ").trim()).toBe("Projects / New project");
+    expect(bar.querySelector("[data-testid=act]")).not.toBeNull();
+  });
+
+  it("phone (H2): a 52px bar with the back arrow and the title only", async () => {
+    const onBack = vi.fn();
+    await render(PageTopBar, {
+      title: "New project",
+      breadcrumb: { label: "Projects", href: "/projects" },
+      icon: IconGear,
+      variant: "phone",
+      onBack,
+      onOpenNavigation: vi.fn(),
+      actions,
+    });
+    const bar = document.querySelector<HTMLElement>("[data-page-top-bar]")!;
+    expect(bar.getBoundingClientRect().height).toBe(52);
+    expect([getComputedStyle(bar).paddingLeft, getComputedStyle(bar).paddingRight]).toEqual(["8px", "12px"]);
+    expect(bar.querySelector('button[aria-label="Open workspace navigation"]')).toBeNull();
+    expect(bar.querySelector("[data-page-icon-tile], [data-top-bar-bell], [data-page-breadcrumb]")).toBeNull();
+    const back = bar.querySelector<HTMLButtonElement>("[data-page-back]")!;
+    expect(back.getAttribute("aria-label")).toBe("Back");
+    expect(back.getBoundingClientRect().width).toBe(44);
+    const arrow = back.querySelector("svg")!;
+    expect([arrow.getAttribute("width"), arrow.getAttribute("stroke-width")]).toEqual(["20", "1.8"]);
+    expect(arrow.querySelector("path")?.getAttribute("d")).toBe("M19 12H5 M11 6l-6 6 6 6");
+    const title = bar.querySelector("h1")!;
+    expect(title.textContent).toBe("New project");
+    expect([getComputedStyle(title).fontSize, getComputedStyle(title).lineHeight, getComputedStyle(title).fontWeight]).toEqual(["16px", "22px", "500"]);
+    back.click();
+    expect(onBack).toHaveBeenCalledTimes(1);
+  });
 });

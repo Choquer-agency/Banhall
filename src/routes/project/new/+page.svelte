@@ -1844,6 +1844,29 @@
   {/if}
 {/snippet}
 
+{#snippet detailsSection()}
+  <!-- H1, H2: below desktop Details follows "How should we write it?". -->
+  <NewProjectSection id="section-details" number={layout === "desktop" ? "04" : "05"} title="Details" helper={layout === "phone" ? undefined : "Optional"} last compact={layout === "phone"} gap={layout === "phone" ? "12px" : "14px"}>
+    <div class={`grid ${
+      layout === "phone" ? "grid-cols-1 gap-3" : layout === "tablet" ? "grid-cols-2 gap-x-4 gap-y-3.5" : "grid-cols-[260px_minmax(0,1fr)] gap-x-4 gap-y-3.5"
+    }`}>
+      <div class="flex flex-col gap-1.5">
+        <label for="projectNumber" class={labelClass}>Project number</label>
+        <input id="projectNumber" bind:value={projectNumber} placeholder="For example, P01-A" class={`field-control w-full text-sm leading-5 text-ink placeholder:text-ink-faint pointer-coarse:h-11 ${fieldSize}`} aria-invalid={!projectNumberValid} />
+        {#if !projectNumberValid}
+          <p class="text-xs text-danger-ink-muted" role="alert">Use 1 to 20, a letter a to z, or both, like 2a.</p>
+        {/if}
+      </div>
+      {#if allTags.length > 0}
+        <div class="flex flex-col gap-1.5" data-tags-field>
+          <span class={labelClass}>Tags</span>
+          <TagPicker {allTags} bind:selectedTagIds label={null} variant="field" />
+        </div>
+      {/if}
+    </div>
+  </NewProjectSection>
+{/snippet}
+
 {#snippet copiedFiles()}
   {#if copiedDocumentGroups.length}
     <!-- Duplicate: the source's files. They are not staged here; the server
@@ -1925,12 +1948,16 @@
 {:else}
   <!-- Round 2 (E1): one page inside the workspace chrome: the folder tile,
        the "Projects /" breadcrumb and a flush work panel the page lays out. -->
+  <!-- H1, H2: below desktop the page runs full bleed under a plain bar;
+       the phone bar leads with a back arrow that leaves as Cancel does. -->
   <WorkspaceChrome
     theme="light"
     title="New project"
     breadcrumb={{ label: "Projects", href: resolve("/projects") }}
     icon={IconFolder}
     panel="flush"
+    frame={layout === "desktop" ? "inset" : layout === "tablet" ? "bleed" : "phone"}
+    onBack={cancel}
   >
     {#snippet actions()}
       <Button
@@ -2085,10 +2112,13 @@
                       {/snippet}
                     </ScienceCodePicker>
                   </div>
-                  <div class="flex flex-col gap-1.5">
-                    <label for="industry" class={labelClass}>Industry</label>
-                    <IndustrySelect id="industry" bind:value={industry} canCreate={user.data?.role === "admin"} class={selectFieldClass} />
-                  </div>
+                  {#if layout !== "phone"}
+                    <!-- H2 leaves Industry out; the project page still sets it. -->
+                    <div class="flex flex-col gap-1.5">
+                      <label for="industry" class={labelClass}>Industry</label>
+                      <IndustrySelect id="industry" bind:value={industry} canCreate={user.data?.role === "admin"} class={selectFieldClass} />
+                    </div>
+                  {/if}
                 </div>
               </NewProjectSection>
 
@@ -2427,31 +2457,13 @@
                 {/if}
               </NewProjectSection>
 
-              <NewProjectSection id="section-details" number="04" title="Details" helper={layout === "phone" ? undefined : "Optional"} last={layout === "desktop"} compact={layout === "phone"} gap={layout === "phone" ? "12px" : "14px"}>
-                <div class={`grid ${
-                  layout === "phone" ? "grid-cols-1 gap-3" : layout === "tablet" ? "grid-cols-2 gap-x-4 gap-y-3.5" : "grid-cols-[260px_minmax(0,1fr)] gap-x-4 gap-y-3.5"
-                }`}>
-                  <div class="flex flex-col gap-1.5">
-                    <label for="projectNumber" class={labelClass}>Project number</label>
-                    <input id="projectNumber" bind:value={projectNumber} placeholder="For example, P01-A" class={`field-control w-full text-sm leading-5 text-ink placeholder:text-ink-faint pointer-coarse:h-11 ${fieldSize}`} aria-invalid={!projectNumberValid} />
-                    {#if !projectNumberValid}
-                      <p class="text-xs text-danger-ink-muted" role="alert">Use 1 to 20, a letter a to z, or both, like 2a.</p>
-                    {/if}
-                  </div>
-                  {#if allTags.length > 0}
-                    <div class="flex flex-col gap-1.5" data-tags-field>
-                      <span class={labelClass}>Tags</span>
-                      <TagPicker {allTags} bind:selectedTagIds label={null} variant="field" />
-                    </div>
-                  {/if}
-                </div>
-              </NewProjectSection>
+              {#if layout === "desktop"}{@render detailsSection()}{/if}
 
               <!-- H1, H2: How should we write it? as an inline section. -->
               {#if layout !== "desktop"}
-              <section id="section-mode" data-new-project-section="section-mode" class={`flex scroll-mt-4 flex-col ${layout === "phone" ? "gap-2.5" : "gap-3.5"}`} aria-labelledby="section-mode-title">
+              <section id="section-mode" data-new-project-section="section-mode" class={`flex scroll-mt-4 flex-col border-b border-line-soft ${layout === "phone" ? "gap-2.5 pb-[18px]" : "gap-3.5 pb-[22px]"}`} aria-labelledby="section-mode-title">
                 <div class="flex items-baseline gap-2.5">
-                  <span class="font-mono text-xs leading-[22px] text-ink-faint" aria-hidden="true">05</span>
+                  <span class="font-mono text-xs leading-[22px] text-ink-faint" aria-hidden="true">04</span>
                   <h2 id="section-mode-title" class="text-[15px] leading-[22px] font-medium text-ink">
                     {layout === "phone"
                       ? mode === "review" ? "How to review it" : "How to write it"
@@ -2470,6 +2482,7 @@
                   {/each}
                 </ul>
               </section>
+              {@render detailsSection()}
               {/if}
             </div>
 

@@ -31,6 +31,8 @@
     currentExperienceHref = null,
     currentExperienceLabel = "Current dashboard",
     viewAsGate = null,
+    frame = "inset",
+    onBack = null,
     children,
     actions,
     status,
@@ -60,6 +62,14 @@
      * (presentation only; the page's server checks are unchanged).
      */
     viewAsGate?: ViewAsGate | null;
+    /**
+     * `inset`: the round 2 frame (top bar on the shell background, white
+     * panel inset 12px). `bleed` (H1, tablet) and `phone` (H2): a full-bleed
+     * white page under a plain top bar, with no inset panel, page tile or
+     * bell; the phone bar leads with a back arrow when `onBack` is set.
+     */
+    frame?: "inset" | "bleed" | "phone";
+    onBack?: (() => void) | null;
     children: Snippet;
     actions?: Snippet;
     /** Right-side slot before the bell (for example a save state). */
@@ -122,7 +132,10 @@
   <!-- Round 2 frame (decision 53): the 56px top bar on the shell background,
        then the white work panel inset 12px, which owns the vertical scroll.
        `data-work-panel` is the shared hook for the View as frame. -->
-  <div class="flex min-h-0 min-w-0 flex-col overflow-hidden bg-workspace-shell px-3 pb-3">
+  <div
+    data-chrome-frame={frame}
+    class={`flex min-h-0 min-w-0 flex-col overflow-hidden ${frame === "inset" ? "bg-workspace-shell px-3 pb-3" : "bg-surface"}`}
+  >
     <!-- D4: while the page is hidden in a View as role, the bar names the
          gated page on its own ("Admin"), with no breadcrumb or actions. -->
     <PageTopBar
@@ -137,11 +150,13 @@
       onToggleRail={() => (railHidden = !railHidden)}
       {status}
       actions={hiddenInView ? undefined : actions}
+      variant={frame === "inset" ? "default" : frame}
+      {onBack}
     />
     <main
       data-work-panel
       data-work-panel-padding={panel === "padded" && !hiddenInView ? padding : "flush"}
-      class={`min-h-0 min-w-0 flex-1 overflow-y-auto rounded-[10px] border border-line bg-surface ${hiddenInView ? "flex flex-col" : ""} ${
+      class={`min-h-0 min-w-0 flex-1 overflow-y-auto bg-surface ${frame === "inset" ? "rounded-[10px] border border-line" : ""} ${hiddenInView ? "flex flex-col" : ""} ${
         panel === "flush" || hiddenInView ? "" : padding === "admin" ? "px-5 py-7 md:px-10" : "px-5 pb-12 pt-8 md:px-14"
       }`}
     >
