@@ -167,7 +167,6 @@ import type * as lib_readingFacts from "../lib/readingFacts.js";
 import type * as lib_reportEdits from "../lib/reportEdits.js";
 import type * as lib_rerankTelemetry from "../lib/rerankTelemetry.js";
 import type * as lib_roleCapabilities from "../lib/roleCapabilities.js";
-import type * as lib_round2Api from "../lib/round2Api.js";
 import type * as lib_safeErrorDetails from "../lib/safeErrorDetails.js";
 import type * as lib_sectionRunData from "../lib/sectionRunData.js";
 import type * as lib_seedApproval from "../lib/seedApproval.js";
@@ -404,7 +403,6 @@ declare const fullApi: ApiFromModules<{
   "lib/reportEdits": typeof lib_reportEdits;
   "lib/rerankTelemetry": typeof lib_rerankTelemetry;
   "lib/roleCapabilities": typeof lib_roleCapabilities;
-  "lib/round2Api": typeof lib_round2Api;
   "lib/safeErrorDetails": typeof lib_safeErrorDetails;
   "lib/sectionRunData": typeof lib_sectionRunData;
   "lib/seedApproval": typeof lib_seedApproval;
