@@ -71,6 +71,7 @@ async function setup() {
       clientName: "Client",
       status: "draft",
       createdBy: writerId,
+      ownerId: writerId,
       shareToken: "catalog-token",
       createdAt: NOW,
       updatedAt: NOW,

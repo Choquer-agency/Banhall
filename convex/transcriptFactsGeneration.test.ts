@@ -164,6 +164,7 @@ async function setup(mode: "off" | "long" | "all") {
       clientName: "Verdant Grid",
       status: "draft",
       createdBy: writerId,
+      ownerId: writerId,
       shareToken: "gf-token",
       createdAt: 1,
       updatedAt: 1,

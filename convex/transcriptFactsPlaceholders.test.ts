@@ -78,6 +78,7 @@ describe("fact extraction inside a generation uses one placeholder map", () => {
         clientName: "Verdant Grid",
         status: "draft",
         createdBy: writerId,
+        ownerId: writerId,
         shareToken: "pf-token",
         createdAt: 1,
         updatedAt: 1,

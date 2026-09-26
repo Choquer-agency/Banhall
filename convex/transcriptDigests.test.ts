@@ -36,6 +36,7 @@ async function setup(seeds: Seed[], documents: string[] = []) {
       clientName: "Client",
       status: "draft",
       createdBy: userId,
+      ownerId: userId,
       shareToken: "digest-token",
       createdAt: now,
       updatedAt: now,
