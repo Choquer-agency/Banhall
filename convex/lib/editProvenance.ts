@@ -5,8 +5,8 @@ import {
   MAX_CLAIM_TEXT_LENGTH,
   sha256,
 } from "./contracts";
-import { extractPlainText } from "./reportEdits";
-import { NOT_GENERATED_PLACEHOLDER } from "./tiptapReport";
+import { plainTextLines } from "./reportEdits";
+import { NOT_GENERATED_PLACEHOLDER, sectionOfHeading } from "./tiptapReport";
 import { generationTranscriptIds } from "./transcripts";
 
 // Amendment 2026-09-25 (fifth): a human edit carries the report's claim
@@ -21,23 +21,29 @@ type Claim = Doc<"reportProvenance">["claims"][number];
 type Section = Claim["section"];
 type Line = { text: string; section: Section | null };
 
-const SECTION_HEADING_RE = /^(?:#{1,6}\s*)?(?:Line|Section)\s+(242|244|246)\b/i;
 const MAX_ALIGNED_CELLS = 4_000_000;
 
-/** Split plain report text (extractPlainText) into lines tagged by Section.
- * Heading lines and lines before the first Section heading carry no Section:
- * they are never claims. */
-function linesOf(plainText: string): Line[] {
+/** Split a report document into its plain-text lines (the lines of
+ * extractPlainText), tagged by Section. Section boundaries come from the
+ * Section heading nodes, never from what a line says: a paragraph that
+ * starts "Line 246" is still prose and still a claim. Heading lines and
+ * lines before the first Section heading carry no Section: they are never
+ * claims. A document that does not parse has no lines. */
+function linesOf(content: string): Line[] {
   const lines: Line[] = [];
-  let section: Section | null = null;
-  for (const raw of plainText ? plainText.split("\n\n") : []) {
-    const heading = raw.length <= 160 ? raw.trim().match(SECTION_HEADING_RE) : null;
-    if (heading) {
-      section = heading[1] as Section;
-      lines.push({ text: raw, section: null });
-      continue;
+  try {
+    const top = (JSON.parse(content) as { content?: unknown }).content;
+    if (!Array.isArray(top)) return [];
+    let section: Section | null = null;
+    for (const node of top as Array<Record<string, unknown>>) {
+      const heading = sectionOfHeading(node);
+      if (heading) section = heading.slice(1) as Section;
+      for (const text of plainTextLines(node)) {
+        lines.push({ text, section: heading ? null : section });
+      }
     }
-    lines.push({ text: raw, section });
+  } catch {
+    return []; // As extractPlainText: an unreadable document has no text.
   }
   return lines;
 }
@@ -115,19 +121,19 @@ export type CarriedClaims = {
 };
 
 /**
- * Carry claims from the previous revision's text to the next one. Pure, so
- * the rule is tested without a database. `newClaimPrefix` makes the ids of
+ * Carry claims from the previous revision's document (Tiptap JSON) to the
+ * next one. Pure, so the rule is tested without a database. `newClaimPrefix` makes the ids of
  * claims for new paragraphs unique to the revision that added them. Returns
  * null when the two texts are too large to compare.
  */
 export function carryClaims(
-  previousText: string,
-  nextText: string,
+  previousContent: string,
+  nextContent: string,
   claims: readonly Claim[],
   newClaimPrefix: string
 ): CarriedClaims | null {
-  const oldLines = linesOf(previousText);
-  const newLines = linesOf(nextText);
+  const oldLines = linesOf(previousContent);
+  const newLines = linesOf(nextContent);
   const kept = alignLines(oldLines, newLines);
   if (!kept) return null;
   const keptNew = new Set(kept.filter((index) => index >= 0));
@@ -228,8 +234,8 @@ export async function provenanceForEdit(
   const previous = await ctx.db.get(report.provenanceId);
   if (!previous || previous.projectId !== report.projectId) return undefined;
   const carried = carryClaims(
-    extractPlainText(report.content),
-    extractPlainText(nextContent),
+    report.content,
+    nextContent,
     previous.claims,
     `r${options.nextRevisionNumber}`
   );
@@ -284,7 +290,7 @@ export async function provenanceForWriterApprovedReport(
     now: number;
   }
 ): Promise<Id<"reportProvenance"> | undefined> {
-  const carried = carryClaims("", extractPlainText(args.content), [], "approved");
+  const carried = carryClaims("", args.content, [], "approved");
   if (!carried || carried.claims.length > MAX_CLAIMS_PER_REVISION) return undefined;
   const claims: Claim[] = await Promise.all(
     carried.claims.map(async (claim) => ({

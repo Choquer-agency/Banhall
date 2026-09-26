@@ -79,7 +79,7 @@ function inlineText(node: ReportNode): string {
 }
 
 /** A top-level report heading that opens one of the three Sections. */
-function sectionOfHeading(node: ReportNode): SectionKey | null {
+export function sectionOfHeading(node: ReportNode): SectionKey | null {
   if (node.type !== "heading") return null;
   const level =
     node.attrs && typeof node.attrs === "object" && "level" in node.attrs

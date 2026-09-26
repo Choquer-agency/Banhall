@@ -426,31 +426,37 @@ export function extractPlainText(contentJson: string): string {
 export function tryExtractPlainText(contentJson: string): string | null {
   try {
     const doc = JSON.parse(contentJson);
-    const lines: string[] = [];
-    const walk = (node: Record<string, unknown>) => {
-      const type = node.type as string | undefined;
-      const children = node.content as Array<Record<string, unknown>> | undefined;
-      if (type === "text") {
-        lines.push((node.text as string) ?? "");
-        return;
-      }
-      if (children) {
-        const before = lines.length;
-        children.forEach(walk);
-        // join inline children of a block into one line
-        if (type === "paragraph" || type === "heading") {
-          const joined = lines.splice(before).join("");
-          lines.push(joined);
-        }
-      }
-      if (type === "horizontalRule") lines.push("———");
-    };
     const top = doc.content as Array<Record<string, unknown>> | undefined;
-    top?.forEach(walk);
-    return lines.filter((l) => l.length > 0).join("\n\n");
+    return (top ?? []).flatMap(plainTextLines).join("\n\n");
   } catch {
     return null;
   }
+}
+
+/** The non-empty plain-text lines one top-level node contributes to
+ * extractPlainText, in order. */
+export function plainTextLines(topNode: Record<string, unknown>): string[] {
+  const lines: string[] = [];
+  const walk = (node: Record<string, unknown>) => {
+    const type = node.type as string | undefined;
+    const children = node.content as Array<Record<string, unknown>> | undefined;
+    if (type === "text") {
+      lines.push((node.text as string) ?? "");
+      return;
+    }
+    if (children) {
+      const before = lines.length;
+      children.forEach(walk);
+      // join inline children of a block into one line
+      if (type === "paragraph" || type === "heading") {
+        const joined = lines.splice(before).join("");
+        lines.push(joined);
+      }
+    }
+    if (type === "horizontalRule") lines.push("———");
+  };
+  walk(topNode);
+  return lines.filter((l) => l.length > 0);
 }
 
 // ─── Banned-word scrub (chat safety net) ────────────────────────────────────

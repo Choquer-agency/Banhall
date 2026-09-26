@@ -6,7 +6,6 @@ import { api } from "./_generated/api";
 import type { Doc } from "./_generated/dataModel";
 import { sha256 } from "./lib/contracts";
 import { carryClaims } from "./lib/editProvenance";
-import { extractPlainText } from "./lib/reportEdits";
 import { buildTiptapDocument } from "./lib/tiptapReport";
 import schema from "./schema";
 
@@ -51,8 +50,7 @@ describe("carryClaims", () => {
     claim("244-1", "244", P244, "approved"),
     claim("246-1", "246", P246, "unsupported"),
   ];
-  const carry = (next: string) =>
-    carryClaims(extractPlainText(ORIGINAL), extractPlainText(next), claims, "r1")!.claims;
+  const carry = (next: string) => carryClaims(ORIGINAL, next, claims, "r1")!.claims;
 
   it("keeps every claim and its state when no paragraph changed", () => {
     expect(carry(ORIGINAL)).toEqual(claims);
@@ -97,6 +95,38 @@ describe("carryClaims", () => {
       sources: [],
     });
     expect(out).toHaveLength(4);
+  });
+
+  // Review r2 P2-1 (2026-09-25): Section boundaries used to come from the
+  // text, so a paragraph that starts like a Section heading was taken for
+  // one and never became a claim.
+  it("a paragraph that starts like a Section heading is still a claim that needs review", () => {
+    const added = "Line 246 results show a 40% yield gain over baseline.";
+    const out = carry(doc(P242, `${P244}\n\n${added}`, P246));
+    expect(out.slice(0, 3)).toEqual(claims);
+    expect(out[3]).toMatchObject({ section: "244", claimText: added, state: "needs_review" });
+    const lookalike = "Section 242 was harder than the team expected.";
+    expect(carry(doc(P242, P244, `${P246}\n\n${lookalike}`))[3]).toMatchObject({
+      section: "246",
+      claimText: lookalike,
+      state: "needs_review",
+    });
+  });
+
+  it("only a level 2 Section heading node starts a Section", () => {
+    const parsed = JSON.parse(ORIGINAL) as { content: Array<Record<string, unknown>> };
+    // A lower heading that reads like a Section heading stays inside Line 244.
+    const at244 = parsed.content.findIndex(
+      (node) => node.type === "heading" && JSON.stringify(node).includes("Line 244")
+    );
+    parsed.content.splice(at244 + 2, 0, {
+      type: "heading",
+      attrs: { level: 3 },
+      content: [{ type: "text", text: "Line 246 gains" }],
+    });
+    const out = carry(JSON.stringify(parsed));
+    expect(out.slice(0, 3)).toEqual(claims);
+    expect(out[3]).toMatchObject({ section: "244", claimText: "Line 246 gains", state: "needs_review" });
   });
 });
 
@@ -298,6 +328,20 @@ describe("an edited report can be exported once its claims are reviewed", () => 
     expect(provenance?.status).toBe("approved");
     expect(provenance?.claims.every((row) => row.state === "approved")).toBe(true);
     await expect(attestAndExport(f)).resolves.toMatchObject({ revisionNumber: 1 });
+  });
+
+  it("a paragraph starting like a Section heading takes an approved record back to review", async () => {
+    const f = await setup();
+    const added = "Line 246 results show a 40% yield gain over baseline.";
+    await f.writer.mutation(api.reports.updateReportContent, {
+      reportId: f.reportId,
+      content: doc(P242, `${P244}\n\n${added}`, P246),
+      expectedRevisionNumber: 0,
+    });
+    const { provenance } = await reportAndProvenance(f);
+    expect(provenance?.status).toBe("needs_review");
+    expect(provenance?.claims.find((row) => row.claimText === added)?.state).toBe("needs_review");
+    await expect(attestAndExport(f)).rejects.toThrow(/needs human source review/);
   });
 
   it("an edit never approves a claim a manager has not approved", async () => {
