@@ -4,6 +4,7 @@ import type { Doc } from "./_generated/dataModel";
 import { internal } from "./_generated/api";
 import { getCurrentUserOrNull } from "./lib/auth";
 import { hasCapability, requireCapability } from "./lib/roleCapabilities";
+import { ANTHROPIC_CREDIT_NOTICE_SOURCE } from "../shared/anthropicCreditFallback";
 
 const breadcrumbValidator = v.object({
   type: v.string(),
@@ -60,11 +61,16 @@ const RETENTION_SCAN_SLACK = 20;
 
 /**
  * Sources the server itself writes notices under (convex/transcripts.ts
- * storage sweep, convex/lib/modelRoles.ts catalog notices). Some are raised
+ * storage sweep, convex/lib/modelRoles.ts catalog notices,
+ * convex/providerCredit.ts direct Anthropic credit latch). Some are raised
  * once, so an open one is kept past the retention window; a report a browser
  * sends can never claim one of these sources.
  */
-export const SYSTEM_NOTICE_SOURCES: ReadonlySet<string> = new Set(["storage-sweep", "model-catalog"]);
+export const SYSTEM_NOTICE_SOURCES: ReadonlySet<string> = new Set([
+  "storage-sweep",
+  "model-catalog",
+  ANTHROPIC_CREDIT_NOTICE_SOURCE,
+]);
 
 function clientSource(source: string | undefined): string | undefined {
   return source !== undefined && SYSTEM_NOTICE_SOURCES.has(source) ? `client:${source}` : source;

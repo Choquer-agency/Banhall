@@ -10,11 +10,14 @@ import {
   type ContextOptions,
   type ToolCtx,
 } from "@convex-dev/agent";
-// The report chat assistant always calls Anthropic directly with
-// ANTHROPIC_API_KEY, whatever ANTHROPIC_TRANSPORT says (owner decision 30,
-// 2026-09-25: chat moves to OpenRouter in a later change). Its helper calls
-// (clientForRole) do follow the transport.
-import { anthropic } from "@ai-sdk/anthropic";
+// The report chat assistant calls Anthropic directly with ANTHROPIC_API_KEY,
+// whatever ANTHROPIC_TRANSPORT says (owner decision 30, 2026-09-25: chat
+// moves to OpenRouter in a later change). Its helper calls (clientForRole)
+// do follow the transport. Owner decision 64 (2026-09-26): when the direct
+// account is out of credit, a turn goes through the Anthropic-pinned
+// OpenRouter transport instead (creditFallbackFetch).
+import { anthropic, createAnthropic } from "@ai-sdk/anthropic";
+import type { UsageHandler } from "@convex-dev/agent";
 import { MODEL } from "./model";
 import { buildChatSystemPromptV2 } from "./prompts";
 import {
@@ -52,6 +55,9 @@ import { safeErrorDetails } from "../lib/safeErrorDetails";
 import { anthropicCacheWrite1hTokens } from "./instrument";
 import { ACTION_REQUEST_WINDOW_MS } from "./actionDeadline";
 import { roleModelEntryRef } from "../lib/modelCatalogRefs";
+import { creditFallbackFetch } from "./anthropicCredit";
+import { openRouterCreditFallbackKey } from "../lib/providerConfig";
+import { openRouterAnthropicCharge } from "../../shared/anthropicTransport";
 
 // ─── Agent-based chat (BNH-10 P2) ────────────────────────────────────────────
 // Parallel-run replacement for chatAgent.ts. The @convex-dev/agent component
@@ -606,7 +612,20 @@ export const reportChatAgent = new Agent(components.agent, {
   tools: CHAT_TOOLS,
   // BNH-16: durably log billed usage for every model step without turning a
   // successful streamed response into a chat failure.
-  usageHandler: async (ctx, { threadId, userId, model, usage, providerMetadata }) => {
+  usageHandler: chatUsageHandler(() => "direct"),
+  // Reply → tool call → short lead-in; searchBrain adds a hop. 5 is headroom.
+  stopWhen: stepCountIs(5),
+});
+
+/**
+ * The chat usage row for one model step. `servedBy` says where the step's
+ * request went (decision 64): a step answered through OpenRouter records
+ * the transport and OpenRouter's exact charge when its usage carries one
+ * (the AI SDK passes Anthropic's raw usage through, unknown fields
+ * included), otherwise the price-table estimate.
+ */
+function chatUsageHandler(servedBy: () => "direct" | "openrouter"): UsageHandler {
+  return async (ctx, { threadId, userId, model, usage, providerMetadata }) => {
     const cacheCreationInputTokens =
       usage.inputTokenDetails.cacheWriteTokens ?? 0;
     // The AI SDK passes Anthropic's raw usage through; its cache_creation
@@ -626,6 +645,8 @@ export const reportChatAgent = new Agent(components.agent, {
           cacheCreationInputTokens -
           cacheReadInputTokens
       );
+    const viaOpenRouter = servedBy() === "openrouter";
+    const charge = viaOpenRouter ? openRouterAnthropicCharge({ usage: providerMetadata?.anthropic?.usage }) : {};
     try {
       await ctx.runMutation(internal.aiUsage.queueUsage, {
         ...(threadId ? { agentThreadId: threadId } : {}),
@@ -641,15 +662,36 @@ export const reportChatAgent = new Agent(components.agent, {
         ...(cacheCreation1hInputTokens
           ? { cacheCreation1hInputTokens }
           : {}),
+        ...(viaOpenRouter ? { transport: "openrouter" as const } : {}),
+        ...(charge.costUsd !== undefined ? { costUsd: charge.costUsd } : {}),
         createdAt: Date.now(),
       });
     } catch (error) {
       console.error("chat usage could not be queued", safeErrorDetails(error));
     }
-  },
-  // Reply → tool call → short lead-in; searchBrain adds a hop. 5 is headroom.
-  stopWhen: stepCountIs(5),
-});
+  };
+}
+
+/**
+ * The chat model for one turn and its usage handler. With an OpenRouter
+ * key on the direct transport the model's HTTP transport carries the
+ * credit fallback, and the handler records where each step went. Without
+ * one it is exactly the provider chat always used.
+ */
+export function chatTurnModel(
+  ctx: Pick<ActionCtx, "runQuery" | "runMutation">,
+  modelId: string
+): { model: ReturnType<typeof anthropic>; usageHandler: UsageHandler } {
+  const authToken = openRouterCreditFallbackKey();
+  if (!authToken) return { model: anthropic(modelId), usageHandler: chatUsageHandler(() => "direct") };
+  let servedBy: "direct" | "openrouter" = "direct";
+  const provider = createAnthropic({
+    fetch: creditFallbackFetch(ctx, authToken, (transport) => {
+      servedBy = transport;
+    }),
+  });
+  return { model: provider(modelId), usageHandler: chatUsageHandler(() => servedBy) };
+}
 
 /**
  * Stream the assistant's reply to a saved writer message. Scheduled by
@@ -763,13 +805,14 @@ export const streamChatReply = internalAction({
       // Ends the reply inside the Convex action limit, so a stalled stream
       // fails its turn here instead of waiting for the reaper.
       const abortSignal = AbortSignal.timeout(chatStreamTimeoutMs(startedAt, Date.now()));
+      const turnModel = chatTurnModel(ctx, chatModel.gateway === "anthropic" ? chatModel.id : MODEL);
 
       const result = await reportChatAgent.streamText(
         ctx,
         { threadId: args.agentThreadId },
         {
           promptMessageId: args.promptMessageId,
-          model: anthropic(chatModel.gateway === "anthropic" ? chatModel.id : MODEL),
+          model: turnModel.model,
           system: turn.system,
           // Ephemeral: with `promptMessageId` set the agent library saves no
           // input messages, so the evidence never enters thread history.
@@ -792,6 +835,7 @@ export const streamChatReply = internalAction({
         {
           saveStreamDeltas: true,
           contextOptions,
+          usageHandler: turnModel.usageHandler,
           // Evidence head before the history, per-turn tail after the
           // prompt: see arrangeChatContext for the cache layout.
           contextHandler: async (_ctx, parts) =>

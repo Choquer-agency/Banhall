@@ -21,8 +21,11 @@ import { domainError } from "../lib/contracts";
 import {
   TRANSPORT_CONFIGURATION,
   anthropicTransport,
+  hasOpenRouterCreditFallback,
   type AnthropicCapability,
 } from "../lib/providerConfig";
+import { isAnthropicCreditError } from "../../shared/anthropicCreditFallback";
+import { directCreditRoute, latchDirectCredit, settleDirectCall } from "./anthropicCredit";
 import {
   isOpenRouterInFlightBudget,
   markOpenRouterError,
@@ -612,6 +615,19 @@ export function streamedBody(wire: unknown, viaOpenRouter: boolean): Record<stri
  * apart from the model id on the wire and the provider pin; the usage row
  * keeps the app model id and adds OpenRouter's exact charge, the transport
  * and the provider that served it.
+ *
+ * On the direct transport with an OpenRouter key set (owner decision 64,
+ * 2026-09-26), a direct call refused because the Anthropic account is out
+ * of credit (shared/anthropicCreditFallback.ts) is sent again, inside the
+ * same call, exactly as the `openrouter` transport would send it, and the
+ * caller sees that answer. The refusal sets the deployment-wide latch
+ * (convex/ai/anthropicCredit.ts), so later calls go straight to OpenRouter
+ * until a direct try after the cool-down works. The refused direct attempt
+ * is billed nothing and records nothing: no usage row and no outcome, so it
+ * never counts toward rollback, cut-offs or error totals. The usage row
+ * records the transport that answered. Rate limits, overload, auth errors
+ * and every other error never fall back. Without an OpenRouter key the
+ * refusal fails the call, as before.
  */
 export function instrumentedAnthropic(
   ctx: ActionCtx,
@@ -625,13 +641,21 @@ export function instrumentedAnthropic(
   }
 ): Anthropic {
   assertGenerationCallSite(meta.callSite);
-  const viaOpenRouter = anthropicTransport() === "openrouter";
-  const client = createAnthropicClient(
-    meta.capability ?? "generation",
-    meta.clientOptions
-  );
+  const forcedOpenRouter = anthropicTransport() === "openrouter";
+  const creditFallback = !forcedOpenRouter && hasOpenRouterCreditFallback();
+  const capability = meta.capability ?? "generation";
+  const client = createAnthropicClient(capability, meta.clientOptions);
   const messages = client.messages;
   const originalCreate = messages.create.bind(messages);
+  // The credit fallback's OpenRouter client, built on first use.
+  let fallbackCreate: typeof originalCreate | undefined;
+  const openRouterCreate = () => {
+    if (!fallbackCreate) {
+      const fallback = createAnthropicClient(capability, meta.clientOptions, "openrouter");
+      fallbackCreate = fallback.messages.create.bind(fallback.messages);
+    }
+    return fallbackCreate;
+  };
   const instrumentedMessages = new Proxy(messages, {
     get(target, property, receiver) {
       if (property !== "create" && property !== "createStreaming") {
@@ -661,24 +685,56 @@ export function instrumentedAnthropic(
         const startedAt = Date.now();
         const request = adaptAnthropicRequest(args[0]);
         const prefixed = meta.attribution ? cacheGenerationPrefix(request) : request;
-        const wire = viaOpenRouter ? openRouterWireBody(prefixed) : prefixed;
-        const body = handlers ? streamedBody(wire, viaOpenRouter) : wire;
         const rest = args.slice(2);
         // A streamed answer is read to its end inside the attempt, so a
         // stream that breaks is retried like a failed request.
         const finish = async (sent: unknown) => (handlers ? await collectMessageStream(await sent, handlers) : await sent);
-        const sendRequest = async (): Promise<unknown> =>
-          deadline === undefined || !defaults
-            ? await finish(Reflect.apply(originalCreate, target, [body, ...args.slice(1)]))
-            : await createWithinDeadline(
-                (options) => finish(Reflect.apply(originalCreate, target, [body, options, ...rest])),
-                args[1],
-                deadline,
-                defaults
-              );
-        const response: unknown = viaOpenRouter
-          ? await sendViaOpenRouter(sendRequest, deadline)
-          : await sendRequest();
+        /** One send on one transport, retries and the deadline included. */
+        const sendOn = async (transport: "direct" | "openrouter"): Promise<unknown> => {
+          const viaOpenRouter = transport === "openrouter";
+          const create = viaOpenRouter && !forcedOpenRouter ? openRouterCreate() : originalCreate;
+          const wire = viaOpenRouter ? openRouterWireBody(prefixed) : prefixed;
+          const body = handlers ? streamedBody(wire, viaOpenRouter) : wire;
+          const sendRequest = async (): Promise<unknown> =>
+            deadline === undefined || !defaults
+              ? await finish(Reflect.apply(create, target, [body, ...args.slice(1)]))
+              : await createWithinDeadline(
+                  (options) => finish(Reflect.apply(create, target, [body, options, ...rest])),
+                  args[1],
+                  deadline,
+                  defaults
+                );
+          return viaOpenRouter ? await sendViaOpenRouter(sendRequest, deadline) : await sendRequest();
+        };
+        let viaOpenRouter = forcedOpenRouter;
+        let response: unknown;
+        if (!creditFallback) {
+          response = await sendOn(forcedOpenRouter ? "openrouter" : "direct");
+        } else {
+          const route = await directCreditRoute(ctx);
+          if (route === "openrouter") {
+            viaOpenRouter = true;
+            response = await sendOn("openrouter");
+          } else {
+            let refusedForCredit = false;
+            try {
+              response = await sendOn("direct");
+            } catch (error) {
+              if (!isAnthropicCreditError(error)) {
+                await settleDirectCall(ctx, route, false);
+                throw error;
+              }
+              refusedForCredit = true;
+            }
+            if (refusedForCredit) {
+              await latchDirectCredit(ctx, route);
+              viaOpenRouter = true;
+              response = await sendOn("openrouter");
+            } else {
+              await settleDirectCall(ctx, route, true);
+            }
+          }
+        }
         const durationMs = Math.max(0, Date.now() - startedAt);
         const usage = anthropicUsage(response);
         const charge = viaOpenRouter ? openRouterAnthropicCharge(response) : {};

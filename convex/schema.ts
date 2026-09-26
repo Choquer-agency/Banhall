@@ -3468,6 +3468,20 @@ export default defineSchema({
     .index("by_model_and_at", ["model", "at"])
     .index("by_at", ["at"]),
 
+  // Owner decision 64 (2026-09-26): the deployment-wide "direct Anthropic is
+  // out of credit" latch. At most one row (key "direct"); absent means calls
+  // go direct. While it stands, Anthropic calls go straight to the
+  // Anthropic-pinned OpenRouter transport; after the cool-down one call
+  // (the probe, `probeStartedAt`) tries direct again, and a direct success
+  // deletes the row. `noticeId` is the Alerts board notice raised once per
+  // latch. Written only by convex/providerCredit.ts.
+  anthropicCreditLatch: defineTable({
+    key: v.literal("direct"),
+    latchedAt: v.number(),
+    probeStartedAt: v.optional(v.number()),
+    noticeId: v.optional(v.id("errorReports")),
+  }).index("by_key", ["key"]),
+
   appSettings: defineTable({
     key: v.string(),
     value: v.string(),

@@ -50,6 +50,7 @@ const OPENROUTER_MESSAGES_URL = "https://openrouter.ai/api/v1/messages";
 // first so a cold import cannot lose that race.
 beforeAll(async () => {
   await import("../modelCatalog");
+  await import("../providerCredit");
 });
 
 beforeEach(() => {
@@ -663,7 +664,10 @@ describe("openrouter in-flight spending budget (402)", () => {
     expect(outcomes).toEqual([]);
   });
 
-  test("on direct, the same 402 stays billing and is not retried, as before the switch", async () => {
+  test("on direct without an OpenRouter key, the same 402 stays billing and is not retried, as before the switch", async () => {
+    // With a key, a direct 402 is the credit fallback's case (decision 64,
+    // anthropicCredit.sdk.test.ts).
+    vi.stubEnv("OPENROUTER_API_KEY", "");
     const t = convexTest(schema, modules);
     const { outcome, urls, outcomes } = await recordedCall(t, [() => inFlight402()]);
     expect(outcome.ok).toBe(false);

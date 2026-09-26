@@ -13,8 +13,13 @@
  *   `provider` field change: the pin below keeps every request on
  *   Anthropic's own endpoint, with no fallback to any other host.
  *
- * The report chat assistant (convex/ai/chatAgentV2.ts) does not use this
- * transport yet: it streams through the AI SDK straight to Anthropic.
+ * The report chat assistant (convex/ai/chatAgentV2.ts) does not follow this
+ * switch yet: it streams through the AI SDK straight to Anthropic.
+ *
+ * On `direct`, the OpenRouter transport is also the credit fallback (owner
+ * decision 64, shared/anthropicCreditFallback.ts): a direct call refused
+ * because the Anthropic account is out of credit is sent here instead,
+ * chat included.
  *
  * Pure: no Convex runtime imports.
  */

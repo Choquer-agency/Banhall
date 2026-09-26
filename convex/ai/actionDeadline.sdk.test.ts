@@ -19,7 +19,7 @@
  */
 import Anthropic from "@anthropic-ai/sdk";
 import { convexTest } from "convex-test";
-import { afterEach, beforeEach, expect, test, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, expect, test, vi } from "vitest";
 import schema from "../schema";
 import type { ActionCtx } from "../_generated/server";
 import { instrumentedAnthropic } from "./instrument";
@@ -44,6 +44,12 @@ function runAction<R>(t: TestConvex, body: (ctx: ActionCtx) => Promise<R>): Prom
 }
 
 const START = Date.parse("2026-09-25T12:00:00Z");
+
+// The credit latch read (decision 64) runs before each Anthropic request;
+// load its module first so a cold import cannot race the fake clock.
+beforeAll(async () => {
+  await import("../providerCredit");
+});
 
 beforeEach(() => {
   vi.useFakeTimers();

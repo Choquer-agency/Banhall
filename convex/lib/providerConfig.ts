@@ -76,6 +76,26 @@ function openRouterAnthropicKey(): string | undefined {
 }
 
 /**
+ * Whether the direct transport has an OpenRouter credit fallback (owner
+ * decision 64, 2026-09-26): the same key the `openrouter` transport uses.
+ * False on the `openrouter` transport, which already goes there, and on an
+ * unknown transport value. Without a key a direct call that runs out of
+ * credit fails as it always did.
+ */
+export function hasOpenRouterCreditFallback(): boolean {
+  return anthropicTransportIsDirect() && Boolean(openRouterAnthropicKey());
+}
+
+/**
+ * The key the report chat assistant's credit fallback sends to OpenRouter.
+ * Chat calls Anthropic directly on either transport (decision 30), so its
+ * fallback does not depend on ANTHROPIC_TRANSPORT.
+ */
+export function openRouterCreditFallbackKey(): string | undefined {
+  return openRouterAnthropicKey();
+}
+
+/**
  * Readiness for one Anthropic capability, following the transport. The
  * report chat assistant always streams straight to Anthropic, so it needs
  * ANTHROPIC_API_KEY on either transport, and under `openrouter` its helper
@@ -156,9 +176,11 @@ export type AnthropicClientConfig =
  * missing or the transport value is unknown.
  */
 export function requireAnthropicClientConfig(
-  capability: AnthropicCapability
+  capability: AnthropicCapability,
+  /** The credit fallback (decision 64) asks for OpenRouter on the direct transport. */
+  transport: AnthropicTransport = anthropicTransport()
 ): AnthropicClientConfig {
-  if (anthropicTransport() === "openrouter") {
+  if (transport === "openrouter") {
     const authToken = openRouterAnthropicKey();
     if (!authToken) {
       domainError(

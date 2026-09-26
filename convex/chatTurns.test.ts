@@ -447,6 +447,9 @@ describe("bounded chat context", () => {
       saveStreamDeltas: true,
       contextOptions: CHAT_CONTEXT_OPTIONS,
       contextHandler: expect.any(Function),
+      // Per turn, so a step answered through the credit fallback records
+      // its transport (decision 64).
+      usageHandler: expect.any(Function),
     });
     expect(call[3]?.contextOptions).toBe(CHAT_CONTEXT_OPTIONS);
 

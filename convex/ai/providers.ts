@@ -21,6 +21,7 @@ import {
   OPENROUTER_APP_HEADERS,
   isOpenRouterError,
   isOpenRouterInFlightBudget,
+  type AnthropicTransport,
 } from "../../shared/anthropicTransport";
 import {
   gatewayForModel,
@@ -188,9 +189,11 @@ export function createAnthropicClient(
   options: {
     maxRetries?: number;
     timeout?: number;
-  } = {}
+  } = {},
+  /** Set only by the credit fallback (decision 64), which asks for OpenRouter. */
+  transport?: AnthropicTransport
 ): Anthropic {
-  const config = requireAnthropicClientConfig(capability);
+  const config = requireAnthropicClientConfig(capability, transport);
   if (config.transport === "openrouter") {
     return new Anthropic({
       baseURL: OPENROUTER_ANTHROPIC_BASE_URL,
