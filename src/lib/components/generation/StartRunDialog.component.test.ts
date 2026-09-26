@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-svelte";
-import { userEvent } from "vitest/browser";
+import { page, userEvent } from "vitest/browser";
 import { tick } from "svelte";
 import StartRunDialog, {
   type StartRunSource,
@@ -201,6 +201,26 @@ describe("StartRunDialog board values (F1, G1 to G3)", () => {
     expect(svg.querySelector("path")!.getAttribute("d")).toBe(
       "M6 11h12a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1v-8a1 1 0 0 1 1-1Z M8 11V8a4 4 0 0 1 8 0v3"
     );
+  });
+});
+
+describe("StartRunDialog placement (F1, G1 to G3)", () => {
+  it("sits 140px from the top of the viewport, centred across it", async () => {
+    await page.viewport(1440, 900);
+    await render(StartRunDialog, props());
+    await settle();
+    const box = dialog()!.getBoundingClientRect();
+    expect(Math.round(box.top)).toBe(140);
+    expect(Math.round(box.left + box.width / 2)).toBe(720);
+  });
+
+  it("centres itself when the viewport is too short for 140px above and below", async () => {
+    await page.viewport(1440, 560);
+    await render(StartRunDialog, props());
+    await settle();
+    const box = dialog()!.getBoundingClientRect();
+    expect(box.top).toBeLessThan(140);
+    expect(Math.abs(box.top - (560 - box.bottom))).toBeLessThanOrEqual(1);
   });
 });
 
