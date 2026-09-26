@@ -760,6 +760,9 @@ export const streamChatReply = internalAction({
       // the role never resolves to another gateway). A turn keeps the model
       // it started with; the next turn picks up a switch.
       const { entry: chatModel } = await ctx.runQuery(roleModelEntryRef, { role: "chat" });
+      // Ends the reply inside the Convex action limit, so a stalled stream
+      // fails its turn here instead of waiting for the reaper.
+      const abortSignal = AbortSignal.timeout(chatStreamTimeoutMs(startedAt, Date.now()));
 
       const result = await reportChatAgent.streamText(
         ctx,
@@ -775,9 +778,7 @@ export const streamChatReply = internalAction({
           tools: buildChatTools(styleOverrides.bannedWords, args.allowBrain === true),
           providerOptions: CHAT_PROVIDER_OPTIONS,
           maxOutputTokens: CHAT_MAX_OUTPUT_TOKENS,
-          // Ends the reply inside the Convex action limit, so a stalled
-          // stream fails its turn here instead of waiting for the reaper.
-          abortSignal: AbortSignal.timeout(chatStreamTimeoutMs(startedAt, Date.now())),
+          abortSignal,
           // Must run upstream of the agent's smoothStream — see the module
           // comment. Without it, multi-step tool turns lose the thinking
           // signature and the model's reasoning is dropped between steps.
@@ -799,6 +800,9 @@ export const streamChatReply = internalAction({
       );
       await result.consumeStream();
       const finishReason = await result.finishReason;
+      // A timer that fires after a tool step leaves the last step's finish
+      // reason in place, so the reply would read as complete (review r2 P3).
+      if (abortSignal.aborted) throw new Error("CHAT_TIMED_OUT");
       if (finishReason === "content-filter" || finishReason === "length") {
         throw new Error("CHAT_INCOMPLETE_RESPONSE");
       }
@@ -831,7 +835,9 @@ export const streamChatReply = internalAction({
           role: "assistant",
           content: error instanceof Error && error.message === "CHAT_PROFILE_UNAVAILABLE"
             ? "I couldn't load your saved writing settings, so I haven't proposed changes. Please retry. You don't need to rewrite your instructions."
-            : "I couldn’t finish that response. Try again.",
+            : error instanceof Error && error.message === "CHAT_TIMED_OUT"
+              ? "That response took too long, so I stopped it before it finished. Try again."
+              : "I couldn’t finish that response. Try again.",
         },
       });
     }

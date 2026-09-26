@@ -179,6 +179,30 @@ describe("bounded chat context", () => {
     }));
     expect(JSON.stringify(messages)).toContain("Try again.");
   });
+  // Review r2 P3 (2026-09-25): a timer that fired after a tool step left the
+  // last step's finish reason, so a partial reply was marked completed.
+  test("marks a reply the time limit cut off as failed, not completed", async () => {
+    const f = await setup();
+    const { result, turn } = await sendQueuedTurn(f);
+    const timer = new AbortController();
+    vi.spyOn(AbortSignal, "timeout").mockReturnValue(timer.signal);
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(reportChatAgent, "streamText").mockResolvedValue({
+      consumeStream: async () => {
+        timer.abort(new DOMException("The operation timed out.", "TimeoutError"));
+      },
+      finishReason: Promise.resolve("tool-calls"),
+    } as unknown as Awaited<ReturnType<typeof reportChatAgent.streamText>>);
+    await f.t.action(internal.ai.chatAgentV2.streamChatReply, {
+      agentThreadId: result.threadId, promptMessageId: result.messageId, reportId: f.reportId,
+    });
+    expect((await f.t.run(ctx => ctx.db.get(turn._id)))?.status).toBe("failed");
+    const messages = await f.t.run(ctx => reportChatAgent.fetchContextMessages(ctx, {
+      userId: f.userId, threadId: result.threadId, contextOptions: CHAT_CONTEXT_OPTIONS,
+    }));
+    expect(JSON.stringify(messages)).toContain("took too long");
+  });
+
   test.each([false, true])("loads saved preferences and gates Brain tools with opt-in=%s", async allowBrain => {
     const f = await setup();
     await f.t.run(ctx => ctx.db.insert("writerProfiles", {
