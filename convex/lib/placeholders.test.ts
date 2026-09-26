@@ -308,6 +308,21 @@ describe("maps frozen before bare ids were restored (review 2026-09-25, P3-B1)",
   });
 });
 
+describe("very long literal ids (review 2026-09-25, P3-B3)", () => {
+  it("renumbers past a 22-digit id with exact, distinct tokens that restore", () => {
+    const huge = "9".repeat(22);
+    const source = `Rig PERSON_${huge} logged it. PERSON_1 is the bench. Dana Whitfield and Marcus Lindqvist ran it.`;
+    const safe = avoidTokenCollisions(map, [source]);
+    const tokens = safe.map((entry) => entry.token);
+    for (const token of tokens) expect(token).toMatch(/^\[(?:CLIENT|PERSON)_\d+(?:_[A-Z]+)?\]$/);
+    expect(new Set(tokens).size).toBe(tokens.length);
+    expect(safe.find((entry) => entry.value === "Dana Whitfield")?.token).toBe(`[PERSON_1${"0".repeat(22)}]`);
+    expect(safe.find((entry) => entry.value === "Marcus Lindqvist")?.token).toBe(`[PERSON_1${"0".repeat(21)}2]`);
+    expect(restorePlaceholders(pseudonymize(source, safe), safe)).toBe(source);
+    expect(restorePlaceholders(`PERSON_1${"0".repeat(22)} asked PERSON_${huge}.`, safe)).toBe(`Dana Whitfield asked PERSON_${huge}.`);
+  });
+});
+
 describe("the placeholder client", () => {
   const params: GenerationMessageParams = {
     model: "claude-sonnet-5",

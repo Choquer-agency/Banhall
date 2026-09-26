@@ -345,11 +345,14 @@ export function containsPlaceholderToken(text: string, map: PlaceholderMap): boo
  * so when any text carries a token this map would restore, every token is
  * renumbered past the highest number of its kind found in the texts. The
  * source's own tokens then stay literal both ways. Deterministic in the map
- * and the texts; the same map comes back when nothing collides.
+ * and the texts; the same map comes back when nothing collides. Numbers are
+ * added as BigInt, so a very long literal id (`PERSON_` and 22 digits, say)
+ * still gives exact tokens such as `[PERSON_1000...001]`, never
+ * `[PERSON_1e+23]`.
  */
 export function avoidTokenCollisions(map: PlaceholderMap, texts: readonly string[]): PlaceholderMap {
   if (map.length === 0) return map;
-  const highest = { CLIENT: 0, PERSON: 0 };
+  const highest = { CLIENT: BigInt(0), PERSON: BigInt(0) };
   let collides = false;
   for (const text of texts) {
     if (!mayHoldToken(text)) continue;
@@ -358,7 +361,8 @@ export function avoidTokenCollisions(map: PlaceholderMap, texts: readonly string
       const parts = TOKEN_PARTS.exec(match[0].startsWith("[") ? match[0] : `[${match[0]}]`);
       if (!parts) continue;
       const kind = parts[1] as keyof typeof highest;
-      highest[kind] = Math.max(highest[kind], Number(parts[2]));
+      const number = BigInt(parts[2]);
+      if (number > highest[kind]) highest[kind] = number;
     }
   }
   if (!collides) return map;
@@ -366,7 +370,7 @@ export function avoidTokenCollisions(map: PlaceholderMap, texts: readonly string
     const parts = TOKEN_PARTS.exec(entry.token);
     if (!parts) return entry;
     const kind = parts[1] as keyof typeof highest;
-    const number = Number(parts[2]) + highest[kind];
+    const number = BigInt(parts[2]) + highest[kind];
     return { ...entry, token: `[${kind}_${number}${parts[3] ? `_${parts[3]}` : ""}]` };
   });
 }
