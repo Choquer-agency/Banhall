@@ -15,13 +15,15 @@ import type { Id } from "../_generated/dataModel";
 import { v } from "convex/values";
 import type { FunctionReturnType } from "convex/server";
 import {
-  clientForModel,
+  clientForStep,
   describeProviderFailure,
+  generationStepClients,
   normalizeProviderError,
   registerGenerationModels,
-  seedClientForModel,
   startActionDeadline,
 } from "./providers";
+import { resolveGenerationStep } from "../lib/generationSteps";
+import type { ModelFreeze } from "../lib/modelCatalogValidators";
 import type { GenerationClient, GenerationMessageParams } from "./openrouterCore";
 import { parseTranscriptAnalysis } from "./analyzerAgent";
 import { runSection242Agent } from "./section242Agent";
@@ -227,6 +229,12 @@ function countingClient(
   };
 }
 
+/**
+ * The chain's clients keyed by call site (owner decision 43): the
+ * candidate's model drafts, repairs and compresses; the generation's frozen
+ * checking model runs the Self-check, consistency, QA and chronology.
+ * `modelFor` names the model each call site's request must carry.
+ */
 function chainClientFactory(
   ctx: ActionCtx,
   meta: {
@@ -235,24 +243,29 @@ function chainClientFactory(
     requestedBy?: Id<"users">;
     generationId: Id<"generations">;
     candidateRunId: Id<"generationCandidateRuns">;
+    freeze: ModelFreeze | null;
   },
   counts: Record<string, number>
 ) {
-  return (callSite: string, learningDigestIds?: Id<"learningDigests">[]) =>
-    countingClient(
-      clientForModel(ctx, meta.model, {
-        callSite,
-        projectId: meta.projectId,
-        ...(meta.requestedBy ? { userId: meta.requestedBy } : {}),
-        attribution: {
-          generationId: meta.generationId,
-          candidateRunId: meta.candidateRunId,
-          ...(learningDigestIds?.length ? { learningDigestIds } : {}),
-        },
-      }),
+  const steps = generationStepClients(ctx, {
+    freeze: meta.freeze,
+    writerModel: meta.model,
+    meta: (callSite, learningDigestIds) => ({
       callSite,
-      counts
-    );
+      projectId: meta.projectId,
+      ...(meta.requestedBy ? { userId: meta.requestedBy } : {}),
+      attribution: {
+        generationId: meta.generationId,
+        candidateRunId: meta.candidateRunId,
+        ...(learningDigestIds?.length ? { learningDigestIds } : {}),
+      },
+    }),
+  });
+  const client = (callSite: string, learningDigestIds?: Id<"learningDigests">[]) =>
+    countingClient(steps.client(callSite, learningDigestIds), callSite, counts);
+  return Object.assign(client, {
+    modelFor: (callSite: string) => steps.route(callSite).model,
+  });
 }
 
 function parseJsonObject(value: string | null): Record<string, unknown> | null {
@@ -402,7 +415,7 @@ async function draftCheckedSection(input: {
       glossaryCandidates: before.glossaryCandidates,
       writerInstructions: payload.writerFlavor,
       rules: before.modelRules,
-      model: claim.model,
+      model: clientFor.modelFor(`generation:selfCheck:${section}`),
       planChecks: claim.planChecks,
       planChecksBlock: claim.planChecksBlock,
     });
@@ -627,18 +640,19 @@ export const generateOrderedSection = internalAction({
       return null;
     }
     const slotCounts: Record<string, number> = {};
-    const clientFor = chainClientFactory(
-      ctx,
-      {
-        model: claim.model,
-        projectId: claim.projectId,
-        requestedBy: claim.requestedBy,
-        generationId: args.generationId,
-        candidateRunId: args.candidateRunId,
-      },
-      slotCounts
-    );
     try {
+      const clientFor = chainClientFactory(
+        ctx,
+        {
+          model: claim.model,
+          projectId: claim.projectId,
+          requestedBy: claim.requestedBy,
+          generationId: args.generationId,
+          candidateRunId: args.candidateRunId,
+          freeze: await registerGenerationModels(ctx, args.generationId),
+        },
+        slotCounts
+      );
       const completion = await draftCheckedSection({
         claim,
         payload,
@@ -723,6 +737,7 @@ export const finalizeOrderedCandidate = internalAction({
           requestedBy: input.requestedBy,
           generationId: args.generationId,
           candidateRunId: args.candidateRunId,
+          freeze: await registerGenerationModels(ctx, args.generationId),
         },
         slotCounts
       );
@@ -750,7 +765,7 @@ export const finalizeOrderedCandidate = internalAction({
             sections: drafted,
             claimExclusions: drafts.brief?.claimExclusions.map((entry) => entry.text) ?? [],
             glossaryTerms: drafts.brief?.glossaryTerms ?? [],
-            model: drafts.model,
+            model: clientFor.modelFor("generation:consistency"),
           });
           notes = [
             ...consistencyNoteDrafts(findings),
@@ -794,7 +809,7 @@ export const finalizeOrderedCandidate = internalAction({
               s242 ?? "",
               s244 ?? "",
               s246 ?? "",
-              drafts.model,
+              clientFor.modelFor("generation:qa"),
               payload.qaCalibration,
               styleOverrides,
               detectFirstPersonPreference(payload.writerFlavor)
@@ -802,7 +817,11 @@ export const finalizeOrderedCandidate = internalAction({
           : Promise.resolve(null),
         seedRun
           ? Promise.resolve(null)
-          : runChronologyAgent(clientFor("generation:chronology"), analysis, drafts.model),
+          : runChronologyAgent(
+              clientFor("generation:chronology"),
+              analysis,
+              clientFor.modelFor("generation:chronology")
+            ),
       ]);
       if (qaSettled.status === "rejected") {
         console.error("QA scorecard failed; continuing without it", qaSettled.reason);
@@ -917,18 +936,19 @@ export const redraftSeedSection = internalAction({
     }
     if (!claim) return null;
     const slotCounts: Record<string, number> = {};
-    const clientFor = chainClientFactory(
-      ctx,
-      {
-        model: claim.model,
-        projectId: claim.projectId,
-        requestedBy: claim.requestedBy,
-        generationId: args.generationId,
-        candidateRunId: args.candidateRunId,
-      },
-      slotCounts
-    );
     try {
+      const clientFor = chainClientFactory(
+        ctx,
+        {
+          model: claim.model,
+          projectId: claim.projectId,
+          requestedBy: claim.requestedBy,
+          generationId: args.generationId,
+          candidateRunId: args.candidateRunId,
+          freeze: await registerGenerationModels(ctx, args.generationId),
+        },
+        slotCounts
+      );
       const completion = await draftCheckedSection({
         claim,
         payload,
@@ -1006,19 +1026,30 @@ export const finalizeSeedRedraft = internalAction({
       // The seed request policy (no hidden transport retry, a short request
       // timeout) keeps one pass, including its structured repair, well
       // inside a single action's time limit.
-      const consistencyClient = seedClientForModel(ctx, input.model, {
-        callSite: "generation:consistency",
-        projectId: input.projectId,
-        ...(input.requestedBy ? { userId: input.requestedBy } : {}),
-        attribution: { generationId: args.generationId, candidateRunId: args.candidateRunId },
-      });
       let notes: ComplianceNoteDraft[];
       try {
+        // Owner decision 43: the frozen checking model runs the pass.
+        const route = resolveGenerationStep({
+          freeze: await registerGenerationModels(ctx, args.generationId),
+          step: "consistency",
+          writerModel: input.model,
+        });
+        const consistencyClient = clientForStep(
+          ctx,
+          route,
+          {
+            callSite: "generation:consistency",
+            projectId: input.projectId,
+            ...(input.requestedBy ? { userId: input.requestedBy } : {}),
+            attribution: { generationId: args.generationId, candidateRunId: args.candidateRunId },
+          },
+          { seedPolicy: true }
+        );
         const findings = await runConsistencyPass(consistencyClient, {
           sections: present,
           claimExclusions: input.brief?.claimExclusions.map((entry) => entry.text) ?? [],
           glossaryTerms: input.brief?.glossaryTerms ?? [],
-          model: input.model,
+          model: route.model,
         });
         notes = [
           ...consistencyNoteDrafts(findings),

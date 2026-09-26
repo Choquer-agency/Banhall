@@ -41,6 +41,8 @@ import { OPENROUTER_ANTHROPIC_PROVIDER } from "./anthropicTransport";
  */
 export const MODEL_ROLES = [
   "writing",
+  "planning",
+  "checking",
   "condense",
   "retrieval_brief",
   "analysis",
@@ -148,7 +150,8 @@ const HAIKU = "claude-haiku-4-5-20251001";
 export const ROLE_POLICIES: Readonly<Record<ModelRole, RolePolicy>> = {
   writing: {
     label: "Writing",
-    description: "Default model for report generation, seeds and redrafts.",
+    description:
+      "Default model a writer picks for the report. It drafts, repairs, shortens and redrafts the Sections.",
     defaultModelId: MODEL,
     gateways: ["anthropic", "openrouter"],
     minContextTokens: 200_000,
@@ -156,6 +159,40 @@ export const ROLE_POLICIES: Readonly<Record<ModelRole, RolePolicy>> = {
     autoSwitch: true,
     defaultCostCap: { maxInputUsdPerMTok: 5, maxOutputUsdPerMTok: 30, maxCostRatio: 2 },
     evalTasks: ["seed_batch", "section_draft", "qa_structured"],
+    frozenPerGeneration: true,
+  },
+  // Owner decision 43 (2026-09-25): the model a writer picks writes the
+  // report; the helper steps of a generation run on these two roles,
+  // frozen per generation like the others. Neither has an evaluation task
+  // of its own yet, so neither switches on its own.
+  planning: {
+    label: "Planning",
+    description:
+      "Plans the report: the transcript analysis, the generation Brief and the seed cards, including seed feedback.",
+    defaultModelId: MODEL,
+    gateways: ["anthropic", "openrouter"],
+    minContextTokens: 200_000,
+    minOutputTokens: 32_000,
+    autoSwitch: false,
+    manualOnlyReason:
+      "No evaluation covers the analysis, the Brief and the seed cards on this role yet, so an admin chooses its model.",
+    defaultCostCap: { maxInputUsdPerMTok: 5, maxOutputUsdPerMTok: 30, maxCostRatio: 2 },
+    evalTasks: [],
+    frozenPerGeneration: true,
+  },
+  checking: {
+    label: "Checking",
+    description:
+      "Checks the drafted report: the Self-check, the consistency pass, the QA scorecard and the chronology.",
+    defaultModelId: MODEL,
+    gateways: ["anthropic", "openrouter"],
+    minContextTokens: 200_000,
+    minOutputTokens: 32_000,
+    autoSwitch: false,
+    manualOnlyReason:
+      "No evaluation covers the Self-check, the consistency pass, QA and the chronology on this role yet, so an admin chooses its model.",
+    defaultCostCap: { maxInputUsdPerMTok: 5, maxOutputUsdPerMTok: 30, maxCostRatio: 2 },
+    evalTasks: [],
     frozenPerGeneration: true,
   },
   structured_helper: {

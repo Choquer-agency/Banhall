@@ -50,6 +50,12 @@ import type { PlaceholderMap } from "../lib/deidentify";
 import { withPlaceholders } from "./placeholderClient";
 import type { ModelFreeze } from "../lib/modelCatalogValidators";
 import {
+  generationStepOf,
+  resolveGenerationStep,
+  type GenerationStep,
+  type StepRoute,
+} from "../lib/generationSteps";
+import {
   generationModelsRef,
   modelEntryForCallRef,
   recordCallOutcomeRef,
@@ -671,6 +677,85 @@ export function clientForModel(
     },
     signal
   );
+}
+
+/**
+ * A generation step's client (owner decision 43): the step's model, routed
+ * like clientForModel (the seed policy for seed calls), with the fields the
+ * step adds to its request (lib/generationSteps.ts). A request whose model
+ * is not the step's model is refused before anything is sent, so an agent
+ * can never be handed one model's client and send another model's id. A
+ * generation frozen before step routing is sent exactly as before.
+ */
+export function clientForStep(
+  ctx: ActionCtx,
+  route: StepRoute,
+  meta: GenerationCallMeta,
+  options: { seedPolicy?: boolean } = {}
+): GenerationClient {
+  const client = options.seedPolicy
+    ? seedClientForModel(ctx, route.model, meta)
+    : clientForModel(ctx, route.model, meta);
+  return withStepRequest(client, route);
+}
+
+/** Adds a step's request fields and guards its model; see clientForStep. */
+export function withStepRequest(client: GenerationClient, route: StepRoute): GenerationClient {
+  if (route.policyVersion === null) return client;
+  const thinking = route.request.thinking;
+  return {
+    messages: {
+      create: async (params) => {
+        if (params.model !== route.model) {
+          throw new Error(
+            `The ${route.step} step is routed to ${route.model} but its request names ${params.model}`
+          );
+        }
+        return await client.messages.create(
+          thinking && params.thinking === undefined ? { ...params, thinking } : params
+        );
+      },
+    },
+  };
+}
+
+/**
+ * One generation's step clients keyed by call site: `route(callSite)`
+ * resolves the step's model and settings from the generation's freeze, and
+ * `client(callSite)` builds its client with `meta(callSite)`. `legacyModel`
+ * names what a call used before step routing, for generations frozen
+ * before it (default: the writer's model, as every candidate client did).
+ */
+export function generationStepClients(
+  ctx: ActionCtx,
+  args: {
+    freeze: ModelFreeze | null;
+    writerModel: string;
+    legacyModel?: (step: GenerationStep) => string;
+    meta: (callSite: string, learningDigestIds?: Id<"learningDigests">[]) => GenerationCallMeta;
+    seedPolicy?: boolean;
+  }
+): {
+  route: (callSite: string) => StepRoute;
+  client: (callSite: string, learningDigestIds?: Id<"learningDigests">[]) => GenerationClient;
+} {
+  const route = (callSite: string): StepRoute => {
+    const step = generationStepOf(callSite);
+    if (!step) throw new Error(`No generation step routes ${callSite}`);
+    return resolveGenerationStep({
+      freeze: args.freeze,
+      step,
+      writerModel: args.writerModel,
+      legacyModel: args.legacyModel?.(step) ?? args.writerModel,
+    });
+  };
+  return {
+    route,
+    client: (callSite, learningDigestIds) =>
+      clientForStep(ctx, route(callSite), args.meta(callSite, learningDigestIds), {
+        seedPolicy: args.seedPolicy === true,
+      }),
+  };
 }
 
 /**

@@ -1326,3 +1326,34 @@ describe("stopOrderedGeneration in compare", () => {
     expect(generation.stoppedAfterSection).toBe("242");
   });
 });
+
+describe("declared start of Single draft and Compare (a1 finding 4, 2026-09-25)", () => {
+  it("runs the Brief beside the retrieval brief, the Brain searches and the shared analysis, before any candidate", () => {
+    const concurrent = {
+      concurrentBeforeCandidates: [
+        "brief",
+        [
+          "retrieval-brief-with-fallback-query",
+          "four-sequential-brain-searches-with-optional-rerank",
+          "shared-analyzer",
+        ],
+      ],
+    };
+    expect(generationPromptProgram.topology.modes.single).toEqual([
+      concurrent,
+      "candidate-pipeline",
+      "promote-completed-candidate",
+    ]);
+    expect(generationPromptProgram.topology.modes.compare).toEqual([
+      concurrent,
+      "parallel-candidate-pipelines",
+      "human-candidate-selection",
+    ]);
+    // Candidates receive the shared analysis and Brief; only a candidate
+    // queued before shared analysis existed runs its own analyzer.
+    expect(generationPromptProgram.topology.candidatePipeline[0]).toBe(
+      "analyzer-for-legacy-queued-candidates-only"
+    );
+    expect(generationPromptProgram.topology.candidatePipeline).not.toContain("brief");
+  });
+});

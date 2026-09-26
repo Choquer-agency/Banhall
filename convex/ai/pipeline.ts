@@ -7,6 +7,7 @@ import { v } from "convex/values";
 import {
   clientForModel,
   describeProviderFailure,
+  generationStepClients,
   registerGenerationModels,
   startActionDeadline,
 } from "./providers";
@@ -498,7 +499,11 @@ export async function runPipelineForModel(
   briefBlock: string = "",
   // 2026-09-24 (plan step 8): the verified fact quotes a generation reading
   // fact packs cites from; absent otherwise.
-  factQuotes?: readonly FactQuote[]
+  factQuotes?: readonly FactQuote[],
+  // Owner decision 43: the model each call site's request names, from the
+  // same step routing as `anthropicFor`. Every call names `modelId` when
+  // absent, as before step routing.
+  modelFor: (callSite: string) => string = () => modelId
 ): Promise<{
   content: string;
   agentOutputs: string;
@@ -508,7 +513,7 @@ export async function runPipelineForModel(
   const analysis = sharedAnalysis ?? await runAnalyzerAgent(
     anthropicFor("generation:analyzer"),
     analyzerUserMessage,
-    modelId,
+    modelFor("generation:analyzer"),
     brainExemplars.analyzer
   );
   const styleGuidance = buildStyleGuidance(draftStyle, writerFlavor, styleOverrides);
@@ -553,8 +558,8 @@ export async function runPipelineForModel(
   // have received — losing a full multi-model draft because a scorecard came
   // back malformed is far worse than shipping the draft with no scorecard.
   const [qaSettled, chronologySettled] = await Promise.allSettled([
-    runQAAgent(anthropicFor("generation:qa", qaDigestIds), analysis, section242, section244, section246, modelId, qaCalibration, styleOverrides, detectFirstPersonPreference(writerFlavor)),
-    runChronologyAgent(anthropicFor("generation:chronology"), analysis, modelId),
+    runQAAgent(anthropicFor("generation:qa", qaDigestIds), analysis, section242, section244, section246, modelFor("generation:qa"), qaCalibration, styleOverrides, detectFirstPersonPreference(writerFlavor)),
+    runChronologyAgent(anthropicFor("generation:chronology"), analysis, modelFor("generation:chronology")),
   ]);
   if (qaSettled.status === "rejected") {
     console.error("QA scorecard failed; continuing without it", qaSettled.reason);
@@ -692,6 +697,9 @@ export const generateReport = internalAction({
         generationId: genId,
         line,
       });
+    // The Brief while it runs beside the analysis: a failure elsewhere
+    // still waits for it before the action ends (its stage never throws).
+    let pendingBrief: Promise<void> | undefined;
 
     try {
       const scienceCode = normalizeCraScienceCode(input.scienceCode);
@@ -740,6 +748,45 @@ export const generateReport = internalAction({
         input = condensed;
       }
       const transcript = input.transcript;
+
+      // Owner decision 43: the analysis and the Brief run on the frozen
+      // planning model, whatever the mode. A generation frozen before step
+      // routing keeps its model: in compare the writing role's model frozen
+      // at reservation, independent of pair order; in single mode the
+      // selected model, as in iterative generation.
+      const legacyAnalysisModel = input.candidateMode === "compare"
+        ? (freeze?.roles.writing ?? MODEL)
+        : candidateModels[0]?.id ?? MODEL;
+      const shared = generationStepClients(ctx, {
+        freeze,
+        writerModel: candidateModels[0]?.id ?? MODEL,
+        legacyModel: () => legacyAnalysisModel,
+        meta: (callSite) => ({
+          callSite,
+          projectId,
+          ...(input.requestedBy ? { userId: input.requestedBy } : {}),
+          attribution: { generationId: genId },
+        }),
+      });
+
+      // Story 1 (CAP-1/2/4): derive or reuse the Generation Brief once,
+      // shared across every candidate below (same shape as shared analysis).
+      // It reads only the frozen sources, never the analysis, so it starts
+      // now, beside the Brain retrieval, the writer settings and the
+      // analysis (a1 finding 4, 2026-09-25), and is joined before any
+      // candidate drafts. Brief is read-only guidance, never required: the
+      // stage runner never throws; a failure is logged and the generation
+      // continues with no Brief rather than failing outright (Block-If: "a
+      // Brief with fewer entries beats a failed generation" extends to the
+      // stage itself). DW-109/DW-120: every attempt is recorded on
+      // generations.briefOutcome and narrated with one authored progress
+      // line.
+      const briefStage = runGenerationBriefStage(ctx, shared.client("generation:brief"), {
+        projectId,
+        generationId: genId,
+        model: shared.route("generation:brief").model,
+      });
+      pendingBrief = briefStage;
 
       // Bound and delimit what the analyzer sees, once per generation, and
       // record the outcome on the frozen rows before any candidate fans out.
@@ -867,22 +914,12 @@ export const generateReport = internalAction({
         await log(`Build Order not applied: ${orderedContext.buildOrderFallbackReason}.`);
       }
 
-      // Compare analysis uses the writing role's model frozen at reservation,
-      // independent of pair order. Single mode preserves its selected model,
-      // as in iterative generation.
-      const analysisModel = input.candidateMode === "compare"
-        ? (freeze?.roles.writing ?? MODEL)
-        : candidateModels[0]?.id ?? MODEL;
+      const analyzerRoute = shared.route("generation:analyzer");
       await log("Analyzing the transcript once for all candidate drafts.");
       const analysis = await runAnalyzerAgent(
-        clientForModel(ctx, analysisModel, {
-          callSite: "generation:analyzer",
-          projectId,
-          ...(input.requestedBy ? { userId: input.requestedBy } : {}),
-          attribution: { generationId: genId },
-        }),
+        shared.client("generation:analyzer"),
         analyzerContext.userMessage,
-        analysisModel,
+        analyzerRoute.model,
         brainBlocks.analyzer
       );
       const serializedAnalysis = JSON.stringify(analysis);
@@ -897,20 +934,10 @@ export const generateReport = internalAction({
         }),
       });
 
-      // Story 1 (CAP-1/2/4): derive or reuse the Generation Brief once,
-      // shared across every candidate below (same shape as shared analysis).
-      // Brief is read-only guidance, never required — the stage runner never
-      // throws: a failure is logged and the generation continues with no
-      // Brief rather than failing outright (Block-If: "a Brief with fewer
-      // entries beats a failed generation" extends to the stage itself).
-      // DW-109/DW-120: every attempt is recorded on generations.briefOutcome
-      // and narrated with one authored progress line.
-      await runGenerationBriefStage(ctx, clientForModel(ctx, analysisModel, {
-        callSite: "generation:brief",
-        projectId,
-        ...(input.requestedBy ? { userId: input.requestedBy } : {}),
-        attribution: { generationId: genId },
-      }), { projectId, generationId: genId, model: analysisModel });
+      // The Brief started beside the analysis above; every candidate reads
+      // it, so it is joined before the first one is created.
+      await briefStage;
+      pendingBrief = undefined;
 
       const candidateLabel =
         candidateModels.length === 1 ? "candidate draft" : "candidate drafts";
@@ -957,6 +984,9 @@ export const generateReport = internalAction({
         generationId: genId,
         error: describeGenerationFailure(error),
       });
+      // The Brief never throws; it finishes (and stays reusable by its
+      // inputs) inside this action's deadline rather than being cut off.
+      await pendingBrief;
     }
   },
 });
@@ -1003,24 +1033,28 @@ export const generateCandidate = internalAction({
       });
       return;
     }
-    // Routed by the candidate model's gateway: Anthropic models use the
-    // direct SDK, OpenAI/Google models go through OpenRouter. Usage from both
-    // lands in the same aiUsage table.
-    const clientFor = (
-      callSite: string,
-      learningDigestIds?: Id<"learningDigests">[]
-    ) =>
-      clientForModel(ctx, run.model, {
-        callSite,
-        projectId: run.projectId,
-        ...(input.requestedBy ? { userId: input.requestedBy } : {}),
-        attribution: {
-          generationId: run.generationId,
-          candidateRunId: args.candidateRunId,
-          ...(learningDigestIds?.length ? { learningDigestIds } : {}),
-        },
-      });
     try {
+      // Routed by each step's model (owner decision 43: the candidate model
+      // writes, the frozen planning and checking models help) and its
+      // gateway: Anthropic models use the direct SDK, OpenAI/Google models go
+      // through OpenRouter. Usage from both lands in the same aiUsage table.
+      const freeze = await registerGenerationModels(ctx, args.generationId);
+      const steps = generationStepClients(ctx, {
+        freeze,
+        writerModel: run.model,
+        meta: (callSite, learningDigestIds) => ({
+          callSite,
+          projectId: run.projectId,
+          ...(input.requestedBy ? { userId: input.requestedBy } : {}),
+          attribution: {
+            generationId: run.generationId,
+            candidateRunId: args.candidateRunId,
+            ...(learningDigestIds?.length ? { learningDigestIds } : {}),
+          },
+        }),
+      });
+      const clientFor = steps.client;
+
       const sharedAnalysis = args.analysis === undefined
         ? undefined
         : parseTranscriptAnalysis(args.analysis);
@@ -1037,7 +1071,7 @@ export const generateCandidate = internalAction({
         const analysis = sharedAnalysis ?? await runAnalyzerAgent(
           clientFor("generation:analyzer"),
           analyzerUserMessage,
-          run.model,
+          steps.route("generation:analyzer").model,
           args.brainExemplars.analyzer
         );
         const orderedContext =
@@ -1086,7 +1120,8 @@ export const generateCandidate = internalAction({
           normalizeStyleOverrides(args.styleOverrides),
           sharedAnalysis,
           briefBlock,
-          input.factQuotes
+          input.factQuotes,
+          (callSite) => steps.route(callSite).model
         );
       const provenanceId = await recordCandidateProvenance(ctx, {
         projectId: run.projectId,

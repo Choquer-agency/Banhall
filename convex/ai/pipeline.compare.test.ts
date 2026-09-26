@@ -258,7 +258,7 @@ describe("shared generation analysis", () => {
     }
     expect(analyzerCalls()).toHaveLength(1);
     expect(analyzerCalls()[0][0].model).toBe(MODEL);
-    expect(analyzerCalls()[0][0].model).toBe(generationPromptProgram.calls.analyzer.model.compare.legacyModelId);
+    expect(analyzerCalls()[0][0].model).toBe(generationPromptProgram.calls.analyzer.model.beforeStepRouting.compare.legacyModelId);
     const artifacts = await t.run((ctx) => ctx.db.query("generationArtifacts").collect());
     const analyses = artifacts.filter((row) => row.kind === "analysis");
     expect(analyses).toHaveLength(1);
@@ -311,7 +311,7 @@ describe("shared analysis failure and compatibility", () => {
     await t.action(internal.ai.iterative.startIterativeGeneration, { generationId });
     expect(analyzerCalls()).toHaveLength(1);
     expect(analyzerCalls()[0][0].model).toBe("claude-opus-4-8");
-    expect(generationPromptProgram.calls.analyzer.model.iterative).toEqual({
+    expect(generationPromptProgram.calls.analyzer.model.beforeStepRouting.iterative).toEqual({
       kind: "candidate", fallbackModelId: MODEL,
     });
     expect(await t.run((ctx) => ctx.db.get(generationId))).toMatchObject({ status: "running" });
@@ -332,7 +332,7 @@ describe("shared analysis failure and compatibility", () => {
     await t.action(internal.ai.pipeline.generateReport, { generationId });
     expect(analyzerCalls()).toHaveLength(1);
     expect(analyzerCalls()[0][0].model).toBe("claude-opus-4-8");
-    expect(generationPromptProgram.calls.analyzer.model.single).toEqual({
+    expect(generationPromptProgram.calls.analyzer.model.beforeStepRouting.single).toEqual({
       kind: "candidate", fallbackModelId: MODEL,
     });
     expect(await candidateJobs(t)).toHaveLength(1);
@@ -395,7 +395,7 @@ describe("shared analysis failure and compatibility", () => {
     await drainOrderedChains(t);
     expect(analyzerCalls()).toHaveLength(1);
     expect(analyzerCalls()[0][0].model).toBe(pair[index]);
-    expect(generationPromptProgram.calls.analyzer.model.legacyCandidate).toEqual({
+    expect(generationPromptProgram.calls.analyzer.model.beforeStepRouting.legacyCandidate).toEqual({
       kind: "candidate", fallbackModelId: MODEL,
     });
     expect(await t.run((ctx) => ctx.db.get(legacy.candidateRunId))).toMatchObject({ status: "succeeded" });
@@ -433,7 +433,7 @@ it("shares one analysis across Anthropic and OpenRouter candidates without chang
   await runCandidates(t);
   expect(analyzerCalls()).toHaveLength(1);
   expect(analyzerCalls()[0][0].model).toBe(MODEL);
-  expect(analyzerCalls()[0][0].model).toBe(generationPromptProgram.calls.analyzer.model.compare.legacyModelId);
+  expect(analyzerCalls()[0][0].model).toBe(generationPromptProgram.calls.analyzer.model.beforeStepRouting.compare.legacyModelId);
   expect(requests.some((request) => request.tool_choice?.function?.name === "submit_transcript_analysis")).toBe(false);
   const artifacts = await t.run((ctx) => ctx.db.query("generationArtifacts").collect());
   const analysis = JSON.parse(artifacts.find((row) => row.kind === "analysis")?.content ?? "null");

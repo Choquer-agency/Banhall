@@ -12,7 +12,7 @@ import { internalAction } from "../_generated/server";
 import { detectFirstPersonPreference } from "../../shared/humanProse";
 import { internal } from "../_generated/api";
 import { v } from "convex/values";
-import { clientForModel, registerGenerationModels, startActionDeadline } from "./providers";
+import { generationStepClients, registerGenerationModels, startActionDeadline } from "./providers";
 import { runQAAgent } from "./qaAgent";
 import { runChronologyAgent } from "./chronologyAgent";
 import type { TranscriptAnalysis } from "./analyzerAgent";
@@ -28,7 +28,7 @@ export const runReportQa = internalAction({
     // The action's deadline bounds every provider request (actionDeadline.ts).
     startActionDeadline(ctx);
     // Model catalog: routing and output budgets read the frozen models.
-    await registerGenerationModels(ctx, args.generationId).catch(() => null);
+    const freeze = await registerGenerationModels(ctx, args.generationId).catch(() => null);
     const attempt = await ctx.runQuery(internal.generations.getPostQaAttempt, {
       generationId: args.generationId,
     });
@@ -56,13 +56,14 @@ export const runReportQa = internalAction({
       return;
     }
 
-    // Routed by the report's model gateway (may be an OpenRouter model;
-    // undefined model → Anthropic default via gatewayForModel fallback).
-    const clientFor = (
-      callSite: string,
-      learningDigestIds?: Id<"learningDigests">[]
-    ) =>
-      clientForModel(ctx, input.model ?? "", {
+    // Owner decision 43: the generation's frozen checking model scores the
+    // report. A generation frozen before step routing keeps the report's
+    // model (may be an OpenRouter model; undefined model → Anthropic
+    // default via gatewayForModel fallback).
+    const steps = generationStepClients(ctx, {
+      freeze,
+      writerModel: input.model ?? "",
+      meta: (callSite, learningDigestIds) => ({
         callSite,
         projectId: input.projectId,
         ...(input.requestedBy ? { userId: input.requestedBy } : {}),
@@ -70,7 +71,11 @@ export const runReportQa = internalAction({
           generationId: args.generationId,
           ...(learningDigestIds?.length ? { learningDigestIds } : {}),
         },
-      });
+      }),
+    });
+    const clientFor = steps.client;
+    // The model each request names; undefined sends the default, as before.
+    const modelFor = (callSite: string) => steps.route(callSite).model || undefined;
 
     // Reviewer calibration digest and (for legacy generations without a
     // frozen copy) the live style policy load in parallel — both optional,
@@ -158,7 +163,7 @@ export const runReportQa = internalAction({
           input.section242,
           input.section244,
           input.section246,
-          input.model,
+          modelFor("generation:post_qa"),
           calibration?.content,
           style.overrides,
           style.firstPerson
@@ -166,7 +171,7 @@ export const runReportQa = internalAction({
         runChronologyAgent(
           clientFor("generation:post_chronology"),
           analysis,
-          input.model
+          modelFor("generation:post_chronology")
         ),
       ]);
       if (qaSettled.status === "rejected") {

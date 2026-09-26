@@ -15,10 +15,13 @@ import { internal } from "../_generated/api";
 import { v } from "convex/values";
 import {
   clientForModel,
+  clientForStep,
   describeProviderFailure,
+  generationStepClients,
   registerGenerationModels,
   startActionDeadline,
 } from "./providers";
+import { resolveGenerationStep } from "../lib/generationSteps";
 import { RETRIEVAL_BRIEF_MODEL } from "./brain/query";
 import Anthropic from "@anthropic-ai/sdk";
 import { ANALYZER_REQUEST, runAnalyzerAgent, type TranscriptAnalysis } from "./analyzerAgent";
@@ -88,16 +91,19 @@ async function deriveSeedBrief(
   generationId: Id<"generations">,
   projectId: Id<"projects">,
   model: string,
+  freeze: ModelFreeze | null,
   requestedBy?: Id<"users">
 ): Promise<boolean> {
   try {
-    const client = clientForModel(ctx, model, {
+    // Owner decision 43: the Brief runs on the frozen planning model.
+    const route = resolveGenerationStep({ freeze, step: "brief", writerModel: model });
+    const client = clientForStep(ctx, route, {
       callSite: "generation:brief", projectId,
       ...(requestedBy ? { userId: requestedBy } : {}),
       attribution: { generationId },
     });
     const result = await deriveOrReuseBrief(ctx, client, {
-      projectId, generationId, model, seedStartup: true,
+      projectId, generationId, model: route.model, seedStartup: true,
     });
     return result.kind !== "no_evidence";
   } catch {
@@ -125,9 +131,10 @@ async function finishSeedInitialization(
   generationId: Id<"generations">,
   projectId: Id<"projects">,
   model: string,
+  freeze: ModelFreeze | null,
   requestedBy?: Id<"users">
 ): Promise<void> {
-  const briefReady = await deriveSeedBrief(ctx, generationId, projectId, model, requestedBy);
+  const briefReady = await deriveSeedBrief(ctx, generationId, projectId, model, freeze, requestedBy);
   await openSeedStageOrRecordFailure(ctx, generationId, briefReady);
 }
 
@@ -244,6 +251,7 @@ async function startSeedStage(
     generationId,
     args.projectId,
     args.model,
+    args.freeze,
     args.requestedBy
   );
   try {
@@ -276,9 +284,9 @@ export const resumeSeedInitialization = internalAction({
     startActionDeadline(ctx);
     const input = await ctx.runQuery(internal.generations.getGenerationInput, args);
     if (!input || input.gatedWorkflow !== "seeds") return null;
-    await registerGenerationModels(ctx, args.generationId);
+    const freeze = await registerGenerationModels(ctx, args.generationId);
     const model = candidateModelsForMode("iterative", input.singleModelId)[0];
-    await finishSeedInitialization(ctx, args.generationId, input.projectId, model.id, input.requestedBy);
+    await finishSeedInitialization(ctx, args.generationId, input.projectId, model.id, freeze, input.requestedBy);
     return null;
   },
 });
@@ -393,16 +401,18 @@ export const prepareSeedDraftingInputs = internalAction({
         },
       });
       if (!(await stillCurrent())) return null;
-      analyzerModel = model.id;
+      // Owner decision 43: the analysis runs on the frozen planning model.
+      const analyzerRoute = resolveGenerationStep({ freeze, step: "analyzer", writerModel: model.id });
+      analyzerModel = analyzerRoute.model;
       const analysis = await runAnalyzerAgent(
-        clientForModel(ctx, model.id, {
+        clientForStep(ctx, analyzerRoute, {
           callSite: "generation:analyzer",
           projectId,
           ...(input.requestedBy ? { userId: input.requestedBy } : {}),
           attribution: { generationId: genId },
         }),
         analyzerContext.userMessage,
-        model.id,
+        analyzerRoute.model,
         brainBlocks.analyzer,
         {
           shorter: args.shorterAnalysis === true,
@@ -467,12 +477,12 @@ export const startIterativeGeneration = internalAction({
     // Iterative mode uses single-model semantics: the explicitly selected
     // model, defaulting to the writing role's model at reservation.
     const model = candidateModelsForMode("iterative", input.singleModelId)[0];
-    // Routed by the selected model's gateway (Anthropic direct / OpenRouter).
-    const clientFor = (
-      callSite: string,
-      learningDigestIds?: Id<"learningDigests">[]
-    ) =>
-      clientForModel(ctx, model.id, {
+    // Routed by each step's model (owner decision 43) and its gateway
+    // (Anthropic direct / OpenRouter).
+    const steps = generationStepClients(ctx, {
+      freeze,
+      writerModel: model.id,
+      meta: (callSite, learningDigestIds) => ({
         callSite,
         projectId,
         ...(input.requestedBy ? { userId: input.requestedBy } : {}),
@@ -480,7 +490,8 @@ export const startIterativeGeneration = internalAction({
           generationId: genId,
           ...(learningDigestIds?.length ? { learningDigestIds } : {}),
         },
-      });
+      }),
+    });
     // The Brain's retrieval brief runs on the retrieval_brief role's model
     // frozen at reservation, never the candidate model.
     const briefModel = freeze?.roles.retrieval_brief ?? RETRIEVAL_BRIEF_MODEL;
@@ -606,9 +617,9 @@ export const startIterativeGeneration = internalAction({
       // Frozen once: analyzer output shared by every section draft.
       await log("Analyzing the transcript (runs once — shared by all sections)…");
       const analysis = await runAnalyzerAgent(
-        clientFor("generation:analyzer"),
+        steps.client("generation:analyzer"),
         analyzerContext.userMessage,
-        model.id,
+        steps.route("generation:analyzer").model,
         brainBlocks.analyzer
       );
 
@@ -626,10 +637,10 @@ export const startIterativeGeneration = internalAction({
       // generation continues without one. DW-109/DW-120: every attempt is
       // recorded on generations.briefOutcome and narrated with one authored
       // progress line.
-      await runGenerationBriefStage(ctx, clientFor("generation:brief"), {
+      await runGenerationBriefStage(ctx, steps.client("generation:brief"), {
         projectId,
         generationId: genId,
-        model: model.id,
+        model: steps.route("generation:brief").model,
       });
 
       const created = await ctx.runMutation(
@@ -709,7 +720,7 @@ export const generateSection = internalAction({
     // The action's deadline bounds every provider request (actionDeadline.ts).
     startActionDeadline(ctx);
     // Model catalog: routing and output budgets read the frozen models.
-    await registerGenerationModels(ctx, args.generationId).catch(() => null);
+    const freeze = await registerGenerationModels(ctx, args.generationId).catch(() => null);
     const run = await ctx.runMutation(internal.generations.claimSectionRun, {
       generationId: args.generationId,
       section: args.section,
@@ -730,12 +741,12 @@ export const generateSection = internalAction({
       await fail("The frozen section inputs are unavailable.");
       return;
     }
-    // Routed by the section run's model gateway.
-    const clientFor = (
-      callSite: string,
-      learningDigestIds?: Id<"learningDigests">[]
-    ) =>
-      clientForModel(ctx, run.model, {
+    // The section run's model writes and compresses (owner decision 43),
+    // routed by its gateway.
+    const clientFor = generationStepClients(ctx, {
+      freeze,
+      writerModel: run.model,
+      meta: (callSite, learningDigestIds) => ({
         callSite,
         projectId: input.projectId,
         ...(input.requestedBy ? { userId: input.requestedBy } : {}),
@@ -743,7 +754,8 @@ export const generateSection = internalAction({
           generationId: args.generationId,
           ...(learningDigestIds?.length ? { learningDigestIds } : {}),
         },
-      });
+      }),
+    }).client;
 
     try {
       const analysis = JSON.parse(input.analysis) as TranscriptAnalysis;

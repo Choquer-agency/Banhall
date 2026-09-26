@@ -12,6 +12,7 @@ import {
 import { MODEL } from "./ai/model";
 import { buildSeedPrompt, seedPromptProjection } from "./ai/trustedContext";
 import { domainError } from "./lib/contracts";
+import { resolveGenerationStep } from "./lib/generationSteps";
 import { reconcileRestoredSeedApproval } from "./lib/seedDecisionWrites";
 import { checkSeedSpeakers, citationSpeakerReader } from "./lib/citationSpeakers";
 import { resolveGatedWorkflow } from "./lib/gatedWorkflow";
@@ -391,7 +392,13 @@ export async function dispatchSeedAttempt(
     status: "queued",
     queuedAt: now,
     leaseExpiresAt: now + SEED_ATTEMPT_LEASE_MS,
-    model: generation.singleModelId ?? MODEL,
+    // Owner decision 43: seed cards run on the generation's frozen planning
+    // model; a generation frozen before step routing keeps the writer's.
+    model: resolveGenerationStep({
+      freeze: generation.modelFreeze,
+      step: args.operation === "feedback" ? "seedFeedback" : "seeds",
+      writerModel: generation.singleModelId ?? MODEL,
+    }).model,
     slot:
       args.operation === "feedback"
         ? `generation:seedFeedback:${args.roleId}`
