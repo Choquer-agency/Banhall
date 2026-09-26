@@ -12,3 +12,21 @@
 export function previousYearReportHeader(year: number): string {
   return `[Previous-year report — fiscal ${year}]\n`;
 }
+
+/**
+ * Decision 42 (2026-09-25): a draft is never built from last year's report
+ * alone. A file in this category (an uploaded previous-year report, a PD
+ * ported in, or the original's report brought along by a duplicate) does not
+ * count as a current-year source. The server refuses such a generation with
+ * `PREVIOUS_YEAR_ONLY_REASON`, and the wizard shows the same message.
+ */
+export const PREVIOUS_YEAR_CATEGORY = "previous_pd";
+
+export const PREVIOUS_YEAR_ONLY_REASON = "PREVIOUS_YEAR_ONLY_SOURCES";
+
+export const PREVIOUS_YEAR_ONLY_MESSAGE =
+  "Add a transcript or a current file. Last year's report alone can't be the source for this year's report.";
+
+export function isPreviousYearDocument(document: { category?: string | null }): boolean {
+  return document.category === PREVIOUS_YEAR_CATEGORY;
+}
