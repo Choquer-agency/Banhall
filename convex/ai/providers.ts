@@ -30,6 +30,7 @@ import {
 import type { ModelRole } from "../../shared/modelCatalog";
 import {
   assertGenerationCallSite,
+  generationSlotOf,
   instrumentedAnthropic,
   type GenerationAttribution,
   type ProviderCallMeta,
@@ -403,7 +404,10 @@ async function recordedRequest<R extends { servedModel?: string; settleOutcome?:
   try {
     response = await send();
   } catch (error) {
-    const code = request.signal?.aborted ? null : modelFaultCode(error);
+    const code =
+      request.signal?.aborted || (error instanceof OutputLimitError && !cutOffCounts(callSite))
+        ? null
+        : modelFaultCode(error);
     if (code) {
       await recordOutcome(ctx, { model: servedModelOf(error) ?? requested, callSite, outcome: "failure", code });
     }
@@ -426,15 +430,28 @@ async function recordedRequest<R extends { servedModel?: string; settleOutcome?:
   }
   // A text answer cut off at the output limit is refused by its reader
   // (requireTextResponse), so it is a failure, as the OpenRouter adapter
-  // already records it, never a success (cutoff review P3-1).
+  // already records it, never a success (cutoff review P3-1). A cut-off
+  // compression records nothing (see cutOffCounts).
   const stopReason = (response as { stop_reason?: string | null }).stop_reason;
-  await recordOutcome(
-    ctx,
-    isCutOffStopReason(stopReason)
-      ? { model, callSite, outcome: "failure", code: "output_limit" }
-      : { model, callSite, outcome: "success" }
-  );
+  if (isCutOffStopReason(stopReason)) {
+    if (cutOffCounts(callSite)) {
+      await recordOutcome(ctx, { model, callSite, outcome: "failure", code: "output_limit" });
+    }
+    return response;
+  }
+  await recordOutcome(ctx, { model, callSite, outcome: "success" });
   return response;
+}
+
+/**
+ * Whether an answer cut off at the output limit counts toward rollback. A
+ * cut-off section draft fails its section, so it counts as `output_limit` on
+ * both gateways. A cut-off compression keeps the section it was given and
+ * its step succeeds, so it counts on neither; its usage row still keeps the
+ * stop reason (P3 sweep, approved 2026-09-25 by the lead).
+ */
+function cutOffCounts(callSite: string): boolean {
+  return !generationSlotOf(callSite)?.startsWith("compression:");
 }
 
 /** The Anthropic calls citations-mode extraction makes (see citationsExtractor). */
