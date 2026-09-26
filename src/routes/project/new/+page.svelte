@@ -64,7 +64,6 @@
   import {
     isTranscriptFileName,
     TRANSCRIPT_ACCEPT,
-    TRANSCRIPT_FORMAT_LABELS,
     type TranscriptSourceFormat,
   } from "../../../../shared/transcriptParse";
   import {
@@ -158,7 +157,9 @@
   let scienceCode = $state("");
   let scienceOpen = $state(false);
   let title = $state("");
-  let sredTitle = $state(""); // BNH-23: formal SR&ED title
+  // BNH-23: formal SR&ED title. Round 2 (E1, E4) drops the field; a copy and
+  // a scheme-named PD still carry it, and the project page edits it.
+  let sredTitle = $state("");
   let clientName = $state("");
   // Flag 2026-08-14 (Michael): settable at creation, not only post-generation.
   let projectNumber = $state("");
@@ -913,7 +914,10 @@
     if (candidateMode === "single") return { title: pickedModelLabel, line: "Writes the draft, about 3 minutes" };
     const slot = (id: string) => (id ? modelLabelFor(id, capabilities) : "a random model");
     return {
-      title: `${slot(compareSlotA)} and ${slot(compareSlotB)}`.replace(/^a random/, "A random"),
+      title:
+        !compareSlotA && !compareSlotB
+          ? "Two random models"
+          : `${slot(compareSlotA)} and ${slot(compareSlotB)}`.replace(/^a random/, "A random"),
       line: "One draft each, you keep the better one",
     };
   });
@@ -1628,6 +1632,10 @@
     currentSection = id;
     document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
   }
+  // The drop card fills the last row's free cell (E1); a full row gets none
+  // (E4, H1, H2), and Add stays the way in. With no file it is the only one.
+  const docColumns = $derived(layout === "phone" ? 1 : layout === "tablet" ? 3 : 2);
+  const showDropCard = $derived(docs.items.length === 0 || docs.items.length % docColumns !== 0);
   const firstBlocking = $derived(checklist.find((row) => row.blocking) ?? null);
   const readySummary = $derived(
     mode === "review"
@@ -1747,7 +1755,7 @@
             {/if}
             {#if layout !== "phone"}<span class="grow"></span>{/if}
             <span class={`shrink-0 text-ink-muted ${layout === "phone" ? "text-xs leading-4" : "text-[13px] leading-[19px]"}`} data-transcript-format>
-              {item.format && item.format !== "unknown" ? `${TRANSCRIPT_FORMAT_LABELS[item.format]}, ` : ""}{item.wordCount.toLocaleString("en-US")} words
+              {item.wordCount.toLocaleString("en-US")} words
             </span>
             {#if !included}
               <span class="shrink-0 text-xs text-ink-muted" data-transcript-not-copied>Not copied</span>
@@ -2286,7 +2294,7 @@
                       <IconPlus size={12} strokeWidth={2} /> Add <IconChevronDown size={11} strokeWidth={2.2} stroke-linejoin="miter" class="text-ink-muted" />
                     </DropdownMenu.Trigger>
                     <DropdownMenu.Portal>
-                      <DropdownMenu.Content align="end" sideOffset={6} data-add-menu class="z-[130] w-[300px] rounded-xl border border-line bg-surface p-1.5 shadow-menu">
+                      <DropdownMenu.Content align="end" sideOffset={26} data-add-menu class="z-[130] w-[300px] rounded-xl border border-line bg-surface p-1.5 shadow-menu">
                         <DropdownMenu.Item onSelect={() => docsInput?.click()} data-add-upload class="flex h-8 cursor-default items-center gap-2 rounded-md px-2 text-[13px] leading-[19px] text-ink outline-none data-highlighted:bg-primary-wash pointer-coarse:h-11">
                           <IconUpload size={15} strokeWidth={1.5} />
                           <span class="flex-1">Upload files</span>
@@ -2355,6 +2363,7 @@
                       onYear={(year) => docs.setYear(doc.id, year)}
                     />
                   {/each}
+                  {#if showDropCard}
                   <button
                     type="button"
                     data-drop-more
@@ -2366,6 +2375,7 @@
                     <span class="text-[13px] leading-[18px] font-medium text-ink">{docs.items.length ? "Drop more files" : "Drop files"}</span>
                     <span class="text-xs leading-4 text-ink-muted">PDF, Word, Excel, text or email</span>
                   </button>
+                  {/if}
                 </div>
                 {#if docsError}
                   <p role="alert" class="text-xs text-danger-ink-muted">{docsError}</p>
@@ -2404,10 +2414,6 @@
                       <TagPicker {allTags} bind:selectedTagIds label={null} variant="field" />
                     </div>
                   {/if}
-                  <label class={`flex flex-col gap-1.5 ${layout === "phone" ? "" : "col-span-2"}`}>
-                    <span class={labelClass}>SR&ED title</span>
-                    <input id="sredTitle" bind:value={sredTitle} placeholder="Optional. You can set it later." class={`field-control w-full text-sm leading-5 text-ink placeholder:text-ink-faint pointer-coarse:h-11 ${fieldSize}`} />
-                  </label>
                 </div>
               </NewProjectSection>
 

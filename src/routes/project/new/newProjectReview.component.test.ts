@@ -83,6 +83,12 @@ describe("E4 Review a written PD", () => {
       ["244", "true", "12 of 100 lines"],
       ["246", "false", "Not found"],
     ]);
+    // E4: the short Section names.
+    expect(rows.map((row) => text(row.querySelector("span.truncate")))).toEqual([
+      "242 Technological uncertainty",
+      "244 Work performed",
+      "246 Advancements",
+    ]);
     expect(document.body.textContent).toContain(
       "Add the interview under Supporting documents if you want facts checked against it."
     );

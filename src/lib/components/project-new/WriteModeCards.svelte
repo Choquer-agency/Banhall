@@ -33,8 +33,9 @@
 <script lang="ts">
   /**
    * "How should we write it?" (boards E1, H1, H2): three radio cards. The
-   * selected card takes a 1.5px lagoon border, the #F7FCFB fill and the
-   * filled radio. `layout="row"` is the tablet strip (H1): no radio dot, the
+   * selected card takes a 1.5px lagoon border (a 1px border plus a 0.5px
+   * ring, since Chrome rounds a 1.5px border down to 1px on 1x screens), the
+   * #F7FCFB fill and the filled radio. `layout="row"` is the tablet strip (H1): no radio dot, the
    * short descriptions in 12px muted ink. `layout="phone"` (H2) stacks the
    * cards and shows the description on the selected card only.
    */
@@ -80,7 +81,7 @@
         row ? "flex-col gap-1 px-3.5" : "gap-2.5 pr-3.5 pl-3"
       } ${
         selected
-          ? "border-[1.5px] border-primary-selected bg-write-mode-selected"
+          ? "border border-primary-selected bg-write-mode-selected shadow-[0_0_0_0.5px_var(--color-primary-selected)]"
           : "border border-line bg-surface hover:bg-primary-wash"
       }`}
     >

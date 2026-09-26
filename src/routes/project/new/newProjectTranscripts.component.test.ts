@@ -257,7 +257,8 @@ describe("/project/new transcript list", () => {
     const formats = [...document.querySelectorAll("[data-transcript-format]")].map((el) =>
       el.textContent?.trim()
     );
-    expect(formats).toEqual(["WebVTT, 7 words", "Zoom, 7 words"]);
+    // E1: the word count only; the detected format still reaches createProject.
+    expect(formats).toEqual(["7 words", "7 words"]);
 
     await fillBasics();
     await startFromPage();

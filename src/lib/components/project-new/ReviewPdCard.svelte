@@ -33,7 +33,7 @@
   const EXPECTED: ReadonlyArray<{ key: PdSectionKey; number: string; title: string }> = [
     { key: "s242", number: "242", title: "Technological uncertainty" },
     { key: "s244", number: "244", title: "Work performed" },
-    { key: "s246", number: "246", title: "Technological advancement" },
+    { key: "s246", number: "246", title: "Advancements" },
   ];
 
   const rows = $derived.by(() => {

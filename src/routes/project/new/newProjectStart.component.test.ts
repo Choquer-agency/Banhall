@@ -101,7 +101,8 @@ describe("the start dialog names the models that run (decision 52)", () => {
 
     document.querySelector<HTMLElement>('[data-write-mode="compare"]')!.click();
     await openStartDialog();
-    expect(text(document.querySelector("[data-start-run-model-title]"))).toBe("A random model and a random model");
+    // G2: both slots Random.
+    expect(text(document.querySelector("[data-start-run-model-title]"))).toBe("Two random models");
     expect(text(document.querySelector("[data-start-run-model-line]"))).toBe("One draft each, you keep the better one");
     expect(text(confirmButton())).toBe("Write 2 drafts");
     expect(document.querySelectorAll('[data-start-run-dialog] [data-ai-mark="aurora"]')).toHaveLength(1);

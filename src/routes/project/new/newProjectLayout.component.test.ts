@@ -154,8 +154,10 @@ describe("E1 board values", () => {
     expect(getComputedStyle(document.querySelector("[data-transcript-drop]")!).backgroundColor).toBe("rgb(249, 252, 251)");
     const selected = document.querySelector<HTMLElement>('[data-right-column] [data-write-mode="iterative"]')!;
     expect(getComputedStyle(selected).backgroundColor).toBe("rgb(247, 252, 251)");
-    expect(selected.className).toContain("border-[1.5px]");
+    // E1: 1.5px of lagoon at any pixel density, a 1px border plus a 0.5px ring.
+    expect(getComputedStyle(selected).borderTopWidth).toBe("1px");
     expect(getComputedStyle(selected).borderTopColor).toBe("rgb(8, 122, 117)");
+    expect(getComputedStyle(selected).boxShadow).toContain("rgb(8, 122, 117) 0px 0px 0px 0.5px");
     const other = document.querySelector<HTMLElement>('[data-right-column] [data-write-mode="single"]')!;
     expect(getComputedStyle(other).backgroundColor).toBe("rgb(255, 255, 255)");
     const recommended = getComputedStyle(selected.querySelector("[data-recommended]")!);
