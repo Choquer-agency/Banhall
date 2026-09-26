@@ -28,7 +28,7 @@
             <LockSimpleIcon size={12} aria-hidden="true" />Set by your organization
           </span>
         {:else}
-          <Switch bind:checked={overrides[area.key]} aria-label={area.label} />
+          <Switch bind:checked={overrides[area.key]} label={area.label} />
         {/if}
       </div>
     {/each}

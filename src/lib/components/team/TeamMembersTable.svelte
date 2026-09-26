@@ -48,7 +48,7 @@
     {#each members as member (member._id)}
       <div role="row" data-member-row={member._id} class="flex h-12 items-center gap-4 border-b border-line-soft px-4 last:border-b-0">
         <span role="cell" class="flex w-[260px] shrink-0 items-center gap-2.5">
-          <Avatar name={member.name} initials={personInitials(member)} size={24} tone={member.isSelf ? "primary" : "fir"} />
+          <Avatar name={member.name} initials={personInitials(member)} size={24} tone={member.isSelf ? "teal" : "fir"} />
           <span class="truncate text-[13px] leading-[19px] font-medium text-ink">{member.name}</span>
         </span>
         <span role="cell" class="min-w-0 flex-1 truncate text-[13px] leading-[19px] text-ink-secondary">{member.email ?? ""}</span>

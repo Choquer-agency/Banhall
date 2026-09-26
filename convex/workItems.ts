@@ -38,6 +38,10 @@ import {
   workflowAuthorities,
   writeWorkflowStageChange,
 } from "./projectWorkflow";
+import { notify } from "./lib/notify";
+import { notificationCopy } from "../shared/notifications";
+import { WORKFLOW_STAGE_LABELS } from "../shared/workflowLabels";
+import type { WorkflowStage } from "../shared/workflowStages";
 
 function validateVersion(expectedVersion: number) {
   if (!Number.isInteger(expectedVersion) || expectedVersion < 0) {
@@ -171,6 +175,39 @@ async function patchWorkflowPointer(
     currentHandoffId,
     workflowVersion: workflowVersion(project) + 1,
     workflowUpdatedAt: Date.now(),
+  });
+}
+
+/**
+ * Round 2 (WS1 spec section 7): tells the assignee a project landed with
+ * them, when someone else created or reassigned the item. The dedupe key
+ * carries `updatedAt`, so a later reassignment back to the same person
+ * notifies again while a retried write does not.
+ */
+async function notifyHandoff(
+  ctx: MutationCtx,
+  args: {
+    item: Pick<Doc<"workItems">, "_id" | "assigneeId" | "updatedAt">;
+    project: Doc<"projects">;
+    actor: Doc<"users">;
+    stage: WorkflowStage;
+  }
+) {
+  const { item, project, actor, stage } = args;
+  if (item.assigneeId === actor._id) return;
+  const copy = notificationCopy.handoff({
+    project: project.title,
+    stage: WORKFLOW_STAGE_LABELS[stage],
+    name: userDisplayLabel(actor),
+  });
+  await notify(ctx, {
+    userId: item.assigneeId,
+    kind: "handoff",
+    projectId: project._id,
+    title: copy.title,
+    body: copy.body,
+    href: `/project/${project._id}`,
+    dedupeKey: `handoff:${item._id}:${item.assigneeId}:${item.updatedAt}`,
   });
 }
 
@@ -329,6 +366,9 @@ export const create = mutation({
       });
       const createdItem = await ctx.db.get(workItemId);
       if (createdItem) await syncOversightForItem(ctx, createdItem, { ...project, ownerId: project.ownerId });
+      if (createdItem) {
+        await notifyHandoff(ctx, { item: createdItem, project, actor: user, stage: "internal_review" });
+      }
       return {
         status: "created" as const,
         workItemId,
@@ -340,6 +380,9 @@ export const create = mutation({
     if (args.blocking) await patchWorkflowPointer(ctx, project, workItemId);
     const createdItem = await ctx.db.get(workItemId);
     if (createdItem) await syncOversightForItem(ctx, createdItem, project);
+    if (createdItem) {
+      await notifyHandoff(ctx, { item: createdItem, project, actor: user, stage: fromStage });
+    }
     return {
       status: "created" as const,
       workItemId,
@@ -534,6 +577,9 @@ export const handOff = mutation({
     }
     const createdItem = await ctx.db.get(workItemId);
     if (createdItem) await syncOversightForItem(ctx, createdItem, project);
+    if (createdItem) {
+      await notifyHandoff(ctx, { item: createdItem, project, actor: user, stage: args.stage });
+    }
     return {
       status: "created" as const,
       workItemId,
@@ -571,6 +617,12 @@ export const reassign = mutation({
     });
     if (item.blocking) await patchWorkflowPointer(ctx, project, item._id);
     await syncOversightForItem(ctx, { ...item, assigneeId: args.toAssigneeId, version, updatedAt: now }, project);
+    await notifyHandoff(ctx, {
+      item: { _id: item._id, assigneeId: args.toAssigneeId, updatedAt: now },
+      project,
+      actor: user,
+      stage: project.workflowStage ?? "intake",
+    });
     return { status: "updated" as const, version };
   },
 });

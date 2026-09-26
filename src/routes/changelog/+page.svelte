@@ -2,6 +2,7 @@
   import AppNav from "$lib/components/ui/AppNav.svelte";
   import PageBar from "$lib/components/ui/PageBar.svelte";
   import WorkspaceChrome from "$lib/components/workspace/WorkspaceChrome.svelte";
+  import { MegaphoneIcon } from "phosphor-svelte";
   import WorkspaceGate from "$lib/workspace/WorkspaceGate.svelte";
   import Spinner from "$lib/components/ui/Spinner.svelte";
   import Button from "$lib/components/ui/Button.svelte";
@@ -194,7 +195,7 @@
       </div>
     {/snippet}
     {#snippet preview()}
-      <WorkspaceChrome title="What's new" description="Features and fixes shipped to Banhall">
+      <WorkspaceChrome title="What's new" description="Features and fixes shipped to Banhall" icon={MegaphoneIcon}>
         {#snippet children()}
           {@render changelogContent(false)}
         {/snippet}

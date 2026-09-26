@@ -17,6 +17,7 @@ export const STORAGE_REFERENCE_FIELDS = [
   "ingestionItems.storageId",
   "ingestionItems.textStorageId",
   "transcripts.originalStorageId",
+  "users.imageStorageId",
 ] as const;
 
 /**
@@ -37,6 +38,8 @@ export async function isStorageReferenced(
     .withIndex("by_textStorageId", (q) => q.eq("textStorageId", storageId)).first()) return true;
   if (await ctx.db.query("transcripts")
     .withIndex("by_originalStorageId", (q) => q.eq("originalStorageId", storageId)).first()) return true;
+  if (await ctx.db.query("users")
+    .withIndex("by_imageStorageId", (q) => q.eq("imageStorageId", storageId)).first()) return true;
   return false;
 }
 

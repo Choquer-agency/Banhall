@@ -481,6 +481,11 @@ async function seedProjectRows(
       snapshot: { items: [{ seedId, wordingHash: "wording-hash", selectionVersion: 1 }] },
     });
     await ctx.db.insert("settingsDocumentAnalyses", { projectId, contentHash: "h", classifierVersion: "1", addressedCategories: [], analyzedAt: now });
+    // Round 2 in-app notification about the project.
+    await ctx.db.insert("notifications", {
+      userId, kind: "handoff", projectId, title: "Doomed is with you", body: "Drafting. Handed off by Ada.",
+      href: `/project/${projectId}`, dedupeKey: `erasure-${projectId}`, createdAt: now,
+    });
     // Detach rows.
     byRef["aiUsage.projectId"] = await ctx.db.insert("aiUsage", { projectId, callSite: "chat", model: "m", inputTokens: 1, outputTokens: 1, costUsd: 0, createdAt: now });
     byRef["brainFeedbackQueue.projectId"] = await ctx.db.insert("brainFeedbackQueue", { fromUserId: "u", projectId, body: "b", status: "pending", createdAt: now });

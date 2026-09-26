@@ -10,6 +10,7 @@ import {
   defaultRailPreferences,
   parseRailPreferences,
   railWidthForKey,
+  persistRailPreferences,
   serializeRailPreferences,
 } from "./railPreferences";
 
@@ -37,6 +38,7 @@ describe("parseRailPreferences (fail-closed)", () => {
     expect(parseRailPreferences("[1,2]")).toEqual({
       width: RAIL_DEFAULT_WIDTH,
       hidden: false,
+      adminOpen: false,
     });
   });
 
@@ -44,23 +46,28 @@ describe("parseRailPreferences (fail-closed)", () => {
     expect(parseRailPreferences('{"width": 9999, "hidden": true}')).toEqual({
       width: RAIL_MAX_WIDTH,
       hidden: true,
+      adminOpen: false,
     });
     expect(parseRailPreferences('{"width": 1, "hidden": "yes"}')).toEqual({
       width: RAIL_MIN_WIDTH,
       hidden: false,
+      adminOpen: false,
     });
     expect(parseRailPreferences('{"width": "wide"}')).toEqual(defaultRailPreferences());
   });
 
   it("round-trips through serialize", () => {
-    const serialized = serializeRailPreferences({ width: 272, hidden: true });
-    expect(parseRailPreferences(serialized)).toEqual({ width: 272, hidden: true });
+    const serialized = serializeRailPreferences({ width: 272, hidden: true, adminOpen: true });
+    expect(parseRailPreferences(serialized)).toEqual({ width: 272, hidden: true, adminOpen: true });
   });
 
   it("serializes out-of-range widths already clamped", () => {
-    expect(JSON.parse(serializeRailPreferences({ width: 10_000, hidden: false }))).toEqual({
+    expect(
+      JSON.parse(serializeRailPreferences({ width: 10_000, hidden: false, adminOpen: false }))
+    ).toEqual({
       width: RAIL_MAX_WIDTH,
       hidden: false,
+      adminOpen: false,
     });
   });
 });
@@ -105,8 +112,24 @@ describe("loadRailPreferences (v2 key)", () => {
     (globalThis as { localStorage?: unknown }).localStorage = storage;
     expect(RAIL_DEFAULT_WIDTH).toBe(200);
     store.set(LEGACY_RAIL_PREFERENCES_KEY, JSON.stringify({ width: 275, hidden: true }));
-    expect(loadRailPreferences()).toEqual({ width: 200, hidden: true });
+    expect(loadRailPreferences()).toEqual({ width: 200, hidden: true, adminOpen: false });
     store.set(RAIL_PREFERENCES_KEY, JSON.stringify({ width: 240, hidden: false }));
-    expect(loadRailPreferences()).toEqual({ width: 240, hidden: false });
+    expect(loadRailPreferences()).toEqual({ width: 240, hidden: false, adminOpen: false });
+  });
+
+  it("reads the Admin group choice, defaulting older payloads to closed (B1, B2)", () => {
+    (globalThis as { localStorage?: unknown }).localStorage = storage;
+    store.set(RAIL_PREFERENCES_KEY, JSON.stringify({ width: 240, hidden: false }));
+    expect(loadRailPreferences().adminOpen).toBe(false);
+    store.set(RAIL_PREFERENCES_KEY, JSON.stringify({ width: 240, hidden: false, adminOpen: true }));
+    expect(loadRailPreferences().adminOpen).toBe(true);
+  });
+
+  it("merges each persisted update over what is stored", () => {
+    (globalThis as { localStorage?: unknown }).localStorage = storage;
+    persistRailPreferences({ width: 240, hidden: false });
+    persistRailPreferences({ adminOpen: true });
+    persistRailPreferences({ hidden: true });
+    expect(loadRailPreferences()).toEqual({ width: 240, hidden: true, adminOpen: true });
   });
 });

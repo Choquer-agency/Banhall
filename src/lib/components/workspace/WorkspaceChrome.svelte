@@ -1,8 +1,9 @@
 <script lang="ts">
+  import type { PageIcon } from "$lib/components/shell/pageIcon";
   // Scrollable utility-page chrome for the flagged workspace experience.
   // Unlike the Projects board shell, this component gives the content pane a
-  // normal vertical scroll owner. It reuses the branded fir rail/drawer and
-  // never changes page business logic, authorization, or the current UI.
+  // normal vertical scroll owner (the round 2 work panel). It never changes
+  // page business logic, authorization, or the current UI.
   import type { Snippet } from "svelte";
   import { goto } from "$app/navigation";
   import { page } from "$app/state";
@@ -11,33 +12,58 @@
   import { useAuth } from "@mmailaender/convex-better-auth-svelte/svelte";
   import { api } from "../../../../convex/_generated/api";
   import WorkspaceShell from "$lib/components/workspace/WorkspaceShell.svelte";
-  import WorkspaceShellControls from "$lib/components/workspace/WorkspaceShellControls.svelte";
+  import PageTopBar from "$lib/components/shell/PageTopBar.svelte";
+  import ViewAsHiddenPage from "$lib/components/shell/ViewAsHiddenPage.svelte";
+  import { VIEW_AS_GATE_PAGE_NAMES, viewerCanOpen, type ViewAsGate } from "$lib/shell/navigation";
+  import { effectiveViewer } from "$lib/shell/viewAs.svelte";
   import type { DashboardView } from "$lib/dashboard/viewMode";
 
   let {
     title,
     description = null,
+    subtitle = null,
+    icon = undefined,
+    iconSnippet = undefined,
+    breadcrumb = null,
+    panel = "padded",
+    padding = "wide",
     theme = "light",
     currentExperienceHref = null,
     currentExperienceLabel = "Current dashboard",
+    viewAsGate = null,
     children,
     actions,
-    subrail,
+    status,
   }: {
     title: string;
+    /** Legacy muted line beside the title; `subtitle` wins when both are set. */
     description?: string | null;
+    /** Muted line beside the title (for example the Settings section name). */
+    subtitle?: string | null;
+    /** Page icon in the top bar tile (a Phosphor icon component). */
+    icon?: PageIcon;
+    iconSnippet?: Snippet;
+    /** Parent page link ("Admin /") shown before the title. */
+    breadcrumb?: { label: string; href: string } | null;
+    /**
+     * `padded`: the panel pads its content (`padding` picks 56px sides for
+     * Settings and Team, 40px for admin pages). `flush`: the page pads itself.
+     */
+    panel?: "padded" | "flush";
+    padding?: "wide" | "admin";
     theme?: "light" | "dark";
     currentExperienceHref?: string | null;
     currentExperienceLabel?: string;
+    /**
+     * Role-gated page: while a developer views Banhall as a role that cannot
+     * open it, the panel shows the D4 hidden state instead of the page
+     * (presentation only; the page's server checks are unchanged).
+     */
+    viewAsGate?: ViewAsGate | null;
     children: Snippet;
     actions?: Snippet;
-    /**
-     * Optional page-level sub-navigation (e.g. Settings sections). Rendered as
-     * a full-height column directly beside the workspace rail, spanning the
-     * page header and content, so it reads as a second rail rather than
-     * in-page chrome. Hidden below md — hosts render an inline fallback.
-     */
-    subrail?: Snippet;
+    /** Right-side slot before the bell (for example a save state). */
+    status?: Snippet;
   } = $props();
 
   const auth = useAuth();
@@ -46,6 +72,13 @@
   // Desktop rail visibility — shared persisted preference (WorkspaceShell).
   let railHidden = $state(false);
   const myWorkAvailable = $derived(Boolean(configQ.data?.ready && !configQ.data?.killSwitch));
+  const userQ = useQuery(api.users.getCurrentUser, () =>
+    auth.isAuthenticated && viewAsGate ? {} : "skip"
+  );
+  const viewer = $derived(effectiveViewer(userQ.data));
+  const hiddenInView = $derived(
+    Boolean(viewAsGate) && viewer.viewing !== null && !viewerCanOpen(viewAsGate!, viewer)
+  );
 
   function destinationHref(target: DashboardView) {
     const url = new URL(page.url);
@@ -86,38 +119,35 @@
   onFocusSearch={focusProjectSearch}
   drawerDescription="Navigate between work, projects, and account pages."
 >
-  <div class={`min-h-0 min-w-0 overflow-hidden ${subrail ? "grid grid-rows-[minmax(0,1fr)] md:grid-cols-[auto_minmax(0,1fr)]" : "flex flex-col"}`}>
-    {#if subrail}
-      <aside
-        data-workspace-subrail
-        class="subrail-gutter hidden min-h-0 w-[12.5rem] overflow-y-auto border-r border-workspace-rail-line bg-workspace-subrail md:block"
-      >
-        {@render subrail()}
-      </aside>
-    {/if}
-    <div class="flex min-h-0 min-w-0 flex-col overflow-hidden">
-    <!-- Header inset is the shared `page-gutter` variable (layout.css) — same
-         one the content panes use — so the title and the content's left edge
-         line up at every breakpoint. -->
-    <header data-workspace-page-header class="page-gutter flex h-[49px] shrink-0 items-center gap-3 border-b border-workspace-rail-line">
-      <!-- Shared drawer hamburger + desktop rail toggle: one a11y contract,
-           owned by WorkspaceShellControls (dedup with WorkspaceHeader). -->
-      <WorkspaceShellControls
-        tone={theme === "dark" ? "dark" : "light"}
-        onOpenNavigation={() => (navigationOpen = true)}
-        {railHidden}
-        onToggleRail={() => (railHidden = !railHidden)}
-      />
-      <div class="flex min-w-0 flex-1 items-baseline gap-2">
-        <h1 class="shrink-0 truncate text-[0.875rem] font-semibold tracking-[-0.01em] text-ink">{title}</h1>
-        {#if description}<p class="min-w-0 truncate text-[0.6875rem] text-ink-muted">{description}</p>{/if}
-      </div>
-      {@render actions?.()}
-    </header>
-
-    <main class="min-h-0 min-w-0 flex-1 overflow-y-auto">
-      {@render children()}
+  <!-- Round 2 frame (decision 53): the 56px top bar on the shell background,
+       then the white work panel inset 12px, which owns the vertical scroll.
+       `data-work-panel` is the shared hook for the View as frame. -->
+  <div class="flex min-h-0 min-w-0 flex-col overflow-hidden bg-workspace-shell px-3 pb-3">
+    <PageTopBar
+      {title}
+      subtitle={subtitle ?? description}
+      {breadcrumb}
+      {icon}
+      {iconSnippet}
+      tone={theme === "dark" ? "dark" : "light"}
+      {railHidden}
+      onOpenNavigation={() => (navigationOpen = true)}
+      onToggleRail={() => (railHidden = !railHidden)}
+      {status}
+      actions={hiddenInView ? undefined : actions}
+    />
+    <main
+      data-work-panel
+      data-work-panel-padding={panel === "padded" && !hiddenInView ? padding : "flush"}
+      class={`min-h-0 min-w-0 flex-1 overflow-y-auto rounded-[10px] border border-line bg-surface ${hiddenInView ? "flex flex-col" : ""} ${
+        panel === "flush" || hiddenInView ? "" : padding === "admin" ? "px-5 pb-10 pt-7 md:px-10" : "px-5 pb-12 pt-8 md:px-14"
+      }`}
+    >
+      {#if hiddenInView && viewAsGate}
+        <ViewAsHiddenPage pageName={VIEW_AS_GATE_PAGE_NAMES[viewAsGate]} />
+      {:else}
+        {@render children()}
+      {/if}
     </main>
-    </div>
   </div>
 </WorkspaceShell>

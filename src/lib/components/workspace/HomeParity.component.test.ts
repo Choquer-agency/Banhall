@@ -160,7 +160,7 @@ describe("Home in the workspace shell", () => {
       .not.toBeNull();
   });
 
-  it("puts the expand control in Home's top bar when the rail is collapsed (board 1.2)", async () => {
+  it("puts the expand control in the collapsed rail, not Home's top bar (round 2, A4)", async () => {
     localStorage.setItem(RAIL_PREFERENCES_KEY, JSON.stringify({ width: 240, hidden: true }));
     __setPageUrl("/my-work");
     seedHome();
@@ -169,7 +169,23 @@ describe("Home in the workspace shell", () => {
 
     await expect.poll(() => document.querySelector("[data-home-top-bar]")).not.toBeNull();
     expect(document.querySelector("nav[data-rail-collapsed]")).not.toBeNull();
-    expect(document.querySelector('[data-home-top-bar] button[data-rail-direction="expand"]')).not.toBeNull();
+    expect(document.querySelector('nav[data-rail-collapsed] button[data-rail-direction="expand"]')).not.toBeNull();
+    expect(document.querySelector('[data-home-top-bar] button[data-rail-direction="expand"]')).toBeNull();
+  });
+
+  it("shows the round 2 identity row: name, role chip and the account menu, no sign-out icon or Flag issue row", async () => {
+    __setPageUrl("/my-work");
+    seedHome();
+    __setQueryData("users:getCurrentUser", { _id: "u-1", firstName: "Olivia", lastName: "Owner", role: "writer" });
+    await browserPage.viewport(1440, 900);
+    await render(WorkspaceDashboard, { view: "my_work" });
+    await expect.poll(() => document.querySelector("nav [data-rail-identity] [data-role-chip]")).not.toBeNull();
+    const identity = document.querySelector<HTMLElement>("nav [data-rail-identity]")!;
+    expect(identity.tagName).toBe("BUTTON");
+    expect(identity.getAttribute("aria-haspopup")).toBe("menu");
+    expect(document.querySelector('nav button[aria-label="Sign out"]')).toBeNull();
+    expect(document.querySelector("nav [data-rail-flag-issue]")).toBeNull();
+    expect(document.querySelector("nav [data-workspace-escape]")).toBeNull();
   });
 
   it("keeps the rail's Home row a single focus stop - the link itself, no focusable wrapper", async () => {

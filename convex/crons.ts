@@ -2,6 +2,7 @@ import { cronJobs } from "convex/server";
 import { internal } from "./_generated/api";
 import { refreshCatalogRef } from "./lib/modelCatalogRefs";
 import { CHAT_TURN_STALE_MINUTES } from "./chatV2";
+import { round2Internal } from "./lib/round2Api";
 
 const crons = cronJobs();
 
@@ -86,6 +87,15 @@ crons.cron(
   "prune old error reports",
   "50 9 * * *",
   internal.errorReports.pruneOldErrorReports,
+  {}
+);
+
+// Round 2 in-app notifications older than 30 days are deleted, 200 per
+// transaction; the mutation reschedules itself while more remain.
+crons.cron(
+  "prune notifications",
+  "10 10 * * *",
+  round2Internal.notifications.pruneOld,
   {}
 );
 

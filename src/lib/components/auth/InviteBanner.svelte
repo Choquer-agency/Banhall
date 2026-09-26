@@ -17,7 +17,7 @@
 
 <div data-invite-banner class="flex w-full shrink-0 items-center gap-2.5 bg-workspace-page-icon px-5 py-3 sm:h-12 sm:justify-center sm:py-0">
   {#if inviter}
-    <Avatar name={inviter.name} initials={inviter.initials} size={24} tone="primary" />
+    <Avatar name={inviter.name} initials={inviter.initials} size={24} tone="teal" />
   {/if}
   <!-- Phones (J9): two lines, "invited you as". -->
   <div class="flex flex-col gap-1 sm:hidden">

@@ -283,7 +283,7 @@
         {#if displayedView === null}
           <!-- Neutral skeleton while the rollout decision loads: the top bar
                height and one panel, so neither Home nor Projects flashes. -->
-          <div class="flex min-h-0 flex-1 flex-col bg-workspace-rail" role="status" aria-label="Loading workspace">
+          <div class="flex min-h-0 flex-1 flex-col bg-workspace-shell" role="status" aria-label="Loading workspace">
             <div class="flex h-14 shrink-0 items-center gap-2.5 px-4">
               <div class="h-[26px] w-[26px] animate-pulse rounded-md bg-chrome motion-reduce:animate-none"></div>
               <div class="h-4 w-24 animate-pulse rounded bg-chrome motion-reduce:animate-none"></div>

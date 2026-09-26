@@ -359,7 +359,7 @@
   </div>
 {:else}
   <AdminWorkspacePage
-    title="Paired Comparisons"
+    title="Paired comparisons"
     description="One human-judged record per project, pinned to the revision the judge read. Deviation and Corrections counts are the judge's own manual counts — never read from the tool."
   >
     <div class="flex flex-col gap-8">

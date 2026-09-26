@@ -1,22 +1,26 @@
 <script lang="ts">
-  // TEMPORARY STUB (WS2 branch): WS1 owns Switch (bits-ui, 32x18 track, fir
-  // on) and replaces it on rebase.
+  /**
+   * Round 2 switch (I2, I3): bits-ui Switch drawn as the boards' 32x18 track,
+   * primary-selected when on and gray-300 when off, with a 14px white thumb.
+   * Coarse pointers get a 44px hit area around the track.
+   */
   import { Switch } from "bits-ui";
 
   let {
     checked = $bindable(false),
     disabled = false,
-    id = undefined,
+    label,
     onCheckedChange = undefined,
-    "aria-label": ariaLabel = undefined,
-    "aria-describedby": ariaDescribedby = undefined,
+    id = undefined,
+    class: className = "",
   }: {
     checked?: boolean;
     disabled?: boolean;
-    id?: string;
+    /** Accessible name (the row label). */
+    label: string;
     onCheckedChange?: (checked: boolean) => void;
-    "aria-label"?: string;
-    "aria-describedby"?: string;
+    id?: string;
+    class?: string;
   } = $props();
 </script>
 
@@ -24,10 +28,12 @@
   bind:checked
   {disabled}
   {id}
-  {onCheckedChange}
-  aria-label={ariaLabel}
-  aria-describedby={ariaDescribedby}
-  class="inline-flex h-[18px] w-8 shrink-0 cursor-pointer items-center rounded-full bg-gray-300 p-0.5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 data-[state=checked]:bg-fir"
+  aria-label={label}
+  onCheckedChange={(value) => onCheckedChange?.(value)}
+  data-switch
+  class={`group relative inline-flex h-[18px] w-8 shrink-0 cursor-pointer items-center rounded-full p-0.5 transition-colors duration-150 ease-out focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-fir disabled:cursor-not-allowed disabled:opacity-50 motion-reduce:transition-none data-[state=checked]:bg-primary-selected data-[state=unchecked]:bg-gray-300 pointer-coarse:before:absolute pointer-coarse:before:-inset-x-1.5 pointer-coarse:before:-inset-y-[13px] pointer-coarse:before:content-[''] ${className}`}
 >
-  <Switch.Thumb class="block h-3.5 w-3.5 rounded-full bg-white shadow transition-transform data-[state=checked]:translate-x-[14px]" />
+  <Switch.Thumb
+    class="pointer-events-none block size-3.5 rounded-full bg-surface transition-transform duration-150 ease-out motion-reduce:transition-none data-[state=checked]:translate-x-3.5 data-[state=unchecked]:translate-x-0"
+  />
 </Switch.Root>

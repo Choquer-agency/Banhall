@@ -30,6 +30,6 @@
   >Edit instructions</button>
   <div class="flex items-center gap-2.5 border-l border-line-soft pl-3">
     <label for="writing-preferences-on" class="text-[13px] leading-[18px] text-ink-secondary">On</label>
-    <Switch id="writing-preferences-on" bind:checked={enabled} aria-label="Use my writing preferences" />
+    <Switch id="writing-preferences-on" bind:checked={enabled} label="Use my writing preferences" />
   </div>
 </section>

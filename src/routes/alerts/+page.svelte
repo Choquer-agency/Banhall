@@ -2,6 +2,7 @@
   import AppNav from "$lib/components/ui/AppNav.svelte";
   import PageBar from "$lib/components/ui/PageBar.svelte";
   import WorkspaceChrome from "$lib/components/workspace/WorkspaceChrome.svelte";
+  import { WarningIcon } from "phosphor-svelte";
   import WorkspaceGate from "$lib/workspace/WorkspaceGate.svelte";
   import Spinner from "$lib/components/ui/Spinner.svelte";
   import Checkbox from "$lib/components/ui/Checkbox.svelte";
@@ -134,7 +135,7 @@
       </div>
     {/snippet}
     {#snippet preview()}
-      <WorkspaceChrome title="Alerts & requests" description="Bugs, flagged issues, and feature requests">
+      <WorkspaceChrome title="Alerts" description="Bugs, flagged issues, and feature requests" icon={WarningIcon} viewAsGate="alerts">
         {#snippet children()}
           {@render alertsContent(false)}
         {/snippet}

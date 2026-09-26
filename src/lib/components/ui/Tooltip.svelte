@@ -19,9 +19,12 @@
     text,
     side = "top",
     delayDuration = 700,
+    hint = null,
     children,
   }: {
     text: string;
+    /** Keyboard hint shown after the text in a quieter tone ("⌘K"). */
+    hint?: string | null;
     side?: "top" | "right" | "bottom" | "left";
     /** ms before the tooltip opens — default mirrors native `title` timing */
     delayDuration?: number;
@@ -42,7 +45,7 @@
         sideOffset={6}
         class="z-[110] select-none rounded-md bg-gray-900 px-2 py-1 text-xs text-white shadow-md"
       >
-        {text}
+        {text}{#if hint}<span data-tooltip-hint class="ml-2 text-gray-300">{hint}</span>{/if}
       </Tooltip.Content>
     </Tooltip.Portal>
   </Tooltip.Root>

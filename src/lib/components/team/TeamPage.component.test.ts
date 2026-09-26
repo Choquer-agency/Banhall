@@ -12,7 +12,10 @@ import {
 } from "$lib/test/convex-svelte-stub.svelte";
 import { __resetAuthState } from "$lib/test/convex-auth-stub";
 import { __resetPage } from "$lib/test/app-state-stub.svelte";
-import { enter, exit } from "$lib/shell/viewAs.svelte";
+import { viewAs } from "$lib/shell/viewAs.svelte";
+
+const enter = (role: Parameters<typeof viewAs.enter>[0]) => viewAs.enter(role);
+const exit = () => viewAs.exit();
 
 const NOW = Date.parse("2026-09-26T19:00:00Z");
 const MIN = 60_000;
