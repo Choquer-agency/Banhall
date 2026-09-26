@@ -452,7 +452,7 @@
 {#if auth.isLoading || !auth.isAuthenticated}
   <div class="flex flex-1 items-center justify-center bg-canvas"><Spinner /></div>
 {:else}
-  <AdminWorkspacePage title="OneDrive ingestion" description="Review historical PDs and transcripts before anything enters the Brain." flush>
+  <AdminWorkspacePage title="OneDrive import" description="Review historical PDs and transcripts before anything enters the Brain." flush>
     {#if stats === null}
       <p class="mt-8 text-sm text-ink-muted">Admin access only.</p>
     {:else}

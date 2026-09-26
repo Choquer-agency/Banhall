@@ -110,7 +110,7 @@
   </div>
 {:else}
   <AdminWorkspacePage
-    title="AI usage & cost"
+    title="AI usage and cost"
     description={`Token consumption and estimated spend in CAD at a ${USD_TO_CAD.toFixed(2)} USD conversion rate.`}
   >
 

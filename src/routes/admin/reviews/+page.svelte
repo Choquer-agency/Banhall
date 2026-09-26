@@ -206,7 +206,7 @@
   </div>
 {:else}
   <AdminWorkspacePage
-    title="Consultant QA reviews"
+    title="QA reviews"
     description="Human quality scores alongside AI QA scores, for administrator review only."
   >
 
