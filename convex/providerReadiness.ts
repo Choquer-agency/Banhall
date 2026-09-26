@@ -7,7 +7,7 @@ import {
 } from "./lib/providerConfig";
 import { defaultModelId } from "./appSettings";
 import { getCurrentUserOrNull } from "./lib/auth";
-import { catalogEntry, listSelectableModels } from "./lib/modelRoles";
+import { catalogEntry, listSelectableModels, roleModelId } from "./lib/modelRoles";
 
 export const getCapabilities = query({
   args: {},
@@ -32,6 +32,16 @@ export const getCapabilities = query({
     const defaultEntry =
       selectable.find((model) => model.id === defaultModel) ??
       (await catalogEntry(ctx, defaultModel));
+    // The models the start and confirm dialogs name (decision 52): the
+    // planning role writes the ideas (decision 43) and the pd_review role
+    // runs a PD review. A generation freezes its models at reservation, so an
+    // admin switch between opening a dialog and confirming it can differ.
+    const planningModel = await roleModelId(ctx, "planning");
+    const pdReviewModel = await roleModelId(ctx, "pd_review");
+    const labelFor = async (modelId: string) =>
+      selectable.find((model) => model.id === modelId)?.label ??
+      (await catalogEntry(ctx, modelId))?.label ??
+      modelId;
     return {
       generation: anthropic.state,
       review: anthropic.state,
@@ -62,6 +72,10 @@ export const getCapabilities = query({
       // "Default" option with it.
       defaultModel,
       defaultModelLabel: defaultEntry?.label ?? defaultModel,
+      planningModel,
+      planningModelLabel: await labelFor(planningModel),
+      pdReviewModel,
+      pdReviewModelLabel: await labelFor(pdReviewModel),
     };
   },
 });

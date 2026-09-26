@@ -1027,6 +1027,14 @@ export default defineSchema({
     // successful candidates forward. The full compare pair remains in
     // compareModelIds for provenance; this bounded subset drives scheduling.
     retryModelIds: v.optional(v.array(v.string())),
+    // Round 2 (decision 56): files the writer unticked in the start dialog.
+    // The frozen sources skip them; retries freeze the same selection.
+    excludedSources: v.optional(
+      v.object({
+        documentIds: v.array(v.id("projectDocuments")),
+        transcriptIds: v.array(v.id("transcripts")),
+      })
+    ),
     seededCandidates: v.optional(v.number()),
     scheduledJobId: v.optional(v.id("_scheduled_functions")),
     previousProjectStatus: v.optional(
@@ -2691,6 +2699,14 @@ export default defineSchema({
     createdBy: v.string(),
     createdAt: v.number(),
     completedAt: v.optional(v.number()),
+    // Round 2 (decision 56): context files the writer unticked in the start
+    // dialog; the review agent does not read them.
+    excludedSources: v.optional(
+      v.object({
+        documentIds: v.array(v.id("projectDocuments")),
+        transcriptIds: v.array(v.id("transcripts")),
+      })
+    ),
   })
     .index("by_projectId", ["projectId"])
     // Stale-review reaper: running rows older than the cutoff.

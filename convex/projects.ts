@@ -27,6 +27,7 @@ import {
   requireInternalProjectAccess,
   requireProjectCreatorOrAdmin,
   requireCurrentUser,
+  requireInternalActor,
   requireRole,
 } from "./lib/auth";
 import {
@@ -68,6 +69,7 @@ import {
   dashboardCompanyKey,
   dashboardFiscalYear,
   dashboardFiscalYearRank,
+  normalizeDashboardText,
 } from "../shared/dashboardProjection";
 import {
   MAX_TOTAL_TRANSCRIPT_CHARS,
@@ -241,6 +243,55 @@ export const listProjects = query({
  * industry picker so ad-hoc industries typed by one writer become options
  * for everyone.
  */
+/** Title comparison for the duplicate-name check: the dashboard's text
+ * normalization with punctuation and symbols removed. */
+export function sameProjectTitleKey(title: string): string {
+  return normalizeDashboardText(title)
+    .replace(/[\p{P}\p{S}]/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/**
+ * E6: an existing project with the same client, title and fiscal year, so New
+ * project can warn before a second copy is made. Internal read (D1: internal
+ * projects are readable across the workspace). Reads one company and year
+ * through the dashboard index; projects being deleted are skipped.
+ */
+export const findSameProject = query({
+  args: {
+    clientName: v.string(),
+    title: v.string(),
+    fiscalYearEnd: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    await requireInternalActor(ctx);
+    const titleKey = sameProjectTitleKey(args.title);
+    if (!titleKey || !args.clientName.trim()) return null;
+    const rows = await ctx.db
+      .query("projects")
+      .withIndex("by_dashboardCompanyKey_and_dashboardFiscalYearRank", (q) =>
+        q
+          .eq("dashboardCompanyKey", dashboardCompanyKey(args.clientName))
+          .eq("dashboardFiscalYearRank", dashboardFiscalYearRank(args.fiscalYearEnd))
+      )
+      .take(200);
+    const match = rows.find(
+      (row) => row.deletionStartedAt === undefined && sameProjectTitleKey(row.title) === titleKey
+    );
+    if (!match) return null;
+    const owner = match.ownerId ? await ctx.db.get(match.ownerId) : null;
+    return {
+      projectId: match._id,
+      title: match.title,
+      clientName: match.clientName,
+      workflowStage: match.workflowStage ?? null,
+      ownerName: owner ? userDisplayLabel(owner) : null,
+      updatedAt: match.updatedAt,
+    };
+  },
+});
+
 export const listIndustries = query({
   args: {},
   handler: async (ctx) => {

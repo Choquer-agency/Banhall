@@ -2068,3 +2068,22 @@ describe("a built-in model taken out of the seed list", () => {
     expect(await row(t, "claude-fable-5-1")).toMatchObject({ status: "enabled" });
   });
 });
+
+describe("start dialog models (decision 52)", () => {
+  it("names the planning and pd_review role models with catalog labels", async () => {
+    const { admin, writer } = await setup();
+    const before = await writer.query(api.providerReadiness.getCapabilities, {});
+    expect(before?.planningModel).toBe(ROLE_POLICIES.planning.defaultModelId);
+    expect(before?.pdReviewModel).toBe(ROLE_POLICIES.pd_review.defaultModelId);
+    expect(before?.planningModelLabel).not.toBe("");
+    await admin.mutation(setRoleModelRef, { role: "planning", modelId: "claude-haiku-4-5-20251001" });
+    await admin.mutation(setRoleModelRef, { role: "pd_review", modelId: "claude-opus-5-5" });
+    const after = await writer.query(api.providerReadiness.getCapabilities, {});
+    expect(after).toMatchObject({
+      planningModel: "claude-haiku-4-5-20251001",
+      planningModelLabel: "Haiku 4.5",
+      pdReviewModel: "claude-opus-5-5",
+      pdReviewModelLabel: "Opus 5.5",
+    });
+  });
+});

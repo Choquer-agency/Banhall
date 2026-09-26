@@ -60,6 +60,43 @@ import { assertFrozenSourceBijection, resolveFrozenSourceId } from "../seedRevis
 import { startSummaryRecoveryRef } from "./seedStage";
 import { transitionGeneration } from "../generationTransitions";
 import { restorableProjectStatus } from "./restoreStatus";
+import { userDisplayLabel } from "../teamRoster";
+import type { QueryCtx } from "../../_generated/server";
+
+/**
+ * The user-safe summary of a project's active run (F6): who started it, which
+ * mode and when. No model, source or error detail.
+ */
+export async function activeRunSummary(
+  ctx: QueryCtx,
+  active: Doc<"generations">
+): Promise<{
+  generationId: Id<"generations">;
+  requestedBy: Id<"users"> | null;
+  requestedByName: string;
+  candidateMode: CandidateMode;
+  startedAt: number;
+}> {
+  const requester = active.requestedBy ? await ctx.db.get(active.requestedBy) : null;
+  return {
+    generationId: active._id,
+    requestedBy: active.requestedBy ?? null,
+    requestedByName: requester ? userDisplayLabel(requester) : "Someone",
+    candidateMode: active.candidateMode ?? "compare",
+    startedAt: active.startedAt,
+  };
+}
+
+/** Refuses a start while a run is active, naming it in user-safe details. */
+async function refuseActiveGeneration(ctx: MutationCtx, active: Doc<"generations">): Promise<never> {
+  const summary = await activeRunSummary(ctx, active);
+  domainError("GENERATION_ACTIVE", "A generation is already active for this project", {
+    generationId: summary.generationId,
+    requestedByName: summary.requestedByName,
+    candidateMode: summary.candidateMode,
+    startedAt: String(summary.startedAt),
+  });
+}
 
 export const lengthTargetValidator = v.union(
   v.literal("concise"),
@@ -76,6 +113,56 @@ export const candidateModeValidator = v.union(
 export const singleModelIdValidator = v.string();
 
 export type CandidateMode = "compare" | "single" | "iterative";
+
+/** At most this many ids per leave-out list (conflict 14). */
+export const MAX_EXCLUDED_SOURCES = 250;
+
+export const excludedIdsArgs = {
+  excludeDocumentIds: v.optional(v.array(v.id("projectDocuments"))),
+  excludeTranscriptIds: v.optional(v.array(v.id("transcripts"))),
+};
+
+export type ExcludedSources = {
+  documentIds: Id<"projectDocuments">[];
+  transcriptIds: Id<"transcripts">[];
+};
+
+/**
+ * The files a writer unticked in the start dialog (decision 56). Ids from
+ * another project are refused and nothing is written; a deleted or archived
+ * row is ignored (it is not a source anyway). Returns undefined when nothing
+ * is left out, so an ordinary start stores no field.
+ */
+export async function validatedExcludedSources(
+  ctx: MutationCtx,
+  projectId: Id<"projects">,
+  args: {
+    excludeDocumentIds?: Id<"projectDocuments">[];
+    excludeTranscriptIds?: Id<"transcripts">[];
+  }
+): Promise<ExcludedSources | undefined> {
+  const documentIds = [...new Set(args.excludeDocumentIds ?? [])];
+  const transcriptIds = [...new Set(args.excludeTranscriptIds ?? [])];
+  if (documentIds.length > MAX_EXCLUDED_SOURCES || transcriptIds.length > MAX_EXCLUDED_SOURCES) {
+    domainError("INVALID_INPUT", `Leave out at most ${MAX_EXCLUDED_SOURCES} files of each kind`);
+  }
+  const keptDocuments: Id<"projectDocuments">[] = [];
+  for (const id of documentIds) {
+    const row = await ctx.db.get(id);
+    if (!row) continue;
+    if (row.projectId !== projectId) domainError("INVALID_INPUT", "A left-out file belongs to another project");
+    keptDocuments.push(id);
+  }
+  const keptTranscripts: Id<"transcripts">[] = [];
+  for (const id of transcriptIds) {
+    const row = await ctx.db.get(id);
+    if (!row) continue;
+    if (row.projectId !== projectId) domainError("INVALID_INPUT", "A left-out transcript belongs to another project");
+    keptTranscripts.push(id);
+  }
+  if (keptDocuments.length === 0 && keptTranscripts.length === 0) return undefined;
+  return { documentIds: keptDocuments, transcriptIds: keptTranscripts };
+}
 
 /**
  * Entries for `ids` as a mutation sees them: frozen on `freeze` when the
@@ -205,7 +292,10 @@ export async function reserveGeneration(
   writerSuppliedStoryline?: string,
   preservedGatedWorkflow?: "sections" | "seeds",
   // The generation's first progress lines (a recovery names what it kept).
-  initialProgress: readonly string[] = ["Generation request reserved."]
+  initialProgress: readonly string[] = ["Generation request reserved."],
+  // Files the writer left out of this run (decision 56). Stored on the
+  // generation so a retry freezes the same selection.
+  excludedSources?: ExcludedSources
 ) {
   // "Default" in single/iterative modes resolves to the writing role's model
   // (model catalog), persisted here so retries reuse the same model even if
@@ -216,7 +306,12 @@ export async function reserveGeneration(
       : (explicitSingleModelId ?? (await defaultModelId(ctx)));
   const retried = retryOfGenerationId ? await ctx.db.get(retryOfGenerationId) : null;
   const retriedFreeze = retried?.modelFreeze;
-  const transcripts = await listProjectTranscripts(ctx, project._id);
+  const excludedTranscripts = new Set<Id<"transcripts">>(excludedSources?.transcriptIds ?? []);
+  const excludedDocuments = new Set<Id<"projectDocuments">>(excludedSources?.documentIds ?? []);
+  const projectTranscripts = await listProjectTranscripts(ctx, project._id);
+  // The source rules below and the frozen sources run on what remains after
+  // the leave-out list (decision 56).
+  const transcripts = projectTranscripts.filter((row) => !excludedTranscripts.has(row._id));
   // Jul 17 meeting: some engagements have no interview at all (spreadsheet
   // only, drawings, a single email). A transcript-less generation is allowed
   // as long as there's at least one readable context document to work from.
@@ -225,7 +320,9 @@ export async function reserveGeneration(
       .query("projectDocuments")
       .withIndex("by_projectId", (q) => q.eq("projectId", project._id))
       .collect();
-    const usable = docs.filter((d) => !d.archived && d.content.trim());
+    const usable = docs.filter(
+      (d) => !d.archived && d.content.trim() && !excludedDocuments.has(d._id)
+    );
     if (usable.length === 0 && transcripts.length === 0) {
       domainError(
         "INVALID_INPUT",
@@ -257,9 +354,7 @@ export async function reserveGeneration(
   requireAnthropicConfigured("generation");
 
   const active = await findActiveGeneration(ctx, project, ACTIVE_GENERATION_STATUSES);
-  if (active) {
-    domainError("GENERATION_ACTIVE", "A generation is already active for this project");
-  }
+  if (active) await refuseActiveGeneration(ctx, active);
 
   // Compare mode always persists its model pair so a retry reuses the exact
   // same pair (Math.random in a mutation is fine — the result is durable).
@@ -312,7 +407,7 @@ export async function reserveGeneration(
     .withIndex("by_projectId", (q) => q.eq("projectId", project._id))
     .take(50);
   const frozenDocuments = documents.flatMap((document) =>
-    document.archived || !document.content.trim()
+    document.archived || !document.content.trim() || excludedDocuments.has(document._id)
       ? []
       : [{ document, content: document.content.slice(0, 200_000) }]
   );
@@ -330,7 +425,9 @@ export async function reserveGeneration(
         ...(await projectPlaceholderMap(
           ctx,
           project,
-          transcripts,
+          // Every current transcript, left-out ones included, so a speaker
+          // named in a kept document is still hidden (decision 26).
+          projectTranscripts,
           [
             ...frozenTranscripts.map((item) => item.content),
             ...frozenDocuments.map((item) => item.content),
@@ -382,6 +479,7 @@ export async function reserveGeneration(
     retryOfGenerationId,
     retryModelIds: persistedRetryModelIds,
     seededCandidates: seededCandidates || undefined,
+    ...(excludedSources ? { excludedSources } : {}),
     previousProjectStatus: restorableProjectStatus(project.status),
     currentStep: "Queued",
     candidatesDone: seededCandidates,
@@ -462,6 +560,8 @@ export const requestGenerationArgs = {
   // Story 1 (CAP-1/2/4): optional writer-supplied Storyline, frozen
   // verbatim as a `writer_storyline` source and never validated.
   writerSuppliedStoryline: v.optional(v.string()),
+  // Decision 56: files unticked in the start dialog are left out of this run.
+  ...excludedIdsArgs,
 };
 
 /** Handler of generations.requestGeneration. */
@@ -485,6 +585,7 @@ export async function requestGenerationHandler(
     );
   }
   const candidateMode = args.candidateMode ?? "compare";
+  const excludedSources = await validatedExcludedSources(ctx, project._id, args);
   return await reserveGeneration(
     ctx,
     project,
@@ -496,7 +597,10 @@ export async function requestGenerationHandler(
     undefined,
     undefined,
     0,
-    args.writerSuppliedStoryline
+    args.writerSuppliedStoryline,
+    undefined,
+    undefined,
+    excludedSources
   );
 }
 
@@ -535,7 +639,9 @@ export async function retryGenerationHandler(
     undefined,
     0,
     undefined,
-    resolveGatedWorkflow(failed)
+    resolveGatedWorkflow(failed),
+    undefined,
+    failed.excludedSources
   );
 }
 
@@ -558,9 +664,7 @@ export async function retryFromSummaryHandler(
   }
   const { project, user } = await requireReportEditAccess(ctx, failed.projectId);
   const active = await findActiveGeneration(ctx, project, ACTIVE_GENERATION_STATUSES);
-  if (active) {
-    domainError("GENERATION_ACTIVE", "A generation is already active for this project");
-  }
+  if (active) await refuseActiveGeneration(ctx, active);
   const duplicate = await ctx.db.query("generations")
     .withIndex("by_retryOfGenerationId", (q) =>
       q.eq("retryOfGenerationId", failed._id))
@@ -819,7 +923,8 @@ export async function retryFailedCandidatesHandler(
       successfulCandidates.length > 0
         ? `Kept ${successfulCandidates.length} completed draft${successfulCandidates.length === 1 ? "" : "s"}.`
         : "Retrying all failed drafts.",
-    ]
+    ],
+    generation.excludedSources
   );
   for (const candidate of successfulCandidates) {
     const candidateId = await ctx.db.insert("reportCandidates", {
