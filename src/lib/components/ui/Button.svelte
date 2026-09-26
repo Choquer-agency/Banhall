@@ -7,6 +7,7 @@
     | "secondary"
     | "ghost"
     | "danger-ghost"
+    | "destructive-soft"
     | "link";
 
   const variantStyles: Record<Variant, string> = {
@@ -24,6 +25,10 @@
     // order rather than by the caller.
     "danger-ghost":
       "border border-transparent text-red-600 hover:bg-red-50 hover:text-red-700 focus-visible:ring-red-500",
+    // Round 2 filled destructive button: soft red fill, red ink (Cancel in
+    // the start and confirm modals, Revoke in C5). Hover deepens both.
+    "destructive-soft":
+      "border border-transparent bg-destructive-soft text-destructive-soft-ink hover:bg-destructive-soft-hover hover:text-destructive-soft-ink-hover focus-visible:ring-danger",
     link:
       "p-0! text-action-primary hover:text-action-primary-hover focus-visible:ring-action-primary",
   };

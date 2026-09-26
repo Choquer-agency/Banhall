@@ -96,6 +96,17 @@ describe("Button", () => {
     document.body.removeAttribute("data-workspace-theme");
   });
 
+  it("paints the destructive-soft variant as a soft red fill with red ink that deepens on hover", async () => {
+    await render(Button, { variant: "destructive-soft", children: label });
+    const button = document.body.querySelector("button")!;
+    const classes = button.className;
+    for (const token of ["bg-destructive-soft", "text-destructive-soft-ink", "hover:bg-destructive-soft-hover", "hover:text-destructive-soft-ink-hover", "focus-visible:ring-danger"])
+      expect(classes).toContain(token);
+    // Round 2 HANDOFF: soft red #FEE2E2 fill, #B91C1C text.
+    expect(getComputedStyle(button).backgroundColor).toBe("rgb(254, 226, 226)");
+    expect(getComputedStyle(button).color).toBe("rgb(185, 28, 28)");
+  });
+
   it("keeps the anchor and button class strings identical for the same props (no branch drift)", async () => {
     const anchorView = await render(Button, { href: "/x", class: "min-h-11", children: label });
     const anchorClasses = document.body.querySelector("a")?.className;
