@@ -66,7 +66,11 @@
   import { Label } from "bits-ui";
   import { SvelteMap } from "svelte/reactivity";
   import { dashboardFiscalYear } from "../../../../shared/dashboardProjection";
-  import { previousYearReportHeader } from "../../../../shared/previousYear";
+  import {
+    isPreviousYearDocument,
+    PREVIOUS_YEAR_ONLY_MESSAGE,
+    previousYearReportHeader,
+  } from "../../../../shared/previousYear";
   import WorkspaceChrome from "$lib/components/workspace/WorkspaceChrome.svelte";
   import { displayName } from "$lib/displayName";
   import { takeProjectStart } from "$lib/workspace/projectIntentHandoff";
@@ -443,10 +447,18 @@
   );
   // Ticked copied text the AI can read counts as a source. Same test as the
   // server's (non-archived, non-empty); the old report has text by definition.
-  const copiedReadableCount = $derived(
+  // Decision 42: previous-year files and the old report are counted apart,
+  // since they can't be the only source of a draft.
+  const copiedReadable = $derived(
     copiedDocuments.filter(
       (document) => isDocumentIncluded(document) && !document.archived && document.sizeChars > 0
-    ).length + (sendPreviousYearReport ? 1 : 0)
+    )
+  );
+  const copiedCurrentReadableCount = $derived(
+    copiedReadable.filter((document) => !isPreviousYearDocument(document)).length
+  );
+  const copiedPreviousYearReadableCount = $derived(
+    copiedReadable.filter(isPreviousYearDocument).length + (sendPreviousYearReport ? 1 : 0)
   );
   const copiedFilesNote = $derived(
     !generateAfterDuplicate
@@ -749,7 +761,7 @@
   // At least one generation source: a transcript, or any staged context item
   // that yields text. Images are reference-only (no extraction), so an
   // image-only project would fail the backend's readable-source check.
-  const textualFileCount = $derived(
+  const currentTextualFileCount = $derived(
     CONTEXT_CATEGORIES.reduce(
       (n, c) =>
         c.id === "previous_pd"
@@ -758,19 +770,27 @@
             staged[c.id].files.filter((f) => !isImageFile(f.name)).length +
             (staged[c.id].text.trim() ? 1 : 0),
       0
-    ) +
-      pyRows.reduce(
-        (n, r) => n + r.files.filter((f) => !isImageFile(f.name)).length,
-        0
-      ) +
+    )
+  );
+  const previousYearTextualFileCount = $derived(
+    pyRows.reduce((n, r) => n + r.files.filter((f) => !isImageFile(f.name)).length, 0) +
       pyNoteOnlyCount
+  );
+  const hasCurrentSource = $derived(
+    transcriptCountForSubmit > 0 || currentTextualFileCount > 0 || copiedCurrentReadableCount > 0
   );
   const hasAnySource = $derived(
     mode === "review" ||
-      transcriptCountForSubmit > 0 ||
-      textualFileCount > 0 ||
-      copiedReadableCount > 0
+      hasCurrentSource ||
+      previousYearTextualFileCount > 0 ||
+      copiedPreviousYearReadableCount > 0
   );
+  // Decision 42 (2026-09-25): a draft needs a transcript or a current file;
+  // last year's report alone is refused on the server too.
+  const onlyPreviousYearSources = $derived(
+    mode === "generate" && hasAnySource && !hasCurrentSource
+  );
+  const canCommit = $derived(hasAnySource && !onlyPreviousYearSources);
 
   function goNext() {
     if (step === 0 && !detailsValid) {
@@ -930,6 +950,10 @@
       toast.error(
         "Add an interview transcript or at least one context document before generating."
       );
+      return;
+    }
+    if (onlyPreviousYearSources) {
+      toast.error(PREVIOUS_YEAR_ONLY_MESSAGE);
       return;
     }
     if (transcriptsOverCap) {
@@ -2056,11 +2080,13 @@
                   ? `Tick a transcript or file from ${copySourceTitle}, or add your own.`
                   : "Add a transcript or at least one context document first."}
               </span>
+            {:else if onlyPreviousYearSources}
+              <span class="text-xs text-amber-600">{PREVIOUS_YEAR_ONLY_MESSAGE}</span>
             {/if}
             <Button
               type="button"
               onclick={commit}
-              disabled={committing || !hasAnySource}
+              disabled={committing || !canCommit}
             >
               {#if committing}
                 <Spinner size="sm" class="mr-2 h-3.5 w-3.5 border-white" />
