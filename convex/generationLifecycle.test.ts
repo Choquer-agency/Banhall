@@ -1642,3 +1642,67 @@ describe("approveSectionDraft de-identification", () => {
     });
   });
 });
+
+// Audit 2026-09-25 a3 P3: a regenerate reuses the section row with the next
+// attempt, so a late result from the older attempt's action is dropped.
+describe("section run attempt fence", () => {
+  async function regenerated() {
+    const f = await setupIterative({
+      sections: {
+        s242: { status: "running", attempt: 2 },
+        s244: { status: "pending" },
+        s246: { status: "pending" },
+      },
+    });
+    await f.t.run((ctx) => ctx.db.patch(f.generationId, { status: "running" }));
+    const row = async () =>
+      await f.t.run(async (ctx) =>
+        (await ctx.db.get(f.sectionRunIds.s242))!
+      );
+    return { ...f, row };
+  }
+
+  it("drops a late completion or failure from the older attempt", async () => {
+    const f = await regenerated();
+    await f.t.mutation(internal.generations.completeSectionRun, {
+      generationId: f.generationId,
+      section: "s242",
+      draftText: "Stale attempt 1 text",
+      metrics: "{}",
+      qa: "[]",
+      attempt: 1,
+    });
+    await f.t.mutation(internal.generations.failSectionRun, {
+      generationId: f.generationId,
+      section: "s242",
+      error: "Stale attempt 1 failure",
+      attempt: 1,
+    });
+    expect(await f.row()).toMatchObject({ status: "running", attempt: 2 });
+    expect((await f.row()).draftText).toBeUndefined();
+  });
+
+  it("applies the current attempt's result", async () => {
+    const f = await regenerated();
+    await f.t.mutation(internal.generations.completeSectionRun, {
+      generationId: f.generationId,
+      section: "s242",
+      draftText: "Attempt 2 text",
+      metrics: "{}",
+      qa: "[]",
+      attempt: 2,
+    });
+    expect(await f.row()).toMatchObject({ status: "awaiting_review", draftText: "Attempt 2 text" });
+  });
+
+  it("fails the current attempt", async () => {
+    const f = await regenerated();
+    await f.t.mutation(internal.generations.failSectionRun, {
+      generationId: f.generationId,
+      section: "s242",
+      error: "Attempt 2 failed",
+      attempt: 2,
+    });
+    expect(await f.row()).toMatchObject({ status: "failed", error: "Attempt 2 failed" });
+  });
+});
