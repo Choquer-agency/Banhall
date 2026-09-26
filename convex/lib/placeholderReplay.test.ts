@@ -20,6 +20,15 @@ type Fixture = {
 };
 const fixture = JSON.parse(fixtureRaw) as Fixture;
 
+/**
+ * The saved maps were frozen before entries carried the `bare` mark, so they
+ * stand for a generation reserved before the fix. `marked` is the same map as
+ * a generation reserved since then freezes it.
+ */
+function marked(map: PlaceholderMap): PlaceholderMap {
+  return map.map((entry) => ({ ...entry, bare: true }));
+}
+
 const ANY_ID = /(?:CLIENT|PERSON)_\d+/;
 
 function restored(callId: string) {
@@ -28,7 +37,7 @@ function restored(callId: string) {
   const response: GenerationResponse = {
     content: [{ type: "tool_use", id: "tool_1", name: saved.toolName, input: saved.toolInput }],
   };
-  const block = restoreResponse(response, input.map).content[0];
+  const block = restoreResponse(response, marked(input.map)).content[0];
   if (block.type !== "tool_use") throw new Error("expected a tool_use block");
   return { saved, input, output: block.input as Record<string, unknown> };
 }
@@ -84,7 +93,8 @@ describe("replayed model output with bare placeholders (review 2026-09-25)", () 
   });
 
   it("resolves a quote cut from the masked transcript to exact offsets in the real one", async () => {
-    const { transcript, map } = fixture.inputs.helios;
+    const { transcript } = fixture.inputs.helios;
+    const map = marked(fixture.inputs.helios.map);
     const masked = pseudonymize(transcript, map);
     expect(restorePlaceholders(masked, map)).toBe(transcript);
     const at = masked.indexOf("[PERSON_");
@@ -118,5 +128,23 @@ describe("replayed model output with bare placeholders (review 2026-09-25)", () 
     const citation = citeQuote([source(transcript)], restoredQuote)!;
     expect(citation.startOffset).toBe(transcript.indexOf(restoredQuote));
     expect(validateCitation(source(transcript), citation)).toBe(true);
+  });
+
+  it("leaves bare ids as written under a map frozen before the mark, and still restores bracketed ones", () => {
+    for (const saved of fixture.responses) {
+      const { map } = fixture.inputs[saved.input];
+      expect(map.some((entry) => entry.bare), saved.input).toBe(false);
+      const response: GenerationResponse = {
+        content: [{ type: "tool_use", id: "tool_1", name: saved.toolName, input: saved.toolInput }],
+      };
+      const block = restoreResponse(response, map).content[0];
+      if (block.type !== "tool_use") throw new Error("expected a tool_use block");
+      // The saved responses hold bare ids only, so each comes back unchanged.
+      expect(JSON.stringify(saved.toolInput)).not.toMatch(/\[(?:CLIENT|PERSON)_/);
+      expect(block.input, saved.callId).toEqual(saved.toolInput);
+    }
+    const { map } = fixture.inputs.helios;
+    expect(restorePlaceholders("CLIENT_1_BRAND and PERSON_1 agreed.", map)).toBe("CLIENT_1_BRAND and PERSON_1 agreed.");
+    expect(restorePlaceholders("[CLIENT_1_BRAND] and [PERSON_1] agreed.", map)).toBe("Verdant Grid and Jordan Ellis agreed.");
   });
 });

@@ -13,6 +13,7 @@ import { api, internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { PD_SUBSECTIONS, type PdSubsectionRoleId } from "../shared/pdSubsections";
 import { decisionFixture, decisionMutation } from "./seedDecision.fixture";
+import { restorePlaceholders } from "./lib/deidentify";
 import {
   emptyContextRevision,
   emptySelectionRevision,
@@ -2652,6 +2653,38 @@ describe("seed Summary sign-off and recovery", () => {
     const fact = facts.get("F1-1")!;
     expect(fact.transcript.sourceId).toBe(transcript._id);
     expect(transcript.content.slice(fact.span.quotes[0].charStart, fact.span.quotes[0].charEnd)).toBe(excerpt);
+  });
+
+  it("carries the failed generation's placeholder map to Summary recovery as frozen, mark or no mark (review 2026-09-25)", async () => {
+    // Frozen before bare ids restored (no mark), and since then (marked).
+    const legacy = [
+      { token: "[PERSON_1]", value: "Tom Lee" },
+      { token: "[CLIENT_1]", value: "Verdant Grid" },
+    ];
+    const marked = legacy.map((entry) => ({ ...entry, bare: true }));
+    for (const map of [legacy, marked]) {
+      const s = await decisionFixture();
+      await s.t.run((ctx) => ctx.db.patch(s.generationId, { placeholders: map }));
+      await makeReady(s);
+      await s.writer.mutation(api.generations.signOffSeedStage, {
+        generationId: s.generationId,
+        expectedSeedStageVersion: 0,
+      });
+      await s.t.mutation(internal.generations.failGeneration, {
+        generationId: s.generationId,
+        error: "prepare Summary recovery",
+      });
+      const recoveryId = await s.writer.mutation(api.generations.retryFromSummary, {
+        failedGenerationId: s.generationId,
+      });
+      expect((await s.t.run((ctx) => ctx.db.get(recoveryId)))?.placeholders).toEqual(map);
+      const recovered = await s.t.query(internal.generations.getGenerationPlaceholders, { generationId: recoveryId });
+      expect(recovered).toEqual(map);
+      const echo = "PERSON_1 confirmed it at [CLIENT_1].";
+      expect(restorePlaceholders(echo, recovered)).toBe(
+        map === legacy ? "PERSON_1 confirmed it at Verdant Grid." : "Tom Lee confirmed it at Verdant Grid."
+      );
+    }
   });
 
   it("rolls back an oversized recovery claim, then the owning action terminalizes the chain without a provider call", async () => {

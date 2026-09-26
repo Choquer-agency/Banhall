@@ -108,7 +108,14 @@ export function deidentify(
 // restored before they are located, so citation offsets and byte checks see
 // the real transcript.
 
-export type PlaceholderEntry = { token: string; value: string };
+/**
+ * `bare` marks an entry whose id also restores when a model writes it
+ * without brackets (review 2026-09-25). Every map built since then carries
+ * it; a map frozen on a generation before then does not, and restores
+ * bracketed tokens only, because it was never renumbered past literal bare
+ * ids in its sources.
+ */
+export type PlaceholderEntry = { token: string; value: string; bare?: boolean };
 export type PlaceholderMap = readonly PlaceholderEntry[];
 
 /** Capitalized words that are also first names; never replaced alone. */
@@ -154,7 +161,7 @@ export function buildPlaceholderMap(input: {
   const add = (token: string, value: string | undefined) => {
     if (!value || value.length < 3 || taken.has(value)) return;
     taken.add(value);
-    entries.push({ token, value });
+    entries.push({ token, value, bare: true });
   };
 
   const companies = [input.clientName, ...(input.companies ?? [])]
@@ -270,24 +277,39 @@ function mayHoldToken(text: string): boolean {
   return text.includes("[") || text.includes("CLIENT_") || text.includes("PERSON_");
 }
 
-/**
- * The name a token in either form stands for. A bracketed token keeps its
- * rules above. A bare id restores only when the map issued exactly that id,
- * suffix included: no variant fallback, so an id the map never issued stays
- * as written.
- */
-function anyTokenValue(token: string, byToken: ReadonlyMap<string, string>): string | undefined {
-  return token.startsWith("[") ? tokenValue(token, byToken) : byToken.get(`[${token}]`);
+type TokenLookup = {
+  byToken: ReadonlyMap<string, string>;
+  /** Only the entries marked `bare`: the ids that also restore bare. */
+  byBareToken: ReadonlyMap<string, string>;
+};
+
+function tokenLookup(map: PlaceholderMap): TokenLookup {
+  return {
+    byToken: new Map(map.map((entry) => [entry.token, entry.value])),
+    byBareToken: new Map(map.filter((entry) => entry.bare).map((entry) => [entry.token, entry.value])),
+  };
 }
 
 /**
- * Placeholders become the names they stand for, bracketed or bare; unknown
- * tokens stay. One pass: a restored name is never read again.
+ * The name a token in either form stands for. A bracketed token keeps its
+ * rules above. A bare id restores only when the map issued exactly that id,
+ * suffix included, on an entry marked `bare`: no variant fallback, so an id
+ * the map never issued stays as written, and so does every bare id under a
+ * map frozen before bare ids were restored.
+ */
+function anyTokenValue(token: string, lookup: TokenLookup): string | undefined {
+  return token.startsWith("[") ? tokenValue(token, lookup.byToken) : lookup.byBareToken.get(`[${token}]`);
+}
+
+/**
+ * Placeholders become the names they stand for, bracketed or (for entries
+ * marked `bare`) bare; unknown tokens stay. One pass: a restored name is
+ * never read again.
  */
 export function restorePlaceholders(text: string, map: PlaceholderMap): string {
   if (map.length === 0 || text === "" || !mayHoldToken(text)) return text;
-  const byToken = new Map(map.map((entry) => [entry.token, entry.value]));
-  return text.replace(ANY_TOKEN, (token) => anyTokenValue(token, byToken) ?? token);
+  const lookup = tokenLookup(map);
+  return text.replace(ANY_TOKEN, (token) => anyTokenValue(token, lookup) ?? token);
 }
 
 /** `restorePlaceholders` over every string inside a JSON-like value. */
@@ -311,8 +333,8 @@ export function restorePlaceholdersDeep<T>(value: T, map: PlaceholderMap): T {
  */
 export function containsPlaceholderToken(text: string, map: PlaceholderMap): boolean {
   if (map.length === 0 || !mayHoldToken(text)) return false;
-  const byToken = new Map(map.map((entry) => [entry.token, entry.value]));
-  for (const match of text.matchAll(ANY_TOKEN)) if (anyTokenValue(match[0], byToken) !== undefined) return true;
+  const lookup = tokenLookup(map);
+  for (const match of text.matchAll(ANY_TOKEN)) if (anyTokenValue(match[0], lookup) !== undefined) return true;
   return false;
 }
 
@@ -323,11 +345,14 @@ export function containsPlaceholderToken(text: string, map: PlaceholderMap): boo
  * so when any text carries a token this map would restore, every token is
  * renumbered past the highest number of its kind found in the texts. The
  * source's own tokens then stay literal both ways. Deterministic in the map
- * and the texts; the same map comes back when nothing collides.
+ * and the texts; the same map comes back when nothing collides. Numbers are
+ * added as BigInt, so a very long literal id (`PERSON_` and 22 digits, say)
+ * still gives exact tokens such as `[PERSON_1000...001]`, never
+ * `[PERSON_1e+23]`.
  */
 export function avoidTokenCollisions(map: PlaceholderMap, texts: readonly string[]): PlaceholderMap {
   if (map.length === 0) return map;
-  const highest = { CLIENT: 0, PERSON: 0 };
+  const highest = { CLIENT: BigInt(0), PERSON: BigInt(0) };
   let collides = false;
   for (const text of texts) {
     if (!mayHoldToken(text)) continue;
@@ -336,7 +361,8 @@ export function avoidTokenCollisions(map: PlaceholderMap, texts: readonly string
       const parts = TOKEN_PARTS.exec(match[0].startsWith("[") ? match[0] : `[${match[0]}]`);
       if (!parts) continue;
       const kind = parts[1] as keyof typeof highest;
-      highest[kind] = Math.max(highest[kind], Number(parts[2]));
+      const number = BigInt(parts[2]);
+      if (number > highest[kind]) highest[kind] = number;
     }
   }
   if (!collides) return map;
@@ -344,7 +370,7 @@ export function avoidTokenCollisions(map: PlaceholderMap, texts: readonly string
     const parts = TOKEN_PARTS.exec(entry.token);
     if (!parts) return entry;
     const kind = parts[1] as keyof typeof highest;
-    const number = Number(parts[2]) + highest[kind];
-    return { token: `[${kind}_${number}${parts[3] ? `_${parts[3]}` : ""}]`, value: entry.value };
+    const number = BigInt(parts[2]) + highest[kind];
+    return { ...entry, token: `[${kind}_${number}${parts[3] ? `_${parts[3]}` : ""}]` };
   });
 }

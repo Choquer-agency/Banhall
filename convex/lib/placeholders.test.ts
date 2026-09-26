@@ -25,21 +25,21 @@ const TRANSCRIPT = [
 describe("placeholder map", () => {
   it("names the client first, then each person with their single-name forms, skipping generic labels", () => {
     expect(map).toEqual([
-      { token: "[CLIENT_1]", value: "Verdant Grid Technologies Inc." },
-      { token: "[CLIENT_1_SHORT]", value: "Verdant Grid Technologies" },
-      { token: "[CLIENT_1_BRAND]", value: "Verdant Grid" },
-      { token: "[CLIENT_1_CAPS]", value: "VERDANT GRID TECHNOLOGIES" },
-      { token: "[PERSON_1]", value: "Dana Whitfield" },
-      { token: "[PERSON_1_FIRST]", value: "Dana" },
-      { token: "[PERSON_1_LAST]", value: "Whitfield" },
-      { token: "[PERSON_2]", value: "Wren Writer" },
-      { token: "[PERSON_2_FIRST]", value: "Wren" },
-      { token: "[PERSON_2_LAST]", value: "Writer" },
-      { token: "[PERSON_3]", value: "Marcus Lindqvist" },
-      { token: "[PERSON_3_FIRST]", value: "Marcus" },
-      { token: "[PERSON_3_LAST]", value: "Lindqvist" },
-      { token: "[PERSON_4]", value: "Will Smith" },
-      { token: "[PERSON_4_LAST]", value: "Smith" },
+      { token: "[CLIENT_1]", value: "Verdant Grid Technologies Inc.", bare: true },
+      { token: "[CLIENT_1_SHORT]", value: "Verdant Grid Technologies", bare: true },
+      { token: "[CLIENT_1_BRAND]", value: "Verdant Grid", bare: true },
+      { token: "[CLIENT_1_CAPS]", value: "VERDANT GRID TECHNOLOGIES", bare: true },
+      { token: "[PERSON_1]", value: "Dana Whitfield", bare: true },
+      { token: "[PERSON_1_FIRST]", value: "Dana", bare: true },
+      { token: "[PERSON_1_LAST]", value: "Whitfield", bare: true },
+      { token: "[PERSON_2]", value: "Wren Writer", bare: true },
+      { token: "[PERSON_2_FIRST]", value: "Wren", bare: true },
+      { token: "[PERSON_2_LAST]", value: "Writer", bare: true },
+      { token: "[PERSON_3]", value: "Marcus Lindqvist", bare: true },
+      { token: "[PERSON_3_FIRST]", value: "Marcus", bare: true },
+      { token: "[PERSON_3_LAST]", value: "Lindqvist", bare: true },
+      { token: "[PERSON_4]", value: "Will Smith", bare: true },
+      { token: "[PERSON_4_LAST]", value: "Smith", bare: true },
     ]);
   });
 
@@ -139,8 +139,8 @@ describe("tokens a model writes without brackets (review 2026-09-25)", () => {
       "Dana Whitfield met Marcus Lindqvist and Verdant Grid met Verdant Grid."
     );
     const chained = [
-      { token: "[PERSON_1]", value: "PERSON_2" },
-      { token: "[PERSON_2]", value: "Dana Whitfield" },
+      { token: "[PERSON_1]", value: "PERSON_2", bare: true },
+      { token: "[PERSON_2]", value: "Dana Whitfield", bare: true },
     ];
     expect(restorePlaceholders("PERSON_1 and [PERSON_1]", chained)).toBe("PERSON_2 and PERSON_2");
   });
@@ -229,7 +229,7 @@ describe("texts that already hold placeholder-style tokens (review 2026-09-25)",
     const safe = avoidTokenCollisions(map, [redacted]);
     expect(safe).not.toBe(map);
     expect(safe.map((entry) => entry.value)).toEqual(map.map((entry) => entry.value));
-    expect(safe[0]).toEqual({ token: "[CLIENT_2]", value: "Verdant Grid Technologies Inc." });
+    expect(safe[0]).toEqual({ token: "[CLIENT_2]", value: "Verdant Grid Technologies Inc.", bare: true });
     expect(safe.find((entry) => entry.value === "Dana Whitfield")?.token).toBe("[PERSON_3]");
     const hidden = pseudonymize(redacted, safe);
     expect(hidden).toBe("[PERSON_1]: We tested it. [PERSON_3] asked [PERSON_2_FIRST] about [CLIENT_1].");
@@ -243,7 +243,7 @@ describe("texts that already hold placeholder-style tokens (review 2026-09-25)",
     const safe = avoidTokenCollisions(map, [source]);
     expect(safe).not.toBe(map);
     // Past the highest bare PERSON (7) and CLIENT (1) in the text.
-    expect(safe[0]).toEqual({ token: "[CLIENT_2]", value: "Verdant Grid Technologies Inc." });
+    expect(safe[0]).toEqual({ token: "[CLIENT_2]", value: "Verdant Grid Technologies Inc.", bare: true });
     expect(safe.find((entry) => entry.value === "Dana Whitfield")?.token).toBe("[PERSON_8]");
     const hidden = pseudonymize(source, safe);
     expect(hidden).toBe("PERSON_1 in the log is the rig id. [PERSON_8] exported CLIENT_1_BRAND.csv and PERSON_7_LAST.");
@@ -261,6 +261,65 @@ describe("texts that already hold placeholder-style tokens (review 2026-09-25)",
     expect(avoidTokenCollisions(map, ["PERSON_99, CLIENT_1_OTHER, XPERSON_1, client_1 and CLIENT_10 are not ours."])).toBe(map);
     expect(avoidTokenCollisions(map, [redacted])).toEqual(avoidTokenCollisions(map, [redacted]));
     expect(avoidTokenCollisions([], [redacted])).toEqual([]);
+  });
+});
+
+describe("maps frozen before bare ids were restored (review 2026-09-25, P3-B1)", () => {
+  // A generation reserved before the fix froze its entries without the mark.
+  const frozen: PlaceholderMap = map.map(({ token, value }) => ({ token, value }));
+
+  it("leaves bare ids as written and still restores bracketed ones, variants included", () => {
+    const bare = "CLIENT_1_BRAND's controller, led by PERSON_3; PERSON_1_FIRST asked.";
+    expect(restorePlaceholders(bare, frozen)).toBe(bare);
+    expect(restorePlaceholders("[CLIENT_1_BRAND] met [PERSON_3] and [PERSON_4_FIRST].", frozen)).toBe(
+      "Verdant Grid met Marcus Lindqvist and Will."
+    );
+    expect(restorePlaceholders("[PERSON_3] and PERSON_3", frozen)).toBe("Marcus Lindqvist and PERSON_3");
+    expect(restorePlaceholdersDeep({ ids: ["PERSON_1", "[PERSON_1]"] }, frozen)).toEqual({ ids: ["PERSON_1", "Dana Whitfield"] });
+    // The bracketed restore is the same as under the marked map.
+    const hidden = pseudonymize(TRANSCRIPT, frozen);
+    expect(restorePlaceholders(hidden, frozen)).toBe(restorePlaceholders(hidden, map));
+    expect(containsPlaceholderToken("the PERSON_1 column", frozen)).toBe(false);
+    expect(containsPlaceholderToken("the [PERSON_1] column", frozen)).toBe(true);
+  });
+
+  it("keeps a model's echo of a source with a literal bare id as written, so its quote still matches", () => {
+    // Frozen before the fix, so never renumbered past the source's PERSON_2.
+    const source = "PERSON_2 confirmed the valve failed.";
+    const old: PlaceholderMap = [
+      { token: "[PERSON_1]", value: "Dana Whitfield" },
+      { token: "[PERSON_2]", value: "Tom Lee" },
+    ];
+    expect(restorePlaceholders(source, old)).toBe(source);
+    expect(restorePlaceholders(pseudonymize(source, old), old)).toBe(source);
+    // The same names in a map built today are marked and renumbered past it.
+    const today = avoidTokenCollisions(buildPlaceholderMap({ people: ["Dana Whitfield", "Tom Lee"] }), [source]);
+    expect(today.every((entry) => entry.bare)).toBe(true);
+    expect(today.find((entry) => entry.value === "Tom Lee")?.token).toBe("[PERSON_4]");
+    expect(restorePlaceholders(source, today)).toBe(source);
+    expect(restorePlaceholders("PERSON_4 confirmed it.", today)).toBe("Tom Lee confirmed it.");
+  });
+
+  it("keeps each entry's mark, or its absence, through renumbering", () => {
+    expect(avoidTokenCollisions(map, ["[PERSON_1]"]).every((entry) => entry.bare)).toBe(true);
+    const renumbered = avoidTokenCollisions(frozen, ["[PERSON_1]"]);
+    expect(renumbered).not.toBe(frozen);
+    expect(renumbered.some((entry) => "bare" in entry)).toBe(false);
+  });
+});
+
+describe("very long literal ids (review 2026-09-25, P3-B3)", () => {
+  it("renumbers past a 22-digit id with exact, distinct tokens that restore", () => {
+    const huge = "9".repeat(22);
+    const source = `Rig PERSON_${huge} logged it. PERSON_1 is the bench. Dana Whitfield and Marcus Lindqvist ran it.`;
+    const safe = avoidTokenCollisions(map, [source]);
+    const tokens = safe.map((entry) => entry.token);
+    for (const token of tokens) expect(token).toMatch(/^\[(?:CLIENT|PERSON)_\d+(?:_[A-Z]+)?\]$/);
+    expect(new Set(tokens).size).toBe(tokens.length);
+    expect(safe.find((entry) => entry.value === "Dana Whitfield")?.token).toBe(`[PERSON_1${"0".repeat(22)}]`);
+    expect(safe.find((entry) => entry.value === "Marcus Lindqvist")?.token).toBe(`[PERSON_1${"0".repeat(21)}2]`);
+    expect(restorePlaceholders(pseudonymize(source, safe), safe)).toBe(source);
+    expect(restorePlaceholders(`PERSON_1${"0".repeat(22)} asked PERSON_${huge}.`, safe)).toBe(`Dana Whitfield asked PERSON_${huge}.`);
   });
 });
 
