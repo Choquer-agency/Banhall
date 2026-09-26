@@ -86,7 +86,9 @@ describe("Settings Keyboard shortcuts (I4, I5)", () => {
     expect(getComputedStyle(mac).boxShadow).toContain("rgba(5, 42, 40, 0.08) 0px 1px 2px 0px");
     expect(mac.getBoundingClientRect().height).toBe(28);
     expect(getComputedStyle(mac).borderRadius).toBe("6px");
-    expect(getComputedStyle(windows).color).toBe("rgb(79, 97, 93)");
+    // Windows was the active segment before the click and fades its colour
+    // (transition-colors), so wait for it to settle like the Mac background.
+    await expect.poll(() => getComputedStyle(windows).color).toBe("rgb(79, 97, 93)");
 
     const rowEls = Array.from(document.querySelectorAll<HTMLElement>("[data-shortcut-row]"));
     const label = rowEls[0].firstElementChild as HTMLElement;
