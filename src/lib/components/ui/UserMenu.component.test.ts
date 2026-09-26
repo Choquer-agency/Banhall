@@ -6,6 +6,7 @@ import { goto } from "$app/navigation";
 import { toast } from "svelte-sonner";
 import { authClient } from "$lib/authClient";
 import { clearAllOutboxes } from "$lib/uploads/attemptOutbox";
+import { LAST_ACCOUNT_KEY, readLastAccount, rememberAccount } from "$lib/auth/lastAccount";
 import { __navigationCalls, __resetNavigation } from "$lib/test/app-navigation-stub";
 import { __resetPage } from "$lib/test/app-state-stub.svelte";
 import UserMenu from "./UserMenu.svelte";
@@ -135,6 +136,8 @@ describe("UserMenu", () => {
     let finishSignOut: (() => void) | undefined;
     const pending = new Promise<void>((resolve) => { finishSignOut = resolve; });
     vi.mocked(authClient.signOut).mockReturnValueOnce(pending);
+    rememberAccount({ email: "account@banhall.com", firstName: "Account", lastName: "Writer" });
+    expect(readLastAccount()?.email).toBe("account@banhall.com");
     await render(UserMenu, { tone: "light", menuTheme: "light" });
     const trigger = page.getByRole("button", { name: "Account menu", exact: true });
     await trigger.click();
@@ -155,6 +158,8 @@ describe("UserMenu", () => {
     finishSignOut();
     await expect.poll(() => __navigationCalls).toEqual([{ kind: "goto", url: "/login" }]);
     expect(clearAllOutboxes).toHaveBeenCalledTimes(1);
+    // Decision 58: an explicit sign-out forgets the returning-user greeting.
+    expect(localStorage.getItem(LAST_ACCOUNT_KEY)).toBeNull();
     expect(goto).toHaveBeenCalledWith("/login", { replaceState: true, invalidateAll: true });
     await expect.element(page.getByRole("menuitem", { name: "Sign out", exact: true })).not.toHaveAttribute("aria-disabled", "true");
     expect(authClient.signOut).toHaveBeenCalledTimes(1);

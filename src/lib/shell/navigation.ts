@@ -61,13 +61,9 @@ export type RailHrefs = {
   settingsHref: string;
 };
 
-/**
- * Team is for Managers and Admins (owner decision 47). WS2 lands the
- * `team.view` capability; until it does, this mirrors decision 47 directly.
- * Swap to `hasCapability(role, "team.view")` when that capability exists.
- */
+/** Team is for Managers and Admins (owner decision 47, `team.view`). */
 export function canViewTeam(role: Role | null): boolean {
-  return role === "manager" || role === "admin";
+  return hasCapability(role, "team.view");
 }
 
 /** Admin shows to the Admin role (decision 53), whatever the display flags. */

@@ -6,7 +6,7 @@
   import WorkspaceRailResizeHandle from "$lib/components/workspace/WorkspaceRailResizeHandle.svelte";
   import CommandPalette from "$lib/components/workspace/CommandPalette.svelte";
   import * as Drawer from "$lib/components/ui/drawer/index.js";
-  import { useQuery } from "convex-svelte";
+  import { useMutation, useQuery } from "convex-svelte";
   import { useAuth } from "@mmailaender/convex-better-auth-svelte/svelte";
   import { api } from "../../../../convex/_generated/api";
   import ViewAsPill from "$lib/components/shell/ViewAsPill.svelte";
@@ -14,6 +14,9 @@
   import ShortcutHost from "$lib/components/shell/ShortcutHost.svelte";
   import NotificationToaster from "$lib/components/shell/NotificationToaster.svelte";
   import { canSeeAdmin } from "$lib/shell/navigation";
+  import { createActivityHeartbeat } from "$lib/shell/activityHeartbeat";
+  import { rememberAccount } from "$lib/auth/lastAccount";
+  import { teamApi } from "$lib/team/api";
   import { effectiveViewer, viewAs } from "$lib/shell/viewAs.svelte";
   import {
     RAIL_COLLAPSED_WIDTH,
@@ -88,6 +91,27 @@
   const realDeveloper = $derived(userQ.data?.isDeveloper === true);
   const viewer = $derived(effectiveViewer(userQ.data));
   const viewing = $derived(viewer.viewing);
+
+  // Team "Last active" (C1): one heartbeat on mount and on window focus, at
+  // most every 5 minutes per tab, only for internal users (markActive
+  // refuses anyone else).
+  const markActive = useMutation(teamApi.markActive);
+  const heartbeat = createActivityHeartbeat(() => markActive({}));
+  const internalUser = $derived(Boolean(userQ.data?.role) && userQ.data?.isAnonymous !== true);
+  $effect(() => {
+    if (!internalUser) return;
+    heartbeat.ping();
+    const onFocus = () => heartbeat.ping();
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
+  });
+
+  // J3: keep the returning-user greeting's name current. Only the signed-in
+  // person's own name and email are stored; explicit sign-out forgets them.
+  $effect(() => {
+    const user = userQ.data;
+    if (user?.email) rememberAccount(user);
+  });
 
   // Live drag writes the CSS custom property straight onto the root node —
   // no Svelte state churn per pointermove; the committed width lands in

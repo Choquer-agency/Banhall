@@ -11,7 +11,7 @@
   import { api } from "../../../../convex/_generated/api";
   import { round2Api } from "../../../../convex/lib/round2Api";
   import { userErrorMessage } from "$lib/errors";
-  import { canViewTeam } from "$lib/shell/navigation";
+  import { hasCapability } from "../../../../shared/capabilities";
   import type { NotificationSettingKey } from "../../../../shared/notifications";
 
   const auth = useAuth();
@@ -22,8 +22,8 @@
   const setSetting = useMutation(round2Api.notifications.setSetting);
 
   // Invite accepted is for people who can invite: Managers and Admins
-  // (decision 47). WS2 lands `invites.manage`; until then this mirrors it.
-  const canInvite = $derived(canViewTeam(meQ.data?.role ?? null));
+  // (decision 47, `invites.manage`).
+  const canInvite = $derived(hasCapability(meQ.data?.role ?? null, "invites.manage"));
 
   const ROWS: { key: NotificationSettingKey; label: string; hint: string; invitersOnly?: boolean }[] = [
     { key: "ideasReady", label: "Ideas are ready", hint: "When step by step finishes reading." },

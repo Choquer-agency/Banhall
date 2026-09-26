@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
+import { hasCapability } from "../../../shared/capabilities";
 import {
+  canViewTeam,
   companiesHrefFrom,
   railGroups,
   selectedRailItem,
@@ -142,4 +144,15 @@ describe("Companies href", () => {
     );
   });
 
+});
+
+describe("canViewTeam", () => {
+  it("follows the team.view capability for every role (decision 47)", () => {
+    for (const role of ["writer", "manager", "admin", null] as const) {
+      expect(canViewTeam(role)).toBe(hasCapability(role, "team.view"));
+    }
+    expect(canViewTeam("writer")).toBe(false);
+    expect(canViewTeam("manager")).toBe(true);
+    expect(canViewTeam("admin")).toBe(true);
+  });
 });

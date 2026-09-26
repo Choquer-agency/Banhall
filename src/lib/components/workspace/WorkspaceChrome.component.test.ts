@@ -2,11 +2,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { page as browserPage, userEvent } from "vitest/browser";
 import { render } from "vitest-browser-svelte";
 import { createRawSnippet } from "svelte";
-import { GearSixIcon } from "phosphor-svelte";
+import { IconGear } from "$lib/components/icons";
 import WorkspaceChrome from "./WorkspaceChrome.svelte";
 import { __resetPage, __setPageUrl } from "$lib/test/app-state-stub.svelte";
 import { __navigationCalls, __resetNavigation } from "$lib/test/app-navigation-stub";
-import { __resetConvexStub, __setQueryData } from "$lib/test/convex-svelte-stub.svelte";
+import { __mutationCalls, __resetConvexStub, __setQueryData } from "$lib/test/convex-svelte-stub.svelte";
+import { readLastAccount } from "$lib/auth/lastAccount";
 import { viewAs } from "$lib/shell/viewAs.svelte";
 
 vi.mock("$lib/authClient", () => ({ authClient: { signOut: vi.fn() } }));
@@ -37,7 +38,7 @@ describe("WorkspaceChrome (round 2 frame)", () => {
 
   it("draws the 56px top bar with the page tile on the shell background, and the panel owns the scroll", async () => {
     await browserPage.viewport(1440, 900);
-    await render(WorkspaceChrome, { title: "Settings", subtitle: "Account", icon: GearSixIcon, children: tallContent });
+    await render(WorkspaceChrome, { title: "Settings", subtitle: "Account", icon: IconGear, children: tallContent });
 
     const root = document.querySelector<HTMLElement>("[data-workspace-chrome]")!;
     const header = root.querySelector<HTMLElement>("[data-page-top-bar]")!;
@@ -66,6 +67,24 @@ describe("WorkspaceChrome (round 2 frame)", () => {
     // Padded panel: 32px top, 56px sides (Settings, Team).
     expect(getComputedStyle(panel).paddingTop).toBe("32px");
     expect(getComputedStyle(panel).paddingLeft).toBe("56px");
+  });
+
+  it("sends the Team activity heartbeat once on mount and remembers the signed-in account (J3)", async () => {
+    __setQueryData("users:getCurrentUser", { ...developer, email: "johnny@banhall.com" });
+    await render(WorkspaceChrome, { title: "Settings", children: tallContent });
+    await expect.poll(() => __mutationCalls("team:markActive").length).toBe(1);
+    // Focus within 5 minutes does not send another.
+    window.dispatchEvent(new Event("focus"));
+    expect(__mutationCalls("team:markActive")).toHaveLength(1);
+    await expect.poll(() => readLastAccount()?.name).toBe("Johnny Nguyen");
+    expect(readLastAccount()?.email).toBe("johnny@banhall.com");
+  });
+
+  it("sends no heartbeat for a signed-in person without a role", async () => {
+    __setQueryData("users:getCurrentUser", { _id: "u-2", firstName: "No", lastName: "Role", role: undefined });
+    await render(WorkspaceChrome, { title: "Settings", children: tallContent });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(__mutationCalls("team:markActive")).toHaveLength(0);
   });
 
   it("renders a breadcrumb link and puts page actions after the bell", async () => {
