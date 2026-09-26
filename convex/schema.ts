@@ -142,9 +142,14 @@ export default defineSchema({
     // navigation and the Developer/Owner columns on /admin/users.
     isOwner: v.optional(v.boolean()),
     createdAt: v.optional(v.number()),
+    // Round 2 (decision 54): the profile photo the person uploaded
+    // (account.setMyPhoto). Listed in STORAGE_REFERENCE_FIELDS so the storage
+    // sweep never deletes it.
+    imageStorageId: v.optional(v.id("_storage")),
   })
     .index("by_email", ["email"])
-    .index("by_authId", ["authId"]),
+    .index("by_authId", ["authId"])
+    .index("by_imageStorageId", ["imageStorageId"]),
 
   // ─── Invite-only membership: admin-issued signup tokens ────────────────────
   invites: defineTable({
@@ -3433,4 +3438,40 @@ export default defineSchema({
     sampleFileIds: v.array(v.string()),
     deleted: v.number(),
   }).index("by_startedAt", ["startedAt"]),
+
+  // ─── Round 2 in-app notifications (WS1 spec section 7) ─────────────────────
+  // One row per recipient, written only through convex/lib/notify.ts. Kinds,
+  // settings keys and copy live in shared/notifications.ts. Rows go with
+  // their project (PROJECT_SCOPED_TABLES) and are pruned after 30 days.
+  notifications: defineTable({
+    userId: v.id("users"),
+    kind: v.union(
+      v.literal("ideas_ready"),
+      v.literal("draft_ready"),
+      v.literal("qa_finished"),
+      v.literal("handoff"),
+      v.literal("invite_accepted")
+    ),
+    projectId: v.optional(v.id("projects")),
+    generationId: v.optional(v.id("generations")),
+    title: v.string(),
+    body: v.optional(v.string()),
+    href: v.string(),
+    dedupeKey: v.string(),
+    createdAt: v.number(),
+    seenAt: v.optional(v.number()),
+  })
+    .index("by_userId_and_createdAt", ["userId", "createdAt"])
+    .index("by_dedupeKey", ["dedupeKey"])
+    .index("by_projectId", ["projectId"]),
+
+  // Per-user notification switches. Absent (no row, or no field) means on.
+  notificationSettings: defineTable({
+    userId: v.id("users"),
+    ideasReady: v.optional(v.boolean()),
+    draftReady: v.optional(v.boolean()),
+    qaFinished: v.optional(v.boolean()),
+    handoff: v.optional(v.boolean()),
+    inviteAccepted: v.optional(v.boolean()),
+  }).index("by_userId", ["userId"]),
 });

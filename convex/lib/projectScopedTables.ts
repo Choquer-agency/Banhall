@@ -191,6 +191,9 @@ export const PROJECT_SCOPED_TABLES = [
   { table: "financialUploads", field: "projectId", disposition: "delete", index: "by_projectId" },
   { table: "projectIdentityEvidence", field: "projectId", disposition: "delete", index: "by_projectId" },
   { table: "settingsDocumentAnalyses", field: "projectId", disposition: "delete", index: "by_projectId_and_contentHash_and_classifierVersion" },
+  // Round 2 in-app notifications about the project (WS1). Rows without a
+  // project (invite accepted) are not touched here; the age prune removes them.
+  { table: "notifications", field: "projectId", disposition: "delete", index: "by_projectId" },
   // Rows that outlive the project: clear the reference.
   { table: "aiUsage", field: "projectId", disposition: "detach", index: "by_projectId" },
   { table: "brainFeedbackQueue", field: "projectId", disposition: "detach", index: "by_projectId" },
