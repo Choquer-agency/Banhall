@@ -682,6 +682,36 @@ describe("speaker role rules", () => {
     ]);
   });
 
+  it("places nobody from the project record when a name matches staff and an interviewee (review r2 P2-3)", () => {
+    const roles = (text: string, staffNames: string[]) =>
+      inferSpeakerRoles(parseTranscriptTurns(text), { staffNames, clientNames: ["Dana Smith"] }).map((g) => [
+        g.label,
+        g.role,
+        g.confidence,
+      ]);
+    // Writer Dana Whitfield asks; interviewee Dana Smith is also on the
+    // project. "Dana" is either of them, so the model decides.
+    const asking = "Dana: What did you build?\n\nPriya Shah: A controller for feeder voltage.\n\nDana: Why?\n\nPriya Shah: The load moved.";
+    const [dana] = roles(asking, ["Dana Whitfield"]);
+    expect(dana).toEqual(["Dana", "interviewer", 0.6]);
+    expect(needsModelRole({ role: "interviewer", confidence: 0.6 })).toBe(true);
+    // The other of two speakers placed from the record still settles it.
+    const answering = [
+      "Jordan Ellis: What did you set out to build?",
+      "Dana: A predictive controller for feeder voltage, tested on two feeders over the summer.",
+    ].join("\n\n");
+    expect(roles(answering, ["Jordan Ellis", "Dana Whitfield"])).toEqual([
+      ["Jordan Ellis", "interviewer", 0.95],
+      ["Dana", "client", 0.75],
+    ]);
+    // A label naming the interviewee in full is still placed as client.
+    expect(roles(asking.replaceAll("Dana:", "Dana Smith:"), ["Dana Whitfield"])[0]).toEqual([
+      "Dana Smith",
+      "client",
+      0.95,
+    ]);
+  });
+
   it("places a speaker from the roster outright only when the label holds the whole name (fix-e review P2-1)", () => {
     const interview = (client: string) =>
       parseTranscriptTurns(

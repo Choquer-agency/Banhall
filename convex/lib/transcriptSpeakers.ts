@@ -168,7 +168,8 @@ const ROSTER_FIRST_NAME_CONFIDENCE = 0.6;
 /**
  * Rule-based roles for every speaker label, in order of first appearance.
  * Names on the project record win (the interviewer and writer by full name
- * only, the interviewees by any name); then a full name on the firm roster;
+ * only, the interviewees by any name, unless the label also matches the
+ * interviewer or writer by one name); then a full name on the firm roster;
  * then label hints such as "Interviewer (Dana)"; then, for what is left,
  * question share, talk share and who spoke first. A label that matches the
  * project's interviewer or writer, or the roster, by a first name alone
@@ -201,7 +202,12 @@ export function inferSpeakerRoles(
       );
     const staff = matches(context.staffNames, true);
     const client = matches(context.clientNames);
-    if (staff !== client) {
+    // A label that matches an interviewee and also a staff member by one
+    // name ("Dana" with writer Dana Whitfield and interviewee Dana Smith) is
+    // ambiguous: the project record places nobody, the model decides
+    // (review r2 P2-3, 2026-09-25).
+    const ambiguous = client && !staff && matches(context.staffNames);
+    if (staff !== client && !ambiguous) {
       guesses.set(s.label, { role: staff ? "interviewer" : "client", confidence: 0.95 });
       continue;
     }
