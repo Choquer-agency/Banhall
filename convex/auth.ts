@@ -12,6 +12,11 @@ import type { DataModel } from "./_generated/dataModel";
 import authConfig from "./auth.config";
 import { normalizeEmail } from "./lib/email";
 import { customAuthCookiePrefix } from "../shared/authCookies";
+import {
+  AUTH_CLIENT_IP_HEADER,
+  AUTH_RATE_LIMIT,
+  trustedAuthRequest,
+} from "../shared/authRateLimit";
 
 const authFunctions: AuthFunctions = internal.auth;
 
@@ -119,11 +124,19 @@ export const authComponent = createClient<DataModel>(components.betterAuth, {
 // Internal mutations the component calls back into for the triggers above.
 export const { onCreate, onUpdate, onDelete } = authComponent.triggersApi();
 
-export const createAuth = (ctx: GenericCtx<DataModel>) =>
-  betterAuth({
+export const createAuth = (ctx: GenericCtx<DataModel>) => {
+  const auth = betterAuth({
     baseURL: process.env.SITE_URL,
     trustedOrigins,
-    ...(cookiePrefix ? { advanced: { cookiePrefix } } : {}),
+    advanced: {
+      ...(cookiePrefix ? { cookiePrefix } : {}),
+      // Security wave 1 (a2 P1-2, a4 #7): the browser's address comes from
+      // the SvelteKit proxy's header, kept only when the proxy vouched for it
+      // (see the handler below and shared/authRateLimit.ts).
+      ipAddress: { ipAddressHeaders: [AUTH_CLIENT_IP_HEADER] },
+    },
+    // Counted in the component's rateLimit table; per address per path.
+    rateLimit: AUTH_RATE_LIMIT,
     database: authComponent.adapter(ctx),
     emailAndPassword: {
       enabled: true,
@@ -177,3 +190,12 @@ export const createAuth = (ctx: GenericCtx<DataModel>) =>
     },
     plugins: [convex({ authConfig })],
   });
+  // Every auth request passes through here (registerRoutes calls
+  // `createAuth(ctx).handler`): drop a client address the proxy did not vouch
+  // for. AUTH_PROXY_SECRET is read like SITE_URL.
+  const handler = auth.handler;
+  return Object.assign(auth, {
+    handler: (request: Request) =>
+      handler(trustedAuthRequest(request, process.env.AUTH_PROXY_SECRET)),
+  });
+};
