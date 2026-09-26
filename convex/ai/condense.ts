@@ -19,6 +19,7 @@ import {
 } from "./transcriptFactsAgent";
 import type { FunctionReturnType } from "convex/server";
 import { instrumentedAnthropic } from "./instrument";
+import { startActionDeadline } from "./actionDeadline";
 import { gatewayForModel, registerModelEntries } from "../../shared/generationModels";
 import { entryFromFrozen } from "../lib/modelRoles";
 import { roleModelEntryRef } from "../lib/modelCatalogRefs";
@@ -294,6 +295,8 @@ export const classifySpeakerRoles = internalAction({
   args: { transcriptId: v.id("transcripts") },
   returns: v.null(),
   handler: async (ctx, args) => {
+    // Every request ends inside the Convex action limit (actionDeadline.ts).
+    startActionDeadline(ctx);
     const input = await ctx.runQuery(internal.transcripts.speakerRoleInput, {
       transcriptId: args.transcriptId,
     });
@@ -514,6 +517,8 @@ export const extractTranscriptFactsInBackground = internalAction({
   args: { transcriptId: v.id("transcripts") },
   returns: v.null(),
   handler: async (ctx, args) => {
+    // Every request ends inside the Convex action limit (actionDeadline.ts).
+    startActionDeadline(ctx);
     try {
       // Each call is bounded like one inside a generation, so an action that
       // is killed never leaves a run "running" behind for long.

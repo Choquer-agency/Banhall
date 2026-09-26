@@ -50,6 +50,7 @@ import { preserveReasoningSignature } from "./reasoningSignature";
 import { searchBrainExemplars, formatBrainExemplars } from "./brain/retrieve";
 import { safeErrorDetails } from "../lib/safeErrorDetails";
 import { anthropicCacheWrite1hTokens } from "./instrument";
+import { ACTION_REQUEST_WINDOW_MS } from "./actionDeadline";
 import { roleModelEntryRef } from "../lib/modelCatalogRefs";
 
 // ─── Agent-based chat (BNH-10 P2) ────────────────────────────────────────────
@@ -655,6 +656,14 @@ export const reportChatAgent = new Agent(components.agent, {
  * chatV2.sendMessage; deltas persist via the component and reach the client
  * through chatV2.listMessages + useUIMessages.
  */
+/**
+ * Time the chat stream may still run: what is left of the action's request
+ * window (actionDeadline.ts) after the context loading, at least 1 ms.
+ */
+export function chatStreamTimeoutMs(startedAt: number, now: number): number {
+  return Math.max(1, startedAt + ACTION_REQUEST_WINDOW_MS - now);
+}
+
 export const streamChatReply = internalAction({
   args: {
     agentThreadId: v.string(),
@@ -766,6 +775,9 @@ export const streamChatReply = internalAction({
           tools: buildChatTools(styleOverrides.bannedWords, args.allowBrain === true),
           providerOptions: CHAT_PROVIDER_OPTIONS,
           maxOutputTokens: CHAT_MAX_OUTPUT_TOKENS,
+          // Ends the reply inside the Convex action limit, so a stalled
+          // stream fails its turn here instead of waiting for the reaper.
+          abortSignal: AbortSignal.timeout(chatStreamTimeoutMs(startedAt, Date.now())),
           // Must run upstream of the agent's smoothStream — see the module
           // comment. Without it, multi-step tool turns lose the thinking
           // signature and the model's reasoning is dropped between steps.

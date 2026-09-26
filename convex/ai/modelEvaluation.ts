@@ -53,6 +53,7 @@ import { entryFromFrozen } from "../lib/modelRoles";
 import type { FrozenModelEntry } from "../lib/modelCatalogValidators";
 import { seedToolSchema, validateBatch, type FrozenSeedSource } from "../lib/seedContract";
 import { instrumentedAnthropic, type UsageTap } from "./instrument";
+import { startActionDeadline } from "./actionDeadline";
 import { instrumentedOpenRouter } from "./openrouter";
 import type {
   GenerationClient,
@@ -1209,6 +1210,10 @@ export const runEvaluation = internalAction({
   args: { evaluationId: v.id("modelEvaluations") },
   returns: v.null(),
   handler: async (ctx, args): Promise<null> => {
+    // Every request ends inside the Convex action limit (actionDeadline.ts):
+    // a run that runs out of time fails through its catch below instead of
+    // being killed.
+    startActionDeadline(ctx);
     const claim = await ctx.runMutation(claimEvaluationRef, {
       evaluationId: args.evaluationId,
       envelope: EVAL_ENVELOPE,

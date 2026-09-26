@@ -19,6 +19,7 @@ import type {
 import type { GenerationClient } from "./openrouterCore";
 import { MalformedOutputError, OutputLimitError, messageText } from "./openrouterCore";
 import { generateStructured } from "./structured";
+import { startActionDeadline } from "./actionDeadline";
 import {
   normalizeProviderError,
   registerGenerationModels,
@@ -307,6 +308,8 @@ function failureCode(error: unknown):
 export const generateBatch = internalAction({
   args: { batchId: v.id("seedBatches") },
   handler: async (ctx, args) => {
+    // Every request ends inside the Convex action limit (actionDeadline.ts).
+    startActionDeadline(ctx);
     const claim = await ctx.runMutation(claimAttemptRef, {
       batchId: args.batchId,
     });

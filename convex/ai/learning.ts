@@ -5,6 +5,7 @@ import { internal } from "../_generated/api";
 import { clientForRole } from "./providers";
 import type { GenerationClient } from "./openrouterCore";
 import { generateStructured } from "./structured";
+import { startActionDeadline } from "./actionDeadline";
 import {
   admitStream,
   summarizeAdmission,
@@ -192,6 +193,8 @@ ${PRIVACY_RULE}\n\n${HUMAN_PROSE_FOR_OWN_WORDING}`;
 export const generateQaCalibrationDigest = internalAction({
   args: {},
   handler: async (ctx) => {
+    // Every request ends inside the Convex action limit (actionDeadline.ts).
+    startActionDeadline(ctx);
     const feedback = await ctx.runQuery(
       internal.learning.getFeedbackForDigest,
       { limit: FEEDBACK_WINDOW },
@@ -293,6 +296,8 @@ Because an administrator already vetted every item, weight these items more heav
 export const generateDraftStyleDigest = internalAction({
   args: {},
   handler: async (ctx) => {
+    // Every request ends inside the Convex action limit (actionDeadline.ts).
+    startActionDeadline(ctx);
     const [feedback, sectionEdits, proposalEdits, writerFeedback, chatFeedback] =
       await Promise.all([
         ctx.runQuery(internal.learning.getCandidateFeedbackForDigest, {

@@ -13,6 +13,7 @@ import {
   parseReviewerResult,
 } from "./core";
 import { callOpenRouterResearch } from "./openrouter";
+import { startActionDeadline } from "../actionDeadline";
 import { HUMAN_PROSE_FOR_OWN_WORDING } from "../../../shared/humanProse";
 
 const externalProviderValidator = v.union(
@@ -40,6 +41,8 @@ export const runExternalResearch = internalAction({
   },
   returns: v.null(),
   handler: async (ctx, args): Promise<null> => {
+    // Every request ends inside the Convex action limit (actionDeadline.ts).
+    startActionDeadline(ctx);
     let runId: Id<"researchRuns"> | null = null;
     try {
       const context = await ctx.runQuery(internal.research.getSessionForRun, {
@@ -196,6 +199,8 @@ export const reviewResearch = internalAction({
   args: { sessionId: v.id("researchSessions") },
   returns: v.null(),
   handler: async (ctx, args): Promise<null> => {
+    // Every request ends inside the Convex action limit (actionDeadline.ts).
+    startActionDeadline(ctx);
     let runId: Id<"researchRuns"> | null = null;
     try {
       const context = await ctx.runQuery(internal.research.getActionContext, {

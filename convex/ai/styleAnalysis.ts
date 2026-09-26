@@ -14,6 +14,7 @@ import { v } from "convex/values";
 import { z } from "zod";
 import { clientForRole } from "./providers";
 import { generateStructured } from "./structured";
+import { startActionDeadline } from "./actionDeadline";
 import {
   STYLE_OVERRIDE_KEYS,
   STYLE_OVERRIDE_META,
@@ -129,6 +130,8 @@ export const ANALYSIS_TOOL_SCHEMA = {
 export const analyzeMyInstructions = action({
   args: { text: v.string() },
   handler: async (ctx, args): Promise<StyleAnalysis> => {
+    // Every request ends inside the Convex action limit (actionDeadline.ts).
+    startActionDeadline(ctx);
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) throw new Error("Authentication required");
     const text = args.text.trim();
