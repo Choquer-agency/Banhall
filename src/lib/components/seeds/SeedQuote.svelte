@@ -8,6 +8,11 @@
    * DOM, so Tab moves from the phrase into it; focus or hover opens it, a
    * click or Enter keeps it open, and Escape closes it. Focus returns to the
    * phrase only when it was inside the quote.
+   *
+   * The phrase is a span with the button role, not a <button>: a button is
+   * laid out as one inline block, so the text after a quote fell to its own
+   * line and a comma could start a line (board F4). A span flows with the
+   * bullet, so trailing words and punctuation stay beside the quote.
    */
   import { onDestroy, tick } from "svelte";
   import { describeSource, type SeedSourceAttribution } from "./attribution";
@@ -32,7 +37,7 @@
 
   let open = $state(false);
   let pinned = $state(false);
-  let trigger = $state<HTMLButtonElement | null>(null);
+  let trigger = $state<HTMLElement | null>(null);
   let wrapper = $state<HTMLSpanElement | null>(null);
   let card = $state<HTMLElement | null>(null);
   let position = $state({ top: 0, left: 0 });
@@ -75,6 +80,15 @@
     clearTimer();
     open = false;
     pinned = false;
+  }
+
+  function toggle() {
+    if (open && pinned) {
+      hide();
+      return;
+    }
+    pinned = true;
+    void show();
   }
 
   function scheduleShow() {
@@ -139,13 +153,14 @@
     trigger?.focus();
     refocusing = false;
   }}
-><button
+><span
     bind:this={trigger}
-    type="button"
+    role="button"
+    tabindex="0"
     aria-expanded={open}
     aria-controls={`seed-quote-card-${uid}`}
     data-exact-quote
-    class={`inline cursor-default rounded-[2px] p-0 text-left align-baseline [color:inherit] underline decoration-primary decoration-[1.5px] underline-offset-[3px] [font:inherit] transition-colors hover:bg-primary-wash focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary motion-reduce:transition-none ${open ? "bg-primary-wash" : "bg-transparent"}`}
+    class={`inline cursor-default rounded-[2px] [color:inherit] underline decoration-primary decoration-[1.5px] underline-offset-[3px] [font:inherit] transition-colors hover:bg-primary-wash focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary motion-reduce:transition-none ${open ? "bg-primary-wash" : "bg-transparent"}`}
     onpointerenter={(event) => {
       if (event.pointerType !== "touch") scheduleShow();
     }}
@@ -155,15 +170,13 @@
     onfocus={() => {
       if (!refocusing) void show();
     }}
-    onclick={() => {
-      if (open && pinned) {
-        hide();
-        return;
-      }
-      pinned = true;
-      void show();
+    onclick={toggle}
+    onkeydown={(event) => {
+      if (event.key !== "Enter" && event.key !== " ") return;
+      event.preventDefault();
+      toggle();
     }}
-  >{text}</button>{#if open}<span
+  >{text}</span>{#if open}<span
       bind:this={card}
       id={`seed-quote-card-${uid}`}
       role="group"

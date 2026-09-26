@@ -2753,6 +2753,48 @@ describe("Seed plan final UI (ui-design-final.md sections 3 and 11)", () => {
     elsewhere.remove();
   });
 
+  it("keeps the words and punctuation after a quote on the quote's line (F4)", async () => {
+    await page.viewport(1440, 900);
+    const bullet = "Meridian Materials manufactures bonded composite panels for refrigerated truck bodies, its core product line.";
+    const citation = quotedCitation({ exactExcerpt: "bonded composite panels for refrigerated truck bodies" });
+    await render(SeedSubsectionPane, paneProps(subsection({
+      items: [seed({ selected: false, bullets: [bullet], originalBullets: [bullet], provenance: [citation] })],
+    }), { sourceAttribution: attributed }));
+    const quote = document.querySelector<HTMLElement>("[data-exact-quote]")!;
+    expect(quote.textContent).toBe("bonded composite panels for refrigerated truck bodies");
+    const walker = document.createTreeWalker(quote.closest("li")!, NodeFilter.SHOW_TEXT);
+    let tail: Text | null = null;
+    while (walker.nextNode()) if (walker.currentNode.textContent?.startsWith(", its")) tail = walker.currentNode as Text;
+    const comma = document.createRange();
+    comma.setStart(tail!, 0);
+    comma.setEnd(tail!, 1);
+    // The quote wraps; the comma follows its last line, never starts a line.
+    const lines = quote.getClientRects();
+    expect(lines.length).toBeGreaterThan(1);
+    const last = lines[lines.length - 1];
+    expect(Math.abs(comma.getBoundingClientRect().top - last.top)).toBeLessThan(2);
+    expect(comma.getBoundingClientRect().left).toBeGreaterThanOrEqual(Math.floor(last.right));
+    // Still a keyboard control: focus opens the quoted line, Enter pins it,
+    // and Enter again closes it.
+    quote.focus();
+    await expect.element(page.getByRole("group", { name: "Quoted line" })).toBeVisible();
+    await userEvent.keyboard("{Enter}");
+    await expect.element(page.getByRole("group", { name: "Quoted line" })).toBeVisible();
+    await userEvent.keyboard("{Enter}");
+    await expect.poll(() => document.querySelector("[data-quote-card]")).toBeNull();
+  });
+
+  it("shows the quoted-lines tile only on hover or focus, as the boards draw the footer (F4)", async () => {
+    await render(SeedSubsectionPane, paneProps(subsection({ items: [seed({ selected: false })] }), { sourceAttribution: attributed }));
+    const tileEl = document.querySelector<HTMLElement>("[data-seed-quotes-trigger]")!;
+    expect(getComputedStyle(tileEl).opacity).toBe("0");
+    expect(getComputedStyle(page.getByRole("button", { name: "Edit", exact: true }).element()).opacity).toBe("1");
+    await userEvent.hover(document.querySelector<HTMLElement>('[data-seed-id="seed-1"]')!);
+    await expect.poll(() => getComputedStyle(tileEl).opacity).toBe("1");
+    await tileEl.click();
+    await expect.poll(() => document.querySelector("[data-seed-quotes]")).not.toBeNull();
+  });
+
   it("drops underlines from an edited bullet and offers Restore original wording beside it", async () => {
     await render(SeedSubsectionPane, paneProps(subsection({
       items: [seed({

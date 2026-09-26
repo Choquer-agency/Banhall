@@ -366,7 +366,15 @@
         <Popover.Root bind:open={quotesOpen}>
           <Tooltip text="Quoted lines">
             {#snippet children({ props: tipProps })}
-              <Popover.Trigger {...tipProps} aria-label={`Quoted lines (${item.provenance.length})`} class={tile}>
+              <!-- Boards F4 and 3.1 draw only the pencil and the bubble, so
+                   the quoted-lines tile shows on hover, focus or while open
+                   (always on touch); the citations stay reachable (A8). -->
+              <Popover.Trigger
+                {...tipProps}
+                aria-label={`Quoted lines (${item.provenance.length})`}
+                data-seed-quotes-trigger
+                class={`${tile} opacity-0 group-hover/seed:opacity-100 focus-visible:opacity-100 data-[state=open]:opacity-100 pointer-coarse:opacity-100`}
+              >
                 <IconQuote size={14} strokeWidth={1.7} />
               </Popover.Trigger>
             {/snippet}
