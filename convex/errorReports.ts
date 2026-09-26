@@ -49,7 +49,26 @@ export const ERROR_REPORT_BUDGET = {
 /** Bug reports are kept this long, then the daily sweep deletes them
  * (review r1 P2-2). Feature requests are a product board and are kept. */
 export const ERROR_REPORT_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
-const RETENTION_BATCH = 200;
+/**
+ * Rows the sweep deletes per run. A report at every field cap is about 84,000
+ * characters, up to about 250 KB in UTF-8, so 40 rows stay well under Convex's
+ * 16 MiB per transaction (deletion review, 2026-09-25).
+ */
+export const ERROR_REPORT_RETENTION_BATCH = 40;
+/** Extra rows the sweep reads past a batch to step over kept system notices. */
+const RETENTION_SCAN_SLACK = 20;
+
+/**
+ * Sources the server itself writes notices under (convex/transcripts.ts
+ * storage sweep, convex/lib/modelRoles.ts catalog notices). Some are raised
+ * once, so an open one is kept past the retention window; a report a browser
+ * sends can never claim one of these sources.
+ */
+export const SYSTEM_NOTICE_SOURCES: ReadonlySet<string> = new Set(["storage-sweep", "model-catalog"]);
+
+function clientSource(source: string | undefined): string | undefined {
+  return source !== undefined && SYSTEM_NOTICE_SOURCES.has(source) ? `client:${source}` : source;
+}
 
 function cap(value: string, max: number): string {
   return value.length > max ? value.slice(0, max) : value;
@@ -126,11 +145,14 @@ export const reportError = mutation({
     const L = ERROR_REPORT_LIMITS;
     return await ctx.db.insert("errorReports", {
       kind: args.kind,
-      // Auto-captured = always a bug; manual defaults to bug unless flagged feature.
-      reportType: args.reportType ?? "bug",
+      // Auto-captured = always a bug; manual defaults to bug unless flagged
+      // feature. Only a signed-in writer may file a feature request: signed-out
+      // rows are never feature requests, so the retention sweep always covers
+      // them (deletion review, 2026-09-25).
+      reportType: userId === undefined ? "bug" : (args.reportType ?? "bug"),
       message: cap(args.message, L.message),
       stack: capOptional(args.stack, userId === undefined ? L.signedOutStack : L.stack),
-      source: capOptional(args.source, L.source),
+      source: capOptional(clientSource(args.source), L.source),
       url: cap(args.url, L.url),
       userNote: capOptional(args.userNote, L.userNote),
       breadcrumbs: args.breadcrumbs.slice(-L.breadcrumbs).map((crumb) => ({
@@ -227,18 +249,31 @@ export const pruneOldErrorReports = internalMutation({
   handler: async (ctx): Promise<number> => {
     const cutoff = Date.now() - ERROR_REPORT_RETENTION_MS;
     let deleted = 0;
+    let more = false;
     for (const reportType of [undefined, "bug"] as const) {
+      const room = ERROR_REPORT_RETENTION_BATCH - deleted;
+      if (room <= 0) break;
       const old = await ctx.db
         .query("errorReports")
         .withIndex("by_reportType_and_createdAt", (q) =>
           q.eq("reportType", reportType).lt("createdAt", cutoff)
         )
-        .take(RETENTION_BATCH - deleted);
-      for (const row of old) await ctx.db.delete(row._id);
-      deleted += old.length;
-      if (deleted >= RETENTION_BATCH) break;
+        .take(room + RETENTION_SCAN_SLACK);
+      let taken = 0;
+      for (const row of old) {
+        // An open system notice stays until someone resolves it.
+        if (row.status === "open" && row.source !== undefined && SYSTEM_NOTICE_SOURCES.has(row.source)) continue;
+        if (taken >= room) {
+          more = true;
+          break;
+        }
+        await ctx.db.delete(row._id);
+        taken += 1;
+      }
+      deleted += taken;
+      if (old.length === room + RETENTION_SCAN_SLACK) more = true;
     }
-    if (deleted >= RETENTION_BATCH) {
+    if (more) {
       await ctx.scheduler.runAfter(0, internal.errorReports.pruneOldErrorReports, {});
     }
     return deleted;

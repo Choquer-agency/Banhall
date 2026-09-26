@@ -6,6 +6,7 @@ import schema from "./schema";
 import {
   ERROR_REPORT_BUDGET,
   ERROR_REPORT_LIMITS,
+  ERROR_REPORT_RETENTION_BATCH,
   ERROR_REPORT_RETENTION_MS,
 } from "./errorReports";
 
@@ -189,7 +190,7 @@ describe("reading and changing reports is ops.viewAlerts (Admin only)", () => {
 describe("retention sweep (review r1 P2-2)", () => {
   async function seed(
     t: Awaited<ReturnType<typeof setup>>["t"],
-    rowsToAdd: Array<{ ageMs: number; reportType?: "bug" | "feature"; status?: "open" | "resolved" }>
+    rowsToAdd: Array<{ ageMs: number; reportType?: "bug" | "feature"; status?: "open" | "resolved"; source?: string }>
   ) {
     await t.run(async (ctx) => {
       const now = Date.now();
@@ -197,6 +198,7 @@ describe("retention sweep (review r1 P2-2)", () => {
         await ctx.db.insert("errorReports", {
           kind: "auto",
           ...(row.reportType ? { reportType: row.reportType } : {}),
+          ...(row.source ? { source: row.source } : {}),
           message: `age ${row.ageMs}`,
           url: "/",
           breadcrumbs: [],
@@ -226,12 +228,52 @@ describe("retention sweep (review r1 P2-2)", () => {
     expect(left.every((row) => row.reportType === "feature" || row.createdAt > Date.now() - ERROR_REPORT_RETENTION_MS)).toBe(true);
   });
 
-  it("works in bounded batches", async () => {
+  it("works in batches that fit one transaction even at every field cap", async () => {
     const { t } = await setup();
-    await seed(t, Array.from({ length: 250 }, () => ({ ageMs: ERROR_REPORT_RETENTION_MS + DAY })));
-    expect(await t.mutation(internal.errorReports.pruneOldErrorReports, {})).toBe(200);
-    expect(await rows(t)).toHaveLength(50);
-    expect(await t.mutation(internal.errorReports.pruneOldErrorReports, {})).toBe(50);
+    // A report at every cap is about 84,000 characters; at 3 bytes each the
+    // batch must stay under Convex's 16 MiB per transaction.
+    const perRow = ERROR_REPORT_LIMITS.message + ERROR_REPORT_LIMITS.stack + ERROR_REPORT_LIMITS.url
+      + ERROR_REPORT_LIMITS.userNote + ERROR_REPORT_LIMITS.userAgent + ERROR_REPORT_LIMITS.source
+      + ERROR_REPORT_LIMITS.breadcrumbs * (ERROR_REPORT_LIMITS.breadcrumbType + ERROR_REPORT_LIMITS.breadcrumbLabel + ERROR_REPORT_LIMITS.breadcrumbDetail);
+    expect(ERROR_REPORT_RETENTION_BATCH * perRow * 3).toBeLessThan(16 * 1024 * 1024);
+    await seed(t, Array.from({ length: ERROR_REPORT_RETENTION_BATCH + 10 }, () => ({ ageMs: ERROR_REPORT_RETENTION_MS + DAY })));
+    expect(await t.mutation(internal.errorReports.pruneOldErrorReports, {})).toBe(ERROR_REPORT_RETENTION_BATCH);
+    expect(await rows(t)).toHaveLength(10);
+    expect(await t.mutation(internal.errorReports.pruneOldErrorReports, {})).toBe(10);
     expect(await rows(t)).toHaveLength(0);
+  });
+
+  it("keeps an open system notice past 30 days, and sweeps it once resolved (deletion review)", async () => {
+    const { t } = await setup();
+    const old = ERROR_REPORT_RETENTION_MS + DAY;
+    await seed(t, [
+      { ageMs: old, reportType: "bug", source: "model-catalog" },
+      { ageMs: old, reportType: "bug", source: "storage-sweep" },
+      { ageMs: old, reportType: "bug", source: "model-catalog", status: "resolved" },
+      { ageMs: old, reportType: "bug", source: "client:model-catalog" },
+    ]);
+    expect(await t.mutation(internal.errorReports.pruneOldErrorReports, {})).toBe(2);
+    const left = await rows(t);
+    expect(left.map((row) => row.source).sort()).toEqual(["model-catalog", "storage-sweep"]);
+  });
+});
+
+describe("what a browser may file (deletion review, 2026-09-25)", () => {
+  it("files a signed-out feature request as a bug, so the sweep covers it", async () => {
+    const { t } = await setup();
+    await t.mutation(api.errorReports.reportError, { ...report({ sessionId: "s1" }), kind: "manual", reportType: "feature" });
+    expect((await rows(t)).map((row) => row.reportType)).toEqual(["bug"]);
+  });
+
+  it("keeps a signed-in writer's feature request", async () => {
+    const { t, writer } = await setup();
+    await writer.mutation(api.errorReports.reportError, { ...report(), kind: "manual", reportType: "feature" });
+    expect((await rows(t)).map((row) => row.reportType)).toEqual(["feature"]);
+  });
+
+  it("never lets a browser claim a system notice source", async () => {
+    const { t, writer } = await setup();
+    await writer.mutation(api.errorReports.reportError, { ...report(), source: "model-catalog" });
+    expect((await rows(t)).map((row) => row.source)).toEqual(["client:model-catalog"]);
   });
 });
