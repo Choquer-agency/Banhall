@@ -4,6 +4,7 @@
   import type { Id } from "../../../../convex/_generated/dataModel";
   import {
     PD_SUBSECTIONS,
+    pdSubsectionStepSubtitle,
     type PdSubsectionRoleId,
   } from "../../../../shared/pdSubsections";
   import { useStableQuery } from "$lib/stableQuery.svelte";
@@ -1157,7 +1158,10 @@
               <SeedSubsectionPane
                 {generationId}
                 title={activeDefinition.title}
-                objective={activeDefinition.objective}
+                objective={pdSubsectionStepSubtitle(
+                  activeDefinition.roleId,
+                  subsection.items.length === 0 && subsection.pendingBatchId ? "writing" : "ready"
+                )}
                 kind={activeDefinition.kind}
                 data={subsection}
                 canEdit={subsectionCanEdit}

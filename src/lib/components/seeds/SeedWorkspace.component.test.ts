@@ -3659,6 +3659,55 @@ describe("seed-step progress (F3, F5)", () => {
   });
 });
 
+describe("step subtitles (F3 to F5)", () => {
+  const pendingFor = (roleId: SeedSubsectionData["roleId"]) =>
+    subsection({
+      roleId,
+      items: [],
+      shownBatchId: null,
+      pendingBatchId: "batch-pending" as Id<"seedBatches">,
+      pendingBatch: { status: "running", queuedAt: Date.now(), startedAt: Date.now() },
+      state: "generating",
+    });
+  const subtitle = () => textOf(document.querySelector("[data-step-objective]"));
+
+  it("shows the boards' subtitle for each state and leaves the registry objective alone", async () => {
+    __setQueryData("seeds:getOutline", outline());
+    __setQueryData("seeds:getSubsection", pendingFor("company_context"));
+    await render(SeedWorkspace, workspaceProps());
+    // F3: Company and context while its ideas are written.
+    await expect.poll(subtitle).toBe("Who the claimant is and where the work happened.");
+
+    // F4: the same step once its ideas are ready to pick.
+    __setQueryData("seeds:getSubsection", subsection({ items: twoSeeds(), shownBatchId: "batch-1" as Id<"seedBatches"> }));
+    await expect
+      .poll(subtitle)
+      .toBe(
+        "Who the claimant is and the operating context the uncertainty sits in. Pick the seeds that position the project the way you want it written."
+      );
+
+    // F5: Goal and problem while its ideas are written.
+    __setQueryData("seeds:getSubsection", pendingFor("goal_problem"));
+    [...document.querySelectorAll<HTMLButtonElement>('nav[aria-label="PD subsections"] button')]
+      .find((button) => textOf(button).includes("Goal / Problem"))!
+      .click();
+    await expect.poll(subtitle).toBe("What the project set out to do and the problem that stood in the way.");
+    expect(document.body.textContent).not.toContain("State the physical or practical product");
+
+    // Display only: the registry objective that feeds prompts, QA and the Summary is unchanged.
+    expect(PD_SUBSECTIONS.find((row) => row.roleId === "company_context")!.objective).toBe(
+      "Establish the company's relevant domain expertise and operating context for the project."
+    );
+  });
+
+  it("keeps the registry objective for a step the boards do not draw", async () => {
+    __setQueryData("seeds:getOutline", outline());
+    __setQueryData("seeds:getSubsection", subsection({ roleId: "hypothesis" }));
+    await render(SeedWorkspace, workspaceProps({ requestedRoleId: "hypothesis" }));
+    await expect.poll(subtitle).toBe("State a specific, testable, and measurable hypothesis in if/then form.");
+  });
+});
+
 describe("ideas ready, Mod Enter and the step deep link (F4, I4, F6)", () => {
   it("shows the ideas-ready toast when the step on screen gets its ideas, then leaves", async () => {
     const pending = subsection({

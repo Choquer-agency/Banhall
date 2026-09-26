@@ -168,6 +168,43 @@ export function pdSubsectionOutlineLabel(roleId: PdSubsectionRoleId): string {
 }
 
 /**
+ * Round 2 (boards F3 to F5): the plain line under a step's heading in the
+ * plan, for the steps the boards draw. Display only: prompts, QA and the
+ * Summary keep each step's `objective`. F3 draws Company and context while
+ * its ideas are being written and F4 once they are ready to pick; F5 draws
+ * Goal and problem while its ideas are being written.
+ */
+const PD_SUBSECTION_STEP_SUBTITLES: Partial<
+  Record<PdSubsectionRoleId, { writing: string; ready: string }>
+> = {
+  company_context: {
+    writing: "Who the claimant is and where the work happened.",
+    ready:
+      "Who the claimant is and the operating context the uncertainty sits in. Pick the seeds that position the project the way you want it written.",
+  },
+  goal_problem: {
+    writing: "What the project set out to do and the problem that stood in the way.",
+    ready: "What the project set out to do and the problem that stood in the way.",
+  },
+};
+
+/**
+ * The line under a step's heading in the plan: the board's subtitle for the
+ * step's state ("writing" while its first ideas are being written), else the
+ * step's `objective`.
+ */
+export function pdSubsectionStepSubtitle(
+  roleId: PdSubsectionRoleId,
+  state: "writing" | "ready"
+): string {
+  return (
+    PD_SUBSECTION_STEP_SUBTITLES[roleId]?.[state] ??
+    PD_SUBSECTIONS.find((subsection) => subsection.roleId === roleId)?.objective ??
+    ""
+  );
+}
+
+/**
  * Display headings for the three report Sections in the Step-by-step writing
  * view (ui-design-final.md section 6): the small sans label ("242 Technological
  * uncertainty") and the serif question. Presentation only; the report's own

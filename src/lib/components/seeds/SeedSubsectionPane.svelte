@@ -56,6 +56,8 @@
   }: {
     generationId: Id<"generations">;
     title: string;
+    /** The line under the heading. Display only: the board's step subtitle
+     * where it draws one (pdSubsectionStepSubtitle), else the objective. */
     objective: string;
     kind: "standard" | "optional" | "multiple";
     data: SeedSubsectionData;

@@ -10,6 +10,7 @@ import {
   PD_SUBSECTIONS,
   SEED_TAG_DISPLAY_LABELS,
   pdSubsectionOutlineLabel,
+  pdSubsectionStepSubtitle,
   pdSubsectionRoleList,
   pdSubsectionsForSection,
 } from "./pdSubsections";
@@ -97,6 +98,30 @@ describe("PD_SUBSECTIONS", () => {
     ]);
     // The canonical titles are unchanged for every other use.
     expect(PD_SUBSECTIONS.find((subsection) => subsection.roleId === "prior_year_status")?.title).toBe("Previous-year status");
+  });
+
+  it("uses the boards' step subtitles for display and keeps every objective (F3 to F5)", () => {
+    expect(pdSubsectionStepSubtitle("company_context", "writing")).toBe("Who the claimant is and where the work happened.");
+    expect(pdSubsectionStepSubtitle("company_context", "ready")).toBe(
+      "Who the claimant is and the operating context the uncertainty sits in. Pick the seeds that position the project the way you want it written."
+    );
+    expect(pdSubsectionStepSubtitle("goal_problem", "writing")).toBe(
+      "What the project set out to do and the problem that stood in the way."
+    );
+    expect(pdSubsectionStepSubtitle("goal_problem", "ready")).toBe(
+      "What the project set out to do and the problem that stood in the way."
+    );
+    // Steps the boards do not draw fall back to the objective.
+    for (const subsection of PD_SUBSECTIONS.filter((row) => row.roleId !== "company_context" && row.roleId !== "goal_problem")) {
+      expect(pdSubsectionStepSubtitle(subsection.roleId, "ready")).toBe(subsection.objective);
+    }
+    // The objectives that feed prompts, QA and the Summary are unchanged.
+    expect(PD_SUBSECTIONS[0].objective).toBe(
+      "Establish the company's relevant domain expertise and operating context for the project."
+    );
+    expect(PD_SUBSECTIONS[1].objective).toBe(
+      "State the physical or practical product, process, or system the company sought to create or improve."
+    );
   });
 
   it("provides display labels for the closed seed tag vocabulary", () => {
