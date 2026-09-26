@@ -1,9 +1,10 @@
 /**
  * Recent projects for the dark workspace rail ("Recent" group).
  *
- * Frontend-only recency: the shell records project opens it can observe
- * (clicks on `/project/<id>` links inside the workspace, and New project
- * opening the project it created) into localStorage.
+ * Frontend-only recency: project opens are recorded into localStorage by
+ * clicks on `/project/<id>` links inside the workspace, New project opening
+ * the project it created, and the project page itself on every open (typed
+ * URL, back and forward, redirects).
  * This is deliberately best-effort — a server-side `viewed` recency query can
  * replace the storage source later without changing the rail contract.
  *
@@ -120,7 +121,8 @@ export function persistRecentProjects(list: RecentProject[]): void {
 /**
  * Records one project open straight into browser storage, for opens that do
  * not come from a workspace link click (New project opening the project it
- * created). Fields the caller does not know keep the stored entry's values.
+ * created, the project page on open). Fields the caller does not know keep
+ * the stored entry's values.
  */
 export function recordProjectOpen(
   entry: { id: string; title?: string; stage?: string; client?: string },
