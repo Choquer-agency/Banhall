@@ -59,16 +59,67 @@ function sameSecret(a: string, b: string): boolean {
 }
 
 /**
+ * Whether a deployment is local development, read from its SITE_URL: unset,
+ * or a loopback host (localhost, *.localhost, 127.x, ::1, 0.0.0.0). Every
+ * other deployment is treated as production and must have AUTH_PROXY_SECRET.
+ */
+export function isLocalSiteUrl(siteUrl: string | undefined): boolean {
+  if (!siteUrl?.trim()) return true;
+  let host: string;
+  try {
+    host = new URL(siteUrl.trim()).hostname.toLowerCase();
+  } catch {
+    return false;
+  }
+  return (
+    host === "localhost" ||
+    host.endsWith(".localhost") ||
+    host === "[::1]" ||
+    host === "0.0.0.0" ||
+    /^127(?:\.\d{1,3}){3}$/.test(host)
+  );
+}
+
+/**
+ * The error to log on every auth request of a production deployment whose
+ * AUTH_PROXY_SECRET is missing or too short, or null when there is nothing
+ * to report. It never includes the secret or any part of it.
+ */
+export function authProxySecretProblem(
+  secret: string | undefined,
+  siteUrl: string | undefined
+): string | null {
+  if (usableProxySecret(secret) !== undefined || isLocalSiteUrl(siteUrl)) return null;
+  const what = secret?.trim()
+    ? `is shorter than ${MIN_AUTH_PROXY_SECRET_LENGTH} characters`
+    : "is not set";
+  return (
+    `AUTH_PROXY_SECRET ${what} on this deployment. Sign-in limits are shared ` +
+    "by every user per auth path until it is set on the app, then on Convex " +
+    "(docs/release-checklist.md)."
+  );
+}
+
+/**
  * The request Better Auth should see. With a configured secret the client
  * address header survives only when the proxy key matches; the key itself is
- * always removed. With no secret configured the address is taken as sent
- * (weaker: a caller that goes around the proxy can choose it), so set
- * AUTH_PROXY_SECRET on both the Convex deployment and the app.
+ * always removed. With no usable secret, local development takes the address
+ * as sent (a caller that goes around the proxy can choose it). A production
+ * deployment (`requireSecret`) never does: it drops the address, so every
+ * request counts against one shared limit per auth path, and the limit keeps
+ * working instead of letting a caller invent a new address per request.
  */
-export function trustedAuthRequest(request: Request, secret: string | undefined): Request {
+export function trustedAuthRequest(
+  request: Request,
+  secret: string | undefined,
+  options: { requireSecret?: boolean } = {}
+): Request {
   const configured = usableProxySecret(secret);
   const presented = request.headers.get(AUTH_PROXY_KEY_HEADER);
-  const keepAddress = configured === undefined || (presented !== null && sameSecret(presented, configured));
+  const keepAddress =
+    configured === undefined
+      ? !options.requireSecret
+      : presented !== null && sameSecret(presented, configured);
   if (presented === null && keepAddress) return request;
   const headers = new Headers(request.headers);
   headers.delete(AUTH_PROXY_KEY_HEADER);

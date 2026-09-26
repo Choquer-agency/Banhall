@@ -3,6 +3,8 @@ import {
   AUTH_CLIENT_IP_HEADER,
   AUTH_PROXY_KEY_HEADER,
   AUTH_RATE_LIMIT,
+  authProxySecretProblem,
+  isLocalSiteUrl,
   trustedAuthRequest,
 } from "./authRateLimit";
 
@@ -42,6 +44,39 @@ describe("trustedAuthRequest", () => {
       const out = trustedAuthRequest(request({ [AUTH_CLIENT_IP_HEADER]: "203.0.113.5" }), secret);
       expect(out.headers.get(AUTH_CLIENT_IP_HEADER)).toBe("203.0.113.5");
     }
+  });
+});
+
+describe("a production deployment without a usable secret (review r1 P2-1)", () => {
+  it("drops the address as sent, so the limit is per path", () => {
+    for (const secret of [undefined, "", "short"]) {
+      const out = trustedAuthRequest(request({ [AUTH_CLIENT_IP_HEADER]: "203.0.113.5" }), secret, {
+        requireSecret: true,
+      });
+      expect(out.headers.get(AUTH_CLIENT_IP_HEADER)).toBeNull();
+    }
+    // A usable secret still decides on its own.
+    const proxied = trustedAuthRequest(
+      request({ [AUTH_CLIENT_IP_HEADER]: "203.0.113.5", [AUTH_PROXY_KEY_HEADER]: SECRET }),
+      SECRET,
+      { requireSecret: true }
+    );
+    expect(proxied.headers.get(AUTH_CLIENT_IP_HEADER)).toBe("203.0.113.5");
+  });
+
+  it("reports a missing or short secret only outside local development, never its value", () => {
+    expect(authProxySecretProblem(undefined, "https://banhall.vercel.app")).toMatch(/is not set/);
+    expect(authProxySecretProblem("  ", "https://banhall.vercel.app")).toMatch(/is not set/);
+    const short = authProxySecretProblem("short-secret-value", "https://banhall.vercel.app");
+    expect(short).toMatch(/shorter than 32 characters/);
+    expect(short).not.toContain("short-secret-value");
+    expect(authProxySecretProblem(SECRET, "https://banhall.vercel.app")).toBeNull();
+    for (const local of [undefined, "", "http://localhost:3001", "http://127.0.0.1:5173", "http://app.localhost", "http://[::1]:3001"]) {
+      expect(isLocalSiteUrl(local), String(local)).toBe(true);
+      expect(authProxySecretProblem(undefined, local)).toBeNull();
+    }
+    expect(isLocalSiteUrl("https://banhall.vercel.app")).toBe(false);
+    expect(isLocalSiteUrl("https://localhost.example.com")).toBe(false);
   });
 });
 

@@ -48,7 +48,7 @@ async function signIn(
 ): Promise<number> {
   const response = await t.fetch("/api/auth/sign-in/email", {
     method: "POST",
-    headers: { "content-type": "application/json", origin: "https://app.test", ...headers },
+    headers: { "content-type": "application/json", origin: process.env.SITE_URL!, ...headers },
     body: JSON.stringify({ email: "nobody@example.com", password: "wrong-password-123" }),
   });
   return response.status;
@@ -56,6 +56,8 @@ async function signIn(
 
 describe("sign-in rate limit", () => {
   it("refuses a browser address past the limit and leaves other addresses alone", async () => {
+    // Local development: no secret, and the address is taken as sent.
+    vi.stubEnv("SITE_URL", "http://localhost:3001");
     const t = setup();
     const office = { [AUTH_CLIENT_IP_HEADER]: "203.0.113.5" };
     for (let i = 0; i < SIGN_IN_MAX; i += 1) expect(await signIn(t, office)).toBe(401);
@@ -81,11 +83,60 @@ describe("sign-in rate limit", () => {
     ).toBe(401);
   });
 
+  // Review r1 P2-1 / r2 P2-4 (2026-09-25): with no secret on a production
+  // deployment a caller could invent an address per request. Now every
+  // request there shares one count per path, and each one logs an error.
+  it("shares one count per path and logs an error on production without a usable secret", async () => {
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      for (const secret of ["", "too-short-secret"]) {
+        vi.stubEnv("AUTH_PROXY_SECRET", secret);
+        errors.mockClear();
+        const t = setup();
+        for (let i = 0; i < SIGN_IN_MAX; i += 1) {
+          expect(await signIn(t, { [AUTH_CLIENT_IP_HEADER]: `192.0.2.${i + 1}` })).toBe(401);
+        }
+        expect(await signIn(t, { [AUTH_CLIENT_IP_HEADER]: "192.0.2.200" })).toBe(429);
+        // Other paths keep their own count.
+        const signUp = await t.fetch("/api/auth/sign-up/email", {
+          method: "POST",
+          headers: { "content-type": "application/json", origin: "https://app.test" },
+          body: JSON.stringify({ email: "new@example.com", password: "long-enough-password", name: "N" }),
+        });
+        expect(signUp.status).not.toBe(429);
+        const logged = errors.mock.calls.map((call) => String(call[0]));
+        const proxyErrors = logged.filter((line) => line.includes("AUTH_PROXY_SECRET"));
+        expect(proxyErrors.length).toBeGreaterThanOrEqual(SIGN_IN_MAX + 2);
+        for (const line of proxyErrors) {
+          if (secret) expect(line).not.toContain(secret);
+        }
+      }
+    } finally {
+      errors.mockRestore();
+    }
+  });
+
+  it("logs nothing about the secret in local development or once it is set", async () => {
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      vi.stubEnv("AUTH_PROXY_SECRET", SECRET);
+      await signIn(setup(), {});
+      vi.stubEnv("AUTH_PROXY_SECRET", "");
+      vi.stubEnv("SITE_URL", "http://localhost:3001");
+      await signIn(setup(), {});
+      const logged = errors.mock.calls.map((call) => String(call[0]));
+      expect(logged.filter((line) => line.includes("AUTH_PROXY_SECRET"))).toEqual([]);
+    } finally {
+      errors.mockRestore();
+    }
+  });
+
   it("never counts session reads", async () => {
+    vi.stubEnv("SITE_URL", "http://localhost:3001");
     const t = setup();
     for (let i = 0; i < 30; i += 1) {
       const response = await t.fetch("/api/auth/get-session", {
-        headers: { origin: "https://app.test", [AUTH_CLIENT_IP_HEADER]: "203.0.113.5" },
+        headers: { origin: process.env.SITE_URL!, [AUTH_CLIENT_IP_HEADER]: "203.0.113.5" },
       });
       expect(response.status).toBe(200);
     }

@@ -19,9 +19,7 @@ git checkout <release commit>
 npm ci
 ```
 
-**Check:** `npm ci` ends without errors and `git status` is clean. Never use `npm install` for a release: it can change `package-lock.json`.
-
-Note: `vercel.json` still sets `"installCommand": "npm install"` (audit 2026-09-25 a4 #21). Until it says `npm ci`, the Vercel build can drift from the lockfile. Change it before the first production release.
+**Check:** `npm ci` ends without errors and `git status` is clean. Never use `npm install` for a release: it can change `package-lock.json`. `vercel.json` sets `"installCommand": "npm ci"` (security wave 1), so the Vercel build installs from the lockfile too.
 
 ### 2. Run the full gate
 
@@ -63,6 +61,7 @@ On the Convex deployment (dashboard, Settings, Environment Variables, or `npx co
 | `SITE_URL` | The production app URL. |
 | `BETTER_AUTH_SECRET` | Set, and never the development value. |
 | `BETTER_AUTH_TRUSTED_ORIGINS` | Only for origins beyond the built-in `https://banhall.vercel.app`. |
+| `AUTH_PROXY_SECRET` | Set, at least 32 characters, the same value as on Vercel. Set it on Vercel first (below), then here. |
 | `BRAIN_CONTEXTUAL`, `AA_API_KEY`, `MS_*`, `INGEST_API_KEY` | Only if the feature is used. |
 
 On Vercel (Project, Settings, Environment Variables, Production):
@@ -72,6 +71,9 @@ On Vercel (Project, Settings, Environment Variables, Production):
 | `PUBLIC_CONVEX_URL` | The production deployment URL (`https://<prod>.convex.cloud`). |
 | `PUBLIC_CONVEX_SITE_URL` | `https://<prod>.convex.site`. |
 | `BETTER_AUTH_COOKIE_PREFIX` | **Unset**, the same as on Convex. |
+| `AUTH_PROXY_SECRET` | Set, at least 32 characters (for example `openssl rand -base64 48`). The app sends it with each sign-in so Convex can trust the browser's address. |
+
+`AUTH_PROXY_SECRET` goes on the app first, then on Convex, with the same value. Until both have it, every sign-in shares one limit per auth path (10 email sign-ins a minute for the whole firm), and a production Convex deployment without it logs an error on every auth request that starts "AUTH_PROXY_SECRET is not set" (or "is shorter than 32 characters"). Local development (a localhost `SITE_URL`) needs no secret.
 
 **Check:**
 
@@ -79,7 +81,7 @@ On Vercel (Project, Settings, Environment Variables, Production):
 npx convex env list
 ```
 
-`BETTER_AUTH_COOKIE_PREFIX` is not listed, and `ANTHROPIC_TRANSPORT` is missing or `direct`. On Vercel, the Production environment has no `BETTER_AUTH_COOKIE_PREFIX`.
+`BETTER_AUTH_COOKIE_PREFIX` is not listed, `ANTHROPIC_TRANSPORT` is missing or `direct`, and `AUTH_PROXY_SECRET` is listed. On Vercel, the Production environment has no `BETTER_AUTH_COOKIE_PREFIX` and has `AUTH_PROXY_SECRET` with the same value as Convex. Never paste the value into a ticket or a log.
 
 ## The deploy
 
@@ -143,7 +145,7 @@ Sign in on the production URL, then:
 6. **Chat:** ask the report chat one question; it answers.
 7. **Admin pages:** `/admin/models` loads with today's refresh, and `/admin/learning` shows Learning health.
 8. **Crons:** in the dashboard, Schedules, Cron Jobs lists "recover stale report generations", "recover stale PD reviews", "recover stale post-QA passes", "recover stale chat turns" (every 10 minutes), "reconcile stalled oversight rebuilds", "resume stalled My work backfills" (every 5 minutes), and the daily "refresh QA calibration digest", "refresh draft style digest", "refresh model catalog" and "release unreferenced files".
-9. **Logs:** the Convex logs show no new errors in the first 15 minutes.
+9. **Logs:** the Convex logs show no new errors in the first 15 minutes. In particular, after the sign-in in item 1 there is no error starting "AUTH_PROXY_SECRET"; if there is one, the secret is missing or too short on Convex (step 4). A different value on Vercel is not logged, so copy both from the same source.
 
 **Check:** every item passes. If one fails, roll back (below).
 

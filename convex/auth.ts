@@ -15,6 +15,7 @@ import { customAuthCookiePrefix } from "../shared/authCookies";
 import {
   AUTH_CLIENT_IP_HEADER,
   AUTH_RATE_LIMIT,
+  authProxySecretProblem,
   trustedAuthRequest,
 } from "../shared/authRateLimit";
 
@@ -192,10 +193,19 @@ export const createAuth = (ctx: GenericCtx<DataModel>) => {
   });
   // Every auth request passes through here (registerRoutes calls
   // `createAuth(ctx).handler`): drop a client address the proxy did not vouch
-  // for. AUTH_PROXY_SECRET is read like SITE_URL.
+  // for. AUTH_PROXY_SECRET is read like SITE_URL. A production deployment
+  // without a usable secret logs an error on every request and drops every
+  // address, so the limit stays per path rather than per invented address;
+  // local development (a localhost SITE_URL, or none) is unchanged.
   const handler = auth.handler;
   return Object.assign(auth, {
-    handler: (request: Request) =>
-      handler(trustedAuthRequest(request, process.env.AUTH_PROXY_SECRET)),
+    handler: (request: Request) => {
+      const secret = process.env.AUTH_PROXY_SECRET;
+      const problem = authProxySecretProblem(secret, process.env.SITE_URL);
+      if (problem) console.error(problem);
+      return handler(
+        trustedAuthRequest(request, secret, { requireSecret: problem !== null })
+      );
+    },
   });
 };
