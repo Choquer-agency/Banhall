@@ -10,6 +10,7 @@
   import FileIcon from "$lib/components/ui/FileIcon.svelte";
   import BanhallLogo from "$lib/components/ui/BanhallLogo.svelte";
   import BanhallRailMark from "$lib/components/ui/BanhallRailMark.svelte";
+  import LogoMark from "$lib/components/brand/LogoMark.svelte";
   import Avatar from "$lib/components/ui/Avatar.svelte";
   import Switch from "$lib/components/ui/Switch.svelte";
   import KeyHint from "$lib/components/shell/KeyHint.svelte";
@@ -270,10 +271,14 @@
           <div class="flex h-14 w-14 items-center justify-center rounded-lg bg-workspace-shell">
             <BanhallRailMark collapsed />
           </div>
+          <div class="flex h-14 w-14 items-center justify-center rounded-lg bg-fir">
+            <LogoMark tone="white" />
+          </div>
         </div>
         <p class="mt-2 text-xs text-ink-muted">
           <code class="text-data">BanhallLogo</code> dark on light, white on dark, 52 to 64px tall.
           <code class="text-data">BanhallRailMark</code> expanded and collapsed rail.
+          <code class="text-data">LogoMark</code> the square mark, also the favicon.
         </p>
       </div>
 
