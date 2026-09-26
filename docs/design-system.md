@@ -1006,8 +1006,8 @@ Boards A1 to A5, B1 to B3, D1 to D5, I1, I1b, I3 to I5; decision 53. Live at
   Admin for `settings.configure`), Developer (Alerts with `ops.viewAlerts`,
   Feature requests), Other (What's new, Settings) at the bottom, then the
   identity row (avatar, name, `RoleChip size="sm"`) that opens the account
-  menu. Rows 32px (44px in the touch drawer), group labels 11px in secondary
-  ink (muted fails AA on the shell). Rail and frame use `workspace-shell`.
+  menu. Rows 32px (44px in the touch drawer), group labels 11px in muted ink
+  as the boards draw them (integration, 2026-09-26). Rail and frame use `workspace-shell`.
   Collapsed (A4): 36px icon tiles with tooltips, the expand toggle and search
   at the top, What's new as a 7px dot, Alerts as a red count, avatar 30px,
   no role chip. The Admin icon opens the A5 flyout (hover after 150ms, or
@@ -1049,6 +1049,26 @@ Boards A1 to A5, B1 to B3, D1 to D5, I1, I1b, I3 to I5; decision 53. Live at
 - **Avatar.** `ui/Avatar` shows the photo or initials on fir, teal or
   `avatar-purple`, picked from the user id so a person keeps one colour
   (proposal; the boards state no rule).
+
+### 2026-09-26 amendment - round 2 integration: the boards win
+
+The owner asked for the round 2 screens to match the Paper boards exactly.
+
+- **Icons.** Round 2 screens draw the boards' own icons from
+  `src/lib/components/icons/` (one Svelte component per icon, `currentColor`,
+  the board's viewBox, `size` and `strokeWidth` props). Its README maps each
+  icon to the boards and places it appears, with the size and stroke used
+  there. Phosphor stays on screens no round 2 board covers. The top bar tile
+  takes these icons at 15px, stroke 1.8.
+- **Board colours are tokens.** Every board value without a token got one in
+  `layout.css`, grouped by area. The contrast substitutions are reversed:
+  callout paragraphs use the boards' ink at 80% (red) and 75% (amber)
+  (`danger-body`, `warning-body`), the amber callout button is `#D97706`,
+  and the rail group label is muted ink.
+- **Reading the Paper JSX.** Paper's `text-label`, `text-data`, `text-ui`,
+  `text-body`, `text-title` and `text-display` are 11, 12, 13, 14, 18 and
+  28px sans; its `rounded-sm`, `rounded-md` and `rounded-card` are 6, 8 and
+  12px. Translate by value: the app's utilities with the same names differ.
 
 ## Panel motion (2026-08-10)
 
