@@ -6,13 +6,13 @@
   } from "./BanhallLogo.svelte";
 
   /**
-   * The real logo at the top of the round 2 rail, replacing the boards'
-   * placeholder "B Banhall" tile. The rail is a light surface, so it is
-   * always the dark wordmark. The PNG's built-in padding is clipped away so
-   * the artwork's left edge lines up with the rail gutter and its box is the
-   * artwork itself: 36px tall when expanded, 40px wide when collapsed (the
-   * 56px icon-only rail). There is no separate square mark in the assets, so
-   * the collapsed rail shows the same wordmark, scaled down.
+   * The mark at the top of the round 2 rail. Expanded, it is the real logo,
+   * replacing the boards' placeholder "B Banhall" tile: the rail is a light
+   * surface, so always the dark wordmark, with the PNG's built-in padding
+   * clipped away so the artwork's left edge lines up with the rail gutter and
+   * its box is the artwork itself, 36px tall. Collapsed (the 56px icon-only
+   * rail, A4, A5, H1, H3), the wordmark is unreadable at 40px wide, so it is
+   * the boards' 28px fir tile with a white "B".
    */
   let {
     collapsed = false,
@@ -22,26 +22,33 @@
     class?: string;
   } = $props();
 
-  const scale = $derived(
-    collapsed ? 40 / BANHALL_LOGO_ARTWORK.width : 36 / BANHALL_LOGO_ARTWORK.height
-  );
+  const scale = $derived(36 / BANHALL_LOGO_ARTWORK.height);
   const px = (value: number) => `${Math.round(value * scale * 100) / 100}px`;
 </script>
 
-<span
-  data-banhall-rail-mark={collapsed ? "collapsed" : "expanded"}
-  class={`relative block shrink-0 overflow-hidden ${className}`}
-  style:width={px(BANHALL_LOGO_ARTWORK.width)}
-  style:height={px(BANHALL_LOGO_ARTWORK.height)}
->
-  <img
-    src={BANHALL_LOGO_SOURCES.dark}
-    alt="Banhall"
-    draggable="false"
-    class="absolute max-w-none select-none"
-    style:left={px(-BANHALL_LOGO_ARTWORK.x)}
-    style:top={px(-BANHALL_LOGO_ARTWORK.y)}
-    style:width={px(BANHALL_LOGO_SIZE.width)}
-    style:height={px(BANHALL_LOGO_SIZE.height)}
-  />
-</span>
+{#if collapsed}
+  <span
+    data-banhall-rail-mark="collapsed"
+    role="img"
+    aria-label="Banhall"
+    class={`flex size-7 shrink-0 items-center justify-center rounded-[7px] bg-fir text-xs font-medium leading-[14px] text-white ${className}`}
+  ><span aria-hidden="true">B</span></span>
+{:else}
+  <span
+    data-banhall-rail-mark="expanded"
+    class={`relative block shrink-0 overflow-hidden ${className}`}
+    style:width={px(BANHALL_LOGO_ARTWORK.width)}
+    style:height={px(BANHALL_LOGO_ARTWORK.height)}
+  >
+    <img
+      src={BANHALL_LOGO_SOURCES.dark}
+      alt="Banhall"
+      draggable="false"
+      class="absolute max-w-none select-none"
+      style:left={px(-BANHALL_LOGO_ARTWORK.x)}
+      style:top={px(-BANHALL_LOGO_ARTWORK.y)}
+      style:width={px(BANHALL_LOGO_SIZE.width)}
+      style:height={px(BANHALL_LOGO_SIZE.height)}
+    />
+  </span>
+{/if}
