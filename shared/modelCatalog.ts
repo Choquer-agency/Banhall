@@ -168,7 +168,7 @@ export const ROLE_POLICIES: Readonly<Record<ModelRole, RolePolicy>> = {
   planning: {
     label: "Planning",
     description:
-      "Plans the report: the transcript analysis, the generation Brief and the seed cards, including seed feedback.",
+      "Plans the report: the transcript analysis, the generation Brief and the seed cards, including seed feedback. It also writes the sample paragraphs for the Writing preferences Preview.",
     defaultModelId: MODEL,
     gateways: ["anthropic", "openrouter"],
     minContextTokens: 200_000,

@@ -525,3 +525,9 @@ describe("settings, endpoints and routing", () => {
 // Keep the type import honest: a CatalogModel is a superset of the fields.
 const _typeCheck: Pick<CatalogModel, "modelId"> = { modelId: "x" };
 void _typeCheck;
+
+describe("planning role description", () => {
+  test("names the Writing preferences Preview, which runs on this role", () => {
+    expect(ROLE_POLICIES.planning.description).toContain("Writing preferences Preview");
+  });
+});
