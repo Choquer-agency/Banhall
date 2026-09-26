@@ -2074,7 +2074,15 @@ export default defineSchema({
     // Jul 17: feature requests are visible to all writers; +1s are stored
     // inline (tiny volume — a handful of writers).
     upvoterIds: v.optional(v.array(v.id("users"))),
-  }).index("by_status", ["status"]),
+    // Security wave 1 (a2 P1-3): a random id the browser keeps for its
+    // session, so a signed-out reporter has a per-minute budget too.
+    sessionId: v.optional(v.string()),
+  })
+    .index("by_status", ["status"])
+    // Per-minute reporting budgets: per signed-in user (and, with userId
+    // unset, for all signed-out reports together) and per browser session.
+    .index("by_userId_and_createdAt", ["userId", "createdAt"])
+    .index("by_sessionId_and_createdAt", ["sessionId", "createdAt"]),
 
   // Non-destructive version history of the report (Google-Docs-style restore).
   reportSnapshots: defineTable({
