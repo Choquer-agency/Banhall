@@ -1853,6 +1853,12 @@
   );
 
   const topBarMoreItems = $derived.by((): TopBarMoreItem[] => {
+    const financial: TopBarMoreItem = { id: "financial", label: "Financial", href: `/project/${projectId}/financial` };
+    // Reading the interview (H4): the phone bar keeps its More dots with the
+    // project tools that need no report; wider screens show none (F2, H3).
+    if (showReadingInterview) {
+      return [...(report ? [{ id: "history", label: "History", onSelect: () => (showHistory = true) }] : []), financial];
+    }
     if (!reportActionsVisible) return [];
     return [
       {
@@ -1868,7 +1874,7 @@
         ? [{ id: "compare", label: "Compare with the one-shot draft", onSelect: () => (ghostCompareOpen = true) }]
         : []),
       { id: "history", label: "History", onSelect: () => (showHistory = true) },
-      { id: "financial", label: "Financial", href: `/project/${projectId}/financial` },
+      financial,
     ];
   });
 </script>
@@ -1950,7 +1956,11 @@
         {#if !project.workflowStage}
           <ProjectStateBadge workflowStage={project.workflowStage} legacyStatus={project.status} />
         {/if}
-        {#if generation && generation.status !== "completed"}
+        {#if generation && generation.status !== "completed" && !isSeedWorkflow}
+          <!-- A Step-by-step run shows its state in the panel (the reading
+               pill, the step's writing line, the writing pill), so the top
+               bar carries no status pill (F2 to F5, H3; ui-design-final.md
+               section 2). -->
           <span class="hidden lg:inline-flex">
             <GenerationStatusChip
               status={generation.status}

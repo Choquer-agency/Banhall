@@ -616,6 +616,10 @@ describe("Seed project hosts", () => {
     // Round 2 (F2): the preview host reads the interview while the Brief is written.
     await expect.element(browserPage.getByText("Reading the interview", { exact: true })).toBeVisible();
     expect(browserPage.getByRole("tab", { name: "Plan" }).elements()).toHaveLength(0);
+    // F2 to F5: no status pill in the top bar while a Step-by-step run reads
+    // or writes ideas; the panel says what is happening.
+    const header = () => document.querySelector<HTMLElement>("[data-workspace-page-header]")!;
+    expect(header().textContent).not.toContain("AI generating");
 
     __setQueryData("generations:getLatestGeneration", {
       _id: "generation-seed-host",
@@ -629,6 +633,8 @@ describe("Seed project hosts", () => {
       seedCanEdit: true,
     });
     await expect.element(browserPage.getByLabelText("Seed workspace")).toBeVisible();
+    expect(header().textContent).not.toContain("Action needed");
+    expect(header().querySelector('[role="status"]')).toBeNull();
   });
 
   async function assertSignoffThroughCompletedReport(Component: typeof CurrentProjectPage | typeof PreviewProjectPage) {
@@ -1022,6 +1028,10 @@ describe("Seed project hosts", () => {
     expect(panelStyle.borderTopColor).toBe("rgb(233, 240, 239)");
     expect(panelStyle.borderRadius).toBe("12px");
     expect(panelStyle.marginLeft).toBe("12px");
+    // F2: no status pill and no More dots in the desktop top bar.
+    const header = document.querySelector<HTMLElement>("[data-workspace-page-header]")!;
+    expect(header.textContent).not.toContain("AI generating");
+    expect(getComputedStyle(header.querySelector('[data-top-bar-more="desktop"]')!).display).toBe("none");
     cancel.click();
     await expect.element(browserPage.getByText("Cancel this generation?", { exact: true })).toBeVisible();
   });
@@ -1064,6 +1074,9 @@ describe("Seed project hosts", () => {
     expect(getComputedStyle(panel).marginLeft).toBe("0px");
     expect(getComputedStyle(panel).borderTopWidth).toBe("0px");
     expect(getComputedStyle(panel).borderRadius).toBe("0px");
+    // H3 has no More dots.
+    expect(hidden(header.querySelector('[data-top-bar-more="desktop"]'))).toBe(true);
+    expect(hidden(header.querySelector('[data-top-bar-more="phone"]'))).toBe(true);
 
     // H4: the 52px bar, the top-bar cancel gives way to the bottom one.
     await browserPage.viewport(390, 844);
@@ -1071,6 +1084,11 @@ describe("Seed project hosts", () => {
     expect(hidden(document.querySelector("[data-top-bar-cancel-generation]"))).toBe(true);
     await expect.element(browserPage.getByText("You can leave. We will notify you when ideas are ready.", { exact: true })).toBeVisible();
     expect(getComputedStyle(header.querySelector("h1")!).fontSize).toBe("16px");
+    // H4: the More dots at the far right, with the project tools that need no report.
+    const phoneMore = header.querySelector<HTMLElement>('[data-top-bar-more="phone"]')!;
+    expect(hidden(phoneMore)).toBe(false);
+    phoneMore.click();
+    await expect.poll(() => Array.from(document.querySelectorAll("[data-top-bar-more-item]")).map((item) => item.getAttribute("data-top-bar-more-item"))).toEqual(["financial"]);
   });
 
   it("keeps an explicit legacy sections generation on the section stepper", async () => {
