@@ -88,7 +88,9 @@ const deadlines = new WeakMap<object, number>();
 /**
  * Records the deadline of the action that owns `ctx`: `startedAt` (the
  * handler's first line) plus ACTION_REQUEST_WINDOW_MS. Call once, at the top
- * of each generation action handler. Returns the deadline.
+ * of each generation action handler. Returns the deadline. The deadline is
+ * keyed on this ctx object, so pass it on as it is: a copy (`{ ...ctx }`)
+ * would run its requests with no deadline (fix-b review P3-7).
  */
 export function startActionDeadline(ctx: object, startedAt: number = Date.now()): number {
   const deadline = startedAt + ACTION_REQUEST_WINDOW_MS;

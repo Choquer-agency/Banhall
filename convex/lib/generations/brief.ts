@@ -248,10 +248,12 @@ export async function getGenerationSourcesForBriefHandler(
 }
 
 /**
- * Spans one `getCitationSpeakers` call may ask about. Each span reads at
- * most MAX_SPAN_TURNS + 1 turns, twice when it names the place a quote
- * moves from, so 250 spans stay inside one query's read limits (review
- * 2026-09-25, P3-5).
+ * Spans one `getCitationSpeakers` call may ask about (review 2026-09-25,
+ * P3-5). A real span reads about 2 turns, so 250 spans stay well inside one
+ * query's read limits. The bound is typical, not worst case: each span may
+ * read up to MAX_SPAN_TURNS + 1 turns, twice when it names the place a quote
+ * moves from, and 250 such spans would pass the 16,384-document limit
+ * (fix-b review P3-6).
  */
 export const MAX_CITATION_SPEAKER_SPANS = 250;
 
