@@ -12,7 +12,7 @@
   import { PUBLIC_CONVEX_URL } from "$env/static/public";
   import PageErrorBoundary from "$lib/components/errors/PageErrorBoundary.svelte";
   import ErrorMonitor from "$lib/components/errors/ErrorMonitor.svelte";
-  import { Toaster } from "svelte-sonner";
+  import AppToaster from "$lib/components/shell/AppToaster.svelte";
   import * as Tooltip from "$lib/components/ui/tooltip/index.js";
 
   let { children, data } = $props();
@@ -66,7 +66,7 @@
       {@render children()}
     </PageErrorBoundary>
     <ErrorMonitor />
-    <!-- Round 2 (D3, D5): one dark toast at the bottom centre; errors stay red. -->
-    <Toaster richColors closeButton position="bottom-center" toastOptions={{ class: "font-sans" }} />
+    <!-- Round 2 (C1, D3, D5): one dark toast at the bottom centre; errors stay red. -->
+    <AppToaster />
   </div>
 </Tooltip.Provider>

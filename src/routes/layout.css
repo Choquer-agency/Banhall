@@ -1399,11 +1399,36 @@ html [data-sonner-toaster][data-sonner-theme] {
   color: #fff;
 }
 
-/* Close (dismiss) button inherits the toast's state colors. */
-[data-sonner-toast] [data-close-button] {
-  background: inherit;
+/* The dark card has no border of its own, so it is the board's 39px tall. */
+[data-sonner-toast]:not([data-type="error"]):not([data-type="warning"]) {
+  border-width: 0;
+}
+
+/* Close (dismiss) sits inside the card on the right in the toast's own ink,
+   not as a circle over the top-left corner (C1, D3, D5). Outranks
+   svelte-sonner's `[data-sonner-toast][data-styled] [data-close-button]`. */
+[data-sonner-toaster] [data-sonner-toast][data-styled="true"] [data-close-button] {
+  position: static;
+  order: 99;
+  flex-shrink: 0;
+  /* 18px so the one-line card keeps the board's 39px height. */
+  width: 18px;
+  height: 18px;
+  margin: 0 0 0 auto;
+  transform: none;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
   color: inherit;
-  border-color: currentColor;
+  opacity: 0.75;
+}
+[data-sonner-toast]:not([data-type="error"]):not([data-type="warning"]):has([data-close-button]) {
+  padding-right: 10px;
+}
+[data-sonner-toaster] [data-sonner-toast][data-styled="true"]:hover [data-close-button]:hover,
+[data-sonner-toaster] [data-sonner-toast][data-styled="true"] [data-close-button]:focus-visible {
+  background: color-mix(in srgb, currentColor 14%, transparent);
+  opacity: 1;
 }
 
 /* View as (D3): an amber frame on the work panel while a developer views
