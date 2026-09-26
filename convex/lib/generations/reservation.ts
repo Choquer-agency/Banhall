@@ -37,6 +37,11 @@ import {
 } from "../../appSettings";
 import { normalizeCraScienceCode } from "../../../shared/craScienceCodes";
 import {
+  isPreviousYearDocument,
+  PREVIOUS_YEAR_ONLY_MESSAGE,
+  PREVIOUS_YEAR_ONLY_REASON,
+} from "../../../shared/previousYear";
+import {
   requireAnthropicConfigured,
   requireOpenRouterConfigured,
 } from "../providerConfig";
@@ -184,12 +189,19 @@ export async function reserveGeneration(
       .query("projectDocuments")
       .withIndex("by_projectId", (q) => q.eq("projectId", project._id))
       .collect();
-    const usable = docs.some((d) => !d.archived && d.content.trim());
-    if (!usable) {
+    const usable = docs.filter((d) => !d.archived && d.content.trim());
+    if (usable.length === 0) {
       domainError(
         "INVALID_INPUT",
         "Add an interview transcript or at least one context document with readable text"
       );
+    }
+    // Decision 42 (2026-09-25): last year's report alone is not a source
+    // for this year's report. Checked before any paid call is scheduled.
+    if (usable.every(isPreviousYearDocument)) {
+      domainError("INVALID_INPUT", PREVIOUS_YEAR_ONLY_MESSAGE, {
+        reason: PREVIOUS_YEAR_ONLY_REASON,
+      });
     }
   }
   if (
