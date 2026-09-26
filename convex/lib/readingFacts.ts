@@ -83,6 +83,25 @@ export function boundQuote(text: string): string {
 
 type SourceRow = Pick<Doc<"generationSources">, "_id" | "kind" | "label" | "content">;
 
+const HONORIFIC = /^(dr|mr|mrs|ms|mx|prof)\.?$/i;
+
+/**
+ * The name a fact card uses for its speaker (boards F2, H3, H4): the first
+ * name, "Priya" for "Priya Raman", after any title. A numbered label keeps
+ * its number ("Speaker 2"), and a one-word label stays as it is.
+ */
+export function speakerFirstName(speaker: string): string {
+  const words = speaker.trim().split(/\s+/).filter(Boolean);
+  if (words.length > 1 && /^\d+$/.test(words[1])) return `${words[0]} ${words[1]}`;
+  const named = words.length > 1 && HONORIFIC.test(words[0]) ? words.slice(1) : words;
+  return named[0] ?? speaker.trim();
+}
+
+/** The same place on every size: "Priya, line 18". */
+export function speakerPlace(speaker: string, line: number): string {
+  return `${speakerFirstName(speaker)}, line ${line}`;
+}
+
 /** "Priya, line 18"; "{transcript label}, line 18" with no speaker; a document's file name. */
 export function placeOf(source: SourceRow, citation: Pick<Citation, "startOffset" | "endOffset">) {
   if (source.kind !== "transcript") {
@@ -92,7 +111,7 @@ export function placeOf(source: SourceRow, citation: Pick<Citation, "startOffset
   const [where] = locateCitations(source.content, [citation]);
   const speaker = where?.speaker?.trim();
   return {
-    sourceLabel: speaker ? `${speaker}, line ${where.line}` : `${source.label}, line ${where?.line ?? 1}`,
+    sourceLabel: speaker ? speakerPlace(speaker, where.line) : `${source.label}, line ${where?.line ?? 1}`,
     ...(speaker ? { speaker } : {}),
     ...(where ? { line: where.line } : {}),
   };
@@ -342,7 +361,14 @@ export async function getReadingFactsHandler(
     .take(3);
   return {
     count: newest[0]?.seq ?? 0,
-    latest: newest.map((row) => ({ seq: row.seq, chip: row.chip, quote: row.quote, sourceLabel: row.sourceLabel })),
+    // A row with its speaker and line reads the same on every size, rows
+    // written before the first-name rule included.
+    latest: newest.map((row) => ({
+      seq: row.seq,
+      chip: row.chip,
+      quote: row.quote,
+      sourceLabel: row.speaker && row.line !== undefined ? speakerPlace(row.speaker, row.line) : row.sourceLabel,
+    })),
     startedAt: generation.startedAt,
     expectedMs: await expectedBriefMs(ctx, generation.modelFreeze?.roles?.planning),
     done: Boolean(generation.briefId),

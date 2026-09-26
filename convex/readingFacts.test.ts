@@ -10,7 +10,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api, internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import schema from "./schema";
-import { DEFAULT_BRIEF_MS, confidenceChip, glossaryChip, sentenceAround } from "./lib/readingFacts";
+import { DEFAULT_BRIEF_MS, confidenceChip, glossaryChip, sentenceAround, speakerFirstName } from "./lib/readingFacts";
 
 const modules = import.meta.glob("./**/*.ts");
 type T = ReturnType<typeof convexTest<typeof schema.tables>>;
@@ -101,6 +101,20 @@ describe("seeds.getReadingFacts", () => {
       [4, "The seal cracked at minus 30. 2"],
       [3, "The seal cracked at minus 30. 1"],
     ]);
+  });
+
+  it("places a fact by the speaker's first name on every size, rows stored with a full name included", async () => {
+    const t = convexTest(schema, modules);
+    const f = await fixture(t);
+    await t.mutation(internal.seeds.appendReadingFacts, {
+      generationId: f.generationId,
+      facts: [
+        { ...FACT, sourceLabel: "Anika Rao, line 19", speaker: "Anika Rao", line: 19 },
+        { chip: "Fact", quote: "No speaker here.", sourceLabel: "Follow-up call, line 12", line: 12 },
+      ],
+    });
+    const view = await t.withIdentity({ subject: "facts-writer" }).query(api.seeds.getReadingFacts, { generationId: f.generationId });
+    expect(view?.latest.map((fact) => fact.sourceLabel)).toEqual(["Follow-up call, line 12", "Anika, line 19"]);
   });
 
   it("serves internal roles and is silent for everyone else", async () => {
@@ -243,6 +257,15 @@ describe("chips and quotes (option A, no prompt change)", () => {
     expect(confidenceChip("unreliable")).toBeNull();
     expect(glossaryChip("FrostLine")).toBe("Product name");
     expect(glossaryChip("leak rate")).toBe("Term");
+  });
+
+  it("names a speaker by first name, keeping numbered labels and skipping a title", () => {
+    expect(speakerFirstName("Priya Raman")).toBe("Priya");
+    expect(speakerFirstName("  Anika   Rao ")).toBe("Anika");
+    expect(speakerFirstName("Priya")).toBe("Priya");
+    expect(speakerFirstName("Dr. Priya Raman")).toBe("Priya");
+    expect(speakerFirstName("Speaker 2")).toBe("Speaker 2");
+    expect(speakerFirstName("Interviewer")).toBe("Interviewer");
   });
 
   it("shows the sentence around a glossary term", () => {

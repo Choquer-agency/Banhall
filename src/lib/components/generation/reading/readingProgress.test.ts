@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { compactSource, factCountText, factOpacities, readingPercent } from "./readingProgress";
+import { factCountText, factOpacities, readingPercent } from "./readingProgress";
 
 describe("readingPercent", () => {
   it("fills with time, holds at 95 until the Brief lands, then shows 100", () => {
@@ -18,14 +18,6 @@ describe("factCountText", () => {
     expect(factCountText(6)).toBe("6 facts found so far");
     expect(factCountText(6, true)).toBe("6 facts");
     expect(factCountText(1, true)).toBe("1 fact");
-  });
-});
-
-describe("compactSource", () => {
-  it("keeps the first word and the line", () => {
-    expect(compactSource("Priya Raman, line 18")).toBe("Priya, line 18");
-    expect(compactSource("Call with Dana, line 12")).toBe("Call, line 12");
-    expect(compactSource("Cedarline FY 2025 report, R4.pdf")).toBe("Cedarline FY 2025 repor...");
   });
 });
 
