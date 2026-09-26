@@ -2437,14 +2437,27 @@ describe("Seed workspace", () => {
     expect(document.body.textContent).not.toContain("Role A open refused late");
     await expect.element(page.getByRole("heading", { name: "Goal and problem", exact: true })).toBeVisible();
 
-    // A current refusal for the displayed role is announced with a Retry
-    // that resubmits against the current capability and stage version.
+    // A stale refusal means another tab changed the decisions first: it is
+    // not announced, and the open is sent again once the Outline catches up
+    // (fidelity broken behaviour 3).
     __setMutationError("seeds:open", new ConvexError({ code: "STALE_REVISION", message: "Seed decisions changed; refresh and retry" }));
+    await outlineRole(/Company \/ Context/).click();
+    await expect.poll(() => __mutationCalls("seeds:open")).toHaveLength(3);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(openRefusal()).toBeNull();
+    __setMutationResult("seeds:open", null);
+    __setQueryData("seeds:getOutline", untouchedOutline(["company_context", "goal_problem"], { seedStageVersion: 8 }));
+    await expect.poll(() => __mutationCalls("seeds:open")).toHaveLength(4);
+    expect(openRefusal()).toBeNull();
+
+    // Any other current refusal for the displayed role is announced with a
+    // Retry that resubmits against the current capability and stage version.
+    __setMutationError("seeds:open", new ConvexError({ code: "INVALID_STATE", message: "Seed work is already pending for this role" }));
     await outlineRole(/Company \/ Context/).click();
     await expect.poll(() => openRefusal()?.dataset.openRefusal).toBe("company_context");
     expect(openRefusal()?.getAttribute("role")).toBe("alert");
-    expect(openRefusal()?.textContent).toContain("Seed decisions changed; refresh and retry");
-    __setQueryData("seeds:getOutline", untouchedOutline(["company_context", "goal_problem"], { seedStageVersion: 8 }));
+    expect(openRefusal()?.textContent).toContain("Seed work is already pending for this role");
+    __setQueryData("seeds:getOutline", untouchedOutline(["company_context", "goal_problem"], { seedStageVersion: 9 }));
     __setMutationResult("seeds:open", null);
     await page.getByRole("button", { name: "Retry", exact: true }).click();
     await expect.poll(() => openRefusal()).toBeNull();
@@ -2453,6 +2466,8 @@ describe("Seed workspace", () => {
       openCall("goal_problem", 7),
       openCall("company_context", 7),
       openCall("company_context", 8),
+      openCall("company_context", 8),
+      openCall("company_context", 9),
     ]);
   });
 

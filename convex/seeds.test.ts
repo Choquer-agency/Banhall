@@ -350,14 +350,16 @@ describe("public seed decisions", () => {
     });
     expect((await dump(s)).selections).toHaveLength(0);
   });
-  it("deduplicates first-view events per server user and fences stale view retries", async () => {
+  it("deduplicates first-view events per server user and answers a stale replay without writing", async () => {
     const s = await decisionFixture(),
       seed = await addDecisionSeed(s);
     await s.writer.mutation(view, { ...args(s), batchId: seed.batchId });
     const d = await dump(s);
-    await expect(
-      s.writer.mutation(view, { ...args(s), batchId: seed.batchId }),
-    ).rejects.toThrow(/STALE_REVISION/);
+    // A second tab still on version 0 replays the view: nothing is written
+    // and no STALE_REVISION reaches it (fidelity broken behaviour 3).
+    expect(
+      await s.writer.mutation(view, { ...args(s), batchId: seed.batchId }),
+    ).toEqual({ seedStageVersion: 1 });
     await s.writer.mutation(view, { ...args(s, 1), batchId: seed.batchId });
     expect(await dump(s)).toEqual(d);
     expect(d.events).toHaveLength(1);
@@ -365,6 +367,16 @@ describe("public seed decisions", () => {
       kind: "batchViewed",
       actorUserId: s.userId,
     });
+  });
+  it("still fences a first view made against older decisions", async () => {
+    const s = await decisionFixture(),
+      seed = await addDecisionSeed(s);
+    await s.writer.mutation(select, { ...args(s), seedId: seed.seedId, selected: true });
+    const d = await dump(s);
+    await expect(
+      s.writer.mutation(view, { ...args(s, 0), batchId: seed.batchId }),
+    ).rejects.toThrow(/STALE_REVISION/);
+    expect(await dump(s)).toEqual(d);
   });
   it("query and mutation-context readiness agree and decisions remove readiness without lifecycle writes", async () => {
     const s = await decisionFixture(),
@@ -710,6 +722,15 @@ describe("attempt commands and field ownership", () => {
     expect(
       await s.writer.mutation(open, { ...args(s, 1), commandId: "open-2" }),
     ).toMatchObject({ kind: "reused", seedStageVersion: 1 });
+    // A second tab that has not seen the first open yet gets the same Batch
+    // and no STALE_REVISION; a step with no Batch still needs the current
+    // decisions (fidelity broken behaviour 3).
+    expect(
+      await s.writer.mutation(open, { ...args(s, 0), commandId: "open-3" }),
+    ).toEqual({ kind: "reused", batchId: first.batchId, seedStageVersion: 1 });
+    await expect(
+      s.writer.mutation(open, { ...args(s, 0, "goal_problem"), commandId: "open-4" }),
+    ).rejects.toThrow(/STALE_REVISION/);
     const regenerate =
         decisionMutation<typeof endpoints.regenerate>("seeds:regenerate"),
       retry = decisionMutation<typeof endpoints.retry>("seeds:retry");

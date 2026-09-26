@@ -73,7 +73,18 @@ type DecisionArgs = {
   expectedSeedStageVersion: number;
 };
 
-async function decisionFence(ctx: MutationCtx, args: DecisionArgs) {
+/**
+ * Every seed writer's fence: access, an open seed stage, the current
+ * decision version and the step's row. `replayable` lets a caller accept a
+ * real but earlier version (a second tab that has not yet seen the latest
+ * decisions); the caller must then write nothing and answer with what
+ * already exists (`behind`), or refuse with STALE_REVISION itself.
+ */
+async function decisionFence(
+  ctx: MutationCtx,
+  args: DecisionArgs,
+  options: { replayable?: boolean } = {},
+) {
   await requireCurrentUser(ctx);
   const generation = await ctx.db.get(args.generationId);
   if (!generation) domainError("NOT_FOUND", "Generation not found");
@@ -90,9 +101,15 @@ async function decisionFence(ctx: MutationCtx, args: DecisionArgs) {
     domainError("INVALID_STATE", "The seed stage is closed", {
       reason: "SEED_STAGE_CLOSED",
     });
+  const stageVersion = generation.seedStageVersion ?? 0;
+  const behind =
+    options.replayable === true &&
+    Number.isSafeInteger(args.expectedSeedStageVersion) &&
+    args.expectedSeedStageVersion >= 0 &&
+    args.expectedSeedStageVersion < stageVersion;
   if (
     !Number.isSafeInteger(args.expectedSeedStageVersion) ||
-    args.expectedSeedStageVersion !== (generation.seedStageVersion ?? 0)
+    (args.expectedSeedStageVersion !== stageVersion && !behind)
   )
     domainError("STALE_REVISION", "Seed decisions changed; refresh and retry");
   const row = await ctx.db
@@ -108,7 +125,7 @@ async function decisionFence(ctx: MutationCtx, args: DecisionArgs) {
     maxRanges: SEED_DECISION_READ_RANGES,
     reservedBytes: 3 * DOCUMENT_HEADROOM,
   });
-  return { generation, row, user, project, budget };
+  return { generation, row, user, project, budget, behind };
 }
 async function seedOf(
   ctx: MutationCtx,
@@ -504,9 +521,22 @@ async function dispatchHandler(
   args: DecisionArgs & { commandId: string },
   operation: "open" | "regenerate" | "retry",
 ) {
-  const f = await decisionFence(ctx, args);
+  const f = await decisionFence(ctx, args, { replayable: operation === "open" });
   editable(f.row);
   validCommand(args.commandId);
+  if (f.behind) {
+    // Round 2 fidelity (broken behaviour 3): another tab opened this step
+    // first. Its Batch answers this open too; nothing is written. A step
+    // with no Batch yet still needs the current decisions.
+    const existing = f.row.pendingBatchId ?? f.row.shownBatchId;
+    if (!existing)
+      domainError("STALE_REVISION", "Seed decisions changed; refresh and retry");
+    return {
+      kind: "reused" as const,
+      batchId: existing,
+      seedStageVersion: await currentVersion(ctx, args.generationId),
+    };
+  }
   const result = await dispatchSeedAttempt(ctx, {
     generationId: args.generationId,
     roleId: args.roleId,
@@ -822,7 +852,7 @@ export const approve = mutation({
 export const markBatchViewed = mutation({
   args: { ...common, batchId: v.id("seedBatches") },
   handler: async (ctx, args) => {
-    const f = await decisionFence(ctx, args);
+    const f = await decisionFence(ctx, args, { replayable: true });
     const batch = await ctx.db.get(args.batchId);
     if (
       !batch ||
@@ -845,6 +875,11 @@ export const markBatchViewed = mutation({
           .eq("kind", "batchViewed"),
       )
       .first();
+    // A view this person already recorded (another tab, or a retry that
+    // crossed a newer decision) is answered without writing; a first view
+    // still needs the current decisions.
+    if (!prior && f.behind)
+      domainError("STALE_REVISION", "Seed decisions changed; refresh and retry");
     if (!prior) {
       await appendSeedRoleEvent(ctx, f.row, "batchViewed", f.user._id, {
         batchId: args.batchId,
