@@ -302,6 +302,32 @@ describe("WorkspaceRail (round 2)", () => {
     expect(bottom - item("changelog")!.getBoundingClientRect().bottom).toBe(107);
   });
 
+  it("A1 to A3, D3: the identity avatar is coloured by the person's own role", async () => {
+    const avatarBg = () =>
+      getComputedStyle(nav().querySelector<HTMLElement>("[data-rail-identity] [data-avatar]")!).backgroundColor;
+    seed("consultant");
+    const first = await render(WorkspaceRail, baseProps());
+    await expect.poll(() => nav()?.querySelector("[data-rail-identity] [data-avatar]")).not.toBeNull();
+    expect(avatarBg()).toBe("rgb(10, 58, 56)");
+    first.unmount();
+
+    seed("owner");
+    const second = await render(WorkspaceRail, baseProps());
+    await expect.poll(avatarBg).toBe("rgb(8, 122, 117)");
+    second.unmount();
+
+    seed("admin");
+    const third = await render(WorkspaceRail, baseProps());
+    await expect.poll(avatarBg).toBe("rgb(29, 78, 216)");
+    third.unmount();
+
+    // D3: viewing as Consultant keeps the Developer purple.
+    seed("developerAdmin");
+    viewAs.enter("consultant");
+    await render(WorkspaceRail, baseProps());
+    await expect.poll(avatarBg).toBe("rgb(126, 34, 206)");
+  });
+
   it("E1, F2, H3: Projects stays selected inside a project and on New project", async () => {
     seed("consultant");
     __setPageUrl("/project/p1");

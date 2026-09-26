@@ -21,6 +21,7 @@
   import { displayName } from "$lib/displayName";
   import Tooltip from "$lib/components/ui/Tooltip.svelte";
   import Avatar from "$lib/components/ui/Avatar.svelte";
+  import { roleAvatarTone } from "$lib/components/ui/avatarTone";
   import RoleChip from "$lib/components/ui/RoleChip.svelte";
   import BanhallRailMark from "$lib/components/ui/BanhallRailMark.svelte";
   import IdentityMenu from "$lib/components/shell/IdentityMenu.svelte";
@@ -134,6 +135,14 @@
     persistRailPreferences({ adminOpen: adminChoice });
   }
   const pathname = $derived(page.url.pathname);
+
+  // A1 to D5: the avatar is coloured by the person's own role, even while
+  // viewing as another role (D3 keeps the Developer purple).
+  const avatarTone = $derived(roleAvatarTone(roleChipKind({
+    role: user?.role ?? null,
+    isOwner: user?.isOwner === true,
+    isDeveloper: user?.isDeveloper === true,
+  })));
 
   const identityChip = $derived(roleChipKind(viewer.viewing ? { role: viewer.role, isOwner: viewer.isOwner } : {
     role: user?.role ?? null,
@@ -321,6 +330,7 @@
     email={user?.email ?? null}
     imageUrl={user?.imageUrl ?? null}
     seed={user?._id}
+    tone={avatarTone}
     isDeveloper={user?.isDeveloper === true}
     placement={collapsed ? "right" : "above"}
     layer={variant === "drawer" ? "drawer" : "app"}
@@ -335,7 +345,7 @@
           aria-label={`${userName}, account menu`}
           class="flex size-[30px] items-center justify-center rounded-full focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-fir"
         >
-          <Avatar name={userName} imageUrl={user?.imageUrl ?? null} seed={user?._id} size={30} />
+          <Avatar name={userName} imageUrl={user?.imageUrl ?? null} seed={user?._id} tone={avatarTone} size={30} />
         </button>
       {:else}
         <button
@@ -345,7 +355,7 @@
           aria-label={`${userName}, account menu`}
           class={`flex w-full items-center gap-2 rounded-lg px-1.5 text-left transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-1 focus-visible:outline-fir motion-reduce:transition-none ${variant === "rail" ? "h-11" : "min-h-12"} ${open ? "bg-workspace-rail-selected" : "hover:bg-workspace-rail-hover"}`}
         >
-          <Avatar name={userName} imageUrl={user?.imageUrl ?? null} seed={user?._id} size={24} />
+          <Avatar name={userName} imageUrl={user?.imageUrl ?? null} seed={user?._id} tone={avatarTone} size={24} />
           <span class="flex min-w-0 flex-1 flex-col">
             <span class="truncate text-xs font-medium leading-4 text-ink">{userName}</span>
             {#if identityChip}

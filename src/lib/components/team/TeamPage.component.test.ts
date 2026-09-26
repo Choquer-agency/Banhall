@@ -89,6 +89,18 @@ describe("TeamPage", () => {
     expect(document.querySelectorAll("[data-member-menu]")).toHaveLength(4);
   });
 
+  it("colours member avatars by role: Owner teal, Consultant and Manager fir, Developer purple (C1)", async () => {
+    seed(ADMIN);
+    await render(TeamPage, { origin: "https://banhall.app" });
+    await expect.poll(() => document.querySelectorAll("[data-member-row] [data-avatar]").length).toBe(4);
+    const bg = (id: string) =>
+      getComputedStyle(document.querySelector<HTMLElement>(`[data-member-row="${id}"] [data-avatar]`)!).backgroundColor;
+    expect(bg("u-admin")).toBe("rgb(8, 122, 117)");
+    expect(bg("u-larry")).toBe("rgb(10, 58, 56)");
+    expect(bg("u-sam")).toBe("rgb(10, 58, 56)");
+    expect(bg("u-new")).toBe("rgb(126, 34, 206)");
+  });
+
   it("shows the Manager view without member actions and with read-only Admin invites", async () => {
     seed(MANAGER);
     await render(TeamPage, { origin: "https://banhall.app" });

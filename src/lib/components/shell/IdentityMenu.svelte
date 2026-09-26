@@ -12,6 +12,7 @@
   import { IconEye, IconFlag, IconLogout, IconUser } from "$lib/components/icons";
   import { toast } from "svelte-sonner";
   import Avatar from "$lib/components/ui/Avatar.svelte";
+  import type { AvatarTone } from "$lib/components/ui/avatarTone";
   import KeyHint from "$lib/components/shell/KeyHint.svelte";
   import { signOutLocally } from "$lib/shell/signOut";
   import { viewAs } from "$lib/shell/viewAs.svelte";
@@ -21,6 +22,7 @@
     email = null,
     imageUrl = null,
     seed = undefined,
+    tone = undefined,
     isDeveloper = false,
     placement = "above",
     layer = "app",
@@ -31,6 +33,8 @@
     email?: string | null;
     imageUrl?: string | null;
     seed?: string;
+    /** The avatar tone for the person's own role (`roleAvatarTone`). */
+    tone?: AvatarTone;
     /** The real developer flag (View as never hides its own way back). */
     isDeveloper?: boolean;
     placement?: "above" | "right";
@@ -76,7 +80,7 @@
       class={`${layer === "drawer" ? "z-[130]" : "z-[80]"} w-[252px] rounded-xl border border-line bg-surface p-1.5 shadow-menu outline-none`}
     >
       <div data-identity-menu-header class="flex items-center gap-2.5 p-2">
-        <Avatar {name} {imageUrl} {seed} size={32} />
+        <Avatar {name} {imageUrl} {seed} {tone} size={32} />
         <div class="flex min-w-0 flex-1 flex-col">
           <p class="truncate text-[13px] font-medium leading-[18px] text-ink">{name}</p>
           {#if email}<p class="truncate text-xs leading-4 text-ink-muted">{email}</p>{/if}

@@ -2,9 +2,10 @@
   /**
    * Round 2 avatar (rail identity 24px, collapsed rail 28px, identity menu
    * 32px, Settings photo 52px). Shows the profile photo when there is one,
-   * otherwise initials on a tone. The boards use fir, teal and purple with no
-   * stated rule; `avatarTone(seed)` picks one from the user id so a person
-   * keeps the same colour everywhere (proposal, confirm with design).
+   * otherwise initials on a tone. Callers that know the person's role pass
+   * `tone={roleAvatarTone(kind)}` (the boards colour by role); otherwise
+   * `avatarTone(seed)` picks one from the user id so a person keeps the same
+   * colour everywhere.
    */
   import { avatarTone, initialsFor, type AvatarTone } from "./avatarTone";
 
@@ -36,6 +37,7 @@
     fir: "bg-fir",
     teal: "bg-primary-selected",
     purple: "bg-avatar-purple",
+    admin: "bg-role-admin-ink",
     invite: "bg-invite-banner-avatar",
     faded: "bg-avatar-faded",
   };
