@@ -314,6 +314,30 @@ async function assertChatAdmission(
   }
 }
 
+/**
+ * The thread's queued or running turn other than `exceptPromptMessageId`, if
+ * any. A thread runs one turn at a time (a4 #17): two tabs, or a double send,
+ * must not stream two replies into one conversation and pay for both.
+ */
+async function otherActiveTurn(
+  ctx: QueryCtx,
+  agentThreadId: string,
+  exceptPromptMessageId?: string,
+  statuses: ReadonlyArray<"running" | "queued"> = ["running", "queued"]
+) {
+  for (const status of statuses) {
+    const turns = await ctx.db
+      .query("chatTurns")
+      .withIndex("by_agentThreadId_and_status", (q) =>
+        q.eq("agentThreadId", agentThreadId).eq("status", status)
+      )
+      .take(2);
+    const other = turns.find((turn) => turn.promptMessageId !== exceptPromptMessageId);
+    if (other) return other;
+  }
+  return null;
+}
+
 /** The report text the writer highlighted for a prompt, when the turn stored it. */
 async function turnHighlight(
   ctx: QueryCtx,
@@ -388,6 +412,13 @@ export const sendMessage = mutation({
     }
 
     await assertChatAdmission(ctx, report.projectId, userId);
+
+    if (agentThreadId && (await otherActiveTurn(ctx, agentThreadId))) {
+      domainError(
+        "INVALID_STATE",
+        "A reply is still being written in this chat. Wait for it to finish or stop it, then send again."
+      );
+    }
 
     if (!agentThreadId) {
       const title = args.content.trim().slice(0, 60) || "New chat";
@@ -924,15 +955,22 @@ export const markTurnStarted = internalMutation({
 
     if (!turn) return { shouldRun: true, status: "running" as const };
     if (turn.status === "queued") {
+      // Lease (a4 #17): sendMessage refuses a second turn while one is
+      // active, so this only meets turns queued before that check. One
+      // running turn per thread; a turn queued behind it fails, and the
+      // writer sends again.
+      if (await otherActiveTurn(ctx, args.agentThreadId, args.promptMessageId, ["running"])) {
+        await ctx.db.patch(turn._id, { status: "failed", endedAt: args.startedAt });
+        return { shouldRun: false, status: "failed" as const };
+      }
       await ctx.db.patch(turn._id, {
         status: "running",
         ...(turn.startedAt === undefined ? { startedAt: args.startedAt } : {}),
       });
       return { shouldRun: true, status: "running" as const };
     }
-    if (turn.status === "running") {
-      return { shouldRun: true, status: "running" as const };
-    }
+    // Already running: the first start holds the turn; a second start of the
+    // same turn (a duplicate action) does not stream it again.
     return { shouldRun: false, status: turn.status };
   },
 });

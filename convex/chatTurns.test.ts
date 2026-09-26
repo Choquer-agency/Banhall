@@ -746,13 +746,15 @@ describe("chat turn lifecycle", () => {
       promptMessageId: "prompt-idempotent",
       startedAt: 1_000,
     });
+    // Lease (a4 #17): the first start holds the turn; a duplicate start of
+    // the same running turn does not stream it a second time.
     await expect(
       t.mutation(internal.chatV2.markTurnStarted, {
         agentThreadId: "thread-idempotent",
         promptMessageId: "prompt-idempotent",
         startedAt: 2_000,
       })
-    ).resolves.toEqual({ shouldRun: true, status: "running" });
+    ).resolves.toEqual({ shouldRun: false, status: "running" });
     await t.mutation(internal.chatV2.finishTurn, {
       agentThreadId: "thread-idempotent",
       promptMessageId: "prompt-idempotent",
@@ -1766,7 +1768,9 @@ describe("CAP-11 chat admission", () => {
     }
     expect(await state(s)).toEqual(before);
     await s.t.run(async (ctx) => { await ctx.db.insert("users", { authId: "other-sender", role: "writer" }); });
-    await s.t.withIdentity({ subject: "other-sender" }).mutation(api.chatV2.sendMessage, { reportId: s.reportId, content: "another sender", threadId: first.result.threadId });
+    // Another sender's turn does not use this user's queue slots. (It goes to
+    // its own thread: a thread runs one turn at a time.)
+    await s.t.withIdentity({ subject: "other-sender" }).mutation(api.chatV2.sendMessage, { reportId: s.reportId, content: "another sender", newThread: true });
     await s.t.mutation(internal.chatV2.markTurnStarted, { agentThreadId: first.result.threadId, promptMessageId: first.result.messageId, startedAt: Date.now() });
     await sendQueuedTurn(s);
   });
@@ -2009,4 +2013,77 @@ describe("CAP-11 chat admission", () => {
     expect(await state(s)).toEqual(before);
   });
 
+});
+
+describe("one turn at a time per thread (a4 #17)", () => {
+  async function turnsIn(s: Awaited<ReturnType<typeof setup>>, threadId: string) {
+    return await s.t.run((ctx) =>
+      ctx.db
+        .query("chatTurns")
+        .withIndex("by_agentThreadId_and_order", (q) => q.eq("agentThreadId", threadId))
+        .collect()
+    );
+  }
+
+  test("refuses a new message while the thread's reply is queued or running, and takes it once the reply ends", async () => {
+    const s = await setup();
+    const { result } = await sendQueuedTurn(s);
+    const again = () =>
+      s.actor.mutation(api.chatV2.sendMessage, {
+        reportId: s.reportId,
+        content: "And another thing.",
+        threadId: result.threadId,
+      });
+
+    await expect(again()).rejects.toMatchObject({ data: { code: "INVALID_STATE" } });
+    await s.t.mutation(internal.chatV2.markTurnStarted, {
+      agentThreadId: result.threadId,
+      promptMessageId: result.messageId,
+      startedAt: Date.now(),
+    });
+    await expect(again()).rejects.toMatchObject({ data: { code: "INVALID_STATE" } });
+    // "New chat" is a new thread, so it is not held up.
+    await expect(
+      s.actor.mutation(api.chatV2.sendMessage, { reportId: s.reportId, content: "Elsewhere.", newThread: true })
+    ).resolves.toBeDefined();
+    expect(await turnsIn(s, result.threadId)).toHaveLength(1);
+
+    await s.t.mutation(internal.chatV2.finishTurn, {
+      agentThreadId: result.threadId,
+      promptMessageId: result.messageId,
+      requestedStatus: "completed",
+      endedAt: Date.now(),
+      stepCount: 1,
+    });
+    await expect(again()).resolves.toMatchObject({ threadId: result.threadId });
+    expect(await turnsIn(s, result.threadId)).toHaveLength(2);
+  });
+
+  test("a stopped reply frees the thread", async () => {
+    const s = await setup();
+    const { turn, result } = await sendQueuedTurn(s);
+    await s.actor.mutation(api.chatV2.abortStreaming, { threadId: result.threadId, order: turn.order });
+    await expect(
+      s.actor.mutation(api.chatV2.sendMessage, {
+        reportId: s.reportId,
+        content: "Try again.",
+        threadId: result.threadId,
+      })
+    ).resolves.toMatchObject({ threadId: result.threadId });
+  });
+
+  test("a turn queued behind a running one in its thread fails instead of running beside it", async () => {
+    const s = await setup();
+    await insertMappedThread(s, "thread-lease");
+    await insertTurn(s.t, { agentThreadId: "thread-lease", promptMessageId: "p-1", order: 1, status: "queued" });
+    await insertTurn(s.t, { agentThreadId: "thread-lease", promptMessageId: "p-2", order: 2, status: "queued" });
+    await expect(
+      s.t.mutation(internal.chatV2.markTurnStarted, { agentThreadId: "thread-lease", promptMessageId: "p-1", startedAt: 1 })
+    ).resolves.toEqual({ shouldRun: true, status: "running" });
+    await expect(
+      s.t.mutation(internal.chatV2.markTurnStarted, { agentThreadId: "thread-lease", promptMessageId: "p-2", startedAt: 2 })
+    ).resolves.toEqual({ shouldRun: false, status: "failed" });
+    const statuses = (await turnsIn(s, "thread-lease")).map((row) => row.status);
+    expect(statuses).toEqual(["running", "failed"]);
+  });
 });

@@ -1607,6 +1607,8 @@ export default defineSchema({
       "promptMessageId",
     ])
     .index("by_agentThreadId_and_order", ["agentThreadId", "order"])
+    // One turn at a time per thread (security wave 1, a4 #17).
+    .index("by_agentThreadId_and_status", ["agentThreadId", "status"])
     .index("by_userId_and_status", ["userId", "status"])
     // Stale-turn reaper: sweep queued/running rows regardless of thread.
     .index("by_status", ["status"]),
