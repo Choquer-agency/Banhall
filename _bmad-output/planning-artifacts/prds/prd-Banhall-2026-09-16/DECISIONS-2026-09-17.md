@@ -109,4 +109,6 @@ Security wave 1 (2026-09-25) made these calls under the lead's handoff; they wai
 | 51 | Must the inviter type names? | **No**; the person enters or confirms them when accepting. | Same amendment. |
 | 52 | Which models do the start modals show? | **The ones that run**: the planning model writes the ideas, the picked model writes the report. | Same amendment. |
 
+Decisions 53 to 58 (round 2 build rules: shell and navigation, Team and invites, Home, New project and starting, Reading the interview, Settings and profiles) are recorded in full in the `docs/product-domain.md` amendment "2026-09-26 (second)"; lead calls under the owner's delegation.
+
 Still waiting on the owner: an email provider for invites and password resets (decision 50); the OpenRouter account steps before `ANTHROPIC_TRANSPORT` is switched on (see decision 30).
