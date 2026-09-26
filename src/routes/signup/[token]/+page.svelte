@@ -1,6 +1,6 @@
 <script lang="ts">
   import { useAuth } from "@mmailaender/convex-better-auth-svelte/svelte";
-  import { useQuery } from "convex-svelte";
+  import { useMutation, useQuery } from "convex-svelte";
   import { goto } from "$app/navigation";
   import { resolve } from "$app/paths";
   import { page } from "$app/state";
@@ -16,7 +16,8 @@
   const token = $derived(page.params.token ?? "");
 
   const inviteQ = useQuery(api.invites.getInviteByToken, () => ({ token }));
-  const invite = $derived(inviteQ.data);
+  const confirmInviteNames = useMutation(api.invites.confirmInviteNames);
+  const invite = $derived(inviteQ.data?.state === "pending" ? inviteQ.data : null);
 
   let firstName = $state("");
   let lastName = $state("");
@@ -29,8 +30,8 @@
   // Prefill names from the invite once.
   $effect(() => {
     if (!hydrated && invite) {
-      firstName = invite.firstName;
-      lastName = invite.lastName;
+      firstName = invite.firstName ?? "";
+      lastName = invite.lastName ?? "";
       hydrated = true;
     }
   });
@@ -51,6 +52,7 @@
     }
     submitting = true;
     try {
+      await confirmInviteNames({ token, firstName, lastName });
       const { error: signUpError } = await authClient.signUp.email({
         email: invite.email,
         password,

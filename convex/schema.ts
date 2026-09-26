@@ -151,13 +151,15 @@ export default defineSchema({
     // Canonical trim+lowercase form at write; legacy rows are backfilled by
     // emailMigration while collision reports remain available for review.
     email: v.string(),
-    firstName: v.string(),
-    lastName: v.string(),
+    // Decision 51: optional when inviting, confirmed by the invitee at
+    // acceptance (invites.confirmInviteNames) before the account is created.
+    firstName: v.optional(v.string()),
+    lastName: v.optional(v.string()),
     role: v.union(v.literal("writer"), v.literal("manager"), v.literal("admin")),
     token: v.string(), // unguessable base64url; the /signup/<token> link
     invitedBy: v.id("users"),
     createdAt: v.number(),
-    expiresAt: v.number(), // createdAt + 7 days
+    expiresAt: v.number(), // (sentAt ?? createdAt) + 7 days
     status: v.union(
       v.literal("pending"),
       v.literal("accepted"),
@@ -165,6 +167,12 @@ export default defineSchema({
     ),
     acceptedAt: v.optional(v.number()),
     acceptedUserId: v.optional(v.id("users")),
+    // Round 2 Team page. Resend replaces the token and restarts the 7 days;
+    // an absent sentAt reads as createdAt.
+    sentAt: v.optional(v.number()),
+    resendCount: v.optional(v.number()),
+    revokedAt: v.optional(v.number()),
+    revokedBy: v.optional(v.id("users")),
   })
     .index("by_token", ["token"])
     .index("by_email", ["email"])
