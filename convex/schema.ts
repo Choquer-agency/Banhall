@@ -3346,10 +3346,11 @@ export default defineSchema({
     .index("by_accountedAt", ["accountedAt"]),
 
   // Exact per-model, per-hour request outcomes for the production
-  // error-rate rollback: one terminal outcome per request, counted apart
-  // from billing (a billed malformed response is one failure, never also a
-  // success). Billing, auth, rate-limit and network failures are not
-  // counted: they say nothing about the model.
+  // error-rate rollback: at most one terminal outcome per request, counted
+  // apart from billing (a billed malformed response is one failure, never
+  // also a success). Billing, auth, rate-limit and network failures are not
+  // counted: they say nothing about the model. Nor is an answer cut off at
+  // the output limit whose step still succeeds (providers.ts cutOffCounts).
   modelCallBuckets: defineTable({
     model: v.string(),
     hourStart: v.number(),

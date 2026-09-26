@@ -292,13 +292,16 @@ export function modelFaultCode(error: unknown): string | null {
 }
 
 /**
- * Records exactly one terminal outcome per provider request, apart from
+ * Records at most one terminal outcome per provider request, apart from
  * billing (review finding 6): a response that was billed but could not be
- * used (malformed tool JSON, truncation) is one failure and never also a
- * success, which a usage-row count would have made it. Errors that say
- * nothing about the model (billing, auth, rate limits, network) are not
- * counted either way. A recording failure is logged and never fails the
- * call; one small mutation per request is negligible next to the request.
+ * used (malformed tool JSON, a cut-off that fails its step) is one failure
+ * and never also a success, which a usage-row count would have made it.
+ * Some requests record no outcome at all: errors that say nothing about the
+ * model (billing, auth, rate limits, network, the action's own time limit,
+ * a request the caller aborted) and an answer cut off at the output limit
+ * whose step still succeeds (see cutOffCounts). A recording failure is
+ * logged and never fails the call; one small mutation per request is
+ * negligible next to the request.
  */
 /** How long a request waits for its outcome to be recorded. */
 export const OUTCOME_RECORD_DEADLINE_MS = 2_000;
@@ -339,7 +342,7 @@ function servedModelOf(value: unknown): string | undefined {
 }
 
 /**
- * Wraps a client so each request records exactly one outcome for the model
+ * Wraps a client so each request records at most one outcome for the model
  * that actually served it (an OpenRouter fallback answer counts for the
  * fallback, review E). Forced-tool calls defer the outcome to the caller's
  * schema validation: the response carries `settleOutcome`, which
@@ -385,8 +388,9 @@ export function withOutcomeRecording(
 export type SettleOutcome = (result: { ok: true } | { ok: false; code: string }) => Promise<void>;
 
 /**
- * The one place a provider request's terminal outcome is recorded: exactly
- * one per request (phase 2 rule), for the model that served it. A deferred
+ * The one place a provider request's terminal outcome is recorded: at most
+ * one per request (phase 2 rule), for the model that served it, and none
+ * for a cut-off whose step succeeds (see cutOffCounts). A deferred
  * request hands the response a `settleOutcome` for the caller to call after
  * its own validation. A request whose own `signal` was aborted records
  * nothing (review 2026-09-25, P3-b): the caller gave up, which says nothing
@@ -405,7 +409,7 @@ async function recordedRequest<R extends { servedModel?: string; settleOutcome?:
     response = await send();
   } catch (error) {
     const code =
-      request.signal?.aborted || (error instanceof OutputLimitError && !cutOffCounts(callSite))
+      request.signal?.aborted || (error instanceof OutputLimitError && !cutOffCounts(callSite, request.defer))
         ? null
         : modelFaultCode(error);
     if (code) {
@@ -428,13 +432,13 @@ async function recordedRequest<R extends { servedModel?: string; settleOutcome?:
     };
     return response;
   }
-  // A text answer cut off at the output limit is refused by its reader
-  // (requireTextResponse), so it is a failure, as the OpenRouter adapter
-  // already records it, never a success (cutoff review P3-1). A cut-off
-  // compression records nothing (see cutOffCounts).
+  // A text answer cut off at the output limit is never a success (cutoff
+  // review P3-1). It is a failure only where the cut fails its step, as a
+  // section draft's reader (requireTextResponse) refuses it; anywhere else
+  // it records nothing (see cutOffCounts).
   const stopReason = (response as { stop_reason?: string | null }).stop_reason;
   if (isCutOffStopReason(stopReason)) {
-    if (cutOffCounts(callSite)) {
+    if (cutOffCounts(callSite, false)) {
       await recordOutcome(ctx, { model, callSite, outcome: "failure", code: "output_limit" });
     }
     return response;
@@ -444,16 +448,40 @@ async function recordedRequest<R extends { servedModel?: string; settleOutcome?:
 }
 
 /**
- * Whether an answer cut off at the output limit counts toward rollback. A
- * cut-off section draft fails its section, so it counts as `output_limit` on
- * both gateways. A cut-off compression keeps the section it was given, and a
- * cut-off repair keeps the draft it was fixing, so both steps succeed and
- * count on neither gateway; their usage rows still keep the stop reason (P3
- * sweep, approved 2026-09-25 by the lead).
+ * The plain-text call sites whose step fails when the answer is cut off at
+ * the output limit. A cut-off section draft is refused (requireTextResponse)
+ * and fails its section; a cut-off science code suggestion is unusable.
  */
-function cutOffCounts(callSite: string): boolean {
+const CUT_OFF_FAILS_STEP_SLOTS: ReadonlySet<string> = new Set([
+  "section:242",
+  "section:244",
+  "section:246",
+]);
+const CUT_OFF_FAILS_STEP_CALL_SITES: ReadonlySet<string> = new Set(["science-code-suggestion"]);
+
+/**
+ * Whether an answer cut off at the output limit counts toward rollback: only
+ * when the cut makes its step fail (lead, 2026-09-25, sweep review P2-1). It
+ * counts as `output_limit`, the same on both gateways, for:
+ * - a deferred request (a forced tool call through generateStructured, or
+ *   financial extraction), whose caller refuses a cut answer and settles
+ *   `output_limit` itself on the direct gateway; on OpenRouter the adapter
+ *   throws the cut-off inside the request, so it is counted here;
+ * - a plain-text call site listed above.
+ * Every other plain-text call site uses a cut answer as it is or keeps what
+ * it had, so its step succeeds and a cut-off records no outcome: compression
+ * (keeps the section it was given), repair (keeps its draft), Brain context
+ * blurbs, feedback summaries, the changelog summary (falls back to a plain
+ * listing) and every other helper. Their usage rows still keep the stop
+ * reason. The OpenRouter adapter refuses every cut answer, so there the
+ * feedback summary and the changelog step fail on a cut; they are still not
+ * counted, so the count is the same on both gateways. Add a call site to
+ * the list only when its step fails on a cut on the direct gateway too.
+ */
+function cutOffCounts(callSite: string, deferred: boolean): boolean {
+  if (deferred) return true;
   const slot = generationSlotOf(callSite);
-  return !(slot?.startsWith("compression:") || slot?.startsWith("repair:"));
+  return (slot !== null && CUT_OFF_FAILS_STEP_SLOTS.has(slot)) || CUT_OFF_FAILS_STEP_CALL_SITES.has(callSite);
 }
 
 /** The Anthropic calls citations-mode extraction makes (see citationsExtractor). */
@@ -470,10 +498,10 @@ export type OutcomeAnthropicClient = {
  * An Anthropic client for requests `withOutcomeRecording` cannot carry:
  * citations-mode fact extraction reads a plain-text answer and passes
  * request options such as `{ signal }` (review 2026-09-25, P3-a). Every
- * request records exactly one outcome: its response carries
+ * request records at most one outcome: its response carries
  * `settleOutcome`, which the caller settles after parsing, and a failed
- * request records its model fault. A request the caller aborted records
- * nothing.
+ * request records its model fault. A request the caller aborted, or one
+ * that failed in a way that says nothing about the model, records nothing.
  */
 export function withAnthropicOutcomeRecording(
   ctx: Pick<ActionCtx, "runMutation">,

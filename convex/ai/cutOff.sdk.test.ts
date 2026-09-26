@@ -10,8 +10,10 @@
  *   validation. It spends the one repair attempt, whose note asks for a
  *   shorter answer, then fails cleanly as an output-limit failure.
  * - A plain-text section answer cut off the same way is refused and counted
- *   as an output-limit failure. A cut-off compression pass keeps the text
- *   it was given and is not counted, on both gateways.
+ *   as an output-limit failure. A cut-off counts only where it fails its
+ *   step (section drafts, structured calls, science code suggestions); a
+ *   cut-off compression, repair or helper answer (Brain context, feedback
+ *   summary, changelog) is not counted, on both gateways.
  * - Every usage row records the provider's stop reason.
  * - Uncut answers and requests are exactly what they were.
  */
@@ -466,4 +468,77 @@ test("a cut-off repair keeps its draft and is not counted toward rollback on eit
     "claude-sonnet-5": { successes: 0, failures: 1 },
     "openai/gpt-6-sol": { successes: 0, failures: 1 },
   });
+});
+
+test("a cut-off answer counts toward rollback only where it fails its step, the same on both gateways (sweep review P2-1)", async () => {
+  vi.stubGlobal("fetch", vi.fn<typeof fetch>(async (input, init) => {
+    const request = new Request(input, init);
+    const body = (await request.json()) as { model: string; tools?: unknown[] };
+    if (request.url.startsWith("https://openrouter.ai/")) {
+      return Response.json({
+        model: body.model,
+        choices: [{
+          message: body.tools
+            ? { content: null, tool_calls: [{ id: "call_synthetic", function: { name: options.toolName, arguments: '{"summary":"The seal fa' } }] }
+            : { content: "The team measured seal fatigue at" },
+          finish_reason: "length",
+        }],
+        usage: { prompt_tokens: 40, completion_tokens: 100, cost: 0.001 },
+      });
+    }
+    return body.tools
+      ? anthropicMessage([toolUse(PARTIAL)], "max_tokens", 100)
+      : anthropicMessage([{ type: "text", text: "The team measured seal fatigue at" }], "max_tokens", 100);
+  }));
+  // One cut-off request per gateway under the call site's own label, in a
+  // fresh deployment, so the buckets are that call site's counts.
+  const counted = async (callSite: string, structured = false) => {
+    const t = convexTest(schema, modules);
+    await runAction(t, async (ctx) => {
+      for (const model of ["claude-sonnet-5", "openai/gpt-6-sol"]) {
+        const inner = model.startsWith("claude-")
+          ? instrumentedAnthropic(ctx, { callSite }) as unknown as GenerationClient
+          : instrumentedOpenRouter(ctx, { callSite });
+        const client = withOutcomeRecording(ctx, model, callSite, inner);
+        if (structured) {
+          await generateStructured(client, { ...options, model, attempts: 1 }).catch(() => null);
+        } else {
+          await client.messages
+            .create({ model, max_tokens: 100, messages: [{ role: "user", content: "Summarize." }] })
+            .catch(() => null);
+        }
+      }
+    });
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
+    const usage = await t.run((ctx) => ctx.db.query("aiUsage").collect());
+    expect(usage.map((row) => row.stopReason).sort(), callSite).toEqual(["length", "max_tokens"]);
+    const rows = await t.run((ctx) => ctx.db.query("modelCallBuckets").collect());
+    return Object.fromEntries(
+      rows.map((row) => [row.model, `${row.successes} ok, ${row.failures} failed${row.lastFailureCode ? ` (${row.lastFailureCode})` : ""}`])
+    );
+  };
+
+  // Helpers whose step uses a cut answer as it is, or keeps what it had:
+  // no outcome on either gateway.
+  for (const callSite of [
+    "brain:contextualize",
+    "admin:model_feedback_summary",
+    "changelog:daily_summary",
+    "generation:compression:244",
+    "generation:repair:246",
+  ]) {
+    expect(await counted(callSite), callSite).toEqual({});
+  }
+
+  // Steps that fail on a cut: one output-limit failure on each gateway.
+  const failedOnBoth = {
+    "claude-sonnet-5": "0 ok, 1 failed (output_limit)",
+    "openai/gpt-6-sol": "0 ok, 1 failed (output_limit)",
+  };
+  for (const callSite of ["generation:section:242", "generation:section:244", "generation:section:246", "science-code-suggestion"]) {
+    expect(await counted(callSite), callSite).toEqual(failedOnBoth);
+  }
+  // A structured call counts under any label, even one a text cut-off would not.
+  expect(await counted("transcript:speakers", true)).toEqual(failedOnBoth);
+  expect(await counted("changelog:daily_summary", true)).toEqual(failedOnBoth);
 });
