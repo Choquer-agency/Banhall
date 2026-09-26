@@ -69,6 +69,28 @@ describe("InviteRowMenu", () => {
     ).toEqual(["writer", "manager", "admin"]);
   });
 
+  it("C4: places the menu 16px past the trigger and the submenu beside it, level with Change role", async () => {
+    await page.viewport(1440, 900);
+    try {
+      const view = await render(InviteRowMenu, props());
+      // The board's trigger: the pending row's actions column near the right edge.
+      Object.assign(view.container.style, { position: "fixed", left: "1326px", top: "590px" });
+      await open();
+      const trigger = document.querySelector<HTMLElement>("[data-invite-menu]")!.getBoundingClientRect();
+      const menu = () => document.querySelector<HTMLElement>('[role="menu"]')!.getBoundingClientRect();
+      await expect.poll(() => Math.round(menu().right - trigger.right)).toBe(16);
+      await page.getByRole("menuitem", { name: "Change role" }).hover();
+      await expect.poll(() => document.querySelectorAll('[role="menu"]').length).toBe(2);
+      const row = document.querySelector<HTMLElement>('[data-menu-item="change-role"]')!.getBoundingClientRect();
+      const sub = () => document.querySelectorAll<HTMLElement>('[role="menu"]')[1].getBoundingClientRect();
+      // Board: menu 1150 to 1370, Change role row from 675, submenu 920 to 1144 from 670.
+      await expect.poll(() => Math.round(sub().top - row.top)).toBe(-5);
+      expect(Math.round(menu().left - sub().right)).toBe(6);
+    } finally {
+      await page.viewport(1280, 800);
+    }
+  });
+
   it("draws the C4 menu with the board icons, sizes and the red Revoke", async () => {
     await render(InviteRowMenu, props());
     const trigger = document.querySelector<HTMLElement>("[data-invite-menu]")!;
