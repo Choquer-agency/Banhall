@@ -226,6 +226,12 @@ describe("TeamPage", () => {
       expect(widths[0]).toBe(260);
       expect(widths[2]).toBe(120);
       expect(widths[3]).toBe(110);
+      // C1: the Admin row menu takes no column of its own, so Last active
+      // ends 16px inside the table and the menu sits over its right end.
+      const lastActive = header.querySelectorAll<HTMLElement>('[role="columnheader"]')[3].getBoundingClientRect();
+      expect(Math.round(members.getBoundingClientRect().right - lastActive.right)).toBe(17);
+      const menu = members.querySelector<HTMLElement>("[data-member-row] [data-member-menu]")!.getBoundingClientRect();
+      expect(Math.round(menu.right)).toBe(Math.round(lastActive.right));
       const firstRow = members.querySelector<HTMLElement>("[data-member-row]")!;
       expect(firstRow.getBoundingClientRect().height).toBe(48);
       const avatar = firstRow.querySelector<HTMLElement>("[data-avatar]")!;
