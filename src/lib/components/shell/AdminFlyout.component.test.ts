@@ -95,6 +95,15 @@ describe("AdminFlyout (A5)", () => {
     await expect.poll(() => panel.getBoundingClientRect().top - admin.getBoundingClientRect().top).toBeCloseTo(-2, 0);
   });
 
+  it("A5: the hovered Admin icon has no hover tile while its flyout is open", async () => {
+    const admin = await mountCollapsed(1);
+    await userEvent.hover(admin);
+    await expect.poll(flyout).not.toBeNull();
+    // The pointer is still on the icon; the board draws it bare.
+    await expect.poll(() => getComputedStyle(admin).backgroundColor).toBe("rgba(0, 0, 0, 0)");
+    await expect.poll(() => getComputedStyle(admin).color).toBe("rgb(79, 97, 93)");
+  });
+
   it("no attention line when nothing failed", async () => {
     const admin = await mountCollapsed(0);
     admin.click();
