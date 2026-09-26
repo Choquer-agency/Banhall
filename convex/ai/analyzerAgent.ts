@@ -104,7 +104,9 @@ export const ANALYZER_REQUEST = {
   // tail, gaps and useful_quotes, defaulted to empty lists). Every Anthropic
   // model on the list allows far more; OpenRouter scales it for reasoning
   // and clamps it to the model's own cap. At about 100 tokens a second a
-  // full answer still fits the 240 s request timeout.
+  // full answer still fits the 240 s request timeout, except on a model that
+  // always thinks: its thinking room (4x) can run to the timeout instead of
+  // the cap, which is why such a timeout also asks for a shorter retry.
   maxTokens: 16_000,
   modelSelector: "candidate-model-or-default",
   // 2026-09-25: a Step-by-step retry after an analysis was too long (cut

@@ -221,7 +221,10 @@ export function clipJsonEscapedUtf8(value: string, maximum: number): string {
   let kept = hardCut;
   const next = codePoints[end];
   const last = codePoints[end - 1];
-  if (next !== undefined && last !== undefined && /\S/u.test(next) && /\S/u.test(last)) {
+  // The cut splits a word only when a word character follows it: a full
+  // stop, comma or closing mark after it means the last word is whole
+  // (plan-coverage review P3-2).
+  if (next !== undefined && last !== undefined && !/[\s.,;:!?)\]}"”]/u.test(next) && /\S/u.test(last)) {
     const boundary = kept.search(/\s\S*$/u);
     if (boundary > 0 && boundary >= kept.length / 2) kept = kept.slice(0, boundary);
   }

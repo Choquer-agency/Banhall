@@ -511,7 +511,7 @@ describe("Seed workspace", () => {
     __setQueryData("seeds:getSubsection", subsection());
     __setMutationError("generations:retryDraftingInputs", new ConvexError({
       code: "INVALID_STATE",
-      message: "The drafting context is not waiting for a retry",
+      message: "The transcript analysis has not failed, so there is nothing to try again",
     }));
     const view = await render(SeedWorkspace, workspaceProps());
     const notice = () => document.querySelector<HTMLElement>("[data-workspace-drafting-inputs=failed]");
@@ -520,7 +520,7 @@ describe("Seed workspace", () => {
     );
     document.querySelector<HTMLButtonElement>("[data-workspace-drafting-retry]")?.click();
     await expect.poll(() => notice()?.querySelector('[role="alert"]')?.textContent).toContain(
-      "The drafting context is not waiting for a retry"
+      "The transcript analysis has not failed, so there is nothing to try again"
     );
     view.unmount();
 
@@ -719,6 +719,17 @@ describe("Seed workspace", () => {
     await view.rerender(paneProps(subsection(empty)));
     await expect.element(page.getByText("No seeds are available yet.")).toBeVisible();
     await expect.element(page.getByRole("button", { name: "Try again", exact: true })).not.toBeInTheDocument();
+  });
+
+  it("says a failed attempt on a step that shows seeds failed, above the previous seeds (review s1 P3-5)", async () => {
+    const shown = subsection();
+    expect(shown.items.length).toBeGreaterThan(0);
+    const view = await render(SeedSubsectionPane, paneProps({ ...shown, lastAttemptFailed: true }));
+    await expect.element(page.getByText("The last attempt failed. Showing the previous seeds.")).toBeVisible();
+    await expect.element(page.getByText("Writing seeds for this step failed.")).not.toBeInTheDocument();
+
+    await view.rerender(paneProps(shown));
+    await expect.element(page.getByText("The last attempt failed. Showing the previous seeds.")).not.toBeInTheDocument();
   });
 
   it("rechecks edit capability at dispatch, so a revocation landing before an interaction dispatches sends nothing (A3, R6-08)", async () => {

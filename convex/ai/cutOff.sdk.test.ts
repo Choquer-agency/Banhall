@@ -9,8 +9,9 @@
  *   `length`) is never accepted, even when its partial tool input would pass
  *   validation. It spends the one repair attempt, whose note asks for a
  *   shorter answer, then fails cleanly as an output-limit failure.
- * - A plain-text section answer cut off the same way is refused, and a
- *   compression pass keeps the text it was given on both gateways.
+ * - A plain-text section answer cut off the same way is refused and counted
+ *   as an output-limit failure. A cut-off compression pass keeps the text
+ *   it was given and is not counted, on both gateways.
  * - Every usage row records the provider's stop reason.
  * - Uncut answers and requests are exactly what they were.
  */
@@ -320,4 +321,111 @@ test("a cut-off compression keeps the section it was given, on both gateways", a
   expect(outputs).toEqual([original, original]);
   const usage = await t.run((ctx) => ctx.db.query("aiUsage").collect());
   expect(usage.map((row) => row.stopReason).sort()).toEqual(["length", "max_tokens"]);
+});
+
+test("a cut-off section draft or tool answer records the same output-limit failure on both gateways (cutoff review P3-1)", async () => {
+  const t = convexTest(schema, modules);
+  let openRouterCalls = 0;
+  vi.stubGlobal("fetch", vi.fn<typeof fetch>(async (input, init) => {
+    const request = new Request(input, init);
+    if (!request.url.startsWith("https://openrouter.ai/")) {
+      return anthropicMessage([{ type: "text", text: "The team measured seal fatigue at" }], "max_tokens", 8192);
+    }
+    openRouterCalls += 1;
+    const body = (await request.json()) as { tools?: unknown[] };
+    if (!body.tools) {
+      return Response.json({
+        model: "openai/gpt-6-sol",
+        choices: [{ message: { content: "The team measured seal fatigue at" }, finish_reason: "length" }],
+        usage: { prompt_tokens: 40, completion_tokens: 8192, cost: 0.001 },
+      });
+    }
+    return Response.json({
+      model: "openai/gpt-6-luna",
+      choices: [{
+        message: {
+          content: null,
+          tool_calls: [{ id: "call_synthetic", function: { name: options.toolName, arguments: '{"summary":"The seal fa' } }],
+        },
+        finish_reason: "length",
+      }],
+      usage: { prompt_tokens: 40, completion_tokens: 256, cost: 0.001 },
+    });
+  }));
+  const { runSection242Agent } = await import("./section242Agent");
+  const analysis = { uncertainties: ["Seal fatigue under cyclic load."] } as never;
+
+  const drafts = await runAction(t, async (ctx) => {
+    const anthropic = withOutcomeRecording(ctx, "claude-sonnet-5", "generation:section:242",
+      instrumentedAnthropic(ctx, { callSite: "generation:section:242" }) as unknown as GenerationClient);
+    const openRouter = (model: string, callSite: string) => withOutcomeRecording(ctx, model, callSite,
+      instrumentedOpenRouter(ctx, { callSite }));
+    const refused = (error: unknown) => error instanceof OutputLimitError;
+    const outcomes = [
+      await runSection242Agent(anthropic, analysis, "claude-sonnet-5").then(() => false, refused),
+      await runSection242Agent(openRouter("openai/gpt-6-sol", "generation:section:242"), analysis, "openai/gpt-6-sol")
+        .then(() => false, refused),
+    ];
+    await generateStructured(openRouter("openai/gpt-6-luna", "cutoff-contract"), { ...options, model: "openai/gpt-6-luna" })
+      .catch(() => null);
+    return outcomes;
+  });
+  await t.finishAllScheduledFunctions(vi.runAllTimers);
+
+  expect(drafts).toEqual([true, true]);
+  expect(openRouterCalls).toBe(3);
+  const buckets = await t.run((ctx) => ctx.db.query("modelCallBuckets").collect());
+  const byModel = Object.fromEntries(buckets.map((row) => [row.model, row]));
+  // Text: one failure each, never a success. Tool: both attempts cut.
+  expect(byModel["claude-sonnet-5"]).toMatchObject({ successes: 0, failures: 1, lastFailureCode: "output_limit" });
+  expect(byModel["openai/gpt-6-sol"]).toMatchObject({ successes: 0, failures: 1, lastFailureCode: "output_limit" });
+  expect(byModel["openai/gpt-6-luna"]).toMatchObject({ successes: 0, failures: 2, lastFailureCode: "output_limit" });
+});
+
+test("a cut-off compression is not counted toward rollback on either gateway; an uncut one counts as a success", async () => {
+  const t = convexTest(schema, modules);
+  const original = "The original, longer section text about seal fatigue.";
+  let cut = true;
+  vi.stubGlobal("fetch", vi.fn<typeof fetch>(async (input, init) => {
+    const url = new Request(input, init).url;
+    if (url.startsWith("https://openrouter.ai/")) {
+      return Response.json({
+        model: "openai/gpt-6-sol",
+        choices: [{ message: { content: cut ? "The shorter sec" : "The shorter section." }, finish_reason: cut ? "length" : "stop" }],
+        usage: { prompt_tokens: 40, completion_tokens: 4096, cost: 0.001 },
+      });
+    }
+    return cut
+      ? anthropicMessage([{ type: "text", text: "The shorter sec" }], "max_tokens", 4096)
+      : anthropicMessage([{ type: "text", text: "The shorter section." }], "end_turn", 12);
+  }));
+
+  const compress = (t: TestConvex) => runAction(t, async (ctx) => {
+    const callSite = "generation:compression:242";
+    const anthropic = withOutcomeRecording(ctx, "claude-sonnet-5", callSite,
+      instrumentedAnthropic(ctx, { callSite }) as unknown as GenerationClient);
+    const openRouter = withOutcomeRecording(ctx, "openai/gpt-6-sol", callSite,
+      instrumentedOpenRouter(ctx, { callSite }));
+    return [
+      await compressSection(anthropic, "claude-sonnet-5", "s242", original, "standard"),
+      await compressSection(openRouter, "openai/gpt-6-sol", "s242", original, "standard"),
+    ];
+  });
+  const buckets = async () => {
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
+    const rows = await t.run((ctx) => ctx.db.query("modelCallBuckets").collect());
+    return Object.fromEntries(rows.map((row) => [row.model, { successes: row.successes, failures: row.failures }]));
+  };
+
+  expect(await compress(t)).toEqual([original, original]);
+  expect(await buckets()).toEqual({});
+  const usage = await t.run((ctx) => ctx.db.query("aiUsage").collect());
+  expect(usage.map((row) => row.stopReason).sort()).toEqual(["length", "max_tokens"]);
+
+  cut = false;
+  expect(await compress(t)).toEqual(["The shorter section.", "The shorter section."]);
+  expect(await buckets()).toEqual({
+    "claude-sonnet-5": { successes: 1, failures: 0 },
+    "openai/gpt-6-sol": { successes: 1, failures: 0 },
+  });
 });

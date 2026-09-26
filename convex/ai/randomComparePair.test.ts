@@ -3,6 +3,13 @@ import { randomComparePair } from "./model";
 import { CANDIDATE_MODELS, comparePairFromSlots } from "../../shared/generationModels";
 
 describe("randomComparePair", () => {
+  it("refuses a draw with fewer than two eligible models instead of persisting a short pair (models-2 review P3-3)", () => {
+    const sonnet = CANDIDATE_MODELS.find((model) => model.id === "claude-sonnet-5")!;
+    const gpt = CANDIDATE_MODELS.find((model) => model.gateway !== "anthropic")!;
+    expect(() => randomComparePair([sonnet, gpt])).toThrow(/Fewer than two models can be drawn/);
+    expect(() => randomComparePair([])).toThrow(/Fewer than two models can be drawn/);
+  });
+
   it("draws Opus 5.5 but no other model that rejects forced tool calls", () => {
     const drawn = new Set<string>();
     for (let i = 0; i < 400; i += 1) {
@@ -22,6 +29,19 @@ describe("randomComparePair", () => {
     for (let i = 0; i < 400; i += 1) {
       for (const model of randomComparePair(pool)) {
         expect(["claude-fable-5-1", "claude-mythos-5-1"]).not.toContain(model.id);
+      }
+    }
+  });
+
+  it("keeps out a model flagged only by its catalog entry, outside the fixed id set (models-3 review P3-2)", () => {
+    const catalogFlagged = {
+      ...CANDIDATE_MODELS.find((model) => model.id === "claude-sonnet-5")!,
+      id: "claude-future-6",
+      forcedToolChoice: false as const,
+    };
+    for (let i = 0; i < 400; i += 1) {
+      for (const model of randomComparePair([...CANDIDATE_MODELS, catalogFlagged])) {
+        expect(model.id).not.toBe("claude-future-6");
       }
     }
   });

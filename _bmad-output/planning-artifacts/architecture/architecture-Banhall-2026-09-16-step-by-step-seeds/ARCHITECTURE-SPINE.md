@@ -316,6 +316,10 @@ Release behaviour decided by the owner on 2026-09-17: no ghost draft for seeds g
 
 ## Amendments
 
+### 2026-09-25: Seed batch output budget (ac4ca0c8)
+
+- **AD-36 seed call `max_tokens` is 4000, not 1200.** A real Sonnet 5 batch was cut off mid tool call at 1,200 tokens on 2026-09-25 (five Seeds with quoted excerpts need more room), so `SEED_REQUEST.maxTokens` (`convex/ai/promptDefinitions.ts`) is 4000. Everything else in the dispatch rule stands: SDK `maxRetries` 0, a 90 s request timeout, at most two requests per attempt and the 10-minute lease, which still bound an attempt (2 x 90 s is well inside the lease). Do not restore 1200 from the rule text above.
+
 ### 2026-09-25: Reordered start (owner approved 2026-09-25, decision 32)
 
 Recorded in `docs/product-domain.md` as "2026-09-25 (third): Reordered Step-by-step start". Speed research: `HANDOFF-banhall-files/research/speed-1-profile.md` (Blackpurl, 10,408 words: 200 s from click to first Seeds, of which the analyzer took 85.9 s and the Brief 83.5 s, one after the other).

@@ -403,14 +403,14 @@ describe("Seed Summary Review", () => {
     __setQueryData("seeds:getSummary", onePage([item("seed-a", "company_context", "Complete single-page Summary.")]));
     __setMutationError("generations:retryDraftingInputs", new ConvexError({
       code: "INVALID_STATE",
-      message: "The drafting context is not waiting for a retry",
+      message: "The transcript analysis has not failed, so there is nothing to try again",
     }));
     await render(SeedSummaryReview, { generationId, userId: "writer-1" });
     await expect.poll(() => document.querySelector("[data-summary-drafting-inputs=failed]")).not.toBeNull();
     // The open step stays the bar's status; the failure has its own row.
     expect(document.querySelector("[data-summary-readiness=blocked]")).not.toBeNull();
     await page.getByRole("button", { name: "Try again", exact: true }).click();
-    await expect.element(page.getByRole("alert")).toHaveTextContent("The drafting context is not waiting for a retry");
+    await expect.element(page.getByRole("alert")).toHaveTextContent("The transcript analysis has not failed, so there is nothing to try again");
   });
 
   it("tells a viewer without edit access that the analysis failed, without asking them to try again", async () => {

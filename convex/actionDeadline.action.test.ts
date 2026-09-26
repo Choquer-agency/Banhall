@@ -5,7 +5,7 @@
  * transcript analysis one after another. When the analysis comes back cut
  * off late in the action, its repair would run past the Convex action limit.
  * The repair is not sent; the action fails fast through its own failure
- * handling (the drafting context is marked failed, for the writer to retry)
+ * handling (the transcript analysis is marked failed, for the writer to retry)
  * instead of being killed with the row left "preparing".
  */
 import { convexTest } from "convex-test";
@@ -143,7 +143,7 @@ it("a cut-off analysis late in prepareSeedDraftingInputs fails fast instead of o
   expect(actionEnd - start).toBe(530_000);
   expect(actionEnd - start).toBeLessThanOrEqual(ACTION_REQUEST_WINDOW_MS);
   expect(actionEnd - start).toBeLessThan(CONVEX_ACTION_LIMIT_MS);
-  // The existing failure handling ran: the writer can retry the drafting context.
+  // The existing failure handling ran: the writer can retry the transcript analysis.
   const generation = await t.run((ctx) => ctx.db.get(generationId));
   // The time ran out (timed_out, not unknown), and the answer was cut off
   // before that, so the retry asks for a shorter analysis (review

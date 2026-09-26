@@ -24,7 +24,16 @@ const PLACEHOLDER_ORIGIN = "http://next.invalid";
 const BLOCKED_PREFIXES = [LOGIN_PATH, "/signup", "/api"];
 
 function isBlockedPath(pathname: string): boolean {
-  const lower = pathname.toLowerCase();
+  // SvelteKit decodes a path before it matches routes, so `/%61pi/...` or
+  // `/%6Cogin` reach the same pages: check the decoded form. A path that does
+  // not decode is refused.
+  let decoded: string;
+  try {
+    decoded = decodeURIComponent(pathname);
+  } catch {
+    return true;
+  }
+  const lower = decoded.toLowerCase();
   return BLOCKED_PREFIXES.some((prefix) => lower === prefix || lower.startsWith(`${prefix}/`));
 }
 

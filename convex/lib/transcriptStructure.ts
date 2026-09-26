@@ -303,11 +303,11 @@ export function carrySpeakerRoles(
     }
     const roles = new Set(list.map((source) => source.row.role));
     if (roles.size !== 1 || !needsModelRole(guess)) continue;
-    carried.set(guess.label, {
-      role: list[0].row.role,
-      roleSource: "heuristic",
-      confidence: Math.min(SPLIT_ROLE_CONFIDENCE, ...list.map((source) => source.row.confidence)),
-    });
+    const confidence = Math.min(SPLIT_ROLE_CONFIDENCE, ...list.map((source) => source.row.confidence));
+    // A rule's own role at the same or a higher confidence stays (fix-b
+    // review P3-3): the carried role only fills in what the rules could not.
+    if (guess.role !== "unknown" && guess.confidence >= confidence) continue;
+    carried.set(guess.label, { role: list[0].row.role, roleSource: "heuristic", confidence });
   }
   return { carried, lost };
 }

@@ -9,6 +9,7 @@
  * content blocks, so the agents run unchanged on either gateway.
  */
 import {
+  acceptsForcedToolChoice,
   maxTokensWithReasoningHeadroom,
   modelById,
   requestModelId,
@@ -220,8 +221,13 @@ export function toChatCompletions(
     anthropicModel,
   });
   if (provider) body.provider = provider;
+  // A forced tool call is sent to every model on the request, so a fallback
+  // that rejects one (Opus 5.5 and the like) would only answer with a 400;
+  // it is left out (models review P3-4).
+  const forcedTool = typeof body.tool_choice === "object";
   const fallbacks = (options.fallbackModels ?? [])
     .filter((id) => id !== params.model)
+    .filter((id) => !forcedTool || acceptsForcedToolChoice(id))
     .map(requestModelId)
     .filter((id) => isAnthropicOpenRouterModel(id) === anthropicModel);
   if (fallbacks.length > 0) body.models = [body.model, ...fallbacks];

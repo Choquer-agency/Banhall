@@ -2878,8 +2878,8 @@
                   Re-running generates one fresh draft and adds it directly as a
                   new report version.
                 {:else if candidateMode === "iterative"}
-                  Re-running drafts the report section by section. You review and
-                  approve each section, and a new report version is added at the end.
+                  Re-running plans the report idea by idea. You sign off the plan,
+                  then it is drafted and added as a new report version.
                 {:else}
                   Re-running generates two fresh candidate drafts and adds a new
                   report version after you select one.

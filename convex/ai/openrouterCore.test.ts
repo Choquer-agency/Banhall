@@ -34,6 +34,22 @@ import {
 import { pricingFor } from "../../shared/modelPricing";
 
 describe("toChatCompletions", () => {
+  it("leaves a fallback that rejects a forced tool call off a forced request (models review P3-4)", () => {
+    const params = {
+      model: "anthropic/claude-sonnet-5",
+      max_tokens: 100,
+      messages: [{ role: "user" as const, content: "Judge it." }],
+      tools: [{ name: "submit", description: "Submit.", input_schema: { type: "object" as const } }],
+    };
+    const fallbackModels = ["anthropic/claude-opus-5.5", "anthropic/claude-opus-4.8"];
+    const forced = toChatCompletions({ ...params, tool_choice: { type: "tool", name: "submit" } }, { fallbackModels });
+    expect(forced.tool_choice).toEqual({ type: "function", function: { name: "submit" } });
+    expect(forced.models).toEqual(["anthropic/claude-sonnet-5", "anthropic/claude-opus-4.8"]);
+    // Unforced, every fallback stays.
+    const unforced = toChatCompletions(params, { fallbackModels });
+    expect(unforced.models).toEqual(["anthropic/claude-sonnet-5", ...fallbackModels]);
+  });
+
   it("keeps cache breakpoints for Anthropic models and joins blocks for the rest", () => {
     const content = [
       { type: "text" as const, text: "Shared sources. ", cache_control: { type: "ephemeral" as const, ttl: "1h" as const } },

@@ -337,6 +337,24 @@ test("Anthropic and OpenRouter: a failure whose retry the deadline refused count
   expect((await outcomeRows(t)).map((row) => row.outcome)).toEqual(["failure"]);
 });
 
+test("Anthropic: a failure asking for a wait no action could fit counts, even with the whole action left (fix-g review P3-1)", async () => {
+  const t = convexTest(schema, modules);
+  const transport = vi.fn<typeof fetch>(async () =>
+    Response.json(
+      { type: "error", error: { type: "overloaded_error", message: "Synthetic overload" } },
+      { status: 529, headers: { "retry-after": "600" } }
+    ));
+  vi.stubGlobal("fetch", transport);
+  const outcome = recordedCall(t, "anthropic", ACTION_REQUEST_WINDOW_MS);
+  await vi.advanceTimersByTimeAsync(1_000);
+  const settled = await outcome;
+  expect(transport).toHaveBeenCalledTimes(1);
+  expect(settled.ok).toBe(false);
+  if (!settled.ok) expect((settled.error as { status?: number }).status).toBe(529);
+  await t.finishAllScheduledFunctions(vi.runAllTimers);
+  expect((await outcomeRows(t)).map((row) => row.outcome)).toEqual(["failure"]);
+});
+
 test("Anthropic, 300 s left: a full 240 s timeout is retried with the retry's timeout cut to the time left, which then fails as out of time", async () => {
   const t = convexTest(schema, modules);
   const transport = hangingFetch();

@@ -366,10 +366,12 @@ describe("backfill of turns and speaker roles", () => {
     // One old label, one new: kept as it was.
     expect(byLabel.get("Priya Shah")).toMatchObject({ role: "client", roleSource: "consultant", confidence: 1 });
     // One old label, two new people: the old answer, as a guess below the
-    // model threshold where the rules could not place them.
-    for (const label of ["Jordan Ellis", "Raj Patel"]) {
-      expect(byLabel.get(label), label).toMatchObject({ role: "client", roleSource: "heuristic", confidence: 0.6 });
-    }
+    // model threshold where the rules could not place them. Raj's rule guess
+    // (client at 0.55) is weaker, so the old answer fills it in; Jordan, the
+    // questioner, keeps the rule's own interviewer guess at 0.6 (fix-b
+    // review P3-3).
+    expect(byLabel.get("Raj Patel")).toMatchObject({ role: "client", roleSource: "heuristic", confidence: 0.6 });
+    expect(byLabel.get("Jordan Ellis")).toMatchObject({ role: "interviewer", roleSource: "heuristic", confidence: 0.6 });
     expect(transcript?.speakerStatus).toBe("needs_check");
   });
 
@@ -674,6 +676,8 @@ describe("speaker role rules", () => {
       ["Dana Rao", "Dana"],
       ["Dana Rao", "Dana W."],
       ["Dana (Acme)", "Dana"],
+      // A company in brackets that shares a word with a staff surname (fix-g review P3-3).
+      ["Dana (Whitfield Consulting)", "Dana Whitfield"],
     ] as const) {
       const guesses = roles(client, [roster]);
       const label = client.replace(/\s*\(.*\)$/, "");
@@ -694,6 +698,61 @@ describe("speaker role rules", () => {
       ]);
     }
     expect(roles("Dana Whitfield", ["Dana Whitfield"])[1]).toEqual(["Dana Whitfield", "interviewer", 0.95]);
+  });
+
+  it("only leans a near miss of a roster full name toward interviewer, below the threshold (P3 sweep, approved as adjusted 2026-09-25)", () => {
+    // A third speaker with one short line: nothing but the roster places them
+    // (unknown at 0.3), so the roster match alone sets the role.
+    const meeting = (label: string) =>
+      parseTranscriptTurns(
+        [
+          "Jordan: What did you set out to build?",
+          "Priya Shah: A predictive controller for feeder voltage, which we tested on two feeders over the summer.",
+          `${label}: Noted.`,
+          "Jordan: What made that hard?",
+          "Priya Shah: We could not forecast net load fast enough when cloud cover changed during the afternoon.",
+        ].join("\n\n")
+      );
+    const third = (label: string, roster: string) => {
+      const guess = inferSpeakerRoles(meeting(label), { staffNames: [], clientNames: [], rosterNames: [roster] })[2];
+      return [guess.label, guess.role, guess.confidence];
+    };
+    expect(third("Dana Whitfield", "Tomas Berg"), "no roster match").toEqual(["Dana Whitfield", "unknown", 0.3]);
+    // An exact full name places the speaker outright.
+    for (const [label, roster] of [
+      ["Dana Whitfield", "Dana Whitfield"],
+      ["Whitfield, Dana", "Dana Whitfield"],
+      ["Jean-Philippe Roy", "Jean-Philippe Roy"],
+    ] as const) {
+      expect(third(label, roster), `${label} / ${roster}`).toEqual([expect.any(String), "interviewer", 0.95]);
+    }
+    // Near misses of the same person (fix-g review P3-2): a hyphen or a space
+    // in a compound name, a middle name only on the roster, one half of a
+    // hyphenated surname, a suffix or credential, and the roster's email
+    // fallback label. Each only leans toward interviewer at 0.6, so the model
+    // decides.
+    for (const [label, roster] of [
+      ["Jean Philippe Roy", "Jean-Philippe Roy"],
+      ["Jean-Philippe Roy", "Jean Philippe Roy"],
+      ["Mary Smith", "Mary Anne Smith"],
+      ["Dana Whitfield", "Dana Whitfield-Rao"],
+      ["Dana Whitfield", "Dana Whitfield Jr"],
+      ["Dana Whitfield", "Dana Whitfield, P.Eng."],
+      ["Dana Whitfield", "dana.whitfield@firm.com"],
+    ] as const) {
+      expect(third(label, roster), `${label} / ${roster}`).toEqual([label, "interviewer", 0.6]);
+    }
+    expect(0.6).toBeLessThan(MODEL_ROLE_THRESHOLD);
+    // Not a full name on any reading: never placed outright.
+    for (const [label, roster] of [
+      ["Jean Roy", "Jean-Philippe Roy"],
+      ["Anne Smith", "Mary Anne Smith"],
+      ["Dana Rao", "dana.whitfield@firm.com"],
+      ["Dana Jr", "Dana Whitfield Jr"],
+    ] as const) {
+      const [, role, confidence] = third(label, roster);
+      expect(role === "interviewer" && confidence === 0.95, `${label} / ${roster}`).toBe(false);
+    }
   });
 
   it("builds a client named like a roster member as a client whose words stay evidence", async () => {

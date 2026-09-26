@@ -110,7 +110,7 @@ function nameParts(name: string): string[] {
   return name
     .toLowerCase()
     .normalize("NFKD")
-    .replace(/[̀-ͯ]/g, "")
+    .replace(/[\u0300-\u036f]/g, "")
     .split(/[^\p{L}\p{N}'’‐‑-]+/u)
     .map((part) => part.replace(/['’‐‑-]/g, ""))
     .filter((part) => part.length >= 2 && !HONORIFICS.includes(part));
@@ -122,10 +122,16 @@ function nameParts(name: string): string[] {
  * part of the name is in the label. A given name alone ("Jean-Philippe" or
  * "Mary Anne" for Jean-Philippe Roy or Mary Anne Smith) is not, and a
  * one-word name ("Dana", "Dana W.") never matches in full (fix-e review
- * P2-1).
+ * P2-1). Bracketed words on the label never count, so "Dana (Whitfield
+ * Consulting)" is not Dana Whitfield (fix-g review P3-3). A near miss of the
+ * same person (a hyphen written as a space, a middle name only on the
+ * roster, a suffix or credential such as "Jr" or "P.Eng.", an email roster
+ * label) is not a full name either: it matches as a first name, which only
+ * leans toward interviewer, so the model decides (P3 sweep, approved as
+ * adjusted 2026-09-25).
  */
 function labelNamesPersonFully(label: string, name: string): boolean {
-  const labelParts = nameParts(label);
+  const labelParts = nameParts(label.replace(/\([^)]*\)/g, " "));
   const parts = nameParts(name);
   return labelParts.length >= 2 && parts.length >= 2 && parts.every((part) => labelParts.includes(part));
 }

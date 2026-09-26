@@ -508,7 +508,7 @@ export const expireDraftingInputs = internalMutation({
   handler: expireDraftingInputsHandler,
 });
 
-/** The writer retries preparing the drafting context after a failure. */
+/** The writer retries the transcript analysis (drafting inputs) after a failure. */
 export const retryDraftingInputs = mutation({
   args: retryDraftingInputsArgs,
   returns: v.null(),

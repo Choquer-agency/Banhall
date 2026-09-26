@@ -318,6 +318,10 @@ export async function runSeedBatchTask(metered: MeteredClient, model: string): P
     const input = block?.type === "tool_use" ? block.input : undefined;
     // The whole original output against the declared tool schema: one
     // malformed seed fails it even if validateBatch could drop that seed.
+    // Raw compliance on purpose: the promotion gate (decision 21) counts
+    // first-attempt outputs valid against the declared schema, so a Seed
+    // list sent as a JSON string, which production recovers (seeds.ts
+    // parseStringifiedSeeds), still fails here (review s5 P3-2).
     const schemaValid = input !== undefined && matchesJsonSchema(input, schema);
     const sources: FrozenSeedSource[] = [
       { sourceId: EVAL_SOURCE_ID, content: HELIOS_INTERVIEW, contentHash },

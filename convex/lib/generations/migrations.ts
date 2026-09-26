@@ -73,7 +73,11 @@ export const PROGRESS_BACKFILL_PAGE_SIZE = 8;
  * PROGRESS_READ_LIMIT (50) lines; the full array stays on the row. */
 export const PROGRESS_BACKFILL_MAX_LINES = 500;
 
-export const PROGRESS_BACKFILL_MAX_BYTES_READ = 8 * 1024 * 1024;
+/** Each page writes a copy of what it reads (child rows, then a patch of
+ * the generation row), so it reads at most 4 MiB, like the repo's other
+ * bounded walks, to keep reads plus writes well inside one transaction
+ * (phase 4 review P3-4). */
+export const PROGRESS_BACKFILL_MAX_BYTES_READ = 4 * 1024 * 1024;
 
 /** Argument validators of generations.backfillGenerationProgress. */
 export const backfillGenerationProgressArgs = {
@@ -135,7 +139,9 @@ export async function backfillGenerationProgressHandler(
 /** Generations per page of the outputs backfill: rows can carry large agent
  * outputs, so pages stay small and bounded by bytes read as well. */
 const OUTPUTS_BACKFILL_PAGE_SIZE = 10;
-const OUTPUTS_BACKFILL_MAX_BYTES_READ = 8 * 1024 * 1024;
+// Up to twice this is written per page (the artifact copy, then the patch
+// that rewrites the generation row), so 4 MiB, not 8 (phase 4 review P3-4).
+const OUTPUTS_BACKFILL_MAX_BYTES_READ = 4 * 1024 * 1024;
 
 /** Argument validators of generations.backfillGenerationOutputs. */
 export const backfillGenerationOutputsArgs = {

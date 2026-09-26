@@ -12,7 +12,14 @@
 //
 // Input: JSON lines (one aiUsage row per line) or a JSON array of rows.
 // Options:
-//   --by callSite|model|day   grouping key (default callSite)
+//   --by callSite|model|day|transport|servedProvider
+//                             grouping key (default callSite). transport is
+//                             "openrouter" for every call billed to OpenRouter
+//                             credits (an OpenRouter model, or an Anthropic
+//                             model sent through OpenRouter, aiUsage.transport)
+//                             and "direct" otherwise; servedProvider is the
+//                             provider OpenRouter reported for an Anthropic
+//                             model it served
 //   --since YYYY-MM-DD        keep rows created on or after this UTC day
 //   --until YYYY-MM-DD        keep rows created before this UTC day
 //   --reprice                 recompute every estimated cost with the current
@@ -22,6 +29,10 @@
 //
 // Cache hit ratio = cache read tokens / (uncached input + cache writes +
 // cache reads): the share of prompt tokens served from the cache.
+//
+// OpenRouter takes a fee when credits are bought (OPENROUTER_CREDIT_FEE).
+// No usage row holds it, so the report adds it only as a note on the
+// credit spend, never to a cost column.
 
 import { readFileSync } from "node:fs";
 import { estimateCostFromTable, pricingFor } from "../shared/modelPricing.ts";
@@ -29,10 +40,15 @@ import { estimateCostFromTable, pricingFor } from "../shared/modelPricing.ts";
 function usage(message) {
   if (message) console.error(message);
   console.error(
-    "usage: node scripts/ai-usage-report.mjs <export.jsonl> [--by callSite|model|day] [--since YYYY-MM-DD] [--until YYYY-MM-DD] [--reprice] [--json]"
+    "usage: node scripts/ai-usage-report.mjs <export.jsonl> [--by callSite|model|day|transport|servedProvider] [--since YYYY-MM-DD] [--until YYYY-MM-DD] [--reprice] [--json]"
   );
   process.exit(2);
 }
+
+const GROUPINGS = ["callSite", "model", "day", "transport", "servedProvider"];
+
+/** The fee OpenRouter adds when credits are bought (5.5 percent). */
+export const OPENROUTER_CREDIT_FEE = 0.055;
 
 export function parseArgs(argv) {
   const options = { by: "callSite", reprice: false, json: false };
@@ -50,7 +66,7 @@ export function parseArgs(argv) {
     else positional.push(arg);
   }
   if (positional.length !== 1) usage("give exactly one export file");
-  if (!["callSite", "model", "day"].includes(options.by)) usage(`--by ${options.by} is not supported`);
+  if (!GROUPINGS.includes(options.by)) usage(`--by ${options.by} is not supported`);
   options.file = positional[0];
   return options;
 }
@@ -95,6 +111,24 @@ export function rowCost(row, reprice) {
   });
 }
 
+/**
+ * "openrouter" when the call was billed to OpenRouter credits: an Anthropic
+ * model sent through OpenRouter (`transport`), or an OpenRouter model id
+ * (vendor/model). "direct" otherwise.
+ */
+export function transportOf(row) {
+  if (row.transport) return row.transport;
+  return typeof row.model === "string" && row.model.includes("/") ? "openrouter" : "direct";
+}
+
+function groupKey(row, by) {
+  if (by === "model") return row.model;
+  if (by === "day") return dayOf(row);
+  if (by === "transport") return transportOf(row);
+  if (by === "servedProvider") return row.servedProvider ?? "(not reported)";
+  return row.callSite;
+}
+
 function dayOf(row) {
   const at = count(row.createdAt) || count(row._creationTime);
   return new Date(at).toISOString().slice(0, 10);
@@ -113,8 +147,7 @@ export function summarize(rows, options) {
     if (typeof row.model === "string" && !pricingFor(row.model) && !isNativeCost(row)) {
       unknownModels.add(row.model);
     }
-    const key =
-      options.by === "model" ? row.model : options.by === "day" ? dayOf(row) : row.callSite;
+    const key = groupKey(row, options.by);
     let group = groups.get(key);
     if (!group) {
       group = emptyGroup(key ?? "(none)");
@@ -125,7 +158,12 @@ export function summarize(rows, options) {
   const ordered = [...groups.values()].sort((a, b) =>
     options.by === "day" ? (a.key < b.key ? -1 : 1) : b.costUsd - a.costUsd
   );
-  return { groups: ordered.map(finish(totals.costUsd)), totals: finish(totals.costUsd)(totals), unknownModels: [...unknownModels].sort() };
+  return {
+    groups: ordered.map(finish(totals.costUsd)),
+    totals: finish(totals.costUsd)(totals),
+    unknownModels: [...unknownModels].sort(),
+    openRouterCreditFeeUsd: totals.openRouterCostUsd * OPENROUTER_CREDIT_FEE,
+  };
 }
 
 function emptyGroup(key) {
@@ -138,6 +176,7 @@ function emptyGroup(key) {
     cacheCreationInputTokens: 0,
     costUsd: 0,
     nativeCostUsd: 0,
+    openRouterCostUsd: 0,
   };
 }
 
@@ -150,6 +189,7 @@ function add(group, row, reprice) {
   group.cacheCreationInputTokens += count(row.cacheCreationInputTokens);
   group.costUsd += cost;
   if (isNativeCost(row)) group.nativeCostUsd += cost;
+  if (transportOf(row) === "openrouter") group.openRouterCostUsd += cost;
 }
 
 const finish = (totalCost) => (group) => {
@@ -183,6 +223,12 @@ function formatTable(summary, options) {
     cells.map((cell, i) => (i === 0 ? cell.padEnd(widths[i]) : cell.padStart(widths[i]))).join("  ");
   const out = [render(header), widths.map((w) => "-".repeat(w)).join("  "), ...body.map(render)];
   if (options.reprice) out.push("", "Estimated costs recomputed with shared/modelPricing.ts; native costs as stored.");
+  if (summary.totals.openRouterCostUsd > 0) {
+    out.push(
+      "",
+      `OpenRouter credit spend ${summary.totals.openRouterCostUsd.toFixed(2)} USD; buying those credits adds a ${(OPENROUTER_CREDIT_FEE * 100).toFixed(1)}% fee, about ${summary.openRouterCreditFeeUsd.toFixed(2)} USD, not in the costs above.`
+    );
+  }
   if (summary.unknownModels.length) {
     out.push("", `Not in the price table (priced at the fallback rate): ${summary.unknownModels.join(", ")}`);
   }

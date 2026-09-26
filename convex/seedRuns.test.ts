@@ -23,6 +23,7 @@ import { PD_SUBSECTIONS, type PdSubsectionRoleId } from "../shared/pdSubsections
 import { emptyContextRevision, emptySelectionRevision } from "./lib/seedRevisions";
 import { loadSeedDispatchSnapshot } from "./lib/seedSnapshotLoader";
 import { buildSeedPrompt, seedPromptProjection } from "./ai/trustedContext";
+import { terminateSeedRoleAttempt } from "./seedRuns";
 
 const modules = import.meta.glob("./**/*.ts");
 
@@ -763,6 +764,29 @@ describe("seed attempt transactions", () => {
     const shown = await read();
     expect(shown.items.length).toBeGreaterThan(0);
     expect(shown).not.toHaveProperty("lastAttemptFailed");
+  });
+
+  it("does not count a stopped attempt as a failed one (step-by-step review s1 P3-2)", async () => {
+    const s = await fixture();
+    const dispatched = await openRole(s, "company_context");
+    if (dispatched.kind !== "dispatched") throw new Error("attempt was not dispatched");
+    // As skip does while seeds are still being written.
+    await s.t.run(async (ctx) => {
+      const row = await ctx.db.get(s.subsectionIds.company_context!);
+      await terminateSeedRoleAttempt(ctx, row!);
+    });
+    const state = await s.t.run(async (ctx) => ({
+      batch: await ctx.db.get(dispatched.batchId),
+      row: await ctx.db.get(s.subsectionIds.company_context!),
+    }));
+    expect(state.batch).toMatchObject({ status: "failed", error: "GENERATION_TERMINATED" });
+    expect(state.row).toMatchObject({ consecutiveFailures: 0 });
+    expect(state.row?.pendingBatchId).toBeUndefined();
+    const pane = await s.writer.query(api.seeds.getSubsection, {
+      generationId: s.generationId,
+      roleId: "company_context",
+    });
+    expect(pane).not.toHaveProperty("lastAttemptFailed");
   });
 
   it("cancellation terminalizes the pending attempt before clearing ownership", async () => {

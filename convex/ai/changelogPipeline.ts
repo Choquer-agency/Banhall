@@ -127,8 +127,7 @@ export const publishDay = internalAction({
         },
       ],
     });
-    const text =
-      firstResponseText(response);
+    const text = firstResponseText(response);
     // Non-greedy brace matching fails on nested strings; instead scan for the
     // first balanced object. Vague commit subjects ("july 9 changes") can also
     // make the model decline — fall back to a plain listing rather than fail.
