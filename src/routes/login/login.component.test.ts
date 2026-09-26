@@ -311,6 +311,23 @@ describe("/login", () => {
     expect(field.className).toContain("border-[1.5px]");
   });
 
+  it("opens J1 with nothing focused, so the Email field shows no focus ring (J1, J8)", async () => {
+    render(LoginPage);
+    await expect.poll(() => document.querySelector<HTMLButtonElement>('button[type="submit"]')?.disabled).toBe(false);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(document.activeElement).toBe(document.body);
+  });
+
+  it("puts the J3 password 20px under the account card", async () => {
+    rememberAccount({ email: "ana.ruiz@banhall.com", firstName: "Ana", lastName: "Ruiz" });
+    render(LoginPage);
+    await expect.poll(() => document.querySelector("[data-account-card]")).not.toBeNull();
+    const card = document.querySelector<HTMLElement>("[data-account-card]")!.getBoundingClientRect();
+    const label = document.querySelector<HTMLElement>('label[for="password"]')!;
+    const block = label.closest<HTMLElement>(".gap-2") ?? label.parentElement!;
+    expect(Math.round(block.getBoundingClientRect().top - card.bottom)).toBe(20);
+  });
+
   it("draws the J3 account card: radius 12, 10/12 padding, 36px avatar with 12px/500 initials", async () => {
     rememberAccount({ email: "ana.ruiz@banhall.com", firstName: "Ana", lastName: "Ruiz" });
     render(LoginPage);
