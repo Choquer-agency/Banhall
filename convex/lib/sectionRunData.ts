@@ -42,8 +42,10 @@ export const selfCheckSummaryValidator = v.object({
   failedChecks: v.number(),
   remainingFailures: v.number(),
   modelCheck: v.union(v.literal("ok"), v.literal("failed")),
-  // Why the Summary Self-check was rejected: clause, index and byte counts
-  // or app-supplied ids only, never model text (plan coverage, 2026-09-25).
+  // Why the Summary Self-check was rejected: clause, index and byte counts,
+  // app-supplied ids or a fixed failure kind ("no response to check",
+  // "request refused before the call: ...") only, never model text (plan
+  // coverage, 2026-09-25).
   modelCheckDetail: v.optional(v.string()),
   // Why the Summary Self-check's Storyline question was withheld: field names
   // and byte counts only, never model text (2026-09-25).
