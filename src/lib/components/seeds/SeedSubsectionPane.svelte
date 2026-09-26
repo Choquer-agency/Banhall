@@ -857,6 +857,13 @@
             <p class="text-body text-ink-muted">No seeds are available yet.</p>
           </div>
         {:else}
+          {#if data.lastAttemptFailed && !data.pendingBatchId}
+            <!-- A failed regenerate or feedback revision restores the seeds
+                 shown before, so say that it failed (review s1 P3-5). -->
+            <p role="status" class="mb-2.5 text-body text-ink-secondary" data-seed-last-attempt="failed">
+              The last attempt failed. Showing the previous seeds.
+            </p>
+          {/if}
           <!-- One keyed list in ranked order; each card is placed on the grid,
                so a card keeps its parent, focus and local state. -->
           <div class={`grid gap-2.5 ${twoColumns ? "grid-cols-[repeat(2,minmax(0,412px))]" : "grid-cols-1"}`}>
