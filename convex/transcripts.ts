@@ -5,10 +5,10 @@ import type { Doc, Id } from "./_generated/dataModel";
 import {
   getInternalProjectAccessOrNull,
   requireInternalActor,
-  requireInternalProjectAccess,
   requireRole,
 } from "./lib/auth";
 import { domainError, sha256 } from "./lib/contracts";
+import { requireReportEditAccess } from "./lib/roleCapabilities";
 import { deleteStorageIfUnreferenced, isStorageReferenced } from "./lib/storage";
 import { findActiveGeneration } from "./lib/activeGeneration";
 import {
@@ -231,7 +231,9 @@ async function requireTranscriptChange(
   projectId: Id<"projects">,
   change: { content?: string; replacing?: Id<"transcripts"> }
 ) {
-  const { project, user } = await requireInternalProjectAccess(ctx, projectId);
+  // Transcripts are what the next draft reads: changing them is a
+  // report.editProse act (audit 2026-09-25, a2 P2-3).
+  const { project, user } = await requireReportEditAccess(ctx, projectId);
   if (await findActiveGeneration(ctx, project, ACTIVE_GENERATION_STATUSES)) {
     domainError(
       "GENERATION_ACTIVE",
@@ -389,7 +391,7 @@ export const replaceTranscript = mutation({
     const old = await ctx.db.get(args.transcriptId);
     if (!old) domainError("NOT_FOUND", "Transcript not found");
     if (old.archivedAt !== undefined) {
-      await requireInternalProjectAccess(ctx, old.projectId);
+      await requireReportEditAccess(ctx, old.projectId);
       domainError("INVALID_STATE", "This transcript was already replaced or removed");
     }
     const { project, active, contentHash } = await requireTranscriptChange(ctx, old.projectId, {
@@ -793,7 +795,7 @@ export const getTranscriptSpeakers = query({
 async function requireSpeakerChange(ctx: MutationCtx, transcriptId: Id<"transcripts">) {
   const transcript = await ctx.db.get(transcriptId);
   if (!transcript) domainError("NOT_FOUND", "Transcript not found");
-  const { user } = await requireInternalProjectAccess(ctx, transcript.projectId);
+  const { user } = await requireReportEditAccess(ctx, transcript.projectId);
   return { transcript, user };
 }
 

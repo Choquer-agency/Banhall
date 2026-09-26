@@ -37,6 +37,7 @@ async function setup(options: { limits?: boolean } = {}) {
       clientName: "Verdant Grid",
       status: "draft",
       createdBy: writerId,
+      ownerId: writerId,
       shareToken: "in-token",
       createdAt: now,
       updatedAt: now,
@@ -86,11 +87,16 @@ describe("addTranscript", () => {
     expect(turns.map((turn) => turn.speakerLabel)).toEqual(["Dana Whitfield", "Priya Shah"]);
   });
 
-  it("lets any internal user with project access add, and refuses outsiders", async () => {
+  it("lets the project's editors add, and refuses other writers and outsiders", async () => {
     const f = await setup();
     await expect(
-      f.other.mutation(api.transcripts.addTranscript, { projectId: f.projectId, content: SECOND })
+      f.writer.mutation(api.transcripts.addTranscript, { projectId: f.projectId, content: SECOND })
     ).resolves.toBeDefined();
+    // Security wave 1 (a2 P2-3): transcripts are what the next draft reads,
+    // so another Consultant with no assignment on the project is refused.
+    await expect(
+      f.other.mutation(api.transcripts.addTranscript, { projectId: f.projectId, content: `${SECOND} too` })
+    ).rejects.toThrow(/Only the project owner/);
     for (const caller of [f.roleless, f.anonymous, f.t]) {
       await expect(
         caller.mutation(api.transcripts.addTranscript, { projectId: f.projectId, content: `${SECOND} again` })
@@ -202,6 +208,7 @@ describe("addTranscript", () => {
         clientName: "Verdant Grid",
         status: "draft",
         createdBy: f.writerId,
+        ownerId: f.writerId,
         shareToken: "in-token-2",
         createdAt: 1,
         updatedAt: 1,
@@ -451,6 +458,7 @@ describe("stored originals", () => {
         clientName: "Other client",
         status: "draft",
         createdBy: f.writerId,
+        ownerId: f.writerId,
         shareToken: "in-token-other",
         createdAt: 1,
         updatedAt: 1,

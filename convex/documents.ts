@@ -3,8 +3,8 @@ import { v } from "convex/values";
 import {
   getInternalProjectAccessOrNull,
   requireCurrentUser,
-  requireInternalProjectAccess,
 } from "./lib/auth";
+import { requireReportEditAccess } from "./lib/roleCapabilities";
 import { domainError } from "./lib/contracts";
 import {
   deriveProcessingStatus,
@@ -64,7 +64,9 @@ export const uploadDocument = mutation({
     attemptKey: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    const { project, user } = await requireInternalProjectAccess(ctx, args.projectId);
+    // Files are inputs to the next draft and to chat: report.editProse
+    // (audit 2026-09-25, a2 P2-3).
+    const { project, user } = await requireReportEditAccess(ctx, args.projectId);
     if (args.reportId) {
       const report = await ctx.db.get(args.reportId);
       if (!report || report.projectId !== project._id) {
@@ -156,7 +158,7 @@ export const uploadDocument = mutation({
       // CAP-3: the analyzer's trust in this document comes from who uploaded
       // it, not from the category the uploader picked. `uploadedBy` is not a
       // usable join key (see schema), so the role is recorded here.
-      // `requireInternalProjectAccess` above already rejected a roleless user.
+      // `requireReportEditAccess` above already rejected a roleless user.
       ...(user.role ? { uploaderRole: user.role } : {}),
       createdAt: Date.now(),
     });
@@ -219,7 +221,7 @@ export const setDocumentArchived = mutation({
   handler: async (ctx, args) => {
     const doc = await ctx.db.get(args.documentId);
     if (!doc) throw new Error("Document not found");
-    await requireInternalProjectAccess(ctx, doc.projectId);
+    await requireReportEditAccess(ctx, doc.projectId);
     await ctx.db.patch(args.documentId, { archived: args.archived });
   },
 });
@@ -240,7 +242,7 @@ export const deleteDocument = mutation({
   handler: async (ctx, args) => {
     const doc = await ctx.db.get(args.documentId);
     if (!doc) throw new Error("Document not found");
-    await requireInternalProjectAccess(ctx, doc.projectId);
+    await requireReportEditAccess(ctx, doc.projectId);
     await ctx.db.delete(args.documentId);
     if (doc.storageId) await deleteStorageIfUnreferenced(ctx, doc.storageId);
   },

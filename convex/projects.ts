@@ -1595,7 +1595,13 @@ export const finalizeProject = mutation({
     reportId: v.id("reports"),
   },
   handler: async (ctx, args) => {
+    // Marking the project final is a status change: the same authority as
+    // publish (project.setStage; current Owner, Manager or Admin). Audit
+    // 2026-09-25, a2 P2-3.
     const { project } = await requireInternalProjectAccess(ctx, args.projectId);
+    await requireCapability(ctx, "project.setStage", {
+      ownedBy: project.ownerId ? [project.ownerId] : [],
+    });
     const report = await ctx.db.get(args.reportId);
     if (!report || report.projectId !== args.projectId) {
       domainError("NOT_AUTHORIZED", "Report does not belong to this project");

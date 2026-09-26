@@ -351,7 +351,9 @@ export const authorizeExport = mutation({
   handler: async (ctx, args) => {
     const report = await ctx.db.get(args.reportId);
     if (!report) domainError("NOT_FOUND", "Report not found");
-    const { project, user } = await requireInternalProjectAccess(ctx, report.projectId);
+    // Producing the filing document is for the people who may edit the
+    // report (audit 2026-09-25, a2 P2-3).
+    const { project, user } = await requireReportEditAccess(ctx, report.projectId);
     const revisionNumber = report.revisionNumber ?? 0;
     if (revisionNumber !== args.expectedRevisionNumber) {
       domainError("STALE_REVISION", "The report changed after export preflight");

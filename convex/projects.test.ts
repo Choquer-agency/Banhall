@@ -671,7 +671,10 @@ describe("copied running PD reviews", () => {
       expect(copied.status).toBe("failed");
       expect(copied.error).toMatch(/source.*still running.*duplicated/i);
       expect(copied.documentId).not.toBe(source.documentId);
-      const retryId = await actor.mutation(api.pdReviews.retryPdReview, { reviewId: copied._id });
+      // Retrying a review needs report.editProse on the destination, which
+      // its Owner (the other writer) holds.
+      const destinationOwner = asActor(t, "writer");
+      const retryId = await destinationOwner.mutation(api.pdReviews.retryPdReview, { reviewId: copied._id });
       expect(retryId).not.toBe(copied._id);
       const after = await snapshot(t);
       expect(after.reviews.find((row) => row._id === retryId)).toMatchObject({
@@ -690,7 +693,7 @@ describe("copied running PD reviews", () => {
       })]);
       // Once this destination has a running retry, the normal guard still
       // rejects a second retry of the copied failed row without side effects.
-      await expect(actor.mutation(api.pdReviews.retryPdReview, {
+      await expect(destinationOwner.mutation(api.pdReviews.retryPdReview, {
         reviewId: copied._id,
       })).rejects.toMatchObject({ data: {
         code: "INVALID_INPUT", message: "A review is already running for this project",

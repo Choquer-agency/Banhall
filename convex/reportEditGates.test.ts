@@ -313,3 +313,144 @@ describe("proposal wording and reject need report.editProse (a2 P2-2)", () => {
     );
   });
 });
+
+describe("Own operations follow the matrix (a2 P2-3)", () => {
+  it("addTranscript", async () => {
+    await expectGate((f, a) =>
+      f.as(a).mutation(api.transcripts.addTranscript, {
+        projectId: f.projectId,
+        content: "Interviewer: And then?\n\nClient: It cracked.",
+      })
+    );
+  });
+
+  it("replaceTranscript", async () => {
+    await expectGate((f, a) =>
+      f.as(a).mutation(api.transcripts.replaceTranscript, {
+        transcriptId: f.transcriptId,
+        content: "Interviewer: Again?\n\nClient: Yes, it cracked.",
+      })
+    );
+  });
+
+  it("removeTranscript", async () => {
+    await expectGate((f, a) =>
+      f.as(a).mutation(api.transcripts.removeTranscript, { transcriptId: f.transcriptId })
+    );
+  });
+
+  it("setSpeakerRole", async () => {
+    await expectGate((f, a) =>
+      f.as(a).mutation(api.transcripts.setSpeakerRole, {
+        transcriptId: f.transcriptId,
+        label: "Client",
+        role: "client",
+      })
+    );
+  });
+
+  it("confirmSpeakers", async () => {
+    await expectGate((f, a) =>
+      f.as(a).mutation(api.transcripts.confirmSpeakers, { transcriptId: f.transcriptId })
+    );
+  });
+
+  it("uploadDocument", async () => {
+    await expectGate((f, a) =>
+      f.as(a).mutation(api.documents.uploadDocument, {
+        projectId: f.projectId,
+        fileName: "notes.txt",
+        fileType: "txt",
+        content: "Scoping notes.",
+      })
+    );
+  });
+
+  it("setDocumentArchived", async () => {
+    await expectGate((f, a) =>
+      f.as(a).mutation(api.documents.setDocumentArchived, {
+        documentId: f.documentId,
+        archived: true,
+      })
+    );
+  });
+
+  it("deleteDocument", async () => {
+    await expectGate((f, a) =>
+      f.as(a).mutation(api.documents.deleteDocument, { documentId: f.documentId })
+    );
+  });
+
+  it("createManualSnapshot", async () => {
+    await expectGate((f, a) =>
+      f.as(a).mutation(api.snapshots.createManualSnapshot, { reportId: f.reportId })
+    );
+  });
+
+  it("createMilestoneSnapshot", async () => {
+    await expectGate((f, a) =>
+      f.as(a).mutation(api.snapshots.createMilestoneSnapshot, {
+        reportId: f.reportId,
+        label: "Sent to client",
+        expectedRevisionNumber: 0,
+      })
+    );
+  });
+
+  it("authorizeExport", async () => {
+    await expectGate((f, a) =>
+      f.as(a).mutation(api.reports.authorizeExport, {
+        reportId: f.reportId,
+        expectedRevisionNumber: 0,
+        expectedContentHash: "0".repeat(64),
+      })
+    );
+  });
+
+  it("finalizeProject uses project.setStage: the Owner and a Manager, not an assignee", async () => {
+    await expectGate(
+      (f, a) =>
+        f.as(a).mutation(api.projects.finalizeProject, {
+          projectId: f.projectId,
+          reportId: f.reportId,
+        }),
+      ["owner", "manager"]
+    );
+    const f = await setup();
+    expect(
+      await errorCode(() =>
+        f.as("assigned").mutation(api.projects.finalizeProject, {
+          projectId: f.projectId,
+          reportId: f.reportId,
+        })
+      )
+    ).toBe("NOT_AUTHORIZED");
+  });
+
+  it("startPdReview", async () => {
+    await expectGate((f, a) =>
+      f.as(a).mutation(api.pdReviews.startPdReview, {
+        projectId: f.projectId,
+        documentId: f.documentId,
+      })
+    );
+  });
+
+  it("retryPdReview", async () => {
+    await expectGate((f, a) =>
+      f.as(a).mutation(api.pdReviews.retryPdReview, { reviewId: f.pdReviewId })
+    );
+  });
+
+  it("resolveComment, unresolveComment and deleteComment", async () => {
+    await expectGate((f, a) =>
+      f.as(a).mutation(api.comments.resolveComment, { commentId: f.commentId })
+    );
+    await expectGate((f, a) =>
+      f.as(a).mutation(api.comments.unresolveComment, { commentId: f.commentId })
+    );
+    await expectGate((f, a) =>
+      f.as(a).mutation(api.comments.deleteComment, { commentId: f.commentId })
+    );
+  });
+});

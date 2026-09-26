@@ -16,8 +16,8 @@ async function setup() {
     const outsider = await ctx.db.insert("users", { authId: "storage-outsider", email: "outsider@test.com", role: "writer" });
     const project = { title: "Storage", clientName: "Client", status: "draft", createdAt: 1, updatedAt: 1 } satisfies Pick<Doc<"projects">, "title" | "clientName" | "status" | "createdAt" | "updatedAt">;
     return {
-      projectId: await ctx.db.insert("projects", { ...project, createdBy: owner, shareToken: "storage-owner" }),
-      foreignProjectId: await ctx.db.insert("projects", { ...project, createdBy: outsider, shareToken: "storage-outsider" }),
+      projectId: await ctx.db.insert("projects", { ...project, createdBy: owner, ownerId: owner, shareToken: "storage-owner" }),
+      foreignProjectId: await ctx.db.insert("projects", { ...project, createdBy: outsider, ownerId: outsider, shareToken: "storage-outsider" }),
     };
   });
   const writer = t.withIdentity({ subject: "storage-owner" });

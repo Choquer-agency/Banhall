@@ -36,6 +36,7 @@ async function setup() {
       clientName: "Verdant Grid Technologies Inc.",
       status: "draft",
       createdBy: writerId,
+      ownerId: writerId,
       shareToken: "sr-token",
       createdAt: 1,
       updatedAt: 1,

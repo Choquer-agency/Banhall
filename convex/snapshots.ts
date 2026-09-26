@@ -4,7 +4,6 @@ import type { Id } from "./_generated/dataModel";
 import { v } from "convex/values";
 import {
   getInternalProjectAccessOrNull,
-  requireInternalProjectAccess,
 } from "./lib/auth";
 import { requireReportEditAccess } from "./lib/roleCapabilities";
 import {
@@ -164,7 +163,7 @@ export const createManualSnapshot = mutation({
   handler: async (ctx, args) => {
     const report = await ctx.db.get(args.reportId);
     if (!report) domainError("NOT_FOUND", "Report not found");
-    await requireInternalProjectAccess(ctx, report.projectId);
+    await requireReportEditAccess(ctx, report.projectId);
     const audit = await snapshotAuditFields(ctx, report);
 
     // Skip only an exact persisted-revision/audit-state duplicate. Legacy or
@@ -213,7 +212,7 @@ export const createMilestoneSnapshot = mutation({
   handler: async (ctx, args) => {
     const report = await ctx.db.get(args.reportId);
     if (!report) domainError("NOT_FOUND", "Report not found");
-    await requireInternalProjectAccess(ctx, report.projectId);
+    await requireReportEditAccess(ctx, report.projectId);
     const revisionNumber = report.revisionNumber ?? 0;
     if (revisionNumber !== args.expectedRevisionNumber) {
       domainError(
