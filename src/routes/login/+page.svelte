@@ -1,16 +1,33 @@
 <script lang="ts">
   import { useAuth } from "@mmailaender/convex-better-auth-svelte/svelte";
+  import { useQuery } from "convex-svelte";
+  import { WarningCircleIcon } from "phosphor-svelte";
   import { authClient } from "$lib/authClient";
-  import Button from "$lib/components/ui/Button.svelte";
-  import Input from "$lib/components/ui/Input.svelte";
-  import BuildStamp from "$lib/components/BuildStamp.svelte";
   import Spinner from "$lib/components/ui/Spinner.svelte";
+  import AuthLayout from "$lib/components/auth/AuthLayout.svelte";
+  import AuthHeading from "$lib/components/auth/AuthHeading.svelte";
+  import AuthField from "$lib/components/auth/AuthField.svelte";
+  import PasswordField from "$lib/components/auth/PasswordField.svelte";
+  import AccountCard from "$lib/components/auth/AccountCard.svelte";
+  import ForgotPasswordNote from "$lib/components/auth/ForgotPasswordNote.svelte";
+  import { api } from "../../../convex/_generated/api";
 
   import { goto } from "$app/navigation";
   import { page } from "$app/state";
-  import { onMount, untrack } from "svelte";
+  import { onMount, tick, untrack } from "svelte";
   import { afterLoginPath } from "$lib/auth/next";
-  import { SignInError, signInErrorMessage } from "$lib/auth/signInError";
+  import {
+    SignInError,
+    signInErrorKind,
+    signInErrorMessage,
+    type SignInErrorKind,
+  } from "$lib/auth/signInError";
+  import {
+    forgetLastAccount,
+    readLastAccount,
+    rememberAccount,
+    type LastAccount,
+  } from "$lib/auth/lastAccount";
 
   const auth = useAuth();
 
@@ -22,9 +39,15 @@
   let email = $state("");
   let password = $state("");
   let error = $state("");
+  let errorKind = $state<SignInErrorKind | "stalled" | null>(null);
   let submitting = $state(false);
   let signInAttempt = 0;
   let hydrated = $state(false);
+  let forgotOpen = $state(false);
+  // J3, J4: the account this browser last signed in with (lastAccount.ts).
+  let known = $state<LastAccount | null>(null);
+  let emailInput: HTMLInputElement | undefined = $state();
+  let passwordInput: HTMLInputElement | undefined = $state();
 
   // The email/password flow is client-only. Render the real form on the first
   // paint so there is no intermediate session-check screen, but keep its
@@ -32,12 +55,15 @@
   // prevents a password manager or fast Enter/click from submitting a plain
   // GET /login? before Better Auth is ready.
   onMount(() => {
+    known = readLastAccount();
+    if (known) email = known.email;
     hydrated = true;
+    void tick().then(() => (known ? passwordInput : emailInput)?.focus());
   });
 
-  // Keep the split login shell mounted while the session resolves. Only the
-  // form column changes state, so sign-out and background-tab session refreshes
-  // cannot remount or flash the large brand panel.
+  // Keep the layout mounted while the session resolves. Only the column
+  // changes state, so sign-out and background-tab session refreshes cannot
+  // remount the page.
   let entering = $state(false);
 
   // Signed in: return to the page that sent the visitor here (`?next=`, same
@@ -50,158 +76,162 @@
     }
   });
 
+  // During the "Signing you in..." hold, keep the remembered name current
+  // once the profile loads (the email was saved as soon as sign-in passed).
+  const userQ = useQuery(api.users.getCurrentUser, () =>
+    entering && auth.isAuthenticated ? {} : "skip",
+  );
+  $effect(() => {
+    const user = userQ.data;
+    if (entering && user?.email) rememberAccount(user);
+  });
+
+  const credentialsError = $derived(errorKind === "credentials");
+  const errorId = "sign-in-error";
+
+  function useAnotherAccount() {
+    forgetLastAccount();
+    known = null;
+    email = "";
+    password = "";
+    error = "";
+    errorKind = null;
+    void tick().then(() => emailInput?.focus());
+  }
+
   async function handleSubmit(e: SubmitEvent) {
     e.preventDefault();
     if (!hydrated || submitting) return;
 
     error = "";
+    errorKind = null;
     submitting = true;
 
     const attempt = ++signInAttempt;
+    const address = email.trim().toLowerCase();
     try {
-      await signInEmail(email.trim().toLowerCase(), password);
-      // Hold the stable form-column progress state until Convex auth is live;
-      // the watcher above then performs one client-side navigation. Recover if
+      await signInEmail(address, password);
+      rememberAccount({ email: address });
+      // Hold the stable progress state until Convex auth is live; the
+      // watcher above then performs one client-side navigation. Recover if
       // token propagation stalls rather than leaving a permanent spinner.
       entering = true;
       window.setTimeout(() => {
         if (attempt === signInAttempt && entering && !auth.isAuthenticated) {
           entering = false;
           submitting = false;
+          errorKind = "stalled";
           error = "We couldn't finish signing you in. Check your connection and try again.";
         }
       }, 10_000);
     } catch (err) {
       console.error("Auth error:", err);
-      // Only credential failures blame the password; an origin rejection
-      // (127.0.0.1 or a LAN address) says to use the usual address.
-      error = signInErrorMessage(err instanceof SignInError ? err : null, {
-        online: navigator.onLine,
-      });
+      // Only credential failures blame the email or password; an origin
+      // rejection (127.0.0.1 or a LAN address) says to use the usual address.
+      const failure = err instanceof SignInError ? err : null;
+      const online = navigator.onLine;
+      errorKind = signInErrorKind(failure, { online });
+      error = signInErrorMessage(failure, { online, knownAccount: known !== null });
       submitting = false;
+      void tick().then(() => passwordInput?.focus());
     }
   }
 </script>
 
 <svelte:head>
-  <title>Sign in — Banhall</title>
+  <title>Sign in - Banhall</title>
 </svelte:head>
 
-<!-- Keep this full shell stable across checking, signed-out, and entering states. -->
-<div class="grid min-h-screen flex-1 lg:grid-cols-[minmax(0,11fr)_minmax(0,9fr)]">
-    <!-- Brand field: the app bar's material at page scale. Wordmark floats
-         free on the fir — no container. -->
-    <div class="brand-field relative hidden flex-col justify-between overflow-hidden bg-navy px-12 py-12 lg:flex xl:px-16">
-      <img
-        src="/logo.png"
-        alt="Banhall"
-        width="308"
-        height="138"
-        class="brand-mark -ml-3 w-40 self-start brightness-0 invert"
+<AuthLayout width={360}>
+  {#if auth.isAuthenticated || entering}
+    <div class="flex min-h-64 flex-col items-center justify-center" aria-live="polite">
+      <Spinner />
+      <p class="mt-3 text-sm text-ink-secondary">Signing you in...</p>
+    </div>
+  {:else}
+    {#if known}
+      <AuthHeading
+        title={known.firstName ? `Welcome back, ${known.firstName}` : "Welcome back"}
+        subtitle="You were signed out. Sign back in to keep going."
       />
+    {:else}
+      <AuthHeading title="Sign in" subtitle="Use your @banhall.com email." />
+    {/if}
 
-      <div class="brand-copy max-w-md">
-        <p class="text-3xl font-semibold leading-tight tracking-tight text-white xl:text-4xl" style="text-wrap: balance">
-          The interview is the evidence. The report writes to the form.
-        </p>
-        <p class="mt-4 text-base leading-relaxed text-white/60">
-          Transcripts in — disciplined, CRA-ready project descriptions out.
-        </p>
-      </div>
-
-      <p class="text-sm text-white/40">Banhall SR&amp;ED Consulting</p>
-
-      <!-- The nav's signature baseline rule, closing the panel -->
-      <div aria-hidden="true" class="nav-baseline absolute inset-x-0 bottom-0 h-0.5"></div>
-    </div>
-
-    <!-- Form column on ledger paper -->
-    <div class="flex flex-col justify-center px-6 py-12 sm:px-12 xl:px-20">
-      <div class="form-col mx-auto w-full max-w-sm">
-        <!-- Mobile: wordmark inline, tinted to fir on paper — no container -->
-        <img
-          src="/logo.png"
-          alt="Banhall"
-          width="308"
-          height="138"
-          class="logo-fir -ml-2 mb-8 w-32 lg:hidden"
-        />
-
-        {#if auth.isAuthenticated || entering}
-          <div class="flex min-h-64 flex-col items-center justify-center" aria-live="polite">
-            <Spinner />
-            <p class="mt-3 text-sm text-gray-500">Signing you in…</p>
-          </div>
+    <form onsubmit={handleSubmit} class="flex flex-col gap-5" aria-busy={!hydrated || submitting}>
+      <div class="flex flex-col gap-3.5">
+        {#if known}
+          <AccountCard
+            name={known.name}
+            email={known.email}
+            initials={known.initials}
+            onUseAnother={useAnotherAccount}
+          />
+          <!-- Password managers match the saved entry by this username. -->
+          <input
+            type="email"
+            name="username"
+            autocomplete="username"
+            value={known.email}
+            readonly
+            tabindex="-1"
+            aria-hidden="true"
+            data-hidden-username
+            class="sr-only"
+          />
         {:else}
-          <h1 class="text-2xl font-semibold tracking-tight text-gray-900">Welcome back</h1>
-          <p class="mt-1.5 text-sm text-gray-600">Sign in to your account to continue.</p>
-
-          <form onsubmit={handleSubmit} class="mt-8 flex flex-col gap-4" aria-busy={!hydrated || submitting}>
-            <Input
-              id="email"
-              label="Email"
-              type="email"
-              bind:value={email}
-              placeholder="you@banhall.com"
-              autocomplete="email"
-              disabled={!hydrated || submitting}
-              required
-            />
-            <Input
-              id="password"
-              label="Password"
-              type="password"
-              bind:value={password}
-              placeholder="Enter your password"
-              autocomplete="current-password"
-              disabled={!hydrated || submitting}
-              required
-              minlength={8}
-            />
-
-            {#if error}
-              <p role="alert" class="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">
-                {error}
-              </p>
-            {/if}
-
-            <Button type="submit" disabled={!hydrated || submitting} class="mt-2 gap-2">
-              {#if submitting}
-                <Spinner size="sm" class="h-3.5 w-3.5 border-white" />
-              {/if}
-              {submitting ? "Signing in…" : "Sign in"}
-            </Button>
-          </form>
+          <AuthField
+            id="email"
+            label="Email"
+            type="email"
+            name="username"
+            bind:value={email}
+            bind:element={emailInput}
+            placeholder="you@banhall.com"
+            autocomplete="email"
+            disabled={!hydrated || submitting}
+            invalid={credentialsError}
+            aria-describedby={credentialsError ? errorId : undefined}
+            required
+          />
         {/if}
-
-        <div class="mt-10 flex items-center gap-2 text-xs text-gray-500 lg:hidden">
-          <span>Banhall SR&amp;ED Consulting</span>
-          <span aria-hidden="true" class="text-gray-300">·</span>
-          <BuildStamp class="text-gray-400" />
-        </div>
-        <div class="mt-10 hidden lg:block">
-          <BuildStamp class="text-gray-300" />
+        <div class="flex flex-col gap-2">
+          <PasswordField
+            id="password"
+            bind:value={password}
+            bind:element={passwordInput}
+            placeholder="Enter your password"
+            autocomplete="current-password"
+            disabled={!hydrated || submitting}
+            invalid={credentialsError}
+            aria-describedby={[error ? errorId : null, forgotOpen ? "forgot-password-note" : null].filter(Boolean).join(" ") || undefined}
+            required
+            minlength={8}
+            {forgotOpen}
+            onForgot={() => (forgotOpen = !forgotOpen)}
+          />
+          {#if error}
+            <p id={errorId} role="alert" class="flex items-start gap-1.5 text-[13px] leading-[18px] text-danger-ink-muted">
+              <WarningCircleIcon size={14} aria-hidden="true" class="mt-0.5 shrink-0" />
+              {error}
+            </p>
+          {/if}
+          {#if forgotOpen}
+            <ForgotPasswordNote />
+          {/if}
         </div>
       </div>
-    </div>
-  </div>
 
-<style>
-  /* Ledger ruling carries into the brand field at whisper contrast — the
-     same material, lit dark. */
-  .brand-field {
-    background-image: repeating-linear-gradient(
-      to bottom,
-      transparent 0,
-      transparent calc(2rem - 1px),
-      rgba(255, 255, 255, 0.045) calc(2rem - 1px),
-      rgba(255, 255, 255, 0.045) 2rem
-    );
-  }
-  /* Recolor the light wordmark artwork to brand fir for light surfaces:
-     flatten to black, then invert toward the fir hue. */
-  .logo-fir {
-    filter: brightness(0) saturate(100%) invert(17%) sepia(21%) saturate(1900%)
-      hue-rotate(140deg) brightness(93%) contrast(101%);
-  }
-</style>
+      <button
+        type="submit"
+        disabled={!hydrated || submitting}
+        class="flex h-[46px] items-center justify-center gap-2 rounded-[10px] bg-fir text-[15px] leading-5 font-medium text-white transition-colors hover:bg-navy-light focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60"
+      >
+        {#if submitting}
+          <Spinner size="sm" class="h-3.5 w-3.5 border-white" />
+        {/if}
+        {submitting ? "Signing in..." : "Sign in"}
+      </button>
+    </form>
+  {/if}
+</AuthLayout>

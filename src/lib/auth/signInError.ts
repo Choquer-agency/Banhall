@@ -21,20 +21,36 @@ const ORIGIN_ERROR_CODES = new Set([
 ]);
 
 export const SIGN_IN_MESSAGES = {
-  credentials: "Check your @banhall.com email address and password.",
+  // J2: never say which field was wrong.
+  credentials: "Wrong email or password. Check both and try again.",
+  // J4: the returning-user card already names the account, so only the
+  // password can be wrong.
+  knownAccountCredentials: "Wrong password. Try again.",
   offline: "You're offline. Reconnect and try signing in again.",
   origin: "Open Banhall at its usual address to sign in.",
   rateLimited: "Too many sign-in attempts. Wait a minute, then try again.",
 } as const;
 
-export function signInErrorMessage(
+export type SignInErrorKind = "credentials" | "offline" | "origin" | "rateLimited";
+
+/** Which failure this is; only "credentials" marks the fields invalid. */
+export function signInErrorKind(
   failure: SignInFailure | null | undefined,
   { online }: { online: boolean },
+): SignInErrorKind {
+  if (!online) return "offline";
+  if (failure?.code && ORIGIN_ERROR_CODES.has(failure.code)) return "origin";
+  if (failure?.status === 429) return "rateLimited";
+  return "credentials";
+}
+
+export function signInErrorMessage(
+  failure: SignInFailure | null | undefined,
+  { online, knownAccount = false }: { online: boolean; knownAccount?: boolean },
 ): string {
-  if (!online) return SIGN_IN_MESSAGES.offline;
-  if (failure?.code && ORIGIN_ERROR_CODES.has(failure.code)) return SIGN_IN_MESSAGES.origin;
-  if (failure?.status === 429) return SIGN_IN_MESSAGES.rateLimited;
-  return SIGN_IN_MESSAGES.credentials;
+  const kind = signInErrorKind(failure, { online });
+  if (kind === "credentials" && knownAccount) return SIGN_IN_MESSAGES.knownAccountCredentials;
+  return SIGN_IN_MESSAGES[kind];
 }
 
 /** Thrown by the login form's sign-in call so the status and code survive. */
