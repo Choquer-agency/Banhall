@@ -955,6 +955,47 @@ authenticated Attio measurement pass. Presentation only.
   column position and ink contrast without turning every sheet row into a
   heading.
 
+### 2026-09-26 amendment - round 2 foundations
+
+Owner-picked round 2 boards (`_bmad-output/design-explorations/2026-09-26-round-2-finalized/HANDOFF.md`,
+"Global rules added this round"). These tokens and primitives are light-only:
+the dark workspace scope does not retint them. Live at `/styleguide`.
+
+- **Shell.** `workspace-shell` (`#FAFCFB`) is the lighter rail and the frame
+  around the work panel; `workspace-page-icon` (`#E3F4F1`) is the tile behind
+  the page icon in the top bar. They sit beside `workspace-rail`, which keeps
+  its current value until the round 2 shell adopts the new token.
+- **Role chips.** `role-<kind>` fill with `role-<kind>-ink` text for owner,
+  admin, manager, consultant and developer. `ui/RoleChip` takes the stored
+  role (writer shows as Consultant) plus the Owner and Developer display flags,
+  resolved Developer, then Owner, then the role, as in the rail identity row.
+  20px chip (radius 5, 12px/500) by default; `size="sm"` is the 16px rail
+  identity chip.
+- **Status families.** For `danger`, `warning` and `success`: the bare token
+  is the solid (icons, dots); `-soft` with `-ink` is a chip; `-surface` and
+  `-line` are the callout box; `-ink-muted` is the callout paragraph;
+  `-action` and `-action-hover` fill a button inside the box with white text.
+  The boards draw the paragraph as the ink at 75 to 80% opacity and the amber
+  and green buttons with the solid colour; both measure under 4.5:1, so the
+  tokens use opaque 700-tier values of the same hue instead (every pair is AA).
+  `recommended` / `recommended-ink` is the "Recommended" label.
+- **Filled destructive button.** Button `variant="destructive-soft"`
+  (`destructive-soft` fill, `destructive-soft-ink` text, deeper on hover).
+  Cancel in the start and confirm modals and Revoke use it.
+- **Status callout.** `ui/StatusCallout` is the error, warning and success
+  box. Its paragraph and buttons stay in the box's own colour family.
+  `layout="stacked"` (E6) puts actions under the text; `layout="inline"` (E5)
+  keeps a file row on one line. Replace the tone icon with the `icon` snippet.
+- **File icons.** `ui/FileIcon` renders the `file-icon-vectors` vivid set for
+  pdf, docx, xlsx and txt, and the neutral blank page for anything else. Only
+  those five SVGs are imported; they render through `<img>` because each SVG
+  carries global class styles that would clash when inlined.
+- **Logo.** `ui/BanhallLogo` renders `static/banhall-logo-dark.png` on light
+  backgrounds and `banhall-logo-white.png` on dark, 52 to 64px tall including
+  the built-in padding. `ui/BanhallRailMark` replaces the boards' placeholder
+  "B Banhall" at the top of the rail with the dark wordmark, padding clipped:
+  36px tall expanded, 40px wide collapsed.
+
 ## Panel motion (2026-08-10)
 
 Floating panels animate with a shadcn-style **pop** (owner direction,
