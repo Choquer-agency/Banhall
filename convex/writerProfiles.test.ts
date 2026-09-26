@@ -1098,3 +1098,78 @@ describe("settings-document candidate, analysis cache and the generation record"
     }
   });
 });
+
+describe("round 2 (I2): stored coverage", () => {
+  const categories = Object.fromEntries(
+    STYLE_OVERRIDE_KEYS.map((key) => [
+      key,
+      key === "bannedWords"
+        ? { addressed: true, evidence: "Never say leverage" }
+        : { addressed: false, evidence: null },
+    ]),
+  ) as Record<StyleOverrideKey, { addressed: boolean; evidence: string | null }>;
+
+  test("stores coverage only for the saved text and returns it from getMyProfile", async () => {
+    const { writer } = await setup();
+    await writer.mutation(api.writerProfiles.saveMyProfile, {
+      customInstructions: "  Never say leverage.  ",
+      enabled: true,
+    });
+    const stale = await writer.mutation(internal.writerProfiles.recordMyCoverage, {
+      textHash: await sha256("Some other text."),
+      categories,
+    });
+    expect(stale).toBe(false);
+    expect((await writer.query(api.writerProfiles.getMyProfile, {}))?.coverage).toBeUndefined();
+
+    const stored = await writer.mutation(internal.writerProfiles.recordMyCoverage, {
+      textHash: await sha256("Never say leverage."),
+      categories,
+    });
+    expect(stored).toBe(true);
+    const profile = await writer.query(api.writerProfiles.getMyProfile, {});
+    expect(profile?.coverage).toMatchObject({
+      textHash: await sha256("Never say leverage."),
+      categories: { bannedWords: { addressed: true, evidence: "Never say leverage" } },
+    });
+  });
+
+  test("new instructions drop the old coverage; the same text keeps it", async () => {
+    const { writer, admin, ids } = await setup();
+    await writer.mutation(api.writerProfiles.saveMyProfile, {
+      customInstructions: "Never say leverage.",
+      enabled: true,
+    });
+    await writer.mutation(internal.writerProfiles.recordMyCoverage, {
+      textHash: await sha256("Never say leverage."),
+      categories,
+    });
+    await writer.mutation(api.writerProfiles.saveMyProfile, {
+      customInstructions: "Never say leverage.",
+      enabled: false,
+    });
+    expect((await writer.query(api.writerProfiles.getMyProfile, {}))?.coverage).toBeDefined();
+    const listed = await admin.query(api.writerProfiles.listProfiles, {});
+    expect(listed.find((row) => row.userId === ids.writerId)?.coverage).toBeDefined();
+
+    await admin.mutation(api.writerProfiles.saveProfileForUser, {
+      userId: ids.writerId,
+      customInstructions: "Short sentences.",
+      enabled: true,
+    });
+    expect((await writer.query(api.writerProfiles.getMyProfile, {}))?.coverage).toBeUndefined();
+  });
+
+  test("a caller without a profile or a sign-in stores nothing", async () => {
+    const { t, writer } = await setup();
+    expect(
+      await writer.mutation(internal.writerProfiles.recordMyCoverage, {
+        textHash: await sha256(""),
+        categories,
+      }),
+    ).toBe(false);
+    await expect(
+      t.mutation(internal.writerProfiles.recordMyCoverage, { textHash: "x", categories }),
+    ).rejects.toThrow(/NOT_AUTHENTICATED|Authentication required/);
+  });
+});

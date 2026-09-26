@@ -17,6 +17,7 @@ import {
 } from "./lib/contracts";
 import { admissionValidator, attemptOutcomeValidator } from "./lib/learningAdmission";
 import { styleOverridesValidator } from "./lib/styleOverrides";
+import { writerCoverageValidator } from "./lib/writerCoverage";
 import { brainProvenanceEntryValidator } from "./lib/generationOutputs";
 import { draftingInputsFailureCodeValidator } from "./lib/draftingInputsFailure";
 import {
@@ -151,13 +152,15 @@ export default defineSchema({
     // Canonical trim+lowercase form at write; legacy rows are backfilled by
     // emailMigration while collision reports remain available for review.
     email: v.string(),
-    firstName: v.string(),
-    lastName: v.string(),
+    // Decision 51: optional when inviting, confirmed by the invitee at
+    // acceptance (invites.confirmInviteNames) before the account is created.
+    firstName: v.optional(v.string()),
+    lastName: v.optional(v.string()),
     role: v.union(v.literal("writer"), v.literal("manager"), v.literal("admin")),
     token: v.string(), // unguessable base64url; the /signup/<token> link
     invitedBy: v.id("users"),
     createdAt: v.number(),
-    expiresAt: v.number(), // createdAt + 7 days
+    expiresAt: v.number(), // (sentAt ?? createdAt) + 7 days
     status: v.union(
       v.literal("pending"),
       v.literal("accepted"),
@@ -165,11 +168,26 @@ export default defineSchema({
     ),
     acceptedAt: v.optional(v.number()),
     acceptedUserId: v.optional(v.id("users")),
+    // Round 2 Team page. Resend replaces the token and restarts the 7 days;
+    // an absent sentAt reads as createdAt.
+    sentAt: v.optional(v.number()),
+    resendCount: v.optional(v.number()),
+    revokedAt: v.optional(v.number()),
+    revokedBy: v.optional(v.id("users")),
   })
     .index("by_token", ["token"])
     .index("by_email", ["email"])
     .index("by_email_and_status", ["email", "status"])
     .index("by_status", ["status"]),
+
+  // ─── Round 2 (decision 54): Team's "Last active" ──────────────────────────
+  // One row per user, written by team.markActive at most once per 5 minutes.
+  // Kept off the users row so the heartbeat never re-runs every query that
+  // reads the current user.
+  userActivity: defineTable({
+    userId: v.id("users"),
+    lastActiveAt: v.number(),
+  }).index("by_userId", ["userId"]),
 
   projects: defineTable({
     usedInDevelopment: v.optional(v.boolean()),
@@ -2862,10 +2880,31 @@ export default defineSchema({
     buildOrder: v.optional(v.array(v.string())),
     // Story 2 (CAP-9): per-paragraph / per-section Self-check rules.
     selfCheckRules: v.optional(v.array(selfCheckRuleValidator)),
+    // Round 2 (I2): the stored "What they cover" analysis of the saved
+    // instructions. Written only for the text whose hash it carries and
+    // cleared whenever the instructions change, so it is never stale.
+    coverage: v.optional(writerCoverageValidator),
     updatedBy: v.id("users"),
     createdAt: v.number(),
     updatedAt: v.number(),
   }).index("by_userId", ["userId"]),
+
+  // Round 2 (I2, decision 58): Writing preferences Preview samples. Keyed by
+  // a hash of everything that shapes the sample, so a repeat view makes no
+  // model call. The house-style sample is shared (no userId); requestedBy
+  // counts toward the requester's daily cap.
+  writerStylePreviews: defineTable({
+    userId: v.optional(v.id("users")),
+    requestedBy: v.id("users"),
+    variant: v.union(v.literal("house"), v.literal("preferences")),
+    inputsHash: v.string(),
+    paragraphs: v.array(v.string()),
+    model: v.string(),
+    createdAt: v.number(),
+  })
+    .index("by_userId_and_variant", ["userId", "variant"])
+    .index("by_inputsHash", ["inputsHash"])
+    .index("by_requestedBy_and_createdAt", ["requestedBy", "createdAt"]),
 
   // ─── Jul 17: in-app changelog ──────────────────────────────────────────────
   // Dated entries so non-early-adopter writers can see what changed since they

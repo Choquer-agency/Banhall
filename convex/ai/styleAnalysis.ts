@@ -10,7 +10,9 @@
  * silently overridden.
  */
 import { action } from "../_generated/server";
+import { internal } from "../_generated/api";
 import { v } from "convex/values";
+import { sha256 } from "../lib/contracts";
 import { z } from "zod";
 import { clientForRole } from "./providers";
 import { generateStructured } from "./structured";
@@ -127,16 +129,23 @@ export const ANALYSIS_TOOL_SCHEMA = {
   required: ["categories", "lockedConflicts"],
 };
 
+/**
+ * Round 2 (I2): with `persist`, the result is stored as the profile's
+ * "What they cover" coverage, but only while the analysed text is still the
+ * saved text (writerProfiles.recordMyCoverage compares hashes). The page
+ * persists after a save that changed the text and on "Check again".
+ */
 export const analyzeMyInstructions = action({
-  args: { text: v.string() },
+  args: { text: v.string(), persist: v.optional(v.boolean()) },
   handler: async (ctx, args): Promise<StyleAnalysis> => {
     // Every request ends inside the Convex action limit (actionDeadline.ts).
     startActionDeadline(ctx);
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) throw new Error("Authentication required");
     const text = args.text.trim();
+    let result: StyleAnalysis;
     if (!text) {
-      return {
+      result = {
         categories: Object.fromEntries(
           STYLE_OVERRIDE_KEYS.map((key) => [
             key,
@@ -145,22 +154,30 @@ export const analyzeMyInstructions = action({
         ) as StyleAnalysis["categories"],
         lockedConflicts: [],
       };
+    } else {
+      // Model catalog: settings analysis runs on the analysis role's model.
+      const { client, model } = await clientForRole(ctx, "analysis", {
+        callSite: "settings:style_analysis",
+        userId: identity.tokenIdentifier,
+      });
+      const { system, user } = buildStyleAnalysisPrompt(text);
+      result = await generateStructured<StyleAnalysis>(client, {
+        system,
+        user,
+        toolName: STYLE_ANALYSIS_REQUEST.toolName,
+        description: STYLE_ANALYSIS_REQUEST.description,
+        schema: ANALYSIS_TOOL_SCHEMA,
+        maxTokens: STYLE_ANALYSIS_REQUEST.maxTokens,
+        model,
+        validate: styleAnalysisSchema,
+      });
     }
-    // Model catalog: settings analysis runs on the analysis role's model.
-    const { client, model } = await clientForRole(ctx, "analysis", {
-      callSite: "settings:style_analysis",
-      userId: identity.tokenIdentifier,
-    });
-    const { system, user } = buildStyleAnalysisPrompt(text);
-    return await generateStructured<StyleAnalysis>(client, {
-      system,
-      user,
-      toolName: STYLE_ANALYSIS_REQUEST.toolName,
-      description: STYLE_ANALYSIS_REQUEST.description,
-      schema: ANALYSIS_TOOL_SCHEMA,
-      maxTokens: STYLE_ANALYSIS_REQUEST.maxTokens,
-      model,
-      validate: styleAnalysisSchema,
-    });
+    if (args.persist === true) {
+      await ctx.runMutation(internal.writerProfiles.recordMyCoverage, {
+        textHash: await sha256(text),
+        categories: result.categories,
+      });
+    }
+    return result;
   },
 });

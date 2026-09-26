@@ -166,6 +166,10 @@ export function useConvexClient() {
       clientQueries.push({ name, args });
       return queryData(name, args);
     },
+    // One-shot `client.action(...)`: recorded and answered like useAction.
+    action(action: FunctionReference<"action">, args?: unknown) {
+      return recordingCall(action)(args);
+    },
   };
 }
 

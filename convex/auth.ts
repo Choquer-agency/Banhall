@@ -11,6 +11,8 @@ import { components, internal } from "./_generated/api";
 import type { DataModel } from "./_generated/dataModel";
 import authConfig from "./auth.config";
 import { normalizeEmail } from "./lib/email";
+import { notify } from "./lib/notify";
+import { ROLE_LABELS } from "../shared/roles";
 import { customAuthCookiePrefix } from "../shared/authCookies";
 import {
   AUTH_CLIENT_IP_HEADER,
@@ -79,37 +81,49 @@ export const authComponent = createClient<DataModel>(components.betterAuth, {
             "Signups are invite-only. Ask an admin for an invite.",
           );
         }
+        // Decision 51: the invite may carry no names until the invitee
+        // confirms them (invites.confirmInviteNames, called by the signup
+        // page right before sign-up). The account keeps requiring both.
+        const firstName = invite.firstName?.trim();
+        const lastName = invite.lastName?.trim();
+        if (!firstName || !lastName) {
+          throw new ConvexError("First and last name are required.");
+        }
         let userId;
         if (existing) {
           await ctx.db.patch(existing._id, {
             authId: authUser._id,
-            ...(invite
-              ? {
-                  firstName: invite.firstName,
-                  lastName: invite.lastName,
-                  role: existing.role ?? invite.role,
-                }
-              : {}),
+            firstName,
+            lastName,
+            role: existing.role ?? invite.role,
           });
           userId = existing._id;
         } else {
           userId = await ctx.db.insert("users", {
             authId: authUser._id,
             email: email ?? undefined,
-            firstName: invite!.firstName,
-            lastName: invite!.lastName,
+            firstName,
+            lastName,
             name: authUser.name ?? undefined,
-            role: invite!.role,
+            role: invite.role,
             createdAt: now,
           });
         }
-        if (invite) {
-          await ctx.db.patch(invite._id, {
-            status: "accepted",
-            acceptedAt: now,
-            acceptedUserId: userId,
-          });
-        }
+        await ctx.db.patch(invite._id, {
+          status: "accepted",
+          acceptedAt: now,
+          acceptedUserId: userId,
+        });
+        // Round 2 (I3): tell the inviter. Copy follows WS1's
+        // shared/notifications.ts proposal; switch to its builder on rebase.
+        await notify(ctx, {
+          userId: invite.invitedBy,
+          kind: "invite_accepted",
+          title: `${firstName} ${lastName} joined Banhall`,
+          body: `They accepted your invite as ${ROLE_LABELS[invite.role]}.`,
+          href: "/team",
+          dedupeKey: `invite_accepted:${invite._id}`,
+        });
       },
       onDelete: async (ctx, authUser) => {
         const appUser = await ctx.db

@@ -44,14 +44,17 @@ describe("role descriptions", () => {
     expect(ROLE_DESCRIPTIONS.writer.capabilities.join(" ")).toMatch(/current handoff/i);
     expect(ROLE_DESCRIPTIONS.writer.capabilities.join(" ")).toMatch(/outcomes/i);
     expect(ROLE_DESCRIPTIONS.writer.limitations.join(" ")).toMatch(
-      /manage users, invites, or roles/i,
+      /Cannot see Team or invite people/i,
     );
     expect(ROLE_DESCRIPTIONS.manager.capabilities.join(" ")).toMatch(/team pipeline/i);
     expect(ROLE_DESCRIPTIONS.manager.capabilities.join(" ")).toMatch(
       /reclassify QA issue severity/i,
     );
+    expect(ROLE_DESCRIPTIONS.manager.capabilities.join(" ")).toMatch(
+      /invite Consultants and Managers, and resend or revoke those invites/i,
+    );
     expect(ROLE_DESCRIPTIONS.manager.limitations.join(" ")).toMatch(
-      /manage users, invites, or roles/i,
+      /Cannot invite Admins, change roles, or manage users/i,
     );
     expect(ROLE_DESCRIPTIONS.admin.capabilities.join(" ")).toMatch(
       /manage users, invites, and roles/i,

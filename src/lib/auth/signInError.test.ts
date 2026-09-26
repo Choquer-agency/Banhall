@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { SIGN_IN_MESSAGES, SignInError, signInErrorMessage } from "./signInError";
+import { SIGN_IN_MESSAGES, SignInError, signInErrorKind, signInErrorMessage } from "./signInError";
 
 const online = { online: true };
 
@@ -13,11 +13,23 @@ describe("sign-in error message", () => {
     expect(SIGN_IN_MESSAGES.origin).not.toMatch(/password/i);
   });
 
-  it("keeps the email and password message for wrong credentials", () => {
+  it("never says which field was wrong for wrong credentials (J2)", () => {
     expect(signInErrorMessage({ status: 401, code: "INVALID_EMAIL_OR_PASSWORD" }, online)).toBe(
-      "Check your @banhall.com email address and password.",
+      "Wrong email or password. Check both and try again.",
     );
     expect(signInErrorMessage(null, online)).toBe(SIGN_IN_MESSAGES.credentials);
+    expect(signInErrorKind({ status: 401 }, online)).toBe("credentials");
+  });
+
+  it("blames only the password when the account is already known (J4)", () => {
+    expect(signInErrorMessage({ status: 401 }, { online: true, knownAccount: true })).toBe(
+      "Wrong password. Try again.",
+    );
+    expect(signInErrorMessage({ status: 429 }, { online: true, knownAccount: true })).toBe(
+      SIGN_IN_MESSAGES.rateLimited,
+    );
+    expect(signInErrorKind({ status: 429 }, online)).toBe("rateLimited");
+    expect(signInErrorKind(null, { online: false })).toBe("offline");
   });
 
   it("says so when offline or rate limited", () => {

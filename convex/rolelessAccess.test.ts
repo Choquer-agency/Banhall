@@ -72,7 +72,7 @@ describe("admin checks refuse an anonymous record with role admin", () => {
     expect(await code(() => f.anonAdmin.mutation(api.tags.createTag, { name: "Nope" }))).toBe("NOT_AUTHENTICATED");
     expect(await code(() => f.anonAdmin.mutation(api.brain.revokeSource, { sourceId: f.sourceId })))
       .toBe("UNTYPED: Not authenticated");
-    expect(await f.anonAdmin.query(api.invites.listInvites, {})).toEqual([]);
+    expect(await f.anonAdmin.query(api.invites.listTeamInvites, {})).toEqual([]);
     expect(await f.anonAdmin.query(api.aiUsage.usageReportAccess, {})).toBe(false);
   });
 });

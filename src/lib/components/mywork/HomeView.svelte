@@ -8,9 +8,9 @@
     (myWork.listAssignedToMe), one row per project, due first.
   - "Recently opened": the projects this viewer opened on this device
     (browser-local list), read live through myWork.listRecentProjects so
-    stage, client and edit time are current. With no local history the table
-    shows "Recently edited" instead: the latest edited projects across the
-    workspace (dashboard.listFlatProjects, sorted by update).
+    stage, client and edit time are current. With no local history there is
+    no second table (round 2 J7, decision 55: the "Recently edited" fallback
+    is retired).
   - "Continue working": the last project opened on this device, otherwise the
     latest edited project with the viewer (myWork.getContinueWorking).
   Home stays simple: no due dates, no agenda, no search.
@@ -25,16 +25,10 @@
   import HomeProjectTable from "$lib/components/mywork/HomeProjectTable.svelte";
   import WorkspaceShellControls from "$lib/components/workspace/WorkspaceShellControls.svelte";
   import { greetingForHour, greetingName } from "$lib/mywork/homeGreeting";
-  import {
-    continueTarget,
-    flatProjectRows,
-    liveProjectRows,
-    withYouRows,
-  } from "$lib/mywork/homeRows";
+  import { continueTarget, liveProjectRows, withYouRows } from "$lib/mywork/homeRows";
   import type { RecentProject } from "$lib/workspace/recentProjects";
 
   const WITH_YOU_PAGE = 10;
-  const RECENTLY_EDITED_PAGE = 5;
 
   let {
     recentProjects = [],
@@ -75,18 +69,10 @@
   const recentQ = useQuery(api.myWork.listRecentProjects, () =>
     auth.isAuthenticated && recentIds.length > 0 ? { projectIds: recentIds } : "skip"
   );
-  const editedQ = usePaginatedQuery(
-    api.dashboard.listFlatProjects,
-    () => (auth.isAuthenticated && !hasLocalRecents ? { sortBy: "updated" as const } : "skip"),
-    { initialNumItems: RECENTLY_EDITED_PAGE }
-  );
   const recentRows = $derived.by(() => {
-    if (hasLocalRecents) {
-      if (recentQ.error) return [];
-      return recentQ.data ? liveProjectRows(recentQ.data) : undefined;
-    }
-    if (editedQ.status === "LoadingFirstPage") return undefined;
-    return flatProjectRows(editedQ.results.slice(0, RECENTLY_EDITED_PAGE));
+    if (!hasLocalRecents) return [];
+    if (recentQ.error) return [];
+    return recentQ.data ? liveProjectRows(recentQ.data) : undefined;
   });
 
   const target = $derived.by(() => {
@@ -105,10 +91,10 @@
 
 <svelte:window onfocus={() => (now = Date.now())} />
 
-<div data-home class="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-workspace-rail">
+<div data-home class="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-workspace-shell">
   <header data-workspace-page-header data-home-top-bar class="flex h-14 shrink-0 items-center gap-2.5 px-3 sm:px-5">
     <WorkspaceShellControls tone="light" {onOpenNavigation} {railHidden} {onToggleRail} />
-    <span aria-hidden="true" class="flex size-[26px] shrink-0 items-center justify-center rounded-md bg-primary-wash text-primary">
+    <span aria-hidden="true" data-home-page-icon class="flex size-[26px] shrink-0 items-center justify-center rounded-md bg-workspace-page-icon text-primary">
       <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
         <path d="M3 10l9-7 9 7v10H3Z M9 20v-7h6v7" />
       </svg>
@@ -139,6 +125,7 @@
 
   <main
     data-home-panel
+    data-work-panel
     class="mx-3 mb-3 flex min-h-0 flex-1 flex-col overflow-y-auto rounded-xl border border-workspace-rail-line bg-surface"
   >
     <div class="flex flex-1 flex-col gap-10 px-4 pb-6 pt-5 sm:px-6 xl:flex-row xl:gap-8">
@@ -152,19 +139,21 @@
           count={withYou ? `${withYou.length}${withYouMore ? "+" : ""}` : null}
           bounded={withYouMore}
           {now}
+          emptyLayout="block"
         >
           {#snippet empty()}
-            Nothing is with you right now. Projects handed to you show up here.
+            <p class="text-sm font-medium leading-5 text-ink">No projects with you yet</p>
+            <p class="text-[13px] leading-[18px] text-ink-muted">Start one, or a Manager can hand one to you.</p>
           {/snippet}
           {#snippet footer()}
             <div class="flex flex-wrap items-center gap-4">
               <a
                 href={resolve("/project/new")}
                 data-home-add-new
-                class="inline-flex h-9 items-center gap-2 rounded-md pl-2 pr-2 text-xs text-ink-muted transition-colors hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir motion-reduce:transition-none"
+                class={`inline-flex items-center gap-2 rounded-md pr-2 text-ink-muted transition-colors hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir motion-reduce:transition-none ${withYou?.length === 0 ? "h-10 pl-7 text-[13px] leading-[18px]" : "h-9 pl-2 text-xs"}`}
               >
-                <PlusIcon size={12} aria-hidden="true" />
-                Add new
+                <PlusIcon size={withYou?.length === 0 ? 14 : 12} aria-hidden="true" />
+                {withYou?.length === 0 ? "New project" : "Add new"}
               </a>
               {#if withYouMore}
                 <button
@@ -174,29 +163,27 @@
                   onclick={() => assignedQ.loadMore(WITH_YOU_PAGE)}
                   class="inline-flex h-9 items-center rounded-md px-2 text-xs text-ink-muted transition-colors hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir disabled:opacity-50 motion-reduce:transition-none"
                 >
-                  {assignedQ.status === "LoadingMore" ? "Loading…" : "Show more"}
+                  {assignedQ.status === "LoadingMore" ? "Loading..." : "Show more"}
                 </button>
               {/if}
             </div>
           {/snippet}
         </HomeProjectTable>
 
-        <HomeProjectTable
-          id="home-recent"
-          label={hasLocalRecents ? "Recently opened" : "Recently edited"}
-          icon="clock"
-          rows={recentRows}
-          count={recentRows ? String(recentRows.length) : null}
-          {now}
-        >
-          {#snippet empty()}
-            {#if hasLocalRecents}
+        {#if hasLocalRecents}
+          <HomeProjectTable
+            id="home-recent"
+            label="Recently opened"
+            icon="clock"
+            rows={recentRows}
+            count={recentRows ? String(recentRows.length) : null}
+            {now}
+          >
+            {#snippet empty()}
               The projects you opened here are no longer available.
-            {:else}
-              No projects yet. Start one with New project.
-            {/if}
-          {/snippet}
-        </HomeProjectTable>
+            {/snippet}
+          </HomeProjectTable>
+        {/if}
       </div>
 
       <div class="min-w-0 xl:w-[384px] xl:shrink-0 xl:border-l xl:border-line-soft xl:pl-8">

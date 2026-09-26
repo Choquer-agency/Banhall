@@ -82,9 +82,9 @@
       </div>
     </div>
   {:else}
-    <div data-home-continue-empty class="rounded-[9px] border border-line p-5">
-      <p class="text-[13px] font-medium leading-[18px] text-ink">Nothing to resume yet</p>
-      <p class="mt-1 text-xs leading-[18px] text-ink-muted">Open a project and it shows up here, ready to pick up where you left off.</p>
-    </div>
+    <!-- J7: no card, one quiet line until there is something to pick up. -->
+    <p data-home-continue-empty class="text-[13px] leading-5 text-ink-muted">
+      Nothing to pick up yet. The last project you worked on shows up here.
+    </p>
   {/if}
 </aside>
