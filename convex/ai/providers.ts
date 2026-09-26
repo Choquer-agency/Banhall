@@ -39,6 +39,8 @@ import { ActionTimeBudgetError, wasStoppedByDeadline } from "./actionDeadline";
 import { instrumentedOpenRouter } from "./openrouter";
 import {
   MalformedOutputError,
+  OutputLimitError,
+  isCutOffStopReason,
   type GenerationClient,
   type GenerationResponse,
 } from "./openrouterCore";
@@ -278,6 +280,9 @@ export function modelFaultCode(error: unknown): string | null {
   // unknown value, a missing OpenRouter key, a model without an OpenRouter
   // id. A missing ANTHROPIC_API_KEY on direct still counts, as before.
   if (isTransportConfigurationError(error)) return null;
+  // A cut-off is `output_limit` on both gateways: OpenRouter throws it
+  // inside the request (cutoff review P3-1).
+  if (error instanceof OutputLimitError) return "output_limit";
   if (error instanceof MalformedOutputError) return "malformed_output";
   const { code } = normalizeProviderError(error);
   return code === "output_limit" || code === "model_access" || code === "unknown"
@@ -419,7 +424,16 @@ async function recordedRequest<R extends { servedModel?: string; settleOutcome?:
     };
     return response;
   }
-  await recordOutcome(ctx, { model, callSite, outcome: "success" });
+  // A text answer cut off at the output limit is refused by its reader
+  // (requireTextResponse), so it is a failure, as the OpenRouter adapter
+  // already records it, never a success (cutoff review P3-1).
+  const stopReason = (response as { stop_reason?: string | null }).stop_reason;
+  await recordOutcome(
+    ctx,
+    isCutOffStopReason(stopReason)
+      ? { model, callSite, outcome: "failure", code: "output_limit" }
+      : { model, callSite, outcome: "success" }
+  );
   return response;
 }
 

@@ -321,3 +321,54 @@ test("a cut-off compression keeps the section it was given, on both gateways", a
   const usage = await t.run((ctx) => ctx.db.query("aiUsage").collect());
   expect(usage.map((row) => row.stopReason).sort()).toEqual(["length", "max_tokens"]);
 });
+
+test("a cut-off answer records the same output-limit failure on both gateways, text or tool (cutoff review P3-1)", async () => {
+  const t = convexTest(schema, modules);
+  const original = "The original, longer section text about seal fatigue.";
+  let openRouterCalls = 0;
+  vi.stubGlobal("fetch", vi.fn<typeof fetch>(async (input, init) => {
+    const request = new Request(input, init);
+    if (!request.url.startsWith("https://openrouter.ai/")) {
+      return anthropicMessage([{ type: "text", text: "The shorter sec" }], "max_tokens", 4096);
+    }
+    openRouterCalls += 1;
+    const body = (await request.json()) as { tools?: unknown[] };
+    if (!body.tools) {
+      return Response.json({
+        model: "openai/gpt-6-sol",
+        choices: [{ message: { content: "The shorter sec" }, finish_reason: "length" }],
+        usage: { prompt_tokens: 40, completion_tokens: 4096, cost: 0.001 },
+      });
+    }
+    return Response.json({
+      model: "openai/gpt-6-luna",
+      choices: [{
+        message: {
+          content: null,
+          tool_calls: [{ id: "call_synthetic", function: { name: options.toolName, arguments: '{"summary":"The seal fa' } }],
+        },
+        finish_reason: "length",
+      }],
+      usage: { prompt_tokens: 40, completion_tokens: 256, cost: 0.001 },
+    });
+  }));
+
+  await runAction(t, async (ctx) => {
+    const anthropic = withOutcomeRecording(ctx, "claude-sonnet-5", "cutoff-contract",
+      instrumentedAnthropic(ctx, { callSite: "cutoff-contract" }) as unknown as GenerationClient);
+    const openRouter = (model: string) => withOutcomeRecording(ctx, model, "cutoff-contract",
+      instrumentedOpenRouter(ctx, { callSite: "cutoff-contract" }));
+    await compressSection(anthropic, "claude-sonnet-5", "s242", original, "standard");
+    await compressSection(openRouter("openai/gpt-6-sol"), "openai/gpt-6-sol", "s242", original, "standard");
+    await generateStructured(openRouter("openai/gpt-6-luna"), { ...options, model: "openai/gpt-6-luna" }).catch(() => null);
+  });
+  await t.finishAllScheduledFunctions(vi.runAllTimers);
+
+  expect(openRouterCalls).toBe(3);
+  const buckets = await t.run((ctx) => ctx.db.query("modelCallBuckets").collect());
+  const byModel = Object.fromEntries(buckets.map((row) => [row.model, row]));
+  // Text: one failure each, never a success. Tool: both attempts cut.
+  expect(byModel["claude-sonnet-5"]).toMatchObject({ successes: 0, failures: 1, lastFailureCode: "output_limit" });
+  expect(byModel["openai/gpt-6-sol"]).toMatchObject({ successes: 0, failures: 1, lastFailureCode: "output_limit" });
+  expect(byModel["openai/gpt-6-luna"]).toMatchObject({ successes: 0, failures: 2, lastFailureCode: "output_limit" });
+});
