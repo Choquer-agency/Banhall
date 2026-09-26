@@ -80,6 +80,7 @@ describe("shared/notifications", () => {
     const all = [
       notificationCopy.ideasReady({ step: "Uncertainties", project: "Helios" }),
       notificationCopy.draftReady({ project: "Helios" }),
+      notificationCopy.draftReady({ project: "Helios", qaRunning: false }),
       notificationCopy.qaFinished({ project: "Helios", score: 86 }),
       notificationCopy.handoff({ project: "Helios", stage: "Internal review", name: "Ola Admin" }),
       notificationCopy.inviteAccepted({ name: "Rue Smith", role: "Manager" }),
@@ -87,6 +88,7 @@ describe("shared/notifications", () => {
     expect(all).toEqual([
       { title: "Ideas are ready for Uncertainties", body: "Helios. Opens the Plan tab on that step." },
       { title: "Your draft is ready", body: "Helios. QA is checking it." },
+      { title: "Your draft is ready", body: "Helios. Open it to read the draft." },
       { title: "QA finished", body: "Helios, score 86." },
       { title: "Helios is with you", body: "Internal review. Handed off by Ola Admin." },
       { title: "Rue Smith joined Banhall", body: "They accepted your invite as Manager." },

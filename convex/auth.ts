@@ -13,6 +13,7 @@ import authConfig from "./auth.config";
 import { normalizeEmail } from "./lib/email";
 import { notify } from "./lib/notify";
 import { ROLE_LABELS } from "../shared/roles";
+import { notificationCopy } from "../shared/notifications";
 import { customAuthCookiePrefix } from "../shared/authCookies";
 import {
   AUTH_CLIENT_IP_HEADER,
@@ -114,13 +115,16 @@ export const authComponent = createClient<DataModel>(components.betterAuth, {
           acceptedAt: now,
           acceptedUserId: userId,
         });
-        // Round 2 (I3): tell the inviter. Copy follows WS1's
-        // shared/notifications.ts proposal; switch to its builder on rebase.
+        // Round 2 (I3): tell the inviter.
+        const copy = notificationCopy.inviteAccepted({
+          name: `${firstName} ${lastName}`,
+          role: ROLE_LABELS[invite.role],
+        });
         await notify(ctx, {
           userId: invite.invitedBy,
           kind: "invite_accepted",
-          title: `${firstName} ${lastName} joined Banhall`,
-          body: `They accepted your invite as ${ROLE_LABELS[invite.role]}.`,
+          title: copy.title,
+          body: copy.body,
           href: "/team",
           dedupeKey: `invite_accepted:${invite._id}`,
         });

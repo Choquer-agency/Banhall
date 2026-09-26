@@ -459,6 +459,37 @@ describe("auth onCreate trigger", () => {
       role: "manager",
     });
     expect(invite).toMatchObject({ status: "accepted", acceptedUserId: user?._id });
+    // Round 2 (I3): the inviter hears about it, once.
+    const notifications = await s.t.run(async (ctx) =>
+      ctx.db.query("notifications").take(10),
+    );
+    expect(notifications).toHaveLength(1);
+    expect(notifications[0]).toMatchObject({
+      userId: s.adminId,
+      kind: "invite_accepted",
+      title: "Dana Lee joined Banhall",
+      body: "They accepted your invite as Manager.",
+      href: "/team",
+      dedupeKey: `invite_accepted:${inviteId}`,
+    });
+  });
+
+  test("skips the inviter's notification when they switched it off", async () => {
+    const s = await setup();
+    await s.t.run(async (ctx) =>
+      ctx.db.insert("notificationSettings", { userId: s.adminId, inviteAccepted: false }),
+    );
+    await insertInvite(s, { email: "quiet@banhall.com", token: "quiet" });
+    await s.t.mutation(api.invites.confirmInviteNames, {
+      token: "quiet",
+      firstName: "Quinn",
+      lastName: "Ito",
+    });
+    await s.t.mutation(internal.auth.onCreate, {
+      model: "user",
+      doc: { _id: "auth-quinn", email: "quiet@banhall.com", name: "Quinn Ito" },
+    });
+    expect(await s.t.run(async (ctx) => ctx.db.query("notifications").take(10))).toHaveLength(0);
   });
 
   test("refuses an invite whose names were never confirmed", async () => {

@@ -80,8 +80,13 @@ export const notificationCopy = {
       body: `${project}. Opens the Plan tab on that step.`,
     };
   },
-  draftReady({ project }: { project: string }): NotificationCopy {
-    return { title: "Your draft is ready", body: `${project}. QA is checking it.` };
+  /** "QA is checking it" only while a QA pass is running (a Single draft is
+   * scored during its run, so it has none to wait for). */
+  draftReady({ project, qaRunning = true }: { project: string; qaRunning?: boolean }): NotificationCopy {
+    return {
+      title: "Your draft is ready",
+      body: qaRunning ? `${project}. QA is checking it.` : `${project}. Open it to read the draft.`,
+    };
   },
   qaFinished({ project, score }: { project: string; score: number }): NotificationCopy {
     return { title: "QA finished", body: `${project}, score ${score}.` };

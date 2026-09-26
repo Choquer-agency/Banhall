@@ -12,6 +12,7 @@ import {
 import { MODEL } from "./ai/model";
 import { buildSeedPrompt, seedPromptProjection } from "./ai/trustedContext";
 import { domainError } from "./lib/contracts";
+import { notifyIdeasReady } from "./lib/generations/notifications";
 import { resolveGenerationStep } from "./lib/generationSteps";
 import { reconcileRestoredSeedApproval } from "./lib/seedDecisionWrites";
 import { checkSeedSpeakers, citationSpeakerReader } from "./lib/citationSpeakers";
@@ -1073,6 +1074,12 @@ export const completeAttempt = internalMutation({
       contextRevision: batch.consumedContextRevision,
       outcome: "shown",
     });
+    // Round 2 (WS3 F6): the writer who opened this step may have left the
+    // page. Only an `open` Batch notifies (never a prefetch); the dedupe key
+    // keeps it to the first one per step.
+    if (batch.operation === "open") {
+      await notifyIdeasReady(ctx, generation, batch.roleId);
+    }
     return { kind: "completed" as const, seeds: validation.seeds.length };
   },
 });

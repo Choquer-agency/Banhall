@@ -15,6 +15,7 @@ import {
   type RedraftState,
 } from "../../shared/generationTransitions";
 import { domainError } from "./contracts";
+import { notifyDraftReady, notifyQaFinished } from "./generations/notifications";
 
 /** Every writable field of a generation row except `status`, which only
  * `transitionGeneration` sets, `draftingInputs`, which only
@@ -116,6 +117,14 @@ export async function transitionGeneration(
 ): Promise<void> {
   assertGenerationWriteAllowed(generation, to, patch);
   await ctx.db.patch(generation._id, { ...patch, status: to });
+  // Round 2 (WS3 F6): the one ungated draft finished. Single and signed-off
+  // Step-by-step rows are the only flows that complete from `running`.
+  if (generation.status === "running" && to === "completed") {
+    const flow = generationFlowOf(generation);
+    if (flow === "single" || flow === "seed_drafting") {
+      await notifyDraftReady(ctx, generation);
+    }
+  }
 }
 
 /**
@@ -134,6 +143,13 @@ export async function transitionPostQa(
     refuse("postQa", generation, `${from} (status ${generation.status})`, to);
   }
   await ctx.db.patch(generation._id, { ...patch, postQaStatus: to });
+  // Round 2 (WS3 F6): tell the writer the scorecard is in.
+  if (to === "done") {
+    await notifyQaFinished(ctx, generation, {
+      score: patch.qaScore,
+      completedAt: patch.postQaCompletedAt ?? Date.now(),
+    });
+  }
 }
 
 /**
