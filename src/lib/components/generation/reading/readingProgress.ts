@@ -27,5 +27,13 @@ export function compactSource(label: string): string {
   return `${first}, line ${match[2]}`;
 }
 
-/** Opacity of the newest to the oldest card on screen. */
-export const FACT_OPACITIES = [1, 0.6, 0.3] as const;
+/**
+ * Opacity of the newest to the oldest card on screen, which also sets how
+ * many show: three on the desktop (F2) and the phone (H4), two on a tablet
+ * (H3). The phone and tablet boards fade to 55% and 25%.
+ */
+export function factOpacities(layout: "desktop" | "tablet" | "phone"): readonly number[] {
+  if (layout === "phone") return [1, 0.55, 0.25];
+  if (layout === "tablet") return [1, 0.55];
+  return [1, 0.6, 0.3];
+}

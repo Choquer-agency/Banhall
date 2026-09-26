@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { compactSource, factCountText, readingPercent } from "./readingProgress";
+import { compactSource, factCountText, factOpacities, readingPercent } from "./readingProgress";
 
 describe("readingPercent", () => {
   it("fills with time, holds at 95 until the Brief lands, then shows 100", () => {
@@ -26,5 +26,13 @@ describe("compactSource", () => {
     expect(compactSource("Priya Raman, line 18")).toBe("Priya, line 18");
     expect(compactSource("Call with Dana, line 12")).toBe("Call, line 12");
     expect(compactSource("Cedarline FY 2025 report, R4.pdf")).toBe("Cedarline FY 2025 repor...");
+  });
+});
+
+describe("factOpacities", () => {
+  it("shows three cards on the desktop and phone and two on a tablet, fading as the boards do", () => {
+    expect(factOpacities("desktop")).toEqual([1, 0.6, 0.3]);
+    expect(factOpacities("tablet")).toEqual([1, 0.55]);
+    expect(factOpacities("phone")).toEqual([1, 0.55, 0.25]);
   });
 });

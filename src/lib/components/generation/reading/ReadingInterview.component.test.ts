@@ -43,7 +43,13 @@ describe("ReadingInterview", () => {
     // Half of the expected time has passed: about 50%, never past 95.
     expect(Number(bar.getAttribute("aria-valuenow"))).toBeGreaterThanOrEqual(45);
     expect(Number(bar.getAttribute("aria-valuenow"))).toBeLessThanOrEqual(95);
-    expect(pill.style.boxShadow).toContain("0px 6px 24px");
+    // F2: the glow token, a 40px white pill with 9px and 16px padding.
+    expect(getComputedStyle(pill).boxShadow).toContain("0px 6px 24px");
+    const inner = pill.lastElementChild as HTMLElement;
+    expect(getComputedStyle(inner).height).toBe("40px");
+    expect(getComputedStyle(inner).paddingLeft).toBe("9px");
+    expect(getComputedStyle(inner).paddingRight).toBe("16px");
+    expect(getComputedStyle(inner).columnGap).toBe("10px");
 
     const cards = [...document.querySelectorAll<HTMLElement>("[data-reading-fact]")];
     expect(cards.map((card) => card.dataset.readingFact)).toEqual(["6", "5", "4"]);
@@ -58,6 +64,16 @@ describe("ReadingInterview", () => {
     expect(text(document.querySelector("[data-reading-note]"))).toBe(
       "You can leave this page. We will let you know when the first ideas are ready."
     );
+    // The board's bell (14px, stroke 1.6), not a stand-in icon.
+    const bell = document.querySelector("[data-reading-note] svg")!;
+    expect(bell.getAttribute("viewBox")).toBe("0 0 24 24");
+    expect(bell.getAttribute("width")).toBe("14");
+    expect(bell.getAttribute("stroke-width")).toBe("1.6");
+    expect(bell.querySelector("path")!.getAttribute("d")).toBe("M5 17h14l-2-3V9a5 5 0 0 0-10 0v5Z M10 21h4");
+    const chip = getComputedStyle(cards[0].querySelector("[data-reading-chip]")!);
+    expect(chip.color).toBe("rgb(8, 122, 117)");
+    expect(chip.borderRadius).toBe("5px");
+    expect(chip.fontSize).toBe("11px");
     expect(document.body.textContent).not.toMatch(/[‐-―·]/);
   });
 
@@ -117,14 +133,25 @@ describe("ReadingInterview", () => {
     __setQueryData("seeds:getReadingFacts", view());
     const onCancel = vi.fn();
     const tablet = await render(ReadingInterview, { generationId: GENERATION, layout: "tablet", canEdit: true, onCancel });
-    expect(document.querySelectorAll("[data-reading-fact]")).toHaveLength(2);
+    const tabletCards = [...document.querySelectorAll<HTMLElement>("[data-reading-fact]")];
+    expect(tabletCards).toHaveLength(2);
+    await expect.poll(() => tabletCards.map((card) => getComputedStyle(card).opacity)).toEqual(["1", "0.55"]);
+    // H3: pill and cards 12px apart.
+    expect(getComputedStyle(document.querySelector<HTMLElement>("[data-reading-interview] > div")!).rowGap).toBe("12px");
     expect(document.querySelector("[data-reading-bottom]")).toBeNull();
     tablet.unmount();
 
     await render(ReadingInterview, { generationId: GENERATION, layout: "phone", canEdit: true, onCancel });
     expect(text(document.querySelector("[data-reading-count]"))).toBe("6 facts");
-    expect(document.querySelectorAll("[data-reading-fact]")).toHaveLength(2);
-    expect(text(document.querySelector('[data-reading-fact="4"] [data-reading-source]'))).toBe("");
+    // H4: three cards fading to 55% and 25%, 40px from the top, 16px margins.
+    const phoneCards = [...document.querySelectorAll<HTMLElement>("[data-reading-fact]")];
+    expect(phoneCards).toHaveLength(3);
+    await expect.poll(() => phoneCards.map((card) => getComputedStyle(card).opacity)).toEqual(["1", "0.55", "0.25"]);
+    const content = getComputedStyle(document.querySelector<HTMLElement>("[data-reading-interview] > div")!);
+    expect(content.paddingTop).toBe("40px");
+    expect(content.paddingLeft).toBe("16px");
+    expect(content.justifyContent).toBe("normal");
+    expect(text(document.querySelector('[data-reading-fact="4"] [data-reading-source]'))).toBe("Follow-up, line 12");
     expect(text(document.querySelector('[data-reading-fact="5"] [data-reading-source]'))).toBe("Priya, line 64");
     const bottom = document.querySelector<HTMLElement>("[data-reading-bottom]")!;
     expect(text(bottom)).toContain("You can leave. We will notify you when ideas are ready.");
@@ -132,6 +159,9 @@ describe("ReadingInterview", () => {
     const cancel = bottom.querySelector<HTMLButtonElement>("[data-reading-cancel]")!;
     expect(getComputedStyle(cancel).backgroundColor).toBe("rgb(254, 226, 226)");
     expect(getComputedStyle(cancel).height).toBe("44px");
+    expect(getComputedStyle(cancel).color).toBe("rgb(185, 28, 28)");
+    expect(getComputedStyle(cancel).fontSize).toBe("15px");
+    expect(getComputedStyle(cancel).borderRadius).toBe("8px");
     cancel.click();
     expect(onCancel).toHaveBeenCalledTimes(1);
   });
@@ -144,16 +174,34 @@ describe("ReadingInterview", () => {
 });
 
 describe("ReadingInterview when reading failed (F6)", () => {
-  it("replaces the reading with the danger box, Try again and Back to project", async () => {
+  it("replaces the reading with the danger box, Back to project and Try again", async () => {
     __setQueryData("seeds:getReadingFacts", view());
     const onBack = vi.fn();
     await render(ReadingInterview, { generationId: GENERATION, failed: true, canEdit: true, onBack });
-    const box = document.querySelector<HTMLElement>("[data-reading-failed] [data-status-callout]")!;
-    expect(box.dataset.statusCallout).toBe("danger");
+    const box = document.querySelector<HTMLElement>("[data-reading-failed] [data-reading-failed-box]")!;
+    expect(box.getAttribute("role")).toBe("alert");
     expect(text(box)).toContain("We could not read the transcripts");
     expect(text(box)).toContain("Your files are still here. Try again, or cancel to change them.");
     expect(document.querySelector("[data-reading-pill]")).toBeNull();
+    // F6: red surface, #FECACA hairline, radius 12, 14px padding, 10px gap.
+    const style = getComputedStyle(box);
+    expect(style.backgroundColor).toBe("rgb(254, 242, 242)");
+    expect(style.borderTopColor).toBe("rgb(254, 202, 202)");
+    expect(style.borderRadius).toBe("12px");
+    expect(style.padding).toBe("14px");
+    expect(style.columnGap).toBe("10px");
+    const icon = box.querySelector("svg")!;
+    expect(icon.getAttribute("width")).toBe("18");
+    expect(icon.querySelector("path")!.getAttribute("d")).toBe("M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18Z M12 7.5V13 M12 16.3v.2");
+    expect(getComputedStyle(box.querySelector("[data-reading-failed-body]")!).color).toBe("rgba(153, 27, 27, 0.8)");
     const buttons = [...box.querySelectorAll("button")];
+    // Back to project first (soft red), then Try again (solid red), 28px.
+    expect(buttons.map((button) => text(button))).toEqual(["Back to project", "Try again"]);
+    expect(getComputedStyle(buttons[0]).backgroundColor).toBe("rgb(254, 226, 226)");
+    expect(getComputedStyle(buttons[0]).color).toBe("rgb(153, 27, 27)");
+    expect(getComputedStyle(buttons[1]).backgroundColor).toBe("rgb(220, 38, 38)");
+    expect(getComputedStyle(buttons[1]).height).toBe("28px");
+    expect(getComputedStyle(buttons[1]).borderRadius).toBe("6px");
     buttons.find((button) => text(button) === "Try again")!.click();
     await expect.poll(() => __mutationCalls("generations:retryInitializeSeedStage")).toEqual([{ generationId: "generation-1" }]);
     buttons.find((button) => text(button) === "Back to project")!.click();

@@ -1532,7 +1532,7 @@ describe("Seed Summary Review", () => {
       expect(getComputedStyle(dialog.element() as HTMLElement).borderRadius).toBe("16px");
       // Near-black fir scrim over the Summary.
       const scrim = document.querySelector<HTMLElement>("[data-signoff-scrim]")!;
-      expect(scrim.className).toContain("bg-[#010505]/75");
+      expect(getComputedStyle(scrim).backgroundColor).toBe("rgba(1, 5, 5, 0.75)");
       expect(getComputedStyle(scrim).position).toBe("fixed");
       expect(__mutationCalls("generations:signOffSeedStage")).toEqual([]);
 

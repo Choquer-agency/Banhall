@@ -1927,6 +1927,7 @@
       onToggleRail={() => (railHidden = !railHidden)}
       onOpenNavigation={() => (navigationOpen = true)}
       moreItems={topBarMoreItems}
+      flush={showReadingInterview}
     >
       {#snippet leading()}
         {#if showIntakeWorkbench && !contextOpen}
@@ -2010,14 +2011,16 @@
       {/snippet}
       {#snippet actions()}
         {#if (showIterativeStepper || showSeedWorkspace || showReadingInterview) && (!isSeedWorkflow || generation?.seedCanEdit)}
-          <!-- Seed stage and Reading the interview (round 2, F2): the one
-               top-bar cancel, the filled destructive button. While drafting
-               after sign-off the writing pill's Stop is the only cancel. On a
-               phone the reading screen carries it at the bottom (H4). -->
+          <!-- Seed stage and Reading the interview (round 2, F2 to F5): the
+               one top-bar cancel, the filled destructive button, 36px with
+               14px sides on F2 and 16px on F3 to F5, 32px on a tablet (H3).
+               While drafting after sign-off the writing pill's Stop is the
+               only cancel. On a phone the reading screen carries it at the
+               bottom (H4). -->
           <Button
             variant="destructive-soft"
             size="sm"
-            class={`h-9 px-3.5! py-0! ${showReadingInterview ? "max-sm:hidden" : ""}`}
+            class={`h-9 py-0! ${showReadingInterview ? "px-3.5! max-sm:hidden sm:max-xl:h-8" : "px-4!"}`}
             data-top-bar-cancel-generation
             onclick={() => (confirmCancelIterative = true)}
           >
@@ -2073,7 +2076,9 @@
       data-project-card
       data-work-panel
       class={`mx-3 mb-3 flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border ${
-        showReadingInterview ? "border-line-soft bg-canvas" : "border-workspace-rail-line bg-surface"
+        showReadingInterview
+          ? "border-line-soft bg-reading-panel max-xl:mx-0 max-xl:mb-0 max-xl:rounded-none max-xl:border-0"
+          : "border-line-soft bg-surface"
       }`}
     >
       {#if showReadingInterview && generation}

@@ -52,9 +52,28 @@ describe("NotificationToaster (I3, F6 card)", () => {
     // AI kinds carry the Aurora mark; a handoff does not.
     expect(cards()[1].querySelector("[data-ai-mark]")).not.toBeNull();
     expect(cards()[0].querySelector("[data-ai-mark]")).toBeNull();
-    const box = cards()[0];
-    expect(getComputedStyle(box).borderRadius).toBe("12px");
-    expect(getComputedStyle(box).padding).toBe("16px");
+    // F6 "If the writer left the page": white, radius 12, line-soft
+    // hairline, 14px padding, 10px gap, the 22px sparkle mark, a 14px 500
+    // title and a 13px muted line.
+    const box = cards()[1];
+    const style = getComputedStyle(box);
+    expect(style.borderRadius).toBe("12px");
+    expect(style.padding).toBe("14px");
+    expect(style.columnGap).toBe("10px");
+    expect(style.backgroundColor).toBe("rgb(255, 255, 255)");
+    expect(style.borderTopColor).toBe("rgb(233, 240, 239)");
+    const mark = box.querySelector<HTMLElement>("[data-ai-mark]")!;
+    expect(mark.dataset.aiMarkGlyph).toBe("sparkle");
+    expect(mark.getBoundingClientRect().width).toBe(22);
+    const title = getComputedStyle(box.querySelector("[data-notification-title]")!);
+    expect(title.fontSize).toBe("14px");
+    expect(title.lineHeight).toBe("20px");
+    expect(title.fontWeight).toBe("500");
+    const body = getComputedStyle(box.querySelector("[data-notification-body]")!);
+    expect(body.fontSize).toBe("13px");
+    expect(body.color).toBe("rgb(107, 127, 123)");
+    // The close button carries the board's close glyph.
+    expect(box.querySelector("[data-notification-close] svg path")!.getAttribute("d")).toBe("M18 6 6 18M6 6l12 12");
     const section = document.querySelector<HTMLElement>("[data-notification-toaster]")!.getBoundingClientRect();
     expect(Math.round(window.innerWidth - section.right)).toBe(16);
   });

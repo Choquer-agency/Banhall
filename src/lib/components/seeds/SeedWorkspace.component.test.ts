@@ -3185,10 +3185,10 @@ describe("Seed plan final UI (ui-design-final.md sections 3 and 11)", () => {
     expect(getComputedStyle(activeLabel).fontSize).toBe("13px");
     expect(getComputedStyle(activeLabel).fontWeight).toBe("500");
     expect(Math.round(active.querySelector<HTMLElement>("[data-row-icon]")!.getBoundingClientRect().width)).toBe(14);
-    // An approved step reads in full ink; an untouched one in secondary ink.
+    // An approved step and an untouched one both read in secondary ink (F5).
     const approved = nav.querySelector<HTMLElement>('button[data-row-state="approved"] .truncate')!;
     const untouched = nav.querySelector<HTMLElement>('button[data-row-state="untouched"] .truncate')!;
-    expect(getComputedStyle(approved).color).toBe("rgb(22, 33, 31)");
+    expect(getComputedStyle(approved).color).toBe("rgb(79, 97, 93)");
     expect(getComputedStyle(untouched).color).toBe("rgb(79, 97, 93)");
     expect(getComputedStyle(nav.querySelector<HTMLElement>(":scope > p")!).fontSize).toBe("11px");
     expect(Math.round(view.container.querySelector<HTMLElement>('[aria-label="Seed outline"] > header')!.getBoundingClientRect().height)).toBe(48);
@@ -3576,7 +3576,14 @@ describe("seed-step progress (F3, F5)", () => {
     const ring = first()!.querySelector<HTMLElement>('[data-row-icon="writing"]')!;
     expect(Number(ring.dataset.rowPercent)).toBeGreaterThanOrEqual(49);
     expect(ring.getAttribute("style")).toContain("conic-gradient(");
-    expect(ring.getAttribute("style")).toContain("#8438FF");
+    expect(ring.getAttribute("style")).toContain("var(--color-aurora-violet)");
+    // F3: a 14px ring around a 9px wash, the percent at 11px in muted ink.
+    expect(ring.getBoundingClientRect().width).toBe(14);
+    expect(ring.firstElementChild!.getBoundingClientRect().width).toBe(9);
+    const percent = getComputedStyle(first()!.querySelector("[data-row-progress]")!);
+    expect(percent.fontSize).toBe("11px");
+    expect(percent.lineHeight).toBe("14px");
+    expect(percent.color).toBe("rgb(107, 127, 123)");
     expect(textOf(first()!.querySelector("[data-row-progress]"))).toMatch(/^\d+%$/);
     // The other rows keep their icons.
     expect(document.querySelectorAll('[data-row-icon="writing"]')).toHaveLength(1);
@@ -3678,5 +3685,119 @@ describe("ideas ready, Mod Enter and the step deep link (F4, I4, F6)", () => {
     await expect
       .poll(() => __activeQueryArgs("seeds:getSubsection"))
       .toContainEqual({ generationId, roleId: PD_SUBSECTIONS[0].roleId });
+  });
+});
+
+describe("board match (F3 to F5)", () => {
+  const PATHS = {
+    more: "M6 12h.01 M12 12h.01 M18 12h.01",
+    info: "M12 16v-4M12 8h.01",
+    pencil: "M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z",
+    comment: "M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z",
+    check: "M20 6 9 17l-5-5",
+  };
+
+  it("draws the F3 skeletons, progress row spacing and the board's header icons", async () => {
+    const now = Date.now();
+    await render(
+      SeedSubsectionPane,
+      paneProps(
+        subsection({
+          items: [],
+          shownBatchId: null,
+          pendingBatchId: "batch-pending" as Id<"seedBatches">,
+          pendingBatch: { status: "running", queuedAt: now - 5_000, startedAt: now - 5_000 },
+          state: "generating",
+        }),
+        { expectedMs: 20_000 }
+      )
+    );
+    expect(getComputedStyle(document.querySelector("[data-seed-progress]")!).marginBottom).toBe("16px");
+    const grid = getComputedStyle(document.querySelector("[data-seed-skeletons]")!);
+    expect(grid.columnGap).toBe("16px");
+    expect(grid.rowGap).toBe("16px");
+    const chip = document.querySelector<HTMLElement>("[data-seed-skeleton-chip]")!;
+    expect(chip.getBoundingClientRect().width).toBe(84);
+    expect(getComputedStyle(chip).backgroundColor).toBe("rgb(238, 243, 242)");
+    const lines = [...document.querySelectorAll<HTMLElement>("[data-seed-skeleton]")[0].querySelectorAll<HTMLElement>("[data-seed-skeleton-line]")];
+    expect(lines.map((line) => line.style.width)).toEqual(["92%", "76%", "60%"]);
+    expect(getComputedStyle(lines[0]).backgroundColor).toBe("rgb(232, 238, 237)");
+    expect(getComputedStyle(lines[0]).borderRadius).toBe("5px");
+    // The hint uses the board's info icon, the More menu the board's dots.
+    expect(document.querySelector("[data-step-helper] svg path")!.getAttribute("d")).toBe(PATHS.info);
+    expect(document.querySelector("[data-step-more-trigger] svg path")!.getAttribute("d")).toBe(PATHS.more);
+    // The objective runs the width of the pane (F4), no reading cap.
+    expect(getComputedStyle(document.querySelector("[data-step-objective]")!).maxWidth).toBe("none");
+  });
+
+  it("marks an approved step with the fir disc and 9px check, in secondary ink (F5)", async () => {
+    const rows = outline().rows.map((row, index) => (index === 0 ? { ...row, state: "approved" } : row));
+    __setQueryData("seeds:getOutline", { ...outline(), rows });
+    __setQueryData("seeds:getSubsection", subsection({ roleId: PD_SUBSECTIONS[1].roleId }));
+    await render(SeedWorkspace, workspaceProps({ requestedRoleId: PD_SUBSECTIONS[1].roleId }));
+    const approved = () =>
+      document.querySelector<HTMLElement>('nav[aria-label="PD subsections"] button[data-row-state="approved"]');
+    await expect.poll(() => approved()).not.toBeNull();
+    const icon = approved()!.querySelector<HTMLElement>('[data-row-icon="approved"] > span')!;
+    expect(getComputedStyle(icon).backgroundColor).toBe("rgb(10, 58, 56)");
+    const tick = icon.querySelector("svg")!;
+    expect(tick.getAttribute("width")).toBe("9");
+    expect(tick.getAttribute("stroke-width")).toBe("3.6");
+    expect(tick.querySelector("path")!.getAttribute("d")).toBe(PATHS.check);
+    const title = approved()!.querySelector<HTMLElement>("span.truncate")!;
+    expect(getComputedStyle(title).color).toBe("rgb(79, 97, 93)");
+  });
+
+  it("gives seed cards the board's pencil and comment tools and the selected fill token (F4)", async () => {
+    await render(
+      SeedSubsectionPane,
+      paneProps(subsection({ items: [seed({ selected: false }), seed({ seedId: "seed-2" as Id<"seeds">, selected: true })] }))
+    );
+    const [open, selected] = [...document.querySelectorAll<HTMLElement>("[data-seed-id]")];
+    expect(open.querySelector('[aria-label="Edit"] svg path')!.getAttribute("d")).toBe(PATHS.pencil);
+    expect(open.querySelector('[aria-label="Give feedback"] svg path')!.getAttribute("d")).toBe(PATHS.comment);
+    const edit = open.querySelector<HTMLElement>('[aria-label="Edit"]')!;
+    expect(edit.getBoundingClientRect().width).toBe(28);
+    expect(getComputedStyle(edit).borderRadius).toBe("7px");
+    expect(getComputedStyle(open).borderRadius).toBe("10px");
+    expect(getComputedStyle(open).borderTopColor).toBe("rgb(218, 229, 227)");
+    expect(getComputedStyle(selected).backgroundColor).toBe("rgb(247, 252, 251)");
+    // The Technical tag comes from the seed-tag tokens.
+    const tag = getComputedStyle(open.querySelector("[data-seed-tag]")!);
+    expect(tag.backgroundColor).toBe("rgb(213, 243, 241)");
+    expect(tag.color).toBe("rgb(8, 122, 117)");
+  });
+
+  it("places the ideas-ready toast 20px from the pane's right edge and 18px from its foot (F4)", async () => {
+    const pending = subsection({
+      items: [],
+      shownBatchId: null,
+      pendingBatchId: "batch-new" as Id<"seedBatches">,
+      pendingBatch: { status: "running", queuedAt: Date.now(), startedAt: Date.now() },
+      state: "generating",
+    });
+    __setQueryData("seeds:getOutline", outline());
+    __setQueryData("seeds:getSubsection", pending);
+    await render(SeedWorkspace, workspaceProps());
+    await expect.poll(() => document.querySelector("[data-seed-skeletons]")).not.toBeNull();
+    __setQueryData(
+      "seeds:getSubsection",
+      subsection({ items: twoSeeds(), shownBatchId: "batch-new" as Id<"seedBatches">, pendingBatchId: null, pendingBatch: null })
+    );
+    await expect.poll(() => document.querySelector("[data-ideas-ready-host]")).not.toBeNull();
+    const host = getComputedStyle(document.querySelector("[data-ideas-ready-host]")!);
+    expect(host.right).toBe("20px");
+    expect(host.bottom).toBe("18px");
+    const toast = document.querySelector<HTMLElement>("[data-ideas-ready-toast]")!;
+    const title = getComputedStyle(toast.querySelector("p")!);
+    expect(title.fontSize).toBe("12px");
+    expect(title.lineHeight).toBe("17px");
+    expect(title.fontWeight).toBe("500");
+    const body = getComputedStyle(toast.querySelectorAll("p")[1]);
+    expect(body.fontSize).toBe("11px");
+    expect(body.lineHeight).toBe("15px");
+    expect(body.color).toBe("rgb(184, 201, 198)");
+    expect(toast.querySelector<HTMLElement>('[data-ai-mark="aurora"]')!.getBoundingClientRect().width).toBe(18);
+    expect(toast.querySelector('button[aria-label="Dismiss"] svg path')!.getAttribute("d")).toBe("M18 6 6 18M6 6l12 12");
   });
 });

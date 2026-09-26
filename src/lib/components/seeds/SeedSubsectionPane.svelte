@@ -2,7 +2,7 @@
   import { onDestroy, untrack, type Snippet } from "svelte";
   import { useConvexClient, useMutation } from "convex-svelte";
   import { DropdownMenu } from "bits-ui";
-  import { DotsThreeIcon } from "phosphor-svelte";
+  import { IconInfo, IconMore, IconRegenerate } from "$lib/components/icons";
   import type { Id } from "../../../../convex/_generated/dataModel";
   import { PD_SUBSECTIONS, type PdSubsectionRoleId } from "../../../../shared/pdSubsections";
   import { userErrorCode, userErrorMessage } from "$lib/errors";
@@ -676,7 +676,7 @@
 {/snippet}
 
 {#snippet regenerateIcon()}
-  <svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7L3 8" /><path d="M3 3v5h5" /></svg>
+  <IconRegenerate size={14} strokeWidth={1.8} />
 {/snippet}
 
 <!-- The pane is its own size container: 16px gutters on a phone, 24px beside
@@ -733,7 +733,7 @@
                   data-step-more-trigger
                   class={`inline-flex size-9 items-center justify-center rounded-lg text-ink-secondary transition-colors hover:bg-chrome hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary pointer-coarse:size-11 ${compact ? "-my-3" : ""} ${moreOpen ? "bg-chrome text-ink" : ""}`}
                 >
-                  <DotsThreeIcon size={18} weight="bold" aria-hidden="true" />
+                  <IconMore size={16} />
                 </DropdownMenu.Trigger>
               {/snippet}
             </Tooltip>
@@ -789,7 +789,7 @@
             compact ? "text-[20px] leading-[26px]" : "text-[24px] leading-[30px]"
           }`}
         >{stepHeadingTitle(title)}</h2>
-        <p class={`max-w-3xl text-ink-muted ${compact ? "text-[12px] leading-[17px]" : "text-[13px] leading-[19px]"}`}>{objective}</p>
+        <p class={`text-ink-muted ${compact ? "text-[12px] leading-[17px]" : "text-[13px] leading-[19px]"}`} data-step-objective>{objective}</p>
       </div>
       <p
         class={`flex gap-2 text-ink-secondary ${
@@ -797,7 +797,7 @@
         }`}
         data-step-helper
       >
-        <svg class={`size-3.5 shrink-0 ${compact ? "mt-0.5 text-primary" : "text-primary-selected"}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="M12 16v-4M12 8h.01" /></svg>
+        <IconInfo size={14} strokeWidth={1.8} class={`shrink-0 ${compact ? "mt-0.5 text-primary" : "text-primary-selected"}`} />
         <span class="min-w-0">
           {#if data.state === "skipped"}
             This step is skipped. Restore it from the More menu to pick seeds.
@@ -886,7 +886,7 @@
       {/if}
       {#if data.pendingBatchId && pendingProgress}
         <!-- Round 2 (F3, F5): the step's progress row, an estimate. -->
-        <div class="mb-3 flex flex-wrap items-center gap-x-4 gap-y-2" data-seed-progress>
+        <div class="mb-4 flex flex-wrap items-center gap-x-4 gap-y-2" data-seed-progress>
           <div class="flex min-w-0 flex-1 items-center gap-2.5">
             <AuroraMark size={20} />
             <p class="min-w-0 text-[13px] leading-[18px] text-ink-secondary" data-seed-progress-line aria-live="polite">
@@ -919,16 +919,18 @@
             {/if}
           </div>
         {:else if data.items.length === 0 && data.pendingBatchId}
-          <!-- Four skeleton cards while the step's ideas are written (F3). -->
-          <div class={`grid gap-2.5 ${twoColumns ? "grid-cols-[repeat(2,minmax(0,412px))]" : "grid-cols-1"}`} aria-hidden="true" data-seed-skeletons>
+          <!-- Four skeleton cards while the step's ideas are written (F3):
+               two columns 16px apart, 84 and 64px chips, lines at 92, 76
+               and 60%. -->
+          <div class={`grid gap-4 ${twoColumns ? "grid-cols-[repeat(2,minmax(0,412px))]" : "grid-cols-1"}`} aria-hidden="true" data-seed-skeletons>
             {#each [0, 1, 2, 3] as index (index)}
               <div class="flex h-[170px] flex-col gap-3 rounded-xl border border-line-soft bg-surface p-4" data-seed-skeleton>
-                <div class="flex gap-2">
-                  <span class="h-5 w-20 rounded-[5px]" style="background:var(--skeleton-line)"></span>
-                  <span class="h-5 w-14 rounded-[5px]" style="background:var(--skeleton-line)"></span>
+                <div class="flex gap-1.5">
+                  <span class="h-5 w-[84px] rounded-[5px] bg-skeleton-chip" data-seed-skeleton-chip></span>
+                  <span class="h-5 w-16 rounded-[5px] bg-skeleton-chip"></span>
                 </div>
-                {#each ["100%", "92%", "64%"] as width (width)}
-                  <span class="h-2.5 rounded-full" style={`width:${width};background:var(--skeleton-line)`}></span>
+                {#each ["92%", "76%", "60%"] as width (width)}
+                  <span class="h-2.5 rounded-[5px] bg-skeleton-line" style={`width:${width}`} data-seed-skeleton-line></span>
                 {/each}
               </div>
             {/each}

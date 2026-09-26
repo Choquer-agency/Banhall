@@ -13,7 +13,7 @@
     percent,
     progressLabel,
     valueText,
-    shadow = "var(--shadow-toast-soft), 0 0 14px #8438FF29",
+    shadow = "var(--shadow-writing-pill)",
     innerClass = "h-[42px] gap-3 pl-3 pr-[5px]",
     element = $bindable(null),
     class: className = "",

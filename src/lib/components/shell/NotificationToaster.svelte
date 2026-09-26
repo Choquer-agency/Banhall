@@ -5,12 +5,17 @@
    * Clicking a card opens its page and marks it seen; closing marks it seen.
    * A notification about the page the person is already on is marked seen
    * without showing. In-app only: email waits for a provider (decision 54).
+   *
+   * The card is F6's "If the writer left the page": white, radius 12, a
+   * line-soft hairline, 14px padding and 10px gap, the 22px AI mark for AI
+   * kinds, a 14px 500 title and a 13px muted line. As a floating card it
+   * keeps the menu shadow and a close button, which the board does not draw.
    */
   import { goto } from "$app/navigation";
   import { page } from "$app/state";
   import { useMutation, useQuery } from "convex-svelte";
   import { useAuth } from "@mmailaender/convex-better-auth-svelte/svelte";
-  import { XIcon } from "phosphor-svelte";
+  import { IconClose } from "$lib/components/icons";
   import { round2Api } from "../../../../convex/lib/round2Api";
   import type { Id } from "../../../../convex/_generated/dataModel";
   import { isAiNotificationKind } from "../../../../shared/notifications";
@@ -81,10 +86,10 @@
       <div
         data-notification={row.kind}
         role="status"
-        class="pointer-events-auto relative flex gap-3 rounded-xl border border-line bg-surface p-4 shadow-menu"
+        class="pointer-events-auto relative flex gap-2.5 rounded-xl border border-line-soft bg-surface p-3.5 shadow-menu"
       >
         {#if isAiNotificationKind(row.kind)}
-          <AuroraMark size={28} glyph="check" />
+          <AuroraMark size={22} />
         {/if}
         <button
           type="button"
@@ -92,9 +97,9 @@
           onclick={() => open(row)}
           class="min-w-0 flex-1 rounded-md pr-6 text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-fir"
         >
-          <span class="block text-[15px] font-medium leading-5 text-ink">{row.title}</span>
+          <span class="block text-sm leading-5 font-medium text-ink" data-notification-title>{row.title}</span>
           {#if row.body}
-            <span class="mt-0.5 block text-[13px] leading-[18px] text-ink-muted">{row.body}</span>
+            <span class="mt-0.5 block text-[13px] leading-[18px] text-ink-muted" data-notification-body>{row.body}</span>
           {/if}
         </button>
         <button
@@ -104,7 +109,7 @@
           onclick={() => void markSeen([row._id])}
           class="absolute right-2 top-2 flex size-7 items-center justify-center rounded-md text-ink-muted transition-colors hover:bg-chrome hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir motion-reduce:transition-none pointer-coarse:size-11"
         >
-          <XIcon size={14} aria-hidden="true" />
+          <IconClose size={14} strokeWidth={1.8} />
         </button>
       </div>
     {/each}

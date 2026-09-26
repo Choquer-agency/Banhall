@@ -1,10 +1,14 @@
 <!--
-  Project top bar (ui-design-final.md section 2): page icon, "Projects /"
-  breadcrumb and the project title (the route's single h1) on the left; on
-  the right the bell, then the page actions. On a phone (board 3.6) it is a
-  back chevron, the title and the More menu. Tools the screens do not show
-  (AI review, Share, Compare, History, Financial) sit in a More menu
-  (decision 19).
+  Project top bar (ui-design-final.md section 2; round 2 boards F2 to F5):
+  the 26px page icon tile, "Projects /" and the project title (the route's
+  single h1) on the left, 10px apart; on the right the bell, then the page
+  actions. On a phone (H4) it is a back arrow, the title and the More menu.
+  Tools the screens do not show (AI review, Share, Compare, History,
+  Financial) sit in a More menu (decision 19).
+
+  `flush` (Reading the interview, H3 and H4): below 1280px the panel under
+  the bar is flush, so the bar becomes a white strip with a hairline; on a
+  tablet it drops the page tile and the bell, as H3 draws it.
 -->
 <script lang="ts" module>
   export type TopBarMoreItem = {
@@ -19,7 +23,8 @@
 <script lang="ts">
   import type { Snippet } from "svelte";
   import { DropdownMenu } from "bits-ui";
-  import { BellIcon, CaretLeftIcon, DotsThreeIcon, DotsThreeVerticalIcon, FileTextIcon } from "phosphor-svelte";
+  import { IconArrowLeft, IconBell, IconDocument, IconMore } from "$lib/components/icons";
+  import PageIconTile from "$lib/components/shell/PageIconTile.svelte";
   import { resolve } from "$app/paths";
   import { useQuery } from "convex-svelte";
   import { useAuth } from "@mmailaender/convex-better-auth-svelte/svelte";
@@ -36,6 +41,7 @@
     status,
     actions,
     moreItems = [],
+    flush = false,
   }: {
     title: string;
     projectsHref: string;
@@ -49,24 +55,28 @@
     /** Page actions after the bell (Export, Send for review, Cancel generation). */
     actions?: Snippet;
     moreItems?: TopBarMoreItem[];
+    /** The panel below is flush under 1280px (H3, H4). */
+    flush?: boolean;
   } = $props();
 
   const auth = useAuth();
   const unseenQ = useQuery(api.changelog.unseenCount, () => (auth.isAuthenticated ? {} : "skip"));
   const unseen = $derived(unseenQ.data ?? 0);
 
+  // Board F2: 36px icon buttons, radius 7; 44px on a phone (H4) and on
+  // coarse pointers.
   const iconButton =
-    "flex size-8 shrink-0 items-center justify-center rounded-lg text-ink-secondary transition-colors hover:bg-primary-wash hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir data-[state=open]:bg-primary-wash pointer-coarse:size-11";
+    "flex size-9 shrink-0 items-center justify-center rounded-[7px] text-ink-secondary transition-colors hover:bg-primary-wash hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir data-[state=open]:bg-primary-wash pointer-coarse:size-11";
 </script>
 
 {#snippet moreMenu(placement: "desktop" | "phone")}
   <DropdownMenu.Root>
-    <DropdownMenu.Trigger aria-label="More actions" class={`${iconButton} ${placement === "phone" ? "sm:hidden" : "max-sm:hidden"}`} data-top-bar-more={placement}>
-      {#if placement === "phone"}
-        <DotsThreeVerticalIcon size={18} weight="bold" aria-hidden="true" />
-      {:else}
-        <DotsThreeIcon size={18} weight="bold" aria-hidden="true" />
-      {/if}
+    <DropdownMenu.Trigger
+      aria-label="More actions"
+      class={`${iconButton} ${placement === "phone" ? "size-11! text-ink! sm:hidden" : "max-sm:hidden"}`}
+      data-top-bar-more={placement}
+    >
+      <IconMore size={placement === "phone" ? 18 : 16} />
     </DropdownMenu.Trigger>
     <DropdownMenu.Portal>
       <DropdownMenu.Content
@@ -98,16 +108,22 @@
   </DropdownMenu.Root>
 {/snippet}
 
-<header data-workspace-page-header class="flex h-14 shrink-0 items-center gap-2 px-3 sm:px-5">
-  <!-- Phone (board 3.6): a back chevron to Projects replaces the menu button
-       and the breadcrumb; from 640px the workspace controls return. -->
+<header
+  data-workspace-page-header
+  data-top-bar-flush={flush || undefined}
+  class={`flex shrink-0 items-center gap-2 px-2 max-sm:h-[52px] sm:h-14 sm:gap-2.5 sm:px-5 ${
+    flush ? "max-xl:border-b max-xl:border-line-soft max-xl:bg-surface" : ""
+  }`}
+>
+  <!-- Phone (H4): a back arrow to Projects replaces the menu button and the
+       breadcrumb; from 640px the workspace controls return. -->
   <a
     href={projectsHref}
     aria-label="Back to projects"
     data-top-bar-back
-    class="-ml-2 flex size-11 shrink-0 items-center justify-center rounded-lg text-ink-secondary transition-colors hover:bg-primary-wash hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir motion-reduce:transition-none sm:hidden"
+    class="flex size-11 shrink-0 items-center justify-center rounded-lg text-ink transition-colors hover:bg-primary-wash focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir motion-reduce:transition-none sm:hidden"
   >
-    <CaretLeftIcon size={18} aria-hidden="true" />
+    <IconArrowLeft size={20} strokeWidth={1.8} />
   </a>
   <div class="contents max-sm:hidden">
     <WorkspaceShellControls
@@ -118,30 +134,30 @@
     />
   </div>
   {@render leading?.()}
-  <div class="flex min-w-0 flex-1 items-center gap-2 text-sm">
-    <!-- Round 2 top bars: the page icon sits on a 26px tile. -->
-    <span data-page-icon-tile class="flex size-[26px] shrink-0 items-center justify-center rounded-sm bg-workspace-page-icon max-sm:hidden" aria-hidden="true">
-      <FileTextIcon size={15} class="text-primary-selected" />
+  <div class="flex min-w-0 flex-1 items-center gap-2.5 text-sm leading-5">
+    <!-- Round 2 top bars: the document icon on the 26px page tile. -->
+    <PageIconTile icon={IconDocument} class={`max-sm:hidden ${flush ? "max-xl:hidden" : ""}`} />
+    <span class="shrink-0 text-ink-muted max-sm:hidden" data-top-bar-breadcrumb>
+      <a href={projectsHref} class="rounded-sm transition-colors hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir">Projects</a>
+      <span aria-hidden="true">/</span>
     </span>
-    <a href={projectsHref} class="shrink-0 text-ink-muted transition-colors hover:text-ink max-sm:hidden">Projects</a>
-    <span aria-hidden="true" class="text-ink-faint max-sm:hidden">/</span>
-    <h1 data-project-heading class="min-w-0 truncate text-sm font-medium text-ink">{title}</h1>
+    <h1 data-project-heading class="min-w-0 truncate font-medium text-ink max-sm:text-base max-sm:leading-[22px]">{title}</h1>
   </div>
-  <div class="flex shrink-0 items-center gap-2">
+  <div class="flex shrink-0 items-center gap-2.5">
     {@render status?.()}
     <a
       href={resolve("/changelog")}
       data-top-bar-bell
       aria-label={unseen > 0 ? `Notifications, ${unseen} new update${unseen === 1 ? "" : "s"}` : "Notifications"}
-      class={`relative max-sm:hidden ${iconButton}`}
+      class={`relative max-sm:hidden ${flush ? "max-xl:hidden" : ""} ${iconButton}`}
     >
-      <BellIcon size={17} aria-hidden="true" />
+      <IconBell size={16} strokeWidth={1.5} />
       {#if unseen > 0}
-        <span aria-hidden="true" class="absolute right-1.5 top-1.5 size-1.5 rounded-full bg-primary"></span>
+        <span aria-hidden="true" data-top-bar-bell-dot class="absolute top-2 right-[9px] size-1.5 rounded-full bg-primary"></span>
       {/if}
     </a>
     <!-- Desktop keeps Send for review at the right edge (board 2.1); the
-         phone puts a vertical kebab at the far right (board 3.6). Each sits
+         phone puts the More dots at the far right (H4). Each sits
          in the markup where it shows, so tab order matches the eye; the
          other is display:none. -->
     {#if moreItems.length > 0}

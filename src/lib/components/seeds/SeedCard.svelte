@@ -1,7 +1,7 @@
 <script lang="ts">
   import { tick, type Snippet } from "svelte";
   import { DropdownMenu, Popover } from "bits-ui";
-  import { CheckIcon, QuotesIcon, XIcon } from "phosphor-svelte";
+  import { IconCheck, IconClose, IconComment, IconPencil, IconQuote, IconRegenerate } from "$lib/components/icons";
   import Checkbox from "$lib/components/ui/Checkbox.svelte";
   import Button from "$lib/components/ui/Button.svelte";
   import Tooltip from "$lib/components/ui/Tooltip.svelte";
@@ -350,13 +350,6 @@
   {/if}
 {/snippet}
 
-{#snippet pencilIcon()}
-  <svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z" /></svg>
-{/snippet}
-
-{#snippet revertIcon(className: string, strokeWidth: number)}
-  <svg class={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width={strokeWidth} stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7L3 8" /><path d="M3 3v5h5" /></svg>
-{/snippet}
 
 {#snippet tools(placement: "tags" | "foot")}
   <div
@@ -374,7 +367,7 @@
           <Tooltip text="Quoted lines">
             {#snippet children({ props: tipProps })}
               <Popover.Trigger {...tipProps} aria-label={`Quoted lines (${item.provenance.length})`} class={tile}>
-                <QuotesIcon size={14} aria-hidden="true" />
+                <IconQuote size={14} strokeWidth={1.7} />
               </Popover.Trigger>
             {/snippet}
           </Tooltip>
@@ -438,7 +431,7 @@
               class="inline-flex size-7 items-center justify-center rounded-[7px] bg-action-primary text-white transition-colors hover:bg-action-primary-hover focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary disabled:pointer-events-none disabled:opacity-50 pointer-coarse:size-11"
               disabled={savingEdit || !edit?.bulletOne.trim() || editStale}
               onclick={saveEdit}
-            ><CheckIcon size={14} weight="bold" aria-hidden="true" /></button>
+            ><IconCheck size={14} strokeWidth={2.2} /></button>
           {/snippet}
         </Tooltip>
         <Tooltip text="Cancel (Esc)">
@@ -449,14 +442,14 @@
               aria-label="Cancel editing"
               class="inline-flex size-7 items-center justify-center rounded-[7px] border border-line text-ink-secondary transition-colors hover:bg-gray-50 hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary pointer-coarse:size-11"
               onclick={() => publishEdit(null)}
-            ><XIcon size={13} aria-hidden="true" /></button>
+            ><IconClose size={13} strokeWidth={1.8} /></button>
           {/snippet}
         </Tooltip>
       {:else if canEdit}
         <Tooltip text="Edit">
           {#snippet children({ props })}
             <button {...props} type="button" aria-label="Edit" class={tile} disabled={busy} onclick={beginEdit}>
-              {@render pencilIcon()}
+              <IconPencil size={14} strokeWidth={1.7} />
             </button>
           {/snippet}
         </Tooltip>
@@ -470,7 +463,7 @@
                 disabled={busy}
                 class={`${tile} ${feedbackMenuOpen ? "bg-gray-50 text-ink" : ""}`}
               >
-                <svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" /></svg>
+                <IconComment size={14} strokeWidth={1.7} />
               </DropdownMenu.Trigger>
             {/snippet}
           </Tooltip>
@@ -529,7 +522,7 @@
     editing
       ? "border-primary bg-surface ring-2 ring-primary-wash"
       : item.selected
-        ? "border-primary-light bg-[#F7FCFB]"
+        ? "border-primary-light bg-seed-selected"
         : "border-line bg-surface"
   }`}
   data-seed-id={item.seedId}
@@ -626,7 +619,7 @@
                       class="-mt-px inline-flex size-[22px] shrink-0 items-center justify-center rounded-[5px] text-ink-secondary transition-colors hover:bg-gray-50 hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary disabled:pointer-events-none disabled:opacity-50 pointer-coarse:size-11"
                       disabled={busy}
                       onclick={onRestore}
-                    >{@render revertIcon("size-[13px]", 1.8)}</button>
+                    ><IconRegenerate size={13} strokeWidth={1.8} /></button>
                   {/snippet}
                 </Tooltip>
               {/if}

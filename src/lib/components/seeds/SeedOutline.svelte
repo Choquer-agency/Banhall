@@ -3,6 +3,7 @@
   import type { PdSubsectionRoleId } from "../../../../shared/pdSubsections";
   import type { SeedOutlineRow } from "./types";
   import { seedProgress } from "./seedProgress";
+  import { IconCheck } from "$lib/components/icons";
 
   let {
     rows,
@@ -32,9 +33,11 @@
     return seedProgress(now, { status: "running", queuedAt: startedAt, startedAt }, expectedMs).percent;
   }
 
+  // Boards F3 and F5: the AI gradient runs over the filled part (a third
+  // and two thirds of the way along), then the grey track.
   function ringStyle(percent: number) {
     const p = Math.max(2, percent);
-    return `background:conic-gradient(#2FD2C4 0%, #58BBF3 ${p * 0.35}%, #8438FF ${p * 0.72}%, #E879F9 ${p}%, var(--aurora-track) ${p}%, var(--aurora-track) 100%)`;
+    return `background:conic-gradient(var(--color-aurora-teal) 0%, var(--color-aurora-blue) ${p * 0.35}%, var(--color-aurora-violet) ${p * 0.7}%, var(--color-aurora-pink) ${p}%, var(--aurora-track) ${p}%, var(--aurora-track) 100%)`;
   }
 
   const sections: Array<{ id: SeedOutlineRow["section"]; label: string }> = [
@@ -110,11 +113,11 @@
 </script>
 
 {#snippet stateIcon(kind: RowIcon, active: boolean)}
-  <!-- 14px state marks (board 3.1): hairline rings in --color-line, a filled
-       lagoon disc with a white check once approved. -->
+  <!-- 14px state marks (board 3.1, F4, F5): hairline rings in --color-line,
+       a fir disc with the board's 9px white check once approved (F5). -->
   <span class="inline-flex size-3.5 shrink-0 items-center justify-center" aria-hidden="true" data-row-icon={kind}>
     {#if kind === "approved"}
-      <svg viewBox="0 0 14 14" class="size-3.5"><circle cx="7" cy="7" r="7" fill="var(--color-primary)" /><path d="M4.67 7 6.33 8.67 9.67 5.33" fill="none" stroke="white" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" /></svg>
+      <span class="flex size-3.5 items-center justify-center rounded-full bg-fir text-surface"><IconCheck size={9} strokeWidth={3.6} /></span>
     {:else if kind === "open"}
       <svg viewBox="0 0 14 14" class="size-3.5"><circle cx="7" cy="7" r="6.25" fill="none" stroke={active ? "var(--color-primary)" : "var(--color-gray-400)"} stroke-width="1.5" /><circle cx="7" cy="7" r="3" fill={active ? "var(--color-primary)" : "var(--color-gray-400)"} /></svg>
     {:else if kind === "optional"}
@@ -176,7 +179,7 @@
           {#if writing !== null}
             <!-- Round 2 (F3, F5): a conic ring filled to the estimate. -->
             <span class="relative inline-flex size-3.5 shrink-0 items-center justify-center rounded-full" style={ringStyle(writing)} aria-hidden="true" data-row-icon="writing" data-row-percent={writing}>
-              <span class="size-2.5 rounded-full bg-primary-wash"></span>
+              <span class="size-[9px] rounded-full bg-primary-wash"></span>
             </span>
           {:else}
             {@render stateIcon(kind, active)}
@@ -187,14 +190,12 @@
                 ? "font-medium text-ink"
                 : row.state === "skipped"
                   ? "text-ink-faint"
-                  : row.state === "approved"
-                    ? "text-ink"
-                    : "text-ink-secondary"
+                  : "text-ink-secondary"
             }`}
           >{row.title}</span>
           <span class="sr-only">, {stateText(row)}</span>
           {#if writing !== null}
-            <span class="shrink-0 text-xs leading-4 text-ink-muted" data-row-progress>{writing}%</span>
+            <span class="shrink-0 pr-1 text-[11px] leading-[14px] text-ink-muted" data-row-progress>{writing}%</span>
           {:else if row.stale || row.outdated}
             <span class="inline-flex shrink-0 items-center gap-1 text-[11px] leading-[14px] text-gap-text!" aria-hidden="true" data-row-marker={row.stale ? "stale" : "outdated"}>
               <span class="size-1.5 rounded-full bg-stale-dot"></span>{row.stale ? "stale" : "outdated"}

@@ -63,7 +63,7 @@
       {#snippet child({ props, open: isOpen })}
         {#if isOpen}
           <!-- Near-black fir scrim over the Summary. -->
-          <div {...props} transition:overlayFade data-signoff-scrim class="fixed inset-0 z-[110] bg-[#010505]/75"></div>
+          <div {...props} transition:overlayFade data-signoff-scrim class="fixed inset-0 z-[110] bg-signoff-scrim"></div>
         {/if}
       {/snippet}
     </Dialog.Overlay>

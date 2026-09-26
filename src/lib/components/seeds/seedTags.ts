@@ -1,17 +1,17 @@
 /**
- * Seed tag pills (ui-design-final.md section 1, "Seed tag palette"). The
- * palette is a fixed contract palette, so its hex values live here and
- * nowhere else in the plan.
+ * Seed tag pills (ui-design-final.md section 1, "Seed tag palette"; board
+ * F4). Each tag is a fill and an ink from the design tokens: the status
+ * families where the colours match, and the seed-tag tokens otherwise.
  */
 export type SeedTagStyle = { label: string; background: string; color: string };
 
 const TAGS: Record<string, SeedTagStyle> = {
-  conservative: { label: "Conservative", background: "#DCFCE7", color: "#15803D" },
-  aggressive: { label: "Aggressive", background: "#FEE2E2", color: "#B91C1C" },
-  high_level: { label: "High-level", background: "#EFF6FF", color: "#1447E6" },
-  detailed: { label: "Detailed", background: "#FAF5FF", color: "#7E22CE" },
-  technical: { label: "Technical", background: "#D5F3F1", color: "#087A75" },
-  alternative_angle: { label: "Alternative angle", background: "#FFFBEB", color: "#B45309" },
+  conservative: { label: "Conservative", background: "var(--color-success-soft)", color: "var(--color-success-ink-muted)" },
+  aggressive: { label: "Aggressive", background: "var(--color-danger-soft)", color: "var(--color-danger-ink-muted)" },
+  high_level: { label: "High-level", background: "var(--color-seed-tag-high-level)", color: "var(--color-seed-tag-high-level-ink)" },
+  detailed: { label: "Detailed", background: "var(--color-seed-tag-detailed)", color: "var(--color-seed-tag-detailed-ink)" },
+  technical: { label: "Technical", background: "var(--color-seed-tag-technical)", color: "var(--color-primary-selected)" },
+  alternative_angle: { label: "Alternative angle", background: "var(--color-warning-surface)", color: "var(--color-warning-ink-muted)" },
 };
 
 /** A tag outside the palette keeps its own name on the neutral chrome fill. */
@@ -23,4 +23,4 @@ export function seedTagStyle(tag: string): SeedTagStyle {
 export const MAX_CARD_TAGS = 2;
 
 /** The green "Approved" chip reuses the Conservative pair. */
-export const APPROVED_CHIP = { background: "#DCFCE7", color: "#15803D" } as const;
+export const APPROVED_CHIP = { background: "var(--color-success-soft)", color: "var(--color-success-ink-muted)" } as const;

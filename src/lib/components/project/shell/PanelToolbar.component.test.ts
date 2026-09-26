@@ -34,6 +34,11 @@ describe("PanelToolbar", () => {
     // Boards 2.1 and 2.2 draw a hairline on each side of Details.
     expect(order).toEqual(["full-width", "divider", "details", "divider", "assistant", "qa"]);
     expect(document.querySelector('[data-panel-toggle="assistant"] [data-ai-mark="aurora"]')).not.toBeNull();
+    // Boards F3 to F5: Details is the board's info circle (r 10), 16px at stroke 1.5.
+    const info = document.querySelector('[data-panel-toggle="details"] svg')!;
+    expect(info.getAttribute("width")).toBe("16");
+    expect(info.getAttribute("stroke-width")).toBe("1.5");
+    expect(info.querySelector("circle")?.getAttribute("r")).toBe("10");
   });
 
   it("marks the active tab with ink text and a 2px primary-selected underline", async () => {

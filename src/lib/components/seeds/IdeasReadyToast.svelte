@@ -4,11 +4,13 @@
    * toast at the bottom right: the AI mark, "{n} ideas are ready" and what
    * to do next. It leaves after 5 seconds (paused while hovered or
    * focused); under reduced motion it appears and leaves without animation.
-   * It uses the shell's one dark toast surface (`toast` tokens, D5).
+   * It uses the shell's one dark toast surface (`toast` tokens, D5). The
+   * board has no close button; the dismiss stays so a keyboard user can
+   * clear a timed toast.
    */
   import { onDestroy, untrack } from "svelte";
   import { fly } from "svelte/transition";
-  import { XIcon } from "phosphor-svelte";
+  import { IconClose } from "$lib/components/icons";
   import AuroraMark from "$lib/components/ui/AuroraMark.svelte";
 
   let {
@@ -62,6 +64,6 @@
     onclick={onClose}
     class="-my-1 flex size-6 shrink-0 items-center justify-center rounded-md text-toast-muted transition-colors hover:bg-white/10 hover:text-toast-ink focus-visible:outline-2 focus-visible:outline-white pointer-coarse:size-11"
   >
-    <XIcon size={12} aria-hidden="true" />
+    <IconClose size={12} strokeWidth={1.8} />
   </button>
 </div>

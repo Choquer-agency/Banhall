@@ -1007,9 +1007,70 @@ describe("Seed project hosts", () => {
     expect(panel.hasAttribute("data-work-panel")).toBe(true);
     expect(document.querySelector("[data-page-icon-tile]")).not.toBeNull();
     const cancel = document.querySelector<HTMLButtonElement>("[data-top-bar-cancel-generation]")!;
-    expect(getComputedStyle(cancel).backgroundColor).toBe("rgb(254, 226, 226)");
+    // F2: 36px, 14px sides, radius 8, 14px 500 in the destructive red.
+    const cancelStyle = getComputedStyle(cancel);
+    expect(cancelStyle.backgroundColor).toBe("rgb(254, 226, 226)");
+    expect(cancelStyle.color).toBe("rgb(185, 28, 28)");
+    expect(cancelStyle.height).toBe("36px");
+    expect(cancelStyle.paddingLeft).toBe("14px");
+    expect(cancelStyle.borderRadius).toBe("8px");
+    expect(cancelStyle.fontSize).toBe("14px");
+    expect(cancelStyle.fontWeight).toBe("500");
+    // The panel: canvas, line-soft hairline, radius 12, 12px from the frame.
+    const panelStyle = getComputedStyle(panel);
+    expect(panelStyle.backgroundColor).toBe("rgb(249, 252, 251)");
+    expect(panelStyle.borderTopColor).toBe("rgb(233, 240, 239)");
+    expect(panelStyle.borderRadius).toBe("12px");
+    expect(panelStyle.marginLeft).toBe("12px");
     cancel.click();
     await expect.element(browserPage.getByText("Cancel this generation?", { exact: true })).toBeVisible();
+  });
+
+  it("reads the interview flush on a tablet and a phone (H3, H4)", async () => {
+    __setQueryData("generations:getLatestGeneration", {
+      _id: "generation-seed-host",
+      status: "running",
+      candidateMode: "iterative",
+      gatedWorkflow: "seeds",
+      seedPhase: "initializing",
+      seedStageVersion: 0,
+      summaryVersionId: null,
+      seedCanEdit: true,
+    });
+    __setQueryData("seeds:getReadingFacts", {
+      count: 2,
+      latest: [
+        { seq: 2, chip: "Fact", quote: "The loop held at peak load.", sourceLabel: "Priya, line 9" },
+        { seq: 1, chip: "Storyline", quote: "We could not predict flow.", sourceLabel: "Priya, line 4" },
+      ],
+      startedAt: Date.now(),
+      expectedMs: 45_000,
+      done: false,
+    });
+    await browserPage.viewport(1024, 768);
+    await render(PreviewProjectPage, {});
+    await expect.element(browserPage.getByText("2 facts found so far", { exact: true })).toBeVisible();
+    const header = document.querySelector<HTMLElement>("[data-workspace-page-header]")!;
+    const panel = document.querySelector<HTMLElement>("[data-project-card]")!;
+    const hidden = (element: Element | null) => element === null || getComputedStyle(element).display === "none";
+    // H3: a white bar with a hairline, no page tile or bell, a 32px cancel,
+    // and the reading screen flush under it.
+    await expect.poll(() => getComputedStyle(header).backgroundColor).toBe("rgb(255, 255, 255)");
+    expect(getComputedStyle(header).borderBottomColor).toBe("rgb(233, 240, 239)");
+    expect(getComputedStyle(header).borderBottomWidth).toBe("1px");
+    expect(hidden(header.querySelector("[data-page-icon-tile]"))).toBe(true);
+    expect(hidden(header.querySelector("[data-top-bar-bell]"))).toBe(true);
+    expect(getComputedStyle(document.querySelector("[data-top-bar-cancel-generation]")!).height).toBe("32px");
+    expect(getComputedStyle(panel).marginLeft).toBe("0px");
+    expect(getComputedStyle(panel).borderTopWidth).toBe("0px");
+    expect(getComputedStyle(panel).borderRadius).toBe("0px");
+
+    // H4: the 52px bar, the top-bar cancel gives way to the bottom one.
+    await browserPage.viewport(390, 844);
+    await expect.poll(() => getComputedStyle(header).height).toBe("52px");
+    expect(hidden(document.querySelector("[data-top-bar-cancel-generation]"))).toBe(true);
+    await expect.element(browserPage.getByText("You can leave. We will notify you when ideas are ready.", { exact: true })).toBeVisible();
+    expect(getComputedStyle(header.querySelector("h1")!).fontSize).toBe("16px");
   });
 
   it("keeps an explicit legacy sections generation on the section stepper", async () => {

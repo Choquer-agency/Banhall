@@ -143,6 +143,23 @@ describe("PreviewProjectPage final shell", () => {
     expect(header.querySelector("h1")?.textContent).toBe("Adaptive cold storage controls");
     expect(header.textContent).toContain("Projects");
     expect(header.querySelector("[data-top-bar-bell]")).not.toBeNull();
+    // Round 2 top bar (F2): 10px apart, the 26px tile (radius 6, page icon
+    // fill) with the board's document icon, "Projects /" in muted ink, and
+    // the 36px bell (radius 7) with the board's bell.
+    expect(getComputedStyle(header).columnGap).toBe("10px");
+    const tile = header.querySelector<HTMLElement>("[data-page-icon-tile]")!;
+    expect(tile.getBoundingClientRect().width).toBe(26);
+    expect(getComputedStyle(tile).borderRadius).toBe("6px");
+    expect(getComputedStyle(tile).backgroundColor).toBe("rgb(227, 244, 241)");
+    expect(tile.querySelector("svg path")!.getAttribute("d")).toBe("M6 3h8l4 4v14H6z M14 3v4h4 M9 12h6M9 16h6");
+    expect(tile.querySelector("svg")!.getAttribute("stroke-width")).toBe("1.8");
+    const crumb = header.querySelector<HTMLElement>("[data-top-bar-breadcrumb]")!;
+    expect(crumb.textContent?.replace(/\s+/g, " ").trim()).toBe("Projects /");
+    expect(getComputedStyle(crumb).color).toBe("rgb(107, 127, 123)");
+    const bell = header.querySelector<HTMLElement>("[data-top-bar-bell]")!;
+    expect(bell.getBoundingClientRect().width).toBe(36);
+    expect(getComputedStyle(bell).borderRadius).toBe("7px");
+    expect(bell.querySelector("svg path")!.getAttribute("d")).toBe("M5 17h14l-2-3V9a5 5 0 0 0-10 0v5Z M10 21h4");
     const exportButton = page.getByRole("button", { name: "Export .docx", exact: true }).element() as HTMLElement;
     expect(exportButton.className).toContain("bg-chrome");
     expect(page.getByRole("button", { name: "Send for review", exact: true }).elements()).toHaveLength(1);
@@ -182,7 +199,16 @@ describe("PreviewProjectPage final shell", () => {
     expect(back.element().tagName).toBe("A");
     const breadcrumb = Array.from(header.querySelectorAll("a")).find((link) => link.textContent?.trim() === "Projects")!;
     expect(back.element().getAttribute("href")).toBe(breadcrumb.getAttribute("href"));
-    expect(getComputedStyle(breadcrumb).display).toBe("none");
+    expect(getComputedStyle(header.querySelector("[data-top-bar-breadcrumb]")!).display).toBe("none");
+    // H4: a 52px bar, the board's 20px back arrow in ink and the More dots.
+    expect(getComputedStyle(header).height).toBe("52px");
+    const arrow = back.element().querySelector("svg")!;
+    expect(arrow.getAttribute("width")).toBe("20");
+    expect(arrow.querySelector("path")!.getAttribute("d")).toBe("M19 12H5 M11 6l-6 6 6 6");
+    expect(getComputedStyle(back.element()).color).toBe("rgb(22, 33, 31)");
+    const phoneMore = header.querySelector<HTMLElement>('[data-top-bar-more="phone"]')!;
+    expect(phoneMore.querySelector("svg path")!.getAttribute("d")).toBe("M6 12h.01 M12 12h.01 M18 12h.01");
+    expect(phoneMore.getBoundingClientRect().width).toBe(44);
     // Board 3.6: back chevron, title, More. The menu button, breadcrumb and bell step aside.
     const hidden = (element: Element | null) => element === null || getComputedStyle(element).display === "none";
     expect(hidden(header.querySelector('button[aria-label="Open workspace navigation"]')?.parentElement ?? null)).toBe(true);

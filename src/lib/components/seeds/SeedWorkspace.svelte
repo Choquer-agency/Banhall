@@ -1165,7 +1165,8 @@
             {/key}
           </div>
           {#if ideasReady}
-            <div class="pointer-events-none absolute right-6 bottom-6 z-20 max-sm:right-4 max-sm:bottom-24" data-ideas-ready-host>
+            <!-- F4: 20px from the panel's right edge and 18px from its foot. -->
+            <div class="pointer-events-none absolute right-5 bottom-[18px] z-20 max-sm:right-4 max-sm:bottom-24" data-ideas-ready-host>
               <div class="pointer-events-auto">
                 {#key ideasReady.key}
                   <IdeasReadyToast count={ideasReady.count} onClose={() => (ideasReady = null)} />

@@ -25,7 +25,8 @@
 
 <script lang="ts">
   import type { Snippet } from "svelte";
-  import { ArrowsHorizontalIcon, CheckIcon, InfoIcon } from "phosphor-svelte";
+  import { ArrowsHorizontalIcon, CheckIcon } from "phosphor-svelte";
+  import { IconInfoWide } from "$lib/components/icons";
   import AuroraMark from "$lib/components/ui/AuroraMark.svelte";
   import Tooltip from "$lib/components/ui/Tooltip.svelte";
 
@@ -139,7 +140,7 @@
         onclick={onToggleDetails}
         class={toggleClass(detailsActive)}
       >
-        <InfoIcon size={16} aria-hidden="true" />
+        <IconInfoWide size={16} strokeWidth={1.5} />
       </button>
       {@render detailsPeek?.()}
       <!-- Boards 2.1 and 2.2: a hairline between Details and the AI toggles. -->
