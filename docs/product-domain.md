@@ -2561,6 +2561,44 @@ Calls made by the lead from the round 2 specs (`HANDOFF-banhall-files/round2/spe
 - **Settings and profiles (decision 58).** Writing preferences (I2) belongs with the people and profile work. Its Preview writes a short sample with and without the writer's preferences on the `planning` role's model, with a daily cap of 20 previews per user. The returning-user sign-in (J3, J4) remembers the last account after a session expires, not after an explicit sign-out, and "Use another account" forgets it. House rules takes B3's page frame only; its content (six waivable categories, governance modes, read-only banned words) is unchanged this round. F6 "Back to project" opens the project page.
 - **Approval:** lead decisions 53 to 58, 2026-09-26, under the owner's delegation; decision 47 remains the owner's.
 
+### 2026-09-26 (third): Round 2 shell
+
+Lead decisions, owner delegated, 2026-09-26. Records what WS1 built under decision 53; no workflow stage, transition or permission is added.
+
+- **Frame.** Every round 2 page has the 56px top bar (page icon tile, title or "Parent /" breadcrumb, bell, page actions) and an inset white work panel that owns the vertical scroll. The panel carries `data-work-panel`, the one hook the View as frame uses; Home and the project page carry it too.
+- **View as is presentation only.** Developers only (the real flag, never the viewed role). The choice lives in `sessionStorage`, so it is scoped to one tab, and sign-out clears it. It changes the rail and the page gates in the browser (a gated page shows the "hidden in this view" state); server access and data never change.
+- **In-app notifications.** Five kinds: ideas ready, draft ready, QA finished, handed off to you, invite accepted. `convex/lib/notify.ts` is the one writer: it skips a recipient who is not an active internal user, a kind the person switched off (per-user switches, absent means on) and a repeated dedupe key. Ideas ready fires when a step's first `open` Batch is shown (never a prefetch); draft ready when a Single or signed-off Step-by-step generation completes from `running` (its body says "QA is checking it" only while a QA pass is running); QA finished when a post-QA pass is done with a score; handed off on a work item handoff; invite accepted from the sign-up trigger. Each is written in the mutation that makes the move. Notifications are deleted with their project, pruned after 30 days by a daily cron, and the toaster reads the last 7 days. There is no email delivery while D6 is open (decisions 50 and 54).
+- **Profile photo.** `users.imageStorageId` is optional and listed for the storage sweep; 5 MB, image types only (decision 54).
+- **Admin landing.** `/admin` redirects to House rules.
+- **Sign out everywhere.** It revokes every Better Auth session for the person. Other devices can keep working for up to about 15 minutes, because a Convex token already issued stays valid until it expires. The confirm copy follows the board and does not say this; the PR does.
+- **Activity and account memory.** The shell sends `team.markActive` on mount and on window focus, at most every 5 minutes per tab, and refreshes the returning-user name (fourth amendment). An explicit sign-out forgets the last account (decision 58).
+- **Approval:** lead, 2026-09-26, under the owner's delegation.
+
+### 2026-09-26 (fourth): Team, invites and profiles
+
+Lead decisions, owner delegated, 2026-09-26. Records what WS2 built under decisions 47, 48, 50, 51, 54, 55 and 58.
+
+- **Team capabilities.** `team.view` and `invites.manage` belong to Managers and Admins. `canManageInvite` keeps inviting, resending, revoking and re-roling an Admin invite behind `roles.manage` (Admin). Team's member list returns nothing to anyone without `team.view`.
+- **Invite fields.** `invites.firstName` and `lastName` are optional; new optional `sentAt`, `resendCount`, `revokedAt` and `revokedBy`. Every reader handles missing names. Invites last 7 days (`INVITE_TTL_MS`).
+- **Invite lookup states.** The token lookup answers pending, expired or unavailable (revoked, replaced and used links read as unavailable). The expired state discloses the inviter's name and email so the invitee can ask for a new link (J6 mailto); the pending state shows the inviter's name, the role and the join-by date.
+- **Names at acceptance.** The invitee confirms or enters first and last name through the token before sign-up (`confirmInviteNames`); the sign-up trigger takes the names from the invite and refuses an account without both.
+- **Last active.** A `userActivity` row per user, written by `team.markActive` at most once per 5 minutes, keeps the heartbeat off the `users` row.
+- **Returning-user memory.** The browser keeps the last account's email and name in `localStorage` for up to 180 days after a session expires; an explicit sign-out and "Use another account" forget it (decision 58). On a shared computer the next person sees that name and email until they choose "Use another account".
+- **Home.** J7 retires the "Recently edited" fallback and its subscription (decision 55).
+- **Writing preferences.** `writerProfiles.coverage` stores the analysis result only while the analysed text is still the saved text, and is cleared when the text changes. The Preview (`previewMyStyle`) runs on the `planning` role's model, is cached by a hash of everything that shapes the sample (the house-style sample is shared), and allows 20 new previews per person per firm day; cache hits do not count. `writerStylePreviews` records who asked so the cap can be counted.
+- **Approval:** lead, 2026-09-26, under the owner's delegation; decision 47 remains the owner's.
+
+### 2026-09-26 (fifth): Round 2 start flow
+
+Lead decisions, owner delegated, 2026-09-26. Records what WS3 built under decisions 52, 56 and 57.
+
+- **Leave-out lists.** Files unticked in the start or confirm dialog are left out of that run, both at reservation and at PD review start (`excludeDocumentIds`, `excludeTranscriptIds`, at most 250 of each; another project's ids are refused and deleted ids ignored). The lists are stored on the generation and the review so retries keep them, and the previous-year and readable-source rules run on what remains.
+- **Brief streaming.** During Step-by-step startup only, the Brief request gains `stream: true`. Its entries become display-only reading facts (`generationReadingFacts`), erased with the project and never used as generation input. Single draft and Compare are unchanged, and the pinned request hashes still hold once the one stream field is removed.
+- **Models in the dialogs.** The start dialogs show the planning, picked and PD review models (decision 52). Timing gap: the dialog shows today's role models, but a generation freezes its models at reservation. If an admin switches a role's model between the dialog opening and the writer confirming, the run uses the new model, not the one shown.
+- **A run already going.** A `GENERATION_ACTIVE` refusal carries user-safe details (who started it, its mode, when it started), and `generations.getActiveRunSummary` returns the same before confirming.
+- **Duplicate projects.** The same-project check (`projects.findSameProject`) is a read for internal users only; it never blocks, it offers "Open that project" or "It is a different project" (E6).
+- **Approval:** lead, 2026-09-26, under the owner's delegation.
+
 ## Amendment process
 
 A change to vocabulary, an invariant, a transition edge, or a decision above requires:
