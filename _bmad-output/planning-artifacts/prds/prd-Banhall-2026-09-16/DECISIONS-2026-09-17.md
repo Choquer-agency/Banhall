@@ -82,4 +82,10 @@ Decisions 36 to 42 below were made by the lead on 2026-09-25: the owner delegate
 
 The lead also made three counting calls for automatic model rollback on 2026-09-25, under the same delegation. A retry refused because the provider's Retry-After wait (about 520 s or more) could not fit even a fresh action counts: that is not the action time limit's doing (decision 37 still excludes the rest). An answer cut off at the output limit counts only when it makes its step fail: section drafts, structured calls and science code suggestions. A cut-off compression, repair, Brain context blurb, feedback summary or changelog summary records nothing, the same on both gateways. A roster near miss (a name that matches a staff member's first name but not the whole name) only leans toward interviewer at 0.6, below the 0.7 threshold, so the model decides. Applied in fix/p3-sweep, 82005dfd and fix/cutoff-count; the domain notes are in `docs/product-domain.md`.
 
+## Owner decision, 2026-09-25 (later)
+
+| # | Question (plain terms) | Answer | Applied in |
+|---|---|---|---|
+| 43 | Which model runs each step of a report? | **The model the writer picks writes the report** (Section drafts, repairs, compression, redrafts). Helper steps need not use it: a `planning` role runs the analysis, the Brief and the seed cards, and a `checking` role runs the Self-check, consistency, QA and chronology. Both default to Sonnet 5, are frozen per generation, can be reassigned on `/admin/models` and do not switch on their own yet. Compression turns thinking off. | `docs/product-domain.md` (fifth note of 2026-09-25); branch `fix/model-routing`. |
+
 Still waiting on the owner: the OpenRouter account steps before `ANTHROPIC_TRANSPORT` is switched on (see decision 30).

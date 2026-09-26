@@ -10,6 +10,10 @@ import {
   UNKNOWN_MODEL_GATEWAY,
 } from "../../shared/generationModels";
 import { MODEL_ROLES, ROLE_POLICIES } from "../../shared/modelCatalog";
+import {
+  GENERATION_STEP_POLICY,
+  GENERATION_STEP_POLICY_VERSION,
+} from "../lib/generationSteps";
 import type { ActionCtx } from "../_generated/server";
 import type { Id } from "../_generated/dataModel";
 import type { ModelFreeze } from "../lib/modelCatalogValidators";
@@ -288,7 +292,13 @@ export function projectFrozenModels(freeze: ModelFreeze) {
       };
     })
     .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
-  return { entries, roles: freeze.roles };
+  // Owner decision 43: only a freeze with step routing carries its version,
+  // so every version hashed before it existed stays the same.
+  return {
+    entries,
+    roles: freeze.roles,
+    ...(freeze.stepPolicyVersion !== undefined ? { stepPolicyVersion: freeze.stepPolicyVersion } : {}),
+  };
 }
 
 const seedRolePromptProgram = PD_SUBSECTIONS.map((role) => ({
@@ -469,14 +479,20 @@ export const generationPromptProgram = {
       contextBudget: DEFAULT_CONTEXT_BUDGET,
       request: ANALYZER_REQUEST,
       schema: ANALYSIS_SCHEMA,
-      // Compare entry analysis is independent of candidate pair order.
-      // Older queued candidates without shared analysis still select their model.
+      // Owner decision 43: the frozen planning model in every mode. A
+      // generation frozen before step routing keeps the choice below:
+      // compare entry analysis independent of candidate pair order, and
+      // older queued candidates without shared analysis select their model.
       model: {
-        kind: "mode-dependent",
-        compare: { kind: "frozen-role", role: "writing", legacyModelId: MODEL },
-        single: { kind: "candidate", fallbackModelId: MODEL },
-        iterative: { kind: "candidate", fallbackModelId: MODEL },
-        legacyCandidate: { kind: "candidate", fallbackModelId: MODEL },
+        kind: "generation-step",
+        step: "analyzer",
+        beforeStepRouting: {
+          kind: "mode-dependent",
+          compare: { kind: "frozen-role", role: "writing", legacyModelId: MODEL },
+          single: { kind: "candidate", fallbackModelId: MODEL },
+          iterative: { kind: "candidate", fallbackModelId: MODEL },
+          legacyCandidate: { kind: "candidate", fallbackModelId: MODEL },
+        },
       },
       thinking: { kind: "omitted" },
       structuredPolicy: "two-attempt-repair",
@@ -496,7 +512,7 @@ export const generationPromptProgram = {
       contextBudget: BRIEF_INPUT_BUDGET,
       omittedSourcesNotice: BRIEF_OMITTED_SOURCES_NOTICE,
       schema: BRIEF_SCHEMA,
-      model: { kind: "candidate", fallbackModelId: MODEL },
+      model: { kind: "generation-step", step: "brief", beforeStepRouting: { kind: "candidate", fallbackModelId: MODEL } },
       thinking: { kind: "omitted" },
       structuredPolicy: "two-attempt-repair",
       // Slot label for aiUsage tracking (AD-27)
@@ -511,7 +527,7 @@ export const generationPromptProgram = {
       schema: seedProviderSchema,
       factSchema: seedFactProviderSchema,
       schemaPolicy: SEED_SCHEMA_POLICY,
-      model: { kind: "candidate", fallbackModelId: MODEL },
+      model: { kind: "generation-step", step: "seeds", beforeStepRouting: { kind: "candidate", fallbackModelId: MODEL } },
       thinking: { kind: "omitted" },
       structuredPolicy: "two-attempt-repair",
       callSite: "generation:seeds:<roleId>",
@@ -525,7 +541,7 @@ export const generationPromptProgram = {
       schema: seedProviderSchema,
       factSchema: seedFactProviderSchema,
       schemaPolicy: SEED_SCHEMA_POLICY,
-      model: { kind: "candidate", fallbackModelId: MODEL },
+      model: { kind: "generation-step", step: "seedFeedback", beforeStepRouting: { kind: "candidate", fallbackModelId: MODEL } },
       thinking: { kind: "omitted" },
       structuredPolicy: "two-attempt-repair",
       callSite: "generation:seedFeedback:<roleId>",
@@ -570,27 +586,27 @@ export const generationPromptProgram = {
       systemTemplateSet: "writing.sectionSharedSystemTemplates",
       instructionTemplateSet: "writing.sectionInstructionTemplates.section242",
       request: SECTION_242_REQUEST,
-      model: { kind: "candidate", fallbackModelId: MODEL },
+      model: { kind: "generation-step", step: "section", beforeStepRouting: { kind: "candidate", fallbackModelId: MODEL } },
     },
     section244: {
       kind: "text",
       systemTemplateSet: "writing.sectionSharedSystemTemplates",
       instructionTemplateSet: "writing.sectionInstructionTemplates.section244",
       request: SECTION_244_REQUEST,
-      model: { kind: "candidate", fallbackModelId: MODEL },
+      model: { kind: "generation-step", step: "section", beforeStepRouting: { kind: "candidate", fallbackModelId: MODEL } },
     },
     section246: {
       kind: "text",
       systemTemplateSet: "writing.sectionSharedSystemTemplates",
       instructionTemplateSet: "writing.sectionInstructionTemplates.section246",
       request: SECTION_246_REQUEST,
-      model: { kind: "candidate", fallbackModelId: MODEL },
+      model: { kind: "generation-step", step: "section", beforeStepRouting: { kind: "candidate", fallbackModelId: MODEL } },
     },
     compression: {
       kind: "text",
       systemTemplate: COMPRESSION_REQUEST.system,
       request: COMPRESSION_REQUEST,
-      model: { kind: "candidate" },
+      model: { kind: "generation-step", step: "compression", beforeStepRouting: { kind: "candidate" } },
     },
     // Story 2 (CAP-9, AD-25/27): one structured Self-check per section.
     selfCheck: {
@@ -598,7 +614,7 @@ export const generationPromptProgram = {
       systemTemplate: SELF_CHECK_SYSTEM_PROMPT,
       request: SELF_CHECK_REQUEST,
       schema: SELF_CHECK_SCHEMA,
-      model: { kind: "candidate", fallbackModelId: MODEL },
+      model: { kind: "generation-step", step: "selfCheck", beforeStepRouting: { kind: "candidate", fallbackModelId: MODEL } },
       thinking: { kind: "omitted" },
       structuredPolicy: "two-attempt-repair",
       callSite: "generation:selfCheck:<n>",
@@ -619,7 +635,7 @@ export const generationPromptProgram = {
       systemTemplateSet: "writing.sectionSharedSystemTemplates",
       instructionTemplateSet: "writing.sectionInstructionTemplates.<section>",
       scaffold: ORDERED_PROMPT_SCAFFOLDS.repairGuidance,
-      model: { kind: "candidate", fallbackModelId: MODEL },
+      model: { kind: "generation-step", step: "repair", beforeStepRouting: { kind: "candidate", fallbackModelId: MODEL } },
       callSite: "generation:repair:<n>",
       maxPerSection: 1,
       recheck: "deterministic-only",
@@ -630,7 +646,7 @@ export const generationPromptProgram = {
       systemTemplate: CONSISTENCY_SYSTEM_PROMPT,
       request: CONSISTENCY_REQUEST,
       schema: CONSISTENCY_SCHEMA,
-      model: { kind: "candidate", fallbackModelId: MODEL },
+      model: { kind: "generation-step", step: "consistency", beforeStepRouting: { kind: "candidate", fallbackModelId: MODEL } },
       thinking: { kind: "omitted" },
       structuredPolicy: "two-attempt-repair",
       callSite: "generation:consistency",
@@ -641,7 +657,7 @@ export const generationPromptProgram = {
       systemTemplateSet: "writing.qaSystemTemplates",
       request: QA_REQUEST,
       schema: QA_SCHEMA,
-      model: { kind: "candidate", fallbackModelId: MODEL },
+      model: { kind: "generation-step", step: "qa", beforeStepRouting: { kind: "candidate", fallbackModelId: MODEL } },
       thinking: { kind: "omitted" },
       structuredPolicy: "two-attempt-repair",
     },
@@ -650,7 +666,7 @@ export const generationPromptProgram = {
       systemTemplate: CHRONOLOGY_SYSTEM_PROMPT,
       request: CHRONOLOGY_REQUEST,
       schema: CHRONOLOGY_SCHEMA,
-      model: { kind: "candidate", fallbackModelId: MODEL },
+      model: { kind: "generation-step", step: "chronology", beforeStepRouting: { kind: "candidate", fallbackModelId: MODEL } },
       thinking: { kind: "omitted" },
       structuredPolicy: "two-attempt-repair",
     },
@@ -692,6 +708,13 @@ export const generationPromptProgram = {
       defaultModelId: MODEL,
       unknownModelGateway: UNKNOWN_MODEL_GATEWAY,
       frozenPerGeneration: "generations.modelFreeze",
+      // Owner decision 43: each step's model source, answer budget, timeout
+      // and thinking setting, frozen per generation by version.
+      generationSteps: {
+        version: GENERATION_STEP_POLICY_VERSION,
+        policy: GENERATION_STEP_POLICY,
+        beforeVersion: "every-step-keeps-its-model-and-request-from-before-step-routing",
+      },
       roleDefaults: Object.fromEntries(
         MODEL_ROLES.map((role) => [role, ROLE_POLICIES[role].defaultModelId])
       ),

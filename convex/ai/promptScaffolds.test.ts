@@ -249,7 +249,12 @@ describe("the condense call belongs to the prompt program (AC5)", () => {
       contextBudget: BRIEF_INPUT_BUDGET,
       omittedSourcesNotice: BRIEF_OMITTED_SOURCES_NOTICE,
       schema: BRIEF_SCHEMA,
-      model: { kind: "candidate", fallbackModelId: generationPromptProgram.calls.brief.model.fallbackModelId },
+      // Owner decision 43: the frozen planning model; the selected model before step routing.
+      model: {
+        kind: "generation-step",
+        step: "brief",
+        beforeStepRouting: { kind: "candidate", fallbackModelId: generationPromptProgram.calls.brief.model.beforeStepRouting.fallbackModelId },
+      },
       thinking: { kind: "omitted" },
       structuredPolicy: "two-attempt-repair",
       callSite: "generation:brief",

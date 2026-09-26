@@ -33,6 +33,7 @@ import {
 import { pricingFor } from "../../shared/modelPricing";
 import type { FrozenModelEntry, ModelFreeze } from "./modelCatalogValidators";
 import { domainError } from "./contracts";
+import { GENERATION_STEP_POLICY_VERSION } from "./generationSteps";
 
 type ReadCtx = QueryCtx | MutationCtx;
 
@@ -406,14 +407,16 @@ function frozenEntry(
 /** Frozen generation roles: the ones a generation's own calls resolve. */
 export const FROZEN_GENERATION_ROLES = MODEL_ROLES.filter(
   (role) => ROLE_POLICIES[role].frozenPerGeneration
-) as ReadonlyArray<"writing" | "condense" | "retrieval_brief" | "analysis">;
+) as ReadonlyArray<"writing" | "planning" | "checking" | "condense" | "retrieval_brief" | "analysis">;
 
 /**
  * Everything a generation will call, frozen at reservation: the candidate
  * models the writer chose (or the default resolved for them) and the model of
  * each role the generation's own helper calls use. A running generation
  * never reads a role or the catalog again, so an automatic switch reaches
- * only the next reservation.
+ * only the next reservation. The step routing it runs under is frozen too
+ * (`stepPolicyVersion`, owner decision 43): the planning and checking roles
+ * serve its helper steps and the writer's model writes the report.
  */
 export async function freezeModelsForGeneration(
   ctx: ReadCtx,
@@ -425,6 +428,9 @@ export async function freezeModelsForGeneration(
     condense: await roleModelId(ctx, "condense"),
     retrieval_brief: await roleModelId(ctx, "retrieval_brief"),
     analysis: await roleModelId(ctx, "analysis"),
+    // Owner decision 43: the helper steps' roles (lib/generationSteps.ts).
+    planning: await roleModelId(ctx, "planning"),
+    checking: await roleModelId(ctx, "checking"),
   };
   const capsById = new Map<string, CostCap>();
   const noteCap = (id: string, cap: CostCap) => {
@@ -449,7 +455,7 @@ export async function freezeModelsForGeneration(
     if (entry) entries.push(entry);
   }
   entries.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
-  return { entries, roles, frozenAt: now };
+  return { entries, roles, frozenAt: now, stepPolicyVersion: GENERATION_STEP_POLICY_VERSION };
 }
 
 /**

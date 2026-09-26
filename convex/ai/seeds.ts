@@ -20,10 +20,11 @@ import type { GenerationClient } from "./openrouterCore";
 import { MalformedOutputError, OutputLimitError, messageText } from "./openrouterCore";
 import { generateStructured } from "./structured";
 import {
+  clientForStep,
   normalizeProviderError,
   registerGenerationModels,
-  seedClientForModel,
 } from "./providers";
+import { resolveGenerationCall, stepRequestFields } from "../lib/generationSteps";
 import { SEED_PROMPT_PROGRAM } from "./promptDefinitions";
 import {
   buildSeedPrompt,
@@ -355,12 +356,29 @@ export const generateBatch = internalAction({
         writerSettings: claim.input.writerSettings,
         lengthTarget: claim.input.lengthTarget,
       });
+      // Owner decision 43: the batch was dispatched on its step's model;
+      // the step's request settings come from the same frozen routing.
+      const freeze = await registerGenerationModels(ctx, claim.batch.generationId);
+      const route = resolveGenerationCall({
+        freeze,
+        callSite: claim.batch.slot,
+        writerModel: claim.batch.model,
+      });
       const client = countedClient(
-        seedClientForModel(ctx, claim.batch.model, {
-          callSite: claim.batch.slot,
-          projectId: claim.batch.projectId,
-          attribution: { generationId: claim.batch.generationId },
-        }),
+        clientForStep(
+          ctx,
+          {
+            ...route,
+            model: claim.batch.model,
+            request: stepRequestFields(freeze, route.step, claim.batch.model),
+          },
+          {
+            callSite: claim.batch.slot,
+            projectId: claim.batch.projectId,
+            attribution: { generationId: claim.batch.generationId },
+          },
+          { seedPolicy: true }
+        ),
         () => {
           requestsMade += 1;
         }

@@ -13,6 +13,8 @@ export const modelGatewayValidator = v.union(
 
 export const modelRoleValidator = v.union(
   v.literal("writing"),
+  v.literal("planning"),
+  v.literal("checking"),
   v.literal("condense"),
   v.literal("retrieval_brief"),
   v.literal("analysis"),
@@ -119,8 +121,18 @@ export const modelFreezeValidator = v.object({
     condense: v.string(),
     retrieval_brief: v.string(),
     analysis: v.string(),
+    /** Owner decision 43: the analysis, Brief and seed cards. Absent on older rows. */
+    planning: v.optional(v.string()),
+    /** Owner decision 43: Self-check, consistency, QA and chronology. Absent on older rows. */
+    checking: v.optional(v.string()),
   }),
   frozenAt: v.number(),
+  /**
+   * The step routing a generation was frozen under (convex/lib/
+   * generationSteps.ts). Absent: every step resolves the way it did before
+   * step routing, so a generation frozen earlier keeps its models.
+   */
+  stepPolicyVersion: v.optional(v.number()),
 });
 export type ModelFreeze = Infer<typeof modelFreezeValidator>;
 

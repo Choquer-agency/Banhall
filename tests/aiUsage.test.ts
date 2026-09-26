@@ -132,13 +132,19 @@ describe("AI usage pricing", () => {
 });
 
 describe("generation prompt program", () => {
-  test("analyzer routing discloses the frozen writing role for compare and selected single, iterative and legacy models", async () => {
+  test("analyzer routing discloses the planning step, and the frozen writing role for compare and selected single, iterative and legacy models before step routing", async () => {
+    // Owner decision 43: the analysis runs on the frozen planning model; a
+    // generation frozen before step routing keeps the mode-dependent choice.
     expect(generationPromptProgram.calls.analyzer.model).toEqual({
-      kind: "mode-dependent",
-      compare: { kind: "frozen-role", role: "writing", legacyModelId: MODEL },
-      single: { kind: "candidate", fallbackModelId: MODEL },
-      iterative: { kind: "candidate", fallbackModelId: MODEL },
-      legacyCandidate: { kind: "candidate", fallbackModelId: MODEL },
+      kind: "generation-step",
+      step: "analyzer",
+      beforeStepRouting: {
+        kind: "mode-dependent",
+        compare: { kind: "frozen-role", role: "writing", legacyModelId: MODEL },
+        single: { kind: "candidate", fallbackModelId: MODEL },
+        iterative: { kind: "candidate", fallbackModelId: MODEL },
+        legacyCandidate: { kind: "candidate", fallbackModelId: MODEL },
+      },
     });
     const previousProgram = {
       ...generationPromptProgram,
@@ -308,10 +314,10 @@ describe("generation prompt program", () => {
       ["tool choice", ["configuration", "structuredOutput", "request", "toolChoice", "type"], changedString],
       ["token cap", ["calls", "chronology", "request", "maxTokens"], increment],
       ["thinking setting", ["calls", "section244", "request", "thinking", "type"], changedString],
-      ["analyzer compare routing", ["calls", "analyzer", "model", "compare", "role"], changedString],
-      ["analyzer single routing", ["calls", "analyzer", "model", "single", "fallbackModelId"], changedString],
-      ["analyzer iterative routing", ["calls", "analyzer", "model", "iterative", "fallbackModelId"], changedString],
-      ["analyzer legacy routing", ["calls", "analyzer", "model", "legacyCandidate", "fallbackModelId"], changedString],
+      ["analyzer compare routing", ["calls", "analyzer", "model", "beforeStepRouting", "compare", "role"], changedString],
+      ["analyzer single routing", ["calls", "analyzer", "model", "beforeStepRouting", "single", "fallbackModelId"], changedString],
+      ["analyzer iterative routing", ["calls", "analyzer", "model", "beforeStepRouting", "iterative", "fallbackModelId"], changedString],
+      ["analyzer legacy routing", ["calls", "analyzer", "model", "beforeStepRouting", "legacyCandidate", "fallbackModelId"], changedString],
       ["model routing", ["configuration", "models", "modeRouting", "single", "fallbackModelId"], changedString],
       ["length setting", ["configuration", "length", "charsPerLine"], increment],
       ["Brain threshold", ["configuration", "brain", "search", "rawSearchFloor"], increment],

@@ -452,7 +452,12 @@ describe("models frozen per generation", () => {
       condense: "claude-sonnet-5",
       retrieval_brief: "claude-haiku-4-5-20251001",
       analysis: "claude-sonnet-5",
+      // Owner decision 43: the helper steps' roles, frozen with the step
+      // routing version.
+      planning: "claude-sonnet-5",
+      checking: "claude-sonnet-5",
     });
+    expect(frozen?.stepPolicyVersion).toBe(1);
     expect((await t.run((ctx) => ctx.db.get(first)))?.singleModelId).toBe("claude-sonnet-5");
 
     await promote(t, "x-ai/grok-4.7");
