@@ -85,7 +85,8 @@ describe("InviteRowMenu", () => {
       const sub = () => document.querySelectorAll<HTMLElement>('[role="menu"]')[1].getBoundingClientRect();
       // Board: menu 1150 to 1370, Change role row from 675, submenu 920 to 1144 from 670.
       await expect.poll(() => Math.round(sub().top - row.top)).toBe(-5);
-      expect(Math.round(menu().left - sub().right)).toBe(6);
+      // The submenu slides in, so its x settles after it opens.
+      await expect.poll(() => Math.round(menu().left - sub().right)).toBe(6);
     } finally {
       await page.viewport(1280, 800);
     }
