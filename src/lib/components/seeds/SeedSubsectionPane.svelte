@@ -274,7 +274,12 @@
     if (approved && continueAfter && !destroyed) onApproved?.(approvedRoleId);
   }
 
+  // Boards F3 and F5: Regenerate keeps its full ink while ideas are being
+  // written, but a Batch already on its way is not replaced: the control is
+  // aria-disabled then and a click does nothing.
+  const regenerateWaiting = $derived(!!data.pendingBatchId);
   function regenerateCurrent() {
+    if (regenerateWaiting) return;
     const failed = data.state === "failed";
     void mutate(
       () => (failed ? retry : regenerate)({
@@ -652,7 +657,9 @@
                 type="button"
                 aria-label={data.state === "failed" ? "Retry" : "Regenerate"}
                 class="inline-flex size-11 shrink-0 items-center justify-center rounded-[10px] border border-line bg-chrome text-ink transition-colors hover:bg-primary-wash focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary disabled:pointer-events-none disabled:opacity-50"
-                disabled={busy || !!data.pendingBatchId}
+                disabled={busy}
+                aria-disabled={regenerateWaiting || undefined}
+                data-regenerate-waiting={regenerateWaiting || undefined}
                 onclick={regenerateCurrent}
               >{@render regenerateIcon()}</button>
             {/snippet}
@@ -684,7 +691,7 @@
 <section class="@container flex h-full min-h-0 flex-col" aria-labelledby={`seed-title-${data.roleId}`}>
   <div class="min-h-0 flex-1 overflow-y-auto px-4 pb-8 @min-[600px]:px-6 @min-[880px]:px-10">
     <header class={`flex flex-col ${compact ? "gap-2.5 pt-4" : "gap-3 pt-6"}`}>
-      <div class={`flex items-center gap-2.5 ${compact ? "min-h-[14px]" : "min-h-9"}`}>
+      <div class={`group/stephead relative flex items-center gap-2.5 ${compact ? "min-h-[14px]" : "min-h-9"}`}>
         <div class="flex min-w-0 flex-1 flex-wrap items-center gap-2.5">
           <span class="font-mono text-[11px] leading-[14px] text-ink-muted" data-section-eyebrow>Section {sectionNumber}</span>
           {#if kind === "multiple"}
@@ -720,18 +727,26 @@
               variant="secondary"
               size="sm"
               class="h-9 gap-2"
-              disabled={busy || !!data.pendingBatchId}
+              disabled={busy}
+              aria-disabled={regenerateWaiting || undefined}
+              data-regenerate-waiting={regenerateWaiting || undefined}
               onclick={regenerateCurrent}
             >{@render regenerateIcon()}{data.state === "failed" ? "Retry" : "Regenerate"}</Button>
           {/if}
           <DropdownMenu.Root bind:open={moreOpen}>
             <Tooltip text="More">
               {#snippet children({ props: tipProps })}
+                <!-- Boards F3 to F5 draw Regenerate at the header's right edge
+                     with nothing beside it. With a mouse on a wide pane the
+                     More dots sit in the 40px gutter, out of the layout, and
+                     show while the header is hovered, the dots have focus or
+                     the menu is open; touch and narrower panes keep them in
+                     line. -->
                 <DropdownMenu.Trigger
                   {...tipProps}
                   aria-label="More step actions"
                   data-step-more-trigger
-                  class={`inline-flex size-9 items-center justify-center rounded-lg text-ink-secondary transition-colors hover:bg-chrome hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary pointer-coarse:size-11 ${compact ? "-my-3" : ""} ${moreOpen ? "bg-chrome text-ink" : ""}`}
+                  class={`inline-flex size-9 items-center justify-center rounded-lg text-ink-secondary transition-[color,background-color,opacity] hover:bg-chrome hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary motion-reduce:transition-none pointer-coarse:size-11 ${compact ? "-my-3" : "@min-[880px]:pointer-fine:absolute @min-[880px]:pointer-fine:top-0 @min-[880px]:pointer-fine:-right-[38px] @min-[880px]:pointer-fine:opacity-0 @min-[880px]:pointer-fine:group-hover/stephead:opacity-100 @min-[880px]:pointer-fine:focus-visible:opacity-100 @min-[880px]:pointer-fine:data-[state=open]:opacity-100"} ${moreOpen ? "bg-chrome text-ink" : ""}`}
                 >
                   <IconMore size={16} />
                 </DropdownMenu.Trigger>

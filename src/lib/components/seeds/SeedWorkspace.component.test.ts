@@ -2087,13 +2087,18 @@ describe("Seed workspace", () => {
     const notice = () => document.querySelector<HTMLElement>("[data-outline-partial]");
     await expect.poll(() => notice()?.textContent ?? "").toContain("counts and previews may be incomplete");
     expect(view.container.textContent).toContain("Readiness could not be fully computed within the server's safe processing limit.");
-    // The first row's count is a lower bound: "1+" on screen, "at least 1
-    // selected, partial read" for assistive technology. Previews are gone
-    // from the single-line rows, so no partial preview can pass as complete.
-    const firstRow = () => document.querySelector<HTMLElement>('nav[aria-label="PD subsections"] button')!;
-    expect(firstRow().querySelector("[data-counts-complete]")?.textContent).toBe("1+");
-    expect(firstRow().querySelector("[data-counts-complete]")?.getAttribute("data-counts-complete")).toBe("false");
+    // A count is a lower bound: "1+" on screen, "at least 1 selected,
+    // partial read" for assistive technology. The approved first row shows
+    // only its check (F5) and keeps the qualified count in its accessible
+    // state. Previews are gone from the single-line rows, so no partial
+    // preview can pass as complete.
+    const rowAt = (index: number) => document.querySelectorAll<HTMLElement>('nav[aria-label="PD subsections"] button')[index]!;
+    const firstRow = () => rowAt(0);
+    expect(firstRow().querySelector("[data-counts-complete]")).toBeNull();
     expect(firstRow().textContent).toContain("approved, at least 1 selected, partial read");
+    expect(rowAt(1).querySelector("[data-counts-complete]")?.textContent).toBe("1+");
+    expect(rowAt(1).querySelector("[data-counts-complete]")?.getAttribute("data-counts-complete")).toBe("false");
+    expect(rowAt(1).textContent).toContain("open, at least 1 selected, partial read");
     expect(view.container.textContent).not.toContain("Partial preview line");
 
     await page.getByRole("button", { name: "Reload Outline", exact: true }).click();
@@ -2107,7 +2112,7 @@ describe("Seed workspace", () => {
     );
     __setQueryData("seeds:getOutline", complete);
     await expect.poll(() => notice()).toBeNull();
-    await expect.poll(() => firstRow().querySelector("[data-counts-complete]")?.textContent).toBe("1");
+    await expect.poll(() => rowAt(1).querySelector("[data-counts-complete]")?.textContent).toBe("1");
     expect(firstRow().textContent).toContain("approved, 1 selected");
     expect(view.container.textContent).not.toContain("partial read");
     expect(view.container.textContent).not.toContain("Readiness could not be fully computed");
@@ -3735,6 +3740,44 @@ describe("board match (F3 to F5)", () => {
     expect(document.querySelector("[data-step-more-trigger] svg path")!.getAttribute("d")).toBe(PATHS.more);
     // The objective runs the width of the pane (F4), no reading cap.
     expect(getComputedStyle(document.querySelector("[data-step-objective]")!).maxWidth).toBe("none");
+  });
+
+  it("keeps Regenerate at full ink while ideas are written, with the More dots out of the header (F3 to F5)", async () => {
+    await page.viewport(1440, 900);
+    const now = Date.now();
+    const view = await render(
+      SeedSubsectionPane,
+      paneProps(
+        subsection({
+          items: [],
+          shownBatchId: null,
+          pendingBatchId: "batch-pending" as Id<"seedBatches">,
+          pendingBatch: { status: "running", queuedAt: now - 5_000, startedAt: now - 5_000 },
+          state: "generating",
+        }),
+        { expectedMs: 20_000 }
+      )
+    );
+    view.container.style.width = "915px";
+    const regenerate = page.getByRole("button", { name: "Regenerate", exact: true }).element() as HTMLButtonElement;
+    // Not faded or disabled; a Batch on its way is not replaced.
+    expect(regenerate.disabled).toBe(false);
+    expect(getComputedStyle(regenerate).opacity).toBe("1");
+    expect(regenerate.getAttribute("aria-disabled")).toBe("true");
+    regenerate.click();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(__mutationCalls("seeds:regenerate")).toEqual([]);
+    // Regenerate ends the header row; the More dots sit in the gutter and
+    // show only on hover or focus.
+    const headRow = regenerate.closest<HTMLElement>(".group\\/stephead")!;
+    await expect.poll(() => Math.round(regenerate.getBoundingClientRect().right)).toBe(Math.round(headRow.getBoundingClientRect().right));
+    const more = document.querySelector<HTMLElement>("[data-step-more-trigger]")!;
+    expect(getComputedStyle(more).position).toBe("absolute");
+    expect(getComputedStyle(more).opacity).toBe("0");
+    await userEvent.hover(headRow);
+    await expect.poll(() => getComputedStyle(more).opacity).toBe("1");
+    await more.click();
+    await expect.element(page.getByRole("menuitem", { name: "Batch history" })).toBeVisible();
   });
 
   it("marks an approved step with the fir disc and 9px check, in secondary ink (F5)", async () => {
