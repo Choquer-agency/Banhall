@@ -4,8 +4,8 @@
 
   /**
    * Round 2 page icon tile (top bar, every A to D and I board): 26px square,
-   * radius 6, `workspace-page-icon` fill, a 15px icon in primary. Pass a
-   * Phosphor icon component, or a snippet for anything else.
+   * radius 6, `workspace-page-icon` fill, a 15px icon at stroke 1.8 in
+   * primary. Pass a board icon component, or a snippet for anything else.
    */
   let {
     icon = undefined,
@@ -25,7 +25,7 @@
 >
   {#if icon}
     {@const Icon = icon}
-    <Icon size={15} weight="regular" />
+    <Icon size={15} strokeWidth={1.8} />
   {:else}
     {@render children?.()}
   {/if}

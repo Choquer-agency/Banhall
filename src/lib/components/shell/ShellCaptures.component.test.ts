@@ -9,7 +9,8 @@ import { page } from "vitest/browser";
 import { render } from "vitest-browser-svelte";
 import { createRawSnippet, flushSync } from "svelte";
 import { toast } from "svelte-sonner";
-import { CheckIcon, EyeIcon, ShieldIcon } from "phosphor-svelte";
+import { CheckIcon, EyeIcon } from "phosphor-svelte";
+import { IconShield } from "$lib/components/icons";
 import WorkspaceChrome from "$lib/components/workspace/WorkspaceChrome.svelte";
 import ToastHarness from "$lib/test/ToastHarness.svelte";
 import { captureOwner } from "$lib/test/captureOwner";
@@ -54,7 +55,7 @@ describe("round 2 shell captures", () => {
     __setPageUrl("/admin/house-rules");
     await render(WorkspaceChrome, {
       title: "House rules",
-      icon: ShieldIcon,
+      icon: IconShield,
       breadcrumb: { label: "Admin", href: "/admin/house-rules" },
       padding: "admin",
       children: body,
@@ -103,7 +104,7 @@ describe("round 2 shell captures", () => {
     viewAs.enter("consultant");
     await render(WorkspaceChrome, {
       title: "House rules",
-      icon: ShieldIcon,
+      icon: IconShield,
       breadcrumb: { label: "Admin", href: "/admin/house-rules" },
       viewAsGate: "admin",
       children: body,

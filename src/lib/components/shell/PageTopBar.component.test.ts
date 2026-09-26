@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-svelte";
 import { createRawSnippet } from "svelte";
-import { GearSixIcon } from "phosphor-svelte";
+import { IconGear } from "$lib/components/icons";
 import PageTopBar from "./PageTopBar.svelte";
 import { __resetPage } from "$lib/test/app-state-stub.svelte";
 import { __resetConvexStub, __setQueryData } from "$lib/test/convex-svelte-stub.svelte";
@@ -17,7 +17,7 @@ describe("PageTopBar", () => {
 
   it("shows a title with a muted subtitle, the tile and the unseen dot on the bell", async () => {
     __setQueryData("changelog:unseenCount", 2);
-    await render(PageTopBar, { title: "Settings", subtitle: "Account", icon: GearSixIcon, onOpenNavigation: vi.fn() });
+    await render(PageTopBar, { title: "Settings", subtitle: "Account", icon: IconGear, onOpenNavigation: vi.fn() });
     const bar = document.querySelector<HTMLElement>("[data-page-top-bar]")!;
     expect(bar.getBoundingClientRect().height).toBe(56);
     expect(bar.querySelector("h1")?.textContent).toBe("Settings");

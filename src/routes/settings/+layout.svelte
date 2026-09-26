@@ -15,7 +15,7 @@
   import WorkspaceChrome from "$lib/components/workspace/WorkspaceChrome.svelte";
   import WorkspaceGate from "$lib/workspace/WorkspaceGate.svelte";
   import SettingsTabs from "$lib/components/settings/SettingsTabs.svelte";
-  import { GearSixIcon } from "phosphor-svelte";
+  import { IconGear } from "$lib/components/icons";
   import { SETTINGS_SECTIONS, settingsSectionForPath } from "$lib/settings/sections";
 
   let { children: pageContent }: { children: Snippet } = $props();
@@ -79,7 +79,7 @@
       </div>
     {/snippet}
     {#snippet preview()}
-      <WorkspaceChrome title="Settings" subtitle={active.label} icon={GearSixIcon} panel="padded" padding="wide">
+      <WorkspaceChrome title="Settings" subtitle={active.label} icon={IconGear} panel="padded" padding="wide">
         {#snippet children()}
           <div data-settings-frame class="flex flex-col gap-6">
             <div class="flex flex-col gap-3.5">

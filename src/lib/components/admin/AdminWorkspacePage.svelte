@@ -9,7 +9,7 @@
   import AppNav from "$lib/components/ui/AppNav.svelte";
   import PageBar from "$lib/components/ui/PageBar.svelte";
   import WorkspaceChrome from "$lib/components/workspace/WorkspaceChrome.svelte";
-  import { ShieldIcon } from "phosphor-svelte";
+  import { IconShield } from "$lib/components/icons";
   import { resolve } from "$app/paths";
 
   let {
@@ -63,7 +63,7 @@
        shows the D4 hidden-page state instead (`viewAsGate`). -->
   <WorkspaceChrome
     {title}
-    icon={ShieldIcon}
+    icon={IconShield}
     breadcrumb={{ label: "Admin", href: resolve("/admin/house-rules") }}
     theme="light"
     panel={flush ? "flush" : "padded"}

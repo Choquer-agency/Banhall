@@ -15,7 +15,7 @@
   import KeyHint from "$lib/components/shell/KeyHint.svelte";
   import PageIconTile from "$lib/components/shell/PageIconTile.svelte";
   import SettingsTabs from "$lib/components/settings/SettingsTabs.svelte";
-  import { GearSixIcon } from "phosphor-svelte";
+  import { IconGear } from "$lib/components/icons";
   import type { RoleChipKind } from "$lib/roles/roleChip";
   import ChatIcon from "$lib/components/ui/ChatIcon.svelte";
   import ProcessingStatusBadge from "$lib/components/upload/ProcessingStatusBadge.svelte";
@@ -367,7 +367,7 @@
       <div>
         <p class="text-label mb-2">Page icon tile and avatars</p>
         <div class="flex flex-wrap items-center gap-3">
-          <PageIconTile icon={GearSixIcon} />
+          <PageIconTile icon={IconGear} />
           <Avatar name="Johnny Nguyen" tone="purple" size={24} />
           <Avatar name="Jane Ellis" tone="fir" size={30} />
           <Avatar name="Mo Reyes" tone="teal" size={32} />

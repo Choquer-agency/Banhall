@@ -1,4 +1,5 @@
-import type { HouseIcon } from "phosphor-svelte";
+import type { Component } from "svelte";
+import type { IconProps } from "$lib/components/icons";
 
-/** A Phosphor icon component, as the top bar tile takes it. */
-export type PageIcon = typeof HouseIcon;
+/** A board icon from `$lib/components/icons`, as the top bar tile takes it. */
+export type PageIcon = Component<IconProps>;

@@ -2,7 +2,7 @@
   import AppNav from "$lib/components/ui/AppNav.svelte";
   import PageBar from "$lib/components/ui/PageBar.svelte";
   import WorkspaceChrome from "$lib/components/workspace/WorkspaceChrome.svelte";
-  import { LightbulbIcon } from "phosphor-svelte";
+  import { IconLightbulb } from "$lib/components/icons";
   import WorkspaceGate from "$lib/workspace/WorkspaceGate.svelte";
   import Spinner from "$lib/components/ui/Spinner.svelte";
   import { goToLogin } from "$lib/auth/goToLogin";
@@ -104,7 +104,7 @@
       </div>
     {/snippet}
     {#snippet preview()}
-      <WorkspaceChrome title="Feature requests" description="Shared product suggestions and priorities" icon={LightbulbIcon} viewAsGate="requests">
+      <WorkspaceChrome title="Feature requests" description="Shared product suggestions and priorities" icon={IconLightbulb} viewAsGate="requests">
         {#snippet children()}
           {@render requestsContent(false)}
         {/snippet}
