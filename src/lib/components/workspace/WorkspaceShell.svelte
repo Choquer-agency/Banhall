@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { Snippet } from "svelte";
+  import { beforeNavigate } from "$app/navigation";
   import { IconClose } from "$lib/components/icons";
   import type { DashboardView } from "$lib/dashboard/viewMode";
   import WorkspaceRail from "$lib/components/workspace/WorkspaceRail.svelte";
@@ -130,16 +131,57 @@
   // (ui-design-final.md section 3, board 3.5); the preference applies from
   // 1280px up.
   let tablet = $state(false);
+  // H1, H3: the tablet rail keeps its expand toggle. Expanding lays the full
+  // rail over the page for the moment (the column stays icons-only, so the
+  // content never reflows) and never touches the persisted preference.
+  let tabletExpanded = $state(false);
   $effect(() => {
     const media = window.matchMedia("(min-width: 64rem) and (max-width: 79.98rem)");
-    const update = () => (tablet = media.matches);
+    const update = () => {
+      tablet = media.matches;
+      if (!tablet) tabletExpanded = false;
+    };
     update();
     media.addEventListener("change", update);
     return () => media.removeEventListener("change", update);
   });
-  const railCollapsed = $derived(railHidden || tablet);
-  // At tablet widths the rail is always icons-only, so there is nothing to expand.
-  const toggleRail = $derived(tablet ? null : () => (railHidden = !railHidden));
+  const railCollapsed = $derived(tablet ? !tabletExpanded : railHidden);
+  const railOverlay = $derived(tablet && tabletExpanded);
+  function toggleRail() {
+    if (tablet) tabletExpanded = !tabletExpanded;
+    else railHidden = !railHidden;
+  }
+
+  // The overlaid rail closes on any navigation (links, back and forward),
+  // before the page changes under it.
+  beforeNavigate(() => {
+    tabletExpanded = false;
+  });
+
+  // ...and on a press anywhere else in the shell, or Escape from inside it.
+  // Menus the rail opens render outside the shell, so pressing in them keeps
+  // the rail open.
+  $effect(() => {
+    if (!railOverlay || !root) return;
+    const shell = root;
+    const panel = shell.querySelector<HTMLElement>("[data-rail-panel]");
+    const onPointerDown = (event: PointerEvent) => {
+      if (event.target instanceof Node && !panel?.contains(event.target)) tabletExpanded = false;
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || !panel?.contains(document.activeElement)) return;
+      tabletExpanded = false;
+      // After the frame, so the tooltip of the button that just went away has
+      // closed before the expand toggle takes focus.
+      requestAnimationFrame(() => panel.querySelector<HTMLElement>("[data-rail-toggle]")?.focus());
+    };
+    shell.addEventListener("pointerdown", onPointerDown);
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      shell.removeEventListener("pointerdown", onPointerDown);
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  });
 
   $effect(() => {
     const desktop = window.matchMedia("(min-width: 64rem)");
@@ -163,11 +205,12 @@
   style={`--workspace-rail-width: ${railWidth}px; --workspace-rail-collapsed-width: ${RAIL_COLLAPSED_WIDTH}px;`}
   class="workspace-shell-grid relative grid h-dvh grid-rows-[minmax(0,1fr)] overflow-hidden bg-workspace-shell text-ink lg:grid-cols-[var(--workspace-rail-collapsed-width)_minmax(0,1fr)] xl:grid-cols-[var(--workspace-rail-col)_minmax(0,1fr)]"
 >
-  <div class="workspace-rail-column relative hidden min-h-0 lg:block">
+  <div class={`workspace-rail-column relative hidden min-h-0 lg:block ${railOverlay ? "z-40" : ""}`}>
     <aside
       id="workspace-rail"
       data-rail-panel
-      class="workspace-rail-panel absolute inset-y-0 left-0 overflow-hidden bg-workspace-shell"
+      data-rail-overlay={railOverlay ? "" : undefined}
+      class={`workspace-rail-panel absolute inset-y-0 left-0 overflow-hidden bg-workspace-shell ${railOverlay ? "border-r border-workspace-rail-line shadow-workspace-drawer" : ""}`}
       style={`width: ${railCollapsed ? "var(--workspace-rail-collapsed-width)" : "var(--workspace-rail-width)"};`}
     >
       <div class="h-full" style={`width: ${railCollapsed ? "var(--workspace-rail-collapsed-width)" : "var(--workspace-rail-width)"};`}>
@@ -182,8 +225,8 @@
           onToggleRail={toggleRail}
         />
       </div>
-      <!-- Pointer/keyboard resize applies to the expanded rail only. -->
-      {#if !railCollapsed}
+      <!-- Pointer/keyboard resize applies to the expanded desktop rail only. -->
+      {#if !railCollapsed && !tablet}
         <WorkspaceRailResizeHandle width={railWidth} onResize={applyLiveWidth} onCommit={commitWidth} />
       {/if}
     </aside>
@@ -214,9 +257,7 @@
 <ViewAsDialog bind:open={viewAs.dialogOpen} />
 <NotificationToaster />
 <ShortcutHost
-  onToggleRail={() => {
-    if (!tablet) railHidden = !railHidden;
-  }}
+  onToggleRail={toggleRail}
   canOpenAdmin={canSeeAdmin(viewer)}
   canViewAs={realDeveloper}
   onOpenViewAs={() => (viewAs.dialogOpen = true)}

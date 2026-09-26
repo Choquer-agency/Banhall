@@ -3,7 +3,7 @@ import { page as browserPage } from "vitest/browser";
 import { render } from "vitest-browser-svelte";
 import WorkspaceDashboard from "./WorkspaceDashboard.svelte";
 import { __resetPage, __setPageUrl } from "$lib/test/app-state-stub.svelte";
-import { __resetNavigation } from "$lib/test/app-navigation-stub";
+import { __resetNavigation, goto } from "$lib/test/app-navigation-stub";
 import {
   __resetConvexStub,
   __setPaginatedRows,
@@ -202,6 +202,67 @@ describe("Workspace rail resize + hide/show", () => {
     const hamburger = document.querySelector<HTMLElement>('button[aria-label="Open workspace navigation"]');
     expect(hamburger === null || getComputedStyle(hamburger).display === "none").toBe(true);
     // The stored expanded preference is untouched.
+    expect(storedPrefs()).toEqual({ width: 272, hidden: false, adminOpen: false });
+  });
+
+  it("expands the tablet rail from its toggle over the page, and closes it again (H1, H3)", async () => {
+    localStorage.setItem(RAIL_PREFERENCES_KEY, JSON.stringify({ width: 272, hidden: false }));
+    __setPageUrl("/projects?layout=list");
+    seedQueries();
+    await browserPage.viewport(1024, 768);
+    await render(WorkspaceDashboard, { view: "all_projects" });
+    const column = () => document.querySelector<HTMLElement>(".workspace-rail-column")!;
+    const content = () => column().nextElementSibling as HTMLElement;
+
+    // H1, H3: the icons-only tablet rail draws the expand toggle under the mark.
+    await expect.poll(() => railToggle()?.getAttribute("aria-label")).toBe("Expand navigation rail");
+    const toggle = railToggle()!;
+    expect(toggle.dataset.railDirection).toBe("expand");
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    expect(railAside()!.querySelector('a[aria-label="Banhall home"]')!.nextElementSibling?.contains(toggle)).toBe(true);
+    const contentLeft = content().getBoundingClientRect().left;
+
+    toggle.click();
+    await expect.poll(() => railAside()?.hasAttribute("data-rail-overlay")).toBe(true);
+    expect(railAside()!.querySelector("[data-rail-collapsed]")).toBeNull();
+    await expect
+      .poll(() => railAside()!.getBoundingClientRect().width, { timeout: 2000 })
+      .toBe(272);
+    // The rail lies over the page: the column and the content stay put.
+    expect(column().getBoundingClientRect().width).toBe(RAIL_COLLAPSED_WIDTH);
+    expect(content().getBoundingClientRect().left).toBe(contentLeft);
+    expect(getComputedStyle(column()).zIndex).toBe("40");
+    // No resize separator on tablet, and the stored preference is untouched.
+    expect(handle()).toBeNull();
+    expect(storedPrefs()).toEqual({ width: 272, hidden: false, adminOpen: false });
+
+    // Its own collapse toggle closes it.
+    expect(railToggle()?.getAttribute("aria-label")).toBe("Collapse navigation rail");
+    railToggle()!.click();
+    await expect.poll(() => railAside()?.querySelector("[data-rail-collapsed]")).not.toBeNull();
+    expect(railAside()!.hasAttribute("data-rail-overlay")).toBe(false);
+
+    // A press on the page beside it closes it; a press inside it does not.
+    railToggle()!.click();
+    await expect.poll(() => railAside()?.hasAttribute("data-rail-overlay")).toBe(true);
+    railAside()!.querySelector("[data-rail-scroll]")!.dispatchEvent(pointer("pointerdown", 40));
+    expect(railAside()!.hasAttribute("data-rail-overlay")).toBe(true);
+    content().dispatchEvent(pointer("pointerdown", 600));
+    await expect.poll(() => railAside()?.hasAttribute("data-rail-overlay")).toBe(false);
+
+    // Escape from inside it closes it and returns focus to the expand toggle.
+    railToggle()!.click();
+    await expect.poll(() => railAside()?.hasAttribute("data-rail-overlay")).toBe(true);
+    railToggle()!.focus();
+    railToggle()!.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    await expect.poll(() => railAside()?.hasAttribute("data-rail-overlay")).toBe(false);
+    await expect.poll(() => document.activeElement?.getAttribute("aria-label")).toBe("Expand navigation rail");
+
+    // Navigating anywhere closes it.
+    railToggle()!.click();
+    await expect.poll(() => railAside()?.hasAttribute("data-rail-overlay")).toBe(true);
+    await goto("/team");
+    expect(railAside()?.hasAttribute("data-rail-overlay")).toBe(false);
     expect(storedPrefs()).toEqual({ width: 272, hidden: false, adminOpen: false });
   });
 
