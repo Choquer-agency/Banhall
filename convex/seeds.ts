@@ -21,6 +21,7 @@ import { resolveGatedWorkflow } from "./lib/gatedWorkflow";
 import { draftingInputsView } from "./lib/generations/draftingInputs";
 import { createReadBudget, DOCUMENT_HEADROOM } from "./lib/readBudget";
 import {
+  createSeedDecisionBudget,
   loadSeedDecisionState,
   SEED_DECISION_READ_BYTES,
   SEED_DECISION_READ_RANGES,
@@ -120,11 +121,7 @@ async function decisionFence(
     .unique();
   if (!row || row.projectId !== project._id)
     domainError("INVALID_STATE", "Seed subsection is missing");
-  const budget = createReadBudget({
-    maxBytes: SEED_DECISION_READ_BYTES,
-    maxRanges: SEED_DECISION_READ_RANGES,
-    reservedBytes: 3 * DOCUMENT_HEADROOM,
-  });
+  const budget = createSeedDecisionBudget();
   return { generation, row, user, project, budget, behind };
 }
 async function seedOf(

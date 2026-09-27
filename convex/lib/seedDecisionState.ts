@@ -5,7 +5,7 @@ import {
   type PdSubsectionRoleId,
 } from "../../shared/pdSubsections";
 import { domainError } from "./contracts";
-import { createReadBudget } from "./readBudget";
+import { createReadBudget, DOCUMENT_HEADROOM } from "./readBudget";
 import {
   buildCompleteDecisionSnapshot,
   materializeFinalWording,
@@ -27,6 +27,20 @@ export const SEED_DECISION_COLLECTION_ROWS = 4096;
 export const SEED_DECISION_READ_RANGES = 4000;
 
 export type SeedDecisionReadBudget = ReturnType<typeof createReadBudget>;
+/**
+ * The budget a seed writer's fence builds: the shared bytes and ranges, less
+ * the three documents (generation, project, step row) it read outside the
+ * budget. Decision 65: the server's first Batch dispatch builds the same
+ * one, so it admits exactly what a browser open would.
+ */
+export function createSeedDecisionBudget(): SeedDecisionReadBudget {
+  return createReadBudget({
+    maxBytes: SEED_DECISION_READ_BYTES,
+    maxRanges: SEED_DECISION_READ_RANGES,
+    reservedBytes: 3 * DOCUMENT_HEADROOM,
+  });
+}
+
 export type SeedDecisionReadBudgetSnapshot = ReturnType<
   SeedDecisionReadBudget["snapshot"]
 >;

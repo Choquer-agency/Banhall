@@ -44,6 +44,7 @@ import {
   type FrozenSeedSource,
   type SeedReferenceContext,
 } from "./lib/seedContract";
+import { createSeedDecisionBudget } from "./lib/seedDecisionState";
 import {
   adjustSeedRequestsReserved,
   bumpSeedStageVersion,
@@ -495,17 +496,18 @@ export function firstBatchCommandId(generationId: Id<"generations">): string {
 
 export type FirstBatchResult =
   | SeedDispatchResult
-  | { kind: "skipped"; reason: "closed" | "started" | "no_untouched_step" };
+  | { kind: "skipped"; reason: "closed" | "started" };
 
 /**
  * Owner decision 65 (eighth 2026-09-26 amendment): once the seed stage
- * opens, the server starts the first untouched step's Batch itself, so the
- * first ideas are written even if nobody has the Seed workspace open. It is
- * the browser's `open` (same fence, freeze, validation, dedupe and "ideas
- * ready" notification), sent by the system. Idempotent: a closed stage, or
- * a generation with any Batch already (a repeated delivery, or the browser
- * got there first), is left alone. A refusal from the dispatch itself rolls
- * this back and the browser's own open meets the same refusal, as before.
+ * opens, the server starts the first step's Batch itself, so the first
+ * ideas are written even if nobody has the Seed workspace open. It is the
+ * browser's `open` (same fence, read budget, freeze, validation, dedupe and
+ * "ideas ready" notification), sent by the system. Idempotent: a closed
+ * stage, or a first step that is no longer untouched or already has a Batch
+ * (a repeated delivery, or the browser opened it first), is left alone. A
+ * refusal from the dispatch itself rolls this back and the browser's own
+ * open meets the same refusal, as before.
  */
 export async function startFirstSeedBatch(
   ctx: MutationCtx,
@@ -524,31 +526,26 @@ export async function startFirstSeedBatch(
   ) {
     return { kind: "skipped", reason: "closed" };
   }
-  const anyBatch = await ctx.db
-    .query("seedBatches")
-    .withIndex("by_generationId_and_roleId", (q) => q.eq("generationId", generationId))
-    .first();
-  if (anyBatch) return { kind: "skipped", reason: "started" };
-  const rows = await ctx.db
-    .query("seedSubsections")
-    .withIndex("by_generationId", (q) => q.eq("generationId", generationId))
-    .take(14);
-  const first = PD_SUBSECTIONS.find((role) =>
-    rows.some(
-      (row) =>
-        row.roleId === role.roleId &&
-        row.state === "untouched" &&
-        !row.pendingBatchId &&
-        !row.shownBatchId
-    )
-  );
-  if (!first) return { kind: "skipped", reason: "no_untouched_step" };
+  // Only the first step counts: a writer who opened another step first
+  // (a deep link) still gets the first step's Batch.
+  const roleId = PD_SUBSECTIONS[0].roleId;
+  const row = await roleRow(ctx, generationId, roleId);
+  if (
+    row.state !== "untouched" ||
+    row.pendingBatchId ||
+    row.shownBatchId ||
+    (await latestRoleBatch(ctx, generationId, roleId))
+  ) {
+    return { kind: "skipped", reason: "started" };
+  }
   return await dispatchSeedAttempt(ctx, {
     generationId,
-    roleId: first.roleId,
+    roleId,
     operation: "open",
     commandId: firstBatchCommandId(generationId),
     startedBy: "server",
+    // The budget a browser open's fence builds (convex/seeds.ts).
+    budget: createSeedDecisionBudget(),
   });
 }
 
@@ -562,7 +559,7 @@ export const startFirstBatch = internalMutation({
     v.object({ kind: v.literal("not_dispatched"), reason: v.literal("prefetch_ineligible") }),
     v.object({
       kind: v.literal("skipped"),
-      reason: v.union(v.literal("closed"), v.literal("started"), v.literal("no_untouched_step")),
+      reason: v.union(v.literal("closed"), v.literal("started")),
     })
   ),
   handler: async (ctx, args): Promise<FirstBatchResult> =>
