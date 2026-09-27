@@ -281,6 +281,23 @@ describe("who may use a draft", () => {
   });
 });
 
+describe("caps", () => {
+  test("a draft takes a project's transcript caps, counted without reading the text again", async () => {
+    const s = await setup();
+    const draftId = await s.writer.mutation(intakeDraftRefs.createIntakeDraft, {});
+    for (let index = 0; index < 20; index += 1) {
+      await saveTranscript(s, draftId, `transcript-key-${index}`, `Interviewer: Call ${index}.`, index, `Call ${index}`);
+    }
+    await expect(saveTranscript(s, draftId, "transcript-key-20", "Interviewer: One too many.", 20)).rejects.toThrow(/at most 20/);
+    // Saving an existing one again (a new position) is not another transcript.
+    await saveTranscript(s, draftId, "transcript-key-3", "Interviewer: Call 3.", 30, "Call 3");
+    await s.writer.mutation(intakeDraftRefs.removeIntakeSource, { draftId, sourceKey: "transcript-key-0" });
+    await saveTranscript(s, draftId, "transcript-key-20", "Interviewer: Now it fits.", 20);
+    const draft = (await s.t.run(async (ctx) => ctx.db.get(draftId)))!;
+    expect(draft.transcriptCount).toBe(20);
+  });
+});
+
 describe("preparing while the writer sets up", () => {
   test("no paid call before the client name exists; then the Brief is prepared once edits settle", async () => {
     const s = await setup();
@@ -627,8 +644,39 @@ describe("retention", () => {
     expect(after.draft.clientName).toBeUndefined();
     expect(after.draft.interviewees).toBeUndefined();
     expect(after.preparations.every((row) => row.status !== "ready" && row.storylineText === undefined && row.placeholders === undefined)).toBe(true);
+    expect(after.preparations.map((row) => row.endedReason)).toContain("draft_closed");
     // The rows stay, content-free, for the limits; nothing more is written.
     await expect(saveTranscript(s, draftId, "transcript-key-9")).rejects.toThrow(/no longer available/);
+  });
+
+  test("Discard fences a claimed attempt: nothing is sent or kept, and the attempt ends", async () => {
+    const s = await setup();
+    const draftId = await s.writer.mutation(intakeDraftRefs.createIntakeDraft, {});
+    await saveTranscript(s, draftId, "transcript-key-1");
+    await settle(s, 1);
+    await setContext(s, draftId);
+    // Step until the start claims the attempt; its call has not run yet.
+    for (let step = 0; step < 4 && (await draftPreparations(s, draftId))[0]?.status !== "running"; step += 1) {
+      vi.advanceTimersByTime(INTAKE_DEBOUNCE_MS + 100);
+      await s.t.finishInProgressScheduledFunctions();
+    }
+    const [running] = await draftPreparations(s, draftId);
+    expect(running.status).toBe("running");
+    expect(briefRequests).toHaveLength(0);
+    await s.writer.mutation(intakeDraftRefs.discardIntakeDraft, { draftId });
+    expect((await s.t.run(async (ctx) => ctx.db.get(running._id)))).toMatchObject({
+      status: "obsolete",
+      endedReason: "draft_closed",
+    });
+    await settle(s, 3);
+    expect(briefRequests).toHaveLength(0);
+    const after = (await s.t.run(async (ctx) => ctx.db.get(running._id)))!;
+    expect(after.status).toBe("obsolete");
+    expect(after.attemptEndedAt).toBeDefined();
+    const entries = await s.t.run(async (ctx) =>
+      ctx.db.query("briefPreparationEntries").withIndex("by_preparationId", (q) => q.eq("preparationId", running._id)).collect()
+    );
+    expect(entries).toHaveLength(0);
   });
 
   test("a draft expires 24 hours after its last edit, and its content is gone within the hour", async () => {

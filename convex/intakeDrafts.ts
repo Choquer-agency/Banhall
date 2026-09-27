@@ -120,7 +120,9 @@ async function fenceDraftPreparations(
     for (const row of rows) {
       // A promoted draft's preparation belongs to its project now.
       if (row.projectId) continue;
-      await endPreparation(ctx, row, status === "ready" ? "obsolete" : "cancelled", reason);
+      // A running attempt becomes obsolete, as a superseded one does: its
+      // late writes are dropped and its call holds the slot until it ends.
+      await endPreparation(ctx, row, status === "queued" ? "cancelled" : "obsolete", reason);
     }
   }
 }
@@ -204,15 +206,15 @@ export const saveIntakeSource = mutation({
       .withIndex("by_draftId_and_sourceKey", (q) => q.eq("draftId", draft._id).eq("sourceKey", sourceKey))
       .unique();
     if (existing && existing.kind !== args.kind) domainError("INVALID_INPUT", "A source cannot change kind");
-    const sources = await listDraftSources(ctx, draft._id);
-    const others = sources.filter((row) => row.sourceKey !== sourceKey);
-    if (args.kind === "transcript") {
-      const transcripts = others.filter((row) => row.kind === "transcript");
-      const total = transcripts.reduce((sum, row) => sum + row.content.length, 0) + args.content.length;
-      if (transcripts.length + 1 > MAX_TRANSCRIPTS_PER_PROJECT || total > MAX_TOTAL_TRANSCRIPT_CHARS) {
-        domainError("INVALID_INPUT", "A project takes at most 20 transcripts and 2,000k characters of transcript text");
-      }
-    } else if (others.filter((row) => row.kind === "document").length + 1 > MAX_INTAKE_DOCUMENTS) {
+    // The caps from the draft's counters: no other source's text is read.
+    const transcriptCount = (draft.transcriptCount ?? 0) + (args.kind === "transcript" && !existing ? 1 : 0);
+    const transcriptChars =
+      (draft.transcriptChars ?? 0) + (args.kind === "transcript" ? args.content.length - (existing?.content.length ?? 0) : 0);
+    const documentCount = (draft.documentCount ?? 0) + (args.kind === "document" && !existing ? 1 : 0);
+    if (transcriptCount > MAX_TRANSCRIPTS_PER_PROJECT || transcriptChars > MAX_TOTAL_TRANSCRIPT_CHARS) {
+      domainError("INVALID_INPUT", "A project takes at most 20 transcripts and 2,000k characters of transcript text");
+    }
+    if (documentCount > MAX_INTAKE_DOCUMENTS) {
       domainError("INVALID_INPUT", `A new project takes at most ${MAX_INTAKE_DOCUMENTS} supporting documents`);
     }
     const now = Date.now();
@@ -254,9 +256,7 @@ export const saveIntakeSource = mutation({
         createdAt: now,
       });
     }
-    const transcriptCount =
-      others.filter((row) => row.kind === "transcript").length + (args.kind === "transcript" ? 1 : 0);
-    const touched = await touchDraft(ctx, draft, { transcriptCount });
+    const touched = await touchDraft(ctx, draft, { transcriptCount, transcriptChars, documentCount });
     if (args.kind === "transcript" && textChanged) await scheduleIntakeStructure(ctx, sourceId);
     await requestIntakePreparation(ctx, touched, "source_saved");
     return null;
@@ -276,9 +276,11 @@ export const removeIntakeSource = mutation({
       .unique();
     if (!source) return null;
     await deleteSource(ctx, source);
-    const transcriptCount = Math.max(0, (draft.transcriptCount ?? 0) - (source.kind === "transcript" ? 1 : 0));
+    const transcript = source.kind === "transcript";
     const touched = await touchDraft(ctx, draft, {
-      transcriptCount,
+      transcriptCount: Math.max(0, (draft.transcriptCount ?? 0) - (transcript ? 1 : 0)),
+      transcriptChars: Math.max(0, (draft.transcriptChars ?? 0) - (transcript ? source.content.length : 0)),
+      documentCount: Math.max(0, (draft.documentCount ?? 0) - (transcript ? 0 : 1)),
       excludedSourceKeys: (draft.excludedSourceKeys ?? []).filter((key) => key !== source.sourceKey),
     });
     await requestIntakePreparation(ctx, touched, "source_removed");

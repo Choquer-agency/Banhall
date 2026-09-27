@@ -3419,8 +3419,11 @@ export default defineSchema({
     interviewees: v.optional(v.array(v.string())),
     // The start dialog's leave-out list while it is open (source keys).
     excludedSourceKeys: v.optional(v.array(v.string())),
-    // Readable transcripts saved, so an edit can tell without reading text.
+    // What is saved, so an edit checks the caps and asks for a preparation
+    // without reading every source's text.
     transcriptCount: v.optional(v.number()),
+    transcriptChars: v.optional(v.number()),
+    documentCount: v.optional(v.number()),
     // Promotion: the one project this draft becomes, set once.
     projectId: v.optional(v.id("projects")),
     promotionCommandId: v.optional(v.string()),
