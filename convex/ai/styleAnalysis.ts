@@ -23,7 +23,7 @@ import {
   type StyleOverrideKey,
 } from "../../shared/styleOverrides";
 import { HOUSE_RULE_TEXTS, LOCKED_RULES } from "../../shared/houseRules";
-import { MAX_INSTRUCTIONS_CHARS } from "../../shared/writerProfileLimits";
+import { INSTRUCTIONS_TOO_LONG_MESSAGE, MAX_INSTRUCTIONS_CHARS } from "../../shared/writerProfileLimits";
 
 // Same cap as the saved profile so no part of a saved document goes unread.
 const MAX_INPUT_CHARS = MAX_INSTRUCTIONS_CHARS;
@@ -136,22 +136,29 @@ export const ANALYSIS_TOOL_SCHEMA = {
  * persists after a save that changed the text and on "Check again".
  */
 export const analyzeMyInstructions = action({
-  args: { text: v.string(), persist: v.optional(v.boolean()) },
-  handler: async (ctx, args): Promise<StyleAnalysis> => {
+  args: {
+    text: v.string(),
+    persist: v.optional(v.boolean()),
+    // Audit wave 2: the page's automatic check after a save, as opposed to
+    // "Check again". Stored coverage of the same saved text is reused.
+    auto: v.optional(v.boolean()),
+  },
+  handler: async (ctx, args): Promise<StyleAnalysis & { reused?: true }> => {
     // Every request ends inside the Convex action limit (actionDeadline.ts).
     startActionDeadline(ctx);
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) throw new Error("Authentication required");
     const text = args.text.trim();
     // Audit wave 2: the Settings limit holds here too, and the caller needs
-    // an active internal role and one of 10 checks an hour.
-    if (text.length > MAX_INSTRUCTIONS_CHARS) {
-      domainError(
-        "INVALID_INPUT",
-        `Writing preferences are limited to ${MAX_INSTRUCTIONS_CHARS.toLocaleString("en-US")} characters.`
-      );
-    }
-    await ctx.runMutation(internal.writerProfiles.admitStyleAnalysis, { callsModel: text.length > 0 });
+    // an active internal role and one of 20 checks an hour.
+    if (text.length > MAX_INSTRUCTIONS_CHARS) domainError("INVALID_INPUT", INSTRUCTIONS_TOO_LONG_MESSAGE);
+    const textHash = await sha256(text);
+    const stored = await ctx.runMutation(internal.writerProfiles.admitStyleAnalysis, {
+      callsModel: text.length > 0,
+      auto: args.persist === true && args.auto === true,
+      textHash,
+    });
+    if (stored) return { categories: stored, lockedConflicts: [], reused: true };
     let result: StyleAnalysis;
     if (!text) {
       result = {
@@ -183,7 +190,7 @@ export const analyzeMyInstructions = action({
     }
     if (args.persist === true) {
       await ctx.runMutation(internal.writerProfiles.recordMyCoverage, {
-        textHash: await sha256(text),
+        textHash,
         categories: result.categories,
       });
     }

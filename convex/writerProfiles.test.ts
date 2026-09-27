@@ -3,7 +3,7 @@ import { convexTest } from "convex-test";
 import { describe, expect, test } from "vitest";
 import { api, internal } from "./_generated/api";
 import schema from "./schema";
-import { MAX_INSTRUCTIONS_CHARS } from "../shared/writerProfileLimits";
+import { INSTRUCTIONS_TOO_LONG_MESSAGE, MAX_INSTRUCTIONS_CHARS } from "../shared/writerProfileLimits";
 import {
   NO_STYLE_OVERRIDES,
   STYLE_OVERRIDE_KEYS,
@@ -73,7 +73,7 @@ describe("writer profile instruction limits", () => {
         customInstructions: "x".repeat(MAX_INSTRUCTIONS_CHARS + 1),
         enabled: true,
       })
-    ).rejects.toThrow(String(MAX_INSTRUCTIONS_CHARS));
+    ).rejects.toThrow(INSTRUCTIONS_TOO_LONG_MESSAGE);
   });
 
   test("trims before measuring and persisting", async () => {
@@ -95,7 +95,7 @@ describe("writer profile instruction limits", () => {
         customInstructions: "x".repeat(MAX_INSTRUCTIONS_CHARS + 1),
         enabled: true,
       })
-    ).rejects.toThrow(String(MAX_INSTRUCTIONS_CHARS));
+    ).rejects.toThrow(INSTRUCTIONS_TOO_LONG_MESSAGE);
   });
 });
 

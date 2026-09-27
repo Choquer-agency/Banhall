@@ -31,7 +31,7 @@ export const AI_RATE_LIMITS = {
   pdReviewPerUser: { kind: "token bucket", rate: 20, period: HOUR },
   researchPerUser: { kind: "token bucket", rate: 20, period: HOUR },
   scienceCodePerUser: { kind: "token bucket", rate: 30, period: HOUR },
-  styleAnalysisPerUser: { kind: "token bucket", rate: 10, period: HOUR },
+  styleAnalysisPerUser: { kind: "token bucket", rate: 20, period: HOUR },
 } as const satisfies Record<string, RateLimitConfig>;
 
 /** Generation starts one user may make in one firm day (America/Vancouver). */

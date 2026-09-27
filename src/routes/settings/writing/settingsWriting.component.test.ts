@@ -258,7 +258,7 @@ describe("/settings/writing (I2)", () => {
     await expect.poll(() => saveButton()?.disabled).toBe(false);
     saveButton()!.click();
     await expect.poll(() => __mutationCalls("ai/styleAnalysis:analyzeMyInstructions")).toEqual([
-      { text: "Plain words only.", persist: true },
+      { text: "Plain words only.", persist: true, auto: true },
     ]);
   });
 

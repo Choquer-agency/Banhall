@@ -132,7 +132,7 @@
    * un-ticks a manual choice. Waits for the real modes: pre-ticking against
    * the defaults could tick a waiver for a category the org enforces.
    */
-  async function checkCoverage(text: string) {
+  async function checkCoverage(text: string, auto = false) {
     if (checking || modesQ.data === undefined) return;
     checkError = "";
     checking = true;
@@ -140,13 +140,16 @@
       const result = await client.action(api.ai.styleAnalysis.analyzeMyInstructions, {
         text,
         persist: true,
+        // After a save: coverage already stored for these words is reused.
+        ...(auto ? { auto: true } : {}),
       });
       for (const key of STYLE_OVERRIDE_KEYS) {
         if (result.categories[key].addressed && modes[key] === "writer_choice") {
           overrides[key] = true;
         }
       }
-      conflicts = result.lockedConflicts;
+      // Reused coverage carries no conflicts of its own; keep the last run's.
+      if (!result.reused) conflicts = result.lockedConflicts;
     } catch (cause) {
       checkError = userErrorMessage(cause, "Your instructions could not be checked. Try again.");
     } finally {
@@ -199,7 +202,7 @@
       // The saved profile changed, so the samples are out of date.
       previewGeneration += 1;
       previews = {};
-      if (textChanged) void checkCoverage(customInstructions);
+      if (textChanged) void checkCoverage(customInstructions, true);
     } catch (cause) {
       toast.error(userErrorMessage(cause, "Could not save your writing preferences."));
     } finally {

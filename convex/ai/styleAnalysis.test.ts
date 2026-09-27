@@ -8,6 +8,8 @@ import {
 } from "./styleAnalysis";
 import { STYLE_OVERRIDE_KEYS } from "../../shared/styleOverrides";
 import { MAX_INSTRUCTIONS_CHARS } from "../../shared/writerProfileLimits";
+import { aiRateLimiter } from "../lib/aiRateLimits";
+import type { MutationCtx } from "../_generated/server";
 import { api } from "../_generated/api";
 import schema from "../schema";
 
@@ -173,21 +175,22 @@ describe("analyzeMyInstructions limits (audit wave 2)", () => {
     expect(providerMocks.create).not.toHaveBeenCalled();
   });
 
-  it("refuses text over the Settings limit (75,000 characters) before any call", async () => {
+  it("refuses text over the Settings limit (75,000 characters) before any call, in the same words as a save", async () => {
     const { writer } = await setup();
-    await expect(writer.action(api.ai.styleAnalysis.analyzeMyInstructions, { text: "x".repeat(MAX_INSTRUCTIONS_CHARS + 1) }))
-      .rejects.toMatchObject({
-        data: { code: "INVALID_INPUT", message: "Writing preferences are limited to 75,000 characters." },
-      });
+    const tooLong = "x".repeat(MAX_INSTRUCTIONS_CHARS + 1);
+    const refusal = { data: { code: "INVALID_INPUT", message: "Writing preferences are limited to 75,000 characters." } };
+    await expect(writer.action(api.ai.styleAnalysis.analyzeMyInstructions, { text: tooLong })).rejects.toMatchObject(refusal);
+    await expect(writer.mutation(api.writerProfiles.saveMyProfile, { customInstructions: tooLong, enabled: true }))
+      .rejects.toMatchObject(refusal);
     // Surrounding space is trimmed first, as on save.
     await writer.action(api.ai.styleAnalysis.analyzeMyInstructions, { text: ` ${"x".repeat(MAX_INSTRUCTIONS_CHARS)} ` });
     expect(providerMocks.create).toHaveBeenCalledTimes(1);
   });
 
-  it("allows 10 checks an hour per user, then refuses with RATE_LIMITED; empty text spends nothing", async () => {
+  it("allows 20 checks an hour per user, then refuses with RATE_LIMITED; empty text spends nothing", async () => {
     const { writer, other } = await setup();
     await writer.action(api.ai.styleAnalysis.analyzeMyInstructions, { text: "   " });
-    for (let i = 0; i < 10; i += 1) {
+    for (let i = 0; i < 20; i += 1) {
       await writer.action(api.ai.styleAnalysis.analyzeMyInstructions, { text: `Rule ${i}.` });
     }
     await expect(writer.action(api.ai.styleAnalysis.analyzeMyInstructions, { text: "One more." }))
@@ -198,8 +201,33 @@ describe("analyzeMyInstructions limits (audit wave 2)", () => {
           message: expect.stringMatching(/^You have started a lot of runs in the last hour\. Try again in \d+ minutes?\.$/),
         },
       });
-    expect(providerMocks.create).toHaveBeenCalledTimes(10);
+    expect(providerMocks.create).toHaveBeenCalledTimes(20);
     await other.action(api.ai.styleAnalysis.analyzeMyInstructions, { text: "Another writer." });
-    expect(providerMocks.create).toHaveBeenCalledTimes(11);
+    expect(providerMocks.create).toHaveBeenCalledTimes(21);
+  });
+
+  it("reuses stored coverage for the automatic check after a save that did not change the saved text", async () => {
+    const { t, writer } = await setup();
+    // Another tab already saved these words and checked them.
+    await writer.mutation(api.writerProfiles.saveMyProfile, { customInstructions: "Short sentences.", enabled: true });
+    await writer.action(api.ai.styleAnalysis.analyzeMyInstructions, { text: "Short sentences.", persist: true, auto: true });
+    expect(providerMocks.create).toHaveBeenCalledTimes(1);
+    const left = async () => await t.run(async (ctx) =>
+      (await aiRateLimiter.getValue(ctx as unknown as MutationCtx, "styleAnalysisPerUser", {
+        key: (await ctx.db.query("users").first())!._id,
+      })).value);
+    const afterFirst = await left();
+    await writer.mutation(api.writerProfiles.saveMyProfile, { customInstructions: "Short sentences.", enabled: true });
+    await expect(writer.action(api.ai.styleAnalysis.analyzeMyInstructions, {
+      text: " Short sentences. ",
+      persist: true,
+      auto: true,
+    })).resolves.toMatchObject({ reused: true, categories: analysis.categories });
+    expect(providerMocks.create).toHaveBeenCalledTimes(1);
+    expect(await left()).toBe(afterFirst);
+    // "Check again" always runs and spends.
+    await writer.action(api.ai.styleAnalysis.analyzeMyInstructions, { text: "Short sentences.", persist: true });
+    expect(providerMocks.create).toHaveBeenCalledTimes(2);
+    expect(await left()).toBeLessThan(afterFirst);
   });
 });

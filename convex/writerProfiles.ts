@@ -21,7 +21,7 @@ import { firmDateParts, firmDateStartUtc } from "../shared/firmTime";
 import { domainError, sha256 } from "./lib/contracts";
 import { limitUserAction } from "./lib/aiRateLimits";
 import { isProjectDeleting } from "./lib/projectDeletion";
-import { MAX_INSTRUCTIONS_CHARS } from "../shared/writerProfileLimits";
+import { INSTRUCTIONS_TOO_LONG_MESSAGE, MAX_INSTRUCTIONS_CHARS } from "../shared/writerProfileLimits";
 import {
   styleOverridesValidator,
   normalizedStyleOverridesValidator,
@@ -114,10 +114,7 @@ const profileValidator = v.object({
 function validateInstructions(raw: string): string {
   const trimmed = raw.trim();
   if (trimmed.length > MAX_INSTRUCTIONS_CHARS) {
-    domainError(
-      "INVALID_INPUT",
-      `Writing preferences are limited to ${MAX_INSTRUCTIONS_CHARS} characters.`
-    );
+    domainError("INVALID_INPUT", INSTRUCTIONS_TOO_LONG_MESSAGE);
   }
   return trimmed;
 }
@@ -359,14 +356,30 @@ export const saveProfileForUser = mutation({
 /**
  * Audit wave 2: "Check what applies" (ai/styleAnalysis.analyzeMyInstructions)
  * needs an active internal role, and a model call spends one of the
- * caller's 10 an hour. One transaction, so a refusal spends nothing.
+ * caller's 20 an hour. The page's automatic check after a save (`auto`)
+ * of text whose coverage is already stored (another tab saved the same
+ * words) reuses that coverage: no call, nothing spent. One transaction, so
+ * a refusal spends nothing.
  */
 export const admitStyleAnalysis = internalMutation({
-  args: { callsModel: v.boolean() },
-  returns: v.null(),
+  args: { callsModel: v.boolean(), auto: v.boolean(), textHash: v.string() },
+  returns: v.union(v.null(), coverageCategoriesValidator),
   handler: async (ctx, args) => {
     const user = await requireInternalActor(ctx);
-    if (args.callsModel) await limitUserAction(ctx, "styleAnalysisPerUser", user._id);
+    if (!args.callsModel) return null;
+    if (args.auto) {
+      const profile = await ctx.db
+        .query("writerProfiles")
+        .withIndex("by_userId", (q) => q.eq("userId", user._id))
+        .unique();
+      if (
+        profile?.coverage?.textHash === args.textHash &&
+        (await sha256(profile.customInstructions.trim())) === args.textHash
+      ) {
+        return profile.coverage.categories;
+      }
+    }
+    await limitUserAction(ctx, "styleAnalysisPerUser", user._id);
     return null;
   },
 });
