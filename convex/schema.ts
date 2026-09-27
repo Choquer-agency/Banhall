@@ -694,6 +694,9 @@ export default defineSchema({
         parserVersion: v.string(),
         otherNames: v.array(v.string()),
         organizations: v.array(v.string()),
+        // Parser v8 (2026-09-26): weak labels (lowercase, no case) seen on
+        // one line only, hidden as written.
+        looseLabels: v.optional(v.array(v.string())),
       })
     ),
     archivedAt: v.optional(v.number()),

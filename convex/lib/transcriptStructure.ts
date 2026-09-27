@@ -184,11 +184,16 @@ function storedSpeakerNames(
   const names = transcriptSpeakerNames(text, { cues });
   const withRow = new Set(rowLabels);
   const otherNames = [...new Set([...names.labels.filter((label) => !withRow.has(label)), ...names.otherNames])];
-  if (otherNames.length + names.organizations.length > MAX_STORED_SPEAKER_NAMES) return undefined;
+  const looseLabels = names.looseLabels ?? [];
+  if (otherNames.length + names.organizations.length + looseLabels.length > MAX_STORED_SPEAKER_NAMES) {
+    return undefined;
+  }
   return {
     parserVersion: TRANSCRIPT_PARSER_VERSION,
     otherNames,
     organizations: names.organizations,
+    // Parser v8: weak labels no turn took, hidden as written only.
+    ...(looseLabels.length > 0 ? { looseLabels } : {}),
   };
 }
 

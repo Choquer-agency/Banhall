@@ -48,9 +48,19 @@
  * and each comma part of a bracket is read on its own, so "Acme (Jane Smith,
  * Engineer)" hides Jane Smith. The bump rebuilds rows v6 built at the next
  * backfill.
+ *
+ * v8 (2026-09-26, audit wave 2, privacy): a label may be lowercase ("priya
+ * shah:"), an email address ("pshah@acme.com:", "<v priya.shah@acme.com>")
+ * or written in a script with no case ("李伟:"). These weak labels pass
+ * guards (no function words, headings or openers, letters only, short) and,
+ * in turns, count only with a speaker pattern (a time on the line, a label
+ * that recurs, or an exchange of two speakers; `dropWeakLabels`); an email
+ * label always counts. A weak label no turn takes is still hidden, as
+ * written (`looseLabels`). Every v7 label reads as before. The bump rebuilds
+ * rows v7 built at the next backfill.
  */
 
-export const TRANSCRIPT_PARSER_VERSION = "7";
+export const TRANSCRIPT_PARSER_VERSION = "8";
 
 /**
  * Longest turn, in characters of stored text. A longer run of speech (a
@@ -336,6 +346,129 @@ function speakerFromLabel(raw: string): string | undefined {
   return preferred ?? name;
 }
 
+// ─── Weak labels (parser v8) ────────────────────────────────────────────────
+
+/**
+ * How a label that `speakerFromLabel` refuses may still name a speaker:
+ * lowercase words ("priya shah"), an email address ("pshah@acme.com") or
+ * words in a script with no case ("李伟", "محمد علي").
+ */
+export type WeakLabelKind = "lower" | "caseless" | "email";
+
+/** Which weak kinds a caller accepts; none means v7's rule only. */
+type WeakKinds = ReadonlySet<WeakLabelKind>;
+
+const ALL_WEAK: WeakKinds = new Set<WeakLabelKind>(["lower", "caseless", "email"]);
+const CASELESS_ONLY: WeakKinds = new Set<WeakLabelKind>(["caseless"]);
+
+/** An email address as the whole label ("pshah@acme.com", "priya.shah@acme.com"). */
+const EMAIL_LABEL = /^[\p{L}\p{N}._%+'-]+@[\p{L}\p{N}-]+(?:\.[\p{L}\p{N}-]+)+$/u;
+
+/**
+ * Words a lowercase label never holds: function words, pronouns, verbs of
+ * saying, question words and the notes words that open a line of prose with
+ * a colon ("note:", "fyi:", "the answer is:"). With NOT_A_NAME and
+ * NOT_A_SPEAKER, so "well:", "result:" and "next steps:" name no one.
+ */
+const LOWERCASE_NOT_A_NAME = new Set([
+  "a", "about", "above", "after", "all", "am", "an", "and", "answer", "answers",
+  "any", "are", "as", "asked", "at", "be", "because", "been", "before",
+  "being", "below", "between", "both", "btw", "but", "by", "can", "caution",
+  "cc", "con", "cons", "could", "currently", "did", "do", "does", "doing",
+  "done", "each", "edit", "eg", "email", "error", "etc", "every", "few", "for",
+  "from", "fw", "fwd", "fyi", "had", "has", "have", "he", "her", "here",
+  "hers", "him", "his", "how", "however", "i", "ie", "if", "important", "in",
+  "including", "info", "input", "into", "is", "it", "its", "just", "key",
+  "last", "like", "link", "log", "main", "may", "me", "might", "mine", "more",
+  "most", "must", "my", "name", "namely", "nb", "new", "next", "not", "of",
+  "off", "on", "one", "only", "or", "other", "otherwise", "our", "ours",
+  "out", "output", "over", "overall", "page", "part", "phone", "point",
+  "points", "pro", "pros", "ps", "q", "question", "questions", "quote", "re",
+  "reply", "response", "said", "same", "say", "says", "section", "she",
+  "should", "since", "some", "such", "than", "that", "the", "their",
+  "theirs", "them", "there", "therefore", "these", "they", "thing", "things",
+  "this", "those", "three", "thus", "tip", "tldr", "to", "todo", "too", "two",
+  "until", "up", "us", "very", "warning", "was", "we", "were", "what", "when",
+  "where", "which", "while", "who", "whom", "whose", "why", "will", "with",
+  "without", "would", "wrote", "you", "your", "yours",
+]);
+
+/**
+ * Words in scripts with no case that head a line of notes rather than name
+ * a speaker ("注意:", "问题:", "ملاحظة:"). Kept short: a weak label still
+ * needs to recur or carry a time before it opens a turn.
+ */
+const CASELESS_NOT_A_NAME = new Set([
+  "注意", "备注", "问题", "答案", "问", "答", "总结", "结论", "时间", "日期", "议程", "主题", "会议", "记录", "说明",
+  "注", "質問", "回答", "議題", "日時", "場所", "参加者", "メモ", "まとめ", "結論",
+  "질문", "답변", "참고", "요약", "메모", "주제", "일시", "장소", "참석자", "결론",
+  "ملاحظة", "سؤال", "جواب", "ملخص", "الموضوع", "التاريخ",
+  "הערה", "שאלה", "תשובה", "סיכום",
+]);
+
+function lowercaseName(label: string): boolean {
+  const words = label.split(/\s+/);
+  if (words.length === 0 || words.length > 3 || !/^\p{Ll}/u.test(words[0])) return false;
+  return words.every((word) => {
+    if (!/^[\p{L}\p{M}'’-]+$/u.test(word) || word.length < 2) return false;
+    const lower = word.toLowerCase();
+    return !LOWERCASE_NOT_A_NAME.has(lower) && !NOT_A_NAME.has(lower) && !NOT_A_SPEAKER.has(lower);
+  });
+}
+
+function caselessName(label: string): boolean {
+  const words = label.split(/\s+/);
+  if (words.length === 0 || words.length > 4 || label.length > 30) return false;
+  return words.every(
+    (word) =>
+      /^[\p{Lo}\p{Lm}\p{M}'’·・.-]+$/u.test(word) &&
+      /\p{Lo}/u.test(word) &&
+      [...word].length <= 12 &&
+      !CASELESS_NOT_A_NAME.has(word)
+  );
+}
+
+/**
+ * A label v7 refuses that may still name a speaker (parser v8). The same
+ * bracket rule as `speakerFromLabel`: a role word before the brackets gives
+ * the name inside ("interviewer (dana)"), anything else after a name is left
+ * off. Callers decide which kinds they accept.
+ */
+function weakSpeakerFromLabel(
+  raw: string,
+  kinds: WeakKinds
+): { speaker: string; weak: WeakLabelKind } | undefined {
+  let label = raw.trim().replace(TRAILING_TIMESTAMP, "");
+  const parts = bracketParts(label);
+  let preferred: string | undefined;
+  if (parts) {
+    label = parts.outer;
+    if (!ONLY_TIMESTAMP.test(parts.inner) && ROLE_LABEL.test(label)) {
+      const first = parts.inner.split(",")[0].trim();
+      if (/^\p{L}/u.test(first) && first.length >= 2) preferred = first;
+    }
+  }
+  if (kinds.has("email") && label.length <= 80 && EMAIL_LABEL.test(label)) {
+    return { speaker: preferred ?? label, weak: "email" };
+  }
+  if (label.length < 2 || label.length > 60 || isHeadingLabel(label)) return undefined;
+  if (kinds.has("lower") && (lowercaseName(label) || (/^\p{Ll}/u.test(label) && ROLE_LABEL.test(label)))) {
+    return { speaker: preferred ?? label, weak: "lower" };
+  }
+  if (kinds.has("caseless") && caselessName(label)) return { speaker: preferred ?? label, weak: "caseless" };
+  return undefined;
+}
+
+/** v7's rule first, then the weak kinds the caller accepts. */
+function readSpeakerLabel(
+  raw: string,
+  kinds: WeakKinds
+): { speaker: string; weak?: WeakLabelKind } | undefined {
+  const strict = speakerFromLabel(raw);
+  if (strict !== undefined) return { speaker: strict };
+  return kinds.size > 0 ? weakSpeakerFromLabel(raw, kinds) : undefined;
+}
+
 /** A VTT voice's name, with "Shah, Priya" read as "Priya Shah". */
 function voiceSpeaker(raw: string): string | undefined {
   const voice = raw.trim();
@@ -413,10 +546,10 @@ export function speakerOfTranscriptLine(line: string): string | undefined {
   if (voice) return voiceSpeaker(voice[1]);
   const afterTime = text.replace(LEADING_TIMESTAMP, "");
   const colon = COLON_LABEL.exec(afterTime);
-  if (colon) return speakerFromLabel(colon[1]);
+  if (colon) return readSpeakerLabel(colon[1], ALL_WEAK)?.speaker;
   if (afterTime === text) {
     const header = NAME_THEN_TIMESTAMP.exec(text);
-    if (header) return speakerFromLabel(header[1]);
+    if (header) return readSpeakerLabel(header[1], ALL_WEAK)?.speaker;
   }
   return undefined;
 }
@@ -452,8 +585,10 @@ export type SpeakerLine =
       /** Index in the line where the speech starts. */
       speechOffset: number;
       timeMs?: number;
+      /** Set when only a v8 weak rule read the label (`WeakLabelKind`). */
+      weak?: WeakLabelKind;
     }
-  | { kind: "header"; speaker: string; rawLabel: string; timeMs?: number }
+  | { kind: "header"; speaker: string; rawLabel: string; timeMs?: number; weak?: WeakLabelKind }
   | { kind: "timestamp"; timeMs?: number }
   /** A bracketed time, then speech that names no one (`[00:00:05] text`). */
   | { kind: "timed"; timeMs?: number; speechOffset: number };
@@ -482,16 +617,17 @@ export function splitSpeakerLine(line: string): SpeakerLine | undefined {
   const afterTime = timePrefix ? text.slice(timePrefix[0].length) : text;
   const colon = /^(.{1,100}?)\s*:\s+(?=\S)/.exec(afterTime);
   if (colon && COLON_LABEL.test(afterTime)) {
-    const speaker = speakerFromLabel(colon[1]);
-    if (speaker) {
+    const read = readSpeakerLabel(colon[1], ALL_WEAK);
+    if (read) {
       const labelTime = TRAILING_TIMESTAMP.exec(colon[1].trim());
       const time = labelTime?.[0] ?? timePrefix?.[0];
       return {
         kind: "inline",
-        speaker,
+        speaker: read.speaker,
         rawLabel: colon[1].trim(),
         speechOffset: lead + (timePrefix?.[0].length ?? 0) + colon[0].length,
         ...(time ? { timeMs: timestampToMs(time) } : {}),
+        ...(read.weak ? { weak: read.weak } : {}),
       };
     }
     // Not a speaker: "[00:00:03] We tested two options: the first failed"
@@ -512,13 +648,14 @@ export function splitSpeakerLine(line: string): SpeakerLine | undefined {
     }
     const header = NAME_THEN_TIMESTAMP.exec(text);
     if (header) {
-      const speaker = speakerFromLabel(header[1]);
-      if (!speaker) return undefined;
+      const read = readSpeakerLabel(header[1], ALL_WEAK);
+      if (!read) return undefined;
       return {
         kind: "header",
-        speaker,
+        speaker: read.speaker,
         rawLabel: header[1].trim(),
         timeMs: timestampToMs(text.slice(header[1].length)),
+        ...(read.weak ? { weak: read.weak } : {}),
       };
     }
   }
@@ -573,11 +710,15 @@ export function detectTranscriptFormat(args: {
   const zoomHeaders = countMatching(all, (line) => ZOOM_HEADER.test(line.trim()));
   if (zoomHeaders >= 2) return "zoom";
   const timestampLines = countMatching(all, (line) => ONLY_TIMESTAMP.test(line.trim()));
+  // Weak labels (parser v8) never change the detected format.
   const colonTurns = countMatching(all, (line) => {
     const split = splitSpeakerLine(line);
-    return split?.kind === "inline";
+    return split?.kind === "inline" && split.weak === undefined;
   });
-  const headers = countMatching(all, (line) => splitSpeakerLine(line)?.kind === "header");
+  const headers = countMatching(all, (line) => {
+    const split = splitSpeakerLine(line);
+    return split?.kind === "header" && split.weak === undefined;
+  });
   if (/^\s*meeting (transcript|notes)\b/im.test(text.slice(0, 2000)) && timestampLines >= 1 && colonTurns >= 1) {
     return "meet";
   }
@@ -614,6 +755,30 @@ type Cue = { startMs?: number; speaker?: string; text: string };
  * (`acrossBlankLines`).
  */
 function parseCues(text: string, options: { acrossBlankLines?: boolean } = {}): Cue[] {
+  // Parser v8: a weak name (lowercase, no case) names a cue only when some
+  // weak name names two cues of the file, so a caption line such as
+  // "thermal drift: it held" stays text; an email always names its cue. The
+  // first pass counts them.
+  const weakSeen = new Map<string, number>();
+  const v7 = cuesOf(text, options, (speaker) => {
+    weakSeen.set(speaker, (weakSeen.get(speaker) ?? 0) + 1);
+    return false;
+  });
+  if (weakSeen.size === 0) return v7;
+  const pattern = [...weakSeen.values()].some((count) => count >= 2);
+  return cuesOf(text, options, (_speaker, weak) => weak === "email" || pattern);
+}
+
+function cuesOf(
+  text: string,
+  options: { acrossBlankLines?: boolean },
+  acceptWeak: (speaker: string, weak: WeakLabelKind) => boolean
+): Cue[] {
+  const weakName = (label: string, kinds: WeakKinds): string | undefined => {
+    const read = readSpeakerLabel(label, kinds);
+    if (!read) return undefined;
+    return read.weak === undefined || acceptWeak(read.speaker, read.weak) ? read.speaker : undefined;
+  };
   const cues: Cue[] = [];
   const all = lines(text);
   let index = 0;
@@ -644,13 +809,13 @@ function parseCues(text: string, options: { acrossBlankLines?: boolean } = {}): 
     if (voice) {
       speaker = voice[1].trim();
       first = first.slice(voice[0].length);
-    } else if (body.length >= 2 && speakerFromLabel(first) && !first.includes(":")) {
+    } else if (body.length >= 2 && !first.includes(":") && weakName(first, CASELESS_ONLY) !== undefined) {
       // Teams .docx cue: the speaker's name on its own line above the text.
-      speaker = speakerFromLabel(first);
+      speaker = weakName(first, CASELESS_ONLY);
       first = "";
     } else {
       const colon = /^(.{1,60}?)\s*:\s+(?=\S)/.exec(cueText(first));
-      const named = colon ? speakerFromLabel(colon[1]) : undefined;
+      const named = colon ? weakName(colon[1], ALL_WEAK) : undefined;
       if (colon && named) {
         speaker = named;
         first = cueText(first).slice(colon[0].length);
@@ -897,6 +1062,12 @@ export type TranscriptSpeakerNames = {
   otherNames: string[];
   /** Organizations named in labels' brackets ("Acme" in "Priya Shah (Acme)"). */
   organizations: string[];
+  /**
+   * Weak labels (parser v8) the transcript-wide rules set aside: hidden as
+   * written only, never word by word, since a lowercase phrase seen once
+   * may be ordinary words. Absent when there are none.
+   */
+  looseLabels?: string[];
 };
 
 /**
@@ -918,8 +1089,15 @@ export function transcriptSpeakerNames(content: string, options: { cues?: boolea
   const add = (set: Set<string>, value: string | undefined) => {
     if (value !== undefined && !labels.has(value)) set.add(value);
   };
+  const looseLabels = new Set<string>();
   for (const kind of [...lines.lineKinds, ...lines.kinds]) {
     if (kind?.kind !== "inline" && kind?.kind !== "header") continue;
+    if (kind.weak !== undefined && !labels.has(kind.speaker)) {
+      // Parser v8: a weak label no turn took, hidden as written only.
+      if (kind.weak === "email") add(otherNames, kind.speaker);
+      else add(looseLabels, kind.speaker);
+      continue;
+    }
     add(otherNames, kind.speaker);
     add(otherNames, writtenLastFirst(kind.rawLabel));
     const bracketed = labelBracketNames(kind.rawLabel);
@@ -927,7 +1105,13 @@ export function transcriptSpeakerNames(content: string, options: { cues?: boolea
     for (const name of bracketed.organizations) add(organizations, name);
   }
   for (const name of lines.paneNames) add(otherNames, name);
-  return { labels: [...labels], otherNames: [...otherNames], organizations: [...organizations] };
+  for (const name of otherNames) looseLabels.delete(name);
+  return {
+    labels: [...labels],
+    otherNames: [...otherNames],
+    organizations: [...organizations],
+    ...(looseLabels.size > 0 ? { looseLabels: [...looseLabels] } : {}),
+  };
 }
 
 /** A "Shah, Priya" label as written, before it is read as "Priya Shah". */
@@ -948,7 +1132,9 @@ type LineKind = SpeakerLine | { kind: "consumed" } | undefined;
 function bareNameLine(text: string): string | undefined {
   const line = text.trim();
   if (line.includes(":") || NOT_A_NAME.has(line.toLowerCase())) return undefined;
-  return speakerFromLabel(line);
+  // Parser v8: a name in a script with no case ("李伟") heads a pane turn
+  // too; lowercase and email names do not, as a line of speech can be both.
+  return readSpeakerLabel(line, CASELESS_ONLY)?.speaker;
 }
 
 /**
@@ -1008,7 +1194,9 @@ function dropUnpatternedLabels(infos: readonly LineInfo[], kinds: LineKind[]): v
   for (let i = 0; i < infos.length; i += 1) {
     const kind = kinds[i];
     if (infos[i].text.trim() === "" || kind?.kind === "consumed" || kind?.kind === "timestamp") continue;
-    if (kind?.kind === "inline" || kind?.kind === "header") {
+    // A weak label (parser v8) reads here as the text v7 took it for;
+    // `dropWeakLabels` decides it.
+    if ((kind?.kind === "inline" || kind?.kind === "header") && kind.weak === undefined) {
       counts.set(kind.speaker, (counts.get(kind.speaker) ?? 0) + 1);
       labelled += 1;
       if (!isPlainLabel(infos[i].text, kind)) strong = true;
@@ -1020,8 +1208,50 @@ function dropUnpatternedLabels(infos: readonly LineInfo[], kinds: LineKind[]): v
   if (textBeforeFirstLabel === 0 || (counts.size >= 2 && labelled >= textBeforeFirstLabel)) return;
   for (let i = 0; i < infos.length; i += 1) {
     const kind = kinds[i];
-    if (kind?.kind === "inline" && isPlainLabel(infos[i].text, kind)) kinds[i] = undefined;
+    if (kind?.kind === "inline" && kind.weak === undefined && isPlainLabel(infos[i].text, kind)) kinds[i] = undefined;
   }
+}
+
+/**
+ * Parser v8: when a lowercase or caseless label opens a turn. A label whose
+ * line carries a time always does; a header line (a name and a time on its
+ * own line) does when the transcript holds two headers or more; a plain
+ * "name: speech" line does when some label recurs, or when at least two
+ * different speakers talk and prose does not outweigh them before the
+ * first label (v4's exchange rule, without its "the text opens with a
+ * label" case); beside v7 labels it must recur itself. So a lone "thermal drift: it held" or "结果是: 很好" in notes
+ * stays text. An email label always counts. A label set aside here is
+ * still hidden, as written (`transcriptSpeakerNames`, `looseLabels`).
+ */
+function dropWeakLabels(infos: readonly LineInfo[], kinds: LineKind[]): void {
+  if (!kinds.some((kind) => (kind?.kind === "inline" || kind?.kind === "header") && kind.weak !== undefined)) return;
+  const counts = new Map<string, number>();
+  let headers = 0;
+  let labelled = 0;
+  let textBeforeFirstLabel = 0;
+  let strong = false;
+  for (let i = 0; i < infos.length; i += 1) {
+    const kind = kinds[i];
+    if (infos[i].text.trim() === "" || kind?.kind === "consumed" || kind?.kind === "timestamp") continue;
+    if (kind?.kind === "inline" || kind?.kind === "header") {
+      counts.set(kind.speaker, (counts.get(kind.speaker) ?? 0) + 1);
+      if (kind.kind === "header") headers += 1;
+      if (kind.weak === undefined) strong = true;
+      labelled += 1;
+    } else if (labelled === 0) {
+      textBeforeFirstLabel += 1;
+    }
+  }
+  const recurs = [...counts.values()].some((count) => count >= 2);
+  const exchange = counts.size >= 2 && labelled >= textBeforeFirstLabel;
+  kinds.forEach((kind, at) => {
+    if ((kind?.kind !== "inline" && kind?.kind !== "header") || kind.weak === undefined || kind.weak === "email") return;
+    // Beside v7 labels, a weak label must recur itself: "thermal drift:"
+    // inside Priya Shah's answer stays her words, as "Result:" does.
+    const pattern = strong ? (counts.get(kind.speaker) ?? 0) >= 2 : recurs || exchange;
+    const keep = kind.kind === "header" ? headers >= 2 : kind.timeMs !== undefined || pattern;
+    if (!keep) kinds[at] = undefined;
+  });
 }
 
 /**
@@ -1072,6 +1302,7 @@ function analyzeLines(content: string): AnalyzedLines {
   const paneNames = markPaneHeaders(infos, kinds);
   resolveBracketSpeakers(kinds);
   dropUnpatternedLabels(infos, kinds);
+  dropWeakLabels(infos, kinds);
   return { infos, lineKinds, kinds, paneNames };
 }
 
