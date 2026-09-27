@@ -169,6 +169,30 @@ describe("saved while the writer sets up", () => {
     }
   });
 
+  it("counts a transcript file still being parsed (P3-9)", async () => {
+    __setMutationResult("intakeDrafts:reportIntakePendingReads", null);
+    const counts = () =>
+      (__mutationCalls("intakeDrafts:reportIntakePendingReads") as Array<{ count: number }>).map((call) => call.count);
+    await render(NewProjectPage, {});
+    await fillBasics("Cold seal", "Acme Seals");
+    await pasteTranscript();
+    await expect.poll(() => saves().length).toBe(1);
+    let finishParsing!: (value: string) => void;
+    const slow = new File(["held"], "Second interview.txt", { type: "text/plain" });
+    Object.defineProperty(slow, "text", {
+      value: () => new Promise<string>((resolve) => (finishParsing = resolve)),
+    });
+    const transfer = new DataTransfer();
+    transfer.items.add(slow);
+    const input = document.querySelector<HTMLInputElement>('input[type="file"][accept=".docx,.vtt,.srt,.txt"]')!;
+    input.files = transfer.files;
+    input.dispatchEvent(new Event("change", { bubbles: true }));
+    await expect.poll(() => counts().at(-1)).toBe(1);
+    finishParsing("Interviewer: What changed?\nEngineer: The seal held at minus 30 degrees.");
+    await expect.poll(() => saves().filter((call) => call.kind === "transcript").length).toBe(2);
+    await expect.poll(() => counts().at(-1)).toBe(0);
+  });
+
   it("keeps a file that did not reach the draft in view with Try again", async () => {
     __setMutationError("intakeDrafts:saveIntakeSource", new Error("offline"));
     await render(NewProjectPage, {});

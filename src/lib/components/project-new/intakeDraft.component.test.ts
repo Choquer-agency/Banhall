@@ -127,6 +127,85 @@ describe("IntakeDraftSync", () => {
     expect(calls.reportIntakePendingReads.mock.calls.length).toBe(promoted);
   });
 
+  it("a read reporting progress every 50 ms still sends its count within about 400 ms (P2-1)", async () => {
+    const calls = fakeCalls();
+    const sync = new IntakeDraftSync({
+      calls: calls as unknown as IntakeCalls,
+      uploadOriginal: async () => undefined,
+    });
+    sync.reconcile([doc("Notes.", new File(["x"], "notes.txt"))]);
+    await expect.poll(() => calls.saveIntakeSource.mock.calls.length).toBe(1);
+    await expect.poll(() => sync.draftId).toBe("draft-1");
+    // A PDF read replaces its card once a page: the page hands the same
+    // reading file over again and again.
+    const startedAt = Date.now();
+    const progress = setInterval(() => sync.setReading({ keys: ["document-key-2"], unkeyed: 0 }), 50);
+    try {
+      sync.setReading({ keys: ["document-key-2"], unkeyed: 0 });
+      await expect
+        .poll(() => calls.reportIntakePendingReads.mock.calls.length, { timeout: 2_000, interval: 10 })
+        .toBeGreaterThan(0);
+      expect(Date.now() - startedAt).toBeLessThan(450);
+      expect(calls.reportIntakePendingReads.mock.calls[0][0]).toEqual({ draftId: "draft-1", count: 1 });
+    } finally {
+      clearInterval(progress);
+      sync.dispose();
+    }
+  });
+
+  it("a failed report of zero is sent again by the refresh (P3-2)", async () => {
+    let failNext = false;
+    const calls = fakeCalls({
+      reportIntakePendingReads: vi.fn(async () => {
+        if (failNext) {
+          failNext = false;
+          throw new Error("offline");
+        }
+        return null;
+      }),
+    });
+    const sync = new IntakeDraftSync({
+      calls: calls as unknown as IntakeCalls,
+      uploadOriginal: async () => undefined,
+      delayMs: 1,
+      refreshMs: 30,
+    });
+    const sent = () => calls.reportIntakePendingReads.mock.calls.map(([args]) => (args as { count: number }).count);
+    sync.setReading({ keys: ["document-key-2"], unkeyed: 0 });
+    sync.reconcile([doc("Notes.", new File(["x"], "notes.txt"))]);
+    await expect.poll(() => sent().at(-1)).toBe(1);
+    failNext = true;
+    sync.setReading({ keys: [], unkeyed: 0 });
+    // The first report of zero fails; the refresh sends it again, then stops.
+    await expect.poll(() => sent().filter((count) => count === 0).length).toBe(2);
+    const settled = calls.reportIntakePendingReads.mock.calls.length;
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(calls.reportIntakePendingReads.mock.calls.length).toBe(settled);
+    sync.dispose();
+  });
+
+  it("no timer survives the page: nothing is sent after dispose, even by a report on its way (P3-3)", async () => {
+    let answer!: () => void;
+    const calls = fakeCalls({
+      reportIntakePendingReads: vi.fn(() => new Promise<null>((resolve) => (answer = () => resolve(null)))),
+    });
+    const sync = new IntakeDraftSync({
+      calls: calls as unknown as IntakeCalls,
+      uploadOriginal: async () => undefined,
+      delayMs: 1,
+      refreshMs: 20,
+    });
+    sync.setReading({ keys: ["document-key-2"], unkeyed: 1 });
+    sync.reconcile([doc("Notes.", new File(["x"], "notes.txt"))]);
+    await expect.poll(() => calls.reportIntakePendingReads.mock.calls.length).toBe(1);
+    // The page goes while the report is on its way; its answer starts nothing.
+    sync.dispose();
+    answer();
+    sync.setReading({ keys: [], unkeyed: 4 });
+    await new Promise((resolve) => setTimeout(resolve, 120));
+    expect(calls.reportIntakePendingReads).toHaveBeenCalledTimes(1);
+  });
+
   it("a draft the server no longer has ends: no more saves, no receipts, no stored id", async () => {
     const storage = memoryStorage();
     const calls = fakeCalls({

@@ -181,6 +181,8 @@ export class IntakeDraftSync {
   #pendingSent = 0;
   #pendingTimer: ReturnType<typeof setTimeout> | null = null;
   #pendingRefresh: ReturnType<typeof setInterval> | null = null;
+  /** The page is gone: no timer is set and nothing is sent any more. */
+  #disposed = false;
   #refreshMs: number;
 
   constructor(options: {
@@ -437,6 +439,7 @@ export class IntakeDraftSync {
 
   /** The page is gone: no timer fires any more. */
   dispose(): void {
+    this.#disposed = true;
     for (const timer of this.#timers.values()) clearTimeout(timer);
     this.#timers.clear();
     if (this.#contextTimer) clearTimeout(this.#contextTimer);
@@ -653,18 +656,24 @@ export class IntakeDraftSync {
    * promoting, or once it ended.
    */
   #pendingChanged(): void {
-    if (this.closed || this.#promoting || !this.draftId) return;
-    if (this.#pendingTimer) clearTimeout(this.#pendingTimer);
+    if (this.#disposed || this.closed || this.#promoting || !this.draftId) return;
+    // A timer already set is never pushed back: a PDF read reports progress
+    // once a page, and resetting on each would hold the count until the
+    // read ended (review 2026-09-27, P2-1). The send reads the count when it
+    // fires, so a timer is set only when the count differs from the last
+    // one sent.
+    if (this.#pendingTimer || this.pendingReads === this.#pendingSent) return;
     this.#pendingTimer = setTimeout(() => void this.#sendPending(false), this.#delayMs);
   }
 
   async #sendPending(refresh: boolean): Promise<void> {
     if (!refresh) this.#pendingTimer = null;
     const draftId = this.draftId;
-    if (!draftId || this.closed || this.#promoting) return;
+    if (this.#disposed || !draftId || this.closed || this.#promoting) return;
     const count = this.pendingReads;
-    if (!refresh && count === this.#pendingSent) return;
-    if (refresh && count === 0) return;
+    // A refresh sends while there is anything to say: a count above zero, or
+    // one the server has not taken yet (a failed report of zero is retried).
+    if (count === this.#pendingSent && (!refresh || count === 0)) return;
     try {
       await this.#calls.reportIntakePendingReads({ draftId, count });
       this.#pendingSent = count;
@@ -675,13 +684,16 @@ export class IntakeDraftSync {
       }
       console.error("Could not tell the intake draft about files still being read", error);
     }
-    if (this.closed || this.#promoting) return;
-    if (this.#pendingSent > 0 && !this.#pendingRefresh) {
+    if (this.#disposed || this.closed || this.#promoting) return;
+    const settled = this.#pendingSent === 0 && this.pendingReads === 0;
+    if (!settled && !this.#pendingRefresh) {
       this.#pendingRefresh = setInterval(() => void this.#sendPending(true), this.#refreshMs);
-    } else if (this.#pendingSent === 0 && this.#pendingRefresh) {
+    } else if (settled && this.#pendingRefresh) {
       clearInterval(this.#pendingRefresh);
       this.#pendingRefresh = null;
     }
+    // The count moved while this send was on its way.
+    this.#pendingChanged();
   }
 
   #stopPending(): void {
