@@ -151,6 +151,31 @@ describe("IntakeDraftSync", () => {
     expect(calls.promoteIntakeDraft).toHaveBeenCalledTimes(4);
   }, 10_000);
 
+  it("a leave-out choice still waiting when the writer confirms is never sent after the promotion (live test 2026-09-26)", async () => {
+    const promoted = deferred<{ projectId: string; complete: boolean; sources: never[] }>();
+    const calls = fakeCalls({
+      promoteIntakeDraft: vi.fn(() => promoted.promise),
+      setIntakeSelection: vi.fn(async () => {
+        throw new ConvexError({ code: "INTAKE_DRAFT_GONE", message: "This setup is no longer available" });
+      }),
+    });
+    const sync = new IntakeDraftSync({ calls: calls as unknown as IntakeCalls, uploadOriginal: async () => undefined, delayMs: 30 });
+    sync.reconcile([doc("Notes.", new File(["x"], "notes.txt"))]);
+    await expect.poll(() => sync.receipts.get("document-key-1")).toBe("saved");
+    // The start dialog's choice is on its short delay when Confirm is pressed.
+    sync.setSelection(["document-key-1"]);
+    await sync.flush();
+    const outcome = sync.promote({ commandId: "c", sourceKeys: [], project: { title: "T", clientName: "C" } });
+    // A choice made while the promotion runs is not sent either.
+    sync.setSelection([]);
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    promoted.resolve({ projectId: "project-1", complete: true, sources: [] });
+    await expect(outcome).resolves.toMatchObject({ kind: "complete" });
+    expect(calls.setIntakeSelection).not.toHaveBeenCalled();
+    // The draft was not ended by a late save, so a pending promotion could still be followed.
+    expect(sync.draftId).toBe("draft-1");
+  });
+
   it("an original is hashed from the text saved last, so a note edit during its upload never refuses it (P3-2)", async () => {
     const calls = fakeCalls();
     const upload = deferred<string>();

@@ -163,6 +163,8 @@ export class IntakeDraftSync {
   #selection: string[] = [];
   #selectionSent = "";
   #selectionTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Set once a confirm starts promoting: the leave-out list is no longer sent. */
+  #promoting = false;
 
   constructor(options: {
     calls: IntakeCalls;
@@ -266,7 +268,7 @@ export class IntakeDraftSync {
   /** The start dialog's leave-out list, by source key. */
   setSelection(excludedSourceKeys: string[]): void {
     this.#selection = [...excludedSourceKeys].sort();
-    if (this.closed || !this.draftId) return;
+    if (this.closed || this.#promoting || !this.draftId) return;
     if (this.#selectionTimer) clearTimeout(this.#selectionTimer);
     this.#selectionTimer = setTimeout(() => void this.#sendSelection(), this.#delayMs);
   }
@@ -285,6 +287,13 @@ export class IntakeDraftSync {
       clearTimeout(this.#contextTimer);
       this.#contextTimer = null;
       await this.#sendContext();
+    }
+    // The promotion carries the leave-out list itself (its source keys), so
+    // a choice still waiting is dropped, not sent: sent after the promotion
+    // it finds the draft gone (live test 2026-09-26).
+    if (this.#selectionTimer) {
+      clearTimeout(this.#selectionTimer);
+      this.#selectionTimer = null;
     }
     await Promise.all([...this.#inflight.values()]);
     const failed = [...this.#wanted.keys()].filter((key) => this.receipts.get(key) !== "saved");
@@ -306,6 +315,11 @@ export class IntakeDraftSync {
   }): Promise<PromotionOutcome> {
     const draftId = this.draftId;
     if (!draftId) throw new Error("No intake draft to promote");
+    this.#promoting = true;
+    if (this.#selectionTimer) {
+      clearTimeout(this.#selectionTimer);
+      this.#selectionTimer = null;
+    }
     const call = () => this.#calls.promoteIntakeDraft({ draftId, ...args });
     let first: Awaited<ReturnType<typeof call>>;
     try {
@@ -582,7 +596,7 @@ export class IntakeDraftSync {
   async #sendSelection(): Promise<void> {
     this.#selectionTimer = null;
     const draftId = this.draftId;
-    if (!draftId || this.closed) return;
+    if (!draftId || this.closed || this.#promoting) return;
     const serialized = JSON.stringify(this.#selection);
     if (serialized === this.#selectionSent) return;
     try {
