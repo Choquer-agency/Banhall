@@ -1,3 +1,7 @@
+// Frozen copy of shared/transcriptParse.ts at parser v7 (68f56193), kept only
+// as the reference for the v7 to v8 turn-preservation test. Never import it
+// from app code.
+
 /**
  * Transcript intake and turn parsing (phase 3, the transcript method).
  *
@@ -48,19 +52,9 @@
  * and each comma part of a bracket is read on its own, so "Acme (Jane Smith,
  * Engineer)" hides Jane Smith. The bump rebuilds rows v6 built at the next
  * backfill.
- *
- * v8 (2026-09-26, audit wave 2, privacy): a label may be lowercase ("priya
- * shah:"), an email address ("pshah@acme.com:", "<v priya.shah@acme.com>")
- * or written in a script with no case ("李伟:"). These weak labels pass
- * guards (no function words, headings or openers, letters only, short) and,
- * in turns, count only with a speaker pattern (a time on the line, a label
- * that recurs, or an exchange of two speakers; `dropWeakLabels`); an email
- * label always counts. A weak label no turn takes is still hidden, as
- * written (`looseLabels`). Every v7 label reads as before. The bump rebuilds
- * rows v7 built at the next backfill.
  */
 
-export const TRANSCRIPT_PARSER_VERSION = "8";
+export const TRANSCRIPT_PARSER_VERSION = "7";
 
 /**
  * Longest turn, in characters of stored text. A longer run of speech (a
@@ -346,147 +340,6 @@ function speakerFromLabel(raw: string): string | undefined {
   return preferred ?? name;
 }
 
-// ─── Weak labels (parser v8) ────────────────────────────────────────────────
-
-/**
- * How a label that `speakerFromLabel` refuses may still name a speaker:
- * lowercase words ("priya shah"), an email address ("pshah@acme.com") or
- * words in a script with no case ("李伟", "محمد علي").
- */
-export type WeakLabelKind = "lower" | "caseless" | "email";
-
-/** Which weak kinds a caller accepts; none means v7's rule only. */
-type WeakKinds = ReadonlySet<WeakLabelKind>;
-
-const ALL_WEAK: WeakKinds = new Set<WeakLabelKind>(["lower", "caseless", "email"]);
-const CASELESS_ONLY: WeakKinds = new Set<WeakLabelKind>(["caseless"]);
-
-/** The time the canonical cue render writes after a name (`Name [00:00:01]:`). */
-const CANONICAL_LABEL_TIME = /\s+\[(\d{1,2}:\d{2}(?::\d{2})?(?:[.,]\d{1,3})?)\]$/;
-
-/** An email address as the whole label ("pshah@acme.com", "priya.shah@acme.com"). */
-const EMAIL_LABEL = /^[\p{L}\p{N}._%+'-]+@[\p{L}\p{N}-]+(?:\.[\p{L}\p{N}-]+)+$/u;
-
-/**
- * Words a lowercase label never holds: function words, pronouns, verbs of
- * saying, question words and the notes words that open a line of prose with
- * a colon ("note:", "fyi:", "the answer is:"). With NOT_A_NAME and
- * NOT_A_SPEAKER, so "well:", "result:" and "next steps:" name no one.
- */
-const LOWERCASE_NOT_A_NAME = new Set([
-  "a", "about", "above", "after", "all", "am", "an", "and", "answer", "answers",
-  "any", "are", "as", "asked", "at", "be", "because", "been", "before",
-  "being", "below", "between", "both", "btw", "but", "by", "can", "caution",
-  "cc", "con", "cons", "could", "currently", "did", "do", "does", "doing",
-  "done", "each", "edit", "eg", "email", "error", "etc", "every", "few", "for",
-  "from", "fw", "fwd", "fyi", "had", "has", "have", "he", "her", "here",
-  "hers", "him", "his", "how", "however", "i", "ie", "if", "important", "in",
-  "including", "info", "input", "into", "is", "it", "its", "just", "key",
-  "last", "like", "link", "log", "main", "may", "me", "might", "mine", "more",
-  "most", "must", "my", "name", "namely", "nb", "new", "next", "not", "of",
-  "off", "on", "one", "only", "or", "other", "otherwise", "our", "ours",
-  "out", "output", "over", "overall", "page", "part", "phone", "point",
-  "points", "pro", "pros", "ps", "q", "question", "questions", "quote", "re",
-  "reply", "response", "said", "same", "say", "says", "section", "she",
-  "should", "since", "some", "such", "than", "that", "the", "their",
-  "theirs", "them", "there", "therefore", "these", "they", "thing", "things",
-  "this", "those", "three", "thus", "tip", "tldr", "to", "todo", "too", "two",
-  "until", "up", "us", "very", "warning", "was", "we", "were", "what", "when",
-  "where", "which", "while", "who", "whom", "whose", "why", "will", "with",
-  "without", "would", "wrote", "you", "your", "yours",
-  // Languages, as bilingual notes and subtitles head their lines ("français:").
-  "english", "french", "français", "francais", "anglais", "spanish", "español",
-  "espanol", "german", "deutsch", "allemand", "italian", "italiano", "portuguese",
-  "português", "chinese", "mandarin", "cantonese", "japanese", "korean", "arabic",
-  "hebrew", "hindi", "translation", "traduction", "translated", "original",
-  "subtitle", "subtitles", "caption", "captions",
-]);
-
-/**
- * Whether a lowercase word is a common word no weak label or name part is
- * made of (function words, notes words, languages). Placeholder maps use it
- * for mailbox names and name parts.
- */
-export function isCommonLowercaseWord(word: string): boolean {
-  const lower = word.toLowerCase();
-  return LOWERCASE_NOT_A_NAME.has(lower) || NOT_A_NAME.has(lower) || NOT_A_SPEAKER.has(lower);
-}
-
-/**
- * Words in scripts with no case that head a line of notes rather than name
- * a speaker ("注意:", "问题:", "ملاحظة:"). Kept short: a weak label still
- * needs to recur or carry a time before it opens a turn.
- */
-const CASELESS_NOT_A_NAME = new Set([
-  "注意", "备注", "问题", "答案", "问", "答", "总结", "结论", "时间", "日期", "议程", "主题", "会议", "记录", "说明",
-  "注", "質問", "回答", "議題", "日時", "場所", "参加者", "メモ", "まとめ", "結論",
-  "질문", "답변", "참고", "요약", "메모", "주제", "일시", "장소", "참석자", "결론",
-  "ملاحظة", "سؤال", "جواب", "ملخص", "الموضوع", "التاريخ",
-  "הערה", "שאלה", "תשובה", "סיכום",
-  // Languages.
-  "中文", "英文", "英语", "汉语", "普通话", "粤语", "日本語", "日语", "英語", "中国語", "翻译", "翻訳", "原文",
-  "한국어", "영어", "중국어", "일본어", "번역", "العربية", "الإنجليزية", "الفرنسية", "עברית", "אנגלית",
-]);
-
-function lowercaseName(label: string): boolean {
-  const words = label.split(/\s+/);
-  if (words.length === 0 || words.length > 3 || !/^\p{Ll}/u.test(words[0])) return false;
-  return words.every((word) => {
-    // Lowercase letters only: "createdAt" or "userId" is a key, not a name.
-    if (!/^[\p{Ll}\p{M}'’-]+$/u.test(word) || word.length < 2) return false;
-    const lower = word.toLowerCase();
-    return !LOWERCASE_NOT_A_NAME.has(lower) && !NOT_A_NAME.has(lower) && !NOT_A_SPEAKER.has(lower);
-  });
-}
-
-function caselessName(label: string): boolean {
-  const words = label.split(/\s+/);
-  if (words.length === 0 || words.length > 4 || label.length > 30) return false;
-  return words.every(
-    (word) =>
-      /^[\p{Lo}\p{Lm}\p{M}'’·・.-]+$/u.test(word) &&
-      /\p{Lo}/u.test(word) &&
-      [...word].length <= 12 &&
-      !CASELESS_NOT_A_NAME.has(word)
-  );
-}
-
-/**
- * A label v7 refuses that may still name a speaker (parser v8). The same
- * bracket rule as `speakerFromLabel`: a role word before the brackets gives
- * the name inside ("interviewer (dana)"), anything else after a name is left
- * off. Callers decide which kinds they accept.
- */
-function weakSpeakerFromLabel(
-  raw: string,
-  kinds: WeakKinds
-): { speaker: string; weak: WeakLabelKind } | undefined {
-  const written = raw.trim();
-  const withoutTime = written.replace(TRAILING_TIMESTAMP, "");
-  if (kinds.has("email") && withoutTime.length <= 80 && EMAIL_LABEL.test(withoutTime)) {
-    return { speaker: withoutTime, weak: "email" };
-  }
-  // Only the canonical render's bracketed time may follow a weak label; a
-  // time or any digit inside one ("around 10:30:", "roughly 2") is prose.
-  let label = written.replace(CANONICAL_LABEL_TIME, "");
-  if (/\p{N}/u.test(label)) return undefined;
-  const parts = bracketParts(label);
-  let preferred: string | undefined;
-  if (parts) {
-    label = parts.outer;
-    if (!ONLY_TIMESTAMP.test(parts.inner) && ROLE_LABEL.test(label)) {
-      const first = parts.inner.split(",")[0].trim();
-      if (/^\p{L}/u.test(first) && first.length >= 2) preferred = first;
-    }
-  }
-  if (label.length < 2 || label.length > 60 || isHeadingLabel(label)) return undefined;
-  if (kinds.has("lower") && (lowercaseName(label) || (/^\p{Ll}/u.test(label) && ROLE_LABEL.test(label)))) {
-    return { speaker: preferred ?? label, weak: "lower" };
-  }
-  if (kinds.has("caseless") && caselessName(label)) return { speaker: preferred ?? label, weak: "caseless" };
-  return undefined;
-}
-
 /** A VTT voice's name, with "Shah, Priya" read as "Priya Shah". */
 function voiceSpeaker(raw: string): string | undefined {
   const voice = raw.trim();
@@ -676,78 +529,6 @@ export function splitSpeakerLine(line: string): SpeakerLine | undefined {
   return undefined;
 }
 
-/** A line a weak label may open (parser v8): never a turn on its own. */
-export type WeakSpeakerLine = Extract<SpeakerLine, { kind: "inline" | "header" }> & {
-  weak: WeakLabelKind;
-  /** How the label is written, so it is compared with v7 labels of the same form. */
-  form: "header" | "inline" | "inline-lead-time" | "inline-label-time";
-};
-
-/** A caseless label before a full-width colon, or an ASCII colon with no space ("李伟：我们", "李伟:我们"). */
-const CASELESS_COLON_LABEL = /^(.{0,29}?[^\d\s])[ \t]*[:\uFF1A][ \t]*(?=\S)/;
-
-/**
- * A weak label a line may open with, for a line v7 reads as no speaker
- * (`splitSpeakerLine` returns no inline or header kind for it). Only a
- * candidate: `analyzeLines` makes it a speaker under the evidence rules of
- * `promoteWeakOpeners`, and a candidate that fails stays text.
- */
-export function weakSpeakerLine(line: string): WeakSpeakerLine | undefined {
-  const v7 = splitSpeakerLine(line);
-  if (v7?.kind === "inline" || v7?.kind === "header" || v7?.kind === "timestamp") return undefined;
-  const withoutCr = line.replace(/\r$/, "");
-  const lead = withoutCr.length - withoutCr.trimStart().length;
-  const text = withoutCr.trim();
-  if (!text || VTT_VOICE.test(text)) return undefined;
-  // An indented "key: value," line is code or a data dump, never a turn.
-  if (/^(?:\t| {2})/.test(withoutCr) || /[,{([;]$/.test(text)) return undefined;
-  const timePrefix = LEADING_TIMESTAMP.exec(text);
-  const afterTime = timePrefix ? text.slice(timePrefix[0].length) : text;
-  const colon = /^(.{1,100}?)\s*:\s+(?=\S)/.exec(afterTime);
-  const caselessColon = colon ? undefined : CASELESS_COLON_LABEL.exec(afterTime);
-  const match = colon ?? caselessColon;
-  const read = match ? weakSpeakerFromLabel(match[1], colon ? ALL_WEAK : CASELESS_ONLY) : undefined;
-  // Speech holds words: "rate: 5" or "temp: 20.5" is a reading, not a turn.
-  if (match && read && (read.weak === "email" || /\p{L}/u.test(afterTime.slice(match[0].length)))) {
-    const labelTime = CANONICAL_LABEL_TIME.exec(match[1].trim());
-    const time = labelTime?.[1] ?? timePrefix?.[0];
-    return {
-      kind: "inline",
-      speaker: read.speaker,
-      rawLabel: match[1].trim(),
-      speechOffset: lead + (timePrefix?.[0].length ?? 0) + match[0].length,
-      ...(time ? { timeMs: timestampToMs(time) } : {}),
-      weak: read.weak,
-      form: timePrefix ? "inline-lead-time" : labelTime ? "inline-label-time" : "inline",
-    };
-  }
-  if (!timePrefix) {
-    const header = NAME_THEN_TIMESTAMP.exec(text);
-    if (header) {
-      const read = weakSpeakerFromLabel(header[1], ALL_WEAK);
-      if (!read) return undefined;
-      return {
-        kind: "header",
-        speaker: read.speaker,
-        rawLabel: header[1].trim(),
-        timeMs: timestampToMs(text.slice(header[1].length)),
-        weak: read.weak,
-        form: "header",
-      };
-    }
-  }
-  return undefined;
-}
-
-/** The form of a v7 label line, to compare a weak candidate with (`WeakSpeakerLine.form`). */
-function v7Form(text: string, kind: Extract<SpeakerLine, { kind: "inline" | "header" }>): WeakSpeakerLine["form"] | "voice" {
-  if (kind.kind === "header") return "header";
-  const line = text.trim();
-  if (VTT_VOICE.test(line)) return "voice";
-  if (LEADING_TIMESTAMP.test(line)) return "inline-lead-time";
-  return TRAILING_TIMESTAMP.test(kind.rawLabel) ? "inline-label-time" : "inline";
-}
-
 // ─── Format detection and canonical render ────────────────────────────────
 
 const CUE_TIMING = /^\s*(\d{1,2}:\d{1,2}(?::\d{1,2})?[.,]\d{1,3})\s*-->\s*(\d{1,2}:\d{1,2}(?::\d{1,2})?[.,]\d{1,3})/;
@@ -837,31 +618,7 @@ type Cue = { startMs?: number; speaker?: string; text: string };
  * (`acrossBlankLines`).
  */
 function parseCues(text: string, options: { acrossBlankLines?: boolean } = {}): Cue[] {
-  const reads = cueBlocks(text, options).map(readCue);
-  // Parser v8: a weak name names its cue only under the evidence rules of
-  // `promoteWeakOpeners`; otherwise the cue reads exactly as under v7.
-  const openers: WeakOpener[] = [];
-  reads.forEach((read, at) => {
-    if (read.speaker !== undefined) openers.push({ at, speaker: read.speaker, form: "cue" });
-    else if (read.weak) openers.push({ at, speaker: read.weak.speaker, weak: read.weak.kind, form: "cue" });
-  });
-  const promoted = promoteWeakOpeners(openers);
   const cues: Cue[] = [];
-  reads.forEach((read, at) => {
-    const speaker = promoted.get(at);
-    const cue =
-      speaker !== undefined && read.weak
-        ? { startMs: read.startMs, speaker, text: read.weak.text }
-        : { startMs: read.startMs, speaker: read.speaker, text: read.text };
-    if (cue.text) cues.push(cue);
-  });
-  return cues;
-}
-
-type CueBlock = { startMs?: number; body: string[] };
-
-function cueBlocks(text: string, options: { acrossBlankLines?: boolean }): CueBlock[] {
-  const blocks: CueBlock[] = [];
   const all = lines(text);
   let index = 0;
   while (index < all.length) {
@@ -885,160 +642,28 @@ function cueBlocks(text: string, options: { acrossBlankLines?: boolean }): CueBl
       body.pop();
     }
     if (body.length === 0) continue;
-    blocks.push({ startMs: timestampToMs(timing[1]), body });
-  }
-  return blocks;
-}
-
-type CueRead = {
-  startMs?: number;
-  speaker?: string;
-  text: string;
-  /** A weak name the cue may open with, and its text if it does (parser v8). */
-  weak?: { speaker: string; kind: WeakLabelKind; text: string };
-};
-
-/** One cue as v7 reads it, plus a weak name candidate when v7 names no one. */
-function readCue(block: CueBlock): CueRead {
-  const { body } = block;
-  let speaker: string | undefined;
-  let first = body[0].trim();
-  const voice = /^<v(?:\.[^\s>]+)*\s+([^>]{1,80})>/.exec(first);
-  if (voice) {
-    speaker = voice[1].trim();
-    first = first.slice(voice[0].length);
-  } else if (body.length >= 2 && speakerFromLabel(first) && !first.includes(":")) {
-    // Teams .docx cue: the speaker's name on its own line above the text.
-    speaker = speakerFromLabel(first);
-    first = "";
-  } else {
-    const colon = /^(.{1,60}?)\s*:\s+(?=\S)/.exec(cueText(first));
-    const named = colon ? speakerFromLabel(colon[1]) : undefined;
-    if (colon && named) {
-      speaker = named;
-      first = cueText(first).slice(colon[0].length);
+    let speaker: string | undefined;
+    let first = body[0].trim();
+    const voice = /^<v(?:\.[^\s>]+)*\s+([^>]{1,80})>/.exec(first);
+    if (voice) {
+      speaker = voice[1].trim();
+      first = first.slice(voice[0].length);
+    } else if (body.length >= 2 && speakerFromLabel(first) && !first.includes(":")) {
+      // Teams .docx cue: the speaker's name on its own line above the text.
+      speaker = speakerFromLabel(first);
+      first = "";
+    } else {
+      const colon = /^(.{1,60}?)\s*:\s+(?=\S)/.exec(cueText(first));
+      const named = colon ? speakerFromLabel(colon[1]) : undefined;
+      if (colon && named) {
+        speaker = named;
+        first = cueText(first).slice(colon[0].length);
+      }
     }
+    const textOut = cueText([first, ...body.slice(1)].join(" "));
+    if (textOut) cues.push({ startMs: timestampToMs(timing[1]), speaker, text: textOut });
   }
-  const text = cueText([first, ...body.slice(1)].join(" "));
-  if (speaker !== undefined) return { startMs: block.startMs, speaker, text };
-  // Parser v8 candidates: a caseless name alone above the text, or a weak
-  // label before a colon.
-  const rest = body.slice(1);
-  if (rest.length > 0 && !/[:\uFF1A]/.test(first)) {
-    const read = weakSpeakerFromLabel(first, CASELESS_ONLY);
-    if (read) return { startMs: block.startMs, text, weak: { speaker: read.speaker, kind: read.weak, text: cueText(rest.join(" ")) } };
-  }
-  const flat = cueText(first);
-  const colon = /^(.{1,60}?)\s*:\s+(?=\S)/.exec(flat) ?? CASELESS_COLON_LABEL.exec(flat);
-  const read = colon ? weakSpeakerFromLabel(colon[1], /:\s/.test(colon[0]) ? ALL_WEAK : CASELESS_ONLY) : undefined;
-  if (colon && read) {
-    const weakText = cueText([flat.slice(colon[0].length), ...rest].join(" "));
-    return { startMs: block.startMs, text, weak: { speaker: read.speaker, kind: read.weak, text: weakText } };
-  }
-  return { startMs: block.startMs, text };
-}
-
-// ─── Evidence for weak labels (parser v8) ──────────────────────────────────
-
-/** A line or cue that opens a turn under v7 (`weak` absent), or a weak candidate. */
-type WeakOpener = { at: number; speaker: string; weak?: WeakLabelKind; form: string };
-
-/**
- * Which weak candidates become speakers, and under which label. Privacy
- * must not reshape transcripts, so a weak label opens turns only on strong
- * evidence (lead decision, review of 2026-09-26):
- * - an email label always does;
- * - a label that is a v7 speaker's label in another case ("priya shah" for
- *   Priya Shah) does, as that speaker;
- * - otherwise the label must hold a real exchange: at least two of its
- *   turns sit between turns of one other speaker (X, L, X), that speaker is
- *   a v7 speaker or a candidate that passes too, and a run of the label's
- *   own lines counts once. A candidate seen once is ignored as a neighbour.
- *   Beside v7 speakers, a lowercase label never qualifies, and a caseless
- *   one must be written in the same form as a v7 label (both headers, both
- *   inline with a time before, and so on).
- * Returns each promoted opener's `at` and the speaker it opens a turn for.
- */
-function promoteWeakOpeners(openers: readonly WeakOpener[]): Map<number, string> {
-  const promoted = new Map<number, string>();
-  if (!openers.some((opener) => opener.weak !== undefined)) return promoted;
-  const strong = openers.filter((opener) => opener.weak === undefined);
-  const byLower = new Map<string, string>();
-  for (const opener of strong) {
-    const key = opener.speaker.toLowerCase();
-    if (!byLower.has(key)) byLower.set(key, opener.speaker);
-  }
-  const strongForms = new Set(strong.map((opener) => opener.form));
-  const candidates = new Set<WeakOpener>();
-  for (const opener of openers) {
-    if (opener.weak === undefined) continue;
-    if (opener.weak === "email") {
-      promoted.set(opener.at, opener.speaker);
-      continue;
-    }
-    const same = byLower.get(opener.speaker.toLowerCase());
-    if (same !== undefined) {
-      promoted.set(opener.at, same);
-      continue;
-    }
-    if (strong.length > 0 && (opener.weak === "lower" || !strongForms.has(opener.form))) continue;
-    candidates.add(opener);
-  }
-  if (candidates.size === 0) return promoted;
-
-  const collapse = (list: readonly { speaker: string; at: number }[]) => {
-    const runs: Array<{ speaker: string; ats: number[] }> = [];
-    for (const item of list) {
-      const last = runs[runs.length - 1];
-      if (last && last.speaker === item.speaker) last.ats.push(item.at);
-      else runs.push({ speaker: item.speaker, ats: [item.at] });
-    }
-    return runs;
-  };
-  const speakerOf = (opener: WeakOpener) => promoted.get(opener.at) ?? opener.speaker;
-  const firstPass = collapse(
-    openers.filter((opener) => opener.weak === undefined || promoted.has(opener.at) || candidates.has(opener)).map((opener) => ({ speaker: speakerOf(opener), at: opener.at }))
-  );
-  const candidateNames = new Set([...candidates].map((opener) => opener.speaker));
-  const runCount = new Map<string, number>();
-  for (const run of firstPass) {
-    if (candidateNames.has(run.speaker)) runCount.set(run.speaker, (runCount.get(run.speaker) ?? 0) + 1);
-  }
-  // A candidate seen in one run only can never pass; its lines read as text.
-  const sequence = collapse(
-    openers
-      .filter(
-        (opener) =>
-          opener.weak === undefined ||
-          promoted.has(opener.at) ||
-          (candidates.has(opener) && (runCount.get(opener.speaker) ?? 0) >= 2)
-      )
-      .map((opener) => ({ speaker: speakerOf(opener), at: opener.at }))
-  );
-  const fixed = new Set([...strong.map((opener) => opener.speaker), ...promoted.values()]);
-  let accepted = new Set([...runCount].filter(([, count]) => count >= 2).map(([name]) => name));
-  for (;;) {
-    const next = new Set<string>();
-    for (const name of accepted) {
-      let alternating = 0;
-      sequence.forEach((run, index) => {
-        if (run.speaker !== name) return;
-        const neighbours = [sequence[index - 1]?.speaker, sequence[index + 1]?.speaker].filter(
-          (speaker): speaker is string => speaker !== undefined
-        );
-        if (neighbours.length === 0 || new Set(neighbours).size !== 1) return;
-        const partner = neighbours[0];
-        if (partner !== name && (fixed.has(partner) || accepted.has(partner))) alternating += 1;
-      });
-      if (alternating >= 2) next.add(name);
-    }
-    if (next.size === accepted.size) break;
-    accepted = next;
-  }
-  for (const opener of candidates) {
-    if (accepted.has(opener.speaker)) promoted.set(opener.at, opener.speaker);
-  }
-  return promoted;
+  return cues;
 }
 
 /**
@@ -1265,38 +890,6 @@ export function parseTranscriptTurns(
   return turns;
 }
 
-let lastTurns: { content: string; turns: TranscriptTurn[] } | undefined;
-
-/**
- * The speaker whose turn holds each offset, from the same analysis as the
- * turn build (review 2026-09-26, P2-5): a citation's place reads the turns,
- * never a line on its own, so a weak label that opens no turn never names
- * a citation's speaker. An offset in a label's own line before its speech
- * belongs to that label's turn. The last content's turns are kept, since a
- * caller locates many citations on one transcript.
- */
-export function speakersAtOffsets(content: string, offsets: readonly number[]): Array<string | undefined> {
-  if (lastTurns?.content !== content) lastTurns = { content, turns: parseTranscriptTurns(content) };
-  const { turns } = lastTurns;
-  return offsets.map((offset) => {
-    let low = 0;
-    let high = turns.length - 1;
-    let found = -1;
-    while (low <= high) {
-      const middle = (low + high) >> 1;
-      if (turns[middle].charStart <= offset) {
-        found = middle;
-        low = middle + 1;
-      } else {
-        high = middle - 1;
-      }
-    }
-    const next = turns[found + 1];
-    if (next && !content.slice(offset, next.charStart).includes("\n")) return next.speakerLabel;
-    return found === -1 ? undefined : turns[found].speakerLabel;
-  });
-}
-
 export type TranscriptSpeakerNames = {
   /** Every speaker label a turn gets, in order of first appearance. */
   labels: string[];
@@ -1308,12 +901,6 @@ export type TranscriptSpeakerNames = {
   otherNames: string[];
   /** Organizations named in labels' brackets ("Acme" in "Priya Shah (Acme)"). */
   organizations: string[];
-  /**
-   * Weak labels (parser v8) the transcript-wide rules set aside: hidden as
-   * written only, never word by word, since a lowercase phrase seen once
-   * may be ordinary words. Absent when there are none.
-   */
-  looseLabels?: string[];
 };
 
 /**
@@ -1344,54 +931,7 @@ export function transcriptSpeakerNames(content: string, options: { cues?: boolea
     for (const name of bracketed.organizations) add(organizations, name);
   }
   for (const name of lines.paneNames) add(otherNames, name);
-  // Parser v8. A promoted weak label is a speaker: its label as written
-  // ("priya shah" for Priya Shah) and the lowercase or caseless names in
-  // its brackets are hidden like any speaker's. A candidate that stayed
-  // text is a loose label: hidden only where it stands as a label.
-  const looseLabels = new Set<string>();
-  lines.weakLines.forEach((weak, at) => {
-    if (!weak) return;
-    if (lines.promoted.has(at)) {
-      add(otherNames, weak.speaker);
-      const bracketed = weakBracketNames(weak.rawLabel);
-      for (const name of bracketed.people) add(otherNames, name);
-      for (const name of bracketed.organizations) add(organizations, name);
-      return;
-    }
-    looseLabels.add(weak.speaker);
-    const written = weak.rawLabel.replace(CANONICAL_LABEL_TIME, "").trim();
-    if (written !== weak.speaker) looseLabels.add(written);
-  });
-  for (const name of [...labels, ...otherNames]) looseLabels.delete(name);
-  return {
-    labels: [...labels],
-    otherNames: [...otherNames],
-    organizations: [...organizations],
-    ...(looseLabels.size > 0 ? { looseLabels: [...looseLabels] } : {}),
-  };
-}
-
-/**
- * Names in the brackets of a weak label that became a speaker ("dana
- * (acme)", parser v8): two or more words are a person, one is an
- * organization, as `labelBracketNames` reads capitalized ones. Pronouns,
- * roles, times and titles are not names.
- */
-function weakBracketNames(rawLabel: string): { people: string[]; organizations: string[] } {
-  const none = { people: [], organizations: [] };
-  const parts = bracketParts(rawLabel.replace(CANONICAL_LABEL_TIME, ""));
-  if (!parts || ROLE_LABEL.test(parts.outer)) return none;
-  const people: string[] = [];
-  const organizations: string[] = [];
-  for (const segment of parts.inner.split(",")) {
-    const piece = segment.trim();
-    if (!piece || piece.includes("/") || ROLE_LABEL.test(piece) || isTitle(piece) || /\p{N}/u.test(piece)) continue;
-    const words = piece.split(/\s+/);
-    if (!words.every((word) => /^[\p{L}\p{M}'’.&-]+$/u.test(word)) || words.some((word) => isCommonLowercaseWord(word))) continue;
-    if (words.length >= 2 && !ORG_WORDS.has(lastWord(piece))) people.push(piece);
-    else organizations.push(piece);
-  }
-  return { people, organizations };
+  return { labels: [...labels], otherNames: [...otherNames], organizations: [...organizations] };
 }
 
 /** A "Shah, Priya" label as written, before it is read as "Priya Shah". */
@@ -1521,21 +1061,12 @@ function isPlainLabel(text: string, kind: SpeakerLine): boolean {
 
 type AnalyzedLines = {
   infos: LineInfo[];
-  /** How each line opens a turn, on its own (`splitSpeakerLine`, v7). */
+  /** How each line opens a turn, on its own (`splitSpeakerLine`). */
   lineKinds: readonly LineKind[];
   /** The same after the transcript-wide rules: what the turns follow. */
   kinds: LineKind[];
   /** Names on lines above a time that were too few to count as headers. */
   paneNames: string[];
-  /** Parser v8: each line's weak label candidate (`weakSpeakerLine`, pane names). */
-  weakLines: ReadonlyArray<WeakCandidate | undefined>;
-  /** Lines whose weak label became a speaker, with the speaker's label. */
-  promoted: ReadonlyMap<number, string>;
-};
-
-type WeakCandidate = WeakSpeakerLine & {
-  /** A caseless name above a pane time line: the time line it takes. */
-  paneTime?: number;
 };
 
 function analyzeLines(content: string): AnalyzedLines {
@@ -1545,77 +1076,7 @@ function analyzeLines(content: string): AnalyzedLines {
   const paneNames = markPaneHeaders(infos, kinds);
   resolveBracketSpeakers(kinds);
   dropUnpatternedLabels(infos, kinds);
-  // Parser v8: every rule above reads the transcript exactly as v7 did.
-  // Weak labels are candidates on lines v7 leaves as text, and open turns
-  // only on the evidence `promoteWeakOpeners` asks for.
-  const weakLines: Array<WeakCandidate | undefined> = infos.map((info, i) => {
-    const kind = kinds[i];
-    if (kind !== undefined && kind.kind !== "timed") return undefined;
-    return weakSpeakerLine(info.text) ?? weakPaneName(infos, kinds, i);
-  });
-  const openers: WeakOpener[] = [];
-  kinds.forEach((kind, at) => {
-    if (kind?.kind === "inline" || kind?.kind === "header") {
-      openers.push({ at, speaker: kind.speaker, form: v7Form(infos[at].text, kind) });
-    } else if (weakLines[at]) {
-      openers.push({ at, speaker: weakLines[at]!.speaker, weak: weakLines[at]!.weak, form: weakLines[at]!.form });
-    }
-  });
-  const promoted = promoteWeakOpeners(openers);
-  for (const [at, speaker] of promoted) {
-    const weak = weakLines[at]!;
-    if (weak.kind === "inline") {
-      kinds[at] = {
-        kind: "inline",
-        speaker,
-        rawLabel: weak.rawLabel,
-        speechOffset: weak.speechOffset,
-        ...(weak.timeMs !== undefined ? { timeMs: weak.timeMs } : {}),
-      };
-    } else {
-      kinds[at] = {
-        kind: "header",
-        speaker,
-        rawLabel: weak.rawLabel,
-        ...(weak.timeMs !== undefined ? { timeMs: weak.timeMs } : {}),
-      };
-      if (weak.paneTime !== undefined) kinds[weak.paneTime] = { kind: "consumed" };
-    }
-  }
-  return { infos, lineKinds, kinds, paneNames, weakLines, promoted };
-}
-
-/**
- * A caseless name alone on a line above a time line and speech, as the
- * Teams transcript pane writes it ("李伟", "0:03", speech): a weak header
- * candidate with the time line it would take (parser v8).
- */
-function weakPaneName(infos: readonly LineInfo[], kinds: readonly LineKind[], at: number): WeakCandidate | undefined {
-  const line = infos[at].text.trim();
-  if (!line || /[:\uFF1A]/.test(line) || kinds[at] !== undefined) return undefined;
-  const read = weakSpeakerFromLabel(line, CASELESS_ONLY);
-  if (!read) return undefined;
-  const next = (from: number) => {
-    let index = from;
-    while (index < infos.length && infos[index].text.trim() === "") index += 1;
-    return index;
-  };
-  const time = next(at + 1);
-  const timeKind = kinds[time];
-  if (timeKind?.kind !== "timestamp") return undefined;
-  const speech = next(time + 1);
-  if (speech >= infos.length) return undefined;
-  const after = kinds[speech];
-  if (after !== undefined && after.kind !== "timed") return undefined;
-  return {
-    kind: "header",
-    speaker: read.speaker,
-    rawLabel: line,
-    ...(timeKind.timeMs !== undefined ? { timeMs: timeKind.timeMs } : {}),
-    weak: read.weak,
-    form: "header",
-    paneTime: time,
-  };
+  return { infos, lineKinds, kinds, paneNames };
 }
 
 /** Speaker turns before long ones are split: each holds at least one span. */

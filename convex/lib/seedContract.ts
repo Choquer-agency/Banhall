@@ -1,6 +1,6 @@
 import type { PdSubsectionRoleId } from "../../shared/pdSubsections";
 import { isDashClean } from "../../shared/humanProse";
-import { speakerOfTranscriptLine } from "../../shared/transcriptParse";
+import { speakerOfTranscriptLine, speakersAtOffsets } from "../../shared/transcriptParse";
 
 export const SEED_TAGS = [
   "conservative",
@@ -708,24 +708,26 @@ export function locateCitations(
   });
   const order = [...targets].sort((a, b) => a.offset - b.offset);
   const result: CitationLocation[] = new Array(citations.length);
+  // The speaker comes from the analyzed turns (parser v8 review, P2-5), so
+  // a line that only looks like a label never names the speaker.
+  const speakers = speakersAtOffsets(
+    content,
+    order.map((target) => target.offset)
+  );
   let lineStart = 0;
   let lineNumber = 1;
-  let speaker: string | undefined;
-  for (const target of order) {
+  order.forEach((target, rank) => {
     for (;;) {
       const newline = content.indexOf("\n", lineStart);
       const lineEnd = newline === -1 ? content.length : newline;
       if (target.offset <= lineEnd || newline === -1) {
-        // Evaluate this line's own label once per line (idempotent).
-        const own = speakerOfTranscriptLine(content.slice(lineStart, lineEnd));
-        const current = own ?? speaker;
+        const current = speakers[rank];
         result[target.index] = current ? { line: lineNumber, speaker: current } : { line: lineNumber };
-        break;
+        return;
       }
-      speaker = speakerOfTranscriptLine(content.slice(lineStart, lineEnd)) ?? speaker;
       lineStart = newline + 1;
       lineNumber += 1;
     }
-  }
+  });
   return result;
 }
