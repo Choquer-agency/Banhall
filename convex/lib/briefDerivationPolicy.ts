@@ -13,7 +13,7 @@ import { GLOSSARY_MATCHER_VERSION } from "./glossaryMatcher";
 import { PLACEHOLDER_ALGORITHM_VERSION } from "./deidentify";
 
 /** Bumped with any change to the bundle below. */
-export const BRIEF_DERIVATION_VERSION = 3;
+export const BRIEF_DERIVATION_VERSION = 4;
 
 /** Places of one quote tried under owner decision 25 before it is dropped. */
 export const MAX_QUOTE_PLACES = 8;

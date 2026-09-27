@@ -121,8 +121,11 @@ export function deidentify(
  * Bumped with any change to how names are replaced or restored
  * (pseudonymize, restorePlaceholders): a Brief preparation key carries it.
  * 2: parser v8 labels, label-position masking and guarded name parts.
+ * 3: re-review of 2026-09-26: label-only promoted labels that fail the
+ *    name test, full names with common name words, mailbox rules, CJK
+ *    names hidden everywhere, labels after a space or sentence.
  */
-export const PLACEHOLDER_ALGORITHM_VERSION = 2;
+export const PLACEHOLDER_ALGORITHM_VERSION = 3;
 
 export type PlaceholderEntry = {
   token: string;
