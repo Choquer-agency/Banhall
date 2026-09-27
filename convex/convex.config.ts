@@ -5,6 +5,7 @@ import agent from "@convex-dev/agent/convex.config";
 import workpool from "@convex-dev/workpool/convex.config";
 import workflow from "@convex-dev/workflow/convex.config.js";
 import betterAuth from "@convex-dev/better-auth/convex.config";
+import rateLimiter from "@convex-dev/rate-limiter/convex.config";
 
 // ─── The Brain (BNH-10) ──────────────────────────────────────────────────────
 // First Convex component installed in this project. `@convex-dev/rag` owns the
@@ -57,5 +58,9 @@ app.use(workflow, { name: "researchWorkflow" });
 // table stays authoritative for role/profile and is synced via triggers in
 // convex/auth.ts.
 app.use(betterAuth);
+// Per-user and per-project token buckets on paid AI actions (audit wave 2).
+// See convex/lib/aiRateLimits.ts and the 2026-09-27 amendment in
+// docs/product-domain.md.
+app.use(rateLimiter);
 
 export default app;
