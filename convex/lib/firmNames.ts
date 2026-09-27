@@ -25,10 +25,26 @@ export function normalizeFirmNames(names: readonly string[]): string[] {
     if (name.length > MAX_FIRM_NAME_CHARS) {
       throw new Error(`A firm name can be at most ${MAX_FIRM_NAME_CHARS} characters.`);
     }
+    // A name the placeholder map cannot hide is refused, never saved in
+    // silence (review 2026-09-26, P3).
+    const problem = firmNameProblem(name);
+    if (problem) throw new Error(problem);
     out.push(name);
   }
   if (out.length > MAX_FIRM_NAMES) throw new Error(`List at most ${MAX_FIRM_NAMES} names.`);
   return out;
+}
+
+/**
+ * Why a firm name cannot be hidden, if it cannot: the placeholder map
+ * needs two characters and a letter. Shared with the settings card.
+ */
+export function firmNameProblem(name: string): string | undefined {
+  const trimmed = name.replace(/\s+/g, " ").trim();
+  if (!trimmed) return undefined;
+  if (trimmed.length < 2) return `"${trimmed}" is too short to hide. Use at least 2 characters.`;
+  if (!/\p{L}/u.test(trimmed)) return `"${trimmed}" has no letters, so it cannot be hidden.`;
+  return undefined;
 }
 
 /** The stored value as a list; anything unreadable reads as none. */

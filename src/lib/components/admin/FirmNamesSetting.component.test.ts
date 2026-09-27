@@ -31,6 +31,17 @@ describe("FirmNamesSetting", () => {
     expect(onSave).toHaveBeenCalledWith(["Northwind Advisory"]);
   });
 
+  it("shows a name that cannot be hidden on its row and keeps Save off", async () => {
+    const onSave = vi.fn(async () => {});
+    await render(FirmNamesSetting, { names: [], onSave });
+    await userEvent.fill(page.getByRole("textbox", { name: "Firm name 1" }), "N");
+    await expect.element(page.getByText('"N" is too short to hide. Use at least 2 characters.')).toBeVisible();
+    await expect.element(page.getByRole("button", { name: "Save names" })).toBeDisabled();
+    await userEvent.fill(page.getByRole("textbox", { name: "Firm name 1" }), "42");
+    await expect.element(page.getByText('"42" has no letters, so it cannot be hidden.')).toBeVisible();
+    expect(onSave).not.toHaveBeenCalled();
+  });
+
   it("shows the server's refusal", async () => {
     const onSave = vi.fn(async () => {
       throw new Error("List at most 12 names.");

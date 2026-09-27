@@ -5,6 +5,7 @@
   import Input from "$lib/components/ui/Input.svelte";
   import Spinner from "$lib/components/ui/Spinner.svelte";
   import { userErrorMessage } from "$lib/errors";
+  import { firmNameProblem } from "../../../../convex/lib/firmNames";
 
   let {
     names,
@@ -20,6 +21,9 @@
   let seed = $state<string[] | null>(null);
   const cleaned = $derived(rows.map((row) => row.replace(/\s+/g, " ").trim()).filter(Boolean));
   const dirty = $derived(seed !== null && JSON.stringify(cleaned) !== JSON.stringify(seed));
+  // A name the placeholders cannot hide is shown on its row, never saved.
+  const problems = $derived(rows.map((row) => firmNameProblem(row)));
+  const invalid = $derived(problems.some(Boolean));
   $effect(() => {
     if (!names) return;
     if ((seed === null || JSON.stringify(names) !== JSON.stringify(seed)) && !dirty) {
@@ -33,7 +37,7 @@
   let error = $state("");
 
   async function save() {
-    if (saving || !dirty) return;
+    if (saving || !dirty || invalid) return;
     error = "";
     saved = false;
     saving = true;
@@ -71,6 +75,7 @@
               aria-label={`Firm name ${index + 1}`}
               placeholder="Name or short form"
               maxlength={120}
+              error={problems[index]}
               bind:value={rows[index]}
             />
           </div>
@@ -95,7 +100,7 @@
         {#if saved}
           <span role="status" class="rounded-full bg-primary-wash px-2.5 py-1 text-xs font-medium text-primary-dark">Saved</span>
         {/if}
-        <Button size="sm" onclick={save} disabled={saving || !dirty}>
+        <Button size="sm" onclick={save} disabled={saving || !dirty || invalid}>
           {#if saving}
             <Spinner size="sm" class="mr-2 h-3.5 w-3.5 border-white" />
           {/if}
