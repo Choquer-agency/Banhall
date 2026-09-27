@@ -1438,9 +1438,7 @@
       extractionLifetime.signal.throwIfAborted();
       const docKeys = new Set(supportingFiles.map((doc) => sourceKeyFor(doc.id)));
       if (plan.some((source) => unsaved.has(source.sourceKey) && !docKeys.has(source.sourceKey))) return "fallback";
-      let outcome: Awaited<ReturnType<typeof intake.promote>>;
-      try {
-        outcome = await intake.promote({
+      const promotion = {
         commandId: createRequestId(),
         sourceKeys: plan.filter((source) => !unsaved.has(source.sourceKey)).map((source) => source.sourceKey),
         project: {
@@ -1455,62 +1453,9 @@
           ...(scienceCode ? { scienceCode } : {}),
           ...(projectNumber.trim() ? { projectNumber: projectNumber.trim() } : {}),
         },
-      });
-      } catch (promoteError) {
-        // The first call failed, so no project was made: the draft goes and
-        // the old path saves everything (it reports a real refusal itself).
-        console.error("The intake draft could not become the project", promoteError);
-        intake.discard();
-        return "fallback";
-      }
-      extractionLifetime.signal.throwIfAborted();
-      if (outcome.kind === "ended") return "fallback";
-      const receipt = outcome.receipt;
-      const projectId = receipt.projectId;
-      createdProjectId = projectId;
-      if (outcome.kind === "pending") {
-        // The project exists but is still being set up after every poll:
-        // open it rather than make another one.
-        toast.info("Your project is still being set up. Start the run from the project once it is ready.");
-        committing = false;
-        progress = "";
-        openProject(projectId, { title, client: clientName });
-        return "done";
-      }
-      // The leave-out lists by the exact receipt, never by file name.
-      const rowOf = new Map(receipt.sources.map((row) => [row.sourceKey, row]));
-      const excludeTranscriptIds = transcriptItems.flatMap((item) => {
-        const id = leftOut.has(`t:${item.id}`) ? rowOf.get(sourceKeyFor(item.id))?.transcriptId : undefined;
-        return id ? [id] : [];
-      });
-      const excludeDocumentIds = supportingFiles.flatMap((doc) => {
-        const id = leftOut.has(`d:${doc.id}`) ? rowOf.get(sourceKeyFor(doc.id))?.projectDocumentId : undefined;
-        return id ? [id] : [];
-      });
-      for (const source of plan) if (rowOf.has(source.sourceKey)) savedOwn.push(source.label);
-      // A file the draft could not take is saved the old way (a failure is
-      // recorded on the project); one still being read that the writer
-      // left out follows the start, as before.
-      const skippedFiles: string[] = [];
-      // A year's note is in the draft already (on its own, or carried by a
-      // report the draft saved): a report saved here does not repeat it.
-      const notesSaved = new Set<number>();
-      for (const year of previousYears) {
-        const carried = supportingFiles.some(
-          (doc) => doc.category === "previous_pd" && doc.year === year && rowOf.has(sourceKeyFor(doc.id))
-        );
-        if (rowOf.has(noteSourceKey(year)) || carried) notesSaved.add(year);
-      }
-      const { saveOne } = documentSaver(projectId, { leftOut, excludeDocumentIds, skippedFiles, savedOwn, notesSaved });
-      const notInDraft = supportingFiles.filter(
-        (doc) => doc.category !== "transcript" && !rowOf.has(sourceKeyFor(doc.id))
-      );
-      const later = notInDraft.filter((doc) => doc.status === "reading" && leftOut.has(`d:${doc.id}`));
-      for (const doc of notInDraft) if (!later.includes(doc)) await saveOne(doc);
-      extractionLifetime.signal.throwIfAborted();
-      progress = "Starting generation...";
-      await generateReport({
-        projectId,
+      };
+      // The writer's choices, kept for a start that finishes after the page.
+      const choices = {
         candidateMode,
         ...(candidateMode !== "compare" && singleModelId ? { singleModelId } : {}),
         ...(candidateMode === "compare"
@@ -1519,17 +1464,107 @@
               return pair ? { compareModelIds: pair } : {};
             })()
           : {}),
-        ...(excludeDocumentIds.length ? { excludeDocumentIds } : {}),
-        ...(excludeTranscriptIds.length ? { excludeTranscriptIds } : {}),
+      };
+      let outcome: Awaited<ReturnType<typeof intake.promote>>;
+      try {
+        outcome = await intake.promote(promotion);
+      } catch {
+        // The first call failed, so no project was made: the draft goes and
+        // the old path saves everything (it reports a real refusal itself).
+        intake.discard();
+        return "fallback";
+      }
+      extractionLifetime.signal.throwIfAborted();
+      if (outcome.kind === "ended") return "fallback";
+      const projectId = outcome.receipt.projectId;
+      createdProjectId = projectId;
+      // What the draft holds is in the project (or on its way there); a
+      // file the draft could not take, or one still being read, is saved
+      // the old way (a failure is recorded on the project), in both cases.
+      const inDraft = new Set(promotion.sourceKeys);
+      const skippedFiles: string[] = [];
+      // A year's note is in the draft already (on its own, or carried by a
+      // report the draft saved): a report saved here does not repeat it.
+      const notesSaved = new Set<number>();
+      for (const year of previousYears) {
+        const carried = supportingFiles.some(
+          (doc) => doc.category === "previous_pd" && doc.year === year && inDraft.has(sourceKeyFor(doc.id))
+        );
+        if (inDraft.has(noteSourceKey(year)) || carried) notesSaved.add(year);
+      }
+      for (const source of plan) if (inDraft.has(source.sourceKey)) savedOwn.push(source.label);
+      // Ids of left-out files saved here join the leave-out list.
+      const savedHereExcluded: Id<"projectDocuments">[] = [];
+      const { saveOne } = documentSaver(projectId, {
+        leftOut,
+        excludeDocumentIds: savedHereExcluded,
+        skippedFiles,
+        savedOwn,
+        notesSaved,
       });
+      const notInDraft = supportingFiles.filter(
+        (doc) => doc.category !== "transcript" && !inDraft.has(sourceKeyFor(doc.id))
+      );
+      const later = notInDraft.filter((doc) => doc.status === "reading" && leftOut.has(`d:${doc.id}`));
+      for (const doc of notInDraft) if (!later.includes(doc)) await saveOne(doc);
+      extractionLifetime.signal.throwIfAborted();
+      // The leave-out lists by the exact receipt, never by file name.
+      const exclusionsFor = (receipt: typeof outcome.receipt) => {
+        const rowOf = new Map(receipt.sources.map((row) => [row.sourceKey, row]));
+        const excludeTranscriptIds = transcriptItems.flatMap((item) => {
+          const id = leftOut.has(`t:${item.id}`) ? rowOf.get(sourceKeyFor(item.id))?.transcriptId : undefined;
+          return id ? [id] : [];
+        });
+        const excludeDocumentIds = [
+          ...supportingFiles.flatMap((doc) => {
+            const id = leftOut.has(`d:${doc.id}`) ? rowOf.get(sourceKeyFor(doc.id))?.projectDocumentId : undefined;
+            return id ? [id] : [];
+          }),
+          ...savedHereExcluded,
+        ];
+        return {
+          ...(excludeDocumentIds.length ? { excludeDocumentIds } : {}),
+          ...(excludeTranscriptIds.length ? { excludeTranscriptIds } : {}),
+        };
+      };
+      const reportSkipped = () => {
+        if (skippedFiles.length) {
+          toast.error(
+            `${skippedFiles.length} document(s) could not be uploaded and were skipped: ${skippedFiles.join(", ")}`
+          );
+        }
+      };
+      if (outcome.kind === "pending") {
+        // Still being set up after the confirm's polling: every file is
+        // saved first, then the project opens and the run starts with the
+        // writer's choices as soon as the project is ready.
+        for (const doc of later) await saveOne(doc);
+        reportSkipped();
+        toast.info("Your project is still being set up. The run starts as soon as it is ready.");
+        committing = false;
+        progress = "";
+        openProject(projectId, { title, client: clientName });
+        void (async () => {
+          const ready = await intake.finishPromotion(promotion);
+          if (!ready) {
+            toast.info("The project took too long to set up. Start the run from the project.");
+            return;
+          }
+          try {
+            await generateReport({ projectId, ...choices, ...exclusionsFor(ready) });
+            markStartReserved();
+          } catch (error) {
+            toast.error(userErrorMessage(error, "The run did not start. Start it from the project."));
+          }
+        })();
+        return "done";
+      }
+      progress = "Starting generation...";
+      await generateReport({ projectId, ...choices, ...exclusionsFor(outcome.receipt) });
       markStartReserved();
       for (const doc of later) await saveOne(doc);
       extractionLifetime.signal.throwIfAborted();
-      if (skippedFiles.length) {
-        toast.error(
-          `${skippedFiles.length} document(s) could not be uploaded and were skipped: ${skippedFiles.join(", ")}`
-        );
-      }
+      reportSkipped();
       openProject(projectId, { title, client: clientName });
       return "done";
     } catch (e) {
@@ -2034,7 +2069,9 @@
   {:else if key && (intake.receipts.get(key) === "failed" || intake.originals.get(key) === "failed")}
     <span class="relative z-10 flex shrink-0 items-center gap-2" role="status">
       <span class="text-xs leading-4 text-danger-ink-muted" data-save-receipt="failed">
-        {intake.receipts.get(key) === "failed" ? "Not saved yet" : "The original file was not saved"}
+        {intake.receipts.get(key) === "failed"
+          ? (intake.messages.get(key) ?? "Not saved yet")
+          : "The original file was not saved"}
       </span>
       <button
         type="button"
@@ -2518,7 +2555,9 @@
                     </div>
                   {/if}
                   {@render transcriptRows()}
-                  {#if intakeActive}
+                  {#if intakeActive && intake.notice}
+                    <p data-intake-notice class="text-xs leading-4 text-ink-muted">{intake.notice}</p>
+                  {:else if intakeActive}
                     <p data-intake-note class="text-xs leading-4 text-ink-muted">
                       Files are read while you finish setting up. Setups you don't finish are deleted after 24 hours.
                     </p>
@@ -2717,6 +2756,7 @@
                       onCategory={(category) => docs.setCategory(doc.id, category)}
                       onYear={(year) => docs.setYear(doc.id, year)}
                       saveState={intakeActive ? (intake.receipts.get(sourceKeyFor(doc.id)) ?? null) : null}
+                      saveMessage={intakeActive ? (intake.messages.get(sourceKeyFor(doc.id)) ?? null) : null}
                       originalState={intakeActive ? (intake.originals.get(sourceKeyFor(doc.id)) ?? null) : null}
                       onRetrySave={() => intake.retry(sourceKeyFor(doc.id))}
                     />

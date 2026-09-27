@@ -13,7 +13,12 @@ import {
   __setQueryData,
 } from "$lib/test/convex-svelte-stub.svelte";
 import { takeProjectStart } from "$lib/workspace/projectIntentHandoff";
-import { INTAKE_DRAFT_STORAGE_KEY } from "$lib/components/project-new/intakeDraft.svelte";
+import {
+  INTAKE_DRAFT_STORAGE_KEY,
+  intakePolling,
+  MAX_PROMOTION_STEPS,
+  PROMOTION_POLL_MS,
+} from "$lib/components/project-new/intakeDraft.svelte";
 import { START_MARKS, START_MEASURES } from "$lib/perf/startTimings";
 import {
   addSupportingFiles,
@@ -242,7 +247,7 @@ describe("confirming promotes the draft", () => {
 });
 
 describe("a draft that is gone, and a confirm that cannot promote (review fixes)", () => {
-  const gone = () => new ConvexError({ code: "NOT_FOUND", message: "This setup is no longer available" });
+  const gone = () => new ConvexError({ code: "INTAKE_DRAFT_GONE", message: "This setup is no longer available" });
 
   it("an expired draft (idle for a day) ends quietly and confirming takes the old path", async () => {
     await render(NewProjectPage, {});
@@ -323,5 +328,90 @@ describe("a draft that is gone, and a confirm that cannot promote (review fixes)
     await expect.poll(() => saves().length).toBe(1);
     await chooseMode("Review a written PD");
     await expect.poll(() => __mutationCalls("intakeDrafts:discardIntakeDraft")).toEqual([{ draftId: "draft-1" }]);
+  });
+});
+
+describe("re-check fixes (2026-09-26)", () => {
+  it("polls at least as long as the server waits for turn builds", () => {
+    // The server waits up to 3 minutes for a promotion's turn builds.
+    expect(PROMOTION_POLL_MS * MAX_PROMOTION_STEPS).toBeGreaterThanOrEqual(3 * 60 * 1000);
+  });
+
+  it("a promotion still being set up after the page's polling drops no file and still starts the run with the writer's choices (P2-B)", async () => {
+    intakePolling.pollMs = 20;
+    intakePolling.maxSteps = 2;
+    try {
+      await render(NewProjectPage, {});
+      await fillBasics("Cold seal", "Acme Seals");
+      await pasteTranscript();
+      await expect.poll(() => saves().length).toBe(1);
+      const transcriptKey = saves()[0].sourceKey;
+      // The next file never reaches the draft (a failed save): it is saved
+      // the normal way once the project exists.
+      __setMutationError("intakeDrafts:saveIntakeSource", new Error("offline"));
+      addSupportingFiles([new File(["Scoping notes for the rig."], "Scoping.txt")]);
+      await expect.poll(() => document.querySelector('[data-save-receipt="failed"]')).not.toBeNull();
+      __setMutationResult("intakeDrafts:promoteIntakeDraft", { projectId: "project-new", complete: false, sources: [] });
+      document.querySelector<HTMLElement>('[data-write-mode="single"]')!.click();
+      await openStartDialog();
+      confirmButton()!.click();
+      await expect.poll(() => __navigationCalls.map((call) => call.url)).toContain("/project/project-new");
+      expect(__mutationCalls("documents:uploadDocument")).toEqual([
+        expect.objectContaining({ projectId: "project-new", fileName: "Scoping.txt" }),
+      ]);
+      expect(__mutationCalls("generations:requestGeneration")).toEqual([]);
+      expect(__mutationCalls("projects:createProject")).toEqual([]);
+      // Once the project is ready the run starts with the writer's choices.
+      __setMutationResult("intakeDrafts:promoteIntakeDraft", {
+        projectId: "project-new",
+        complete: true,
+        sources: [{ sourceKey: transcriptKey, kind: "transcript", transcriptId: "transcript-new" }],
+      });
+      await expect.poll(() => __mutationCalls("generations:requestGeneration").length).toBe(1);
+      expect(__mutationCalls("generations:requestGeneration")[0]).toMatchObject({
+        projectId: "project-new",
+        candidateMode: "single",
+      });
+    } finally {
+      intakePolling.pollMs = PROMOTION_POLL_MS;
+      intakePolling.maxSteps = MAX_PROMOTION_STEPS;
+    }
+  });
+
+  it("a cap says why in plain words on the file, and the day's draft cap says files are saved when you start (P3-1)", async () => {
+    __setMutationError(
+      "intakeDrafts:saveIntakeSource",
+      new ConvexError({
+        code: "INTAKE_TEXT_LIMIT",
+        message: "A new project takes at most 3,000k characters of supporting document text. Remove a file to add this one.",
+      })
+    );
+    await render(NewProjectPage, {});
+    await fillBasics("Cold seal", "Acme Seals");
+    addSupportingFiles([new File(["Scoping notes for the rig."], "Scoping.txt")]);
+    await expect
+      .poll(() => text(document.querySelector('[data-supporting-card] [data-save-receipt="failed"]')))
+      .toBe("A new project takes at most 3,000k characters of supporting document text. Remove a file to add this one.");
+  });
+
+  it("the day's draft cap keeps no draft and says so in plain words (P3-1)", async () => {
+    __setMutationError(
+      "intakeDrafts:createIntakeDraft",
+      new ConvexError({
+        code: "INTAKE_DRAFT_LIMIT",
+        message: "You have started a lot of new projects today, so files are saved when you start instead.",
+      })
+    );
+    await render(NewProjectPage, {});
+    await fillBasics("Cold seal", "Acme Seals");
+    await pasteTranscript();
+    await expect
+      .poll(() => text(document.querySelector("[data-intake-notice]")))
+      .toBe("You have started a lot of new projects today, so files are saved when you start instead.");
+    expect(document.querySelector("[data-save-receipt]")).toBeNull();
+    await openStartDialog();
+    confirmButton()!.click();
+    await expect.poll(() => __mutationCalls("generations:requestGeneration").length).toBe(1);
+    expect(__mutationCalls("projects:createProject")).toHaveLength(1);
   });
 });

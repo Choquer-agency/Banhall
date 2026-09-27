@@ -18,7 +18,7 @@ import { untrack } from "svelte";
 import type { FunctionReference } from "convex/server";
 import type { Id } from "../../../../convex/_generated/dataModel";
 import { intakeDraftRefs } from "../../../../convex/lib/intakeDraftRefs";
-import { userErrorCode } from "$lib/errors";
+import { userErrorCode, userErrorMessage } from "$lib/errors";
 import type { IntakeSourceDesc } from "./intakePlan";
 
 /** Session storage key of the open draft's id. */
@@ -28,9 +28,17 @@ export const SOURCE_SAVE_DELAY_MS = 300;
 /** The names are saved this long after the writer stops typing. */
 export const CONTEXT_SAVE_DELAY_MS = 600;
 /** How often a confirm asks whether the project is set up. */
-export const PROMOTION_POLL_MS = 500;
-/** Promotion steps a confirm waits for (about 2 minutes) before it opens the project anyway. */
-export const MAX_PROMOTION_STEPS = 240;
+export const PROMOTION_POLL_MS = 1_000;
+/**
+ * Promotion steps a confirm waits for before it opens the project anyway:
+ * about 3.5 minutes, longer than the server's 3-minute wait for turn builds.
+ */
+export const MAX_PROMOTION_STEPS = 210;
+/** After that, the start is finished in the background for this long. */
+export const BACKGROUND_PROMOTION_MS = 30 * 60 * 1000;
+
+/** The polling a new sync uses unless told otherwise; component tests shorten it. */
+export const intakePolling = { pollMs: PROMOTION_POLL_MS, maxSteps: MAX_PROMOTION_STEPS };
 
 export type SaveState = "saving" | "saved" | "failed";
 export type OriginalState = "uploading" | "saved" | "failed";
@@ -114,7 +122,7 @@ export async function textHash(text: string): Promise<string> {
 
 /** Whether a failed call says the draft is gone (expired, discarded, another tab). */
 function draftGone(error: unknown): boolean {
-  return userErrorCode(error) === "NOT_FOUND";
+  return userErrorCode(error) === "INTAKE_DRAFT_GONE";
 }
 
 export class IntakeDraftSync {
@@ -124,6 +132,10 @@ export class IntakeDraftSync {
   receipts = new SvelteMap<string, SaveState>();
   /** Per source key: its original file is uploading, saved, or failed. */
   originals = new SvelteMap<string, OriginalState>();
+  /** Per source key: why its text could not be saved, in plain words (a cap). */
+  messages = new SvelteMap<string, string>();
+  /** Why no draft is kept this time (the day's draft cap), in plain words. */
+  notice = $state<string | null>(null);
   /** Promoted, discarded or gone: no more text is sent. */
   closed = $state(false);
   /** Discarded or gone (not promoted): no original is attached any more either. */
@@ -135,6 +147,8 @@ export class IntakeDraftSync {
   #claimUpload: (storageId: Id<"_storage">) => Promise<unknown>;
   #releaseUpload: (storageId: Id<"_storage">) => Promise<unknown>;
   #delayMs: number;
+  #pollMs: number;
+  #maxSteps: number;
   #creating: Promise<Id<"intakeDrafts"> | null> | null = null;
   #wanted = new Map<string, IntakeSourceDesc>();
   #sent = new Map<string, IntakeSourceDesc>();
@@ -159,6 +173,9 @@ export class IntakeDraftSync {
     releaseUpload?: (storageId: Id<"_storage">) => Promise<unknown>;
     storage?: Pick<Storage, "getItem" | "setItem" | "removeItem"> | null;
     delayMs?: number;
+    /** Test seams: how often, and how many times, a confirm polls the promotion. */
+    pollMs?: number;
+    maxPromotionSteps?: number;
   }) {
     this.#calls = options.calls;
     this.#uploadOriginal = options.uploadOriginal;
@@ -166,6 +183,8 @@ export class IntakeDraftSync {
     this.#releaseUpload = options.releaseUpload ?? (async () => undefined);
     this.#storage = options.storage ?? null;
     this.#delayMs = options.delayMs ?? SOURCE_SAVE_DELAY_MS;
+    this.#pollMs = options.pollMs ?? intakePolling.pollMs;
+    this.#maxSteps = options.maxPromotionSteps ?? intakePolling.maxSteps;
   }
 
   /**
@@ -302,8 +321,8 @@ export class IntakeDraftSync {
     // No more text goes to a draft that is becoming the project.
     this.closed = true;
     let receipt: PromotionReceipt = first;
-    for (let step = 0; !receipt.complete && step < MAX_PROMOTION_STEPS; step += 1) {
-      await new Promise((resolve) => setTimeout(resolve, PROMOTION_POLL_MS));
+    for (let step = 0; !receipt.complete && step < this.#maxSteps; step += 1) {
+      await new Promise((resolve) => setTimeout(resolve, this.#pollMs));
       try {
         const next = await call();
         if ("ended" in next) return { kind: "pending", receipt };
@@ -314,6 +333,33 @@ export class IntakeDraftSync {
     }
     this.#removeStorage();
     return receipt.complete ? { kind: "complete", receipt } : { kind: "pending", receipt };
+  }
+
+  /**
+   * Keeps asking a promotion that outlasted the confirm's polling until
+   * it is complete (or BACKGROUND_PROMOTION_MS), so the page can still
+   * start the run with the writer's choices. Null when it never completed
+   * or ended.
+   */
+  async finishPromotion(args: {
+    commandId: string;
+    sourceKeys: string[];
+    project: Parameters<IntakeCalls["promoteIntakeDraft"]>[0]["project"];
+  }): Promise<PromotionReceipt | null> {
+    const draftId = this.draftId;
+    if (!draftId) return null;
+    const deadline = Date.now() + BACKGROUND_PROMOTION_MS;
+    while (Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, this.#pollMs * 3));
+      try {
+        const next = await this.#calls.promoteIntakeDraft({ draftId, ...args });
+        if ("ended" in next) return null;
+        if (next.complete) return next;
+      } catch (error) {
+        if (draftGone(error)) return null;
+      }
+    }
+    return null;
   }
 
   /** Discard: the writer left New project. Its pending work stops and its content goes. */
@@ -351,6 +397,7 @@ export class IntakeDraftSync {
     this.dispose();
     this.receipts.clear();
     this.originals.clear();
+    this.messages.clear();
     this.#removeStorage();
   }
 
@@ -383,6 +430,13 @@ export class IntakeDraftSync {
         if (this.#selection.length) this.setSelection(this.#selection);
         return draftId;
       } catch (error) {
+        if (userErrorCode(error) === "INTAKE_DRAFT_LIMIT") {
+          // The day's draft cap: this page keeps no draft and saves files
+          // when the writer starts, and says so once.
+          this.notice = userErrorMessage(error, "Files are saved when you start instead.");
+          this.#end();
+          return null;
+        }
         console.error("Could not start the intake draft", error);
         this.#creating = null;
         return null;
@@ -421,6 +475,7 @@ export class IntakeDraftSync {
           ...(desc.extractionOutcome ? { extractionOutcome: desc.extractionOutcome } : {}),
         });
         this.#sent.set(key, desc);
+        this.messages.delete(key);
         if (this.#wanted.get(key) === desc) this.receipts.set(key, "saved");
         this.#maybeUploadOriginal(key, desc);
       } catch (error) {
@@ -428,7 +483,12 @@ export class IntakeDraftSync {
           this.#die();
           return;
         }
-        console.error("Could not save a file to the intake draft", error);
+        if (userErrorCode(error) === "INTAKE_TEXT_LIMIT") {
+          // A cap, said in plain words on the file (a handled refusal).
+          this.messages.set(key, userErrorMessage(error, "This file holds too much text to save."));
+        } else {
+          console.error("Could not save a file to the intake draft", error);
+        }
         if (this.#wanted.get(key) === desc) this.receipts.set(key, "failed");
       }
     })();
@@ -460,16 +520,20 @@ export class IntakeDraftSync {
     this.originals.set(key, "uploading");
     const upload = (async () => {
       try {
-        const [storageId, contentHash] = await Promise.all([this.#uploadOriginal(file), textHash(desc.content)]);
+        const storageId = await this.#uploadOriginal(file);
         if (!storageId) throw new Error("Original upload failed");
         await this.#claimUpload(storageId);
         // The draft ended, or the file was replaced, while it uploaded: the
         // upload is released, never attached.
-        if (this.#ended || this.#sent.get(key)?.file !== file) {
+        const current = this.#sent.get(key);
+        if (this.#ended || current?.file !== file) {
           await this.#releaseUpload(storageId);
           if (!this.#ended && this.originals.get(key) === "uploading") this.originals.delete(key);
           return;
         }
+        // Hashed now, from the text saved last: an edit made during the
+        // upload (a previous-year note, say) is the text the file belongs to.
+        const contentHash = await textHash(current.content);
         const attached = await this.#calls.attachIntakeOriginal({
           draftId,
           sourceKey: key,

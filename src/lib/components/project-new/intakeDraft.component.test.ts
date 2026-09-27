@@ -90,7 +90,7 @@ describe("IntakeDraftSync", () => {
     const storage = memoryStorage();
     const calls = fakeCalls({
       saveIntakeSource: vi.fn(async () => {
-        throw new ConvexError({ code: "NOT_FOUND", message: "This setup is no longer available" });
+        throw new ConvexError({ code: "INTAKE_DRAFT_GONE", message: "This setup is no longer available" });
       }),
     });
     const sync = new IntakeDraftSync({
@@ -150,4 +150,26 @@ describe("IntakeDraftSync", () => {
     expect(outcome).toMatchObject({ kind: "complete", receipt: { projectId: "project-1", complete: true } });
     expect(calls.promoteIntakeDraft).toHaveBeenCalledTimes(4);
   }, 10_000);
+
+  it("an original is hashed from the text saved last, so a note edit during its upload never refuses it (P3-2)", async () => {
+    const calls = fakeCalls();
+    const upload = deferred<string>();
+    const sync = new IntakeDraftSync({
+      calls: calls as unknown as IntakeCalls,
+      uploadOriginal: () => upload.promise as never,
+      delayMs: 1,
+    });
+    const file = new File(["report"], "report.pdf");
+    sync.reconcile([doc("[Previous-year report] Note: old note.", file)]);
+    await expect.poll(() => calls.saveIntakeSource.mock.calls.length).toBe(1);
+    // The year's note changes while the original uploads: same file, new text.
+    sync.reconcile([doc("[Previous-year report] Note: new note.", file)]);
+    await expect.poll(() => calls.saveIntakeSource.mock.calls.length).toBe(2);
+    upload.resolve("storage-report");
+    await expect.poll(() => calls.attachIntakeOriginal.mock.calls.length).toBe(1);
+    expect(calls.attachIntakeOriginal.mock.calls[0][0]).toMatchObject({
+      storageId: "storage-report",
+      contentHash: await textHash("[Previous-year report] Note: new note."),
+    });
+  });
 });

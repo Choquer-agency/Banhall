@@ -31,6 +31,7 @@
     onCategory,
     onYear,
     saveState = null,
+    saveMessage = null,
     originalState = null,
     onRetrySave,
   }: {
@@ -52,6 +53,8 @@
      * view with Try again.
      */
     saveState?: "saving" | "saved" | "failed" | null;
+    /** Why the save failed, in plain words, when it is a cap. */
+    saveMessage?: string | null;
     originalState?: "uploading" | "saved" | "failed" | null;
     onRetrySave?: () => void;
   } = $props();
@@ -167,7 +170,7 @@
       {:else if saveState === "failed" || originalState === "failed"}
         <div class="flex flex-wrap items-center gap-x-2 gap-y-1" role="status">
           <span class="text-xs leading-4 text-danger-ink-muted" data-save-receipt="failed">
-            {saveState === "failed" ? "Not saved yet" : "The original file was not saved"}
+            {saveState === "failed" ? (saveMessage ?? "Not saved yet") : "The original file was not saved"}
           </span>
           {#if onRetrySave}
             <button

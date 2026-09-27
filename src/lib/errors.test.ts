@@ -21,6 +21,11 @@ describe("isHandledRefusalLog", () => {
     const settingUp = { code: "PROJECT_SETTING_UP", message: "This project is still being set up. Try again in a moment." };
     expect(isHandledRefusalLog(convexLog("generations:requestGeneration", settingUp))).toBe(true);
     expect(isHandledRefusalLog(convexLog("pdReviews:startPdReview", settingUp))).toBe(true);
+    for (const code of ["INTAKE_DRAFT_GONE", "INTAKE_DRAFT_LIMIT", "INTAKE_TEXT_LIMIT"]) {
+      expect(isHandledRefusalLog(convexLog("intakeDrafts:saveIntakeSource", { code, message: "x" }))).toBe(true);
+    }
+    // NOT_FOUND itself stays a crash signal.
+    expect(isHandledRefusalLog(convexLog("intakeDrafts:saveIntakeSource", { code: "NOT_FOUND", message: "x" }))).toBe(false);
   });
 
   it("leaves unexpected failures and other lines to the crash toast", () => {

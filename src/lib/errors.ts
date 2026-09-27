@@ -36,6 +36,11 @@ export const HANDLED_REFUSAL_CODES: ReadonlySet<string> = new Set([
   // Decision 65, stage 2: a run or review asked for while the new project
   // is still being set up from its intake draft; the page says so plainly.
   "PROJECT_SETTING_UP",
+  // Decision 65, stage 2: a private intake draft that ended, the day's
+  // draft cap and a draft's text caps; New project says so in plain words.
+  "INTAKE_DRAFT_GONE",
+  "INTAKE_DRAFT_LIMIT",
+  "INTAKE_TEXT_LIMIT",
 ]);
 
 /**
