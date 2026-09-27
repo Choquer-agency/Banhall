@@ -1,5 +1,6 @@
 /// <reference types="vite/client" />
 import { convexTest } from "convex-test";
+import rateLimiterTest from "@convex-dev/rate-limiter/test";
 import {
   makeFunctionReference,
   type FunctionArgs,
@@ -112,6 +113,7 @@ async function approvalFixture(options: ApprovalFixtureOptions = {}) {
   const roleId = options.roleId ?? "goal_improvements";
   const bullet = options.bullet ?? "Measured trials isolated the limiting mechanism.";
   const t = convexTest(schema, modules);
+  rateLimiterTest.register(t);
   const ids = await t.run(async (ctx) => {
     const userId = await ctx.db.insert("users", {
       authId: "seed-approval-writer",
