@@ -9,13 +9,13 @@
  *
  * The manifest may include a dependency that sometimes causes a needless
  * miss; it must never leave out one that can change the request or a
- * citation's validity. Change any rule it covers without changing the
- * request bytes (quote matching, relocation, the glossary matcher, the
- * speaker rule) and bump BRIEF_DERIVATION_VERSION.
+ * citation's validity. Rules the request bytes do not show are hashed in
+ * from convex/lib/briefDerivationPolicy.ts.
  */
 import type { MutationCtx, QueryCtx } from "../_generated/server";
 import type { Doc, Id } from "../_generated/dataModel";
 import { sha256 } from "./contracts";
+import { BRIEF_DERIVATION_CONSTANTS } from "./briefDerivationPolicy";
 import { stableSerialize, type JsonValue } from "./seedRevisions";
 import {
   BRIEF_INPUT_BUDGET,
@@ -42,8 +42,7 @@ type Ctx = QueryCtx | MutationCtx;
 
 /** The manifest's own shape. */
 export const BRIEF_PREPARATION_KEY_VERSION = 1;
-/** The derivation rules the request bytes do not show (see the module note). */
-export const BRIEF_DERIVATION_VERSION = 1;
+export { BRIEF_DERIVATION_VERSION } from "./briefDerivationPolicy";
 
 /** The fields of one frozen row the key reads, from either table. */
 export type BriefKeySource = Pick<
@@ -132,7 +131,7 @@ export async function briefKeyManifest(ctx: Ctx, input: BriefKeyInput) {
   }
   return {
     keyVersion: BRIEF_PREPARATION_KEY_VERSION,
-    derivationVersion: BRIEF_DERIVATION_VERSION,
+    derivation: await sha256(stableSerialize(BRIEF_DERIVATION_CONSTANTS as unknown as JsonValue)),
     scope: { projectId: input.projectId },
     sources: await Promise.all(
       input.sources.map(async (source) => ({

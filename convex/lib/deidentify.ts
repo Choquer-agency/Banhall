@@ -115,6 +115,12 @@ export function deidentify(
  * bracketed tokens only, because it was never renumbered past literal bare
  * ids in its sources.
  */
+/**
+ * Bumped with any change to how names are replaced or restored
+ * (pseudonymize, restorePlaceholders): a Brief preparation key carries it.
+ */
+export const PLACEHOLDER_ALGORITHM_VERSION = 1;
+
 export type PlaceholderEntry = { token: string; value: string; bare?: boolean };
 export type PlaceholderMap = readonly PlaceholderEntry[];
 

@@ -11,6 +11,13 @@ import { briefPreparationKey, type BriefKeyInput, type BriefKeySource } from "./
 import { TRANSCRIPT_PARSER_VERSION } from "../shared/transcriptParse";
 import { GENERATION_STEP_POLICY_VERSION } from "./lib/generationSteps";
 import type { ModelFreeze } from "./lib/modelCatalogValidators";
+import { sha256 } from "./lib/contracts";
+import { stableSerialize, type JsonValue } from "./lib/seedRevisions";
+import {
+  BRIEF_DERIVATION_CONSTANTS,
+  BRIEF_DERIVATION_VERSION,
+  MAX_QUOTE_PLACES,
+} from "./lib/briefDerivationPolicy";
 
 const modules = import.meta.glob("./**/*.ts");
 
@@ -187,5 +194,29 @@ describe("briefPreparationKey", () => {
     expect(await key(input)).not.toBe(base);
     await t.run(async (ctx) => ctx.db.patch(ids.transcriptId, { structureBuildId: undefined, parserVersion: "6" }));
     expect(await key(input)).not.toBe(base);
+  });
+});
+
+describe("the derivation bundle", () => {
+  test("is pinned: a changed constant needs a new version and a new pin", async () => {
+    const hash = await sha256(stableSerialize(BRIEF_DERIVATION_CONSTANTS as unknown as JsonValue));
+    expect({ version: BRIEF_DERIVATION_VERSION, maxQuotePlaces: MAX_QUOTE_PLACES, hash }).toEqual({
+      version: 2,
+      maxQuotePlaces: 8,
+      hash: "a938d388aaf6e8ac4ecf88fe95fa5f060ed43815d12adec1a6a12793d213bf25",
+    });
+  });
+
+  test("is in the key", async () => {
+    const source = await import("./lib/briefPreparationKey");
+    expect(Object.keys(await source.briefKeyManifest({ db: {} } as never, {
+      projectId: "p" as Id<"projects">,
+      sources: [],
+      placeholders: [],
+      inputMode: "full",
+      transcriptFacts: false,
+      freeze: null,
+      writerModel: "claude-sonnet-5",
+    }))).toContain("derivation");
   });
 });

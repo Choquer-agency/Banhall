@@ -337,13 +337,19 @@ export const continueAfterBriefPreparation = internalAction({
   returns: v.null(),
   handler: async (ctx, args): Promise<null> => {
     startActionDeadline(ctx);
-    const input = await ctx.runQuery(internal.generations.getGenerationInput, args);
-    if (!input || input.gatedWorkflow !== "seeds") return null;
-    const freeze = await registerGenerationModels(ctx, args.generationId);
-    const model = candidateModelsForMode("iterative", input.singleModelId)[0];
-    const brief = await deriveSeedBrief(ctx, args.generationId, input.projectId, model.id, freeze, input.requestedBy);
-    if (brief === "attached") return null;
-    await openSeedStageAfterBrief(ctx, args.generationId, brief);
+    try {
+      const input = await ctx.runQuery(internal.generations.getGenerationInput, args);
+      if (!input || input.gatedWorkflow !== "seeds") return null;
+      const freeze = await registerGenerationModels(ctx, args.generationId);
+      const model = candidateModelsForMode("iterative", input.singleModelId)[0];
+      const brief = await deriveSeedBrief(ctx, args.generationId, input.projectId, model.id, freeze, input.requestedBy);
+      if (brief === "attached") return null;
+      await openSeedStageAfterBrief(ctx, args.generationId, brief);
+    } catch {
+      // Whatever went wrong, the writer is left a failure to retry, never
+      // a start that waits forever. No provider or source text is kept.
+      await ctx.runMutation(internal.generations.recordSeedInitializationFailure, args);
+    }
     return null;
   },
 });

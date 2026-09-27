@@ -423,7 +423,11 @@ export async function getReadingFactsHandler(
       quote: row.quote,
       sourceLabel: row.speaker && row.line !== undefined ? speakerPlace(row.speaker, row.line) : row.sourceLabel,
     })),
-    startedAt: preparation?.dispatchedAt ?? generation.startedAt,
+    // Paced from the attached attempt's start, or, once a wait was let go
+    // and the run reads on its own, from that release (review L).
+    startedAt:
+      preparation?.dispatchedAt ??
+      (generation.briefPreparation?.state === "released" ? generation.briefPreparation.at : generation.startedAt),
     expectedMs: await expectedBriefMs(ctx, preparation?.planningModel ?? generation.modelFreeze?.roles?.planning),
     done: Boolean(generation.briefId),
   };

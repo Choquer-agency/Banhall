@@ -22,6 +22,7 @@ import {
 } from "../lib/briefRequest";
 import { normalizeProviderError, preparationClientForStep, startActionDeadline } from "./providers";
 import { resolveGenerationStep } from "../lib/generationSteps";
+import { MAX_QUOTE_PLACES } from "../lib/briefDerivationPolicy";
 import {
   appendPreparationFactsRef,
   cancelPreparationAttemptRef,
@@ -385,8 +386,6 @@ export type BriefStageAttempt =
   | { kind: "derived" | "reused"; briefId: Id<"generationBriefs"> }
   | { kind: "no_evidence" };
 
-/** Places of one quote tried under owner decision 25 before it is dropped. */
-const MAX_QUOTE_PLACES = 8;
 /** Spans per `getCitationSpeakers` call; it accepts at most 250 (MAX_CITATION_SPEAKER_SPANS). */
 export const CITATION_SPEAKER_BATCH = 250;
 
@@ -720,17 +719,31 @@ export async function deriveBriefCandidates<I extends string>(
 export async function deriveOrReuseBrief(
   ctx: BriefPublishCtx,
   client: GenerationClient,
-  args: BriefStageArgs
+  args: BriefStageArgs,
+  /**
+   * What the Step-by-step start already read, hashed and pinned
+   * (deriveOrAdoptSeedBrief), so the sources are not fetched and hashed
+   * twice.
+   */
+  preloaded?: {
+    sources: FunctionReturnType<typeof internal.generations.getGenerationSourcesForBrief>;
+    inputsHash: string;
+    pinned: Id<"generationBriefs"> | null;
+  }
 ): Promise<BriefStageAttempt> {
-  const sources = await ctx.runQuery(
-    internal.generations.getGenerationSourcesForBrief,
-    { generationId: args.generationId }
-  );
+  const sources =
+    preloaded?.sources ??
+    (await ctx.runQuery(internal.generations.getGenerationSourcesForBrief, {
+      generationId: args.generationId,
+    }));
   if (sources.length === 0) return { kind: "no_evidence" };
 
-  const inputsHash = await briefInputsHash(sources);
+  const inputsHash = preloaded?.inputsHash ?? (await briefInputsHash(sources));
   const reusableId = args.seedStartup
-    ? await ctx.runMutation(internal.generations.pinSeedBrief, { generationId: args.generationId, inputsHash })
+    ? (preloaded?.pinned ??
+      (preloaded
+        ? null
+        : await ctx.runMutation(internal.generations.pinSeedBrief, { generationId: args.generationId, inputsHash })))
     : (await ctx.runQuery(internal.generations.findReusableBrief, {
         generationId: args.generationId,
         inputsHash,
@@ -834,7 +847,7 @@ export async function deriveOrAdoptSeedBrief(
       logBriefStageError("Brief preparation not adopted", args.generationId, briefFailureCode(error));
     }
   }
-  return await deriveOrReuseBrief(ctx, client, { ...args, seedStartup: true });
+  return await deriveOrReuseBrief(ctx, client, { ...args, seedStartup: true }, { sources, inputsHash, pinned });
 }
 
 /**

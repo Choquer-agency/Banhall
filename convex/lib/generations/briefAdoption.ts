@@ -237,6 +237,21 @@ export async function adoptPreparedBriefHandler(
     await releaseAttachment(ctx, generation);
     return { kind: "miss" };
   }
+  // Every Step-by-step start comes here: with no ready or running
+  // preparation for the project (one index read each), there is nothing to
+  // compare and no key is computed (Opus review P3-4).
+  if (!attached) {
+    const candidate =
+      (await ctx.db
+        .query("briefPreparations")
+        .withIndex("by_projectId_and_status", (q) => q.eq("projectId", generation.projectId).eq("status", "ready"))
+        .first()) ??
+      (await ctx.db
+        .query("briefPreparations")
+        .withIndex("by_projectId_and_status", (q) => q.eq("projectId", generation.projectId).eq("status", "running"))
+        .first());
+    if (!candidate) return { kind: "miss" };
+  }
   const sources = await readBriefSourceRows(ctx, generation._id);
   const key = await generationBriefKey(ctx, generation, sources);
   const preparation = attached

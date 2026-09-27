@@ -3,6 +3,12 @@ import type { Doc, Id } from "../_generated/dataModel";
 /**
  * A glossary term that the Brief uses consistently.
  */
+/**
+ * Bumped with any change to how terms are matched (exact, inflected, the
+ * one-entry-per-term rule): a Brief preparation key carries it.
+ */
+export const GLOSSARY_MATCHER_VERSION = 1;
+
 export interface GlossaryTerm {
   term: string;
   // Optional: inflected forms (plurals, past tense, etc.)

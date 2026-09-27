@@ -21,6 +21,7 @@ import {
   failPreparationRef,
   purgeStalePreparationsRef,
   startBriefPreparationRef,
+  checkBriefWaiterRef,
 } from "./lib/briefPreparationRefs";
 import { PREPARATION_RETENTION_MS } from "./briefPreparations";
 import { BRIEF_REQUEST } from "./lib/briefRequest";
@@ -1145,5 +1146,55 @@ describe("review fixes (2026-09-26 reviews)", () => {
       await stuck.t.finishInProgressScheduledFunctions();
     }
     expect((await preparations(stuck))[0]).toMatchObject({ status: "cancelled", endedReason: "structure_unsettled" });
+  });
+});
+
+describe("bounded waits (J, L)", () => {
+  async function attached(s: Setup) {
+    const running = await claimOnly(s);
+    const generationId = await reserve(s);
+    expect((await adoptAtStart(s, generationId)).kind).toBe("attached");
+    const waiter = (await s.t.run(async (ctx) =>
+      ctx.db.query("briefPreparationWaiters").withIndex("by_generationId", (q) => q.eq("generationId", generationId)).unique()
+    ))!;
+    return { running, generationId, waiter };
+  }
+
+  test("the wait ends at its deadline; the run reads on its own and never shows the attempt's facts (J, L)", async () => {
+    const s = await setup();
+    const { running, generationId, waiter } = await attached(s);
+    expect(waiter.deadlineAt).toBe((running.dispatchedAt ?? 0) + 4 * 60 * 1000);
+    await s.t.mutation(appendPreparationFactsRef, {
+      preparationId: running._id, attemptId: running.attemptId!,
+      facts: [{ chip: "Fact", quote: "Streamed before the deadline", sourceLabel: "Priya, line 7" }],
+    });
+    // Before the deadline the check only looks again.
+    await s.t.mutation(checkBriefWaiterRef, { waiterId: waiter._id });
+    expect((await s.t.run(async (ctx) => ctx.db.get(waiter._id)))?.status).toBe("waiting");
+    vi.setSystemTime((waiter.deadlineAt ?? 0) + 1);
+    await s.t.mutation(checkBriefWaiterRef, { waiterId: waiter._id });
+    expect((await s.t.run(async (ctx) => ctx.db.get(waiter._id)))?.status).toBe("released");
+    const generation = await loadGeneration(s, generationId);
+    expect(generation.briefPreparation).toMatchObject({ state: "released", at: Date.now() });
+    // The attempt runs on for anyone else.
+    expect((await s.t.run(async (ctx) => ctx.db.get(running._id)))?.status).toBe("running");
+    const view = await s.writer.query(api.seeds.getReadingFacts, { generationId });
+    expect(view).toMatchObject({ count: 0, done: false, startedAt: Date.now() });
+    // The run derives its own Brief, once.
+    const calls = requests.length;
+    expect((await adoptAtStart(s, generationId)).kind).toBe("derived");
+    expect(requests).toHaveLength(calls + 1);
+  });
+
+  test("a dead preparation action fails the attempt and lets every waiting run go (J)", async () => {
+    const s = await setup();
+    const { running, waiter } = await attached(s);
+    await s.t.run(async (ctx) => ctx.scheduler.cancel(running.actionJobId!));
+    await s.t.mutation(checkBriefWaiterRef, { waiterId: waiter._id });
+    expect(await s.t.run(async (ctx) => ctx.db.get(running._id))).toMatchObject({
+      status: "failed",
+      failureCode: "action_failed",
+    });
+    expect((await s.t.run(async (ctx) => ctx.db.get(waiter._id)))?.status).toBe("released");
   });
 });
