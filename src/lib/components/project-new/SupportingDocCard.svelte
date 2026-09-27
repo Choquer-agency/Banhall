@@ -30,6 +30,9 @@
     onReplace,
     onCategory,
     onYear,
+    saveState = null,
+    originalState = null,
+    onRetrySave,
   }: {
     doc: SupportingDoc;
     /** The chip menu's choices (Transcript is added in Review a written PD). */
@@ -43,6 +46,14 @@
     onReplace: () => void;
     onCategory: (category: SupportingCategory) => void;
     onYear: (year: number) => void;
+    /**
+     * Decision 65, stage 2: whether the file reached the private intake
+     * draft. Saving and failed are shown; a failed save keeps the file in
+     * view with Try again.
+     */
+    saveState?: "saving" | "saved" | "failed" | null;
+    originalState?: "uploading" | "saved" | "failed" | null;
+    onRetrySave?: () => void;
   } = $props();
 
   const percent = $derived(readingPercent(doc));
@@ -149,6 +160,27 @@
       </div>
     {:else}
       <span class="truncate text-xs leading-4 text-ink-muted" data-supporting-meta>{supportingMeta(doc)}</span>
+    {/if}
+    {#if doc.status !== "reading"}
+      {#if saveState === "saving"}
+        <span class="text-xs leading-4 text-ink-muted" data-save-receipt="saving">Saving</span>
+      {:else if saveState === "failed" || originalState === "failed"}
+        <div class="flex flex-wrap items-center gap-x-2 gap-y-1" role="status">
+          <span class="text-xs leading-4 text-danger-ink-muted" data-save-receipt="failed">
+            {saveState === "failed" ? "Not saved yet" : "The original file was not saved"}
+          </span>
+          {#if onRetrySave}
+            <button
+              type="button"
+              data-save-retry
+              onclick={onRetrySave}
+              class="text-xs leading-4 font-medium text-danger-ink underline-offset-2 hover:underline focus-visible:outline-2 focus-visible:outline-danger pointer-coarse:min-h-11"
+            >
+              Try again
+            </button>
+          {/if}
+        </div>
+      {/if}
     {/if}
   </div>
   <div class={`flex shrink-0 gap-0.5 ${compact ? "flex-col" : ""}`} data-supporting-actions>

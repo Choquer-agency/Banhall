@@ -5,7 +5,7 @@
   import { resolve } from "$app/paths";
   import { goToLogin } from "$lib/auth/goToLogin";
   import { toast } from "svelte-sonner";
-  import { useAction, useConvexClient, useMutation, useQuery } from "convex-svelte";
+  import { useAction, useMutation, useQuery } from "convex-svelte";
   import { useAuth } from "@mmailaender/convex-better-auth-svelte/svelte";
   import { api } from "../../../../convex/_generated/api";
   import type { Id } from "../../../../convex/_generated/dataModel";
@@ -85,6 +85,7 @@
     isPreviousYearDocument,
     PREVIOUS_YEAR_ONLY_MESSAGE,
     PREVIOUS_YEAR_TRANSCRIPTS_ONLY_MESSAGE,
+    previousYearNoteText,
     previousYearReportHeader,
   } from "../../../../shared/previousYear";
   import { WORKFLOW_STAGE_LABELS } from "../../../../shared/workflowLabels";
@@ -107,12 +108,19 @@
   import { createRequestId } from "$lib/requestId";
   import { registerSaveHold, SAVE_HOLD_ESCAPE_MS } from "$lib/workspace/saveHold";
   import { stickyActionBar } from "$lib/shell/stickyActionBars.svelte";
+  import {
+    INTAKE_MUTATIONS,
+    IntakeDraftSync,
+    type IntakeCalls,
+  } from "$lib/components/project-new/intakeDraft.svelte";
+  import { intakeDraftRefs } from "../../../../convex/lib/intakeDraftRefs";
+  import { newSourceKey, plannedIntakeSources } from "$lib/components/project-new/intakePlan";
+  import { markStartConfirmed, markStartReserved } from "$lib/perf/startTimings";
 
   const extractionLifetime = new AbortController();
   onDestroy(() => extractionLifetime.abort());
 
   const auth = useAuth();
-  const client = useConvexClient();
   const createProject = useMutation(api.projects.createProject);
   const generateReport = useMutation(api.generations.requestGeneration);
   const startPdReview = useMutation(api.pdReviews.startPdReview);
@@ -531,6 +539,82 @@
     mode === "review" ? docs.items.filter((doc) => doc.category === "transcript") : []
   );
   const supportingFiles = $derived(docs.items.filter((doc) => doc.category !== "transcript" || mode !== "review"));
+  // ─── Private intake draft (decision 65, stage 2) ──────────────────────────
+  // What the page has read is saved, a moment after it changes, to a draft
+  // only this writer can see, so the Brief can be prepared while they finish
+  // setting up and confirming uploads nothing again. Write a new PD only,
+  // and never a duplicate (its files are copied on the server afterwards).
+  const intakeCalls = Object.fromEntries(
+    INTAKE_MUTATIONS.map((name) => [name, useMutation(intakeDraftRefs[name])])
+  ) as unknown as IntakeCalls;
+  function makeIntake() {
+    return new IntakeDraftSync({
+      calls: intakeCalls,
+      uploadOriginal: (file) => uploadOriginalTransport({ file, generateUploadUrl: () => generateUploadUrl({}), fetch }),
+      storage: typeof sessionStorage === "undefined" ? null : sessionStorage,
+    });
+  }
+  let intake = $state.raw(makeIntake());
+  const sourceKeys = new Map<string, string>();
+  function sourceKeyFor(id: string): string {
+    let key = sourceKeys.get(id);
+    if (!key) {
+      key = newSourceKey();
+      sourceKeys.set(id, key);
+    }
+    return key;
+  }
+  const intakeActive = $derived(mode === "generate" && !fromProjectId && Boolean(user.data?.role));
+  const intakeSources = $derived(
+    intakeActive
+      ? plannedIntakeSources({
+          transcripts: transcriptItems.flatMap((item) =>
+            item.source.kind === "copy"
+              ? []
+              : [{ id: item.id, label: item.label, content: item.source.content, format: item.format, file: item.file }]
+          ),
+          docs: supportingFiles,
+          yearNotes,
+          previousYears,
+          keyFor: sourceKeyFor,
+        })
+      : []
+  );
+  $effect(() => {
+    const desired = intakeSources;
+    if (!intakeActive) {
+      // Review a written PD, or a duplicate: nothing is prepared ahead.
+      if (intake.draftId && !intake.closed) {
+        intake.discard();
+        intake = makeIntake();
+      }
+      return;
+    }
+    if (intake.closed || (!desired.length && !intake.draftId)) return;
+    intake.reconcile(desired);
+  });
+  $effect(() => {
+    if (!intakeActive) return;
+    intake.setContext({
+      clientName: clientName.trim(),
+      ...(interviewerUserId ? { interviewerUserId: interviewerUserId as Id<"users"> } : {}),
+      interviewees: [...interviewees],
+    });
+  });
+  onMount(() => intake.discardLeftover());
+  const transcriptReceipt = (item: { id: string; source: { kind: string } }) =>
+    intakeActive && item.source.kind !== "copy" ? sourceKeyFor(item.id) : null;
+
+  /** The start dialog's leave-out list as source keys. */
+  function intakeKeysFor(excluded: StartRunExcluded): string[] {
+    return [...excluded.transcriptIds, ...excluded.documentIds].flatMap((id) =>
+      id.startsWith("t:") || id.startsWith("d:") ? [sourceKeyFor(id.slice(2))] : []
+    );
+  }
+  function onDialogSelection(excluded: StartRunExcluded) {
+    if (intakeActive && !intake.closed) intake.setSelection(intakeKeysFor(excluded));
+  }
+
   // Transcript chips belong to Review a written PD; back in Write a new PD a
   // file keeps its place as an ordinary supporting document.
   $effect(() => {
@@ -678,7 +762,14 @@
   // layout's deploy-update reload asks the same hold.
   onMount(() => registerSaveHold(() => committing && !leaving));
   beforeNavigate((navigation) => {
-    if (!committing || leaving) return;
+    if (!committing || leaving) {
+      // Leaving New project for good ends its draft (a reload or a closed
+      // tab leaves it to the next visit, or to the 24-hour expiry).
+      if (!leaving && navigation.type !== "leave" && navigation.to?.url.pathname !== page.url.pathname) {
+        intake.discard();
+      }
+      return;
+    }
     navigation.cancel();
     // Closing the tab or reloading: the browser asks the writer to confirm.
     if (navigation.type === "leave") return;
@@ -1174,40 +1265,266 @@
     return message;
   }
 
-  /** The copied documents' ids in the new project, by the source row they came from. */
-  async function copiedDocumentIds(projectId: Id<"projects">): Promise<Map<string, Id<"projectDocuments">>> {
-    const mapping = new Map<string, Id<"projectDocuments">>();
-    try {
-      const rows = ((await client.query(api.documents.listDocuments, { projectId })) ?? []) as Array<{
-        _id: Id<"projectDocuments">;
-        fileName: string;
-        category?: string | null;
-        source?: string;
-      }>;
-      const used = new Set<string>();
-      for (const document of copiedDocuments.filter(isDocumentIncluded)) {
-        const match = rows.find(
-          (row) =>
-            !used.has(row._id) &&
-            row.fileName === document.fileName &&
-            (row.category ?? null) === (document.category ?? null)
-        );
-        if (match) {
-          used.add(match._id);
-          mapping.set(document._id, match._id);
-        }
-      }
-    } catch (error) {
-      console.error("Could not list the copied files", error);
+  /**
+   * Saves supporting documents the old way, one by one, once the project
+   * exists: every file on the path without an intake draft, and on the
+   * draft path only a file the draft could not take or one still being read
+   * that the writer left out. A file that fails is recorded, never dropped.
+   */
+  function documentSaver(
+    projectId: Id<"projects">,
+    state: {
+      leftOut: Set<string>;
+      excludeDocumentIds: Id<"projectDocuments">[];
+      skippedFiles: string[];
+      savedOwn: string[];
     }
-    return mapping;
+  ) {
+    const { leftOut, excludeDocumentIds, skippedFiles, savedOwn } = state;
+    // One unreadable or oversized doc must never sink the whole project:
+    // skip it, tell the writer which ones were skipped, and keep going.
+    const uploadDoc = async (doc: SupportingDoc, prefix = ""): Promise<"stored_text" | "stored_empty" | "failed"> => {
+      extractionLifetime.signal.throwIfAborted();
+      const category = doc.category as ContextCategoryId;
+      progress = `Uploading ${doc.name}...`;
+      if (doc.pastedText !== null) {
+        const id = await uploadDocument({
+          projectId,
+          fileName: doc.name,
+          fileType: "txt",
+          content: prefix + doc.pastedText,
+          source: "context_input",
+          category,
+          intake: "pasted",
+        });
+        if (leftOut.has(`d:${doc.id}`) && id) excludeDocumentIds.push(id);
+        savedOwn.push(doc.name);
+        return "stored_text";
+      }
+      const file = doc.file!;
+      const attemptKey = createRequestId();
+      try {
+        await docs.whenRead([doc.id]);
+        const current = docs.get(doc.id) ?? doc;
+        const extractionFailed = current.status === "failed";
+        const content = current.parsed?.content ?? "";
+        const fileType = current.parsed?.fileType ?? guessFileType(file.name);
+        // Only prefix content we actually extracted. Prefixing an empty
+        // extraction would store boilerplate the server reads as real
+        // text, and the file would report "Ready for AI" when nothing can
+        // be read from it.
+        extractionLifetime.signal.throwIfAborted();
+        const storageId = await uploadOriginal(file);
+        extractionLifetime.signal.throwIfAborted();
+        const hasText = content.trim().length > 0;
+        const id = await withUploadTimeout(
+          uploadDocument({
+            projectId,
+            fileName: file.name,
+            fileType,
+            content: hasText ? prefix + content : "",
+            source: "context_input",
+            category,
+            extractionOutcome: extractionFailed ? "failed" : "ok",
+            attemptKey,
+            ...(storageId ? { storageId } : {}),
+            ...(file.type ? { mimeType: file.type } : {}),
+          })
+        );
+        extractionLifetime.signal.throwIfAborted();
+        if (leftOut.has(`d:${doc.id}`) && id) excludeDocumentIds.push(id);
+        savedOwn.push(file.name);
+        return hasText ? "stored_text" : "stored_empty";
+      } catch (e) {
+        extractionLifetime.signal.throwIfAborted();
+        if (isParseAbort(e)) throw e;
+        console.error(`upload failed for ${file.name}`, e);
+        skippedFiles.push(file.name);
+        // The toast is transient; this is what survives the navigation.
+        await recordFailedAttempt(projectId, {
+          attemptKey,
+          fileName: file.name,
+          fileSizeBytes: file.size,
+          origin: "context_input",
+        });
+        return "failed";
+      }
+    };
+
+    // Previous-year reports carry their fiscal year and that year's note.
+    const noteCarried = new Set<number>();
+    const saveOne = async (doc: SupportingDoc) => {
+      if (doc.category !== "previous_pd") return uploadDoc(doc);
+      const note = (yearNotes.get(doc.year) ?? "").trim();
+      const outcome = await uploadDoc(
+        doc,
+        `${previousYearReportHeader(doc.year)}${note ? `Note: ${note}\n` : ""}\n`
+      );
+      if (outcome === "stored_text") noteCarried.add(doc.year);
+      return outcome;
+    };
+    // A note no file carried still holds useful prior-year context.
+    const saveNotes = async () => {
+      for (const year of previousYears) {
+        const note = (yearNotes.get(year) ?? "").trim();
+        if (!note || noteCarried.has(year)) continue;
+        extractionLifetime.signal.throwIfAborted();
+        await uploadDocument({
+          projectId,
+          fileName: `Previous-year note (FY ${year})`,
+          fileType: "txt",
+          content: previousYearNoteText(year, note),
+          source: "context_input",
+          category: "previous_pd",
+          intake: "pasted",
+        });
+        savedOwn.push(`Previous-year note (FY ${year})`);
+      }
+    };
+    return { saveOne, saveNotes };
   }
 
   async function commit(excluded: StartRunExcluded = { transcriptIds: [], documentIds: [] }) {
     if (committing) return;
-    const leftOut = new Set([...excluded.transcriptIds, ...excluded.documentIds]);
     committing = true;
     commitStartedAt = Date.now();
+    markStartConfirmed();
+    if (intakeActive && intake.draftId && !intake.closed) {
+      if ((await commitFromDraft(excluded)) === "done") return;
+    }
+    await legacyCommit(excluded);
+  }
+
+  /**
+   * Confirm with an intake draft (decision 65, stage 2): the text is saved
+   * already, so the draft becomes the project with nothing uploaded on the
+   * way, and its run adopts the prepared Brief when it matches. Returns
+   * "fallback" before anything is created when a transcript or note never
+   * reached the draft; the path without a draft then saves everything.
+   */
+  async function commitFromDraft(excluded: StartRunExcluded): Promise<"done" | "fallback"> {
+    const leftOut = new Set([...excluded.transcriptIds, ...excluded.documentIds]);
+    let createdProjectId: Id<"projects"> | null = null;
+    const savedOwn: string[] = [];
+    try {
+      // Ticked files still being read are waited for, as before.
+      const tickedReading = supportingFiles.filter(
+        (doc) => doc.status === "reading" && !leftOut.has(`d:${doc.id}`)
+      );
+      for (const doc of tickedReading) {
+        progress = `Reading ${doc.name}, then starting...`;
+        await docs.whenRead([doc.id]);
+        extractionLifetime.signal.throwIfAborted();
+      }
+      progress = "Creating project...";
+      // Whatever is still on its way to the draft goes now; the rest was
+      // saved while the writer set up.
+      const plan = intakeSources;
+      intake.reconcile(plan);
+      const unsaved = await intake.flush();
+      extractionLifetime.signal.throwIfAborted();
+      const docKeys = new Set(supportingFiles.map((doc) => sourceKeyFor(doc.id)));
+      if (plan.some((source) => unsaved.has(source.sourceKey) && !docKeys.has(source.sourceKey))) return "fallback";
+      const receipt = await intake.promote({
+        commandId: createRequestId(),
+        sourceKeys: plan.filter((source) => !unsaved.has(source.sourceKey)).map((source) => source.sourceKey),
+        project: {
+          title: title.trim(),
+          ...(sredTitle.trim() ? { sredTitle: sredTitle.trim() } : {}),
+          clientName: clientName.trim(),
+          ...(interviewerUserId ? { interviewerUserId: interviewerUserId as Id<"users"> } : {}),
+          ...(interviewees.length ? { interviewees } : {}),
+          ...(selectedTagIds.length ? { tagIds: selectedTagIds as Id<"tags">[] } : {}),
+          ...(fiscalYearEndMs !== null ? { fiscalYearEnd: fiscalYearEndMs } : {}),
+          ...(industry ? { industry } : {}),
+          ...(scienceCode ? { scienceCode } : {}),
+          ...(projectNumber.trim() ? { projectNumber: projectNumber.trim() } : {}),
+        },
+      });
+      extractionLifetime.signal.throwIfAborted();
+      const projectId = receipt.projectId;
+      createdProjectId = projectId;
+      // The leave-out lists by the exact receipt, never by file name.
+      const rowOf = new Map(receipt.sources.map((row) => [row.sourceKey, row]));
+      const excludeTranscriptIds = transcriptItems.flatMap((item) => {
+        const id = leftOut.has(`t:${item.id}`) ? rowOf.get(sourceKeyFor(item.id))?.transcriptId : undefined;
+        return id ? [id] : [];
+      });
+      const excludeDocumentIds = supportingFiles.flatMap((doc) => {
+        const id = leftOut.has(`d:${doc.id}`) ? rowOf.get(sourceKeyFor(doc.id))?.projectDocumentId : undefined;
+        return id ? [id] : [];
+      });
+      for (const source of plan) if (rowOf.has(source.sourceKey)) savedOwn.push(source.label);
+      // A file the draft could not take is saved the old way (a failure is
+      // recorded on the project); one still being read that the writer
+      // left out follows the start, as before.
+      const skippedFiles: string[] = [];
+      const { saveOne } = documentSaver(projectId, { leftOut, excludeDocumentIds, skippedFiles, savedOwn });
+      const notInDraft = supportingFiles.filter(
+        (doc) => doc.category !== "transcript" && !rowOf.has(sourceKeyFor(doc.id))
+      );
+      const later = notInDraft.filter((doc) => doc.status === "reading" && leftOut.has(`d:${doc.id}`));
+      for (const doc of notInDraft) if (!later.includes(doc)) await saveOne(doc);
+      extractionLifetime.signal.throwIfAborted();
+      progress = "Starting generation...";
+      await generateReport({
+        projectId,
+        candidateMode,
+        ...(candidateMode !== "compare" && singleModelId ? { singleModelId } : {}),
+        ...(candidateMode === "compare"
+          ? (() => {
+              const pair = comparePairFromSlots(compareSlotA, compareSlotB, pickerModels(modelCapabilitiesQ.data));
+              return pair ? { compareModelIds: pair } : {};
+            })()
+          : {}),
+        ...(excludeDocumentIds.length ? { excludeDocumentIds } : {}),
+        ...(excludeTranscriptIds.length ? { excludeTranscriptIds } : {}),
+      });
+      markStartReserved();
+      for (const doc of later) await saveOne(doc);
+      extractionLifetime.signal.throwIfAborted();
+      if (skippedFiles.length) {
+        toast.error(
+          `${skippedFiles.length} document(s) could not be uploaded and were skipped: ${skippedFiles.join(", ")}`
+        );
+      }
+      openProject(projectId, { title, client: clientName });
+      return "done";
+    } catch (e) {
+      if (extractionLifetime.signal.aborted || isParseAbort(e)) return "done";
+      // F6: an expected refusal, not a crash.
+      const refused = createdProjectId
+        ? activeRunFromError(e, [user.data?.firstName, user.data?.lastName].filter(Boolean).join(" "))
+        : null;
+      if (refused && createdProjectId) {
+        committing = false;
+        progress = "";
+        refusedRun = refused;
+        runningProjectId = createdProjectId;
+        startOpen = true;
+        return "done";
+      }
+      console.error(e);
+      toast.error(userErrorMessage(e, "Something went wrong creating the project. Please try again."));
+      committing = false;
+      progress = "";
+      if (createdProjectId) {
+        toast.error("The project was created but generation did not start. Open it and use Generate to retry.");
+        openProject(createdProjectId, { title, client: clientName });
+      }
+      return "done";
+    }
+  }
+
+  /**
+   * Confirm without an intake draft (Review a written PD, a duplicate, or a
+   * draft that could not take a transcript): create the project, then save
+   * every file after it.
+   */
+  async function legacyCommit(excluded: StartRunExcluded) {
+    // A draft this path does not use ends here, with its preparation.
+    intake.discard();
+    const leftOut = new Set([...excluded.transcriptIds, ...excluded.documentIds]);
     let createdProjectId: Id<"projects"> | null = null;
     let copyFailed = false;
     // The writer's own files saved so far, by ownUploadNames' names.
@@ -1266,7 +1583,7 @@
       if (fromProjectId) {
         progress = "Copying all project materials...";
         try {
-          await copyProjectContent({
+          const copied = await copyProjectContent({
             fromProjectId: fromProjectId as Id<"projects">,
             toProjectId: projectId,
             ...(transcriptIds[0] ? { targetTranscriptId: transcriptIds[0] } : {}),
@@ -1278,7 +1595,11 @@
             ...(sendPreviousYearReport ? { previousYearReport: true } : {}),
           });
           if ([...leftOut].some((key) => key.startsWith("c:"))) {
-            const mapping = await copiedDocumentIds(projectId);
+            // The copy's exact receipt: each source file's new row, so two
+            // files with the same name and category never swap.
+            const mapping = new Map<string, Id<"projectDocuments">>(
+              (copied?.documents ?? []).map((row) => [row.sourceId, row.documentId])
+            );
             for (const key of leftOut) {
               if (!key.startsWith("c:")) continue;
               const id = mapping.get(key.slice(2));
@@ -1295,76 +1616,8 @@
         }
       }
 
-      // One unreadable or oversized doc must never sink the whole project:
-      // skip it, tell the writer which ones were skipped, and keep going.
       const skippedFiles: string[] = [];
-      const uploadDoc = async (doc: SupportingDoc, prefix = ""): Promise<"stored_text" | "stored_empty" | "failed"> => {
-        extractionLifetime.signal.throwIfAborted();
-        const category = doc.category as ContextCategoryId;
-        progress = `Uploading ${doc.name}...`;
-        if (doc.pastedText !== null) {
-          const id = await uploadDocument({
-            projectId,
-            fileName: doc.name,
-            fileType: "txt",
-            content: prefix + doc.pastedText,
-            source: "context_input",
-            category,
-            intake: "pasted",
-          });
-          if (leftOut.has(`d:${doc.id}`) && id) excludeDocumentIds.push(id);
-          savedOwn.push(doc.name);
-          return "stored_text";
-        }
-        const file = doc.file!;
-        const attemptKey = createRequestId();
-        try {
-          await docs.whenRead([doc.id]);
-          const current = docs.get(doc.id) ?? doc;
-          const extractionFailed = current.status === "failed";
-          const content = current.parsed?.content ?? "";
-          const fileType = current.parsed?.fileType ?? guessFileType(file.name);
-          // Only prefix content we actually extracted. Prefixing an empty
-          // extraction would store boilerplate the server reads as real
-          // text, and the file would report "Ready for AI" when nothing can
-          // be read from it.
-          extractionLifetime.signal.throwIfAborted();
-          const storageId = await uploadOriginal(file);
-          extractionLifetime.signal.throwIfAborted();
-          const hasText = content.trim().length > 0;
-          const id = await withUploadTimeout(
-            uploadDocument({
-              projectId,
-              fileName: file.name,
-              fileType,
-              content: hasText ? prefix + content : "",
-              source: "context_input",
-              category,
-              extractionOutcome: extractionFailed ? "failed" : "ok",
-              attemptKey,
-              ...(storageId ? { storageId } : {}),
-              ...(file.type ? { mimeType: file.type } : {}),
-            })
-          );
-          extractionLifetime.signal.throwIfAborted();
-          if (leftOut.has(`d:${doc.id}`) && id) excludeDocumentIds.push(id);
-          savedOwn.push(file.name);
-          return hasText ? "stored_text" : "stored_empty";
-        } catch (e) {
-          extractionLifetime.signal.throwIfAborted();
-          if (isParseAbort(e)) throw e;
-          console.error(`upload failed for ${file.name}`, e);
-          skippedFiles.push(file.name);
-          // The toast is transient; this is what survives the navigation.
-          await recordFailedAttempt(projectId, {
-            attemptKey,
-            fileName: file.name,
-            fileSizeBytes: file.size,
-            origin: "context_input",
-          });
-          return "failed";
-        }
-      };
+      const { saveOne, saveNotes } = documentSaver(projectId, { leftOut, excludeDocumentIds, skippedFiles, savedOwn });
 
       // Ticked files first, in SR&ED weight order; left-out files still
       // being read are saved after the run starts.
@@ -1375,37 +1628,7 @@
       const later = toSave.filter((doc) => doc.status === "reading" && leftOut.has(`d:${doc.id}`));
       const first = toSave.filter((doc) => !later.includes(doc));
 
-      // Previous-year reports carry their fiscal year and that year's note.
-      const noteCarried = new Set<number>();
-      const saveOne = async (doc: SupportingDoc) => {
-        if (doc.category !== "previous_pd") return uploadDoc(doc);
-        const note = (yearNotes.get(doc.year) ?? "").trim();
-        const outcome = await uploadDoc(
-          doc,
-          `${previousYearReportHeader(doc.year)}${note ? `Note: ${note}\n` : ""}\n`
-        );
-        if (outcome === "stored_text") noteCarried.add(doc.year);
-        return outcome;
-      };
       for (const doc of first) await saveOne(doc);
-      // A note no file carried still holds useful prior-year context.
-      const saveNotes = async () => {
-        for (const year of previousYears) {
-          const note = (yearNotes.get(year) ?? "").trim();
-          if (!note || noteCarried.has(year)) continue;
-          extractionLifetime.signal.throwIfAborted();
-          await uploadDocument({
-            projectId,
-            fileName: `Previous-year note (FY ${year})`,
-            fileType: "txt",
-            content: `[Previous-year note — fiscal ${year}]\n\n${note}`,
-            source: "context_input",
-            category: "previous_pd",
-            intake: "pasted",
-          });
-          savedOwn.push(`Previous-year note (FY ${year})`);
-        }
-      };
       if (later.every((doc) => doc.category !== "previous_pd")) await saveNotes();
 
       extractionLifetime.signal.throwIfAborted();
@@ -1473,6 +1696,7 @@
           ...(excludeDocumentIds.length ? { excludeDocumentIds } : {}),
           ...(excludeTranscriptIds.length ? { excludeTranscriptIds } : {}),
         });
+        markStartReserved();
       }
       // Files the writer left out while they were still being read.
       for (const doc of later) await saveOne(doc);
@@ -1760,6 +1984,28 @@
   </div>
 {/snippet}
 
+{#snippet transcriptSaveReceipt(key: string | null)}
+  <!-- Decision 65, stage 2: a transcript still on its way to the intake
+       draft, or one that did not reach it, says so; saved ones stay quiet. -->
+  {#if key && intake.receipts.get(key) === "saving"}
+    <span class="shrink-0 text-xs leading-4 text-ink-muted" data-save-receipt="saving">Saving</span>
+  {:else if key && (intake.receipts.get(key) === "failed" || intake.originals.get(key) === "failed")}
+    <span class="relative z-10 flex shrink-0 items-center gap-2" role="status">
+      <span class="text-xs leading-4 text-danger-ink-muted" data-save-receipt="failed">
+        {intake.receipts.get(key) === "failed" ? "Not saved yet" : "The original file was not saved"}
+      </span>
+      <button
+        type="button"
+        data-save-retry
+        onclick={() => intake.retry(key)}
+        class="text-xs leading-4 font-medium text-danger-ink underline-offset-2 hover:underline focus-visible:outline-2 focus-visible:outline-danger pointer-coarse:min-h-11"
+      >
+        Try again
+      </button>
+    </span>
+  {/if}
+{/snippet}
+
 {#snippet transcriptRows()}
   {#if transcriptItems.length || transcriptProblems.length}
     <ul class="flex flex-col" data-transcript-list>
@@ -1788,6 +2034,7 @@
             <span class={`shrink-0 text-ink-muted ${layout === "phone" ? "text-xs leading-4" : "text-[13px] leading-[19px]"}`} data-transcript-format>
               {item.wordCount.toLocaleString("en-US")} words
             </span>
+            {@render transcriptSaveReceipt(transcriptReceipt(item))}
             {#if !included}
               <span class="shrink-0 text-xs text-ink-muted" data-transcript-not-copied>Not copied</span>
             {/if}
@@ -2229,6 +2476,11 @@
                     </div>
                   {/if}
                   {@render transcriptRows()}
+                  {#if intakeActive}
+                    <p data-intake-note class="text-xs leading-4 text-ink-muted">
+                      Files are read while you finish setting up. Setups you don't finish are deleted after 24 hours.
+                    </p>
+                  {/if}
                   <div class={`grid ${
                     layout === "phone" ? "grid-cols-1 gap-3" : layout === "tablet" ? "grid-cols-2 gap-4" : "grid-cols-[260px_minmax(0,1fr)] gap-4"
                   }`}>
@@ -2422,6 +2674,9 @@
                       onReplace={() => replaceDoc(doc.id)}
                       onCategory={(category) => docs.setCategory(doc.id, category)}
                       onYear={(year) => docs.setYear(doc.id, year)}
+                      saveState={intakeActive ? (intake.receipts.get(sourceKeyFor(doc.id)) ?? null) : null}
+                      originalState={intakeActive ? (intake.originals.get(sourceKeyFor(doc.id)) ?? null) : null}
+                      onRetrySave={() => intake.retry(sourceKeyFor(doc.id))}
                     />
                   {/each}
                   {#if showDropCard}
@@ -2628,7 +2883,11 @@
         busy={committing}
         validate={validateExcluded}
         onConfirm={confirmStart}
-        onCancel={openRunningProject}
+        onCancel={() => {
+          onDialogSelection({ transcriptIds: [], documentIds: [] });
+          openRunningProject();
+        }}
+        onSelectionChange={onDialogSelection}
         {activeRun}
         onOpenActiveRun={openRunningProject}
         returnFocus={() => lastStartTrigger}

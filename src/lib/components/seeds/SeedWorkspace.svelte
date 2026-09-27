@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { markFirstSeeds } from "$lib/perf/startTimings";
   import { onDestroy, tick, untrack, type Snippet } from "svelte";
   import { useConvexClient, useMutation, useQuery } from "convex-svelte";
   import type { Id } from "../../../../convex/_generated/dataModel";
@@ -448,6 +449,11 @@
     return !!outline?.rows.some(
       (row) => row.state === "approved" && PD_SUBSECTIONS.findIndex((definition) => definition.roleId === row.roleId) < index
     );
+  });
+
+  // Decision 65: the confirm-to-first-ideas timing mark (once per start).
+  $effect(() => {
+    if ((subsection?.items.length ?? 0) > 0) markFirstSeeds();
   });
 
   // Board F4: the ideas of the step on screen are ready.

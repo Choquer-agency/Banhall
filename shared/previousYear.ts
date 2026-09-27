@@ -14,6 +14,17 @@ export function previousYearReportHeader(year: number): string {
 }
 
 /**
+ * The stored text of a previous-year note no uploaded report carried: its
+ * own heading, then the note. Written by the new-project wizard, both when
+ * it saves the note after creating the project and when it saves it to a
+ * private intake draft (decision 65, stage 2). Keep these bytes exactly
+ * (the dash is U+2014, as the wizard has always stored it).
+ */
+export function previousYearNoteText(year: number, note: string): string {
+  return `[Previous-year note \u2014 fiscal ${year}]\n\n${note}`;
+}
+
+/**
  * Decision 42 (2026-09-25): a draft is never built from last year's report
  * alone. A file in this category (an uploaded previous-year report, a PD
  * ported in, or the original's report brought along by a duplicate) does not

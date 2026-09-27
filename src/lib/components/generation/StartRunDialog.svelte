@@ -131,7 +131,7 @@
    * and both shrink alike, so a viewport too short for 140px above and
    * below centres the dialog instead.
    */
-  import { tick } from "svelte";
+  import { tick, untrack } from "svelte";
   import { SvelteSet } from "svelte/reactivity";
   import { Checkbox, Dialog } from "bits-ui";
   import { overlayFade, modalPop } from "$lib/motion";
@@ -154,6 +154,7 @@
     returnFocus,
     activeRun = null,
     onOpenActiveRun,
+    onSelectionChange,
   }: {
     open?: boolean;
     mode: StartRunMode;
@@ -172,6 +173,12 @@
     activeRun?: ActiveRun | null;
     /** "Open it": go to the running project. */
     onOpenActiveRun?: () => void;
+    /**
+     * Decision 65, stage 2: the leave-out list as it changes while the
+     * dialog is open, so the host can prepare for exactly those files.
+     * Confirming never waits for it.
+     */
+    onSelectionChange?: (excluded: StartRunExcluded) => void;
   } = $props();
 
   const unticked = new SvelteSet<string>();
@@ -195,6 +202,14 @@
   );
   const runCopy = $derived(activeRun ? activeRunCopy(activeRun, Date.now()) : null);
   const copy = $derived(START_RUN_COPY[mode]);
+
+  $effect(() => {
+    if (!open || !onSelectionChange) return;
+    const current = excluded;
+    untrack(() =>
+      onSelectionChange?.({ transcriptIds: [...current.transcriptIds], documentIds: [...current.documentIds] })
+    );
+  });
 
   function toggle(id: string, next: boolean) {
     if (next) unticked.delete(id);

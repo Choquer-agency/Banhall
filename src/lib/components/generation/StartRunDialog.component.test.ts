@@ -353,3 +353,22 @@ describe("activeRunFromError", () => {
     expect(activeRunFromError(new Error("boom"))).toBeNull();
   });
 });
+
+describe("StartRunDialog selection while open (decision 65, stage 2)", () => {
+  it("reports the leave-out list as it changes, without confirming", async () => {
+    const onSelectionChange = vi.fn();
+    const onConfirm = vi.fn();
+    await render(StartRunDialog, props({ onSelectionChange, onConfirm }));
+    await expect.poll(() => onSelectionChange.mock.calls.length).toBeGreaterThan(0);
+    expect(onSelectionChange.mock.calls.at(-1)?.[0]).toEqual({ transcriptIds: [], documentIds: [] });
+    q('[data-start-run-check="d1"]')!.click();
+    await expect
+      .poll(() => onSelectionChange.mock.calls.at(-1)?.[0])
+      .toEqual({ transcriptIds: [], documentIds: ["d1"] });
+    q('[data-start-run-check="t2"]')!.click();
+    await expect
+      .poll(() => onSelectionChange.mock.calls.at(-1)?.[0])
+      .toEqual({ transcriptIds: ["t2"], documentIds: ["d1"] });
+    expect(onConfirm).not.toHaveBeenCalled();
+  });
+});

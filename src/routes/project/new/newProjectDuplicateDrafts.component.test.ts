@@ -11,7 +11,6 @@ import {
   __setMutationError,
   __setMutationResult,
   __setQueryData,
-  __setQueryDataForArgs,
 } from "$lib/test/convex-svelte-stub.svelte";
 import { takeProjectStart } from "$lib/workspace/projectIntentHandoff";
 import {
@@ -564,11 +563,14 @@ describe("/project/new unticking copied files", () => {
     await openStartDialog();
     document.querySelector<HTMLElement>('[data-start-run-check="c:doc-2"]')!.click();
     await expect.poll(() => confirmButton()?.textContent?.trim()).toBe("Start with 2 files");
-    // After the copy, the page finds the copied rows in the new project.
-    __setQueryDataForArgs("documents:listDocuments", { projectId: "project-copy" }, [
-      document_("new-1", "Writer notes.md", { category: "writer_notes" }),
-      document_("new-2", "Scoping.md", { category: "scoping_notes" }),
-    ]);
+    // The copy's exact receipt names each copied row (decision 65, stage 2):
+    // no lookup by file name and category.
+    __setMutationResult("projectDuplication:copyProjectContent", {
+      documents: [
+        { sourceId: "doc-1", documentId: "new-1" },
+        { sourceId: "doc-2", documentId: "new-2" },
+      ],
+    });
     confirmButton()!.click();
     await expect.poll(() => __mutationCalls("generations:requestGeneration").length).toBe(1);
     expect(copyArgs()).not.toHaveProperty("excludeDocumentIds");
