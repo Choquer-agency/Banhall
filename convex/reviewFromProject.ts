@@ -4,6 +4,7 @@ import type { Id } from "./_generated/dataModel";
 import { v } from "convex/values";
 import { requireInternalProjectAccess } from "./lib/auth";
 import { domainError, sha256 } from "./lib/contracts";
+import { limitUserAction } from "./lib/aiRateLimits";
 import { requireCapability } from "./lib/roleCapabilities";
 import { requireAnthropicConfigured } from "./lib/providerConfig";
 import { extractPlainText } from "./lib/reportEdits";
@@ -90,6 +91,9 @@ export const createReviewProjectRecord = internalMutation({
     }
 
     const sourceTranscripts = await listProjectTranscripts(ctx, source._id);
+    // Audit wave 2: this starts a PD review, so it spends one of the
+    // caller's 20 reviews an hour; a refusal creates nothing.
+    await limitUserAction(ctx, "pdReviewPerUser", user._id);
 
     const now = Date.now();
     const dashboardProjection = projectDashboardProjectionPatch({

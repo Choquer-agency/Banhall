@@ -1,5 +1,6 @@
 /// <reference types="vite/client" />
 import { convexTest } from "convex-test";
+import rateLimiterTest from "@convex-dev/rate-limiter/test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api, internal } from "./_generated/api";
 import schema from "./schema";
@@ -70,6 +71,7 @@ afterEach(() => {
 
 async function setup(options: { report?: boolean } = {}) {
   const t = convexTest(schema, modules);
+  rateLimiterTest.register(t);
   t.registerComponent("researchWorkflow", workflowSchema, workflowModules);
   t.registerComponent("researchWorkflow/workpool", workpoolSchema, workpoolModules);
   const ids = await t.run(async (ctx) => {
@@ -278,6 +280,7 @@ describe("research prompts go through the same map", () => {
 describe("the firm-name setting", () => {
   it("is empty until an admin sets it, and only admins read or write it", async () => {
     const t = convexTest(schema, modules);
+    rateLimiterTest.register(t);
     await t.run(async (ctx) => {
       await ctx.db.insert("users", { authId: "fn-admin", role: "admin", name: "Ada Admin" });
       await ctx.db.insert("users", { authId: "fn-writer", role: "writer", name: "Wren Writer" });

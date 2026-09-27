@@ -10,6 +10,7 @@
  * the reorder.
  */
 import { convexTest } from "convex-test";
+import rateLimiterTest from "@convex-dev/rate-limiter/test";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { makeFunctionReference } from "convex/server";
 import { api, internal } from "./_generated/api";
@@ -102,6 +103,7 @@ async function startupFixture(workflow: "seeds" | "sections" = "seeds") {
   // No real network: every provider call goes through the mocked SDK.
   vi.stubGlobal("fetch", vi.fn(() => { throw new Error("Unexpected HTTP transport"); }));
   const t = convexTest(schema, modules);
+  rateLimiterTest.register(t);
   const ids = await t.run(async (ctx) => {
     const userId = await ctx.db.insert("users", { authId: "startup-writer", role: "writer" });
     const outsiderId = await ctx.db.insert("users", { authId: "startup-outsider", role: "writer" });

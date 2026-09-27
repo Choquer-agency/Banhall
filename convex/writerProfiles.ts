@@ -19,6 +19,7 @@ import {
 } from "./lib/writerCoverage";
 import { firmDateParts, firmDateStartUtc } from "../shared/firmTime";
 import { domainError, sha256 } from "./lib/contracts";
+import { limitUserAction } from "./lib/aiRateLimits";
 import { isProjectDeleting } from "./lib/projectDeletion";
 import { MAX_INSTRUCTIONS_CHARS } from "../shared/writerProfileLimits";
 import {
@@ -351,6 +352,21 @@ export const saveProfileForUser = mutation({
         ? undefined
         : validateSelfCheckRules(args.selfCheckRules)
     );
+    return null;
+  },
+});
+
+/**
+ * Audit wave 2: "Check what applies" (ai/styleAnalysis.analyzeMyInstructions)
+ * needs an active internal role, and a model call spends one of the
+ * caller's 10 an hour. One transaction, so a refusal spends nothing.
+ */
+export const admitStyleAnalysis = internalMutation({
+  args: { callsModel: v.boolean() },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const user = await requireInternalActor(ctx);
+    if (args.callsModel) await limitUserAction(ctx, "styleAnalysisPerUser", user._id);
     return null;
   },
 });

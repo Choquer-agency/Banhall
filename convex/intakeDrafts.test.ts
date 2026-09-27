@@ -9,6 +9,7 @@
  * request at the SDK's HTTP boundary, and the Duplicate copy receipt.
  */
 import { convexTest } from "convex-test";
+import rateLimiterTest from "@convex-dev/rate-limiter/test";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import schema from "./schema";
 import { api } from "./_generated/api";
@@ -139,6 +140,7 @@ function inAction<R>(t: T, fn: (ctx: ActionCtx) => Promise<R>): Promise<R> {
 
 async function setup() {
   const t = convexTest(schema, modules);
+  rateLimiterTest.register(t);
   const ids = await t.run(async (ctx) => {
     const userId = await ctx.db.insert("users", { authId: "intake-writer", role: "writer", name: "Wren Writer" });
     const outsiderId = await ctx.db.insert("users", { authId: "intake-outsider", role: "manager", name: "Olly Outsider" });

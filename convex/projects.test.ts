@@ -1,5 +1,6 @@
 /// <reference types="vite/client" />
 import { convexTest } from "convex-test";
+import rateLimiterTest from "@convex-dev/rate-limiter/test";
 import { describe, expect, test, vi } from "vitest";
 import { api, internal } from "./_generated/api";
 import schema from "./schema";
@@ -20,6 +21,7 @@ type Actor = keyof typeof authIds;
 
 async function setup() {
   const t = convexTest(schema, modules);
+  rateLimiterTest.register(t);
   const ids = await t.run(async (ctx) => {
     const ownerId = await ctx.db.insert("users", {
       authId: authIds.owner,
@@ -2026,6 +2028,7 @@ describe("backend readers of a project's transcripts", () => {
 describe("seedDemoProject writes a listable transcript row", () => {
   test("labels the row, places it at position 0 and hashes its content", async () => {
     const t = convexTest(schema, modules);
+    rateLimiterTest.register(t);
     await t.run(async (ctx) => {
       await ctx.db.insert("users", { email: "demo@banhall.ca" });
     });
@@ -2048,6 +2051,7 @@ describe("seedDemoProject writes a listable transcript row", () => {
 describe("getProjectDetailsPanel (Details panel, 2026-09-24)", () => {
   async function panelSetup() {
     const t = convexTest(schema, modules);
+    rateLimiterTest.register(t);
     const ids = await t.run(async (ctx) => {
       const ownerId = await ctx.db.insert("users", { authId: "dp-owner", role: "writer", firstName: "Owen", lastName: "Park" });
       const viewerId = await ctx.db.insert("users", { authId: "dp-viewer", role: "writer", firstName: "Vera" });

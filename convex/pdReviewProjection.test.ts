@@ -1,5 +1,6 @@
 /// <reference types="vite/client" />
 import { convexTest } from "convex-test";
+import rateLimiterTest from "@convex-dev/rate-limiter/test";
 import { describe, expect, it, vi } from "vitest";
 import { api, internal } from "./_generated/api";
 import schema from "./schema";
@@ -10,6 +11,7 @@ const authId = "pd-review-projection-user";
 
 async function setup() {
   const t = convexTest(schema, modules);
+  rateLimiterTest.register(t);
   const projectId = await t.run(async (ctx) => {
     const userId = await ctx.db.insert("users", { authId, role: "writer" });
     const now = Date.now();
@@ -93,6 +95,7 @@ describe("failStalePdReviews", () => {
 
   async function setupRunning(reviewAgeMinutes: number) {
     const t = convexTest(schema, modules);
+    rateLimiterTest.register(t);
     const ids = await t.run(async (ctx) => {
       const userId = await ctx.db.insert("users", { authId, role: "writer" });
       const now = Date.now();

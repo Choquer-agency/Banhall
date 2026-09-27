@@ -1,5 +1,6 @@
 /// <reference types="vite/client" />
 import { convexTest } from "convex-test";
+import rateLimiterTest from "@convex-dev/rate-limiter/test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api, internal } from "./_generated/api";
 import { refreshProjectGenerationActivity } from "./lib/dashboardProjection";
@@ -35,6 +36,7 @@ async function qaJobsFor(
 
 async function setupPartial() {
   const t = convexTest(schema, modules);
+  rateLimiterTest.register(t);
   const ids = await t.run(async (ctx) => {
     const userId = await ctx.db.insert("users", { authId, role: "writer" });
     const now = Date.now();
@@ -336,6 +338,7 @@ async function seedProject(t: ReturnType<typeof convexTest>) {
 describe("failStaleGenerations candidate-run terminalization", () => {
   it("whole-fail also fails in-flight candidate runs so they can't spin forever", async () => {
     const t = convexTest(schema, modules);
+    rateLimiterTest.register(t);
     const { projectId, transcriptId } = await seedProject(t);
     const ids = await t.run(async (ctx) => {
       const old = Date.now() - 60 * MINUTES;
@@ -388,6 +391,7 @@ describe("failStaleGenerations candidate-run terminalization", () => {
 
   it("settles runs orphaned under an already-terminal generation, not runs under live ones", async () => {
     const t = convexTest(schema, modules);
+    rateLimiterTest.register(t);
     const { projectId, transcriptId } = await seedProject(t);
     const ids = await t.run(async (ctx) => {
       const now = Date.now();
@@ -473,6 +477,7 @@ describe("failStaleGenerations candidate-run terminalization", () => {
 
   it("failGeneration terminalizes in-flight runs alongside the generation", async () => {
     const t = convexTest(schema, modules);
+    rateLimiterTest.register(t);
     const { projectId, transcriptId } = await seedProject(t);
     const ids = await t.run(async (ctx) => {
       const now = Date.now();
@@ -527,6 +532,7 @@ describe("failStaleGenerations candidate-run terminalization", () => {
 describe("failStalePostQa", () => {
   it("fails stale passes (including legacy rows with no timestamp) and leaves fresh/terminal ones", async () => {
     const t = convexTest(schema, modules);
+    rateLimiterTest.register(t);
     const { projectId, transcriptId } = await seedProject(t);
     const ids = await t.run(async (ctx) => {
       const now = Date.now();
@@ -584,6 +590,7 @@ describe("failStalePostQa", () => {
 
   it("unblocks requestReportQa after clearing a stale pass", async () => {
     const t = convexTest(schema, modules);
+    rateLimiterTest.register(t);
     const { projectId, transcriptId } = await seedProject(t);
     const staleStartedAt = Date.now() - 20 * MINUTES;
     const generationId = await t.run(async (ctx) => {
@@ -633,6 +640,7 @@ describe("failStalePostQa", () => {
 describe("getIterativeState user-safe error projection", () => {
   it("never ships raw provider text in errors or narration", async () => {
     const t = convexTest(schema, modules);
+    rateLimiterTest.register(t);
     const { projectId, transcriptId } = await seedProject(t);
     const generationId = await t.run(async (ctx) => {
       const now = Date.now();
@@ -702,6 +710,7 @@ describe("requestReportQa report gate (CAP-7)", () => {
   it("rejects a completed generation without a report and runs when one exists", async () => {
     vi.useFakeTimers();
     const t = convexTest(schema, modules);
+    rateLimiterTest.register(t);
     const { projectId, transcriptId } = await seedProject(t);
     const actor = t.withIdentity({ subject: authId });
     const ids = await t.run(async (ctx) => {
@@ -753,6 +762,7 @@ describe("requestReportQa report gate (CAP-7)", () => {
 describe("superseded is terminal (CAP-7)", () => {
   it("settles a late ghost run without a snapshot and refuses to be resurrected", async () => {
     const t = convexTest(schema, modules);
+    rateLimiterTest.register(t);
     const { projectId, transcriptId } = await seedProject(t);
     const ids = await t.run(async (ctx) => {
       const now = Date.now();

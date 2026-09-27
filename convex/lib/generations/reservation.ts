@@ -55,6 +55,7 @@ import { requireInternalActor } from "../auth";
 import { resolveGatedWorkflow } from "../gatedWorkflow";
 import { requireReportEditAccess } from "../roleCapabilities";
 import { requireProjectSetUp } from "../intakeDrafts";
+import { limitGenerationStart } from "../aiRateLimits";
 import { assertFrozenSourceBijection, resolveFrozenSourceId } from "../seedRevisions";
 import { startSummaryRecoveryRef } from "./seedStage";
 import { transitionGeneration } from "../generationTransitions";
@@ -492,6 +493,8 @@ export async function requestGenerationHandler(
   // Decision 65, stage 2: not while the project is still being set up from
   // its intake draft (its sources and speaker evidence are still arriving).
   await requireProjectSetUp(ctx, project._id);
+  // Audit wave 2: 12 an hour and 40 a firm day per user, 6 an hour per project.
+  await limitGenerationStart(ctx, user._id, project._id);
   const latestReport = await ctx.db
     .query("reports")
     .withIndex("by_projectId", (q) => q.eq("projectId", project._id))
@@ -541,6 +544,7 @@ export async function retryGenerationHandler(
     domainError("INVALID_INPUT", "Use Summary recovery for a signed-off seed generation");
   }
   const { project, user } = await requireReportEditAccess(ctx, failed.projectId);
+  await limitGenerationStart(ctx, user._id, project._id);
   return await reserveGeneration(
     ctx,
     project,
@@ -582,6 +586,7 @@ export async function retryFromSummaryHandler(
     domainError("INVALID_STATE", "Only failed signed-off seed drafting can be recovered");
   }
   const { project, user } = await requireReportEditAccess(ctx, failed.projectId);
+  await limitGenerationStart(ctx, user._id, project._id);
   const active = await findActiveGeneration(ctx, project, ACTIVE_GENERATION_STATUSES);
   if (active) await refuseActiveGeneration(ctx, active);
   const duplicate = await ctx.db.query("generations")
@@ -763,6 +768,7 @@ export async function retryFailedCandidatesHandler(
     domainError("INVALID_STATE", "Only a partial generation can retry failed drafts");
   }
   const { project, user } = await requireReportEditAccess(ctx, generation.projectId);
+  await limitGenerationStart(ctx, user._id, project._id);
   const runs = await ctx.db
     .query("generationCandidateRuns")
     .withIndex("by_generationId", (q) => q.eq("generationId", generation._id))

@@ -1,5 +1,6 @@
 /// <reference types="vite/client" />
 import { convexTest } from "convex-test";
+import rateLimiterTest from "@convex-dev/rate-limiter/test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api, internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
@@ -30,6 +31,7 @@ async function setup(
   transcripts: Array<{ content: string; label?: string }> = SOURCE_TRANSCRIPTS
 ) {
   const t = convexTest(schema, modules);
+  rateLimiterTest.register(t);
   const writerId = await t.run(async (ctx) =>
     ctx.db.insert("users", {
       authId: "review-from-writer",

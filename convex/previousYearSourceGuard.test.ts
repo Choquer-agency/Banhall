@@ -1,5 +1,6 @@
 /// <reference types="vite/client" />
 import { convexTest } from "convex-test";
+import rateLimiterTest from "@convex-dev/rate-limiter/test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api } from "./_generated/api";
 import schema from "./schema";
@@ -60,6 +61,7 @@ const PREVIOUS_YEAR_ONLY = {
 
 async function setup() {
   const t = convexTest(schema, modules);
+  rateLimiterTest.register(t);
   const userId = await t.run((ctx) => ctx.db.insert("users", { authId, role: "writer" }));
   return { t, userId, writer: t.withIdentity({ subject: authId }) };
 }

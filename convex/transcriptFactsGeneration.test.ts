@@ -7,6 +7,7 @@
  * extracted inside it, the fallback when extraction fails, and the flag off.
  */
 import { convexTest } from "convex-test";
+import rateLimiterTest from "@convex-dev/rate-limiter/test";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { api, internal } from "./_generated/api";
 import { runSeedDraftingInputs } from "./seedStartup.fixture";
@@ -163,6 +164,7 @@ function stubNetwork(network: Network) {
 
 async function setup(mode: "off" | "long" | "all") {
   const t = convexTest(schema, modules);
+  rateLimiterTest.register(t);
   const ids = await t.run(async (ctx) => {
     const writerId = await ctx.db.insert("users", { authId: "gf-writer", role: "writer", firstName: "Wren" });
     const projectId = await ctx.db.insert("projects", {

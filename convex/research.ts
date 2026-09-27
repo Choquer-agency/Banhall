@@ -15,6 +15,7 @@ import {
 } from "@convex-dev/workflow";
 import { requireInternalProjectAccess, getInternalProjectAccessOrNull } from "./lib/auth";
 import { domainError } from "./lib/contracts";
+import { limitUserAction } from "./lib/aiRateLimits";
 import { isProjectDeleting } from "./lib/projectDeletion";
 import { requireOpenRouterConfigured } from "./lib/providerConfig";
 import { scrubBannedWordsUnlessWaived } from "./lib/reportEdits";
@@ -119,6 +120,8 @@ export const startResearch = mutation({
     if (recent.some((session) => ACTIVE_STATUSES.has(session.status))) {
       domainError("INVALID_INPUT", "Research is already running for this report");
     }
+    // Audit wave 2: 20 research sessions an hour per user.
+    await limitUserAction(ctx, "researchPerUser", user._id);
 
     // Decision 26 (audit wave 2): the same placeholder map as generation
     // calls, with every transcript speaker, first and last name parts and

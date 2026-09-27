@@ -1,5 +1,6 @@
 /// <reference types="vite/client" />
 import { convexTest, type TestConvex } from "convex-test";
+import rateLimiterTest from "@convex-dev/rate-limiter/test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { internal, api } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
@@ -340,6 +341,7 @@ async function insertCompletedPostQaFixture(
 describe("generation provenance", () => {
   it("stamps the same current program hash for distinct runtime inputs before any provider handoff", async () => {
     const t = convexTest(schema, modules);
+    rateLimiterTest.register(t);
     const runtimeRows = await t.run(async (ctx) => {
       const now = Date.now();
       const userId = await ctx.db.insert("users", {
@@ -470,6 +472,7 @@ describe("generation provenance", () => {
 
   it("initializes a new reservation with an empty digest union and stamps its version during begin", async () => {
     const t = convexTest(schema, modules);
+    rateLimiterTest.register(t);
     const fixture = await insertProjectFixture(t);
     const generationId = await t
       .withIdentity({ subject: AUTH_ID })
@@ -514,6 +517,7 @@ describe("generation provenance", () => {
 
   it("keeps legacy reservations compatible and does not backfill provenance", async () => {
     const t = convexTest(schema, modules);
+    rateLimiterTest.register(t);
     const fixture = await insertProjectFixture(t);
     const legacyId = await t.run(async (ctx) => {
       const generationId = await ctx.db.insert("generations", {
@@ -551,6 +555,7 @@ describe("generation provenance", () => {
 
   it("unions only handed-off digest ids, deduplicates races, and permits post-terminal QA", async () => {
     const t = convexTest(schema, modules);
+    rateLimiterTest.register(t);
     const fixture = await insertProjectFixture(t);
     const [styleId, qaId, postQaId, blankFetchedId] = await Promise.all([
       insertDigest(t, {
@@ -641,6 +646,7 @@ describe("generation provenance", () => {
 
   it("creates retry generations with independent provenance", async () => {
     const t = convexTest(schema, modules);
+    rateLimiterTest.register(t);
     const fixture = await insertProjectFixture(t);
     const oldDigestId = await insertDigest(t, {
       kind: "draft_style",
@@ -737,6 +743,7 @@ describe("generation provenance", () => {
 describe("generation payload provenance", () => {
   it("omits blank digest ids at actual pipeline creates and pairs nonblank ids with only their payloads", async () => {
     const t = convexTest(schema, modules);
+    rateLimiterTest.register(t);
     const [blankStyleId, blankQaId, styleId, qaId] = await Promise.all([
       insertDigest(t, {
         kind: "draft_style",
@@ -838,6 +845,7 @@ describe("generation payload provenance", () => {
     vi.useFakeTimers();
     try {
       const t = convexTest(schema, modules);
+      rateLimiterTest.register(t);
       const fixture = await insertCompletedPostQaFixture(t, { promptVersion: PROMPT_VERSION, calibrationContent: "" });
       await t.run(ctx => ctx.db.patch(fixture.projectId, { ownerId: fixture.userId }));
       const input = await t.query(internal.generations.getPostQaInput, { generationId: fixture.generationId });
@@ -888,6 +896,7 @@ describe("generation payload provenance", () => {
     vi.useFakeTimers();
     try {
       const t = convexTest(schema, modules);
+      rateLimiterTest.register(t);
       const fixture = await insertCompletedPostQaFixture(t, { promptVersion: PROMPT_VERSION, calibrationContent: "" });
       await t.run(ctx => ctx.db.patch(fixture.projectId, { ownerId: fixture.userId }));
       const report = await t.run(ctx => ctx.db.query("reports").unique());
@@ -910,6 +919,7 @@ describe("generation payload provenance", () => {
 
   it("iterative QA captures all current sections instead of frozen approved runs", async () => {
     const t = convexTest(schema, modules);
+    rateLimiterTest.register(t);
     const fixture = await insertCompletedPostQaFixture(t, { promptVersion: PROMPT_VERSION, calibrationContent: "" });
     const content = JSON.stringify(buildTiptapDocument("Current report", "Current uncertainty", "Current investigation", "Current advancement"));
     const reportId = await t.run(async ctx => {
@@ -938,6 +948,7 @@ describe("generation payload provenance", () => {
 
   it("post-QA provider methodology failures persist and block current readiness and publishing", async () => {
     const t = convexTest(schema, modules);
+    rateLimiterTest.register(t);
     const fixture = await insertCompletedPostQaFixture(t, { promptVersion: PROMPT_VERSION, calibrationContent: "" });
     await t.run(ctx => ctx.db.patch(fixture.projectId, { ownerId: fixture.userId }));
     vi.stubGlobal("fetch", successfulOpenRouterFetch([], { why_how_why_intact: false }));
@@ -955,6 +966,7 @@ describe("generation payload provenance", () => {
   it("fetches but omits a selected blank post-QA digest through the real provider path", async () => {
     const currentVersion = await currentPromptVersion();
     const t = convexTest(schema, modules);
+    rateLimiterTest.register(t);
     const fixture = await insertCompletedPostQaFixture(t, {
       promptVersion: currentVersion,
       calibrationContent: " \n\t ",
@@ -994,6 +1006,7 @@ describe("generation payload provenance", () => {
     });
     expect(priorDeploymentVersion).not.toBe(currentVersion);
     const t = convexTest(schema, modules);
+    rateLimiterTest.register(t);
     const liveCalibration =
       "LIVE CALIBRATION SELECTED AFTER THIS GENERATION COMPLETED";
     const fixture = await insertCompletedPostQaFixture(t, {
@@ -1040,6 +1053,7 @@ describe("generation payload provenance", () => {
 
   it("keeps live calibration selection for legacy completed post-QA without backfilling provenance", async () => {
     const t = convexTest(schema, modules);
+    rateLimiterTest.register(t);
     const liveCalibration = "LIVE CALIBRATION FOR A LEGACY COMPLETED REPORT";
     const fixture = await insertCompletedPostQaFixture(t, {
       promptVersion: PROMPT_VERSION,
@@ -1076,6 +1090,7 @@ describe("generation payload provenance", () => {
 describe("generation-owned usage persistence", () => {
   it("persists generation and candidate attribution and reads it through by_generationId", async () => {
     const t = convexTest(schema, modules);
+    rateLimiterTest.register(t);
     const fixture = await insertProjectFixture(t);
     const ids = await t.run(async (ctx) => {
       const generationId = await ctx.db.insert("generations", {
@@ -1220,6 +1235,7 @@ describe("iterative style digest provenance", () => {
 
   it("freezes the nonblank style digest id beside its guidance and restores it for section input", async () => {
     const t = convexTest(schema, modules);
+    rateLimiterTest.register(t);
     const { generationId } = await insertIterativeGeneration(t);
     const styleId = await insertDigest(t, {
       kind: "draft_style",
@@ -1249,6 +1265,7 @@ describe("iterative style digest provenance", () => {
 
   it("restores no style digest id from a legacy or blank-style artifact", async () => {
     const t = convexTest(schema, modules);
+    rateLimiterTest.register(t);
     const { generationId } = await insertIterativeGeneration(t);
 
     await t.mutation(internal.generations.saveIterativeArtifacts, {
@@ -1294,6 +1311,7 @@ describe("generation entry handoffs through the real actions", () => {
 
   it("pairs scheduled candidate digest ids with their payloads and attributes usage to the candidate run", async () => {
     const t = convexTest(schema, modules);
+    rateLimiterTest.register(t);
     const fixture = await insertProjectFixture(t);
     const styleText = "CANDIDATE STYLE DIGEST TEXT";
     const qaText = "CANDIDATE QA CALIBRATION TEXT";
@@ -1477,6 +1495,7 @@ describe("generation entry handoffs through the real actions", () => {
 
   it("declares the frozen style digest at the iterative section handoff and attributes its usage", async () => {
     const t = convexTest(schema, modules);
+    rateLimiterTest.register(t);
     const fixture = await insertProjectFixture(t);
     const frozenStyle = "FROZEN ITERATIVE STYLE TEXT";
     const styleId = await insertDigest(t, {
@@ -1605,6 +1624,7 @@ describe("getGeneration attributable cost", () => {
 
   it("sums every recorded usage row, including failed and retried calls, and ignores other generations' rows", async () => {
     const t = convexTest(schema, modules);
+    rateLimiterTest.register(t);
     const fixture = await insertProjectFixture(t);
     const digestId = await insertDigest(t, {
       kind: "draft_style",
@@ -1670,6 +1690,7 @@ describe("getGeneration attributable cost", () => {
 
   it("still sums recorded rows for a tracked generation that failed", async () => {
     const t = convexTest(schema, modules);
+    rateLimiterTest.register(t);
     const fixture = await insertProjectFixture(t);
     const digestId = await insertDigest(t, {
       kind: "qa_calibration",
@@ -1706,6 +1727,7 @@ describe("getGeneration attributable cost", () => {
 
   it("reports zero, not null, for a tracked generation with no usage rows", async () => {
     const t = convexTest(schema, modules);
+    rateLimiterTest.register(t);
     const fixture = await insertProjectFixture(t);
     const generationId = await t.run((ctx) =>
       ctx.db.insert("generations", {
@@ -1730,6 +1752,7 @@ describe("getGeneration attributable cost", () => {
 
   it("returns null provenance for a legacy generation even when usage rows exist", async () => {
     const t = convexTest(schema, modules);
+    rateLimiterTest.register(t);
     const fixture = await insertProjectFixture(t);
     const legacyId = await t.run((ctx) =>
       ctx.db.insert("generations", {
@@ -1755,6 +1778,7 @@ describe("getGeneration attributable cost", () => {
 
   it("treats a new-format reservation as untracked until beginGeneration stamps the hash", async () => {
     const t = convexTest(schema, modules);
+    rateLimiterTest.register(t);
     const fixture = await insertProjectFixture(t);
     const generationId = await t
       .withIdentity({ subject: await adminAuthId(t) })
@@ -1793,6 +1817,7 @@ describe("getGeneration attributable cost", () => {
 
   it("reports the partial sum and partially grown digest union while a generation is in flight", async () => {
     const t = convexTest(schema, modules);
+    rateLimiterTest.register(t);
     const fixture = await insertProjectFixture(t);
     const [firstDigestId, secondDigestId] = await Promise.all([
       insertDigest(t, { kind: "qa_calibration", content: "CAL", ordinal: 910 }),
@@ -1839,6 +1864,7 @@ describe("getGeneration attributable cost", () => {
 
   it("serves an admin who did not create the project and still returns null for unauthorized callers", async () => {
     const t = convexTest(schema, modules);
+    rateLimiterTest.register(t);
     const fixture = await insertProjectFixture(t);
     const generationId = await t.run(async (ctx) => {
       await ctx.db.insert("users", {
@@ -1967,6 +1993,7 @@ async function insertTwoTranscriptFixture(
 describe("provenance sets on generated report artifacts (AC1)", () => {
   it("stamps the frozen set on the report and its generated snapshot", async () => {
     const t = convexTest(schema, modules);
+    rateLimiterTest.register(t);
     const { now, projectId, generationId, transcriptIds } =
       await insertTwoTranscriptFixture(t, {
         candidateMode: "single",
@@ -2018,6 +2045,7 @@ describe("provenance sets on generated report artifacts (AC1)", () => {
 
   it("stamps the frozen set on a ghost draft that lands after its generation completed", async () => {
     const t = convexTest(schema, modules);
+    rateLimiterTest.register(t);
     const { now, projectId, generationId, transcriptIds } =
       await insertTwoTranscriptFixture(t, {
         candidateMode: "iterative",
@@ -2065,6 +2093,7 @@ describe("provenance sets on generated report artifacts (AC1)", () => {
 
   it("stamps the frozen set on the iterative report and its ghost comparison snapshot", async () => {
     const t = convexTest(schema, modules);
+    rateLimiterTest.register(t);
     const { now, projectId, generationId, transcriptIds } =
       await insertTwoTranscriptFixture(t, {
         candidateMode: "iterative",
@@ -2337,6 +2366,7 @@ describe("the analyzer context budget is recorded by the entry actions", () => {
     "the %s entry action applies the admin-tuned budget and tells the writer what it cut",
     async (_label, action, candidateMode) => {
       const t = convexTest(schema, modules);
+      rateLimiterTest.register(t);
       const { generationId } = await reservedGenerationWithSources(
         t,
         candidateMode,
@@ -2397,6 +2427,7 @@ describe("the analyzer context budget is recorded by the entry actions", () => {
 
   it("a candidate sends the budget it was scheduled with, not a later retune", async () => {
     const t = convexTest(schema, modules);
+    rateLimiterTest.register(t);
     const { generationId } = await reservedGenerationWithSources(t, "single");
     const candidateRunId = await t.run(async (ctx) => {
       const generation = (await ctx.db.get(generationId))!;
@@ -2431,6 +2462,7 @@ describe("the analyzer context budget is recorded by the entry actions", () => {
     // The transition window: a candidate queued before `contextBudget` was in
     // the scheduler payload must still honour the settings, not the defaults.
     const t = convexTest(schema, modules);
+    rateLimiterTest.register(t);
     const { generationId } = await reservedGenerationWithSources(t, "single");
     const candidateRunId = await t.run(async (ctx) => {
       const generation = (await ctx.db.get(generationId))!;
@@ -2470,6 +2502,7 @@ describe("the analyzer context budget is recorded by the entry actions", () => {
     "the %s entry action analyzes and records the digest rows in digest mode, not the full text",
     async (_label, action, candidateMode) => {
       const t = convexTest(schema, modules);
+      rateLimiterTest.register(t);
       const { generationId } = await reservedGenerationWithSources(
         t,
         candidateMode,
@@ -2523,6 +2556,7 @@ describe("the analyzer context budget is recorded by the entry actions", () => {
     "the %s entry action patches contextBudget onto every frozen source",
     async (_label, action, candidateMode) => {
       const t = convexTest(schema, modules);
+      rateLimiterTest.register(t);
       const { generationId } = await reservedGenerationWithSources(
         t,
         candidateMode,

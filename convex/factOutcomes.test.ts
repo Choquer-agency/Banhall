@@ -13,6 +13,7 @@
  *   is reported as aborted, not timed out.
  */
 import { convexTest } from "convex-test";
+import rateLimiterTest from "@convex-dev/rate-limiter/test";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { api } from "./_generated/api";
 import schema from "./schema";
@@ -61,6 +62,7 @@ afterEach(() => {
 
 async function setup(content: string) {
   const t = convexTest(schema, modules);
+  rateLimiterTest.register(t);
   const { projectId } = await t.run(async (ctx) => {
     const writerId = await ctx.db.insert("users", { authId: "fo-writer", role: "writer" });
     const projectId = await ctx.db.insert("projects", {

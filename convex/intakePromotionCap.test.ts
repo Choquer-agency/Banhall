@@ -8,6 +8,7 @@
  * One file is made to fail every time it is installed here.
  */
 import { convexTest } from "convex-test";
+import rateLimiterTest from "@convex-dev/rate-limiter/test";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import schema from "./schema";
 import { api } from "./_generated/api";
@@ -39,6 +40,7 @@ afterEach(() => {
 
 test("a step that always fails ends the promotion: the project is released, the missing files are recorded, the draft is purged", async () => {
   const t = convexTest(schema, modules);
+  rateLimiterTest.register(t);
   await t.run(async (ctx) => ctx.db.insert("users", { authId: "cap-writer", role: "writer", name: "Wren Writer" }));
   const writer = t.withIdentity({ subject: "cap-writer" });
   const draftId = await writer.mutation(intakeDraftRefs.createIntakeDraft, {});

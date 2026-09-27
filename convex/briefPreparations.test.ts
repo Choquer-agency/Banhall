@@ -6,6 +6,7 @@
  * compared with a run's own Brief request at the SDK's HTTP boundary.
  */
 import { convexTest } from "convex-test";
+import rateLimiterTest from "@convex-dev/rate-limiter/test";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import schema from "./schema";
 import { api, internal } from "./_generated/api";
@@ -117,6 +118,7 @@ async function setup(
   options: { projectType?: "writing" | "review"; role?: "writer" | "admin"; transcript?: string } = {}
 ) {
   const t = convexTest(schema, modules);
+  rateLimiterTest.register(t);
   const ids = await t.run(async (ctx) => {
     const now = Date.now();
     const userId = await ctx.db.insert("users", { authId: "prep-writer", role: options.role ?? "writer", name: "Wren Writer" });

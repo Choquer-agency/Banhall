@@ -40,6 +40,7 @@ import { NOT_DRAFTED_AFTER_STOP } from "./candidates";
 import { isProjectDeleting } from "../projectDeletion";
 import { domainError, sha256 } from "../contracts";
 import { requireReportEditAccess } from "../roleCapabilities";
+import { limitGenerationStart } from "../aiRateLimits";
 import { findActiveGeneration } from "../activeGeneration";
 import { ACTIVE_GENERATION_STATUSES } from "../../../shared/generationTransitions";
 import { frozenOrderedPayload, assertFrozenSummaryRuntimeAdmission } from "./seedStage";
@@ -541,6 +542,8 @@ export async function redraftMissingSectionsHandler(
   if (missing.length === 0 && carried.length === 0) {
     return { status: "nothing_to_draft", sections: [] };
   }
+  // Audit wave 2: "Draft the rest" counts as a generation start.
+  await limitGenerationStart(ctx, user._id, project._id);
   const summaryVersionId = generation.summaryVersionId as Id<"summaryVersions">;
   const payload = await frozenOrderedPayload(ctx, generation, summaryVersionId);
   const carriedKeys = new Set<string>(carried.map((row) => row.section));

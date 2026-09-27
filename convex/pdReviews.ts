@@ -13,6 +13,7 @@ import {
   requireInternalProjectAccess,
 } from "./lib/auth";
 import { domainError, sha256 } from "./lib/contracts";
+import { limitUserAction } from "./lib/aiRateLimits";
 import { isProjectDeleting } from "./lib/projectDeletion";
 import { requireAnthropicConfigured } from "./lib/providerConfig";
 import {
@@ -70,6 +71,8 @@ export const startPdReview = mutation({
     if (latest && latest.status === "running") {
       domainError("INVALID_INPUT", "A review is already running for this project");
     }
+    // Audit wave 2: 20 reviews an hour per user.
+    await limitUserAction(ctx, "pdReviewPerUser", user._id);
 
     const now = Date.now();
     const reviewId = await ctx.db.insert("pdReviews", {
@@ -127,6 +130,7 @@ export const retryPdReview = mutation({
     if (!doc || doc.archived || !doc.content.trim()) {
       domainError("INVALID_INPUT", "The reviewed PD document is no longer available");
     }
+    await limitUserAction(ctx, "pdReviewPerUser", user._id);
 
     const now = Date.now();
     const reviewId = await ctx.db.insert("pdReviews", {

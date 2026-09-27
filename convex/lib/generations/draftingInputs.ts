@@ -20,6 +20,7 @@ import { resolveGatedWorkflow } from "../gatedWorkflow";
 import { isProjectDeleting } from "../projectDeletion";
 import { domainError } from "../contracts";
 import { requireReportEditAccess } from "../roleCapabilities";
+import { limitGenerationStart } from "../aiRateLimits";
 import {
   draftingInputsStateOf,
   transitionDraftingInputs,
@@ -379,7 +380,9 @@ export async function retryDraftingInputsHandler(
 ): Promise<null> {
   const existing = await ctx.db.get(args.generationId);
   if (!existing) domainError("NOT_FOUND", "Generation not found");
-  await requireReportEditAccess(ctx, existing.projectId);
+  const { user } = await requireReportEditAccess(ctx, existing.projectId);
+  // Audit wave 2: a retry counts as a generation start.
+  await limitGenerationStart(ctx, user._id, existing.projectId);
   const generation = await openSeedStage(ctx, args.generationId);
   if (!generation) {
     domainError("INVALID_STATE", "The seed stage is closed", {

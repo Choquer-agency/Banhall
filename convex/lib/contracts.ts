@@ -38,6 +38,9 @@ export const domainErrorCodes = [
   "INTAKE_DRAFT_GONE",
   "INTAKE_DRAFT_LIMIT",
   "INTAKE_TEXT_LIMIT",
+  // Audit wave 2: a per-user or per-project limit on a paid AI action;
+  // carries `retryAfter` in seconds.
+  "RATE_LIMITED",
 ] as const;
 
 export type DomainErrorCode = (typeof domainErrorCodes)[number];
@@ -45,7 +48,7 @@ export type DomainErrorCode = (typeof domainErrorCodes)[number];
 export function domainError(
   code: DomainErrorCode,
   message: string,
-  details?: Record<string, string>
+  details?: Record<string, string | number>
 ): never {
   throw new ConvexError({ ...details, code, message });
 }

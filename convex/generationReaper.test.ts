@@ -6,6 +6,7 @@
  * fixed cap (the old take(500)) limits how far the sweep goes.
  */
 import { convexTest } from "convex-test";
+import rateLimiterTest from "@convex-dev/rate-limiter/test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api, internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
@@ -136,6 +137,7 @@ function expectIneligibleUntouched(state: Awaited<ReturnType<typeof snapshot>>, 
 describe("freeOrphanedGeneratingProjects", () => {
   it("frees every orphaned project across pages, one bounded page per transaction", async () => {
     const t = convexTest(schema, modules);
+    rateLimiterTest.register(t);
     const s = await seed(t);
 
     const first = await t.mutation(internal.generations.freeOrphanedGeneratingProjects, {
@@ -167,6 +169,7 @@ describe("freeOrphanedGeneratingProjects", () => {
   it("finishes in one transaction when the default page holds every project", async () => {
     expect(STALE_PROJECT_SWEEP_PAGE_SIZE).toBe(100);
     const t = convexTest(schema, modules);
+    rateLimiterTest.register(t);
     const s = await seed(t);
 
     const result = await t.mutation(internal.generations.freeOrphanedGeneratingProjects, {
@@ -182,6 +185,7 @@ describe("freeOrphanedGeneratingProjects", () => {
 
   it("is scheduled by failStaleGenerations instead of scanning inline", async () => {
     const t = convexTest(schema, modules);
+    rateLimiterTest.register(t);
     const s = await seed(t);
 
     const result = await t.mutation(internal.generations.failStaleGenerations, {
@@ -244,6 +248,7 @@ describe("the reaper never restores generating", () => {
 
   it("fails a stale run whose stored status is generating and returns the project to draft", async () => {
     const t = convexTest(schema, modules);
+    rateLimiterTest.register(t);
     const { projectId, generationId } = await stuckProject(t, "generating");
     await t.mutation(internal.generations.failStaleGenerations, { olderThanMinutes: 30 });
     const state = await t.run(async (ctx) => ({
@@ -257,6 +262,7 @@ describe("the reaper never restores generating", () => {
 
   it("frees an orphaned project whose last generation stored generating to draft", async () => {
     const t = convexTest(schema, modules);
+    rateLimiterTest.register(t);
     const { projectId, generationId } = await stuckProject(t, "generating");
     await t.run(async (ctx) => {
       await ctx.db.patch(generationId, { status: "failed", completedAt: Date.now() - 60 * MINUTES });
@@ -271,6 +277,7 @@ describe("the reaper never restores generating", () => {
   it("stores draft, not generating, when a draft is requested while the project still reads generating", async () => {
     vi.stubEnv("ANTHROPIC_API_KEY", "test-anthropic-key");
     const t = convexTest(schema, modules);
+    rateLimiterTest.register(t);
     const { userId, projectId, generationId } = await stuckProject(t, "draft");
     await t.run(async (ctx) => {
       await ctx.db.patch(generationId, { status: "failed", completedAt: Date.now() });

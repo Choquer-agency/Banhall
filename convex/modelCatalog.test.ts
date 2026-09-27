@@ -1,5 +1,6 @@
 /// <reference types="vite/client" />
 import { convexTest } from "convex-test";
+import rateLimiterTest from "@convex-dev/rate-limiter/test";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { api } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
@@ -69,6 +70,7 @@ afterEach(() => {
 
 async function setup() {
   const t = convexTest(schema, modules);
+  rateLimiterTest.register(t);
   const ids = await t.run(async (ctx) => {
     const adminId = await ctx.db.insert("users", { authId: ADMIN, role: "admin" });
     const writerId = await ctx.db.insert("users", { authId: WRITER, role: "writer" });
@@ -955,6 +957,7 @@ describe("round 3", () => {
 
   it("2: split roles start from a customised predecessor and then move independently", async () => {
     const t = convexTest(schema, modules);
+    rateLimiterTest.register(t);
     await t.run(async (ctx) => {
       const adminId = await ctx.db.insert("users", { authId: ADMIN, role: "admin" });
       // Before the split an admin customised both old roles.
@@ -1008,6 +1011,7 @@ describe("round 3", () => {
 
   it("2: a switch before any refresh materializes the split first", async () => {
     const t = convexTest(schema, modules);
+    rateLimiterTest.register(t);
     await t.run(async (ctx) => {
       await ctx.db.insert("users", { authId: ADMIN, role: "admin" });
       await ctx.db.insert("modelRoleAssignments", {
@@ -1115,6 +1119,7 @@ describe("round 4", () => {
   /** A deployment from before the split: only the old roles have assignments. */
   async function beforeSplit(analysis: { modelId: string; previousModelId: string; rolledBack: boolean }) {
     const t = convexTest(schema, modules);
+    rateLimiterTest.register(t);
     await t.run(async (ctx) => {
       await ctx.db.insert("users", { authId: ADMIN, role: "admin" });
       const promotedAt = analysis.rolledBack ? SWITCHED_AT - 3_600_000 : SWITCHED_AT;
@@ -1391,6 +1396,7 @@ describe("round 4", () => {
       // Analysis rolled B back to A, then was switched by hand 49 more
       // times: that rollback is its 50th newest event at the split.
       const t = convexTest(schema, modules);
+      rateLimiterTest.register(t);
       const start = SWITCHED_AT - 60 * 60_000;
       const lastAt = start + 49 * 60_000;
       await t.run(async (ctx) => {

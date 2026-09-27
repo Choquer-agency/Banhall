@@ -17,6 +17,7 @@ import {
   requireReportEditAccess,
 } from "./lib/roleCapabilities";
 import { domainError } from "./lib/contracts";
+import { limitUserAction } from "./lib/aiRateLimits";
 import { resolveGatedWorkflow } from "./lib/gatedWorkflow";
 import { draftingInputsView } from "./lib/generations/draftingInputs";
 import { createReadBudget, DOCUMENT_HEADROOM } from "./lib/readBudget";
@@ -463,6 +464,9 @@ export const giveFeedback = mutation({
     });
     if (result.kind === "not_dispatched")
       domainError("INVALID_STATE", "Feedback attempt was not dispatched");
+    // Audit wave 2: a new model call; a refusal rolls the request back.
+    if (result.kind === "dispatched")
+      await limitUserAction(ctx, "seedPerUser", f.user._id);
     await bumpSeedStageVersion(ctx, args.generationId);
     await appendSeedRoleEvent(ctx, row, "feedbackRequested", f.user._id, {
       feedbackRequestId,
@@ -559,6 +563,10 @@ async function dispatchHandler(
     budget: f.budget,
   });
   if (result.kind === "dispatched") {
+    // Audit wave 2: only a new model call counts (a reused or earlier Batch
+    // does not); a refusal rolls the dispatch back. The server's first
+    // Batch goes through seedRuns.startFirstSeedBatch and is never counted.
+    await limitUserAction(ctx, "seedPerUser", f.user._id);
     await bumpSeedStageVersion(ctx, args.generationId);
     if (operation !== "open")
       await appendSeedRoleEvent(ctx, f.row, operation, f.user._id, {

@@ -34,6 +34,7 @@ import { userSafeStoredError, userSafeNarration } from "./projection";
 import { SEED_INITIALIZATION_ERROR } from "./seedStage";
 import { domainError, sha256 } from "../contracts";
 import { requireReportEditAccess } from "../roleCapabilities";
+import { limitGenerationStart } from "../aiRateLimits";
 import { deidentify } from "../deidentify";
 import { internal } from "../../_generated/api";
 import { buildTiptapDocument } from "../tiptapReport";
@@ -759,10 +760,12 @@ export async function regenerateSectionDraftHandler(
   ctx: MutationCtx,
   args: ObjectType<typeof regenerateSectionDraftArgs>
 ) {
-  const { generation } = await requireIterativeGeneration(
+  const { generation, project, user } = await requireIterativeGeneration(
     ctx,
     args.generationId
   );
+  // Audit wave 2: a section redraft counts as a generation start.
+  await limitGenerationStart(ctx, user._id, project._id);
 
   if (resolveGatedWorkflow(generation) !== "sections") {
     domainError("INVALID_STATE", "Section operations are unavailable during seed preparation");

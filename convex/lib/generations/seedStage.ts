@@ -43,6 +43,7 @@ import { MODEL, seedModelById } from "../../../shared/generationModels";
 import { generationModelFreeze, entryFromFrozen } from "../modelRoles";
 import { persistOrderedPayload } from "../orderedPayloadStore";
 import { requireReportEditAccess } from "../roleCapabilities";
+import { limitGenerationStart } from "../aiRateLimits";
 import { resolveGatedWorkflow } from "../gatedWorkflow";
 import { readSeedReadiness } from "../seedReadiness";
 import { matchesSeedExclusion } from "../seedApproval";
@@ -700,7 +701,9 @@ export async function retryInitializeSeedStageHandler(
 ) {
   const existing = await ctx.db.get(args.generationId);
   if (!existing) domainError("NOT_FOUND", "Generation not found");
-  await requireReportEditAccess(ctx, existing.projectId);
+  const { user } = await requireReportEditAccess(ctx, existing.projectId);
+  // Audit wave 2: a retry counts as a generation start.
+  await limitGenerationStart(ctx, user._id, existing.projectId);
   const generation = await requireSeedInitialization(ctx, args.generationId);
   if (generation.status !== "running" || !generation.seedStageError) {
     domainError("INVALID_STATE", "Seed initialization is not waiting for a retry");

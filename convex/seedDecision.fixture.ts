@@ -1,5 +1,6 @@
 /// <reference types="vite/client" />
 import { convexTest } from "convex-test";
+import rateLimiterTest from "@convex-dev/rate-limiter/test";
 import {
   makeFunctionReference,
   type FunctionArgs,
@@ -32,6 +33,7 @@ export function decisionMutation<Export>(name: string) {
 }
 export async function decisionFixture() {
   const t = convexTest(schema, modules);
+  rateLimiterTest.register(t);
   const ids = await t.run(async (ctx) => {
     const userId = await ctx.db.insert("users", {
       authId: "seed-run-writer",

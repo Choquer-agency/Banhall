@@ -6,6 +6,7 @@
  * and leaves today's path to the draft. Only `fetch` is stubbed.
  */
 import { convexTest } from "convex-test";
+import rateLimiterTest from "@convex-dev/rate-limiter/test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { getConvexSize } from "convex/values";
 import { api, internal } from "./_generated/api";
@@ -40,6 +41,7 @@ afterEach(() => {
 
 async function reserved(options: { beforeReserve?: (t: T, transcriptId: Id<"transcripts">) => Promise<void> } = {}) {
   const t = convexTest(schema, modules);
+  rateLimiterTest.register(t);
   const { projectId } = await t.run(async (ctx) => {
     const writerId = await ctx.db.insert("users", { authId: "fb-writer", role: "writer" });
     const projectId = await ctx.db.insert("projects", {
@@ -181,6 +183,7 @@ describe("a pack row near the 1 MiB document limit (review 2026-09-25, P3-2)", (
    */
   async function bigPack(label: string, shape: { quotesPerFact: number; claim: (fact: number) => string }) {
     const t = convexTest(schema, modules);
+    rateLimiterTest.register(t);
     const quotes = Array.from({ length: 6_000 }, (_, i) =>
       Array.from({ length: 12 }, (_, k) => String.fromCharCode(0x4e00 + ((i * 12 + k) % 20_000))).join("")
     );

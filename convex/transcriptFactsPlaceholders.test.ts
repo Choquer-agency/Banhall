@@ -7,6 +7,7 @@
  * answer restored with the same map, so a claim names the right person.
  */
 import { convexTest } from "convex-test";
+import rateLimiterTest from "@convex-dev/rate-limiter/test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api, internal } from "./_generated/api";
 import schema from "./schema";
@@ -71,6 +72,7 @@ function openRouterAnswer(requestBody: string) {
 describe("fact extraction inside a generation uses one placeholder map", () => {
   it("restores each claim to the person who said it, across two transcripts", async () => {
     const t = convexTest(schema, modules);
+    rateLimiterTest.register(t);
     const { projectId } = await t.run(async (ctx) => {
       const writerId = await ctx.db.insert("users", { authId: "pf-writer", role: "writer" });
       const projectId = await ctx.db.insert("projects", {

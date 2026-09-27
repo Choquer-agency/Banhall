@@ -1,6 +1,7 @@
 /// <reference types="vite/client" />
 import agentTest from "@convex-dev/agent/test";
 import { convexTest } from "convex-test";
+import rateLimiterTest from "@convex-dev/rate-limiter/test";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { api } from "./_generated/api";
 import schema from "./schema";
@@ -38,6 +39,7 @@ beforeEach(() => {
 
 async function setup() {
   const t = convexTest(schema, modules);
+  rateLimiterTest.register(t);
   agentTest.register(t);
   const ids = await t.run(async (ctx) => {
     const now = Date.now();

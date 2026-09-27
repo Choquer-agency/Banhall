@@ -2,6 +2,7 @@
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { convexTest } from "convex-test";
+import rateLimiterTest from "@convex-dev/rate-limiter/test";
 import {
   makeFunctionReference,
   type FunctionArgs,
@@ -13,6 +14,8 @@ import { api, internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { PD_SUBSECTIONS, type PdSubsectionRoleId } from "../shared/pdSubsections";
 import { decisionFixture, decisionMutation } from "./seedDecision.fixture";
+import type { MutationCtx } from "./_generated/server";
+import { AI_RATE_LIMITS, aiRateLimiter } from "./lib/aiRateLimits";
 import { restorePlaceholders } from "./lib/deidentify";
 import {
   emptyContextRevision,
@@ -473,6 +476,7 @@ async function productionInitializedFixture(
 ): Promise<ReadyFixture> {
   vi.stubEnv("ANTHROPIC_API_KEY", "test-key");
   const t = convexTest(schema, modules);
+  rateLimiterTest.register(t);
   const ids = await t.run(async (ctx) => {
     const userId = await ctx.db.insert("users", {
       authId: "production-seed-writer",
@@ -7297,6 +7301,42 @@ describe("Step-by-step writing: background QA, Stop and redraft (CAP-17, CAP-18)
     const generation = await s.t.run((ctx) => ctx.db.get(s.generationId));
     expect(generation).toMatchObject({ status: "completed", postQaStatus: "running" });
     expect(generation?.stopRequestedAt).toBeUndefined();
+  });
+
+  it("refuses Draft the rest past the generation limits (audit wave 2), and a joined redraft spends nothing", async () => {
+    const { s } = await stopAfterFirstSection("Limited");
+    const spendAll = (name: "generationPerUser" | "generationPerProject", key: string) =>
+      s.t.run(async (ctx) => {
+        const limitCtx = ctx as unknown as MutationCtx;
+        await aiRateLimiter.reset(limitCtx, name, { key });
+        await aiRateLimiter.limit(limitCtx, name, { key, count: AI_RATE_LIMITS[name].rate });
+      });
+    await spendAll("generationPerUser", s.userId);
+    await expect(s.writer.mutation(api.generations.redraftMissingSections, {
+      generationId: s.generationId,
+    })).rejects.toMatchObject({ data: { code: "RATE_LIMITED", retryAfter: expect.any(Number) } });
+    await s.t.run(async (ctx) => {
+      await aiRateLimiter.reset(ctx as unknown as MutationCtx, "generationPerUser", { key: s.userId });
+    });
+    await spendAll("generationPerProject", s.projectId);
+    await expect(s.writer.mutation(api.generations.redraftMissingSections, {
+      generationId: s.generationId,
+    })).rejects.toMatchObject({ data: { code: "RATE_LIMITED" } });
+    await s.t.run(async (ctx) => {
+      await aiRateLimiter.reset(ctx as unknown as MutationCtx, "generationPerProject", { key: s.projectId });
+    });
+    configureSuccessfulSummaryFinalization("Limited redraft");
+    expect(await s.writer.mutation(api.generations.redraftMissingSections, {
+      generationId: s.generationId,
+    })).toMatchObject({ status: "started" });
+    const left = async () => await s.t.run(async (ctx) =>
+      (await aiRateLimiter.getValue(ctx as unknown as MutationCtx, "generationPerUser", { key: s.userId })).value);
+    const afterStart = await left();
+    expect(afterStart).toBeLessThan(AI_RATE_LIMITS.generationPerUser.rate);
+    expect(await s.writer.mutation(api.generations.redraftMissingSections, {
+      generationId: s.generationId,
+    })).toMatchObject({ status: "running" });
+    expect(await left()).toBe(afterStart);
   });
 
   it("redrafts only the Not drafted Sections into the same report and keeps the writer's edits", async () => {

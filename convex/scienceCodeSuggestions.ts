@@ -10,6 +10,7 @@ import {
 } from "../shared/craScienceCodes";
 import { firstResponseText } from "./ai/openrouterCore";
 import { pseudonymize, restorePlaceholders } from "./lib/deidentify";
+import { limitUserAction } from "./lib/aiRateLimits";
 
 const MAX_CONTEXT_CHARS = 80_000;
 
@@ -24,6 +25,8 @@ export const suggest = action({
       { projectId: args.projectId }
     );
     if (!context) throw new Error("Project not found or access denied");
+    // Audit wave 2: 30 suggestions an hour per user, spent before the call.
+    await limitUserAction(ctx, "scienceCodePerUser", context.userId);
 
     const codeCatalog = CRA_SCIENCE_CODES.map(
       ({ code, label, group }) => `${code} | ${group} | ${label}`

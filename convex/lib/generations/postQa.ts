@@ -24,6 +24,7 @@ import { appendGenerationProgress } from "../generationProgress";
 import { domainError } from "../contracts";
 import { getInternalProjectAccessOrNull } from "../auth";
 import { requireReportEditAccess } from "../roleCapabilities";
+import { limitUserAction } from "../aiRateLimits";
 import { internal } from "../../_generated/api";
 import { readAgentOutputs, writeAgentOutputs } from "../generationOutputs";
 import { latestQaResult, qaResultIsCurrent, recordQaResult } from "../qaResults";
@@ -319,7 +320,7 @@ export async function requestReportQaHandler(
 ) {
   const generation = await ctx.db.get(args.generationId);
   if (!generation) domainError("NOT_FOUND", "Generation not found");
-  await requireReportEditAccess(ctx, generation.projectId);
+  const { user } = await requireReportEditAccess(ctx, generation.projectId);
   // CAP-7: QA scores a report. A generation without one — a superseded
   // partial, a failed run, or a legacy row whose report was deleted — has
   // nothing to review, so refuse before any write or schedule.
@@ -338,6 +339,8 @@ export async function requestReportQaHandler(
   // Idempotent: a pass already in flight keeps running across panel
   // close/reopen — never double-spend the API call.
   if (generation.postQaStatus === "running") return null;
+  // Audit wave 2: 20 QA runs an hour per user.
+  await limitUserAction(ctx, "qaPerUser", user._id);
   const attemptStartedAt = Math.max(Date.now(), (generation.postQaStartedAt ?? 0) + 1);
   await transitionPostQa(ctx, generation, "running", {
     postQaStartedAt: attemptStartedAt,

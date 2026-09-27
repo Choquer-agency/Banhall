@@ -12,7 +12,7 @@
 import { action } from "../_generated/server";
 import { internal } from "../_generated/api";
 import { v } from "convex/values";
-import { sha256 } from "../lib/contracts";
+import { domainError, sha256 } from "../lib/contracts";
 import { z } from "zod";
 import { clientForRole } from "./providers";
 import { generateStructured } from "./structured";
@@ -143,6 +143,15 @@ export const analyzeMyInstructions = action({
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) throw new Error("Authentication required");
     const text = args.text.trim();
+    // Audit wave 2: the Settings limit holds here too, and the caller needs
+    // an active internal role and one of 10 checks an hour.
+    if (text.length > MAX_INSTRUCTIONS_CHARS) {
+      domainError(
+        "INVALID_INPUT",
+        `Writing preferences are limited to ${MAX_INSTRUCTIONS_CHARS.toLocaleString("en-US")} characters.`
+      );
+    }
+    await ctx.runMutation(internal.writerProfiles.admitStyleAnalysis, { callsModel: text.length > 0 });
     let result: StyleAnalysis;
     if (!text) {
       result = {

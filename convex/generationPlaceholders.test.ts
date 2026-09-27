@@ -1,5 +1,6 @@
 /// <reference types="vite/client" />
 import { convexTest } from "convex-test";
+import rateLimiterTest from "@convex-dev/rate-limiter/test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api, internal } from "./_generated/api";
 import schema from "./schema";
@@ -30,6 +31,7 @@ afterEach(() => {
 
 async function setup(placeholders?: "on" | "off") {
   const t = convexTest(schema, modules);
+  rateLimiterTest.register(t);
   const ids = await t.run(async (ctx) => {
     const writerId = await ctx.db.insert("users", { authId: "gp-writer", role: "writer", firstName: "Wren", lastName: "Writer" });
     const projectId = await ctx.db.insert("projects", {
@@ -359,6 +361,7 @@ describe("placeholders frozen before the speaker build runs", () => {
 
   async function setupFresh(tag: string, content = TRANSCRIPT) {
     const t = convexTest(schema, modules);
+    rateLimiterTest.register(t);
     const projectId = await t.run(async (ctx) => {
       const writerId = await ctx.db.insert("users", { authId: `race-${tag}`, role: "writer", firstName: "Wren", lastName: "Writer" });
       return await ctx.db.insert("projects", {

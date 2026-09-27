@@ -6,6 +6,7 @@
  * catch in deriveOrAdoptSeedBrief fails this test.
  */
 import { convexTest } from "convex-test";
+import rateLimiterTest from "@convex-dev/rate-limiter/test";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import schema from "./schema";
 import type { Doc, Id } from "./_generated/dataModel";
@@ -60,6 +61,7 @@ afterEach(() => {
 
 test("an adoption that throws falls through to the run's own Brief", async () => {
   const t = convexTest(schema, modules);
+  rateLimiterTest.register(t);
   const ids = await t.run(async (ctx) => {
     const now = Date.now();
     const userId = await ctx.db.insert("users", { authId: "fail-open-writer", role: "writer" });

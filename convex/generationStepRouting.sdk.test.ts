@@ -12,6 +12,7 @@
  * they sent then, and only compression now turns thinking off.
  */
 import { convexTest } from "convex-test";
+import rateLimiterTest from "@convex-dev/rate-limiter/test";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { FunctionArgs } from "convex/server";
 import { makeFunctionReference } from "convex/server";
@@ -401,6 +402,7 @@ async function fixture(options: {
   roles?: Partial<Record<"planning" | "checking", string>>;
 }) {
   const t = convexTest(schema, modules);
+  rateLimiterTest.register(t);
   const ids = await t.run(async (ctx) => {
     const userId = await ctx.db.insert("users", { authId: "routing-writer", role: "admin" });
     for (const [role, modelId] of Object.entries(options.roles ?? {}) as Array<["planning" | "checking", string]>) {

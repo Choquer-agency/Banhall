@@ -909,6 +909,8 @@ export const getScienceCodeSuggestionContext = internalQuery({
         ]
       : [];
     return {
+      // The caller, for the per-user suggestion limit (audit wave 2).
+      userId: access.user._id,
       title: access.project.title,
       sredTitle: access.project.sredTitle,
       industry: access.project.industry,
