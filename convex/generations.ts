@@ -376,7 +376,7 @@ export const unionLearningDigestIds = internalMutation({
  */
 export const getGenerationPlaceholders = internalQuery({
   args: getGenerationPlaceholdersArgs,
-  returns: v.array(v.object({ token: v.string(), value: v.string(), bare: v.optional(v.boolean()) })),
+  returns: v.array(v.object({ token: v.string(), value: v.string(), bare: v.optional(v.boolean()), at: v.optional(v.literal("label")) })),
   handler: getGenerationPlaceholdersHandler,
 });
 

@@ -992,8 +992,10 @@ export default defineSchema({
     // 2026-09-25 widen: `bare` marks an entry whose id also restores when a
     // model writes it without brackets. Maps frozen before then lack it and
     // restore bracketed tokens only (Summary recovery copies them as is).
+    // 2026-09-26 widen: `at: "label"` marks a parser v8 weak label hidden
+    // only where it stands as a label.
     placeholders: v.optional(
-      v.array(v.object({ token: v.string(), value: v.string(), bare: v.optional(v.boolean()) }))
+      v.array(v.object({ token: v.string(), value: v.string(), bare: v.optional(v.boolean()), at: v.optional(v.literal("label")) }))
     ),
     status: v.union(
       v.literal("reserved"),
@@ -2000,7 +2002,7 @@ export default defineSchema({
     // with it. Absent on sessions started before, and when placeholders are
     // switched off.
     placeholders: v.optional(
-      v.array(v.object({ token: v.string(), value: v.string(), bare: v.optional(v.boolean()) }))
+      v.array(v.object({ token: v.string(), value: v.string(), bare: v.optional(v.boolean()), at: v.optional(v.literal("label")) }))
     ),
     reportRevisionNumber: v.number(),
     status: v.union(

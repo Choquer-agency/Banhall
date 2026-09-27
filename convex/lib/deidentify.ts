@@ -17,6 +17,8 @@
  * carry a privacy instruction and publication requires a human confirmation.
  */
 
+import { isCommonLowercaseWord } from "../../shared/transcriptParse";
+
 /** The subset of a `projects` document `deidentify` reads. All optional. */
 export type DeidentifiableProject = {
   title?: string;
@@ -118,10 +120,21 @@ export function deidentify(
 /**
  * Bumped with any change to how names are replaced or restored
  * (pseudonymize, restorePlaceholders): a Brief preparation key carries it.
+ * 2: parser v8 labels, label-position masking and guarded name parts.
  */
-export const PLACEHOLDER_ALGORITHM_VERSION = 1;
+export const PLACEHOLDER_ALGORITHM_VERSION = 2;
 
-export type PlaceholderEntry = { token: string; value: string; bare?: boolean };
+export type PlaceholderEntry = {
+  token: string;
+  value: string;
+  bare?: boolean;
+  /**
+   * `label`: hidden only where it stands as a speaker label (at a line's
+   * start, before its colon or its time), never in running text. Parser v8
+   * weak labels that opened no turn (review 2026-09-26, P1-2).
+   */
+  at?: "label";
+};
 export type PlaceholderMap = readonly PlaceholderEntry[];
 
 /** Capitalized words that are also first names; never replaced alone. */
@@ -190,21 +203,57 @@ const COMMON_LOWER_WORDS = new Set([
   "park", "bell", "cook", "hunter", "baker", "miller", "smith", "carter", "mason",
 ]);
 
+/**
+ * Common technical words (review 2026-09-26, P1-2): a lowercase label made
+ * of any of them ("flow rate", "thermal drift") fails the name test, so its
+ * words are never hidden alone or capitalized.
+ */
+const TECHNICAL_WORDS = new Set([
+  "flow", "rate", "rates", "drift", "thermal", "latency", "pressure", "temperature", "temp",
+  "speed", "load", "loads", "test", "tests", "testing", "data", "system", "systems", "model",
+  "models", "value", "values", "level", "levels", "time", "times", "power", "cost", "costs",
+  "error", "errors", "noise", "signal", "signals", "sensor", "sensors", "voltage", "current",
+  "heat", "cycle", "cycles", "yield", "output", "input", "batch", "sample", "samples", "run",
+  "runs", "trial", "trials", "root", "cause", "fix", "issue", "issues", "risk", "worst",
+  "best", "case", "cases", "baseline", "target", "limit", "limits", "range", "design",
+  "prototype", "controller", "control", "loop", "feeder", "pump", "valve", "motor", "rig",
+  "bench", "firmware", "software", "hardware", "code", "build", "release", "version",
+  "step", "phase", "stage", "task", "plan", "budget", "schedule", "status", "progress",
+  "summary", "context", "background", "method", "approach", "hypothesis", "experiment",
+  "observation", "conclusion", "finding", "uncertainty", "advancement", "objective",
+]);
+
 /** "priya shah" as "Priya Shah"; "jean-philippe o'neil" as "Jean-Philippe O'Neil". */
 function titleCase(name: string): string {
   return name.replace(/(^|[\s\-'’])(\p{Ll})/gu, (_, edge: string, letter: string) => edge + letter.toUpperCase());
 }
 
-/**
- * Scripts written without spaces between words (Chinese, Japanese, Thai)
- * or with particles joined to a name (Korean). A name in them is matched
- * anywhere, since "李伟说" holds 李伟 with no boundary around it.
- */
+/** A name written only in scripts without spaces between words (or Korean, with its particles). */
 const NO_SPACE_SCRIPT =
-  /^[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}\p{Script=Thai}\p{Script=Lao}\p{Script=Khmer}\p{Script=Myanmar}\u30FC\u30FB\u00B7\s]+$/u;
+  /^[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}\p{Script=Thai}\p{Script=Lao}\p{Script=Khmer}\p{Script=Myanmar}ー・·\s]+$/u;
 
-function matchesAnywhere(value: string): boolean {
+function noSpaceName(value: string): boolean {
   return NO_SPACE_SCRIPT.test(value);
+}
+
+/**
+ * Whether a lowercase name reads as a person's name (review 2026-09-26,
+ * P1-2): one to three words of lowercase letters, none a common word, so
+ * "priya shah" gives "Priya", "Shah" and "priya", but "thermal drift" or
+ * "flow rate" never hides "drift" or "rate" alone.
+ */
+function lowercaseNameTest(name: string): boolean {
+  const words = name.split(" ");
+  return (
+    words.length <= 3 &&
+    words.every(
+      (word) =>
+        /^[\p{Ll}\p{M}'’-]{2,}$/u.test(word) &&
+        !COMMON_LOWER_WORDS.has(word) &&
+        !TECHNICAL_WORDS.has(word) &&
+        !isCommonLowercaseWord(word)
+    )
+  );
 }
 
 /**
@@ -214,12 +263,14 @@ function matchesAnywhere(value: string): boolean {
  * name and single-name forms. Speaker labels that look generic ("Speaker 2",
  * "Interviewer") are skipped.
  *
- * Parser v8 (2026-09-26, audit wave 2): a name in any case or script and of
- * any length is hidden. A lowercase name ("priya shah") also hides its
- * capitalized form and its parts; a later label that differs from a person
- * only in case is hidden as a variant of that person; an email label hides
- * the address, its mailbox name and the name the mailbox spells, and its
- * domain as an organization. `phrases` are hidden as written only.
+ * Parser v8 (2026-09-26, audit wave 2 and its review): a name in any case or
+ * script and of any length is hidden. A lowercase name that passes the name
+ * test also hides its capitalized form and its parts; a later label that
+ * differs from a person only in case is hidden as a form of that person; an
+ * email label hides the address, its mailbox name (unless a common word or
+ * a role mailbox) and the name the mailbox spells, and its domain (a FIRM
+ * token when it is the firm's own). `phrases`, weak labels that opened no
+ * turn, are hidden only where they stand as labels.
  */
 export function buildPlaceholderMap(input: {
   clientName?: string;
@@ -229,24 +280,44 @@ export function buildPlaceholderMap(input: {
   firms?: readonly string[];
   /** Interviewer, writer, interviewees, then speaker labels. */
   people: readonly (string | undefined)[];
-  /** Labels hidden as written, with no single-word or case forms. */
+  /** Weak labels that opened no turn: hidden only at label positions. */
   phrases?: readonly string[];
 }): PlaceholderMap {
   const entries: PlaceholderEntry[] = [];
   const taken = new Set<string>();
-  const add = (token: string, value: string | undefined, minLength = 3) => {
+  const add = (token: string, value: string | undefined, minLength = 3, at?: "label") => {
     if (!value || value.length < minLength || taken.has(value)) return;
     taken.add(value);
-    entries.push({ token, value, bare: true });
+    entries.push({ token, value, bare: true, ...(at ? { at } : {}) });
+  };
+
+  const firms = (input.firms ?? []).map(cleanFirmName).filter((name): name is string => !!name);
+  const compact = (value: string) => value.toLowerCase().replace(/[^\p{L}\p{N}]/gu, "");
+  /** The firm an email domain belongs to ("northwind.example" for Northwind Advisory), if any. */
+  const firmOfDomain = (domain: string): number | undefined => {
+    const head = compact(domain.split(".")[0]);
+    const index = firms.findIndex(
+      (firm) => compact(firm) === head || (firm.includes(" ") && compact(firm.split(" ")[0]) === head)
+    );
+    return index === -1 ? undefined : index + 1;
   };
 
   // Email domains name an organization (parser v8): "acme.com" in
-  // "pshah@acme.com" is hidden with the organizations.
+  // "pshah@acme.com" is hidden with the organizations, and the firm's own
+  // domain with the firm (review P3).
   const domains: string[] = [];
+  const firmDomains: Array<[number, string]> = [];
   for (const raw of [...input.people, ...(input.phrases ?? [])]) {
     const email = EMAIL.exec(raw?.trim() ?? "");
-    const domain = email?.[2].toLowerCase();
-    if (domain && !PUBLIC_MAIL_DOMAINS.has(domain) && !domains.includes(email![2])) domains.push(email![2]);
+    if (!email) continue;
+    const domain = email[2];
+    if (PUBLIC_MAIL_DOMAINS.has(domain.toLowerCase())) continue;
+    const firm = firmOfDomain(domain);
+    if (firm !== undefined) {
+      if (!firmDomains.some(([, known]) => known === domain)) firmDomains.push([firm, domain]);
+    } else if (!domains.includes(domain)) {
+      domains.push(domain);
+    }
   }
 
   const companyForms = (prefix: "CLIENT" | "FIRM", company: string, n: number, minLength: number) => {
@@ -266,10 +337,11 @@ export function buildPlaceholderMap(input: {
   if (client) companyForms("CLIENT", client, 1, 3);
   // The firm's own names come before other organizations, so a label such
   // as "Dana (Firm Name)" never makes the firm a client.
-  (input.firms ?? [])
-    .map(cleanFirmName)
-    .filter((name): name is string => !!name)
-    .forEach((firm, index) => companyForms("FIRM", firm, index + 1, 2));
+  firms.forEach((firm, index) => companyForms("FIRM", firm, index + 1, 2));
+  for (const [firm, domain] of firmDomains) {
+    const token = `[FIRM_${firm}_DOMAIN]`;
+    if (!entries.some((entry) => entry.token === token)) add(token, domain, 3);
+  }
   others.forEach((company, index) => companyForms("CLIENT", company, index + 2, 3));
 
   let person = 0;
@@ -288,37 +360,39 @@ export function buildPlaceholderMap(input: {
       if (/^\p{Lu}/u.test(word)) {
         if (word.length >= 3 && !COMMON_FIRST_WORDS.has(word)) add(`[PERSON_${n}_${kind}]`, word);
       } else if (/^\p{Ll}/u.test(word)) {
-        if (word.length >= 3 && !COMMON_LOWER_WORDS.has(word)) add(`[PERSON_${n}_${kind}]`, word);
-      } else if (/^\p{Lo}/u.test(word) && !matchesAnywhere(word) && [...word].length >= 2) {
+        if (word.length >= 3 && !COMMON_LOWER_WORDS.has(word) && !isCommonLowercaseWord(word)) {
+          add(`[PERSON_${n}_${kind}]`, word);
+        }
+      } else if (/^\p{Lo}/u.test(word) && !noSpaceName(word) && [...word].length >= 2) {
         // Arabic, Hebrew: word parts, matched as whole words.
         add(`[PERSON_${n}_${kind}]`, word, 2);
       }
     }
   };
-  /** Case and spelling forms of one person: capitalized parts first. */
-  const nameForms = (n: number, name: string) => {
-    const email = EMAIL.exec(name);
-    if (email) {
-      const local = email[1];
-      if (!ROLE_MAILBOXES.has(local.toLowerCase())) add(`[PERSON_${n}_LOCAL]`, local, 2);
-      const words = local.split(/[._-]+/).filter((word) => /^\p{L}{2,}$/u.test(word));
-      if (words.length >= 2 && words.length === local.split(/[._-]+/).length) {
-        const spoken = words.join(" ").toLowerCase();
-        add(`[PERSON_${n}_TITLE]`, titleCase(spoken), 1);
-        partForms(n, titleCase(spoken), "");
-      }
-      return;
-    }
-    if (!/^\p{Ll}/u.test(name)) {
-      partForms(n, name, "");
-      return;
-    }
-    // A label written in lowercase ("priya shah"): its capitalized form and
-    // parts, as speech usually writes them, then its own lowercase parts.
+  /** A lowercase name that passes the name test: its capitalized form and parts. */
+  const lowercaseForms = (n: number, name: string) => {
+    if (!lowercaseNameTest(name)) return;
     const title = titleCase(name);
     add(`[PERSON_${n}_TITLE]`, title, 1);
     partForms(n, title, "");
     partForms(n, name, "LOWER");
+  };
+  /** Case and spelling forms of one person: capitalized parts first. */
+  const nameForms = (n: number, name: string) => {
+    const email = EMAIL.exec(name);
+    if (email) {
+      // Review P2-4: "will@" or "it@" never hides "will" or "it".
+      const local = email[1];
+      const lower = local.toLowerCase();
+      if (!ROLE_MAILBOXES.has(lower) && !COMMON_LOWER_WORDS.has(lower) && !isCommonLowercaseWord(lower)) {
+        add(`[PERSON_${n}_LOCAL]`, local, 2);
+      }
+      const pieces = lower.split(/[._-]+/);
+      if (pieces.every((piece) => /^\p{L}{2,}$/u.test(piece))) lowercaseForms(n, pieces.join(" "));
+      return;
+    }
+    if (/^\p{Ll}/u.test(name)) lowercaseForms(n, name);
+    else partForms(n, name, "");
   };
   const issued = () => new Set(entries.map((entry) => entry.token));
   const variantToken = (n: number, canonical: string, surface: string): string | undefined => {
@@ -333,24 +407,25 @@ export function buildPlaceholderMap(input: {
     }
     return undefined;
   };
+  /** The same person in another case: hidden as that person, with lowercase parts. */
+  const addVariant = (known: { n: number; name: string }, name: string) => {
+    if (name === known.name || taken.has(name)) return;
+    const token = variantToken(known.n, known.name, name);
+    if (token) add(token, name, 1);
+    if (/^\p{Ll}/u.test(name) && lowercaseNameTest(name.toLowerCase())) partForms(known.n, name.toLowerCase(), "LOWER");
+  };
 
   for (const raw of input.people) {
     const name = cleanPersonName(raw);
     if (!name || GENERIC_LABEL.test(name)) continue;
-    const key = name.toLowerCase();
-    const known = personOf.get(key);
+    const known = personOf.get(name.toLowerCase());
     if (known) {
-      // The same person written in another case (parser v8): "priya shah"
-      // after "Priya Shah" is hidden too, with its lowercase parts.
-      if (name === known.name || taken.has(name)) continue;
-      const token = variantToken(known.n, known.name, name);
-      if (token) add(token, name, 1);
-      if (!/^\p{Lu}/u.test(name)) partForms(known.n, name.toLowerCase(), "LOWER");
+      addVariant(known, name);
       continue;
     }
     if (taken.has(name)) continue;
     person += 1;
-    personOf.set(key, { n: person, name });
+    personOf.set(name.toLowerCase(), { n: person, name });
     add(`[PERSON_${person}]`, name, 1);
     // "Shah, Priya" (a speaker label as a Teams export writes it) gives
     // "Shah" and "Priya", never "Shah," with its comma.
@@ -358,10 +433,17 @@ export function buildPlaceholderMap(input: {
   }
   for (const raw of input.phrases ?? []) {
     const phrase = cleanPersonName(raw);
-    if (!phrase || GENERIC_LABEL.test(phrase) || taken.has(phrase) || personOf.has(phrase.toLowerCase())) continue;
+    if (!phrase || GENERIC_LABEL.test(phrase) || taken.has(phrase)) continue;
+    // Review P2-2: a loose label that is a known person in another case is
+    // that person, hidden wherever it appears.
+    const known = personOf.get(phrase.toLowerCase());
+    if (known) {
+      addVariant(known, phrase);
+      continue;
+    }
     person += 1;
     personOf.set(phrase.toLowerCase(), { n: person, name: phrase });
-    add(`[PERSON_${person}]`, phrase, 1);
+    add(`[PERSON_${person}]`, phrase, 1, "label");
   }
   return entries;
 }
@@ -370,27 +452,74 @@ const TOKEN = /\[(?:CLIENT|PERSON|FIRM)_\d+(?:_[A-Z]+)?\]/g;
 
 const matcherCache = new WeakMap<PlaceholderMap, { find: RegExp; byValue: Map<string, string> }>();
 
+const WORD_EDGE_BEFORE = "(?<![\\p{L}\\p{N}])";
+const WORD_EDGE_AFTER = "(?![\\p{L}\\p{N}])";
+
+/** Characters around a Chinese name that still leave it whole ("李伟说", "和李伟"). */
+const HAN_BEFORE = "(?<=^|[^\\p{Script=Han}]|[和与跟对给让被把向问请说在由同及])";
+const HAN_AFTER =
+  "(?=$|[^\\p{Script=Han}]|一起|的|说|是|在|和|跟|与|也|都|就|对|把|被|给|让|了|们|先生|女士|小姐|老师|博士|教授|经理|总|表示|认为|提到|问|回答|告诉|觉得|指出|确认|负责|介绍|解释|补充|同意|发现|会|要|将|已|曾|还|又|才|这|那|等)";
+const HANGUL_PARTICLE = "(?:은|는|이|가|을|를|의|에게|에서|에|와|과|도|로|으로|께서|께|님|씨|하고|랑|이랑|한테|만|부터|까지)";
+const HANGUL_BEFORE = "(?<=^|[^\\p{Script=Hangul}])";
+const HANGUL_AFTER = `(?=$|[^\\p{Script=Hangul}]|${HANGUL_PARTICLE}{1,2}(?![\\p{Script=Hangul}]))`;
+const KANA_BEFORE = "(?<=^|[^\\p{Script=Katakana}\\u30FC\\u30FB])";
+const KANA_AFTER = "(?=$|[^\\p{Script=Katakana}\\u30FC\\u30FB])";
+
+/**
+ * A name in a script without word edges is matched as a whole name (review
+ * 2026-09-26, P1-2): 李伟 in "李伟说" but never inside 李伟东, 김민수 with
+ * its particle ("김민수는"), a Katakana name never inside a longer one.
+ */
+function noSpaceEdges(value: string): [string, string] {
+  const first = value[0];
+  const last = value[value.length - 1];
+  const before = /\p{Script=Hangul}/u.test(first)
+    ? HANGUL_BEFORE
+    : /[\p{Script=Katakana}ー・]/u.test(first)
+      ? KANA_BEFORE
+      : /\p{Script=Han}/u.test(first)
+        ? HAN_BEFORE
+        : "(?<![\\p{L}])";
+  const after = /\p{Script=Hangul}/u.test(last)
+    ? HANGUL_AFTER
+    : /[\p{Script=Katakana}ー・]/u.test(last)
+      ? KANA_AFTER
+      : /\p{Script=Han}/u.test(last)
+        ? HAN_AFTER
+        : "(?![\\p{L}])";
+  return [before, after];
+}
+
+/**
+ * Where a label stands (review P1-2): at a line's start (after a time, a
+ * cue's `<v`, or a render's "] " or ") " prefix), followed by its colon
+ * (after brackets or a time, if any) or by a time that ends the line.
+ */
+const TIME = "\\[?\\d{1,2}:\\d{2}(?::\\d{2})?(?:[.,]\\d{1,3})?\\]?";
+const LABEL_BEFORE = `(?<=(?:^|\\n)[ \\t]*(?:${TIME}[ \\t]*(?:-[ \\t]*)?)?|[\\])][ \\t]|<v(?:\\.[^\\s>]+)*[ \\t]+)`;
+const LABEL_AFTER = `(?=[ \\t]*(?:[(\\[][^()\\[\\]\\n]{0,80}[)\\]][ \\t]*)?(?:${TIME}[ \\t]*)?[:\\uFF1A]|[ \\t]+${TIME}[ \\t]*(?:\\r?\\n|$)|>)`;
+
+function patternFor(entry: PlaceholderEntry): string {
+  const value = escapeRegExp(entry.value);
+  if (entry.at === "label") return `${LABEL_BEFORE}${value}${LABEL_AFTER}`;
+  if (noSpaceName(entry.value)) {
+    const [before, after] = noSpaceEdges(entry.value);
+    return `${before}${value}${after}`;
+  }
+  return `${WORD_EDGE_BEFORE}${value}${WORD_EDGE_AFTER}`;
+}
+
 function matcherFor(map: PlaceholderMap) {
   let cached = matcherCache.get(map);
   if (!cached) {
-    const values = [...map].map((entry) => entry.value).sort((a, b) => b.length - a.length);
-    const alternation = values.map(escapeRegExp).join("|");
+    const sorted = [...map].sort((a, b) => b.value.length - a.value.length);
     // Same boundaries as `deidentify`: a name never replaces the inside of
-    // another word, and punctuation at a name's edge stays part of it. A
-    // name in a script without spaces (parser v8) has no word edges, so it
-    // is matched anywhere; each value then carries its own boundary.
-    const find = values.some(matchesAnywhere)
-      ? new RegExp(
-          values
-            .map((value) =>
-              matchesAnywhere(value)
-                ? escapeRegExp(value)
-                : `(?<![\\p{L}\\p{N}])${escapeRegExp(value)}(?![\\p{L}\\p{N}])`
-            )
-            .join("|"),
-          "gu"
-        )
-      : new RegExp(`(?<![\\p{L}\\p{N}])(?:${alternation})(?![\\p{L}\\p{N}])`, "gu");
+    // another word, and punctuation at a name's edge stays part of it. Maps
+    // with only such names keep the one shared boundary; a label-only entry
+    // or a name without word edges carries its own.
+    const find = sorted.every((entry) => entry.at === undefined && !noSpaceName(entry.value))
+      ? new RegExp(`${WORD_EDGE_BEFORE}(?:${sorted.map((entry) => escapeRegExp(entry.value)).join("|")})${WORD_EDGE_AFTER}`, "gu")
+      : new RegExp(sorted.map(patternFor).join("|"), "gu");
     cached = {
       find,
       byValue: new Map(map.map((entry) => [entry.value, entry.token])),
