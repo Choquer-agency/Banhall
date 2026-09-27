@@ -491,6 +491,23 @@ describe("attaching to a running preparation", () => {
     expect(view).toMatchObject({ count: 1, done: true });
   });
 
+  test("the scheduled continuation adopts and hands the Brief to the start's join", async () => {
+    const s = await setup();
+    const running = await claimOnly(s);
+    const generationId = await reserve(s);
+    expect((await adoptAtStart(s, generationId)).kind).toBe("attached");
+    await completeWithOneEntry(s, running);
+    // Completion scheduled the continuation; running it adopts with no call.
+    const calls = requests.length;
+    await settle(s);
+    expect(requests).toHaveLength(calls);
+    const generation = await loadGeneration(s, generationId);
+    expect(generation.briefId).toBeDefined();
+    expect(generation.briefPreparation?.state).toBe("adopted");
+    // The writer style is not frozen yet, so the start action opens the stage.
+    expect(generation.seedBriefOutcome).toBe("ready");
+  });
+
   test("completion first: the run adopts directly", async () => {
     const s = await setup();
     const running = await claimOnly(s);

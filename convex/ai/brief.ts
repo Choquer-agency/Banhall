@@ -819,12 +819,19 @@ export async function deriveOrAdoptSeedBrief(
     inputsHash,
   });
   if (pinned === null) {
-    const adoption = await ctx.runMutation(internal.generations.adoptPreparedBrief, {
-      generationId: args.generationId,
-      inputsHash,
-    });
-    if (adoption.kind === "adopted") return { kind: "adopted", briefId: adoption.briefId };
-    if (adoption.kind === "attached") return { kind: "attached" };
+    // Fail open: a preparation that cannot be adopted never costs the run
+    // its Brief; the adoption transaction wrote nothing, and the run
+    // derives its own.
+    try {
+      const adoption = await ctx.runMutation(internal.generations.adoptPreparedBrief, {
+        generationId: args.generationId,
+        inputsHash,
+      });
+      if (adoption.kind === "adopted") return { kind: "adopted", briefId: adoption.briefId };
+      if (adoption.kind === "attached") return { kind: "attached" };
+    } catch (error) {
+      logBriefStageError("Brief preparation not adopted", args.generationId, briefFailureCode(error));
+    }
   }
   return await deriveOrReuseBrief(ctx, client, { ...args, seedStartup: true });
 }

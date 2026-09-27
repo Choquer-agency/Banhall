@@ -315,7 +315,7 @@ export async function openSeedStageAfterBriefHandler(
       .query("generationArtifacts")
       .withIndex("by_generationId_and_kind", (q) => q.eq("generationId", generation._id).eq("kind", "brain_blocks"))
       .first()) !== null;
-  const outcome = args.outcome ?? generation.seedBriefOutcome ?? (generation.briefId ? "ready" : undefined);
+  const outcome = args.outcome ?? (generation.briefId ? "ready" : generation.seedBriefOutcome);
   if (args.outcome && !styleFrozen) {
     await ctx.db.patch(generation._id, { seedBriefOutcome: args.outcome });
     return "waiting";
