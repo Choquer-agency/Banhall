@@ -613,6 +613,17 @@
       interviewees: [...interviewees],
     });
   });
+  // Files still being read (2026-09-27, second): the draft's head start
+  // waits for them instead of starting without them and starting over when
+  // they land. Supporting documents by their source key (so ones unticked
+  // in the start dialog do not count) and transcript files still being
+  // parsed; the draft adds the files read but not saved yet.
+  let transcriptsReading = $state(0);
+  $effect(() => {
+    if (!intakeActive) return;
+    const keys = supportingFiles.filter((doc) => doc.status === "reading").map((doc) => sourceKeyFor(doc.id));
+    intake.setReading({ keys, unkeyed: transcriptsReading });
+  });
   onMount(() => intake.discardLeftover());
   const transcriptReceipt = (item: { id: string; source: { kind: string } }) =>
     intakeActive && item.source.kind !== "copy" ? sourceKeyFor(item.id) : null;
@@ -655,6 +666,7 @@
     const wrong = files.find((file) => !isTranscriptFileName(file.name));
     wrongTranscriptFile = wrong ? { name: wrong.name, video: VIDEO_OR_AUDIO.test(wrong.name) } : null;
     const accepted = files.filter((file) => isTranscriptFileName(file.name));
+    transcriptsReading += accepted.length;
     for (const file of accepted) {
       parsingTranscript = file.name;
       try {
@@ -679,6 +691,7 @@
         }
       } finally {
         parsingTranscript = null;
+        transcriptsReading = Math.max(0, transcriptsReading - 1);
       }
     }
     replacingProblemId = null;

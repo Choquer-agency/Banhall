@@ -5,8 +5,9 @@
  * its original file once the text is saved, and keeps a truthful receipt of
  * both, so a file that failed to save is never dropped from view. The
  * client name, interviewer and interviewees follow, and the start dialog's
- * leave-out list while it is open. Confirming flushes what is still on its
- * way and promotes the draft into the project.
+ * leave-out list while it is open, and how many files are still being read
+ * or saved, so the head start waits for them. Confirming flushes what is
+ * still on its way and promotes the draft into the project.
  *
  * A draft the server no longer has (it expired, another tab discarded it)
  * ends here too: nothing more is sent, its receipts go, and confirming
@@ -27,6 +28,12 @@ export const INTAKE_DRAFT_STORAGE_KEY = "banhall:intake-draft";
 export const SOURCE_SAVE_DELAY_MS = 300;
 /** The names are saved this long after the writer stops typing. */
 export const CONTEXT_SAVE_DELAY_MS = 600;
+/**
+ * How often a count of files still being read is sent again while it is
+ * above zero (2026-09-27, second): the server stops counting one not
+ * refreshed for 90 seconds, so a closed tab never holds the head start.
+ */
+export const PENDING_READS_REFRESH_MS = 30_000;
 /** How often a confirm asks whether the project is set up. */
 export const PROMOTION_POLL_MS = 1_000;
 /**
@@ -83,6 +90,7 @@ export type IntakeCalls = {
     | "attachIntakeOriginal"
     | "updateIntakeContext"
     | "setIntakeSelection"
+    | "reportIntakePendingReads"
     | "discardIntakeDraft"
     | "promoteIntakeDraft"]: Call<(typeof intakeDraftRefs)[Name]>;
 };
@@ -95,6 +103,7 @@ export const INTAKE_MUTATIONS = [
   "attachIntakeOriginal",
   "updateIntakeContext",
   "setIntakeSelection",
+  "reportIntakePendingReads",
   "discardIntakeDraft",
   "promoteIntakeDraft",
 ] as const;
@@ -165,6 +174,14 @@ export class IntakeDraftSync {
   #selectionTimer: ReturnType<typeof setTimeout> | null = null;
   /** Set once a confirm starts promoting: the leave-out list is no longer sent. */
   #promoting = false;
+  /** Files the page is still reading: by source key, and those without one yet. */
+  #readingKeys: string[] = [];
+  #readingUnkeyed = 0;
+  /** The count of files still being read or saved, as last sent. */
+  #pendingSent = 0;
+  #pendingTimer: ReturnType<typeof setTimeout> | null = null;
+  #pendingRefresh: ReturnType<typeof setInterval> | null = null;
+  #refreshMs: number;
 
   constructor(options: {
     calls: IntakeCalls;
@@ -178,6 +195,8 @@ export class IntakeDraftSync {
     /** Test seams: how often, and how many times, a confirm polls the promotion. */
     pollMs?: number;
     maxPromotionSteps?: number;
+    /** Test seam: how often a count above zero is sent again. */
+    refreshMs?: number;
   }) {
     this.#calls = options.calls;
     this.#uploadOriginal = options.uploadOriginal;
@@ -187,6 +206,7 @@ export class IntakeDraftSync {
     this.#delayMs = options.delayMs ?? SOURCE_SAVE_DELAY_MS;
     this.#pollMs = options.pollMs ?? intakePolling.pollMs;
     this.#maxSteps = options.maxPromotionSteps ?? intakePolling.maxSteps;
+    this.#refreshMs = options.refreshMs ?? PENDING_READS_REFRESH_MS;
   }
 
   /**
@@ -205,7 +225,10 @@ export class IntakeDraftSync {
     if (this.closed) return;
     // The receipts are this class's own bookkeeping: reading them here
     // must not make the page's effect depend on them.
-    untrack(() => this.#reconcile(desired));
+    untrack(() => {
+      this.#reconcile(desired);
+      this.#pendingChanged();
+    });
   }
 
   #reconcile(desired: readonly IntakeSourceDesc[]): void {
@@ -265,9 +288,35 @@ export class IntakeDraftSync {
     this.#contextTimer = setTimeout(() => void this.#sendContext(), CONTEXT_SAVE_DELAY_MS);
   }
 
+  /**
+   * Files the page is still reading (2026-09-27, second): the keys of those
+   * that have a source key, and how many have none yet (a transcript file
+   * being parsed). With the files read but not saved yet, less the ones the
+   * writer unticked in the start dialog, this is the count the draft's
+   * head start waits on.
+   */
+  setReading(reading: { keys: readonly string[]; unkeyed: number }): void {
+    this.#readingKeys = [...reading.keys];
+    this.#readingUnkeyed = Math.max(0, reading.unkeyed);
+    untrack(() => this.#pendingChanged());
+  }
+
+  /** Files still being read, or read and not saved, that the writer has not unticked. */
+  get pendingReads(): number {
+    return untrack(() => {
+      const leftOut = new Set(this.#selection);
+      const keys = new Set(this.#readingKeys);
+      for (const [key, state] of this.receipts) if (state === "saving") keys.add(key);
+      let count = this.#readingUnkeyed;
+      for (const key of keys) if (!leftOut.has(key)) count += 1;
+      return count;
+    });
+  }
+
   /** The start dialog's leave-out list, by source key. */
   setSelection(excludedSourceKeys: string[]): void {
     this.#selection = [...excludedSourceKeys].sort();
+    untrack(() => this.#pendingChanged());
     if (this.closed || this.#promoting || !this.draftId) return;
     if (this.#selectionTimer) clearTimeout(this.#selectionTimer);
     this.#selectionTimer = setTimeout(() => void this.#sendSelection(), this.#delayMs);
@@ -320,6 +369,8 @@ export class IntakeDraftSync {
       clearTimeout(this.#selectionTimer);
       this.#selectionTimer = null;
     }
+    // The promotion clears the count on the server; nothing more is sent.
+    this.#stopPending();
     const call = () => this.#calls.promoteIntakeDraft({ draftId, ...args });
     let first: Awaited<ReturnType<typeof call>>;
     try {
@@ -392,6 +443,7 @@ export class IntakeDraftSync {
     if (this.#selectionTimer) clearTimeout(this.#selectionTimer);
     this.#contextTimer = null;
     this.#selectionTimer = null;
+    this.#stopPending();
   }
 
   /** Whether a draft was made, or is being made. */
@@ -442,6 +494,7 @@ export class IntakeDraftSync {
         this.#writeStorage(draftId);
         if (this.#context) this.setContext(this.#context);
         if (this.#selection.length) this.setSelection(this.#selection);
+        untrack(() => this.#pendingChanged());
         return draftId;
       } catch (error) {
         if (userErrorCode(error) === "INTAKE_DRAFT_LIMIT") {
@@ -509,6 +562,7 @@ export class IntakeDraftSync {
     this.#inflight.set(key, run);
     await run;
     if (this.#inflight.get(key) === run) this.#inflight.delete(key);
+    untrack(() => this.#pendingChanged());
   }
 
   async #remove(key: string): Promise<void> {
@@ -591,6 +645,50 @@ export class IntakeDraftSync {
       }
       console.error("Could not save the project names to the intake draft", error);
     }
+  }
+
+  /**
+   * The count changed: sent a moment later (debounced), and kept fresh while
+   * it is above zero. Nothing is sent before the draft exists, while
+   * promoting, or once it ended.
+   */
+  #pendingChanged(): void {
+    if (this.closed || this.#promoting || !this.draftId) return;
+    if (this.#pendingTimer) clearTimeout(this.#pendingTimer);
+    this.#pendingTimer = setTimeout(() => void this.#sendPending(false), this.#delayMs);
+  }
+
+  async #sendPending(refresh: boolean): Promise<void> {
+    if (!refresh) this.#pendingTimer = null;
+    const draftId = this.draftId;
+    if (!draftId || this.closed || this.#promoting) return;
+    const count = this.pendingReads;
+    if (!refresh && count === this.#pendingSent) return;
+    if (refresh && count === 0) return;
+    try {
+      await this.#calls.reportIntakePendingReads({ draftId, count });
+      this.#pendingSent = count;
+    } catch (error) {
+      if (draftGone(error)) {
+        this.#die();
+        return;
+      }
+      console.error("Could not tell the intake draft about files still being read", error);
+    }
+    if (this.closed || this.#promoting) return;
+    if (this.#pendingSent > 0 && !this.#pendingRefresh) {
+      this.#pendingRefresh = setInterval(() => void this.#sendPending(true), this.#refreshMs);
+    } else if (this.#pendingSent === 0 && this.#pendingRefresh) {
+      clearInterval(this.#pendingRefresh);
+      this.#pendingRefresh = null;
+    }
+  }
+
+  #stopPending(): void {
+    if (this.#pendingTimer) clearTimeout(this.#pendingTimer);
+    if (this.#pendingRefresh) clearInterval(this.#pendingRefresh);
+    this.#pendingTimer = null;
+    this.#pendingRefresh = null;
   }
 
   async #sendSelection(): Promise<void> {

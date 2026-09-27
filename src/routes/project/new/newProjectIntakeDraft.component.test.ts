@@ -127,6 +127,48 @@ describe("saved while the writer sets up", () => {
     }
   });
 
+  it("tells the draft how many files are still being read, leaving out unticked ones, and zero once they are saved", async () => {
+    __setMutationResult("intakeDrafts:reportIntakePendingReads", null);
+    vi.stubGlobal("fetch", vi.fn<typeof fetch>().mockImplementation(async () => Response.json({ storageId: "storage-1" })));
+    const counts = () =>
+      (__mutationCalls("intakeDrafts:reportIntakePendingReads") as Array<{ draftId: string; count: number }>).map(
+        (call) => call.count
+      );
+    try {
+      await render(NewProjectPage, {});
+      await fillBasics("Cold seal", "Acme Seals");
+      await pasteTranscript();
+      await expect.poll(() => saves().length).toBe(1);
+      // A file whose reading the test holds open.
+      let finishReading!: (value: string) => void;
+      const slow = new File(["Rig log."], "Rig log.txt", { type: "text/plain" });
+      Object.defineProperty(slow, "text", {
+        value: () => new Promise<string>((resolve) => (finishReading = resolve)),
+      });
+      addSupportingFiles([slow]);
+      await expect.poll(() => counts().at(-1)).toBe(1);
+      expect(__mutationCalls("intakeDrafts:reportIntakePendingReads").at(-1)).toEqual({ draftId: "draft-1", count: 1 });
+
+      // Unticked in the start dialog, the file no longer holds the head start.
+      await openStartDialog();
+      const row = [...document.querySelectorAll<HTMLElement>("[data-start-run-row]")].find(
+        (item) => item.dataset.kind === "document"
+      )!;
+      row.querySelector<HTMLElement>("[data-start-run-check]")!.click();
+      await expect.poll(() => counts().at(-1)).toBe(0);
+      // Ticked again, it counts again.
+      row.querySelector<HTMLElement>("[data-start-run-check]")!.click();
+      await expect.poll(() => counts().at(-1)).toBe(1);
+
+      // Read and saved: the count drops to zero.
+      finishReading("Rig log: 400 cycles at minus 30 degrees.");
+      await expect.poll(() => saves().filter((call) => call.kind === "document").length).toBe(1);
+      await expect.poll(() => counts().at(-1)).toBe(0);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("keeps a file that did not reach the draft in view with Try again", async () => {
     __setMutationError("intakeDrafts:saveIntakeSource", new Error("offline"));
     await render(NewProjectPage, {});

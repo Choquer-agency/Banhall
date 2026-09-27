@@ -24,6 +24,7 @@ function fakeCalls(overrides: Partial<Record<keyof IntakeCalls, ReturnType<typeo
     attachIntakeOriginal: vi.fn(async () => true),
     updateIntakeContext: vi.fn(async () => null),
     setIntakeSelection: vi.fn(async () => null),
+    reportIntakePendingReads: vi.fn(async () => null),
     discardIntakeDraft: vi.fn(async () => null),
     promoteIntakeDraft: vi.fn(async () => ({ projectId: "project-1", complete: true, sources: [] })),
     ...overrides,
@@ -84,6 +85,46 @@ describe("IntakeDraftSync", () => {
       storageId: "storage-new",
       contentHash: await textHash("New notes."),
     });
+  });
+
+  it("reports files still being read or saved, less unticked ones, keeps a count above zero fresh, and stops at promotion", async () => {
+    const calls = fakeCalls();
+    const sync = new IntakeDraftSync({
+      calls: calls as unknown as IntakeCalls,
+      uploadOriginal: async () => undefined,
+      delayMs: 1,
+      refreshMs: 40,
+    });
+    const sent = () => calls.reportIntakePendingReads.mock.calls.map(([args]) => (args as { count: number }).count);
+    // Nothing is sent before a draft exists.
+    sync.setReading({ keys: ["document-key-2"], unkeyed: 1 });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(calls.reportIntakePendingReads).not.toHaveBeenCalled();
+    // The first saved file makes the draft: a document still being read and
+    // a transcript file still being parsed count.
+    sync.reconcile([doc("Notes.", new File(["x"], "notes.txt"))]);
+    await expect.poll(() => sent().at(-1)).toBe(2);
+    expect(calls.reportIntakePendingReads.mock.calls.at(-1)![0]).toEqual({ draftId: "draft-1", count: 2 });
+    // Kept fresh while above zero.
+    const before = calls.reportIntakePendingReads.mock.calls.length;
+    await expect.poll(() => calls.reportIntakePendingReads.mock.calls.length).toBeGreaterThan(before + 1);
+    // Unticked in the start dialog: that file does not count.
+    sync.setSelection(["document-key-2"]);
+    await expect.poll(() => sent().at(-1)).toBe(1);
+    sync.setReading({ keys: ["document-key-2"], unkeyed: 0 });
+    await expect.poll(() => sent().at(-1)).toBe(0);
+    // At zero nothing more is sent.
+    const settled = calls.reportIntakePendingReads.mock.calls.length;
+    await new Promise((resolve) => setTimeout(resolve, 120));
+    expect(calls.reportIntakePendingReads.mock.calls.length).toBe(settled);
+    // Promotion stops the count; the server clears it.
+    sync.setSelection([]);
+    await expect.poll(() => sent().at(-1)).toBe(1);
+    await sync.promote({ commandId: "command-1", sourceKeys: ["document-key-1"], project: { title: "Cold seal" } as never });
+    const promoted = calls.reportIntakePendingReads.mock.calls.length;
+    sync.setReading({ keys: [], unkeyed: 3 });
+    await new Promise((resolve) => setTimeout(resolve, 120));
+    expect(calls.reportIntakePendingReads.mock.calls.length).toBe(promoted);
   });
 
   it("a draft the server no longer has ends: no more saves, no receipts, no stored id", async () => {
