@@ -100,6 +100,7 @@ import type * as invites from "../invites.js";
 import type * as learning from "../learning.js";
 import type * as learningHealth from "../learningHealth.js";
 import type * as lib_activeGeneration from "../lib/activeGeneration.js";
+import type * as lib_aiRateLimits from "../lib/aiRateLimits.js";
 import type * as lib_auth from "../lib/auth.js";
 import type * as lib_briefDerivationPolicy from "../lib/briefDerivationPolicy.js";
 import type * as lib_briefEvidence from "../lib/briefEvidence.js";
@@ -352,6 +353,7 @@ declare const fullApi: ApiFromModules<{
   learning: typeof learning;
   learningHealth: typeof learningHealth;
   "lib/activeGeneration": typeof lib_activeGeneration;
+  "lib/aiRateLimits": typeof lib_aiRateLimits;
   "lib/auth": typeof lib_auth;
   "lib/briefDerivationPolicy": typeof lib_briefDerivationPolicy;
   "lib/briefEvidence": typeof lib_briefEvidence;
@@ -538,4 +540,5 @@ export declare const components: {
   embedPool: import("@convex-dev/workpool/_generated/component.js").ComponentApi<"embedPool">;
   researchWorkflow: import("@convex-dev/workflow/_generated/component.js").ComponentApi<"researchWorkflow">;
   betterAuth: import("@convex-dev/better-auth/_generated/component.js").ComponentApi<"betterAuth">;
+  rateLimiter: import("@convex-dev/rate-limiter/_generated/component.js").ComponentApi<"rateLimiter">;
 };
