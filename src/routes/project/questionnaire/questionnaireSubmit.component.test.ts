@@ -106,7 +106,7 @@ describe("/project/questionnaire submit", () => {
     });
   });
 
-  it("says why the run did not start when it hits the run limit, and starts it on resubmit without a second project", async () => {
+  it("says why the run did not start when it hits the run limit, locks the saved answers, and starts it on resubmit without a second project", async () => {
     __setMutationResult("projects:createProject", {
       projectId: "project-q",
       transcriptIds: ["transcript-q"],
@@ -131,8 +131,13 @@ describe("/project/questionnaire submit", () => {
     await expect
       .poll(() => document.body.textContent)
       .toContain(
-        "Your project is saved, but the run did not start. You have started a lot of runs in the last hour. Try again in 5 minutes."
+        "The run did not start. You have started a lot of runs in the last hour. Try again in 5 minutes. Your answers are saved. The run will use them when you start it again."
       );
+    // The run reads the answers saved with the project, so they can no
+    // longer be edited here.
+    expect(buttonByText("Edit")).toBeUndefined();
+    expect(buttonByText("Back")).toBeUndefined();
+    expect(document.body.textContent).toContain("These answers are saved with your project.");
     __setMutationResult("generations:requestGeneration", "generation-q");
     await clickText("Generate Report");
     await expect

@@ -90,7 +90,8 @@
   let error = $state("");
   // Set once the project exists, so submitting again after a refused start
   // (the hourly run limit) starts the run without making a second project.
-  let createdProjectId: Id<"projects"> | null = null;
+  // The saved answers are what that run reads, so editing is locked then.
+  let createdProjectId = $state<Id<"projects"> | null>(null);
 
   $effect(() => {
     if (!auth.isLoading && !auth.isAuthenticated) {
@@ -130,7 +131,7 @@
     } catch (cause) {
       error =
         userErrorCode(cause) === "RATE_LIMITED"
-          ? `Your project is saved, but the run did not start. ${userErrorMessage(cause, "Try again later.")}`
+          ? `The run did not start. ${userErrorMessage(cause, "Try again later.")} Your answers are saved. The run will use them when you start it again.`
           : "Failed to create project. Please try again.";
       submitting = false;
     }
@@ -253,14 +254,20 @@
         <form onsubmit={handleSubmit}>
           <h2 class="text-display">Review & Submit</h2>
           <p class="mt-1 text-sm text-gray-500">
-            Review your answers below. Click any section to edit. The AI will generate a full SR&ED report from your responses.
+            {#if createdProjectId}
+              These answers are saved with your project. The AI will generate a full SR&ED report from them.
+            {:else}
+              Review your answers below. Click any section to edit. The AI will generate a full SR&ED report from your responses.
+            {/if}
           </p>
 
           <div class="mt-6 space-y-4">
             <div class="rounded-lg border border-gray-200 bg-white p-4">
               <div class="flex items-center justify-between">
                 <span class="text-label">Project</span>
-                <button type="button" onclick={() => (step = -1)} class="text-xs text-primary hover:underline">Edit</button>
+                {#if !createdProjectId}
+                  <button type="button" onclick={() => (step = -1)} class="text-xs text-primary hover:underline">Edit</button>
+                {/if}
               </div>
               <p class="mt-1 text-sm font-medium text-gray-900">{title}</p>
               <p class="text-sm text-gray-500">{clientName}</p><p class="mt-1 text-xs text-ink-muted">You will be the initial Owner.</p>
@@ -271,7 +278,9 @@
               <div class="rounded-lg border border-gray-200 bg-white p-4">
                 <div class="flex items-center justify-between">
                   <span class="text-label">{q.label}</span>
-                  <button type="button" onclick={() => (step = i)} class="text-xs text-primary hover:underline">Edit</button>
+                  {#if !createdProjectId}
+                    <button type="button" onclick={() => (step = i)} class="text-xs text-primary hover:underline">Edit</button>
+                  {/if}
                 </div>
                 {#if answer}
                   <p class="mt-1 text-sm text-gray-700 line-clamp-3">{answer}</p>
@@ -287,13 +296,17 @@
           {/if}
 
           <div class="mt-8 flex items-center justify-between">
-            <button
-              type="button"
-              onclick={() => (step = QUESTIONS.length - 1)}
-              class="text-sm text-gray-400 hover:text-gray-600 transition-colors"
-            >
-              Back
-            </button>
+            {#if createdProjectId}
+              <span></span>
+            {:else}
+              <button
+                type="button"
+                onclick={() => (step = QUESTIONS.length - 1)}
+                class="text-sm text-gray-400 hover:text-gray-600 transition-colors"
+              >
+                Back
+              </button>
+            {/if}
             <Button type="submit" disabled={submitting}>
               {submitting ? "Generating..." : "Generate Report"}
             </Button>

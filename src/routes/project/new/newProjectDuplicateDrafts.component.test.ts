@@ -927,6 +927,50 @@ describe("/project/new failed copy keeps the writer's own files (review D-2)", (
     }
   });
 
+  it("saves and reports the writer's files before it opens a project whose start the run limit refused (audit wave 2)", async () => {
+    const error = vi.spyOn(toast, "error");
+    const info = vi.spyOn(toast, "info");
+    try {
+      seedSource();
+      stubUploads();
+      __setMutationError("documents:uploadDocument", new Error("offline"));
+      __setMutationError(
+        "generations:requestGeneration",
+        new ConvexError({
+          code: "RATE_LIMITED",
+          message: "You have started a lot of runs in the last hour. Try again in 5 minutes.",
+          retryAfter: 300,
+          scope: "user",
+        })
+      );
+      __setPageUrl("/project/new?from=project-1&drafts=iterative");
+      await render(NewProjectPage, {});
+
+      await copiedSection();
+      await addOwnContextFile("My notes.txt");
+      await commitFromReviewStep();
+
+      await expect
+        .poll(() => __navigationCalls.map((call) => call.url))
+        .toContain("/project/project-copy");
+      expect(__mutationCalls("generations:requestGeneration")).toHaveLength(1);
+      expect(__mutationCalls("documents:uploadDocument")).toEqual([
+        expect.objectContaining({ projectId: "project-copy", fileName: "My notes.txt" }),
+      ]);
+      // The skipped file is named, and the note says what is saved.
+      expect(error.mock.calls.map((call) => call[0])).toEqual([
+        "1 document(s) could not be uploaded and were skipped: My notes.txt",
+      ]);
+      expect(info.mock.calls.map((call) => call[0])).toContain(
+        "The project is saved, but the run did not start. You have started a lot of runs in the last hour. Try again in 5 minutes."
+      );
+    } finally {
+      error.mockRestore();
+      info.mockRestore();
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("names the files the writer added that were not saved", async () => {
     const error = vi.spyOn(toast, "error");
     try {

@@ -1117,19 +1117,26 @@
   }
 
   /**
-   * Audit wave 2: the start was refused by the hourly or daily limit on
-   * runs or reviews. The project is saved, so the writer lands on it with
-   * the server's plain reason (one note, not an error), and starts the run
-   * there once the wait is over.
+   * Audit wave 2: runs a start and returns its refusal when the hourly or
+   * daily limit on runs or reviews refused it; any other failure throws as
+   * before. The project exists already, so the confirm carries on (the
+   * files still on their way are saved, skipped ones are reported) and the
+   * writer lands on the project with the server's plain reason.
    */
-  function openAfterRateLimit(error: unknown, projectId: Id<"projects">): boolean {
-    if (userErrorCode(error) !== "RATE_LIMITED") return false;
-    committing = false;
-    progress = "";
+  async function startUnlessLimited(start: () => Promise<unknown>): Promise<unknown> {
+    try {
+      await start();
+      return null;
+    } catch (error) {
+      if (userErrorCode(error) !== "RATE_LIMITED") throw error;
+      return error;
+    }
+  }
+
+  /** One note, not an error: what is saved, and when the start can be tried again. */
+  function noteRefusedStart(error: unknown) {
     const what = mode === "review" ? "review" : "run";
     toast.info(`The project is saved, but the ${what} did not start. ${userErrorMessage(error, "Try again later.")}`);
-    openProject(projectId, { title, client: clientName });
-    return true;
   }
 
   async function uploadOriginal(file: File): Promise<Id<"_storage"> | undefined> {
@@ -1571,17 +1578,21 @@
             await generateReport({ projectId, ...choices, ...exclusionsFor(ready) });
             markStartReserved();
           } catch (error) {
-            toast.error(userErrorMessage(error, "The run did not start. Start it from the project."));
+            if (userErrorCode(error) === "RATE_LIMITED") noteRefusedStart(error);
+            else toast.error(userErrorMessage(error, "The run did not start. Start it from the project."));
           }
         })();
         return "done";
       }
       progress = "Starting generation...";
-      await generateReport({ projectId, ...choices, ...exclusionsFor(outcome.receipt) });
-      markStartReserved();
+      const limited = await startUnlessLimited(async () => {
+        await generateReport({ projectId, ...choices, ...exclusionsFor(outcome.receipt) });
+        markStartReserved();
+      });
       for (const doc of later) await saveOne(doc);
       extractionLifetime.signal.throwIfAborted();
       reportSkipped();
+      if (limited) noteRefusedStart(limited);
       openProject(projectId, { title, client: clientName });
       return "done";
     } catch (e) {
@@ -1598,7 +1609,6 @@
         startOpen = true;
         return "done";
       }
-      if (createdProjectId && openAfterRateLimit(e, createdProjectId)) return "done";
       console.error(e);
       toast.error(userErrorMessage(e, "Something went wrong creating the project. Please try again."));
       committing = false;
@@ -1721,6 +1731,8 @@
         .filter((doc) => doc.category !== "transcript")
         .sort((a, b) => order(a) - order(b));
       const later = toSave.filter((doc) => doc.status === "reading" && leftOut.has(`d:${doc.id}`));
+      // A start the run limits refused (audit wave 2); the confirm carries on.
+      let limited: unknown = null;
       const first = toSave.filter((doc) => !later.includes(doc));
 
       for (const doc of first) await saveOne(doc);
@@ -1766,32 +1778,36 @@
         extractionLifetime.signal.throwIfAborted();
         if (!copyFailed) {
           progress = "Starting PD review...";
-          await startPdReview({
-            projectId,
-            documentId,
-            ...(excludeDocumentIds.length ? { excludeDocumentIds } : {}),
-            ...(excludeTranscriptIds.length ? { excludeTranscriptIds } : {}),
-          });
+          limited = await startUnlessLimited(() =>
+            startPdReview({
+              projectId,
+              documentId,
+              ...(excludeDocumentIds.length ? { excludeDocumentIds } : {}),
+              ...(excludeTranscriptIds.length ? { excludeTranscriptIds } : {}),
+            })
+          );
         }
       } else if (copyFailed || (fromProjectId && !generateAfterDuplicate)) {
         progress = "Opening duplicate...";
       } else {
         extractionLifetime.signal.throwIfAborted();
         progress = "Starting generation...";
-        await generateReport({
-          projectId,
-          candidateMode,
-          ...(candidateMode !== "compare" && singleModelId ? { singleModelId } : {}),
-          ...(candidateMode === "compare"
-            ? (() => {
-                const pair = comparePairFromSlots(compareSlotA, compareSlotB, pickerModels(modelCapabilitiesQ.data));
-                return pair ? { compareModelIds: pair } : {};
-              })()
-            : {}),
-          ...(excludeDocumentIds.length ? { excludeDocumentIds } : {}),
-          ...(excludeTranscriptIds.length ? { excludeTranscriptIds } : {}),
+        limited = await startUnlessLimited(async () => {
+          await generateReport({
+            projectId,
+            candidateMode,
+            ...(candidateMode !== "compare" && singleModelId ? { singleModelId } : {}),
+            ...(candidateMode === "compare"
+              ? (() => {
+                  const pair = comparePairFromSlots(compareSlotA, compareSlotB, pickerModels(modelCapabilitiesQ.data));
+                  return pair ? { compareModelIds: pair } : {};
+                })()
+              : {}),
+            ...(excludeDocumentIds.length ? { excludeDocumentIds } : {}),
+            ...(excludeTranscriptIds.length ? { excludeTranscriptIds } : {}),
+          });
+          markStartReserved();
         });
-        markStartReserved();
       }
       // Files the writer left out while they were still being read.
       for (const doc of later) await saveOne(doc);
@@ -1809,6 +1825,7 @@
           `${skippedFiles.length} document(s) could not be uploaded and were skipped: ${skippedFiles.join(", ")}`
         );
       }
+      if (limited) noteRefusedStart(limited);
       openProject(projectId, { title, client: clientName });
     } catch (e) {
       if (extractionLifetime.signal.aborted || isParseAbort(e)) return;
@@ -1824,7 +1841,6 @@
         startOpen = true;
         return;
       }
-      if (createdProjectId && !copyFailed && openAfterRateLimit(e, createdProjectId)) return;
       console.error(e);
       if (copyFailed && createdProjectId) {
         toast.error(copyFailedMessage(savedOwn));
