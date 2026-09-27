@@ -53,3 +53,9 @@ export const expirePreparationLeaseRef = ref<typeof preparations.expirePreparati
 export const purgeStalePreparationsRef = ref<typeof preparations.purgeStalePreparations>(
   "briefPreparations:purgeStalePreparations"
 );
+export const cancelPreparationAttemptRef = ref<typeof preparations.cancelPreparationAttempt>(
+  "briefPreparations:cancelPreparationAttempt"
+);
+export const checkBriefWaiterRef = ref<typeof preparations.checkBriefWaiter>(
+  "briefPreparations:checkBriefWaiter"
+);

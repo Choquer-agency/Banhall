@@ -571,23 +571,22 @@ describe("attaching to a running preparation", () => {
 });
 
 describe("fenced writes", () => {
-  test("a replaced attempt's late facts and completion write nothing", async () => {
+  test("a replaced attempt's late writes are dropped, and its call holds the slot until it ends", async () => {
     const s = await setup();
     const first = await claimOnly(s);
-    // New evidence: the next claim has another key and makes the first obsolete.
+    // New evidence: the next start has another key and makes the first
+    // obsolete, but the first call is still being paid for, so it waits.
     await addDocument(s, "new.txt", "New cold data.");
-    // The user's slot is taken by the first attempt until it is obsolete, so
-    // the second claim runs twice: once to supersede, once after the slot.
     const second = await claimOnly(s);
-    const settled = second.status === "running" ? second : await (async () => {
-      await s.t.mutation(startBriefPreparationRef, { preparationId: second._id, revision: second.revision });
-      return (await s.t.run(async (ctx) => ctx.db.get(second._id)))!;
-    })();
-    expect(settled.status).toBe("running");
-    expect(settled.key).not.toBe(first.key);
+    expect(second).toMatchObject({ status: "queued", waitingFor: "slot", deferrals: 1 });
     const obsolete = await s.t.run(async (ctx) => ctx.db.get(first._id));
     expect(obsolete).toMatchObject({ status: "obsolete", endedReason: "superseded" });
+    // Still in flight: another try waits again.
+    await s.t.mutation(startBriefPreparationRef, { preparationId: second._id, revision: second.revision + 1 });
+    expect((await s.t.run(async (ctx) => ctx.db.get(second._id)))?.status).toBe("queued");
 
+    // The first call ends: its late facts and completion write nothing,
+    // and the slot is free.
     await s.t.mutation(appendPreparationFactsRef, {
       preparationId: first._id, attemptId: first.attemptId!,
       facts: [{ chip: "Fact", quote: "late", sourceLabel: "x" }],
@@ -601,7 +600,13 @@ describe("fenced writes", () => {
     }));
     expect(after.row?.status).toBe("obsolete");
     expect(after.row?.storylineText).toBeUndefined();
+    expect(after.row?.attemptEndedAt).toBeDefined();
     expect(after.facts).toHaveLength(0);
+    const waiting = (await s.t.run(async (ctx) => ctx.db.get(second._id)))!;
+    await s.t.mutation(startBriefPreparationRef, { preparationId: second._id, revision: waiting.revision });
+    const dispatched = (await s.t.run(async (ctx) => ctx.db.get(second._id)))!;
+    expect(dispatched.status).toBe("running");
+    expect(dispatched.key).not.toBe(first.key);
   });
 
   test("a wrong attempt id, a deleting project or an expired lease fences the write", async () => {
@@ -694,9 +699,10 @@ describe("triggers, eligibility and limits", () => {
     await trigger(s, "document_added");
     const rows = await preparations(s);
     expect(rows).toHaveLength(1);
-    expect(rows[0]).toMatchObject({ status: "queued", revision: 2 });
-    // The first scheduled start is for revision 1 and does nothing.
-    await s.t.mutation(startBriefPreparationRef, { preparationId: rows[0]._id, revision: 1 });
+    // The pending start covers the second change: no write, no new job.
+    expect(rows[0]).toMatchObject({ status: "queued", revision: 1 });
+    // A start for another revision does nothing.
+    await s.t.mutation(startBriefPreparationRef, { preparationId: rows[0]._id, revision: 7 });
     expect((await preparations(s))[0].status).toBe("queued");
   });
 
@@ -708,7 +714,7 @@ describe("triggers, eligibility and limits", () => {
     await s.writer.mutation(api.projects.updateProjectClientName, { projectId: s.projectId, clientName: "Acme Seals Ltd" });
     const rows = await preparations(s);
     expect(rows).toHaveLength(1);
-    expect(rows[0]).toMatchObject({ revision: 3, triggerReason: "identity_changed", triggeredBy: s.userId });
+    expect(rows[0]).toMatchObject({ revision: 1, triggerReason: "document_archived", triggeredBy: s.userId });
   });
 
   test("a review project, and the kill switch, never ask", async () => {
@@ -786,7 +792,7 @@ describe("triggers, eligibility and limits", () => {
     await trigger(s);
     const [queued] = await preparations(s);
     await s.t.mutation(startBriefPreparationRef, { preparationId: queued._id, revision: queued.revision });
-    expect((await preparations(s))[0]).toMatchObject({ status: "queued", waitingFor: "structure", deferrals: 1 });
+    expect((await preparations(s))[0]).toMatchObject({ status: "queued", waitingFor: "speakers", deferrals: 1 });
     // The model's answer lands and asks again; the preparation then runs.
     await s.t.mutation(internal.transcripts.recordModelSpeakerRoles, {
       transcriptId: s.transcriptId,
@@ -956,5 +962,188 @@ describe("retention", () => {
     expect(state.failed?.failureCode).toBe("unknown");
     expect(state.recent?.storylineText).toBe("Recent.");
     expect(state.ready?.storylineText).toBeDefined();
+  });
+});
+
+describe("review fixes (2026-09-26 reviews)", () => {
+  test("a parser upgrade followed by a read spends nothing (A)", async () => {
+    const s = await setup();
+    const ready = await prepare(s);
+    // Prepared on an earlier firm day, then the parser version moves on.
+    await s.t.run(async (ctx) => {
+      await ctx.db.patch(ready._id, { firmDay: (ready.firmDay ?? 0) - 3 });
+      await ctx.db.patch(s.transcriptId, { parserVersion: "6" });
+      await ctx.db.insert("appSettings", { key: "transcripts.factsMode", value: "long", updatedBy: s.userId, updatedAt: Date.now() });
+    });
+    const calls = requests.length;
+    // Opening the transcript asks for facts, which rebuilds its turns.
+    await s.writer.mutation(api.transcripts.requestTranscriptFacts, { transcriptId: s.transcriptId });
+    await settle(s);
+    expect((await s.t.run(async (ctx) => ctx.db.get(s.transcriptId)))?.parserVersion).toBe(TRANSCRIPT_PARSER_VERSION);
+    expect(await preparations(s)).toHaveLength(1);
+    expect(requests).toHaveLength(calls);
+  });
+
+  test("a system change follows up only today's or live work (A)", async () => {
+    const s = await setup();
+    const ready = await prepare(s);
+    await s.t.run(async (ctx) => ctx.db.patch(ready._id, { firmDay: (ready.firmDay ?? 0) - 1 }));
+    await s.t.run(async (ctx) => requestBriefPreparation(ctx, s.projectId, { reason: "speakers_changed" }));
+    expect(await preparations(s)).toHaveLength(1);
+    await s.t.run(async (ctx) => ctx.db.patch(ready._id, { firmDay: ready.firmDay }));
+    await s.t.run(async (ctx) => requestBriefPreparation(ctx, s.projectId, { reason: "speakers_changed" }));
+    const rows = await preparations(s);
+    expect(rows).toHaveLength(2);
+    expect(rows[1]).toMatchObject({ status: "queued", triggeredBy: s.userId });
+  });
+
+  test("a project past the writing stages is never prepared (A)", async () => {
+    for (const stage of ["internal_review", "client_review", "ready_for_delivery", "delivered", "on_hold", "abandoned"] as const) {
+      const s = await setup();
+      await s.t.run(async (ctx) => ctx.db.patch(s.projectId, { workflowStage: stage }));
+      await trigger(s);
+      expect(await preparations(s), stage).toHaveLength(0);
+    }
+    const s = await setup();
+    await trigger(s);
+    await s.t.run(async (ctx) => ctx.db.patch(s.projectId, { workflowStage: "internal_review" }));
+    await settle(s);
+    expect((await preparations(s))[0]).toMatchObject({ status: "cancelled", endedReason: "stage" });
+    expect(requests).toHaveLength(0);
+  });
+
+  test("a start that reads the evidence drops an older ready copy, even when it is cancelled (B)", async () => {
+    const s = await setup();
+    const ready = await prepare(s);
+    await reserve(s);
+    await trigger(s);
+    await settle(s);
+    const rows = await preparations(s);
+    expect(rows[1]).toMatchObject({ status: "cancelled", endedReason: "generation_active" });
+    expect(await s.t.run(async (ctx) => ctx.db.get(ready._id))).toMatchObject({ status: "obsolete", endedReason: "superseded" });
+  });
+
+  test("ready content is deleted 7 days after it finished or was last adopted (B)", async () => {
+    const s = await setup();
+    const ready = await prepare(s);
+    expect(ready.contentExpiresAt).toBe((ready.completedAt ?? 0) + 7 * 24 * 60 * 60 * 1000);
+    // Adopted on day 5: the limit moves to day 12.
+    vi.setSystemTime(Date.now() + 5 * 24 * 60 * 60 * 1000);
+    const generationId = await reserve(s);
+    expect((await adoptAtStart(s, generationId)).kind).toBe("adopted");
+    vi.setSystemTime(Date.now() + 3 * 24 * 60 * 60 * 1000);
+    await s.t.mutation(purgeStalePreparationsRef, {});
+    expect((await s.t.run(async (ctx) => ctx.db.get(ready._id)))?.status).toBe("ready");
+    vi.setSystemTime(Date.now() + 5 * 24 * 60 * 60 * 1000);
+    await s.t.mutation(purgeStalePreparationsRef, {});
+    const expired = (await s.t.run(async (ctx) => ctx.db.get(ready._id)))!;
+    expect(expired).toMatchObject({ status: "obsolete", endedReason: "expired" });
+    expect(expired.contentPurgedAt).toBeDefined();
+    expect(expired.storylineText).toBeUndefined();
+    const sources = await s.t.run(async (ctx) =>
+      ctx.db.query("briefPreparationSources").withIndex("by_preparationId", (q) => q.eq("preparationId", ready._id)).collect()
+    );
+    expect(sources).toHaveLength(0);
+    // The adopted run keeps its own Brief.
+    expect((await loadGeneration(s, generationId)).briefId).toBeDefined();
+  });
+
+  test("switched off, the purge deletes every ready copy at once (B)", async () => {
+    const admin = await setup({ role: "admin" });
+    const ready = await prepare(admin);
+    await admin.writer.mutation(api.appSettings.setBriefPreparationEnabled, { enabled: false });
+    await settle(admin);
+    const row = (await admin.t.run(async (ctx) => ctx.db.get(ready._id)))!;
+    expect(row).toMatchObject({ status: "obsolete", endedReason: "expired" });
+    expect(row.contentPurgedAt).toBeDefined();
+    expect(row.placeholders).toBeUndefined();
+  });
+
+  test("a billing failure cools the project down for 30 minutes (E)", async () => {
+    const s = await setup();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        Response.json(
+          { type: "error", error: { type: "billing_error", message: "Your credit balance is too low" } },
+          { status: 400 }
+        )
+      )
+    );
+    const failed = await prepare(s);
+    expect(failed).toMatchObject({ status: "failed", failureCode: "billing" });
+    stubProvider();
+    await trigger(s, "document_added");
+    await settle(s);
+    expect((await preparations(s))[1]).toMatchObject({ status: "cancelled", endedReason: "cooldown" });
+    vi.setSystemTime(Date.now() + 31 * 60 * 1000);
+    await trigger(s, "document_added");
+    await settle(s);
+    expect((await preparations(s))[2].status).toBe("ready");
+  });
+
+  test("switched off after the claim, the attempt sends nothing and ends cancelled (F)", async () => {
+    const s = await setup();
+    const running = await claimOnly(s);
+    await switchOff(s);
+    await settle(s);
+    expect(await s.t.run(async (ctx) => ctx.db.get(running._id))).toMatchObject({
+      status: "cancelled",
+      endedReason: "disabled",
+    });
+    expect(requests).toHaveLength(0);
+  });
+
+  test("an editor who lost authority during the call publishes nothing; the spend stays (G)", async () => {
+    const s = await setup();
+    const running = await claimOnly(s);
+    await s.t.run(async (ctx) => ctx.db.patch(s.projectId, { ownerId: s.outsiderId }));
+    await settle(s);
+    const row = (await s.t.run(async (ctx) => ctx.db.get(running._id)))!;
+    expect(row).toMatchObject({ status: "cancelled", endedReason: "not_authorized", usageCalls: 1 });
+    expect(requests).toHaveLength(1);
+    const entries = await s.t.run(async (ctx) =>
+      ctx.db.query("briefPreparationEntries").withIndex("by_preparationId", (q) => q.eq("preparationId", running._id)).collect()
+    );
+    expect(entries).toHaveLength(0);
+  });
+
+  test("a ported project is never prepared, whatever became of the ported file (H)", async () => {
+    const s = await setup();
+    await s.t.run(async (ctx) => {
+      await ctx.db.patch(s.documentId, { archived: true });
+      await ctx.db.insert("ingestionItems", {
+        driveItemId: "item-1", path: "Clients/Acme/old.docx", name: "old.docx", docKind: "pd", size: 1,
+        lastModifiedAt: 0, contentHash: "h", status: "approved", pairGroupKey: "Acme::2025", updatedAt: 0,
+        portedProjectId: s.projectId,
+      });
+    });
+    await trigger(s);
+    await settle(s);
+    expect((await preparations(s))[0]).toMatchObject({ status: "cancelled", endedReason: "ingestion_port" });
+    expect(requests).toHaveLength(0);
+  });
+
+  test("a start waiting on a turn build looks again every 2 minutes, at most 10 times (O)", async () => {
+    const s = await setup();
+    await s.t.run(async (ctx) => ctx.db.patch(s.transcriptId, { structureBuildId: "build-1" }));
+    await trigger(s);
+    await settle(s);
+    expect((await preparations(s))[0]).toMatchObject({ status: "queued", waitingFor: "structure", deferrals: 1 });
+    // The build ends without asking (a rebuild from a read, say).
+    await s.t.run(async (ctx) => ctx.db.patch(s.transcriptId, { structureBuildId: undefined }));
+    vi.advanceTimersByTime(2 * 60 * 1000);
+    await s.t.finishInProgressScheduledFunctions();
+    await settle(s);
+    expect((await preparations(s))[0].status).toBe("ready");
+
+    const stuck = await setup();
+    await stuck.t.run(async (ctx) => ctx.db.patch(stuck.transcriptId, { structureBuildId: "build-2" }));
+    await trigger(stuck);
+    for (let i = 0; i < 12; i += 1) {
+      vi.advanceTimersByTime(2 * 60 * 1000 + 100);
+      await stuck.t.finishInProgressScheduledFunctions();
+    }
+    expect((await preparations(stuck))[0]).toMatchObject({ status: "cancelled", endedReason: "structure_unsettled" });
   });
 });

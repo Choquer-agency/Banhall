@@ -157,8 +157,10 @@ export const buildTranscriptStructure = internalMutation({
         transcriptId: args.transcriptId,
       });
     }
-    // Decision 65: a preparation waiting for this structure can start.
-    if (step.kind === "done") {
+    // Decision 65: a preparation waiting for this structure can start. Only
+    // an intake build asks (an upload's, which also asks the model about
+    // speakers); a rebuild from a read or an admin backfill never does.
+    if (step.kind === "done" && step.modelRoles) {
       await requestBriefPreparation(ctx, transcript.projectId, { reason: "structure_ready" });
     }
     return null;

@@ -2,7 +2,7 @@
 
 import { z } from "zod";
 import type { FunctionArgs, FunctionReturnType } from "convex/server";
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import { internal } from "../_generated/api";
 import { internalAction, type ActionCtx } from "../_generated/server";
 import type { Doc, Id } from "../_generated/dataModel";
@@ -24,6 +24,7 @@ import { normalizeProviderError, preparationClientForStep, startActionDeadline }
 import { resolveGenerationStep } from "../lib/generationSteps";
 import {
   appendPreparationFactsRef,
+  cancelPreparationAttemptRef,
   completePreparationRef,
   failPreparationRef,
   getPreparationCitationSpeakersRef,
@@ -837,6 +838,21 @@ export async function deriveOrAdoptSeedBrief(
 }
 
 /**
+ * A preparation failure's normalized code. A provider that is not set up
+ * for this deployment reads `provider_config`, which, like `billing`,
+ * `authentication` and `model_access`, starts the project's cooldown.
+ */
+export function preparationFailureCode(error: unknown): string {
+  if (error instanceof ConvexError) {
+    const data: unknown = error.data;
+    if (typeof data === "object" && data !== null && (data as { code?: unknown }).code === "PROVIDER_NOT_CONFIGURED") {
+      return "provider_config";
+    }
+  }
+  return briefFailureCode(error);
+}
+
+/**
  * One Brief preparation attempt (decision 65): the shared derivation over
  * the preparation's frozen rows, on the planning model frozen for it, its
  * placeholder map applied, its usage attributed to it, and its located
@@ -850,6 +866,11 @@ export const runBriefPreparation = internalAction({
     startActionDeadline(ctx);
     const run = await ctx.runQuery(getPreparationRunRef, args);
     if (!run) return null;
+    if (run.disabled) {
+      // Switched off after the claim: nothing is sent.
+      await ctx.runMutation(cancelPreparationAttemptRef, { ...args, reason: "disabled" });
+      return null;
+    }
     try {
       const route = resolveGenerationStep({ freeze: run.modelFreeze, step: "brief", writerModel: MODEL });
       if (route.model !== run.planningModel) throw new Error("The frozen planning model does not resolve");
@@ -886,8 +907,9 @@ export const runBriefPreparation = internalAction({
         upstreamDroppedEntryCount: derived.upstreamDroppedEntryCount,
       });
     } catch (error) {
-      logBriefStageError("Brief preparation failed", args.preparationId, briefFailureCode(error));
-      await ctx.runMutation(failPreparationRef, { ...args, code: briefFailureCode(error) });
+      const code = preparationFailureCode(error);
+      logBriefStageError("Brief preparation failed", args.preparationId, code);
+      await ctx.runMutation(failPreparationRef, { ...args, code });
     }
     return null;
   },

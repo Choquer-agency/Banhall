@@ -10,6 +10,7 @@ import { requireRole } from "./lib/auth";
 import { domainError } from "./lib/contracts";
 import { assignRoleModelByHand, roleModelId } from "./lib/modelRoles";
 import type { Doc, Id } from "./_generated/dataModel";
+import { purgeStalePreparationsRef } from "./lib/briefPreparationRefs";
 import {
   DEFAULT_CONTEXT_BUDGET,
   type ContextBudget,
@@ -382,7 +383,8 @@ export const setStorageSweepModeInternal = internalMutation({
 /**
  * Whether Banhall prepares a project's Brief before Generate
  * (convex/briefPreparations.ts). On unless an Admin turns it off; off
- * stops new preparations from starting and ready ones from being adopted.
+ * stops new preparations from starting, stops a claimed attempt before its
+ * call, stops adoption, and has the purge delete every ready copy.
  * Anything but "off" means on.
  */
 export const BRIEF_PREPARATION_KEY = "briefPreparation.enabled";
@@ -402,6 +404,8 @@ export const setBriefPreparationEnabled = mutation({
   handler: async (ctx, args) => {
     const user = await requireRole(ctx, ["admin"]);
     await setSetting(ctx, BRIEF_PREPARATION_KEY, args.enabled ? "on" : "off", user._id);
+    // Off: ready copies are deleted now rather than at the next hourly purge.
+    if (!args.enabled) await ctx.scheduler.runAfter(0, purgeStalePreparationsRef, {});
     return null;
   },
 });
@@ -416,6 +420,8 @@ export const setBriefPreparationEnabledInternal = internalMutation({
       throw new Error("An active administrator is required");
     }
     await setSetting(ctx, BRIEF_PREPARATION_KEY, args.enabled ? "on" : "off", admin._id);
+    // Off: ready copies are deleted now rather than at the next hourly purge.
+    if (!args.enabled) await ctx.scheduler.runAfter(0, purgeStalePreparationsRef, {});
     return null;
   },
 });

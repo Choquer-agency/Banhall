@@ -30,6 +30,7 @@ import { ACTIVE_GENERATION_STATUSES } from "../shared/generationTransitions";
 import {
   currentYearTranscripts,
   decideInputMode,
+  type FrozenEvidence,
   frozenPlaceholders,
   frozenSourceFields,
   frozenTranscriptChars,
@@ -62,11 +63,22 @@ import {
   MAX_CITATION_SPEAKER_SPANS,
   MAX_BRIEF_ENTRY_ROWS,
 } from "./lib/generations/brief";
-import { purgeStalePreparationsRef, startBriefPreparationRef, expirePreparationLeaseRef } from "./lib/briefPreparationRefs";
-import { PREPARATION_DEBOUNCE_MS } from "./lib/briefPreparationTrigger";
+import {
+  checkBriefWaiterRef,
+  expirePreparationLeaseRef,
+  purgeStalePreparationsRef,
+  startBriefPreparationRef,
+} from "./lib/briefPreparationRefs";
+import { PREPARATION_DEBOUNCE_MS, preparationStageAllows } from "./lib/briefPreparationTrigger";
 
 /** How long one attempt may run: the action limit plus room to write. */
 export const PREPARATION_LEASE_MS = 11 * 60 * 1000;
+/** How long a ready preparation keeps its content after it finished or was last adopted. */
+export const PREPARATION_READY_CONTENT_MS = 7 * 24 * 60 * 60 * 1000;
+/** How long a run waits on a running preparation, from its dispatch. */
+export const WAITER_DEADLINE_MS = 4 * 60 * 1000;
+/** How often a waiting run checks the preparation's call is still alive. */
+const WAITER_CHECK_MS = 60 * 1000;
 /** How long a failed, obsolete or cancelled preparation keeps its content. */
 export const PREPARATION_RETENTION_MS = 24 * 60 * 60 * 1000;
 /** Rows one purge transaction deletes. */
@@ -75,6 +87,10 @@ export const PREPARATION_PURGE_ROWS = 200;
 const UPLOAD_SETTLE_MS = 2 * 60 * 1000;
 /** How long after a transcript is added its model speaker roles may still land. */
 const SPEAKER_SETTLE_MS = 2 * 60 * 1000;
+/** How often a start waiting for a transcript's turn build looks again. */
+const STRUCTURE_RECHECK_MS = 2 * 60 * 1000;
+/** How long a project waits after a billing, auth or provider-configuration failure. */
+export const PREPARATION_COOLDOWN_MS = 30 * 60 * 1000;
 /** Wait before trying again when the user or project already has one running. */
 const SLOT_RETRY_MS = 30_000;
 /** Times a queued preparation is pushed back before it is cancelled. */
@@ -135,7 +151,7 @@ async function endPreparation(
 async function deferPreparation(
   ctx: MutationCtx,
   preparation: Preparation,
-  waitingFor: "slot" | "uploads" | "structure",
+  waitingFor: "slot" | "uploads" | "structure" | "speakers",
   delayMs: number
 ): Promise<void> {
   const deferrals = (preparation.deferrals ?? 0) + 1;
@@ -144,7 +160,12 @@ async function deferPreparation(
       ctx,
       preparation,
       "cancelled",
-      waitingFor === "slot" ? "busy" : waitingFor === "uploads" ? "uploads_unsettled" : "speakers_unsettled"
+      {
+        slot: "busy",
+        uploads: "uploads_unsettled",
+        structure: "structure_unsettled",
+        speakers: "speakers_unsettled",
+      }[waitingFor]
     );
     return;
   }
@@ -181,6 +202,98 @@ async function speakersPending(
   return false;
 }
 
+/** Marks a project's ready rows obsolete, except the ones with `keepKey`. */
+async function obsoleteReady(ctx: MutationCtx, projectId: Id<"projects">, keepKey?: string): Promise<void> {
+  const ready = await ctx.db
+    .query("briefPreparations")
+    .withIndex("by_projectId_and_status", (q) => q.eq("projectId", projectId).eq("status", "ready"))
+    .take(20);
+  for (const row of ready) {
+    if (keepKey !== undefined && row.key === keepKey) continue;
+    await endPreparation(ctx, row, "obsolete", "superseded");
+  }
+}
+
+/** Whether an attempt dispatched a call that has not ended yet. */
+export function callStillRunning(row: Preparation, now: number): boolean {
+  return (
+    row.dispatchedAt !== undefined &&
+    row.attemptEndedAt === undefined &&
+    row.completedAt === undefined &&
+    row.failureCode === undefined &&
+    (row.leaseExpiresAt ?? 0) > now
+  );
+}
+
+/**
+ * Whether the project (or the user) has a call in flight: a running row,
+ * or an obsolete one whose call has not ended (P2-3 of the 2026-09-26
+ * review: a superseded attempt still pays for its call).
+ */
+async function callInFlight(
+  ctx: MutationCtx,
+  scope: { projectId: Id<"projects"> } | { userId: Id<"users"> },
+  now: number
+): Promise<boolean> {
+  for (const status of ["running", "obsolete"] as const) {
+    const rows =
+      "projectId" in scope
+        ? await ctx.db
+            .query("briefPreparations")
+            .withIndex("by_projectId_and_status", (q) => q.eq("projectId", scope.projectId).eq("status", status))
+            .order("desc")
+            .take(20)
+        : await ctx.db
+            .query("briefPreparations")
+            .withIndex("by_triggeredBy_and_status", (q) => q.eq("triggeredBy", scope.userId).eq("status", status))
+            .order("desc")
+            .take(20);
+    if (rows.some((row) => (status === "running" ? true : callStillRunning(row, now)))) return true;
+  }
+  return false;
+}
+
+/** Failure codes after which a project waits PREPARATION_COOLDOWN_MS. */
+export const COOLDOWN_FAILURE_CODES: ReadonlySet<string> = new Set([
+  "billing",
+  "authentication",
+  "model_access",
+  "provider_config",
+]);
+
+async function inCooldown(ctx: MutationCtx, projectId: Id<"projects">, now: number): Promise<boolean> {
+  const failed = await ctx.db
+    .query("briefPreparations")
+    .withIndex("by_projectId_and_status", (q) => q.eq("projectId", projectId).eq("status", "failed"))
+    .order("desc")
+    .take(5);
+  return failed.some(
+    (row) =>
+      row.failureCode !== undefined &&
+      COOLDOWN_FAILURE_CODES.has(row.failureCode) &&
+      (row.endedAt ?? 0) > now - PREPARATION_COOLDOWN_MS
+  );
+}
+
+/**
+ * A project a historical PD was ported into. The ingestion item's project
+ * marker (`ingestionItems.portedProjectId`) holds whatever became of the
+ * ported file (archived, or past the first document rows); a ported file
+ * among the frozen documents is checked too.
+ */
+async function isIngestionPort(
+  ctx: MutationCtx,
+  projectId: Id<"projects">,
+  evidence: FrozenEvidence
+): Promise<boolean> {
+  const item = await ctx.db
+    .query("ingestionItems")
+    .withIndex("by_portedProjectId", (q) => q.eq("portedProjectId", projectId))
+    .first();
+  if (item) return true;
+  return evidence.frozenDocuments.some(({ document }) => document.source === "ingestion_port");
+}
+
 /** Whether the configured transport can reach the planning model at all. */
 function providerReady(gateway: "anthropic" | "openrouter"): boolean {
   return gateway === "openrouter"
@@ -213,46 +326,55 @@ export const startBriefPreparation = internalMutation({
       await endPreparation(ctx, preparation, "cancelled", "not_writing");
       return null;
     }
+    if (!preparationStageAllows(project)) {
+      await endPreparation(ctx, preparation, "cancelled", "stage");
+      return null;
+    }
     // Authority is the triggering editor's, checked again now.
     if (!(await userMayEditReport(ctx, await ctx.db.get(preparation.triggeredBy), project))) {
       await endPreparation(ctx, preparation, "cancelled", "not_authorized");
       return null;
     }
-    // A run already going derives or adopts its own Brief.
-    if (await findActiveGeneration(ctx, project, ACTIVE_GENERATION_STATUSES)) {
-      await endPreparation(ctx, preparation, "cancelled", "generation_active");
+    // After a billing, authentication or provider-configuration failure the
+    // project waits PREPARATION_COOLDOWN_MS before it pays again.
+    if (await inCooldown(ctx, project._id, now)) {
+      await endPreparation(ctx, preparation, "cancelled", "cooldown");
       return null;
     }
 
+    // From here on the start has read the evidence: however it ends, a
+    // ready copy made from older evidence is not kept (it may hold text the
+    // project no longer has).
     const evidence = await selectFrozenEvidence(ctx, project._id);
-    // Historical ports from ingestion are never prepared.
-    if (evidence.frozenDocuments.some(({ document }) => document.source === "ingestion_port")) {
-      await endPreparation(ctx, preparation, "cancelled", "ingestion_port");
+    const cancel = async (reason: string) => {
+      await obsoleteReady(ctx, project._id);
+      await endPreparation(ctx, preparation, "cancelled", reason);
       return null;
-    }
+    };
+    // A run already going derives or adopts its own Brief.
+    if (await findActiveGeneration(ctx, project, ACTIVE_GENERATION_STATUSES)) return await cancel("generation_active");
+    // Historical ports from ingestion are never prepared.
+    if (await isIngestionPort(ctx, project._id, evidence)) return await cancel("ingestion_port");
     const readable = evidence.transcripts.filter((row) => row.content.trim() !== "");
     const current = (await currentYearTranscripts(ctx, project, evidence.transcripts)).filter(
       (row) => row.content.trim() !== ""
     );
-    if (current.length === 0) {
-      await endPreparation(ctx, preparation, "cancelled", "no_transcript");
-      return null;
-    }
-    // Speaker evidence must be settled: wait for the turn build, which asks
-    // again when it finishes (transcripts.buildTranscriptStructure).
+    if (current.length === 0) return await cancel("no_transcript");
+    // Speaker evidence must be settled: wait for the turn build, rechecking
+    // every STRUCTURE_RECHECK_MS (an intake build also asks when it ends).
     const unsettled = readable.filter(
       (row) => row.parserVersion !== TRANSCRIPT_PARSER_VERSION || row.structureBuildId !== undefined
     );
     if (unsettled.length > 0) {
       for (const row of unsettled) await scheduleStructureRebuildIfStale(ctx, row);
-      await ctx.db.patch(preparation._id, { waitingFor: "structure", updatedAt: now });
+      await deferPreparation(ctx, preparation, "structure", STRUCTURE_RECHECK_MS);
       return null;
     }
     // A new transcript's uncertain speakers go to the model right after its
     // turns are built, and the answer changes the key: wait for it (bounded;
     // recordModelSpeakerRoles asks again), rather than pay twice.
     if ((preparation.deferrals ?? 0) < MAX_DEFERRALS && (await speakersPending(ctx, readable, now))) {
-      await deferPreparation(ctx, preparation, "structure", PREPARATION_DEBOUNCE_MS);
+      await deferPreparation(ctx, preparation, "speakers", PREPARATION_DEBOUNCE_MS);
       return null;
     }
     // A batch of files still arriving: wait for it rather than prepare
@@ -272,31 +394,19 @@ export const startBriefPreparation = internalMutation({
     const factsMode = await transcriptFactsMode(ctx);
     const transcriptFacts =
       evidence.transcripts.length > 0 && (factsMode === "all" || (factsMode === "long" && inputMode === "digest"));
-    if (inputMode !== "full" || transcriptFacts) {
-      await endPreparation(ctx, preparation, "cancelled", "representation");
-      return null;
-    }
+    if (inputMode !== "full" || transcriptFacts) return await cancel("representation");
 
     // The planning role (decision 43), frozen for this preparation only.
     const modelFreeze = await freezeModelsForGeneration(ctx, [await defaultModelId(ctx)], now);
     const route = resolveGenerationStep({ freeze: modelFreeze, step: "brief", writerModel: MODEL });
     const entry = modelFreeze.entries.find((item) => item.id === route.model);
-    if (!entry || !providerReady(entry.gateway)) {
-      await endPreparation(ctx, preparation, "cancelled", "provider_unavailable");
-      return null;
-    }
+    if (!entry || !providerReady(entry.gateway)) return await cancel("provider_unavailable");
     const pricing = await preparationPricing(ctx, route.model);
-    if (!pricing) {
-      await endPreparation(ctx, preparation, "cancelled", "pricing_unknown");
-      return null;
-    }
+    if (!pricing) return await cancel("pricing_unknown");
 
     const placeholders = await frozenPlaceholders(ctx, project, evidence);
     const fields = await frozenSourceFields(evidence);
-    if (fields.length > MAX_PREPARATION_SOURCES) {
-      await endPreparation(ctx, preparation, "cancelled", "too_many_sources");
-      return null;
-    }
+    if (fields.length > MAX_PREPARATION_SOURCES) return await cancel("too_many_sources");
     const key = await briefPreparationKey(ctx, {
       projectId: project._id,
       sources: fields,
@@ -313,32 +423,27 @@ export const startBriefPreparation = internalMutation({
       .order("desc")
       .take(20);
     if (same.some((row) => row.status === "ready" || row.status === "running")) {
+      await obsoleteReady(ctx, project._id, key);
       await endPreparation(ctx, preparation, "cancelled", "duplicate");
       return null;
     }
     // Older keys are obsolete now. One a run is waiting on keeps running for
     // that run (its dependency is immutable); no new run can adopt it.
-    for (const status of ["running", "ready"] as const) {
-      const older = await ctx.db
-        .query("briefPreparations")
-        .withIndex("by_projectId_and_status", (q) => q.eq("projectId", project._id).eq("status", status))
-        .take(20);
-      for (const row of older) {
-        if (row._id === preparation._id) continue;
-        if (status === "running" && (await hasWaiters(ctx, row._id))) continue;
-        await endPreparation(ctx, row, "obsolete", "superseded");
-      }
-    }
-    // One running per project and per user.
-    const projectRunning = await ctx.db
+    await obsoleteReady(ctx, project._id, key);
+    const running = await ctx.db
       .query("briefPreparations")
       .withIndex("by_projectId_and_status", (q) => q.eq("projectId", project._id).eq("status", "running"))
-      .first();
-    const userRunning = await ctx.db
-      .query("briefPreparations")
-      .withIndex("by_triggeredBy_and_status", (q) => q.eq("triggeredBy", preparation.triggeredBy).eq("status", "running"))
-      .first();
-    if (projectRunning || userRunning) {
+      .take(20);
+    for (const row of running) {
+      if (row._id === preparation._id || (await hasWaiters(ctx, row._id))) continue;
+      await endPreparation(ctx, row, "obsolete", "superseded");
+    }
+    // One call in flight per project and per user, an obsolete attempt's
+    // call included until it ends.
+    if (
+      (await callInFlight(ctx, { projectId: project._id }, now)) ||
+      (await callInFlight(ctx, { userId: preparation.triggeredBy }, now))
+    ) {
       await deferPreparation(ctx, preparation, "slot", SLOT_RETRY_MS);
       return null;
     }
@@ -364,9 +469,14 @@ export const startBriefPreparation = internalMutation({
       });
     }
     const attemptId = crypto.randomUUID();
+    const actionJobId = await ctx.scheduler.runAfter(0, internal.ai.brief.runBriefPreparation, {
+      preparationId: preparation._id,
+      attemptId,
+    });
     await ctx.db.patch(preparation._id, {
       status: "running",
       attemptId,
+      actionJobId,
       leaseExpiresAt: now + PREPARATION_LEASE_MS,
       key,
       modelFreeze,
@@ -377,10 +487,6 @@ export const startBriefPreparation = internalMutation({
       reservedUsd,
       waitingFor: undefined,
       updatedAt: now,
-    });
-    await ctx.scheduler.runAfter(0, internal.ai.brief.runBriefPreparation, {
-      preparationId: preparation._id,
-      attemptId,
     });
     await ctx.scheduler.runAfter(PREPARATION_LEASE_MS, expirePreparationLeaseRef, {
       preparationId: preparation._id,
@@ -411,13 +517,19 @@ async function preparationSources(ctx: { db: QueryCtx["db"] }, preparationId: Id
     .take(MAX_PREPARATION_SOURCES);
 }
 
-/** What the attempt's action needs, or null once the attempt is not live. */
+/**
+ * What the attempt's action needs, or null once the attempt is not live.
+ * `disabled`: an Admin switched preparation off after the claim; the action
+ * sends nothing and ends the attempt as cancelled.
+ */
 export const getPreparationRun = internalQuery({
   args: { preparationId: v.id("briefPreparations"), attemptId: v.string() },
   handler: async (ctx, args) => {
     const preparation = await liveAttempt(ctx, args.preparationId, args.attemptId);
     if (!preparation?.modelFreeze || !preparation.planningModel) return null;
+    if (!(await briefPreparationEnabled(ctx))) return { disabled: true as const };
     return {
+      disabled: false as const,
       projectId: preparation.projectId,
       triggeredBy: preparation.triggeredBy,
       modelFreeze: preparation.modelFreeze,
@@ -505,6 +617,35 @@ const preparationEntryValidator = v.object({
 });
 
 /**
+ * An attempt's call has ended, whatever became of the row. A row made
+ * obsolete while its call was in flight stops holding the running slot.
+ */
+async function settleAttemptEnd(
+  ctx: MutationCtx,
+  preparationId: Id<"briefPreparations">,
+  attemptId: string
+): Promise<Preparation | null> {
+  const preparation = await ctx.db.get(preparationId);
+  if (!preparation || preparation.attemptId !== attemptId || preparation.attemptEndedAt !== undefined) {
+    return preparation;
+  }
+  await ctx.db.patch(preparationId, { attemptEndedAt: Date.now(), leaseExpiresAt: undefined });
+  return (await ctx.db.get(preparationId))!;
+}
+
+/** The action stopped before its call (switched off, say): cancelled. */
+export const cancelPreparationAttempt = internalMutation({
+  args: { preparationId: v.id("briefPreparations"), attemptId: v.string(), reason: v.string() },
+  returns: v.null(),
+  handler: async (ctx, args): Promise<null> => {
+    const preparation = await settleAttemptEnd(ctx, args.preparationId, args.attemptId);
+    if (!preparation || preparation.status !== "running" || preparation.attemptId !== args.attemptId) return null;
+    await endPreparation(ctx, preparation, "cancelled", args.reason.slice(0, 40));
+    return null;
+  },
+});
+
+/**
  * The attempt's validated entries: every one checked again against the
  * preparation's own frozen rows (byte match and owner decision 25), then
  * the preparation is ready and its waiters are released.
@@ -520,7 +661,15 @@ export const completePreparation = internalMutation({
   returns: v.null(),
   handler: async (ctx, args): Promise<null> => {
     const preparation = await liveAttempt(ctx, args.preparationId, args.attemptId);
+    await settleAttemptEnd(ctx, args.preparationId, args.attemptId);
     if (!preparation) return null;
+    // Authority again before anything is kept: an editor who lost it (or a
+    // deactivated account) publishes nothing. The spend stays recorded.
+    const project = await ctx.db.get(preparation.projectId);
+    if (!project || !(await userMayEditReport(ctx, await ctx.db.get(preparation.triggeredBy), project))) {
+      await endPreparation(ctx, preparation, "cancelled", "not_authorized");
+      return null;
+    }
     if (args.entries.length > MAX_BRIEF_ENTRY_ROWS) {
       await endPreparation(ctx, preparation, "failed", "too_many_entries");
       return null;
@@ -564,6 +713,7 @@ export const completePreparation = internalMutation({
       storylineText: args.storylineText,
       droppedEntryCount,
       completedAt: now,
+      contentExpiresAt: now + PREPARATION_READY_CONTENT_MS,
       leaseExpiresAt: undefined,
       updatedAt: now,
     });
@@ -577,7 +727,7 @@ export const failPreparation = internalMutation({
   args: { preparationId: v.id("briefPreparations"), attemptId: v.string(), code: v.string() },
   returns: v.null(),
   handler: async (ctx, args): Promise<null> => {
-    const preparation = await ctx.db.get(args.preparationId);
+    const preparation = await settleAttemptEnd(ctx, args.preparationId, args.attemptId);
     if (!preparation || preparation.status !== "running" || preparation.attemptId !== args.attemptId) return null;
     await endPreparation(ctx, preparation, "failed", args.code.slice(0, 40));
     return null;
@@ -589,7 +739,7 @@ export const expirePreparationLease = internalMutation({
   args: { preparationId: v.id("briefPreparations"), attemptId: v.string() },
   returns: v.null(),
   handler: async (ctx, args): Promise<null> => {
-    const preparation = await ctx.db.get(args.preparationId);
+    const preparation = await settleAttemptEnd(ctx, args.preparationId, args.attemptId);
     if (!preparation || preparation.status !== "running" || preparation.attemptId !== args.attemptId) return null;
     await endPreparation(ctx, preparation, "failed", "timed_out");
     return null;
@@ -597,19 +747,107 @@ export const expirePreparationLease = internalMutation({
 });
 
 /**
+ * A run's wait on a running preparation (Opus review P2-1): every
+ * WAITER_CHECK_MS until its deadline. When the attempt's action job failed
+ * or was cancelled, the attempt fails and every waiter is released; at the
+ * deadline this run stops waiting and derives its own Brief (the attempt
+ * runs on for anyone else). Either way the run's continuation is scheduled.
+ */
+export const checkBriefWaiter = internalMutation({
+  args: { waiterId: v.id("briefPreparationWaiters") },
+  returns: v.null(),
+  handler: async (ctx, args): Promise<null> => {
+    const waiter = await ctx.db.get(args.waiterId);
+    if (!waiter || waiter.status !== "waiting") return null;
+    const now = Date.now();
+    const preparation = await ctx.db.get(waiter.preparationId);
+    const job = preparation?.actionJobId ? await ctx.db.system.get(preparation.actionJobId) : null;
+    const jobDead = job !== null && (job.state.kind === "failed" || job.state.kind === "canceled");
+    if (preparation && preparation.status === "running" && preparation.attemptId === waiter.attemptId && jobDead) {
+      await settleAttemptEnd(ctx, preparation._id, waiter.attemptId);
+      await endPreparation(ctx, preparation, "failed", "action_failed");
+      return null;
+    }
+    const alive =
+      preparation !== null && preparation.status === "running" && preparation.attemptId === waiter.attemptId;
+    const deadline = waiter.deadlineAt ?? now;
+    if (alive && now < deadline) {
+      await ctx.scheduler.runAfter(Math.min(WAITER_CHECK_MS, deadline - now), checkBriefWaiterRef, {
+        waiterId: waiter._id,
+      });
+      return null;
+    }
+    // Past the deadline (or the attempt is gone): this run derives its own.
+    await ctx.db.patch(waiter._id, { status: "released", releasedAt: now });
+    const generation = await ctx.db.get(waiter.generationId);
+    if (generation?.briefPreparation && generation.briefPreparation.state === "attached") {
+      await ctx.db.patch(generation._id, {
+        briefPreparation: { ...generation.briefPreparation, state: "released", at: now },
+      });
+    }
+    await ctx.scheduler.runAfter(0, internal.ai.iterative.continueAfterBriefPreparation, {
+      generationId: waiter.generationId,
+    });
+    return null;
+  },
+});
+
+/**
  * Hourly: a failed, obsolete or cancelled preparation's content (frozen
  * text, entries, display facts, placeholder map, Storyline) is deleted 24
- * hours after it ended, in bounded batches. The row stays, content-free,
- * for the spend limits and usage reporting.
+ * hours after it ended; a ready one's 7 days after it finished or was last
+ * adopted; and every ready one's at once while preparation is switched
+ * off. In bounded batches; the row stays, content-free, for the spend
+ * limits and usage reporting.
  */
 export const purgeStalePreparations = internalMutation({
   args: {},
   returns: v.object({ purged: v.number(), more: v.boolean() }),
   handler: async (ctx): Promise<{ purged: number; more: boolean }> => {
-    const cutoff = Date.now() - PREPARATION_RETENTION_MS;
+    const now = Date.now();
+    const cutoff = now - PREPARATION_RETENTION_MS;
     let budget = PREPARATION_PURGE_ROWS;
     let purged = 0;
     let more = false;
+    const purgeAll = async (rows: Preparation[]) => {
+      for (const preparation of rows) {
+        if (budget <= 0) {
+          more = true;
+          return;
+        }
+        const done = await purgePreparationContent(ctx, preparation, budget);
+        budget -= done.deleted;
+        if (!done.complete) {
+          more = true;
+          return;
+        }
+        purged += 1;
+      }
+    };
+    // Switched off: no ready copy is kept; each expires now.
+    if (!(await briefPreparationEnabled(ctx))) {
+      const ready = await ctx.db
+        .query("briefPreparations")
+        .withIndex("by_status_and_contentExpiresAt", (q) => q.eq("status", "ready"))
+        .take(10);
+      for (const row of ready) await ctx.db.patch(row._id, { contentExpiresAt: now });
+      if (ready.length === 10) more = true;
+    }
+    // Ready content past its limit becomes obsolete (no run can adopt it
+    // any more) and is deleted, as is any leftover of an earlier pass.
+    for (const status of ["ready", "obsolete"] as const) {
+      const expired = await ctx.db
+        .query("briefPreparations")
+        .withIndex("by_status_and_contentExpiresAt", (q) =>
+          q.eq("status", status).gt("contentExpiresAt", 0).lte("contentExpiresAt", now)
+        )
+        .take(10);
+      for (const row of expired) {
+        if (row.status === "ready") await endPreparation(ctx, row, "obsolete", "expired");
+      }
+      await purgeAll(expired);
+      if (expired.length === 10) more = true;
+    }
     for (const status of ["failed", "obsolete", "cancelled"] as const) {
       const stale = await ctx.db
         .query("briefPreparations")
@@ -617,19 +855,7 @@ export const purgeStalePreparations = internalMutation({
           q.eq("status", status).eq("contentPurgedAt", undefined).lt("endedAt", cutoff)
         )
         .take(10);
-      for (const preparation of stale) {
-        if (budget <= 0) {
-          more = true;
-          break;
-        }
-        const done = await purgePreparationContent(ctx, preparation, budget);
-        budget -= done.deleted;
-        if (!done.complete) {
-          more = true;
-          break;
-        }
-        purged += 1;
-      }
+      await purgeAll(stale);
       if (stale.length === 10) more = true;
     }
     if (more) await ctx.scheduler.runAfter(0, purgeStalePreparationsRef, {});
@@ -667,6 +893,7 @@ async function purgePreparationContent(
   if (deleted >= budget) return { deleted, complete: false };
   await ctx.db.patch(preparation._id, {
     contentPurgedAt: Date.now(),
+    contentExpiresAt: undefined,
     storylineText: undefined,
     placeholders: undefined,
   });

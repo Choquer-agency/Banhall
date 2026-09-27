@@ -3223,7 +3223,9 @@ export default defineSchema({
     runAt: v.number(),
     scheduledJobId: v.optional(v.id("_scheduled_functions")),
     // Why a queued row is not starting yet.
-    waitingFor: v.optional(v.union(v.literal("structure"), v.literal("slot"), v.literal("uploads"))),
+    waitingFor: v.optional(
+      v.union(v.literal("structure"), v.literal("speakers"), v.literal("slot"), v.literal("uploads"))
+    ),
     deferrals: v.optional(v.number()),
     // The report editor whose evidence change asked for it; rechecked
     // before the paid call.
@@ -3241,7 +3243,12 @@ export default defineSchema({
       v.array(v.object({ token: v.string(), value: v.string(), bare: v.optional(v.boolean()) }))
     ),
     dispatchedAt: v.optional(v.number()),
-    // shared/firmTime.ts firmDayNumber of dispatchedAt: the day limits.
+    // The scheduled runBriefPreparation job, so a waiting run can see it failed.
+    actionJobId: v.optional(v.id("_scheduled_functions")),
+    // When the attempt's call ended (completed, failed, cancelled or fenced
+    // after it was made obsolete). Until then a dispatched attempt holds the
+    // project's and user's running slot, whatever its status.
+    attemptEndedAt: v.optional(v.number()),
     firmDay: v.optional(v.number()),
     // Spend held before the call, and what its usage rows settled.
     reservedUsd: v.optional(v.number()),
@@ -3257,6 +3264,9 @@ export default defineSchema({
     endedAt: v.optional(v.number()),
     adoptedCount: v.optional(v.number()),
     lastAdoptedAt: v.optional(v.number()),
+    // A ready row's content is deleted 7 days after it finished or was last
+    // adopted, whichever is later.
+    contentExpiresAt: v.optional(v.number()),
     // The 24-hour purge of a failed, obsolete or cancelled row's content.
     contentPurgedAt: v.optional(v.number()),
   })
@@ -3266,7 +3276,8 @@ export default defineSchema({
     .index("by_projectId_and_firmDay", ["projectId", "firmDay"])
     .index("by_triggeredBy_and_firmDay", ["triggeredBy", "firmDay"])
     .index("by_triggeredBy_and_status", ["triggeredBy", "status"])
-    .index("by_status_and_contentPurgedAt_and_endedAt", ["status", "contentPurgedAt", "endedAt"]),
+    .index("by_status_and_contentPurgedAt_and_endedAt", ["status", "contentPurgedAt", "endedAt"])
+    .index("by_status_and_contentExpiresAt", ["status", "contentExpiresAt"]),
 
   // The evidence one preparation froze (convex/lib/briefEvidence.ts), the
   // rows its entries cite. Deleted with the project and by the purge.
@@ -3350,6 +3361,8 @@ export default defineSchema({
     attemptId: v.string(),
     status: v.union(v.literal("waiting"), v.literal("released")),
     registeredAt: v.number(),
+    // After this the run stops waiting and derives its own Brief.
+    deadlineAt: v.optional(v.number()),
     releasedAt: v.optional(v.number()),
   })
     .index("by_preparationId_and_status", ["preparationId", "status"])

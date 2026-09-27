@@ -26,6 +26,8 @@ import { requireSeedInitialization } from "./seedGuards";
 import { MAX_BRIEF_ENTRY_ROWS, persistDerivedBriefHandler, readBriefSourceRows } from "./brief";
 import { generationBriefKey } from "../briefPreparationKey";
 import { briefPreparationEnabled } from "../../appSettings";
+import { checkBriefWaiterRef } from "../briefPreparationRefs";
+import { PREPARATION_READY_CONTENT_MS, WAITER_DEADLINE_MS } from "../../briefPreparations";
 import { validateCitation } from "../citations";
 import { citationSpeakerReader } from "../citationSpeakers";
 import { appendReadingFactsHandler, READING_FACTS_PER_WRITE, type ReadingFact } from "../readingFacts";
@@ -185,6 +187,8 @@ async function adopt(
   await ctx.db.patch(preparation._id, {
     adoptedCount: (preparation.adoptedCount ?? 0) + 1,
     lastAdoptedAt: now,
+    // A ready copy's content lives 7 days past its last adoption.
+    ...(preparation.status === "ready" ? { contentExpiresAt: now + PREPARATION_READY_CONTENT_MS } : {}),
     updatedAt: now,
   });
   const waiters = await ctx.db
@@ -252,14 +256,19 @@ export async function adoptPreparedBriefHandler(
     if (attached) return { kind: "attached" };
     if (!preparation.attemptId || (preparation.leaseExpiresAt ?? 0) < Date.now()) return { kind: "miss" };
     const now = Date.now();
-    await ctx.db.insert("briefPreparationWaiters", {
+    // The wait is bounded (Opus review P2-1): checkBriefWaiter looks at the
+    // attempt's action job every minute and lets the run go at the deadline.
+    const deadlineAt = Math.max((preparation.dispatchedAt ?? now) + WAITER_DEADLINE_MS, now + 60_000);
+    const waiterId = await ctx.db.insert("briefPreparationWaiters", {
       preparationId: preparation._id,
       projectId: generation.projectId,
       generationId: generation._id,
       attemptId: preparation.attemptId,
       status: "waiting",
       registeredAt: now,
+      deadlineAt,
     });
+    await ctx.scheduler.runAfter(Math.min(60_000, deadlineAt - now), checkBriefWaiterRef, { waiterId });
     await ctx.db.patch(generation._id, {
       briefPreparation: { preparationId: preparation._id, attemptId: preparation.attemptId, state: "attached", at: now },
     });
