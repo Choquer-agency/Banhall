@@ -3240,6 +3240,8 @@ export default defineSchema({
       v.union(v.literal("structure"), v.literal("speakers"), v.literal("slot"), v.literal("uploads"))
     ),
     deferrals: v.optional(v.number()),
+    // Waits for uploads still arriving, counted apart from `deferrals`.
+    uploadWaits: v.optional(v.number()),
     // The report editor whose evidence change asked for it; rechecked
     // before the paid call.
     triggeredBy: v.id("users"),

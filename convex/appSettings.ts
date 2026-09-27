@@ -4,6 +4,7 @@
  * model used whenever a writer doesn't explicitly pick one. The legacy
  * "defaultModel" row is still honoured until the role is first assigned.
  */
+import { internal } from "./_generated/api";
 import { mutation, query, internalQuery, internalMutation, type QueryCtx, type MutationCtx } from "./_generated/server";
 import { v } from "convex/values";
 import { getCurrentUserOrNull, requireRole } from "./lib/auth";
@@ -11,7 +12,6 @@ import { FIRM_NAMES_KEY, firmNames, normalizeFirmNames } from "./lib/firmNames";
 import { domainError } from "./lib/contracts";
 import { assignRoleModelByHand, roleModelId } from "./lib/modelRoles";
 import type { Doc, Id } from "./_generated/dataModel";
-import { purgeStalePreparationsRef } from "./lib/briefPreparationRefs";
 import {
   DEFAULT_CONTEXT_BUDGET,
   type ContextBudget,
@@ -443,7 +443,7 @@ export const setBriefPreparationEnabled = mutation({
     const user = await requireRole(ctx, ["admin"]);
     await setSetting(ctx, BRIEF_PREPARATION_KEY, args.enabled ? "on" : "off", user._id);
     // Off: ready copies are deleted now rather than at the next hourly purge.
-    if (!args.enabled) await ctx.scheduler.runAfter(0, purgeStalePreparationsRef, {});
+    if (!args.enabled) await ctx.scheduler.runAfter(0, internal.briefPreparations.purgeStalePreparations, {});
     return null;
   },
 });
@@ -459,7 +459,7 @@ export const setBriefPreparationEnabledInternal = internalMutation({
     }
     await setSetting(ctx, BRIEF_PREPARATION_KEY, args.enabled ? "on" : "off", admin._id);
     // Off: ready copies are deleted now rather than at the next hourly purge.
-    if (!args.enabled) await ctx.scheduler.runAfter(0, purgeStalePreparationsRef, {});
+    if (!args.enabled) await ctx.scheduler.runAfter(0, internal.briefPreparations.purgeStalePreparations, {});
     return null;
   },
 });

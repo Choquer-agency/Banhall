@@ -668,7 +668,25 @@ export async function recordSeedInitializationFailureHandler(
       await isProjectDeleting(ctx, generation.projectId)) return null;
   const project = await ctx.db.get(generation.projectId);
   if (project?.activeGenerationId !== generation._id) return null;
-  await ctx.db.patch(generation._id, { seedStageError: SEED_INITIALIZATION_ERROR, currentStep: "Seed preparation needs a retry" });
+  // Decision 65: a run that failed while attached to a Brief preparation
+  // lets it go, so the Reading page never keeps showing that attempt's
+  // facts beside the retry.
+  const attachment = generation.briefPreparation;
+  const now = Date.now();
+  await ctx.db.patch(generation._id, {
+    seedStageError: SEED_INITIALIZATION_ERROR,
+    currentStep: "Seed preparation needs a retry",
+    ...(attachment?.state === "attached" ? { briefPreparation: { ...attachment, state: "released" as const, at: now } } : {}),
+  });
+  if (attachment?.state === "attached") {
+    const waiters = await ctx.db
+      .query("briefPreparationWaiters")
+      .withIndex("by_generationId", (q) => q.eq("generationId", generation._id))
+      .take(10);
+    for (const waiter of waiters) {
+      if (waiter.status === "waiting") await ctx.db.patch(waiter._id, { status: "released", releasedAt: now });
+    }
+  }
   return null;
 }
 

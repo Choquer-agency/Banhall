@@ -18,6 +18,7 @@
  * A Brief the startup pin already chose (existing reuse, including a
  * writer's edited version) always wins over a preparation.
  */
+import { internal } from "../../_generated/api";
 import { v, type ObjectType } from "convex/values";
 import type { MutationCtx, QueryCtx } from "../../_generated/server";
 import type { Doc, Id } from "../../_generated/dataModel";
@@ -26,7 +27,6 @@ import { requireSeedInitialization } from "./seedGuards";
 import { MAX_BRIEF_ENTRY_ROWS, persistDerivedBriefHandler, readBriefSourceRows } from "./brief";
 import { generationBriefKey } from "../briefPreparationKey";
 import { briefPreparationEnabled } from "../../appSettings";
-import { checkBriefWaiterRef } from "../briefPreparationRefs";
 import { PREPARATION_READY_CONTENT_MS, WAITER_DEADLINE_MS } from "../../briefPreparations";
 import { validateCitation } from "../citations";
 import { citationSpeakerReader } from "../citationSpeakers";
@@ -231,8 +231,12 @@ export async function adoptPreparedBriefHandler(
     domainError("INVALID_STATE", "Pin the startup Brief before adopting a preparation");
   }
   if (generation.briefId || generation.seedBriefPin !== null) return { kind: "miss" };
-  const attached = generation.briefPreparation;
-  if (attached?.state === "released" || attached?.state === "adopted") return { kind: "miss" };
+  if (generation.briefPreparation?.state === "adopted") return { kind: "miss" };
+  // A run let go of its wait (the deadline, a failure) never waits again,
+  // but may still adopt a ready preparation with its key instead of paying
+  // for its own Brief.
+  const released = generation.briefPreparation?.state === "released";
+  const attached = released ? undefined : generation.briefPreparation;
   if (!(await briefPreparationEnabled(ctx))) {
     await releaseAttachment(ctx, generation);
     return { kind: "miss" };
@@ -246,10 +250,12 @@ export async function adoptPreparedBriefHandler(
         .query("briefPreparations")
         .withIndex("by_projectId_and_status", (q) => q.eq("projectId", generation.projectId).eq("status", "ready"))
         .first()) ??
-      (await ctx.db
-        .query("briefPreparations")
-        .withIndex("by_projectId_and_status", (q) => q.eq("projectId", generation.projectId).eq("status", "running"))
-        .first());
+      (released
+        ? null
+        : await ctx.db
+            .query("briefPreparations")
+            .withIndex("by_projectId_and_status", (q) => q.eq("projectId", generation.projectId).eq("status", "running"))
+            .first());
     if (!candidate) return { kind: "miss" };
   }
   const sources = await readBriefSourceRows(ctx, generation._id);
@@ -268,6 +274,7 @@ export async function adoptPreparedBriefHandler(
     return { kind: "miss" };
   }
   if (preparation.status === "running") {
+    if (released) return { kind: "miss" };
     if (attached) return { kind: "attached" };
     if (!preparation.attemptId || (preparation.leaseExpiresAt ?? 0) < Date.now()) return { kind: "miss" };
     const now = Date.now();
@@ -283,7 +290,7 @@ export async function adoptPreparedBriefHandler(
       registeredAt: now,
       deadlineAt,
     });
-    await ctx.scheduler.runAfter(Math.min(60_000, deadlineAt - now), checkBriefWaiterRef, { waiterId });
+    await ctx.scheduler.runAfter(Math.min(60_000, deadlineAt - now), internal.briefPreparations.checkBriefWaiter, { waiterId });
     await ctx.db.patch(generation._id, {
       briefPreparation: { preparationId: preparation._id, attemptId: preparation.attemptId, state: "attached", at: now },
     });

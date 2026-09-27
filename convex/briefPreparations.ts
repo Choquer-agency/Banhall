@@ -63,12 +63,6 @@ import {
   MAX_CITATION_SPEAKER_SPANS,
   MAX_BRIEF_ENTRY_ROWS,
 } from "./lib/generations/brief";
-import {
-  checkBriefWaiterRef,
-  expirePreparationLeaseRef,
-  purgeStalePreparationsRef,
-  startBriefPreparationRef,
-} from "./lib/briefPreparationRefs";
 import { PREPARATION_DEBOUNCE_MS, preparationStageAllows } from "./lib/briefPreparationTrigger";
 
 /** How long one attempt may run: the action limit plus room to write. */
@@ -95,6 +89,12 @@ export const PREPARATION_COOLDOWN_MS = 30 * 60 * 1000;
 const SLOT_RETRY_MS = 30_000;
 /** Times a queued preparation is pushed back before it is cancelled. */
 const MAX_DEFERRALS = 10;
+/**
+ * Times a start waits for uploads still arriving (every
+ * PREPARATION_DEBOUNCE_MS, so about 3 minutes). A backstop only: an upload
+ * not touched for UPLOAD_SETTLE_MS no longer counts as arriving.
+ */
+const MAX_UPLOAD_WAITS = 36;
 /** Frozen rows one preparation may hold (the generation bound, MAX_BRIEF_SOURCE_ROWS). */
 const MAX_PREPARATION_SOURCES = 200;
 
@@ -147,15 +147,25 @@ async function endPreparation(
   await releaseWaiters(ctx, preparation);
 }
 
-/** Pushes a queued preparation back, or cancels it after MAX_DEFERRALS. */
+/**
+ * Pushes a queued preparation back, or cancels it after MAX_DEFERRALS
+ * (upload waits count separately, up to MAX_UPLOAD_WAITS, so a batch of
+ * files still arriving never uses up the other waits). A start that already
+ * read the evidence (`evidenceRead`) and ends here drops older ready copies
+ * first, as a cancelled start does.
+ */
 async function deferPreparation(
   ctx: MutationCtx,
   preparation: Preparation,
   waitingFor: "slot" | "uploads" | "structure" | "speakers",
-  delayMs: number
+  delayMs: number,
+  options: { evidenceRead: boolean }
 ): Promise<void> {
-  const deferrals = (preparation.deferrals ?? 0) + 1;
-  if (deferrals > MAX_DEFERRALS) {
+  const uploads = waitingFor === "uploads";
+  const deferrals = (preparation.deferrals ?? 0) + (uploads ? 0 : 1);
+  const uploadWaits = (preparation.uploadWaits ?? 0) + (uploads ? 1 : 0);
+  if (deferrals > MAX_DEFERRALS || uploadWaits > MAX_UPLOAD_WAITS) {
+    if (options.evidenceRead && preparation.projectId) await obsoleteReady(ctx, preparation.projectId);
     await endPreparation(
       ctx,
       preparation,
@@ -170,13 +180,14 @@ async function deferPreparation(
     return;
   }
   const revision = preparation.revision + 1;
-  const scheduledJobId = await ctx.scheduler.runAfter(delayMs, startBriefPreparationRef, {
+  const scheduledJobId = await ctx.scheduler.runAfter(delayMs, internal.briefPreparations.startBriefPreparation, {
     preparationId: preparation._id,
     revision,
   });
   await ctx.db.patch(preparation._id, {
     revision,
     deferrals,
+    uploadWaits,
     waitingFor,
     runAt: Date.now() + delayMs,
     scheduledJobId,
@@ -342,6 +353,24 @@ export const startBriefPreparation = internalMutation({
       return null;
     }
 
+    // A run already going derives or adopts its own Brief. Checked before
+    // the evidence is read, as is a batch of files still arriving: waiting
+    // for the rest of it reads no text (the start runs again after the
+    // batch's last change, or every PREPARATION_DEBOUNCE_MS).
+    if (await findActiveGeneration(ctx, project, ACTIVE_GENERATION_STATUSES)) {
+      await endPreparation(ctx, preparation, "cancelled", "generation_active");
+      return null;
+    }
+    const uploads = await ctx.db
+      .query("documentUploadAttempts")
+      .withIndex("by_projectId", (q) => q.eq("projectId", project._id))
+      .order("desc")
+      .take(50);
+    if (uploads.some((row) => row.status === "in_progress" && row.updatedAt > now - UPLOAD_SETTLE_MS)) {
+      await deferPreparation(ctx, preparation, "uploads", PREPARATION_DEBOUNCE_MS, { evidenceRead: false });
+      return null;
+    }
+
     // From here on the start has read the evidence: however it ends, a
     // ready copy made from older evidence is not kept (it may hold text the
     // project no longer has).
@@ -351,8 +380,6 @@ export const startBriefPreparation = internalMutation({
       await endPreparation(ctx, preparation, "cancelled", reason);
       return null;
     };
-    // A run already going derives or adopts its own Brief.
-    if (await findActiveGeneration(ctx, project, ACTIVE_GENERATION_STATUSES)) return await cancel("generation_active");
     // Historical ports from ingestion are never prepared.
     if (await isIngestionPort(ctx, project._id, evidence)) return await cancel("ingestion_port");
     const readable = evidence.transcripts.filter((row) => row.content.trim() !== "");
@@ -367,25 +394,14 @@ export const startBriefPreparation = internalMutation({
     );
     if (unsettled.length > 0) {
       for (const row of unsettled) await scheduleStructureRebuildIfStale(ctx, row);
-      await deferPreparation(ctx, preparation, "structure", STRUCTURE_RECHECK_MS);
+      await deferPreparation(ctx, preparation, "structure", STRUCTURE_RECHECK_MS, { evidenceRead: true });
       return null;
     }
     // A new transcript's uncertain speakers go to the model right after its
     // turns are built, and the answer changes the key: wait for it (bounded;
     // recordModelSpeakerRoles asks again), rather than pay twice.
     if ((preparation.deferrals ?? 0) < MAX_DEFERRALS && (await speakersPending(ctx, readable, now))) {
-      await deferPreparation(ctx, preparation, "speakers", PREPARATION_DEBOUNCE_MS);
-      return null;
-    }
-    // A batch of files still arriving: wait for it rather than prepare
-    // without the rest of it.
-    const uploads = await ctx.db
-      .query("documentUploadAttempts")
-      .withIndex("by_projectId", (q) => q.eq("projectId", project._id))
-      .order("desc")
-      .take(50);
-    if (uploads.some((row) => row.status === "in_progress" && row.updatedAt > now - UPLOAD_SETTLE_MS)) {
-      await deferPreparation(ctx, preparation, "uploads", PREPARATION_DEBOUNCE_MS);
+      await deferPreparation(ctx, preparation, "speakers", PREPARATION_DEBOUNCE_MS, { evidenceRead: true });
       return null;
     }
     // Stage 1 prepares the full-text representation only: digests and fact
@@ -444,7 +460,7 @@ export const startBriefPreparation = internalMutation({
       (await callInFlight(ctx, { projectId: project._id }, now)) ||
       (await callInFlight(ctx, { userId: preparation.triggeredBy }, now))
     ) {
-      await deferPreparation(ctx, preparation, "slot", SLOT_RETRY_MS);
+      await deferPreparation(ctx, preparation, "slot", SLOT_RETRY_MS, { evidenceRead: true });
       return null;
     }
     // At most 20 paid starts per user per firm day; spend reserved before
@@ -488,7 +504,7 @@ export const startBriefPreparation = internalMutation({
       waitingFor: undefined,
       updatedAt: now,
     });
-    await ctx.scheduler.runAfter(PREPARATION_LEASE_MS, expirePreparationLeaseRef, {
+    await ctx.scheduler.runAfter(PREPARATION_LEASE_MS, internal.briefPreparations.expirePreparationLease, {
       preparationId: preparation._id,
       attemptId,
     });
@@ -633,6 +649,21 @@ async function settleAttemptEnd(
   return (await ctx.db.get(preparationId))!;
 }
 
+/**
+ * The attempt's action found nothing to run (the row was made obsolete
+ * before the action started, or the project is being deleted): no call
+ * will be made, so the attempt ends now and frees the running slot at
+ * once instead of at the lease.
+ */
+export const settleUnrunAttempt = internalMutation({
+  args: { preparationId: v.id("briefPreparations"), attemptId: v.string() },
+  returns: v.null(),
+  handler: async (ctx, args): Promise<null> => {
+    await settleAttemptEnd(ctx, args.preparationId, args.attemptId);
+    return null;
+  },
+});
+
 /** The action stopped before its call (switched off, say): cancelled. */
 export const cancelPreparationAttempt = internalMutation({
   args: { preparationId: v.id("briefPreparations"), attemptId: v.string(), reason: v.string() },
@@ -772,7 +803,7 @@ export const checkBriefWaiter = internalMutation({
       preparation !== null && preparation.status === "running" && preparation.attemptId === waiter.attemptId;
     const deadline = waiter.deadlineAt ?? now;
     if (alive && now < deadline) {
-      await ctx.scheduler.runAfter(Math.min(WAITER_CHECK_MS, deadline - now), checkBriefWaiterRef, {
+      await ctx.scheduler.runAfter(Math.min(WAITER_CHECK_MS, deadline - now), internal.briefPreparations.checkBriefWaiter, {
         waiterId: waiter._id,
       });
       return null;
@@ -858,7 +889,7 @@ export const purgeStalePreparations = internalMutation({
       await purgeAll(stale);
       if (stale.length === 10) more = true;
     }
-    if (more) await ctx.scheduler.runAfter(0, purgeStalePreparationsRef, {});
+    if (more) await ctx.scheduler.runAfter(0, internal.briefPreparations.purgeStalePreparations, {});
     return { purged, more };
   },
 });

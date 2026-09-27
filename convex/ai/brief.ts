@@ -23,14 +23,6 @@ import {
 import { normalizeProviderError, preparationClientForStep, startActionDeadline } from "./providers";
 import { resolveGenerationStep } from "../lib/generationSteps";
 import { MAX_QUOTE_PLACES } from "../lib/briefDerivationPolicy";
-import {
-  appendPreparationFactsRef,
-  cancelPreparationAttemptRef,
-  completePreparationRef,
-  failPreparationRef,
-  getPreparationCitationSpeakersRef,
-  getPreparationRunRef,
-} from "../lib/briefPreparationRefs";
 import { generateStructured } from "./structured";
 import { briefInputsHash } from "../lib/briefInputsHash";
 import {
@@ -877,11 +869,16 @@ export const runBriefPreparation = internalAction({
   returns: v.null(),
   handler: async (ctx, args): Promise<null> => {
     startActionDeadline(ctx);
-    const run = await ctx.runQuery(getPreparationRunRef, args);
-    if (!run) return null;
+    const run = await ctx.runQuery(internal.briefPreparations.getPreparationRun, args);
+    if (!run) {
+      // Obsolete before this action started, or the project is being
+      // deleted: no call, and the running slot frees now.
+      await ctx.runMutation(internal.briefPreparations.settleUnrunAttempt, args);
+      return null;
+    }
     if (run.disabled) {
       // Switched off after the claim: nothing is sent.
-      await ctx.runMutation(cancelPreparationAttemptRef, { ...args, reason: "disabled" });
+      await ctx.runMutation(internal.briefPreparations.cancelPreparationAttempt, { ...args, reason: "disabled" });
       return null;
     }
     try {
@@ -901,19 +898,19 @@ export const runBriefPreparation = internalAction({
       const adapter: BriefSourceAdapter<Id<"briefPreparationSources">> = {
         sources: run.sources,
         speakers: async (spans) =>
-          await ctx.runQuery(getPreparationCitationSpeakersRef, { preparationId: args.preparationId, spans }),
+          await ctx.runQuery(internal.briefPreparations.getPreparationCitationSpeakers, { preparationId: args.preparationId, spans }),
       };
       const derived = await deriveBriefCandidates(adapter, client, {
         model: route.model,
         readingFacts: {
           target: {
             write: async (facts) =>
-              await ctx.runMutation(appendPreparationFactsRef, { ...args, facts }),
+              await ctx.runMutation(internal.briefPreparations.appendPreparationFacts, { ...args, facts }),
           },
           placeholders: run.placeholders,
         },
       });
-      await ctx.runMutation(completePreparationRef, {
+      await ctx.runMutation(internal.briefPreparations.completePreparation, {
         ...args,
         storylineText: derived.storylineText,
         entries: derived.entries,
@@ -922,7 +919,7 @@ export const runBriefPreparation = internalAction({
     } catch (error) {
       const code = preparationFailureCode(error);
       logBriefStageError("Brief preparation failed", args.preparationId, code);
-      await ctx.runMutation(failPreparationRef, { ...args, code });
+      await ctx.runMutation(internal.briefPreparations.failPreparation, { ...args, code });
     }
     return null;
   },

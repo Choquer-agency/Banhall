@@ -1,7 +1,6 @@
 import { cronJobs } from "convex/server";
 import { internal } from "./_generated/api";
 import { refreshCatalogRef } from "./lib/modelCatalogRefs";
-import { purgeStalePreparationsRef } from "./lib/briefPreparationRefs";
 import { CHAT_TURN_STALE_MINUTES } from "./chatV2";
 
 const crons = cronJobs();
@@ -11,7 +10,7 @@ const crons = cronJobs();
 crons.interval(
   "purge stale Brief preparations",
   { hours: 1 },
-  purgeStalePreparationsRef,
+  internal.briefPreparations.purgeStalePreparations,
   {}
 );
 

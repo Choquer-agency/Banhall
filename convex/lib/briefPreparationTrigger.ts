@@ -3,18 +3,19 @@
  * from server mutations that change a writing project's evidence (a
  * transcript or file added, replaced, archived, restored or deleted, a
  * speaker role, a finished intake turn build, the client name or fiscal
- * year), never from a read, a page mount or an admin backfill. It debounces: the preparation starts
- * PREPARATION_DEBOUNCE_MS after the last change of a burst, so a batch of
- * uploads asks once. Whether it is worth a paid call is decided when it
+ * year), never from a read, a page mount or an admin backfill. It debounces
+ * on the trailing edge: every change moves the start to
+ * PREPARATION_DEBOUNCE_MS after itself, so a burst of changes (a batch of
+ * uploads) asks once, after its last change. Whether it is worth a paid call is decided when it
  * starts (convex/briefPreparations.ts).
  */
+import { internal } from "../_generated/api";
 import type { MutationCtx } from "../_generated/server";
 import type { Doc, Id } from "../_generated/dataModel";
 import type { WorkflowStage } from "../../shared/workflowStages";
 import { firmDayNumber } from "../../shared/firmTime";
 import { briefPreparationEnabled } from "../appSettings";
 import { effectiveProjectType } from "../../shared/projectTypes";
-import { startBriefPreparationRef } from "./briefPreparationRefs";
 
 /** Quiet time after the last evidence change before a preparation starts. */
 export const PREPARATION_DEBOUNCE_MS = 5_000;
@@ -72,10 +73,6 @@ export async function requestBriefPreparation(
     .query("briefPreparations")
     .withIndex("by_projectId_and_status", (q) => q.eq("projectId", projectId).eq("status", "queued"))
     .first();
-  // A start already pending that is not waiting on anything reads the
-  // evidence when it runs, this change included: nothing to write, so
-  // parallel uploads do not contend on the row.
-  if (queued && queued.runAt > now && queued.waitingFor === undefined) return;
   let triggeredBy = trigger.userId ?? queued?.triggeredBy;
   if (!triggeredBy) {
     const latest = await ctx.db
@@ -91,8 +88,11 @@ export async function requestBriefPreparation(
     triggeredBy = latest.triggeredBy;
   }
   if (queued) {
+    // The start this change replaces has not run yet: it would do nothing
+    // (older revision), so it is not left in the queue.
+    if (queued.scheduledJobId && queued.runAt > now) await ctx.scheduler.cancel(queued.scheduledJobId);
     const revision = queued.revision + 1;
-    const scheduledJobId = await ctx.scheduler.runAfter(delayMs, startBriefPreparationRef, {
+    const scheduledJobId = await ctx.scheduler.runAfter(delayMs, internal.briefPreparations.startBriefPreparation, {
       preparationId: queued._id,
       revision,
     });
@@ -117,7 +117,7 @@ export async function requestBriefPreparation(
     createdAt: now,
     updatedAt: now,
   });
-  const scheduledJobId = await ctx.scheduler.runAfter(delayMs, startBriefPreparationRef, {
+  const scheduledJobId = await ctx.scheduler.runAfter(delayMs, internal.briefPreparations.startBriefPreparation, {
     preparationId,
     revision: 1,
   });

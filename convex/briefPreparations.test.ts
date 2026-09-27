@@ -14,15 +14,6 @@ import type { ActionCtx } from "./_generated/server";
 import { sha256 } from "./lib/contracts";
 import { TRANSCRIPT_PARSER_VERSION } from "../shared/transcriptParse";
 import { requestBriefPreparation, PREPARATION_DEBOUNCE_MS } from "./lib/briefPreparationTrigger";
-import {
-  appendPreparationFactsRef,
-  completePreparationRef,
-  expirePreparationLeaseRef,
-  failPreparationRef,
-  purgeStalePreparationsRef,
-  startBriefPreparationRef,
-  checkBriefWaiterRef,
-} from "./lib/briefPreparationRefs";
 import { PREPARATION_RETENTION_MS } from "./briefPreparations";
 import { BRIEF_REQUEST } from "./lib/briefRequest";
 import { anthropicToolSse, sseResponse } from "./anthropicSse.fixture";
@@ -210,7 +201,7 @@ async function prepare(s: Setup) {
 async function claimOnly(s: Setup) {
   await trigger(s);
   const [queued] = (await preparations(s)).filter((row) => row.status === "queued");
-  await s.t.mutation(startBriefPreparationRef, { preparationId: queued._id, revision: queued.revision });
+  await s.t.mutation(internal.briefPreparations.startBriefPreparation, { preparationId: queued._id, revision: queued.revision });
   const row = await s.t.run(async (ctx) => ctx.db.get(queued._id));
   return row!;
 }
@@ -468,7 +459,7 @@ describe("attaching to a running preparation", () => {
     const transcript = sources.find((row) => row.kind === "transcript")!;
     const excerpt = "The fluoropolymer seal held for 400 cycles without leaking";
     const at = transcript.content.indexOf(excerpt);
-    await s.t.mutation(completePreparationRef, {
+    await s.t.mutation(internal.briefPreparations.completePreparation, {
       preparationId: preparation._id,
       attemptId: preparation.attemptId!,
       storylineText: "Prepared.",
@@ -496,7 +487,7 @@ describe("attaching to a running preparation", () => {
 
     // Facts of the running attempt stream into the run's Reading page,
     // paced from the preparation's own start.
-    await s.t.mutation(appendPreparationFactsRef, {
+    await s.t.mutation(internal.briefPreparations.appendPreparationFacts, {
       preparationId: running._id, attemptId: running.attemptId!,
       facts: [{ chip: "Fact", quote: "The fluoropolymer seal held", sourceLabel: "Priya, line 7" }],
     });
@@ -550,7 +541,7 @@ describe("attaching to a running preparation", () => {
     const running = await claimOnly(s);
     const generationId = await reserve(s);
     expect((await adoptAtStart(s, generationId)).kind).toBe("attached");
-    await s.t.mutation(failPreparationRef, { preparationId: running._id, attemptId: running.attemptId!, code: "rate_limited" });
+    await s.t.mutation(internal.briefPreparations.failPreparation, { preparationId: running._id, attemptId: running.attemptId!, code: "rate_limited" });
     const calls = requests.length;
     expect((await adoptAtStart(s, generationId)).kind).toBe("derived");
     expect(requests).toHaveLength(calls + 1);
@@ -562,7 +553,7 @@ describe("attaching to a running preparation", () => {
     const running = await claimOnly(s);
     const generationId = await reserve(s);
     expect((await adoptAtStart(s, generationId)).kind).toBe("attached");
-    await s.t.mutation(expirePreparationLeaseRef, { preparationId: running._id, attemptId: running.attemptId! });
+    await s.t.mutation(internal.briefPreparations.expirePreparationLease, { preparationId: running._id, attemptId: running.attemptId! });
     const row = await s.t.run(async (ctx) => ctx.db.get(running._id));
     expect(row).toMatchObject({ status: "failed", failureCode: "timed_out" });
     const waiter = await s.t.run(async (ctx) => ctx.db.query("briefPreparationWaiters").first());
@@ -609,16 +600,16 @@ describe("fenced writes", () => {
     const obsolete = await s.t.run(async (ctx) => ctx.db.get(first._id));
     expect(obsolete).toMatchObject({ status: "obsolete", endedReason: "superseded" });
     // Still in flight: another try waits again.
-    await s.t.mutation(startBriefPreparationRef, { preparationId: second._id, revision: second.revision + 1 });
+    await s.t.mutation(internal.briefPreparations.startBriefPreparation, { preparationId: second._id, revision: second.revision + 1 });
     expect((await s.t.run(async (ctx) => ctx.db.get(second._id)))?.status).toBe("queued");
 
     // The first call ends: its late facts and completion write nothing,
     // and the slot is free.
-    await s.t.mutation(appendPreparationFactsRef, {
+    await s.t.mutation(internal.briefPreparations.appendPreparationFacts, {
       preparationId: first._id, attemptId: first.attemptId!,
       facts: [{ chip: "Fact", quote: "late", sourceLabel: "x" }],
     });
-    await s.t.mutation(completePreparationRef, {
+    await s.t.mutation(internal.briefPreparations.completePreparation, {
       preparationId: first._id, attemptId: first.attemptId!, storylineText: "late", entries: [], upstreamDroppedEntryCount: 0,
     });
     const after = await s.t.run(async (ctx) => ({
@@ -630,7 +621,7 @@ describe("fenced writes", () => {
     expect(after.row?.attemptEndedAt).toBeDefined();
     expect(after.facts).toHaveLength(0);
     const waiting = (await s.t.run(async (ctx) => ctx.db.get(second._id)))!;
-    await s.t.mutation(startBriefPreparationRef, { preparationId: second._id, revision: waiting.revision });
+    await s.t.mutation(internal.briefPreparations.startBriefPreparation, { preparationId: second._id, revision: waiting.revision });
     const dispatched = (await s.t.run(async (ctx) => ctx.db.get(second._id)))!;
     expect(dispatched.status).toBe("running");
     expect(dispatched.key).not.toBe(first.key);
@@ -640,7 +631,7 @@ describe("fenced writes", () => {
     const s = await setup();
     const running = await claimOnly(s);
     const complete = (attemptId: string) =>
-      s.t.mutation(completePreparationRef, {
+      s.t.mutation(internal.briefPreparations.completePreparation, {
         preparationId: running._id, attemptId, storylineText: "x", entries: [], upstreamDroppedEntryCount: 0,
       });
     await complete("another-attempt");
@@ -661,7 +652,7 @@ describe("fenced writes", () => {
       ctx.db.query("briefPreparationSources").withIndex("by_preparationId", (q) => q.eq("preparationId", running._id)).collect()
     );
     const transcript = sources.find((row) => row.kind === "transcript")!;
-    await s.t.mutation(completePreparationRef, {
+    await s.t.mutation(internal.briefPreparations.completePreparation, {
       preparationId: running._id, attemptId: running.attemptId!, storylineText: "x",
       entries: [
         {
@@ -726,10 +717,15 @@ describe("triggers, eligibility and limits", () => {
     await trigger(s, "document_added");
     const rows = await preparations(s);
     expect(rows).toHaveLength(1);
-    // The pending start covers the second change: no write, no new job.
-    expect(rows[0]).toMatchObject({ status: "queued", revision: 1 });
+    // Trailing debounce: the second change moves the start to 5 seconds
+    // after itself, and the first start is taken off the queue.
+    expect(rows[0]).toMatchObject({ status: "queued", revision: 2, runAt: Date.now() + PREPARATION_DEBOUNCE_MS });
+    const jobs = await s.t.run(async (ctx) => ctx.db.system.query("_scheduled_functions").collect());
+    expect(
+      jobs.filter((job) => job.name.includes("startBriefPreparation") && job.state.kind === "pending")
+    ).toHaveLength(1);
     // A start for another revision does nothing.
-    await s.t.mutation(startBriefPreparationRef, { preparationId: rows[0]._id, revision: 7 });
+    await s.t.mutation(internal.briefPreparations.startBriefPreparation, { preparationId: rows[0]._id, revision: 7 });
     expect((await preparations(s))[0].status).toBe("queued");
   });
 
@@ -741,7 +737,8 @@ describe("triggers, eligibility and limits", () => {
     await s.writer.mutation(api.projects.updateProjectClientName, { projectId: s.projectId, clientName: "Acme Seals Ltd" });
     const rows = await preparations(s);
     expect(rows).toHaveLength(1);
-    expect(rows[0]).toMatchObject({ revision: 1, triggerReason: "document_archived", triggeredBy: s.userId });
+    // Each change moved the one queued start; the last one names the reason.
+    expect(rows[0]).toMatchObject({ revision: 3, triggerReason: "identity_changed", triggeredBy: s.userId });
   });
 
   test("a review project, and the kill switch, never ask", async () => {
@@ -796,7 +793,7 @@ describe("triggers, eligibility and limits", () => {
     await trigger(s);
     await reserve(s);
     const [queued] = await preparations(s);
-    await s.t.mutation(startBriefPreparationRef, { preparationId: queued._id, revision: queued.revision });
+    await s.t.mutation(internal.briefPreparations.startBriefPreparation, { preparationId: queued._id, revision: queued.revision });
     expect((await preparations(s))[0]).toMatchObject({ status: "cancelled", endedReason: "generation_active" });
   });
 
@@ -805,7 +802,7 @@ describe("triggers, eligibility and limits", () => {
     await s.t.run(async (ctx) => ctx.db.patch(s.transcriptId, { structureBuildId: "build-1" }));
     await trigger(s);
     const [queued] = await preparations(s);
-    await s.t.mutation(startBriefPreparationRef, { preparationId: queued._id, revision: queued.revision });
+    await s.t.mutation(internal.briefPreparations.startBriefPreparation, { preparationId: queued._id, revision: queued.revision });
     expect((await preparations(s))[0]).toMatchObject({ status: "queued", waitingFor: "structure" });
     await s.t.run(async (ctx) => ctx.db.patch(s.transcriptId, { structureBuildId: undefined }));
     await s.t.run(async (ctx) => requestBriefPreparation(ctx, s.projectId, { reason: "structure_ready" }));
@@ -818,7 +815,7 @@ describe("triggers, eligibility and limits", () => {
     await s.t.run(async (ctx) => ctx.db.patch(s.speakerId, { confidence: 0.3 }));
     await trigger(s);
     const [queued] = await preparations(s);
-    await s.t.mutation(startBriefPreparationRef, { preparationId: queued._id, revision: queued.revision });
+    await s.t.mutation(internal.briefPreparations.startBriefPreparation, { preparationId: queued._id, revision: queued.revision });
     expect((await preparations(s))[0]).toMatchObject({ status: "queued", waitingFor: "speakers", deferrals: 1 });
     // The model's answer lands and asks again; the preparation then runs.
     await s.t.mutation(internal.transcripts.recordModelSpeakerRoles, {
@@ -860,7 +857,7 @@ describe("triggers, eligibility and limits", () => {
     const queued = await s.t.run(async (ctx) =>
       ctx.db.query("briefPreparations").withIndex("by_projectId", (q) => q.eq("projectId", otherProject)).unique()
     );
-    await s.t.mutation(startBriefPreparationRef, { preparationId: queued!._id, revision: queued!.revision });
+    await s.t.mutation(internal.briefPreparations.startBriefPreparation, { preparationId: queued!._id, revision: queued!.revision });
     const after = await s.t.run(async (ctx) => ctx.db.get(queued!._id));
     expect(after).toMatchObject({ status: "queued", waitingFor: "slot", deferrals: 1 });
   });
@@ -965,7 +962,7 @@ describe("retention", () => {
       }
       return { failedId, recentId };
     });
-    await s.t.mutation(purgeStalePreparationsRef, {});
+    await s.t.mutation(internal.briefPreparations.purgeStalePreparations, {});
     await settle(s);
     const state = await s.t.run(async (ctx) => {
       const count = async (preparationId: Id<"briefPreparations">) => ({
@@ -1042,12 +1039,25 @@ describe("review fixes (2026-09-26 reviews)", () => {
   test("a start that reads the evidence drops an older ready copy, even when it is cancelled (B)", async () => {
     const s = await setup();
     const ready = await prepare(s);
+    await s.t.run(async (ctx) =>
+      ctx.db.insert("appSettings", { key: "transcripts.factsMode", value: "all", updatedBy: s.userId, updatedAt: Date.now() })
+    );
+    await trigger(s);
+    await settle(s);
+    const rows = await preparations(s);
+    expect(rows[1]).toMatchObject({ status: "cancelled", endedReason: "representation" });
+    expect(await s.t.run(async (ctx) => ctx.db.get(ready._id))).toMatchObject({ status: "obsolete", endedReason: "superseded" });
+  });
+
+  test("an active run cancels the start before the evidence is read: an older ready copy stays", async () => {
+    const s = await setup();
+    const ready = await prepare(s);
     await reserve(s);
     await trigger(s);
     await settle(s);
     const rows = await preparations(s);
     expect(rows[1]).toMatchObject({ status: "cancelled", endedReason: "generation_active" });
-    expect(await s.t.run(async (ctx) => ctx.db.get(ready._id))).toMatchObject({ status: "obsolete", endedReason: "superseded" });
+    expect((await s.t.run(async (ctx) => ctx.db.get(ready._id)))?.status).toBe("ready");
   });
 
   test("ready content is deleted 7 days after it finished or was last adopted (B)", async () => {
@@ -1059,10 +1069,10 @@ describe("review fixes (2026-09-26 reviews)", () => {
     const generationId = await reserve(s);
     expect((await adoptAtStart(s, generationId)).kind).toBe("adopted");
     vi.setSystemTime(Date.now() + 3 * 24 * 60 * 60 * 1000);
-    await s.t.mutation(purgeStalePreparationsRef, {});
+    await s.t.mutation(internal.briefPreparations.purgeStalePreparations, {});
     expect((await s.t.run(async (ctx) => ctx.db.get(ready._id)))?.status).toBe("ready");
     vi.setSystemTime(Date.now() + 5 * 24 * 60 * 60 * 1000);
-    await s.t.mutation(purgeStalePreparationsRef, {});
+    await s.t.mutation(internal.briefPreparations.purgeStalePreparations, {});
     const expired = (await s.t.run(async (ctx) => ctx.db.get(ready._id)))!;
     expect(expired).toMatchObject({ status: "obsolete", endedReason: "expired" });
     expect(expired.contentPurgedAt).toBeDefined();
@@ -1190,15 +1200,15 @@ describe("bounded waits (J, L)", () => {
     const s = await setup();
     const { running, generationId, waiter } = await attached(s);
     expect(waiter.deadlineAt).toBe((running.dispatchedAt ?? 0) + 4 * 60 * 1000);
-    await s.t.mutation(appendPreparationFactsRef, {
+    await s.t.mutation(internal.briefPreparations.appendPreparationFacts, {
       preparationId: running._id, attemptId: running.attemptId!,
       facts: [{ chip: "Fact", quote: "Streamed before the deadline", sourceLabel: "Priya, line 7" }],
     });
     // Before the deadline the check only looks again.
-    await s.t.mutation(checkBriefWaiterRef, { waiterId: waiter._id });
+    await s.t.mutation(internal.briefPreparations.checkBriefWaiter, { waiterId: waiter._id });
     expect((await s.t.run(async (ctx) => ctx.db.get(waiter._id)))?.status).toBe("waiting");
     vi.setSystemTime((waiter.deadlineAt ?? 0) + 1);
-    await s.t.mutation(checkBriefWaiterRef, { waiterId: waiter._id });
+    await s.t.mutation(internal.briefPreparations.checkBriefWaiter, { waiterId: waiter._id });
     expect((await s.t.run(async (ctx) => ctx.db.get(waiter._id)))?.status).toBe("released");
     const generation = await loadGeneration(s, generationId);
     expect(generation.briefPreparation).toMatchObject({ state: "released", at: Date.now() });
@@ -1212,11 +1222,59 @@ describe("bounded waits (J, L)", () => {
     expect(requests).toHaveLength(calls + 1);
   });
 
+  test("a run let go at its deadline still adopts the preparation once it is ready, with no Brief call of its own", async () => {
+    const s = await setup();
+    const { running, generationId, waiter } = await attached(s);
+    vi.setSystemTime((waiter.deadlineAt ?? 0) + 1);
+    await s.t.mutation(internal.briefPreparations.checkBriefWaiter, { waiterId: waiter._id });
+    expect((await loadGeneration(s, generationId)).briefPreparation?.state).toBe("released");
+    const sources = await s.t.run(async (ctx) =>
+      ctx.db.query("briefPreparationSources").withIndex("by_preparationId", (q) => q.eq("preparationId", running._id)).collect()
+    );
+    const transcript = sources.find((row) => row.kind === "transcript")!;
+    const excerpt = "The fluoropolymer seal held for 400 cycles without leaking";
+    const at = transcript.content.indexOf(excerpt);
+    await s.t.mutation(internal.briefPreparations.completePreparation, {
+      preparationId: running._id,
+      attemptId: running.attemptId!,
+      storylineText: "Prepared.",
+      entries: [
+        {
+          group: "confidenceMap", text: "Held for 400 cycles.", confidence: "established",
+          sourceId: transcript._id, sourceContentHash: transcript.contentHash,
+          startOffset: at, endOffset: at + excerpt.length, exactExcerpt: excerpt,
+        },
+      ],
+      upstreamDroppedEntryCount: 0,
+    });
+    const calls = requests.length;
+    expect((await adoptAtStart(s, generationId)).kind).toBe("adopted");
+    expect(requests).toHaveLength(calls);
+    expect((await loadGeneration(s, generationId)).briefPreparation).toMatchObject({
+      preparationId: running._id,
+      state: "adopted",
+    });
+  });
+
+  test("a run let go of its wait never waits again on a still running attempt", async () => {
+    const s = await setup();
+    const { generationId, waiter } = await attached(s);
+    vi.setSystemTime((waiter.deadlineAt ?? 0) + 1);
+    await s.t.mutation(internal.briefPreparations.checkBriefWaiter, { waiterId: waiter._id });
+    const calls = requests.length;
+    expect((await adoptAtStart(s, generationId)).kind).toBe("derived");
+    expect(requests).toHaveLength(calls + 1);
+    const waiters = await s.t.run(async (ctx) =>
+      ctx.db.query("briefPreparationWaiters").withIndex("by_generationId", (q) => q.eq("generationId", generationId)).collect()
+    );
+    expect(waiters.map((row) => row.status)).toEqual(["released"]);
+  });
+
   test("a dead preparation action fails the attempt and lets every waiting run go (J)", async () => {
     const s = await setup();
     const { running, waiter } = await attached(s);
     await s.t.run(async (ctx) => ctx.scheduler.cancel(running.actionJobId!));
-    await s.t.mutation(checkBriefWaiterRef, { waiterId: waiter._id });
+    await s.t.mutation(internal.briefPreparations.checkBriefWaiter, { waiterId: waiter._id });
     expect(await s.t.run(async (ctx) => ctx.db.get(running._id))).toMatchObject({
       status: "failed",
       failureCode: "action_failed",
@@ -1379,5 +1437,89 @@ describe("the Step-by-step start with a preparation (K)", () => {
     const second = await reserve(s);
     expect((await adoptAtStart(s, second)).kind).toBe("reused");
     expect((await loadGeneration(s, second)).briefId).toBe(editedId);
+  });
+});
+
+describe("stage 1 re-review follow-ups", () => {
+  test("a start that read the evidence and ends on the wait limit drops older ready copies", async () => {
+    const s = await setup();
+    const ready = await prepare(s);
+    await s.t.run(async (ctx) => ctx.db.patch(s.transcriptId, { structureBuildId: "build-stuck" }));
+    await trigger(s);
+    const queued = (await preparations(s)).find((row) => row.status === "queued")!;
+    await s.t.run(async (ctx) => ctx.db.patch(queued._id, { deferrals: 10 }));
+    await s.t.mutation(internal.briefPreparations.startBriefPreparation, { preparationId: queued._id, revision: queued.revision });
+    expect(await s.t.run(async (ctx) => ctx.db.get(queued._id))).toMatchObject({
+      status: "cancelled",
+      endedReason: "structure_unsettled",
+    });
+    expect(await s.t.run(async (ctx) => ctx.db.get(ready._id))).toMatchObject({ status: "obsolete", endedReason: "superseded" });
+  });
+
+  test("an attempt whose action finds nothing to run frees the running slot at once", async () => {
+    const s = await setup();
+    const running = await claimOnly(s);
+    await s.t.run(async (ctx) => ctx.db.patch(running._id, { status: "obsolete", endedReason: "superseded", endedAt: Date.now() }));
+    await s.t.action(internal.ai.brief.runBriefPreparation, { preparationId: running._id, attemptId: running.attemptId! });
+    expect(requests).toHaveLength(0);
+    const after = (await s.t.run(async (ctx) => ctx.db.get(running._id)))!;
+    expect(after.attemptEndedAt).toBe(Date.now());
+    // The next start is not held back by the ended attempt.
+    await trigger(s, "document_added");
+    const queued = (await preparations(s)).find((row) => row.status === "queued")!;
+    await s.t.run(async (ctx) =>
+      ctx.db.insert("appSettings", { key: "transcripts.factsMode", value: "off", updatedBy: s.userId, updatedAt: Date.now() })
+    );
+    await addDocument(s, "later.txt", "A later cold soak note.");
+    await s.t.mutation(internal.briefPreparations.startBriefPreparation, { preparationId: queued._id, revision: queued.revision });
+    expect((await s.t.run(async (ctx) => ctx.db.get(queued._id)))?.status).toBe("running");
+  });
+
+  test("the start runs 5 seconds after the last change, not the first", async () => {
+    const s = await setup();
+    const t0 = Date.now();
+    await trigger(s);
+    vi.setSystemTime(t0 + 4_000);
+    await trigger(s, "document_added");
+    vi.advanceTimersByTime(PREPARATION_DEBOUNCE_MS + 100 - 4_000);
+    await s.t.finishInProgressScheduledFunctions();
+    // 5 seconds after the first change nothing has started.
+    expect((await preparations(s))[0]).toMatchObject({ status: "queued", revision: 2 });
+    await settle(s);
+    // Only the second change's start ran, 5 seconds after it.
+    const rows = await preparations(s);
+    expect(rows).toHaveLength(1);
+    expect(rows[0].status).toBe("ready");
+    expect(rows[0].revision).toBe(2);
+    expect(rows[0].dispatchedAt).toBeGreaterThanOrEqual(t0 + 4_000 + PREPARATION_DEBOUNCE_MS);
+  });
+
+  test("uploads still arriving hold the start without reading the evidence or using up its waits", async () => {
+    const s = await setup();
+    const ready = await prepare(s);
+    await addDocument(s, "second.txt", "A second cold soak note for a different gasket.");
+    const attemptId = await s.t.run(async (ctx) =>
+      ctx.db.insert("documentUploadAttempts", {
+        projectId: s.projectId, attemptKey: "0b7c8a3e-1d2f-4a5b-8c9d-0e1f2a3b4c5d", fileName: "third.txt",
+        origin: "context_input", status: "in_progress", createdBy: s.userId, createdAt: Date.now(), updatedAt: Date.now(),
+      })
+    );
+    await trigger(s, "document_added");
+    // Twelve waits (a minute), more than the ten shared ones: still queued,
+    // and the older ready copy is kept since no evidence was read.
+    for (let wait = 0; wait < 12; wait += 1) {
+      await s.t.run(async (ctx) => ctx.db.patch(attemptId, { updatedAt: Date.now() }));
+      vi.advanceTimersByTime(PREPARATION_DEBOUNCE_MS + 10);
+      await s.t.finishInProgressScheduledFunctions();
+    }
+    const queued = (await preparations(s)).find((row) => row._id !== ready._id)!;
+    expect(queued).toMatchObject({ status: "queued", waitingFor: "uploads", uploadWaits: 12 });
+    expect(queued.deferrals ?? 0).toBe(0);
+    expect((await s.t.run(async (ctx) => ctx.db.get(ready._id)))?.status).toBe("ready");
+    // The batch ends: the start reads the evidence and prepares it.
+    await s.t.run(async (ctx) => ctx.db.patch(attemptId, { status: "succeeded", updatedAt: Date.now() }));
+    await settle(s);
+    expect((await s.t.run(async (ctx) => ctx.db.get(queued._id)))?.status).toBe("ready");
+    expect((await s.t.run(async (ctx) => ctx.db.get(ready._id)))?.status).toBe("obsolete");
   });
 });
