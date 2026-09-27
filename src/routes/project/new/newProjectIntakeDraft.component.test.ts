@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { ConvexError } from "convex/values";
 import { render } from "vitest-browser-svelte";
 import { page } from "vitest/browser";
 import NewProjectPage from "./+page.svelte";
@@ -19,6 +20,7 @@ import {
   confirmButton,
   fillBasics,
   openStartDialog,
+  chooseMode,
   openTranscriptPaste,
   setInputValue,
 } from "./newProjectTestSupport";
@@ -236,5 +238,90 @@ describe("confirming promotes the draft", () => {
     await new Promise((resolve) => setTimeout(resolve, 600));
     expect(__mutationCalls("intakeDrafts:createIntakeDraft")).toEqual([]);
     expect(document.querySelector("[data-intake-note]")).toBeNull();
+  });
+});
+
+describe("a draft that is gone, and a confirm that cannot promote (review fixes)", () => {
+  const gone = () => new ConvexError({ code: "NOT_FOUND", message: "This setup is no longer available" });
+
+  it("an expired draft (idle for a day) ends quietly and confirming takes the old path", async () => {
+    await render(NewProjectPage, {});
+    await fillBasics("Cold seal", "Acme Seals");
+    __setMutationError("intakeDrafts:saveIntakeSource", gone());
+    await pasteTranscript();
+    await expect.poll(() => saves().length).toBe(1);
+    // No "Not saved yet": the draft is gone, not the file.
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(document.querySelector("[data-save-receipt]")).toBeNull();
+    expect(sessionStorage.getItem(INTAKE_DRAFT_STORAGE_KEY)).toBeNull();
+    await openStartDialog();
+    confirmButton()!.click();
+    await expect.poll(() => __mutationCalls("generations:requestGeneration").length).toBe(1);
+    expect(__mutationCalls("intakeDrafts:promoteIntakeDraft")).toEqual([]);
+    expect(__mutationCalls("projects:createProject")).toHaveLength(1);
+  });
+
+  it("a draft another tab discarded ends at its next call, and nothing more is sent to it", async () => {
+    await render(NewProjectPage, {});
+    await fillBasics("Cold seal", "Acme Seals");
+    await pasteTranscript();
+    await expect.poll(() => saves().length).toBe(1);
+    __setMutationError("intakeDrafts:updateIntakeContext", gone());
+    setInputValue("#clientName", "Acme Seals Ltd");
+    await expect.poll(() => __mutationCalls("intakeDrafts:updateIntakeContext").length).toBeGreaterThan(0);
+    await new Promise((resolve) => setTimeout(resolve, 700));
+    addSupportingFiles([new File(["Scoping notes for the rig."], "Scoping.txt")]);
+    await new Promise((resolve) => setTimeout(resolve, 700));
+    expect(saves()).toHaveLength(1);
+    await openStartDialog();
+    confirmButton()!.click();
+    await expect.poll(() => __mutationCalls("generations:requestGeneration").length).toBe(1);
+    expect(__mutationCalls("projects:createProject")).toHaveLength(1);
+  });
+
+  it("a first promote call that fails made no project: the draft is discarded and the old path creates it", async () => {
+    await render(NewProjectPage, {});
+    await fillBasics("Cold seal", "Acme Seals");
+    await pasteTranscript();
+    await expect.poll(() => saves().length).toBe(1);
+    __setMutationError("intakeDrafts:promoteIntakeDraft", new Error("network"));
+    await openStartDialog();
+    confirmButton()!.click();
+    await expect.poll(() => __mutationCalls("generations:requestGeneration").length).toBe(1);
+    expect(__mutationCalls("intakeDrafts:promoteIntakeDraft")).toHaveLength(1);
+    expect(__mutationCalls("intakeDrafts:discardIntakeDraft")).toEqual([{ draftId: "draft-1" }]);
+    expect(__mutationCalls("projects:createProject")).toHaveLength(1);
+    // The old path's receipts are its own: no stale draft receipt stays.
+    expect(document.querySelector("[data-save-receipt]")).toBeNull();
+  });
+
+  it("a promotion that takes several steps is polled until the project is set up, then the run starts", async () => {
+    await render(NewProjectPage, {});
+    await fillBasics("Cold seal", "Acme Seals");
+    await pasteTranscript();
+    await expect.poll(() => saves().length).toBe(1);
+    const transcriptKey = saves()[0].sourceKey;
+    __setMutationResult("intakeDrafts:promoteIntakeDraft", { projectId: "project-new", complete: false, sources: [] });
+    await openStartDialog();
+    confirmButton()!.click();
+    await expect.poll(() => __mutationCalls("intakeDrafts:promoteIntakeDraft").length).toBeGreaterThan(1);
+    expect(__mutationCalls("generations:requestGeneration")).toEqual([]);
+    __setMutationResult("intakeDrafts:promoteIntakeDraft", {
+      projectId: "project-new",
+      complete: true,
+      sources: [{ sourceKey: transcriptKey, kind: "transcript", transcriptId: "transcript-new" }],
+    });
+    await expect.poll(() => __mutationCalls("generations:requestGeneration").length).toBe(1);
+    expect(__mutationCalls("generations:requestGeneration")[0]).toMatchObject({ projectId: "project-new" });
+    expect(__mutationCalls("projects:createProject")).toEqual([]);
+  });
+
+  it("switching to Review a written PD discards the draft", async () => {
+    await render(NewProjectPage, {});
+    await fillBasics("Cold seal", "Acme Seals");
+    await pasteTranscript();
+    await expect.poll(() => saves().length).toBe(1);
+    await chooseMode("Review a written PD");
+    await expect.poll(() => __mutationCalls("intakeDrafts:discardIntakeDraft")).toEqual([{ draftId: "draft-1" }]);
   });
 });

@@ -8,12 +8,17 @@
  * leave-out list while it is open. Confirming flushes what is still on its
  * way and promotes the draft into the project.
  *
- * Only the draft's opaque id is kept in session storage, never its text.
+ * A draft the server no longer has (it expired, another tab discarded it)
+ * ends here too: nothing more is sent, its receipts go, and confirming
+ * takes the old path. Only the draft's opaque id is kept in session
+ * storage, never its text.
  */
 import { SvelteMap } from "svelte/reactivity";
+import { untrack } from "svelte";
 import type { FunctionReference } from "convex/server";
 import type { Id } from "../../../../convex/_generated/dataModel";
 import { intakeDraftRefs } from "../../../../convex/lib/intakeDraftRefs";
+import { userErrorCode } from "$lib/errors";
 import type { IntakeSourceDesc } from "./intakePlan";
 
 /** Session storage key of the open draft's id. */
@@ -22,8 +27,10 @@ export const INTAKE_DRAFT_STORAGE_KEY = "banhall:intake-draft";
 export const SOURCE_SAVE_DELAY_MS = 300;
 /** The names are saved this long after the writer stops typing. */
 export const CONTEXT_SAVE_DELAY_MS = 600;
-/** Promotion steps a confirm waits for before it gives up. */
-const MAX_PROMOTION_STEPS = 40;
+/** How often a confirm asks whether the project is set up. */
+export const PROMOTION_POLL_MS = 500;
+/** Promotion steps a confirm waits for (about 2 minutes) before it opens the project anyway. */
+export const MAX_PROMOTION_STEPS = 240;
 
 export type SaveState = "saving" | "saved" | "failed";
 export type OriginalState = "uploading" | "saved" | "failed";
@@ -45,11 +52,21 @@ export type PromotionReceipt = {
   }>;
 };
 
+/**
+ * What a confirm came to: the project, complete; the project, still being
+ * set up after every poll (open it and say so); or a draft that ended
+ * before any project was made (take the old path).
+ */
+export type PromotionOutcome =
+  | { kind: "complete"; receipt: PromotionReceipt }
+  | { kind: "pending"; receipt: PromotionReceipt }
+  | { kind: "ended" };
+
 type Call<Ref> = Ref extends FunctionReference<"mutation", "public", infer Args, infer Result>
   ? (args: Args) => Promise<Result>
   : never;
 
-/** The draft's mutations, as `useMutation` gives them. */
+/** The draft's mutations, as `useMutation` gives them, and the release of an unused upload. */
 export type IntakeCalls = {
   [Name in
     | "createIntakeDraft"
@@ -84,8 +101,20 @@ function sameSource(a: IntakeSourceDesc, b: IntakeSourceDesc): boolean {
     a.fileType === b.fileType &&
     a.category === b.category &&
     a.intake === b.intake &&
-    a.extractionOutcome === b.extractionOutcome
+    a.extractionOutcome === b.extractionOutcome &&
+    (a.file ?? null) === (b.file ?? null)
   );
+}
+
+/** Hex SHA-256 of a text, as the server hashes a source's text. */
+export async function textHash(text: string): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
+  return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+/** Whether a failed call says the draft is gone (expired, discarded, another tab). */
+function draftGone(error: unknown): boolean {
+  return userErrorCode(error) === "NOT_FOUND";
 }
 
 export class IntakeDraftSync {
@@ -95,12 +124,16 @@ export class IntakeDraftSync {
   receipts = new SvelteMap<string, SaveState>();
   /** Per source key: its original file is uploading, saved, or failed. */
   originals = new SvelteMap<string, OriginalState>();
-  /** Promoted or discarded: no more text is sent. */
+  /** Promoted, discarded or gone: no more text is sent. */
   closed = $state(false);
+  /** Discarded or gone (not promoted): no original is attached any more either. */
+  #ended = false;
 
   #calls: IntakeCalls;
   #storage: Pick<Storage, "getItem" | "setItem" | "removeItem"> | null;
   #uploadOriginal: (file: File) => Promise<Id<"_storage"> | undefined>;
+  #claimUpload: (storageId: Id<"_storage">) => Promise<unknown>;
+  #releaseUpload: (storageId: Id<"_storage">) => Promise<unknown>;
   #delayMs: number;
   #creating: Promise<Id<"intakeDrafts"> | null> | null = null;
   #wanted = new Map<string, IntakeSourceDesc>();
@@ -108,7 +141,7 @@ export class IntakeDraftSync {
   #attempted = new Map<string, IntakeSourceDesc>();
   #timers = new Map<string, ReturnType<typeof setTimeout>>();
   #inflight = new Map<string, Promise<void>>();
-  #originalsTried = new Set<string>();
+  #originalsTried = new Map<string, File>();
   #originalUploads = new Set<Promise<void>>();
   #context: IntakeContext | null = null;
   #contextSent = "";
@@ -120,11 +153,17 @@ export class IntakeDraftSync {
   constructor(options: {
     calls: IntakeCalls;
     uploadOriginal: (file: File) => Promise<Id<"_storage"> | undefined>;
+    /** Claims a fresh upload as the caller's, so only they may release it. */
+    claimUpload?: (storageId: Id<"_storage">) => Promise<unknown>;
+    /** Deletes the caller's own claimed upload that no row will hold. */
+    releaseUpload?: (storageId: Id<"_storage">) => Promise<unknown>;
     storage?: Pick<Storage, "getItem" | "setItem" | "removeItem"> | null;
     delayMs?: number;
   }) {
     this.#calls = options.calls;
     this.#uploadOriginal = options.uploadOriginal;
+    this.#claimUpload = options.claimUpload ?? (async () => undefined);
+    this.#releaseUpload = options.releaseUpload ?? (async () => undefined);
     this.#storage = options.storage ?? null;
     this.#delayMs = options.delayMs ?? SOURCE_SAVE_DELAY_MS;
   }
@@ -143,6 +182,12 @@ export class IntakeDraftSync {
   /** Brings the draft in line with what the page has read. */
   reconcile(desired: readonly IntakeSourceDesc[]): void {
     if (this.closed) return;
+    // The receipts are this class's own bookkeeping: reading them here
+    // must not make the page's effect depend on them.
+    untrack(() => this.#reconcile(desired));
+  }
+
+  #reconcile(desired: readonly IntakeSourceDesc[]): void {
     const keys = new Set(desired.map((desc) => desc.sourceKey));
     for (const desc of desired) {
       this.#wanted.set(desc.sourceKey, desc);
@@ -229,48 +274,91 @@ export class IntakeDraftSync {
   }
 
   /**
-   * Confirm: the draft becomes the project, stepping until the server has
-   * installed every source. The receipt maps each source key to its row.
+   * Confirm: the draft becomes the project. A first call that fails made no
+   * project, and throws so the page takes the old path. From the first
+   * receipt on the project exists: later steps are polled, a failing step is
+   * polled again, and after every poll the page opens that project either
+   * way; the page never falls back to making another project.
    */
   async promote(args: {
     commandId: string;
     sourceKeys: string[];
     project: Parameters<IntakeCalls["promoteIntakeDraft"]>[0]["project"];
-  }): Promise<PromotionReceipt> {
-    if (!this.draftId) throw new Error("No intake draft to promote");
-    const call = (): Promise<PromotionReceipt> =>
-      this.#calls.promoteIntakeDraft({
-        draftId: this.draftId!,
-        commandId: args.commandId,
-        sourceKeys: args.sourceKeys,
-        project: args.project,
-      });
-    let receipt = await call();
+  }): Promise<PromotionOutcome> {
+    const draftId = this.draftId;
+    if (!draftId) throw new Error("No intake draft to promote");
+    const call = () => this.#calls.promoteIntakeDraft({ draftId, ...args });
+    let first: Awaited<ReturnType<typeof call>>;
+    try {
+      first = await call();
+    } catch (error) {
+      if (draftGone(error)) this.#die();
+      throw error;
+    }
+    if ("ended" in first) {
+      this.#die();
+      return { kind: "ended" };
+    }
     // No more text goes to a draft that is becoming the project.
     this.closed = true;
+    let receipt: PromotionReceipt = first;
     for (let step = 0; !receipt.complete && step < MAX_PROMOTION_STEPS; step += 1) {
-      await new Promise((resolve) => setTimeout(resolve, 250));
-      receipt = await call();
+      await new Promise((resolve) => setTimeout(resolve, PROMOTION_POLL_MS));
+      try {
+        const next = await call();
+        if ("ended" in next) return { kind: "pending", receipt };
+        receipt = next;
+      } catch {
+        // A failing step is asked again; the project stays the same one.
+      }
     }
-    if (!receipt.complete) throw new Error("The project is still being set up");
     this.#removeStorage();
-    return receipt;
+    return receipt.complete ? { kind: "complete", receipt } : { kind: "pending", receipt };
   }
 
   /** Discard: the writer left New project. Its pending work stops and its content goes. */
   discard(): void {
     if (this.closed) return;
-    this.closed = true;
+    const draftId = this.draftId;
+    this.#end();
+    if (draftId) void this.#calls.discardIntakeDraft({ draftId }).catch(() => undefined);
+  }
+
+  /** The page is gone: no timer fires any more. */
+  dispose(): void {
     for (const timer of this.#timers.values()) clearTimeout(timer);
     this.#timers.clear();
-    const draftId = this.draftId;
-    this.#removeStorage();
-    if (draftId) void this.#calls.discardIntakeDraft({ draftId }).catch(() => undefined);
+    if (this.#contextTimer) clearTimeout(this.#contextTimer);
+    if (this.#selectionTimer) clearTimeout(this.#selectionTimer);
+    this.#contextTimer = null;
+    this.#selectionTimer = null;
+  }
+
+  /** Whether a draft was made, or is being made. */
+  get started(): boolean {
+    return this.draftId !== null || this.#creating !== null;
   }
 
   /** Original uploads still on their way (they finish after a confirm too). */
   get uploadsPending(): number {
     return this.#originalUploads.size;
+  }
+
+  /** Stops everything: no more saves, no receipts, no stored id. */
+  #end(): void {
+    this.closed = true;
+    this.#ended = true;
+    this.dispose();
+    this.receipts.clear();
+    this.originals.clear();
+    this.#removeStorage();
+  }
+
+  /** The server no longer has the draft: it ends here as if discarded. */
+  #die(): void {
+    if (this.#ended) return;
+    this.#end();
+    this.draftId = null;
   }
 
   async #ensureDraft(): Promise<Id<"intakeDrafts"> | null> {
@@ -281,6 +369,12 @@ export class IntakeDraftSync {
         const draftId = await this.#calls.createIntakeDraft({});
         if (!draftId) {
           this.#creating = null;
+          return null;
+        }
+        // Confirmed, switched to Review or left while it was being made:
+        // it is not kept (and its id is never stored).
+        if (this.closed) {
+          void this.#calls.discardIntakeDraft({ draftId }).catch(() => undefined);
           return null;
         }
         this.draftId = draftId;
@@ -305,7 +399,7 @@ export class IntakeDraftSync {
       const desc = this.#wanted.get(key);
       if (!desc || this.closed) return;
       const draftId = await this.#ensureDraft();
-      if (!draftId) {
+      if (!draftId || this.closed) {
         // No draft at all: nothing is prepared ahead, and confirming saves
         // every file the way it always has, so there is no receipt to show.
         this.receipts.delete(key);
@@ -330,6 +424,10 @@ export class IntakeDraftSync {
         if (this.#wanted.get(key) === desc) this.receipts.set(key, "saved");
         this.#maybeUploadOriginal(key, desc);
       } catch (error) {
+        if (draftGone(error)) {
+          this.#die();
+          return;
+        }
         console.error("Could not save a file to the intake draft", error);
         if (this.#wanted.get(key) === desc) this.receipts.set(key, "failed");
       }
@@ -342,34 +440,51 @@ export class IntakeDraftSync {
   async #remove(key: string): Promise<void> {
     this.#sent.delete(key);
     this.#attempted.delete(key);
+    // A file added again under this key (Replace) uploads its own original.
+    this.#originalsTried.delete(key);
     const draftId = this.draftId;
     if (!draftId || this.closed) return;
     await this.#inflight.get(key)?.catch(() => undefined);
     // Added back while the save was on its way: keep it.
     if (this.#wanted.has(key)) return;
-    await this.#calls.removeIntakeSource({ draftId, sourceKey: key }).catch(() => undefined);
+    await this.#calls.removeIntakeSource({ draftId, sourceKey: key }).catch((error: unknown) => {
+      if (draftGone(error)) this.#die();
+    });
   }
 
   #maybeUploadOriginal(key: string, desc: IntakeSourceDesc): void {
     const file = desc.file;
     const draftId = this.draftId;
-    if (!file || !draftId || this.#originalsTried.has(key)) return;
-    this.#originalsTried.add(key);
+    if (!file || !draftId || this.#ended || this.#originalsTried.get(key) === file) return;
+    this.#originalsTried.set(key, file);
     this.originals.set(key, "uploading");
     const upload = (async () => {
       try {
-        const storageId = await this.#uploadOriginal(file);
+        const [storageId, contentHash] = await Promise.all([this.#uploadOriginal(file), textHash(desc.content)]);
         if (!storageId) throw new Error("Original upload failed");
+        await this.#claimUpload(storageId);
+        // The draft ended, or the file was replaced, while it uploaded: the
+        // upload is released, never attached.
+        if (this.#ended || this.#sent.get(key)?.file !== file) {
+          await this.#releaseUpload(storageId);
+          if (!this.#ended && this.originals.get(key) === "uploading") this.originals.delete(key);
+          return;
+        }
         const attached = await this.#calls.attachIntakeOriginal({
           draftId,
           sourceKey: key,
           storageId,
+          contentHash,
           ...(file.type ? { mimeType: file.type } : {}),
         });
-        this.originals.set(key, attached ? "saved" : "failed");
+        if (!this.#ended) this.originals.set(key, attached ? "saved" : "failed");
       } catch (error) {
+        if (draftGone(error)) {
+          this.#die();
+          return;
+        }
         console.error("Could not save an original file to the intake draft", error);
-        this.originals.set(key, "failed");
+        if (!this.#ended) this.originals.set(key, "failed");
       }
     })();
     this.#originalUploads.add(upload);
@@ -392,6 +507,10 @@ export class IntakeDraftSync {
       });
       this.#contextSent = serialized;
     } catch (error) {
+      if (draftGone(error)) {
+        this.#die();
+        return;
+      }
       console.error("Could not save the project names to the intake draft", error);
     }
   }
@@ -406,6 +525,10 @@ export class IntakeDraftSync {
       await this.#calls.setIntakeSelection({ draftId, excludedSourceKeys: this.#selection });
       this.#selectionSent = serialized;
     } catch (error) {
+      if (draftGone(error)) {
+        this.#die();
+        return;
+      }
       console.error("Could not save the file choice to the intake draft", error);
     }
   }
@@ -419,6 +542,7 @@ export class IntakeDraftSync {
   }
 
   #writeStorage(draftId: Id<"intakeDrafts">): void {
+    if (this.closed) return;
     try {
       this.#storage?.setItem(INTAKE_DRAFT_STORAGE_KEY, draftId);
     } catch {

@@ -1,6 +1,6 @@
 <script lang="ts">
   import { isParseAbort } from "$lib/spreadsheetClient";
-  import { onDestroy, onMount } from "svelte";
+  import { onDestroy, onMount, untrack } from "svelte";
   import { afterNavigate, beforeNavigate, goto } from "$app/navigation";
   import { resolve } from "$app/paths";
   import { goToLogin } from "$lib/auth/goToLogin";
@@ -114,7 +114,7 @@
     type IntakeCalls,
   } from "$lib/components/project-new/intakeDraft.svelte";
   import { intakeDraftRefs } from "../../../../convex/lib/intakeDraftRefs";
-  import { newSourceKey, plannedIntakeSources } from "$lib/components/project-new/intakePlan";
+  import { newSourceKey, noteSourceKey, plannedIntakeSources } from "$lib/components/project-new/intakePlan";
   import { markStartConfirmed, markStartReserved } from "$lib/perf/startTimings";
 
   const extractionLifetime = new AbortController();
@@ -551,10 +551,13 @@
     return new IntakeDraftSync({
       calls: intakeCalls,
       uploadOriginal: (file) => uploadOriginalTransport({ file, generateUploadUrl: () => generateUploadUrl({}), fetch }),
+      claimUpload: (storageId) => claimUpload({ storageId }),
+      releaseUpload: (storageId) => discardTranscriptOriginals({ storageIds: [storageId] }),
       storage: typeof sessionStorage === "undefined" ? null : sessionStorage,
     });
   }
   let intake = $state.raw(makeIntake());
+  onDestroy(() => intake.dispose());
   const sourceKeys = new Map<string, string>();
   function sourceKeyFor(id: string): string {
     let key = sourceKeys.get(id);
@@ -564,7 +567,11 @@
     }
     return key;
   }
-  const intakeActive = $derived(mode === "generate" && !fromProjectId && Boolean(user.data?.role));
+  // Write a new PD and not a duplicate: the draft is wanted. It runs once
+  // the signed-in user is known to have a role; a moment with no user data
+  // (a reconnect) only pauses it, never discards it.
+  const intakeWanted = $derived(mode === "generate" && !fromProjectId);
+  const intakeActive = $derived(intakeWanted && Boolean(user.data?.role));
   const intakeSources = $derived(
     intakeActive
       ? plannedIntakeSources({
@@ -582,14 +589,18 @@
   );
   $effect(() => {
     const desired = intakeSources;
-    if (!intakeActive) {
-      // Review a written PD, or a duplicate: nothing is prepared ahead.
-      if (intake.draftId && !intake.closed) {
-        intake.discard();
-        intake = makeIntake();
-      }
+    if (!intakeWanted) {
+      // Review a written PD: nothing is prepared ahead. Discarded even while
+      // the draft is still being made (it is dropped when that returns).
+      untrack(() => {
+        if (intake.started && !intake.closed) {
+          intake.discard();
+          intake = makeIntake();
+        }
+      });
       return;
     }
+    if (!intakeActive) return;
     if (intake.closed || (!desired.length && !intake.draftId)) return;
     intake.reconcile(desired);
   });
@@ -1278,6 +1289,8 @@
       excludeDocumentIds: Id<"projectDocuments">[];
       skippedFiles: string[];
       savedOwn: string[];
+      /** Years whose note is saved already: a report of that year does not repeat it. */
+      notesSaved?: ReadonlySet<number>;
     }
   ) {
     const { leftOut, excludeDocumentIds, skippedFiles, savedOwn } = state;
@@ -1355,7 +1368,7 @@
     const noteCarried = new Set<number>();
     const saveOne = async (doc: SupportingDoc) => {
       if (doc.category !== "previous_pd") return uploadDoc(doc);
-      const note = (yearNotes.get(doc.year) ?? "").trim();
+      const note = state.notesSaved?.has(doc.year) ? "" : (yearNotes.get(doc.year) ?? "").trim();
       const outcome = await uploadDoc(
         doc,
         `${previousYearReportHeader(doc.year)}${note ? `Note: ${note}\n` : ""}\n`
@@ -1425,7 +1438,9 @@
       extractionLifetime.signal.throwIfAborted();
       const docKeys = new Set(supportingFiles.map((doc) => sourceKeyFor(doc.id)));
       if (plan.some((source) => unsaved.has(source.sourceKey) && !docKeys.has(source.sourceKey))) return "fallback";
-      const receipt = await intake.promote({
+      let outcome: Awaited<ReturnType<typeof intake.promote>>;
+      try {
+        outcome = await intake.promote({
         commandId: createRequestId(),
         sourceKeys: plan.filter((source) => !unsaved.has(source.sourceKey)).map((source) => source.sourceKey),
         project: {
@@ -1441,9 +1456,27 @@
           ...(projectNumber.trim() ? { projectNumber: projectNumber.trim() } : {}),
         },
       });
+      } catch (promoteError) {
+        // The first call failed, so no project was made: the draft goes and
+        // the old path saves everything (it reports a real refusal itself).
+        console.error("The intake draft could not become the project", promoteError);
+        intake.discard();
+        return "fallback";
+      }
       extractionLifetime.signal.throwIfAborted();
+      if (outcome.kind === "ended") return "fallback";
+      const receipt = outcome.receipt;
       const projectId = receipt.projectId;
       createdProjectId = projectId;
+      if (outcome.kind === "pending") {
+        // The project exists but is still being set up after every poll:
+        // open it rather than make another one.
+        toast.info("Your project is still being set up. Start the run from the project once it is ready.");
+        committing = false;
+        progress = "";
+        openProject(projectId, { title, client: clientName });
+        return "done";
+      }
       // The leave-out lists by the exact receipt, never by file name.
       const rowOf = new Map(receipt.sources.map((row) => [row.sourceKey, row]));
       const excludeTranscriptIds = transcriptItems.flatMap((item) => {
@@ -1459,7 +1492,16 @@
       // recorded on the project); one still being read that the writer
       // left out follows the start, as before.
       const skippedFiles: string[] = [];
-      const { saveOne } = documentSaver(projectId, { leftOut, excludeDocumentIds, skippedFiles, savedOwn });
+      // A year's note is in the draft already (on its own, or carried by a
+      // report the draft saved): a report saved here does not repeat it.
+      const notesSaved = new Set<number>();
+      for (const year of previousYears) {
+        const carried = supportingFiles.some(
+          (doc) => doc.category === "previous_pd" && doc.year === year && rowOf.has(sourceKeyFor(doc.id))
+        );
+        if (rowOf.has(noteSourceKey(year)) || carried) notesSaved.add(year);
+      }
+      const { saveOne } = documentSaver(projectId, { leftOut, excludeDocumentIds, skippedFiles, savedOwn, notesSaved });
       const notInDraft = supportingFiles.filter(
         (doc) => doc.category !== "transcript" && !rowOf.has(sourceKeyFor(doc.id))
       );
