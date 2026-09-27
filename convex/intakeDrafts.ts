@@ -38,6 +38,7 @@ import {
   MAX_INTAKE_DOCUMENT_TEXT_CHARS,
   MAX_INTAKE_DOCUMENTS,
   MAX_OPEN_DRAFTS_PER_USER,
+  MAX_SOURCE_TEXT_BYTES,
   MAX_SPEAKER_CALLS_PER_DAY,
   buildIntakeStructure,
   deleteSourceText,
@@ -86,7 +87,7 @@ const PROMOTION_STEP_CHARS = 1_500_000;
 /** A transcript this short has its first turns built inside the promotion step. */
 const INLINE_STRUCTURE_CHARS = 150_000;
 /** How often a promotion waiting on its transcripts' turn builds looks again. */
-const PROMOTION_RECHECK_MS = 500;
+const PROMOTION_RECHECK_MS = 1_500;
 /**
  * How long promotion waits for the turn builds before it lets the project
  * be used anyway (the run then derives its own Brief if the key misses).
@@ -94,6 +95,13 @@ const PROMOTION_RECHECK_MS = 500;
 const PROMOTION_STRUCTURE_WAIT_MS = 3 * 60 * 1000;
 /** A promotion this old is resumed, or ended, by the sweep. */
 const STUCK_PROMOTION_MS = 10 * 60 * 1000;
+/**
+ * A promotion is never "being set up" forever (review 2026-09-26, P2-A):
+ * after this many resumes, or this long after it began, it ends with what
+ * was installed and records the rest as not saved.
+ */
+const MAX_PROMOTION_RESUMES = 5;
+const MAX_PROMOTION_MS = 30 * 60 * 1000;
 /** An original may still reach a promoted project's row this long after promotion. */
 const LATE_ORIGINAL_MS = 60 * 60 * 1000;
 /** Rows one purge step deletes. */
@@ -181,7 +189,10 @@ export const createIntakeDraft = mutation({
     const now = Date.now();
     const counts = await dailyCounts(ctx, user._id, now);
     if (counts.drafts >= MAX_DRAFTS_PER_DAY) {
-      domainError("INVALID_STATE", "You have started a lot of new projects today. Files are saved when you start instead.");
+      domainError(
+        "INTAKE_DRAFT_LIMIT",
+        "You have started a lot of new projects today, so files are saved when you start instead."
+      );
     }
     await ctx.db.patch(counts._id, { drafts: counts.drafts + 1 });
     const open = await ctx.db
@@ -256,7 +267,17 @@ export const saveIntakeSource = mutation({
       if (!args.content.trim()) domainError("INVALID_INPUT", "A transcript needs text");
       requireTranscriptTextWithinCap(args.content);
     } else if (args.content.length > MAX_INTAKE_DOCUMENT_CHARS) {
-      domainError("INVALID_INPUT", "This file holds too much text to save");
+      domainError("INTAKE_TEXT_LIMIT", "This file holds too much text to save in a project.");
+    }
+    // What does not fit the project row it becomes is refused here, never
+    // left to fail at promotion (review 2026-09-26, P2-A).
+    if (new TextEncoder().encode(args.content).length > MAX_SOURCE_TEXT_BYTES) {
+      domainError(
+        "INTAKE_TEXT_LIMIT",
+        args.kind === "transcript"
+          ? "This transcript holds too much text for one project transcript. Split it into two transcripts."
+          : "This file holds too much text to save in a project. Split it or remove some pages."
+      );
     }
     const existing = await ctx.db
       .query("intakeSources")
@@ -272,14 +293,14 @@ export const saveIntakeSource = mutation({
     const documentChars =
       (draft.documentChars ?? 0) + (args.kind === "document" ? args.content.length - previousLength : 0);
     if (transcriptCount > MAX_TRANSCRIPTS_PER_PROJECT || transcriptChars > MAX_TOTAL_TRANSCRIPT_CHARS) {
-      domainError("INVALID_INPUT", "A project takes at most 20 transcripts and 2,000k characters of transcript text");
+      domainError("INTAKE_TEXT_LIMIT", "A project takes at most 20 transcripts and 2,000k characters of transcript text.");
     }
     if (documentCount > MAX_INTAKE_DOCUMENTS) {
-      domainError("INVALID_INPUT", `A new project takes at most ${MAX_INTAKE_DOCUMENTS} supporting documents`);
+      domainError("INTAKE_TEXT_LIMIT", `A new project takes at most ${MAX_INTAKE_DOCUMENTS} supporting documents.`);
     }
     if (documentChars > MAX_INTAKE_DOCUMENT_TEXT_CHARS) {
       domainError(
-        "INVALID_INPUT",
+        "INTAKE_TEXT_LIMIT",
         "A new project takes at most 3,000k characters of supporting document text. Remove a file to add this one."
       );
     }
@@ -391,7 +412,7 @@ export const attachIntakeOriginal = mutation({
   handler: async (ctx, args): Promise<boolean> => {
     const user = await requireCreator(ctx);
     const draft = await ctx.db.get(args.draftId);
-    if (!draft || draft.ownerId !== user._id) domainError("NOT_FOUND", "This setup is no longer available");
+    if (!draft || draft.ownerId !== user._id) domainError("INTAKE_DRAFT_GONE", "This setup is no longer available");
     const sourceKey = requireSourceKey(args.sourceKey);
     await requireFreshUpload(ctx, args.storageId);
     const claim = await uploadClaimFor(ctx, args.storageId);
@@ -939,12 +960,13 @@ async function continuePromotion(
   // Complete once every installed transcript's turns are built by the
   // current parser, so the run's speaker evidence matches the preparation's.
   const now = Date.now();
-  let built = true;
-  for (const source of transcripts) {
-    const transcript = (await ctx.db.get(source._id))?.transcriptId;
-    const row = transcript ? await ctx.db.get(transcript) : null;
-    if (row && (row.parserVersion !== TRANSCRIPT_PARSER_VERSION || row.structureBuildId !== undefined)) built = false;
-  }
+  // Each transcript's link records when its turn build finished, so the
+  // wait reads the links only, never the transcripts' text.
+  const links = await ctx.db
+    .query("intakeSourceLinks")
+    .withIndex("by_projectId", (q) => q.eq("projectId", projectId))
+    .take(MAX_LINKS_READ);
+  const built = links.every((link) => link.draftId !== draft._id || link.kind !== "transcript" || link.builtAt !== undefined);
   if (!built && now < (draft.promotionStartedAt ?? now) + PROMOTION_STRUCTURE_WAIT_MS) {
     if (options.schedule) {
       await ctx.scheduler.runAfter(PROMOTION_RECHECK_MS, intakeDraftRefs.continueIntakePromotion, { draftId: draft._id });
@@ -1001,8 +1023,10 @@ async function installTranscript(
     source.speakerModel === "needed" ||
     source.speakerModel === "pending" ||
     source.speakerModel === "failed";
+  let builtAt: number | undefined;
   if (content.length <= INLINE_STRUCTURE_CHARS) {
     const step = await buildStructureStep(ctx, transcriptId, 0, undefined, { modelRoles });
+    if (step.kind === "done" || step.kind === "current" || step.kind === "missing") builtAt = now;
     if (step.kind === "continue") {
       await ctx.scheduler.runAfter(0, internal.transcripts.buildTranscriptStructure, {
         transcriptId,
@@ -1029,6 +1053,7 @@ async function installTranscript(
     sourceKey: source.sourceKey,
     kind: "transcript",
     transcriptId,
+    ...(builtAt !== undefined ? { builtAt } : {}),
     createdAt: now,
   });
   await ctx.db.patch(source._id, { transcriptId });
@@ -1157,6 +1182,36 @@ async function moveDraftPreparations(ctx: MutationCtx, draft: Doc<"intakeDrafts"
 }
 
 /**
+ * Ends a promotion that could not finish (its steps kept failing, or it ran
+ * past MAX_PROMOTION_MS): the project keeps what was installed and is no
+ * longer "being set up"; every source that did not install is recorded as a
+ * file that was not saved on the project's receipt, so the writer sees it
+ * and can add it again; the draft's own preparations end and its content
+ * is purged.
+ */
+async function endIncompletePromotion(ctx: MutationCtx, draft: Doc<"intakeDrafts">, projectId: Id<"projects">) {
+  const now = Date.now();
+  for (const source of await listDraftSources(ctx, draft._id)) {
+    if (source.transcriptId || source.projectDocumentId) continue;
+    await ctx.db.insert("documentUploadAttempts", {
+      projectId,
+      attemptKey: crypto.randomUUID(),
+      fileName: source.label.slice(0, 200),
+      fileSizeBytes: source.contentLength,
+      origin: "context_input",
+      status: "failed",
+      failureCode: "upload_failed",
+      createdBy: draft.ownerId,
+      createdAt: now,
+      updatedAt: now,
+    });
+  }
+  await fenceDraftPreparations(ctx, draft._id, "promotion_incomplete");
+  await ctx.db.patch(draft._id, { status: "promoted", promotedAt: now, endedAt: now, promotionIncomplete: true });
+  await ctx.scheduler.runAfter(0, intakeDraftRefs.purgeIntakeDraft, { draftId: draft._id });
+}
+
+/**
  * Deletes a closed draft's content in bounded batches: speaker rows, text,
  * sources (with an original file nothing else holds: a promoted draft's
  * files belong to the project now and stay), the content of its
@@ -1260,10 +1315,16 @@ export const sweepIntakeDrafts = internalMutation({
       .take(INTAKE_SWEEP_DRAFTS);
     for (const draft of stuck) {
       const project = draft.projectId ? await ctx.db.get(draft.projectId) : null;
-      if (project && project.deletionStartedAt === undefined) {
-        await ctx.scheduler.runAfter(0, intakeDraftRefs.continueIntakePromotion, { draftId: draft._id });
-      } else {
+      if (!project || project.deletionStartedAt !== undefined) {
         await closeDraft(ctx, draft, "discarded");
+      } else if (
+        (draft.promotionResumes ?? 0) >= MAX_PROMOTION_RESUMES ||
+        now - (draft.promotionStartedAt ?? now) >= MAX_PROMOTION_MS
+      ) {
+        await endIncompletePromotion(ctx, draft, project._id);
+      } else {
+        await ctx.db.patch(draft._id, { promotionResumes: (draft.promotionResumes ?? 0) + 1 });
+        await ctx.scheduler.runAfter(0, intakeDraftRefs.continueIntakePromotion, { draftId: draft._id });
       }
     }
     let purging = 0;

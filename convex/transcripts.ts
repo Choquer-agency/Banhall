@@ -163,6 +163,15 @@ export const buildTranscriptStructure = internalMutation({
     if (step.kind === "done" && step.modelRoles) {
       await requestBriefPreparation(ctx, transcript.projectId, { reason: "structure_ready" });
     }
+    // Decision 65, stage 2: a transcript installed from an intake draft
+    // tells its promotion that its turns are built.
+    if (step.kind === "done") {
+      const link = await ctx.db
+        .query("intakeSourceLinks")
+        .withIndex("by_transcriptId", (q) => q.eq("transcriptId", args.transcriptId))
+        .first();
+      if (link && link.builtAt === undefined) await ctx.db.patch(link._id, { builtAt: Date.now() });
+    }
     return null;
   },
 });

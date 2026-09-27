@@ -96,6 +96,13 @@ export const NAMES_SETTLE_MS = 5_000;
 export const MAX_DRAFTS_PER_DAY = 30;
 /** Speaker model calls one person's drafts may make per firm day. */
 export const MAX_SPEAKER_CALLS_PER_DAY = 60;
+/**
+ * UTF-8 bytes of text a saved source may hold: what fits the project row it
+ * becomes (a transcript or a file, under the 1 MiB document limit) with room
+ * for the row's other fields.
+ */
+export const MAX_SOURCE_TEXT_BYTES = 900_000;
+
 /** How long a closed, content-free draft row is kept before it is deleted. */
 export const CLOSED_DRAFT_KEEP_MS = 30 * 24 * 60 * 60 * 1000;
 
@@ -137,10 +144,10 @@ export async function requireOwnDraft(
 ): Promise<Doc<"intakeDrafts">> {
   const draft = await ctx.db.get(draftId);
   if (!draft || draft.ownerId !== user._id || !statuses.includes(draft.status)) {
-    domainError("NOT_FOUND", "This setup is no longer available");
+    domainError("INTAKE_DRAFT_GONE", "This setup is no longer available");
   }
   if (draft.status === "open" && draft.expiresAt <= Date.now()) {
-    domainError("NOT_FOUND", "This setup is no longer available");
+    domainError("INTAKE_DRAFT_GONE", "This setup is no longer available");
   }
   return draft;
 }

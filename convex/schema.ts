@@ -3244,6 +3244,8 @@ export default defineSchema({
     deferrals: v.optional(v.number()),
     // Waits for uploads still arriving, counted apart from `deferrals`.
     uploadWaits: v.optional(v.number()),
+    // Waits for a draft's names to settle, counted apart from `deferrals`.
+    namesWaits: v.optional(v.number()),
     // The report editor whose evidence change asked for it; rechecked
     // before the paid call.
     triggeredBy: v.id("users"),
@@ -3437,8 +3439,13 @@ export default defineSchema({
     // When the client name, interviewer or interviewees last changed: the
     // speaker model call and the paid Brief wait until they settle.
     contextChangedAt: v.optional(v.number()),
-    // When promotion began, so the sweep can resume or end a stuck one.
+    // When promotion began, so the sweep can resume or end a stuck one, and
+    // how often it resumed it (at most 5, within 30 minutes).
     promotionStartedAt: v.optional(v.number()),
+    promotionResumes: v.optional(v.number()),
+    // Promotion ended before every source was installed: the missing files
+    // are recorded as not saved on the project's receipt.
+    promotionIncomplete: v.optional(v.boolean()),
     // Promotion: the one project this draft becomes, set once.
     projectId: v.optional(v.id("projects")),
     promotionCommandId: v.optional(v.string()),
@@ -3563,10 +3570,13 @@ export default defineSchema({
     kind: v.union(v.literal("transcript"), v.literal("document")),
     transcriptId: v.optional(v.id("transcripts")),
     projectDocumentId: v.optional(v.id("projectDocuments")),
+    // A transcript's turn build finished (promotion waits for every one).
+    builtAt: v.optional(v.number()),
     createdAt: v.number(),
   })
     .index("by_projectId", ["projectId"])
-    .index("by_draftId_and_sourceKey", ["draftId", "sourceKey"]),
+    .index("by_draftId_and_sourceKey", ["draftId", "sourceKey"])
+    .index("by_transcriptId", ["transcriptId"]),
 
   // Round 2 (F2, decision 57): the facts "Reading the interview" shows while
   // the Step-by-step Brief is written, located on the frozen transcript as

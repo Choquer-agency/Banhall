@@ -1225,3 +1225,69 @@ describe("review fixes (2026-09-26, Opus 5.5 and Fable 5.1)", () => {
     expect(spent.projectUsd).toBeCloseTo(0.3, 10);
   });
 });
+
+describe("re-check fixes (2026-09-26, Opus 5.5)", () => {
+  test("a 400,000-character CJK document that would not fit its project row is refused at save, in plain words (P2-A)", async () => {
+    const s = await setup();
+    const draftId = await s.writer.mutation(intakeDraftRefs.createIntakeDraft, {});
+    const cjk = "冷却試験の記録".repeat(57_143).slice(0, 400_000);
+    const error = await saveDocument(s, draftId, "cjk-doc-key-1", "記録.txt", cjk).catch((caught: unknown) => caught);
+    expect((error as { data?: { code?: string; message?: string } }).data).toMatchObject({
+      code: "INTAKE_TEXT_LIMIT",
+      message: "This file holds too much text to save in a project. Split it or remove some pages.",
+    });
+    const transcriptError = await saveTranscript(s, draftId, "cjk-transcript-key", `話者1: ${cjk}`).catch((caught: unknown) => caught);
+    expect((transcriptError as { data?: { code?: string } }).data?.code).toBe("INTAKE_TEXT_LIMIT");
+    // A smaller CJK document fits.
+    await saveDocument(s, draftId, "cjk-doc-key-2", "記録2.txt", cjk.slice(0, 250_000));
+  });
+
+  test("draft errors carry their own codes", async () => {
+    const s = await setup();
+    const draftId = await s.writer.mutation(intakeDraftRefs.createIntakeDraft, {});
+    await s.writer.mutation(intakeDraftRefs.discardIntakeDraft, { draftId });
+    const gone = await saveTranscript(s, draftId, "transcript-key-1").catch((caught: unknown) => caught);
+    expect((gone as { data?: { code?: string } }).data?.code).toBe("INTAKE_DRAFT_GONE");
+  });
+
+  test("names edited a few seconds apart, again and again, never cancel the preparation (P3-3)", async () => {
+    const s = await setup();
+    const draftId = await s.writer.mutation(intakeDraftRefs.createIntakeDraft, {});
+    await saveTranscript(s, draftId, "transcript-key-1");
+    await setContext(s, draftId, "Acme");
+    for (let edit = 0; edit < 14; edit += 1) {
+      vi.advanceTimersByTime(3_000);
+      await s.t.finishInProgressScheduledFunctions();
+      await s.writer.mutation(intakeDraftRefs.updateIntakeContext, {
+        draftId, clientName: `Acme Seals ${edit}`, interviewees: ["Priya Raman"],
+      });
+    }
+    await drain(s, 20);
+    const rows = await draftPreparations(s, draftId);
+    expect(rows.some((row) => row.endedReason === "names_unsettled")).toBe(false);
+    expect(rows.at(-1)?.status).toBe("ready");
+    expect(briefRequests).toHaveLength(1);
+  });
+
+  test("the wait for turn builds reads the links, which each build marks when it finishes (P3-4)", async () => {
+    const s = await setup();
+    const draftId = await s.writer.mutation(intakeDraftRefs.createIntakeDraft, {});
+    const long = Array.from({ length: 2600 }, (_, line) => `Priya Raman: Line ${line} about the cold soak rig and the seal.`).join("\n\n");
+    await saveTranscript(s, draftId, "short-key", TRANSCRIPT, 0, "Short");
+    await saveTranscript(s, draftId, "long-key", long, 1, "Long");
+    const first = await promote(s, draftId, ["short-key", "long-key"]);
+    expect(first.complete).toBe(false);
+    const links = async () =>
+      await s.t.run(async (ctx) =>
+        ctx.db.query("intakeSourceLinks").withIndex("by_projectId", (q) => q.eq("projectId", first.projectId)).collect()
+      );
+    // The short one was built inside the step; the long one is not yet.
+    expect((await links()).map((link) => [link.sourceKey, link.builtAt !== undefined]).sort()).toEqual([
+      ["long-key", false],
+      ["short-key", true],
+    ]);
+    await drain(s);
+    expect((await links()).every((link) => link.builtAt !== undefined)).toBe(true);
+    expect((await promote(s, draftId, ["short-key", "long-key"])).complete).toBe(true);
+  });
+});

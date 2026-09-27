@@ -105,6 +105,8 @@ const MAX_DEFERRALS = 10;
  * not touched for UPLOAD_SETTLE_MS no longer counts as arriving.
  */
 const MAX_UPLOAD_WAITS = 36;
+/** Times a draft's start waits for its names to settle (each wait is at most 5 seconds). */
+const MAX_NAMES_WAITS = 60;
 /** Frozen rows one preparation may hold (the generation bound, MAX_BRIEF_SOURCE_ROWS). */
 const MAX_PREPARATION_SOURCES = 200;
 
@@ -221,9 +223,14 @@ async function deferPreparation(
   options: { evidenceRead: boolean }
 ): Promise<void> {
   const uploads = waitingFor === "uploads";
-  const deferrals = (preparation.deferrals ?? 0) + (uploads ? 0 : 1);
+  const names = waitingFor === "names";
+  const deferrals = (preparation.deferrals ?? 0) + (uploads || names ? 0 : 1);
   const uploadWaits = (preparation.uploadWaits ?? 0) + (uploads ? 1 : 0);
-  if (deferrals > MAX_DEFERRALS || uploadWaits > MAX_UPLOAD_WAITS) {
+  // Names waits have their own counter (review 2026-09-26, P3-3): each
+  // names edit restarts the 5-second settle, so several edits a few
+  // seconds apart never use up the other waits.
+  const namesWaits = (preparation.namesWaits ?? 0) + (names ? 1 : 0);
+  if (deferrals > MAX_DEFERRALS || uploadWaits > MAX_UPLOAD_WAITS || namesWaits > MAX_NAMES_WAITS) {
     if (options.evidenceRead) await obsoleteReady(ctx, scopeOf(preparation));
     await endPreparation(
       ctx,
@@ -248,6 +255,7 @@ async function deferPreparation(
     revision,
     deferrals,
     uploadWaits,
+    namesWaits,
     waitingFor,
     runAt: Date.now() + delayMs,
     scheduledJobId,

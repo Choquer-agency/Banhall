@@ -33,6 +33,11 @@ export const domainErrorCodes = [
   // Decision 65, stage 2: a run or review asked for while the project is
   // still being set up from its intake draft.
   "PROJECT_SETTING_UP",
+  // Decision 65, stage 2: a private intake draft that expired, was
+  // discarded or ended; the day's draft cap; a draft's text or file caps.
+  "INTAKE_DRAFT_GONE",
+  "INTAKE_DRAFT_LIMIT",
+  "INTAKE_TEXT_LIMIT",
 ] as const;
 
 export type DomainErrorCode = (typeof domainErrorCodes)[number];
