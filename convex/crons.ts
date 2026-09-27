@@ -1,9 +1,19 @@
 import { cronJobs } from "convex/server";
 import { internal } from "./_generated/api";
 import { refreshCatalogRef } from "./lib/modelCatalogRefs";
+import { purgeStalePreparationsRef } from "./lib/briefPreparationRefs";
 import { CHAT_TURN_STALE_MINUTES } from "./chatV2";
 
 const crons = cronJobs();
+
+// Decision 65: a failed, obsolete or cancelled Brief preparation's content
+// is deleted 24 hours after it ended, in bounded batches.
+crons.interval(
+  "purge stale Brief preparations",
+  { hours: 1 },
+  purgeStalePreparationsRef,
+  {}
+);
 
 crons.interval(
   "recover stale report generations",

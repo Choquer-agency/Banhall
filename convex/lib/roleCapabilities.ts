@@ -100,6 +100,22 @@ async function reportEditLevelAllows(
 }
 
 /**
+ * Whether a stored user, not the caller, holds `report.editProse` on a
+ * project today: for work a user's earlier action scheduled, rechecked
+ * before it spends (the Brief preparation, decision 65). A user without an
+ * active internal role, or a project being deleted, never does.
+ */
+export async function userMayEditReport(
+  ctx: CapabilityCtx,
+  user: Doc<"users"> | null,
+  project: Doc<"projects">
+): Promise<boolean> {
+  if (!user || user.isAnonymous === true || !user.role) return false;
+  if (project.deletionStartedAt !== undefined) return false;
+  return await reportEditLevelAllows(ctx, { project, user });
+}
+
+/**
  * Nullable twin of `requireReportEditAccess` (story 4: the Brief's `canEdit`).
  * The same decision, but an outsider or a caller without `report.editProse`
  * on this project gets `null` instead of an error.

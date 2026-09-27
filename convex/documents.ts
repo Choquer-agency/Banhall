@@ -1,5 +1,6 @@
 import { query, mutation, internalQuery } from "./_generated/server";
 import { v } from "convex/values";
+import { requestBriefPreparation } from "./lib/briefPreparationTrigger";
 import {
   getInternalProjectAccessOrNull,
   requireInternalActor,
@@ -209,6 +210,10 @@ export const uploadDocument = mutation({
         documentId
       );
     }
+    // Decision 65: readable new evidence may change the prepared Brief.
+    if (args.content.trim()) {
+      await requestBriefPreparation(ctx, args.projectId, { userId: user._id, reason: "document_added" });
+    }
     return documentId;
   },
 });
@@ -259,8 +264,14 @@ export const setDocumentArchived = mutation({
   handler: async (ctx, args) => {
     const doc = await ctx.db.get(args.documentId);
     if (!doc) throw new Error("Document not found");
-    await requireReportEditAccess(ctx, doc.projectId);
+    const { user } = await requireReportEditAccess(ctx, doc.projectId);
     await ctx.db.patch(args.documentId, { archived: args.archived });
+    if (Boolean(doc.archived) !== args.archived) {
+      await requestBriefPreparation(ctx, doc.projectId, {
+        userId: user._id,
+        reason: args.archived ? "document_archived" : "document_restored",
+      });
+    }
   },
 });
 
@@ -280,9 +291,10 @@ export const deleteDocument = mutation({
   handler: async (ctx, args) => {
     const doc = await ctx.db.get(args.documentId);
     if (!doc) throw new Error("Document not found");
-    await requireReportEditAccess(ctx, doc.projectId);
+    const { user } = await requireReportEditAccess(ctx, doc.projectId);
     await ctx.db.delete(args.documentId);
     if (doc.storageId) await deleteStorageIfUnreferenced(ctx, doc.storageId);
+    await requestBriefPreparation(ctx, doc.projectId, { userId: user._id, reason: "document_deleted" });
   },
 });
 

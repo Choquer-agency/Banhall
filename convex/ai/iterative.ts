@@ -28,7 +28,7 @@ import { ANALYZER_REQUEST, runAnalyzerAgent, type TranscriptAnalysis } from "./a
 import { ActionTimeBudgetError, isErrorOf } from "./actionDeadline";
 import { OpenRouterError } from "./openrouter";
 import { alwaysThinkingMaxTokens } from "../../shared/generationModels";
-import { runGenerationBriefStage, deriveOrReuseBrief } from "./brief";
+import { runGenerationBriefStage, deriveOrAdoptSeedBrief } from "./brief";
 import { runSection242Agent } from "./section242Agent";
 import { runSection244Agent } from "./section244Agent";
 import { runSection246Agent } from "./section246Agent";
@@ -84,8 +84,12 @@ const SECTION_TITLES: Record<IterativeSection, string> =
 
 export { ITERATIVE_PROMPT_SCAFFOLDS } from "./promptDefinitions";
 
-/** Derive or reuse the frozen seed Brief. Never throws: this boundary
- * never persists provider errors or source/model text. */
+/**
+ * Derive, reuse or adopt the frozen seed Brief. `attached`: the run waits on
+ * a running Brief preparation with its exact key (decision 65), whose
+ * completion schedules continueAfterBriefPreparation. Never throws: this
+ * boundary never persists provider errors or source/model text.
+ */
 async function deriveSeedBrief(
   ctx: ActionCtx,
   generationId: Id<"generations">,
@@ -93,7 +97,7 @@ async function deriveSeedBrief(
   model: string,
   freeze: ModelFreeze | null,
   requestedBy?: Id<"users">
-): Promise<boolean> {
+): Promise<"ready" | "failed" | "attached"> {
   try {
     // Owner decision 43: the Brief runs on the frozen planning model.
     const route = resolveGenerationStep({ freeze, step: "brief", writerModel: model });
@@ -102,12 +106,13 @@ async function deriveSeedBrief(
       ...(requestedBy ? { userId: requestedBy } : {}),
       attribution: { generationId },
     });
-    const result = await deriveOrReuseBrief(ctx, client, {
-      projectId, generationId, model: route.model, seedStartup: true,
+    const result = await deriveOrAdoptSeedBrief(ctx, client, {
+      projectId, generationId, model: route.model,
     });
-    return result.kind !== "no_evidence";
+    if (result.kind === "attached") return "attached";
+    return result.kind !== "no_evidence" ? "ready" : "failed";
   } catch {
-    return false;
+    return "failed";
   }
 }
 
@@ -126,6 +131,26 @@ async function openSeedStageOrRecordFailure(
   }
 }
 
+/**
+ * The seed stage after a Brief preparation (decision 65): whichever of the
+ * start action (style frozen) and the continuation (Brief settled) comes
+ * second opens it (generations.openSeedStageAfterBrief).
+ */
+async function openSeedStageAfterBrief(
+  ctx: ActionCtx,
+  generationId: Id<"generations">,
+  outcome?: "ready" | "failed"
+): Promise<void> {
+  try {
+    await ctx.runMutation(internal.generations.openSeedStageAfterBrief, {
+      generationId,
+      ...(outcome ? { outcome } : {}),
+    });
+  } catch {
+    await ctx.runMutation(internal.generations.recordSeedInitializationFailure, { generationId });
+  }
+}
+
 async function finishSeedInitialization(
   ctx: ActionCtx,
   generationId: Id<"generations">,
@@ -134,8 +159,12 @@ async function finishSeedInitialization(
   freeze: ModelFreeze | null,
   requestedBy?: Id<"users">
 ): Promise<void> {
-  const briefReady = await deriveSeedBrief(ctx, generationId, projectId, model, freeze, requestedBy);
-  await openSeedStageOrRecordFailure(ctx, generationId, briefReady);
+  const brief = await deriveSeedBrief(ctx, generationId, projectId, model, freeze, requestedBy);
+  if (brief === "attached") {
+    await openSeedStageAfterBrief(ctx, generationId);
+    return;
+  }
+  await openSeedStageOrRecordFailure(ctx, generationId, brief === "ready");
 }
 
 /**
@@ -272,7 +301,12 @@ async function startSeedStage(
     await brief;
     return;
   }
-  await openSeedStageOrRecordFailure(ctx, generationId, await brief);
+  const briefResult = await brief;
+  if (briefResult === "attached") {
+    await openSeedStageAfterBrief(ctx, generationId);
+    return;
+  }
+  await openSeedStageOrRecordFailure(ctx, generationId, briefResult === "ready");
 }
 
 /** Retry only frozen Brief publication and row initialization, never analysis or retrieval. */
@@ -287,6 +321,29 @@ export const resumeSeedInitialization = internalAction({
     const freeze = await registerGenerationModels(ctx, args.generationId);
     const model = candidateModelsForMode("iterative", input.singleModelId)[0];
     await finishSeedInitialization(ctx, args.generationId, input.projectId, model.id, freeze, input.requestedBy);
+    return null;
+  },
+});
+
+/**
+ * Decision 65: a Step-by-step start that waited on a Brief preparation,
+ * scheduled when that preparation finished, failed or ran out of time. It
+ * adopts the result, or (the preparation let go of the run) derives the
+ * run's own Brief once, then opens the seed stage if the writer style is
+ * frozen already.
+ */
+export const continueAfterBriefPreparation = internalAction({
+  args: { generationId: v.id("generations") },
+  returns: v.null(),
+  handler: async (ctx, args): Promise<null> => {
+    startActionDeadline(ctx);
+    const input = await ctx.runQuery(internal.generations.getGenerationInput, args);
+    if (!input || input.gatedWorkflow !== "seeds") return null;
+    const freeze = await registerGenerationModels(ctx, args.generationId);
+    const model = candidateModelsForMode("iterative", input.singleModelId)[0];
+    const brief = await deriveSeedBrief(ctx, args.generationId, input.projectId, model.id, freeze, input.requestedBy);
+    if (brief === "attached") return null;
+    await openSeedStageAfterBrief(ctx, args.generationId, brief);
     return null;
   },
 });

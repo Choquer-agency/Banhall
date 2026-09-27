@@ -376,3 +376,46 @@ export const setStorageSweepModeInternal = internalMutation({
     return null;
   },
 });
+
+// ─── Brief preparation kill switch (2026-09-26, decision 65) ────────────────
+
+/**
+ * Whether Banhall prepares a project's Brief before Generate
+ * (convex/briefPreparations.ts). On unless an Admin turns it off; off
+ * stops new preparations from starting and ready ones from being adopted.
+ * Anything but "off" means on.
+ */
+export const BRIEF_PREPARATION_KEY = "briefPreparation.enabled";
+
+export async function briefPreparationEnabled(ctx: QueryCtx | MutationCtx): Promise<boolean> {
+  const row = await ctx.db
+    .query("appSettings")
+    .withIndex("by_key", (q) => q.eq("key", BRIEF_PREPARATION_KEY))
+    .unique();
+  return row?.value.trim() !== "off";
+}
+
+/** Admin only ("Configure models, tags, Brain, and global settings"). */
+export const setBriefPreparationEnabled = mutation({
+  args: { enabled: v.boolean() },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const user = await requireRole(ctx, ["admin"]);
+    await setSetting(ctx, BRIEF_PREPARATION_KEY, args.enabled ? "on" : "off", user._id);
+    return null;
+  },
+});
+
+/** The same switch from the Convex dashboard, recorded against an admin. */
+export const setBriefPreparationEnabledInternal = internalMutation({
+  args: { adminId: v.id("users"), enabled: v.boolean() },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const admin = await ctx.db.get(args.adminId);
+    if (!admin || admin.role !== "admin" || admin.isAnonymous === true) {
+      throw new Error("An active administrator is required");
+    }
+    await setSetting(ctx, BRIEF_PREPARATION_KEY, args.enabled ? "on" : "off", admin._id);
+    return null;
+  },
+});

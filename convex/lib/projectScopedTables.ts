@@ -112,6 +112,12 @@ export const PROJECT_SCOPED_TABLES = [
   { table: "generationBriefs", field: "projectId", disposition: "delete", index: "by_projectId" },
   // Round 2 (F2): display-only facts shown while the Brief is written.
   { table: "generationReadingFacts", field: "projectId", disposition: "delete", index: "by_projectId" },
+  // 2026-09-26 (decision 65): Brief preparations, children before parents.
+  { table: "briefPreparationWaiters", field: "projectId", disposition: "delete", index: "by_projectId" },
+  { table: "briefPreparationFacts", field: "projectId", disposition: "delete", index: "by_projectId" },
+  { table: "briefPreparationEntries", field: "projectId", disposition: "delete", index: "by_projectId" },
+  { table: "briefPreparationSources", field: "projectId", disposition: "delete", index: "by_projectId" },
+  { table: "briefPreparations", field: "projectId", disposition: "delete", index: "by_projectId" },
   { table: "generationSources", field: "projectId", disposition: "delete", index: "by_projectId_and_generationId" },
   { table: "generationSectionRuns", field: "projectId", disposition: "delete", index: "by_projectId" },
   { table: "generationCandidateRuns", field: "projectId", disposition: "delete", index: "by_projectId" },

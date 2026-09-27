@@ -391,11 +391,28 @@ export async function getReadingFactsHandler(
   const generation = await ctx.db.get(args.generationId);
   if (!generation) return null;
   if (!(await getInternalProjectAccessOrNull(ctx, generation.projectId))) return null;
-  const newest = await ctx.db
+  const own = await ctx.db
     .query("generationReadingFacts")
     .withIndex("by_generationId_and_seq", (q) => q.eq("generationId", generation._id))
     .order("desc")
     .take(3);
+  // Decision 65: a run waiting on a Brief preparation shows that attempt's
+  // facts as they stream, paced from when the preparation started. Only
+  // that attempt's rows are read, so facts of two attempts never mix; on
+  // adoption they are copied into the run's own rows.
+  const attached = generation.briefPreparation?.state === "attached" && own.length === 0
+    ? generation.briefPreparation
+    : null;
+  const preparation = attached ? await ctx.db.get(attached.preparationId) : null;
+  const newest = attached && preparation
+    ? await ctx.db
+        .query("briefPreparationFacts")
+        .withIndex("by_preparationId_and_attemptId_and_seq", (q) =>
+          q.eq("preparationId", attached.preparationId).eq("attemptId", attached.attemptId)
+        )
+        .order("desc")
+        .take(3)
+    : own;
   return {
     count: newest[0]?.seq ?? 0,
     // A row with its speaker and line reads the same on every size, rows
@@ -406,8 +423,8 @@ export async function getReadingFactsHandler(
       quote: row.quote,
       sourceLabel: row.speaker && row.line !== undefined ? speakerPlace(row.speaker, row.line) : row.sourceLabel,
     })),
-    startedAt: generation.startedAt,
-    expectedMs: await expectedBriefMs(ctx, generation.modelFreeze?.roles?.planning),
+    startedAt: preparation?.dispatchedAt ?? generation.startedAt,
+    expectedMs: await expectedBriefMs(ctx, preparation?.planningModel ?? generation.modelFreeze?.roles?.planning),
     done: Boolean(generation.briefId),
   };
 }

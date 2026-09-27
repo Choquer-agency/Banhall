@@ -34,6 +34,7 @@ import {
   generationSlotOf,
   instrumentedAnthropic,
   type GenerationAttribution,
+  type PreparationAttribution,
   type ProviderCallMeta,
 } from "./instrument";
 import { COMPRESSION_REQUEST } from "./promptDefinitions";
@@ -551,6 +552,37 @@ type GenerationCallMeta = {
   attribution?: GenerationAttribution;
   onUsage?: ProviderCallMeta["onUsage"];
 };
+
+/**
+ * A Brief preparation's client (2026-09-26, decision 65): the planning
+ * step's model and request fields frozen on the preparation, the
+ * preparation's own placeholder map applied explicitly (the automatic
+ * wrapper in lazyClient only follows generation attribution), and usage
+ * attributed to the preparation and attempt. Built from the same wrappers,
+ * in the same order, as a generation's Brief client (clientForStep), so
+ * both send the same request for the same evidence.
+ */
+export function preparationClientForStep(
+  ctx: ActionCtx,
+  route: StepRoute,
+  meta: {
+    callSite: string;
+    projectId: Id<"projects">;
+    userId?: string;
+    preparation: PreparationAttribution;
+  },
+  frozen: { freeze: ModelFreeze; placeholders: PlaceholderMap }
+): GenerationClient {
+  registerModelEntries(frozen.freeze.entries.map(entryFromFrozen));
+  const base =
+    gatewayForModel(route.model) === "openrouter"
+      ? instrumentedOpenRouter(ctx, meta)
+      : (instrumentedAnthropic(ctx, { ...meta, capability: "generation" }) as unknown as GenerationClient);
+  return withStepRequest(
+    withOutcomeRecording(ctx, route.model, meta.callSite, withPlaceholders(base, frozen.placeholders)),
+    route
+  );
+}
 
 /** A generation's placeholder map never changes, so one read per isolate. */
 const placeholderCache = new Map<string, Promise<PlaceholderMap>>();

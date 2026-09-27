@@ -11,6 +11,7 @@ import {
   type ModelPricing,
 } from "../shared/modelPricing";
 import { catalogRow } from "./lib/modelRoles";
+import { settlePreparationUsage } from "./lib/briefPreparationBudget";
 
 /**
  * Estimated USD cost from the shared price table (`shared/modelPricing.ts`,
@@ -112,6 +113,9 @@ const usageArgs = {
   // through OpenRouter, and the provider OpenRouter says served it.
   transport: v.optional(v.literal("openrouter")),
   servedProvider: v.optional(v.string()),
+  // Decision 65: a Brief preparation's call names its preparation and attempt.
+  briefPreparationId: v.optional(v.id("briefPreparations")),
+  preparationAttemptId: v.optional(v.string()),
   createdAt: v.optional(v.number()),
 };
 
@@ -221,8 +225,15 @@ export const logUsage = internalMutation({
       ...(args.stopReason ? { stopReason: args.stopReason } : {}),
       ...(args.transport ? { transport: args.transport } : {}),
       ...(args.servedProvider ? { servedProvider: args.servedProvider } : {}),
+      ...(args.briefPreparationId ? { briefPreparationId: args.briefPreparationId } : {}),
+      ...(args.preparationAttemptId ? { preparationAttemptId: args.preparationAttemptId } : {}),
       createdAt: args.createdAt ?? Date.now(),
     });
+    // Decision 65: the preparation's spend settles from its usage rows, in
+    // the same transaction as the row, so it is counted once.
+    if (args.briefPreparationId) {
+      await settlePreparationUsage(ctx, args.briefPreparationId, cost.costUsd);
+    }
     return null;
   },
 });

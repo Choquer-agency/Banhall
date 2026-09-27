@@ -400,6 +400,24 @@ async function seedProjectRows(
     await ctx.db.insert("generationReadingFacts", {
       generationId, projectId, seq: 1, chip: "Fact", quote: "q", sourceLabel: "Priya, line 1", createdAt: now,
     });
+    // 2026-09-26 (decision 65): a preparation and each of its child rows.
+    const preparationId = await ctx.db.insert("briefPreparations", {
+      projectId, status: "ready", revision: 1, runAt: now, triggeredBy: userId, triggerReason: "transcript_added",
+      createdAt: now, updatedAt: now, attemptId: "attempt-1", key: "v1:k", storylineText: "Prepared storyline.",
+      placeholders: [{ token: "[PERSON_1]", value: "Priya" }],
+    });
+    const preparationSourceId = await ctx.db.insert("briefPreparationSources", {
+      preparationId, projectId, kind: "transcript", label: "l", content: "c", contentHash: "h", truncated: false, originalLength: 1, capturedAt: now,
+    });
+    await ctx.db.insert("briefPreparationEntries", {
+      preparationId, projectId, group: "storyline", text: "t", sourceId: preparationSourceId, sourceContentHash: "h", startOffset: 0, endOffset: 1, exactExcerpt: "c",
+    });
+    await ctx.db.insert("briefPreparationFacts", {
+      preparationId, projectId, attemptId: "attempt-1", seq: 1, chip: "Fact", quote: "q", sourceLabel: "Priya, line 1", createdAt: now,
+    });
+    await ctx.db.insert("briefPreparationWaiters", {
+      preparationId, projectId, generationId, attemptId: "attempt-1", status: "waiting", registeredAt: now,
+    });
     // One schema-populated row in every seed table proves both the AD-33 shape
     // and the registry-driven purge. These rows exercise optional references;
     // they are not intended to model one semantically valid workflow episode.

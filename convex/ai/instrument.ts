@@ -79,7 +79,21 @@ export type UsageEvent = {
    * off at the output limit.
    */
   stopReason?: string;
+  /** A Brief preparation's call (decision 65): its preparation and attempt. */
+  briefPreparationId?: Id<"briefPreparations">;
+  preparationAttemptId?: string;
   createdAt?: number;
+};
+
+/**
+ * Attribution carried only by a Brief preparation's calls (2026-09-26,
+ * decision 65). It asks for the same cached prefix and request as a
+ * generation's call, and its usage row names the preparation and attempt
+ * instead of a generation (none exists yet).
+ */
+export type PreparationAttribution = {
+  briefPreparationId: Id<"briefPreparations">;
+  attemptId: string;
 };
 
 /** Attribution carried only by provider calls owned by a generation. */
@@ -226,6 +240,7 @@ export type ProviderCallMeta = {
   projectId?: Id<"projects">;
   userId?: string;
   attribution?: GenerationAttribution;
+  preparation?: PreparationAttribution;
   onUsage?: UsageTap;
 };
 
@@ -688,7 +703,9 @@ export function instrumentedAnthropic(
         await recordGenerationHandoff(ctx, meta.attribution);
         const startedAt = Date.now();
         const request = adaptAnthropicRequest(args[0]);
-        const prefixed = meta.attribution ? cacheGenerationPrefix(request) : request;
+        // A preparation's request is sent exactly as the generation's would
+        // be (decision 65), cached prefix included.
+        const prefixed = meta.attribution || meta.preparation ? cacheGenerationPrefix(request) : request;
         const rest = args.slice(2);
         // A streamed answer is read to its end inside the attempt, so a
         // stream that breaks is retried like a failed request.
@@ -782,6 +799,13 @@ export function instrumentedAnthropic(
                   ...(meta.attribution.candidateRunId
                     ? { candidateRunId: meta.attribution.candidateRunId }
                     : {}),
+                  durationMs,
+                }
+              : {}),
+            ...(meta.preparation
+              ? {
+                  briefPreparationId: meta.preparation.briefPreparationId,
+                  preparationAttemptId: meta.preparation.attemptId,
                   durationMs,
                 }
               : {}),

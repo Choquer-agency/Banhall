@@ -1,5 +1,6 @@
 import { internalMutation, internalQuery, mutation, query, type MutationCtx, type QueryCtx } from "./_generated/server";
 import { v } from "convex/values";
+import { requestBriefPreparation } from "./lib/briefPreparationTrigger";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import {
@@ -155,6 +156,10 @@ export const buildTranscriptStructure = internalMutation({
       await ctx.scheduler.runAfter(0, internal.ai.condense.classifySpeakerRoles, {
         transcriptId: args.transcriptId,
       });
+    }
+    // Decision 65: a preparation waiting for this structure can start.
+    if (step.kind === "done") {
+      await requestBriefPreparation(ctx, transcript.projectId, { reason: "structure_ready" });
     }
     return null;
   },
@@ -362,7 +367,7 @@ export const addTranscript = mutation({
   args: { projectId: v.id("projects"), ...transcriptUploadArgs },
   returns: v.id("transcripts"),
   handler: async (ctx, args) => {
-    const { active, contentHash } = await requireTranscriptChange(ctx, args.projectId, {
+    const { user, active, contentHash } = await requireTranscriptChange(ctx, args.projectId, {
       content: args.content,
     });
     const position = nextPosition(await settlePositions(ctx, active));
@@ -373,6 +378,7 @@ export const addTranscript = mutation({
       position,
     });
     await ctx.db.patch(args.projectId, { updatedAt: Date.now() });
+    await requestBriefPreparation(ctx, args.projectId, { userId: user._id, reason: "transcript_added" });
     return transcriptId;
   },
 });
@@ -394,7 +400,7 @@ export const replaceTranscript = mutation({
       await requireReportEditAccess(ctx, old.projectId);
       domainError("INVALID_STATE", "This transcript was already replaced or removed");
     }
-    const { project, active, contentHash } = await requireTranscriptChange(ctx, old.projectId, {
+    const { project, user, active, contentHash } = await requireTranscriptChange(ctx, old.projectId, {
       content: args.content,
       replacing: old._id,
     });
@@ -413,6 +419,7 @@ export const replaceTranscript = mutation({
       updatedAt: now,
       archivedTranscriptCount: (project.archivedTranscriptCount ?? 0) + 1,
     });
+    await requestBriefPreparation(ctx, old.projectId, { userId: user._id, reason: "transcript_replaced" });
     return replacementId;
   },
 });
@@ -661,7 +668,7 @@ export const removeTranscript = mutation({
     await requireInternalActor(ctx);
     const row = await ctx.db.get(args.transcriptId);
     if (!row) domainError("NOT_FOUND", "Transcript not found");
-    const { project } = await requireTranscriptChange(ctx, row.projectId, {});
+    const { project, user } = await requireTranscriptChange(ctx, row.projectId, {});
     if (row.archivedAt !== undefined) return null;
     const now = Date.now();
     await ctx.db.patch(row._id, { archivedAt: now });
@@ -669,6 +676,7 @@ export const removeTranscript = mutation({
       updatedAt: now,
       archivedTranscriptCount: (project.archivedTranscriptCount ?? 0) + 1,
     });
+    await requestBriefPreparation(ctx, row.projectId, { userId: user._id, reason: "transcript_removed" });
     return null;
   },
 });
@@ -748,6 +756,7 @@ export const recordModelSpeakerRoles = internalMutation({
       });
     }
     await ctx.db.patch(transcript._id, { speakerStatus: await speakerStatusOf(ctx, transcript._id) });
+    await requestBriefPreparation(ctx, transcript.projectId, { reason: "speakers_changed" });
     return null;
   },
 });
@@ -836,6 +845,7 @@ export const setSpeakerRole = mutation({
       speakerStatus: await speakerStatusOf(ctx, transcript._id),
       ...(stale ? { factsStatus: "none" as const } : {}),
     });
+    await requestBriefPreparation(ctx, transcript.projectId, { userId: user._id, reason: "speakers_changed" });
     return null;
   },
 });
@@ -857,6 +867,7 @@ export const confirmSpeakers = mutation({
       });
     }
     await ctx.db.patch(transcript._id, { speakerStatus: await speakerStatusOf(ctx, transcript._id) });
+    await requestBriefPreparation(ctx, transcript.projectId, { userId: user._id, reason: "speakers_changed" });
     return null;
   },
 });

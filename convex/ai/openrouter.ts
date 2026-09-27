@@ -17,6 +17,7 @@ import {
   recordGenerationHandoff,
   scheduleUsage,
   type GenerationAttribution,
+  type PreparationAttribution,
   type UsageTap,
 } from "./instrument";
 import { modelById } from "../../shared/generationModels";
@@ -104,6 +105,7 @@ export async function openRouterChatCompletion(
     projectId?: Id<"projects">;
     userId?: string;
     attribution?: GenerationAttribution;
+    preparation?: PreparationAttribution;
     headers?: Record<string, string>;
     /** Per-attempt fetch timeout. Defaults to DEFAULT_TIMEOUT_MS. */
     timeoutMs?: number;
@@ -272,6 +274,13 @@ export async function openRouterChatCompletion(
             durationMs: Math.max(0, Date.now() - startedAt),
           }
         : {}),
+      ...(input.preparation
+        ? {
+            briefPreparationId: input.preparation.briefPreparationId,
+            preparationAttemptId: input.preparation.attemptId,
+            durationMs: Math.max(0, Date.now() - startedAt),
+          }
+        : {}),
       callSite: input.callSite,
       model: usageModel,
       inputTokens: usage.inputTokens,
@@ -314,6 +323,7 @@ export function instrumentedOpenRouter(
     projectId?: Id<"projects">;
     userId?: string;
     attribution?: GenerationAttribution;
+    preparation?: PreparationAttribution;
     onUsage?: UsageTap;
   },
   options: {

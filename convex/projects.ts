@@ -9,6 +9,7 @@ import {
   type QueryCtx,
 } from "./_generated/server";
 import { v } from "convex/values";
+import { requestBriefPreparation } from "./lib/briefPreparationTrigger";
 import type { GenericDatabaseWriter, GenericDataModel, GenericDocument } from "convex/server";
 import { components, internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
@@ -343,7 +344,7 @@ export const updateProjectClientName = mutation({
     clientName: v.string(),
   },
   handler: async (ctx, args) => {
-    await requireProjectMetadataAccess(ctx, args.projectId);
+    const { user } = await requireProjectMetadataAccess(ctx, args.projectId);
     const clientName = args.clientName.trim();
     if (!clientName) {
       domainError("INVALID_INPUT", "Company name cannot be empty");
@@ -351,6 +352,8 @@ export const updateProjectClientName = mutation({
     const patch = { clientName, updatedAt: Date.now() };
     await ctx.db.patch(args.projectId, patch);
     await syncProjectDashboardFields(ctx, args.projectId, patch);
+    // Decision 65: the client name is in the placeholder map.
+    await requestBriefPreparation(ctx, args.projectId, { userId: user._id, reason: "identity_changed" });
   },
 });
 
@@ -647,13 +650,15 @@ export const updateProjectFiscalYear = mutation({
     fiscalYearEnd: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
-    await requireProjectMetadataAccess(ctx, args.projectId);
+    const { user } = await requireProjectMetadataAccess(ctx, args.projectId);
     const patch = {
       fiscalYearEnd: args.fiscalYearEnd,
       updatedAt: Date.now(),
     };
     await ctx.db.patch(args.projectId, patch);
     await syncProjectDashboardFields(ctx, args.projectId, patch);
+    // Decision 65: the fiscal year decides which transcripts are this year's.
+    await requestBriefPreparation(ctx, args.projectId, { userId: user._id, reason: "fiscal_year_changed" });
   },
 });
 
@@ -1075,6 +1080,12 @@ export const createProject = mutation({
       if (transcriptId) transcriptIds.push(transcriptId);
     }
 
+    // Decision 65: prepare once the intake settles (the wizard's file saves
+    // push the start back). A duplicate is left alone: its files are copied
+    // afterwards, with no completion boundary to wait for yet.
+    if (transcriptIds.length > 0 && transcripts.every((transcript) => transcript.kind !== "copy")) {
+      await requestBriefPreparation(ctx, projectId, { userId: writer._id, reason: "project_created" });
+    }
     return { projectId, transcriptIds };
   },
 });

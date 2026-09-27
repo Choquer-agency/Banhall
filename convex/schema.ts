@@ -642,9 +642,15 @@ export default defineSchema({
     // The provider OpenRouter reports serving that call (expected
     // "Anthropic": the request pins it). Absent on direct calls.
     servedProvider: v.optional(v.string()),
+    // 2026-09-26 widen (decision 65): a Brief preparation's call (call site
+    // "preparation:brief") names the preparation and attempt it was made
+    // for. The row outlives the preparation's content (usage totals stay).
+    briefPreparationId: v.optional(v.id("briefPreparations")),
+    preparationAttemptId: v.optional(v.string()),
     createdAt: v.number(),
   })
     .index("by_createdAt", ["createdAt"])
+    .index("by_briefPreparationId", ["briefPreparationId"])
     .index("by_projectId", ["projectId"])
     .index("by_projectId_and_createdAt", ["projectId", "createdAt"])
     .index("by_generationId", ["generationId"])
@@ -1127,6 +1133,25 @@ export default defineSchema({
     // backfilled. Absent means no outcome was recorded (a legacy row, or the
     // stage was never reached). Independent of briefId.
     briefOutcome: v.optional(briefOutcomeValidator),
+    // 2026-09-26 widen (decision 65): the Brief preparation this Step-by-step
+    // start attached to (`attached`: waiting on its running attempt through
+    // a `briefPreparationWaiters` row), adopted (`adopted`: its entries were
+    // published as this generation's Brief) or let go (`released`: it
+    // failed, expired or no longer matched, so the run derived its own).
+    // Absent on every generation that never met a preparation.
+    briefPreparation: v.optional(
+      v.object({
+        preparationId: v.id("briefPreparations"),
+        attemptId: v.string(),
+        state: v.union(v.literal("attached"), v.literal("adopted"), v.literal("released")),
+        at: v.number(),
+      })
+    ),
+    // 2026-09-26 widen (decision 65): the Brief outcome a continuation after
+    // a preparation recorded before the writer style was frozen, so the start
+    // action opens the seed stage (or records the retryable failure) once the
+    // style exists. Absent otherwise.
+    seedBriefOutcome: v.optional(v.union(v.literal("ready"), v.literal("failed"))),
     // Story 2 (CAP-5, AD-24): ordered, ungated generation in single/compare.
     // The writer's stop request (stopOrderedGeneration), the section the
     // chain stopped after when fewer than all sections were drafted, and the
@@ -3154,12 +3179,181 @@ export default defineSchema({
     storylineOrigin: v.optional(
       v.union(v.literal("writer"), v.literal("derived"), v.literal("edited"))
     ),
+    // 2026-09-26 widen (decision 65): a Brief adopted from a preparation
+    // names it, its attempt, its key, the planning model it ran on and when
+    // it finished. Usage stays on the preparation's own rows; adoption made
+    // no provider call. Absent on every Brief a generation derived itself.
+    preparation: v.optional(
+      v.object({
+        preparationId: v.id("briefPreparations"),
+        attemptId: v.string(),
+        key: v.string(),
+        model: v.string(),
+        preparedAt: v.number(),
+      })
+    ),
     createdAt: v.number(),
   })
     .index("by_projectId_and_inputsHash", ["projectId", "inputsHash"])
     .index("by_generationId", ["generationId"])
     // Latest-brief-for-project lookup (any inputsHash), used to diff a
     // re-derivation's entries against whatever the project last had.
+    .index("by_projectId", ["projectId"]),
+
+  // 2026-09-26 (decision 65): Brief preparation, stage 1. A project's Brief
+  // prepared ahead of Generate from its current evidence, so a Step-by-step
+  // run whose own frozen evidence and policy give the same key adopts it
+  // without a Brief call. Technical work only: no workflow stage, report
+  // prose, seed choice or generation is written. Lifecycle queued -> running
+  // -> ready | failed; queued, running or ready -> obsolete; queued ->
+  // cancelled. One attempt per row; `attemptId` fences every write.
+  briefPreparations: defineTable({
+    projectId: v.id("projects"),
+    status: v.union(
+      v.literal("queued"),
+      v.literal("running"),
+      v.literal("ready"),
+      v.literal("failed"),
+      v.literal("obsolete"),
+      v.literal("cancelled")
+    ),
+    // Debounce: each evidence change bumps the revision and moves runAt;
+    // a scheduled start for an older revision does nothing.
+    revision: v.number(),
+    runAt: v.number(),
+    scheduledJobId: v.optional(v.id("_scheduled_functions")),
+    // Why a queued row is not starting yet.
+    waitingFor: v.optional(v.union(v.literal("structure"), v.literal("slot"), v.literal("uploads"))),
+    deferrals: v.optional(v.number()),
+    // The report editor whose evidence change asked for it; rechecked
+    // before the paid call.
+    triggeredBy: v.id("users"),
+    triggerReason: v.string(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+    // Set when claimed (running).
+    attemptId: v.optional(v.string()),
+    leaseExpiresAt: v.optional(v.number()),
+    key: v.optional(v.string()),
+    modelFreeze: v.optional(modelFreezeValidator),
+    planningModel: v.optional(v.string()),
+    placeholders: v.optional(
+      v.array(v.object({ token: v.string(), value: v.string(), bare: v.optional(v.boolean()) }))
+    ),
+    dispatchedAt: v.optional(v.number()),
+    // shared/firmTime.ts firmDayNumber of dispatchedAt: the day limits.
+    firmDay: v.optional(v.number()),
+    // Spend held before the call, and what its usage rows settled.
+    reservedUsd: v.optional(v.number()),
+    usageCostUsd: v.optional(v.number()),
+    usageCalls: v.optional(v.number()),
+    // Set when ready.
+    storylineText: v.optional(v.string()),
+    droppedEntryCount: v.optional(v.number()),
+    completedAt: v.optional(v.number()),
+    // Set when it ends any other way: a normalized code, never provider text.
+    failureCode: v.optional(v.string()),
+    endedReason: v.optional(v.string()),
+    endedAt: v.optional(v.number()),
+    adoptedCount: v.optional(v.number()),
+    lastAdoptedAt: v.optional(v.number()),
+    // The 24-hour purge of a failed, obsolete or cancelled row's content.
+    contentPurgedAt: v.optional(v.number()),
+  })
+    .index("by_projectId", ["projectId"])
+    .index("by_projectId_and_status", ["projectId", "status"])
+    .index("by_projectId_and_key", ["projectId", "key"])
+    .index("by_projectId_and_firmDay", ["projectId", "firmDay"])
+    .index("by_triggeredBy_and_firmDay", ["triggeredBy", "firmDay"])
+    .index("by_triggeredBy_and_status", ["triggeredBy", "status"])
+    .index("by_status_and_contentPurgedAt_and_endedAt", ["status", "contentPurgedAt", "endedAt"]),
+
+  // The evidence one preparation froze (convex/lib/briefEvidence.ts), the
+  // rows its entries cite. Deleted with the project and by the purge.
+  briefPreparationSources: defineTable({
+    preparationId: v.id("briefPreparations"),
+    projectId: v.id("projects"),
+    kind: v.union(v.literal("transcript"), v.literal("project_document")),
+    transcriptId: v.optional(v.id("transcripts")),
+    projectDocumentId: v.optional(v.id("projectDocuments")),
+    label: v.string(),
+    content: v.string(),
+    contentHash: v.string(),
+    truncated: v.boolean(),
+    originalLength: v.number(),
+    uploaderRole: v.optional(v.union(v.literal("writer"), v.literal("manager"), v.literal("admin"))),
+    capturedAt: v.number(),
+  })
+    .index("by_preparationId", ["preparationId"])
+    .index("by_projectId", ["projectId"]),
+
+  // A ready preparation's validated entries, citing its own frozen rows.
+  briefPreparationEntries: defineTable({
+    preparationId: v.id("briefPreparations"),
+    projectId: v.id("projects"),
+    group: v.union(
+      v.literal("storyline"),
+      v.literal("claimExclusion"),
+      v.literal("confidenceMap"),
+      v.literal("glossaryTerm")
+    ),
+    text: v.string(),
+    reason: v.optional(
+      v.union(
+        v.literal("business_risk"),
+        v.literal("routine_engineering"),
+        v.literal("outside_claim_period"),
+        v.literal("not_technological")
+      )
+    ),
+    confidence: v.optional(
+      v.union(
+        v.literal("established"),
+        v.literal("partial"),
+        v.literal("unresolved"),
+        v.literal("unreliable")
+      )
+    ),
+    sourceId: v.id("briefPreparationSources"),
+    sourceContentHash: v.string(),
+    startOffset: v.number(),
+    endOffset: v.number(),
+    exactExcerpt: v.string(),
+  })
+    .index("by_preparationId", ["preparationId"])
+    .index("by_projectId", ["projectId"]),
+
+  // Display-only facts streamed by one preparation attempt, the same shape
+  // as generationReadingFacts. Never generation input.
+  briefPreparationFacts: defineTable({
+    preparationId: v.id("briefPreparations"),
+    projectId: v.id("projects"),
+    attemptId: v.string(),
+    seq: v.number(),
+    chip: v.string(),
+    quote: v.string(),
+    sourceLabel: v.string(),
+    speaker: v.optional(v.string()),
+    line: v.optional(v.number()),
+    createdAt: v.number(),
+  })
+    .index("by_preparationId_and_attemptId_and_seq", ["preparationId", "attemptId", "seq"])
+    .index("by_projectId", ["projectId"]),
+
+  // A Step-by-step start waiting on a running preparation with its key.
+  // The preparation's completion, failure or lease expiry releases every
+  // waiting row and schedules the run's continuation (no polling).
+  briefPreparationWaiters: defineTable({
+    preparationId: v.id("briefPreparations"),
+    projectId: v.id("projects"),
+    generationId: v.id("generations"),
+    attemptId: v.string(),
+    status: v.union(v.literal("waiting"), v.literal("released")),
+    registeredAt: v.number(),
+    releasedAt: v.optional(v.number()),
+  })
+    .index("by_preparationId_and_status", ["preparationId", "status"])
+    .index("by_generationId", ["generationId"])
     .index("by_projectId", ["projectId"]),
 
   // Round 2 (F2, decision 57): the facts "Reading the interview" shows while

@@ -32,6 +32,12 @@ import {
   activeRunSummary,
 } from "./lib/generations/reservation";
 import { getInternalProjectAccessOrNull } from "./lib/auth";
+import {
+  adoptPreparedBriefArgs,
+  adoptPreparedBriefHandler,
+  openSeedStageAfterBriefArgs,
+  openSeedStageAfterBriefHandler,
+} from "./lib/generations/briefAdoption";
 import { findActiveGeneration } from "./lib/activeGeneration";
 import { ACTIVE_GENERATION_STATUSES } from "../shared/generationTransitions";
 import {
@@ -459,6 +465,27 @@ export const pinSeedBrief = internalMutation({
   args: pinSeedBriefArgs,
   returns: v.union(v.id("generationBriefs"), v.null()),
   handler: pinSeedBriefHandler,
+});
+
+/**
+ * Decision 65: adopt a ready Brief preparation with this run's exact key,
+ * or wait on the running one (convex/lib/generations/briefAdoption.ts).
+ */
+export const adoptPreparedBrief = internalMutation({
+  args: adoptPreparedBriefArgs,
+  returns: v.union(
+    v.object({ kind: v.literal("adopted"), briefId: v.id("generationBriefs") }),
+    v.object({ kind: v.literal("attached") }),
+    v.object({ kind: v.literal("miss") })
+  ),
+  handler: adoptPreparedBriefHandler,
+});
+
+/** Decision 65: open the seed stage once both the Brief and the style exist. */
+export const openSeedStageAfterBrief = internalMutation({
+  args: openSeedStageAfterBriefArgs,
+  returns: v.union(v.literal("opened"), v.literal("waiting"), v.literal("failed"), v.literal("inactive")),
+  handler: openSeedStageAfterBriefHandler,
 });
 
 export const initializeSeedStage = internalMutation({

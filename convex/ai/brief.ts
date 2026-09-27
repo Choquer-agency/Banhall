@@ -2,8 +2,9 @@
 
 import { z } from "zod";
 import type { FunctionArgs, FunctionReturnType } from "convex/server";
+import { v } from "convex/values";
 import { internal } from "../_generated/api";
-import type { ActionCtx } from "../_generated/server";
+import { internalAction, type ActionCtx } from "../_generated/server";
 import type { Doc, Id } from "../_generated/dataModel";
 import {
   BRIEF_BASELINE_PAGE_BYTES,
@@ -19,7 +20,15 @@ import {
   CONFIDENCE_LEVELS,
   buildBriefUserMessage,
 } from "../lib/briefRequest";
-import { normalizeProviderError } from "./providers";
+import { normalizeProviderError, preparationClientForStep, startActionDeadline } from "./providers";
+import { resolveGenerationStep } from "../lib/generationSteps";
+import {
+  appendPreparationFactsRef,
+  completePreparationRef,
+  failPreparationRef,
+  getPreparationCitationSpeakersRef,
+  getPreparationRunRef,
+} from "../lib/briefPreparationRefs";
 import { generateStructured } from "./structured";
 import { briefInputsHash } from "../lib/briefInputsHash";
 import {
@@ -780,6 +789,102 @@ export async function deriveOrReuseBrief(
   });
   return { kind: "derived", briefId };
 }
+
+/** What the Step-by-step start did with its Brief. */
+export type SeedBriefAttempt =
+  | BriefStageAttempt
+  | { kind: "adopted"; briefId: Id<"generationBriefs"> }
+  | { kind: "attached" };
+
+/**
+ * The Step-by-step start's Brief (decision 65). A reusable Brief pinned at
+ * startup wins, as before. Otherwise a ready Brief preparation with the
+ * run's exact key is adopted (a new generation-bound Brief, no model call),
+ * or the run attaches to the running attempt with that key and returns
+ * `attached`: the preparation's completion schedules the run's continuation.
+ * Anything else derives the run's own Brief (`deriveOrReuseBrief`).
+ */
+export async function deriveOrAdoptSeedBrief(
+  ctx: BriefPublishCtx,
+  client: GenerationClient,
+  args: Omit<BriefStageArgs, "seedStartup">
+): Promise<SeedBriefAttempt> {
+  const sources = await ctx.runQuery(internal.generations.getGenerationSourcesForBrief, {
+    generationId: args.generationId,
+  });
+  if (sources.length === 0) return { kind: "no_evidence" };
+  const inputsHash = await briefInputsHash(sources);
+  const pinned = await ctx.runMutation(internal.generations.pinSeedBrief, {
+    generationId: args.generationId,
+    inputsHash,
+  });
+  if (pinned === null) {
+    const adoption = await ctx.runMutation(internal.generations.adoptPreparedBrief, {
+      generationId: args.generationId,
+      inputsHash,
+    });
+    if (adoption.kind === "adopted") return { kind: "adopted", briefId: adoption.briefId };
+    if (adoption.kind === "attached") return { kind: "attached" };
+  }
+  return await deriveOrReuseBrief(ctx, client, { ...args, seedStartup: true });
+}
+
+/**
+ * One Brief preparation attempt (decision 65): the shared derivation over
+ * the preparation's frozen rows, on the planning model frozen for it, its
+ * placeholder map applied, its usage attributed to it, and its located
+ * entries streamed to its own display rows. Every write is fenced by the
+ * attempt id; a failure records a normalized code and nothing else.
+ */
+export const runBriefPreparation = internalAction({
+  args: { preparationId: v.id("briefPreparations"), attemptId: v.string() },
+  returns: v.null(),
+  handler: async (ctx, args): Promise<null> => {
+    startActionDeadline(ctx);
+    const run = await ctx.runQuery(getPreparationRunRef, args);
+    if (!run) return null;
+    try {
+      const route = resolveGenerationStep({ freeze: run.modelFreeze, step: "brief", writerModel: MODEL });
+      if (route.model !== run.planningModel) throw new Error("The frozen planning model does not resolve");
+      const client = preparationClientForStep(
+        ctx,
+        route,
+        {
+          callSite: "preparation:brief",
+          projectId: run.projectId,
+          userId: run.triggeredBy,
+          preparation: { briefPreparationId: args.preparationId, attemptId: args.attemptId },
+        },
+        { freeze: run.modelFreeze, placeholders: run.placeholders }
+      );
+      const adapter: BriefSourceAdapter<Id<"briefPreparationSources">> = {
+        sources: run.sources,
+        speakers: async (spans) =>
+          await ctx.runQuery(getPreparationCitationSpeakersRef, { preparationId: args.preparationId, spans }),
+      };
+      const derived = await deriveBriefCandidates(adapter, client, {
+        model: route.model,
+        readingFacts: {
+          target: {
+            write: async (facts) =>
+              await ctx.runMutation(appendPreparationFactsRef, { ...args, facts }),
+          },
+          placeholders: run.placeholders,
+        },
+      });
+      await ctx.runMutation(completePreparationRef, {
+        ...args,
+        storylineText: derived.storylineText,
+        entries: derived.entries,
+        upstreamDroppedEntryCount: derived.upstreamDroppedEntryCount,
+      });
+    } catch (error) {
+      logBriefStageError("Brief preparation failed", args.preparationId, briefFailureCode(error));
+      await ctx.runMutation(failPreparationRef, { ...args, code: briefFailureCode(error) });
+    }
+    return null;
+  },
+});
 
 /** A glossary term's first place, ignoring case (the term as the client wrote it). */
 function termOccurrence<I extends string>(sources: FrozenSource<I>[], term: string): Citation<I>[] {
