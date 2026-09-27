@@ -5,7 +5,6 @@
  * late writes, retention, usage, and the request a preparation sends
  * compared with a run's own Brief request at the SDK's HTTP boundary.
  */
-import { readFileSync } from "node:fs";
 import { convexTest } from "convex-test";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import schema from "./schema";
@@ -43,6 +42,7 @@ import {
   preparationCharge,
 } from "./lib/briefPreparationBudget";
 import { firmDayNumber } from "../shared/firmTime";
+import LOOSE_LABELS_FIXTURE from "../shared/__fixtures__/transcripts/loose-labels.txt?raw";
 
 const modules = import.meta.glob("./**/*.ts");
 
@@ -441,7 +441,7 @@ describe("preparing and adopting", () => {
 describe("loose labels in the placeholder map (review 2026-09-26, P1-1)", () => {
   // The shared fixture: v7 speakers with lowercase lines that look like
   // labels ("thermal drift:", "latency:", "bottom line:") and open no turn.
-  const LOOSE = readFileSync(new URL("../shared/__fixtures__/transcripts/loose-labels.txt", import.meta.url), "utf8");
+  const LOOSE = LOOSE_LABELS_FIXTURE;
 
   test("a preparation and a generation reservation store label-only entries", async () => {
     const s = await setup({ transcript: LOOSE });
