@@ -37,6 +37,7 @@ import {
   MAX_INTAKE_DOCUMENT_CHARS,
   MAX_INTAKE_DOCUMENT_TEXT_CHARS,
   MAX_INTAKE_DOCUMENTS,
+  MAX_INTAKE_SOURCE_ROWS,
   MAX_OPEN_DRAFTS_PER_USER,
   MAX_SOURCE_TEXT_BYTES,
   MAX_SPEAKER_CALLS_PER_DAY,
@@ -50,6 +51,7 @@ import {
   namesSettleAt,
   parseIntakeTurns,
   readSourceText,
+  INTAKE_DEBOUNCE_MS,
   requestIntakePreparation,
   requireOwnDraft,
   requireSourceKey,
@@ -217,7 +219,7 @@ export const createIntakeDraft = mutation({
 /** Discards or expires a draft: its work is fenced and its content purged. */
 async function closeDraft(ctx: MutationCtx, draft: Doc<"intakeDrafts">, status: "discarded" | "expired") {
   if (draft.status !== "open" && draft.status !== "promoting") return;
-  await ctx.db.patch(draft._id, { status, endedAt: Date.now() });
+  await ctx.db.patch(draft._id, { status, endedAt: Date.now(), pendingReads: undefined, pendingReadsUpdatedAt: undefined });
   await fenceDraftPreparations(ctx, draft._id, "draft_closed");
   await ctx.scheduler.runAfter(0, intakeDraftRefs.purgeIntakeDraft, { draftId: draft._id });
 }
@@ -549,6 +551,52 @@ export const setIntakeSelection = mutation({
   },
 });
 
+/**
+ * How many files the New project page is still reading, or has read and
+ * not saved yet (2026-09-27, second), leaving out files the writer unticked
+ * in the start dialog. Sent when the count changes and about every 30
+ * seconds while it is above zero; a count not refreshed for 90 seconds no
+ * longer holds the draft's preparation. Not an edit: the draft's idle
+ * expiry does not move. When the count reaches zero, a start waiting on it
+ * runs after the usual 2-second quiet period.
+ */
+export const reportIntakePendingReads = mutation({
+  args: { draftId: v.id("intakeDrafts"), count: v.number() },
+  returns: v.null(),
+  handler: async (ctx, args): Promise<null> => {
+    const user = await requireCreator(ctx);
+    const draft = await requireOwnDraft(ctx, user, args.draftId);
+    if (!Number.isInteger(args.count) || args.count < 0) domainError("INVALID_INPUT", "Invalid file count");
+    const count = Math.min(args.count, MAX_INTAKE_SOURCE_ROWS);
+    if (count === 0 && (draft.pendingReads ?? 0) === 0) return null;
+    const now = Date.now();
+    await ctx.db.patch(draft._id, {
+      pendingReads: count > 0 ? count : undefined,
+      pendingReadsUpdatedAt: count > 0 ? now : undefined,
+    });
+    if (count > 0) return null;
+    const waiting = await ctx.db
+      .query("briefPreparations")
+      .withIndex("by_intakeDraftId_and_status", (q) => q.eq("intakeDraftId", draft._id).eq("status", "queued"))
+      .first();
+    if (!waiting || waiting.waitingFor !== "reads") return null;
+    if (waiting.scheduledJobId && waiting.runAt > now) await ctx.scheduler.cancel(waiting.scheduledJobId);
+    const revision = waiting.revision + 1;
+    const scheduledJobId = await ctx.scheduler.runAfter(INTAKE_DEBOUNCE_MS, internal.briefPreparations.startBriefPreparation, {
+      preparationId: waiting._id,
+      revision,
+    });
+    await ctx.db.patch(waiting._id, {
+      revision,
+      runAt: now + INTAKE_DEBOUNCE_MS,
+      scheduledJobId,
+      waitingFor: undefined,
+      updatedAt: now,
+    });
+    return null;
+  },
+});
+
 /** Discard: the writer left New project or cancelled. Its work stops and its content goes. */
 export const discardIntakeDraft = mutation({
   args: { draftId: v.id("intakeDrafts") },
@@ -851,6 +899,8 @@ export const promoteIntakeDraft = mutation({
       promotionCommandId: args.commandId,
       promotionStartedAt: now,
       lastEditedAt: now,
+      pendingReads: undefined,
+      pendingReadsUpdatedAt: undefined,
     });
     return await continuePromotion(ctx, draft._id, { schedule: true });
   },

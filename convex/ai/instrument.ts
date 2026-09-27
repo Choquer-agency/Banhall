@@ -16,7 +16,7 @@ import {
   retryWaitFitsAnyAction,
 } from "./actionDeadline";
 import { COMPRESSION_REQUEST } from "./promptDefinitions";
-import { collectMessageStream, type GenerationStreamHandlers } from "./openrouterCore";
+import { RequestAbortedError, collectMessageStream, type GenerationStreamHandlers } from "./openrouterCore";
 import { domainError } from "../lib/contracts";
 import {
   TRANSPORT_CONFIGURATION,
@@ -657,12 +657,21 @@ export function instrumentedAnthropic(
       maxRetries?: number;
       timeout?: number;
     };
+    /**
+     * Stops every request of the client (2026-09-27, second: a Brief
+     * preparation that went out of date). Sent to the SDK on both
+     * transports, the credit fallback's included. A stopped request is never
+     * retried and never falls back; a stream stopped part way throws
+     * RequestAbortedError and logs the usage the stream had reported.
+     */
+    signal?: AbortSignal;
   }
 ): Anthropic {
   assertGenerationCallSite(meta.callSite);
   const forcedOpenRouter = anthropicTransport() === "openrouter";
   const creditFallback = !forcedOpenRouter && hasOpenRouterCreditFallback();
   const capability = meta.capability ?? "generation";
+  const signal = meta.signal;
   const client = createAnthropicClient(capability, meta.clientOptions);
   const messages = client.messages;
   const originalCreate = messages.create.bind(messages);
@@ -707,9 +716,97 @@ export function instrumentedAnthropic(
         // be (decision 65), cached prefix included.
         const prefixed = meta.attribution || meta.preparation ? cacheGenerationPrefix(request) : request;
         const rest = args.slice(2);
+        /** Logs one answer's usage row (and the caller's usage tap). */
+        const logUsage = async (response: unknown, viaOpenRouter: boolean, stoppedReason?: string): Promise<void> => {
+          const durationMs = Math.max(0, Date.now() - startedAt);
+          const usage = anthropicUsage(response);
+          const charge = viaOpenRouter ? openRouterAnthropicCharge(response) : {};
+          const stopReason = stoppedReason ?? responseStopReason(response);
+          const params = args[0];
+          const model =
+            params &&
+            typeof params === "object" &&
+            "model" in params &&
+            typeof params.model === "string"
+              ? params.model
+              : "unknown";
+          // The pin should make this impossible; if OpenRouter reports another
+          // host, say so, so a relaxed pin or account setting is visible.
+          if (charge.servedProvider && charge.servedProvider.toLowerCase() !== "anthropic") {
+            console.warn(
+              `Anthropic model ${model} was served by ${charge.servedProvider} through OpenRouter, not Anthropic; check the provider pin and the OpenRouter account's provider settings`
+            );
+          }
+          if (usage) {
+            meta.onUsage?.({
+              model,
+              costUsd: charge.costUsd ?? estimateCostFromTable(model, usage),
+              ...(charge.costUsd !== undefined ? { nativeCostUsd: charge.costUsd } : {}),
+              tokens: usage,
+            });
+            await scheduleUsage(ctx, {
+              ...(meta.projectId ? { projectId: meta.projectId } : {}),
+              ...(meta.attribution
+                ? {
+                    generationId: meta.attribution.generationId,
+                    ...(meta.attribution.candidateRunId
+                      ? { candidateRunId: meta.attribution.candidateRunId }
+                      : {}),
+                    durationMs,
+                  }
+                : {}),
+              ...(meta.preparation
+                ? {
+                    briefPreparationId: meta.preparation.briefPreparationId,
+                    preparationAttemptId: meta.preparation.attemptId,
+                    durationMs,
+                  }
+                : {}),
+              ...(meta.userId ? { userId: meta.userId } : {}),
+              ...(meta.brainSourceId
+                ? { brainSourceId: meta.brainSourceId }
+                : {}),
+              callSite: meta.callSite,
+              model,
+              inputTokens: usage.inputTokens,
+              outputTokens: usage.outputTokens,
+              ...(usage.cacheCreationInputTokens !== undefined
+                ? {
+                    cacheCreationInputTokens:
+                      usage.cacheCreationInputTokens,
+                  }
+                : {}),
+              ...(usage.cacheCreation1hInputTokens !== undefined
+                ? {
+                    cacheCreation1hInputTokens:
+                      usage.cacheCreation1hInputTokens,
+                  }
+                : {}),
+              ...(usage.cacheReadInputTokens !== undefined
+                ? { cacheReadInputTokens: usage.cacheReadInputTokens }
+                : {}),
+              ...(stopReason ? { stopReason } : {}),
+              ...(viaOpenRouter ? { transport: "openrouter" as const } : {}),
+              ...(charge.costUsd !== undefined ? { costUsd: charge.costUsd } : {}),
+              ...(charge.servedProvider ? { servedProvider: charge.servedProvider } : {}),
+            });
+          }
+        };
         // A streamed answer is read to its end inside the attempt, so a
-        // stream that breaks is retried like a failed request.
-        const finish = async (sent: unknown) => (handlers ? await collectMessageStream(await sent, handlers) : await sent);
+        // stream that breaks is retried like a failed request. The SDK ends
+        // a stream its signal stopped as if it had finished, so an answer
+        // without a stop reason after an abort is not an answer.
+        const finish = async (sent: unknown) => {
+          if (!handlers) return await sent;
+          const message = await collectMessageStream(await sent, handlers);
+          if (signal?.aborted && !responseStopReason(message)) throw new RequestAbortedError(message);
+          return message;
+        };
+        // The caller's signal travels with the request options on every
+        // transport, so the SDK stops the request (and its stream) itself.
+        const options: unknown = signal
+          ? { ...(args[1] && typeof args[1] === "object" ? (args[1] as Record<string, unknown>) : {}), signal }
+          : args[1];
         /** One send on one transport, retries and the deadline included. */
         const sendOn = async (transport: "direct" | "openrouter"): Promise<unknown> => {
           const viaOpenRouter = transport === "openrouter";
@@ -718,10 +815,12 @@ export function instrumentedAnthropic(
           const body = handlers ? streamedBody(wire, viaOpenRouter) : wire;
           const sendRequest = async (): Promise<unknown> =>
             deadline === undefined || !defaults
-              ? await finish(Reflect.apply(create, target, [body, ...args.slice(1)]))
+              ? await finish(
+                  Reflect.apply(create, target, signal ? [body, options, ...rest] : [body, ...args.slice(1)])
+                )
               : await createWithinDeadline(
-                  (options) => finish(Reflect.apply(create, target, [body, options, ...rest])),
-                  args[1],
+                  (requestOptions) => finish(Reflect.apply(create, target, [body, requestOptions, ...rest])),
+                  options,
                   deadline,
                   defaults
                 );
@@ -734,110 +833,51 @@ export function instrumentedAnthropic(
           creditFallback && typeof requested === "string" && openRouterAnthropicRequestId(requested) !== undefined;
         let viaOpenRouter = forcedOpenRouter;
         let response: unknown;
-        if (!fallbackForCall) {
-          response = await sendOn(forcedOpenRouter ? "openrouter" : "direct");
-        } else {
-          const route = await directCreditRoute(ctx);
-          if (route === "openrouter") {
-            viaOpenRouter = true;
-            response = await sendOn("openrouter");
+        try {
+          if (!fallbackForCall) {
+            response = await sendOn(forcedOpenRouter ? "openrouter" : "direct");
           } else {
-            // Refused for billing, or (lead decision, 2026-09-26) a probe
-            // that failed in any way: the call goes through OpenRouter.
-            let reroute = false;
-            try {
-              response = await sendOn("direct");
-            } catch (error) {
-              if (isAnthropicCreditError(error)) {
-                await latchDirectCredit(ctx, route);
-              } else if (route === "probe") {
-                await settleDirectCall(ctx, route, false);
-              } else {
-                throw error;
-              }
-              reroute = true;
-            }
-            if (reroute) {
+            const route = await directCreditRoute(ctx);
+            if (route === "openrouter") {
               viaOpenRouter = true;
               response = await sendOn("openrouter");
             } else {
-              await settleDirectCall(ctx, route, true);
+              // Refused for billing, or (lead decision, 2026-09-26) a probe
+              // that failed in any way: the call goes through OpenRouter.
+              let reroute = false;
+              try {
+                response = await sendOn("direct");
+              } catch (error) {
+                // Stopped by its caller: not a refusal, so no fallback, and a
+                // probe says nothing about direct (its claim lapses).
+                if (signal?.aborted) throw error;
+                if (isAnthropicCreditError(error)) {
+                  await latchDirectCredit(ctx, route);
+                } else if (route === "probe") {
+                  await settleDirectCall(ctx, route, false);
+                } else {
+                  throw error;
+                }
+                reroute = true;
+              }
+              if (reroute) {
+                viaOpenRouter = true;
+                response = await sendOn("openrouter");
+              } else {
+                await settleDirectCall(ctx, route, true);
+              }
             }
           }
+        } catch (error) {
+          // A stream stopped part way keeps the usage it had reported
+          // (2026-09-27, second): billed input is logged, never dropped.
+          if (signal?.aborted && error instanceof RequestAbortedError && anthropicUsage(error.partial)) {
+            await logUsage(error.partial, viaOpenRouter, "aborted");
+            error.usageRecorded = true;
+          }
+          throw error;
         }
-        const durationMs = Math.max(0, Date.now() - startedAt);
-        const usage = anthropicUsage(response);
-        const charge = viaOpenRouter ? openRouterAnthropicCharge(response) : {};
-        const stopReason = responseStopReason(response);
-        const params = args[0];
-        const model =
-          params &&
-          typeof params === "object" &&
-          "model" in params &&
-          typeof params.model === "string"
-            ? params.model
-            : "unknown";
-        // The pin should make this impossible; if OpenRouter reports another
-        // host, say so, so a relaxed pin or account setting is visible.
-        if (charge.servedProvider && charge.servedProvider.toLowerCase() !== "anthropic") {
-          console.warn(
-            `Anthropic model ${model} was served by ${charge.servedProvider} through OpenRouter, not Anthropic; check the provider pin and the OpenRouter account's provider settings`
-          );
-        }
-        if (usage) {
-          meta.onUsage?.({
-            model,
-            costUsd: charge.costUsd ?? estimateCostFromTable(model, usage),
-            ...(charge.costUsd !== undefined ? { nativeCostUsd: charge.costUsd } : {}),
-            tokens: usage,
-          });
-          await scheduleUsage(ctx, {
-            ...(meta.projectId ? { projectId: meta.projectId } : {}),
-            ...(meta.attribution
-              ? {
-                  generationId: meta.attribution.generationId,
-                  ...(meta.attribution.candidateRunId
-                    ? { candidateRunId: meta.attribution.candidateRunId }
-                    : {}),
-                  durationMs,
-                }
-              : {}),
-            ...(meta.preparation
-              ? {
-                  briefPreparationId: meta.preparation.briefPreparationId,
-                  preparationAttemptId: meta.preparation.attemptId,
-                  durationMs,
-                }
-              : {}),
-            ...(meta.userId ? { userId: meta.userId } : {}),
-            ...(meta.brainSourceId
-              ? { brainSourceId: meta.brainSourceId }
-              : {}),
-            callSite: meta.callSite,
-            model,
-            inputTokens: usage.inputTokens,
-            outputTokens: usage.outputTokens,
-            ...(usage.cacheCreationInputTokens !== undefined
-              ? {
-                  cacheCreationInputTokens:
-                    usage.cacheCreationInputTokens,
-                }
-              : {}),
-            ...(usage.cacheCreation1hInputTokens !== undefined
-              ? {
-                  cacheCreation1hInputTokens:
-                    usage.cacheCreation1hInputTokens,
-                }
-              : {}),
-            ...(usage.cacheReadInputTokens !== undefined
-              ? { cacheReadInputTokens: usage.cacheReadInputTokens }
-              : {}),
-            ...(stopReason ? { stopReason } : {}),
-            ...(viaOpenRouter ? { transport: "openrouter" as const } : {}),
-            ...(charge.costUsd !== undefined ? { costUsd: charge.costUsd } : {}),
-            ...(charge.servedProvider ? { servedProvider: charge.servedProvider } : {}),
-          });
-        }
+        await logUsage(response, viaOpenRouter);
         // Direct worked on a deployment with no fallback: clear a latch its
         // removed OpenRouter key left behind (at most one read per cool-down).
         if (!forcedOpenRouter && !creditFallback) await clearStaleLatch(ctx);

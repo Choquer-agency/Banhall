@@ -103,6 +103,17 @@ export const MAX_SPEAKER_CALLS_PER_DAY = 60;
  */
 export const MAX_SOURCE_TEXT_BYTES = 900_000;
 
+/**
+ * Files still being read (2026-09-27, second): a count the page has not
+ * refreshed for this long no longer holds the start (a closed tab stops
+ * counting). The page refreshes it about every 30 seconds.
+ */
+export const PENDING_READS_STALE_MS = 90_000;
+/** How long a draft's start waits for files still being read, from its first wait. */
+export const MAX_PENDING_READS_WAIT_MS = 3 * 60 * 1000;
+/** A wait for files being read looks again at least this long after it began. */
+const MIN_PENDING_READS_RECHECK_MS = 1_000;
+
 /** How long a closed, content-free draft row is kept before it is deleted. */
 export const CLOSED_DRAFT_KEEP_MS = 30 * 24 * 60 * 60 * 1000;
 
@@ -349,6 +360,28 @@ export async function speakerModelKey(
   return await sha256(
     JSON.stringify({ names: await draftIdentity(ctx, draft), firms: await firmNames(ctx), text: source.contentHash })
   );
+}
+
+/**
+ * How long a draft's start should wait for files the page is still
+ * reading or has read and not yet saved, or null to go ahead: the page's
+ * count is above zero and fresh (refreshed in the last
+ * PENDING_READS_STALE_MS), and the start has waited less than
+ * MAX_PENDING_READS_WAIT_MS since its first wait. It looks again when the
+ * count would go stale or the bound runs out, whichever is first; a count
+ * that drops to zero asks again at once (reportIntakePendingReads).
+ */
+export function pendingReadsWait(
+  draft: Pick<Doc<"intakeDrafts">, "pendingReads" | "pendingReadsUpdatedAt">,
+  preparation: Pick<Doc<"briefPreparations">, "readsWaitStartedAt">,
+  now: number
+): number | null {
+  if ((draft.pendingReads ?? 0) <= 0) return null;
+  const staleAt = (draft.pendingReadsUpdatedAt ?? 0) + PENDING_READS_STALE_MS;
+  if (staleAt <= now) return null;
+  const boundAt = (preparation.readsWaitStartedAt ?? now) + MAX_PENDING_READS_WAIT_MS;
+  if (boundAt <= now) return null;
+  return Math.max(MIN_PENDING_READS_RECHECK_MS, Math.min(staleAt, boundAt) - now);
 }
 
 /** Whether the draft's names have stayed unchanged for NAMES_SETTLE_MS; else when they will have. */

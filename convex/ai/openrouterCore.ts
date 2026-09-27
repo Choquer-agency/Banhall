@@ -105,6 +105,24 @@ export interface GenerationClient {
 }
 
 /**
+ * A streamed request its caller stopped part way (2026-09-27, second: a
+ * Brief preparation that went out of date). The SDK ends a stream whose
+ * signal aborted without an error, so the instrumentation throws this
+ * instead of handing on an unfinished answer. `partial` is the message
+ * folded so far, with any usage the stream reported; `usageRecorded` says
+ * the instrumentation logged that usage. Not a model failure.
+ */
+export class RequestAbortedError extends Error {
+  readonly partial: unknown;
+  usageRecorded = false;
+  constructor(partial?: unknown) {
+    super("The request was stopped by its caller");
+    this.name = "RequestAbortedError";
+    this.partial = partial;
+  }
+}
+
+/**
  * Folds an Anthropic Messages event stream into the message `create` would
  * have returned: content blocks (a tool_use block's input parsed from its
  * `input_json_delta` pieces), the stop reason from `message_delta`, and the

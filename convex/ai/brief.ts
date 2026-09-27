@@ -11,7 +11,7 @@ import {
   MAX_BRIEF_ENTRY_ROWS,
   briefDiffKey,
 } from "../generations";
-import type { GenerationClient } from "./openrouterCore";
+import { RequestAbortedError, type GenerationClient } from "./openrouterCore";
 import {
   BRIEF_REQUEST,
   BRIEF_SCHEMA,
@@ -881,6 +881,9 @@ export const runBriefPreparation = internalAction({
       await ctx.runMutation(internal.briefPreparations.cancelPreparationAttempt, { ...args, reason: "disabled" });
       return null;
     }
+    // Stops the call once the attempt is out of date (2026-09-27, second).
+    const controller = new AbortController();
+    const watch = watchPreparationAttempt(ctx, args, controller);
     try {
       const route = resolveGenerationStep({ freeze: run.modelFreeze, step: "brief", writerModel: MODEL });
       if (route.model !== run.planningModel) throw new Error("The frozen planning model does not resolve");
@@ -893,7 +896,8 @@ export const runBriefPreparation = internalAction({
           userId: run.triggeredBy,
           preparation: { briefPreparationId: args.preparationId, attemptId: args.attemptId },
         },
-        { freeze: run.modelFreeze, placeholders: run.placeholders }
+        { freeze: run.modelFreeze, placeholders: run.placeholders },
+        { signal: controller.signal }
       );
       const adapter: BriefSourceAdapter<Id<"briefPreparationSources">> = {
         sources: run.sources,
@@ -917,13 +921,67 @@ export const runBriefPreparation = internalAction({
         upstreamDroppedEntryCount: derived.upstreamDroppedEntryCount,
       });
     } catch (error) {
+      if (controller.signal.aborted) {
+        // Stopped because it went out of date: not a model failure. The
+        // attempt ends now so the next preparation can dispatch.
+        await ctx.runMutation(internal.briefPreparations.endAbortedAttempt, {
+          ...args,
+          usageReported: error instanceof RequestAbortedError && error.usageRecorded,
+        });
+        return null;
+      }
       const code = preparationFailureCode(error);
       logBriefStageError("Brief preparation failed", args.preparationId, code);
       await ctx.runMutation(internal.briefPreparations.failPreparation, { ...args, code });
+    } finally {
+      watch.stop();
     }
     return null;
   },
 });
+
+/**
+ * How often a running preparation's action asks whether its attempt is
+ * still current (2026-09-27, second): never more often, so an out-of-date
+ * call stops within about this long.
+ */
+export const ATTEMPT_CHECK_MS = 2_000;
+
+/**
+ * While a preparation's call runs, asks every ATTEMPT_CHECK_MS (never more
+ * often: the next look is set only after the last one answered) whether
+ * the attempt is still current, and aborts the call when it is not. A look
+ * that fails never aborts.
+ */
+function watchPreparationAttempt(
+  ctx: Pick<ActionCtx, "runQuery">,
+  args: { preparationId: Id<"briefPreparations">; attemptId: string },
+  controller: AbortController
+): { stop: () => void } {
+  let stopped = false;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const look = async () => {
+    timer = undefined;
+    if (stopped) return;
+    try {
+      const current = await ctx.runQuery(internal.briefPreparations.isAttemptCurrent, args);
+      if (!current && !stopped) {
+        controller.abort();
+        return;
+      }
+    } catch {
+      // Unknown is not out of date: the call runs on and is asked again.
+    }
+    if (!stopped) timer = setTimeout(() => void look(), ATTEMPT_CHECK_MS);
+  };
+  timer = setTimeout(() => void look(), ATTEMPT_CHECK_MS);
+  return {
+    stop: () => {
+      stopped = true;
+      if (timer !== undefined) clearTimeout(timer);
+    },
+  };
+}
 
 /** A glossary term's first place, ignoring case (the term as the client wrote it). */
 function termOccurrence<I extends string>(sources: FrozenSource<I>[], term: string): Citation<I>[] {

@@ -572,15 +572,30 @@ export function preparationClientForStep(
     userId?: string;
     preparation: PreparationAttribution;
   },
-  frozen: { freeze: ModelFreeze; placeholders: PlaceholderMap }
+  frozen: { freeze: ModelFreeze; placeholders: PlaceholderMap },
+  options: { signal?: AbortSignal } = {}
 ): GenerationClient {
   registerModelEntries(frozen.freeze.entries.map(entryFromFrozen));
+  // `signal` stops every request of the client when the preparation goes
+  // out of date (2026-09-27, second), on either gateway and through the
+  // credit fallback; a stopped request records no outcome for the model.
+  const { signal } = options;
   const base =
     gatewayForModel(route.model) === "openrouter"
-      ? instrumentedOpenRouter(ctx, meta)
-      : (instrumentedAnthropic(ctx, { ...meta, capability: "generation" }) as unknown as GenerationClient);
+      ? instrumentedOpenRouter(ctx, meta, signal ? { signal } : {})
+      : (instrumentedAnthropic(ctx, {
+          ...meta,
+          capability: "generation",
+          ...(signal ? { signal } : {}),
+        }) as unknown as GenerationClient);
   return withStepRequest(
-    withOutcomeRecording(ctx, route.model, meta.callSite, withPlaceholders(base, frozen.placeholders)),
+    withOutcomeRecording(
+      ctx,
+      route.model,
+      meta.callSite,
+      withPlaceholders(base, frozen.placeholders),
+      signal ? { signal } : {}
+    ),
     route
   );
 }

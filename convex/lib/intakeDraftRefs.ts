@@ -38,6 +38,7 @@ export const intakeDraftRefs = {
   attachIntakeOriginal: ref<typeof intake.attachIntakeOriginal>("intakeDrafts:attachIntakeOriginal"),
   updateIntakeContext: ref<typeof intake.updateIntakeContext>("intakeDrafts:updateIntakeContext"),
   setIntakeSelection: ref<typeof intake.setIntakeSelection>("intakeDrafts:setIntakeSelection"),
+  reportIntakePendingReads: ref<typeof intake.reportIntakePendingReads>("intakeDrafts:reportIntakePendingReads"),
   discardIntakeDraft: ref<typeof intake.discardIntakeDraft>("intakeDrafts:discardIntakeDraft"),
   getIntakeDraft: ref<typeof intake.getIntakeDraft>("intakeDrafts:getIntakeDraft"),
   promoteIntakeDraft: ref<typeof intake.promoteIntakeDraft>("intakeDrafts:promoteIntakeDraft"),

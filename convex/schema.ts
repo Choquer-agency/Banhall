@@ -3238,7 +3238,9 @@ export default defineSchema({
         v.literal("speakers"),
         v.literal("slot"),
         v.literal("uploads"),
-        v.literal("names")
+        v.literal("names"),
+        // 2026-09-27 (second): a draft's files are still being read or saved.
+        v.literal("reads")
       )
     ),
     deferrals: v.optional(v.number()),
@@ -3246,6 +3248,11 @@ export default defineSchema({
     uploadWaits: v.optional(v.number()),
     // Waits for a draft's names to settle, counted apart from `deferrals`.
     namesWaits: v.optional(v.number()),
+    // 2026-09-27 (second) widen: waits for a draft's files still being read,
+    // counted apart from `deferrals`, and when the first one began (the
+    // start stops waiting 3 minutes after it).
+    readsWaits: v.optional(v.number()),
+    readsWaitStartedAt: v.optional(v.number()),
     // The report editor whose evidence change asked for it; rechecked
     // before the paid call.
     triggeredBy: v.id("users"),
@@ -3273,6 +3280,11 @@ export default defineSchema({
     reservedUsd: v.optional(v.number()),
     usageCostUsd: v.optional(v.number()),
     usageCalls: v.optional(v.number()),
+    // 2026-09-27 (second) widen: the call was stopped because the attempt
+    // went out of date, and when. `costUnknown` when the stream reported no
+    // usage before it stopped; the reservation stays counted either way.
+    abortedAt: v.optional(v.number()),
+    costUnknown: v.optional(v.boolean()),
     // Set when ready.
     storylineText: v.optional(v.string()),
     droppedEntryCount: v.optional(v.number()),
@@ -3439,6 +3451,11 @@ export default defineSchema({
     // When the client name, interviewer or interviewees last changed: the
     // speaker model call and the paid Brief wait until they settle.
     contextChangedAt: v.optional(v.number()),
+    // 2026-09-27 (second) widen: how many files the New project page is
+    // still reading or has read but not saved yet, as it last reported, and
+    // when. A count not refreshed for 90 seconds no longer holds the start.
+    pendingReads: v.optional(v.number()),
+    pendingReadsUpdatedAt: v.optional(v.number()),
     // When promotion began, so the sweep can resume or end a stuck one, and
     // how often it resumed it (at most 5, within 30 minutes).
     promotionStartedAt: v.optional(v.number()),

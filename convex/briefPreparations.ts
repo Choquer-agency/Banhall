@@ -59,6 +59,7 @@ import {
   INTAKE_DEBOUNCE_MS,
   draftPlaceholderMap,
   namesSettleAt,
+  pendingReadsWait,
   preparationSpeakerReader,
   selectDraftEvidence,
   userMayCreateProject,
@@ -218,13 +219,17 @@ export async function endPreparation(
 async function deferPreparation(
   ctx: MutationCtx,
   preparation: Preparation,
-  waitingFor: "slot" | "uploads" | "structure" | "speakers" | "names",
+  waitingFor: "slot" | "uploads" | "structure" | "speakers" | "names" | "reads",
   delayMs: number,
   options: { evidenceRead: boolean }
 ): Promise<void> {
   const uploads = waitingFor === "uploads";
   const names = waitingFor === "names";
-  const deferrals = (preparation.deferrals ?? 0) + (uploads || names ? 0 : 1);
+  // Waits for a draft's files still being read (2026-09-27, second) have
+  // their own counter and a time bound (pendingReadsWait), so they never
+  // use up the other waits.
+  const reads = waitingFor === "reads";
+  const deferrals = (preparation.deferrals ?? 0) + (uploads || names || reads ? 0 : 1);
   const uploadWaits = (preparation.uploadWaits ?? 0) + (uploads ? 1 : 0);
   // Names waits have their own counter (review 2026-09-26, P3-3): each
   // names edit restarts the 5-second settle, so several edits a few
@@ -242,6 +247,7 @@ async function deferPreparation(
         structure: "structure_unsettled",
         speakers: "speakers_unsettled",
         names: "names_unsettled",
+        reads: "reads_unsettled",
       }[waitingFor]
     );
     return;
@@ -251,15 +257,19 @@ async function deferPreparation(
     preparationId: preparation._id,
     revision,
   });
+  const now = Date.now();
   await ctx.db.patch(preparation._id, {
     revision,
     deferrals,
     uploadWaits,
     namesWaits,
+    ...(reads
+      ? { readsWaits: (preparation.readsWaits ?? 0) + 1, readsWaitStartedAt: preparation.readsWaitStartedAt ?? now }
+      : {}),
     waitingFor,
-    runAt: Date.now() + delayMs,
+    runAt: now + delayMs,
     scheduledJobId,
-    updatedAt: Date.now(),
+    updatedAt: now,
   });
 }
 
@@ -514,6 +524,16 @@ async function readDraftEvidence(
   }
   if (now < namesSettleAt(draft)) {
     await deferPreparation(ctx, preparation, "names", namesSettleAt(draft) - now, { evidenceRead: false });
+    return null;
+  }
+  // Files the page is still reading, or has read and not saved yet
+  // (2026-09-27, second): wait for them rather than prepare without them
+  // and start over when they land. A count not refreshed for 90 seconds (a
+  // closed tab) stops counting, and 3 minutes after the first wait the
+  // start prepares with what is saved. Checked before reading any text.
+  const readsDelay = pendingReadsWait(draft, preparation, now);
+  if (readsDelay !== null) {
+    await deferPreparation(ctx, preparation, "reads", readsDelay, { evidenceRead: false });
     return null;
   }
   const evidence = await selectDraftEvidence(ctx, draft);
@@ -849,7 +869,37 @@ async function settleAttemptEnd(
     return preparation;
   }
   await ctx.db.patch(preparationId, { attemptEndedAt: Date.now(), leaseExpiresAt: undefined });
+  await wakeSlotWaiters(ctx, preparation);
   return (await ctx.db.get(preparationId))!;
+}
+
+/**
+ * The running slot just freed (2026-09-27, second): a queued start of the
+ * same scope or user that is waiting for the slot runs now instead of at
+ * its next 30-second look, so the preparation that replaced a stopped call
+ * dispatches straight away. Its limits and checks run as usual.
+ */
+async function wakeSlotWaiters(ctx: MutationCtx, ended: Preparation): Promise<void> {
+  const queued = [
+    ...(await scopeRows(ctx, scopeOf(ended), "queued", 5)),
+    ...(await ctx.db
+      .query("briefPreparations")
+      .withIndex("by_triggeredBy_and_status", (q) => q.eq("triggeredBy", ended.triggeredBy).eq("status", "queued"))
+      .take(5)),
+  ];
+  const now = Date.now();
+  const woken = new Set<Id<"briefPreparations">>();
+  for (const row of queued) {
+    if (woken.has(row._id) || row.waitingFor !== "slot") continue;
+    woken.add(row._id);
+    if (row.scheduledJobId && row.runAt > now) await ctx.scheduler.cancel(row.scheduledJobId);
+    const revision = row.revision + 1;
+    const scheduledJobId = await ctx.scheduler.runAfter(0, internal.briefPreparations.startBriefPreparation, {
+      preparationId: row._id,
+      revision,
+    });
+    await ctx.db.patch(row._id, { revision, runAt: now, scheduledJobId, updatedAt: now });
+  }
 }
 
 /**
@@ -875,6 +925,50 @@ export const cancelPreparationAttempt = internalMutation({
     const preparation = await settleAttemptEnd(ctx, args.preparationId, args.attemptId);
     if (!preparation || preparation.status !== "running" || preparation.attemptId !== args.attemptId) return null;
     await endPreparation(ctx, preparation, "cancelled", args.reason.slice(0, 40));
+    return null;
+  },
+});
+
+/**
+ * Whether the attempt is still the one to finish (2026-09-27, second):
+ * running under this attempt id, within its lease, its project or draft
+ * still live. The attempt's action asks about every 2 seconds while its
+ * call runs and stops the call when the answer is no (made obsolete by a
+ * newer key, cancelled, failed at its lease, or its draft or project gone).
+ * A preparation a run waits on is never made obsolete by later edits, so
+ * it stays current.
+ */
+export const isAttemptCurrent = internalQuery({
+  args: { preparationId: v.id("briefPreparations"), attemptId: v.string() },
+  returns: v.boolean(),
+  handler: async (ctx, args): Promise<boolean> => {
+    return (await liveAttempt(ctx, args.preparationId, args.attemptId)) !== null;
+  },
+});
+
+/**
+ * The action stopped its call because the attempt went out of date
+ * (2026-09-27, second). The attempt ends now, so the running slot frees and
+ * a queued start waiting for it dispatches at once. Not a model failure: no
+ * failure code and no cooldown. The spend stays counted: the usage the
+ * stream reported (if any) is logged by the instrumentation, and without
+ * any the cost is marked unknown; either way the preparation keeps its
+ * reservation counted for the day (preparationCharge).
+ */
+export const endAbortedAttempt = internalMutation({
+  args: { preparationId: v.id("briefPreparations"), attemptId: v.string(), usageReported: v.boolean() },
+  returns: v.null(),
+  handler: async (ctx, args): Promise<null> => {
+    const current = await ctx.db.get(args.preparationId);
+    if (!current || current.attemptId !== args.attemptId) return null;
+    const now = Date.now();
+    await ctx.db.patch(current._id, { abortedAt: now, ...(args.usageReported ? {} : { costUnknown: true }) });
+    const preparation = await settleAttemptEnd(ctx, args.preparationId, args.attemptId);
+    // Stopped while still running (its project or draft went, say): it ends
+    // cancelled, never failed.
+    if (preparation && preparation.status === "running") {
+      await endPreparation(ctx, preparation, "cancelled", "stopped");
+    }
     return null;
   },
 });
