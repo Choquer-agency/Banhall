@@ -1293,6 +1293,9 @@ export default defineSchema({
     slot: v.string(),
     promptVersion: v.string(),
     roleOpen: v.optional(v.boolean()),
+    // Owner decision 65: "server" marks the first Batch the server started
+    // when the seed stage opened; absent means a person or a prefetch asked.
+    startedBy: v.optional(v.literal("server")),
     requestsReserved: v.number(),
     requestsMade: v.optional(v.number()),
     settledAt: v.optional(v.number()),

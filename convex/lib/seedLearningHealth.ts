@@ -330,7 +330,9 @@ export async function readSeedLearningHealth(
             SEED_HEALTH_LIMITS.seedsPerBatch,
           );
           seedsViewed += seedRead.rows.length;
-          if (batch.roleOpen === true) {
+          // Decision 65: a Batch the server started when the stage opened
+          // was not asked for by a writer on the page, so it is no wait.
+          if (batch.roleOpen === true && batch.startedBy !== "server") {
             const duration = event.at - batch.queuedAt;
             if (duration >= 0) foregroundToFirstRenderMs.push(duration);
             else invalidDurations += 1;

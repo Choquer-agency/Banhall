@@ -715,6 +715,36 @@ describe("AD-39 seed learning health", () => {
     });
   });
 
+  test("keeps the server's first Batch out of the writer's wait (decision 65)", async () => {
+    const { t, admin, generationId } = await insertWorkedTrace();
+    // b1 is the first step's open Batch; here the server started it when the
+    // seed stage opened, before any writer asked for it.
+    await t.run(async (ctx) => {
+      const [b1] = await ctx.db
+        .query("seedBatches")
+        .withIndex("by_generationId_and_roleId_and_commandId", (q) =>
+          q.eq("generationId", generationId).eq("roleId", "company_context").eq("commandId", "b1"),
+        )
+        .take(1);
+      if (!b1) throw new Error("Missing fixture batch b1");
+      await ctx.db.patch(b1._id, { startedBy: "server" });
+    });
+    const p1 = await admin.query(api.learningHealth.getSeedHealth, {
+      start: P1,
+      end: P2,
+      gatedWorkflow: "seeds",
+    });
+    // Only b3, which a writer opened on the page, is a wait sample now; the
+    // model latency and the batch counts still include b1.
+    expect(p1.latency).toMatchObject({
+      dispatchToValidatedResultMs: { samples: 5, median: 8 * SECOND, p95: 10 * SECOND },
+      foregroundDispatchToFirstRenderMs: { samples: 1 },
+    });
+    expect(p1.latency.foregroundDispatchToFirstRenderMs.median).not.toBeNull();
+    expect(p1.batches).toEqual({ completed: 5, viewed: 3 });
+    expect(p1.seeds).toEqual({ viewed: 12, selected: 3, edited: 1 });
+  });
+
   test("is admin-only, validates the period and discloses missing joins", async () => {
     const fixture: Fixture = await insertWorkedTrace();
     await expect(

@@ -121,6 +121,8 @@ type DispatchArgs = {
   actorUserId?: Id<"users">;
   bumpVersion?: boolean;
   budget?: import("./lib/seedDecisionState").SeedDecisionReadBudget;
+  /** Decision 65: the server's first Batch, kept out of writer-wait metrics. */
+  startedBy?: "server";
 };
 
 export type SeedDispatchResult =
@@ -406,6 +408,7 @@ export async function dispatchSeedAttempt(
         : `generation:seeds:${args.roleId}`,
     promptVersion: generation.promptVersion ?? "unversioned",
     roleOpen: args.operation === "open",
+    ...(args.startedBy ? { startedBy: args.startedBy } : {}),
     requestsReserved: SEED_ATTEMPT_REQUESTS_RESERVED,
   });
   const encoded = await encodeBatchContext(loaded.snapshot, {
@@ -545,6 +548,7 @@ export async function startFirstSeedBatch(
     roleId: first.roleId,
     operation: "open",
     commandId: firstBatchCommandId(generationId),
+    startedBy: "server",
   });
 }
 

@@ -215,6 +215,7 @@ describe("the server starts the first Seed Batch (decision 65)", () => {
       status: "queued",
       commandId: `server-open:${s.generationId}`,
       roleOpen: true,
+      startedBy: "server",
       briefVersionId: s.briefId,
       model: "claude-sonnet-5",
       slot: `generation:seeds:${FIRST_ROLE}`,
@@ -273,6 +274,8 @@ describe("the server starts the first Seed Batch (decision 65)", () => {
     const state = await read(s);
     expect(state.batches).toHaveLength(1);
     expect(state.batches[0].commandId).toBe("open:mount");
+    // A writer's own open is not tagged as the server's.
+    expect(state.batches[0]).not.toHaveProperty("startedBy");
     expect(state.generation?.seedStageVersion).toBe(1);
   });
 
