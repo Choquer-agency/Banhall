@@ -1198,3 +1198,160 @@ describe("bounded waits (J, L)", () => {
     expect((await s.t.run(async (ctx) => ctx.db.get(waiter._id)))?.status).toBe("released");
   });
 });
+
+describe("the Step-by-step start with a preparation (K)", () => {
+  /** Cancels every pending job of one function and returns their arguments. */
+  async function takeOver<Args>(s: Setup, name: string): Promise<Args[]> {
+    return await s.t.run(async (ctx) => {
+      const jobs = (await ctx.db.system.query("_scheduled_functions").collect()).filter(
+        (job) => job.name.includes(name) && job.state.kind === "pending"
+      );
+      for (const job of jobs) await ctx.scheduler.cancel(job._id);
+      return jobs.map((job) => job.args[0] as Args);
+    });
+  }
+
+  async function pending(s: Setup, name: string) {
+    return (await s.t.run(async (ctx) => ctx.db.system.query("_scheduled_functions").collect())).filter(
+      (job) => job.name.includes(name) && job.state.kind === "pending"
+    ).length;
+  }
+
+  /** Reserve through the real mutation and run its start action directly. */
+  async function start(s: Setup) {
+    const generationId = await s.writer.mutation(api.generations.requestGeneration, {
+      projectId: s.projectId,
+      candidateMode: "iterative",
+    });
+    await takeOver(s, "startIterativeGeneration");
+    await s.t.action(internal.ai.iterative.startIterativeGeneration, { generationId });
+    return generationId;
+  }
+
+  async function continueRun(s: Setup) {
+    for (const args of await takeOver<{ generationId: Id<"generations"> }>(s, "continueAfterBriefPreparation")) {
+      await s.t.action(internal.ai.iterative.continueAfterBriefPreparation, args);
+    }
+  }
+
+  async function seedRows(s: Setup, generationId: Id<"generations">) {
+    return await s.t.run(async (ctx) =>
+      ctx.db.query("seedSubsections").withIndex("by_generationId", (q) => q.eq("generationId", generationId)).collect()
+    );
+  }
+
+  test("a ready preparation: the start adopts, opens the stage once and schedules one first batch, with no Brief call", async () => {
+    const s = await setup();
+    await prepare(s);
+    const calls = requests.length;
+    const generationId = await start(s);
+    expect(requests.filter((request) => JSON.stringify(request.body).includes(BRIEF_REQUEST.toolName))).toHaveLength(calls);
+    const generation = await loadGeneration(s, generationId);
+    expect(generation.status).toBe("awaiting_input");
+    expect(generation.briefPreparation?.state).toBe("adopted");
+    expect(await seedRows(s, generationId)).toHaveLength(13);
+    expect(await pending(s, "startFirstBatch")).toBe(1);
+  });
+
+  test("a running preparation: the start waits, the continuation adopts and opens once, and a duplicate continuation does nothing", async () => {
+    const s = await setup();
+    const running = await claimOnly(s);
+    await takeOver(s, "runBriefPreparation");
+    const generationId = await start(s);
+    let generation = await loadGeneration(s, generationId);
+    expect(generation.briefPreparation?.state).toBe("attached");
+    expect(generation.status).toBe("running");
+    expect(await seedRows(s, generationId)).toHaveLength(0);
+
+    // The preparation's own call, run now.
+    await s.t.action(internal.ai.brief.runBriefPreparation, { preparationId: running._id, attemptId: running.attemptId! });
+    expect(await pending(s, "continueAfterBriefPreparation")).toBe(1);
+    await continueRun(s);
+    generation = await loadGeneration(s, generationId);
+    expect(generation.status).toBe("awaiting_input");
+    expect(generation.briefPreparation?.state).toBe("adopted");
+    expect(await seedRows(s, generationId)).toHaveLength(13);
+    expect(await pending(s, "startFirstBatch")).toBe(1);
+    const briefCalls = requests.length;
+
+    // Delivered twice: nothing more.
+    await s.t.action(internal.ai.iterative.continueAfterBriefPreparation, { generationId });
+    expect(await seedRows(s, generationId)).toHaveLength(13);
+    expect(await pending(s, "startFirstBatch")).toBe(1);
+    expect(requests).toHaveLength(briefCalls);
+  });
+
+  test("a run cancelled while it waits makes no call and opens nothing", async () => {
+    const s = await setup();
+    const running = await claimOnly(s);
+    await takeOver(s, "runBriefPreparation");
+    const generationId = await start(s);
+    await s.writer.mutation(api.generations.cancelIterativeGeneration, { generationId });
+    await s.t.action(internal.ai.brief.runBriefPreparation, { preparationId: running._id, attemptId: running.attemptId! });
+    const calls = requests.length;
+    await continueRun(s);
+    expect(requests).toHaveLength(calls);
+    expect(await seedRows(s, generationId)).toHaveLength(0);
+    expect((await loadGeneration(s, generationId)).briefId).toBeUndefined();
+  });
+
+  test("evidence that changes during the wait makes the continuation miss and derive", async () => {
+    const s = await setup();
+    const running = await claimOnly(s);
+    await takeOver(s, "runBriefPreparation");
+    const generationId = await start(s);
+    await s.t.run(async (ctx) => ctx.db.patch(s.speakerId, { role: "other", roleSource: "consultant", confidence: 1 }));
+    await s.t.action(internal.ai.brief.runBriefPreparation, { preparationId: running._id, attemptId: running.attemptId! });
+    const calls = requests.length;
+    await continueRun(s);
+    expect(requests).toHaveLength(calls + 1);
+    const generation = await loadGeneration(s, generationId);
+    expect(generation.briefPreparation?.state).toBe("released");
+    const brief = await s.t.run(async (ctx) => ctx.db.get(generation.briefId!));
+    expect(brief?.preparation).toBeUndefined();
+    expect(await seedRows(s, generationId)).toHaveLength(13);
+  });
+
+  test("switched off while a run waits: the continuation derives its own", async () => {
+    const s = await setup();
+    const running = await claimOnly(s);
+    await takeOver(s, "runBriefPreparation");
+    const generationId = await start(s);
+    await s.t.action(internal.ai.brief.runBriefPreparation, { preparationId: running._id, attemptId: running.attemptId! });
+    await switchOff(s);
+    const calls = requests.length;
+    await continueRun(s);
+    expect(requests).toHaveLength(calls + 1);
+    expect((await loadGeneration(s, generationId)).briefPreparation?.state).toBe("released");
+  });
+
+  test("a lease already expired at the start is a miss", async () => {
+    const s = await setup();
+    await claimOnly(s);
+    await takeOver(s, "runBriefPreparation");
+    vi.setSystemTime(Date.now() + 12 * 60 * 1000);
+    const generationId = await reserve(s);
+    expect((await adoptAtStart(s, generationId)).kind).toBe("derived");
+  });
+
+  test("a writer-edited Brief with the same inputs wins over a ready preparation", async () => {
+    const s = await setup();
+    await prepare(s);
+    const first = await reserve(s);
+    expect((await adoptAtStart(s, first)).kind).toBe("adopted");
+    // The writer edits that Brief: a newer version with the same inputs.
+    const editedId = await s.t.run(async (ctx) => {
+      const adopted = (await ctx.db.get((await ctx.db.get(first))!.briefId!))!;
+      const { _id, _creationTime, preparation, ...fields } = adopted;
+      void _id; void _creationTime; void preparation;
+      await ctx.db.patch(first, { status: "failed" });
+      await ctx.db.patch(s.projectId, { activeGenerationId: undefined });
+      return await ctx.db.insert("generationBriefs", {
+        ...fields, version: adopted.version + 1, origin: "edited", storylineText: "Edited by the writer.", createdAt: Date.now(),
+      });
+    });
+    const second = await reserve(s);
+    expect((await adoptAtStart(s, second)).kind).toBe("reused");
+    expect((await loadGeneration(s, second)).briefId).toBe(editedId);
+  });
+});
