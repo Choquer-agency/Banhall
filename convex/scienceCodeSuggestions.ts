@@ -9,6 +9,7 @@ import {
   scienceCodeLabel,
 } from "../shared/craScienceCodes";
 import { firstResponseText } from "./ai/openrouterCore";
+import { pseudonymize, restorePlaceholders } from "./lib/deidentify";
 
 const MAX_CONTEXT_CHARS = 80_000;
 
@@ -27,16 +28,20 @@ export const suggest = action({
     const codeCatalog = CRA_SCIENCE_CODES.map(
       ({ code, label, group }) => `${code} | ${group} | ${label}`
     ).join("\n");
-    const projectContext = [
-      `Project title: ${context.title}`,
-      context.sredTitle ? `SR&ED title: ${context.sredTitle}` : "",
-      context.industry ? `Industry: ${context.industry}` : "",
-      context.transcript ? `Interview transcript:\n${context.transcript}` : "",
-      context.report ? `Current report:\n${context.report}` : "",
-    ]
-      .filter(Boolean)
-      .join("\n\n")
-      .slice(0, MAX_CONTEXT_CHARS);
+    // Names become placeholders before the call (decision 26, review
+    // 2026-09-26 P2-6); the answer is a bare code, restored all the same.
+    const projectContext = pseudonymize(
+      [
+        `Project title: ${context.title}`,
+        context.sredTitle ? `SR&ED title: ${context.sredTitle}` : "",
+        context.industry ? `Industry: ${context.industry}` : "",
+        context.transcript ? `Interview transcript:\n${context.transcript}` : "",
+        context.report ? `Current report:\n${context.report}` : "",
+      ]
+        .filter(Boolean)
+        .join("\n\n"),
+      context.placeholders
+    ).slice(0, MAX_CONTEXT_CHARS);
 
     // Model catalog: the suggestion runs on the science_code role's model.
     const { client, model } = await clientForRole(ctx, "science_code", {
@@ -58,8 +63,7 @@ export const suggest = action({
         },
       ],
     });
-    const output =
-      firstResponseText(response);
+    const output = restorePlaceholders(firstResponseText(response), context.placeholders);
     const code = normalizeCraScienceCode(output);
     return code ? { code, label: scienceCodeLabel(code) } : null;
   },

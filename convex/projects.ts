@@ -84,6 +84,8 @@ import {
 } from "./lib/transcripts";
 import { transcriptSourceFormatValidator } from "./lib/transcriptValidators";
 import type { TranscriptSourceFormat } from "../shared/transcriptParse";
+import { transcriptPlaceholdersEnabled } from "./appSettings";
+import { projectPlaceholderMap } from "./lib/transcriptPlaceholders";
 
 type TranscriptInput =
   | {
@@ -894,12 +896,25 @@ export const getScienceCodeSuggestionContext = internalQuery({
         .first(),
     ]);
 
+    // Decision 26 (review 2026-09-26, P2-6): the suggestion call reads
+    // placeholders, not names, like every other masked call.
+    const placeholders = (await transcriptPlaceholdersEnabled(ctx))
+      ? [
+          ...(await projectPlaceholderMap(ctx, access.project, await listProjectTranscripts(ctx, args.projectId), [
+            access.project.title,
+            access.project.sredTitle ?? "",
+            transcript ?? "",
+            report?.content ?? "",
+          ])),
+        ]
+      : [];
     return {
       title: access.project.title,
       sredTitle: access.project.sredTitle,
       industry: access.project.industry,
       transcript,
       report: report?.content,
+      placeholders,
     };
   },
 });

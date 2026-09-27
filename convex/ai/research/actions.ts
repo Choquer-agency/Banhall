@@ -15,7 +15,13 @@ import {
 import { callOpenRouterResearch } from "./openrouter";
 import { startActionDeadline } from "../actionDeadline";
 import { HUMAN_PROSE_FOR_OWN_WORDING } from "../../../shared/humanProse";
-import { dropPlaceholderTokens, pseudonymize, restorePlaceholdersDeep } from "../../lib/deidentify";
+import {
+  avoidTokenCollisions,
+  dropPlaceholderTokens,
+  pseudonymize,
+  restorePlaceholders,
+  restorePlaceholdersDeep,
+} from "../../lib/deidentify";
 
 const externalProviderValidator = v.union(
   v.literal("gpt"),
@@ -247,23 +253,26 @@ export const reviewResearch = internalAction({
         .join("\n\n");
       // Decision 26 (audit wave 2): the reviewer reads the session's
       // placeholders, not names, in the passage, the project excerpts and
-      // the memos; its answer is restored before anything is stored.
-      const placeholders = context.session.placeholders ?? [];
+      // the memos; its answer is restored before anything is stored. The
+      // memos come back holding the session's tokens, so they are restored
+      // first; then the map is renumbered past any token the excerpts or
+      // memos hold literally (review P3), so restoring the answer never
+      // turns a literal token into a name.
+      const sessionMap = context.session.placeholders ?? [];
+      const prompt = [
+        `## Writer's instruction\n${context.session.instruction || "Research and safely strengthen the selected passage."}`,
+        `## Selected passage\n${context.session.selectedText}`,
+        `## Nearby report context\n${context.session.surroundingContext || "No nearby context supplied."}`,
+        `## Independent external research\n${restorePlaceholders(providerReports, sessionMap)}`,
+        `## Evidence catalog\nUse only these keys in claims.sourceKeys.\n${catalog.text || "No project/source excerpts were captured."}`,
+        "Return the required JSON object. The answer should be concise and useful to a report writer; do not expose internal chain-of-thought.",
+      ].join("\n\n");
+      const placeholders = avoidTokenCollisions(sessionMap, [prompt]);
       const result = await callOpenRouterResearch(ctx, {
         provider: "reviewer",
         model: RESEARCH_MODELS.reviewer,
         system: REVIEWER_SYSTEM,
-        prompt: pseudonymize(
-          [
-            `## Writer's instruction\n${context.session.instruction || "Research and safely strengthen the selected passage."}`,
-            `## Selected passage\n${context.session.selectedText}`,
-            `## Nearby report context\n${context.session.surroundingContext || "No nearby context supplied."}`,
-            `## Independent external research\n${providerReports}`,
-            `## Evidence catalog\nUse only these keys in claims.sourceKeys.\n${catalog.text || "No project/source excerpts were captured."}`,
-            "Return the required JSON object. The answer should be concise and useful to a report writer; do not expose internal chain-of-thought.",
-          ].join("\n\n"),
-          placeholders
-        ),
+        prompt: pseudonymize(prompt, placeholders),
         sessionId: context.session._id,
         projectId: context.project._id,
         userId: context.user._id,

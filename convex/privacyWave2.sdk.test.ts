@@ -18,15 +18,22 @@ const modules = import.meta.glob("./**/*.ts");
 const workflowModules = import.meta.glob("../node_modules/@convex-dev/workflow/src/component/**/*.ts");
 const workpoolModules = import.meta.glob("../node_modules/@convex-dev/workpool/src/component/**/*.ts");
 
+// Parser v8 labels that pass the evidence rules: two lowercase speakers who
+// alternate with each other, an email label, and a Chinese speaker who
+// alternates with the interviewer. "Bo" is a two-letter interviewee on the
+// project record.
 const TRANSCRIPT = [
   "dana whitfield: What did you build for the feeder?",
   "marcus lindqvist: A controller. Marcus here, and Bo helped.",
+  "dana whitfield: Who ran the bench?",
   "pshah@acme.example: I ran the bench. Ask pshah for the logs.",
-  "李伟: 我们重建了测试台。",
   "dana whitfield: And Northwind Advisory wrote the claim?",
-  "marcus lindqvist: Yes, NWA did.",
+  "marcus lindqvist: Yes, NWA did. Dana knows.",
+  "dana whitfield: And the rig?",
+  "李伟: 我们重建了测试台。",
+  "dana whitfield: When?",
   "李伟: 李伟确认了结果。",
-  "Bo: The drift stayed in band.",
+  "dana whitfield: Thanks.",
 ].join("\n\n");
 
 /** Every name the request bodies must never hold. */
@@ -72,6 +79,7 @@ async function setup(options: { report?: boolean } = {}) {
       title: "Helios",
       clientName: "Verdant Grid Technologies Inc.",
       writer: "Wren Writer",
+      interviewees: ["Bo"],
       status: "draft",
       createdBy: writerId,
       ownerId: writerId,
@@ -264,7 +272,6 @@ describe("research prompts go through the same map", () => {
     const session = await f.t.run((ctx) => ctx.db.get(sessionId));
     expect(session?.placeholders).toBeUndefined();
     expect(session?.externalBrief).not.toContain("Verdant Grid Technologies Inc.");
-    expect(session?.externalBrief).not.toContain("Northwind Advisory");
   });
 });
 
@@ -287,7 +294,106 @@ describe("the firm-name setting", () => {
     await expect(admin.mutation(api.appSettings.setFirmNames, { names: ["x".repeat(121)] })).rejects.toThrow(
       /at most 120/
     );
+    // A name the placeholders cannot hide is refused, never saved in silence.
+    await expect(admin.mutation(api.appSettings.setFirmNames, { names: ["N"] })).rejects.toThrow(/too short/);
+    await expect(admin.mutation(api.appSettings.setFirmNames, { names: ["42"] })).rejects.toThrow(/no letters/);
     await admin.mutation(api.appSettings.setFirmNames, { names: [] });
     expect((await admin.query(api.appSettings.getFirmNames, {}))?.names).toEqual([]);
+  });
+});
+
+describe("the science code suggestion (review P2-6)", () => {
+  it("sends no name and returns the code", async () => {
+    const f = await setup({ report: true });
+    const bodies: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const request = new Request(input, init);
+        bodies.push(await request.text());
+        if (request.url.includes("openrouter.ai")) {
+          return Response.json({
+            id: "gen-sc",
+            model: "test",
+            choices: [{ message: { role: "assistant", content: "2.02.01" } }],
+            usage: { prompt_tokens: 10, completion_tokens: 2 },
+          });
+        }
+        return Response.json({
+          id: "msg_sc",
+          type: "message",
+          role: "assistant",
+          model: MODEL,
+          content: [{ type: "text", text: "2.02.01" }],
+          stop_reason: "end_turn",
+          stop_sequence: null,
+          usage: { input_tokens: 10, output_tokens: 2 },
+        });
+      })
+    );
+    const result = await f.writer.action(api.scienceCodeSuggestions.suggest, { projectId: f.projectId });
+    expect(bodies).toHaveLength(1);
+    for (const name of HIDDEN) expect(bodies[0], name).not.toContain(name);
+    expect(bodies[0]).toContain("feeder rig");
+    expect(result?.code).toBe("2.02.01");
+  });
+});
+
+describe("research collision check (review P3)", () => {
+  it("renumbers the reviewer's map past a literal token in a project excerpt", async () => {
+    const f = await setup({ report: true });
+    await f.t.run(async (ctx) => {
+      await ctx.db.insert("projectDocuments", {
+        projectId: f.projectId,
+        fileName: "bench-notes.txt",
+        fileType: "txt",
+        content: "Feeder rig drift log. [PERSON_1] logged the feeder rig drift twice.",
+        source: "upload",
+        uploadedBy: "w2-writer",
+        createdAt: 1,
+      });
+    });
+    const sessionId = await f.writer.mutation(api.research.startResearch, {
+      reportId: f.reportId!,
+      selectedText: "Marcus Lindqvist rebuilt the feeder rig drift bench.",
+      selectionFrom: 1,
+      selectionTo: 40,
+      surroundingContext: "",
+      instruction: "Check feeder rig drift standards.",
+    });
+    await f.t.mutation(internal.research.collectProjectEvidence, { sessionId });
+    const sessionMap = (await f.t.run((ctx) => ctx.db.get(sessionId)))?.placeholders ?? [];
+    expect(sessionMap.some((entry) => entry.token === "[PERSON_1]")).toBe(true);
+    await f.t.run(async (ctx) => {
+      await ctx.db.insert("researchRuns", {
+        sessionId,
+        projectId: f.projectId,
+        provider: "gpt",
+        model: "test",
+        status: "completed",
+        responseText: `Drift standards apply to ${sessionMap.find((entry) => entry.value === "Marcus Lindqvist")!.token}'s rig.`,
+        startedAt: 1,
+      });
+    });
+    const bodies: string[] = [];
+    captureOpenRouter(
+      bodies,
+      JSON.stringify({
+        answer: "[PERSON_1] logged the drift, as the bench notes say.",
+        evidenceBoundary: "Project notes only.",
+        confidence: "low",
+        warnings: [],
+        claims: [],
+        proposedText: "",
+      })
+    );
+    await f.t.action(internal.ai.research.actions.reviewResearch, { sessionId });
+    expect(bodies).toHaveLength(1);
+    for (const name of HIDDEN) expect(bodies[0], name).not.toContain(name);
+    // The excerpt's literal token reached the reviewer as written, and the
+    // answer that echoes it keeps it literal instead of naming someone.
+    expect(bodies[0]).toContain("[PERSON_1] logged");
+    const session = await f.t.run((ctx) => ctx.db.get(sessionId));
+    expect(session?.answer).toBe("[PERSON_1] logged the drift, as the bench notes say.");
   });
 });

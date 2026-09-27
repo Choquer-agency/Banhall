@@ -51,7 +51,12 @@ export function redactExternalText(value: string, knownNames: string[]): string 
     new Set(knownNames.map((name) => name.trim()).filter((name) => name.length >= 3))
   ).sort((a, b) => b.length - a.length);
   for (const name of names) {
-    redacted = redacted.replace(new RegExp(escapeRegExp(name), "gi"), "[redacted]");
+    // Whole words only (review 2026-09-26, P2-7): a short name such as
+    // "ACE" never corrupts "surface".
+    redacted = redacted.replace(
+      new RegExp(`(?<![\\p{L}\\p{N}])${escapeRegExp(name)}(?![\\p{L}\\p{N}])`, "giu"),
+      "[redacted]"
+    );
   }
   redacted = redacted
     .replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, "[redacted email]")

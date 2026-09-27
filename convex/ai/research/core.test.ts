@@ -53,10 +53,17 @@ describe("Contextual Research core", () => {
     });
 
     test("replaces overlapping names longest-first and regex-special names literally", () => {
+      // Whole words only since 2026-09-26 (review P2-7): "Acmeology" stays.
       expect(redactExternalText(
-        "ACME FARMS and acme use A+B (Lab). AAB Lab stays; Al stays; Acmeology changes.",
+        "ACME FARMS and acme use A+B (Lab). AAB Lab stays; Al stays; Acmeology stays.",
         [" Acme ", "Acme Farms", "A+B (Lab)", "Acme", "Al", ""]
-      )).toBe("[redacted] and [redacted] use [redacted]. AAB Lab stays; Al stays; [redacted]ology changes.");
+      )).toBe("[redacted] and [redacted] use [redacted]. AAB Lab stays; Al stays; Acmeology stays.");
+    });
+
+    test("never redacts a name inside a longer word (review P2-7)", () => {
+      expect(redactExternalText("ACE coated the surface; the ace test passed.", ["ACE"])).toBe(
+        "[redacted] coated the surface; the [redacted] test passed."
+      );
     });
 
     test("preserves trim, space and tab collapse, and paragraph normalization", () => {

@@ -11,7 +11,7 @@ import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { formatBrainExemplars } from "./brain/retrieve";
 import { buildRetrievalBrief, retrievalBriefFromFacts } from "./brain/query";
-import type { PlaceholderMap } from "../lib/deidentify";
+import { dropPlaceholderTokens, pseudonymize, type PlaceholderMap } from "../lib/deidentify";
 import type { BrainProvenanceEntry } from "../lib/generationOutputs";
 import type { GenerationClient } from "./openrouterCore";
 
@@ -41,6 +41,11 @@ export const GENERATION_BRAIN_RETRIEVALS = [
   { block: "s246", section: "246", briefParts: ["advancement", "problem"], k: 3 },
 ] as const;
 export const BRAIN_FALLBACK_TRANSCRIPT_CHARS = 2000;
+
+/** A Brain query with the map's names hidden, then the tokens dropped. */
+function namesDropped(query: string, placeholders: PlaceholderMap): string {
+  return placeholders.length === 0 ? query : dropPlaceholderTokens(pseudonymize(query, placeholders));
+}
 export const BRAIN_GENERATION_QUERY_PROGRAM = {
   queryPartSeparator: "\n\n",
   fallbackTitleTranscriptSeparator: "\n\n",
@@ -79,7 +84,12 @@ export async function retrieveBrainBlocks(
      * reads them. The brief is then built from their claims, with no call.
      */
     factPacks?: readonly string[];
-    /** The generation's frozen name map, dropped from queries built from facts. */
+    /**
+     * The generation's frozen name map. Every query is masked with it and
+     * its tokens dropped before it leaves for the embedding service (review
+     * 2026-09-26: the fallback query sent the title and a transcript slice,
+     * and a model-written brief comes back restored).
+     */
     placeholders?: PlaceholderMap;
     log: (line: string) => Promise<unknown>;
     /**
@@ -119,11 +129,14 @@ export async function retrieveBrainBlocks(
     }[] = GENERATION_BRAIN_RETRIEVALS.map((definition) => ({
       block: definition.block,
       section: definition.section,
-      query: brief
-        ? definition.briefParts
-            .map((part) => brief[part])
-            .join(BRAIN_GENERATION_QUERY_PROGRAM.queryPartSeparator)
-        : fallbackQuery,
+      query: namesDropped(
+        brief
+          ? definition.briefParts
+              .map((part) => brief[part])
+              .join(BRAIN_GENERATION_QUERY_PROGRAM.queryPartSeparator)
+          : fallbackQuery,
+        params.placeholders ?? []
+      ),
       k: definition.k,
     }));
 

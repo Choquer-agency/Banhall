@@ -815,8 +815,10 @@ export const generateReport = internalAction({
         // Plan step 8: reading fact packs, the retrieval brief comes from
         // their claims with no call.
         ...(input.transcriptReading === "facts"
-          ? { factPacks: input.transcriptParts.map((part) => part.content), placeholders: input.placeholders }
+          ? { factPacks: input.transcriptParts.map((part) => part.content) }
           : {}),
+        // Every query leaves for the embedding service with names dropped.
+        placeholders: input.placeholders,
         retrievalBriefClient,
         retrievalBriefModel,
         log,

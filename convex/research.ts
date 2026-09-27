@@ -20,7 +20,6 @@ import { requireOpenRouterConfigured } from "./lib/providerConfig";
 import { scrubBannedWordsUnlessWaived } from "./lib/reportEdits";
 import { getEffectiveWriterStyle } from "./writerProfiles";
 import { transcriptPlaceholdersEnabled } from "./appSettings";
-import { firmNames } from "./lib/firmNames";
 import { listProjectTranscripts } from "./lib/transcripts";
 import { projectPlaceholderMap } from "./lib/transcriptPlaceholders";
 import { researchWorkflowManager } from "./ai/research/manager";
@@ -139,7 +138,6 @@ export const startResearch = mutation({
       project.writer,
       project.interviewer,
       ...(project.interviewees ?? []),
-      ...(await firmNames(ctx)),
     ].filter((name): name is string => Boolean(name?.trim()));
     const externalBrief = buildExternalBrief({
       selectedText,
