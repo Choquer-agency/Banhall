@@ -150,73 +150,223 @@ function cleanName(name: string | undefined): string | undefined {
 }
 
 /**
+ * A person's name or speaker label: any length, any case, any script
+ * (parser v8, audit wave 2). It needs a letter, so a VTT voice "<v 2>" never
+ * hides every "2" in a transcript.
+ */
+function cleanPersonName(name: string | undefined): string | undefined {
+  const trimmed = name?.trim().replace(/\s+/g, " ");
+  return trimmed && /\p{L}/u.test(trimmed) ? trimmed : undefined;
+}
+
+/** A firm name or short form an admin typed (decision 26): two characters or more. */
+function cleanFirmName(name: string | undefined): string | undefined {
+  const trimmed = name?.trim().replace(/\s+/g, " ");
+  return trimmed && trimmed.length >= 2 && /\p{L}/u.test(trimmed) ? trimmed : undefined;
+}
+
+const EMAIL = /^([\p{L}\p{N}._%+'-]+)@([\p{L}\p{N}-]+(?:\.[\p{L}\p{N}-]+)+)$/u;
+
+/** Mailbox domains that name no organization. */
+const PUBLIC_MAIL_DOMAINS = new Set([
+  "gmail.com", "googlemail.com", "outlook.com", "hotmail.com", "live.com", "msn.com",
+  "yahoo.com", "yahoo.ca", "icloud.com", "me.com", "aol.com", "proton.me", "protonmail.com",
+]);
+
+/** Mailbox names that name no person ("info@", "sales@"). */
+const ROLE_MAILBOXES = new Set([
+  "info", "admin", "contact", "support", "sales", "hello", "team", "office", "mail",
+  "noreply", "no-reply", "help", "service", "accounts", "billing", "hr", "jobs",
+]);
+
+/**
+ * Lowercase words that are also first names or surnames ("will", "grant",
+ * "rose"); a lowercase part of a name never hides them alone.
+ */
+const COMMON_LOWER_WORDS = new Set([
+  ...[...COMMON_FIRST_WORDS].map((word) => word.toLowerCase()),
+  "rose", "lily", "gene", "sky", "river", "ben", "long", "young", "white", "black",
+  "brown", "green", "king", "love", "hall", "wood", "field", "stone", "rich", "lane",
+  "park", "bell", "cook", "hunter", "baker", "miller", "smith", "carter", "mason",
+]);
+
+/** "priya shah" as "Priya Shah"; "jean-philippe o'neil" as "Jean-Philippe O'Neil". */
+function titleCase(name: string): string {
+  return name.replace(/(^|[\s\-'’])(\p{Ll})/gu, (_, edge: string, letter: string) => edge + letter.toUpperCase());
+}
+
+/**
+ * Scripts written without spaces between words (Chinese, Japanese, Thai)
+ * or with particles joined to a name (Korean). A name in them is matched
+ * anywhere, since "李伟说" holds 李伟 with no boundary around it.
+ */
+const NO_SPACE_SCRIPT =
+  /^[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}\p{Script=Thai}\p{Script=Lao}\p{Script=Khmer}\p{Script=Myanmar}\u30FC\u30FB\u00B7\s]+$/u;
+
+function matchesAnywhere(value: string): boolean {
+  return NO_SPACE_SCRIPT.test(value);
+}
+
+/**
  * The placeholder map for one project (and, inside a generation, frozen on
  * the generation). Deterministic for the same inputs: the client first, then
- * people in the order given, each with its full name and single-name forms.
- * Speaker labels that look generic ("Speaker 2", "Interviewer") are skipped.
+ * the firm's own names, then people in the order given, each with its full
+ * name and single-name forms. Speaker labels that look generic ("Speaker 2",
+ * "Interviewer") are skipped.
+ *
+ * Parser v8 (2026-09-26, audit wave 2): a name in any case or script and of
+ * any length is hidden. A lowercase name ("priya shah") also hides its
+ * capitalized form and its parts; a later label that differs from a person
+ * only in case is hidden as a variant of that person; an email label hides
+ * the address, its mailbox name and the name the mailbox spells, and its
+ * domain as an organization. `phrases` are hidden as written only.
  */
 export function buildPlaceholderMap(input: {
   clientName?: string;
   /** Other organizations to hide (none on the record today). */
   companies?: readonly string[];
+  /** The consulting firm's own names and short forms (admin setting). */
+  firms?: readonly string[];
   /** Interviewer, writer, interviewees, then speaker labels. */
   people: readonly (string | undefined)[];
+  /** Labels hidden as written, with no single-word or case forms. */
+  phrases?: readonly string[];
 }): PlaceholderMap {
   const entries: PlaceholderEntry[] = [];
   const taken = new Set<string>();
-  const add = (token: string, value: string | undefined) => {
-    if (!value || value.length < 3 || taken.has(value)) return;
+  const add = (token: string, value: string | undefined, minLength = 3) => {
+    if (!value || value.length < minLength || taken.has(value)) return;
     taken.add(value);
     entries.push({ token, value, bare: true });
   };
 
-  const companies = [input.clientName, ...(input.companies ?? [])]
-    .map(cleanName)
-    .filter((name): name is string => !!name);
-  companies.forEach((company, index) => {
-    const n = index + 1;
-    add(`[CLIENT_${n}]`, company);
+  // Email domains name an organization (parser v8): "acme.com" in
+  // "pshah@acme.com" is hidden with the organizations.
+  const domains: string[] = [];
+  for (const raw of [...input.people, ...(input.phrases ?? [])]) {
+    const email = EMAIL.exec(raw?.trim() ?? "");
+    const domain = email?.[2].toLowerCase();
+    if (domain && !PUBLIC_MAIL_DOMAINS.has(domain) && !domains.includes(email![2])) domains.push(email![2]);
+  }
+
+  const companyForms = (prefix: "CLIENT" | "FIRM", company: string, n: number, minLength: number) => {
+    add(`[${prefix}_${n}]`, company, minLength);
     const short = company.replace(LEGAL_SUFFIX, "").trim();
-    if (short !== company) add(`[CLIENT_${n}_SHORT]`, short);
+    if (short !== company) add(`[${prefix}_${n}_SHORT]`, short, minLength);
     // 2026-09-25 (review of decision 26): the name as people say it.
     const brand = (short || company).replace(COMPANY_DESCRIPTOR, "").trim();
-    if (brand !== (short || company) && brand.split(" ").length >= 2) add(`[CLIENT_${n}_BRAND]`, brand);
+    if (brand !== (short || company) && brand.split(" ").length >= 2) add(`[${prefix}_${n}_BRAND]`, brand, minLength);
     const upper = (short || company).toUpperCase();
-    if (upper !== short && upper !== company && /\p{L}{3,}/u.test(upper)) add(`[CLIENT_${n}_CAPS]`, upper);
-  });
+    if (upper !== short && upper !== company && /\p{L}{3,}/u.test(upper)) add(`[${prefix}_${n}_CAPS]`, upper, minLength);
+  };
+
+  const [client, ...others] = [input.clientName, ...(input.companies ?? []), ...domains]
+    .map(cleanName)
+    .filter((name): name is string => !!name);
+  if (client) companyForms("CLIENT", client, 1, 3);
+  // The firm's own names come before other organizations, so a label such
+  // as "Dana (Firm Name)" never makes the firm a client.
+  (input.firms ?? [])
+    .map(cleanFirmName)
+    .filter((name): name is string => !!name)
+    .forEach((firm, index) => companyForms("FIRM", firm, index + 1, 2));
+  others.forEach((company, index) => companyForms("CLIENT", company, index + 2, 3));
 
   let person = 0;
-  const seenPeople = new Set<string>();
-  for (const raw of input.people) {
-    const name = cleanName(raw);
-    if (!name || GENERIC_LABEL.test(name)) continue;
-    if (!/^\p{Lu}/u.test(name)) continue;
-    const key = name.toLowerCase();
-    if (seenPeople.has(key) || taken.has(name)) continue;
-    seenPeople.add(key);
-    person += 1;
-    add(`[PERSON_${person}]`, name);
-    // "Shah, Priya" (a speaker label as a Teams export writes it) gives
-    // "Shah" and "Priya", never "Shah," with its comma.
+  const personOf = new Map<string, { n: number; name: string }>();
+  const partForms = (n: number, name: string, suffix: "" | "LOWER") => {
     const words = name
       .split(" ")
       .map((word) => word.replace(/,$/, ""))
       .filter((word) => !/^(?:dr|mr|mrs|ms|prof)\.?$/i.test(word));
-    if (words.length >= 2) {
-      const first = words[0];
-      const last = words[words.length - 1];
-      if (first.length >= 3 && /^\p{Lu}/u.test(first) && !COMMON_FIRST_WORDS.has(first)) {
-        add(`[PERSON_${person}_FIRST]`, first);
-      }
-      if (last.length >= 3 && /^\p{Lu}/u.test(last) && !COMMON_FIRST_WORDS.has(last)) {
-        add(`[PERSON_${person}_LAST]`, last);
+    if (words.length < 2) return;
+    const forms: Array<[string, string]> = [
+      [`FIRST${suffix}`, words[0]],
+      [`LAST${suffix}`, words[words.length - 1]],
+    ];
+    for (const [kind, word] of forms) {
+      if (/^\p{Lu}/u.test(word)) {
+        if (word.length >= 3 && !COMMON_FIRST_WORDS.has(word)) add(`[PERSON_${n}_${kind}]`, word);
+      } else if (/^\p{Ll}/u.test(word)) {
+        if (word.length >= 3 && !COMMON_LOWER_WORDS.has(word)) add(`[PERSON_${n}_${kind}]`, word);
+      } else if (/^\p{Lo}/u.test(word) && !matchesAnywhere(word) && [...word].length >= 2) {
+        // Arabic, Hebrew: word parts, matched as whole words.
+        add(`[PERSON_${n}_${kind}]`, word, 2);
       }
     }
+  };
+  /** Case and spelling forms of one person: capitalized parts first. */
+  const nameForms = (n: number, name: string) => {
+    const email = EMAIL.exec(name);
+    if (email) {
+      const local = email[1];
+      if (!ROLE_MAILBOXES.has(local.toLowerCase())) add(`[PERSON_${n}_LOCAL]`, local, 2);
+      const words = local.split(/[._-]+/).filter((word) => /^\p{L}{2,}$/u.test(word));
+      if (words.length >= 2 && words.length === local.split(/[._-]+/).length) {
+        const spoken = words.join(" ").toLowerCase();
+        add(`[PERSON_${n}_TITLE]`, titleCase(spoken), 1);
+        partForms(n, titleCase(spoken), "");
+      }
+      return;
+    }
+    if (!/^\p{Ll}/u.test(name)) {
+      partForms(n, name, "");
+      return;
+    }
+    // A label written in lowercase ("priya shah"): its capitalized form and
+    // parts, as speech usually writes them, then its own lowercase parts.
+    const title = titleCase(name);
+    add(`[PERSON_${n}_TITLE]`, title, 1);
+    partForms(n, title, "");
+    partForms(n, name, "LOWER");
+  };
+  const issued = () => new Set(entries.map((entry) => entry.token));
+  const variantToken = (n: number, canonical: string, surface: string): string | undefined => {
+    const tokens = issued();
+    const named = (suffix: string) => `[PERSON_${n}_${suffix}]`;
+    if (surface === titleCase(canonical) && !tokens.has(named("TITLE"))) return named("TITLE");
+    if (surface === canonical.toLowerCase() && !tokens.has(named("LOWER"))) return named("LOWER");
+    if (surface === canonical.toUpperCase() && !tokens.has(named("UPPER"))) return named("UPPER");
+    for (let count = 1; count <= 26; count += 1) {
+      const token = named(`ALT${count === 1 ? "" : String.fromCharCode(64 + count)}`);
+      if (!tokens.has(token)) return token;
+    }
+    return undefined;
+  };
+
+  for (const raw of input.people) {
+    const name = cleanPersonName(raw);
+    if (!name || GENERIC_LABEL.test(name)) continue;
+    const key = name.toLowerCase();
+    const known = personOf.get(key);
+    if (known) {
+      // The same person written in another case (parser v8): "priya shah"
+      // after "Priya Shah" is hidden too, with its lowercase parts.
+      if (name === known.name || taken.has(name)) continue;
+      const token = variantToken(known.n, known.name, name);
+      if (token) add(token, name, 1);
+      if (!/^\p{Lu}/u.test(name)) partForms(known.n, name.toLowerCase(), "LOWER");
+      continue;
+    }
+    if (taken.has(name)) continue;
+    person += 1;
+    personOf.set(key, { n: person, name });
+    add(`[PERSON_${person}]`, name, 1);
+    // "Shah, Priya" (a speaker label as a Teams export writes it) gives
+    // "Shah" and "Priya", never "Shah," with its comma.
+    nameForms(person, name);
+  }
+  for (const raw of input.phrases ?? []) {
+    const phrase = cleanPersonName(raw);
+    if (!phrase || GENERIC_LABEL.test(phrase) || taken.has(phrase) || personOf.has(phrase.toLowerCase())) continue;
+    person += 1;
+    personOf.set(phrase.toLowerCase(), { n: person, name: phrase });
+    add(`[PERSON_${person}]`, phrase, 1);
   }
   return entries;
 }
 
-const TOKEN = /\[(?:CLIENT|PERSON)_\d+(?:_[A-Z]+)?\]/g;
+const TOKEN = /\[(?:CLIENT|PERSON|FIRM)_\d+(?:_[A-Z]+)?\]/g;
 
 const matcherCache = new WeakMap<PlaceholderMap, { find: RegExp; byValue: Map<string, string> }>();
 
@@ -225,10 +375,24 @@ function matcherFor(map: PlaceholderMap) {
   if (!cached) {
     const values = [...map].map((entry) => entry.value).sort((a, b) => b.length - a.length);
     const alternation = values.map(escapeRegExp).join("|");
+    // Same boundaries as `deidentify`: a name never replaces the inside of
+    // another word, and punctuation at a name's edge stays part of it. A
+    // name in a script without spaces (parser v8) has no word edges, so it
+    // is matched anywhere; each value then carries its own boundary.
+    const find = values.some(matchesAnywhere)
+      ? new RegExp(
+          values
+            .map((value) =>
+              matchesAnywhere(value)
+                ? escapeRegExp(value)
+                : `(?<![\\p{L}\\p{N}])${escapeRegExp(value)}(?![\\p{L}\\p{N}])`
+            )
+            .join("|"),
+          "gu"
+        )
+      : new RegExp(`(?<![\\p{L}\\p{N}])(?:${alternation})(?![\\p{L}\\p{N}])`, "gu");
     cached = {
-      // Same boundaries as `deidentify`: a name never replaces the inside of
-      // another word, and punctuation at a name's edge stays part of it.
-      find: new RegExp(`(?<![\\p{L}\\p{N}])(?:${alternation})(?![\\p{L}\\p{N}])`, "gu"),
+      find,
       byValue: new Map(map.map((entry) => [entry.value, entry.token])),
     };
     matcherCache.set(map, cached);
@@ -244,7 +408,7 @@ export function pseudonymize(text: string, map: PlaceholderMap): string {
   return text.replace(find, (match) => byValue.get(match) ?? match);
 }
 
-const TOKEN_PARTS = /^\[(CLIENT|PERSON)_(\d+)(?:_([A-Z]+))?\]$/;
+const TOKEN_PARTS = /^\[(CLIENT|PERSON|FIRM)_(\d+)(?:_([A-Z]+))?\]$/;
 
 /**
  * The name a token stands for. A variant the map never issued (a model
@@ -273,14 +437,22 @@ function tokenValue(token: string, byToken: ReadonlyMap<string, string>): string
  * `CLIENT_1_OTHER` never match as `CLIENT_1`. Case-sensitive, like the
  * bracketed form, so a code identifier such as `client_1` stays.
  */
-const BARE_TOKEN = /(?<![\p{L}\p{N}_])(?:CLIENT|PERSON)_\d+(?:_[A-Z]+)?(?![\p{L}\p{N}_])/gu;
+const BARE_TOKEN = /(?<![\p{L}\p{N}_])(?:CLIENT|PERSON|FIRM)_\d+(?:_[A-Z]+)?(?![\p{L}\p{N}_])/gu;
+
+/**
+ * A text with every bracketed placeholder removed: for a search query that
+ * should match on the technology, never on a hidden name.
+ */
+export function dropPlaceholderTokens(text: string): string {
+  return text.replace(TOKEN, "").replace(/[ \t]{2,}/g, " ");
+}
 
 /** Either form, bracketed first, in one pass. */
 const ANY_TOKEN = new RegExp(`${TOKEN.source}|${BARE_TOKEN.source}`, "gu");
 
 /** Whether a text may hold a token in either form (a cheap pre-check). */
 function mayHoldToken(text: string): boolean {
-  return text.includes("[") || text.includes("CLIENT_") || text.includes("PERSON_");
+  return text.includes("[") || text.includes("CLIENT_") || text.includes("PERSON_") || text.includes("FIRM_");
 }
 
 type TokenLookup = {
@@ -358,7 +530,7 @@ export function containsPlaceholderToken(text: string, map: PlaceholderMap): boo
  */
 export function avoidTokenCollisions(map: PlaceholderMap, texts: readonly string[]): PlaceholderMap {
   if (map.length === 0) return map;
-  const highest = { CLIENT: BigInt(0), PERSON: BigInt(0) };
+  const highest = { CLIENT: BigInt(0), PERSON: BigInt(0), FIRM: BigInt(0) };
   let collides = false;
   for (const text of texts) {
     if (!mayHoldToken(text)) continue;

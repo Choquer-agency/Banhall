@@ -13,6 +13,7 @@ import {
 } from "../../shared/transcriptParse";
 import { avoidTokenCollisions, buildPlaceholderMap, type PlaceholderMap } from "./deidentify";
 import { frozenSlice, listSpeakerRows } from "./transcriptStructure";
+import { firmNames } from "./firmNames";
 
 type Ctx = QueryCtx | MutationCtx;
 
@@ -40,7 +41,7 @@ export function transcriptNamesToHide(
     "content" | "sourceFormat" | "parserVersion" | "structureBuildId" | "speakerNames"
   >,
   rowLabels: readonly string[]
-): { people: string[]; organizations: string[] } {
+): { people: string[]; organizations: string[]; phrases: string[] } {
   const parsed = storedNamesAreCurrent(transcript)
     ? { labels: [], ...transcript.speakerNames! }
     : parseNames(transcript);
@@ -48,6 +49,8 @@ export function transcriptNamesToHide(
   return {
     people: [...people].sort(byCodePoint),
     organizations: [...new Set(parsed.organizations)].sort(byCodePoint),
+    // Parser v8: weak labels no turn took, hidden as written only.
+    phrases: [...new Set(parsed.looseLabels ?? [])].filter((name) => !people.has(name)).sort(byCodePoint),
   };
 }
 
@@ -81,6 +84,7 @@ export async function projectPlaceholderMap(
 ): Promise<PlaceholderMap> {
   const labels: string[] = [];
   const organizations: string[] = [];
+  const phrases: string[] = [];
   for (const transcript of transcripts) {
     const rows = await listSpeakerRows(ctx, transcript._id);
     const names = transcriptNamesToHide(
@@ -89,11 +93,17 @@ export async function projectPlaceholderMap(
     );
     labels.push(...names.people);
     organizations.push(...names.organizations);
+    phrases.push(...names.phrases);
   }
+  // Decision 26: the consulting firm's own names (admin setting, empty
+  // unless set) are hidden in every masked call, as the client's are.
+  const firms = await firmNames(ctx);
   const map = buildPlaceholderMap({
     clientName: project.clientName,
     companies: organizations,
+    firms,
     people: [project.interviewer, project.writer, ...(project.interviewees ?? []), ...labels],
+    phrases,
   });
-  return avoidTokenCollisions(map, [...texts, ...labels, ...organizations]);
+  return avoidTokenCollisions(map, [...texts, ...labels, ...organizations, ...firms, ...phrases]);
 }

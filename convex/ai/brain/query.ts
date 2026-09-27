@@ -117,7 +117,7 @@ export const RETRIEVAL_BRIEF_FACT_PART_CHARS = 800;
 
 const PACK_FACT_LINE =
   /^\[F\d{1,3}-\d{1,5}\] \((uncertainty|hypothesis|experiment|result|advancement|context)\) (.+)$/gm;
-const PLACEHOLDER_TOKEN = /\[(?:CLIENT|PERSON)_\d+(?:_[A-Z]+)?\]/g;
+const PLACEHOLDER_TOKEN = /\[(?:CLIENT|PERSON|FIRM)_\d+(?:_[A-Z]+)?\]/g;
 
 /**
  * The retrieval brief of a generation that reads fact packs (2026-09-24,

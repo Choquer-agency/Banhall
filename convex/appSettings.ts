@@ -4,9 +4,10 @@
  * model used whenever a writer doesn't explicitly pick one. The legacy
  * "defaultModel" row is still honoured until the role is first assigned.
  */
-import { mutation, internalQuery, internalMutation, type QueryCtx, type MutationCtx } from "./_generated/server";
+import { mutation, query, internalQuery, internalMutation, type QueryCtx, type MutationCtx } from "./_generated/server";
 import { v } from "convex/values";
-import { requireRole } from "./lib/auth";
+import { getCurrentUserOrNull, requireRole } from "./lib/auth";
+import { FIRM_NAMES_KEY, firmNames, normalizeFirmNames } from "./lib/firmNames";
 import { domainError } from "./lib/contracts";
 import { assignRoleModelByHand, roleModelId } from "./lib/modelRoles";
 import type { Doc, Id } from "./_generated/dataModel";
@@ -325,6 +326,43 @@ export const setTranscriptMethodInternal = internalMutation({
       throw new Error("An active administrator is required");
     }
     await writeTranscriptMethod(ctx, args, admin._id);
+    return null;
+  },
+});
+
+// ─── The firm's own names (2026-09-26, audit wave 2; decision 26) ───────────
+
+/** Admin only: the names the settings page shows. */
+export const getFirmNames = query({
+  args: {},
+  returns: v.union(v.null(), v.object({ names: v.array(v.string()), updatedAt: v.union(v.number(), v.null()) })),
+  handler: async (ctx) => {
+    const user = await getCurrentUserOrNull(ctx);
+    if (!user || user.role !== "admin" || user.isAnonymous === true) return null;
+    const row = await ctx.db
+      .query("appSettings")
+      .withIndex("by_key", (q) => q.eq("key", FIRM_NAMES_KEY))
+      .unique();
+    return { names: await firmNames(ctx), updatedAt: row?.updatedAt ?? null };
+  },
+});
+
+/**
+ * Admin only ("Configure models, tags, Brain, and global settings"). An
+ * empty list clears the setting; nothing is hidden for the firm then.
+ */
+export const setFirmNames = mutation({
+  args: { names: v.array(v.string()) },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const user = await requireRole(ctx, ["admin"]);
+    let names: string[];
+    try {
+      names = normalizeFirmNames(args.names);
+    } catch (error) {
+      domainError("INVALID_INPUT", error instanceof Error ? error.message : "Check the firm names.");
+    }
+    await setSetting(ctx, FIRM_NAMES_KEY, JSON.stringify(names), user._id);
     return null;
   },
 });
