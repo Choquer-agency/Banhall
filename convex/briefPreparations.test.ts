@@ -5,6 +5,7 @@
  * late writes, retention, usage, and the request a preparation sends
  * compared with a run's own Brief request at the SDK's HTTP boundary.
  */
+import { readFileSync } from "node:fs";
 import { convexTest } from "convex-test";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import schema from "./schema";
@@ -121,7 +122,9 @@ function inAction<R>(t: T, fn: (ctx: ActionCtx) => Promise<R>): Promise<R> {
   return run.call(t, fn);
 }
 
-async function setup(options: { projectType?: "writing" | "review"; role?: "writer" | "admin" } = {}) {
+async function setup(
+  options: { projectType?: "writing" | "review"; role?: "writer" | "admin"; transcript?: string } = {}
+) {
   const t = convexTest(schema, modules);
   const ids = await t.run(async (ctx) => {
     const now = Date.now();
@@ -138,10 +141,11 @@ async function setup(options: { projectType?: "writing" | "review"; role?: "writ
       createdAt: now,
       updatedAt: now,
     });
+    const content = options.transcript ?? TRANSCRIPT;
     const transcriptId = await ctx.db.insert("transcripts", {
       projectId,
-      content: TRANSCRIPT,
-      contentHash: await sha256(TRANSCRIPT),
+      content,
+      contentHash: await sha256(content),
       label: "Interview",
       position: 0,
       parserVersion: TRANSCRIPT_PARSER_VERSION,
@@ -431,6 +435,28 @@ describe("preparing and adopting", () => {
     await switchOff(s);
     const generationId = await reserve(s);
     expect((await adoptAtStart(s, generationId)).kind).toBe("derived");
+  });
+});
+
+describe("loose labels in the placeholder map (review 2026-09-26, P1-1)", () => {
+  // The shared fixture: v7 speakers with lowercase lines that look like
+  // labels ("thermal drift:", "latency:", "bottom line:") and open no turn.
+  const LOOSE = readFileSync(new URL("../shared/__fixtures__/transcripts/loose-labels.txt", import.meta.url), "utf8");
+
+  test("a preparation and a generation reservation store label-only entries", async () => {
+    const s = await setup({ transcript: LOOSE });
+    const claimed = await claimOnly(s);
+    const prepared = claimed.placeholders ?? [];
+    for (const label of ["thermal drift", "latency", "bottom line"]) {
+      expect(prepared.find((entry) => entry.value === label)?.at, label).toBe("label");
+    }
+    const generationId = await reserve(s);
+    const frozen = (await loadGeneration(s, generationId)).placeholders ?? [];
+    expect(frozen.filter((entry) => entry.at === "label").map((entry) => entry.value).sort()).toEqual([
+      "bottom line",
+      "latency",
+      "thermal drift",
+    ]);
   });
 });
 

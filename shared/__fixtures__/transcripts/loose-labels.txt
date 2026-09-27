@@ -1,0 +1,10 @@
+Dana Whitfield: What did you measure on the feeder rig?
+
+Priya Raman: Flow and temperature, every hour.
+thermal drift: within band.
+latency: 30 ms at the feeder.
+
+Dana Whitfield: And the result?
+
+Priya Raman: It held for six weeks.
+bottom line: it works.

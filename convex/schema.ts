@@ -43,6 +43,7 @@ import {
   modelFreezeValidator,
   modelRoleValidator,
 } from "./lib/modelCatalogValidators";
+import { placeholderMapValidator } from "./lib/placeholderValidators";
 
 const seedRoleIdValidator = v.union(
   ...PD_SUBSECTIONS.map((subsection) => v.literal(subsection.roleId))
@@ -995,7 +996,7 @@ export default defineSchema({
     // 2026-09-26 widen: `at: "label"` marks a parser v8 weak label hidden
     // only where it stands as a label.
     placeholders: v.optional(
-      v.array(v.object({ token: v.string(), value: v.string(), bare: v.optional(v.boolean()), at: v.optional(v.literal("label")) }))
+      placeholderMapValidator
     ),
     status: v.union(
       v.literal("reserved"),
@@ -2002,7 +2003,7 @@ export default defineSchema({
     // with it. Absent on sessions started before, and when placeholders are
     // switched off.
     placeholders: v.optional(
-      v.array(v.object({ token: v.string(), value: v.string(), bare: v.optional(v.boolean()), at: v.optional(v.literal("label")) }))
+      placeholderMapValidator
     ),
     reportRevisionNumber: v.number(),
     status: v.union(
@@ -3252,7 +3253,7 @@ export default defineSchema({
     modelFreeze: v.optional(modelFreezeValidator),
     planningModel: v.optional(v.string()),
     placeholders: v.optional(
-      v.array(v.object({ token: v.string(), value: v.string(), bare: v.optional(v.boolean()) }))
+      placeholderMapValidator
     ),
     dispatchedAt: v.optional(v.number()),
     // The scheduled runBriefPreparation job, so a waiting run can see it failed.
