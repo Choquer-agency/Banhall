@@ -214,7 +214,42 @@ describe("names to hide", () => {
   });
 });
 
+describe("re-review additions (2026-09-26)", () => {
+  it("never reads a language code as a speaker (P2-2)", () => {
+    expectAsV7("en: We rebuilt the rig.\nfr: Nous avons reconstruit le banc.\nen: It held.\nfr: Il a tenu.");
+    for (const code of ["en", "fr", "de", "es", "zh", "ja", "ko"]) {
+      expect(weakSpeakerLine(`${code}: text here`), code).toBeUndefined();
+    }
+  });
+
+  it("reads full-width brackets in a caseless label under the evidence rules (P3)", () => {
+    expect(weakSpeakerLine("李伟（研发）：我们重建了测试台。")).toMatchObject({ speaker: "李伟", rawLabel: "李伟（研发）" });
+    const content = "李伟（研发）：我们重建了测试台。\n\n王芳：为什么？\n\n李伟（研发）：因为漂移。\n\n王芳：多久？";
+    expect(speakers(parseTranscriptTurns(content))).toEqual(["李伟", "王芳", "李伟", "王芳"]);
+    expectAsV7("团队三月开始。\n\n李伟（研发）：我们重建了测试台。");
+  });
+});
+
 describe("citation places read the analyzed turns (review P2-5)", () => {
+  it("gives a header line its own speaker, not the one before (re-review P3)", () => {
+    const content = "Priya Shah   0:03\nWe could not predict flow.\n\nDana Whitfield   0:12\nHow long did it take?";
+    const header = content.indexOf("Dana Whitfield");
+    expect(speakersAtOffsets(content, [header, header + 5, content.indexOf("How long")])).toEqual([
+      "Dana Whitfield",
+      "Dana Whitfield",
+      "Dana Whitfield",
+    ]);
+    expect(speakersAtOffsets(content, [content.indexOf("We could")])).toEqual(["Priya Shah"]);
+  });
+
+  it("reads an unnamed cue of a cue render as no one's (re-review P3)", () => {
+    const content = "Priya Shah [00:00:01]: We could not predict flow.\n\n[00:00:04] So we built a rig.\n\nDana Whitfield [00:00:07]: Why?";
+    expect(speakersAtOffsets(content, [content.indexOf("So we built"), content.indexOf("Why?")])).toEqual([
+      undefined,
+      "Dana Whitfield",
+    ]);
+  });
+
   it("names the turn's speaker, never an unguarded line read", () => {
     const content = "Priya Shah: We measured flow.\nthermal drift: within band.\n\nDana Whitfield: Why?";
     const offset = content.indexOf("within band");

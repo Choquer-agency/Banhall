@@ -400,6 +400,11 @@ const LOWERCASE_NOT_A_NAME = new Set([
   "português", "chinese", "mandarin", "cantonese", "japanese", "korean", "arabic",
   "hebrew", "hindi", "translation", "traduction", "translated", "original",
   "subtitle", "subtitles", "caption", "captions",
+  // Language codes, as subtitle and translation files head their lines ("en:", "fr:").
+  "en", "fr", "de", "es", "zh", "ja", "ko", "pt", "ru", "ar", "nl", "sv", "da", "fi",
+  "pl", "tr", "hi", "vi", "th", "he", "el", "cs", "hu", "ro", "uk", "id", "ms", "fa",
+  "ur", "bn", "ta", "te", "nb", "nn", "ca", "eu", "gl", "hr", "sk", "sl", "sr", "bg", "lt",
+  "lv", "et", "tl", "sw", "en-us", "en-gb", "fr-ca", "zh-cn", "zh-tw", "pt-br",
 ]);
 
 /**
@@ -427,6 +432,14 @@ const CASELESS_NOT_A_NAME = new Set([
   "中文", "英文", "英语", "汉语", "普通话", "粤语", "日本語", "日语", "英語", "中国語", "翻译", "翻訳", "原文",
   "한국어", "영어", "중국어", "일본어", "번역", "العربية", "الإنجليزية", "الفرنسية", "עברית", "אנגלית",
 ]);
+
+/**
+ * Whether a caseless word heads a line of notes rather than names someone
+ * (the weak-label stop list). Placeholder maps use it too.
+ */
+export function isCommonCaselessWord(word: string): boolean {
+  return CASELESS_NOT_A_NAME.has(word);
+}
 
 function lowercaseName(label: string): boolean {
   const words = label.split(/\s+/);
@@ -468,7 +481,11 @@ function weakSpeakerFromLabel(
   }
   // Only the canonical render's bracketed time may follow a weak label; a
   // time or any digit inside one ("around 10:30:", "roughly 2") is prose.
-  let label = written.replace(CANONICAL_LABEL_TIME, "");
+  // Full-width brackets read as brackets ("李伟（研发）", review P3).
+  let label = written
+    .replace(CANONICAL_LABEL_TIME, "")
+    .replace(/[\uFF08\u3010]/g, "(")
+    .replace(/[\uFF09\u3011]/g, ")");
   if (/\p{N}/u.test(label)) return undefined;
   const parts = bracketParts(label);
   let preferred: string | undefined;
@@ -1265,35 +1282,83 @@ export function parseTranscriptTurns(
   return turns;
 }
 
-let lastTurns: { content: string; turns: TranscriptTurn[] } | undefined;
+/** A transcript's analysis, kept for citation places (`speakersAtOffsets`). */
+type PlaceAnalysis = {
+  lineStarts: number[];
+  /** Each line's own speaker when it opens a turn (inline or header, v8 rules). */
+  lineSpeakers: Array<string | undefined>;
+  turns: Array<{ charStart: number; speakerLabel?: string }>;
+};
+
+/**
+ * Analyses of recent transcripts, most recent last. A mutation that places
+ * citations on several transcripts in turn (copying a Brief to the reading
+ * facts, say) parses each one once, not once per citation (review
+ * 2026-09-26, P3).
+ */
+const placeCache = new Map<string, PlaceAnalysis>();
+const PLACE_CACHE_SIZE = 8;
+
+function placeAnalysis(content: string): PlaceAnalysis {
+  const cached = placeCache.get(content);
+  if (cached) {
+    placeCache.delete(content);
+    placeCache.set(content, cached);
+    return cached;
+  }
+  const lines = analyzeLines(content);
+  // A cue render (VTT, SRT, a Teams cue document) keeps its unnamed cues
+  // as turns of no one, as the turn build reads it.
+  const cues = isCueRender("teams_docx", content);
+  const turns = draftsFrom(content, lines, { cues }).map((draft) => ({
+    charStart: draft.spans[0][0],
+    ...(draft.speakerLabel !== undefined ? { speakerLabel: draft.speakerLabel } : {}),
+  }));
+  const analysis: PlaceAnalysis = {
+    lineStarts: lines.infos.map((info) => info.start),
+    lineSpeakers: lines.kinds.map((kind) =>
+      kind?.kind === "inline" || kind?.kind === "header" ? kind.speaker : undefined
+    ),
+    turns,
+  };
+  placeCache.set(content, analysis);
+  if (placeCache.size > PLACE_CACHE_SIZE) placeCache.delete(placeCache.keys().next().value!);
+  return analysis;
+}
+
+function lastAtOrBefore(values: readonly number[], offset: number): number {
+  let low = 0;
+  let high = values.length - 1;
+  let found = -1;
+  while (low <= high) {
+    const middle = (low + high) >> 1;
+    if (values[middle] <= offset) {
+      found = middle;
+      low = middle + 1;
+    } else {
+      high = middle - 1;
+    }
+  }
+  return found;
+}
 
 /**
  * The speaker whose turn holds each offset, from the same analysis as the
  * turn build (review 2026-09-26, P2-5): a citation's place reads the turns,
  * never a line on its own, so a weak label that opens no turn never names
- * a citation's speaker. An offset in a label's own line before its speech
- * belongs to that label's turn. The last content's turns are kept, since a
- * caller locates many citations on one transcript.
+ * a citation's speaker. An offset on a line that opens a turn (a label
+ * line, or a header line whose speech starts below it) is that line's
+ * speaker's; an unnamed cue of a cue render is no one's.
  */
 export function speakersAtOffsets(content: string, offsets: readonly number[]): Array<string | undefined> {
-  if (lastTurns?.content !== content) lastTurns = { content, turns: parseTranscriptTurns(content) };
-  const { turns } = lastTurns;
+  const analysis = placeAnalysis(content);
+  const turnStarts = analysis.turns.map((turn) => turn.charStart);
   return offsets.map((offset) => {
-    let low = 0;
-    let high = turns.length - 1;
-    let found = -1;
-    while (low <= high) {
-      const middle = (low + high) >> 1;
-      if (turns[middle].charStart <= offset) {
-        found = middle;
-        low = middle + 1;
-      } else {
-        high = middle - 1;
-      }
-    }
-    const next = turns[found + 1];
-    if (next && !content.slice(offset, next.charStart).includes("\n")) return next.speakerLabel;
-    return found === -1 ? undefined : turns[found].speakerLabel;
+    const line = lastAtOrBefore(analysis.lineStarts, offset);
+    const own = line === -1 ? undefined : analysis.lineSpeakers[line];
+    if (own !== undefined) return own;
+    const turn = lastAtOrBefore(turnStarts, offset);
+    return turn === -1 ? undefined : analysis.turns[turn].speakerLabel;
   });
 }
 
