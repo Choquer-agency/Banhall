@@ -44,9 +44,11 @@ export const aiRateLimiter = new RateLimiter(rateLimiterComponent, AI_RATE_LIMIT
 
 type LimitCtx = Pick<MutationCtx, "runQuery" | "runMutation"> | Pick<ActionCtx, "runQuery" | "runMutation">;
 type HourlyLimit = keyof typeof AI_RATE_LIMITS;
+/** Whose count refused: the caller's hour, the caller's firm day, or the project's hour. */
+export type RateLimitScope = "user" | "firmDay" | "project";
 type Bucket =
-  | { kind: "hour"; name: HourlyLimit; key: string }
-  | { kind: "firmDay"; key: string; now: number };
+  | { kind: "hour"; name: HourlyLimit; key: string; scope: "user" | "project" }
+  | { kind: "firmDay"; key: string; now: number; scope: "firmDay" };
 
 /**
  * One firm day, keyed by its day number so the count starts again at firm
@@ -80,40 +82,47 @@ async function spendBucket(ctx: LimitCtx, bucket: Bucket) {
   });
 }
 
-/** "Try again in 5 minutes." / "in 1 minute" / "tomorrow" for a spent day. */
-export function rateLimitedMessage(retryAfterSeconds: number, day: boolean): string {
-  if (day) return "You have started a lot of runs today. Try again tomorrow.";
+/** The plain refusal, naming whose count is spent: "Try again in 5 minutes." / "tomorrow". */
+export function rateLimitedMessage(retryAfterSeconds: number, scope: RateLimitScope): string {
+  if (scope === "firmDay") return "You have started a lot of runs today. Try again tomorrow.";
   const minutes = Math.max(1, Math.ceil(retryAfterSeconds / 60));
-  return `You have started a lot of runs in the last hour. Try again in ${minutes} ${minutes === 1 ? "minute" : "minutes"}.`;
+  const wait = `Try again in ${minutes} ${minutes === 1 ? "minute" : "minutes"}.`;
+  return scope === "project"
+    ? `This project has started a lot of runs in the last hour. ${wait}`
+    : `You have started a lot of runs in the last hour. ${wait}`;
 }
 
 /**
  * Spends one token from every bucket, or none: all are checked first, and a
- * refusal names the longest wait. Throws RATE_LIMITED with `retryAfter` in
- * whole seconds. In a mutation a later refusal also rolls back earlier spends.
+ * refusal names the bucket with the longest wait. Throws RATE_LIMITED with
+ * `retryAfter` in whole seconds and `scope` (whose count is spent). In a
+ * mutation a later refusal also rolls back earlier spends.
  */
 async function enforce(ctx: LimitCtx, buckets: Bucket[]): Promise<void> {
-  let refusal: { retryAfterMs: number; day: boolean } | null = null;
+  let refusal: { retryAfterMs: number; scope: RateLimitScope } | null = null;
   for (const bucket of buckets) {
     const status = await checkBucket(ctx, bucket);
     if (status.ok) continue;
     const retryAfterMs = status.retryAfter ?? HOUR;
     if (!refusal || retryAfterMs > refusal.retryAfterMs) {
-      refusal = { retryAfterMs, day: bucket.kind === "firmDay" };
+      refusal = { retryAfterMs, scope: bucket.scope };
     }
   }
   if (!refusal) {
     for (const bucket of buckets) {
       const status = await spendBucket(ctx, bucket);
       if (!status.ok) {
-        refusal = { retryAfterMs: status.retryAfter, day: bucket.kind === "firmDay" };
+        refusal = { retryAfterMs: status.retryAfter, scope: bucket.scope };
         break;
       }
     }
   }
   if (!refusal) return;
   const retryAfter = Math.max(1, Math.ceil(refusal.retryAfterMs / 1000));
-  domainError("RATE_LIMITED", rateLimitedMessage(retryAfter, refusal.day), { retryAfter });
+  domainError("RATE_LIMITED", rateLimitedMessage(retryAfter, refusal.scope), {
+    retryAfter,
+    scope: refusal.scope,
+  });
 }
 
 /**
@@ -126,9 +135,9 @@ export async function limitGenerationStart(
   projectId: Id<"projects">
 ): Promise<void> {
   await enforce(ctx, [
-    { kind: "hour", name: "generationPerUser", key: userId },
-    { kind: "firmDay", key: userId, now: Date.now() },
-    { kind: "hour", name: "generationPerProject", key: projectId },
+    { kind: "hour", name: "generationPerUser", key: userId, scope: "user" },
+    { kind: "firmDay", key: userId, now: Date.now(), scope: "firmDay" },
+    { kind: "hour", name: "generationPerProject", key: projectId, scope: "project" },
   ]);
 }
 
@@ -138,5 +147,5 @@ export async function limitUserAction(
   name: Exclude<HourlyLimit, "generationPerUser" | "generationPerProject">,
   userId: Id<"users">
 ): Promise<void> {
-  await enforce(ctx, [{ kind: "hour", name, key: userId }]);
+  await enforce(ctx, [{ kind: "hour", name, key: userId, scope: "user" }]);
 }

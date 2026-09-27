@@ -702,13 +702,13 @@ export async function retryInitializeSeedStageHandler(
   const existing = await ctx.db.get(args.generationId);
   if (!existing) domainError("NOT_FOUND", "Generation not found");
   const { user } = await requireReportEditAccess(ctx, existing.projectId);
-  // Audit wave 2: a retry counts as a generation start.
-  await limitGenerationStart(ctx, user._id, existing.projectId);
   const generation = await requireSeedInitialization(ctx, args.generationId);
   if (generation.status !== "running" || !generation.seedStageError) {
     domainError("INVALID_STATE", "Seed initialization is not waiting for a retry");
   }
   await requireFrozenSeedArtifacts(ctx, generation);
+  // Audit wave 2: a retry counts as a generation start.
+  await limitGenerationStart(ctx, user._id, existing.projectId);
   await ctx.db.patch(generation._id, { seedStageError: undefined, currentStep: "Preparing seeds" });
   await ctx.scheduler.runAfter(0, internal.ai.iterative.resumeSeedInitialization, args);
   return null;

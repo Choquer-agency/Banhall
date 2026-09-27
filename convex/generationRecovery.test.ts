@@ -6,6 +6,7 @@ import { api, internal } from "./_generated/api";
 import { refreshProjectGenerationActivity } from "./lib/dashboardProjection";
 import schema from "./schema";
 import { allGenerationProgress } from "./lib/generationProgress";
+import { refill, spendAll } from "./aiRateLimits.fixture";
 
 const modules = import.meta.glob("./**/*.ts");
 const authId = "recovery-user";
@@ -229,6 +230,36 @@ describe("generation recovery", () => {
     ).rejects.toThrow(/older comparison/i);
     const original = await t.run(async (ctx) => await ctx.db.get(generationId));
     expect(original?.status).toBe("awaiting_selection");
+  });
+
+  it("refuses a retry past the generation limits (audit wave 2) without superseding, after saying there is nothing to retry", async () => {
+    const { t, projectId, generationId } = await setupPartial();
+    const authed = t.withIdentity({ subject: authId });
+    const userId = await t.run(async (ctx) => (await ctx.db.query("users").first())!._id);
+    await spendAll(t, "generationPerUser", userId);
+    await expect(authed.mutation(api.generations.retryFailedCandidates, { generationId }))
+      .rejects.toMatchObject({ data: { code: "RATE_LIMITED", scope: "user", retryAfter: expect.any(Number) } });
+    expect((await t.run(async (ctx) => await ctx.db.get(generationId)))?.status).toBe("awaiting_selection");
+    await refill(t, "generationPerUser", userId);
+    await spendAll(t, "generationPerProject", projectId);
+    await expect(authed.mutation(api.generations.retryFailedCandidates, { generationId }))
+      .rejects.toMatchObject({
+        data: {
+          code: "RATE_LIMITED",
+          scope: "project",
+          message: expect.stringMatching(/^This project has started a lot of runs in the last hour\./),
+        },
+      });
+    // With no failed draft left, that is what the writer hears first.
+    await t.run(async (ctx) => {
+      const runs = await ctx.db
+        .query("generationCandidateRuns")
+        .withIndex("by_generationId", (q) => q.eq("generationId", generationId))
+        .take(10);
+      for (const run of runs) if (run.status === "failed") await ctx.db.patch(run._id, { status: "succeeded" });
+    });
+    await expect(authed.mutation(api.generations.retryFailedCandidates, { generationId }))
+      .rejects.toMatchObject({ data: { code: "INVALID_STATE", message: "There are no failed drafts to retry" } });
   });
 
   it("terminalizes a seeded recovery after the retried model succeeds", async () => {

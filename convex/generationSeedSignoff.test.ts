@@ -16,6 +16,7 @@ import { PD_SUBSECTIONS, type PdSubsectionRoleId } from "../shared/pdSubsections
 import { decisionFixture, decisionMutation } from "./seedDecision.fixture";
 import type { MutationCtx } from "./_generated/server";
 import { AI_RATE_LIMITS, aiRateLimiter } from "./lib/aiRateLimits";
+import { refill, spendAll } from "./aiRateLimits.fixture";
 import { restorePlaceholders } from "./lib/deidentify";
 import {
   emptyContextRevision,
@@ -2790,6 +2791,33 @@ describe("seed Summary sign-off and recovery", () => {
     await expect(s.writer.mutation(api.generations.retryFromSummary, {
       failedGenerationId: recoveryId,
     })).resolves.toEqual(expect.any(String));
+  });
+
+  it("refuses Summary recovery past the generation limit (audit wave 2), after saying a run is already going", async () => {
+    vi.stubEnv("ANTHROPIC_API_KEY", "test-key");
+    const s = await decisionFixture();
+    await makeReady(s);
+    await s.writer.mutation(api.generations.signOffSeedStage, {
+      generationId: s.generationId,
+      expectedSeedStageVersion: 0,
+    });
+    await s.t.mutation(internal.generations.failGeneration, {
+      generationId: s.generationId,
+      error: "prepare Summary recovery",
+    });
+    await spendAll(s.t, "generationPerUser", s.userId);
+    await expect(s.writer.mutation(api.generations.retryFromSummary, {
+      failedGenerationId: s.generationId,
+    })).rejects.toMatchObject({ data: { code: "RATE_LIMITED", scope: "user", retryAfter: expect.any(Number) } });
+    await refill(s.t, "generationPerUser", s.userId);
+    await expect(s.writer.mutation(api.generations.retryFromSummary, {
+      failedGenerationId: s.generationId,
+    })).resolves.toEqual(expect.any(String));
+    // The recovery is running now: that is what a writer out of tokens hears.
+    await spendAll(s.t, "generationPerUser", s.userId);
+    await expect(s.writer.mutation(api.generations.retryFromSummary, {
+      failedGenerationId: s.generationId,
+    })).rejects.toMatchObject({ data: { code: "GENERATION_ACTIVE" } });
   });
 
   it.each(["initial", "recovered"] as const)(
@@ -7337,6 +7365,26 @@ describe("Step-by-step writing: background QA, Stop and redraft (CAP-17, CAP-18)
       generationId: s.generationId,
     })).toMatchObject({ status: "running" });
     expect(await left()).toBe(afterStart);
+  });
+
+  it("spends nothing when Draft the rest only finishes Sections an earlier attempt drafted (audit wave 2)", async () => {
+    const { s } = await stopAfterFirstSection("Carried");
+    // An earlier attempt drafted the missing Sections but died before
+    // writing them into the report: finishing them makes no model call.
+    await s.t.run(async (ctx) => {
+      const rows = await ctx.db.query("generationSectionRuns")
+        .withIndex("by_generationId", (q) => q.eq("generationId", s.generationId))
+        .take(10);
+      for (const row of rows) {
+        if (row.status !== "drafted") await ctx.db.patch(row._id, { status: "drafted", draftText: `Carried ${row.section}.` });
+      }
+    });
+    await spendAll(s.t, "generationPerUser", s.userId);
+    configureSuccessfulSummaryFinalization("Carried redraft");
+    expect(await s.writer.mutation(api.generations.redraftMissingSections, {
+      generationId: s.generationId,
+    })).toMatchObject({ status: "started" });
+    expect(await pendingJobs(s, "ai/orderedGeneration:redraftSeedSection")).toHaveLength(0);
   });
 
   it("redrafts only the Not drafted Sections into the same report and keeps the writer's edits", async () => {

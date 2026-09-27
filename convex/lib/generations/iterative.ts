@@ -764,8 +764,6 @@ export async function regenerateSectionDraftHandler(
     ctx,
     args.generationId
   );
-  // Audit wave 2: a section redraft counts as a generation start.
-  await limitGenerationStart(ctx, user._id, project._id);
 
   if (resolveGatedWorkflow(generation) !== "sections") {
     domainError("INVALID_STATE", "Section operations are unavailable during seed preparation");
@@ -777,6 +775,8 @@ export async function regenerateSectionDraftHandler(
   if (!run || (run.status !== "awaiting_review" && run.status !== "failed")) {
     domainError("INVALID_STATE", "This section cannot be regenerated right now");
   }
+  // Audit wave 2: a section redraft counts as a generation start.
+  await limitGenerationStart(ctx, user._id, project._id);
   const guidance = args.guidance?.trim();
   const now = Date.now();
   await ctx.db.patch(run._id, {

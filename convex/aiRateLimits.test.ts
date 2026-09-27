@@ -6,9 +6,9 @@ import { api, internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import type { MutationCtx } from "./_generated/server";
 import schema from "./schema";
+import { refill, remaining, spendAll } from "./aiRateLimits.fixture";
 import {
   AI_RATE_LIMITS,
-  aiRateLimiter,
   GENERATION_PER_USER_FIRM_DAY,
   limitGenerationStart,
   rateLimitedMessage,
@@ -23,13 +23,16 @@ import type * as seedEndpoints from "./seeds";
 // another user (or project) is unaffected; scheduler and server-internal
 // calls are never limited; admins are counted like everyone else.
 
-const providerMocks = vi.hoisted(() => ({ create: vi.fn() }));
+const providerMocks = vi.hoisted(() => ({ create: vi.fn(), unavailable: false }));
 vi.mock("./ai/providers", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./ai/providers")>()),
-  clientForRole: async () => ({
-    client: { messages: { create: providerMocks.create } },
-    model: "claude-sonnet-5",
-  }),
+  clientForRole: async () => {
+    if (providerMocks.unavailable) throw new Error("No provider is configured for this role");
+    return {
+      client: { messages: { create: providerMocks.create } },
+      model: "claude-sonnet-5",
+    };
+  },
 }));
 
 const modules = import.meta.glob("./**/*.ts");
@@ -42,6 +45,7 @@ const REPORT_DOC = JSON.stringify({
 });
 
 beforeEach(() => {
+  providerMocks.unavailable = false;
   vi.stubEnv("ANTHROPIC_API_KEY", "test-anthropic-key");
   vi.stubEnv("OPENROUTER_API_KEY", "test-openrouter-key");
   providerMocks.create.mockReset().mockResolvedValue({
@@ -172,25 +176,26 @@ async function setup() {
 }
 
 type Fixture = Awaited<ReturnType<typeof setup>>;
-type HourlyLimit = keyof typeof AI_RATE_LIMITS;
-
-/** Spends a whole hourly bucket, as that many earlier clicks would. */
-async function drain(t: Fixture["t"], name: HourlyLimit, key: string) {
-  await t.run(async (ctx) => {
-    const limitCtx = ctx as unknown as MutationCtx;
-    await aiRateLimiter.reset(limitCtx, name, { key });
-    const spent = await aiRateLimiter.limit(limitCtx, name, { key, count: AI_RATE_LIMITS[name].rate });
-    expect(spent.ok).toBe(true);
-  });
-}
-
-async function remaining(t: Fixture["t"], name: HourlyLimit, key: string) {
-  return await t.run(async (ctx) =>
-    (await aiRateLimiter.getValue(ctx as unknown as MutationCtx, name, { key })).value);
-}
-
 function rateLimited(retryAfter: number | ReturnType<typeof expect.any> = expect.any(Number)) {
-  return { data: { code: "RATE_LIMITED", retryAfter, message: expect.stringMatching(/^You have started a lot of runs/) } };
+  return {
+    data: {
+      code: "RATE_LIMITED",
+      scope: "user",
+      retryAfter,
+      message: expect.stringMatching(/^You have started a lot of runs in the last hour\. Try again in \d+ minutes?\.$/),
+    },
+  };
+}
+
+function projectLimited() {
+  return {
+    data: {
+      code: "RATE_LIMITED",
+      scope: "project",
+      retryAfter: expect.any(Number),
+      message: expect.stringMatching(/^This project has started a lot of runs in the last hour\. Try again in \d+ minutes?\.$/),
+    },
+  };
 }
 
 function requestArgs(projectId: Id<"projects">) {
@@ -210,9 +215,11 @@ async function freeProject(f: Fixture) {
 
 describe("generation starts: 12 an hour and 40 a firm day per user, 6 an hour per project", () => {
   it("refuses requestGeneration past the user's hourly limit, names the wait, and leaves another user alone", async () => {
+    // A frozen clock, so the one token's refill is exactly 5 minutes away.
+    vi.useFakeTimers({ now: Date.UTC(2026, 8, 28, 16, 0, 0), toFake: ["Date"] });
     const f = await setup();
     await freeProject(f);
-    await drain(f.t, "generationPerUser", f.writerId);
+    await spendAll(f.t, "generationPerUser", f.writerId);
     await expect(f.as("writer").mutation(api.generations.requestGeneration, requestArgs(f.projectId)))
       .rejects.toMatchObject(rateLimited(300));
     await expect(f.as("writer").mutation(api.generations.requestGeneration, requestArgs(f.projectId)))
@@ -225,12 +232,12 @@ describe("generation starts: 12 an hour and 40 a firm day per user, 6 an hour pe
   it("counts an admin like everyone else", async () => {
     const f = await setup();
     await freeProject(f);
-    await drain(f.t, "generationPerUser", f.adminId);
+    await spendAll(f.t, "generationPerUser", f.adminId);
     await expect(f.as("admin").mutation(api.generations.requestGeneration, requestArgs(f.projectId)))
       .rejects.toMatchObject(rateLimited());
   });
 
-  it("refuses a seventh start on one project in an hour, whoever asks, and spends nothing on the refusal", async () => {
+  it("refuses a seventh start on one project in an hour, whoever asks, says it is the project, and spends nothing on the refusal", async () => {
     const f = await setup();
     await freeProject(f);
     await f.t.run(async (ctx) => {
@@ -239,7 +246,7 @@ describe("generation starts: 12 an hour and 40 a firm day per user, 6 an hour pe
       }
     });
     await expect(f.as("manager").mutation(api.generations.requestGeneration, requestArgs(f.projectId)))
-      .rejects.toMatchObject(rateLimited());
+      .rejects.toMatchObject(projectLimited());
     expect(await remaining(f.t, "generationPerUser", f.managerId)).toBe(AI_RATE_LIMITS.generationPerUser.rate);
     // The same Manager on another project is not refused.
     await expect(f.as("manager").mutation(api.generations.requestGeneration, requestArgs(f.secondProjectId)))
@@ -267,6 +274,7 @@ describe("generation starts: 12 an hour and 40 a firm day per user, 6 an hour pe
       .rejects.toMatchObject({
         data: {
           code: "RATE_LIMITED",
+          scope: "firmDay",
           retryAfter: untilMidnight,
           message: "You have started a lot of runs today. Try again tomorrow.",
         },
@@ -277,43 +285,80 @@ describe("generation starts: 12 an hour and 40 a firm day per user, 6 an hour pe
       .resolves.toEqual(expect.any(String));
   });
 
-  const retryPaths: Array<[string, (f: Fixture) => Promise<unknown>]> = [
-    ["retryGeneration", (f) => f.as("writer").mutation(api.generations.retryGeneration, { generationId: f.failedId })],
-    ["retryFromSummary", (f) => f.as("writer").mutation(api.generations.retryFromSummary, { failedGenerationId: f.failedSeedsId })],
-    ["retryFailedCandidates", (f) => f.as("writer").mutation(api.generations.retryFailedCandidates, { generationId: f.partialId })],
-    ["regenerateSectionDraft", (f) => f.as("writer").mutation(api.generations.regenerateSectionDraft, { generationId: f.iterativeId, section: "s242" })],
-    ["retryInitializeSeedStage", (f) => f.as("writer").mutation(api.generations.retryInitializeSeedStage, { generationId: f.seedRunningId })],
-    ["retryDraftingInputs", (f) => f.as("writer").mutation(api.generations.retryDraftingInputs, { generationId: f.seedRunningId })],
-  ];
-  it.each(retryPaths)("refuses %s past the user's hourly limit", async (_name, call) => {
+  it("puts a more useful refusal first: a run already going, a missing confirmation", async () => {
     const f = await setup();
-    await drain(f.t, "generationPerUser", f.writerId);
-    await expect(call(f)).rejects.toMatchObject(rateLimited());
+    await spendAll(f.t, "generationPerUser", f.writerId);
+    // The iterative run is still active on the project.
+    await expect(f.as("writer").mutation(api.generations.requestGeneration, requestArgs(f.projectId)))
+      .rejects.toMatchObject({ data: { code: "GENERATION_ACTIVE" } });
+    await freeProject(f);
+    await expect(f.as("writer").mutation(api.generations.requestGeneration, {
+      ...requestArgs(f.projectId),
+      confirmRegeneration: false,
+    })).rejects.toMatchObject({ data: { code: "INVALID_INPUT", message: expect.stringMatching(/explicit confirmation/) } });
+    await expect(f.as("writer").mutation(api.generations.requestGeneration, requestArgs(f.projectId)))
+      .rejects.toMatchObject(rateLimited());
   });
-  it.each(retryPaths)("refuses %s past the project's hourly limit", async (_name, call) => {
+
+  it("refuses retryGeneration past either limit, after saying a run is already going", async () => {
     const f = await setup();
-    await drain(f.t, "generationPerProject", f.projectId);
-    await expect(call(f)).rejects.toMatchObject(rateLimited());
+    await spendAll(f.t, "generationPerUser", f.writerId);
+    await expect(f.as("writer").mutation(api.generations.retryGeneration, { generationId: f.failedId }))
+      .rejects.toMatchObject({ data: { code: "GENERATION_ACTIVE" } });
+    await expect(f.as("writer").mutation(api.generations.retryGeneration, { generationId: f.completedId }))
+      .rejects.toMatchObject({ data: { code: "INVALID_INPUT", message: "Only a failed generation can be retried" } });
+    await freeProject(f);
+    await expect(f.as("writer").mutation(api.generations.retryGeneration, { generationId: f.failedId }))
+      .rejects.toMatchObject(rateLimited());
+    await refill(f.t, "generationPerUser", f.writerId);
+    await spendAll(f.t, "generationPerProject", f.projectId);
+    await expect(f.as("writer").mutation(api.generations.retryGeneration, { generationId: f.failedId }))
+      .rejects.toMatchObject(projectLimited());
+  });
+
+  it("refuses regenerateSectionDraft past the limit, after saying the section cannot be redrafted", async () => {
+    const f = await setup();
+    await f.t.run(async (ctx) => {
+      await ctx.db.insert("generationSectionRuns", {
+        generationId: f.iterativeId,
+        projectId: f.projectId,
+        section: "s242",
+        status: "awaiting_review",
+        draftText: "A draft.",
+        model: "claude-sonnet-5",
+        label: "Sonnet 5",
+        attempt: 1,
+        queuedAt: 1,
+      });
+    });
+    await spendAll(f.t, "generationPerUser", f.writerId);
+    await expect(f.as("writer").mutation(api.generations.regenerateSectionDraft, { generationId: f.iterativeId, section: "s244" }))
+      .rejects.toMatchObject({ data: { code: "INVALID_STATE", message: "This section cannot be regenerated right now" } });
+    await expect(f.as("writer").mutation(api.generations.regenerateSectionDraft, { generationId: f.iterativeId, section: "s242" }))
+      .rejects.toMatchObject(rateLimited());
+    await refill(f.t, "generationPerUser", f.writerId);
+    await expect(f.as("writer").mutation(api.generations.regenerateSectionDraft, { generationId: f.iterativeId, section: "s242" }))
+      .resolves.toBeNull();
   });
 });
 
 describe("QA runs and PD reviews: 20 an hour per user each", () => {
   it("refuses requestReportQa past the limit and leaves another user alone", async () => {
     const f = await setup();
-    await drain(f.t, "qaPerUser", f.writerId);
+    await spendAll(f.t, "qaPerUser", f.writerId);
     await expect(f.as("writer").mutation(api.generations.requestReportQa, { generationId: f.completedId }))
       .rejects.toMatchObject(rateLimited());
     await expect(f.as("manager").mutation(api.generations.requestReportQa, { generationId: f.completedId }))
       .resolves.toBeNull();
     // A pass already running is joined, not started, so it spends nothing.
-    await drain(f.t, "qaPerUser", f.managerId);
+    await spendAll(f.t, "qaPerUser", f.managerId);
     await expect(f.as("manager").mutation(api.generations.requestReportQa, { generationId: f.completedId }))
       .resolves.toBeNull();
   });
 
   it("refuses startPdReview, retryPdReview and a review started from a project past the limit", async () => {
     const f = await setup();
-    await drain(f.t, "pdReviewPerUser", f.writerId);
+    await spendAll(f.t, "pdReviewPerUser", f.writerId);
     await expect(f.as("writer").mutation(api.pdReviews.startPdReview, { projectId: f.projectId, documentId: f.documentId }))
       .rejects.toMatchObject(rateLimited());
     await expect(f.as("writer").mutation(api.pdReviews.retryPdReview, { reviewId: f.pdReviewId }))
@@ -331,7 +376,7 @@ describe("QA runs and PD reviews: 20 an hour per user each", () => {
 describe("research sessions (20 an hour) and science code suggestions (30 an hour)", () => {
   it("refuses startResearch past the limit before any session is written", async () => {
     const f = await setup();
-    await drain(f.t, "researchPerUser", f.writerId);
+    await spendAll(f.t, "researchPerUser", f.writerId);
     await expect(f.as("writer").mutation(api.research.startResearch, {
       reportId: f.reportId,
       selectedText: "thermal drift",
@@ -345,7 +390,7 @@ describe("research sessions (20 an hour) and science code suggestions (30 an hou
 
   it("refuses a science code suggestion past the limit without a model call, and leaves another user alone", async () => {
     const f = await setup();
-    await drain(f.t, "scienceCodePerUser", f.writerId);
+    await spendAll(f.t, "scienceCodePerUser", f.writerId);
     await expect(f.as("writer").action(api.scienceCodeSuggestions.suggest, { projectId: f.projectId }))
       .rejects.toMatchObject(rateLimited());
     expect(providerMocks.create).not.toHaveBeenCalled();
@@ -353,6 +398,14 @@ describe("research sessions (20 an hour) and science code suggestions (30 an hou
       .resolves.toBeNull();
     expect(providerMocks.create).toHaveBeenCalledTimes(1);
     expect(await remaining(f.t, "scienceCodePerUser", f.managerId)).toBe(AI_RATE_LIMITS.scienceCodePerUser.rate - 1);
+  });
+
+  it("spends a science code token only once the provider is resolved", async () => {
+    const f = await setup();
+    providerMocks.unavailable = true;
+    await expect(f.as("writer").action(api.scienceCodeSuggestions.suggest, { projectId: f.projectId }))
+      .rejects.toThrow(/No provider/);
+    expect(await remaining(f.t, "scienceCodePerUser", f.writerId)).toBe(AI_RATE_LIMITS.scienceCodePerUser.rate);
   });
 });
 
@@ -366,7 +419,7 @@ describe("Seed model calls: 90 an hour per user", () => {
     const args = { generationId: s.generationId, roleId: "company_context" as const, expectedSeedStageVersion: 0 };
     await expect(s.writer.mutation(open, { ...args, commandId: "open-1" })).resolves.toMatchObject({ kind: "dispatched" });
     expect(await remaining(s.t, "seedPerUser", s.userId)).toBe(AI_RATE_LIMITS.seedPerUser.rate - 1);
-    await drain(s.t, "seedPerUser", s.userId);
+    await spendAll(s.t, "seedPerUser", s.userId);
     const version = (await s.t.run((ctx) => ctx.db.get(s.generationId)))?.seedStageVersion ?? 0;
     await expect(s.writer.mutation(open, { ...args, roleId: "goal_problem", expectedSeedStageVersion: version, commandId: "open-2" }))
       .rejects.toMatchObject(rateLimited());
@@ -375,7 +428,7 @@ describe("Seed model calls: 90 an hour per user", () => {
   it("refuses regenerate and feedback past the limit", async () => {
     const s = await decisionFixture();
     const { seedId } = await addDecisionSeed(s);
-    await drain(s.t, "seedPerUser", s.userId);
+    await spendAll(s.t, "seedPerUser", s.userId);
     const version = (await s.t.run((ctx) => ctx.db.get(s.generationId)))?.seedStageVersion ?? 0;
     const common = { generationId: s.generationId, roleId: "company_context" as const, expectedSeedStageVersion: version };
     await expect(s.writer.mutation(regenerate, { ...common, commandId: "regen-1" })).rejects.toMatchObject(rateLimited());
@@ -386,7 +439,7 @@ describe("Seed model calls: 90 an hour per user", () => {
 
   it("never limits the server's first Batch, and the browser open it answers spends nothing", async () => {
     const s = await decisionFixture();
-    await drain(s.t, "seedPerUser", s.userId);
+    await spendAll(s.t, "seedPerUser", s.userId);
     await expect(s.t.mutation(internal.seedRuns.startFirstBatch, { generationId: s.generationId }))
       .resolves.toMatchObject({ kind: "dispatched" });
     const version = (await s.t.run((ctx) => ctx.db.get(s.generationId)))?.seedStageVersion ?? 0;
@@ -400,9 +453,10 @@ describe("Seed model calls: 90 an hour per user", () => {
 });
 
 describe("rateLimitedMessage", () => {
-  it("rounds up to whole minutes and says tomorrow for a spent day", () => {
-    expect(rateLimitedMessage(1, false)).toBe("You have started a lot of runs in the last hour. Try again in 1 minute.");
-    expect(rateLimitedMessage(61, false)).toBe("You have started a lot of runs in the last hour. Try again in 2 minutes.");
-    expect(rateLimitedMessage(3600, true)).toBe("You have started a lot of runs today. Try again tomorrow.");
+  it("rounds up to whole minutes, names the project's count, and says tomorrow for a spent day", () => {
+    expect(rateLimitedMessage(1, "user")).toBe("You have started a lot of runs in the last hour. Try again in 1 minute.");
+    expect(rateLimitedMessage(61, "user")).toBe("You have started a lot of runs in the last hour. Try again in 2 minutes.");
+    expect(rateLimitedMessage(300, "project")).toBe("This project has started a lot of runs in the last hour. Try again in 5 minutes.");
+    expect(rateLimitedMessage(3600, "firmDay")).toBe("You have started a lot of runs today. Try again tomorrow.");
   });
 });

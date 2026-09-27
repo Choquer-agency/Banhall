@@ -25,8 +25,6 @@ export const suggest = action({
       { projectId: args.projectId }
     );
     if (!context) throw new Error("Project not found or access denied");
-    // Audit wave 2: 30 suggestions an hour per user, spent before the call.
-    await limitUserAction(ctx, "scienceCodePerUser", context.userId);
 
     const codeCatalog = CRA_SCIENCE_CODES.map(
       ({ code, label, group }) => `${code} | ${group} | ${label}`
@@ -52,6 +50,9 @@ export const suggest = action({
       projectId: args.projectId,
       userId: identity.tokenIdentifier,
     });
+    // Audit wave 2: 30 suggestions an hour per user, spent once the provider
+    // is resolved, just before the call.
+    await limitUserAction(ctx, "scienceCodePerUser", context.userId);
     const response = await client.messages.create({
       model,
       // A bare code needs 16 tokens on a direct Anthropic model; an

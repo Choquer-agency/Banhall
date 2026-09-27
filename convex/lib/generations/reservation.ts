@@ -260,7 +260,11 @@ export async function reserveGeneration(
   initialProgress: readonly string[] = ["Generation request reserved."],
   // Files the writer left out of this run (decision 56). Stored on the
   // generation so a retry freezes the same selection.
-  excludedSources?: ExcludedSources
+  excludedSources?: ExcludedSources,
+  // Audit wave 2: spend the caller's generation-start tokens once every
+  // refusal below has had its say, just before the first write. False when
+  // the caller already spent them before writes of its own.
+  spendRateLimit = true
 ) {
   // "Default" in single/iterative modes resolves to the writing role's model
   // (model catalog), persisted here so retries reuse the same model even if
@@ -362,6 +366,8 @@ export async function reserveGeneration(
   ) {
     requireOpenRouterConfigured();
   }
+  // Audit wave 2: 12 an hour and 40 a firm day per user, 6 an hour per project.
+  if (spendRateLimit) await limitGenerationStart(ctx, requestedBy, project._id);
 
   // Owner decision 26: every generation-owned provider call reads
   // placeholders, never names; the map is frozen here so every call of this
@@ -493,8 +499,6 @@ export async function requestGenerationHandler(
   // Decision 65, stage 2: not while the project is still being set up from
   // its intake draft (its sources and speaker evidence are still arriving).
   await requireProjectSetUp(ctx, project._id);
-  // Audit wave 2: 12 an hour and 40 a firm day per user, 6 an hour per project.
-  await limitGenerationStart(ctx, user._id, project._id);
   const latestReport = await ctx.db
     .query("reports")
     .withIndex("by_projectId", (q) => q.eq("projectId", project._id))
@@ -544,7 +548,6 @@ export async function retryGenerationHandler(
     domainError("INVALID_INPUT", "Use Summary recovery for a signed-off seed generation");
   }
   const { project, user } = await requireReportEditAccess(ctx, failed.projectId);
-  await limitGenerationStart(ctx, user._id, project._id);
   return await reserveGeneration(
     ctx,
     project,
@@ -586,7 +589,6 @@ export async function retryFromSummaryHandler(
     domainError("INVALID_STATE", "Only failed signed-off seed drafting can be recovered");
   }
   const { project, user } = await requireReportEditAccess(ctx, failed.projectId);
-  await limitGenerationStart(ctx, user._id, project._id);
   const active = await findActiveGeneration(ctx, project, ACTIVE_GENERATION_STATUSES);
   if (active) await refuseActiveGeneration(ctx, active);
   const duplicate = await ctx.db.query("generations")
@@ -645,6 +647,8 @@ export async function retryFromSummaryHandler(
   } catch {
     domainError("INVALID_STATE", "Frozen recovery source map is incomplete");
   }
+  // Audit wave 2: spent once every refusal above has had its say.
+  await limitGenerationStart(ctx, user._id, project._id);
   const currentById = new Map(currentSources.map((source) => [source._id, source]));
   const now = Date.now();
   const generationId = await ctx.db.insert("generations", {
@@ -768,7 +772,6 @@ export async function retryFailedCandidatesHandler(
     domainError("INVALID_STATE", "Only a partial generation can retry failed drafts");
   }
   const { project, user } = await requireReportEditAccess(ctx, generation.projectId);
-  await limitGenerationStart(ctx, user._id, project._id);
   const runs = await ctx.db
     .query("generationCandidateRuns")
     .withIndex("by_generationId", (q) => q.eq("generationId", generation._id))
@@ -806,6 +809,9 @@ export async function retryFailedCandidatesHandler(
         run.candidateId === candidate._id
     )
   );
+  // Audit wave 2: spent before the supersede below, the first write; the
+  // reservation then does not spend again.
+  await limitGenerationStart(ctx, user._id, project._id);
   const now = Date.now();
   // Supersede the partial selection state inside the same transaction so the
   // normal active-generation guard can reserve its linked recovery. The
@@ -849,7 +855,8 @@ export async function retryFailedCandidatesHandler(
         ? `Kept ${successfulCandidates.length} completed draft${successfulCandidates.length === 1 ? "" : "s"}.`
         : "Retrying all failed drafts.",
     ],
-    generation.excludedSources
+    generation.excludedSources,
+    false
   );
   for (const candidate of successfulCandidates) {
     const candidateId = await ctx.db.insert("reportCandidates", {

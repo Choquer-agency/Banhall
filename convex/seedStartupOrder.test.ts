@@ -16,6 +16,7 @@ import { makeFunctionReference } from "convex/server";
 import { api, internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import schema from "./schema";
+import { refill, spendAll } from "./aiRateLimits.fixture";
 import type { GenerationMessageParams } from "./ai/openrouterCore";
 import {
   prepareSeedDraftingInputsRef,
@@ -563,14 +564,27 @@ describe("reordered Step-by-step start (decision 32)", () => {
     ).rejects.toThrow();
     expect((await state(s)).pendingPrepares).toBe(0);
 
+    // Audit wave 2: a retry counts as a generation start, and a refused one
+    // leaves the failed attempt as it was.
+    await spendAll(s.t, "generationPerUser", s.userId);
+    await expect(
+      s.writer.mutation(api.generations.retryDraftingInputs, { generationId: s.generationId })
+    ).rejects.toMatchObject({ data: { code: "RATE_LIMITED", scope: "user", retryAfter: expect.any(Number) } });
+    expect((await state(s)).generation?.draftingInputs).toMatchObject({ status: "failed", attempt: 1 });
+    expect((await state(s)).pendingPrepares).toBe(0);
+    await refill(s.t, "generationPerUser", s.userId);
+
     configureProvider();
     await s.writer.mutation(api.generations.retryDraftingInputs, { generationId: s.generationId });
     const retrying = await state(s);
     expect(retrying.generation?.draftingInputs).toMatchObject({ status: "preparing", attempt: 2 });
     expect(retrying.pendingPrepares).toBe(1);
+    // Out of tokens, the writer still hears there is nothing to retry.
+    await spendAll(s.t, "generationPerUser", s.userId);
     await expect(
       s.writer.mutation(api.generations.retryDraftingInputs, { generationId: s.generationId })
     ).rejects.toThrow("nothing to try again");
+    await refill(s.t, "generationPerUser", s.userId);
 
     expect(await runSeedDraftingInputs(s.t)).toEqual([{ generationId: s.generationId, attempt: 2 }]);
     const ready = await state(s);

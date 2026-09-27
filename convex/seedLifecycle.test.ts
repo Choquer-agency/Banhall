@@ -6,6 +6,7 @@ import { api, internal } from "./_generated/api";
 import schema from "./schema";
 import { PD_SUBSECTIONS } from "../shared/pdSubsections";
 import { SEED_INITIALIZATION_ERROR } from "./generations";
+import { spendAll } from "./aiRateLimits.fixture";
 
 const network = vi.hoisted(() => ({ create: vi.fn() }));
 vi.mock("@anthropic-ai/sdk", () => ({
@@ -125,6 +126,18 @@ describe("seed initialization lifecycle", () => {
     expect(jobs[0].name).toContain("resumeSeedInitialization");
     const artifacts = await s.t.run(ctx => ctx.db.query("generationArtifacts").collect());
     expect(artifacts.map(row => row.content)).toEqual(["{}", "{}"]);
+  });
+
+  it("refuses a retry past the generation limit (audit wave 2), after saying none is waiting", async () => {
+    const s = await setup();
+    await spendAll(s.t, "generationPerUser", s.userId);
+    await expect(s.writer.mutation(api.generations.retryInitializeSeedStage, { generationId: s.generationId }))
+      .rejects.toThrow("not waiting");
+    await s.t.mutation(internal.generations.recordSeedInitializationFailure, { generationId: s.generationId });
+    await expect(s.writer.mutation(api.generations.retryInitializeSeedStage, { generationId: s.generationId }))
+      .rejects.toMatchObject({ data: { code: "RATE_LIMITED", scope: "user", retryAfter: expect.any(Number) } });
+    expect(await s.t.run(ctx => ctx.db.get(s.generationId))).toMatchObject({ seedStageError: SEED_INITIALIZATION_ERROR });
+    expect(await s.t.run(ctx => ctx.db.system.query("_scheduled_functions").collect())).toEqual([]);
   });
 
   it.each(["anonymous", "roleless", "unmapped", "unauthenticated"] as const)("denies %s retry callers without scheduling", async actor => {

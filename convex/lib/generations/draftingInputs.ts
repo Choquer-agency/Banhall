@@ -381,8 +381,6 @@ export async function retryDraftingInputsHandler(
   const existing = await ctx.db.get(args.generationId);
   if (!existing) domainError("NOT_FOUND", "Generation not found");
   const { user } = await requireReportEditAccess(ctx, existing.projectId);
-  // Audit wave 2: a retry counts as a generation start.
-  await limitGenerationStart(ctx, user._id, existing.projectId);
   const generation = await openSeedStage(ctx, args.generationId);
   if (!generation) {
     domainError("INVALID_STATE", "The seed stage is closed", {
@@ -399,6 +397,9 @@ export async function retryDraftingInputsHandler(
   if (!drafting || drafting.status !== "failed") {
     domainError("INVALID_STATE", "The transcript analysis has not failed, so there is nothing to try again");
   }
+  // Audit wave 2: a retry counts as a generation start. A refusal also
+  // rolls back the lease settle above.
+  await limitGenerationStart(ctx, user._id, existing.projectId);
   const attempt = drafting.attempt + 1;
   const shorterAnalysis =
     drafting.shorterAnalysis === true || drafting.failureCode === "output_limit";

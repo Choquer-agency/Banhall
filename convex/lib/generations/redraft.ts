@@ -542,8 +542,9 @@ export async function redraftMissingSectionsHandler(
   if (missing.length === 0 && carried.length === 0) {
     return { status: "nothing_to_draft", sections: [] };
   }
-  // Audit wave 2: "Draft the rest" counts as a generation start.
-  await limitGenerationStart(ctx, user._id, project._id);
+  // Audit wave 2: "Draft the rest" counts as a generation start when it
+  // drafts something; finishing carried Sections alone makes no model call.
+  if (missing.length > 0) await limitGenerationStart(ctx, user._id, project._id);
   const summaryVersionId = generation.summaryVersionId as Id<"summaryVersions">;
   const payload = await frozenOrderedPayload(ctx, generation, summaryVersionId);
   const carriedKeys = new Set<string>(carried.map((row) => row.section));
