@@ -6,6 +6,7 @@
   import { useAuth } from "@mmailaender/convex-better-auth-svelte/svelte";
   import { api } from "../../../../convex/_generated/api";
   import ModelCatalogPanel from "$lib/components/admin/ModelCatalogPanel.svelte";
+  import FirmNamesSetting from "$lib/components/admin/FirmNamesSetting.svelte";
   import { pickerModels, defaultModelIdFor } from "$lib/modelPicker";
   import type { CostCapInput, ModelAdminRole } from "$lib/modelCatalogAdmin";
   import { userErrorMessage } from "$lib/errors";
@@ -53,6 +54,10 @@
   const setRoleCostCap = useMutation(setRoleCostCapRef);
   const setEvalBudget = useMutation(setEvalBudgetRef);
   const requestRefresh = useMutation(requestCatalogRefreshRef);
+  // The firm's own names, hidden in every AI call (decision 26). The query
+  // returns null for anyone but an admin, and the card stays hidden then.
+  const firmNamesQ = useQuery(api.appSettings.getFirmNames, () => (auth.isAuthenticated ? {} : "skip"));
+  const setFirmNames = useMutation(api.appSettings.setFirmNames);
   let catalogBusy = $state<string | null>(null);
   let catalogError = $state<string | null>(null);
 
@@ -187,6 +192,13 @@
             />
           </span>
         </div>
+
+        {#if firmNamesQ.data !== null}
+          <FirmNamesSetting
+            names={firmNamesQ.data?.names}
+            onSave={(names: string[]) => setFirmNames({ names })}
+          />
+        {/if}
 
         <!-- Recommendation banner -->
         <div class="mt-6 flex items-start gap-3 rounded-xl border border-primary/30 bg-primary/5 px-5 py-4">
