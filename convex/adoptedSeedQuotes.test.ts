@@ -10,6 +10,7 @@
  * card's underline spans must be the same.
  */
 import { convexTest } from "convex-test";
+import rateLimiterTest from "@convex-dev/rate-limiter/test";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import schema from "./schema";
 import { api, internal } from "./_generated/api";
@@ -192,6 +193,7 @@ async function firstBatch(t: T, writer: ReturnType<T["withIdentity"]>, projectId
 
 test("a run that adopts a draft-prepared Brief places and underlines its first ideas' quotes as a run that derived its own", async () => {
   const t = convexTest(schema, modules);
+  rateLimiterTest.register(t);
   await t.run(async (ctx) => ctx.db.insert("users", { authId: "quotes-writer", role: "writer", name: "Wren Writer" }));
   const writer = t.withIdentity({ subject: "quotes-writer" });
   const project = { title: "Composite bonding", clientName: "Northwind Test Labs", interviewees: ["Maren Kowalczyk", "Elliot Fairbanks"] };
