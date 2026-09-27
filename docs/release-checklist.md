@@ -116,15 +116,15 @@ The command prints only the first page; later pages run as scheduled functions. 
 
 **Check:** in the dashboard, Schedules shows no pending run of these four functions, and the last log line of each returned `isDone: true`. Then spot-check the data: every `generations` row has `outputsInArtifactsAt`; no `generations` row has a non-empty `progressLog` without `progressLogCopiedAt`. Open one old report and one new one: the progress lines, the QA panel, the chronology and the section scores all show.
 
-### 7. Rebuild transcript structure for parser v8
+### 7. Rebuild transcript structure for parser v9
 
-Run it right after the deploy, before anyone starts a Step by step draft. It makes no model call. Parser v8 reads lowercase, email and non-Latin speaker labels (`docs/product-domain.md`, "2026-09-26 (ninth)"); if v7 was never deployed, this one run covers it too.
+Run it right after the deploy, before anyone starts a Step by step draft. It makes no model call. Parser v8 reads lowercase, email and non-Latin speaker labels (`docs/product-domain.md`, "2026-09-26 (ninth)"); parser v9 reads a metadata heading above the exchange ("Project: ...") as text ("2026-09-26 (eleventh)"). If v7 or v8 was never deployed, this one run covers them too.
 
 ```bash
 npx convex run transcripts:backfillTranscriptStructure '{}'
 ```
 
-**Check:** Schedules shows no pending `transcripts:backfillTranscriptStructure` run, and every transcript that is not archived and not empty has `parserVersion` `"8"` and no `structureBuildId`. Archived transcripts keep their old version on purpose. It is safe to run again.
+**Check:** Schedules shows no pending `transcripts:backfillTranscriptStructure` run, and every transcript that is not archived and not empty has `parserVersion` `"9"` and no `structureBuildId`. Archived transcripts keep their old version on purpose. It is safe to run again.
 
 What the bump does until then, and after:
 

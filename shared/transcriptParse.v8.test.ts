@@ -32,8 +32,8 @@ function expectAsV7(content: string, options: { cues?: boolean } = {}) {
   expect({ labels: names.labels, otherNames: names.otherNames, organizations: names.organizations }).toEqual(before);
 }
 
-it("is version 8", () => {
-  expect(TRANSCRIPT_PARSER_VERSION).toBe("8");
+it("is version 9 (v9 changed only metadata headings; see the preservation test)", () => {
+  expect(TRANSCRIPT_PARSER_VERSION).toBe("9");
 });
 
 describe("weak labels that open turns", () => {

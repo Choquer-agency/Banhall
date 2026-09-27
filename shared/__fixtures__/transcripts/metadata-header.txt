@@ -1,0 +1,14 @@
+Northwind Test Labs - SR&ED interview, fiscal year ending June 30, 2025
+Project: Low-temperature structural bonding of composite sensor brackets
+Client: Northwind Test Labs
+Recorded September 18. Fictional transcript for testing only.
+
+Dana Whitfield: Thanks for making the time. Could you each say what your role was on this project?
+
+Maren Kowalczyk: I'm the senior materials engineer. I designed the test matrices and picked the adhesive chemistries.
+
+Elliot Fairbanks: I run the field instrumentation group. I built the cold-bonding rigs.
+
+Dana Whitfield: Why not heating blankets?
+
+Elliot Fairbanks: Power at the top of a tower is limited, and one customer caps any surface heat source at thirty-five degrees.

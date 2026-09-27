@@ -12,14 +12,20 @@ import { inferSpeakerRoles } from "../convex/lib/transcriptSpeakers";
  * offsets, speaker names, roles, per-line reads, format and canonical
  * render under v8 as under the frozen v7 copy. Only an email label or a
  * weak label that passes the exchange test may change turns; none of the
- * existing inputs holds one, so the allowlist below is empty.
+ * existing inputs holds one.
+ *
+ * Parser v9 (2026-09-26) reads a metadata heading above the exchange
+ * ("Project: ...") as text. The inputs that hold one are allowed below, and
+ * only for that line: each reads under v9 exactly as v7 reads the same text
+ * with the heading's colon taken out, so no other turn, speaker or name moves.
  */
 
 const ROOT = new URL("..", import.meta.url).pathname;
 
-/** Tests written for v8 itself hold weak labels on purpose. */
+/** Tests written for v8 and v9 themselves hold weak labels and headings on purpose. */
 const V8_TESTS = new Set([
   "shared/transcriptParse.v8.test.ts",
+  "shared/transcriptParse.v9.test.ts",
   "shared/transcriptParse.preservation.test.ts",
   "convex/lib/placeholders.v8.test.ts",
   "convex/privacyWave2.sdk.test.ts",
@@ -82,8 +88,47 @@ function corpus(): Array<{ from: string; text: string }> {
   return items;
 }
 
-/** Inputs allowed to read differently under v8, with the reason. Empty: none qualifies. */
-const ALLOWED_CHANGES = new Map<string, string>();
+/**
+ * Inputs allowed to read differently since v7, by where they come from, with
+ * the metadata heading lines v9 reads as text. The Northwind header is the
+ * live test's (2026-09-26), whose "Project" was hidden as a person.
+ */
+const NORTHWIND_PROJECT = "Project: Low-temperature structural bonding of composite sensor brackets";
+const ALLOWED_CHANGES = new Map<string, string[]>([
+  ["shared/__fixtures__/transcripts/metadata-header.txt", [NORTHWIND_PROJECT, "Client: Northwind Test Labs"]],
+  ["convex/adoptedSeedQuotes.test.ts", [NORTHWIND_PROJECT]],
+]);
+
+/** The allowed heading lines an input holds (none when it is not allowed). */
+function allowedHeadings(item: { from: string; text: string }): string[] {
+  const lines = item.text.split("\n");
+  return (ALLOWED_CHANGES.get(item.from) ?? []).filter((heading) => lines.includes(heading));
+}
+
+/** The text with each heading's colon taken out, at the same length ("Project - ..."). */
+function withoutHeadingColons(text: string, headings: readonly string[]): string {
+  return text
+    .split("\n")
+    .map((line) => (headings.includes(line) ? line.replace(": ", " -") : line))
+    .join("\n");
+}
+
+/** What a heading may not move: turn places and speakers, names and roles. */
+function places(parser: typeof v7 | typeof v8, text: string) {
+  const read = (cues: boolean) =>
+    parser.parseTranscriptTurns(text, { cues }).map(({ charStart, charEnd, speakerLabel, rawLabel }) => ({
+      charStart, charEnd, speakerLabel, rawLabel,
+    }));
+  const names = parser.transcriptSpeakerNames(text);
+  return {
+    turns: read(false),
+    cueTurns: read(true),
+    roles: inferSpeakerRoles(parser.parseTranscriptTurns(text) as v8.TranscriptTurn[], NO_CONTEXT),
+    labels: names.labels,
+    otherNames: names.otherNames,
+    organizations: names.organizations,
+  };
+}
 
 const FILE_NAMES = [undefined, "call.txt", "call.docx", "call.vtt", "call.srt"] as const;
 const FORMATS = ["vtt", "srt", "teams_docx", "txt", "paste"] as const;
@@ -106,7 +151,7 @@ function structure(parser: typeof v7 | typeof v8, text: string) {
   };
 }
 
-describe("parser v8 keeps every v7 transcript as it was", () => {
+describe("parser v8 and v9 keep every v7 transcript as it was", () => {
   const items = corpus();
 
   it("reads a corpus of fixtures and test strings", () => {
@@ -119,7 +164,7 @@ describe("parser v8 keeps every v7 transcript as it was", () => {
     for (const item of items) {
       const before = structure(v7, item.text);
       const after = structure(v8, item.text);
-      if (JSON.stringify(before) !== JSON.stringify(after) && !ALLOWED_CHANGES.has(item.text)) {
+      if (JSON.stringify(before) !== JSON.stringify(after) && allowedHeadings(item).length === 0) {
         const fields = (Object.keys(before) as Array<keyof typeof before>).filter(
           (key) => JSON.stringify(before[key]) !== JSON.stringify(after[key])
         );
@@ -129,12 +174,34 @@ describe("parser v8 keeps every v7 transcript as it was", () => {
     expect(changed).toEqual([]);
   });
 
+  it("reads an allowed metadata heading as text and moves nothing else", () => {
+    const allowed = items.filter(
+      (item) =>
+        allowedHeadings(item).length > 0 &&
+        JSON.stringify(structure(v7, item.text)) !== JSON.stringify(structure(v8, item.text))
+    );
+    expect(new Set(allowed.map((item) => item.from))).toEqual(new Set(ALLOWED_CHANGES.keys()));
+    for (const item of allowed) {
+      const headings = allowedHeadings(item);
+      expect(places(v8, item.text), item.from).toEqual(places(v7, withoutHeadingColons(item.text, headings)));
+      // Under v7 the heading was a speaker; under v9 it names no one.
+      const words = headings.map((heading) => heading.slice(0, heading.indexOf(":")));
+      const names = v8.transcriptSpeakerNames(item.text);
+      for (const word of words) {
+        expect(v7.transcriptSpeakerNames(item.text).labels, item.from).toContain(word);
+        expect([...names.labels, ...names.otherNames, ...(names.looseLabels ?? [])], item.from).not.toContain(word);
+      }
+    }
+  });
+
   it("uploads every fixture file to the same stored text and turns", () => {
     for (const item of items.filter((entry) => /\.(txt|vtt|srt)$/.test(entry.from))) {
       const fileName = item.from.split("/").pop()!.replace(/-docx\.txt$/, ".docx");
       const before = v7.prepareTranscriptUpload({ fileName, text: item.text });
       const after = v8.prepareTranscriptUpload({ fileName, text: item.text });
       expect(after, item.from).toEqual(before);
+      // An allowed heading's turns are checked above.
+      if (allowedHeadings(item).length > 0) continue;
       const cues = v8.isCueRender(after.format, after.content);
       expect(v8.parseTranscriptTurns(after.content, { cues }), item.from).toEqual(
         v7.parseTranscriptTurns(before.content, { cues })

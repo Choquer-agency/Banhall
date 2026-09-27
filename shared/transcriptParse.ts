@@ -58,9 +58,16 @@
  * label always counts. A weak label no turn takes is still hidden, as
  * written (`looseLabels`). Every v7 label reads as before. The bump rebuilds
  * rows v7 built at the next backfill.
+ *
+ * v9 (2026-09-26, live test): a metadata heading that opens a line
+ * ("Project: Low-temperature bonding", "Client: Northwind Test Labs",
+ * "Topic: ...") is a heading, not a speaker, unless the same label speaks
+ * again in the transcript (`dropMetadataHeadings`). Its line joins the text
+ * around it, and its label is neither a speaker nor a name to hide. The bump
+ * rebuilds rows v8 built at the next backfill.
  */
 
-export const TRANSCRIPT_PARSER_VERSION = "8";
+export const TRANSCRIPT_PARSER_VERSION = "9";
 
 /**
  * Longest turn, in characters of stored text. A longer run of speech (a
@@ -150,6 +157,19 @@ const NOT_A_SPEAKER = new Set([
   "takeaway", "takeaways", "timeline", "total", "uncertainty", "uncertainties",
   "update", "updates",
 ]);
+/**
+ * Parser v9: words that open a transcript's metadata lines ("Project: ...",
+ * "Client: ...", "Recorded: ..."). Unlike NOT_A_SPEAKER they can stand for a
+ * speaker, so a label holding one is a heading only in the lines above the
+ * exchange (`dropMetadataHeadings`).
+ */
+const METADATA_HEADINGS = new Set([
+  "claimant", "client", "company", "customer", "interview", "organisation",
+  "organization", "project", "re", "recorded", "regarding", "session", "subject",
+  "topic", "venue",
+]);
+/** Of those, the words that also name a speaker's role ("Client: We tried that."). */
+const METADATA_ROLES = new Set(["claimant", "client", "customer", "subject"]);
 /**
  * Labels that name a role, not a person: in "Interviewer (Dana)" the name in
  * brackets is the speaker; in "Priya Shah (Acme)" it is not.
@@ -1400,7 +1420,9 @@ export function transcriptSpeakerNames(content: string, options: { cues?: boolea
   const add = (set: Set<string>, value: string | undefined) => {
     if (value !== undefined && !labels.has(value)) set.add(value);
   };
-  for (const kind of [...lines.lineKinds, ...lines.kinds]) {
+  // Parser v9: a metadata heading's label ("Project") names no one.
+  const ownReads = lines.lineKinds.filter((_, at) => !lines.headings.has(at));
+  for (const kind of [...ownReads, ...lines.kinds]) {
     if (kind?.kind !== "inline" && kind?.kind !== "header") continue;
     add(otherNames, kind.speaker);
     add(otherNames, writtenLastFirst(kind.rawLabel));
@@ -1553,6 +1575,49 @@ function dropUnpatternedLabels(infos: readonly LineInfo[], kinds: LineKind[]): v
   }
 }
 
+/** The metadata heading word a label opens or ends with ("Project", "Project name"). */
+function metadataWord(label: string): string | undefined {
+  const words = label.toLowerCase().split(/\s+/);
+  if (words.length > 3) return undefined;
+  if (METADATA_HEADINGS.has(words[0])) return words[0];
+  return METADATA_HEADINGS.has(words[words.length - 1]) ? words[words.length - 1] : undefined;
+}
+
+/** Speech, not a heading's value: it ends like a sentence, and not in "Acme Inc.". */
+function isSentence(value: string): boolean {
+  return /[.?!]["')\]]*$/.test(value) && !/\b(?:co|corp|inc|llc|ltd|plc)\.$/i.test(value);
+}
+
+/**
+ * Parser v9: the metadata lines above a transcript's exchange ("Project:
+ * Low-temperature bonding", "Client: Northwind Test Labs") are headings, so
+ * they stay text. A line is one when its label holds a metadata word, labels
+ * no other line, and comes before every other speaker's first line with at
+ * least one speaker after it; a role word ("Client") also needs a value
+ * that is not a sentence, since "Client: We tried that." is speech. Returns
+ * the lines set aside, whose labels are not hidden as names either.
+ */
+function dropMetadataHeadings(infos: readonly LineInfo[], kinds: LineKind[]): Set<number> {
+  const counts = new Map<string, number>();
+  for (const kind of kinds) {
+    if (kind?.kind === "inline" || kind?.kind === "header") counts.set(kind.speaker, (counts.get(kind.speaker) ?? 0) + 1);
+  }
+  const candidates: number[] = [];
+  for (let at = 0; at < kinds.length; at += 1) {
+    const kind = kinds[at];
+    if (kind?.kind !== "inline" && kind?.kind !== "header") continue;
+    const word = kind.kind === "inline" && counts.get(kind.speaker) === 1 ? metadataWord(kind.speaker) : undefined;
+    const value = kind.kind === "inline" ? infos[at].text.slice(kind.speechOffset).trim() : "";
+    if (!word || (METADATA_ROLES.has(word) && isSentence(value))) {
+      // The exchange starts here: the lines above it that qualified are headings.
+      for (const heading of candidates) kinds[heading] = undefined;
+      return new Set(candidates);
+    }
+    candidates.push(at);
+  }
+  return new Set();
+}
+
 /**
  * "Dana (Verdant Grid)" and "Sam (Verdant Grid)": a bracketed name that
  * follows several one-word names, each always with that same name, is the
@@ -1596,6 +1661,8 @@ type AnalyzedLines = {
   weakLines: ReadonlyArray<WeakCandidate | undefined>;
   /** Lines whose weak label became a speaker, with the speaker's label. */
   promoted: ReadonlyMap<number, string>;
+  /** Parser v9: lines that open with a metadata heading, read as text. */
+  headings: ReadonlySet<number>;
 };
 
 type WeakCandidate = WeakSpeakerLine & {
@@ -1610,12 +1677,15 @@ function analyzeLines(content: string): AnalyzedLines {
   const paneNames = markPaneHeaders(infos, kinds);
   resolveBracketSpeakers(kinds);
   dropUnpatternedLabels(infos, kinds);
+  // Parser v9, after the v4 pattern rule, which still counts a heading's
+  // label towards an exchange as v8 did.
+  const headings = dropMetadataHeadings(infos, kinds);
   // Parser v8: every rule above reads the transcript exactly as v7 did.
   // Weak labels are candidates on lines v7 leaves as text, and open turns
   // only on the evidence `promoteWeakOpeners` asks for.
   const weakLines: Array<WeakCandidate | undefined> = infos.map((info, i) => {
     const kind = kinds[i];
-    if (kind !== undefined && kind.kind !== "timed") return undefined;
+    if (headings.has(i) || (kind !== undefined && kind.kind !== "timed")) return undefined;
     return weakSpeakerLine(info.text) ?? weakPaneName(infos, kinds, i);
   });
   const openers: WeakOpener[] = [];
@@ -1647,7 +1717,7 @@ function analyzeLines(content: string): AnalyzedLines {
       if (weak.paneTime !== undefined) kinds[weak.paneTime] = { kind: "consumed" };
     }
   }
-  return { infos, lineKinds, kinds, paneNames, weakLines, promoted };
+  return { infos, lineKinds, kinds, paneNames, weakLines, promoted, headings };
 }
 
 /**
