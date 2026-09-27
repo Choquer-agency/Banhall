@@ -129,6 +129,7 @@ npx convex run transcripts:backfillTranscriptStructure '{}'
 What the bump does until then, and after:
 
 - **Run it right after the deploy.** Until a transcript is rebuilt, placeholder maps parse its text (names stay hidden, drafts start a little slower), and the citation speaker check outside facts mode finds no current turns, so citations get the byte check alone and read as unchecked for speaker.
+- **Brief preparations start again.** `BRIEF_DERIVATION_VERSION` is 4, so a Brief prepared before the deploy is not adopted; the run prepares or derives its own.
 - **Fact runs go stale.** Every stored fact run belongs to the old parser version. With `transcripts.factsMode` set to `long` or `all`, the next request or generation for each transcript extracts facts again: one paid model call per transcript. With `off` (the default) nothing is re-extracted.
 
 ### 8. Deploy the app
