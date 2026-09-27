@@ -63,6 +63,7 @@
     categoryMeta,
   } from "$lib/contextCategories";
   import { createRequestId } from "$lib/requestId";
+  import { userErrorMessage } from "$lib/errors";
 
   // Agent-based chat rail (BNH-10 P2) — streaming replacement for ChatPanel.
   // Messages come from the @convex-dev/agent component (token-streamed into
@@ -673,8 +674,9 @@
         dismissHint();
         chatContainer?.scrollToBottom("instant");
       } catch (e) {
-        researchError =
-          e instanceof Error ? e.message : "Research could not be started.";
+        // The server's own words (the hourly research limit, say), never
+        // the client's raw "[CONVEX M(...)]" line.
+        researchError = userErrorMessage(e, "Research could not be started.");
       } finally {
         researchStarting = false;
       }

@@ -4,6 +4,8 @@
   import { useMutation } from "convex-svelte";
   import { useAuth } from "@mmailaender/convex-better-auth-svelte/svelte";
   import { api } from "../../../../convex/_generated/api";
+  import type { Id } from "../../../../convex/_generated/dataModel";
+  import { userErrorCode, userErrorMessage } from "$lib/errors";
   import Button from "$lib/components/ui/Button.svelte";
   import Input from "$lib/components/ui/Input.svelte";
   import AppNav from "$lib/components/ui/AppNav.svelte";
@@ -86,6 +88,9 @@
   let answers = $state<Record<string, string>>({});
   let submitting = $state(false);
   let error = $state("");
+  // Set once the project exists, so submitting again after a refused start
+  // (the hourly run limit) starts the run without making a second project.
+  let createdProjectId: Id<"projects"> | null = null;
 
   $effect(() => {
     if (!auth.isLoading && !auth.isAuthenticated) {
@@ -110,17 +115,23 @@
     submitting = true;
 
     try {
-      const { projectId } = await createProject({
-        title: title.trim(),
-        clientName: clientName.trim(),
-        transcripts: [
-          { content: buildTranscriptFromAnswers(), label: "Questionnaire answers" },
-        ],
-      });
+      const projectId =
+        createdProjectId ??
+        (await createProject({
+          title: title.trim(),
+          clientName: clientName.trim(),
+          transcripts: [
+            { content: buildTranscriptFromAnswers(), label: "Questionnaire answers" },
+          ],
+        })).projectId;
+      createdProjectId = projectId;
       await generateReport({ projectId });
       goto(`/project/${projectId}`);
-    } catch {
-      error = "Failed to create project. Please try again.";
+    } catch (cause) {
+      error =
+        userErrorCode(cause) === "RATE_LIMITED"
+          ? `Your project is saved, but the run did not start. ${userErrorMessage(cause, "Try again later.")}`
+          : "Failed to create project. Please try again.";
       submitting = false;
     }
   }

@@ -25,7 +25,7 @@
   import { isSupportedFile, parseFileToText, SUPPORTED_ACCEPT, SUPPORTED_LABEL } from "$lib/parseDocument";
   import { CONTEXT_CATEGORIES, type ContextCategoryId } from "$lib/contextCategories";
   import { MAX_TOTAL_TRANSCRIPT_CHARS, MAX_TRANSCRIPTS_PER_PROJECT } from "../../../../convex/lib/transcripts";
-  import { userErrorMessage } from "$lib/errors";
+  import { userErrorCode, userErrorMessage } from "$lib/errors";
   import { uploadOriginal as uploadOriginalTransport } from "$lib/uploads/originalUpload";
   import { appendOutbox } from "$lib/uploads/attemptOutbox";
   import { shouldDropOutboxEntry, withUploadTimeout } from "$lib/uploads/outboxFlush";
@@ -1116,6 +1116,22 @@
     if (runningProjectId) openProject(runningProjectId, { title, client: clientName });
   }
 
+  /**
+   * Audit wave 2: the start was refused by the hourly or daily limit on
+   * runs or reviews. The project is saved, so the writer lands on it with
+   * the server's plain reason (one note, not an error), and starts the run
+   * there once the wait is over.
+   */
+  function openAfterRateLimit(error: unknown, projectId: Id<"projects">): boolean {
+    if (userErrorCode(error) !== "RATE_LIMITED") return false;
+    committing = false;
+    progress = "";
+    const what = mode === "review" ? "review" : "run";
+    toast.info(`The project is saved, but the ${what} did not start. ${userErrorMessage(error, "Try again later.")}`);
+    openProject(projectId, { title, client: clientName });
+    return true;
+  }
+
   async function uploadOriginal(file: File): Promise<Id<"_storage"> | undefined> {
     return uploadOriginalTransport({
       file,
@@ -1582,6 +1598,7 @@
         startOpen = true;
         return "done";
       }
+      if (createdProjectId && openAfterRateLimit(e, createdProjectId)) return "done";
       console.error(e);
       toast.error(userErrorMessage(e, "Something went wrong creating the project. Please try again."));
       committing = false;
@@ -1807,6 +1824,7 @@
         startOpen = true;
         return;
       }
+      if (createdProjectId && !copyFailed && openAfterRateLimit(e, createdProjectId)) return;
       console.error(e);
       if (copyFailed && createdProjectId) {
         toast.error(copyFailedMessage(savedOwn));

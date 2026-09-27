@@ -3,9 +3,11 @@ import { render } from "vitest-browser-svelte";
 import QuestionnairePage from "./+page.svelte";
 import { __resetPage } from "$lib/test/app-state-stub.svelte";
 import { __resetNavigation } from "$lib/test/app-navigation-stub";
+import { ConvexError } from "convex/values";
 import {
   __mutationCalls,
   __resetConvexStub,
+  __setMutationError,
   __setMutationResult,
   __setQueryData,
 } from "$lib/test/convex-svelte-stub.svelte";
@@ -102,5 +104,40 @@ describe("/project/questionnaire submit", () => {
     expect(__mutationCalls("generations:requestGeneration")[0]).toEqual({
       projectId: "project-q",
     });
+  });
+
+  it("says why the run did not start when it hits the run limit, and starts it on resubmit without a second project", async () => {
+    __setMutationResult("projects:createProject", {
+      projectId: "project-q",
+      transcriptIds: ["transcript-q"],
+    });
+    __setMutationError(
+      "generations:requestGeneration",
+      new ConvexError({
+        code: "RATE_LIMITED",
+        message: "You have started a lot of runs in the last hour. Try again in 5 minutes.",
+        retryAfter: 300,
+      })
+    );
+    await render(QuestionnairePage, {});
+    await clickText("Back");
+    await expect.poll(() => document.querySelector("#title")).not.toBeNull();
+    setInputValue("#title", "Project Verdant F2024");
+    setInputValue("#clientName", "GreenStem Nurseries Inc.");
+    await clickText("Start Questionnaire");
+    await advanceToReview();
+    await clickText("Generate Report");
+
+    await expect
+      .poll(() => document.body.textContent)
+      .toContain(
+        "Your project is saved, but the run did not start. You have started a lot of runs in the last hour. Try again in 5 minutes."
+      );
+    __setMutationResult("generations:requestGeneration", "generation-q");
+    await clickText("Generate Report");
+    await expect
+      .poll(() => __mutationCalls("generations:requestGeneration").length)
+      .toBe(2);
+    expect(__mutationCalls("projects:createProject")).toHaveLength(1);
   });
 });

@@ -71,6 +71,7 @@
   import { qaBandColors } from "$lib/qa/qaBands";
   import { formatEdited } from "$lib/components/project/details/detailsFormat";
   import { canOverrideQaSeverity } from "../../../../shared/roles";
+  import { userErrorMessage } from "$lib/errors";
   import { api } from "../../../../convex/_generated/api";
   import type { Id } from "../../../../convex/_generated/dataModel";
 
@@ -132,16 +133,20 @@
 
   // Local flag only bridges the click → server-status round trip.
   let runningQaLocal = $state(false);
+  // Why the last click did not start a pass (a refusal such as the hourly
+  // limit on QA runs), shown in the panel instead of a crash toast.
+  let runQaError = $state<string | null>(null);
   const qaRunning = $derived(runningQaLocal || postQaStatus === "running");
   async function handleRunQa() {
     if (!onRunQa || qaRunning) return;
     runningQaLocal = true;
+    runQaError = null;
     try {
       await onRunQa();
     } catch (error) {
-      // Swallowed deliberately: this runs from a click handler, where a
-      // rejection would surface as an unhandled promise error.
-      console.error("QA scorecard could not be started", error);
+      // Handled here: this runs from a click handler, where a rejection
+      // would surface as an unhandled promise error.
+      runQaError = userErrorMessage(error, "The QA scorecard could not be started. Try again.");
     } finally {
       // Always hand back to server state. Clearing only on error meant a
       // successful call that didn't flip postQaStatus (already done, or a
@@ -482,6 +487,10 @@
         </button>
       {/if}
     </div>
+  {/if}
+
+  {#if runQaError}
+    <p class="text-xs leading-4 text-red-700" role="alert" data-qa-run-error>{runQaError}</p>
   {/if}
 
 {#if scorecard}

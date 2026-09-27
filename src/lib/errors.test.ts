@@ -24,6 +24,20 @@ describe("isHandledRefusalLog", () => {
     for (const code of ["INTAKE_DRAFT_GONE", "INTAKE_DRAFT_LIMIT", "INTAKE_TEXT_LIMIT"]) {
       expect(isHandledRefusalLog(convexLog("intakeDrafts:saveIntakeSource", { code, message: "x" }))).toBe(true);
     }
+    // Audit wave 2: the limits on paid AI actions, from mutations and actions.
+    const limited = {
+      code: "RATE_LIMITED",
+      message: "You have started a lot of runs in the last hour. Try again in 5 minutes.",
+      retryAfter: 300,
+    };
+    for (const [path, kind] of [
+      ["generations:requestGeneration", "M"],
+      ["seeds:regenerate", "M"],
+      ["scienceCodeSuggestions:suggest", "A"],
+      ["ai/styleAnalysis:analyzeMyInstructions", "A"],
+    ] as const) {
+      expect(isHandledRefusalLog(convexLog(path, limited, kind))).toBe(true);
+    }
     // NOT_FOUND itself stays a crash signal.
     expect(isHandledRefusalLog(convexLog("intakeDrafts:saveIntakeSource", { code: "NOT_FOUND", message: "x" }))).toBe(false);
   });

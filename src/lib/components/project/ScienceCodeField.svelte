@@ -5,6 +5,7 @@
   import { CRA_SCIENCE_CODE_ITEMS, scienceCodeLabel } from "../../../../shared/craScienceCodes";
   import SelectInput from "$lib/components/ui/SelectInput.svelte";
   import Button from "$lib/components/ui/Button.svelte";
+  import { userErrorMessage } from "$lib/errors";
 
   let {
     projectId,
@@ -51,8 +52,9 @@
       }
       await save(result.code);
       suggestionMessage = `Suggested ${result.label}`;
-    } catch {
-      suggestionMessage = "Could not suggest a science code.";
+    } catch (error) {
+      // A refusal (the hourly suggestion limit, say) says why in plain words.
+      suggestionMessage = userErrorMessage(error, "Could not suggest a science code.");
     } finally {
       suggesting = false;
     }

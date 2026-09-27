@@ -44,16 +44,20 @@
   const logEvent = useMutation(api.pdReviews.logPdReviewEvent);
   const retryReview = useMutation(api.pdReviews.retryPdReview);
   let retrying = $state(false);
+  // Why the last Retry did not start (the hourly review limit, say), shown
+  // under the button instead of a toast.
+  let retryError = $state<string | null>(null);
 
   async function retry() {
     if (retrying) return;
     retrying = true;
+    retryError = null;
     try {
       await retryReview({ reviewId: review._id });
       toast.success("Review restarted.");
       // Reactive getLatestPdReview flips the page to the new running review.
     } catch (e) {
-      toast.error(userErrorMessage(e, "Couldn't restart the review."));
+      retryError = userErrorMessage(e, "Couldn't restart the review.");
     } finally {
       // Always release. Clearing only on error left the button disabled for
       // the life of the mount, so if the new run itself failed the writer had
@@ -241,6 +245,9 @@
         {#if review.error}
           <p class="mt-1 text-xs text-red-600">{review.error}</p>
         {/if}
+        {#if retryError}
+          <p class="mt-1 text-xs text-red-700" role="alert" data-pd-review-retry-error>{retryError}</p>
+        {/if}
       </div>
       <button
         type="button"
@@ -272,6 +279,9 @@
           The saved feedback didn’t match the expected format, so there’s
           nothing to show. Running the review again should fix it.
         </p>
+        {#if retryError}
+          <p class="mt-1 text-xs text-red-700" role="alert" data-pd-review-retry-error>{retryError}</p>
+        {/if}
       </div>
       <button
         type="button"

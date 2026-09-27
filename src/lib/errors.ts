@@ -41,6 +41,9 @@ export const HANDLED_REFUSAL_CODES: ReadonlySet<string> = new Set([
   "INTAKE_DRAFT_GONE",
   "INTAKE_DRAFT_LIMIT",
   "INTAKE_TEXT_LIMIT",
+  // Audit wave 2: a per-user or per-project limit on a paid AI action. The
+  // page that started it shows the server's message (with the wait) inline.
+  "RATE_LIMITED",
 ]);
 
 /**

@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { toast } from "svelte-sonner";
+import { ConvexError } from "convex/values";
 import { render } from "vitest-browser-svelte";
 import { page } from "vitest/browser";
 import NewProjectPage from "./+page.svelte";
@@ -220,6 +221,33 @@ describe("/project/new duplicate commit", () => {
     await expect
       .poll(() => __navigationCalls.map((call) => call.url))
       .toContain("/project/project-copy");
+  });
+
+  it("opens the saved project with the plain reason when the start hits the run limit (audit wave 2)", async () => {
+    const info = vi.spyOn(toast, "info");
+    const error = vi.spyOn(toast, "error");
+    seedSource();
+    __setMutationError(
+      "generations:requestGeneration",
+      new ConvexError({
+        code: "RATE_LIMITED",
+        message: "You have started a lot of runs in the last hour. Try again in 5 minutes.",
+        retryAfter: 300,
+      })
+    );
+    __setPageUrl("/project/new?from=project-1&drafts=iterative");
+    await render(NewProjectPage, {});
+
+    await expect.poll(() => checked("Draft generation mode", "Step by step")).toBe("true");
+    await commitFromReviewStep();
+
+    await expect
+      .poll(() => __navigationCalls.map((call) => call.url))
+      .toContain("/project/project-copy");
+    expect(info.mock.calls.map((call) => call[0])).toContain(
+      "The project is saved, but the run did not start. You have started a lot of runs in the last hour. Try again in 5 minutes."
+    );
+    expect(error).not.toHaveBeenCalled();
   });
 
   it("runs the Drafts mode the writer switched to", async () => {
