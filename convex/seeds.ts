@@ -527,13 +527,28 @@ async function dispatchHandler(
   if (f.behind) {
     // Round 2 fidelity (broken behaviour 3): another tab opened this step
     // first. Its Batch answers this open too; nothing is written. A step
-    // with no Batch yet still needs the current decisions.
+    // with no Batch yet still needs the current decisions. Decision 65: the
+    // server's first Batch may already have failed before this open, so
+    // its last attempt answers too, as a current open would.
     const existing = f.row.pendingBatchId ?? f.row.shownBatchId;
-    if (!existing)
+    if (existing)
+      return {
+        kind: "reused" as const,
+        batchId: existing,
+        seedStageVersion: await currentVersion(ctx, args.generationId),
+      };
+    const history = await ctx.db
+      .query("seedBatches")
+      .withIndex("by_generationId_and_roleId", (q) =>
+        q.eq("generationId", args.generationId).eq("roleId", args.roleId),
+      )
+      .order("desc")
+      .first();
+    if (!history)
       domainError("STALE_REVISION", "Seed decisions changed; refresh and retry");
     return {
-      kind: "reused" as const,
-      batchId: existing,
+      kind: "history" as const,
+      batchId: history._id,
       seedStageVersion: await currentVersion(ctx, args.generationId),
     };
   }

@@ -65,6 +65,13 @@ export const generateOrderedSectionRef = makeFunctionReference<
   null
 >("ai/orderedGeneration:generateOrderedSection");
 
+/** Decision 65: the server starts the first Seed Batch (convex/seedRuns.ts). */
+const startFirstSeedBatchRef = makeFunctionReference<
+  "mutation",
+  { generationId: Id<"generations"> },
+  unknown
+>("seedRuns:startFirstBatch");
+
 export const startSummaryRecoveryRef = makeFunctionReference<
   "action",
   { generationId: Id<"generations"> },
@@ -191,6 +198,10 @@ export async function initializeSeedStageHandler(
     projectId: generation.projectId, generationId: generation._id,
     kind: "initialized", at: Date.now(), actorSystem: true,
   });
+  // Owner decision 65: the first step's Batch starts now, not when a browser
+  // mounts the Seed workspace; the browser's open reuses it. Scheduled, so a
+  // refused dispatch never undoes the stage opening.
+  await ctx.scheduler.runAfter(0, startFirstSeedBatchRef, { generationId: generation._id });
   await refreshProjectGenerationActivity(ctx, generation.projectId);
   return null;
 }

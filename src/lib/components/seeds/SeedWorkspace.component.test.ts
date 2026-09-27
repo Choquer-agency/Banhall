@@ -2590,6 +2590,64 @@ describe("Seed workspace", () => {
     expect(document.activeElement?.id).not.toBe("seed-title-hypothesis");
     expect(document.activeElement).toBe(document.body);
   });
+
+  // Owner decision 65: the server starts the first step's Batch when the
+  // seed stage opens; the workspace shows it and never races it.
+  it("mounts on the server's pending first Batch without sending an open and shows that step writing", async () => {
+    const now = Date.now();
+    const base = untouchedOutline(PD_SUBSECTIONS.map((definition) => definition.roleId), { seedStageVersion: 1, expectedMs: 20_000 });
+    __setQueryData("seeds:getOutline", {
+      ...base,
+      rows: base.rows.map((row) =>
+        row.roleId === "company_context"
+          ? { ...row, state: "generating", pendingBatchId: "batch-server", pendingStartedAt: now - 5_000 }
+          : { ...row, pendingStartedAt: null }
+      ),
+    });
+    __setQueryDataForArgs("seeds:getSubsection", { generationId, roleId: "company_context" }, subsection({
+      state: "generating",
+      items: [],
+      shownBatchId: null,
+      approvalChallenge: null,
+      pendingBatchId: "batch-server" as Id<"seedBatches">,
+      pendingBatch: { status: "running", queuedAt: now - 5_000, startedAt: now - 5_000 },
+      seedStageVersion: 1,
+    }));
+    await render(SeedWorkspace, workspaceProps());
+
+    await expect.element(page.getByRole("heading", { name: "Company and context", exact: true })).toBeVisible();
+    await expect.poll(() => textOf(document.querySelector("[data-seed-progress-line]"))).toMatch(/^Writing ideas from the interview\./);
+    expect(document.querySelectorAll("[data-seed-skeleton]")).toHaveLength(4);
+    expect(document.querySelector('nav[aria-label="PD subsections"] button[data-row-state="generating"]')).not.toBeNull();
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(__mutationCalls("seeds:open")).toEqual([]);
+    expect(openRefusal()).toBeNull();
+
+    // The Batch lands: its ideas replace the writing state, still with no open.
+    __setQueryData("seeds:getOutline", untouchedOutline([], { seedStageVersion: 3 }));
+    __setQueryDataForArgs("seeds:getSubsection", { generationId, roleId: "company_context" }, subsection({ seedStageVersion: 3 }));
+    await expect.element(page.getByText("The control loop stabilized output.", { exact: true })).toBeVisible();
+    expect(document.querySelector("[data-seed-progress]")).toBeNull();
+    expect(__mutationCalls("seeds:open")).toEqual([]);
+  });
+
+  it("gets the server's pending Batch back when it mounted just before the dispatch landed, with no refusal", async () => {
+    __setQueryData("seeds:getOutline", untouchedOutline(["company_context"], { seedStageVersion: 0 }));
+    __setQueryDataForArgs("seeds:getSubsection", { generationId, roleId: "company_context" }, untouchedSubsection("company_context"));
+    __setMutationResult("seeds:open", { kind: "reused", batchId: "batch-server", seedStageVersion: 1 });
+    await render(SeedWorkspace, workspaceProps());
+    await expect.poll(() => __mutationCalls("seeds:open")).toEqual([openCall("company_context", 0)]);
+    // The Outline catches up with the server's Batch; nothing is sent again.
+    __setQueryData("seeds:getOutline", {
+      ...untouchedOutline(["company_context"], { seedStageVersion: 2 }),
+      rows: untouchedOutline(["company_context"]).rows.map((row) =>
+        row.roleId === "company_context" ? { ...row, state: "generating", pendingBatchId: "batch-server" } : row
+      ),
+    });
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(__mutationCalls("seeds:open")).toHaveLength(1);
+    expect(openRefusal()).toBeNull();
+  });
 });
 
 describe("Seed plan final UI (ui-design-final.md sections 3 and 11)", () => {

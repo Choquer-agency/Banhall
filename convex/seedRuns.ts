@@ -485,6 +485,86 @@ export const dispatch = internalMutation({
   handler: async (ctx, args) => await dispatchSeedAttempt(ctx, args),
 });
 
+/** The command id of the server's first Batch: one per generation. */
+export function firstBatchCommandId(generationId: Id<"generations">): string {
+  return `server-open:${generationId}`;
+}
+
+export type FirstBatchResult =
+  | SeedDispatchResult
+  | { kind: "skipped"; reason: "closed" | "started" | "no_untouched_step" };
+
+/**
+ * Owner decision 65 (eighth 2026-09-26 amendment): once the seed stage
+ * opens, the server starts the first untouched step's Batch itself, so the
+ * first ideas are written even if nobody has the Seed workspace open. It is
+ * the browser's `open` (same fence, freeze, validation, dedupe and "ideas
+ * ready" notification), sent by the system. Idempotent: a closed stage, or
+ * a generation with any Batch already (a repeated delivery, or the browser
+ * got there first), is left alone. A refusal from the dispatch itself rolls
+ * this back and the browser's own open meets the same refusal, as before.
+ */
+export async function startFirstSeedBatch(
+  ctx: MutationCtx,
+  generationId: Id<"generations">
+): Promise<FirstBatchResult> {
+  const generation = await ctx.db.get(generationId);
+  const project = generation ? await ctx.db.get(generation.projectId) : null;
+  if (
+    !generation ||
+    !project ||
+    project.deletionStartedAt !== undefined ||
+    project.activeGenerationId !== generation._id ||
+    generation.status !== "awaiting_input" ||
+    generation.summaryVersionId ||
+    resolveGatedWorkflow(generation) !== "seeds"
+  ) {
+    return { kind: "skipped", reason: "closed" };
+  }
+  const anyBatch = await ctx.db
+    .query("seedBatches")
+    .withIndex("by_generationId_and_roleId", (q) => q.eq("generationId", generationId))
+    .first();
+  if (anyBatch) return { kind: "skipped", reason: "started" };
+  const rows = await ctx.db
+    .query("seedSubsections")
+    .withIndex("by_generationId", (q) => q.eq("generationId", generationId))
+    .take(14);
+  const first = PD_SUBSECTIONS.find((role) =>
+    rows.some(
+      (row) =>
+        row.roleId === role.roleId &&
+        row.state === "untouched" &&
+        !row.pendingBatchId &&
+        !row.shownBatchId
+    )
+  );
+  if (!first) return { kind: "skipped", reason: "no_untouched_step" };
+  return await dispatchSeedAttempt(ctx, {
+    generationId,
+    roleId: first.roleId,
+    operation: "open",
+    commandId: firstBatchCommandId(generationId),
+  });
+}
+
+export const startFirstBatch = internalMutation({
+  args: { generationId: v.id("generations") },
+  returns: v.union(
+    v.object({
+      kind: v.union(v.literal("dispatched"), v.literal("reused"), v.literal("history")),
+      batchId: v.id("seedBatches"),
+    }),
+    v.object({ kind: v.literal("not_dispatched"), reason: v.literal("prefetch_ineligible") }),
+    v.object({
+      kind: v.literal("skipped"),
+      reason: v.union(v.literal("closed"), v.literal("started"), v.literal("no_untouched_step")),
+    })
+  ),
+  handler: async (ctx, args): Promise<FirstBatchResult> =>
+    await startFirstSeedBatch(ctx, args.generationId),
+});
+
 type NotClaimedReason =
   | "missing"
   | "not_queued"

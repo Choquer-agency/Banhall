@@ -45,7 +45,7 @@ import type {
 import type { completeAttempt, dispatch } from "./seedRuns";
 import { readSeedReadiness } from "./lib/seedReadiness";
 import { factIndex } from "./lib/seedFacts";
-import { runSeedDraftingInputs } from "./seedStartup.fixture";
+import { runSeedDraftingInputs, settleFirstSeedBatch } from "./seedStartup.fixture";
 import schema from "./schema";
 import { agentOutputsOf } from "./lib/generationOutputs";
 import { STORYLINE_QUESTION_WITHHELD_REASON } from "./lib/storylineQuestionNote";
@@ -565,6 +565,9 @@ async function productionInitializedFixture(
   await t.action(internal.ai.iterative.startIterativeGeneration, {
     generationId: ids.generationId,
   });
+  // Owner decision 65: the server's first Seed Batch runs once here; these
+  // tests then build their decisions by hand at the stage version it left.
+  await settleFirstSeedBatch(t);
   // Owner decision 32: the analysis and Brain retrieval run in the
   // background after the seed stage opens; sign-off needs them.
   if (!options.holdDraftingInputs) await runSeedDraftingInputs(t);
@@ -580,6 +583,11 @@ async function productionInitializedFixture(
     briefId: brief._id,
     writer: t.withIdentity({ subject: "production-seed-writer" }),
   };
+}
+
+/** The stage version the production fixture's first Seed Batch left. */
+async function stageVersion(s: ReadyFixture): Promise<number> {
+  return (await s.t.run(async (ctx) => await ctx.db.get(s.generationId)))?.seedStageVersion ?? 0;
 }
 
 function configureSummaryActionProvider(args: {
@@ -1777,7 +1785,7 @@ describe("seed Summary sign-off and recovery", () => {
     await makeReady(s);
     await s.writer.mutation(api.generations.signOffSeedStage, {
       generationId: s.generationId,
-      expectedSeedStageVersion: 0,
+      expectedSeedStageVersion: await stageVersion(s),
     });
     await s.t.run((ctx) =>
       ctx.db.patch(s.generationId, { promptVersion: "initialization-program" })
@@ -1841,7 +1849,7 @@ describe("seed Summary sign-off and recovery", () => {
     );
     const signed = await s.writer.mutation(api.generations.signOffSeedStage, {
       generationId: s.generationId,
-      expectedSeedStageVersion: 0,
+      expectedSeedStageVersion: await stageVersion(s),
     });
     const executingProgram = await currentPromptVersion();
     let providerBoundary: {
@@ -1905,9 +1913,9 @@ describe("seed Summary sign-off and recovery", () => {
           .withIndex("by_generationId_and_kind", (q) => q.eq("generationId", s.generationId))
           .take(5))).map((row) => row.kind).sort();
     expect(await artifactKinds()).toEqual(["writer_style"]);
-    const signOff = () => s.writer.mutation(api.generations.signOffSeedStage, {
+    const signOff = async () => s.writer.mutation(api.generations.signOffSeedStage, {
       generationId: s.generationId,
-      expectedSeedStageVersion: 0,
+      expectedSeedStageVersion: await stageVersion(s),
     });
 
     // Still preparing: refused with nothing written.
