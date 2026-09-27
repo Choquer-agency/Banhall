@@ -571,6 +571,8 @@ export function preparationClientForStep(
     projectId?: Id<"projects">;
     userId?: string;
     preparation: PreparationAttribution;
+    /** Called for every usage row the client logs, a stopped stream's included. */
+    onUsage?: GenerationCallMeta["onUsage"];
   },
   frozen: { freeze: ModelFreeze; placeholders: PlaceholderMap },
   options: { signal?: AbortSignal } = {}

@@ -116,6 +116,8 @@ const usageArgs = {
   // Decision 65: a Brief preparation's call names its preparation and attempt.
   briefPreparationId: v.optional(v.id("briefPreparations")),
   preparationAttemptId: v.optional(v.string()),
+  // 2026-09-27 (second): a call stopped part way; see the schema.
+  partial: v.optional(v.boolean()),
   createdAt: v.optional(v.number()),
 };
 
@@ -227,6 +229,7 @@ export const logUsage = internalMutation({
       ...(args.servedProvider ? { servedProvider: args.servedProvider } : {}),
       ...(args.briefPreparationId ? { briefPreparationId: args.briefPreparationId } : {}),
       ...(args.preparationAttemptId ? { preparationAttemptId: args.preparationAttemptId } : {}),
+      ...(args.partial ? { partial: true } : {}),
       createdAt: args.createdAt ?? Date.now(),
     });
     // Decision 65: the preparation's spend settles from its usage rows, in

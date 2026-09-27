@@ -221,7 +221,7 @@ async function deferPreparation(
   preparation: Preparation,
   waitingFor: "slot" | "uploads" | "structure" | "speakers" | "names" | "reads",
   delayMs: number,
-  options: { evidenceRead: boolean }
+  options: { evidenceRead: boolean; uncounted?: boolean }
 ): Promise<void> {
   const uploads = waitingFor === "uploads";
   const names = waitingFor === "names";
@@ -229,7 +229,10 @@ async function deferPreparation(
   // their own counter and a time bound (pendingReadsWait), so they never
   // use up the other waits.
   const reads = waitingFor === "reads";
-  const deferrals = (preparation.deferrals ?? 0) + (uploads || names || reads ? 0 : 1);
+  // A start woken because a slot freed that finds it taken again (it lost
+  // the race to another waiter) is not charged a wait (review 2026-09-27,
+  // P3-6): it did not choose to run then.
+  const deferrals = (preparation.deferrals ?? 0) + (uploads || names || reads || options.uncounted ? 0 : 1);
   const uploadWaits = (preparation.uploadWaits ?? 0) + (uploads ? 1 : 0);
   // Names waits have their own counter (review 2026-09-26, P3-3): each
   // names edit restarts the 5-second settle, so several edits a few
@@ -582,7 +585,12 @@ async function readDraftEvidence(
  * draft's own checks differ; the key, the limits and the claim are shared.
  */
 export const startBriefPreparation = internalMutation({
-  args: { preparationId: v.id("briefPreparations"), revision: v.number() },
+  args: {
+    preparationId: v.id("briefPreparations"),
+    revision: v.number(),
+    // Run early because a running slot freed (wakeSlotWaiters).
+    woken: v.optional(v.boolean()),
+  },
   returns: v.null(),
   handler: async (ctx, args): Promise<null> => {
     const preparation = await ctx.db.get(args.preparationId);
@@ -644,7 +652,10 @@ export const startBriefPreparation = internalMutation({
     // One call in flight per project (or draft) and per user, an obsolete
     // attempt's call included until it ends.
     if ((await callInFlight(ctx, scope, now)) || (await callInFlight(ctx, { userId: preparation.triggeredBy }, now))) {
-      await deferPreparation(ctx, preparation, "slot", SLOT_RETRY_MS, { evidenceRead: true });
+      await deferPreparation(ctx, preparation, "slot", SLOT_RETRY_MS, {
+        evidenceRead: true,
+        uncounted: args.woken === true,
+      });
       return null;
     }
     // At most 20 paid starts per user per firm day; spend reserved before
@@ -897,6 +908,7 @@ async function wakeSlotWaiters(ctx: MutationCtx, ended: Preparation): Promise<vo
     const scheduledJobId = await ctx.scheduler.runAfter(0, internal.briefPreparations.startBriefPreparation, {
       preparationId: row._id,
       revision,
+      woken: true,
     });
     await ctx.db.patch(row._id, { revision, runAt: now, scheduledJobId, updatedAt: now });
   }
@@ -964,8 +976,11 @@ export const endAbortedAttempt = internalMutation({
     const now = Date.now();
     await ctx.db.patch(current._id, { abortedAt: now, ...(args.usageReported ? {} : { costUnknown: true }) });
     const preparation = await settleAttemptEnd(ctx, args.preparationId, args.attemptId);
-    // Stopped while still running (its project or draft went, say): it ends
-    // cancelled, never failed.
+    // Stopped while its row still reads running (its project is being
+    // deleted, or its lease ran out before the lease check failed it): it
+    // ends cancelled, never failed. A discarded or expired draft's row is
+    // already obsolete (`draft_closed`) and a superseded one obsolete
+    // (`superseded`); both stay so.
     if (preparation && preparation.status === "running") {
       await endPreparation(ctx, preparation, "cancelled", "stopped");
     }

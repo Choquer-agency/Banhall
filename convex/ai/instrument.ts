@@ -16,7 +16,12 @@ import {
   retryWaitFitsAnyAction,
 } from "./actionDeadline";
 import { COMPRESSION_REQUEST } from "./promptDefinitions";
-import { RequestAbortedError, collectMessageStream, type GenerationStreamHandlers } from "./openrouterCore";
+import {
+  RequestAbortedError,
+  collectMessageStream,
+  sleepUnlessAborted,
+  type GenerationStreamHandlers,
+} from "./openrouterCore";
 import { domainError } from "../lib/contracts";
 import {
   TRANSPORT_CONFIGURATION,
@@ -25,7 +30,13 @@ import {
   type AnthropicCapability,
 } from "../lib/providerConfig";
 import { isAnthropicCreditError } from "../../shared/anthropicCreditFallback";
-import { clearStaleLatch, directCreditRoute, latchDirectCredit, settleDirectCall } from "./anthropicCredit";
+import {
+  abandonDirectProbe,
+  clearStaleLatch,
+  directCreditRoute,
+  latchDirectCredit,
+  settleDirectCall,
+} from "./anthropicCredit";
 import {
   isOpenRouterInFlightBudget,
   markOpenRouterError,
@@ -82,6 +93,8 @@ export type UsageEvent = {
   /** A Brief preparation's call (decision 65): its preparation and attempt. */
   briefPreparationId?: Id<"briefPreparations">;
   preparationAttemptId?: string;
+  /** A call stopped part way (2026-09-27, second): output estimated. */
+  partial?: boolean;
   createdAt?: number;
 };
 
@@ -530,7 +543,9 @@ async function createWithinDeadline(
         throw retryWaitFitsAnyAction(delay) ? markStoppedByDeadline(error) : error;
       }
       console.warn(`Anthropic request failed (attempt ${attempt + 1}/${retries + 1}), retrying in ${Math.round(delay)}ms`);
-      await new Promise<void>((resolve) => setTimeout(resolve, delay));
+      // A caller that gives up during the wait is not kept waiting: the
+      // retry is sent with its aborted signal and the SDK stops it at once.
+      await sleepUnlessAborted(delay, own.signal instanceof AbortSignal ? own.signal : undefined);
     }
   }
 }
@@ -555,7 +570,8 @@ export const OPENROUTER_IN_FLIGHT_MAX_WAIT_MS = 60_000;
  */
 async function sendViaOpenRouter(
   send: () => Promise<unknown>,
-  deadline: number | undefined
+  deadline: number | undefined,
+  signal?: AbortSignal
 ): Promise<unknown> {
   try {
     return await send();
@@ -573,7 +589,9 @@ async function sendViaOpenRouter(
       throw error;
     }
     console.warn(`OpenRouter in-flight spending budget is full (402), retrying once in ${Math.round(delay)}ms`);
-    await new Promise<void>((resolve) => setTimeout(resolve, delay));
+    // Stopped during the wait: the retry carries the aborted signal and
+    // ends at once.
+    await sleepUnlessAborted(delay, signal);
   }
   try {
     return await send();
@@ -717,11 +735,23 @@ export function instrumentedAnthropic(
         const prefixed = meta.attribution || meta.preparation ? cacheGenerationPrefix(request) : request;
         const rest = args.slice(2);
         /** Logs one answer's usage row (and the caller's usage tap). */
-        const logUsage = async (response: unknown, viaOpenRouter: boolean, stoppedReason?: string): Promise<void> => {
+        const logUsage = async (
+          response: unknown,
+          viaOpenRouter: boolean,
+          stopped?: { receivedChars: number }
+        ): Promise<void> => {
           const durationMs = Math.max(0, Date.now() - startedAt);
-          const usage = anthropicUsage(response);
+          const reported = anthropicUsage(response);
+          // A stream stopped part way reports its input but not the output
+          // written so far (2026-09-27, second): estimate it from the
+          // characters received, at the reservation's 3 characters a token,
+          // so the cost is not understated.
+          const usage =
+            reported && stopped
+              ? { ...reported, outputTokens: Math.max(reported.outputTokens, Math.ceil(stopped.receivedChars / 3)) }
+              : reported;
           const charge = viaOpenRouter ? openRouterAnthropicCharge(response) : {};
-          const stopReason = stoppedReason ?? responseStopReason(response);
+          const stopReason = stopped ? "aborted" : responseStopReason(response);
           const params = args[0];
           const model =
             params &&
@@ -789,6 +819,7 @@ export function instrumentedAnthropic(
               ...(viaOpenRouter ? { transport: "openrouter" as const } : {}),
               ...(charge.costUsd !== undefined ? { costUsd: charge.costUsd } : {}),
               ...(charge.servedProvider ? { servedProvider: charge.servedProvider } : {}),
+              ...(stopped ? { partial: true } : {}),
             });
           }
         };
@@ -798,8 +829,15 @@ export function instrumentedAnthropic(
         // without a stop reason after an abort is not an answer.
         const finish = async (sent: unknown) => {
           if (!handlers) return await sent;
-          const message = await collectMessageStream(await sent, handlers);
-          if (signal?.aborted && !responseStopReason(message)) throw new RequestAbortedError(message);
+          let received = 0;
+          const message = await collectMessageStream(await sent, {
+            ...handlers,
+            onReceived: (chars) => {
+              received = chars;
+              handlers.onReceived?.(chars);
+            },
+          });
+          if (signal?.aborted && !responseStopReason(message)) throw new RequestAbortedError(message, received);
           return message;
         };
         // The caller's signal travels with the request options on every
@@ -824,7 +862,7 @@ export function instrumentedAnthropic(
                   deadline,
                   defaults
                 );
-          return viaOpenRouter ? await sendViaOpenRouter(sendRequest, deadline) : await sendRequest();
+          return viaOpenRouter ? await sendViaOpenRouter(sendRequest, deadline, signal) : await sendRequest();
         };
         // The billing fallback (decision 64) only for a model OpenRouter
         // lists; any other model's call goes direct and fails as before.
@@ -848,9 +886,13 @@ export function instrumentedAnthropic(
               try {
                 response = await sendOn("direct");
               } catch (error) {
-                // Stopped by its caller: not a refusal, so no fallback, and a
-                // probe says nothing about direct (its claim lapses).
-                if (signal?.aborted) throw error;
+                // Stopped by its caller: not a refusal, so no fallback. A
+                // probe says nothing about direct, so its claim is given up
+                // at once and the next call may probe.
+                if (signal?.aborted) {
+                  if (route === "probe") await abandonDirectProbe(ctx);
+                  throw error;
+                }
                 if (isAnthropicCreditError(error)) {
                   await latchDirectCredit(ctx, route);
                 } else if (route === "probe") {
@@ -872,7 +914,7 @@ export function instrumentedAnthropic(
           // A stream stopped part way keeps the usage it had reported
           // (2026-09-27, second): billed input is logged, never dropped.
           if (signal?.aborted && error instanceof RequestAbortedError && anthropicUsage(error.partial)) {
-            await logUsage(error.partial, viaOpenRouter, "aborted");
+            await logUsage(error.partial, viaOpenRouter, { receivedChars: error.receivedChars });
             error.usageRecorded = true;
           }
           throw error;

@@ -101,6 +101,23 @@ export const releaseProbe = internalMutation({
 });
 
 /**
+ * The probe's call was stopped by its caller before direct answered
+ * (2026-09-27, second). The latch stays and its cool-down is not restarted;
+ * only the claim goes, so the next call may probe at once.
+ */
+export const abandonProbe = internalMutation({
+  args: {},
+  returns: v.null(),
+  handler: async (ctx) => {
+    const row = await latchRow(ctx);
+    if (row?.probeStartedAt !== undefined) {
+      await ctx.db.patch("anthropicCreditLatch", row._id, { probeStartedAt: undefined });
+    }
+    return null;
+  },
+});
+
+/**
  * Direct works again: the probe went through, or a direct call succeeded
  * on a deployment with no fallback left (its OpenRouter key was removed
  * while the latch stood). Clears the latch and resolves its notice, which

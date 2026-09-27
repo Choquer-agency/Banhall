@@ -11,7 +11,7 @@ import {
   MAX_BRIEF_ENTRY_ROWS,
   briefDiffKey,
 } from "../generations";
-import { RequestAbortedError, type GenerationClient } from "./openrouterCore";
+import type { GenerationClient } from "./openrouterCore";
 import {
   BRIEF_REQUEST,
   BRIEF_SCHEMA,
@@ -884,6 +884,9 @@ export const runBriefPreparation = internalAction({
     // Stops the call once the attempt is out of date (2026-09-27, second).
     const controller = new AbortController();
     const watch = watchPreparationAttempt(ctx, args, controller);
+    // Whether any usage row was logged for this attempt, a stopped stream's
+    // partial one included: only an attempt with none has an unknown cost.
+    let usageLogged = false;
     try {
       const route = resolveGenerationStep({ freeze: run.modelFreeze, step: "brief", writerModel: MODEL });
       if (route.model !== run.planningModel) throw new Error("The frozen planning model does not resolve");
@@ -895,6 +898,9 @@ export const runBriefPreparation = internalAction({
           ...(run.projectId ? { projectId: run.projectId } : {}),
           userId: run.triggeredBy,
           preparation: { briefPreparationId: args.preparationId, attemptId: args.attemptId },
+          onUsage: () => {
+            usageLogged = true;
+          },
         },
         { freeze: run.modelFreeze, placeholders: run.placeholders },
         { signal: controller.signal }
@@ -923,10 +929,12 @@ export const runBriefPreparation = internalAction({
     } catch (error) {
       if (controller.signal.aborted) {
         // Stopped because it went out of date: not a model failure. The
-        // attempt ends now so the next preparation can dispatch.
+        // attempt ends now so the next preparation can dispatch. A stop
+        // during the repair keeps the first call's landed usage; the cost is
+        // unknown only when no usage was logged for the attempt at all.
         await ctx.runMutation(internal.briefPreparations.endAbortedAttempt, {
           ...args,
-          usageReported: error instanceof RequestAbortedError && error.usageRecorded,
+          usageReported: usageLogged,
         });
         return null;
       }

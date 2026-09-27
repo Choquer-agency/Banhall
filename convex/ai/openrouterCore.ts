@@ -87,7 +87,15 @@ export interface GenerationMessageParams {
  * `onToolInput` receives the tool input JSON written so far (the whole text,
  * not a delta); an empty string means the request started again.
  */
-export type GenerationStreamHandlers = { onToolInput?: (snapshot: string) => void };
+export type GenerationStreamHandlers = {
+  onToolInput?: (snapshot: string) => void;
+  /**
+   * 2026-09-27 (second): the characters of answer received so far (text,
+   * tool input and thinking), so a stream stopped part way can estimate the
+   * output it was billed for.
+   */
+  onReceived?: (chars: number) => void;
+};
 
 export interface GenerationClient {
   messages: {
@@ -114,12 +122,35 @@ export interface GenerationClient {
  */
 export class RequestAbortedError extends Error {
   readonly partial: unknown;
+  /** Characters of answer the stream delivered before it stopped. */
+  readonly receivedChars: number;
   usageRecorded = false;
-  constructor(partial?: unknown) {
+  constructor(partial?: unknown, receivedChars = 0) {
     super("The request was stopped by its caller");
     this.name = "RequestAbortedError";
     this.partial = partial;
+    this.receivedChars = receivedChars;
   }
+}
+
+/**
+ * Waits `ms`, or less when `signal` aborts first (2026-09-27, second): a
+ * request whose caller gave up never sits out a retry or backoff wait, so
+ * an out-of-date call frees its slot at once. The caller checks the signal
+ * afterwards.
+ */
+export function sleepUnlessAborted(ms: number, signal?: AbortSignal): Promise<void> {
+  if (!signal) return new Promise<void>((resolve) => setTimeout(resolve, ms));
+  if (signal.aborted) return Promise.resolve();
+  return new Promise<void>((resolve) => {
+    const done = () => {
+      clearTimeout(timer);
+      signal.removeEventListener("abort", done);
+      resolve();
+    };
+    const timer = setTimeout(done, ms);
+    signal.addEventListener("abort", done, { once: true });
+  });
 }
 
 /**
@@ -139,6 +170,7 @@ export async function collectMessageStream(
   let message: Record<string, unknown> = {};
   const blocks: Block[] = [];
   let usage: Record<string, unknown> = {};
+  let received = 0;
   handlers.onToolInput?.("");
   for await (const raw of stream as AsyncIterable<Record<string, unknown>>) {
     const event = raw ?? {};
@@ -161,10 +193,15 @@ export async function collectMessageStream(
         if (!block) break;
         if (delta.type === "input_json_delta" && typeof delta.partial_json === "string") {
           block.partial = (block.partial ?? "") + delta.partial_json;
+          received += delta.partial_json.length;
           handlers.onToolInput?.(block.partial);
         } else if (delta.type === "text_delta" && typeof delta.text === "string") {
           block.text = `${typeof block.text === "string" ? block.text : ""}${delta.text}`;
+          received += delta.text.length;
+        } else if (delta.type === "thinking_delta" && typeof delta.thinking === "string") {
+          received += delta.thinking.length;
         }
+        handlers.onReceived?.(received);
         break;
       }
       case "message_delta": {

@@ -54,6 +54,7 @@ const latchStateRef = ref<typeof providerCredit.latchState>("providerCredit:latc
 const claimProbeRef = ref<typeof providerCredit.claimProbe>("providerCredit:claimProbe");
 const latchDirectCreditRef = ref<typeof providerCredit.latchDirectCredit>("providerCredit:latchDirectCredit");
 const releaseProbeRef = ref<typeof providerCredit.releaseProbe>("providerCredit:releaseProbe");
+const abandonProbeRef = ref<typeof providerCredit.abandonProbe>("providerCredit:abandonProbe");
 const clearDirectCreditLatchRef = ref<typeof providerCredit.clearDirectCreditLatch>(
   "providerCredit:clearDirectCreditLatch"
 );
@@ -110,6 +111,20 @@ export async function settleDirectCall(ctx: LatchCtx, route: CreditRoute, succee
     }
   } catch (error) {
     console.error("Anthropic credit latch could not be updated after a direct try", { error: String(error) });
+  }
+}
+
+/**
+ * The probe's call was stopped by its caller (2026-09-27, second: a Brief
+ * preparation that went out of date) before direct answered. That says
+ * nothing about direct, so the claim is given up at once and the next call
+ * may probe; the cool-down does not restart.
+ */
+export async function abandonDirectProbe(ctx: LatchCtx): Promise<void> {
+  try {
+    await ctx.runMutation(abandonProbeRef, {});
+  } catch (error) {
+    console.error("Anthropic credit probe could not be given up", { error: String(error) });
   }
 }
 

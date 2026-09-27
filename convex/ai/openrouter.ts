@@ -30,6 +30,7 @@ import {
   shouldRetryStatus,
   retryDelayMs,
   isAbortLikeError,
+  sleepUnlessAborted,
   OPENROUTER_MAX_RETRIES,
   type ChatCompletionsResponse,
   type GenerationClient,
@@ -50,9 +51,6 @@ const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
 // fail long before the 10-minute Convex action budget. Research overrides this
 // via timeoutMs (its providers stream internally for up to 8 minutes).
 const DEFAULT_TIMEOUT_MS = 180_000;
-
-const sleep = (ms: number) =>
-  new Promise<void>((resolve) => setTimeout(resolve, ms));
 
 /** One attempt's signal: its own timeout, and the caller's abort if given. */
 function attemptSignal(timeoutMs: number, caller: AbortSignal | undefined): AbortSignal {
@@ -190,7 +188,8 @@ export async function openRouterChatCompletion(
         `OpenRouter fetch failed (attempt ${attempt + 1}/${maxAttempts}), retrying in ${delay}ms:`,
         error instanceof Error ? error.message : String(error)
       );
-      await sleep(delay);
+      // Stopped during the wait: the loop's head reports the abort at once.
+      await sleepUnlessAborted(delay, input.signal);
       continue;
     }
     // Read as text first: gateway errors are not always JSON (HTML error
@@ -224,7 +223,7 @@ export async function openRouterChatCompletion(
     console.warn(
       `OpenRouter returned ${response.status} (attempt ${attempt + 1}/${maxAttempts}), retrying in ${delay}ms`
     );
-    await sleep(delay);
+    await sleepUnlessAborted(delay, input.signal);
   }
   let raw: unknown = null;
   try {

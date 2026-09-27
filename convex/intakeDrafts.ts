@@ -579,7 +579,13 @@ export const reportIntakePendingReads = mutation({
       .query("briefPreparations")
       .withIndex("by_intakeDraftId_and_status", (q) => q.eq("intakeDraftId", draft._id).eq("status", "queued"))
       .first();
-    if (!waiting || waiting.waitingFor !== "reads") return null;
+    if (!waiting) return null;
+    // Every file read so far is in: a later batch gets its own 3 minutes
+    // (review 2026-09-27, P3-5).
+    if (waiting.waitingFor !== "reads") {
+      if (waiting.readsWaitStartedAt !== undefined) await ctx.db.patch(waiting._id, { readsWaitStartedAt: undefined });
+      return null;
+    }
     if (waiting.scheduledJobId && waiting.runAt > now) await ctx.scheduler.cancel(waiting.scheduledJobId);
     const revision = waiting.revision + 1;
     const scheduledJobId = await ctx.scheduler.runAfter(INTAKE_DEBOUNCE_MS, internal.briefPreparations.startBriefPreparation, {
@@ -591,6 +597,7 @@ export const reportIntakePendingReads = mutation({
       runAt: now + INTAKE_DEBOUNCE_MS,
       scheduledJobId,
       waitingFor: undefined,
+      readsWaitStartedAt: undefined,
       updatedAt: now,
     });
     return null;

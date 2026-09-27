@@ -648,6 +648,11 @@ export default defineSchema({
     // for. The row outlives the preparation's content (usage totals stay).
     briefPreparationId: v.optional(v.id("briefPreparations")),
     preparationAttemptId: v.optional(v.string()),
+    // 2026-09-27 (second) widen: a call stopped part way (stop reason
+    // "aborted"). Its input is as the stream reported it; its output is
+    // estimated from the characters already received, so the cost is not
+    // understated.
+    partial: v.optional(v.boolean()),
     createdAt: v.number(),
   })
     .index("by_createdAt", ["createdAt"])

@@ -34,6 +34,8 @@ import { clientForStep, resetGenerationModelCache, resetGenerationPlaceholderCac
 import { resetStaleLatchCheck } from "./ai/anthropicCredit";
 import { resolveGenerationStep } from "./lib/generationSteps";
 import { preparationCharge } from "./lib/briefPreparationBudget";
+import { assignRoleModelByHand } from "./lib/modelRoles";
+import { CREDIT_LATCH_COOLDOWN_MS } from "../shared/anthropicCreditFallback";
 import { intakeDraftRefs } from "./lib/intakeDraftRefs";
 import {
   INTAKE_DEBOUNCE_MS,
@@ -82,7 +84,7 @@ const PROVIDER_BRIEF = {
  * the request is aborted, or released by the test; `hang` sends nothing
  * until it is aborted; `billing` refuses for credit (direct only).
  */
-type Plan = "full" | "slow" | "hang" | "billing";
+type Plan = "full" | "slow" | "hang" | "billing" | "cut" | "overloaded" | "chat";
 const plan: Plan[] = [];
 type Sent = { url: string; body: Record<string, unknown>; signal: AbortSignal | null; aborted: boolean };
 const requests: Sent[] = [];
@@ -120,6 +122,49 @@ function stubProvider() {
       signal?.addEventListener("abort", () => (sent.aborted = true), { once: true });
       const next = plan.shift() ?? "full";
       const model = String(body.model);
+      if (next === "chat") {
+        // The OpenRouter gateway's chat completion with the Brief as a tool call.
+        return Response.json({
+          id: "gen_synthetic",
+          model,
+          choices: [
+            {
+              index: 0,
+              finish_reason: "tool_calls",
+              message: {
+                role: "assistant",
+                content: null,
+                tool_calls: [
+                  {
+                    id: "call_1",
+                    type: "function",
+                    function: { name: BRIEF_REQUEST.toolName, arguments: JSON.stringify(PROVIDER_BRIEF) },
+                  },
+                ],
+              },
+            },
+          ],
+          usage: { prompt_tokens: 1200, completion_tokens: 300, cost: 0.01 },
+        });
+      }
+      if (next === "cut") {
+        return sseResponse(
+          anthropicToolSse({
+            model,
+            tool: BRIEF_REQUEST.toolName,
+            input: PROVIDER_BRIEF,
+            usage: { input_tokens: 1200, output_tokens: 16000 },
+            stopReason: "max_tokens",
+          })
+        );
+      }
+      if (next === "overloaded") {
+        // Retryable, with a long wait the SDK would honour.
+        return Response.json(
+          { type: "error", error: { type: "overloaded_error", message: "Overloaded" } },
+          { status: 529, headers: { "retry-after": "20" } }
+        );
+      }
       if (next === "billing") {
         return Response.json(
           { type: "error", error: { type: "billing_error", message: "There's an issue with your billing." } },
@@ -195,12 +240,16 @@ async function until(ready: () => boolean | Promise<boolean>, tries = 200) {
 
 // ─── Project-scoped setup ───────────────────────────────────────────────────
 
-async function projectSetup() {
+async function projectSetup(options: { planningModel?: string } = {}) {
   const t = convexTest(schema, modules);
   rateLimiterTest.register(t);
   const ids = await t.run(async (ctx) => {
     const now = Date.now();
     const userId = await ctx.db.insert("users", { authId: "stop-writer", role: "writer", name: "Wren Writer" });
+    if (options.planningModel) {
+      const adminId = await ctx.db.insert("users", { authId: "stop-admin", role: "admin", name: "Ada Admin" });
+      await assignRoleModelByHand(ctx, "planning", options.planningModel, adminId);
+    }
     const projectId = await ctx.db.insert("projects", {
       title: "Cold seal",
       clientName: "Acme Seals",
@@ -285,6 +334,15 @@ async function supersede(s: ProjectSetup, fileName = "new.txt") {
 }
 
 
+/**
+ * Waits until no preparation of the project is queued or running, so no
+ * follow-up call of this test reaches the next test's stubbed provider.
+ */
+async function quiet(s: ProjectSetup) {
+  await until(async () => (await projectPreparations(s)).every((prep) => prep.status !== "queued" && prep.status !== "running"), 600);
+  await s.t.finishInProgressScheduledFunctions();
+}
+
 async function usageRows(s: { t: T }) {
   return await s.t.run(async (ctx) => ctx.db.query("aiUsage").collect());
 }
@@ -345,12 +403,16 @@ describe("stopping out-of-date readings", () => {
     await until(async () => (await row(s, first._id)).usageCalls === 1);
     const usage = await usageRows(s);
     const partial = usage.find((entry) => entry.preparationAttemptId === first.attemptId);
-    expect(partial).toMatchObject({ callSite: "preparation:brief", stopReason: "aborted", inputTokens: 1200 });
+    expect(partial).toMatchObject({ callSite: "preparation:brief", stopReason: "aborted", inputTokens: 1200, partial: true });
+    // The stream had reported 1 output token; the output is estimated from
+    // the 24 characters of tool input received (3 a token).
+    expect(partial!.outputTokens).toBe(8);
     expect(partial!.costUsd).toBeGreaterThan(0);
     const settled = await row(s, first._id);
     expect(settled.usageCalls).toBe(1);
     expect(preparationCharge(settled)).toBe(settled.reservedUsd);
     expect(await modelFailures(s)).toHaveLength(0);
+    await quiet(s);
   });
 
   test("stopped before the stream reported any usage, the cost is marked unknown and the reservation stays counted", async () => {
@@ -369,6 +431,7 @@ describe("stopping out-of-date readings", () => {
     expect(preparationCharge(await row(s, first._id))).toBe(stopped.reservedUsd);
     expect(stopped.reservedUsd).toBeGreaterThan(0);
     expect(await modelFailures(s)).toHaveLength(0);
+    await quiet(s);
   });
 
   test("a call answered through the OpenRouter credit fallback is stopped the same way", async () => {
@@ -390,6 +453,124 @@ describe("stopping out-of-date readings", () => {
     const partial = (await usageRows(s)).find((entry) => entry.preparationAttemptId === first.attemptId);
     expect(partial).toMatchObject({ stopReason: "aborted", transport: "openrouter", inputTokens: 1200 });
     expect(await modelFailures(s)).toHaveLength(0);
+    await quiet(s);
+  });
+
+  test("stopped during the repair, the first call's usage stays and the cost is not marked unknown (Q2)", async () => {
+    const s = await projectSetup();
+    plan.push("cut", "hang");
+    const first = await claim(s);
+    await startCall(2);
+    // The first answer was cut off, so the repair (not streamed) is on its way.
+    expect(requests[0].body.stream).toBe(true);
+    expect(requests[1].body.stream).toBeUndefined();
+    await supersede(s);
+    await until(async () => (await row(s, first._id)).attemptEndedAt !== undefined, 400);
+    expect(requests[1].aborted).toBe(true);
+    const stopped = await row(s, first._id);
+    expect(stopped.costUnknown).toBeUndefined();
+    expect(stopped.failureCode).toBeUndefined();
+    await until(async () => (await row(s, first._id)).usageCalls === 1);
+    const landed = (await usageRows(s)).filter((entry) => entry.preparationAttemptId === first.attemptId);
+    expect(landed).toHaveLength(1);
+    expect(landed[0].partial).toBeUndefined();
+    expect(preparationCharge(await row(s, first._id))).toBeGreaterThanOrEqual(stopped.reservedUsd!);
+    await quiet(s);
+  });
+
+  test("a call waiting out a provider's retry wait is stopped at once, and the retry is never sent (P3-4)", async () => {
+    const s = await projectSetup();
+    plan.push("overloaded");
+    const first = await claim(s);
+    await startCall();
+    const madeObsoleteAt = Date.now();
+    await supersede(s);
+    await until(async () => (await row(s, first._id)).attemptEndedAt !== undefined, 400);
+    const stopped = await row(s, first._id);
+    // Within one check, far inside the 20-second wait.
+    expect(stopped.abortedAt! - madeObsoleteAt).toBeLessThanOrEqual(2_600);
+    expect(stopped).toMatchObject({ status: "obsolete", costUnknown: true });
+    expect(stopped.failureCode).toBeUndefined();
+    await until(async () => (await projectPreparations(s)).some((prep) => prep.status === "ready"), 400);
+    // One overloaded try, then the next preparation's call; no retry.
+    expect(requests).toHaveLength(2);
+    expect(await modelFailures(s)).toHaveLength(0);
+    await quiet(s);
+  });
+
+  test("a call on the OpenRouter gateway is stopped the same way", async () => {
+    vi.stubEnv("OPENROUTER_API_KEY", "synthetic-stop-openrouter");
+    const s = await projectSetup({ planningModel: "openai/gpt-6-sol" });
+    plan.push("hang", "chat");
+    const first = await claim(s);
+    expect(first.planningModel).toBe("openai/gpt-6-sol");
+    await startCall();
+    expect(requests[0].url).toContain("openrouter.ai/api/v1/chat/completions");
+    await supersede(s);
+    await until(async () => (await row(s, first._id)).attemptEndedAt !== undefined, 400);
+    expect(requests[0].aborted).toBe(true);
+    const stopped = await row(s, first._id);
+    expect(stopped).toMatchObject({ status: "obsolete", costUnknown: true });
+    expect(stopped.failureCode).toBeUndefined();
+    await quiet(s);
+    // The next preparation answered on the same gateway; nothing counts against the model.
+    expect((await projectPreparations(s)).filter((prep) => prep.status === "ready")).toHaveLength(1);
+    expect(await modelFailures(s)).toHaveLength(0);
+  });
+
+  test("a stopped credit probe gives up its claim at once without restarting the cool-down (Q3)", async () => {
+    vi.stubEnv("OPENROUTER_API_KEY", "synthetic-stop-openrouter");
+    const s = await projectSetup();
+    const latchedAt = Date.now() - CREDIT_LATCH_COOLDOWN_MS - 60_000;
+    await s.t.run(async (ctx) => ctx.db.insert("anthropicCreditLatch", { key: "direct", latchedAt }));
+    plan.push("hang");
+    const first = await claim(s);
+    await startCall();
+    // The cool-down is over, so this call probes direct.
+    expect(requests[0].url).toContain("api.anthropic.com");
+    const claimed = await s.t.run(async (ctx) => ctx.db.query("anthropicCreditLatch").first());
+    expect(claimed?.probeStartedAt).toBeDefined();
+    await supersede(s);
+    await until(async () => (await row(s, first._id)).attemptEndedAt !== undefined, 400);
+    expect(requests[0].aborted).toBe(true);
+    await quiet(s);
+    // The stopped probe was not rerouted. The next call probed direct at
+    // once: the claim was given up and the cool-down not restarted (a
+    // restarted one would have sent it through OpenRouter). Its success
+    // cleared the latch.
+    expect(requests).toHaveLength(2);
+    expect(requests[1].url).toContain("api.anthropic.com");
+    expect(requests.some((sent) => sent.url.includes("openrouter.ai"))).toBe(false);
+    expect(await s.t.run(async (ctx) => ctx.db.query("anthropicCreditLatch").first())).toBeNull();
+  });
+
+  test("a start woken when the slot freed that finds it taken again is not charged a wait (P3-6)", async () => {
+    const s = await projectSetup();
+    plan.push("hang");
+    const first = await claim(s);
+    await startCall();
+    const second = await supersede(s);
+    expect(second).toMatchObject({ status: "queued", waitingFor: "slot", deferrals: 1 });
+    // The first call is still in flight: a woken start re-defers for free,
+    // an ordinary one is counted.
+    await s.t.mutation(internal.briefPreparations.startBriefPreparation, {
+      preparationId: second._id, revision: second.revision, woken: true,
+    });
+    const afterWoken = await row(s, second._id);
+    expect(afterWoken).toMatchObject({ status: "queued", waitingFor: "slot", deferrals: 1 });
+    expect(afterWoken.revision).toBe(second.revision + 1);
+    await s.t.mutation(internal.briefPreparations.startBriefPreparation, {
+      preparationId: second._id, revision: afterWoken.revision,
+    });
+    expect((await row(s, second._id)).deferrals).toBe(2);
+    // The wake itself asks as a woken start.
+    await until(async () => (await row(s, first._id)).attemptEndedAt !== undefined, 400);
+    const jobs = await s.t.run(async (ctx) => ctx.db.system.query("_scheduled_functions").collect());
+    expect(
+      jobs.some((job) => job.name.includes("startBriefPreparation") && (job.args[0] as { woken?: boolean }).woken === true)
+    ).toBe(true);
+    await until(async () => (await row(s, second._id)).status === "ready", 400);
+    await quiet(s);
   });
 
   test("a preparation a run waits on is never stopped by later edits", async () => {
@@ -424,6 +605,7 @@ describe("stopping out-of-date readings", () => {
     const done = await row(s, first._id);
     expect(done.status).toBe("ready");
     expect(done.abortedAt).toBeUndefined();
+    await quiet(s);
   });
 });
 
@@ -552,6 +734,43 @@ describe("waiting for files still being read", () => {
     expect(requests).toHaveLength(1);
   });
 
+  test("a later batch of files gets its own 3 minutes: the bound starts again after the count reaches zero (P3-5)", async () => {
+    const s = await draftSetup();
+    await report(s, 1);
+    await names(s);
+    await run(s, 8_000);
+    const firstWait = (await draftPreparations(s))[0].readsWaitStartedAt!;
+    expect(firstWait).toBeDefined();
+    // The first batch takes two and a half minutes.
+    for (let step = 0; step < 5; step += 1) {
+      await run(s, 30_000, 1_000);
+      await report(s, 1);
+    }
+    // It lands; before the 2-second quiet period ends, another batch starts.
+    await report(s, 0);
+    expect((await draftPreparations(s))[0].readsWaitStartedAt).toBeUndefined();
+    await report(s, 2);
+    await run(s, 3_000, 500);
+    const [again] = await draftPreparations(s);
+    expect(again).toMatchObject({ status: "queued", waitingFor: "reads" });
+    const secondWait = again.readsWaitStartedAt!;
+    expect(secondWait).toBeGreaterThan(firstWait + 150_000);
+    // Past the first batch's bound, the second still waits.
+    while (Date.now() < firstWait + MAX_PENDING_READS_WAIT_MS + 20_000) {
+      await run(s, 20_000, 1_000);
+      await report(s, 2);
+    }
+    expect((await draftPreparations(s))[0].status).toBe("queued");
+    expect(requests).toHaveLength(0);
+    while (Date.now() < secondWait + MAX_PENDING_READS_WAIT_MS + 5_000) {
+      await run(s, 20_000, 1_000);
+      await report(s, 2);
+    }
+    const [prep] = await draftPreparations(s);
+    expect(prep.status).toBe("ready");
+    expect(prep.dispatchedAt! - secondWait).toBeGreaterThanOrEqual(MAX_PENDING_READS_WAIT_MS);
+  });
+
   test("the count is the owner's alone, whole and not negative, and discarding the draft clears it", async () => {
     const s = await draftSetup();
     const other = s.t.withIdentity({ subject: "reads-outsider" });
@@ -562,8 +781,14 @@ describe("waiting for files still being read", () => {
     await report(s, 2);
     const before = (await s.t.run(async (ctx) => ctx.db.get(s.draftId)))!;
     expect(before.pendingReads).toBe(2);
-    // Not an edit: the idle expiry does not move.
-    expect(before.lastEditedAt).toBeLessThanOrEqual(before.pendingReadsUpdatedAt!);
+    // Not an edit: later reports move neither the last edit nor the idle expiry.
+    vi.advanceTimersByTime(60_000);
+    await report(s, 3);
+    const later = (await s.t.run(async (ctx) => ctx.db.get(s.draftId)))!;
+    expect(later.pendingReads).toBe(3);
+    expect(later.pendingReadsUpdatedAt).toBe(before.pendingReadsUpdatedAt! + 60_000);
+    expect(later.expiresAt).toBe(before.expiresAt);
+    expect(later.lastEditedAt).toBe(before.lastEditedAt);
     await s.writer.mutation(intakeDraftRefs.discardIntakeDraft, { draftId: s.draftId });
     const after = (await s.t.run(async (ctx) => ctx.db.get(s.draftId)))!;
     expect(after.pendingReads).toBeUndefined();
