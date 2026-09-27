@@ -173,6 +173,29 @@ describe("Home in the workspace shell", () => {
     expect(document.querySelector('[data-home-top-bar] button[data-rail-direction="expand"]')).toBeNull();
   });
 
+  it("A4 with decisions 59 and 62: the collapsed rail shows the logo mark and Home has no checkboxes", async () => {
+    localStorage.setItem(RAIL_PREFERENCES_KEY, JSON.stringify({ width: 240, hidden: true }));
+    __setPageUrl("/my-work");
+    seedHome();
+    __setPaginatedRows("myWork:listAssignedToMe", [
+      { ...itemRow("a1"), projectTitle: "Low-temperature composite bonding", clientName: "Meridian Materials", workflowStage: "internal_review" },
+      { ...itemRow("a2"), projectTitle: "Adaptive cold storage controls", clientName: "Cedarline Systems" },
+      { ...itemRow("a3"), projectTitle: "Adaptive irrigation sensors", clientName: "Alder Research", workflowStage: "revisions" },
+    ]);
+    await browserPage.viewport(1440, 900);
+    const screen = await render(WorkspaceDashboard, { view: "my_work" });
+    screen.container.style.cssText = "display:flex;flex-direction:column;min-height:100vh;";
+
+    await expect.poll(() => document.querySelectorAll('[data-home-table="home-with-you"] tbody tr').length).toBe(3);
+    const mark = document.querySelector<SVGSVGElement>('nav[data-rail-collapsed] [data-banhall-rail-mark="collapsed"]')!;
+    expect(mark.dataset.logoMark).toBe("dark");
+    expect(mark.getBoundingClientRect()).toMatchObject({ width: 28, height: 28 });
+    const home = document.querySelector<HTMLElement>("[data-home-panel]")!;
+    expect(home.querySelector('input[type="checkbox"], [role="checkbox"]')).toBeNull();
+    expect(home.querySelector('[data-home-table="home-with-you"] [data-home-column-header]')!.children).toHaveLength(4);
+    await browserPage.screenshot({ path: "../../../../.vitest-attachments/decisions-home-logo/a4-collapsed-rail-home.png" });
+  });
+
   it("shows the round 2 identity row: name, role chip and the account menu, no sign-out icon or Flag issue row", async () => {
     __setPageUrl("/my-work");
     seedHome();

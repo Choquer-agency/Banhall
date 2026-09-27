@@ -1,10 +1,11 @@
 <!--
   One Home table (ui-design-final.md section 9, boards 1.1 and 1.2; round 2
-  A1 and J7): a view chip that shows or hides the table, then a 28px leading
-  column, Name, Client (136), Stage (108) and Last edited (84). The boards
-  draw a checkbox in the leading column; Home has no row selection or bulk
-  action yet, so it stays empty. "Recently opened" (A1) shows no column
-  header row: its headers stay for screen readers at zero height. Each row is one link to the project; the name link
+  A1 and J7): a view chip that shows or hides the table, then Name, Client
+  (136), Stage (108) and Last edited (84). The boards draw a checkbox column
+  before Name; decision 59 removes it (no row selection or bulk actions), so
+  Name starts 8px in, level with the loading and empty rows. "Recently
+  opened" (A1) shows no column header row: its headers stay for screen
+  readers at zero height. Each row is one link to the project; the name link
   stretches over the whole row. Rows carry data-recent-* so opening one
   records it in this device's Recently opened list.
 -->
@@ -70,8 +71,7 @@
       data-home-column-header
       class={columnHeader ? "h-9 border-b border-line-soft text-[11px] leading-4 text-ink-muted" : "text-[0px] leading-[0px]"}
     >
-      <td aria-hidden="true" class="w-7 max-sm:w-2"></td>
-      <th scope="col" class="font-normal">Name</th>
+      <th scope="col" class="pl-2 font-normal">Name</th>
       <th scope="col" class="w-[136px] font-normal max-sm:hidden">Client</th>
       <th scope="col" class="w-[108px] font-normal">Stage</th>
       <th scope="col" class="w-[84px] font-normal max-sm:hidden">Last edited</th>
@@ -138,8 +138,7 @@
           <tbody>
             {#each rows as row (row.projectId)}
               <tr data-home-row={row.projectId} class="group/project relative h-11 border-b border-line-soft transition-colors hover:bg-primary-wash motion-reduce:transition-none">
-                <td aria-hidden="true"></td>
-                <td class="pr-3">
+                <td class="pl-2 pr-3">
                   <div class="flex min-w-0 items-center gap-2">
                     <span
                       aria-hidden="true"

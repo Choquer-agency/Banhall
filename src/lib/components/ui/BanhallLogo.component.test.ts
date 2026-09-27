@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { render } from "vitest-browser-svelte";
 import BanhallLogo from "./BanhallLogo.svelte";
 import BanhallRailMark from "./BanhallRailMark.svelte";
+import LogoMark from "$lib/components/brand/LogoMark.svelte";
 
 describe("BanhallLogo", () => {
   it("uses the dark logo by default at 56px tall, keeping the 308 x 138 ratio", async () => {
@@ -38,22 +39,32 @@ describe("BanhallRailMark", () => {
     expect(image.getBoundingClientRect().top - box.top).toBeCloseTo(-5.24, 1);
   });
 
-  it("is the boards' 28px fir tile with a white B in the collapsed rail (A4, A5)", async () => {
+  it("is the 28px square logo mark in the collapsed rail, not the boards' B tile (A4, A5, decision 62)", async () => {
     await render(BanhallRailMark, { collapsed: true });
-    const mark = document.body.querySelector<HTMLElement>("[data-banhall-rail-mark]")!;
+    const mark = document.body.querySelector<SVGSVGElement>("[data-banhall-rail-mark]")!;
     expect(mark.dataset.banhallRailMark).toBe("collapsed");
-    expect(mark.querySelector("img")).toBeNull();
+    expect(mark.tagName.toLowerCase()).toBe("svg");
+    expect(mark.dataset.logoMark).toBe("dark");
     expect(mark.getAttribute("role")).toBe("img");
     expect(mark.getAttribute("aria-label")).toBe("Banhall");
-    expect(mark.textContent).toBe("B");
-    const box = mark.getBoundingClientRect();
-    expect(box.width).toBe(28);
-    expect(box.height).toBe(28);
-    const style = getComputedStyle(mark);
-    expect(style.borderRadius).toBe("7px");
-    expect(style.backgroundColor).toBe("rgb(10, 58, 56)");
-    expect(style.color).toBe("rgb(255, 255, 255)");
-    expect(style.fontSize).toBe("12px");
-    expect(style.fontWeight).toBe("500");
+    expect(mark.textContent).toBe("");
+    expect(mark.getBoundingClientRect()).toMatchObject({ width: 28, height: 28 });
+    // Fir ring, teal triangle: the logo's own colours.
+    expect(getComputedStyle(mark.querySelector("circle")!).stroke).toBe("rgb(10, 58, 56)");
+    expect(getComputedStyle(mark.querySelector("path")!).fill).toBe("rgb(0, 129, 134)");
+  });
+
+});
+
+describe("LogoMark", () => {
+  it("draws a white ring on dark backgrounds and hides itself when unlabelled", async () => {
+    await render(LogoMark, { tone: "white", size: 16, label: "" });
+    const mark = document.body.querySelector<SVGSVGElement>("[data-logo-mark]")!;
+    expect(mark.dataset.logoMark).toBe("white");
+    expect(mark.getAttribute("aria-hidden")).toBe("true");
+    expect(mark.getAttribute("role")).toBeNull();
+    expect(mark.getBoundingClientRect()).toMatchObject({ width: 16, height: 16 });
+    expect(getComputedStyle(mark.querySelector("circle")!).stroke).toBe("rgb(255, 255, 255)");
+    expect(getComputedStyle(mark.querySelector("path")!).fill).toBe("rgb(0, 129, 134)");
   });
 });

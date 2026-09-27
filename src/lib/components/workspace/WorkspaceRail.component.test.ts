@@ -267,8 +267,8 @@ describe("WorkspaceRail (round 2)", () => {
       expect(item(id)!.getAttribute("aria-label")).toBeTruthy();
       expect(item(id)!.getBoundingClientRect().width).toBe(36);
     }
-    // No labels: only the mark's B and the avatar's initials are text.
-    expect(nav().textContent?.replace(/\s+/g, " ").trim()).toBe("B AA");
+    // No labels: the mark is an image, so the avatar's initials are the only text.
+    expect(nav().textContent?.replace(/\s+/g, " ").trim()).toBe("AA");
     expect(nav().querySelector("[data-role-chip]")).toBeNull();
     // What's new is a 7px dot here, not a count.
     expect(item("changelog")!.querySelector("[data-rail-dot]")).not.toBeNull();
@@ -284,13 +284,14 @@ describe("WorkspaceRail (round 2)", () => {
     expect(search.querySelector("path")?.getAttribute("d")).toBe("M11 18a7 7 0 1 0 0-14 7 7 0 0 0 0 14Z M20 20l-4-4");
   });
 
-  it("A4: the collapsed rail starts with the 28px fir tile and ends 18px under the avatar", async () => {
+  it("A4: the collapsed rail starts with the 28px logo mark and ends 18px under the avatar", async () => {
     seed("consultant", { unseen: 2 });
     await render(WorkspaceRail, baseProps({ collapsed: true, onToggleRail: () => {} }));
     await expect.poll(() => item("settings")).not.toBeNull();
     nav().parentElement!.style.height = "900px";
     const top = nav().getBoundingClientRect().top;
-    const mark = nav().querySelector<HTMLElement>('[data-banhall-rail-mark="collapsed"]')!;
+    const mark = nav().querySelector<SVGSVGElement>('[data-banhall-rail-mark="collapsed"]')!;
+    expect(mark.dataset.logoMark).toBe("dark");
     expect(mark.getBoundingClientRect()).toMatchObject({ width: 28, height: 28 });
     expect(mark.getBoundingClientRect().top - top).toBe(14);
     // Board A4 (2px column gap): avatar 852 to 882, Settings 795 to 831 and

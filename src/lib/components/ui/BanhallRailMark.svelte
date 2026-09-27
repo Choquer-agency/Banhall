@@ -1,4 +1,5 @@
 <script lang="ts">
+  import LogoMark from "$lib/components/brand/LogoMark.svelte";
   import {
     BANHALL_LOGO_ARTWORK,
     BANHALL_LOGO_SIZE,
@@ -12,7 +13,7 @@
    * clipped away so the artwork's left edge lines up with the rail gutter and
    * its box is the artwork itself, 36px tall. Collapsed (the 56px icon-only
    * rail, A4, A5, H1, H3), the wordmark is unreadable at 40px wide, so it is
-   * the boards' 28px fir tile with a white "B".
+   * the 28px square `LogoMark` (decision 62) in place of the boards' "B" tile.
    */
   let {
     collapsed = false,
@@ -27,12 +28,7 @@
 </script>
 
 {#if collapsed}
-  <span
-    data-banhall-rail-mark="collapsed"
-    role="img"
-    aria-label="Banhall"
-    class={`flex size-7 shrink-0 items-center justify-center rounded-[7px] bg-fir text-xs font-medium leading-[14px] text-white ${className}`}
-  ><span aria-hidden="true">B</span></span>
+  <LogoMark size={28} data-banhall-rail-mark="collapsed" class={className} />
 {:else}
   <span
     data-banhall-rail-mark="expanded"

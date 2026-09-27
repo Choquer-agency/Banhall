@@ -150,7 +150,7 @@
               <a
                 href={resolve("/project/new")}
                 data-home-add-new
-                class={`inline-flex items-center gap-2 rounded-md pl-7 pr-2 text-ink-muted transition-colors hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir motion-reduce:transition-none ${withYou?.length === 0 ? "h-10 text-[13px] leading-[18px]" : "h-9 text-xs leading-4"}`}
+                class={`inline-flex items-center gap-2 rounded-md px-2 text-ink-muted transition-colors hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir motion-reduce:transition-none ${withYou?.length === 0 ? "h-10 text-[13px] leading-[18px]" : "h-9 text-xs leading-4"}`}
               >
                 {#if withYou?.length === 0}
                   <IconPlus size={14} strokeWidth={2} class="shrink-0" />

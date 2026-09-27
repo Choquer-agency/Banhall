@@ -217,25 +217,29 @@ describe("Home", () => {
       "Stage",
       "Last edited",
     ]);
-    // J7: a 160px empty block, then a 40px "+ New project" row indented 28px
-    // with the 14px plus (24 grid, stroke 2).
+    // J7: a 160px empty block, then a 40px "+ New project" row indented 8px,
+    // level with Name, with the 14px plus (24 grid, stroke 2).
     const empty = withYou.querySelector<HTMLElement>("[data-home-table-empty]")!;
     expect(empty.getBoundingClientRect().height).toBe(160);
     const newProject = withYou.querySelector<HTMLAnchorElement>("[data-home-add-new]")!;
     expect(newProject.textContent?.trim()).toBe("New project");
     expect(newProject.getAttribute("href")).toBe("/project/new");
     expect(newProject.getBoundingClientRect().height).toBe(40);
-    expect(getComputedStyle(newProject).paddingLeft).toBe("28px");
+    expect(getComputedStyle(newProject).paddingLeft).toBe("8px");
     const plus = newProject.querySelector("svg")!;
     expect(plus.getAttribute("viewBox")).toBe("0 0 24 24");
     expect(plus.getAttribute("width")).toBe("14");
     expect(plus.getAttribute("stroke-width")).toBe("2");
-    // The chip row is 48px; Name starts after a 28px leading column.
+    // The chip row is 48px. Decision 59: no checkbox column, so Name is the
+    // first column and its text starts 8px in.
     const chipRow = withYou.querySelector<HTMLElement>("[data-home-view-chip]")!.closest("h2")!.parentElement!;
     expect(chipRow.getBoundingClientRect().height).toBe(48);
     const tableBox = withYou.querySelector("table")!.getBoundingClientRect();
-    const nameHeader = [...withYou.querySelectorAll("th")].find((cell) => cell.textContent?.trim() === "Name")!;
-    expect(Math.round(nameHeader.getBoundingClientRect().left - tableBox.left)).toBe(28);
+    const headerCells = [...withYou.querySelectorAll<HTMLElement>("[data-home-column-header] > *")];
+    expect(headerCells.map((cell) => cell.textContent?.trim())).toEqual(["Name", "Client", "Stage", "Last edited"]);
+    const nameHeader = headerCells[0];
+    expect(Math.round(nameHeader.getBoundingClientRect().left - tableBox.left)).toBe(0);
+    expect(getComputedStyle(nameHeader).paddingLeft).toBe("8px");
     const stageHeader = [...withYou.querySelectorAll("th")].find((cell) => cell.textContent?.trim() === "Stage")!;
     expect(Math.round(stageHeader.getBoundingClientRect().width)).toBe(108);
     // No second table, no welcome banner, no get-started cards.
@@ -297,8 +301,12 @@ describe("Home", () => {
     const firstRow = recent.querySelector<HTMLElement>('[data-home-row="proj-r1"]')!;
     expect(Math.round(firstRow.getBoundingClientRect().top)).toBe(Math.round(chipRow.getBoundingClientRect().bottom));
     const recentBox = recent.querySelector("table")!.getBoundingClientRect();
+    // Decision 59: the row's first cell is Name, no checkbox before it.
+    expect(firstRow.children).toHaveLength(4);
+    expect(firstRow.querySelector('input[type="checkbox"], [role="checkbox"]')).toBeNull();
     const name = firstRow.querySelector<HTMLElement>("[data-home-client-mark]")!;
-    expect(Math.round(name.getBoundingClientRect().left - recentBox.left)).toBe(28);
+    expect(firstRow.children[0].contains(name)).toBe(true);
+    expect(Math.round(name.getBoundingClientRect().left - recentBox.left)).toBe(8);
     const stage = firstRow.querySelector<HTMLElement>("[data-home-stage-chip]")!.closest("td")!;
     expect(Math.round(stage.getBoundingClientRect().width)).toBe(108);
     // With you keeps its visible header row.

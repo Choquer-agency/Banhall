@@ -993,8 +993,12 @@ the dark workspace scope does not retint them. Live at `/styleguide`.
 - **Logo.** `ui/BanhallLogo` renders `static/banhall-logo-dark.png` on light
   backgrounds and `banhall-logo-white.png` on dark, 52 to 64px tall including
   the built-in padding. `ui/BanhallRailMark` replaces the boards' placeholder
-  "B Banhall" at the top of the rail with the dark wordmark, padding clipped:
-  36px tall expanded, 40px wide collapsed.
+  "B Banhall" at the top of the rail with the dark wordmark, padding clipped,
+  36px tall expanded. Where only a square fits (the collapsed rail, A4, A5),
+  it is `brand/LogoMark` (decision 62): the ring and teal triangle of the
+  logo's "a" as inline SVG, 28px, fir `#0A3A38` ring (white on dark) and teal
+  `#008186` triangle, both defined once in `brand/logoMark.ts`. The favicon is
+  the same mark; a unit test keeps `src/lib/assets/favicon.svg` in sync.
 
 ### 2026-09-26 amendment - round 2 shell (WS1)
 
