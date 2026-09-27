@@ -124,7 +124,12 @@ Run it right after the deploy, before anyone starts a Step by step draft. It mak
 npx convex run transcripts:backfillTranscriptStructure '{}'
 ```
 
-**Check:** Schedules shows no pending `transcripts:backfillTranscriptStructure` run, and every transcript that is not archived and not empty has `parserVersion` `"8"` and no `structureBuildId`. Archived transcripts keep their old version on purpose. It is safe to run again. Until it finishes, placeholder maps parse the transcript text, so names stay hidden; drafts only start a little slower.
+**Check:** Schedules shows no pending `transcripts:backfillTranscriptStructure` run, and every transcript that is not archived and not empty has `parserVersion` `"8"` and no `structureBuildId`. Archived transcripts keep their old version on purpose. It is safe to run again.
+
+What the bump does until then, and after:
+
+- **Run it right after the deploy.** Until a transcript is rebuilt, placeholder maps parse its text (names stay hidden, drafts start a little slower), and the citation speaker check outside facts mode finds no current turns, so citations get the byte check alone and read as unchecked for speaker.
+- **Fact runs go stale.** Every stored fact run belongs to the old parser version. With `transcripts.factsMode` set to `long` or `all`, the next request or generation for each transcript extracts facts again: one paid model call per transcript. With `off` (the default) nothing is re-extracted.
 
 ### 8. Deploy the app
 
