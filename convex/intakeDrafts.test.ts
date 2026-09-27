@@ -22,6 +22,7 @@ import { deriveOrAdoptSeedBrief, deriveOrReuseBrief } from "./ai/brief";
 import { clientForStep, resetGenerationModelCache, resetGenerationPlaceholderCache } from "./ai/providers";
 import { resolveGenerationStep } from "./lib/generationSteps";
 import { TRANSCRIPT_PARSER_VERSION } from "../shared/transcriptParse";
+import LOOSE_LABELS from "../shared/__fixtures__/transcripts/loose-labels.txt?raw";
 
 const modules = import.meta.glob("./**/*.ts");
 
@@ -416,6 +417,47 @@ describe("promotion and adoption", () => {
       const source = adopted.sources.find((row) => row._id === entry.sourceId)!;
       expect(source.content.slice(entry.startOffset, entry.endOffset)).toBe(entry.exactExcerpt);
     }
+  });
+
+  test("a loose label and the firm's name are masked as for a project, and the run adopts after promotion", async () => {
+    const s = await setup();
+    await s.t.run(async (ctx) =>
+      ctx.db.insert("appSettings", {
+        key: "privacy.firmNames",
+        value: JSON.stringify(["Northwind Consulting", "NWC"]),
+        updatedBy: s.userId,
+        updatedAt: Date.now(),
+      })
+    );
+    const content = [
+      LOOSE_LABELS,
+      "",
+      "Dana Whitfield: Northwind Consulting will write it up for NWC's files.",
+    ].join("\n");
+    const draftId = await s.writer.mutation(intakeDraftRefs.createIntakeDraft, {});
+    await saveTranscript(s, draftId, "transcript-key-1", content);
+    await saveDocument(s, draftId, "document-key-1");
+    await setContext(s, draftId);
+    await settle(s, 8);
+    const [prepared] = await draftPreparations(s, draftId);
+    expect(prepared.status).toBe("ready");
+    const map = prepared.placeholders ?? [];
+    for (const label of ["thermal drift", "latency", "bottom line"]) {
+      expect(map.find((entry) => entry.value === label)?.at, label).toBe("label");
+    }
+    expect(map.some((entry) => entry.value === "Northwind Consulting")).toBe(true);
+    const sent = JSON.stringify(briefRequests[briefRequests.length - 1].body);
+    expect(sent).not.toContain("thermal drift:");
+    expect(sent).not.toContain("Northwind Consulting");
+    expect(sent).not.toContain("Priya");
+
+    const receipt = await promote(s, draftId, ["transcript-key-1", "document-key-1"]);
+    const generationId = await reserve(s, receipt.projectId);
+    // The run froze the same map from the promoted project.
+    expect((await s.t.run(async (ctx) => ctx.db.get(generationId)))?.placeholders).toEqual(map);
+    const calls = briefRequests.length;
+    expect((await adoptAtStart(s, generationId)).kind).toBe("adopted");
+    expect(briefRequests).toHaveLength(calls);
   });
 
   test("identical text in two transcripts maps by source key, never by text", async () => {
