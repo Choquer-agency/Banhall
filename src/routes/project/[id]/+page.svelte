@@ -3,6 +3,7 @@
   import { useAuth } from "@mmailaender/convex-better-auth-svelte/svelte";
   import WorkspaceGate from "$lib/workspace/WorkspaceGate.svelte";
   import LazyModule from "$lib/components/ui/LazyModule.svelte";
+  import { loadCurrentProjectPage, loadPreviewProjectPage } from "$lib/components/project/projectPageModules";
   import { recordProjectOpen } from "$lib/workspace/recentProjects";
 
   // Broken behaviour #5: every open of a project page counts as recent, not
@@ -22,14 +23,14 @@
 
 <WorkspaceGate currentWhileLoading={false}>
   {#snippet current()}
-    <LazyModule load={() => import("$lib/components/project/CurrentProjectPage.svelte")} label="report workspace">
+    <LazyModule load={loadCurrentProjectPage} label="report workspace">
       {#snippet children(CurrentProjectPage)}
         <CurrentProjectPage />
       {/snippet}
     </LazyModule>
   {/snippet}
   {#snippet preview()}
-    <LazyModule load={() => import("$lib/components/project/PreviewProjectPage.svelte")} label="report workspace">
+    <LazyModule load={loadPreviewProjectPage} label="report workspace">
       {#snippet children(PreviewProjectPage)}
         <PreviewProjectPage />
       {/snippet}
