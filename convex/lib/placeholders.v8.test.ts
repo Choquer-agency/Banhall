@@ -58,9 +58,31 @@ describe("lowercase labels", () => {
     expect(map.filter((entry) => entry.token.startsWith("[PERSON_2"))).toEqual([]);
   });
 
-  it("gives no capitalized form or parts to a lowercase label that fails the name test", () => {
-    expect(buildPlaceholderMap({ people: ["will grant"] }).map((entry) => entry.value)).toEqual(["will grant"]);
-    expect(buildPlaceholderMap({ people: ["flow rate"] }).map((entry) => entry.value)).toEqual(["flow rate"]);
+  it("hides a promoted label that fails the name test only where it stands as a label (review P2-2)", () => {
+    for (const label of [
+      "will grant", "flow rate", "latency", "throughput", "user", "assistant", "plan", "actual",
+      "observed", "expected", "grace", "现象", "原因", "課題", "対策", "문제", "해결",
+    ]) {
+      expect(buildPlaceholderMap({ people: [label] }), label).toEqual([
+        { token: "[PERSON_1]", value: label, bare: true, at: "label" },
+      ]);
+    }
+    const map = buildPlaceholderMap({ people: ["latency", "现象"] });
+    expect(pseudonymize("latency: 30 ms. The latency held.\n现象: 漂移。现象很少。", map)).toBe(
+      "[PERSON_1]: 30 ms. The latency held.\n[PERSON_2]: 漂移。现象很少。"
+    );
+  });
+
+  it("hides every form of an accepted full name that holds common name words (review P2-3)", () => {
+    const map = buildPlaceholderMap({ people: ["john smith", "mary brown"] });
+    expect(pseudonymize("Later John Smith said John would follow up.", map)).toBe(
+      "Later [PERSON_1_TITLE] said [PERSON_1_FIRST] would follow up."
+    );
+    expect(pseudonymize("mary brown and Mary; ask smith or Brown.", map)).toBe(
+      "[PERSON_2] and [PERSON_2_FIRST]; ask [PERSON_1_LASTLOWER] or [PERSON_2_LAST]."
+    );
+    // Function words never pass, even inside a label.
+    expect(buildPlaceholderMap({ people: ["will grant"] })[0].at).toBe("label");
   });
 });
 
@@ -90,7 +112,25 @@ describe("loose labels are hidden only where they stand as labels (review P1-2)"
     expect(pseudonymize("dana (acme): hi", map)).toBe("[PERSON_2]: hi");
     expect(pseudonymize("dana   0:03\nhi", map)).toBe("[PERSON_1]   0:03\nhi");
     expect(pseudonymize("<v dana>hi", map)).toBe("<v [PERSON_1]>hi");
-    expect(pseudonymize("I told dana: fine. Ask dana.", map)).toBe("I told dana: fine. Ask dana.");
+    // Written as a label (followed by its colon) inside a line or after a
+    // sentence; never a word in running text.
+    expect(pseudonymize("I told dana: fine. Ask dana.", map)).toBe("I told [PERSON_1]: fine. Ask dana.");
+    // A header with an en or em dash before its time (review P3).
+    expect(pseudonymize("dana \u2013 0:03\nhi", map)).toBe("[PERSON_1] \u2013 0:03\nhi");
+    expect(pseudonymize("dana \u2014 [00:00:03]\nhi", map)).toBe("[PERSON_1] \u2014 [00:00:03]\nhi");
+    // Full-width brackets in a caseless label (review P3).
+    const cjk = buildPlaceholderMap({ people: [], phrases: ["李伟（研发）", "李伟"] });
+    expect(pseudonymize("李伟（研发）：好。", cjk)).toBe("[PERSON_1]：好。");
+  });
+
+  it("hides a loose label once its line is joined into a turn or a quote (review P2-4)", () => {
+    const map = buildPlaceholderMap({ people: [], phrases: ["thermal drift", "温度"] });
+    expect(pseudonymize("Flow at the feeder thermal drift: within band.", map)).toBe(
+      "Flow at the feeder [PERSON_1]: within band."
+    );
+    expect(pseudonymize("Flow held. thermal drift: within band.", map)).toBe("Flow held. [PERSON_1]: within band.");
+    expect(pseudonymize("团队三月开始。温度: 30度。", map)).toBe("团队三月开始。[PERSON_2]: 30度。");
+    expect(pseudonymize("the thermal drift stayed low", map)).toBe("the thermal drift stayed low");
   });
 
   it("hides a loose label that is a known person in another case as that person, everywhere (review P2-2)", () => {
@@ -108,22 +148,29 @@ describe("short and caseless names", () => {
     expect(pseudonymize("Al asked Bo. Also, Bob stays.", map)).toBe("[PERSON_1] asked [PERSON_2]. Also, Bob stays.");
   });
 
-  it("hides a Chinese name as a whole name, never inside a longer one (review P1-2)", () => {
+  it("hides an accepted Chinese name everywhere, inside longer strings too (lead decision, review P2-5)", () => {
     const map = buildPlaceholderMap({ people: ["李伟"] });
-    expect(pseudonymize("李伟说测试台重建了。", map)).toBe("[PERSON_1]说测试台重建了。");
-    expect(pseudonymize("和李伟一起", map)).toBe("和[PERSON_1]一起");
-    expect(pseudonymize("李伟东来了。", map)).toBe("李伟东来了。");
-    expect(pseudonymize("王李伟来了。", map)).toBe("王李伟来了。");
-    expect(pseudonymize("李伟 (Acme): 好。李伟さん", map)).toBe("[PERSON_1] (Acme): 好。[PERSON_1]さん");
+    const text = "这是李伟。我叫李伟。感谢李伟的帮助。李伟说好。李伟东来了。";
+    expect(pseudonymize(text, map)).toBe(
+      "这是[PERSON_1]。我叫[PERSON_1]。感谢[PERSON_1]的帮助。[PERSON_1]说好。[PERSON_1]东来了。"
+    );
+    expect(restorePlaceholders(pseudonymize(text, map), map)).toBe(text);
     const both = buildPlaceholderMap({ people: ["李伟东", "李伟"] });
     expect(pseudonymize("李伟东和李伟", both)).toBe("[PERSON_1]和[PERSON_2]");
   });
 
-  it("hides a Korean name with its particles, never inside a longer word", () => {
+  it("hides an accepted Korean name everywhere, before any particle (review P2-5)", () => {
     const map = buildPlaceholderMap({ people: ["김민수"] });
-    const text = "김민수는 동의했다. 김민수님은 왔다. 김민수진 씨는 아니다.";
-    expect(pseudonymize(text, map)).toBe("[PERSON_1]는 동의했다. [PERSON_1]님은 왔다. 김민수진 씨는 아니다.");
+    const text = "김민수입니다. 김민수한테서 받았다. 김민수는 동의했다.";
+    expect(pseudonymize(text, map)).toBe("[PERSON_1]입니다. [PERSON_1]한테서 받았다. [PERSON_1]는 동의했다.");
     expect(restorePlaceholders(pseudonymize(text, map), map)).toBe(text);
+  });
+
+  it("keeps a loose Chinese or Korean label at label positions only (review P2-5)", () => {
+    const map = buildPlaceholderMap({ people: [], phrases: ["李伟", "김민수"] });
+    expect(pseudonymize("李伟: 好。这是李伟。\n김민수: 네. 김민수입니다.", map)).toBe(
+      "[PERSON_1]: 好。这是李伟。\n[PERSON_2]: 네. 김민수입니다."
+    );
   });
 
   it("hides an Arabic name and its parts as whole words", () => {
@@ -174,6 +221,22 @@ describe("email labels (review P2-4)", () => {
       expect(pseudonymize(text, map), address).toBe(text);
     }
   });
+
+  it("hides a department mailbox's address but never the word (review P2-6)", () => {
+    for (const box of ["engineering", "research", "design", "finance", "ops", "dev", "lab", "qa", "admin", "support", "sales", "hr"]) {
+      const address = `${box}@acme.example`;
+      const map = buildPlaceholderMap({ people: [address] });
+      const text = `Write to ${address}; the ${box} team will answer.`;
+      expect(pseudonymize(text, map), box).toBe(`Write to [PERSON_1]; the ${box} team will answer.`);
+    }
+  });
+
+  it("hides the name parts of a mailbox that spells a full name with common name words (review P2-3)", () => {
+    const map = buildPlaceholderMap({ people: ["mary.brown@acme.example"] });
+    expect(pseudonymize("Ask Mary Brown, or mary, or brown.", map)).toBe(
+      "Ask [PERSON_1_TITLE], or [PERSON_1_FIRSTLOWER], or [PERSON_1_LASTLOWER]."
+    );
+  });
 });
 
 describe("the firm's own names", () => {
@@ -214,6 +277,10 @@ describe("the firm's own names", () => {
       people: ["dana@northwind.example", "pshah@acme.example"],
     });
     expect(tokens(map)).toMatchObject({ "[FIRM_1_DOMAIN]": "northwind.example", "[CLIENT_2]": "acme.example" });
+    // A subdomain of the firm's domain is the firm's too.
+    const sub = buildPlaceholderMap({ firms: ["Northwind Advisory"], people: ["dana@eng.northwind.example"] });
+    expect(tokens(sub)).toMatchObject({ "[FIRM_1_DOMAIN]": "eng.northwind.example" });
+    expect(sub.some((entry) => entry.token.startsWith("[CLIENT"))).toBe(false);
     expect(map.some((entry) => entry.token.startsWith("[CLIENT") && entry.value === "northwind.example")).toBe(false);
   });
 

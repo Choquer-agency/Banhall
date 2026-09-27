@@ -17,7 +17,7 @@
  * carry a privacy instruction and publication requires a human confirmation.
  */
 
-import { isCommonLowercaseWord } from "../../shared/transcriptParse";
+import { isCommonCaselessWord, isCommonLowercaseWord } from "../../shared/transcriptParse";
 
 /** The subset of a `projects` document `deidentify` reads. All optional. */
 export type DeidentifiableProject = {
@@ -186,15 +186,26 @@ const PUBLIC_MAIL_DOMAINS = new Set([
   "yahoo.com", "yahoo.ca", "icloud.com", "me.com", "aol.com", "proton.me", "protonmail.com",
 ]);
 
-/** Mailbox names that name no person ("info@", "sales@"). */
+/**
+ * Mailbox names that name a role or a department, never a person ("info@",
+ * "engineering@"). The address itself is still hidden; the word never is
+ * (review 2026-09-26, P2-6).
+ */
 const ROLE_MAILBOXES = new Set([
   "info", "admin", "contact", "support", "sales", "hello", "team", "office", "mail",
   "noreply", "no-reply", "help", "service", "accounts", "billing", "hr", "jobs",
+  "engineering", "eng", "research", "rd", "design", "finance", "ops", "operations",
+  "dev", "devops", "lab", "labs", "qa", "it", "marketing", "legal", "press", "media",
+  "security", "product", "procurement", "purchasing", "careers", "tech", "data",
+  "accounting", "payroll", "reception", "enquiries", "inquiries", "general", "all",
 ]);
 
 /**
  * Lowercase words that are also first names or surnames ("will", "grant",
- * "rose"); a lowercase part of a name never hides them alone.
+ * "rose", "smith"). They fail the name test only as a single lowercase word
+ * ("grace:" alone); inside an accepted speaker's full name ("john smith",
+ * "mary brown") they are that person's name and are hidden (review
+ * 2026-09-26, P2-3).
  */
 const COMMON_LOWER_WORDS = new Set([
   ...[...COMMON_FIRST_WORDS].map((word) => word.toLowerCase()),
@@ -221,6 +232,23 @@ const TECHNICAL_WORDS = new Set([
   "step", "phase", "stage", "task", "plan", "budget", "schedule", "status", "progress",
   "summary", "context", "background", "method", "approach", "hypothesis", "experiment",
   "observation", "conclusion", "finding", "uncertainty", "advancement", "objective",
+  "throughput", "bandwidth", "accuracy", "precision", "efficiency", "density", "strain",
+  "stress", "torque", "force", "mass", "weight", "volume", "energy", "frequency",
+  "user", "users", "assistant", "agent", "bot", "human", "operator", "actual", "planned",
+  "observed", "expected", "measured", "predicted", "estimate", "estimated", "problem",
+  "solution", "question", "answer", "before", "after", "pros", "cons", "goal", "result",
+]);
+
+/**
+ * Words in scripts with no case that name a heading, not a person
+ * ("现象", "原因", "課題", "対策", "문제", "해결"). A caseless label made of one
+ * fails the name test and is hidden only where it stands as a label
+ * (review 2026-09-26, P2-2), even when it opened turns.
+ */
+const COMMON_CASELESS_WORDS = new Set([
+  "现象", "原因", "问题", "结果", "结论", "对策", "措施", "目标", "现状", "计划", "实际", "预期", "观察", "分析", "方案",
+  "現象", "原因", "課題", "対策", "結果", "結論", "目標", "計画", "実績", "予定", "分析", "問題", "解決",
+  "문제", "해결", "원인", "결과", "결론", "대책", "목표", "계획", "실적", "예상", "관찰", "분석", "현상",
 ]);
 
 /** "priya shah" as "Priya Shah"; "jean-philippe o'neil" as "Jean-Philippe O'Neil". */
@@ -238,22 +266,36 @@ function noSpaceName(value: string): boolean {
 
 /**
  * Whether a lowercase name reads as a person's name (review 2026-09-26,
- * P1-2): one to three words of lowercase letters, none a common word, so
- * "priya shah" gives "Priya", "Shah" and "priya", but "thermal drift" or
- * "flow rate" never hides "drift" or "rate" alone.
+ * P1-2 and P2-3): one to three words of lowercase letters, none a function,
+ * notes or technical word, so "priya shah" and "john smith" pass and
+ * "thermal drift", "flow rate" or "user" fail. A single word must also not
+ * be a common word that is also a name ("grace", "mark") or a role
+ * mailbox; inside a full name those words pass.
  */
 function lowercaseNameTest(name: string): boolean {
   const words = name.split(" ");
+  const single = words.length === 1;
   return (
     words.length <= 3 &&
     words.every(
       (word) =>
         /^[\p{Ll}\p{M}'’-]{2,}$/u.test(word) &&
-        !COMMON_LOWER_WORDS.has(word) &&
         !TECHNICAL_WORDS.has(word) &&
-        !isCommonLowercaseWord(word)
+        !isCommonLowercaseWord(word) &&
+        !(single && (COMMON_LOWER_WORDS.has(word) || ROLE_MAILBOXES.has(word)))
     )
   );
+}
+
+/**
+ * Whether a label is hidden everywhere or only where it stands as a label
+ * (review 2026-09-26, P2-2): a lowercase label that fails the name test, or
+ * a caseless one that is a heading word, is hidden at label positions only,
+ * even when it opened turns ("latency", "user", "现象").
+ */
+function labelOnly(name: string): boolean {
+  if (/^\p{Ll}/u.test(name) && !EMAIL.test(name)) return !lowercaseNameTest(name);
+  return name.split(/\s+/).every((word) => COMMON_CASELESS_WORDS.has(word) || isCommonCaselessWord(word));
 }
 
 /**
@@ -293,11 +335,14 @@ export function buildPlaceholderMap(input: {
 
   const firms = (input.firms ?? []).map(cleanFirmName).filter((name): name is string => !!name);
   const compact = (value: string) => value.toLowerCase().replace(/[^\p{L}\p{N}]/gu, "");
-  /** The firm an email domain belongs to ("northwind.example" for Northwind Advisory), if any. */
+  /**
+   * The firm an email domain belongs to ("northwind.example" for Northwind
+   * Advisory, and its subdomains such as "eng.northwind.example"), if any.
+   */
   const firmOfDomain = (domain: string): number | undefined => {
-    const head = compact(domain.split(".")[0]);
-    const index = firms.findIndex(
-      (firm) => compact(firm) === head || (firm.includes(" ") && compact(firm.split(" ")[0]) === head)
+    const heads = domain.split(".").slice(0, -1).map(compact);
+    const index = firms.findIndex((firm) =>
+      heads.some((head) => compact(firm) === head || (firm.includes(" ") && compact(firm.split(" ")[0]) === head))
     );
     return index === -1 ? undefined : index + 1;
   };
@@ -360,7 +405,9 @@ export function buildPlaceholderMap(input: {
       if (/^\p{Lu}/u.test(word)) {
         if (word.length >= 3 && !COMMON_FIRST_WORDS.has(word)) add(`[PERSON_${n}_${kind}]`, word);
       } else if (/^\p{Ll}/u.test(word)) {
-        if (word.length >= 3 && !COMMON_LOWER_WORDS.has(word) && !isCommonLowercaseWord(word)) {
+        // A part of an accepted full name: common name words ("smith")
+        // are that person's name here (review P2-3); function words never.
+        if (word.length >= 3 && !isCommonLowercaseWord(word) && !TECHNICAL_WORDS.has(word)) {
           add(`[PERSON_${n}_${kind}]`, word);
         }
       } else if (/^\p{Lo}/u.test(word) && !noSpaceName(word) && [...word].length >= 2) {
@@ -381,14 +428,16 @@ export function buildPlaceholderMap(input: {
   const nameForms = (n: number, name: string) => {
     const email = EMAIL.exec(name);
     if (email) {
-      // Review P2-4: "will@" or "it@" never hides "will" or "it".
+      // Review P2-4 and P2-6: a mailbox name hides the word only when it
+      // passes the name test ("priya", "priya.shah"); "will@", "it@" and
+      // department mailboxes ("engineering@") never hide the word.
       const local = email[1];
       const lower = local.toLowerCase();
-      if (!ROLE_MAILBOXES.has(lower) && !COMMON_LOWER_WORDS.has(lower) && !isCommonLowercaseWord(lower)) {
-        add(`[PERSON_${n}_LOCAL]`, local, 2);
-      }
       const pieces = lower.split(/[._-]+/);
-      if (pieces.every((piece) => /^\p{L}{2,}$/u.test(piece))) lowercaseForms(n, pieces.join(" "));
+      const spelled = pieces.every((piece) => /^\p{L}{2,}$/u.test(piece)) ? pieces.join(" ") : undefined;
+      const nameLike = spelled !== undefined ? lowercaseNameTest(spelled) : !ROLE_MAILBOXES.has(lower);
+      if (nameLike) add(`[PERSON_${n}_LOCAL]`, local, 2);
+      if (spelled !== undefined) lowercaseForms(n, spelled);
       return;
     }
     if (/^\p{Ll}/u.test(name)) lowercaseForms(n, name);
@@ -426,6 +475,10 @@ export function buildPlaceholderMap(input: {
     if (taken.has(name)) continue;
     person += 1;
     personOf.set(name.toLowerCase(), { n: person, name });
+    if (labelOnly(name)) {
+      add(`[PERSON_${person}]`, name, 1, "label");
+      continue;
+    }
     add(`[PERSON_${person}]`, name, 1);
     // "Shah, Priya" (a speaker label as a Teams export writes it) gives
     // "Shah" and "Priya", never "Shah," with its comma.
@@ -455,57 +508,35 @@ const matcherCache = new WeakMap<PlaceholderMap, { find: RegExp; byValue: Map<st
 const WORD_EDGE_BEFORE = "(?<![\\p{L}\\p{N}])";
 const WORD_EDGE_AFTER = "(?![\\p{L}\\p{N}])";
 
-/** Characters around a Chinese name that still leave it whole ("李伟说", "和李伟"). */
-const HAN_BEFORE = "(?<=^|[^\\p{Script=Han}]|[和与跟对给让被把向问请说在由同及])";
-const HAN_AFTER =
-  "(?=$|[^\\p{Script=Han}]|一起|的|说|是|在|和|跟|与|也|都|就|对|把|被|给|让|了|们|先生|女士|小姐|老师|博士|教授|经理|总|表示|认为|提到|问|回答|告诉|觉得|指出|确认|负责|介绍|解释|补充|同意|发现|会|要|将|已|曾|还|又|才|这|那|等)";
-const HANGUL_PARTICLE = "(?:은|는|이|가|을|를|의|에게|에서|에|와|과|도|로|으로|께서|께|님|씨|하고|랑|이랑|한테|만|부터|까지)";
-const HANGUL_BEFORE = "(?<=^|[^\\p{Script=Hangul}])";
-const HANGUL_AFTER = `(?=$|[^\\p{Script=Hangul}]|${HANGUL_PARTICLE}{1,2}(?![\\p{Script=Hangul}]))`;
-const KANA_BEFORE = "(?<=^|[^\\p{Script=Katakana}\\u30FC\\u30FB])";
-const KANA_AFTER = "(?=$|[^\\p{Script=Katakana}\\u30FC\\u30FB])";
-
 /**
- * A name in a script without word edges is matched as a whole name (review
- * 2026-09-26, P1-2): 李伟 in "李伟说" but never inside 李伟东, 김민수 with
- * its particle ("김민수는"), a Katakana name never inside a longer one.
- */
-function noSpaceEdges(value: string): [string, string] {
-  const first = value[0];
-  const last = value[value.length - 1];
-  const before = /\p{Script=Hangul}/u.test(first)
-    ? HANGUL_BEFORE
-    : /[\p{Script=Katakana}ー・]/u.test(first)
-      ? KANA_BEFORE
-      : /\p{Script=Han}/u.test(first)
-        ? HAN_BEFORE
-        : "(?<![\\p{L}])";
-  const after = /\p{Script=Hangul}/u.test(last)
-    ? HANGUL_AFTER
-    : /[\p{Script=Katakana}ー・]/u.test(last)
-      ? KANA_AFTER
-      : /\p{Script=Han}/u.test(last)
-        ? HAN_AFTER
-        : "(?![\\p{L}])";
-  return [before, after];
-}
-
-/**
- * Where a label stands (review P1-2): at a line's start (after a time, a
- * cue's `<v`, or a render's "] " or ") " prefix), followed by its colon
- * (after brackets or a time, if any) or by a time that ends the line.
+ * Where a label stands (review 2026-09-26, P1-2 and P2-4): written as a
+ * label, that is followed by its colon (after brackets or a time, if any),
+ * and starting a line, a sentence or a word (a line joined into a turn's
+ * clean text or a quote keeps the label after a space); or alone before a
+ * time that ends a line (a header); or in a VTT voice. Never a word in
+ * running text without its colon.
  */
 const TIME = "\\[?\\d{1,2}:\\d{2}(?::\\d{2})?(?:[.,]\\d{1,3})?\\]?";
-const LABEL_BEFORE = `(?<=(?:^|\\n)[ \\t]*(?:${TIME}[ \\t]*(?:-[ \\t]*)?)?|[\\])][ \\t]|<v(?:\\.[^\\s>]+)*[ \\t]+)`;
-const LABEL_AFTER = `(?=[ \\t]*(?:[(\\[][^()\\[\\]\\n]{0,80}[)\\]][ \\t]*)?(?:${TIME}[ \\t]*)?[:\\uFF1A]|[ \\t]+${TIME}[ \\t]*(?:\\r?\\n|$)|>)`;
+const LABEL_COLON_BEFORE = "(?<=^|[\\s(\\[\\uFF08\\u3010.!?\\u3002\\uFF01\\uFF1F\\u2026:\\uFF1A])";
+const LABEL_COLON_AFTER = `(?=[ \\t]*(?:[(\\[\\uFF08\\u3010][^()\\[\\]\\uFF08\\uFF09\\u3010\\u3011\\n]{0,80}[)\\]\\uFF09\\u3011][ \\t]*)?(?:${TIME}[ \\t]*)?[:\\uFF1A])`;
+const LABEL_HEADER_BEFORE = "(?<=(?:^|\\n)[ \\t]*)";
+const LABEL_HEADER_AFTER = `(?=[ \\t]+(?:[-\\u2013\\u2014][ \\t]*)?${TIME}[ \\t]*(?:\\r?\\n|$))`;
+const LABEL_VOICE_BEFORE = "(?<=<v(?:\\.[^\\s>]+)*[ \\t]+)";
 
 function patternFor(entry: PlaceholderEntry): string {
   const value = escapeRegExp(entry.value);
-  if (entry.at === "label") return `${LABEL_BEFORE}${value}${LABEL_AFTER}`;
-  if (noSpaceName(entry.value)) {
-    const [before, after] = noSpaceEdges(entry.value);
-    return `${before}${value}${after}`;
+  if (entry.at === "label") {
+    return [
+      `${LABEL_COLON_BEFORE}${value}${LABEL_COLON_AFTER}`,
+      `${LABEL_HEADER_BEFORE}${value}${LABEL_HEADER_AFTER}`,
+      `${LABEL_VOICE_BEFORE}${value}(?=>)`,
+    ].join("|");
   }
+  // Lead decision (review 2026-09-26, P2-5): an accepted name in a script
+  // without word edges is hidden wherever it appears, inside longer strings
+  // too ("这是李伟", "김민수입니다"); missing a real name is worse than
+  // hiding part of a longer one.
+  if (noSpaceName(entry.value)) return value;
   return `${WORD_EDGE_BEFORE}${value}${WORD_EDGE_AFTER}`;
 }
 
